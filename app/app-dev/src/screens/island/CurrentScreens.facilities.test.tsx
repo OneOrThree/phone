@@ -4,11 +4,11 @@ import { saveAccountGuides } from '@/services/accountGuides';
 import * as homeApi from '@/services/api/home';
 import assert from 'node:assert/strict';
 import React from 'react';
+import { AppState } from 'react-native';
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 import { getIslandNews } from '@/services/api/magazine';
 import { CurrentScreens } from '@/screens/island/CurrentScreens';
-import { t } from '@/i18n';
-import { buildingNames, initialState, reducer } from '@/services/model';
+import { initialState, reducer } from '@/services/model';
 
 jest.mock('@/screens/interiors/BuildingInteriors', () => ({ InteriorRoute: () => null }));
 jest.mock('@/screens/island/useFriendsScreen', () => ({
@@ -60,6 +60,15 @@ jest.mock('@/services/api/magazine', () => ({
 }));
 jest.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 0, right: 0, bottom: 0, left: 0 }),
+}));
+// 채팅방(GROMO-2499)이 여는 서버 요청 — 섬 채팅 목록과 차단 목록
+jest.mock('@/services/api/letters', () => ({
+  ...jest.requireActual('@/services/api/letters'),
+  listIslandMessages: jest.fn(async () => ({ items: [], nextCursor: null })),
+}));
+jest.mock('@/services/api/safety', () => ({
+  ...jest.requireActual('@/services/api/safety'),
+  getBlockedUsers: jest.fn(async () => []),
 }));
 const state = () =>
   reducer(initialState(true), {
@@ -113,6 +122,26 @@ test('서버 완공 상태만 시설 진입을 연다', async () => {
   const library = await render(<CurrentScreens e={env(s, 'library')} />);
   library.getByText('아직 도서관이 없어요');
   assert.equal(library.queryByTestId('library-open'), null);
+});
+
+test('우체통이 없어도 채팅방은 섬 홈 위 시트로 열리고 내 섬 채팅을 읽는다(GROMO-2499)', async () => {
+  const { listIslandMessages } = jest.requireMock('@/services/api/letters');
+  // 채팅은 앱이 앞에 있을 때만 읽는다
+  AppState.currentState = 'active';
+  const s = reducer(state(), {
+    type: 'SERVER_HOME',
+    facts: {
+      islandId: 'server',
+      completedBuildings: ['hall'],
+      home: { island: { id: 'server', role: 'member' }, wallets: { villagePoints: 0 } },
+    },
+  });
+  const screen = await render(<CurrentScreens e={{ ...env(s, 'chat'), back: jest.fn() }} />);
+  screen.getByText('우리 섬 채팅방');
+  screen.getByTestId('island-message-input');
+  assert.equal(screen.queryByText('아직 우체통이 없어요'), null);
+  await waitFor(() => expect(listIslandMessages).toHaveBeenCalledWith('server'));
+  await screen.unmount();
 });
 
 test('다른 섬 주민이어도 방문 중인 섬의 도서관에는 들어갈 수 없다', async () => {
@@ -185,15 +214,23 @@ test.each(['tower', 'explore'])(
     const screen = await render(
       <CurrentScreens e={env(withBuildings(['hall', 'board']), route)} />,
     );
-    screen.getByText(t('home.lock.missing', { building: buildingNames.tower }));
+    screen.getByText('아직 전망대가 없어요');
     assert.equal(screen.queryByTestId(`redesign-${route}`), null);
   },
 );
 
+// 받침 있는 건물(전망대·축음기)은 «이» 가 아니라 «가» — 건물명 뒤 조사를 받침에 맞춘다(GROMO-2283)
+test('축음기를 짓지 않은 섬에서는 «아직 축음기가 없어요» 로 잠겨 있다', async () => {
+  const screen = await render(
+    <CurrentScreens e={env(withBuildings(['hall', 'board']), 'sound')} />,
+  );
+  screen.getByText('아직 축음기가 없어요');
+});
+
 test.each(['tower', 'explore'])('전망대를 지은 섬에서는 %s 가 열린다', async (route) => {
   const screen = await render(<CurrentScreens e={env(withBuildings(['hall', 'tower']), route)} />);
   screen.getByTestId(`redesign-${route}`);
-  assert.equal(screen.queryByText(t('home.lock.missing', { building: buildingNames.tower })), null);
+  assert.equal(screen.queryByText('아직 전망대가 없어요'), null);
 });
 
 test.each(['tower', 'explore'])(

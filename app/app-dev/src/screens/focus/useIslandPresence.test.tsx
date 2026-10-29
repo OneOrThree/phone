@@ -1,3 +1,5 @@
+import { memberLooks, useMemberLooks } from '@/services/memberLooks';
+import * as apiClient from '@/services/api/client';
 /**
  * useIslandPresence (GROMO-2010) — 섬·계정 변경 때 이전 채널 해제,
  * 포그라운드 복귀 때 재연결+스냅숏 재동기화, retry 가 채널을 새로 연다.
@@ -7,6 +9,7 @@ import { act, renderHook } from '@testing-library/react-native';
 import { AppState } from 'react-native';
 import { clearSession, saveSession } from '@/services/api/session';
 import { useIslandPresence } from '@/screens/focus/useIslandPresence';
+import { markUserBlocked, markUserUnblocked, replaceBlockedUsers } from '@/services/blockedUsers';
 import type {
   GoldenFishEvent,
   IslandPresenceTransition,
@@ -93,6 +96,27 @@ test('계정(세션 세대)이 바뀌면 이전 채널을 해제하고 새로 �
   await rerender({ active: true, islandId: 'i1' });
   assert.equal(sessions.length, 2);
   assert.equal((sessions[0].dispose as jest.Mock).mock.calls.length, 1);
+});
+
+test('차단을 풀면 가려졌던 이름을 되돌리려 스냅숏을 다시 읽고, 차단·계정 전환으로는 다시 읽지 않는다 (GROMO-2470 D1)', async () => {
+  replaceBlockedUsers([]);
+  const resyncs = () =>
+    (sessions.at(-1)!.resync as jest.Mock).mock.calls
+      .map((call) => String(call[0] ?? 'open'))
+      .join(',');
+  await mount({ active: true, islandId: 'i1' });
+  assert.equal(resyncs(), 'open');
+  await act(async () => markUserBlocked('u2'));
+  assert.equal(resyncs(), 'open');
+  await act(async () => markUserUnblocked('u2'));
+  assert.equal(resyncs(), 'open,manual');
+  await act(async () => markUserBlocked('u3'));
+  // 계정이 바뀌어 차단 목록이 비는 것은 해제가 아니다 — 새 채널의 첫 재동기화만 있다
+  await act(async () => {
+    await saveSession({ accessToken: 'AT2', refreshToken: 'RT2', userId: 'other' });
+  });
+  assert.equal(sessions.length, 2);
+  assert.equal(resyncs(), 'open');
 });
 
 test('포그라운드 복귀는 reconnect 출처로 스냅숏을 재동기화한다', async () => {
@@ -206,4 +230,90 @@ test('주민 외양 사건은 version 이 큰 것만 looks 에 남고 섬이 바
   assert.equal(result.current.looks.u2.head, null);
   await act(async () => rerender({ active: true, islandId: 'i2' }));
   assert.deepEqual(result.current.looks, {});
+});
+
+test('주민 외양은 묶음 조회로 채우고 변경 이벤트 뒤에는 다시 조회하지 않는다', async () => {
+  const userId = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
+  const request = jest.spyOn(apiClient, 'request').mockResolvedValue({
+    members: [{ userId, catColor: 'black', appearance: { head: 'duck', neck: null, version: 1 } }],
+    hiddenUserIds: [],
+  });
+  const { result, unmount } = await mount({ active: true, islandId: 'i1' });
+  await act(async () => {
+    sessions[0].deps.onView({
+      ...READY,
+      rest: [
+        {
+          userId,
+          name: '주민',
+          anchorMs: Date.now(),
+          catColor: null,
+          restSeat: null,
+          restStartedAt: null,
+        },
+      ],
+    });
+  });
+  expect(result.current.rest[0].catColor).toBe('black');
+  expect(result.current.rest[0].appearance).toMatchObject({ head: 'duck', version: 1 });
+  await act(async () => {
+    sessions[0].deps.onMemberAppearance?.(userId, {
+      head: 'new',
+      neck: null,
+      shoes: null,
+      version: 2,
+    });
+  });
+  expect(result.current.rest[0].appearance).toMatchObject({ head: 'new', version: 2 });
+  expect(request).toHaveBeenCalledTimes(1);
+  await unmount();
+  request.mockRestore();
+});
+
+test('섬의 최신 스냅샷을 캐시에 병합하고 늦은 스냅샷으로 되돌리지 않는다', async () => {
+  const userId = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
+  const request = jest.spyOn(apiClient, 'request').mockResolvedValue({
+    members: [{ userId, catColor: 'black', appearance: { head: 'old', version: 1 } }],
+    hiddenUserIds: [],
+  });
+  await memberLooks.ensure([userId]);
+  const { result, unmount } = await mount({ active: true, islandId: 'i1' });
+  const snapshot = (version: number, head: string | null) => ({
+    ...READY,
+    rest: [
+      {
+        userId,
+        name: '주민',
+        anchorMs: Date.now(),
+        catColor: 'black',
+        restSeat: null,
+        restStartedAt: null,
+        appearance: { head, neck: null, shoes: null, version },
+      },
+    ],
+  });
+  await act(async () => sessions[0].deps.onView(snapshot(4, 'new')));
+  expect(result.current.rest[0].appearance).toMatchObject({ head: 'new', version: 4 });
+  expect(memberLooks.get(userId)?.appearance?.version).toBe(4);
+  await act(async () => sessions[0].deps.onView(snapshot(2, 'stale')));
+  expect(result.current.rest[0].appearance).toMatchObject({ head: 'new', version: 4 });
+  expect(request).toHaveBeenCalledTimes(1);
+  await unmount();
+  request.mockRestore();
+});
+
+test('첫 마운트와 같은 차단 목록 재조회는 기존 외양 캐시를 재사용한다', async () => {
+  const userId = 'dddddddd-dddd-dddd-dddd-dddddddddddd';
+  replaceBlockedUsers([]);
+  const request = jest.spyOn(apiClient, 'request').mockResolvedValue({
+    members: [{ userId, catColor: 'black', appearance: { head: 'hat', version: 1 } }],
+    hiddenUserIds: [],
+  });
+  await memberLooks.ensure([userId]);
+  const { result, unmount } = await renderHook(() => useMemberLooks([userId]));
+  await act(async () => replaceBlockedUsers([]));
+  expect(result.current[userId]?.appearance?.head).toBe('hat');
+  expect(request).toHaveBeenCalledTimes(1);
+  await unmount();
+  request.mockRestore();
 });

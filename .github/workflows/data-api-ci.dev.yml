@@ -2,20 +2,23 @@ name: Data API CI
 
 on:
   pull_request:
-    # release 대상 PR(통합→release)만 뺀다 — prod 파이프라인 재작업 때 다시 정함 (옛 prod-ci 는 GROMO-2224 에서 삭제)
-    #
-    # 예전엔 `branches: [main]` 이었는데, 그러면 **base 가 다른 브랜치인 스택 PR 에서 백엔드
-    # 테스트가 한 번도 돌지 않는다**. 검사 없이 쌓이다가 base 를 통합 브랜치로 바꾸는 순간
-    # 그동안의 실패가 한꺼번에 드러난다 — PR #747 이 정확히 그렇게 터졌다(GROMO-1791).
-    # 막으려던 건 release 였지 스택 PR 이 아니었으므로 의도대로 좁힌다.
-    branches-ignore: [release]
+    types: [opened, synchronize, reopened, edited]
+    # 피처 간 전체 기능 검사는 수동 실행하고, 통합 검증은 main에서 수행한다.
+    branches: [main]
     paths:
+      - '.github/workflows/prod-ci.yml'
+      - '.github/actions/check-arm-image/**'
+      - '.dockerignore'
       - "server/data-api/**"
       # 문서·스크래치는 빌드를 바꾸지 않는다. 안 빼면 schema.dbml 한 줄에 checkstyle·spotbugs·
       # test 가 전부 돌아 러너 슬롯을 물고 관계없는 PR 을 줄 세운다 (PR #790 이 실제로 그랬다).
       # 마이그레이션은 src/main/resources 아래라 이 제외에 걸리지 않는다.
       - "!server/data-api/docs/**"
       - "!server/data-api/**/*.md"
+      # DB 전환 도구·manifest·원본 SQL은 Docker 이미지에 포함된다.
+      - "server/data-api/docs/db/**/*.py"
+      - "server/data-api/docs/db/**/*.sql"
+      - "server/data-api/docs/db/**/*.json"
       - "server/scripts/docker-compose.dev.yml"
       - "server/scripts/docker-compose.datadog.yml"
       # data-api-cd 가 조건부로 물리는 오버레이 (GROMO-1658) — 바뀌면 다음 배포에 반영돼야 한다.
@@ -32,20 +35,39 @@ on:
       - ".github/workflows/data-api-cd.dev.yml"
       # CD 가 직접 실행하는 공용 배포 스크립트 — 바뀌면 이 서버도 다시 배포해 검증 (GROMO-2224)
       - ".github/scripts/dev-env.sh"
+      - ".github/scripts/deploy-core-dev.py"
+      - ".github/scripts/wait-smoke-deploy.py"
+      - ".github/scripts/test_deploy_core_dev.py"
       - ".github/scripts/write-compose-env.py"
       - ".github/scripts/wait-healthy.sh"
       - ".github/scripts/mark-deploy.sh"
   # squash merge 뒤에는 최종 main SHA를 다시 검사하고, 이 실행에서 배포 이미지를 만든다.
   # PR에서 채운 GAR 캐시를 사용하므로 CD에서 별도로 재빌드하지 않는다.
+  workflow_dispatch: {}
   push:
     branches: [main]
     paths:
+      - "server/realtime/**"
+      - "!server/realtime/docs/**"
+      - "!server/realtime/**/*.md"
+      - ".github/workflows/realtime-ci.dev.yml"
+      - "server/scripts/docker-compose.realtime.yml"
+      # 호출하는 Realtime startup-contract가 실제 읽는 입력도 공동 배포 CI를 시작한다.
+      - "server/scripts/docker-compose.satellites.yml"
+      - "server/scripts/docker-compose.business.yml"
+      - ".github/scripts/test_realtime_startup.py"
+      - "app/app-dev/src/assets/village-world/v1/nav.json"
+      - "docs/prd/fishcat/island-movement/fixtures/paths.json"
       - "server/data-api/**"
       # 문서·스크래치는 빌드를 바꾸지 않는다. 안 빼면 schema.dbml 한 줄에 checkstyle·spotbugs·
       # test 가 전부 돌아 러너 슬롯을 물고 관계없는 PR 을 줄 세운다 (PR #790 이 실제로 그랬다).
       # 마이그레이션은 src/main/resources 아래라 이 제외에 걸리지 않는다.
       - "!server/data-api/docs/**"
       - "!server/data-api/**/*.md"
+      # DB 전환 도구·manifest·원본 SQL은 Docker 이미지에 포함된다.
+      - "server/data-api/docs/db/**/*.py"
+      - "server/data-api/docs/db/**/*.sql"
+      - "server/data-api/docs/db/**/*.json"
       - "server/scripts/docker-compose.dev.yml"
       - "server/scripts/docker-compose.datadog.yml"
       - "server/scripts/docker-compose.kafka.yml"
@@ -59,6 +81,9 @@ on:
       - ".github/workflows/data-api-cd.dev.yml"
       # CD 가 직접 실행하는 공용 배포 스크립트 — 바뀌면 이 서버도 다시 배포해 검증 (GROMO-2224)
       - ".github/scripts/dev-env.sh"
+      - ".github/scripts/deploy-core-dev.py"
+      - ".github/scripts/wait-smoke-deploy.py"
+      - ".github/scripts/test_deploy_core_dev.py"
       - ".github/scripts/write-compose-env.py"
       - ".github/scripts/wait-healthy.sh"
       - ".github/scripts/mark-deploy.sh"
@@ -127,44 +152,38 @@ jobs:
   # 마이그레이션을 가진 서비스가 셋(data-api · realtime · notification)인데 이 워크플로의
   # `server/data-api/**` 경로 필터에 묶여 나머지 둘이 검사를 타지 못했다.
   # 지금은 .github/workflows/migration-immutable.yml 이 전 서비스를 본다.
-  checkstyle:
-    uses: ./.github/workflows/be-gradle.yml
-    with:
-      service: data-api
-      # DB·도커·GAR 인증이 필요 없는 순수 정적 분석이라 GitHub-hosted 로 뺄 수 있다.
-      runs-on: '["ubuntu-latest"]'
-      tasks: checkstyleMain checkstyleTest
-      artifact-name: checkstyle-report
-      artifact-path: build/reports/checkstyle/
-
-  spotbugs:
-    uses: ./.github/workflows/be-gradle.yml
-    with:
-      service: data-api
-      runs-on: '["ubuntu-latest"]'
-      tasks: spotbugsMain
-      artifact-name: spotbugs-report
-      artifact-path: build/reports/spotbugs/
-
   test:
     uses: ./.github/workflows/be-gradle.yml
     with:
       service: data-api
-      # GROMO-1910: 공개 전환으로 GitHub-hosted 무료 분 한도가 없어져 self-hosted 대기시간을
-      # 감수할 이유가 사라졌다. DB·GAR 인증 의존이 없으므로(GROMO-1793) 기술적으로도 그대로 옮긴다.
-      runs-on: '["ubuntu-latest"]'
-      tasks: test bootJar
+      tasks: build
       publish-jar: true
-      artifact-name: test-results
-      artifact-path: build/test-results/
+      artifact-name: data-api-reports
+      artifact-path: build/reports/
       measure-jar: true
+
+  db-tools:
+    name: DB 전환 도구 검사
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: 이력·대상·재실행 보호 조건
+        run: |
+          python3 server/data-api/docs/db/test-rebase-v0.py
+          python3 server/data-api/docs/db/test-deploy-v0.py
+          python3 server/data-api/docs/db/test-backoffice-bridge-integration.py
+          python3 server/data-api/docs/db/test-compare-schema-dbml.py
 
   # PR에서는 merge-ref의 build 가능 여부를 검증하고 GAR 캐시만 갱신한다.
   # main에서는 최종 main SHA를 같은 캐시로 build해 GAR에 push한다. 이 job이 반환한
   # digest를 아래 deploy job에 직접 넘기므로 CD는 태그를 다시 조회하거나 재빌드하지 않는다.
   build:
+    if: github.event_name != 'workflow_dispatch'
     name: Dev 이미지 build${{ github.event_name == 'push' && ' · GAR push' || ' · cache' }}
-    needs: [checkstyle, spotbugs, test, secrets-check]
+    needs: [test, db-tools, secrets-check]
     # GROMO-1918: 이미지를 «push» 하는 실행에서만 self-hosted 다. GAR 인증이 GCE 메타데이터
     # 토큰을 쓰는데 GitHub-hosted 에는 그 메타데이터가 없기 때문이다. PR 은 push 하지 않으므로
     # (아래 `push:` 가 main push 로 한정) 그 인증이 필요 없고, 레지스트리 캐시만 GAR 를 쓰던 것을
@@ -191,7 +210,15 @@ jobs:
         with:
           registry: ${{ env.GAR_HOST }}
 
+      - uses: docker/setup-qemu-action@v3
+        if: github.event_name == 'pull_request' && github.base_ref != 'release'
       - uses: docker/setup-buildx-action@v3
+
+      - name: 동일 JAR의 운영 arm64 이미지 검증
+        if: github.event_name == 'pull_request' && github.base_ref != 'release'
+        uses: ./.github/actions/check-arm-image
+        with:
+          service: data-api
 
       - name: 이미지 빌드 및 push
         id: build
@@ -232,17 +259,49 @@ jobs:
 
   # build-push-action의 digest는 같은 workflow 안의 reusable CD로 직접 전달한다.
   # registry tag는 사람이 main SHA로 이미지를 찾는 용도일 뿐, 배포 입력으로 사용하지 않는다.
+  realtime:
+    name: Realtime 공동 이미지
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/realtime-ci.dev.yml
+    secrets: inherit
+
+  satellites-ready:
+    name: 같은 커밋 위성 배포 확인
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    permissions:
+      contents: read
+      actions: read
+      statuses: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: 경로 필터 파서 준비
+        run: python3 -m pip install PyYAML==6.0.2
+      - name: 위성 교체 후 공동 배포 진입
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEPLOY_WAIT_SATELLITES_ONLY: "true"
+        run: python3 .github/scripts/wait-smoke-deploy.py
+
   deploy:
-    name: Dev CD
-    needs: build
+    name: Dev 공동 CD
+    needs: [build, realtime, satellites-ready]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:
       id-token: write
       contents: read
+      actions: read # 공동 CD의 수동 복구 검증과 같은 권한 계약
       pull-requests: write # CD 가 배포 결과를 PR 에 표시
       issues: write
     uses: ./.github/workflows/data-api-cd.dev.yml
     with:
       image_digest: ${{ needs.build.outputs.image-digest }}
+      realtime_image_digest: ${{ needs.realtime.outputs.image-digest }}
       image_revision: ${{ github.sha }}
     secrets: inherit

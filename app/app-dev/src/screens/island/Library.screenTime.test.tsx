@@ -1,8 +1,8 @@
 import React from 'react';
-import { Platform, ScrollView } from 'react-native';
+import { Platform, ScrollView, StyleSheet } from 'react-native';
 import { cleanup, fireEvent, render, waitFor } from '@testing-library/react-native';
 import { Library } from './Library';
-import { RedesignScreens } from './Screens';
+import { dateKey, diaryRange, shortDate } from './library/diaryData';
 import { initialState } from '@/services/model';
 import {
   getFocusStatistics,
@@ -61,12 +61,22 @@ function environment({ permission = true, ready = true, neighbors = false } = {}
   };
 }
 
-test.each(['뒤로', '책 덮기'])('일기장의 %s는 기존 경로를 pop한다', async (label) => {
+test('일기장의 뒤로는 기존 경로를 pop하고, 같은 일을 하던 책 덮기(×)는 두지 않는다', async () => {
   const e = environment();
   const screen = await render(<Library e={e} />);
-  await fireEvent.press(screen.getByLabelText(label));
+  expect(screen.queryByLabelText('책 덮기')).toBeNull();
+  await fireEvent.press(screen.getByLabelText('뒤로'));
   expect(e.back).toHaveBeenCalledTimes(1);
   expect(e.go).not.toHaveBeenCalled();
+});
+
+test('도서관 방의 ‹ 는 건물 안과 같은 「섬으로 돌아가기」로 읽히고 섬으로 간다', async () => {
+  const e = { ...environment(), route: 'library' };
+  const screen = await render(<Library e={e} />);
+  expect(screen.queryByLabelText('닫기')).toBeNull();
+  await fireEvent.press(screen.getByLabelText('섬으로 돌아가기'));
+  expect(e.home).toHaveBeenCalledTimes(1);
+  expect(e.back).not.toHaveBeenCalled();
 });
 
 test('이웃 상세에서 목록으로 돌아가면 스크롤을 맨 위로 초기화한다', async () => {
@@ -75,13 +85,16 @@ test('이웃 상세에서 목록으로 돌아가면 스크롤을 맨 위로 초�
   await fireEvent.press(screen.getByTestId('diary-member-minji'));
   scrollTo.mockClear();
 
-  await fireEvent.press(screen.getByLabelText('뒤로'));
+  // 이웃 상세의 ‹ 는 목적지(이웃 목록)를 읽는다
+  await fireEvent.press(screen.getByLabelText('이웃들의 일기장으로 돌아가기'));
   expect(scrollTo).toHaveBeenCalledWith({ y: 0, animated: false });
+  // 목록으로 돌아오면 다시 들어온 화면으로 가는 「뒤로」다
+  expect(screen.getByLabelText('뒤로')).toBeTruthy();
   expect(screen.getByTestId('diary-member-minji')).toBeTruthy();
   scrollTo.mockRestore();
 });
 
-test('이번 주 진입 집계를 재사용하고 진행 중 집중만 있는 날은 시간대 미제공을 표시한다', async () => {
+test('주간은 월~일 범위를 직접 읽고(이번 주 조각 재사용 안 함, GROMO-2488) 진행 중 집중만 있는 날은 시간대 미제공을 표시한다', async () => {
   const e = { ...environment(), tab: '', islands: [], now: Date.now() };
   const date = new Date(e.now + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
   const focus = {
@@ -111,7 +124,15 @@ test('이번 주 진입 집계를 재사용하고 진행 중 집중만 있는 �
   const screen = await render(<Library e={e} />);
   await waitFor(() => expect(screen.getByText('집중한 날')).toBeTruthy());
   expect(getLibraryScreen).toHaveBeenCalledTimes(1);
-  expect(getFocusStatistics).not.toHaveBeenCalled();
+  // 월~일 주간은 `/screens/library` 의 일~토 이번 주 조각과 축이 달라 범위를 직접 묻는다
+  const week = diaryRange('주', 0, e.now, false);
+  expect(new Date(`${week.from}T00:00:00Z`).getUTCDay()).toBe(1);
+  expect(getFocusStatistics).toHaveBeenCalledWith(e.state.islandId, {
+    scope: 'me',
+    from: week.from,
+    to: week.to,
+  });
+  // 집중 탭은 집중 통계만 읽는다 — 폰 사용은 탭을 열 때 읽는다
   expect(getScreenTimeStatistics).not.toHaveBeenCalled();
 
   await fireEvent.press(screen.getByLabelText('일'));
@@ -309,11 +330,18 @@ test.each(['집중', '폰 사용'])('일·주 %s는 선택하지 않은 통계�
   });
   const selected = (tab === '집중' ? getFocusStatistics : getScreenTimeStatistics) as jest.Mock;
   const other = (tab === '집중' ? getScreenTimeStatistics : getFocusStatistics) as jest.Mock;
-  selected.mockResolvedValue(tab === '집중' ? focus : usage);
-  other.mockRejectedValue(new Error('선택하지 않은 통계 장애'));
+  // 들어올 때는 집중 탭이라 집중 주간(월~일 범위, GROMO-2488)을 한 번 읽는다. 탭을 고른 뒤부터는 고른 통계만 읽는다
+  (getFocusStatistics as jest.Mock).mockResolvedValue(focus);
+  (getScreenTimeStatistics as jest.Mock).mockResolvedValue(usage);
   const screen = await render(<Library e={e} />);
   await waitFor(() => expect(screen.getByText('집중한 날')).toBeTruthy());
   if (tab === '폰 사용') await fireEvent.press(screen.getByLabelText(tab));
+  await waitFor(() =>
+    expect(screen.getByText(tab === '집중' ? '집중한 날' : '이번 주 폰 사용')).toBeTruthy(),
+  );
+  // 집중 탭은 진입부터 폰 사용 통계를 한 번도 부르지 않아야 하므로 기록을 지우지 않는다
+  if (tab === '폰 사용') other.mockClear();
+  other.mockRejectedValue(new Error('선택하지 않은 통계 장애'));
   await fireEvent.press(screen.getByLabelText('이전 기간'));
   await waitFor(() =>
     expect(screen.getByText(tab === '집중' ? '집중한 날' : '이번 주 폰 사용')).toBeTruthy(),
@@ -378,7 +406,7 @@ test.each(['diary', 'stats'])(
     e.state.screenDays = {};
     e.state.screenMinutes = 777;
     e.state.settings.screenTimeMeasurementDay = '2026-09-22';
-    const view = () => (route === 'diary' ? <Library e={e} /> : <RedesignScreens e={e} />);
+    const view = () => <Library e={e} />;
     const screen = await render(view());
     expect(screen.queryByText('777분')).toBeNull();
     e.state.settings.screenTimeMeasurementDay = '2026-09-23';
@@ -444,7 +472,7 @@ test.each([
   { tab: '폰 사용', permission: true, ready: true },
   { tab: '폰 사용', permission: false, ready: false },
   { tab: '폰 사용', permission: true, ready: false },
-])('빈 주간 그래프도 일~토 7칸과 미래 날짜를 유지한다: %j', async ({ tab, permission, ready }) => {
+])('빈 주간 그래프도 월~일 7칸과 미래 날짜를 유지한다: %j', async ({ tab, permission, ready }) => {
   const e = {
     ...environment({ permission, ready }),
     tab: '',
@@ -455,30 +483,33 @@ test.each([
   const screen = await render(<Library e={e} />);
   if (tab === '폰 사용') await fireEvent.press(screen.getByLabelText(tab));
   const labels = screen.getAllByTestId(/^diary-weekday-/);
+  // 2026-09-22(화)가 든 주는 09-21(월)~09-27(일)이다(GROMO-2488)
   expect(labels.map((node) => node.props.children)).toEqual([
-    '일',
     '월',
     '화',
     '수',
     '목',
     '금',
     '토',
+    '일',
   ]);
   expect(labels.map((node) => node.props.testID)).toEqual(
-    [20, 21, 22, 23, 24, 25, 26].map((day) => `diary-weekday-2026-09-${day}`),
+    [21, 22, 23, 24, 25, 26, 27].map((day) => `diary-weekday-2026-09-${day}`),
   );
-  expect(screen.getByLabelText('9월 26일 토요일 기록 없음')).toBeTruthy();
+  expect(screen.getByLabelText('9월 27일 일요일 기록 없음')).toBeTruthy();
 });
 
 test('폰 사용 그래프는 7칸이지만 하루 평균과 측정 날짜는 오늘까지의 날짜로 계산한다', async () => {
   const e = { ...environment(), tab: '', now: Date.parse('2026-09-22T12:00:00+09:00') };
-  e.state.screenDays = { '2026-09-20': 30, '2026-09-21': 30, '2026-09-22': 30 };
+  // 09-20(일)은 월~일 주 밖이라 세지 않는다(GROMO-2488) — 이번 주는 21(월)·22(화) 두 날
+  e.state.screenDays = { '2026-09-20': 30, '2026-09-21': 30, '2026-09-22': 60 };
   const screen = await render(<Library e={e} />);
   await fireEvent.press(screen.getByLabelText('폰 사용'));
   expect(screen.getAllByTestId(/^diary-weekday-/)).toHaveLength(7);
   expect(screen.getByText('1시간 30분')).toBeTruthy();
   expect(screen.getAllByText('30분').length).toBeGreaterThan(0);
-  expect(screen.getByText('3 / 3일')).toBeTruthy();
+  expect(screen.getByText('45분')).toBeTruthy();
+  expect(screen.getByText('2 / 2일')).toBeTruthy();
 });
 
 test.each([0, 7])(
@@ -532,4 +563,61 @@ test('집중 기록 없이 체험 보상만 받은 날도 실제 적립 물고�
   await fireEvent.press(screen.getByLabelText('일'));
   await waitFor(() => expect(screen.getByText('1마리')).toBeTruthy());
   expect(screen.queryByText('이날은 기록이 없어요')).toBeNull();
+});
+
+test('이웃 상세는 날짜별 표 대신 월~일 주간 선그래프를 보이고 ‹ › 로 주를 옮긴다(GROMO-2488)', async () => {
+  const e = environment({ neighbors: true });
+  const screen = await render(<Library e={e} />);
+  await fireEvent.press(screen.getByTestId('diary-member-minji'));
+
+  expect(screen.queryByText('날짜별 기록')).toBeNull();
+  expect(screen.getByTestId('diary-week-chart')).toBeTruthy();
+  // 가로축은 월~일 순서다
+  const week = diaryRange('주', 0, e.now, false);
+  const labels = screen
+    .getAllByTestId(/^diary-weekday-/)
+    .map((node) => node.props.children as string);
+  expect(labels).toEqual(['월', '화', '수', '목', '금', '토', '일']);
+  expect(screen.getByText(`${shortDate(week.from)} – ${shortDate(week.to)}`)).toBeTruthy();
+  // 이번 주의 미래 날짜는 점·선 없이 「기록 없음」 — 일요일(주의 마지막)은 오늘이 아니면 늘 미래다
+  const summary = screen.getByTestId('diary-week-chart').props.accessibilityLabel as string;
+  if (week.to !== dateKey(e.now, false)) expect(summary).toContain('일 기록 없음');
+  // 이번 주는 › 가 꺼져 있고, ‹ 로 지난주에 가면 범위가 7일 앞당겨지고 › 가 켜진다
+  expect(screen.getByLabelText('다음 기간').props.accessibilityState.disabled).toBe(true);
+  await fireEvent.press(screen.getByLabelText('이전 기간'));
+  const previous = diaryRange('주', -1, e.now, false);
+  expect(screen.getByText(`${shortDate(previous.from)} – ${shortDate(previous.to)}`)).toBeTruthy();
+  expect(screen.getByLabelText('다음 기간').props.accessibilityState.disabled).toBe(false);
+  // 넘칠 때만 책 안에서 밀고 막대는 숨긴다
+  expect(screen.getByTestId('diary-scroll').props.showsVerticalScrollIndicator).toBe(false);
+});
+
+test('이웃 일기장은 내용이 짧으면 책을 내용 높이까지만 펼치고, 길면 끝까지 편다(GROMO-2412)', async () => {
+  const screen = await render(<Library e={environment({ neighbors: true })} />);
+  const book = () => StyleSheet.flatten(screen.getByTestId('diary-book').props.style);
+  const full = book().height;
+  await fireEvent(screen.getByTestId('diary-scroll'), 'contentSizeChange', 300, 240);
+  // 402×874 · 위 안전 영역 52: 내용 칸은 174~(874−78) = 622 — 남는 382 만큼 책이 줄어든다
+  expect(book().height).toBe(full - (622 - 240));
+  await fireEvent(screen.getByTestId('diary-scroll'), 'contentSizeChange', 300, 2000);
+  expect(book().height).toBe(full);
+});
+
+test('내 일기장은 내용 높이와 관계없이 책을 끝까지 편다', async () => {
+  const screen = await render(<Library e={environment()} />);
+  const book = () => StyleSheet.flatten(screen.getByTestId('diary-book').props.style);
+  const full = book().height;
+  await fireEvent(screen.getByTestId('diary-scroll'), 'contentSizeChange', 300, 240);
+  expect(book().height).toBe(full);
+});
+
+test('내 일기장으로 갔다 이웃 일기장으로 돌아오면 다시 잴 때까지 책을 끝까지 편다(GROMO-2412)', async () => {
+  const screen = await render(<Library e={environment({ neighbors: true })} />);
+  const book = () => StyleSheet.flatten(screen.getByTestId('diary-book').props.style);
+  const full = book().height;
+  await fireEvent(screen.getByTestId('diary-scroll'), 'contentSizeChange', 300, 240);
+  expect(book().height).toBeLessThan(full);
+  await screen.rerender(<Library e={environment()} />);
+  await screen.rerender(<Library e={environment({ neighbors: true })} />);
+  expect(book().height).toBe(full);
 });

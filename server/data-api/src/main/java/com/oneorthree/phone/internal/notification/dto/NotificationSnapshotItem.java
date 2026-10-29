@@ -34,8 +34,6 @@ import java.util.UUID;
  *                          <b>개명한 적 없는 유저 전원이 빈 이름으로 렌더된다</b> — 제공자를 먼저
  *                          배포해 둔다(A22 ㉹)
  * @param locale            보고된 표시 언어. 미보고는 {@code null}(수신 측이 ko 폴백)
- * @param hasDeviceToken    코어가 아는 기기 토큰이 있는가 — 이관 검증용 대조값이지
- *                          <b>발송 판정 근거가 아니다</b>(토큰 정본은 이관 후 알림 DB 다)
  * @param settingsPresent   설정 행이 실재하는가. {@code false} 면 아래 5필드는 전부 {@code null}
  * @param notificationEnabled 알림 on/off
  * @param soundEnabled      소리 on/off
@@ -51,7 +49,6 @@ public record NotificationSnapshotItem(
         long authGeneration,
         String displayName,
         String locale,
-        boolean hasDeviceToken,
         boolean settingsPresent,
         Boolean notificationEnabled,
         Boolean soundEnabled,

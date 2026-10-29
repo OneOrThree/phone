@@ -48,7 +48,6 @@ class SeaSessionAggregateExclusionIntegrationTest {
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
         OutboxTestPostgres.applyProductionMigrationWiring(registry);
-        registry.add("focus.session.start-enabled", () -> true);
     }
 
     @Autowired
@@ -139,7 +138,7 @@ class SeaSessionAggregateExclusionIntegrationTest {
     }
 
     private UUID newUser() {
-        return jwt.extractUserId(auth.guestLogin().accessToken());
+        return jwt.extractUserId(auth.guestSession(java.util.UUID.randomUUID().toString()).accessToken());
     }
 
     private void backdate(UUID sessionId, long seconds) {

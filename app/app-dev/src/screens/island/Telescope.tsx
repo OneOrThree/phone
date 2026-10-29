@@ -1,7 +1,8 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AccessibilityInfo,
   ActivityIndicator,
+  Animated,
   Image,
   Platform,
   Pressable,
@@ -11,7 +12,7 @@ import {
   type ImageStyle,
 } from 'react-native';
 import { ISLAND_ART_ASPECT, ISLAND_STAGE_ART, islandStage } from '@/constants/magazineAssets';
-import { Badge, Btn, Pic, Txt } from '@/design-system/patterns';
+import { Badge, Btn, NavBtn, Pic, Txt } from '@/design-system/patterns';
 import { Card } from '@/design-system/primitives';
 import { componentTokens, primitiveTokens, semanticTokens } from '@/design-system/tokens';
 import { errorTextOr, t } from '@/i18n';
@@ -21,7 +22,7 @@ import { IslandPopup, SheetGroup, SheetRow } from '@/screens/island/IslandSheet'
 import { endServerVisit, useIslandSailing } from '@/screens/island/useIslandSailing';
 import { useTelescope } from '@/screens/island/useTelescope';
 import { visibleTelescopeItems } from '@/screens/island/telescopeDestinations';
-import { ApiError, CLIENT_STALE_SESSION } from '@/services/api/client';
+import { ApiError, CLIENT_STALE_SESSION, uuid } from '@/services/api/client';
 import { getSession, sessionGeneration } from '@/services/api/session';
 import type { MagazineCell } from '@/services/api/magazine';
 import { arriveAtIsland, unpinFromTelescope, type TelescopeItem } from '@/services/api/telescope';
@@ -54,8 +55,34 @@ const PRESSED_OPACITY = 0.7;
 // 꽉 채우는 그림. 웹(react-native-web)은 absoluteFill 만 주면 원본 픽셀 크기로 그려서 폭·높이를 같이 준다(IslandSheet 와 같다)
 const FILL: ImageStyle = { position: 'absolute', left: 0, top: 0, width: '100%', height: '100%' };
 
+/**
+ * 파노라마 바다(GROMO-2414) — 섬이 바다에 붙어 같이 밀리게 바다 그림을 가로로 이어 깐다. 한 장은 지금처럼 cover 가운데 맞춤
+ * 크기·높이라 수평선이 그대로고, 스크롤 0 의 0번 장은 예전 한 장과 같은 자리다. 이음매가 안 보이게 홀수 번째 장은 좌우 반전한다
+ * (맞닿는 가장자리가 같은 픽셀 줄). 스크롤 끝과 양쪽 튕김까지 한 화면씩 더 덮는다.
+ */
+export function telescopeSeaTiles(sceneW: number, sceneH: number, contentW: number) {
+  const scale = Math.max(sceneW / telescopeSea.width, sceneH / telescopeSea.height);
+  const width = telescopeSea.width * scale;
+  const left0 = (sceneW - width) / 2;
+  const first = -Math.ceil((left0 + sceneW) / width);
+  const last = Math.ceil((Math.max(contentW, sceneW) + sceneW - left0) / width) - 1;
+  return {
+    top: (sceneH - telescopeSea.height * scale) / 2,
+    width,
+    height: telescopeSea.height * scale,
+    tiles: Array.from({ length: last - first + 1 }, (_, i) => ({
+      n: first + i,
+      left: left0 + (first + i) * width,
+      mirror: (first + i) % 2 !== 0,
+    })),
+  };
+}
+
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: color.secondary },
+  // 파노라마를 따라 밀리는 바다 층과 그 안에 이어 붙인 그림 한 장
+  sea: { position: 'absolute' },
+  seaTile: { position: 'absolute', top: 0 },
   topBar: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -66,7 +93,7 @@ const styles = StyleSheet.create({
   chip: { flexShrink: 1 },
   panel: { alignItems: 'center' },
   panelText: { textAlign: 'center' },
-  // 섬 칸 — 폭은 섬 칸(122)과 이름 알약 중 넓은 쪽이라 긴 이름도 옆 섬 알약과 겹치지 않는다
+  // 섬 칸 — 폭은 섬 칸(146)과 이름 알약 중 넓은 쪽이라 긴 이름도 옆 섬 알약과 겹치지 않는다
   cell: { minWidth: TELESCOPE.islandBox, alignItems: 'center' },
   art: { width: ART_W, height: ART_H, marginTop: TELESCOPE.islandArtTop },
   // 깃대 밑동을 섬 그림 위 가운데에 꽂는다
@@ -440,7 +467,7 @@ function IslandBubble({
 }
 
 /**
- * 망원경(GROMO-2266) — 바다 위 섬 파노라마. 서버가 이 시간대에 보여 주는 섬 최대 8개를 응답 순서대로 가로로 늘어놓고,
+ * 망원경(GROMO-2266) — 바다 위 섬 파노라마. 일반 섬 최대 8개와 별도 무인도 후보 1개를 응답 순서대로 가로로 늘어놓고,
  * 섬을 누르면 말풍선(이름·소개·주민·평균 집중·항해 시간 + 행동)이 뜬다. 임시 입구는 뗏목 행선지 「망원경」(N5).
  *
  * - 소속 섬: 한 번 가 봤으면 [돌아가기] 로 항해 없이 현재 섬을 옮겨 홈으로, 망원경으로 가입만 하고 안 가 봤으면 [항해하기].
@@ -456,7 +483,7 @@ export function Telescope({ e, previewItems }: { e: any; previewItems?: Telescop
   const s: State = e.state;
   const L = useAppLayout();
   // 시스템 글자가 크면 이름 알약은 두 줄까지, 작은 버튼은 높이를 콘텐츠에 맞춘다(보통 크기의 38pt 모양은 그대로)
-  const largeText = (L.fontScale ?? 1) >= componentTokens.telescope.largeTextThreshold;
+  const largeText = (L.fontScale ?? 1) >= semanticTokens.typography.largeTextThreshold;
   const liveList = useTelescope({
     active: !previewItems && (!!e.islands || isTelescopeMock()),
     beforeLoad: e.islandBootError ? e.islands?.sync : undefined,
@@ -504,6 +531,27 @@ export function Telescope({ e, previewItems }: { e: any; previewItems?: Telescop
     space[10],
     Math.round(horizonY - TELESCOPE.horizonGap - barH - FLAG_ALLOWANCE),
   );
+  // 파노라마 가로 스크롤을 UI 스레드에서 바다 그림 이동으로 잇는다(스크롤마다 JS 리렌더 없음). 동작 줄이기에서도 따라간다 —
+  // 장식 모션이 아니라 사용자가 미는 스크롤 그 자체라서. 뗏목 고양이는 화면에 고정이라 내가 망원경을 돌리는 것처럼 보인다.
+  const scrollX = useRef(new Animated.Value(0)).current;
+  const panoramaScroll = useMemo(
+    () => ({
+      seaX: Animated.multiply(scrollX, -1),
+      onScroll: Animated.event([{ nativeEvent: { contentOffset: { x: scrollX } } }], {
+        useNativeDriver: true,
+      }),
+    }),
+    [scrollX],
+  );
+  const [panoramaW, setPanoramaW] = useState(0);
+  const sea = telescopeSeaTiles(sceneW, sceneH, panoramaW);
+  // 파노라마가 사라지면(빈 목록·로딩·오류 카드) 바다를 처음 자리로 돌린다 — 다시 생긴 파노라마는 스크롤 0 에서 시작하는데
+  // 바다만 옛 오프셋에 남으면 섬과 어긋나고 첫 드래그에 튄다. 사라질 때의 정리에서 맞추므로 새 ScrollView 가 붙기 전이다
+  const panoramaShown = list.status === 'ready' && items.length > 0;
+  useEffect(() => {
+    if (!panoramaShown) return;
+    return () => scrollX.setValue(0);
+  }, [panoramaShown, scrollX]);
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
@@ -541,8 +589,12 @@ export function Telescope({ e, previewItems }: { e: any; previewItems?: Telescop
     // 집중·휴식 중에는 새 항해를 시작할 수 없다 — ServerVisit 의 [섬 둘러보기]와 같은 안내.
     if (s.session) return e.notify(t('islandVisit.sessionBlocksBrowse'));
     setSelectedId(null);
-    setStartError(undefined);
-    setPreparing(item);
+    const prepare = () => {
+      setStartError(undefined);
+      setPreparing(item);
+    };
+    if (e.beforeSeaVoyage) e.beforeSeaVoyage(prepare);
+    else prepare();
   };
 
   // 시작 API 는 한마디를 받지 않는다 — 출항이 성공한 뒤에 한마디를 따로 저장하고, 한마디가 실패해도 출항은 유지한다.
@@ -563,6 +615,28 @@ export function Telescope({ e, previewItems }: { e: any; previewItems?: Telescop
       setPreparing(null);
       e.reset(route, name);
     };
+    // 개발용 권한 미리보기는 서버 명령 없이 로컬 항해로 이어진다.
+    if (e.focusBlockingIntroPreview && !e.focus) {
+      const now = Date.now();
+      e.dispatch({
+        type: 'SESSION_SYNC',
+        session: {
+          id: uuid(),
+          islandId: item.islandId,
+          destinationIslandName: item.name,
+          kind: 'sea',
+          subject: remark,
+          startedAt: now,
+          syncedAt: now,
+          seconds: 0,
+          status: 'active',
+          targetMinutes: item.sailingMinutes,
+        },
+      });
+      enter('sea', item.name);
+      unlock();
+      return;
+    }
     let view: Awaited<ReturnType<typeof e.focus.startSea>>;
     try {
       view = await e.focus.startSea(item.islandId);
@@ -695,13 +769,38 @@ export function Telescope({ e, previewItems }: { e: any; previewItems?: Telescop
         accessibilityElementsHidden={popupOpen}
         importantForAccessibility={popupOpen ? 'no-hide-descendants' : 'auto'}
       >
-        <Image
-          source={telescopeSea.source}
-          resizeMode="cover"
+        <Animated.View
+          testID="telescope-sea"
+          pointerEvents="none"
           accessibilityElementsHidden
-          importantForAccessibility="no"
-          style={FILL}
-        />
+          importantForAccessibility="no-hide-descendants"
+          style={[
+            styles.sea,
+            {
+              top: sea.top,
+              left: sea.tiles[0].left,
+              width: sea.tiles.length * sea.width,
+              height: sea.height,
+              transform: [{ translateX: panoramaScroll.seaX }],
+            },
+          ]}
+        >
+          {sea.tiles.map((tile) => (
+            <Image
+              key={tile.n}
+              source={telescopeSea.source}
+              style={[
+                styles.seaTile,
+                {
+                  left: tile.left - sea.tiles[0].left,
+                  width: sea.width,
+                  height: sea.height,
+                  transform: tile.mirror ? [{ scaleX: -1 }] : undefined,
+                },
+              ]}
+            />
+          ))}
+        </Animated.View>
         {/* 가로 화면에서는 섬 띠 뒤에 깔려 가리므로 세로일 때만 둔다 */}
         {sceneW <= sceneH && (
           <View
@@ -738,14 +837,8 @@ export function Telescope({ e, previewItems }: { e: any; previewItems?: Telescop
               },
             ]}
           >
-            {/* 바다 위 보조 버튼 — 공용 Btn glass(DESIGN §7.2), 실제 터치 영역은 44 이상. 큰 글자에서는 38pt 에서 최소 52pt 로 커지고 글자를 따라 더 늘어난다 */}
-            <Btn
-              small
-              kind="glass"
-              dynamicHeight={largeText}
-              title={t('telescope.back')}
-              onPress={e.back}
-            />
+            {/* 뒤로는 건물 안과 같은 ‹ 동그라미(DESIGN §7.14) — 글자가 없어 큰 글자에서도 크기가 같다 */}
+            <NavBtn label={t('telescope.back')} onPress={e.back} />
             {hasPendingRequest && (
               <Btn
                 small
@@ -786,10 +879,13 @@ export function Telescope({ e, previewItems }: { e: any; previewItems?: Telescop
                 <Txt style={styles.panelText}>{t('telescope.empty')}</Txt>
               </Panel>
             ) : (
-              <ScrollView
+              <Animated.ScrollView
                 testID="telescope-panorama"
                 horizontal
                 showsHorizontalScrollIndicator={false}
+                scrollEventThrottle={16}
+                onScroll={panoramaScroll.onScroll}
+                onContentSizeChange={(w) => setPanoramaW(w)}
                 contentContainerStyle={{
                   ...(uninhabitedOnly ? { flexGrow: 1, justifyContent: 'center' } : {}),
                   paddingTop: FLAG_ALLOWANCE,
@@ -808,7 +904,7 @@ export function Telescope({ e, previewItems }: { e: any; previewItems?: Telescop
                     onPress={() => setSelectedId(item.islandId)}
                   />
                 ))}
-              </ScrollView>
+              </Animated.ScrollView>
             )}
           </View>
         </ScrollView>
@@ -817,7 +913,12 @@ export function Telescope({ e, previewItems }: { e: any; previewItems?: Telescop
         <IslandBubble
           item={selected}
           // 서버 세션이 없는 목업(EXPO_PUBLIC_MAGAZINE_MOCK=telescope)은 보기만 — 행동 버튼은 실제 API 를 부르므로 막는다
-          locked={(!e.islands && !previewItems) || sail.pending || joiningId !== null || unpinning}
+          locked={
+            (!e.islands && !previewItems && !e.focusBlockingIntroPreview) ||
+            sail.pending ||
+            joiningId !== null ||
+            unpinning
+          }
           joining={joiningId === selected.islandId}
           voyaging={selected.islandId === voyagingId}
           onClose={() => setSelectedId(null)}

@@ -3,18 +3,14 @@ package com.oneorthree.phone.internal;
 import com.jayway.jsonpath.JsonPath;
 import com.oneorthree.phone.auth.service.AuthService;
 import com.oneorthree.phone.auth.support.JwtProvider;
-import com.oneorthree.phone.focus.dto.FocusSessionCancelRequest;
-import com.oneorthree.phone.focus.dto.FocusSessionRequest;
-import com.oneorthree.phone.focus.dto.FocusSessionSaveResponse;
-import com.oneorthree.phone.focus.dto.FocusSessionStartRequest;
 import com.oneorthree.phone.focus.dto.session.FocusFinishView;
+import com.oneorthree.phone.focus.dto.session.FocusSeat;
 import com.oneorthree.phone.focus.dto.session.FocusSessionStartCommandRequest;
 import com.oneorthree.phone.focus.dto.session.FocusSessionView;
 import com.oneorthree.phone.focus.dto.session.FocusVersionedCommandRequest;
 import com.oneorthree.phone.focus.exception.FocusErrorCode;
 import com.oneorthree.phone.focus.exception.FocusException;
 import com.oneorthree.phone.focus.service.FocusLiveInfoLookup;
-import com.oneorthree.phone.focus.service.FocusService;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupRepository;
 import com.oneorthree.phone.group.repository.domain.Group;
@@ -28,7 +24,7 @@ import com.oneorthree.phone.internal.scheduler.FocusRewardScheduler;
 import com.oneorthree.phone.internal.service.FocusSessionLifecycleService;
 import com.oneorthree.phone.internal.service.IslandEconomyReadService;
 import com.oneorthree.phone.internal.service.IslandMembershipService;
-import com.oneorthree.phone.league.repository.LeagueRankingQueryRepository;
+import com.oneorthree.phone.outbox.exception.OutboxErrorCode;
 import com.oneorthree.phone.outbox.support.OutboxTestPostgres;
 import com.oneorthree.phone.user.repository.UserQueryService;
 import com.oneorthree.phone.user.repository.domain.User;
@@ -39,8 +35,10 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.scheduling.annotation.ScheduledAnnotationBeanPostProcessor;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -66,10 +64,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * 집중 세션 시작 게이트를 연 뒤의 경로 (GROMO-1924) — <b>실제 Flyway PostgreSQL</b> 위에서 본다.
+ * 집중 세션 시작 경로 (GROMO-1924) — <b>실제 Flyway PostgreSQL</b> 위에서 본다.
  *
- * <p>게이트는 {@code focus.session.start-enabled} 로 연다. 잠금·부분 UNIQUE·CHECK·V67 이 전부 DB 에
- * 있는 규칙이라 mock 으로는 의미가 없다.
+ * <p>잠금·부분 UNIQUE·CHECK·V67 이 전부 DB 에 있는 규칙이라 mock 으로는 의미가 없다. 분당 적립 틱은 운영 크론과
+ * 같은 진입점({@code FocusRewardScheduler#accrueDueSessions})을 테스트가 직접 부른다(크론은 {@code ci} 프로파일에서 돌지 않는다).
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -82,10 +80,6 @@ class FocusSessionActivationIntegrationTest {
     static void properties(DynamicPropertyRegistry registry) {
         OutboxTestPostgres.applyProductionMigrationWiring(registry);
         registry.add("notification.dispatch.mode", () -> "OUTBOX");
-        registry.add("focus.session.start-enabled", () -> true);
-        // 분당 적립 크론은 기본 꺼짐(FocusRewardAccrualGate) — 이 테스트는 켠 상태의 운영을 본다.
-        registry.add("focus.reward.accrual-enabled", () -> true);
-        registry.add("internal.api.enabled", () -> true);
         registry.add("internal.api.callers.business.token", () -> TOKEN);
         List<String> allow = List.of(
                 "POST /internal/users/*/focus-sessions",
@@ -95,7 +89,8 @@ class FocusSessionActivationIntegrationTest {
                 "POST /internal/users/*/focus-sessions/*/finish",
                 "GET /internal/users/*/focus-sessions/pending-result",
                 "POST /internal/users/*/focus-sessions/*/acknowledge",
-                "GET /internal/users/*/focus-summary");
+                "GET /internal/users/*/focus-summary",
+                "GET /internal/islands/*/focus-members");
         for (int i = 0; i < allow.size(); i++) {
             String rule = allow.get(i);
             registry.add("internal.api.callers.business.allow[" + i + "]", () -> rule);
@@ -115,10 +110,6 @@ class FocusSessionActivationIntegrationTest {
     @Autowired
     IslandMembershipService islands;
     @Autowired
-    FocusService legacyFocus;
-    @Autowired
-    LeagueRankingQueryRepository league;
-    @Autowired
     FocusLiveInfoLookup liveInfo;
     @Autowired
     GroupMemberService groupMembers;
@@ -137,11 +128,11 @@ class FocusSessionActivationIntegrationTest {
     @Autowired
     MockMvc mvc;
 
-    // ---------------------------------------------------------------- 게이트를 연 뒤의 전체 흐름
+    // ---------------------------------------------------------------- 전체 흐름
 
     @Test
-    @DisplayName("게이트를 열면 내부 표면으로 start 201 → current 200 → pause 200 → resume 200 → finish 200 → summary 200")
-    void openedGateRunsTheWholeLifecycleOverTheInternalSurface() throws Exception {
+    @DisplayName("내부 표면으로 start 201 → current 200 → pause 200 → resume 200 → finish 200 → summary 200")
+    void theWholeLifecycleRunsOverTheInternalSurface() throws Exception {
         UUID user = newUser();
         UUID island = islands.create(user, new CreateIslandCommandRequest("전체흐름섬", null, false, null),
                 UUID.randomUUID()).id();
@@ -317,137 +308,113 @@ class FocusSessionActivationIntegrationTest {
                 started.id().toString())).isEqualTo(1);
     }
 
-    // ---------------------------------------------------------------- #2 · #3 레거시 공존
+    // ---------------------------------------------------------------- 집중섬 자리(GROMO-2477)
 
     @Test
-    @DisplayName("v0.3 세션이 진행 중이면 레거시 start 는 409 이고, 그 세션의 기본 마커를 닫지 않는다")
-    void legacyStartNeitherRotatesNorClosesTheV03Marker() {
+    @DisplayName("seat 를 보내 시작하면 상세에 그대로 저장되고 focus-members·focus 사건(start·pause)에 같은 좌표가 실린다")
+    void seatIsStoredAndSharedThroughMembersAndEvents() throws Exception {
         UUID user = newUser();
-        UUID island = islands.create(user, new CreateIslandCommandRequest("공존섬", null, false, null),
+        UUID island = islands.create(user, new CreateIslandCommandRequest("자리섬", null, false, null),
+                UUID.randomUUID()).id();
+
+        String started = call(post("/internal/users/" + user + "/focus-sessions"), user,
+                "{\"islandId\":\"" + island + "\",\"subject\":\"알고리즘\",\"seat\":{\"x\":12.5,\"y\":40.25}}")
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        UUID sessionId = UUID.fromString(JsonPath.read(started, "$.id"));
+
+        assertThat(detailRow(sessionId)).as("반올림 없이 그대로").containsEntry("seat_x", 12.5)
+                .containsEntry("seat_y", 40.25);
+        call(get("/internal/islands/" + island + "/focus-members"), user, null)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].seat.x").value(12.5))
+                .andExpect(jsonPath("$.items[0].seat.y").value(40.25));
+        String seatEvent = "select count(*) from event_outbox where type='focus.member.updated' "
+                + "and params->>'sessionId'=? and params->>'status'=? "
+                + "and params->'seat'='{\"x\":12.5,\"y\":40.25}'::jsonb";
+        assertThat(count(seatEvent, sessionId.toString(), "active")).isEqualTo(1);
+
+        // 앱은 사건마다 행을 다시 만든다 — pause 사건도 시작 때 자리를 그대로 싣는다.
+        focus.pause(user, sessionId, new FocusVersionedCommandRequest(1L), UUID.randomUUID());
+        assertThat(count(seatEvent, sessionId.toString(), "paused")).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("seat 를 생략한 시작(옛 앱)은 자리 없이 저장되고 focus-members·사건에 seat:null 키가 남는다")
+    void omittedSeatKeepsANullKey() throws Exception {
+        UUID user = newUser();
+        UUID island = islands.create(user, new CreateIslandCommandRequest("자리없는섬", null, false, null),
+                UUID.randomUUID()).id();
+
+        FocusSessionView started = start(user, island);
+
+        assertThat(detailRow(started.id())).containsEntry("seat_x", null).containsEntry("seat_y", null);
+        String members = call(get("/internal/islands/" + island + "/focus-members"), user, null)
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        assertThat(members).as("키는 항상 실린다").contains("\"seat\":null");
+        assertThat(count("select count(*) from event_outbox where type='focus.member.updated' "
+                + "and params->>'sessionId'=? and params->'seat'='null'::jsonb", started.id().toString()))
+                .isEqualTo(1);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"{\"x\":101,\"y\":40}", "{\"x\":12.5,\"y\":-1}", "{\"x\":NaN,\"y\":40}",
+            "{\"x\":12.5}"})
+    @DisplayName("범위 밖·NaN·짝 없는 seat 는 400 INVALID_REQUEST 이고 세션을 만들지 않는다")
+    void invalidSeatIsRejected(String seat) throws Exception {
+        UUID user = newUser();
+        UUID island = islands.create(user, new CreateIslandCommandRequest("거절섬", null, false, null),
+                UUID.randomUUID()).id();
+
+        call(post("/internal/users/" + user + "/focus-sessions"), user,
+                "{\"islandId\":\"" + island + "\",\"subject\":\"알고리즘\",\"seat\":" + seat + "}")
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+        assertThat(count("select count(*) from focus_session_details where user_id=?", user)).isZero();
+    }
+
+    @Test
+    @DisplayName("자리 범위는 FocusSeat 와 DB CHECK 가 함께 막는다 — JSON 이 못 싣는 NaN·한쪽만 있는 좌표도")
+    void seatRangeIsGuardedByTheRecordAndTheCheck() {
+        assertThatThrownBy(() -> new FocusSeat(Double.NaN, 40.0)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new FocusSeat(100.5, 40.0)).isInstanceOf(IllegalArgumentException.class);
+        assertThat(new FocusSeat(0.0, 100.0).x()).as("경계는 포함한다").isZero();
+        UUID user = newUser();
+        UUID island = islands.create(user, new CreateIslandCommandRequest("제약섬", null, false, null),
                 UUID.randomUUID()).id();
         FocusSessionView started = start(user, island);
 
-        assertThatThrownBy(() -> legacyFocus.startFocusSession(user, new FocusSessionStartRequest(null, null)))
-                .hasFieldOrPropertyWithValue("errorCode", FocusErrorCode.SESSION_IN_PROGRESS);
-        assertThatThrownBy(() -> legacyFocus.cancelFocusSession(user, new FocusSessionCancelRequest(started.id())))
-                .as("v0.3 세션 PK 로 레거시 취소도 못 한다")
-                .hasFieldOrPropertyWithValue("errorCode", FocusErrorCode.SESSION_STATE_CONFLICT);
-
-        assertThat(jdbc.queryForObject("select ended_at is null from focus_sessions where id=?", Boolean.class,
-                started.id())).isTrue();
-        assertThat(focus.current(user).id()).isEqualTo(started.id());
+        for (String set : List.of("seat_x=50, seat_y=null", "seat_x='NaN', seat_y=50", "seat_x=50, seat_y=100.01")) {
+            assertThatThrownBy(() -> jdbc.update("update focus_session_details set " + set + " where session_id=?",
+                    started.id())).as(set).isInstanceOf(DataIntegrityViolationException.class);
+        }
     }
 
     @Test
-    @DisplayName("구 앱 업로드가 v0.3 서버 구간과 겹치면 적립 없이 성공으로 답하고, 안 겹치는 블록은 그대로 적립한다")
-    void legacyUploadOverlappingAServerSessionIsNotCreditedTwice() {
+    @DisplayName("멱등 지문에 seat 가 들어간다 — 같은 키·같은 자리는 재생, 같은 키·다른 자리(또는 생략)는 409")
+    void seatIsPartOfTheIdempotencyFingerprint() {
         UUID user = newUser();
-        UUID island = islands.create(user, new CreateIslandCommandRequest("업로드섬", null, false, null),
+        UUID island = islands.create(user, new CreateIslandCommandRequest("멱등자리섬", null, false, null),
                 UUID.randomUUID()).id();
-        FocusSessionView started = start(user, island);
-        Instant t0 = started.startedAt();
+        UUID key = UUID.randomUUID();
 
-        FocusSessionSaveResponse overlapping = legacyFocus.saveFocusSession(user,
-                new FocusSessionRequest(null, t0.minusSeconds(600), t0.plusSeconds(1), 0));
-        FocusSessionSaveResponse earlier = legacyFocus.saveFocusSession(user,
-                new FocusSessionRequest(null, t0.minusSeconds(7200), t0.minusSeconds(3600), 0));
-
-        assertThat(overlapping.awardedCoins()).as("겹친 블록은 지급하지 않는다").isZero();
-        assertThat(count("select count(*) from focus_sessions where user_id=? and status='COMPLETED' "
-                + "and started_at=?", user, ts(t0.minusSeconds(600))))
-                .as("겹친 블록은 완료 마커로 저장하지 않는다").isZero();
-        assertThat(earlier.awardedCoins()).as("겹치지 않는 오프라인 업로드는 유지한다").isPositive();
+        FocusSessionView first = focus.start(user,
+                new FocusSessionStartCommandRequest(island, "알고리즘", 25, new FocusSeat(12.5, 40.25)), key);
+        assertThat(focus.start(user,
+                new FocusSessionStartCommandRequest(island, "알고리즘", 25, new FocusSeat(12.5, 40.25)), key).id())
+                .as("같은 요청 재시도는 원 결과 재생").isEqualTo(first.id());
+        assertThatThrownBy(() -> focus.start(user,
+                new FocusSessionStartCommandRequest(island, "알고리즘", 25, new FocusSeat(12.5, 40.0)), key))
+                .hasFieldOrPropertyWithValue("errorCode", OutboxErrorCode.IDEMPOTENCY_KEY_CONFLICT);
+        assertThatThrownBy(() -> focus.start(user, new FocusSessionStartCommandRequest(island, "알고리즘", 25), key))
+                .hasFieldOrPropertyWithValue("errorCode", OutboxErrorCode.IDEMPOTENCY_KEY_CONFLICT);
     }
 
-    @ParameterizedTest(name = "{0} 로 끝난 세션")
-    @ValueSource(strings = {"MEMBERSHIP_LOST", "ABANDONED"})
-    @DisplayName("이미 적립받은 뒤 강퇴·포기로 끝난 세션의 구간도 구 앱 업로드로 다시 적립되지 않는다")
-    void alreadyPaidSessionsBlockTheLegacyUploadEvenAfterAForcedEnd(String ending) {
-        UUID host = newUser();
-        UUID island = islands.create(host, new CreateIslandCommandRequest("기지급섬", null, false, null),
-                UUID.randomUUID()).id();
-        UUID user = newUser();
-        joinAndMoveTo(user, island);
-        FocusSessionView session = focusedSince(user, island, pastUtcMidnight().plusSeconds(7200), 300);
-        tick();
-        assertThat(islandBalance(island)).as("강제 종료 «전» 에 이미 5마리를 받았다").isEqualTo(5);
-        endAs(ending, host, user, island, session.id());
 
-        Instant block = pastUtcMidnight().plusSeconds(7200);
-        FocusSessionSaveResponse uploaded = legacyFocus.saveFocusSession(user,
-                new FocusSessionRequest(null, block, block.plusSeconds(300), 0));
 
-        assertThat(uploaded.awardedCoins()).as("같은 시간이 코인으로 한 번 더 들어가면 안 된다").isZero();
-        assertThat(count("select coalesce(sum(total_focus_seconds),0) from daily_focus_stats where user_id=?",
-                user)).as("일별 통계도 다시 늘지 않는다").isZero();
-        assertThat(count("select count(*) from focus_sessions where user_id=? and status='COMPLETED' "
-                + "and started_at=?", user, ts(block))).as("완료 마커도 만들지 않는다").isZero();
-    }
 
-    @ParameterizedTest(name = "{0} 로 끝난 세션")
-    @ValueSource(strings = {"MEMBERSHIP_LOST", "ABANDONED"})
-    @DisplayName("한 마리도 못 받고 끝난 세션은 종전대로 — 겹치는 구 앱 업로드가 그대로 적립된다(막은 게 아니라 좁혔다)")
-    void sessionsThatWereNeverPaidStillLetTheLegacyUploadThrough(String ending) {
-        UUID host = newUser();
-        UUID island = islands.create(host, new CreateIslandCommandRequest("무적립섬", null, false, null),
-                UUID.randomUUID()).id();
-        UUID user = newUser();
-        joinAndMoveTo(user, island);
-        // 59초 — 1마리가 안 차서 틱이 아무것도 주지 않는다.
-        FocusSessionView session = focusedSince(user, island, pastUtcMidnight().plusSeconds(7200), 59);
-        tick();
-        assertThat(islandBalance(island)).as("받은 적이 없다").isZero();
-        endAs(ending, host, user, island, session.id());
 
-        Instant block = pastUtcMidnight().plusSeconds(7200);
-        FocusSessionSaveResponse uploaded = legacyFocus.saveFocusSession(user,
-                new FocusSessionRequest(null, block, block.plusSeconds(1800), 0));
-
-        assertThat(uploaded.awardedCoins())
-                .as("그 시간은 아직 아무 데서도 적립되지 않았다 — 종전 동작 그대로 적립한다").isPositive();
-        assertThat(count("select count(*) from focus_sessions where user_id=? and status='COMPLETED' "
-                + "and started_at=?", user, ts(block))).isEqualTo(1);
-    }
-
-    // ---------------------------------------------------------------- #4 리그 라이브 랭킹
-
-    @Test
-    @DisplayName("리그 라이브 순위는 v0.3 세션의 휴식을 빼고 ACTIVE 구간만 센다 — 휴식 중이면 진행분을 빼 표시와 맞춘다")
-    void leagueLiveRankingCountsOnlyActiveIntervals() {
-        // 한 주 한가운데(수 12:00 KST)로 기준 시각을 고정한다 — 주 경계 클램프가 끼지 않는다.
-        Instant now = Instant.parse("2026-09-16T03:00:00Z");
-        LocalDate monday = LocalDate.parse("2026-09-14");
-        LocalDate sunday = LocalDate.parse("2026-09-20");
-        UUID resting = newUser();
-        UUID island = islands.create(resting, new CreateIslandCommandRequest("리그섬", null, false, null),
-                UUID.randomUUID()).id();
-        FocusSessionView v03 = start(resting, island);
-        // 벽시계 60분 = ACTIVE 10분 → REST 40분 → ACTIVE 10분(진행 중). 순수 집중 20분.
-        jdbc.update("update focus_sessions set started_at=? where id=?", ts(now.minusSeconds(3600)), v03.id());
-        jdbc.update("update focus_session_intervals set started_at=?, ended_at=? where session_id=? and ordinal=1",
-                ts(now.minusSeconds(3600)), ts(now.minusSeconds(3000)), v03.id());
-        jdbc.update("insert into focus_session_intervals(session_id, ordinal, kind, started_at, ended_at) "
-                + "values (?, 2, 'REST', ?, ?), (?, 3, 'ACTIVE', ?, null)", v03.id(),
-                ts(now.minusSeconds(3000)), ts(now.minusSeconds(600)), v03.id(), ts(now.minusSeconds(600)));
-        // 비교 상대: 30분 전에 시작한 레거시 라이브 마커.
-        UUID legacy = newUser();
-        legacyFocus.startFocusSession(legacy, new FocusSessionStartRequest(null, null));
-        jdbc.update("update focus_sessions set started_at=? where user_id=? and ended_at is null",
-                ts(now.minusSeconds(1800)), legacy);
-        // 리그 모수는 닉네임이 있는 사용자다(유니크) — 사용자 id 로 겹치지 않게 짓는다.
-        jdbc.update("update users set nickname=? where id=?", "휴" + resting, resting);
-        jdbc.update("update users set nickname=? where id=?", "구" + legacy, legacy);
-
-        int restingRank = league.findRankOf(resting, monday, sunday, now).orElseThrow().rank();
-        int legacyRank = league.findRankOf(legacy, monday, sunday, now).orElseThrow().rank();
-        assertThat(legacyRank).as("30분 레거시가 순수 20분 v0.3 보다 앞선다 — 벽시계 60분이 아니다")
-                .isLessThan(restingRank);
-
-        jdbc.update("update focus_session_details set lifecycle='PAUSED', rest_seat=1 where session_id=?", v03.id());
-        assertThat(league.findTop(monday, sunday, null, 100000, now).stream()
-                .filter(row -> row.userId().equals(resting)).findFirst().orElseThrow().liveStartedAt())
-                .as("휴식 중이면 라이브 앵커가 없다 — 앱이 매초 더하지 않는다").isNull();
-    }
 
     @Test
     @DisplayName("친구 라이브 표시도 같다 — 휴식 중이면 «집중 중»이 아니고, 집중 중이면 앵커가 휴식을 뺀다")
@@ -818,6 +785,15 @@ class FocusSessionActivationIntegrationTest {
         assertThat(context.getBean(SchedulingConfig.FOCUS_REWARD_SCHEDULER))
                 .as("두 풀이 같은 빈이면 이름만 다른 공용 풀이라 격리가 성립하지 않는다")
                 .isNotSameAs(context.getBean(SchedulingConfig.SETTLEMENT_SCHEDULER));
+    }
+
+    @Test
+    @DisplayName("테스트 프로파일(ci)에서는 @Scheduled 트리거가 꺼져 있다 — 항상 켜진 분당 적립 크론이 다른 테스트의 데이터를 바꾸지 않는다")
+    void scheduledTriggersAreOffUnderTheTestProfile() {
+        assertThat(context.getBeanNamesForType(ScheduledAnnotationBeanPostProcessor.class))
+                .as("ci 프로필에서 예약 작업이 켜지면 분당 적립 크론(FocusRewardScheduler)이 통합 테스트 데이터를 바꾼다 — "
+                        + "application-ci.yml 의 app.scheduling.enabled=false 확인")
+                .isEmpty();
     }
 
     @Test
@@ -1203,7 +1179,7 @@ class FocusSessionActivationIntegrationTest {
     }
 
     UUID newUser() {
-        return jwt.extractUserId(auth.guestLogin().accessToken());
+        return jwt.extractUserId(auth.guestSession(java.util.UUID.randomUUID().toString()).accessToken());
     }
 
     /** 이미 있는 섬에 주민으로 넣고 도착해 현재 섬을 옮긴다 — 가입 승인 흐름은 이 테스트의 관심이 아니다. */

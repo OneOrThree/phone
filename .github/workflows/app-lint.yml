@@ -1,28 +1,56 @@
 name: Lint
 
 on:
+  workflow_call:
   push:
     branches: [main]
     paths:
       - 'app/app-dev/**'
+      - '!app/app-dev/**/*.md'
+      - '!app/app-dev/**/*.mdx'
+      - '!app/app-dev/docs/**'
+      - '!app/app-dev/.docs/**'
       - '.github/workflows/app-lint.yml'
+      - '.github/workflows/app-ios-testflight-dev.yml'
+      - '.github/workflows/app-android-ci.yml'
+      - '.github/workflows/app-android-cd.yml'
+      - '.github/workflows/app-android-build.yml'
+      - '.github/scripts/wait-app-checks.py'
+      # Android CI 전용 입력 변경도 업로드 게이트가 기다리는 Lint를 예약한다.
+      - '.github/ci/**'
       # 앱·서버 A* 공통 fixture — docs 만 바뀐 PR 에서도 nav-path 테스트가 돌아야 한다 (GROMO-2245)
       - 'docs/prd/fishcat/island-movement/fixtures/**'
+      # 앱 errors 동치 테스트(i18n/index.test.ts)가 서버의 ApiErrorCode.java 를 읽는다 — 서버만 바뀐 PR 에서도 돌아야 한다 (GROMO-2253)
+      - 'server/business-api/**/ApiErrorCode.java'
   pull_request:
     branches: [main] # main 대상 PR만 — 릴리즈 PR(main→release)은 이미 검사된 코드라 제외 (data-api-ci.dev.yml과 동일 패턴)
     paths:
       - 'app/app-dev/**'
+      - '!app/app-dev/**/*.md'
+      - '!app/app-dev/**/*.mdx'
+      - '!app/app-dev/docs/**'
+      - '!app/app-dev/.docs/**'
       # 이 워크플로 자신도 트리거에 넣는다 (GROMO-1513). 안 넣으면 app-lint.yml 만 고치는 PR 에서
       # 검사가 아예 안 돌아, 워크플로 변경이 맞는지 **머지해 봐야** 알 수 있다.
       # 실제로 이 파일의 NODE_OPTIONS 수정이 그 상황에 걸렸다.
       - '.github/workflows/app-lint.yml'
+      - '.github/workflows/app-ios-testflight-dev.yml'
+      - '.github/workflows/app-android-ci.yml'
+      - '.github/workflows/app-android-cd.yml'
+      - '.github/workflows/app-android-build.yml'
+      - '.github/scripts/wait-app-checks.py'
+      # Android CI 전용 입력 변경도 업로드 게이트가 기다리는 Lint를 예약한다.
+      - '.github/ci/**'
       # 앱·서버 A* 공통 fixture — docs 만 바뀐 PR 에서도 nav-path 테스트가 돌아야 한다 (GROMO-2245)
       - 'docs/prd/fishcat/island-movement/fixtures/**'
+      # 앱 errors 동치 테스트(i18n/index.test.ts)가 서버의 ApiErrorCode.java 를 읽는다 — 서버만 바뀐 PR 에서도 돌아야 한다 (GROMO-2253)
+      - 'server/business-api/**/ApiErrorCode.java'
 
 # 중간 푸시분은 어차피 다음 푸시에 무의미해지는데, 그때까지 러너를 물고 있다
 # (GROMO-1797). 그룹 이름은 다른 파이프라인과 달라야 한다 — 같으면 서로를 막는다.
 concurrency:
-  group: app-lint-${{ github.ref }}
+  # main 필수 검사는 게시 게이트가 해당 SHA를 기다리므로 후속 push가 취소하면 안 된다.
+  group: app-lint-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
   # PR 의 이전 실행은 취소하되, 통합 브랜치 push 는 중간에 끊지 않는다(data-api-ci·realtime-ci 와 같은 규율).
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
@@ -55,7 +83,7 @@ jobs:
           if [ -f app/app-dev/package.json ]; then
             echo "present=true" >> "$GITHUB_OUTPUT"
           else
-            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::error::검사 대상 앱이 없습니다"; exit 1
             echo "::warning::app/app-dev/ 가 없어 앱 검사를 건너뜁니다 — 동결된 1.x 앱(app/legacy/app-dev)은 검사하지 않습니다."
           fi
 
@@ -91,4 +119,9 @@ jobs:
       - name: Run tests
         if: steps.app.outputs.present == 'true'
         run: npm test
+        working-directory: app/app-dev
+
+      - name: 이미지 캐시 optional 네이티브 연결 검사
+        if: steps.app.outputs.present == 'true'
+        run: npx jest --runInBand --roots modules/catus-asset-cache --testMatch '**/index.test.ts'
         working-directory: app/app-dev

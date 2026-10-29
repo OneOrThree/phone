@@ -44,11 +44,12 @@ class IslandMailboxInternalIntegrationTest {
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
         OutboxTestPostgres.applyProductionMigrationWiring(registry);
-        registry.add("internal.api.enabled", () -> true);
+        registry.add("construction.facility-gates.enforce", () -> true);
         registry.add("internal.api.callers.business.token", () -> TOKEN);
         registry.add("internal.api.callers.business.allow[0]", () -> "GET /internal/islands/*/mailbox-access");
         registry.add("internal.api.callers.business.allow[1]", () -> "POST /internal/islands/*/message-authors");
         registry.add("internal.api.callers.business.allow[2]", () -> "POST /internal/islands/*/message-events");
+        registry.add("internal.api.callers.business.allow[3]", () -> "GET /internal/users/*/letters");
     }
 
     @Autowired
@@ -67,17 +68,30 @@ class IslandMailboxInternalIntegrationTest {
     PlatformTransactionManager transactions;
 
     @Test
-    @DisplayName("주민이면 200 — 본인 표시 projection 은 nickname 하나이고 catColor 는 실리지 않는다")
+    @DisplayName("시설 게이트가 켜져도 우체통 미완공 주민은 200 — 본인 표시 projection 계약 유지")
     void accessReturnsViewerForResident() throws Exception {
         String nickname = unique("수빈");
         UUID owner = newUser(nickname);
         Group island = newGroup(owner);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM island_facilities WHERE island_id = ?",
+                Integer.class, island.getId())).isZero();
 
         mockMvc.perform(as(get("/internal/islands/" + island.getId() + "/mailbox-access"), owner))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.userId").value(owner.toString()))
                 .andExpect(jsonPath("$.name").value(nickname))
                 .andExpect(jsonPath("$.catColor").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("우체통 미완공 섬의 주민도 일반 편지 받은함은 여전히 403 — 채팅 게이트만 제거한다")
+    void ordinaryLettersStillRequireCompletedMailbox() throws Exception {
+        UUID owner = newUser(unique("주인"));
+        newGroup(owner);
+
+        mockMvc.perform(as(get("/internal/users/" + owner + "/letters"), owner))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("LETTER_MAILBOX_LOCKED"));
     }
 
     @Test

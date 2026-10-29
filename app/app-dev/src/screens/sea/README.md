@@ -30,7 +30,8 @@ https://www.figma.com/design/XzlUvx1LGl5OZt6wHr2WRg/new-design?node-id=1357-1347
 ## 참가자 카드와 가로 탐색 (2365)
 
 - 최신 승인 배치대로 나는 고정, 다른 참가자는 5+4명으로 가로 탐색한다. 스냅샷 전체를 받으며, 순서가 바뀌어도 기존 자리·페이지를 유지한다. 한마디는 위, 이름과 초록 집중 시간은 뗏목 아래다.
-- 유저 카드에서 기존 `SeaRaft`·`CatOutfitLayers`로 고양이를 보여주고, 이름·집중 시간·한마디 전체를 표시한다. 표류 중 시간은 마지막 서버 값(세션이 없으면 0)이다. 본인·이미 떠난 유저에게 친구 요청을 제공하지 않는다. 신고·차단 시트는 열지 않는다.
+- 표류 중 내 「＋ 한마디 쓰기」 칩(`sea-message-chip`)은 내 뗏목 크기에 비례해(`RAFT_TOP` = 152/512) 뗏목 상자 위 빈 띠만큼 내려 꼬리로 내 고양이를 가리킨다(GROMO-2414). 뗏목 Pressable 보다 `zIndex` 가 높아 겹친 자리도 칩이 눌린다.
+- 남의 뗏목을 누르면 다른 고양이 정보창(`screens/island/CatInfoPopup`, GROMO-2474 — 뗏목·이름·한마디 말풍선·친구 행동, DESIGN.md 「다른 고양이 정보창」)이 뜬다. 친구 요청은 호스트가 아니라 앱 친구 상태(`FriendActionContext`)가 보낸다. 내 뗏목은 기존 내 카드(`SeaRaft`·`CatOutfitLayers`로 고양이, 이름·집중 시간·한마디 전체)다. 표류 중 시간은 마지막 서버 값(세션이 없으면 0)이다. 신고·차단 시트는 열지 않는다.
 - `SeaVoyageHost`가 `POST /friends/requests {targetUserId}`를 연결한다. 성공 뒤에만 `요청 보냄`으로 바꾸고 친구 목록을 재조회한다. 중복·권한·전송 오류는 안내 후 재시도할 수 있고, 게스트는 기존 회원 전환 흐름을 연다. 화면 이탈·계정 세대 변경 뒤의 응답은 버린다. 카드 진입은 바다 소켓을 추가로 열지 않는다.
 - `seaRealtime.ts`의 `name=null`·`catColor=null` 폴백은 `???`·`gray`다. 서버 바다 member 계약에는 현재 appearance가 없어서 다른 참가자의 장착을 추측하거나 섬 주민 API로 우회 조회하지 않는다. 내 장착과 전달된 `outfit`은 기존 레이어로 합성하며 `undefined`·`null`은 모두 미장착이다.
 - 한국어·영어 문구와 공용 모달 스크롤·접근성 차단 규칙을 사용한다.
@@ -42,6 +43,14 @@ https://www.figma.com/design/XzlUvx1LGl5OZt6wHr2WRg/new-design?node-id=1357-1347
 - 뗏목 위 잡지 B3: 받은 호가 있으면 `SeaScene` 이 내 뗏목 오른쪽에 표지 물건(안 읽음 빨간 점)을 둔다. 가로 compact 에서는 뗏목 크기에 비례해 줄여 뗏목 옆에 나란히 둔다(누르는 자리 44 이상, 뗏목과 겹치지 않음). 꽂이·길게 누르기는 없다(`GET /me/magazine/issues` 를 부르지 않는다).
 - 펼치기는 라우트 `seaMagazine`(`seaRouteHeld` 에 포함 — 소속 섬 가드를 타지 않는다) → `MagazineReader place="SEA"`. 망원경 동그라미는 `pinToTelescope(id, 'magazine', promotionId)` 뒤 `e.replace('telescope')` 라 망원경 뒤로가기가 바다로 간다. 요청 중 잡지를 닫으면 이동하지 않고, 빠진 섬 토스트만 알린다.
 - 알려진 한계(범위 밖): 소속 섬이 없는 표류 유저가 망원경(바다 [망원경] · 잡지 동그라미 모두)으로 가면 App 의 소속 가드가 `telescope` 를 지키지 않아 섬 선택으로 보낸다. 기존 바다 [망원경] 버튼과 같은 동작이다.
+
+## 표류 중 위쪽 HUD (2404)
+
+- `SeaVoyageHost` 는 표류(`drifting`) 중에만 `SeaScreen.hud` 를 준다 — 친구 요청 수는 홈(`WorldMap`)과 같은 출처(서버면 `e.friendsScreen`, 목업이면 `state.friends`)이고 `go` 는 App 의 라우트 이동이다. 항해 집중·결과창·출항 연출에서는 null 이라 그리지 않는다.
+- `SeaScreen` 은 `voyage` 가 없고 `hud` 가 있을 때만 `sea-hud`(안전 영역 안 위쪽, `box-none`)를 그린다: 왼쪽 `HudAvatarButton`(내 털색·장착 → `wardrobe`), 오른쪽 `HudActions`(`friends` 배지 · `settings`). 모양·접근성 라벨은 홈과 같다.
+- App 의 `SEA_HUD_ROUTES`(`friends`·`friendSearch`·`blockedUsers`·`settings`·`mainIsland`·`profile`·`language`·`permission`·`screenTimeApps`·`wardrobe`)는 계정 단위 화면이라 소속 가드가 섬 없이도 허용한다(`NO_ISLAND_ROUTES` — 망원경과 같은 목록). 섬을 잃는 순간(서버 동기화든 목업 강퇴 복구 신호든) 이 화면에 있었다면 바다로 보내지 않고 그 자리에 둔다 — 강퇴 안내만 뜨고, 닫기(`home()`)·뒤로가기 때 바다로 간다. 강퇴된 섬을 보는 방문·항해 화면은 종전대로 옮긴다. 닫기 목적지는 소속 여부가 아니라 연 곳(App 기록의 바닥이 바다 라우트인지)으로 정한다 — 소속 섬이 있어도 바다에서 열었으면 바다로, 홈에서 열었으면 홈으로.
+- 옷장(`useShop`)은 소속 섬이 없어도 개인 인벤토리(`GET /me/inventory`)와 외양 변경(`PATCH /me/appearance`)을 한다 — `scope` 가 섬 id 대신 `personal` 이 되고, 상점 상세(제목)는 부르지 않으며 칸 제목은 꾸미기 카탈로그가 준다. 상점·주문·축음기는 종전대로 섬이 있어야 한다.
+- `CurrentScreens` 의 친구 freshness 경계(`friendsSafetyRouteActive`)에 `sea` 를 넣어 홈과 같은 주기로 요청 배지를 다시 검증한다.
 
 ## 서비스 연결 지점과 남은 작업
 

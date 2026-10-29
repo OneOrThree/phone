@@ -1,0 +1,4 @@
+/* 홈 화면·시스템 권한 창에 보이는 앱 이름 (GROMO-2458) */
+"CFBundleDisplayName" = "cattus";
+"CFBundleName" = "cattus";
+"NSUserTrackingUsageDescription" = "Your permission helps us measure which ads led to app installs and how our ads perform.";

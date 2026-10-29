@@ -2,6 +2,7 @@ import { readAccountGuides } from '@/services/accountGuides';
 import assert from 'node:assert/strict';
 import * as SecureStore from 'expo-secure-store';
 import React from 'react';
+import { AppState, type AppStateStatus } from 'react-native';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import App from '@/App';
@@ -11,6 +12,7 @@ import {
   clearLocalDataOwner,
   clearSession,
   getLastSessionUserId,
+  notifySessionLost,
   rememberLocalDataOwner,
   saveSession,
   sessionGeneration,
@@ -23,6 +25,7 @@ import {
 } from '@/services/buildingTransition';
 
 let captured: any;
+let mockFocusBlockingIntro: any;
 // 앱 state 저장은 1초 모아 쓴다(GROMO-2372) — 저장본을 기다리는 waitFor 는 그보다 넉넉히 기다린다
 const SAVED_WRITE = { timeout: 3000 };
 // 저장은 1초 모아 쓴다(SAVE_DELAY_MS) — 저장을 여러 번 기다리는 테스트가 느린 CI 러너에서 기본 5초를 넘지 않게 늘린다
@@ -30,6 +33,16 @@ jest.setTimeout(15_000);
 const mockStartLiveActivityPushSync = jest.fn(() => jest.fn());
 jest.mock('@/services/liveActivityPush', () => ({
   startLiveActivityPushSync: () => mockStartLiveActivityPushSync(),
+}));
+const mockStartPushSync = jest.fn(() => () => {});
+const mockRefreshPush = jest.fn();
+const mockUnregisterPushDevice = jest.fn();
+const mockRequestPushPermission = jest.fn();
+jest.mock('@/services/push', () => ({
+  startPushSync: () => mockStartPushSync(),
+  refreshPush: () => mockRefreshPush(),
+  unregisterPushDevice: () => mockUnregisterPushDevice(),
+  requestPushPermission: (shouldAsk?: () => boolean) => mockRequestPushPermission(shouldAsk),
 }));
 let mockLoadHomeSnapshot: jest.Mock | undefined;
 const mockApiLogin = jest.fn();
@@ -39,11 +52,13 @@ const mockCheckSession = jest.fn();
 const mockRestoreSession = jest.fn();
 const mockDecideBootRoute = jest.fn();
 const mockSyncIslands = jest.fn();
+const mockSwitchCurrent = jest.fn();
 const mockRecoverFocus = jest.fn();
 const mockPrepareLogout = jest.fn();
 const mockLogout = jest.fn(async (_prepared?: Promise<void>) => {});
 const mockClearStudyWidget = jest.fn(async () => false);
 let mockEmitAppLink: ((url: string) => void) | undefined;
+let mockInvitationCommands: Record<string, jest.Mock> | undefined;
 let mockRememberOverride: ((...args: any[]) => Promise<boolean>) | undefined;
 let mockAppDispatch: ((action: any) => void) | undefined;
 const mockAdoptSignedInAccount = jest.fn(
@@ -61,6 +76,10 @@ let mockBootRoute: Route = 'login';
 jest.mock('@/screens/island/CurrentScreens', () => ({
   CurrentScreens: ({ e }: any) => {
     captured = e;
+    return null;
+  },
+  FocusBlockingIntro: ({ e }: any) => {
+    mockFocusBlockingIntro = e;
     return null;
   },
 }));
@@ -148,6 +167,8 @@ jest.mock('@/services/islandCommands', () => {
         commands: {
           ...created.commands,
           sync: (...syncArgs: unknown[]) => mockSyncIslands(...syncArgs),
+          switchCurrent: (...switchArgs: unknown[]) => mockSwitchCurrent(...switchArgs),
+          ...mockInvitationCommands,
         },
       };
     },
@@ -183,6 +204,7 @@ jest.mock('react-native-safe-area-context', () => ({
 }));
 
 beforeEach(async () => {
+  mockInvitationCommands = undefined;
   process.env.EXPO_PUBLIC_TERMS_VERSION = 'test-terms-v1';
   captured = undefined;
   mockLoadHomeSnapshot = undefined;
@@ -193,12 +215,16 @@ beforeEach(async () => {
   mockGuestLogin.mockReset();
   mockPrepareLogout.mockReset();
   mockPrepareLogout.mockResolvedValue(undefined);
+  mockRequestPushPermission.mockReset();
+  mockRequestPushPermission.mockResolvedValue('granted');
   mockCheckSession.mockResolvedValue({ status: 'offline' });
   mockRestoreSession.mockResolvedValue(null);
   mockBootRoute = 'login';
   mockDecideBootRoute.mockImplementation(async () => mockBootRoute);
   mockSyncIslands.mockReset();
   mockSyncIslands.mockResolvedValue({ currentIslandId: null, items: [] });
+  mockSwitchCurrent.mockReset();
+  mockSwitchCurrent.mockResolvedValue(undefined);
   mockRecoverFocus.mockResolvedValue(null);
   mockAppDispatch = undefined;
   mockRememberOverride = undefined;
@@ -216,6 +242,7 @@ test('owner와 복구 세션이 다르면 활성 계정 동기화 뒤에만 이�
   const savedA = {
     ...initialState(true),
     name: 'A-only-private-state',
+    focusBlockingIntro: 'pending',
     settings: { ...initialState(true).settings, sound: false },
   };
   await AsyncStorage.setItem('gromo-r61-user-v2', JSON.stringify(savedA));
@@ -266,6 +293,7 @@ test('owner와 복구 세션이 다르면 활성 계정 동기화 뒤에만 이�
   await waitFor(() => assert.equal(getLastSessionUserId(), 'user-b'));
 
   assert.notEqual(captured.state.fish, 777);
+  expect(captured.state.focusBlockingIntro).toBeUndefined();
   assert.equal(captured.state.settings.sound, false);
   await waitFor(() => {
     assert.equal(captured.state.loggedIn, true);
@@ -1518,8 +1546,9 @@ test('로그아웃 기록을 기기에 남기지 못하면 signOut은 false로 �
   assert.equal(result, false);
   assert.equal(mockLogout.mock.calls.length, 0);
   assert.ok(screen.getByText(/로그아웃하지 못했어요/));
-  // 세션이 남는 실패에서는 위젯도 그대로 둔다.
+  // 세션이 남는 실패에서는 위젯도 푸시 기기 등록도 그대로 둔다.
   assert.equal(mockClearStudyWidget.mock.calls.length, 0);
+  assert.equal(mockUnregisterPushDevice.mock.calls.length, 0);
 
   const prepared = Promise.resolve();
   mockPrepareLogout.mockReturnValueOnce(prepared);
@@ -1533,7 +1562,87 @@ test('로그아웃 기록을 기기에 남기지 못하면 signOut은 false로 �
   // 화면 전환 판단에 쓴 준비 결과를 실제 정리에 그대로 넘긴다 — 다시 준비하지 않는다.
   assert.equal(mockLogout.mock.calls[0][0], prepared);
   assert.equal(mockPrepareLogout.mock.calls.length, 2);
+  // 푸시 기기 삭제는 logout 이 세션을 지우기 전에 시작한다 — 요청이 지금 AT 를 싣는다.
+  assert.equal(mockUnregisterPushDevice.mock.calls.length, 1);
+  assert.ok(
+    mockUnregisterPushDevice.mock.invocationCallOrder[0] < mockLogout.mock.invocationCallOrder[0],
+  );
 });
+
+test('설정 「알림」을 바꾸면 푸시 동기화를 깨우고, 다른 설정은 깨우지 않는다', async () => {
+  await act(async () => {
+    render(<App />);
+    for (let n = 0; n < 10; n += 1) await Promise.resolve();
+  });
+  await waitFor(() => assert.ok(captured));
+  // 부팅이 끝나 동기화가 시작된 뒤에 바꾼다.
+  await waitFor(() => assert.equal(mockStartPushSync.mock.calls.length, 1));
+  const before = mockRefreshPush.mock.calls.length;
+
+  await act(async () => captured.dispatch({ type: 'SETTING', key: 'notifications', value: false }));
+  assert.equal(mockRefreshPush.mock.calls.length, before + 1);
+  await act(async () => captured.dispatch({ type: 'SETTING', key: 'sound', value: false }));
+  assert.equal(mockRefreshPush.mock.calls.length, before + 1);
+  await act(async () => captured.dispatch({ type: 'SETTING', key: 'notifications', value: true }));
+  assert.equal(mockRefreshPush.mock.calls.length, before + 2);
+});
+
+test.each([
+  [
+    '로그아웃으로',
+    async () => {
+      await captured.signOut();
+      // mockLogout 은 세션을 지우지 않는다 — 실제 logout 이 하는 정리를 대신한다.
+      await clearSession();
+    },
+  ],
+  [
+    '세션 상실(401)로',
+    async () => {
+      // client 가 거절된 세션을 비운 뒤 세션 상실을 알리는 순서다.
+      await clearSession();
+      notifySessionLost();
+    },
+  ],
+])(
+  '%s 세션이 끝나면 보관 중이던 링크를 버린다 — 다음 로그인에서 열리지 않는다',
+  async (_ending, end) => {
+    await act(async () => {
+      render(<App />);
+      for (let n = 0; n < 10; n += 1) await Promise.resolve();
+    });
+    await waitFor(() => assert.ok(captured));
+    await waitFor(() => assert.ok(mockEmitAppLink));
+    // 현재 섬 없이 로그인한 상태 — 친구 링크는 섬이 생길 때까지 보관된다.
+    await act(async () => {
+      await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'u1' });
+    });
+    await act(async () => mockEmitAppLink!('gromo://friends'));
+    assert.notEqual(captured.route, 'friends');
+
+    await act(end);
+    // 다른 계정으로 다시 로그인해 섬에 들어온다 — 보관이 남아 있었다면 여기서 열린다.
+    await act(async () => {
+      await saveSession({ accessToken: 'AT2', refreshToken: 'RT2', userId: 'u2' });
+      mockAppDispatch!({
+        type: 'ISLAND_SYNC',
+        memberships: {
+          items: [{ id: 'island-1' }],
+          nextCursor: null,
+          currentIslandId: 'island-1',
+          lossReason: null,
+        },
+        requests: [],
+        mainIslandId: 'island-1',
+      });
+      captured.reset('settings');
+    });
+    await waitFor(() => assert.equal(captured.route, 'settings'));
+    // 같은 자리에서 새로 온 링크는 연다 — 위에서 열리지 않은 것이 보관을 버린 때문임을 확인한다.
+    await act(async () => mockEmitAppLink!('gromo://friends'));
+    await waitFor(() => assert.equal(captured.route, 'friends'));
+  },
+);
 
 test('계정·섬 온보딩이 끝날 때까지 지원 딥링크를 보관한다', async () => {
   await act(async () => {
@@ -1612,6 +1721,579 @@ test('미인증 상태의 지원 불가 레거시 링크는 로그인 화면을 
   await waitFor(() => assert.ok(screen.getByText(/지원하지 않아 홈으로 이동했어요/)));
   assert.equal(captured.route, 'home');
 });
+
+const LINK_ISLAND_A = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d55';
+const LINK_ISLAND_B = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d66';
+const LINK_ISLAND_C = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d88';
+const LINK_ISLAND_STRANGER = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d77';
+const LINK_ISSUE = '0197e0c3-9a10-7c3d-8e21-5a6b7c8d9e0f';
+const LINK_TOAST = /지금은 열 수 없는 섬이에요/;
+
+// 로그인·온보딩을 마친 앱을 설정 화면(소속 섬이 없으면 바다 등 `startRoute`)에 세워 둔다 — 링크가 열려 «옮겨 가는» 것이 route 로 보이게 한다.
+const renderLinkedApp = async (
+  currentIslandId: string | null,
+  memberIds: string[],
+  startRoute: Route = 'settings',
+  synced = true,
+) => {
+  await act(async () => {
+    render(<App />);
+    for (let n = 0; n < 10; n += 1) await Promise.resolve();
+  });
+  await waitFor(() => assert.ok(captured));
+  await waitFor(() => assert.ok(mockEmitAppLink));
+  await act(async () => {
+    await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'u1' });
+    if (synced)
+      mockAppDispatch!({
+        type: 'ISLAND_SYNC',
+        memberships: {
+          items: memberIds.map((id) => ({ id })),
+          nextCursor: null,
+          currentIslandId,
+          lossReason: null,
+        },
+        requests: [],
+        mainIslandId: currentIslandId,
+      });
+    captured.reset(startRoute);
+  });
+  await waitFor(() => assert.equal(captured.route, startRoute));
+};
+
+test('group 링크는 소속 섬이면 현재 섬을 옮기고 홈으로 간다', async () => {
+  await renderLinkedApp(LINK_ISLAND_A, [LINK_ISLAND_A, LINK_ISLAND_B]);
+  mockSwitchCurrent.mockImplementation(async (islandId: string) => {
+    mockAppDispatch!({
+      type: 'ISLAND_SYNC',
+      memberships: {
+        items: [{ id: LINK_ISLAND_A }, { id: LINK_ISLAND_B }],
+        nextCursor: null,
+        currentIslandId: islandId,
+        lossReason: null,
+      },
+      requests: [],
+      mainIslandId: LINK_ISLAND_A,
+    });
+  });
+
+  await act(async () =>
+    mockEmitAppLink!(`gromo://group?g=${LINK_ISLAND_B}&challenge=${LINK_ISSUE}`),
+  );
+  await waitFor(() => assert.equal(captured.route, 'home'));
+  assert.equal(mockSwitchCurrent.mock.calls.length, 1);
+  assert.equal(mockSwitchCurrent.mock.calls[0][0], LINK_ISLAND_B);
+  assert.equal(captured.state.serverIslands.currentIslandId, LINK_ISLAND_B);
+  assert.ok(!screen.queryByText(LINK_TOAST));
+});
+
+// 이 앱의 캐시가 현재 섬이라고 해도 다른 기기에서 바꿨을 수 있다 — 서버의 같은 섬 PUT(멱등 200 상태확인)으로 확정한다.
+test('캐시상 현재 섬을 가리키는 group 링크도 서버에 확인한 뒤 홈으로 간다', async () => {
+  await renderLinkedApp(LINK_ISLAND_A, [LINK_ISLAND_A, LINK_ISLAND_B]);
+
+  await act(async () => mockEmitAppLink!(`gromo://group?g=${LINK_ISLAND_A}`));
+  await waitFor(() => assert.equal(captured.route, 'home'));
+  assert.equal(mockSwitchCurrent.mock.calls.length, 1);
+  assert.equal(mockSwitchCurrent.mock.calls[0][0], LINK_ISLAND_A);
+  assert.ok(!screen.queryByText(LINK_TOAST));
+});
+
+test('캐시상 현재 섬인 group 링크를 서버가 거절하면(다른 기기에서 옮김) 홈에서 안내한다', async () => {
+  await renderLinkedApp(LINK_ISLAND_A, [LINK_ISLAND_A, LINK_ISLAND_B]);
+  mockSwitchCurrent.mockRejectedValue(new ApiError('STATE_CONFLICT', '집중 중이에요.', 409));
+
+  await act(async () => mockEmitAppLink!(`gromo://group?g=${LINK_ISLAND_A}`));
+  await waitFor(() => assert.ok(screen.getByText(LINK_TOAST)));
+  assert.equal(mockSwitchCurrent.mock.calls.length, 1);
+  assert.equal(captured.route, 'home');
+});
+
+// 소속 여부는 서버가 판정한다 — 비소속 섬이면 서버 거절(MEMBER_ONLY)이 같은 안내를 낸다.
+test('group 링크가 소속이 아닌 섬이면 서버가 거절해 홈에서 안내한다', async () => {
+  await renderLinkedApp(LINK_ISLAND_A, [LINK_ISLAND_A, LINK_ISLAND_B]);
+  mockSwitchCurrent.mockRejectedValue(new ApiError('MEMBER_ONLY', '소속이 아니에요.', 403));
+
+  await act(async () => mockEmitAppLink!(`gromo://group?g=${LINK_ISLAND_STRANGER}`));
+  await waitFor(() => assert.ok(screen.getByText(LINK_TOAST)));
+  assert.equal(mockSwitchCurrent.mock.calls.length, 1);
+  assert.equal(mockSwitchCurrent.mock.calls[0][0], LINK_ISLAND_STRANGER);
+  assert.equal(captured.route, 'home');
+  assert.equal(captured.state.serverIslands.currentIslandId, LINK_ISLAND_A);
+});
+
+// 다른 기기에서 방금 가입·승인된 섬은 이 앱의 로컬 스냅샷에 아직 없다 — 서버가 받아 주면 열어야 한다.
+test('로컬 소속 스냅샷에 없는 섬도 서버가 받아 주면 옮기고 홈으로 간다', async () => {
+  await renderLinkedApp(LINK_ISLAND_A, [LINK_ISLAND_A, LINK_ISLAND_B]);
+  mockSwitchCurrent.mockImplementation(async (islandId: string) => {
+    mockAppDispatch!({
+      type: 'ISLAND_SYNC',
+      memberships: {
+        items: [{ id: LINK_ISLAND_A }, { id: LINK_ISLAND_B }, { id: islandId }],
+        nextCursor: null,
+        currentIslandId: islandId,
+        lossReason: null,
+      },
+      requests: [],
+      mainIslandId: LINK_ISLAND_A,
+    });
+  });
+
+  await act(async () => mockEmitAppLink!(`gromo://group?g=${LINK_ISLAND_STRANGER}`));
+  await waitFor(() => assert.equal(captured.route, 'home'));
+  assert.equal(mockSwitchCurrent.mock.calls.length, 1);
+  assert.equal(captured.state.serverIslands.currentIslandId, LINK_ISLAND_STRANGER);
+  assert.ok(!screen.queryByText(LINK_TOAST));
+});
+
+test('집중 중에 받은 group 링크는 섬을 옮기지 않고 홈에서 안내한다', async () => {
+  await renderLinkedApp(LINK_ISLAND_A, [LINK_ISLAND_A, LINK_ISLAND_B]);
+  await act(async () =>
+    captured.dispatch({
+      type: 'SESSION_SYNC',
+      session: {
+        id: 'session-1',
+        islandId: LINK_ISLAND_A,
+        subject: '집중',
+        startedAt: Date.now(),
+        seconds: 0,
+        status: 'active',
+        intervals: [],
+      },
+    }),
+  );
+  assert.ok(captured.state.session);
+
+  await act(async () => mockEmitAppLink!(`gromo://group?g=${LINK_ISLAND_B}`));
+  await waitFor(() => assert.equal(captured.route, 'home'));
+  assert.ok(screen.getByText(LINK_TOAST));
+  assert.equal(mockSwitchCurrent.mock.calls.length, 0);
+});
+
+test('집중 중에도 현재 섬을 가리키는 group 링크는 서버 상태확인으로 홈에 간다', async () => {
+  await renderLinkedApp(LINK_ISLAND_A, [LINK_ISLAND_A, LINK_ISLAND_B]);
+  await act(async () =>
+    captured.dispatch({
+      type: 'SESSION_SYNC',
+      session: {
+        id: 'session-1',
+        islandId: LINK_ISLAND_A,
+        subject: '집중',
+        startedAt: Date.now(),
+        seconds: 0,
+        status: 'active',
+        intervals: [],
+      },
+    }),
+  );
+
+  await act(async () => mockEmitAppLink!(`gromo://group?g=${LINK_ISLAND_A}`));
+  await waitFor(() => assert.equal(captured.route, 'home'));
+  assert.equal(mockSwitchCurrent.mock.calls.length, 1);
+  assert.ok(!screen.queryByText(LINK_TOAST));
+});
+
+test('현재 섬을 옮기지 못하면 홈에서 안내한다', async () => {
+  await renderLinkedApp(LINK_ISLAND_A, [LINK_ISLAND_A, LINK_ISLAND_B]);
+  mockSwitchCurrent.mockRejectedValue(new ApiError('MEMBER_ONLY', '소속이 아니에요.', 403));
+
+  await act(async () => mockEmitAppLink!(`gromo://group?g=${LINK_ISLAND_B}`));
+  await waitFor(() => assert.ok(screen.getByText(LINK_TOAST)));
+  assert.equal(mockSwitchCurrent.mock.calls.length, 1);
+  assert.equal(captured.route, 'home');
+});
+
+test('magazine 링크는 소속 섬이 있으면 섬 잡지로, 없으면 바다 잡지로 호 id 와 함께 연다', async () => {
+  await renderLinkedApp(LINK_ISLAND_A, [LINK_ISLAND_A]);
+  await act(async () => mockEmitAppLink!(`gromo://magazine?issue=${LINK_ISSUE}`));
+  await waitFor(() => assert.equal(captured.route, 'magazine'));
+  assert.equal(captured.detail, LINK_ISSUE);
+});
+
+test('소속 섬이 없는 계정(ISLAND_SYNC 소속 0)의 magazine 링크는 바다 잡지로 열고 group 링크는 보관한다', async () => {
+  await renderLinkedApp(null, [], 'sea');
+  // 계정 온보딩은 끝났지만 현재 섬이 없는 실제 상태다 — ISLAND_SYNC 가 onboarded(현재 섬 유무)를 false 로 둔다.
+  assert.equal(captured.state.onboarded, false);
+  assert.equal(captured.state.serverIslands.currentIslandId, null);
+
+  // 섬 이동은 현재 섬 맥락이 필요해 그대로 보관한다.
+  await act(async () => mockEmitAppLink!(`gromo://group?g=${LINK_ISLAND_B}`));
+  assert.equal(captured.route, 'sea');
+  assert.equal(mockSwitchCurrent.mock.calls.length, 0);
+
+  await act(async () => mockEmitAppLink!(`gromo://magazine?issue=${LINK_ISSUE}`));
+  await waitFor(() => assert.equal(captured.route, 'seaMagazine'));
+  assert.equal(captured.detail, LINK_ISSUE);
+});
+
+// 섬/바다 잡지는 serverIslands 로 가른다 — 동기화가 실패해 비어 있는 동안에는 바다 잡지로 잘못 열지 않고 보관한다.
+test('섬 동기화 전에 받은 magazine 링크는 보관했다가 동기화 뒤 섬 잡지로 연다', async () => {
+  mockLoadHomeSnapshot = jest.fn(() => new Promise(() => {}));
+  await renderLinkedApp(LINK_ISLAND_A, [LINK_ISLAND_A], 'sea', false);
+  assert.ok(!captured.state.serverIslands);
+
+  await act(async () => mockEmitAppLink!(`gromo://magazine?issue=${LINK_ISSUE}`));
+  assert.equal(captured.route, 'sea');
+
+  await act(async () =>
+    mockAppDispatch!({
+      type: 'ISLAND_SYNC',
+      memberships: {
+        items: [{ id: LINK_ISLAND_A }],
+        nextCursor: null,
+        currentIslandId: LINK_ISLAND_A,
+        lossReason: null,
+      },
+      requests: [],
+      mainIslandId: LINK_ISLAND_A,
+    }),
+  );
+  await waitFor(() => assert.equal(captured.route, 'magazine'));
+  assert.equal(captured.detail, LINK_ISSUE);
+});
+
+// 잡지 배경은 섬 홈이고 섬장 여부(끝 쪽 안내)도 홈 스냅샷으로 정해진다 — 링크로 곧장 열어도 홈을 조회해야 한다.
+test('홈 스냅샷이 없는 상태에서 magazine 링크로 들어가면 홈 스냅샷을 조회한다', async () => {
+  mockLoadHomeSnapshot = jest.fn(() => new Promise(() => {}));
+  await renderLinkedApp(LINK_ISLAND_A, [LINK_ISLAND_A]);
+  assert.ok(!captured.state.serverIslands.home);
+  // 홈 조회는 홈 위젯 갱신도 부른다 — 링크로 잡지에 들어간 뒤 조회가 더 늘어나는지 본다.
+  const before = mockLoadHomeSnapshot.mock.calls.length;
+
+  await act(async () => mockEmitAppLink!(`gromo://magazine?issue=${LINK_ISSUE}`));
+  await waitFor(() => assert.equal(captured.route, 'magazine'));
+  await waitFor(() => assert.ok(mockLoadHomeSnapshot!.mock.calls.length > before));
+});
+
+// 집중 → 휴식 전환 애니메이션이 도는 동안 받은 링크는 전환이 끝난 뒤에 열린다 — 끝날 때 부르는 navigate 가 덮어쓰지 않게.
+test('집중 → 휴식 전환 중에 받은 링크는 전환이 끝난 뒤에 연다', async () => {
+  mockLoadHomeSnapshot = jest.fn(() => new Promise(() => {}));
+  await renderLinkedApp(LINK_ISLAND_A, [LINK_ISLAND_A], 'focus');
+  await act(async () => captured.go('rest'));
+  // 전환(620ms)이 도는 동안은 화면이 그대로다
+  assert.equal(captured.route, 'focus');
+
+  await act(async () => mockEmitAppLink!(`gromo://magazine?issue=${LINK_ISSUE}`));
+  assert.equal(captured.route, 'focus');
+
+  await waitFor(() => assert.equal(captured.route, 'magazine'), { timeout: 3000 });
+  assert.equal(captured.detail, LINK_ISSUE);
+});
+
+// 두 보류가 겹친다 — 전환이 끝나도 섬 동기화 전이면 링크는 계속 보관되고, 동기화가 들어오는 순간 한 번만 열린다.
+test('휴식 전환 중에 섬 동기화 전 magazine 링크가 오면 전환이 끝나도 보관하다 동기화 뒤 한 번만 연다', async () => {
+  mockLoadHomeSnapshot = jest.fn(() => new Promise(() => {}));
+  await renderLinkedApp(LINK_ISLAND_A, [LINK_ISLAND_A], 'focus', false);
+  assert.ok(!captured.state.serverIslands);
+  await act(async () => captured.go('rest'));
+  assert.equal(captured.route, 'focus');
+
+  await act(async () => mockEmitAppLink!(`gromo://magazine?issue=${LINK_ISSUE}`));
+  assert.equal(captured.route, 'focus');
+
+  // 전환(620ms)이 끝나 목적지 rest 에 닿아도 동기화 전이라 링크는 열리지 않는다
+  await waitFor(() => assert.equal(captured.route, 'rest'), { timeout: 3000 });
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  });
+  assert.equal(captured.route, 'rest');
+
+  await act(async () =>
+    mockAppDispatch!({
+      type: 'ISLAND_SYNC',
+      memberships: {
+        items: [{ id: LINK_ISLAND_A }],
+        nextCursor: null,
+        currentIslandId: LINK_ISLAND_A,
+        lossReason: null,
+      },
+      requests: [],
+      mainIslandId: LINK_ISLAND_A,
+    }),
+  );
+  await waitFor(() => assert.equal(captured.route, 'magazine'));
+  assert.equal(captured.detail, LINK_ISSUE);
+
+  // 한 번 소비한 링크는 사라진다 — 사용자가 다른 화면으로 옮겨도 다시 열리지 않는다
+  await act(async () => captured.go('friends'));
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  });
+  assert.equal(captured.route, 'friends');
+});
+
+// 구경 중에는 SERVER_VISIT_ROUTES 만 열려 목적지가 막힌다 — 링크가 구경을 먼저 끝내고 연다.
+test.each([
+  ['현재 섬을 가리키는 group', `gromo://group?g=${LINK_ISLAND_A}`, 'home', '', 1],
+  ['magazine', `gromo://magazine?issue=${LINK_ISSUE}`, 'magazine', LINK_ISSUE, 0],
+  ['friends', 'gromo://friends', 'friends', '', 0],
+  ['지원하지 않는 join', `gromo://join?g=${LINK_ISLAND_B}`, 'home', '', 0],
+] as const)(
+  '서버 섬 구경 중 받은 %s 링크는 구경을 끝내고 목적지를 연다',
+  async (_name, url, route, detail, switches) => {
+    await renderLinkedApp(LINK_ISLAND_A, [LINK_ISLAND_A, LINK_ISLAND_B]);
+    await act(async () => {
+      captured.dispatch({ type: 'ISLAND_VISIT', visit: { island: { id: LINK_ISLAND_STRANGER } } });
+      captured.dispatch({ type: 'SERVER_VISITING', islandId: LINK_ISLAND_STRANGER });
+      captured.reset('visitIsland', LINK_ISLAND_STRANGER);
+    });
+    assert.equal(captured.state.visitingIslandId, LINK_ISLAND_STRANGER);
+
+    await act(async () => mockEmitAppLink!(url));
+    await waitFor(() => assert.equal(captured.route, route));
+    assert.equal(captured.state.visitingIslandId, null);
+    assert.equal(captured.detail, detail);
+    assert.equal(mockSwitchCurrent.mock.calls.length, switches);
+  },
+);
+
+test.each(['성공', '실패'] as const)(
+  '섬 이동 응답이 오기 전에 더 새 링크를 열었으면 늦은 %s 응답이 화면을 덮지 않는다',
+  async (outcome) => {
+    await renderLinkedApp(LINK_ISLAND_A, [LINK_ISLAND_A, LINK_ISLAND_B]);
+    let settle!: () => void;
+    mockSwitchCurrent.mockReturnValue(
+      new Promise<void>((resolve, reject) => {
+        settle = () => {
+          if (outcome === '실패') return reject(new ApiError('STATE_CONFLICT', '충돌', 409));
+          mockAppDispatch!({
+            type: 'ISLAND_SYNC',
+            memberships: {
+              items: [{ id: LINK_ISLAND_A }, { id: LINK_ISLAND_B }],
+              nextCursor: null,
+              currentIslandId: LINK_ISLAND_B,
+              lossReason: null,
+            },
+            requests: [],
+            mainIslandId: LINK_ISLAND_A,
+          });
+          resolve();
+        };
+      }),
+    );
+
+    await act(async () => mockEmitAppLink!(`gromo://group?g=${LINK_ISLAND_B}`));
+    assert.equal(mockSwitchCurrent.mock.calls.length, 1);
+    await act(async () => mockEmitAppLink!(`gromo://magazine?issue=${LINK_ISSUE}`));
+    await waitFor(() => assert.equal(captured.route, 'magazine'));
+
+    await act(async () => {
+      settle();
+      for (let n = 0; n < 10; n += 1) await Promise.resolve();
+    });
+    assert.equal(captured.route, 'magazine');
+    assert.equal(captured.detail, LINK_ISSUE);
+    assert.ok(!screen.queryByText(LINK_TOAST));
+  },
+);
+
+// 진짜 selection 잠금(islandCommands.ts)처럼 이동 중인 동안 다른 switchCurrent 를 REQUEST_IN_PROGRESS 로 거절하는 서버 흉내.
+const gatedSwitch = (hold: string) => {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let busy = false;
+  mockSwitchCurrent.mockImplementation(async (islandId: string) => {
+    if (busy)
+      throw new ApiError('REQUEST_IN_PROGRESS', '섬을 변경하고 있어요. 잠시 기다려 주세요.', 409);
+    busy = true;
+    try {
+      if (islandId === hold) await gate;
+      mockAppDispatch!({
+        type: 'ISLAND_SYNC',
+        memberships: {
+          items: [{ id: LINK_ISLAND_A }, { id: LINK_ISLAND_B }, { id: LINK_ISLAND_C }],
+          nextCursor: null,
+          currentIslandId: islandId,
+          lossReason: null,
+        },
+        requests: [],
+        mainIslandId: LINK_ISLAND_A,
+      });
+    } finally {
+      busy = false;
+    }
+  });
+  return release;
+};
+
+test('섬 이동 중에 다른 섬 링크가 오면 거절된 최신 목적지 하나를 이동이 끝난 뒤 이어서 연다', async () => {
+  await renderLinkedApp(LINK_ISLAND_A, [LINK_ISLAND_A, LINK_ISLAND_B, LINK_ISLAND_C]);
+  const release = gatedSwitch(LINK_ISLAND_B);
+
+  await act(async () => mockEmitAppLink!(`gromo://group?g=${LINK_ISLAND_B}`));
+  await act(async () => mockEmitAppLink!(`gromo://group?g=${LINK_ISLAND_C}`));
+  // C 는 REQUEST_IN_PROGRESS 로 거절됐지만 사라지거나 «열 수 없는 섬» 안내로 끝나지 않는다.
+  assert.equal(mockSwitchCurrent.mock.calls.length, 2);
+  assert.ok(!screen.queryByText(LINK_TOAST));
+  assert.equal(captured.route, 'settings');
+
+  await act(async () => {
+    release();
+    for (let n = 0; n < 20; n += 1) await Promise.resolve();
+  });
+  await waitFor(() => assert.equal(captured.state.serverIslands.currentIslandId, LINK_ISLAND_C));
+  await waitFor(() => assert.equal(captured.route, 'home'));
+  assert.equal(
+    mockSwitchCurrent.mock.calls.map(([id]) => id).join(),
+    [LINK_ISLAND_B, LINK_ISLAND_C, LINK_ISLAND_C].join(),
+  );
+  assert.ok(!screen.queryByText(LINK_TOAST));
+});
+
+test('보관한 섬 링크는 그 뒤에 더 새 링크가 오면 버린다', async () => {
+  await renderLinkedApp(LINK_ISLAND_A, [LINK_ISLAND_A, LINK_ISLAND_B, LINK_ISLAND_C]);
+  const release = gatedSwitch(LINK_ISLAND_B);
+
+  await act(async () => mockEmitAppLink!(`gromo://group?g=${LINK_ISLAND_B}`));
+  await act(async () => mockEmitAppLink!(`gromo://group?g=${LINK_ISLAND_C}`));
+  await act(async () => mockEmitAppLink!(`gromo://magazine?issue=${LINK_ISSUE}`));
+  await waitFor(() => assert.equal(captured.route, 'magazine'));
+
+  await act(async () => {
+    release();
+    for (let n = 0; n < 20; n += 1) await Promise.resolve();
+  });
+  assert.equal(captured.route, 'magazine');
+  assert.equal(mockSwitchCurrent.mock.calls.length, 2);
+});
+
+// 요청 중 이동을 막지는 않는다 — 사용자가 직접 다른 화면으로 옮겼다면 늦은 응답이 그 화면을 덮지 않는다.
+// 세션 A 의 늦은 응답이 세션 B 에서 보관해 둔 링크를 지우면 안 된다(세대 격리).
+test('이전 세션의 늦은 섬 이동 응답은 새 세션이 보관한 섬 링크를 지우지 않는다', async () => {
+  await renderLinkedApp(LINK_ISLAND_A, [LINK_ISLAND_A, LINK_ISLAND_B, LINK_ISLAND_C]);
+  let staleSession!: () => void;
+  let finishFirst!: () => void;
+  const syncTo = (islandId: string) =>
+    mockAppDispatch!({
+      type: 'ISLAND_SYNC',
+      memberships: {
+        items: [{ id: LINK_ISLAND_A }, { id: LINK_ISLAND_B }, { id: LINK_ISLAND_C }],
+        nextCursor: null,
+        currentIslandId: islandId,
+        lossReason: null,
+      },
+      requests: [],
+      mainIslandId: LINK_ISLAND_A,
+    });
+  mockSwitchCurrent
+    // 세션 A 의 요청 — 재로그인 뒤에야 CLIENT_STALE_SESSION 으로 끝난다
+    .mockReturnValueOnce(
+      new Promise<void>((_resolve, reject) => {
+        staleSession = () => reject(new ApiError('CLIENT_STALE_SESSION', '세션이 바뀌었어요.', 0));
+      }),
+    )
+    // 세션 B 의 첫 링크 — 응답을 붙잡아 둔다
+    .mockReturnValueOnce(
+      new Promise<void>((resolve) => {
+        finishFirst = () => {
+          syncTo(LINK_ISLAND_B);
+          resolve();
+        };
+      }),
+    )
+    // 세션 B 의 둘째 링크 — 첫 이동의 잠금에 거절된다
+    .mockRejectedValueOnce(new ApiError('REQUEST_IN_PROGRESS', '섬을 변경하고 있어요.', 409))
+    // 보관분을 다시 보낸다
+    .mockImplementationOnce(async (islandId: string) => syncTo(islandId));
+
+  await act(async () => mockEmitAppLink!(`gromo://group?g=${LINK_ISLAND_B}`));
+  const generationA = sessionGeneration();
+  await act(async () => {
+    await saveSession({ accessToken: 'AT2', refreshToken: 'RT2', userId: 'u2' });
+  });
+  assert.notEqual(sessionGeneration(), generationA);
+  await act(async () => mockEmitAppLink!(`gromo://group?g=${LINK_ISLAND_B}`));
+  await act(async () => mockEmitAppLink!(`gromo://group?g=${LINK_ISLAND_C}`));
+  assert.equal(mockSwitchCurrent.mock.calls.length, 3);
+
+  await act(async () => {
+    staleSession();
+    for (let n = 0; n < 10; n += 1) await Promise.resolve();
+  });
+  await act(async () => {
+    finishFirst();
+    for (let n = 0; n < 20; n += 1) await Promise.resolve();
+  });
+  await waitFor(() => assert.equal(captured.state.serverIslands.currentIslandId, LINK_ISLAND_C));
+  await waitFor(() => assert.equal(captured.route, 'home'));
+  assert.equal(
+    mockSwitchCurrent.mock.calls.map(([id]) => id).join(),
+    [LINK_ISLAND_B, LINK_ISLAND_B, LINK_ISLAND_C, LINK_ISLAND_C].join(),
+  );
+  assert.ok(!screen.queryByText(LINK_TOAST));
+});
+
+// REQUEST_IN_PROGRESS 가 아닌 오류(비소속 거절)로 끝난 앞선 전환도 보관한 링크를 이어서 연다.
+test('앞선 섬 이동이 MEMBER_ONLY 로 거절돼도 그 사이 보관한 링크로 이어서 옮긴다', async () => {
+  await renderLinkedApp(LINK_ISLAND_A, [LINK_ISLAND_A, LINK_ISLAND_B, LINK_ISLAND_C]);
+  let rejectFirst!: () => void;
+  mockSwitchCurrent
+    // 링크 B — 응답을 붙잡아 둔다
+    .mockReturnValueOnce(
+      new Promise<void>((_resolve, reject) => {
+        rejectFirst = () => reject(new ApiError('MEMBER_ONLY', '소속이 아니에요.', 403));
+      }),
+    )
+    // 링크 C — B 의 잠금에 거절돼 보관된다
+    .mockRejectedValueOnce(new ApiError('REQUEST_IN_PROGRESS', '섬을 변경하고 있어요.', 409))
+    // 보관분 재개
+    .mockImplementationOnce(async (islandId: string) =>
+      mockAppDispatch!({
+        type: 'ISLAND_SYNC',
+        memberships: {
+          items: [{ id: LINK_ISLAND_A }, { id: LINK_ISLAND_B }, { id: LINK_ISLAND_C }],
+          nextCursor: null,
+          currentIslandId: islandId,
+          lossReason: null,
+        },
+        requests: [],
+        mainIslandId: LINK_ISLAND_A,
+      }),
+    );
+
+  await act(async () => mockEmitAppLink!(`gromo://group?g=${LINK_ISLAND_B}`));
+  await act(async () => mockEmitAppLink!(`gromo://group?g=${LINK_ISLAND_C}`));
+  assert.equal(mockSwitchCurrent.mock.calls.length, 2);
+
+  await act(async () => {
+    rejectFirst();
+    for (let n = 0; n < 20; n += 1) await Promise.resolve();
+  });
+  await waitFor(() => assert.equal(captured.state.serverIslands.currentIslandId, LINK_ISLAND_C));
+  await waitFor(() => assert.equal(captured.route, 'home'));
+  assert.equal(
+    mockSwitchCurrent.mock.calls.map(([id]) => id).join(),
+    [LINK_ISLAND_B, LINK_ISLAND_C, LINK_ISLAND_C].join(),
+  );
+  assert.ok(!screen.queryByText(LINK_TOAST));
+});
+
+test.each(['성공', '실패'] as const)(
+  '섬 이동 응답을 기다리는 사이 사용자가 직접 화면을 옮겼으면 늦은 %s 응답이 덮지 않는다',
+  async (outcome) => {
+    await renderLinkedApp(LINK_ISLAND_A, [LINK_ISLAND_A, LINK_ISLAND_B]);
+    let settle!: () => void;
+    mockSwitchCurrent.mockReturnValue(
+      new Promise<void>((resolve, reject) => {
+        settle = () =>
+          outcome === '실패' ? reject(new ApiError('STATE_CONFLICT', '충돌', 409)) : resolve();
+      }),
+    );
+
+    await act(async () => mockEmitAppLink!(`gromo://group?g=${LINK_ISLAND_B}`));
+    assert.equal(mockSwitchCurrent.mock.calls.length, 1);
+    await act(async () => captured.go('friends'));
+    await waitFor(() => assert.equal(captured.route, 'friends'));
+
+    await act(async () => {
+      settle();
+      for (let n = 0; n < 10; n += 1) await Promise.resolve();
+    });
+    assert.equal(captured.route, 'friends');
+    assert.ok(!screen.queryByText(LINK_TOAST));
+  },
+);
 
 test.each([
   ['focus', 11, 'active', 11],
@@ -2104,6 +2786,8 @@ test('실제 앱의 집중 체험 완료는 일반 저장본과 별도 계정 �
   await waitFor(async () =>
     expect((await readAccountGuides('guide-persistence-user')).focusDone).toBe(true),
   );
+  expect((await readAccountGuides('guide-persistence-user')).focusBlockingIntro).toBe('pending');
+  expect(captured.state.focusBlockingIntro).toBe('pending');
   await AsyncStorage.removeItem('gromo-r61-user-v2');
   expect((await readAccountGuides('guide-persistence-user')).focusDone).toBe(true);
   await app.unmount();
@@ -2119,6 +2803,32 @@ test('이전 계정의 늦은 체험 완료 콜백은 새 계정의 완료 이�
   expect((await readAccountGuides('guide-new')).focusDone).toBe(false);
   await app.unmount();
 });
+
+test.each(['island', 'sea'])(
+  '%s 집중 안내를 열면 해당 계정의 열람 이력을 저장한다',
+  async (kind) => {
+    const owner = `blocking-intro-${kind}`;
+    await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: owner });
+    const app = await render(<App />);
+    await waitFor(() => expect(captured).toBeDefined());
+    await act(async () => captured.setGuideStep(22));
+    mockFocusBlockingIntro = undefined;
+    await act(async () => {
+      if (kind === 'sea') captured.beforeSeaVoyage(jest.fn());
+      else captured.go('focusTravel');
+    });
+    expect(mockFocusBlockingIntro).toBeDefined();
+    expect(captured.state.focusBlockingIntro).toBe('seen');
+    expect((await readAccountGuides(owner)).focusBlockingIntro).toBe('seen');
+    await act(async () => mockFocusBlockingIntro.onClose());
+    mockFocusBlockingIntro = undefined;
+    const prepare = jest.fn();
+    await act(async () => captured.beforeSeaVoyage(prepare));
+    expect(prepare).toHaveBeenCalledTimes(1);
+    expect(mockFocusBlockingIntro).toBeUndefined();
+    await app.unmount();
+  },
+);
 
 const islandSync = (
   currentIslandId: string | null,
@@ -2141,13 +2851,85 @@ test.each([
     await act(async () => {
       captured.dispatch({ type: 'LOGIN' });
       captured.dispatch(islandSync('i1', null, [{ id: 'i1', name: '소다 섬' }]));
-      captured.reset('settings');
+      // 설정은 바다에서도 여는 화면이라(GROMO-2404) 섬이 있어야 하는 홈에서 잃는다
+      captured.reset('home');
     });
     await act(async () => captured.dispatch(islandSync(null, lossReason)));
     await waitFor(() => expect(captured.route).toBe(to));
     await app.unmount();
   },
 );
+
+test('소속 섬이 없는 계정이 바다에서 연 친구·설정·꾸미기는 바다로 되돌리지 않는다(GROMO-2404)', async () => {
+  const app = await render(<App />);
+  await waitFor(() => expect(captured).toBeTruthy());
+  await act(async () => {
+    captured.dispatch({ type: 'LOGIN' });
+    captured.dispatch(islandSync(null, null));
+    captured.reset('sea');
+  });
+  for (const route of [
+    'friends',
+    'settings',
+    'wardrobe',
+    'profile',
+    'blockedUsers',
+    'developerNotices',
+    'developerNotice',
+  ]) {
+    await act(async () => {
+      captured.go(route);
+      await new Promise((done) => setTimeout(done, 50));
+    });
+    expect(captured.route).toBe(route);
+    // 시트의 닫기(X)는 홈을 거치지 않고 바다로 돌아간다
+    await act(async () => {
+      captured.home();
+      await new Promise((done) => setTimeout(done, 50));
+    });
+    expect(captured.route).toBe('sea');
+  }
+  await app.unmount();
+});
+
+test('소속 섬이 있어도 바다에서 연 설정의 닫기는 바다로, 홈에서 연 설정의 닫기는 홈으로 간다(GROMO-2404)', async () => {
+  const tick = () => new Promise((done) => setTimeout(done, 50));
+  const app = await render(<App />);
+  await waitFor(() => expect(captured).toBeTruthy());
+  await act(async () => {
+    captured.dispatch({ type: 'LOGIN' });
+    captured.dispatch(islandSync('i1', null, [{ id: 'i1', name: '소다 섬' }]));
+    captured.reset('sea');
+  });
+  await act(async () => {
+    captured.go('settings');
+    await tick();
+  });
+  expect(captured.route).toBe('settings');
+  // 설정에서 이어 연 메인 섬 변경도 닫기는 바다로
+  await act(async () => {
+    captured.go('mainIsland');
+    await tick();
+  });
+  expect(captured.route).toBe('mainIsland');
+  await act(async () => {
+    captured.home();
+    await tick();
+  });
+  expect(captured.route).toBe('sea');
+  // go 는 렌더 시점의 route 를 기록에 남기므로 reset 과 다른 act 에서 부른다
+  await act(async () => captured.reset('home'));
+  await act(async () => {
+    captured.go('settings');
+    await tick();
+  });
+  await act(async () => {
+    captured.home();
+    await tick();
+  });
+  expect(captured.route).toBe('home');
+  await app.unmount();
+});
 
 const kickedApp = async (userId: string) => {
   // 앞 테스트의 spyOn·mockRestore 가 removeItem 구현을 지웠을 수 있어 multiRemove 로 지운다
@@ -2158,7 +2940,7 @@ const kickedApp = async (userId: string) => {
   await act(async () => {
     captured.dispatch({ type: 'LOGIN' });
     captured.dispatch(islandSync('i1', null, [{ id: 'i1', name: '소다 섬' }]));
-    captured.reset('settings');
+    captured.reset('home');
   });
   return app;
 };
@@ -2260,6 +3042,21 @@ test.each([
   },
 );
 
+test('설정처럼 섬 없이도 쓰는 화면은 강퇴 복구 신호가 와도 바다로 옮기지 않는다(GROMO-2404)', async () => {
+  mockBootRoute = 'home';
+  await AsyncStorage.setItem('gromo-r61-user-v2', JSON.stringify(initialState(true)));
+  const app = await render(<App />);
+  await waitFor(() => expect(captured?.state.onboarded).toBe(true));
+  await act(async () => captured.reset('settings'));
+  await act(async () => {
+    captured.dispatch({ type: 'KICKED_FROM_ISLAND', id: captured.state.islandId });
+    captured.dispatch(islandSync(null, 'KICKED'));
+  });
+  await waitFor(() => expect(captured.state.membershipRecovery).toBeUndefined());
+  expect(captured.route).toBe('settings');
+  await app.unmount();
+});
+
 test('계정이 바뀌면 같은 강퇴 상태여도 그 계정의 「봤음」으로 다시 본다(GROMO-2366)', async () => {
   await AsyncStorage.multiRemove(['kickNoticeSeen:kick-e']);
   const app = await kickedApp('kick-d');
@@ -2299,3 +3096,447 @@ test('출시 빌드에서는 QA 전체 완공 플래그가 꺼진다', () => {
     else process.env.EXPO_PUBLIC_QA = qa;
   }
 });
+
+// ── 알림 권한 팝업(GROMO-2526) — 섬 홈 첫 진입에서 한 번 ──
+// 알림 권한은 화면 전환 방패(350ms)가 걷힌 뒤에 묻는다 — 느린 CI 에서도 기본 1초 대기를 넘지 않게 넉넉히 기다린다.
+const promptAsked = () =>
+  waitFor(() => expect(mockRequestPushPermission).toHaveBeenCalledTimes(1), { timeout: 3000 });
+// 방패가 걷힌 뒤까지 기다린다 — 「안 묻는다」는 단언이 방패 때문에 겉으로만 통과하지 않게(잘못 묻는다면 방패가 걷힌 뒤에 묻는다).
+const afterShield = async () => {
+  await waitFor(() => expect(captured.routeTransitionShielded).toBe(false), { timeout: 3000 });
+  await settle();
+};
+// 앱이 앞/뒤로 가는 장면 — App 이 등록한 'change' 리스너 가운데 아직 구독 중인 것만 부른다. 알림 권한은 앱이 앞('active')일 때만 묻는다.
+const appStateListeners = new Set<(state: AppStateStatus) => void>();
+const emitAppState = (state: AppStateStatus) =>
+  act(async () => [...appStateListeners].forEach((listener) => listener(state)));
+// RN jest 설정이 이미 목으로 둔 값이라(currentState 는 jest.fn) 이 묶음이 바꾼 것을 매 테스트 뒤 되돌린다.
+const originalAppState = AppState.currentState;
+afterEach(() => {
+  appStateListeners.clear();
+  jest.mocked(AppState.addEventListener).mockImplementation(() => ({ remove: jest.fn() }));
+  (AppState as { currentState: unknown }).currentState = originalAppState;
+});
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+// 서버 홈 스냅샷 — 알림 권한은 이 스냅샷이 현재 섬 것으로 적용돼 홈이 실제로 그려진 뒤에만 묻는다. 스냅샷 전에는 홈 자리에 로딩·오류 화면이 뜬다.
+const homeFacts = (islandId: string) => ({
+  status: 'loaded' as const,
+  facts: {
+    islandId,
+    home: {
+      island: { id: islandId, name: '소다 섬', role: 'host', memberCount: 1, maxMembers: 15 },
+      wallets: { villagePoints: 0 },
+    },
+    completedBuildings: ['hall'],
+    members: [],
+  },
+});
+// 스냅샷 조건을 채워 둔다 — 다른 조건(세션·화면)만 묻지 않는 이유가 되게 한다.
+const applySnapshot = (dispatch: (action: any) => void) =>
+  dispatch({ type: 'SERVER_HOME', facts: homeFacts('i1').facts });
+const pushApp = async ({
+  session = true,
+  route = 'home',
+  before,
+  snapshot = async () => homeFacts('i1'),
+}: {
+  session?: boolean;
+  route?: Route;
+  before?: (dispatch: (action: any) => void) => void;
+  snapshot?: () => Promise<unknown>;
+} = {}) => {
+  mockLoadHomeSnapshot = jest.fn(snapshot);
+  // 앱이 앞에 있다고 보이게 하고(WorldMap 테스트와 같은 패턴), App 이 등록하는 AppState 리스너를 잡는다.
+  (AppState as { currentState: unknown }).currentState = 'active';
+  appStateListeners.clear();
+  jest.mocked(AppState.addEventListener).mockImplementation((_event, listener) => {
+    appStateListeners.add(listener);
+    return { remove: () => appStateListeners.delete(listener) };
+  });
+  if (session) await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'push-user' });
+  const app = await render(<App />);
+  await waitFor(() => expect(captured).toBeTruthy());
+  await act(async () => {
+    captured.dispatch({ type: 'LOGIN' });
+    captured.dispatch(islandSync('i1', null, [{ id: 'i1', name: '소다 섬' }]));
+    before?.(captured.dispatch);
+    captured.reset(route);
+  });
+  return app;
+};
+
+test('서버 세션이 있는 섬 홈에 들어오면 알림 권한을 한 번만 묻는다 — 홈을 다시 열어도 같은 실행에서는 다시 묻지 않는다', async () => {
+  const app = await pushApp();
+  await promptAsked();
+
+  await act(async () => captured.reset('settings'));
+  await act(async () => captured.reset('home'));
+  await afterShield();
+  expect(captured.route).toBe('home');
+  expect(mockRequestPushPermission).toHaveBeenCalledTimes(1);
+  await app.unmount();
+});
+
+test('홈 스냅샷이 아직 오지 않았으면(로딩 화면) 묻지 않고, 적용돼 홈이 그려진 뒤에 한 번 묻는다', async () => {
+  let resolve!: (result: ReturnType<typeof homeFacts>) => void;
+  const pending = new Promise<ReturnType<typeof homeFacts>>((done) => {
+    resolve = done;
+  });
+  const app = await pushApp({ snapshot: () => pending });
+  await afterShield();
+  expect(captured.route).toBe('home');
+  expect(captured.homeError).toBe(false);
+  expect(captured.state.serverIslands.home).toBeFalsy();
+  expect(mockRequestPushPermission).not.toHaveBeenCalled();
+
+  await act(async () => resolve(homeFacts('i1')));
+  await promptAsked();
+  expect(captured.state.serverIslands.home.islandId).toBe('i1');
+  await app.unmount();
+});
+
+test('홈 스냅샷을 못 받아 오류 화면이면 묻지 않고, 다시 시도해 받으면 한 번 묻는다', async () => {
+  let offline = true;
+  const app = await pushApp({
+    snapshot: async () => {
+      if (offline) throw new Error('offline');
+      return homeFacts('i1');
+    },
+  });
+  await waitFor(() => expect(captured.homeError).toBe(true));
+  await afterShield();
+  expect(mockRequestPushPermission).not.toHaveBeenCalled();
+
+  offline = false;
+  await act(async () => captured.retryHome());
+  await promptAsked();
+  expect(captured.homeError).toBe(false);
+  await app.unmount();
+});
+
+test('옛 스냅샷이 남아 있어도 홈을 다시 읽다 실패해 오류가 떠 있으면 묻지 않고, 다시 시도해 읽히면 묻는다', async () => {
+  let offline = false;
+  const app = await pushApp({
+    // 알림을 끈 채 스냅샷이 적용된 홈에서 시작해, 오류가 뜬 뒤에 켠다.
+    before: (dispatch) => dispatch({ type: 'SETTING', key: 'notifications', value: false }),
+    snapshot: async () => {
+      if (offline) throw new Error('offline');
+      return homeFacts('i1');
+    },
+  });
+  await waitFor(() => expect(captured.state.serverIslands.home?.islandId).toBe('i1'));
+
+  offline = true;
+  await act(async () => captured.retryHome());
+  await waitFor(() => expect(captured.homeError).toBe(true));
+  await act(async () => captured.dispatch({ type: 'SETTING', key: 'notifications', value: true }));
+  await afterShield();
+  expect(captured.state.serverIslands.home.islandId).toBe('i1');
+  expect(mockRequestPushPermission).not.toHaveBeenCalled();
+
+  offline = false;
+  await act(async () => captured.retryHome());
+  await promptAsked();
+  await app.unmount();
+});
+
+test('화면 전환 방패가 홈을 덮는 동안에는 묻지 않고, 방패가 걷힌 뒤에 한 번 묻는다', async () => {
+  // 스냅샷이 이미 적용된 채 설정 화면에서 시작한다 — 홈으로 돌아오는 순간 다른 조건은 모두 참이다.
+  const app = await pushApp({ route: 'settings', before: applySnapshot });
+  await waitFor(() => expect(captured.routeTransitionShielded).toBe(false), { timeout: 3000 });
+  expect(mockRequestPushPermission).not.toHaveBeenCalled();
+
+  await act(async () => captured.reset('home'));
+  expect(captured.route).toBe('home');
+  expect(captured.routeTransitionShielded).toBe(true);
+  expect(captured.state.serverIslands.home.islandId).toBe('i1');
+  expect(mockRequestPushPermission).not.toHaveBeenCalled();
+
+  await promptAsked();
+  expect(captured.routeTransitionShielded).toBe(false);
+  await app.unmount();
+});
+
+test('튜토리얼 중에는 묻지 않고, 튜토리얼이 끝나면(step 22 이상 — state.tutorial 은 끝난 뒤에도 남는다) 묻는다', async () => {
+  const app = await pushApp({ before: (dispatch) => dispatch({ type: 'GUIDE_STEP', step: 4 }) });
+  await waitFor(() => expect(captured.state.serverIslands.home?.islandId).toBe('i1'));
+  await afterShield();
+  expect(captured.route).toBe('home');
+  expect(captured.state.tutorial).toEqual({ step: 4 });
+  expect(mockRequestPushPermission).not.toHaveBeenCalled();
+
+  await act(async () => captured.dispatch({ type: 'GUIDE_STEP', step: 22 }));
+  await promptAsked();
+  expect(captured.state.tutorial).toEqual({ step: 22 });
+  await app.unmount();
+});
+
+test.each([
+  [
+    '설정 「알림」이 꺼져 있다',
+    {
+      before: (dispatch: (action: any) => void) =>
+        dispatch({ type: 'SETTING', key: 'notifications', value: false }),
+    },
+  ],
+  ['서버 세션이 없다', { session: false, before: applySnapshot }],
+  ['홈이 아닌 화면에 있다', { route: 'settings' as Route, before: applySnapshot }],
+  [
+    '소속 섬 없이 바다에 있다(홈이 아니다)',
+    {
+      route: 'sea' as Route,
+      before: (dispatch: (action: any) => void) => dispatch(islandSync(null, null)),
+    },
+  ],
+])('알림 권한을 묻지 않는다 — %s', async (_case, options) => {
+  const app = await pushApp(options);
+  await afterShield();
+  expect(mockRequestPushPermission).not.toHaveBeenCalled();
+  await app.unmount();
+});
+
+test.each(['error', 'unavailable'] as const)(
+  '권한 요청이 %s 로 끝나(네이티브 일시 실패·브리지 없음) 못 물었으면 다음 홈 진입에서 다시 묻고, 답을 받은 뒤에는 묻지 않는다',
+  async (result) => {
+    mockRequestPushPermission.mockResolvedValueOnce(result);
+    const app = await pushApp();
+    await promptAsked();
+    // 조건이 그대로인 같은 홈에서는 다시 부르지 않는다(effect 는 의존값이 바뀔 때만 돈다).
+    await afterShield();
+    expect(mockRequestPushPermission).toHaveBeenCalledTimes(1);
+
+    await act(async () => captured.reset('settings'));
+    await act(async () => captured.reset('home'));
+    await waitFor(() => expect(mockRequestPushPermission).toHaveBeenCalledTimes(2), {
+      timeout: 3000,
+    });
+
+    // 이번에는 답이 왔다(granted) — 더는 묻지 않는다.
+    await act(async () => captured.reset('settings'));
+    await act(async () => captured.reset('home'));
+    await afterShield();
+    expect(mockRequestPushPermission).toHaveBeenCalledTimes(2);
+    await app.unmount();
+  },
+);
+
+test('권한을 읽는 사이 홈을 떠나면(조건이 사라지면) 팝업을 막고 undetermined 로 끝나, 홈으로 돌아오면 한 번 묻는다', async () => {
+  // 상태 읽기를 붙잡아 둔다 — 실제 구현은 읽은 직후·팝업 직전에 shouldAsk 를 보고, false 면 묻지 않고 undetermined 를 돌려준다.
+  // 이 목은 push.ts 의 계약을 흉내 낸다 — 그 계약은 push.test.ts 「묻기 직전 shouldAsk 가 false 면…」 이 실제 구현으로 고정한다.
+  let release!: () => void;
+  const gate = new Promise<void>((done) => {
+    release = done;
+  });
+  let shouldAskAfterRead: boolean | undefined;
+  mockRequestPushPermission.mockImplementationOnce(async (shouldAsk?: () => boolean) => {
+    await gate;
+    shouldAskAfterRead = shouldAsk?.();
+    return shouldAskAfterRead === false ? 'undetermined' : 'granted';
+  });
+  const app = await pushApp();
+  await promptAsked();
+
+  // 읽는 사이 홈을 떠났다.
+  await act(async () => captured.reset('settings'));
+  await act(async () => release());
+  await afterShield();
+  expect(shouldAskAfterRead).toBe(false);
+  expect(mockRequestPushPermission).toHaveBeenCalledTimes(1);
+
+  // 홈으로 돌아오면 한 번 묻는다 — 막힌 시도가 한 번뿐인 기회를 쓰지 않았다.
+  await act(async () => captured.reset('home'));
+  await waitFor(() => expect(mockRequestPushPermission).toHaveBeenCalledTimes(2), {
+    timeout: 3000,
+  });
+  const shouldAsk = mockRequestPushPermission.mock.calls[1][0] as () => boolean;
+  expect(shouldAsk()).toBe(true);
+
+  // 이번에는 답이 왔다 — 더는 묻지 않는다.
+  await act(async () => captured.reset('settings'));
+  expect(shouldAsk()).toBe(false);
+  await act(async () => captured.reset('home'));
+  await afterShield();
+  expect(mockRequestPushPermission).toHaveBeenCalledTimes(2);
+  await app.unmount();
+});
+
+test('앱이 백그라운드에 있는 동안에는 묻지 않고, 앞으로 돌아오면 한 번 묻는다', async () => {
+  const snapshot = deferred<ReturnType<typeof homeFacts>>();
+  const app = await pushApp({ snapshot: () => snapshot.promise });
+  await emitAppState('background');
+  // 백그라운드에서 스냅샷이 적용돼 다른 조건이 모두 맞아진다.
+  await act(async () => snapshot.resolve(homeFacts('i1')));
+  await waitFor(() => expect(captured.state.serverIslands.home?.islandId).toBe('i1'));
+  await afterShield();
+  expect(mockRequestPushPermission).not.toHaveBeenCalled();
+
+  await emitAppState('active');
+  await promptAsked();
+  await afterShield();
+  expect(mockRequestPushPermission).toHaveBeenCalledTimes(1);
+  await app.unmount();
+});
+
+test('첫 요청이 error 로 끝난 뒤 앱이 백그라운드로 갔다 같은 홈으로 돌아오면 다시 묻는다', async () => {
+  mockRequestPushPermission.mockResolvedValueOnce('error');
+  const app = await pushApp();
+  await promptAsked();
+  // 조건이 그대로인 같은 홈에서는 다시 부르지 않는다.
+  await afterShield();
+  expect(mockRequestPushPermission).toHaveBeenCalledTimes(1);
+
+  await emitAppState('background');
+  await emitAppState('active');
+  await waitFor(() => expect(mockRequestPushPermission).toHaveBeenCalledTimes(2), {
+    timeout: 3000,
+  });
+  await app.unmount();
+});
+
+test.each(['granted', 'denied'] as const)(
+  '권한 요청이 %s 로 끝나면 이 실행에서는 홈에 다시 들어와도 다시 묻지 않는다',
+  async (answer) => {
+    mockRequestPushPermission.mockResolvedValueOnce(answer);
+    const app = await pushApp();
+    await promptAsked();
+
+    await act(async () => captured.reset('settings'));
+    await act(async () => captured.reset('home'));
+    await afterShield();
+    expect(mockRequestPushPermission).toHaveBeenCalledTimes(1);
+    await app.unmount();
+  },
+);
+
+test.each(['active', 'pending', 'joined'] as const)(
+  '초대 링크는 캐릭터 설정 뒤 첫 섬 선택을 건너뛰고 %s 상태로 진입한다',
+  async (status) => {
+    const memberships = (id: string | null) => ({
+      items: id ? [{ id, name: '초대 섬', membershipStatus: 'active' }] : [],
+      nextCursor: null,
+      currentIslandId: id,
+      lossReason: null,
+    });
+    mockInvitationCommands = {
+      resolveInvite: jest.fn(async () => ({
+        id: 'invited',
+        name: '초대 섬',
+        membershipStatus: status === 'joined' ? 'active' : 'none',
+      })),
+      join: jest.fn(async () => {
+        if (status === 'active')
+          mockAppDispatch!({ type: 'ISLAND_SYNC', memberships: memberships('invited') });
+        return { status, islandId: 'invited' };
+      }),
+      switchCurrent: jest.fn(async () => {
+        mockAppDispatch!({ type: 'ISLAND_SYNC', memberships: memberships('invited') });
+      }),
+    };
+    const commands = mockInvitationCommands;
+    await act(async () => {
+      render(<App />);
+      for (let n = 0; n < 10; n += 1) await Promise.resolve();
+    });
+    await waitFor(() => assert.ok(mockEmitAppLink));
+    await act(async () => mockEmitAppLink!('https://link.oneorthree.world/l/abcdefgh?g=untrusted'));
+    expect(commands.resolveInvite).not.toHaveBeenCalled();
+    await act(async () => {
+      await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'u1' });
+      mockAppDispatch!({
+        type: 'ISLAND_SYNC',
+        memberships:
+          status === 'joined'
+            ? { ...memberships('invited'), currentIslandId: 'other' }
+            : status === 'pending'
+              ? { ...memberships('invited'), currentIslandId: null }
+              : memberships(null),
+      });
+      captured.reset('character');
+    });
+    expect(commands.resolveInvite).not.toHaveBeenCalled();
+    if (status === 'pending') {
+      await act(async () =>
+        mockAppDispatch!({
+          type: 'LOAD',
+          state: { ...captured.state, visitingIslandId: 'visiting-other' },
+          now: Date.now(),
+        }),
+      );
+    }
+    await act(async () => captured.reset('chooseIsland'));
+    await waitFor(() =>
+      expect(commands.resolveInvite).toHaveBeenCalledWith('abcdefgh', { arrive: true }),
+    );
+    if (status === 'joined') {
+      await waitFor(() => expect(commands.switchCurrent).toHaveBeenCalledWith('invited'));
+      expect(commands.join).not.toHaveBeenCalled();
+      await waitFor(() => assert.equal(captured.route, 'home'));
+    } else {
+      await waitFor(() =>
+        expect(commands.join).toHaveBeenCalledWith('invited', { showApproval: false }),
+      );
+      await waitFor(() =>
+        assert.equal(captured.route, status === 'pending' ? 'approval' : 'guide'),
+      );
+      if (status === 'pending') assert.ok(!captured.state.visitingIslandId);
+    }
+  },
+);
+
+test.each(['이동', '세션 변경', '가입 실패'] as const)(
+  '초대 가입 응답 중 %s가 발생하면 현재 화면과 계정을 보존한다',
+  async (mode) => {
+    let finish!: (value: unknown) => void;
+    let fail!: (error: unknown) => void;
+    const join = jest.fn(
+      () =>
+        new Promise((resolve, reject) => {
+          finish = resolve;
+          fail = reject;
+        }),
+    );
+    mockInvitationCommands = {
+      resolveInvite: jest.fn(async () => ({ id: 'invited', name: '초대 섬' })),
+      join,
+    };
+    await act(async () => {
+      render(<App />);
+      for (let n = 0; n < 10; n += 1) await Promise.resolve();
+    });
+    await waitFor(() => assert.ok(mockEmitAppLink));
+    await act(async () => {
+      await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'u1' });
+      mockAppDispatch!({
+        type: 'ISLAND_SYNC',
+        memberships: {
+          items: [{ id: 'other', name: '현재 섬', membershipStatus: 'active' }],
+          nextCursor: null,
+          currentIslandId: 'other',
+          lossReason: null,
+        },
+      });
+      captured.reset('home');
+    });
+    await act(async () => mockEmitAppLink!('gromo://join?s=abcdefgh'));
+    await waitFor(() => expect(join).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      captured.reset('settings');
+      if (mode === '세션 변경') await clearSession();
+    });
+    await act(async () => {
+      if (mode === '가입 실패') fail(new ApiError('GROUP_FULL', '정원이 찼어요.', 409));
+      else finish({ status: 'active', islandId: 'invited' });
+    });
+    if (mode !== '세션 변경') assert.equal(captured.route, 'settings');
+    else assert.notEqual(captured.route, 'home');
+    if (mode === '이동')
+      await waitFor(() => assert.ok(screen.getByText('초대받은 섬에 합류했어요.')));
+    if (mode === '세션 변경') assert.equal(screen.queryByText('초대받은 섬에 합류했어요.'), null);
+  },
+);

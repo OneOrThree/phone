@@ -1,5 +1,6 @@
 package com.oneorthree.phone.outbox.service;
 
+import com.oneorthree.phone.common.logging.ObservationJsonProvider;
 import com.oneorthree.phone.config.OutboxRelayProperties;
 import com.oneorthree.phone.outbox.dto.AggregateRef;
 import com.oneorthree.phone.outbox.dto.EventEnvelope;
@@ -10,10 +11,15 @@ import com.oneorthree.phone.outbox.repository.EventOutboxRepository;
 import com.oneorthree.phone.outbox.repository.domain.EventOutbox;
 import com.oneorthree.phone.outbox.repository.domain.EventOutboxDelivery;
 import com.oneorthree.phone.outbox.repository.domain.OutboxTarget;
+import com.oneorthree.phone.outbox.scheduler.OutboxRelayScheduler;
 import com.oneorthree.phone.outbox.support.OutboxTestKafka;
 import com.oneorthree.phone.outbox.support.OutboxTestPostgres;
 import com.oneorthree.phone.outbox.support.StubSatelliteServer;
 import com.oneorthree.phone.withdrawal.service.WithdrawalSatelliteCommandService;
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.kafka.clients.admin.Admin;
@@ -23,6 +29,7 @@ import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
+import org.apache.kafka.common.header.Header;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -30,13 +37,19 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
+import org.springframework.mock.env.MockEnvironment;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -44,15 +57,19 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * relay 의 <b>실제 발행 경로</b> 검증 — 실물 PostgreSQL(Flyway V51) + 실물 Kafka + 실물 HTTP.
+ * relay 의 <b>실제 발행 경로</b> 검증 — 실물 PostgreSQL(Flyway V0) + 실물 Kafka + 실물 HTTP.
  *
  * <p>여기서 목을 쓰지 않는 이유는 계약 §8 에 있다: 목이 생산 경로를 대신 세우면 통합 성공을 주장할 수
  * 없다. 브로커는 {@code apache/kafka}(compose 와 같은 배포물), 위성은 진짜 소켓을 여는 스텁이다.
@@ -63,13 +80,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 @SpringBootTest
 class OutboxRelayIntegrationTest {
 
-    private static final StubSatelliteServer LINK_SERVER = StubSatelliteServer.start("/internal/users/");
+    private static final StubSatelliteServer HTTP_SERVER = StubSatelliteServer.start("/internal/users/");
     private static final StubSatelliteServer NOTI_SERVER = StubSatelliteServer.start("/internal/events");
     private static final StubSatelliteServer REALTIME_SERVER = StubSatelliteServer.start("/internal/events");
     private static final String REALTIME_TOKEN = "data-to-realtime-token";
     private static final String NOTI_ENDPOINT_KEY = "NOTI_EVENT";
-    private static final String SERVICE_TOKEN = "link-service-token";
-    private static final String LINK_ENDPOINT_KEY = "LINK_USER_WITHDRAW";
+    private static final String SERVICE_TOKEN = "http-service-token";
+    private static final String HTTP_ENDPOINT_KEY = "HTTP_USER_EVENT";
     private static final String TOPIC = "notification-events";
     private static final String DLT_TOPIC = "notification-events.DLT";
 
@@ -102,16 +119,16 @@ class OutboxRelayIntegrationTest {
         registry.add("outbox.relay.retry.initial-backoff", () -> "PT0.2S");
         registry.add("outbox.relay.retry.max-backoff", () -> "PT1S");
         registry.add("outbox.relay.retry.max-attempts", () -> 5);
-        registry.add("outbox.relay.endpoints." + LINK_ENDPOINT_KEY + ".target", () -> "LINK");
-        registry.add("outbox.relay.endpoints." + LINK_ENDPOINT_KEY + ".method", () -> "POST");
-        registry.add("outbox.relay.endpoints." + LINK_ENDPOINT_KEY + ".token", () -> SERVICE_TOKEN);
-        registry.add("outbox.relay.endpoints." + LINK_ENDPOINT_KEY + ".url",
-                () -> LINK_SERVER.baseUrl() + "/internal/users/{userId}/withdraw");
+        registry.add("outbox.relay.endpoints." + HTTP_ENDPOINT_KEY + ".target", () -> "REALTIME");
+        registry.add("outbox.relay.endpoints." + HTTP_ENDPOINT_KEY + ".method", () -> "POST");
+        registry.add("outbox.relay.endpoints." + HTTP_ENDPOINT_KEY + ".token", () -> SERVICE_TOKEN);
+        registry.add("outbox.relay.endpoints." + HTTP_ENDPOINT_KEY + ".url",
+                () -> HTTP_SERVER.baseUrl() + "/internal/users/{userId}/withdraw");
     }
 
     @AfterAll
     static void stopStub() {
-        LINK_SERVER.stop();
+        HTTP_SERVER.stop();
         NOTI_SERVER.stop();
         REALTIME_SERVER.stop();
     }
@@ -132,6 +149,9 @@ class OutboxRelayIntegrationTest {
     PlatformTransactionManager transactionManager;
     @Autowired
     WithdrawalSatelliteCommandService withdrawalCommands;
+    @Autowired
+    @Qualifier(OutboxRelayScheduler.SCHEDULER)
+    ThreadPoolTaskScheduler relayPool;
 
     private TransactionTemplate tx() {
         return new TransactionTemplate(transactionManager);
@@ -170,37 +190,37 @@ class OutboxRelayIntegrationTest {
     }
 
     @Test
-    @DisplayName("대상별로 따로 표시된다 — 링크가 실패해도 Kafka 는 다시 발행되지 않는다")
+    @DisplayName("대상별로 따로 표시된다 — HTTP가 실패해도 Kafka 는 다시 발행되지 않는다")
     void marksEachTargetIndependently() {
         UUID userId = UUID.randomUUID();
         String eventId = "evt-targets-" + UUID.randomUUID();
-        LINK_SERVER.clear();
-        LINK_SERVER.respondWith(503);
+        HTTP_SERVER.clear();
+        HTTP_SERVER.respondWith(503);
 
-        UUID outboxId = appendWithdrawn(userId, eventId).outboxId();
+        UUID outboxId = withRequestId("req-targets", () -> appendWithdrawn(userId, eventId)).outboxId();
         relayService.relayOnce();
 
         assertThat(delivery(outboxId, OutboxTarget.KAFKA).getDeliveredAt())
                 .as("브로커는 성공했다").isNotNull();
-        EventOutboxDelivery link = delivery(outboxId, OutboxTarget.LINK);
-        assertThat(link.getDeliveredAt()).isNull();
-        assertThat(link.getAttemptCount()).isEqualTo(1);
-        assertThat(link.getLastError()).contains("503");
-        assertThat(link.getLeaseToken()).as("실패 뒤에는 리스를 놓는다").isNull();
+        EventOutboxDelivery http = delivery(outboxId, OutboxTarget.REALTIME);
+        assertThat(http.getDeliveredAt()).isNull();
+        assertThat(http.getAttemptCount()).isEqualTo(1);
+        assertThat(http.getLastError()).contains("503");
+        assertThat(http.getLeaseToken()).as("실패 뒤에는 리스를 놓는다").isNull();
 
         long kafkaMessagesAfterFirstTick = countPublished(eventId);
-        LINK_SERVER.respondWith(200);
+        HTTP_SERVER.respondWith(200);
         sleep(400);                       // 백오프가 지나기를 기다린다
         relayService.relayOnce();
 
-        assertThat(delivery(outboxId, OutboxTarget.LINK).getDeliveredAt())
+        assertThat(delivery(outboxId, OutboxTarget.REALTIME).getDeliveredAt())
                 .as("실패가 남은 대상만 재시도한다").isNotNull();
         assertThat(kafkaMessagesAfterFirstTick)
-                .as("링크 재시도가 브로커를 다시 두드리면 소비자가 같은 사건을 두 번 본다")
+                .as("HTTP 재시도가 브로커를 다시 두드리면 소비자가 같은 사건을 두 번 본다")
                 .isEqualTo(1L);
         assertThat(countPublished(eventId)).isEqualTo(1L);
 
-        StubSatelliteServer.Received sent = LINK_SERVER.received().get(LINK_SERVER.received().size() - 1);
+        StubSatelliteServer.Received sent = HTTP_SERVER.received().get(HTTP_SERVER.received().size() - 1);
         assertThat(sent.method()).isEqualTo("POST");
         assertThat(sent.path())
                 .as("경로 자리표시자는 봉투의 userId 로만 채워진다 — payload 가 목적지를 고르면 SSRF 다")
@@ -208,6 +228,16 @@ class OutboxRelayIntegrationTest {
         assertThat(sent.serviceToken())
                 .as("위성 수신부는 caller 별 서비스 토큰으로 호출자를 가른다(계약 §2)")
                 .isEqualTo("Bearer " + SERVICE_TOKEN);
+        // 실패한 첫 시도와 재시도가 같은 원인 요청·사건·전달 행으로 이어지고 시도 번호만 다르다(GROMO-2557).
+        UUID httpDeliveryId = delivery(outboxId, OutboxTarget.REALTIME).getId();
+        assertThat(HTTP_SERVER.received()).extracting(r -> r.header("X-Attempt")).containsExactly("1", "2");
+        assertThat(HTTP_SERVER.received()).allSatisfy(r -> {
+            assertThat(r.header("X-Origin-Request-Id")).isEqualTo("req-targets");
+            assertThat(r.header("X-Event-Id")).isEqualTo(eventId);
+            assertThat(r.header("X-Delivery-Id")).isEqualTo(httpDeliveryId.toString());
+            assertThat(r.header("X-Trace-Context-Version")).isEqualTo("1");
+            assertThat(r.header("X-Origin-Trace-Id")).as("agent 없는 JVM — trace 없음").isNull();
+        });
     }
 
     @Test
@@ -215,9 +245,10 @@ class OutboxRelayIntegrationTest {
     void publishesEnvelopeKeyedByUserId() {
         UUID userId = UUID.randomUUID();
         String eventId = "evt-key-" + UUID.randomUUID();
-        LINK_SERVER.respondWith(200);
+        HTTP_SERVER.respondWith(200);
 
-        EventEnvelope envelope = appendWithdrawn(userId, eventId).envelope();
+        Appended appended = withRequestId("req-kafka-key", () -> appendWithdrawn(userId, eventId));
+        EventEnvelope envelope = appended.envelope();
         relayService.relayTarget(OutboxTarget.KAFKA);
 
         ConsumerRecord<String, String> record = consume(TOPIC, 1).stream()
@@ -232,42 +263,50 @@ class OutboxRelayIntegrationTest {
                 .contains("\"schemaVersion\":1")
                 .as("시각은 ISO-8601 문자열이다 — epoch 실수로 나가면 소비자 파싱이 언어마다 갈린다")
                 .contains("\"occurredAt\":\"" + envelope.occurredAt() + "\"");
+        // 원인 문맥은 본문이 아니라 헤더로만 실린다(GROMO-2557) — 값에 origin 이 섞이지 않는다.
+        assertThat(record.value()).doesNotContain("req-kafka-key").doesNotContain("origin");
+        assertThat(headers(record)).containsEntry("x-origin-request-id", "req-kafka-key")
+                .containsEntry("x-event-id", eventId)
+                .containsEntry("x-delivery-id", delivery(appended.outboxId(), OutboxTarget.KAFKA).getId().toString())
+                .containsEntry("x-attempt", "1")
+                .containsEntry("x-trace-context-version", "1")
+                .doesNotContainKey("x-origin-trace-id");
     }
 
     @Test
     @DisplayName("같은 축의 선행 미전달을 건너뛰지 않는다 — 앞이 실패하면 뒤는 시도조차 하지 않고, 풀리면 한 라운드에 순서대로 나간다")
     void neverSkipsAnEarlierUndeliveredRowOnTheSameAxis() {
         UUID userId = UUID.randomUUID();
-        LINK_SERVER.clear();
-        LINK_SERVER.respondWith(503);
+        HTTP_SERVER.clear();
+        HTTP_SERVER.respondWith(503);
 
-        UUID first = appendLinkOnly(userId, "evt-order-1-" + UUID.randomUUID()).outboxId();
-        UUID second = appendLinkOnly(userId, "evt-order-2-" + UUID.randomUUID()).outboxId();
-        UUID third = appendLinkOnly(userId, "evt-order-3-" + UUID.randomUUID()).outboxId();
+        UUID first = appendHttpOnly(userId, "evt-order-1-" + UUID.randomUUID()).outboxId();
+        UUID second = appendHttpOnly(userId, "evt-order-2-" + UUID.randomUUID()).outboxId();
+        UUID third = appendHttpOnly(userId, "evt-order-3-" + UUID.randomUUID()).outboxId();
 
         // run 10 이라 셋을 한꺼번에 집지만, 첫 건이 실패하면 나머지는 보내지 않고 되돌린다 — 시도 수도 0 으로 돌아온다.
-        relayService.relayTarget(OutboxTarget.LINK);
-        assertThat(delivery(first, OutboxTarget.LINK).getAttemptCount()).isEqualTo(1);
-        assertThat(delivery(second, OutboxTarget.LINK).getAttemptCount())
+        relayService.relayTarget(OutboxTarget.REALTIME);
+        assertThat(delivery(first, OutboxTarget.REALTIME).getAttemptCount()).isEqualTo(1);
+        assertThat(delivery(second, OutboxTarget.REALTIME).getAttemptCount())
                 .as("앞 사건이 아직 미전달인데 뒤 사건을 보내면 순서가 뒤집힌다").isZero();
-        assertThat(delivery(second, OutboxTarget.LINK).getLeaseToken()).as("되돌린 행은 리스도 놓는다").isNull();
-        assertThat(delivery(third, OutboxTarget.LINK).getAttemptCount()).isZero();
+        assertThat(delivery(second, OutboxTarget.REALTIME).getLeaseToken()).as("되돌린 행은 리스도 놓는다").isNull();
+        assertThat(delivery(third, OutboxTarget.REALTIME).getAttemptCount()).isZero();
 
         sleep(400);
-        relayService.relayTarget(OutboxTarget.LINK);
-        assertThat(delivery(first, OutboxTarget.LINK).getAttemptCount()).isEqualTo(2);
-        assertThat(delivery(second, OutboxTarget.LINK).getAttemptCount()).isZero();
+        relayService.relayTarget(OutboxTarget.REALTIME);
+        assertThat(delivery(first, OutboxTarget.REALTIME).getAttemptCount()).isEqualTo(2);
+        assertThat(delivery(second, OutboxTarget.REALTIME).getAttemptCount()).isZero();
 
-        LINK_SERVER.respondWith(200);
+        HTTP_SERVER.respondWith(200);
         sleep(800);
-        LINK_SERVER.clear();
-        relayService.relayTarget(OutboxTarget.LINK);
+        HTTP_SERVER.clear();
+        relayService.relayTarget(OutboxTarget.REALTIME);
         assertThat(List.of(first, second, third)).as("한 라운드에 축의 앞쪽 연속이 전부 나간다(GROMO-2338)")
-                .allSatisfy(id -> assertThat(delivery(id, OutboxTarget.LINK).getDeliveredAt()).isNotNull());
+                .allSatisfy(id -> assertThat(delivery(id, OutboxTarget.REALTIME).getDeliveredAt()).isNotNull());
         List<Instant> deliveredAt = List.of(first, second, third).stream()
-                .map(id -> delivery(id, OutboxTarget.LINK).getDeliveredAt()).toList();
+                .map(id -> delivery(id, OutboxTarget.REALTIME).getDeliveredAt()).toList();
         assertThat(deliveredAt).as("축 안은 version 순 순차 — 표시 시각이 그 순서다").isSorted();
-        assertThat(LINK_SERVER.received()).as("수신 순서 = version 순, 각 1회")
+        assertThat(HTTP_SERVER.received()).as("수신 순서 = version 순, 각 1회")
                 .extracting(StubSatelliteServer.Received::body)
                 .satisfiesExactly(
                         body -> assertThat(body).contains("evt-order-1-"),
@@ -276,25 +315,25 @@ class OutboxRelayIntegrationTest {
     }
 
     @Test
-    @DisplayName("다른 축은 서로를 막지 않는다 — 링크 멤버십 전이는 유저 축과 별개다")
+    @DisplayName("다른 축은 서로를 막지 않는다 — 섬 축과 유저 축은 별개다")
     void differentAxesDoNotBlockEachOther() {
         UUID userId = UUID.randomUUID();
         UUID groupId = UUID.randomUUID();
-        LINK_SERVER.respondWith(503);
+        HTTP_SERVER.respondWith(503);
 
-        UUID userEvent = appendLinkOnly(userId, "evt-axis-user-" + UUID.randomUUID()).outboxId();
+        UUID userEvent = appendHttpOnly(userId, "evt-axis-user-" + UUID.randomUUID()).outboxId();
         UUID membershipEvent = tx().execute(status -> outboxCommandPort.append(new OutboxAppendCommand(
-                "evt-axis-link-" + UUID.randomUUID(), 1, "link.revoked", userId, null,
-                groupId + ":" + userId, AggregateRef.ofLinkMembership(groupId, userId), null,
-                Map.of("linkVersion", 3, "membershipEpoch", 4),
-                List.of(OutboxDeliveryRequest.toLink(LINK_ENDPOINT_KEY, null)))).eventId())
+                "evt-axis-island-" + UUID.randomUUID(), 1, "island.updated", userId, null,
+                groupId.toString(), new AggregateRef("ISLAND", groupId.toString()), null,
+                Map.of("islandId", groupId.toString()),
+                List.of(OutboxDeliveryRequest.toRealtime(HTTP_ENDPOINT_KEY, null)))).eventId())
                 .transform(this::outboxIdOf);
 
-        relayService.relayTarget(OutboxTarget.LINK);
+        relayService.relayTarget(OutboxTarget.REALTIME);
 
-        assertThat(delivery(userEvent, OutboxTarget.LINK).getAttemptCount()).isEqualTo(1);
-        assertThat(delivery(membershipEvent, OutboxTarget.LINK).getAttemptCount())
-                .as("claim 사용자와 발급자가 다른 유저라 유저 축으로는 이 순서를 표현할 수 없다(A22 ㋥)")
+        assertThat(delivery(userEvent, OutboxTarget.REALTIME).getAttemptCount()).isEqualTo(1);
+        assertThat(delivery(membershipEvent, OutboxTarget.REALTIME).getAttemptCount())
+                .as("섬 축의 사건은 같은 사용자의 미전달 USER 사건과 별개로 시도한다")
                 .isEqualTo(1);
     }
 
@@ -302,23 +341,23 @@ class OutboxRelayIntegrationTest {
     @DisplayName("리스가 만료되면 다른 워커가 회수하고, 낡은 워커의 완료 표시는 거부된다")
     void expiredLeaseIsReclaimedAndStaleAckIsRejected() {
         UUID userId = UUID.randomUUID();
-        LINK_SERVER.respondWith(503);
-        UUID outboxId = appendLinkOnly(userId, "evt-lease-" + UUID.randomUUID()).outboxId();
+        HTTP_SERVER.respondWith(503);
+        UUID outboxId = appendHttpOnly(userId, "evt-lease-" + UUID.randomUUID()).outboxId();
 
         UUID deadWorkerToken = UUID.randomUUID();
-        List<EventOutboxDelivery> claimed = relayStore.claim(OutboxTarget.LINK, "dead-worker", deadWorkerToken);
+        List<EventOutboxDelivery> claimed = relayStore.claim(OutboxTarget.REALTIME, "dead-worker", deadWorkerToken);
         assertThat(claimed).hasSize(1);
         UUID deliveryId = claimed.get(0).getId();
 
         UUID liveWorkerToken = UUID.randomUUID();
-        assertThat(relayStore.claim(OutboxTarget.LINK, "live-worker", liveWorkerToken))
+        assertThat(relayStore.claim(OutboxTarget.REALTIME, "live-worker", liveWorkerToken))
                 .as("리스가 살아 있는 동안에는 남이 집지 못한다")
                 .isEmpty();
 
         sleep(relayProperties.getLeaseDuration().toMillis() + 500);
 
         List<EventOutboxDelivery> reclaimed =
-                relayStore.claim(OutboxTarget.LINK, "live-worker", liveWorkerToken);
+                relayStore.claim(OutboxTarget.REALTIME, "live-worker", liveWorkerToken);
         assertThat(reclaimed)
                 .as("선점 후 죽은 워커의 건이 영구 미전달로 남으면 안 된다")
                 .hasSize(1);
@@ -330,32 +369,32 @@ class OutboxRelayIntegrationTest {
         assertThat(relayStore.markDelivered(deliveryId, deadWorkerToken))
                 .as("낡은 완료 표시를 받아 주면 «아직 안 간 전달»이 삼켜진다 — 그건 복구할 수 없다")
                 .isZero();
-        assertThat(delivery(outboxId, OutboxTarget.LINK).getDeliveredAt()).isNull();
+        assertThat(delivery(outboxId, OutboxTarget.REALTIME).getDeliveredAt()).isNull();
 
         assertThat(relayStore.markDelivered(deliveryId, liveWorkerToken))
                 .as("현재 소유자의 표시는 반영된다").isEqualTo(1);
-        assertThat(delivery(outboxId, OutboxTarget.LINK).getDeliveredAt()).isNotNull();
+        assertThat(delivery(outboxId, OutboxTarget.REALTIME).getDeliveredAt()).isNotNull();
     }
 
     @Test
     @DisplayName("허용목록에 없는 엔드포인트 키는 보내지 않는다 — 재시도해도 그대로지만 행은 남긴다")
     void refusesToSendToAnEndpointKeyOutsideTheAllowlist() {
         UUID userId = UUID.randomUUID();
-        LINK_SERVER.clear();
-        LINK_SERVER.respondWith(200);
+        HTTP_SERVER.clear();
+        HTTP_SERVER.respondWith(200);
 
         UUID outboxId = tx().execute(status -> outboxCommandPort.append(new OutboxAppendCommand(
-                "evt-ssrf-" + UUID.randomUUID(), 1, "link.revoked", userId, null, null,
+                "evt-ssrf-" + UUID.randomUUID(), 1, "island.updated", userId, null, null,
                 AggregateRef.ofUser(userId), null, Map.of("url", "http://169.254.169.254/latest/meta-data"),
-                List.of(OutboxDeliveryRequest.toLink("NOT_IN_ALLOWLIST", null)))).eventId())
+                List.of(OutboxDeliveryRequest.toRealtime("NOT_IN_ALLOWLIST", null)))).eventId())
                 .transform(this::outboxIdOf);
 
-        relayService.relayTarget(OutboxTarget.LINK);
+        relayService.relayTarget(OutboxTarget.REALTIME);
 
-        EventOutboxDelivery link = delivery(outboxId, OutboxTarget.LINK);
-        assertThat(link.getDeliveredAt()).isNull();
-        assertThat(link.getLastError()).contains("허용목록에 없는 엔드포인트 키");
-        assertThat(LINK_SERVER.received())
+        EventOutboxDelivery http = delivery(outboxId, OutboxTarget.REALTIME);
+        assertThat(http.getDeliveredAt()).isNull();
+        assertThat(http.getLastError()).contains("허용목록에 없는 엔드포인트 키");
+        assertThat(HTTP_SERVER.received())
                 .as("payload 가 목적지를 고를 수 있으면 그게 곧 SSRF 다 — 아무 데도 가지 않아야 한다")
                 .isEmpty();
     }
@@ -403,7 +442,7 @@ class OutboxRelayIntegrationTest {
     void publishSucceededButMarkLostProducesDuplicateNotLoss() {
         UUID userId = UUID.randomUUID();
         String eventId = "evt-atleastonce-" + UUID.randomUUID();
-        UUID outboxId = appendKafkaOnly(userId, eventId);
+        UUID outboxId = withRequestId("req-atleastonce", () -> appendKafkaOnly(userId, eventId));
 
         // 「발행은 됐는데 표시가 유실됐다」를 그대로 재현한다 — 낡은 토큰으로 완료를 보고한다.
         UUID token = UUID.randomUUID();
@@ -427,6 +466,12 @@ class OutboxRelayIntegrationTest {
         assertThat(countPublished(eventId))
                 .as("수신 측은 eventId 로 멱등이라 중복이 안전하다")
                 .isGreaterThanOrEqualTo(1L);
+        // 죽은 워커의 선점이 1번째 시도다 — 다른 워커가 재선점해 보낸 레코드는 2번째 시도이고 원인은 그대로다(GROMO-2557).
+        Map<String, String> headers = consume(TOPIC, 1).stream().filter(r -> r.value().contains(eventId))
+                .map(OutboxRelayIntegrationTest::headers).findFirst().orElseThrow();
+        assertThat(headers).containsEntry("x-attempt", "2")
+                .containsEntry("x-origin-request-id", "req-atleastonce")
+                .containsEntry("x-event-id", eventId);
     }
 
     @ParameterizedTest
@@ -437,8 +482,8 @@ class OutboxRelayIntegrationTest {
         UUID state = appendNotificationState(user, type);
         UUID request = appendNotificationRequest(user, "evt-after-state-" + UUID.randomUUID());
         UUID independent = appendNotificationRequest(UUID.randomUUID(), "evt-independent-" + UUID.randomUUID());
-        UUID link = appendLinkOnly(user, "evt-link-independent-" + UUID.randomUUID()).outboxId();
-        LINK_SERVER.respondWith(200);
+        UUID http = appendHttpOnly(user, "evt-http-independent-" + UUID.randomUUID()).outboxId();
+        HTTP_SERVER.respondWith(200);
         NOTI_SERVER.respondWith(200);
         CountDownLatch entered = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
@@ -448,13 +493,13 @@ class OutboxRelayIntegrationTest {
         try {
             assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
             relayService.relayTarget(OutboxTarget.KAFKA);
-            relayService.relayTarget(OutboxTarget.LINK);
+            relayService.relayTarget(OutboxTarget.REALTIME);
 
             assertThat(delivery(state, OutboxTarget.NOTI).getDeliveredAt()).isNull();
             assertThat(delivery(request, OutboxTarget.KAFKA).getAttemptCount())
                     .as("선행 상태의 HTTP 커밋 응답 전에는 후행 알림을 Kafka에 발행하지 않는다").isZero();
             assertThat(delivery(independent, OutboxTarget.KAFKA).getDeliveredAt()).isNotNull();
-            assertThat(delivery(link, OutboxTarget.LINK).getDeliveredAt()).isNotNull();
+            assertThat(delivery(http, OutboxTarget.REALTIME).getDeliveredAt()).isNotNull();
         } finally {
             release.countDown();
             stateRelay.get(5, TimeUnit.SECONDS);
@@ -484,6 +529,15 @@ class OutboxRelayIntegrationTest {
         assertThat(sent.method()).isEqualTo("POST");
         assertThat(sent.path()).isEqualTo("/internal/events");
         assertThat(sent.serviceToken()).isEqualTo("Bearer " + REALTIME_TOKEN);
+        // 요청 문맥 없이 적힌 행(origin 열 null — V7 이전 행과 같은 상태)도 그대로 나가고, origin 헤더만 빠진다(GROMO-2557).
+        assertThat(outboxRepository.findById(outboxId).orElseThrow().getOriginRequestId()).isNull();
+        assertThat(sent.header("X-Event-Id")).isEqualTo("user.withdrawn:" + userId);
+        assertThat(sent.header("X-Delivery-Id"))
+                .isEqualTo(delivery(outboxId, OutboxTarget.REALTIME).getId().toString());
+        assertThat(sent.header("X-Attempt")).isEqualTo("1");
+        assertThat(sent.header("X-Trace-Context-Version")).isEqualTo("1");
+        assertThat(sent.header("X-Origin-Request-Id")).isNull();
+        assertThat(sent.header("X-Origin-Trace-Id")).isNull();
 
         // realtime InternalEventControllerTest.body() 가 이 모양을 그대로 받아 커서를 지운다 — 둘이 한 계약이다.
         JsonNode body = new ObjectMapper().readTree(sent.body());
@@ -532,6 +586,75 @@ class OutboxRelayIntegrationTest {
         assertThat(delivery(state, OutboxTarget.NOTI).getDeliveredAt()).isNotNull();
     }
 
+    @Test
+    @DisplayName("relay 풀 워커가 시도 동안만 사건 문맥을 달고, 시도 뒤 그 스레드의 MDC 에는 아무것도 남지 않는다")
+    void relayWorkerCarriesDeliveryContextOnlyDuringTheAttempt() throws Exception {
+        UUID userId = UUID.randomUUID();
+        String eventId = "evt-worker-mdc-" + UUID.randomUUID();
+        UUID outboxId = withRequestId("req-worker", () -> appendKafkaOnly(userId, eventId));
+        Logger logger = (Logger) LoggerFactory.getLogger(OutboxRelayService.class);
+        // MDC 는 로그를 낸 스레드에서 붙잡는다 — 지연 조회하면 테스트 스레드의 MDC 를 읽는다.
+        ListAppender<ILoggingEvent> appender = new ListAppender<>() {
+            @Override
+            protected void append(ILoggingEvent event) {
+                event.prepareForDeferredProcessing();
+                super.append(event);
+            }
+        };
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            relayService.relayTarget(OutboxTarget.KAFKA);
+        } finally {
+            logger.detachAppender(appender);
+        }
+
+        UUID deliveryId = delivery(outboxId, OutboxTarget.KAFKA).getId();
+        ILoggingEvent attempt = appender.list.stream()
+                .filter(e -> e.getLevel() == Level.INFO
+                        && "outbox.delivery".equals(e.getMDCPropertyMap().get("event_name"))
+                        && eventId.equals(e.getMDCPropertyMap().get("event_id")))
+                .findFirst().orElseThrow(() -> new AssertionError("시도 결과 로그가 없다"));
+        assertThat(attempt.getFormattedMessage()).contains("result=delivered").contains("target=KAFKA");
+        assertThat(attempt.getMDCPropertyMap())
+                .containsEntry("delivery_id", deliveryId.toString())
+                .containsEntry("attempt", "1")
+                .containsEntry("origin_request_id", "req-worker")
+                .doesNotContainKey("origin_trace_id");
+        assertThat(attempt.getThreadName()).as("인라인이 아니라 실제 relay 풀에서 돌았다").startsWith("outbox-relay-");
+        // 같은 이벤트를 실제 JSON provider 로 렌더링해도 연결 키가 나온다(GROMO-2557).
+        @SuppressWarnings("unchecked")
+        Map<String, Object> rendered = new ObjectMapper().readValue(new ObservationJsonProvider(
+                new MockEnvironment().withProperty("OBS_SERVICE", "data-api")).format(attempt), Map.class);
+        assertThat(rendered).containsEntry("event_name", "outbox.delivery").containsEntry("event_id", eventId)
+                .containsEntry("delivery_id", deliveryId.toString()).containsEntry("attempt", 1)
+                .containsEntry("origin_request_id", "req-worker");
+
+        // 풀의 모든 스레드를 한꺼번에 붙잡아 각 스레드의 MDC 를 본다 — 방금 시도한 워커도 그중 하나다.
+        int poolSize = relayPool.getScheduledThreadPoolExecutor().getCorePoolSize();
+        CountDownLatch allHeld = new CountDownLatch(poolSize);
+        Map<String, Map<String, String>> seen = new ConcurrentHashMap<>();
+        List<Future<?>> held = new ArrayList<>();
+        for (int i = 0; i < poolSize; i++) {
+            held.add(relayPool.getScheduledThreadPoolExecutor().submit(() -> {
+                Map<String, String> mdc = MDC.getCopyOfContextMap();
+                seen.put(Thread.currentThread().getName(), mdc == null ? Map.of() : mdc);
+                allHeld.countDown();
+                try {
+                    allHeld.await(10, TimeUnit.SECONDS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }));
+        }
+        for (Future<?> task : held) {
+            task.get(15, TimeUnit.SECONDS);
+        }
+        assertThat(seen).hasSize(poolSize).containsKey(attempt.getThreadName());
+        assertThat(seen.values()).allSatisfy(mdc -> assertThat(mdc.keySet()).doesNotContainAnyElementsOf(
+                Set.of("event_id", "delivery_id", "attempt", "origin_request_id", "origin_trace_id", "event_name")));
+    }
+
     private UUID appendNotificationRequest(UUID user, String eventId) {
         EventEnvelope event = tx().execute(status -> outboxCommandPort.append(new OutboxAppendCommand(
                 eventId, 1, "notification.requested", user, "ko", null,
@@ -564,21 +687,21 @@ class OutboxRelayIntegrationTest {
                 eventId, 1, "user.withdrawn", userId, "ko", null,
                 AggregateRef.ofUser(userId), null, Map.of("reason", "SELF"),
                 List.of(OutboxDeliveryRequest.toKafka(),
-                        OutboxDeliveryRequest.toLink(LINK_ENDPOINT_KEY, null)))));
+                        OutboxDeliveryRequest.toRealtime(HTTP_ENDPOINT_KEY, null)))));
         return new Appended(envelope, outboxIdOf(envelope.eventId()));
     }
 
-    private Appended appendLinkOnly(UUID userId, String eventId) {
+    private Appended appendHttpOnly(UUID userId, String eventId) {
         EventEnvelope envelope = tx().execute(status -> outboxCommandPort.append(new OutboxAppendCommand(
                 eventId, 1, "user.withdrawn", userId, "ko", null,
                 AggregateRef.ofUser(userId), null, Map.of(),
-                List.of(OutboxDeliveryRequest.toLink(LINK_ENDPOINT_KEY, null)))));
+                List.of(OutboxDeliveryRequest.toRealtime(HTTP_ENDPOINT_KEY, null)))));
         return new Appended(envelope, outboxIdOf(envelope.eventId()));
     }
 
     private UUID appendKafkaOnly(UUID userId, String eventId) {
         EventEnvelope envelope = tx().execute(status -> outboxCommandPort.append(new OutboxAppendCommand(
-                eventId, 1, "challenge.created", userId, "ko", null,
+                eventId, 1, "notification.requested", userId, "ko", null,
                 AggregateRef.ofUser(userId), null, Map.of(),
                 List.of(OutboxDeliveryRequest.toKafka()))));
         return outboxIdOf(envelope.eventId());
@@ -593,6 +716,25 @@ class OutboxRelayIntegrationTest {
     private EventOutboxDelivery delivery(UUID outboxId, OutboxTarget target) {
         return deliveryRepository.findByOutboxIdAndTarget(outboxId, target)
                 .orElseThrow(() -> new AssertionError("전달 행이 없습니다 — target=" + target));
+    }
+
+    /** 요청 스레드의 {@code request_id} 를 실제 MDC 에 두고 append 한다 — 끝나면 그 키만 지운다. */
+    private static <T> T withRequestId(String requestId, Supplier<T> body) {
+        MDC.put("request_id", requestId);
+        try {
+            return body.get();
+        } finally {
+            MDC.remove("request_id");
+        }
+    }
+
+    /** @return 레코드 헤더(이름 → UTF-8 값). 같은 이름이 여럿이면 마지막 값 */
+    private static Map<String, String> headers(ConsumerRecord<String, String> record) {
+        Map<String, String> headers = new HashMap<>();
+        for (Header header : record.headers()) {
+            headers.put(header.key(), new String(header.value(), StandardCharsets.UTF_8));
+        }
+        return headers;
     }
 
     /** 토픽 처음부터 읽는다 — 「무엇이 실제로 브로커에 있는가」만 본다. */

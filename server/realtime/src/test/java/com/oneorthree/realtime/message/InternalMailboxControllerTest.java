@@ -2,6 +2,9 @@ package com.oneorthree.realtime.message;
 
 import com.oneorthree.realtime.TestcontainersConfiguration;
 import com.oneorthree.realtime.common.redis.RedisKeys;
+import com.oneorthree.realtime.fanout.ChatFanout;
+import com.oneorthree.realtime.logging.CapturedLogs;
+import com.oneorthree.realtime.logging.LogContext;
 import com.oneorthree.realtime.membership.client.GroupClient;
 import com.oneorthree.realtime.message.dto.MailboxStoreResult;
 import com.oneorthree.realtime.message.dto.SendMessageRequest;
@@ -267,6 +270,26 @@ class InternalMailboxControllerTest {
         } finally {
             pool.shutdownNow();
         }
+    }
+
+    @Test
+    @DisplayName("Business 의 X-Request-Id 가 처음 저장의 팬아웃 원인이 되고, 요청이 끝나면 스레드 문맥이 비워진다 (GROMO-2559)")
+    void businessRequestIdBecomesTheFanoutOrigin() throws Exception {
+        UUID key = UUID.randomUUID();
+        try (CapturedLogs logs = CapturedLogs.of(ChatFanout.class)) {
+            mockMvc.perform(store(key, "원인 연결").header("X-Request-Id", "biz-req-1"))
+                    .andExpect(status().isCreated());
+
+            CapturedLogs.Line published = logs.lines(CapturedLogs.event(LogContext.FANOUT_PUBLISH, "chat:fanout"))
+                    .get(0);
+            assertThat(published.mdc()).containsEntry("origin_request_id", "biz-req-1")
+                    .containsEntry("request_id", "biz-req-1") // 내부 필터가 Business 요청 번호를 설치한다(GROMO-2581)
+                    .containsEntry("user_id", userId.toString()).containsKey("message_id");
+            assertThat(published.message()).doesNotContain("원인 연결");
+        }
+        assertThat(org.slf4j.MDC.get(LogContext.ORIGIN_REQUEST_ID)).isNull();
+        assertThat(org.slf4j.MDC.get(LogContext.REQUEST_ID)).isNull();
+        assertThat(org.slf4j.MDC.get(LogContext.USER_ID)).isNull();
     }
 
     private String path() {

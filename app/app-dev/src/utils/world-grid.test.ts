@@ -1,6 +1,24 @@
 import assert from 'node:assert/strict';
 import grids from '@/constants/world-v2.json';
-import { onLand, landPath, nearestLand } from '@/utils/world-grid';
+import { onLand, landPath, nearestLand, waterAt } from '@/utils/world-grid';
+test('나무·바위 칸(2)은 걷지 못하고 물도 아니다', () => {
+  // 1 1 1
+  // 1 2 1
+  // 0 0 0  (칸 하나가 지도 단위 1)
+  const g = { w: 3, h: 3, cols: 3, rows: 3, cells: '111121000' };
+  assert.equal(onLand(g, { x: 1.5, y: 1.5 }), false);
+  assert.ok(onLand(g, nearestLand(g, { x: 1.5, y: 1.5 })));
+  assert.deepEqual(landPath(g, { x: 0.5, y: 1.5 }, { x: 2.5, y: 1.5 }), [
+    { x: 0.5, y: 1.5 },
+    { x: 0.5, y: 0.5 },
+    { x: 1.5, y: 0.5 },
+    { x: 2.5, y: 0.5 },
+    { x: 2.5, y: 1.5 },
+  ]);
+  assert.equal(waterAt(g, 1, 1), false);
+  assert.equal(waterAt(g, 1, 2), true);
+  assert.equal(waterAt(g, -1, 0), true);
+});
 test('6번 섬: 모든 시설과 별도 전망대 섬까지 실제 걸을 수 있는 경로로 연결', () => {
   for (const [x, y] of [
     [1030, 268],

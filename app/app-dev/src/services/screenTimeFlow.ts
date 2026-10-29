@@ -8,3 +8,8 @@ export const shouldGateScreenTimeBoard = (
   (options.isIOS || options.isAndroid === true) &&
   !options.visiting &&
   !options.promptSeen;
+
+export const shouldGateFocusBlockingIntro = (
+  route: Route,
+  options: { isIOS: boolean; promptPending: boolean; visiting: boolean },
+) => route === 'focusTravel' && options.isIOS && options.promptPending && !options.visiting;

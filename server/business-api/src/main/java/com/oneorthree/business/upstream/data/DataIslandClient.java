@@ -135,8 +135,9 @@ public class DataIslandClient {
     }
 
     /**
-     * 우체통 주민·시설 인가 + 요청자 표시 projection (GROMO-1775). 멱등 GET 이라 재시도한다. 거절은 Data 의
-     * 도메인 코드(MEMBER_ONLY·MAILBOX_LOCKED·USER_NOT_FOUND)로 오고 유스케이스가 공개 코드로 옮긴다.
+     * 우체통 주민 인가 + 요청자 표시 projection. 시설 완공은 요구하지 않는다. 멱등 GET 이라 재시도한다. 거절은 Data 의
+     * 도메인 코드(MEMBER_ONLY·USER_NOT_FOUND)로 오고 유스케이스가 공개 코드로 옮긴다.
+     * 구버전 Data의 MAILBOX_LOCKED 매핑은 순차 배포 호환을 위해 유지한다.
      */
     public MailboxViewer mailboxAccess(UUID islandId, UUID userId, Deadline deadline) {
         return http.exchange(

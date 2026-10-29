@@ -16,11 +16,10 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * v0.3 집중 세션 상세 창구 (GROMO-1764). pause/resume/finish는 전부
- * {@link #findBySessionIdForUpdate}로 행을 배타 잠근 뒤 lifecycle·version을 검사한다 —
- * "조회-판정-수정" 창을 없애 동시 요청의 이중 전이를 막는다(레거시
- * {@code FocusSessionRepository}의 조건부 UPDATE 관례와 같은 목적, 여기서는 상세 컬럼이
- * 여럿이라 벌크 UPDATE 대신 행 잠금 + 엔티티 전이 메서드를 쓴다).
+ * 집중 세션 상세의 저장·조회 지점.
+ *
+ * <p>휴식·재개·종료는 {@link #findBySessionIdForUpdate}로 행을 잠근 뒤 lifecycle과 version을
+ * 검사해 동시에 같은 상태를 전이하지 않도록 한다.
  */
 public interface FocusSessionDetailRepository extends JpaRepository<FocusSessionDetail, UUID> {
 
@@ -58,7 +57,7 @@ public interface FocusSessionDetailRepository extends JpaRepository<FocusSession
     /**
      * 프레즌스 재구축용(GROMO-2003) — 이 세션들의 절대 상태와 전이 번호를 한 번에 읽는다.
      *
-     * <p>모수가 「진행 중 마커」라 동시 집중 인원 규모다. 레거시 마커는 상세가 없어 결과에 빠지고,
+     * <p>모수가 「진행 중 마커」라 동시 집중 인원 규모다. 상세가 없는 이전 기록은 결과에 빠지고,
      * 부르는 쪽이 그것을 「active·전이 번호 0」으로 본다({@link FocusSessionControlState}).
      *
      * @param sessionIds 진행 중 마커의 id 들
@@ -205,7 +204,7 @@ public interface FocusSessionDetailRepository extends JpaRepository<FocusSession
      *
      * @param userId 탈퇴 중인 유저
      * @param now    종결 시각
-     * @return 종결된 행 수(보통 0 — 시작 게이트가 닫혀 있는 동안은 행 자체가 생기지 않는다)
+     * @return 종결된 행 수
      */
     @Modifying
     @Query("UPDATE FocusSessionDetail d SET "
@@ -217,7 +216,7 @@ public interface FocusSessionDetailRepository extends JpaRepository<FocusSession
     int abandonProgressingOfUser(@Param("userId") UUID userId, @Param("now") Instant now);
 
     /**
-     * 탈퇴 정리 2/2 — 레거시 {@code focus_sessions}와 <b>같은 방식</b>으로 행은 남기고 개인정보만
+     * 탈퇴 정리 2/2 — 기본 {@code focus_sessions}와 <b>같은 방식</b>으로 행은 남기고 개인정보만
      * 끊는다({@code FocusSessionRepository#nullifyUser}). 상세 행은 섬 건설 기여·정산 원장의 근거라
      * 지우면 남은 사람들의 이력이 함께 무너진다.
      *

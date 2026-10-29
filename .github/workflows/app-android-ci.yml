@@ -2,22 +2,22 @@ name: Android CI
 
 # Android release AAB 빌드 (GROMO-2223). CD 짝: app-android-cd.yml.
 #
-# 흐름 (data-api-ci → data-api-cd 와 같은 모양):
+# 검사·AAB 생성은 CI, 서명·Play 게시는 독립 CD 실행이 담당한다.
 # - PR: build 잡만. AAB 끝까지 빌드(JS 번들·Hermes·리소스·서명). 키 안 씀. 일회용 키 서명, 결과 버림.
-# - main: version → build → sign → deploy. CD 는 재빌드 안 함.
+# - main: settings → build → AAB+메타데이터. 앱 배포 입력이 바뀐 경우에만 CD가 자동 게시한다.
 #
 # 잡 분리 이유: 키(Play·업로드)를 다루는 잡엔 의존성 코드(npm·pip·Gradle)가 안 돎.
 # GitHub-hosted 는 잡마다 새 VM → 악성 의존성이 남긴 프로세스·env 변조가 키 잡에 못 닿음.
-# - version: Play 키로 versionCode 조회. checkout + 표준 라이브러리 스크립트만.
+# - settings: SDK 공개 설정만 전달하고 CI run_number로 versionCode를 고정한다.
 # - build: AWS·Play·서명 키 없음. npm ci + Gradle, 일회용 키 서명. main만 PostHog 분석 업로드 키 사용.
-# - sign: 업로드 키로 jarsigner 재서명 + 지문 대조. JDK·zip 만.
+# - 업로드 키·Play 키는 별도 Android CD에서만 사용한다.
 # 네이티브 컴파일·XML 검사는 app-android-build.yml 담당.
 #
 # 빌드 대상:
 # - 앱 com.oneorthree.gromo, 서버 dev(https://oneorthree.dev.mooo.com). 운영 아님.
 # - GROMO_ANDROID_AUDIENCE=dev 로 build.gradle 의 dev 가드 탐. 수동 운영 빌드는 이 값 없음 → 기존 가드 그대로.
 # - OTA 끈 채 빌드. build.gradle 이 GROMO_ANDROID_AUDIENCE=dev 를 보고 매니페스트에서 끔. OTA 채널이 production 이라
-#   켜 두면 운영 OTA 받아 운영 API JS 로 바뀜 (2026-10-07 팀 결정을 GROMO-2368 에서 바꿈). PostHog 는 켠 채.
+#   켜 두면 운영 OTA 받아 운영 API JS 로 바뀜 (2026-10-07 팀 결정을 GROMO-2368 에서 바꿈). PostHog 수집도 끈다.
 
 on:
   pull_request:
@@ -25,6 +25,9 @@ on:
     paths: &android_release_paths
       - "app/app-dev/**"
       - "!app/app-dev/**/*.md"
+      - "!app/app-dev/**/*.mdx"
+      - "!app/app-dev/docs/**"
+      - "!app/app-dev/.docs/**"
       - "!app/app-dev/ios/**"
       # iOS 폴더 제외. 단 약관 버전·Datadog 공개 설정 정본은 여기 → 다시 포함
       - "app/app-dev/ios/release-config.sh"
@@ -32,35 +35,85 @@ on:
       - ".github/workflows/app-android-cd.yml"
       # Android CI 전용 스크립트. .github/scripts/ 에 두면 satellite-ci 까지 돎
       - ".github/ci/**"
+      - ".github/scripts/wait-app-checks.py"
+      - ".github/workflows/app-lint.yml"
+      - ".github/workflows/app-android-build.yml"
   push:
     branches: [main]
     paths: *android_release_paths
-  # 수동 실행: main 만 키 쓰고 Play 업로드. 다른 브랜치는 일회용 키로 빌드만.
+  # 수동 실행은 검증용 빌드까지다. 실제 게시 시험은 성공한 main CI ID로 CD를 수동 실행한다.
   workflow_dispatch:
 
 # PR: 같은 PR 앞 실행 버림.
-# main: 한 줄로 섬. versionCode = Play 최대값 + 1 이라 겹치면 같은 값 두 번 씀. 대기는 최신 하나만 남음.
+# main: 실행 중 검사는 유지하고 대기는 최신 하나만 남긴다.
+
 concurrency:
-  # main push·main 수동 실행만 한 줄로 섬(versionCode = Play 최대값 + 1, 겹치면 같은 값). 대기는 최신 하나만.
-  # PR·다른 브랜치 수동 실행은 브랜치별 그룹. main 대기열을 밀어내지 않게.
-  group: ${{ (github.event_name != 'pull_request' && github.ref == 'refs/heads/main') && 'android-ci-main' || format('android-ci-{0}', github.ref) }}
+  group: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') && 'android-ci-main' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') && 'android-ci-main-validation' || format('android-ci-{0}', github.ref) }}
   cancel-in-progress: ${{ !(github.event_name != 'pull_request' && github.ref == 'refs/heads/main') }}
 
 permissions:
   contents: read
 
 env:
-  PACKAGE_NAME: com.oneorthree.gromo
   AWS_REGION: ap-northeast-2
   AWS_ROLE_ARN: arn:aws:iam::808715036056:role/gromo-prod-android-github-actions
   RELEASE_SECRET_ID: gromo/prod/android
-  # Play Console 앱 서명 → 업로드 키 인증서 SHA-1 (공개값). 키 바꾸면 같이 바꿈
-  ANDROID_UPLOAD_CERT_SHA1: 85:DF:F5:E4:96:1A:A2:32:88:E0:CF:B7:48:47:F0:55:9A:77:02:37
 
 jobs:
-  version:
-    name: versionCode 조회
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+  change-plan:
+    name: 앱 빌드·자동 게시 범위 판정
+    permissions:
+      contents: read
+      actions: read
+    runs-on: ubuntu-latest
+    outputs:
+      build: ${{ steps.plan.outputs.build }}
+      publish: ${{ steps.plan.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: 실제 변경 입력 판정
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .github/ci/app-change-plan.py --platform android
+
+  quality-gate:
+    name: 동일 SHA 앱 필수 검사 확인
+    needs: change-plan
+    if: github.event_name == 'push' && needs.change-plan.outputs.build == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: python3 -m pip install 'PyYAML==6.0.2'
+      - name: 앱 검사 완료 대기
+        env:
+          GH_TOKEN: ${{ github.token }}
+          APP_PLATFORM: android
+        run: python3 .github/scripts/wait-app-checks.py
+
+  manual-quality:
+    if: github.event_name == 'workflow_dispatch'
+    uses: ./.github/workflows/app-lint.yml
+
+  manual-native:
+    if: github.event_name == 'workflow_dispatch'
+    uses: ./.github/workflows/app-android-build.yml
+
+  settings:
+    name: 빌드 버전·SDK 공개 설정
+    needs: [quality-gate, manual-quality, manual-native]
+    if: >-
+      !cancelled() && github.ref == 'refs/heads/main' &&
+      ((github.event_name == 'push' && needs.quality-gate.result == 'success') ||
+       (github.event_name == 'workflow_dispatch' && needs.manual-quality.result == 'success' && needs.manual-native.result == 'success'))
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -85,25 +138,17 @@ jobs:
           role-to-assume: ${{ env.AWS_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: versionCode 정하기
+      - name: CI 실행별 versionCode 고정
         id: version
         env:
-          PLAY_PACKAGE_NAME: ${{ env.PACKAGE_NAME }}
+          ANDROID_VERSION_CODE_BASE: ${{ vars.ANDROID_VERSION_CODE_BASE }}
         run: |
           set -euo pipefail
-          umask 077
-          sa="$RUNNER_TEMP/play-sa.json"
-          trap 'rm -f "$sa"' EXIT
-          aws secretsmanager get-secret-value --secret-id "$RELEASE_SECRET_ID" --query SecretString --output text \
-            | jq -r '.PLAY_SERVICE_ACCOUNT_JSON // empty' > "$sa"
-          jq -e '.type == "service_account"' "$sa" > /dev/null \
-            || { echo "::error::$RELEASE_SECRET_ID 의 PLAY_SERVICE_ACCOUNT_JSON 이 비었거나 서비스 계정 키가 아니다"; exit 1; }
-          # Play 최대값 + 1. build.gradle versionCode(수동 운영 빌드 값)가 하한
-          MIN_VERSION_CODE="$(sed -n 's/^ *versionCode \([0-9][0-9]*\).*/\1/p' app/app-dev/android/app/build.gradle)"
-          [ -n "$MIN_VERSION_CODE" ] || { echo "::error::build.gradle 에서 versionCode 를 읽지 못했다"; exit 1; }
-          code="$(MIN_VERSION_CODE="$MIN_VERSION_CODE" PLAY_SERVICE_ACCOUNT_FILE="$sa" python3 .github/ci/play-next-version-code.py)"
+          MIN_VERSION_CODE=$(sed -n 's/^ *versionCode \([0-9][0-9]*\).*/\1/p' app/app-dev/android/app/build.gradle)
+          export MIN_VERSION_CODE
+          code=$(python3 .github/ci/android-artifact.py version)
           echo "code=$code" >> "$GITHUB_OUTPUT"
-          echo "versionCode=$code"
+          echo "versionCode=$code (기준값 + CI run_number)"
 
       - name: PostHog SDK 공개 설정 읽기
         id: posthog
@@ -119,39 +164,50 @@ jobs:
 
   build:
     name: release AAB 빌드
-    needs: version
-    # PR 은 version 잡이 건너뜀 → 그래도 돎. main 은 version 성공해야 돎
-    if: ${{ !cancelled() && (needs.version.result == 'success' || needs.version.result == 'skipped') }}
+    needs: [settings, manual-quality, manual-native, change-plan]
+    # PR은 settings를 생략하고 빌드만 한다. main은 settings 성공이 필요하다.
+    if: >-
+      !cancelled() && needs.change-plan.outputs.build == 'true' && (github.event_name == 'pull_request' || needs.settings.result == 'success' ||
+      (github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main' &&
+       needs.manual-quality.result == 'success' && needs.manual-native.result == 'success'))
     runs-on: ubuntu-latest
     timeout-minutes: 60
     # AWS OIDC 권한 없음. Play·서명 키를 받지 않는다.
     permissions:
       contents: read
     env:
-      IS_RELEASE: ${{ needs.version.result == 'success' }}
+      IS_RELEASE: ${{ needs.settings.result == 'success' }}
       GRADLE_OPTS: -Dorg.gradle.daemon=false -Dorg.gradle.jvmargs=-Xmx4g
+      META_CLIENT_TOKEN: ${{ vars.META_CLIENT_TOKEN }}
       # 빌드에 박히는 값. 고정 (레포 변수로 못 바꾸게)
       GROMO_ANDROID_AUDIENCE: dev
       EXPO_PUBLIC_API_URL: https://oneorthree.dev.mooo.com
       EXPO_PUBLIC_ENV: dev
+      EXPO_PUBLIC_IMAGE_ASSETS_ENABLED: ${{ vars.IMAGE_ASSETS_DEV_ENABLED || 'false' }}
+      EXPO_PUBLIC_IMAGE_ASSETS_URL: ${{ vars.IMAGE_ASSETS_DEV_URL || '' }}
+      EXPO_PUBLIC_IMAGE_ASSETS_ENV: dev
+      # iOS dev TestFlight와 동일하게 빈 토큰을 인라인해 SDK 초기화를 막는다. PR 빌드에도 적용한다.
+      EXPO_PUBLIC_POSTHOG_PROJECT_TOKEN: ""
+      # 앱에 포함되는 공개 SDK 토큰. API·서명 키와 달리 AWS 권한 없는 빌드 잡에서 사용한다.
+      AIRBRIDGE_APP_TOKEN: ${{ vars.AIRBRIDGE_APP_TOKEN }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - name: PostHog SDK 설정 변환 검사
-        run: python3 -m unittest discover -s .github/ci -p 'test_posthog_sdk_config.py'
+      - name: SDK 설정·CI/CD 산출물 계약 검사
+        run: python3 -m unittest discover -s .github/ci -p 'test_*.py' -v
 
       - name: PostHog SDK 설정 적용
         if: env.IS_RELEASE == 'true'
         env:
-          PROJECT_TOKEN: ${{ needs.version.outputs.posthog-project-token }}
-          SDK_HOST: ${{ needs.version.outputs.posthog-host }}
-          CLI_HOST: ${{ needs.version.outputs.posthog-cli-host }}
+          PROJECT_TOKEN: ${{ needs.settings.outputs.posthog-project-token }}
+          SDK_HOST: ${{ needs.settings.outputs.posthog-host }}
+          CLI_HOST: ${{ needs.settings.outputs.posthog-cli-host }}
         run: |
           set -euo pipefail
           [ -n "$PROJECT_TOKEN" ] && [ -n "$SDK_HOST" ] && [ -n "$CLI_HOST" ] \
             || { echo "::error::PostHog SDK 공개 설정을 전달받지 못했습니다"; exit 1; }
           {
-            echo "EXPO_PUBLIC_POSTHOG_PROJECT_TOKEN=$PROJECT_TOKEN"
+            echo "EXPO_PUBLIC_POSTHOG_PROJECT_TOKEN="
             echo "EXPO_PUBLIC_POSTHOG_HOST=$SDK_HOST"
             echo "POSTHOG_CLI_HOST=$CLI_HOST"
           } >> "$GITHUB_ENV"
@@ -227,7 +283,7 @@ jobs:
         working-directory: app/app-dev/android
         env:
           # PR 은 안 올림. 값 무관
-          GROMO_VERSION_CODE: ${{ needs.version.outputs.code || '1' }}
+          GROMO_VERSION_CODE: ${{ needs.settings.outputs.code || '1' }}
           # JS 번들 production. 잡 전체에 걸면 npm ci 가 devDependencies(patch-package) 빼서 깨짐
           NODE_ENV: production
           # PR/다른 브랜치에는 업로드 키를 주지 않는다. main 빌드만 심볼을 올린다.
@@ -245,14 +301,24 @@ jobs:
           grep -q '^jar verified\.' <<<"$verify" || { echo "::error::AAB 서명 검증 실패: $(head -1 <<<"$verify")"; exit 1; }
           ls -lh "$aab"
 
-      - name: 재서명 전 AAB 넘기기
+      - name: AAB 원본 CI·SHA·checksum 메타데이터 기록
+        if: env.IS_RELEASE == 'true'
+        env:
+          SOURCE_REVISION: ${{ github.sha }}
+          SOURCE_RUN_ID: ${{ github.run_id }}
+          SOURCE_ATTEMPT: ${{ github.run_attempt }}
+          VERSION_CODE: ${{ needs.settings.outputs.code }}
+          PUBLISH_ALLOWED: ${{ needs.change-plan.outputs.publish }}
+        run: python3 .github/ci/android-artifact.py pack --aab app/app-dev/android/app/build/outputs/bundle/release/app-release.aab
+      - name: 독립 CD용 AAB·메타데이터 게시
         if: env.IS_RELEASE == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: android-aab-throwaway-${{ github.run_id }}
-          path: app/app-dev/android/app/build/outputs/bundle/release/app-release.aab
+          name: android-ci-${{ github.run_id }}-${{ github.run_attempt }}
+          path: android-ci-artifact/
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 14
+          overwrite: true
 
       - name: 결과 요약
         if: always()
@@ -260,93 +326,6 @@ jobs:
           {
             echo "## Android CI — build"
             echo "- 이벤트: ${{ github.event_name }} · 서버: ${EXPO_PUBLIC_API_URL}"
-            echo "- versionCode: ${{ needs.version.outputs.code || '1 (PR, 안 올림)' }}"
+            echo "- versionCode: ${{ needs.settings.outputs.code || '1 (PR, 안 올림)' }}"
             echo "- 결과: ${{ job.status }}"
           } >> "$GITHUB_STEP_SUMMARY"
-
-  sign:
-    name: 업로드 키 재서명
-    needs: [version, build]
-    if: needs.version.result == 'success' && needs.build.result == 'success'
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    permissions:
-      contents: read
-      id-token: write
-    outputs:
-      artifact-name: ${{ steps.artifact.outputs.name }}
-    steps:
-      - name: 재서명 전 AAB 받기
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with:
-          name: android-aab-throwaway-${{ github.run_id }}
-          path: aab
-
-      - name: AWS 인증
-        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
-        with:
-          role-to-assume: ${{ env.AWS_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: 업로드 키로 재서명
-        run: |
-          set -euo pipefail
-          umask 077
-          dir="$RUNNER_TEMP/android-upload-key"; mkdir -p "$dir"
-          trap 'rm -rf "$dir"' EXIT
-          aws secretsmanager get-secret-value --secret-id "$RELEASE_SECRET_ID" \
-            --query SecretString --output text > "$dir/secret.json"
-          for k in ANDROID_UPLOAD_KEYSTORE_B64 ANDROID_UPLOAD_STORE_PASSWORD ANDROID_UPLOAD_KEY_ALIAS ANDROID_UPLOAD_KEY_PASSWORD; do
-            [ -n "$(jq -r --arg k "$k" '.[$k] // empty' "$dir/secret.json")" ] \
-              || { echo "::error::$RELEASE_SECRET_ID 에 $k 가 없다"; exit 1; }
-          done
-          for k in ANDROID_UPLOAD_STORE_PASSWORD ANDROID_UPLOAD_KEY_PASSWORD; do echo "::add-mask::$(jq -r ".$k" "$dir/secret.json")"; done
-          jq -r .ANDROID_UPLOAD_KEYSTORE_B64 "$dir/secret.json" | base64 --decode > "$dir/upload.keystore"
-          # 일회용 서명(루트 META-INF 서명 파일) 제거 → 업로드 키로 서명
-          zip -q -d aab/app-release.aab 'META-INF/*.SF' 'META-INF/*.RSA' 'META-INF/*.EC' 'META-INF/*.DSA' 'META-INF/MANIFEST.MF' || true
-          jarsigner -keystore "$dir/upload.keystore" \
-            -storepass "$(jq -r .ANDROID_UPLOAD_STORE_PASSWORD "$dir/secret.json")" \
-            -keypass "$(jq -r .ANDROID_UPLOAD_KEY_PASSWORD "$dir/secret.json")" \
-            aab/app-release.aab "$(jq -r .ANDROID_UPLOAD_KEY_ALIAS "$dir/secret.json")" > /dev/null
-
-      - name: AWS 자격 증명 비우기
-        # configure-aws-credentials 가 이후 스텝 env 로 내보낸 값 지움. 뒤 액션이 시크릿 다시 못 읽게
-        run: for v in AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN; do echo "$v=" >> "$GITHUB_ENV"; done
-
-      - name: AAB 확인 (업로드 키)
-        run: |
-          set -euo pipefail
-          verify="$(jarsigner -verify aab/app-release.aab 2>&1 || true)"
-          grep -q '^jar verified\.' <<<"$verify" || { echo "::error::AAB 서명 검증 실패: $(head -1 <<<"$verify")"; exit 1; }
-          # Play 는 등록 업로드 키 서명만 받음. 업로드 전 지문 대조
-          sha1="$(keytool -printcert -jarfile aab/app-release.aab | sed -n 's/^[[:space:]]*SHA1: //p' | head -1)"
-          [ "$sha1" = "$ANDROID_UPLOAD_CERT_SHA1" ] \
-            || { echo "::error::업로드 키 지문이 Play 등록 값과 다르다: $sha1"; exit 1; }
-
-      - name: 아티팩트 이름
-        id: artifact
-        run: echo "name=android-aab-${{ needs.version.outputs.code }}-${GITHUB_SHA::8}" >> "$GITHUB_OUTPUT"
-
-      - name: AAB 아티팩트 업로드
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: ${{ steps.artifact.outputs.name }}
-          path: aab/app-release.aab
-          if-no-files-found: error
-          retention-days: 14
-
-  deploy:
-    name: Play 내부 테스트 배포
-    needs: [version, sign]
-    if: needs.sign.result == 'success'
-    # CD 가 OIDC·PR 표시 씀 → 호출하는 쪽이 권한 넘겨야 함
-    permissions:
-      contents: read
-      id-token: write
-      pull-requests: write
-      issues: write
-    uses: ./.github/workflows/app-android-cd.yml
-    with:
-      artifact-name: ${{ needs.sign.outputs.artifact-name }}
-      version-code: ${{ needs.version.outputs.code }}
-      revision: ${{ github.sha }}

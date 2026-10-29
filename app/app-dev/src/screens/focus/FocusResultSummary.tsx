@@ -1,3 +1,4 @@
+import { customizationTitle } from '@/i18n/customization';
 import React, { useEffect } from 'react';
 import { Image, StyleSheet, View, useWindowDimensions } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
@@ -31,9 +32,10 @@ export function FocusResultSummary({
   /** 처음 받은 상품이면 NEW! — 옷장의 안 본 새 꾸미기에도 넣는다. */
   rewardNew?: boolean;
 }) {
-  const largeText = useWindowDimensions().fontScale > 1.3;
+  const largeText = useWindowDimensions().fontScale > semanticTokens.typography.largeTextThreshold;
   const catalog = useCustomizationCatalog();
   const item = rewardId ? catalog[rewardId] : undefined;
+  const itemTitle = item ? customizationTitle(item.productId, item.title) : undefined;
   useEffect(() => {
     if (recordId && rewardId && rewardNew) addUnseenOutfits(recordId, [rewardId]);
   }, [recordId, rewardId, rewardNew]);
@@ -69,11 +71,7 @@ export function FocusResultSummary({
         <View
           testID="focus-result-item"
           accessible
-          accessibilityLabel={[
-            t('common.caughtItem'),
-            item.title,
-            rewardNew && t('common.newBadge'),
-          ]
+          accessibilityLabel={[t('common.caughtItem'), itemTitle, rewardNew && t('common.newBadge')]
             .filter(Boolean)
             .join(' ')}
           style={styles.item}
@@ -81,7 +79,7 @@ export function FocusResultSummary({
           <Text style={styles.label}>{t('common.caughtItem')}</Text>
           <View style={styles.itemRow}>
             <OutfitItemArt entry={item} size={token.itemSize} />
-            <Text style={styles.itemTitle}>{item.title}</Text>
+            <Text style={styles.itemTitle}>{itemTitle}</Text>
             {rewardNew && (
               <Badge small style={styles.newBadge}>
                 {t('common.newBadge')}

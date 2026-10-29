@@ -80,7 +80,7 @@ layoutRevision ─┘                                                           
 
 ### 6.1 확정 사항 (2026-10-07, 조재영)
 
-- 렌더러: **Skia Atlas**(`@shopify/react-native-skia`)로 타일 384장을 한 텍스처에서 단일 드로우콜로 그린다. 소품은 발밑 앵커·zIndex=y, 카메라는 캔버스 transform 하나. 플래그 `EXPO_PUBLIC_TILE_ISLAND`.
+- 렌더러: **Skia Atlas**(`@shopify/react-native-skia`)로 타일 384장을 한 텍스처에서 단일 드로우콜로 그린다. 소품은 발밑 앵커·zIndex=y, 카메라는 캔버스 transform 하나. 플래그 `EXPO_PUBLIC_TILE_ISLAND` 는 GROMO-2476 에서 없앴다 — 지금은 iOS·Android 가 늘 타일 섬, 웹은 이미지 섬.
 지금 타일 섬(2026-10-08, 기존 마을 2배 업스케일 — 빨간 선이 64px 타일 경계 24×16):
 
 ![타일 섬 낮 — 타일 경계 표시](diagrams/08-tile-island-day.png)

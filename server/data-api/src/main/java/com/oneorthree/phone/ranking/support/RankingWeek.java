@@ -20,9 +20,7 @@ import java.time.temporal.TemporalAdjusters;
  * ({@code YYYY-MM-DD} 인 UTC 일요일)다. 자기 자신이 경계를 말하므로 해석 규칙이 필요 없고, ISO 의 «53주차가
  * 없는 해» 같은 달력 예외도 생기지 않는다.
  *
- * <p>{@link com.oneorthree.phone.league.support.LeagueWeek} 와 같은 규율이다 — 모든 메서드가 인자로 받은
- * {@code now} 만 보고 계산하므로 부수효과도 내부 시계도 없다. 1.x 리그(KST·월요일)는 살아 있는 정산 축이라
- * 건드리지 않고, 이 신규 축만 여기 둔다.
+ * <p>모든 메서드는 인자로 받은 시각만 보고 계산하며 내부 시계를 사용하지 않는다.
  */
 public final class RankingWeek {
 

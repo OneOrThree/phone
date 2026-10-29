@@ -1,6 +1,6 @@
 // 낚시 구경 화면(GROMO-2259) — 방문자는 응원을 보내지도 받지도 않는다(2026-10-16 결정): FAB 없음, visitor 미전달.
 import React from 'react';
-import { act, render } from '@testing-library/react-native';
+import { act, fireEvent, render } from '@testing-library/react-native';
 import { CurrentScreens } from '@/screens/island/CurrentScreens';
 import { initialState, reducer, type State } from '@/services/model';
 import { clearSession, saveSession } from '@/services/api/session';
@@ -62,8 +62,13 @@ jest.mock('@/screens/focus/FishingIsland', () => {
       <View testID="focus-world">{children(640, 640 / 1.5, 1)}</View>
     ),
     FishingActor: () => <View />,
-    FishingPeerActorView: ({ actor, outfit }: any) => (
-      <View testID={`peer-${actor.userId}`} testPropOutfit={outfit} />
+    FishingPeerActorView: ({ actor, outfit, onPress }: any) => (
+      <View
+        testID={`peer-${actor.userId}`}
+        testPropOutfit={outfit}
+        accessibilityRole="button"
+        onTouchEnd={onPress}
+      />
     ),
     FishingWalker: () => <View />,
   };
@@ -228,4 +233,64 @@ test('다른 섬 방문 구경은 events 를 못 구독하므로 30초마다 스
   } finally {
     jest.useRealTimers();
   }
+});
+
+// ‹ 는 목적지를 읽는다(DESIGN §7.14) — 내 낚시섬은 홈, 구경은 그 섬 지도로 가니 둘 다 「섬으로 돌아가기」다
+const focusVisitEnv = (state: State, route: string, detail: string, islands?: object) => ({
+  state,
+  route,
+  detail,
+  now: Date.now(),
+  dispatch: jest.fn(),
+  go: jest.fn(),
+  replace: jest.fn(),
+  reset: jest.fn(),
+  home: jest.fn(),
+  back: jest.fn(),
+  backOverride: { current: null },
+  notify: jest.fn(),
+  text: '',
+  setText: jest.fn(),
+  ...(islands && { islands }),
+});
+
+test('내 낚시섬 구경(방문 아님)의 ‹ 는 「섬으로 돌아가기」로 읽히고 누르면 홈으로 간다', async () => {
+  const e = focusVisitEnv(initialState(true), 'focusVisit', '');
+  const screen = await render(<CurrentScreens e={e} />);
+  expect(screen.queryByLabelText('닫기')).toBeNull();
+  await fireEvent.press(screen.getByLabelText('섬으로 돌아가기'));
+  expect(e.home).toHaveBeenCalledTimes(1);
+  expect(e.back).not.toHaveBeenCalled();
+});
+
+test('다른 섬 낚시 구경의 ‹ 도 「섬으로 돌아가기」이고 누르면 그 섬 지도로 간다', async () => {
+  const e = focusVisitEnv(visitState('none'), 'visitIslandFocus', 'v1', {});
+  const screen = await render(<CurrentScreens e={e} />);
+  expect(screen.queryByLabelText('돌아가기')).toBeNull();
+  await fireEvent.press(screen.getByLabelText('섬으로 돌아가기'));
+  expect(e.replace).toHaveBeenCalledWith('visitIsland', 'v1');
+  expect(e.home).not.toHaveBeenCalled();
+});
+
+test('낚시 구경에서 주민을 누르면 그 주민 정보창(이름·친구 요청)이 뜨고 × 로 닫힌다(GROMO-2474)', async () => {
+  mockFocusMembers = [
+    {
+      userId: 'u1',
+      name: '두부',
+      catColor: 'gray',
+      appearance: null,
+      sessionId: 's1',
+      subject: '수학',
+      activeSeconds: 60,
+      status: 'active',
+      anchorMs: 0,
+    },
+  ];
+  const { screen } = await mount(visitState('none'));
+  expect(screen.queryByTestId('cat-info-name')).toBeNull();
+  await fireEvent(screen.getByTestId('peer-u1'), 'touchEnd');
+  expect(screen.getByTestId('cat-info-name')).toHaveTextContent('두부');
+  expect(screen.getByLabelText('친구 요청')).toBeTruthy();
+  await fireEvent.press(screen.getByLabelText('닫기'));
+  expect(screen.queryByTestId('cat-info-name')).toBeNull();
 });

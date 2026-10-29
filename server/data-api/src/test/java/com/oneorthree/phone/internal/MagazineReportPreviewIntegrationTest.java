@@ -63,9 +63,6 @@ class MagazineReportPreviewIntegrationTest {
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
         OutboxTestPostgres.applyProductionMigrationWiring(registry);
-        registry.add("magazine.enabled", () -> true);
-        registry.add("island-management.commands-enabled", () -> true);
-        registry.add("internal.api.enabled", () -> true);
         registry.add("internal.api.callers.business.token", () -> TOKEN);
         String[] allow = {"POST /internal/users/*/islands/*/promotions/*/reports"};
         for (int i = 0; i < allow.length; i++) {
@@ -85,7 +82,7 @@ class MagazineReportPreviewIntegrationTest {
     @Autowired
     UserRepository users;
     @Autowired
-    GroupRepository groups;
+    GroupRepository islands;
     @Autowired
     GroupMemberRepository members;
     @Autowired
@@ -184,7 +181,7 @@ class MagazineReportPreviewIntegrationTest {
         Island island = island("대상섬", false);
         Island other = island("다른섬", false);
         Island hidden = island("닫힌섬", false);
-        jdbc.update("update groups set deleted_at = now() where id = ?", hidden.id);
+        jdbc.update("update islands set deleted_at = now() where id = ?", hidden.id);
         UUID published = promotion(island, date);
         UUID skipped = promotion(hidden, date);
         UUID tomorrow = promotion(island, date.plusDays(1));
@@ -309,7 +306,7 @@ class MagazineReportPreviewIntegrationTest {
 
     private Island island(String name, boolean isPrivate) {
         User owner = user();
-        Group group = groups.save(Group.builder().name(name).maxMembers(10).isPrivate(isPrivate).build());
+        Group group = islands.save(Group.builder().name(name).maxMembers(10).isPrivate(isPrivate).build());
         members.save(GroupMember.builder().user(owner).group(group).role(GroupMemberRole.OWNER).build());
         return new Island(group.getId(), group, owner);
     }

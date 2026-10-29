@@ -14,7 +14,6 @@ import com.oneorthree.phone.group.repository.domain.GroupAnnouncementComment;
 import com.oneorthree.phone.group.repository.domain.GroupMember;
 import com.oneorthree.phone.group.repository.domain.GroupMemberRole;
 import com.oneorthree.phone.group.repository.domain.GroupStatus;
-import com.oneorthree.phone.group.service.GroupAnnouncementService;
 import com.oneorthree.phone.group.service.GroupMembershipMutationLocks;
 import com.oneorthree.phone.group.service.IslandNoticeEvents;
 import com.oneorthree.phone.internal.dto.IslandNoticeViews;
@@ -50,30 +49,25 @@ import java.util.stream.Collectors;
 
 /**
  * 섬 게시판 — 공지 목록·상세(댓글 페이지)·작성·수정·삭제·댓글 작성의 Data 측 구현 (GROMO-1771, island-board
- * LLD §1~§4). 저장소는 legacy 공지({@code group_announcements})를 그대로 쓰고 댓글 테이블만 새로 둔다.
+ * LLD §1~§4). 공지와 댓글은 각각 {@code group_announcements}, {@code group_announcement_comments}에 저장한다.
  *
  * <h2>인가 — 읽기는 누구나, 쓰기는 주민만, 둘 다 게시판 완공 뒤에만 (정책 B01, GROMO-2136)</h2>
  * 목록·상세 읽기는 활성 계정이면 방문자(가입 대기자 포함)도 된다(2026-09-19 결정 V-읽기, GROMO-1904) — 판정은
  * 요청자 활성 → 섬 생존 → 게시판 완공이다. 미완공 게시판은 방문자에게도 {@code BOARD_LOCKED} 다.
  * 댓글 작성은 활성 주민 누구나다. <b>공지 작성·수정·삭제는 방장(OWNER)만</b> 이다(2026-09-25 결정 GROMO-2136,
- * island-board policy B03) — legacy {@code /api/v1} 공지({@link GroupAnnouncementService},
- * {@link GroupMember#canWriteAnnouncement})는 여전히 방장 + {@code announcement_permission=ALLOW} 주민이지만,
- * 이 새 API 에서만 그 규칙을 대체한다. <b>댓글 삭제는 작성자 본인 또는 방장</b>이다(같은 결정).
+ * island-board policy B03). <b>댓글 삭제는 작성자 본인 또는 방장</b>이다(같은 결정).
  * 쓰기 판정 순서는 요청자 활성 → 섬 생존 → 주민 → 게시판 완공 → (공지·댓글 삭제면) 작성 권한이다. 방문자(비주민)의
  * 쓰기는 시설 잠금보다 먼저 {@code MEMBER_ONLY} 로 거절된다. 게시판 게이트는
  * {@code construction.facility-gates.enforce} 를 따른다(기본 OFF — 적립 경로 배포 전엔 어느 섬도 지을 수 없다).
  *
- * <h2>쓰기 게이트 — {@code island-board.writes-enabled} (기본 OFF)</h2>
+ * <h2>쓰기는 항상 열려 있다</h2>
  * 정책 BQ02(댓글 삭제·탈퇴 처리)·BQ03(본문·댓글 상한)은 2026-09-25 결정으로 확정됐다(island-board policy) —
- * 공지 삭제는 댓글을 함께 지우고(DB {@code ON DELETE CASCADE}, V103), 탈퇴자의 댓글은 원문째 지운다. 그래도
- * 스위치 기본값은 그대로 OFF 다: prod 개방은 별도 릴리스 결정, dev 는 {@code ISLAND_BOARD_WRITES_ENABLED} 로 켠다.
- * 네 쓰기(+댓글 삭제)는 이 스위치가 꺼져 있으면 receipt 선점·잠금보다 먼저 503
- * {@code NOTICE_WRITE_UNAVAILABLE} 로 거절한다({@code InternalHostTransferService} 와 같은 모양).
+ * 공지 삭제는 댓글을 함께 지우고(DB {@code ON DELETE CASCADE}, V103), 탈퇴자의 댓글은 원문째 지운다. 쓰기 스위치
+ * ({@code island-board.writes-enabled})는 2026-10-27(티켓 2535)에 걷었다.
  *
  * <h2>잠금 순서 (LLD §3)</h2>
- * users 공유 → 섬(groups) 배타 → 공통 명령 receipt → 공지 aggregate. legacy {@code GroupAnnouncementService}
- * 도 users 공유 → 섬 배타 → aggregate 순이라 두 경로가 같은 순서로 직렬화된다. 공지 행 자체는 따로 잠그지
- * 않는다 — 모든 공지·댓글 writer 가 먼저 섬 행을 배타로 잡으므로 그 아래에서 공지 행의 경쟁자가 없다.
+ * users 공유 → 섬(islands) 배타 → 공통 명령 receipt → 공지 aggregate 순서다.
+ * 모든 공지·댓글 writer가 먼저 섬 행을 배타로 잡으므로 공지 행은 별도로 잠그지 않는다.
  * ponytail: 섬 단위 직렬화 — 한 섬의 공지 쓰기가 몰려 병목이면 공지 행 잠금으로 좁힌다.
  *
  * <p>계정 탈퇴의 댓글 벌크 삭제({@code GroupMemberService.eraseWithdrawnUserRecords})도 같은 writer 다 — 활성
@@ -106,7 +100,6 @@ public class IslandNoticeService {
     private final AggregateVersionRepository aggregateVersions;
     private final PublicCommandService publicCommands;
     private final BannedWords bannedWords;
-    private final boolean writesEnabled;
     private final int bodyMaxLength;
     private final int commentMaxLength;
 
@@ -115,7 +108,6 @@ public class IslandNoticeService {
             GroupAnnouncementCommentRepository comments, IslandFacilityQueryService facilities,
             IslandNoticeEvents noticeEvents, AggregateVersionRepository aggregateVersions,
             PublicCommandService publicCommands, BannedWords bannedWords,
-            @Value("${island-board.writes-enabled:false}") boolean writesEnabled,
             @Value("${island-board.notice-body-max-length:5000}") int bodyMaxLength,
             @Value("${island-board.comment-max-length:500}") int commentMaxLength) {
         this.users = users;
@@ -129,7 +121,6 @@ public class IslandNoticeService {
         this.aggregateVersions = aggregateVersions;
         this.publicCommands = publicCommands;
         this.bannedWords = bannedWords;
-        this.writesEnabled = writesEnabled;
         this.bodyMaxLength = bodyMaxLength;
         this.commentMaxLength = commentMaxLength;
     }
@@ -138,8 +129,8 @@ public class IslandNoticeService {
 
     /**
      * 목록 한 페이지 — {@code (createdAt DESC, id DESC)}. anchor 는 이전 페이지 마지막 행의 두 값이고 둘 다
-     * 있거나 둘 다 없어야 한다. {@code commentCount} 는 같은 스냅샷에서 한 번에 센다. 요청자가 차단한 사람의
-     * 공지·댓글은 DB 쿼리가 LIMIT 전에 뺀다(GROMO-2181) — 쪽 크기·keyset 경계가 그대로다.
+     * 있거나 둘 다 없어야 한다. {@code commentCount} 는 같은 스냅샷에서 한 번에 센다. 요청자와 차단 관계(어느 방향이든)인
+     * 사람의 공지·댓글은 DB 쿼리가 LIMIT 전에 뺀다(GROMO-2181 → 양방향 GROMO-2469) — 쪽 크기·keyset 경계가 그대로다.
      */
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public IslandNoticeViews.Page list(UUID islandId, UUID userId, Instant afterCreatedAt, UUID afterId,
@@ -168,8 +159,8 @@ public class IslandNoticeService {
      * 상세 — 본문·댓글 한 페이지({@code createdAt ASC, id ASC})·version 을 한 REPEATABLE_READ 스냅샷에서
      * 읽는다(LLD §4). 다른 섬의 공지 id 는 {@code NOT_FOUND} 다 — 섬 경로로 다시 좁혀 찾는다.
      *
-     * <p>요청자가 차단한 사람이 쓴 공지도 {@code NOT_FOUND} 다(GROMO-2181, character-report policy RP-차단 «상세 ID
-     * 직접 조회도 같은 규칙») — 목록에서 빠진 공지를 id 로 열 수 있으면 숨김이 아니다. 댓글은 차단한 사람의 것만
+     * <p>요청자와 차단 관계인 사람이 쓴 공지도 {@code NOT_FOUND} 다(GROMO-2181, character-report policy RP-차단 «상세 ID
+     * 직접 조회도 같은 규칙») — 목록에서 빠진 공지를 id 로 열 수 있으면 숨김이 아니다. 댓글은 차단 관계인 사람의 것만
      * DB 에서 빼고 나머지는 그대로 보인다. 쓰기 경로({@link #requireNotice})는 이 제외를 타지 않는다.
      */
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
@@ -204,7 +195,6 @@ public class IslandNoticeService {
     /** 공지 작성 — 새 noticeId 는 최초 성공 명령에서 한 번 발급되고 같은 키 재생은 그 결과를 돌려준다. */
     @Transactional
     public IslandNoticeViews.Notice create(UUID islandId, UUID userId, String title, String body, UUID key) {
-        requireWritesEnabled();
         Map<String, Object> semantic = new LinkedHashMap<>();
         semantic.put("title", title);
         semantic.put("body", body);
@@ -230,7 +220,6 @@ public class IslandNoticeService {
     @Transactional
     public IslandNoticeViews.Notice update(UUID islandId, UUID noticeId, UUID userId, String title, String body,
             UUID key) {
-        requireWritesEnabled();
         Map<String, Object> semantic = new LinkedHashMap<>();
         if (title != null) {
             semantic.put("title", title);
@@ -261,7 +250,6 @@ public class IslandNoticeService {
      */
     @Transactional
     public IslandNoticeViews.Deleted delete(UUID islandId, UUID noticeId, UUID userId, UUID key) {
-        requireWritesEnabled();
         return run(userId, islandId, new PublicCommandRequest(userId,
                 "DELETE:/islands/" + islandId + "/notices/" + noticeId, key, InternalJson.tree(Map.of())),
                 IslandNoticeService::requireHost, () -> {
@@ -276,7 +264,6 @@ public class IslandNoticeService {
     @Transactional
     public IslandNoticeViews.CommentCreated comment(UUID islandId, UUID noticeId, UUID userId, String text,
             UUID key) {
-        requireWritesEnabled();
         return run(userId, islandId, new PublicCommandRequest(userId,
                 "POST:/islands/" + islandId + "/notices/" + noticeId + "/comments", key,
                 InternalJson.tree(Map.of("text", text))), member -> { },
@@ -316,7 +303,6 @@ public class IslandNoticeService {
     @Transactional
     public IslandNoticeViews.Deleted deleteComment(UUID islandId, UUID noticeId, UUID commentId, UUID userId,
             UUID key) {
-        requireWritesEnabled();
         CommentDeleted result = run(userId, islandId, new PublicCommandRequest(userId,
                 "DELETE:/islands/" + islandId + "/notices/" + noticeId + "/comments/" + commentId, key,
                 InternalJson.tree(Map.of())), member -> { },
@@ -422,7 +408,7 @@ public class IslandNoticeService {
                 .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
     }
 
-    /** 공지 작성·수정·삭제 — 방장만(2026-09-25 결정 GROMO-2136, B03). legacy {@code canWriteAnnouncement} 와 다르다. */
+    /** 공지 작성·수정·삭제는 방장만 허용한다(2026-09-25 결정 GROMO-2136, B03). */
     private static void requireHost(GroupMember member) {
         if (member.getRole() != GroupMemberRole.OWNER) {
             throw new GroupException(GroupErrorCode.NOTICE_FORBIDDEN);
@@ -454,12 +440,6 @@ public class IslandNoticeService {
             return;
         }
         throw new GroupException(GroupErrorCode.NOTICE_COMMENT_FORBIDDEN);
-    }
-
-    private void requireWritesEnabled() {
-        if (!writesEnabled) {
-            throw new GroupException(GroupErrorCode.NOTICE_WRITE_UNAVAILABLE);
-        }
     }
 
     private void requireBodyLength(String body) {

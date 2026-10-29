@@ -1,7 +1,8 @@
 import React from 'react';
-import { Animated, AppState, type AppStateStatus } from 'react-native';
-import { act, render } from '@testing-library/react-native';
-import { Sailing, voyageTable } from '@/screens/world/WorldViews';
+import { Animated, AppState, StyleSheet, type AppStateStatus } from 'react-native';
+import { act, fireEvent, render } from '@testing-library/react-native';
+import { Sailing, sailingRaftFrame, voyageTable } from '@/screens/world/WorldViews';
+import { telescopeSea } from '@/screens/sea/seaAssets';
 import { initialState } from '@/services/model';
 
 jest.mock('react-native-safe-area-context', () => ({
@@ -107,6 +108,50 @@ describe('Sailing', () => {
       await view.rerender(ui(1200));
       await act(async () => jest.advanceTimersByTime(1400));
       expect(onArrive).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  // 이동 중 화면(GROMO-2414) — 출항 첫 프레임에 뗏목이 왼쪽 밖으로 잘리던 것. 뒷걸음(LAB −159)부터 정박(+150)까지 판자(원본 48~976px)가 늘 화면 안이다
+  it.each([
+    [320, 568, false],
+    [375, 667, false],
+    [402, 874, false],
+    [430, 932, false],
+    [1024, 1366, false],
+    [667, 375, true],
+    [874, 402, true],
+  ])('%s×%s — 뗏목이 출항부터 정박까지 화면 안에 다 보인다', (width, height, land) => {
+    const { size, parkX } = sailingRaftFrame(width, height, land);
+    const sc = size / 1024,
+      k = (928 / 600) * sc;
+    for (const sec of [1.9, 2.1, 7]) {
+      const xs = voyageTable(sec).x;
+      expect(parkX + Math.min(...xs) * k + 48 * sc).toBeGreaterThanOrEqual(0);
+      expect(parkX + Math.max(...xs) * k + 976 * sc).toBeLessThanOrEqual(width);
+    }
+  });
+
+  it.each([
+    [402, 874],
+    [874, 402],
+    [1024, 1366],
+  ])(
+    '%s×%s — 배경은 바다 그림이 화면을 다 덮고, 그림 수평선이 장면 수평선(49%%)에 온다',
+    async (w, h) => {
+      const view = await render(
+        <Sailing state={stateWith(false)} destination="섬" duration={1900} onArrive={jest.fn()} />,
+      );
+      await fireEvent(view.getByTestId('sailing-sea'), 'layout', {
+        nativeEvent: { layout: { x: 0, y: 0, width: w, height: h } },
+      });
+      const sea = view.getByTestId('sailing-sea');
+      expect(sea.props.source).toBe(telescopeSea.source);
+      const { left, top, width, height } = StyleSheet.flatten(sea.props.style) as any;
+      expect(top + (telescopeSea.horizon * height) / telescopeSea.height).toBeCloseTo(h * 0.49, 6);
+      expect(left).toBeLessThanOrEqual(0);
+      expect(top).toBeLessThanOrEqual(0);
+      expect(left + width).toBeGreaterThanOrEqual(w);
+      expect(top + height).toBeGreaterThanOrEqual(h);
     },
   );
 

@@ -6,21 +6,14 @@ import com.oneorthree.business.common.http.InternalHttpClient;
 import com.oneorthree.business.upstream.notification.dto.DeviceRegistration;
 import com.oneorthree.business.upstream.notification.dto.DeviceRegistrationResult;
 import com.oneorthree.business.upstream.notification.dto.NotificationSettingsView;
-import com.oneorthree.business.upstream.notification.dto.ResultAckPrepareResult;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpMethod;
 import tools.jackson.databind.JsonNode;
 
-import java.util.Map;
 import java.util.UUID;
 
 /**
  * 알림 서버로 나가는 유일한 창구.
- *
- * <h2>⚠️ 이 표면은 알림 서버 쪽에 아직 없다</h2>
- * 알림 서버는 이 배치의 N 담당이 구현 중이다. 여기 적힌 경로·스키마는
- * {@code docs/contracts/business-satellite-api.yaml} 로 제안한 계약이며, 실제 구현이 붙기 전에는
- * 런타임에 연결되지 않는다. <b>이 사실을 테스트 mock 성공으로 감추지 않는다.</b>
  *
  * <h2>발송 게이트는 여기서 우회할 수 없다</h2>
  * 이 클라이언트에는 「발송」 호출이 없다. 신 서버의 모든 FCM 발송은 공통 {@code dispatch_enabled}
@@ -31,9 +24,6 @@ public class NotificationApiClient {
 
     private static final String PATH_DEVICES = "/internal/devices";
     private static final String PATH_SETTINGS = "/internal/users/{userId}/notification-settings";
-    private static final String PATH_ACK_PREPARE = "/internal/users/{userId}/result-ack/prepare";
-    private static final String PATH_ACK_COMMIT = "/internal/users/{userId}/result-ack/commit";
-    private static final String PATH_ACK_ABORT = "/internal/users/{userId}/result-ack/abort";
 
     /** 삭제 대상 FCM 토큰 — 현 DELETE 엔 본문이 없어 헤더로 싣는다(A22 ㊪). */
     public static final String HEADER_DEVICE_TOKEN = "X-Device-Token";
@@ -144,7 +134,10 @@ public class NotificationApiClient {
                         .build(), deadline, new ParameterizedTypeReference<JsonNode>() { });
     }
 
-    /** 원 명령의 mask/patch/baseline만 전달하며 성공 applied:true를 본문까지 확인한다. */
+    /**
+     * 원 명령의 mask/patch/baseline만 전달하며 성공 applied:true를 본문까지 확인한다.
+     * 응답 {@code settings}는 최초·재전달 모두 같은 잠금 경계에서 읽은 Notification의 현재 정본이다(GROMO-2209).
+     */
     public JsonNode applySettingsPatch(UUID userId, Object patch, long version, String key, Deadline deadline) {
         return http.exchange(
                 InternalCall.to(HttpMethod.PATCH, PATH_SETTINGS.replace("{userId}", userId.toString()))
@@ -156,60 +149,4 @@ public class NotificationApiClient {
                         .build(), deadline, new ParameterizedTypeReference<JsonNode>() { });
     }
 
-    /**
-     * ack 2단계의 ①: 대기 클레임을 {@code HELD} 로 선점한다 — <b>행이 없어도 tombstone 을 만든다</b>
-     * (A22 ㊅).
-     *
-     * <p>재시도한다: insert-or-transition 이라 멱등이고, 여기서 실패를 그대로 올리면 Data ack 조차
-     * 시도하지 못해 사용자의 확인이 반영되지 않는다.
-     */
-    public ResultAckPrepareResult prepareResultAck(UUID userId, UUID sessionId, String idempotencyKey,
-            Deadline deadline) {
-        return http.exchange(
-                InternalCall.to(HttpMethod.POST, PATH_ACK_PREPARE.replace("{userId}", userId.toString()))
-                        .onBehalfOf(userId)
-                        .idempotencyKey(idempotencyKey)
-                        .body(Map.of("sessionId", sessionId.toString()))
-                        .idempotentCommand()
-                        .build(),
-                deadline,
-                new ParameterizedTypeReference<ResultAckPrepareResult>() { });
-    }
-
-    /**
-     * ack 2단계의 ③: Data ack 가 커밋된 뒤 억제를 확정한다.
-     *
-     * <p>이 호출이 실패해도 사용자 요청은 성공이다 — Data 의 {@code acknowledged_at} 은 이미 박혔고,
-     * 알림 쪽 {@code HELD} 는 <b>리스 만료 시 {@code NEEDS_CONFIRM}</b> 으로 넘어가 flush 가 계속
-     * 건너뛰며, 해제는 알림 서버의 <b>Data 정본 ack 조회</b>로 자기 수렴한다(A22 ⓓ). 그 조회 경로가
-     * 없으면 「롤백 직후 프로세스가 죽는 구간」에서 영구 억제가 실재한다.
-     */
-    public void commitResultAck(UUID userId, UUID sessionId, String idempotencyKey, Deadline deadline) {
-        http.execute(
-                InternalCall.to(HttpMethod.POST, PATH_ACK_COMMIT.replace("{userId}", userId.toString()))
-                        .onBehalfOf(userId)
-                        .idempotencyKey(idempotencyKey)
-                        .body(Map.of("sessionId", sessionId.toString()))
-                        .idempotentCommand()
-                        .build(),
-                deadline);
-    }
-
-    /**
-     * ack 2단계의 롤백: Data ack 가 실패했으니 선점을 되돌린다.
-     *
-     * <p><b>abort 가 실패하는 경로를 「성공한 척」으로 덮지 않는다</b> — 그때 남는 {@code HELD} 는 리스
-     * 만료로 {@code NEEDS_CONFIRM} 이 되고, 알림 서버가 Data 정본 ack 를 조회해 수렴한다. 그 수렴이
-     * 계약이므로 여기서는 실패를 로그로 남기고 원래의 Data 실패를 사용자에게 올린다.
-     */
-    public void abortResultAck(UUID userId, UUID sessionId, String idempotencyKey, Deadline deadline) {
-        http.execute(
-                InternalCall.to(HttpMethod.POST, PATH_ACK_ABORT.replace("{userId}", userId.toString()))
-                        .onBehalfOf(userId)
-                        .idempotencyKey(idempotencyKey)
-                        .body(Map.of("sessionId", sessionId.toString()))
-                        .idempotentCommand()
-                        .build(),
-                deadline);
-    }
 }

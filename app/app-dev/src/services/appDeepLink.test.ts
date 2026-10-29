@@ -1,7 +1,15 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { parseAppDeepLink, subscribeToAppLinks, type AppLinkSource } from './appDeepLink';
+import {
+  openAppLink,
+  parseAppDeepLink,
+  subscribeToAppLinks,
+  type AppLinkSource,
+} from './appDeepLink';
+
+const ISLAND_ID = '0197e0c3-4d1b-7a2e-9f60-3b7c1f2a8d55';
+const ISSUE_ID = '0197e0c3-9a10-7c3d-8e21-5a6b7c8d9e0f';
 
 test.each([
   ['gromo://home', { kind: 'route', route: 'home' }],
@@ -12,7 +20,23 @@ test.each([
     { kind: 'unsupported', legacyPath: 'join' },
   ],
   ['gromo://group?g=bad', { kind: 'unsupported', legacyPath: 'group' }],
+  ['gromo://group', { kind: 'unsupported', legacyPath: 'group' }],
   ['gromo://league', { kind: 'unsupported', legacyPath: 'league' }],
+  [`gromo://group?g=${ISLAND_ID}`, { kind: 'island', islandId: ISLAND_ID }],
+  // 1.x 챌린지 링크의 나머지 파라미터는 무시하고 섬만 연다.
+  [`gromo://group?challenge=${ISSUE_ID}&g=${ISLAND_ID}`, { kind: 'island', islandId: ISLAND_ID }],
+  [
+    `gromo://group?g=${ISLAND_ID}&challenge=${ISSUE_ID}#top`,
+    { kind: 'island', islandId: ISLAND_ID },
+  ],
+  [`gromo://group?g=${ISLAND_ID.replace('-', '%2D')}`, { kind: 'island', islandId: ISLAND_ID }],
+  ['gromo://group?g=%E0%A4%A', { kind: 'unsupported', legacyPath: 'group' }],
+  [`gromo://magazine?issue=${ISSUE_ID}`, { kind: 'magazine', issueId: ISSUE_ID }],
+  // 대문자 UUID 링크도 서버 id(소문자)로 정규화한다.
+  [`gromo://group?g=${ISLAND_ID.toUpperCase()}`, { kind: 'island', islandId: ISLAND_ID }],
+  [`gromo://magazine?issue=${ISSUE_ID.toUpperCase()}`, { kind: 'magazine', issueId: ISSUE_ID }],
+  ['gromo://magazine', { kind: 'route', route: 'home' }],
+  ['gromo://magazine?issue=bad', { kind: 'route', route: 'home' }],
 ])('%s를 제공 화면 또는 명시적 fallback으로 분류한다', (url, expected) => {
   assert.deepEqual(parseAppDeepLink(url), expected);
 });
@@ -71,6 +95,23 @@ test('초기 URL 조회보다 먼저 온 URL 이벤트를 늦은 초기 URL이 �
   assert.deepEqual(received, ['gromo://friends']);
 });
 
+test('앱 안에서 연 링크(푸시 탭)는 구독 중인 소비자에게 가고, 구독을 끊은 소비자에게는 가지 않는다', async () => {
+  const source = {
+    getInitialURL: jest.fn(async () => null),
+    addEventListener: jest.fn(() => ({ remove: jest.fn() })),
+  } as unknown as AppLinkSource;
+  const received: string[] = [];
+  const unsubscribe = subscribeToAppLinks((url) => received.push(url), source);
+  await Promise.resolve();
+
+  openAppLink('gromo://friends');
+  assert.deepEqual(received, ['gromo://friends']);
+
+  unsubscribe();
+  openAppLink('gromo://home');
+  assert.deepEqual(received, ['gromo://friends']);
+});
+
 test('Android MainActivity가 legacy gromo scheme 링크를 수신한다', () => {
   const manifest = readFileSync(
     path.join(__dirname, '../../android/app/src/main/AndroidManifest.xml'),
@@ -83,8 +124,68 @@ test('Android MainActivity가 legacy gromo scheme 링크를 수신한다', () =>
 });
 
 test('iOS 네이티브 타깃이 legacy gromo scheme 링크를 수신한다', () => {
-  const plist = readFileSync(path.join(__dirname, '../../ios/GROMO/Info.plist'), 'utf8');
+  const plist = readFileSync(path.join(__dirname, '../../ios/Cattus/Info.plist'), 'utf8');
   const urlTypes = /<key>CFBundleURLTypes<\/key>\s*<array>([\s\S]*?)\n\t<\/array>/.exec(plist)?.[1];
   assert.ok(urlTypes);
   assert.match(urlTypes, /<key>CFBundleURLSchemes<\/key>\s*<array>\s*<string>gromo<\/string>/);
+});
+
+test('구독 전에 온 지연 딥링크를 한 번 전달하고 늦은 초기 URL로 덮지 않는다', async () => {
+  jest.resetModules();
+  const links = require('./appDeepLink') as typeof import('./appDeepLink');
+  links.openAirbridgeLink('gromo://friends');
+  const source = {
+    getInitialURL: jest.fn(async () => 'gromo://home'),
+    addEventListener: jest.fn(() => ({ remove: jest.fn() })),
+  } as unknown as AppLinkSource;
+  const received: string[] = [];
+  const stop = links.subscribeToAppLinks((url) => received.push(url), source);
+  await Promise.resolve();
+  expect(received).toEqual(['gromo://friends']);
+  stop();
+  const next: string[] = [];
+  const stopNext = links.subscribeToAppLinks((url) => next.push(url), source);
+  await Promise.resolve();
+  expect(next).toEqual(['gromo://home']);
+  stopNext();
+});
+
+test('OS·SDK 중복 링크는 한 번만 이동하고 이후 다시 탭한 링크는 허용한다', async () => {
+  jest.resetModules();
+  const links = require('./appDeepLink') as typeof import('./appDeepLink');
+  let onUrl!: (event: { url: string }) => void;
+  const source = {
+    getInitialURL: jest.fn(async () => null),
+    addEventListener: jest.fn((_type, listener) => {
+      onUrl = listener;
+      return { remove: jest.fn() };
+    }),
+  } as unknown as AppLinkSource;
+  const now = jest.spyOn(Date, 'now').mockReturnValue(10000);
+  const received: string[] = [];
+  const stop = links.subscribeToAppLinks((url) => received.push(url), source);
+  onUrl({ url: 'gromo://friends?airbridge_referrer=test' });
+  links.openAirbridgeLink('gromo://friends');
+  links.openAirbridgeLink('https://untrusted.example/path');
+  expect(received).toHaveLength(1);
+  now.mockReturnValue(12000);
+  links.openAirbridgeLink('gromo://friends');
+  expect(received).toHaveLength(2);
+  stop();
+  now.mockRestore();
+});
+
+test.each([
+  ['https://link.oneorthree.world/l/abcdefgh?g=ignored', 'abcdefgh'],
+  ['https://oneorthree.dev.mooo.com/l/abcdefgh', 'abcdefgh'],
+  ['gromo://join?g=ignored&s=abcdefgh', 'abcdefgh'],
+])('초대 링크 %s는 서버 확인용 코드만 반환한다', (url, code) => {
+  expect(parseAppDeepLink(url)).toEqual({ kind: 'invitation', code });
+});
+test.each([
+  'https://link.oneorthree.world.evil.com/l/abcdefgh',
+  'https://link.oneorthree.world/l/abcdefgh/extra',
+  'https://link.oneorthree.world/l/invalid',
+])('잘못된 초대 URL %s는 무시한다', (url) => {
+  expect(parseAppDeepLink(url)).toBeNull();
 });

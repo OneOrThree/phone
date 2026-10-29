@@ -22,8 +22,8 @@ import java.util.Map;
  *
  * <h2>A18 보류를 코드가 대신 정하지 않는다</h2>
  * 최종 재시도 기간·고갈 처리·비요청형 유실 허용은 <b>보류</b>다(A18). 그래서 여기에는 「고갈되면
- * 무엇을 한다」가 없다. {@link Retry#getMaxAttempts()} 는 <b>경고 임계값</b>일 뿐이고, 그 횟수를 넘어도
- * 행은 남고 재시도는 최대 백오프로 계속된다. 폐기·DLQ 이동·HTTP 자동 폴백은 구현하지 않는다.
+ * 무엇을 한다」가 없다. {@link Retry#getMaxAttempts()} 는 <b>경고 임계값</b>일 뿐이고, 시도가 그 횟수에 닿으면
+ * 경고를 한 번 남기되 행은 남고 재시도는 최대 백오프로 계속된다. 폐기·DLQ 이동·HTTP 자동 폴백은 구현하지 않는다.
  *
  * <p>대신 <b>켤 때는 재시도 정책을 반드시 채우게</b> 한다({@link #validateWhenEnabled()}) — 값 없이
  * 켜지면 코드의 임의 기본값이 곧 운영 정책이 되어 버린다.
@@ -119,7 +119,7 @@ public class OutboxRelayProperties {
         private Duration maxBackoff;
 
         /**
-         * <b>경고 임계값</b>이다. 이 횟수를 넘으면 로그·메트릭으로 드러내지만 행을 없애거나 재시도를
+         * <b>경고 임계값</b>이다. 시도가 이 횟수에 닿으면 로그를 한 번 남기지만 행을 없애거나 재시도를
          * 멈추지 않는다 — 고갈 처리는 A18 보류다.
          */
         private Integer maxAttempts;

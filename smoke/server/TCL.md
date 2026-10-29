@@ -4,12 +4,12 @@
 
 작업 티켓: [GROMO-2285](https://romance.atlassian.net/browse/GROMO-2285)
 
-이번 구현에 포함되는 **SMOKE-SERVER-001~010·014~018, 총 15개 TC**를 정리한다. 각 TC는 식별자·목적·연결 요구사항·사전 조건·입력값·기대 결과 양식을 따른다. 요청·응답은 현재 코드·계약에 맞춰 실행기에서 판정한다. 공통 계획과 실행 방법은 [README.md](README.md), 실제 검증 기록은 [verification.md](verification.md)에 둔다.
+이번 구현에 포함되는 **SMOKE-SERVER-001~010·014~018, 총 15개 TC**를 정리한다. 각 TC는 식별자·목적·연결 요구사항·사전 조건·입력값·기대 결과 양식을 따른다. 요청·응답은 현재 코드·계약에 맞춰 실행기에서 판정한다. [전체 실행 흐름](../README.md#전체-실행-흐름), [로그인 AS IS / TO BE](login-retry.md), 실행 방법은 [README.md](README.md), 실제 검증 기록은 [verification.md](verification.md)에 둔다.
 
 ## 공통 실행 조건
 
 - 대상: dev에 배포된 서버. `BASE_URL=https://oneorthree.dev.mooo.com`.
-- 공개 API는 게스트 로그인 이후 `Authorization: Bearer <accessToken>`을 보낸다. 쓰기 요청은 계약에 맞는 새 `Idempotency-Key`를 사용하고, version은 직전 조회값을 사용한다.
+- 공개 API는 게스트 로그인 이후 `Authorization: Bearer <accessToken>`을 보낸다. 로그인 외 쓰기 요청은 계약에 맞는 새 `Idempotency-Key`를 사용하고, version은 직전 조회값을 사용한다. 게스트 로그인의 재시도는 같은 `X-Device-Id`를 사용한다. 002·014·016과 015 독립 준비가 같은 재시도 규칙·전체 요청 예산을 공유한다.
 - 공개 기본 실행 순서: 001 → 002 → 003 → 004 → 005 → 007 연결·구독 → 006 시작·조회 → 010 수신 → 006 종료 → 009. 이벤트 발생 전에 구독을 완료한다.
 - 전체 API 실행은 006 종료 후 016 → 009 → 014 → 015 순서로 이어진다. 008·017·018은 `[self-hosted, dev]` 러너의 별도 내부 실행기에서 수행한다.
 - 014는 별도 전용 게스트·섬을 사용한다. 016의 주민·친구 준비는 014의 단독 섬·잔액 검사와 분리한다.
@@ -28,8 +28,8 @@ TC는 아래 도메인별로 구분한다. 식별자는 기존 번호를 유지�
 | 목적 | 게스트 세션 발급 경로(business → data-api → DB → JWT) |
 | 연결 요구사항 | `docs/prd/fishcat/account` (게스트 시작) |
 | 사전 조건 | 001 통과. `SMOKE_DEVICE_ID`(UUID36)는 선택 사항이며 미지정 시 실행기가 새 UUID 생성 |
-| 입력값 | `POST /auth/sessions/guest`, 헤더 `X-Device-Id: <SMOKE_DEVICE_ID>` |
-| 기대 결과 | 201. `accessToken`·`refreshToken`·`userId`(UUID)·`onboardingComplete`(bool). `userId`는 같은 기기 UUID의 5분 복구 창 내 재로그인 시 동일. 기본 실행은 매번 새 UUID 사용 |
+| 입력값 | `POST /auth/sessions/guest`, 헤더 `X-Device-Id: <SMOKE_DEVICE_ID>`. 일시적 실패만 같은 기기로 5초 뒤 최대 두 번 더 요청. 로그인 전체 40초·실행 전체 요청 10회 제한. [AS IS / TO BE](login-retry.md) |
+| 기대 결과 | 201. `accessToken`·`refreshToken`·`userId`(UUID)·`onboardingComplete`(bool). `userId`는 같은 기기 UUID의 5분 복구 창 내 재로그인 시 동일. 기본 실행은 매번 새 UUID 사용. 429·인증·응답 계약 오류는 재시도하지 않음. 최종 판정만 1건 기록하고 `attempts`·`retries`·누적 시간으로 재시도 후 성공을 구분 |
 
 ### SMOKE-SERVER-003 — 내 계정 조회
 

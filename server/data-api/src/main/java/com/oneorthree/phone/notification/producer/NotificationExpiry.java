@@ -2,96 +2,33 @@ package com.oneorthree.phone.notification.producer;
 
 import static com.oneorthree.phone.common.util.ZonePolicy.KST;
 
-import com.oneorthree.phone.notification.migration.NotificationCronReplayJob;
-
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalTime;
 import java.util.Map;
 
-/** 원사건 시각에 고정된 발송 만료. relay·DLT·이관·재생 시각으로 수명을 다시 시작하지 않는다. */
+/** 잡지 알림의 수명을 발행일 다음 날 07:00 KST에 고정한다. 재전달 시각으로 연장하지 않는다. */
 public final class NotificationExpiry {
     public static final String OCCURRED_AT = "dedupAt";
     public static final String EXPIRES_AT = "expiresAt";
-
-    /** 일 목표 마감 크론 시각 — {@code NotificationScheduler#sendChallengeDurationEndNotifications}. */
-    private static final LocalTime DURATION_END_CRON = LocalTime.of(9, 0);
-
-    /** 잡지 발행 시각(KST) — {@code MagazineCalendar.OPENS} 와 같아야 한다(GROMO-2307). */
     private static final LocalTime MAGAZINE_ISSUE_OPENS = LocalTime.of(7, 0);
-
-    /** 잡지 알림 수명의 상한 표지 — 실제 만료는 {@code expiresAt} 이 호 날짜 다음 날 07:00 KST 로 자른다. */
-    private static final Duration MAGAZINE_MAX_VALIDITY = Duration.ofDays(2);
 
     private NotificationExpiry() {
     }
 
-    /** @return 정본 재생 계약의 시간 제한. 사실 통보·별도 도메인 마감 판정 종류는 null이다. */
+    /** @return 잡지 호의 만료 상한. 사실 통보 알림은 별도 시간 제한이 없다. */
     public static Duration validity(NotificationKind kind) {
-        NotificationCronReplayJob job = switch (kind) {
-            case LEAGUE_WEEKLY_RESULT -> NotificationCronReplayJob.LEAGUE_WEEKLY_RESULTS;
-            case LEAGUE_DEADLINE -> NotificationCronReplayJob.LEAGUE_DEADLINE;
-            case LEAGUE_DEADLINE_D1, LEAGUE_RELEGATION_WARNING -> NotificationCronReplayJob.LEAGUE_SUNDAY_CRISIS;
-            case LEAGUE_RELEGATION_WARNING_EVENING -> NotificationCronReplayJob.LEAGUE_RELEGATION_WARNING;
-            case LEAGUE_FINAL_DEADLINE -> NotificationCronReplayJob.LEAGUE_FINAL_DEADLINE;
-            case MISSED_FOCUS_TODAY -> NotificationCronReplayJob.MISSED_FOCUS_TODAY;
-            case STREAK_AT_RISK -> NotificationCronReplayJob.STREAK_AT_RISK;
-            case INACTIVE_RETURN -> NotificationCronReplayJob.INACTIVE_RETURN;
-            case CHALLENGE_WINDOW_END -> NotificationCronReplayJob.CHALLENGE_WINDOW_END;
-            case CHALLENGE_ENDED -> NotificationCronReplayJob.CHALLENGE_DURATION_END;
-            default -> null;
-        };
-        if (kind == NotificationKind.MAGAZINE_PUBLISHED) {
-            // 크론 재생 계약이 아니라 호의 «현재 호» 창이 수명이다 — 실제 만료는 expiresAt 이 호 날짜로 잰다.
-            return MAGAZINE_MAX_VALIDITY;
-        }
-        return job == null ? null : job.validity();
+        return kind == NotificationKind.MAGAZINE_PUBLISHED ? Duration.ofDays(2) : null;
     }
 
-    /** 크론이 몇 분 늦어도 리그 마감·오늘·조용한 시간 경계를 넘어 유효해지지 않는다. */
     public static Instant expiresAt(NotificationKind kind, Instant occurredAt) {
-        Duration validity = validity(kind);
-        if (validity == null) {
-            return null;
-        }
-        Instant expiry = validityBase(kind, occurredAt).plus(validity);
-        var date = occurredAt.atZone(KST).toLocalDate();
-        Instant calendarLimit = switch (kind) {
-            case LEAGUE_DEADLINE, LEAGUE_DEADLINE_D1, LEAGUE_RELEGATION_WARNING,
-                 LEAGUE_RELEGATION_WARNING_EVENING, LEAGUE_FINAL_DEADLINE, STREAK_AT_RISK ->
-                    date.plusDays(1).atStartOfDay(KST).toInstant();
-            // 발행일(KST)의 호가 «현재 호» 인 마지막 순간(다음 날 07:00) — 지난 호가 「오늘의 고양이 잡지」로 나가지 않는다.
-            // MagazineCalendar.currentUntil 과 같은 경계다: notification(L7)이 magazine(L8)을 못 보므로 값만 맞춘다.
-            case MAGAZINE_PUBLISHED -> date.plusDays(1).atTime(MAGAZINE_ISSUE_OPENS).atZone(KST).toInstant();
-            case INACTIVE_RETURN, MISSED_FOCUS_TODAY, CHALLENGE_ENDED ->
-                    date.atTime(23, 0).atZone(KST).toInstant();
-            default -> expiry;
-        };
-        return expiry.isBefore(calendarLimit) ? expiry : calendarLimit;
+        return kind == NotificationKind.MAGAZINE_PUBLISHED
+                ? occurredAt.atZone(KST).toLocalDate().plusDays(1)
+                        .atTime(MAGAZINE_ISSUE_OPENS).atZone(KST).toInstant()
+                : null;
     }
 
-    /**
-     * 유효기간을 재기 시작하는 시각.
-     *
-     * <p>일 목표 마감({@code CHALLENGE_ENDED})의 원사건 시각은 <b>회차 종료(자정)</b>다 — 결정적 키·묶음 슬롯이
-     * 실행 시각이 아닌 회차에 고정돼야 같은 회차가 한 키로 접힌다(GROMO-893 ⑦). 그런데 재생 계약의 유효기간
-     * ({@link NotificationCronReplayJob#CHALLENGE_DURATION_END})은 09:00 크론 슬롯부터 잰다. 자정부터 재면 같은
-     * 알림의 수명이 23:00 에서 14:00 으로 줄어든다. 그래서 그날 09:00 이전의 원사건 시각은 09:00 으로 올려 잰다 —
-     * 실행 시각을 원사건 시각으로 실었던 이전 사건과 같은 만료가 나온다.
-     *
-     * @param kind       알림 종류
-     * @param occurredAt 원사건 시각
-     * @return 유효기간의 시작
-     */
-    private static Instant validityBase(NotificationKind kind, Instant occurredAt) {
-        if (kind != NotificationKind.CHALLENGE_ENDED) {
-            return occurredAt;
-        }
-        Instant cronSlot = occurredAt.atZone(KST).toLocalDate().atTime(DURATION_END_CRON).atZone(KST).toInstant();
-        return occurredAt.isBefore(cronSlot) ? cronSlot : occurredAt;
-    }
-
-    /** @param params 저장되는 원문 params. 원본 사건 시각이 있을 때만 그 값으로 메타데이터를 만든다. */
+    /** 원사건 시각을 보존하고 시간 제한이 있는 종류에 만료 시각을 더한다. */
     public static void addTo(Map<String, Object> params, NotificationKind kind, Instant occurredAt) {
         if (occurredAt == null) {
             return;

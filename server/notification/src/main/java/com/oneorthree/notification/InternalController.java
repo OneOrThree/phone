@@ -1,5 +1,6 @@
 package com.oneorthree.notification;
 
+import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -20,17 +21,17 @@ class InternalController {
 
     private final DeviceService devices;
     private final SettingsService settings;
-    private final AckService ack;
     private final InboundService inbound;
     private final Store store;
+    private final MeterRegistry metrics;
 
-    InternalController(DeviceService devices, SettingsService settings, AckService ack,
-            InboundService inbound, Store store) {
+    InternalController(DeviceService devices, SettingsService settings,
+            InboundService inbound, Store store, MeterRegistry metrics) {
         this.devices = devices;
         this.settings = settings;
-        this.ack = ack;
         this.inbound = inbound;
         this.store = store;
+        this.metrics = metrics;
     }
 
     @GetMapping("/health")
@@ -39,9 +40,10 @@ class InternalController {
         return Map.of("status", "UP");
     }
 
+    /** 서비스 인증을 통과한 뒤에만 여기 온다 — 그래서 원인 문맥 헤더를 이 요청에서만 채택한다(GROMO-2557). */
     @PostMapping("/internal/events")
-    Map<String, Object> event(@RequestBody Map<String, Object> body) {
-        return inbound.accept(body);
+    Map<String, Object> event(@RequestBody Map<String, Object> body, HttpServletRequest request) {
+        return InboundTrace.fromHttp(request, metrics).accept(inbound, body, "http");
     }
 
     @PostMapping("/internal/devices")
@@ -87,9 +89,4 @@ class InternalController {
         return settings.initialize(userId, body);
     }
 
-    @PostMapping("/internal/users/{userId}/result-ack/{action}")
-    Map<String, Object> ack(@PathVariable UUID userId, @PathVariable String action,
-            @RequestBody Map<String, Object> body, @RequestHeader("Idempotency-Key") String key) {
-        return ack.command(userId, Json.uuid(body, "sessionId"), action, key);
-    }
 }

@@ -22,7 +22,7 @@ import static org.mockito.BDDMockito.given;
 
 /**
  * FriendRelationLookup 단위 테스트 (GROMO-1631).
- * FriendService.search 에서 추출한 관계 판정 로직 — 검색·프로필 공유 컴포넌트.
+ * FriendService.search 에서 추출한 관계 판정 로직 — 검색 결과의 관계 판정 컴포넌트.
  */
 @ExtendWith(MockitoExtension.class)
 class FriendRelationLookupTest {
@@ -59,49 +59,54 @@ class FriendRelationLookupTest {
                 .build();
     }
 
+    private FriendRelation relationOfTarget() {
+        return friendRelationLookup.resolveRelation(targetId,
+                friendRelationLookup.collectFriendIds(me), friendRelationLookup.collectPendingIds(me));
+    }
+
     @Test
     @DisplayName("ACCEPTED 관계 → FRIEND (내가 fromUser·toUser 어느 쪽이든 상대로 매핑)")
-    void relationOf_accepted_returnsFriend() {
+    void resolveRelation_accepted_returnsFriend() {
         // 내가 toUser 인 방향으로 두어 counterpart 매핑까지 검증
         given(friendshipRepository.findAcceptedByUser(me))
                 .willReturn(List.of(friendship(target, me, FriendshipStatus.ACCEPTED)));
 
-        assertThat(friendRelationLookup.relationOf(me, targetId)).isEqualTo(FriendRelation.FRIEND);
+        assertThat(relationOfTarget()).isEqualTo(FriendRelation.FRIEND);
     }
 
     @Test
     @DisplayName("PENDING — 내가 보낸 요청 → PENDING (방향 무구분, N02)")
-    void relationOf_pendingSent_returnsPending() {
+    void resolveRelation_pendingSent_returnsPending() {
         given(friendshipRepository.findByFromUserAndStatusAndDeletedAtIsNull(me, FriendshipStatus.PENDING))
                 .willReturn(List.of(friendship(me, target, FriendshipStatus.PENDING)));
 
-        assertThat(friendRelationLookup.relationOf(me, targetId)).isEqualTo(FriendRelation.PENDING);
+        assertThat(relationOfTarget()).isEqualTo(FriendRelation.PENDING);
     }
 
     @Test
     @DisplayName("PENDING — 내가 받은 요청 → PENDING (방향 무구분, N02)")
-    void relationOf_pendingReceived_returnsPending() {
+    void resolveRelation_pendingReceived_returnsPending() {
         given(friendshipRepository.findByToUserAndStatusAndDeletedAtIsNull(me, FriendshipStatus.PENDING))
                 .willReturn(List.of(friendship(target, me, FriendshipStatus.PENDING)));
 
-        assertThat(friendRelationLookup.relationOf(me, targetId)).isEqualTo(FriendRelation.PENDING);
+        assertThat(relationOfTarget()).isEqualTo(FriendRelation.PENDING);
     }
 
     @Test
     @DisplayName("아무 관계 없음 → NONE")
-    void relationOf_stranger_returnsNone() {
+    void resolveRelation_stranger_returnsNone() {
         // 리포지토리 스텁 없음 — 목 기본값(빈 리스트) = 관계 없음
-        assertThat(friendRelationLookup.relationOf(me, targetId)).isEqualTo(FriendRelation.NONE);
+        assertThat(relationOfTarget()).isEqualTo(FriendRelation.NONE);
     }
 
     @Test
     @DisplayName("soft delete 된 친구 관계 → NONE (findAcceptedByUser 가 deletedAt IS NULL 필터라 조회에서 빠짐)")
-    void relationOf_softDeletedFriend_returnsNone() {
+    void resolveRelation_softDeletedFriend_returnsNone() {
         // findAcceptedByUser 는 ACCEPTED + deletedAt IS NULL 만 반환하는 계약 —
         // soft delete 된 관계는 쿼리 단계에서 걸러져 빈 결과가 온다. 여기서는 그 계약 결과를 재현한다.
         given(friendshipRepository.findAcceptedByUser(me)).willReturn(List.of());
 
-        assertThat(friendRelationLookup.relationOf(me, targetId)).isEqualTo(FriendRelation.NONE);
+        assertThat(relationOfTarget()).isEqualTo(FriendRelation.NONE);
     }
 
     @Test

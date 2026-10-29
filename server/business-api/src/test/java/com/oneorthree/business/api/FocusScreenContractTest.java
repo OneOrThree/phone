@@ -3,11 +3,14 @@ package com.oneorthree.business.api;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MvcResult;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -18,7 +21,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 /**
  * {@code GET /screens/focus} 계약 (GROMO-1897) — 현재 세션 → (세션 섬 | 현재 섬) 상세 → 집중 주민.
  * 세션이 있으면 현재 섬이 아니라 세션이 고정한 섬을 연다. 그 섬의 방송기가 완공이면 방송기를 싣는다.
+ * 느린 상류 시나리오가 공유 서킷을 열어 다른 계약 테스트를 오염시키지 않게 서킷 임계를 올린 별도 컨텍스트로 돈다.
  */
+@TestPropertySource(properties = "business.upstream.data.failure-threshold=1000")
 class FocusScreenContractTest extends ScreenContractTestBase {
 
     private static final UUID FOCUS = UUID.fromString("dddddddd-1897-0000-0000-000000000002");
@@ -131,18 +136,31 @@ class FocusScreenContractTest extends ScreenContractTestBase {
     @DisplayName("필수 조각이 시간 초과면 빈 조각 200 이 아니라 화면 전체 400 다")
     void fragmentTimeoutPreservesReasonWithPublic400() throws Exception {
         DATA.on(DATA_CURRENT, request -> ok("{\"session\":null}"));
-        // ci 의 read-timeout 은 300ms 다 — 매 시도를 그보다 길게 붙든다. 실패 2회는 서킷 임계(5) 아래이고 다음
-        // 성공이 되돌린다. 3초 화면 예산 소진은 ScreenDeadlineContractTest 가 별도 컨텍스트로 본다.
+        // ci 의 read-timeout 은 300ms 다 — 매 시도를 그보다 길게 붙든다. 재시도(maxAttempts 2)까지 두 시도를 모두
+        // 붙드니 latch 는 2 다. maxAttempts 를 올리면 latch 도 같이 올릴 것 — 2 는 «정확히 2회»일 때만 안전하다.
+        // 서킷 임계를 1000 으로 올려 이 실패가 다른 테스트를 오염시키지 않는다.
+        CountDownLatch released = new CountDownLatch(2);
         DATA.on(members(ISLAND), request -> {
-            pause(350);
+            try {
+                Thread.sleep(350);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            } finally {
+                released.countDown();
+            }
             return ok(focusMembers(ISLAND));
         });
 
-        mockMvc.perform(auth(get("/screens/focus")))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error.code").value("UPSTREAM_TIMEOUT"));
-        // mock 상류는 스레드 하나다 — 붙든 시도가 끝날 때까지 기다려 다음 테스트 요청이 줄 서지 않게 한다.
-        pause(400);
+        try {
+            mockMvc.perform(auth(get("/screens/focus")))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.error.code").value("UPSTREAM_TIMEOUT"));
+        } finally {
+            // 단언이 실패해도 붙든 시도를 비운다 — 안 그러면 후속 테스트가 연쇄로 타임아웃 난다.
+            // mock 상류는 스레드 하나다 — 붙든 두 시도가 끝났다는 신호를 기다려 다음 테스트 요청이 줄 서지 않게 한다.
+            released.await(5, TimeUnit.SECONDS);
+        }
+        assertThat(released.getCount()).as("붙든 두 시도가 모두 끝났다").isZero();
     }
 
     @Test
@@ -152,14 +170,6 @@ class FocusScreenContractTest extends ScreenContractTestBase {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("INVALID_PARAMETER"));
         assertThat(DATA.received()).isEmpty();
-    }
-
-    private static void pause(long millis) {
-        try {
-            Thread.sleep(millis);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
     }
 
     private static String island(UUID island) {

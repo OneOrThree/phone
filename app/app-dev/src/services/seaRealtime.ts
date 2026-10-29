@@ -1,3 +1,4 @@
+import { ensureMemberLooks, memberLooks } from './memberLooks';
 /**
  * 먼바다 방 실시간 클라이언트(GROMO-2310). 서버 계약 정본은 `server/realtime/CLAUDE.md` 「API surface」의 바다 행과
  * 「바다 앱 프레임 순서(강제)」·「바다 앱 계약 보충」이다.
@@ -10,6 +11,8 @@
  * - 45초마다 `sync`(방이 없으면 `enter`) — Redis 장애·flush 뒤 서버가 먼저 알릴 수 없는 조용한 구간의 상한(서버 결정 N39).
  *   `NOT_IN_SEA_ROOM`(오류 큐)이면 다시 `enter` 한다.
  * - `sea.room.left` 는 그 사용자의 모든 세션에 오고 중복될 수 있다 — `eventId` 로 한 번만 처리한다(멱등).
+ *   `adrift`(서버의 10분 표류 정리)면 주기 틱으로는 다시 들어가지 않고, 사용자 행동(`sendEmote`·`reconnect`)이나
+ *   재연결·화면 재진입 때만 다시 `enter` 한다(GROMO-2484 — 예전에는 재연결 전까지 영구히 방이 없었다).
  * - 서버 스위치 `FOCUS_SEA_REALTIME_EVENTS_ENABLED` 가 꺼진 환경(dev 기본)에서는 남의 출항·종료·한마디 변경이 다음
  *   enter/sync 스냅샷 전까지 보이지 않는다. 내 항해 화면은 HTTP 응답(세션·한마디)으로 직접 그리므로 영향이 없다.
  */
@@ -18,6 +21,7 @@ import { t } from '@/i18n';
 import { colors, type Color } from '@/services/model';
 import {
   attachCloseHandling,
+  EMOTE_TRY_MS,
   EMOTE_TYPES,
   friendlyRealtimeErrorMessage,
   realtimeClientOptions,
@@ -27,8 +31,6 @@ import { parseLook } from './memberAppearance';
 
 /** 주기 sync 간격 — 서버 권장 30~60초의 가운데. */
 export const SEA_SYNC_MS = 45_000;
-/** 서버 시도 창(600ms)을 넘기면 ERROR + 연결 종료라 앱이 먼저 거른다. */
-const EMOTE_TRY_MS = 700;
 const ENTER_TRY_MS = 1_000;
 /** 연속 ERROR 프레임(연결 종료) 상한 — 닿으면 stompjs 의 5초 재접속을 멈추고 아래 백오프로만 다시 붙는다. 스냅샷을 받으면 0 으로. */
 const STOMP_ERROR_LIMIT = 3;
@@ -114,17 +116,26 @@ export type SeaRoomOpts = {
   /** 방 이모트 — 내 것도 온다(그것이 발신 성공 ack). */
   onEmote: (userId: string, type: SeaEmote) => void;
   onError: (message: string) => void;
-  /** 내가 방에서 빠졌다(`sea.room.left`). `adrift`(10분 정리)면 다음 재연결 전까지 다시 들어가지 않는다. */
+  /** 내가 방에서 빠졌다(`sea.room.left`). `adrift`(10분 정리)면 주기 틱으로는 다시 들어가지 않는다(사용자 행동 때 다시). */
   onLeft?: (reason: string) => void;
   /** 끊겼다가 다시 연결됐다(첫 연결은 제외) — 그동안 놓친 세션 변화를 호출부가 HTTP 정본으로 맞춘다. */
   onReconnect?: () => void;
   now?: () => number;
 };
 
+/**
+ * `sendEmote` 결과(GROMO-2484) — 화면이 이유별로 안내한다. 서버 ack 가 아니다(publish 성공이 `sent`, 거절은 오류 큐로 나중에 온다).
+ * `no-room`(방 배정 전·표류 정리 뒤)과 `disconnected` 는 그 자리에서 다시 들어가기를 시작한다.
+ */
+export type SeaEmoteResult = 'sent' | 'no-room' | 'disconnected' | 'throttled' | 'closed';
+
 export type SeaRoom = {
-  /** `SEND /app/sea/rooms/{roomId}/emotes {type}`. 미연결·방 없음·시도 창 안·모르는 타입이면 false. */
-  sendEmote(type: SeaEmote): boolean;
-  /** 오류 상한으로 쉬고 있으면 기다리지 않고 바로 다시 붙는다(포그라운드 복귀·사용자 재시도). 연결 중이면 아무 일도 없다. */
+  /** `SEND /app/sea/rooms/{roomId}/emotes {type}`. 닫힘·모르는 타입이면 `closed`. */
+  sendEmote(type: SeaEmote): SeaEmoteResult;
+  /**
+   * 사용자 행동·포그라운드 복귀 — 방이 없으면(표류 정리 뒤 포함) 다시 `enter` 하고, 오류 상한으로 쉬고 있으면 기다리지 않고
+   * 바로 다시 붙는다. 방에 있고 연결 중이면 아무 일도 없다.
+   */
   reconnect(): void;
   /** `SEND /app/sea/leave` 뒤 소켓을 닫고 재접속 타이머도 멈춘다. */
   close(): void;
@@ -147,6 +158,8 @@ export function openSeaRoom(opts: SeaRoomOpts): SeaRoom {
   let backoffStep = 0;
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
   let limitNotified = false;
+  // UPSTREAM_UNAVAILABLE 안내는 한 번만 — 상류가 계속 죽어 있으면 45초 틱의 enter 마다 거절된다. 스냅샷·사용자 재시도면 다시 켠다
+  let upstreamNotified = false;
   let closed = false;
   let revoked = false; // 세션 폐기 close — 백오프 재활성도 하지 않는다
   const resume = () => {
@@ -160,8 +173,38 @@ export function openSeaRoom(opts: SeaRoomOpts): SeaRoom {
       if (!closed && !revoked) client.activate();
     });
   };
+  // 사용자 행동·복귀 — 표류 정리로 멈춘 입장(parked)을 풀고 방이 없으면 다시 들어간다. 주기 틱은 부르지 않는다(정리 반복 방지)
+  const rejoin = () => {
+    parked = false;
+    upstreamNotified = false;
+    if (!roomId) enter();
+    resume();
+  };
   const seenLeft = new Set<string>();
-  const emit = () => opts.onMembers([...members.values()]);
+  const emit = () =>
+    opts.onMembers(
+      [...members.values()].flatMap((member) => {
+        const look = memberLooks.get(member.userId);
+        if (look?.hidden) return [];
+        return [
+          {
+            ...member,
+            ...(look?.catColor && colors.includes(look.catColor as Color)
+              ? { color: look.catColor as Color }
+              : {}),
+            ...(look?.appearance &&
+            (member.outfitVersion === undefined ||
+              (look.appearance.version ?? -1) >= member.outfitVersion)
+              ? { outfit: look.appearance, outfitVersion: look.appearance.version ?? undefined }
+              : {}),
+          },
+        ];
+      }),
+    );
+  const stopLooks = memberLooks.subscribe(() => {
+    if (!closed) emit();
+  });
+  let restoreLooks = true;
   const send = (destination: string, body: unknown = {}) => {
     if (!client.connected) return false;
     client.publish({ destination, body: JSON.stringify(body) });
@@ -196,7 +239,27 @@ export function openSeaRoom(opts: SeaRoomOpts): SeaRoom {
       if (!member) return;
       keepNewerOutfit(member, members.get(member.userId));
       members.set(member.userId, member);
+      const appearance = parseLook((p.member as Record<string, unknown>)?.appearance);
+      if (appearance) memberLooks.accept(member.userId, appearance);
+      void ensureMemberLooks([member.userId]);
       emit();
+    } else if (ev.type === 'sea.member.appearance.updated') {
+      const look = parseLook(p.appearance);
+      if (
+        typeof p.userId === 'string' &&
+        members.has(p.userId) &&
+        look &&
+        Number.isSafeInteger(p.version) &&
+        (p.version as number) >= 0
+      ) {
+        const member = members.get(p.userId)!;
+        if (member.outfitVersion === undefined || (p.version as number) > member.outfitVersion) {
+          member.outfit = { ...look };
+          member.outfitVersion = p.version as number;
+        }
+        memberLooks.accept(p.userId, { ...look, version: p.version as number });
+        emit();
+      }
     } else if (ev.type === 'sea.member.left') {
       // 없는 사람 제거는 멱등이다(joined 뒤 보정 left 와 겹칠 수 있다)
       if (typeof p.userId === 'string' && members.delete(p.userId)) emit();
@@ -233,10 +296,15 @@ export function openSeaRoom(opts: SeaRoomOpts): SeaRoom {
         // 스냅숏이 정본이지만 외양은 먼저 온 더 새 갱신(version)을 되돌리지 않는다
         keepNewerOutfit(member, before.get(member.userId));
         members.set(member.userId, member);
+        const appearance = parseLook((raw as Record<string, unknown>)?.appearance);
+        if (appearance) memberLooks.accept(member.userId, appearance);
       }
+      void ensureMemberLooks([...members.keys()], restoreLooks);
+      restoreLooks = false;
       stompErrors = 0;
       backoffStep = 0;
       limitNotified = false;
+      upstreamNotified = false;
       emit();
     } else if (ev.type === 'sea.room.left') {
       const id = str(ev.eventId);
@@ -251,7 +319,8 @@ export function openSeaRoom(opts: SeaRoomOpts): SeaRoom {
       roomSub?.unsubscribe();
       dropRoom();
       opts.onLeft?.(reason);
-      // 10분 표류 정리는 서버의 결정이라 다시 들어가지 않는다. 다른 기기의 퇴장(left·disconnected)은 이 화면이 아직 있으니 다시 들어간다
+      // 10분 표류 정리는 서버의 결정이라 주기 틱으로는 다시 들어가지 않는다 — 사용자 행동(rejoin) 때만. 다른 기기의 퇴장
+      // (left·disconnected)은 이 화면이 아직 있으니 바로 다시 들어간다
       if (reason === 'adrift') parked = true;
       else enter();
     }
@@ -276,8 +345,12 @@ export function openSeaRoom(opts: SeaRoomOpts): SeaRoom {
       enter();
       return;
     }
-    // Data 상태 조회 실패 — 다음 주기 틱이 enter 를 다시 보낸다
-    if (code === 'UPSTREAM_UNAVAILABLE') return;
+    // Data 상태 조회 실패(상류 미배선·5xx·타임아웃) — 안내하고, 다음 주기 틱·사용자 행동이 enter 를 다시 보낸다
+    if (code === 'UPSTREAM_UNAVAILABLE') {
+      if (!upstreamNotified) opts.onError(t('openSea.upstreamUnavailable'));
+      upstreamNotified = true;
+      return;
+    }
     if (code === 'EMOTE_TOO_FREQUENT') return opts.onError(t('openSea.emoteTooFrequent'));
     const text = friendlyRealtimeErrorMessage(code || message);
     if (text) opts.onError(text);
@@ -285,6 +358,7 @@ export function openSeaRoom(opts: SeaRoomOpts): SeaRoom {
   const client = new Client({
     ...realtimeClientOptions(),
     onConnect: () => {
+      restoreLooks = true;
       // 재연결 — 구독이 모두 사라졌고 마지막 세션이었다면 서버는 이미 left{disconnected} 로 내보냈다. 항상 enter 부터
       roomId = null;
       roomSub = null;
@@ -335,15 +409,22 @@ export function openSeaRoom(opts: SeaRoomOpts): SeaRoom {
   client.activate();
   return {
     sendEmote: (type) => {
-      if (closed || !roomId || !EMOTE_TYPES.has(type) || now() - lastEmote < EMOTE_TRY_MS)
-        return false;
-      if (!send(`/app/sea/rooms/${roomId}/emotes`, { type })) return false;
+      if (closed || !EMOTE_TYPES.has(type)) return 'closed';
+      // 끊김·방 없음이면 이 탭이 재시도다 — 다시 들어가기(쉬는 중이면 바로 재접속)를 시작하고 이유를 돌려준다
+      const blocked = !client.connected ? 'disconnected' : !roomId ? 'no-room' : null;
+      if (blocked) {
+        rejoin();
+        return blocked;
+      }
+      if (now() - lastEmote < EMOTE_TRY_MS) return 'throttled';
+      send(`/app/sea/rooms/${roomId}/emotes`, { type });
       lastEmote = now();
-      return true;
+      return 'sent';
     },
-    reconnect: resume,
+    reconnect: rejoin,
     close: () => {
       closed = true;
+      stopLooks();
       if (retryTimer) clearTimeout(retryTimer);
       retryTimer = null;
       clearInterval(timer);

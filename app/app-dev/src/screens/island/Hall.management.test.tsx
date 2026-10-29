@@ -4,8 +4,10 @@ import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react
 import { Platform, StyleSheet } from 'react-native';
 import { currentIsland, initialState, joinRequests, reducer, viewIsland } from '@/services/model';
 import { Hall } from '@/screens/island/Hall';
+import { applyLocalePref } from '@/i18n';
 import { ApiError } from '@/services/api/client';
 import { useIslandManagement } from '@/screens/interiors/useIslandManagement';
+import * as magazine from '@/services/api/magazine';
 
 jest.mock('@/screens/interiors/useIslandManagement', () => ({
   ...jest.requireActual('@/screens/interiors/useIslandManagement'),
@@ -35,8 +37,16 @@ jest.mock('@/services/customizationCatalog', () => ({
     },
   }),
 }));
+// 섬 소식 목록(GROMO-2282) — manage/members 카드가 부르는 getIslandNews 는 실제 fetch 대신 이 mock 으로 막는다
+jest.mock('@/services/api/magazine', () => ({
+  ...jest.requireActual('@/services/api/magazine'),
+  getIslandNews: jest.fn(),
+}));
 let mockSessionGeneration = 0;
-jest.mock('@/services/api/session', () => ({ sessionGeneration: () => mockSessionGeneration }));
+jest.mock('@/services/api/session', () => ({
+  ...jest.requireActual('@/services/api/session'),
+  sessionGeneration: () => mockSessionGeneration,
+}));
 jest.mock('@/screens/island/useLedgerScreen', () => ({
   shiftMonth: (month: string) => month,
   useLedgerScreen: () => ({
@@ -75,6 +85,7 @@ jest.mock('react-native-safe-area-context', () => ({
 }));
 
 const managementMock = useIslandManagement as jest.Mock;
+const getNewsMock = magazine.getIslandNews as jest.Mock;
 const asyncCommand = () => jest.fn<Promise<void>, any[]>(async () => {});
 const management = (over: object = {}) => ({
   detail: {
@@ -120,8 +131,14 @@ beforeEach(() => {
   mockSessionGeneration = 0;
   mockLandscape = false;
   managementMock.mockReturnValue(management());
+  // clearAllMocks 는 구현을 지우지 않는다 — 앞 테스트의 거절·목록이 새지 않게 매번 빈 목록으로 되돌린다
+  getNewsMock.mockReset();
+  getNewsMock.mockResolvedValue([]);
 });
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  applyLocalePref('system');
+});
 
 test('실제 Hall manage는 서버 DTO를 그리고 저장·승인·강퇴 명령을 hook으로 보낸다', async () => {
   const api = management();
@@ -386,6 +403,21 @@ test('서버 current 섬이 있으면 관리 hook 에 로컬 목업 섬 대신 �
   assert.equal(managementMock.mock.calls.at(-1)[0].islandId, 'srv-1');
 });
 
+test('서버 모드인데 서버 섬 id 가 아직 없으면 소식·관리 조회를 보류하고, 도착하면 한 번 부른다(GROMO-2460)', async () => {
+  const islands = {};
+  const pending = { ...initialState(true), serverIslands: { currentIslandId: null } } as any;
+  const screen = await render(<Hall e={{ ...e('manage', pending), islands }} />);
+  await act(async () => {});
+  assert.equal(managementMock.mock.calls.at(-1)[0].islandId, null);
+  expect(getNewsMock).toHaveBeenCalledTimes(0);
+
+  const arrived = { ...initialState(true), serverIslands: { currentIslandId: 'srv-1' } } as any;
+  await screen.rerender(<Hall e={{ ...e('manage', arrived), islands }} />);
+  await waitFor(() => expect(getNewsMock).toHaveBeenCalledTimes(1));
+  assert.equal(getNewsMock.mock.calls[0][0], 'srv-1');
+  assert.equal(managementMock.mock.calls.at(-1)[0].islandId, 'srv-1');
+});
+
 test('서버 주민 탈퇴는 서버 섬 이름으로 확인하고 islands.leave 를 보낸다(4-06)', async () => {
   managementMock.mockReturnValue(management({ role: 'member', requests: null }));
   const state = { ...initialState(true), serverIslands: { currentIslandId: 'srv-1' } } as any;
@@ -403,6 +435,22 @@ test('서버 주민 탈퇴는 서버 섬 이름으로 확인하고 islands.leave
   await waitFor(() => assert.ok(screen.getByText('섬을 떠났어요.')));
   assert.equal(env.home.mock.calls.length, 0); // current 가 비면 App 이 섬 선택으로 보낸다
   assert.equal(env.reset.mock.calls.length, 0); // 다음 위치를 모르면 바다로 단정하지 않는다
+});
+
+test('서버 섬 id 가 아직 없으면 로딩 화면만 보이고 카드·초대·탈퇴가 없다, 도착하면 카드가 그려진다(GROMO-2460)', async () => {
+  const leave = jest.fn(async (_islandId: string) => ({ currentIslandId: null }));
+  const pending = { ...initialState(true), serverIslands: { currentIslandId: null } } as any;
+  const screen = await render(<Hall e={{ ...e('manage', pending), islands: { leave } }} />);
+
+  expect(screen.queryByTestId('hall-management-loading')).toBeTruthy();
+  expect(screen.queryByTestId('hall-leave')).toBeNull();
+  expect(screen.queryByTestId('hall-invite')).toBeNull();
+  expect(leave).toHaveBeenCalledTimes(0);
+
+  const arrived = { ...initialState(true), serverIslands: { currentIslandId: 'srv-1' } } as any;
+  await screen.rerender(<Hall e={{ ...e('manage', arrived), islands: { leave } }} />);
+  expect(screen.queryByTestId('hall-management-loading')).toBeNull();
+  expect(screen.queryByTestId('hall-invite')).toBeTruthy();
 });
 
 test.each([
@@ -435,11 +483,7 @@ test('혼자 남은 방장은 기본 섬 정보에서 삭제를 확인한 뒤 �
 
   await fireEvent.press(screen.getByTestId('hall-leave'));
   await waitFor(() => assert.ok(screen.getByText('삭제하고 나가기')));
-  assert.ok(
-    screen.getByText(
-      '현재 이 섬에는 나만 남아 있어요.\n탈퇴하면 섬에 쌓인 공동 데이터가 모두 삭제돼요.',
-    ),
-  );
+  assert.ok(screen.getByText('나만 남은 섬이라 공동 데이터가 모두 삭제돼요.'));
   assert.equal(leave.mock.calls.length, 0); // 삭제 영향에 동의한 뒤에만 탈퇴한다
   await fireEvent.press(screen.getByTestId('hall-dialog-cancel'));
   assert.equal(leave.mock.calls.length, 0);
@@ -453,7 +497,17 @@ test('혼자 남은 방장은 기본 섬 정보에서 삭제를 확인한 뒤 �
 
 test('다른 주민이 있는 방장은 기본 섬 정보에서 탈퇴를 누르면 위임부터 안내한다', async () => {
   const leave = asyncCommand();
-  const screen = await render(<Hall e={{ ...e(), islands: { leave } }} />);
+  const screen = await render(
+    <Hall
+      e={{
+        ...e('manage', {
+          ...initialState(true),
+          serverIslands: { currentIslandId: 'srv-1' },
+        } as any),
+        islands: { leave },
+      }}
+    />,
+  );
 
   await fireEvent.press(screen.getByTestId('hall-leave'));
   await waitFor(() => assert.ok(screen.getByText('방장을 위임할 주민을 골라요.')));
@@ -912,4 +966,114 @@ test('게스트 섬장의 인사말 저장(403 SOCIAL_LOGIN_REQUIRED)은 권한 
   expect(env.notify).not.toHaveBeenCalled();
   expect(screen.queryByText('이 작업을 할 권한이 없어요.')).toBeNull();
   expect(screen.getByTestId('hall-greeting').props.value).toBe('어서 와요');
+});
+
+// 섬 소식(GROMO-2282) — 마을회관 섬 정보 카드의 「함께 사는 주민」 바로 아래, 서버가 준 최신순 그대로
+const newsItem = (id: string, createdAt: string, kind = 'PROMOTION') => ({
+  id,
+  kind,
+  body: '서버 한국어 본문',
+  createdAt,
+});
+
+test('섬 소식은 서버가 준 최신순 그대로 「섬 소식」 아래에 보이고 limit 20 으로 부른다', async () => {
+  const state = initialState(true);
+  getNewsMock.mockResolvedValue([
+    newsItem('n2', '2026-10-23T03:00:00.000Z'),
+    newsItem('n1', '2026-10-22T03:00:00.000Z'),
+  ]);
+  const screen = await render(<Hall e={e('manage', state)} />);
+
+  await screen.findByText('섬 소식');
+  expect(getNewsMock).toHaveBeenCalledWith(viewIsland(state).id, 20);
+  expect(screen.getAllByTestId(/^hall-news-/).map((row) => row.props.testID)).toEqual([
+    'hall-news-n2',
+    'hall-news-n1',
+  ]);
+  expect(screen.getAllByText('섬장이 잡지 홍보에 60마리를 썼어요')).toHaveLength(2);
+  expect(screen.getByText('10/23')).toBeTruthy();
+  expect(screen.getByText('10/22')).toBeTruthy();
+  expect(screen.getByText('함께 사는 주민')).toBeTruthy();
+});
+
+test('섬 소식은 모르는 kind 를 건너뛰고 화면은 그대로다(서버 kind 는 열린 문자열)', async () => {
+  getNewsMock.mockResolvedValue([
+    newsItem('m1', '2026-10-24T03:00:00.000Z', 'MAGAZINE_ISSUED'),
+    // 맵 조회로 판정하면 통과하는 이름 — === 'PROMOTION' 이라 건너뛴다
+    newsItem('c1', '2026-10-24T02:00:00.000Z', 'constructor'),
+    newsItem('p1', '2026-10-23T03:00:00.000Z'),
+  ]);
+  const screen = await render(<Hall e={e()} />);
+
+  await screen.findByText('섬 소식');
+  expect(screen.getAllByTestId(/^hall-news-/).map((row) => row.props.testID)).toEqual([
+    'hall-news-p1',
+  ]);
+  expect(screen.getByText('함께 사는 주민')).toBeTruthy();
+});
+
+test('섬 소식이 0건이거나 아는 kind 가 하나도 없으면 칸을 그리지 않는다', async () => {
+  getNewsMock.mockResolvedValue([newsItem('m1', '2026-10-24T03:00:00.000Z', 'MAGAZINE_ISSUED')]);
+  const screen = await render(<Hall e={e()} />);
+
+  await waitFor(() => expect(getNewsMock).toHaveBeenCalledTimes(1));
+  await act(async () => {});
+  expect(screen.queryByText('섬 소식')).toBeNull();
+  expect(screen.getByText('함께 사는 주민')).toBeTruthy();
+});
+
+test('비주민·떠난 주민의 403 FORBIDDEN 은 소식 칸만 숨기고 카드와 오류 문구는 그대로 둔다', async () => {
+  getNewsMock.mockRejectedValue(
+    new ApiError('FORBIDDEN', '이 작업을 할 권한이 없어요.', 403, { field: 'islandId' }),
+  );
+  const screen = await render(<Hall e={e()} />);
+
+  await waitFor(() => expect(getNewsMock).toHaveBeenCalledTimes(1));
+  await act(async () => {});
+  expect(screen.queryByText('섬 소식')).toBeNull();
+  expect(screen.getByText('함께 사는 주민')).toBeTruthy();
+  expect(screen.getByTestId('hall-invite')).toBeTruthy();
+  expect(screen.queryByTestId('hall-management-action-error')).toBeNull();
+  expect(screen.queryByText('이 작업을 할 권한이 없어요.')).toBeNull();
+});
+
+test('다른 섬을 구경 중인 방문자는 섬 소식을 부르지 않는다', async () => {
+  getNewsMock.mockResolvedValue([newsItem('n1', '2026-10-22T03:00:00.000Z')]);
+  const visitorState = initialState(true);
+  visitorState.visitingIslandId = visitorState.islands.find((island) => !island.joined)?.id;
+  const visitor = await render(<Hall e={e('manage', visitorState)} />);
+
+  await waitFor(() => assert.ok(visitor.getByText(viewIsland(visitorState).name)));
+  await act(async () => {});
+  expect(getNewsMock).not.toHaveBeenCalled();
+  expect(visitor.queryByText('섬 소식')).toBeNull();
+});
+
+describe('정원 휠 — 숫자 state + t() 라벨(GROMO-2464)', () => {
+  const pickCapacity = async (api: ReturnType<typeof management>, label: string) => {
+    managementMock.mockReturnValue(api);
+    const screen = await render(<Hall e={e()} />);
+    await fireEvent.press(screen.getByTestId('hall-edit'));
+    await waitFor(() => assert.ok(screen.getByTestId('hall-capacity')));
+    await fireEvent.press(screen.getByTestId('hall-capacity'));
+    await fireEvent.press(screen.getByText(label));
+    await fireEvent.press(screen.getByTestId('hall-dialog-ok'));
+    return screen;
+  };
+
+  test('en 에서 휠 항목은 «N residents» 이고 고른 값은 숫자로 저장된다', async () => {
+    applyLocalePref('en');
+    const api = management();
+    const screen = await pickCapacity(api, '12 residents');
+    await fireEvent.press(screen.getByTestId('hall-save'));
+    await waitFor(() => assert.equal(api.saveSettings.mock.calls[0][0].maxMembers, 12));
+  });
+
+  test('고른 뒤 언어를 en 으로 바꿔도 저장값은 유지된다', async () => {
+    const api = management();
+    const screen = await pickCapacity(api, '12명');
+    applyLocalePref('en');
+    await fireEvent.press(screen.getByTestId('hall-save'));
+    await waitFor(() => assert.equal(api.saveSettings.mock.calls[0][0].maxMembers, 12));
+  });
 });

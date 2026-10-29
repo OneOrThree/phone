@@ -1,6 +1,8 @@
 package com.oneorthree.realtime.movement.stomp;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.oneorthree.realtime.common.redis.RedisKeys;
+import com.oneorthree.realtime.fanout.FanoutTelemetry;
 import com.oneorthree.realtime.movement.MoveIntent;
 import com.oneorthree.realtime.movement.MovementEvent;
 import com.oneorthree.realtime.movement.RoomRuntime;
@@ -71,7 +73,8 @@ public class MovementRelay implements RoomRuntime.Listener {
     private final Set<UUID> needsResync = ConcurrentHashMap.newKeySet();
     private final Counter recheckDropped;
     private final Counter recheckPublish;
-    private final Set<Command> pendingRechecks = ConcurrentHashMap.newKeySet();
+    /** 잃은 RECHECK 장부 — 키는 telemetry 를 뺀 명령, 값은 처음 잃은 명령({@link #markRecheck}). */
+    private final Map<Command, Command> pendingRechecks = new ConcurrentHashMap<>();
     private final Counter noLease;
     private final Counter staleRoom;
     private final Counter staleQueue;
@@ -415,16 +418,24 @@ public class MovementRelay implements RoomRuntime.Listener {
         });
     }
 
+    /**
+     * 같은 섬·사용자·{@code cacheStale} 의 재검사는 원인(telemetry, 관측 전용)이 달라도 하나로 합친다 — 사건마다 따로 남으면 복구 뒤
+     * 같은 세션의 판정을 사건 수만큼 취소·재시작한다(GROMO-2581 r1). 합쳐지면 먼저 잃은 것을 남긴다(종전 {@code Set.add} 와 같다) —
+     * 받는 쪽 재판정은 어느 원인이든 같고, 로그는 처음 잃은 사건에 잇는다.
+     */
     private void markRecheck(Command recheck, Counter reason) {
         reason.increment();
-        pendingRechecks.add(recheck);
+        pendingRechecks.putIfAbsent(new Command(recheck.originInstanceId(), recheck.ownerInstanceId(), recheck.epoch(),
+                recheck.islandId(), recheck.type(), recheck.userId(), recheck.sessionKey(), recheck.intent(),
+                recheck.cacheStale(), recheck.sessions()), recheck);
     }
 
     /** 잃은 RECHECK 를 꺼낸다(꺼낸 것은 지운다) — {@code movement-cluster} 감시가 1초마다 다시 보낸다. */
     Set<Command> takeRechecks() {
         Set<Command> taken = new HashSet<>();
-        for (Command recheck : pendingRechecks) {
-            if (pendingRechecks.remove(recheck)) {
+        for (Command key : pendingRechecks.keySet()) {
+            Command recheck = pendingRechecks.remove(key);
+            if (recheck != null) {
                 taken.add(recheck);
             }
         }
@@ -546,14 +557,25 @@ public class MovementRelay implements RoomRuntime.Listener {
     /**
      * 비소유 인스턴스 → 소유자({@code ownerInstanceId}·{@code epoch} 가 그 소유자를 가리킬 때만 적용). RECHECK·PING 은
      * {@code ownerInstanceId=null} 로 전원에게. {@code sessionKey} = {@code <originInstanceId>:<sessionId>}.
+     *
+     * <p>{@code telemetry}(GROMO-2581)는 이 명령을 일으킨 원인(STOMP 프레임의 {@code request_id}, 강퇴 사건의 {@code event_id}·origin)
+     * — 받는 인스턴스가 처리 동안 로그 문맥에 둔다. 없으면 wire 에서 빠지고(감시가 만든 PING·RESYNC 등), 옛 인스턴스는 모르는 키로
+     * 무시한다. 명령 적용에는 쓰지 않는다.
      */
     public record Command(String originInstanceId, String ownerInstanceId, long epoch, UUID islandId, Type type,
-            UUID userId, String sessionKey, MoveIntent intent, boolean cacheStale, List<String> sessions) {
+            UUID userId, String sessionKey, MoveIntent intent, boolean cacheStale, List<String> sessions,
+            @JsonInclude(JsonInclude.Include.NON_NULL) FanoutTelemetry telemetry) {
+
+        public Command(String originInstanceId, String ownerInstanceId, long epoch, UUID islandId, Type type,
+                UUID userId, String sessionKey, MoveIntent intent, boolean cacheStale, List<String> sessions) {
+            this(originInstanceId, ownerInstanceId, epoch, islandId, type, userId, sessionKey, intent, cacheStale,
+                    sessions, null);
+        }
 
         public Command(String originInstanceId, String ownerInstanceId, long epoch, UUID islandId, Type type,
                 UUID userId, String sessionKey, MoveIntent intent, boolean cacheStale) {
             this(originInstanceId, ownerInstanceId, epoch, islandId, type, userId, sessionKey, intent, cacheStale,
-                    null);
+                    null, null);
         }
     }
 }

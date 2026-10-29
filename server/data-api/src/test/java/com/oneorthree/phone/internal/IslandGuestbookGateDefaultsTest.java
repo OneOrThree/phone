@@ -46,7 +46,6 @@ class IslandGuestbookGateDefaultsTest {
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
         OutboxTestPostgres.applyProductionMigrationWiring(registry);
-        registry.add("internal.api.enabled", () -> true);
         registry.add("internal.api.callers.business.token", () -> TOKEN);
         registry.add("internal.api.callers.business.allow[0]", () -> "GET /internal/islands/*/guestbook");
         registry.add("internal.api.callers.business.allow[1]", () -> "POST /internal/islands/*/guestbook");
@@ -118,7 +117,7 @@ class IslandGuestbookGateDefaultsTest {
 
     /** 회원 — 게스트로 만든 뒤 {@code is_guest} 만 내린다(방명록 쓰기는 회원 전용). */
     private UUID newMember() {
-        UUID id = jwt.extractUserId(auth.guestLogin().accessToken());
+        UUID id = jwt.extractUserId(auth.guestSession(java.util.UUID.randomUUID().toString()).accessToken());
         jdbc.update("update users set is_guest = false where id = ?", id);
         return id;
     }

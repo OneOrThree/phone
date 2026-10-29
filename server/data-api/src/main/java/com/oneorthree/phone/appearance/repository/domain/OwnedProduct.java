@@ -13,7 +13,7 @@ import java.time.Instant;
 import java.util.UUID;
 
 /**
- * 보유 상품 (GROMO-1783) — {@code (주인, 상품)} 유일. 주인은 user 또는 island(groups) 정확히
+ * 보유 상품 (GROMO-1783) — {@code (주인, 상품)} 유일. 주인은 user 또는 island(islands) 정확히
  * 하나다 (부분 유일 인덱스 + CHECK). 지급 writer 는 상점 구매(1781)이며, 이 도메인은 소유 여부만
  * 읽는다. raft 에는 이 행을 만들지 않는다 — 기본 선체는 소유 판정 밖의 예약 표현이다.
  */

@@ -2,9 +2,7 @@ package com.oneorthree.phone.internal;
 
 import com.oneorthree.phone.auth.service.AuthService;
 import com.oneorthree.phone.auth.support.JwtProvider;
-import com.oneorthree.phone.focus.dto.FocusSessionStartRequest;
 import com.oneorthree.phone.focus.exception.FocusErrorCode;
-import com.oneorthree.phone.focus.service.FocusService;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupRepository;
@@ -68,7 +66,6 @@ class IslandJoinIntegrationTest {
     static void properties(DynamicPropertyRegistry registry) {
         OutboxTestPostgres.applyProductionMigrationWiring(registry);
         registry.add("notification.dispatch.mode", () -> "OUTBOX");
-        registry.add("internal.api.enabled", () -> true);
         registry.add("internal.api.callers.business.token", () -> TOKEN);
         registry.add("internal.api.callers.business.allow[0]",
                 () -> "POST /internal/users/*/islands/*/memberships");
@@ -88,8 +85,6 @@ class IslandJoinIntegrationTest {
     IslandInvitationService invitations;
     @Autowired
     IslandMembershipService islands;
-    @Autowired
-    FocusService legacyFocus;
     @Autowired
     GroupRepository groups;
     @Autowired
@@ -217,7 +212,7 @@ class IslandJoinIntegrationTest {
 
         // password 잠긴 기존 그룹 — IM-D04 미결 분기를 활성화하지 않는다
         UUID locked = island("잠긴섬", false, 10, false);
-        jdbc.update("update groups set password='1234' where id=?", locked);
+        jdbc.update("update islands set password='1234' where id=?", locked);
         assertThatThrownBy(() -> joins.join(newUser(), locked, null, UUID.randomUUID()))
                 .hasFieldOrPropertyWithValue("errorCode", GroupErrorCode.ISLAND_JOIN_UNAVAILABLE);
     }
@@ -229,7 +224,8 @@ class IslandJoinIntegrationTest {
         islands.create(applicant, new CreateIslandCommandRequest(
                 "집중섬", null, false, null), UUID.randomUUID());
         UUID target = publicIsland("가입대상");
-        legacyFocus.startFocusSession(applicant, new FocusSessionStartRequest(null, null));
+        jdbc.update("INSERT INTO focus_sessions (id, user_id, started_at, total_distraction_seconds) VALUES (?, ?, now(), 0)",
+                UUID.randomUUID(), applicant);
 
         assertThatThrownBy(() -> joins.join(applicant, target, null, UUID.randomUUID()))
                 .hasFieldOrPropertyWithValue("errorCode", FocusErrorCode.SESSION_IN_PROGRESS);
@@ -460,7 +456,7 @@ class IslandJoinIntegrationTest {
         UUID island2 = privateIsland("종결섬");
         joinAs(issuer, island2, GroupMemberRole.OWNER);
         String code2 = invitations.issue(issuer, island2, UUID.randomUUID()).code();
-        jdbc.update("update groups set status='ENDED' where id=?", island2);
+        jdbc.update("update islands set status='ENDED' where id=?", island2);
         assertThatThrownBy(() -> invitations.resolve(resolver,
                 new InvitationResolveCommandRequest(code2)))
                 .hasFieldOrPropertyWithValue("errorCode", InviteLinkErrorCode.INVITATION_EXPIRED);
@@ -502,12 +498,13 @@ class IslandJoinIntegrationTest {
                 new JoinIslandCommandRequest("zzzzzzzz"), UUID.randomUUID()))
                 .hasFieldOrPropertyWithValue("errorCode", InviteLinkErrorCode.INVITATION_EXPIRED);
 
-        // 유효한 초대로는 들어오고 귀속이 기록된다.
+        // 유효한 초대로 가입하면 활성 멤버십을 만든다.
         JoinIslandResultView joined = joins.join(applicant, islandId,
                 new JoinIslandCommandRequest(code), UUID.randomUUID());
         assertThat(joined.status()).isEqualTo("active");
-        assertThat(count("select count(*) from event_outbox where type='link.joined'"
-                + " and user_id=?", applicant)).isEqualTo(1);
+        assertThat(count("select count(*) from group_members where group_id=? and user_id=? and is_left=false",
+                islandId, applicant)).isOne();
+        assertThat(count("select count(*) from event_outbox_deliveries where target='LINK'")).isZero();
     }
 
     @Test
@@ -516,7 +513,7 @@ class IslandJoinIntegrationTest {
         UUID issuer = newUser();
         UUID applicant = newUser();
         UUID islandId = privateIsland("초대승인섬");
-        jdbc.update("update groups set approval_required=true where id=?", islandId);
+        jdbc.update("update islands set approval_required=true where id=?", islandId);
         joinAs(issuer, islandId, GroupMemberRole.OWNER);
         String code = invitations.issue(issuer, islandId, UUID.randomUUID()).code();
 
@@ -544,7 +541,7 @@ class IslandJoinIntegrationTest {
 
         memberService.withdrawGroup(islandId, host);
 
-        assertThat(count("select count(*) from groups where id=? and status='ENDED'", islandId))
+        assertThat(count("select count(*) from islands where id=? and status='ENDED'", islandId))
                 .isEqualTo(1);
         assertThat(count("select count(*) from island_join_requests where id=?"
                 + " and status='CANCELLED' and terminal_reason='ISLAND_CLOSED'"
@@ -613,7 +610,7 @@ class IslandJoinIntegrationTest {
     // ---------------------------------------------------------------- 도구
 
     private UUID newUser() {
-        return jwt.extractUserId(auth.guestLogin().accessToken());
+        return jwt.extractUserId(auth.guestSession(java.util.UUID.randomUUID().toString()).accessToken());
     }
 
     private UUID publicIsland(String name) {

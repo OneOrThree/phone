@@ -17,10 +17,7 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
-/**
- * 잡지 발행 알림(GROMO-2307) 통합 테스트의 공통 — 모드(LEGACY|OUTBOX)는 컨텍스트를 갈라야 해서 하위 클래스가
- * {@code @SpringBootTest(properties)} 로 정한다. 호는 발행 서비스 대신 행으로 심는다(알림 펼치기만 본다).
- */
+/** 잡지 발행 outbox 통합 테스트의 공통 데이터와 DB 설정. */
 abstract class MagazineIssueNotifierTestBase {
 
     static final LocalDate DATE = LocalDate.of(2034, 5, 10);
@@ -30,7 +27,6 @@ abstract class MagazineIssueNotifierTestBase {
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
         OutboxTestPostgres.applyProductionMigrationWiring(registry);
-        registry.add("magazine.enabled", () -> true);
     }
 
     @Autowired
@@ -44,7 +40,7 @@ abstract class MagazineIssueNotifierTestBase {
 
     @BeforeEach
     void seed() {
-        jdbc.execute("TRUNCATE magazine_receipts, magazine_issues, notification_sent_logs");
+        jdbc.execute("TRUNCATE magazine_receipts, magazine_issues");
         jdbc.execute("DELETE FROM event_outbox_deliveries");
         jdbc.execute("DELETE FROM event_outbox");
         jdbc.execute("UPDATE users SET is_deleted = true WHERE is_guest = false AND is_deleted = false");

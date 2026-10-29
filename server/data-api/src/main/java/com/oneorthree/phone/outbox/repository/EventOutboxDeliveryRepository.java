@@ -39,7 +39,7 @@ public interface EventOutboxDeliveryRepository extends JpaRepository<EventOutbox
      * 폐기의 DB 커밋 응답 전에 후행 알림이 브로커로 나가면 이전 상태로 발송될 수 있기 때문이다.
      * 역방향은 기다리지 않는다. Kafka 완료는 브로커 ACK이지 소비 완료가 아니며, 최신 끔·삭제를
      * 브로커 지연에 묶어 두면 보호가 늦어진다. 늦게 소비된 요청은 발송 시 최신 상태를 대조한다.
-     * LINK는 이 장벽과 독립이다.
+     * REALTIME은 이 장벽과 독립이다.
      *
      * <h2>상관 서브쿼리 대신 윈도 한 번 (GROMO-2337)</h2>
      * 예전 문장은 후보 행마다 {@code NOT EXISTS} 로 선행을 찔러 백로그 2만 건에서 선점 한 번이 1초를
@@ -250,7 +250,7 @@ public interface EventOutboxDeliveryRepository extends JpaRepository<EventOutbox
      *
      * <p><b>「다시 나가지 않는다」가 확실한 행만 고친다.</b> 소비자는 {@code eventId} 로 dedup 하고 일부는 본문
      * 해시까지 대조한다(알림 {@code EVENT_ID_CONFLICT}). 이미 한 번 보낸 본문을 바꿔 재전달하면 4xx 영구 실패가 되고,
-     * relay 는 고갈 처리가 없어(A18) 그 축의 뒤 사건 — 탈퇴의 링크 폐기까지 — 가 영원히 막힌다. 그래서:
+     * relay 는 고갈 처리가 없어(A18) 그 축의 뒤 사건 — 뒤따르는 탈퇴 사건까지 — 가 영원히 막힌다. 그래서:
      * <ul>
      *   <li>전달 완료 행 — 다시 보내지 않는다. 기록일 뿐이라 고쳐도 아무 데도 안 나간다.</li>
      *   <li>한 번도 선점되지 않은 행({@code attempt_count=0} · 리스 없음) — 첫 전송이 고친 본문으로 나간다.
@@ -288,7 +288,7 @@ public interface EventOutboxDeliveryRepository extends JpaRepository<EventOutbox
      * <ul>
      *   <li>{@code e.userId = :userId} — 봉투의 수신자가 요청자여야 한다. 다른 유저의 명령 id 를
      *       찔러도 0행이다.
-     *   <li>{@code target = NOTI} — <b>파라미터가 아니다</b>. 대상이 인자면 같은 경로로 Kafka·링크
+     *   <li>{@code target = NOTI} — <b>파라미터가 아니다</b>. 대상이 인자면 같은 경로로 Kafka·realtime
      *       전달까지 「보냈다」고 표시할 수 있다.
      *   <li>{@code deliveredAt IS NULL} — 이미 닫힌 행을 다시 쓰지 않는다(표시 시각이 뒤로 밀린다).
      * </ul>

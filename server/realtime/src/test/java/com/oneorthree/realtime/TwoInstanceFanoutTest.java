@@ -1,5 +1,12 @@
 package com.oneorthree.realtime;
 
+import com.oneorthree.realtime.event.InboundAcceptLog;
+import com.oneorthree.realtime.event.RealtimeEventDelivery;
+import com.oneorthree.realtime.event.RealtimeEventFanoutSubscriber;
+import com.oneorthree.realtime.fanout.ChatFanout;
+import com.oneorthree.realtime.fanout.ChatFanoutSubscriber;
+import com.oneorthree.realtime.logging.CapturedLogs;
+import com.oneorthree.realtime.logging.LogContext;
 import com.oneorthree.realtime.membership.client.GroupClient;
 import com.oneorthree.realtime.message.dto.ChatMessageResponse;
 import com.oneorthree.realtime.message.dto.SendMessageRequest;
@@ -22,6 +29,7 @@ import org.springframework.lang.NonNull;
 import org.springframework.messaging.converter.CompositeMessageConverter;
 import org.springframework.messaging.converter.JacksonJsonMessageConverter;
 import org.springframework.messaging.converter.SimpleMessageConverter;
+import org.springframework.messaging.support.ExecutorSubscribableChannel;
 import org.springframework.messaging.simp.stomp.StompFrameHandler;
 import org.springframework.messaging.simp.stomp.StompHeaders;
 import org.springframework.messaging.simp.stomp.StompSession;
@@ -31,13 +39,21 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.web.socket.WebSocketHttpHeaders;
 import org.springframework.web.socket.client.standard.StandardWebSocketClient;
 import org.springframework.web.socket.messaging.WebSocketStompClient;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 import javax.sql.DataSource;
 import java.lang.reflect.Type;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Date;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.BlockingQueue;
@@ -84,6 +100,15 @@ class TwoInstanceFanoutTest {
 
     @Autowired
     private org.springframework.data.redis.core.StringRedisTemplate redis;
+
+    @Autowired
+    private ObjectMapper objectMapper;
+
+    @Autowired
+    private RealtimeEventDelivery eventDeliveryA;
+
+    @Value("${realtime.internal.data-service-token}")
+    private String dataToken;
 
     /**
      * 두 인스턴스가 «각자» 상류를 부른다. 이쪽 목은 A 의 것이고, B 에는 아래에서 자기 목을 심는다 —
@@ -150,6 +175,8 @@ class TwoInstanceFanoutTest {
         StompSession onA = connect(portA, aliceBearer);
         StompSession onB = connect(portB, bobBearer);
         BlockingQueue<ChatMessageResponse> heardOnB = subscribe(onB, island);
+        // 같은 JVM 의 두 컨텍스트가 한 logback 을 쓴다 — B 가 뜬 «뒤»에 붙인다(로깅 초기화가 appender 를 뗀다).
+        CapturedLogs logs = CapturedLogs.of(ChatFanout.class, ChatFanoutSubscriber.class);
 
         // 구독 등록과 발신 사이의 경합은 «버리는 말»로 없앤다. 재전송으로는 안 된다 — 서버가 같은
         // clientMessageId 의 재전송을 다시 방송하지 않으므로(중복 도착 방지), 첫 발신이 등록 전에
@@ -184,6 +211,167 @@ class TwoInstanceFanoutTest {
         assertThat(received.groupId()).isEqualTo(island);
         // 건너편이 받은 것이 «그 말»이지 등록 확인용이 아니다.
         assertThat(received.clientMessageId()).isEqualTo(clientMessageId);
+
+        // 로그 연결(GROMO-2559) — 발행은 A 만 하고, 같은 message_id 의 수신은 A 의 메아리 하나·B 의 전달 하나다.
+        try (logs) {
+            String messageId = received.messageId().toString();
+            List<CapturedLogs.Line> published = logs.await(CapturedLogs.event(LogContext.FANOUT_PUBLISH, "chat:fanout")
+                    .and(line -> messageId.equals(line.get("message_id"))), 1, 5_000);
+            assertThat(published).hasSize(1);
+            String requestId = published.get(0).get("request_id");
+            assertThat(requestId).as("A 의 STOMP 프레임 request_id").isNotNull();
+            List<CapturedLogs.Line> deliveredOnB = logs.await(CapturedLogs.event(LogContext.FANOUT_RECEIVE,
+                    "result=delivered").and(line -> messageId.equals(line.get("message_id"))), 1, 5_000);
+            assertThat(deliveredOnB).hasSize(1);
+            assertThat(deliveredOnB.get(0).get("origin_request_id")).isEqualTo(requestId);
+            assertThat(logs.await(CapturedLogs.event(LogContext.FANOUT_RECEIVE, "result=self_echo")
+                    .and(line -> messageId.equals(line.get("message_id"))), 1, 5_000)).hasSize(1);
+        }
+    }
+
+    @Test
+    @DisplayName("A 의 Data 수신구로 들어온 섬 사건이 B 의 구독자·전달 직전 자리까지 같은 event_id·원인으로 이어진다 — chat:events:v1 (GROMO-2559)")
+    void islandEventCrossesInstancesWithItsOrigin() throws Exception {
+        assertThat(portB).isNotEqualTo(portA);
+        assertThat(instanceB.getBean(RealtimeEventDelivery.class).instanceId())
+                .as("두 인스턴스 — 메아리 판정의 근거").isNotEqualTo(eventDeliveryA.instanceId());
+        WebSocketStompClient rawClient = new WebSocketStompClient(new StandardWebSocketClient());
+        rawClient.setMessageConverter(new SimpleMessageConverter()); // 원문 그대로 — 매퍼가 모르는 키를 버리면 누출을 못 잡는다
+        String topic = "/topic/islands/" + island + "/focus";
+        try (CapturedLogs logs = CapturedLogs.of(InboundAcceptLog.class, RealtimeEventDelivery.class,
+                RealtimeEventFanoutSubscriber.class);
+                OutboundSeat seatB = OutboundSeat.attach(
+                        instanceB.getBean("clientOutboundChannel", ExecutorSubscribableChannel.class), topic)) {
+            StompHeaders auth = new StompHeaders();
+            auth.add("Authorization", bobBearer);
+            StompSession onB = rawClient.connectAsync("ws://localhost:" + portB + "/ws/chat",
+                    new WebSocketHttpHeaders(), auth, new StompSessionHandlerAdapter() {
+                    }).get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            BlockingQueue<String> rawOnB = new LinkedBlockingQueue<>();
+            onB.subscribe(topic, new StompFrameHandler() {
+                @Override
+                public @NonNull Type getPayloadType(@NonNull StompHeaders headers) {
+                    return byte[].class;
+                }
+
+                @Override
+                public void handleFrame(@NonNull StompHeaders headers, Object payload) {
+                    rawOnB.add(new String((byte[]) payload, StandardCharsets.UTF_8));
+                }
+            });
+
+            // 구독 등록 경합 — 새 eventId 로 다시 보내 «그 사건»이 B 에 도착할 때까지.
+            String eventId = null;
+            String frame = null;
+            HttpClient http = HttpClient.newHttpClient();
+            for (int attempt = 1; attempt <= 30 && frame == null; attempt++) {
+                String candidate = UUID.randomUUID().toString();
+                HttpResponse<String> response = http.send(HttpRequest.newBuilder(
+                                URI.create("http://localhost:" + portA + "/internal/events"))
+                        .header("Authorization", "Bearer " + dataToken).header("Content-Type", "application/json")
+                        .header("X-Origin-Request-Id", "req-cross").header("X-Origin-Trace-Id", "987654321")
+                        .header("X-Event-Id", candidate).header("X-Delivery-Id", "d-9").header("X-Attempt", "1")
+                        .header("X-Trace-Context-Version", "1")
+                        .POST(HttpRequest.BodyPublishers.ofString(focusMemberEvent(candidate, attempt))).build(),
+                        HttpResponse.BodyHandlers.ofString());
+                assertThat(response.statusCode()).isEqualTo(200);
+                long deadline = System.currentTimeMillis() + 500;
+                while (frame == null && System.currentTimeMillis() < deadline) {
+                    String next = rawOnB.poll(100, TimeUnit.MILLISECONDS);
+                    if (next != null && next.contains(candidate)) {
+                        frame = next;
+                        eventId = candidate;
+                    }
+                }
+            }
+            assertThat(frame).as("frameErrors=%s", frameErrors).isNotNull();
+            String id = eventId;
+
+            JsonNode envelope = objectMapper.readTree(frame);
+            assertThat(new HashSet<>(envelope.propertyNames())).containsExactlyInAnyOrder("eventId", "schemaVersion",
+                    "type", "islandId", "aggregateVersion", "occurredAt", "payload");
+            assertThat(frame).doesNotContain("telemetry").doesNotContain("req-cross");
+            CapturedLogs.Line accepted = logs.await(CapturedLogs.event(LogContext.CONSUMER_ACCEPT, "result=accepted")
+                    .and(line -> id.equals(line.get("event_id"))), 1, 5_000).get(0);
+            assertThat(accepted.mdc()).containsEntry("origin_request_id", "req-cross")
+                    .containsEntry("delivery_id", "d-9").containsEntry("attempt", "1");
+            assertThat(logs.await(CapturedLogs.event(LogContext.FANOUT_PUBLISH, "chat:events:v1")
+                    .and(line -> id.equals(line.get("event_id"))), 1, 5_000)).hasSize(1)
+                    .allSatisfy(line -> assertThat(line.get("origin_request_id")).isEqualTo("req-cross"));
+            List<CapturedLogs.Line> deliveredOnB = logs.await(CapturedLogs.event(LogContext.FANOUT_RECEIVE,
+                    "result=delivered").and(line -> id.equals(line.get("event_id"))), 1, 5_000);
+            assertThat(deliveredOnB).as("B 하나만 전달 — A 는 자기 메아리").hasSize(1);
+            assertThat(deliveredOnB.get(0).mdc()).containsEntry("origin_request_id", "req-cross")
+                    .containsEntry("origin_trace_id", "987654321")
+                    .as("전달 행 id·시도는 그 서비스의 relay 값이라 wire 로 넘기지 않는다")
+                    .doesNotContainKeys("delivery_id", "attempt", "request_id");
+            assertThat(logs.await(CapturedLogs.event(LogContext.FANOUT_RECEIVE, "result=self_echo")
+                    .and(line -> id.equals(line.get("event_id"))), 1, 5_000)).hasSize(1);
+            assertThat(seatB.await("event_id", id)).containsEntry("origin_request_id", "req-cross")
+                    .containsEntry("origin_trace_id", "987654321");
+            assertThat(seatB.thread(id)).startsWith("realtime-outbound-");
+        } finally {
+            rawClient.stop();
+        }
+    }
+
+    @Test
+    @DisplayName("A 의 Data 수신구가 버린 origin(형식 오류·모르는 버전)은 팬아웃 telemetry 에서 지금 요청 ID 로 다시 올라가지 않는다 — B 의 수신 줄에 원인이 없고, origin 헤더가 없을 때만 X-Request-Id 가 원인이다 (GROMO-2562)")
+    void droppedOriginIsNotPromotedAcrossInstances() throws Exception {
+        assertThat(portB).isNotEqualTo(portA);
+        try (CapturedLogs logs = CapturedLogs.of(RealtimeEventDelivery.class, RealtimeEventFanoutSubscriber.class)) {
+            CapturedLogs.Line malformed = receivedOnB(logs, "cur-bad", Map.of("X-Origin-Request-Id", "bad#id"));
+            CapturedLogs.Line unknown = receivedOnB(logs, "cur-ver",
+                    Map.of("X-Origin-Request-Id", "req-v2", "X-Trace-Context-Version", "2"));
+            CapturedLogs.Line absent = receivedOnB(logs, "cur-none", Map.of());
+
+            assertThat(malformed.mdc()).as("형식이 틀린 origin").doesNotContainKey("origin_request_id");
+            assertThat(unknown.mdc()).as("모르는 버전").doesNotContainKey("origin_request_id");
+            assertThat(absent.mdc()).as("origin 헤더가 없으면 X-Request-Id 가 원인")
+                    .containsEntry("origin_request_id", "cur-none");
+            for (CapturedLogs.Line onB : List.of(malformed, unknown)) {
+                String id = onB.get("event_id");
+                assertThat(logs.await(CapturedLogs.event(LogContext.FANOUT_PUBLISH, "chat:events:v1")
+                        .and(line -> id.equals(line.get("event_id"))), 1, 5_000))
+                        .as("A 의 발행 줄엔 지금 요청 ID 가 있었다 — B 의 «원인 없음»은 요청 ID 가 비어서가 아니다")
+                        .singleElement().extracting(line -> line.get("request_id")).isIn("cur-bad", "cur-ver");
+            }
+        }
+    }
+
+    /** A 의 Data 수신구로 섬 사건 하나를 보내고 B 의 수신 줄을 돌려준다 — B 의 Redis 구독이 늦을 수 있어 새 eventId 로 다시 보낸다. */
+    private CapturedLogs.Line receivedOnB(CapturedLogs logs, String requestId, Map<String, String> carrier)
+            throws Exception {
+        HttpClient http = HttpClient.newHttpClient();
+        for (int attempt = 1; attempt <= 30; attempt++) {
+            String eventId = UUID.randomUUID().toString();
+            HttpRequest.Builder request = HttpRequest.newBuilder(
+                            URI.create("http://localhost:" + portA + "/internal/events"))
+                    .header("Authorization", "Bearer " + dataToken).header("Content-Type", "application/json")
+                    .header("X-Request-Id", requestId);
+            carrier.forEach(request::header);
+            HttpResponse<String> response = http.send(
+                    request.POST(HttpRequest.BodyPublishers.ofString(focusMemberEvent(eventId, attempt))).build(),
+                    HttpResponse.BodyHandlers.ofString());
+            assertThat(response.statusCode()).isEqualTo(200);
+            List<CapturedLogs.Line> delivered = logs.await(CapturedLogs.event(LogContext.FANOUT_RECEIVE,
+                    "result=delivered").and(line -> eventId.equals(line.get("event_id"))), 1, 500);
+            if (!delivered.isEmpty()) {
+                return delivered.get(0);
+            }
+        }
+        throw new AssertionError("A 로 보낸 사건이 B 에 도착하지 않았다");
+    }
+
+    /** Data outbox 정본 10필드 — {@code FocusMemberEvents#focusUpdated} 가 만드는 모양(IslandRealtimeIntegrationTest 와 같다). */
+    private String focusMemberEvent(String eventId, long version) {
+        return "{\"eventId\":\"" + eventId + "\",\"schemaVersion\":1,\"type\":\"focus.member.updated\","
+                + "\"occurredAt\":\"2026-10-29T00:00:00Z\",\"scheduledAt\":null,"
+                + "\"userId\":\"" + alice + "\",\"locale\":null,\"subjectId\":\"" + island + "\","
+                + "\"version\":" + version + ",\"params\":{\"userId\":\"" + alice + "\","
+                + "\"sessionId\":\"" + UUID.randomUUID() + "\",\"status\":\"active\","
+                + "\"subject\":\"영어 단어\",\"activeSeconds\":120,"
+                + "\"serverNow\":\"2026-10-29T00:00:00Z\",\"sessionVersion\":3}}";
     }
 
     @Test
@@ -304,8 +492,8 @@ class TwoInstanceFanoutTest {
 
         @org.springframework.context.annotation.Bean
         @org.springframework.context.annotation.Primary
-        GroupClient stubGroupClient() {
-            return new GroupClient("http://localhost:1", 100) {
+        GroupClient stubGroupClient(com.oneorthree.realtime.auth.JwtValidator jwtValidator) {
+            return new GroupClient("http://localhost:1", 100, "test-realtime-to-data", jwtValidator) {
                 @Override
                 public Membership fetchMyGroupIds(String bearerToken) {
                     return Membership.of(Set.of(sharedIsland));

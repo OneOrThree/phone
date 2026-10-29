@@ -3,7 +3,7 @@ import * as Haptics from 'expo-haptics';
 import { componentTokens, semanticTokens } from '@/design-system/tokens';
 import { IslandOcean } from '@/screens/island/IslandOcean';
 import { NATIVE, useMapGesture, viewportShift } from '@/screens/island/mapGesture';
-import React, { useCallback, useContext, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { t } from '@/i18n';
 import {
   Animated,
@@ -17,6 +17,7 @@ import {
   ScrollView,
   StyleSheet,
   View,
+  type ImageStyle,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Ellipse, Path } from 'react-native-svg';
@@ -27,8 +28,9 @@ import { C, MotionContext } from '@/design-system/primitives';
 import { CatSprite, CatMotionInput } from '@/components/CatSprite';
 import type { Outfit } from '@/components/CatOutfitLayers';
 import { Color, SECONDS_PER_FISH } from '@/services/model';
-import { Grid, Point, landPath, nearestLand } from '@/utils/world-grid';
+import { Grid, Point, landPath, nearestLand, waterAt } from '@/utils/world-grid';
 import { useAppLayout } from '@/utils/layout';
+import { keepLabelInView } from '@/utils/island-camera';
 import land from '@/constants/fishing-island.json';
 import { catchAssetPath } from '@/screens/focus/catchAssets';
 import {
@@ -40,11 +42,11 @@ import {
 } from '@/screens/focus/FishingSceneMotion';
 
 // v2 시안 낚시섬(focus-island-flow): 좌표는 지도 가로·세로 % (0~100). 지도는 섬 그림(1536×1024) 비율 그대로.
-// 땅 격자는 시안 land_mask 와 같은 50×50 칸(파란 칸 = 물).
+// 땅 격자는 시안 land_mask 에서 온 50×50 칸. 나무·바위 칸('2')은 그림에서 뽑았다(scripts/build-focus-mask.py).
 export const fishingGrid: Grid = land;
-export const INK = '#493B39',
-  OUTLINE = '#8B6956',
-  ME = '#B83D63';
+export const INK = componentTokens.nameplate.ink,
+  OUTLINE = componentTokens.nameplate.outline,
+  ME = componentTokens.nameplate.me;
 
 const afterForegroundMs = (callback: () => void, durationMs: number) => {
   let remainingMs = durationMs;
@@ -141,13 +143,33 @@ const castReach = (spot: Spot) => {
   const distance = Math.hypot(spot.bx - spot.x, (spot.by - spot.y) / FISHING_MAP_ASPECT);
   return Math.min(5.6, distance * 0.65);
 };
-// 줄은 회전된 낚싯대 끝에서 시작하며, 지도 좌표의 y를 화면 거리로 되돌린다.
+const rodScale = (spot: Spot) => Math.max(0.75, castReach(spot) / 5.6);
+// 낚싯대 그림 — 손을 기준으로 물 쪽을 향한다. 낚시 자리와 정보창(GROMO-2474)이 같이 쓴다.
+const rodStyle = (spot: Spot, a: number): ImageStyle => {
+  const direction = castAngle(spot),
+    rodSize = a * 0.6,
+    handleX = a * (spot.face < 0 ? 0.29 : 0.71),
+    handleY = a * 0.68;
+  return {
+    position: 'absolute',
+    width: rodSize,
+    height: rodSize,
+    left: handleX - rodSize * 0.06,
+    top: handleY - rodSize * 0.94,
+    // 물가가 가까워도 손에 든 낚싯대가 고양이 크기에 비해 사라지지 않게 한다.
+    transform: [{ scale: rodScale(spot) }, { rotate: `${direction - FISHING_ROD_AXIS_ANGLE}rad` }],
+    transformOrigin: [rodSize * 0.06, rodSize * 0.94, 0],
+  };
+};
+// 줄은 낚싯대 끝에서 시작한다. 고양이 손·낚싯대 원화 끝 좌표를 지도 %로 옮긴다.
 export const castLineStart = (spot: Spot): Point => {
   const angle = castAngle(spot),
-    reach = castReach(spot);
+    handleX = spot.x + ((spot.face < 0 ? 0.29 : 0.71) - 0.5) * 7.7,
+    handleY = spot.y + (0.68 - 0.90625) * 7.7 * FISHING_MAP_ASPECT,
+    reach = 0.6 * 0.9 * Math.SQRT2 * rodScale(spot) * 7.7;
   return {
-    x: spot.x + Math.cos(angle) * reach,
-    y: spot.y + Math.sin(angle) * reach * FISHING_MAP_ASPECT,
+    x: handleX + Math.cos(angle) * reach,
+    y: handleY + Math.sin(angle) * reach * FISHING_MAP_ASPECT,
   };
 };
 // 누른 곳에 앉히고 12% 안에서 가장 가까운 물 쪽으로 낚싯줄을 던진다. 물이 멀면 줄 없이 앉는다.
@@ -156,7 +178,8 @@ export function castSpot({ x, y }: Point): Spot {
   let best: Point | null = null,
     d = 144;
   for (let c = 0; c < fishingGrid.cells.length; c++) {
-    if (fishingGrid.cells[c] === '1') continue;
+    // 물 칸으로만 던진다 — 나무·바위('2')는 물이 아니다.
+    if (fishingGrid.cells[c] !== '0') continue;
     const wx = (((c % fishingGrid.cols) + 0.5) * fishingGrid.w) / fishingGrid.cols,
       wy = ((Math.floor(c / fishingGrid.cols) + 0.5) * fishingGrid.h) / fishingGrid.rows,
       dd = (wx - x) ** 2 + ((wy - y) / FISHING_MAP_ASPECT) ** 2;
@@ -168,7 +191,7 @@ export function castSpot({ x, y }: Point): Spot {
   return best ? { x, y, face: best.x < x ? -1 : 1, bx: best.x, by: best.y } : { x, y, face: 1 };
 }
 // 잡은 물고기 이미지는 고양이 뒤에 놓인다. 배치 단위는 고양이 크기의 배수라
-// 화면 크기·방향에 영향받지 않으며, 투명 여백까지 포함한 이미지 프레임이 땅에 놓이도록 한다.
+// 화면 크기·방향에 영향받지 않으며, 투명 여백까지 포함한 이미지 프레임이 물에 걸치지 않게 한다(나무·바위 칸은 괜찮다).
 const fishingCatchFrame = { width: 1.1, height: 1.1 };
 const catchFootprintOnLand = (
   spot: Point,
@@ -190,14 +213,7 @@ const catchFootprintOnLand = (
     lastRow = Math.ceil((bottom - 1e-9) / cellHeight) - 1;
   for (let row = firstRow; row <= lastRow; row++)
     for (let col = firstCol; col <= lastCol; col++)
-      if (
-        row < 0 ||
-        row >= fishingGrid.rows ||
-        col < 0 ||
-        col >= fishingGrid.cols ||
-        fishingGrid.cells[row * fishingGrid.cols + col] !== '1'
-      )
-        return false;
+      if (waterAt(fishingGrid, col, row)) return false;
   return true;
 };
 const catchBounds = (spot: Point, placement: FishingCatchPlacement) => {
@@ -289,22 +305,30 @@ export function fishingCatchFootprintOnLand(
 }
 // 지도 % 좌표 사이 거리(세로 %는 지도 비율 1024/1536으로 맞춰 지도 폭 % 단위로 잰다)
 const apart = (p: Point, q: Point) => Math.hypot(q.x - p.x, (q.y - p.y) / FISHING_MAP_ASPECT);
-// 스크린리더로 자리를 고를 때 앉는 기본 빈 자리(시안 예시 내 자리)
-export const DEFAULT_SPOT = { x: 34.1, y: 55.9 };
+// 스크린리더로 자리를 고를 때 앉는 기본 빈 자리. 시안 예시 내 자리(34.1, 55.9)는 연못 물 칸이라 한 칸 아래.
+export const DEFAULT_SPOT = { x: 34.1, y: 57 };
 const defaultCatchSpot = castSpot(DEFAULT_SPOT);
 export const DEFAULT_CATCH_PLACEMENT = fishingCatchPlacement(defaultCatchSpot);
 const DEFAULT_CATCH_RESERVATION: Spot = {
   ...defaultCatchSpot,
   catchPlacement: DEFAULT_CATCH_PLACEMENT,
 };
+// spot 고양이의 물고기 더미(placement)가 other 에 앉은 고양이를 덮는지
+export const catchOverlapsCat = (spot: Point, placement: FishingCatchPlacement, other: Point) =>
+  boundsOverlap(catchBounds(spot, placement), catBounds(other));
+// 내가 DEFAULT_SPOT 에 앉으면 물고기 더미는 주민을 피하지 않는 고정 자리다 — 그 더미가 p 에 앉은 고양이를 덮는지
+export const underDefaultCatch = (p: Point) =>
+  DEFAULT_CATCH_PLACEMENT != null &&
+  boundsOverlap(catBounds(p), catchBounds(defaultCatchSpot, DEFAULT_CATCH_PLACEMENT));
 // 낚시 중인 주민 자리. 내 세션에서는 나를 뺀 14명, 방문 화면에서는 정원 15명 모두를 담는다.
 // resident 자리/보상은 섬 건물 상태와 무관하게 같은 좌표를 쓰도록 축음기 설치 상태 기준으로 미리 배치한다.
-// 나머지는 섬 가운데에 가까운 땅 칸부터 훑어, 이미 정한 자리·축음기·뗏목 내리는 곳·기본 내 자리와 지도 폭 11% 넘게
+// 나머지는 섬 가운데에 가까운 땅 칸부터 훑어, 이미 정한 자리·축음기·뗏목 내리는 곳·기본 내 자리와 지도 폭 10.5% 넘게
 // 떨어지고 12% 안에 물이 있는(낚싯줄을 던질 수 있는) 곳을 차례로 더한다. 모두 땅 위이고 서로 겹치지 않는다.
 export const PEER_SPOTS: Spot[] = (() => {
   const initial: Spot[] = [
-      { x: 18.5, y: 39.5 },
-      { x: 60.2, y: 44.1 },
+      // 시안 좌표(18.5, 39.5)·(60.2, 44.1)은 물·바위 칸이라 가까운 걸을 수 있는 칸으로 옮겼다.
+      { x: 17.5, y: 39.5 },
+      { x: 62.5, y: 43 },
       { x: 45, y: 25 },
       { x: 70, y: 30 },
       { x: 80, y: 62 },
@@ -314,18 +338,19 @@ export const PEER_SPOTS: Spot[] = (() => {
     spots: Spot[] = [],
     avoid = [GRAM, LANDING, DEFAULT_SPOT],
     { cols, cells } = fishingGrid,
-    land = (c: number) => cells[c] === '1',
+    dry = (c: number) => cells[c] !== '0',
     candidates: Point[] = [];
   for (let c = 0; c < cells.length; c++) {
     const col = c % cols,
       row = Math.floor(c / cols);
-    // 네 이웃도 땅인 칸(물가 끝에 걸치지 않게)
+    // 걸을 수 있는 칸 가운데 네 이웃이 물이 아닌 칸(물가 끝에 걸치지 않게, 나무·바위 옆은 괜찮다)
     if (
       col &&
       row &&
       col < cols - 1 &&
       row < cols - 1 &&
-      [c, c - 1, c + 1, c - cols, c + cols].every(land)
+      cells[c] === '1' &&
+      [c - 1, c + 1, c - cols, c + cols].every(dry)
     )
       candidates.push({ x: (col + 0.5) * 2, y: (row + 0.5) * 2 });
   }
@@ -344,7 +369,8 @@ export const PEER_SPOTS: Spot[] = (() => {
     const placement = fishingCatchPlacement(spot, [...spots, DEFAULT_CATCH_RESERVATION]);
     if (
       !nearGram(p) &&
-      [...spots, ...avoid].every((q) => apart(p, q) >= 11) &&
+      // 나무·바위 칸(티켓 2516)이 빠진 뒤 11% 로는 14자리뿐이라 10.5%. 고양이 겹침 기준(SEAT_GAP 8.5%)보다는 넓다.
+      [...spots, ...avoid].every((q) => apart(p, q) >= 10.5) &&
       spot.bx != null &&
       placement
     )
@@ -402,6 +428,21 @@ const hit = (a: { l: number; t: number; r: number; b: number }, b: typeof raftRe
   a.l < b.r && b.l < a.r && a.t < b.b && b.t < a.b;
 export const nearRaft = (p: Point) =>
   hit(catRect(p), raftRect) || hit(catRect(p), catRect(LANDING));
+// 서 있는 자리에서 집중을 시작할 수 있는지 — 뗏목 · 축음기 · 앉은 주민만 본다. 고양이는 걸을 수 있는 칸('1')으로만
+// 걸어가므로 물·나무·바위는 볼 필요가 없다. 물고기 더미는 놓을 땅이 없으면 숨기므로 자리 조건이 아니다.
+export type SeatProblem = 'occupied' | 'nearGram' | 'nearRaft';
+export const seatProblem = (
+  p: Point,
+  peerSpots: Point[],
+  gramBuilt: boolean,
+): SeatProblem | null =>
+  occupied(p, peerSpots)
+    ? 'occupied'
+    : gramBuilt && nearGram(p)
+      ? 'nearGram'
+      : nearRaft(p)
+        ? 'nearRaft'
+        : null;
 // 뒤 화면을 스크린리더에서 숨긴다(모달·준비 카드가 떠 있을 때)
 export const a11yHidden = (hidden: boolean) =>
   hidden
@@ -466,6 +507,7 @@ export function FishingIsland({
   ratio = 0.5,
   spots,
   onTap,
+  onSitAccessible,
   onRaft,
   raftLabel = t('focusFlow.common.raftLabel'),
   gram = false,
@@ -481,6 +523,8 @@ export function FishingIsland({
   ratio?: number;
   spots: Spot[];
   onTap?: (p: Point) => void;
+  /** 스크린리더 「빈 자리에 앉기」 동작. 없으면 onTap(DEFAULT_SPOT). */
+  onSitAccessible?: () => void;
   onRaft: () => void;
   raftLabel?: string;
   // 축음기(우리 섬에 지었을 때만 보임). onGram 이 없으면 그림만(누를 수 없음), 누르면 음악 고르기만 열리고 고양이는 걷지 않는다
@@ -606,6 +650,14 @@ export function FishingIsland({
     raftW = size * 0.12,
     gramW = (size * GRAM.w) / 100,
     raftK = raftW / raftBox.w;
+  const visibleX = useMemo(
+    () => ({
+      lo: L.insets.left - left,
+      hi: L.width - L.insets.right - left,
+      fontScale: L.fontScale ?? 1,
+    }),
+    [left, L.width, L.insets.left, L.insets.right, L.fontScale],
+  );
   return (
     <View
       ref={node}
@@ -636,7 +688,9 @@ export function FishingIsland({
             accessibilityActions={
               onTap ? [{ name: 'activate', label: t('focusFlow.spot.sitEmptyA11y') }] : undefined
             }
-            onAccessibilityAction={() => onTap?.(DEFAULT_SPOT)}
+            onAccessibilityAction={() =>
+              onSitAccessible ? onSitAccessible() : onTap?.(DEFAULT_SPOT)
+            }
             style={StyleSheet.absoluteFill}
             onPress={(e) => {
               if (dragged.current || !onTap) return;
@@ -787,7 +841,9 @@ export function FishingIsland({
             </Pressable>
           )}
           <FishingSceneActive.Provider value={!inert}>
-            {children(size, sizeY, cam.zoom)}
+            <FishingVisibleX.Provider value={visibleX}>
+              {children(size, sizeY, cam.zoom)}
+            </FishingVisibleX.Provider>
           </FishingSceneActive.Provider>
         </View>
       </Animated.View>
@@ -795,10 +851,18 @@ export function FishingIsland({
     </View>
   );
 }
-// 머리 위 과목·시간표 상자(지도 px). 글자 폭은 대략값: 10px 한글 한 자 ≈ 10px, 시간 8자 ≈ 50px, 최대 120px
+// 지금 화면에 보이는 가로 범위(지도 px, 안전 영역 제외). 지도가 화면보다 넓어 가장자리 자리의 머리 위 말풍선·이름이
+// 잘리므로 FishingActor 가 이 범위 기준으로 민다(keepLabelInView). 제공자 밖(단독 렌더)에서는 밀지 않는다.
+// fontScale 은 글자 폭 추정용 OS 접근성 글자 배율이다.
+const FishingVisibleX = React.createContext<{ lo: number; hi: number; fontScale: number } | null>(
+  null,
+);
+// 머리 위 과목·시간표 상자 폭(지도 px). 글자 폭은 대략값: 10px 한글 한 자 ≈ 10px, 시간 8자 ≈ 50px, 최대 120px
+const labelWidth = (subject: string) => Math.min(120, 16 + Math.max(50, [...subject].length * 10));
+// 머리 위 과목·시간표 상자(지도 px)
 export function labelBox(spot: Spot, subject: string, size: number, sizeY: number) {
   const a = size * 0.077,
-    w = Math.min(120, 16 + Math.max(50, [...subject].length * 10)),
+    w = labelWidth(subject),
     x = (size * spot.x) / 100,
     bottom = (sizeY * spot.y) / 100 - a * 0.95625;
   return { left: x - w / 2, right: x + w / 2, top: bottom - 40, bottom };
@@ -810,12 +874,12 @@ const label = {
   color: INK,
   textAlign: 'center' as const,
 };
-const nameText = (me: boolean) => ({
+export const nameText = (me: boolean) => ({
   fontSize: 11,
   lineHeight: 17.6,
   fontWeight: '900' as const,
   color: me ? ME : INK,
-  textShadowColor: '#FFFDFA',
+  textShadowColor: componentTokens.nameplate.shadow,
   textShadowOffset: { width: 0, height: 0 },
   textShadowRadius: 5,
 });
@@ -956,10 +1020,11 @@ export function FishingActor({
   }, [goldenReeling, eventWindow, reelEvent, reduce, running, reelNonce]);
   const a = size * 0.077,
     face = spot.face,
-    direction = castAngle(spot),
-    rodSize = a * 0.6,
-    rodTipDistance = (a * castReach(spot)) / 7.7,
-    rodScale = castReach(spot) / 5.6,
+    rodTip = castLineStart(spot),
+    launch = {
+      x: (size * (rodTip.x - spot.x)) / 100 + a / 2,
+      y: (sizeY * (rodTip.y - spot.y)) / 100 + a * 0.90625,
+    },
     catchPlacement = fishingCatchPlacement(
       spot,
       catchAvoidSpots,
@@ -968,6 +1033,18 @@ export function FishingActor({
       catchFuturePeerSpots,
     ),
     showsCatch = count > 0 && catchVisible && catchPlacement != null;
+  // 화면 가장자리 자리의 머리 위 말풍선·이름이 반쯤 잘리지 않게 민다. 걷는 중에는 몸이 자리(spot)에 없어 밀지 않는다
+  const visibleX = useContext(FishingVisibleX),
+    // 글자는 OS 접근성 글자 배율만큼 커진다 — 폭 추정에도 곱한다
+    fontScale = visibleX?.fontScale ?? 1,
+    footX = (size * spot.x) / 100,
+    pushIn = (w: number) =>
+      visibleX && motion !== 'walk'
+        ? keepLabelInView(footX, w, visibleX.lo, visibleX.hi) - footX
+        : 0,
+    // 말풍선은 maxWidth 120 을 넘지 않는다. 이름 글자 폭 대략값: 11px 한 자 ≈ 11px
+    labelShift = pushIn(Math.min(120, labelWidth(emote ? '' : (subject ?? '')) * fontScale)),
+    nameShift = pushIn([...name].length * nameText(me).fontSize * fontScale);
   return (
     <Animated.View
       pointerEvents="none"
@@ -1027,18 +1104,7 @@ export function FishingActor({
           source={assets['props/fishing/fishing-rod.png']}
           resizeMode="contain"
           testID="fishing-actor-rod"
-          style={{
-            position: 'absolute',
-            width: rodSize,
-            height: rodSize,
-            left: a / 2 + Math.cos(direction) * rodTipDistance - rodSize * 0.96,
-            top: a * 0.90625 + Math.sin(direction) * rodTipDistance - rodSize * 0.04,
-            transform: [
-              { scale: rodScale },
-              { rotate: `${direction - FISHING_ROD_AXIS_ANGLE}rad` },
-            ],
-            transformOrigin: [rodSize * 0.96, rodSize * 0.04, 0],
-          }}
+          style={rodStyle(spot, a)}
         />
       )}
       {/* DESIGN.md §8.3: 다른 주민의 물고기 획득은 공개하지 않는다 — 물보라·물고기는 내 고양이만. */}
@@ -1048,6 +1114,7 @@ export function FishingActor({
           reel={pose.reel}
           k={a / LAB_CAT_PX}
           face={face < 0 ? -1 : 1}
+          launch={launch}
           bob={{
             x: (size * (spot.bx - spot.x)) / 100 + a / 2,
             y: (sizeY * (spot.by - spot.y)) / 100 + a * 0.90625,
@@ -1063,7 +1130,13 @@ export function FishingActor({
         />
       )}
       <View
-        style={{ position: 'absolute', bottom: a * 1.05, left: a / 2 - 100, width: 200 }}
+        testID="fishing-actor-label"
+        style={{
+          position: 'absolute',
+          bottom: a * 1.05,
+          left: a / 2 - 100 + labelShift,
+          width: 200,
+        }}
         pointerEvents="none"
       >
         {/* 이모티콘이 오면 3초 동안 과목·시간표 자리를 대신한다(축소해 이름만 보이는 배율에서도 뜬다) */}
@@ -1091,7 +1164,10 @@ export function FishingActor({
           )
         )}
       </View>
-      <View style={{ position: 'absolute', top: a * 0.98, left: a / 2 - 100, width: 200 }}>
+      <View
+        testID="fishing-actor-name"
+        style={{ position: 'absolute', top: a * 0.98, left: a / 2 - 100 + nameShift, width: 200 }}
+      >
         <Text style={[nameText(me), { textAlign: 'center' }]}>{name}</Text>
       </View>
       {Array.from({ length: Math.min(goldenFishCount, 3) }, (_, index) => (
@@ -1130,6 +1206,7 @@ export function FishingPeerActorView({
   onPausedExit,
   onStretch,
   onCompletedExit,
+  onPress,
 }: {
   actor: import('@/screens/focus/useFishingPeerActors').FishingPeerActor;
   /** 남의 고양이 머리·목(GROMO-2390). */
@@ -1145,6 +1222,8 @@ export function FishingPeerActorView({
   onPausedExit: (key: string, generation: number) => void;
   onStretch: (key: string, generation: number) => void;
   onCompletedExit: (key: string, generation: number) => void;
+  /** 누르면 정보창(GROMO-2474). 없으면 지금처럼 누를 수 없다. */
+  onPress?: () => void;
 }) {
   const { Animated: NativeAnimated } = require('react-native');
   const left = useRef(
@@ -1320,32 +1399,96 @@ export function FishingPeerActorView({
           ? 'stretch'
           : undefined;
   const spriteSpot = motion === 'walk' ? { ...actor.spot, face: walkFace } : actor.spot;
+  const a = size * 0.077,
+    touch = Math.max(semanticTokens.size.tapMin, a);
   return (
-    <FishingActor
-      spot={spriteSpot}
-      size={size}
-      sizeY={sizeY}
-      color={actor.color}
-      outfit={outfit}
-      name={actor.name}
-      subject={actor.subject}
-      seconds={actor.seconds}
-      emote={emote}
-      reduce={reduce}
-      goldenFishCount={goldenFishCount}
-      goldenCatchToken={goldenCatchToken}
-      motion={motion}
-      catchVisible={fishingPeerCatchVisible(actor)}
-      onMotionFinish={
-        actor.phase === 'casting'
-          ? () => onCast(actor.key, actor.generation)
-          : actor.phase === 'finishing'
-            ? () => onStretch(actor.key, actor.generation)
-            : undefined
-      }
-      generation={actor.generation}
-      animatedPosition={{ left, top }}
-    />
+    <>
+      <FishingActor
+        spot={spriteSpot}
+        size={size}
+        sizeY={sizeY}
+        color={actor.color}
+        outfit={outfit}
+        name={actor.name}
+        subject={actor.subject}
+        seconds={actor.seconds}
+        emote={emote}
+        reduce={reduce}
+        goldenFishCount={goldenFishCount}
+        goldenCatchToken={goldenCatchToken}
+        motion={motion}
+        catchVisible={fishingPeerCatchVisible(actor)}
+        onMotionFinish={
+          actor.phase === 'casting'
+            ? () => onCast(actor.key, actor.generation)
+            : actor.phase === 'finishing'
+              ? () => onStretch(actor.key, actor.generation)
+              : undefined
+        }
+        generation={actor.generation}
+        animatedPosition={{ left, top }}
+      />
+      {/* 누르는 자리는 그림(눌리지 않음)과 따로 둔다 — 이름표가 바다 누르기(자리 고르기)를 가리지 않게 고양이 몸 위 44pt 만 */}
+      {onPress && (
+        <NativeAnimated.View
+          pointerEvents="box-none"
+          style={{
+            position: 'absolute',
+            left: 0,
+            top: 0,
+            width: a,
+            height: a,
+            zIndex: 20 + Math.round(actor.spot.y),
+            transform: [{ translateX: left }, { translateY: top }],
+          }}
+        >
+          <Pressable
+            testID={`fishing-peer-${actor.userId}`}
+            accessibilityRole="button"
+            accessibilityLabel={t('catInfo.open', { name: actor.name })}
+            onPress={onPress}
+            style={{
+              position: 'absolute',
+              left: (a - touch) / 2,
+              top: (a - touch) / 2,
+              width: touch,
+              height: touch,
+            }}
+          />
+        </NativeAnimated.View>
+      )}
+    </>
+  );
+}
+/** 정보창(GROMO-2474)의 낚시 고양이 — 낚시 자리와 같은 낚시 자세·낚싯대를 멈춘 채 그린다. */
+export function FishingCatArt({
+  spot,
+  color,
+  outfit,
+  size,
+}: {
+  spot: Spot;
+  color: Color;
+  outfit?: Outfit;
+  size: number;
+}) {
+  return (
+    <View style={{ width: size, height: size }}>
+      <CatSprite
+        color={color}
+        motion="focus"
+        size={size}
+        left={spot.face < 0}
+        reduce
+        anchored={false}
+        outfit={outfit}
+      />
+      <Image
+        source={assets['props/fishing/fishing-rod.png']}
+        resizeMode="contain"
+        style={rodStyle(spot, size)}
+      />
+    </View>
   );
 }
 // 서 있거나 걷는 내 고양이(fi-walker): 낚시 고양이와 같은 크기·발 기준점, 걷는 동안만 걷기 그림.
@@ -1358,7 +1501,9 @@ export function FishingWalker({
   left,
   reduce,
   outfit,
+  name,
 }: {
+  name: string;
   p: Point;
   size: number;
   sizeY: number;
@@ -1388,7 +1533,7 @@ export function FishingWalker({
         outfit={outfit}
       />
       <View style={{ position: 'absolute', top: a * (0.98 - 0.90625), left: -100, width: 200 }}>
-        <Text style={[nameText(true), { textAlign: 'center' }]}>{t('focusFlow.common.me')}</Text>
+        <Text style={[nameText(true), { textAlign: 'center' }]}>{name}</Text>
       </View>
     </View>
   );
@@ -1598,7 +1743,7 @@ export function FiModal({
   return (
     <View
       style={[StyleSheet.absoluteFill, { zIndex: 10, justifyContent: 'center' }]}
-      accessibilityViewIsModal
+      accessibilityViewIsModal={!hidden}
       {...a11yHidden(!!hidden)}
     >
       <View style={[StyleSheet.absoluteFill, { backgroundColor: '#493B3940' }]} />

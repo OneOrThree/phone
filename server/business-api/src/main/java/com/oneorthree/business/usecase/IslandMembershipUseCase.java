@@ -39,7 +39,6 @@ import com.oneorthree.business.upstream.data.dto.MyJoinRequestsPage;
 import com.oneorthree.business.upstream.data.dto.Telescope;
 import com.oneorthree.business.upstream.data.dto.TelescopePin;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 
 import java.security.SecureRandom;
@@ -105,7 +104,7 @@ public class IslandMembershipUseCase {
     private static final String SCOPE_VISITOR = "visitor";
 
     private final DataIslandClient data;
-    private final ObjectProvider<SignedCursorCodec> cursorCodecs;
+    private final SignedCursorCodec codec;
     private final SecureRandom seeds = new SecureRandom();
 
     /** 섬 생성 (LLD §3.1). */
@@ -186,7 +185,7 @@ public class IslandMembershipUseCase {
         boolean byName = q != null && !q.isBlank();
         CursorScope scope = new CursorScope(claims.userId(), RESOURCE_SEARCH,
                 byName ? Map.of("q", q) : Map.of(), byName ? SORT_RELEVANCE : SORT_RECENT, limit);
-        CursorBoundary boundary = codec().decode(cursor, scope);
+        CursorBoundary boundary = codec.decode(cursor, scope);
         UUID after = boundary == null ? null : cursorUuid(boundary.sortKey());
 
         IslandSearchPage page = relay(() ->
@@ -195,7 +194,7 @@ public class IslandMembershipUseCase {
             throw new UpstreamContractMismatchException("섬 검색 응답이 없습니다");
         }
         String next = page.nextIslandId() == null ? null
-                : codec().encode(scope, new CursorBoundary(
+                : codec.encode(scope, new CursorBoundary(
                         page.nextIslandId().toString(), page.nextIslandId().toString()));
         return new IslandPage(page.items().stream().map(IslandSummaryView::from).toList(), next);
     }
@@ -210,7 +209,7 @@ public class IslandMembershipUseCase {
     public IslandPage discover(AccessTokenClaims claims, String cursor, int limit, Deadline deadline) {
         CursorScope scope = new CursorScope(claims.userId(), RESOURCE_DISCOVER, Map.of(),
                 SORT_SHUFFLE, limit);
-        CursorBoundary boundary = codec().decode(cursor, scope);
+        CursorBoundary boundary = codec.decode(cursor, scope);
         String seed = boundary == null ? newSeed() : boundary.sortKey();
         String after = boundary == null ? null : boundary.tieBreaker();
 
@@ -220,7 +219,7 @@ public class IslandMembershipUseCase {
             throw new UpstreamContractMismatchException("섬 발견 응답이 없습니다");
         }
         String next = page.nextHandle() == null ? null
-                : codec().encode(scope, new CursorBoundary(seed, page.nextHandle()));
+                : codec.encode(scope, new CursorBoundary(seed, page.nextHandle()));
         return new IslandPage(page.items().stream().map(IslandSummaryView::from).toList(), next);
     }
 
@@ -336,7 +335,7 @@ public class IslandMembershipUseCase {
             Deadline deadline) {
         CursorScope scope = new CursorScope(claims.userId(), RESOURCE_MY_JOIN_REQUESTS, Map.of(),
                 SORT_CREATED_ASC, limit);
-        CursorBoundary boundary = codec().decode(cursor, scope);
+        CursorBoundary boundary = codec.decode(cursor, scope);
         MyJoinRequestsPage page = relay(() -> data.fetchMyJoinRequests(claims.userId(),
                 boundary == null ? null : cursorInstant(boundary.sortKey()),
                 boundary == null ? null : cursorUuid(boundary.tieBreaker()), limit, deadline));
@@ -344,7 +343,7 @@ public class IslandMembershipUseCase {
                 || (page.nextCreatedAt() == null) != (page.nextRequestId() == null)) {
             throw new UpstreamContractMismatchException("내 가입 신청 목록 응답이 완전하지 않습니다");
         }
-        String next = page.nextCreatedAt() == null ? null : codec().encode(scope,
+        String next = page.nextCreatedAt() == null ? null : codec.encode(scope,
                 new CursorBoundary(page.nextCreatedAt().toString(), page.nextRequestId().toString()));
         return new MyJoinRequests(page.items().stream().map(MyJoinRequestView::from).toList(), next);
     }
@@ -399,28 +398,6 @@ public class IslandMembershipUseCase {
     }
 
     // ---------------------------------------------------------------- 내부
-
-    /**
-     * 커서 서명기 — 없으면 <b>첫 페이지로 접지 않고</b> 503 이다.
-     *
-     * <p>{@code SignedCursorCodec} 은 {@code business.cursor.enabled=true} 와 독립 서명키가 있을 때만
-     * 등록된다. 키가 없는 환경에서 커서를 «없는 셈» 치고 첫 페이지를 돌려주면 위조 커서를 조용히
-     * 허용하는 것과 같아진다. 그래서 명시적으로 실패시킨다 — 이 두 목록만 영향을 받고 나머지 4종은
-     * 정상 동작한다.
-     *
-     * <p><b>배포 선행 조건.</b> 이 설정에 값이 있는 프로파일은 지금 {@code ci} 뿐이다. 그래서 이
-     * 실패는 «테스트는 전부 통과하는데 배포하면 두 목록만 죽는» 모양으로 나타난다 — 부팅은
-     * 정상이고(빈이 조건부라 없을 뿐이다) 헬스체크도 통과하며, {@code GET /islands} 와
-     * {@code GET /islands/discover} 의 첫 요청에서야 503 이 된다. dev/prod 에
-     * {@code business.cursor.*} 를 주입하는 것이 이 티켓의 배포 선행 조건이다.
-     */
-    private SignedCursorCodec codec() {
-        SignedCursorCodec codec = cursorCodecs.getIfAvailable();
-        if (codec == null) {
-            throw new PublicApiException(ApiErrorCode.SERVICE_UNAVAILABLE, null);
-        }
-        return codec;
-    }
 
     private String newSeed() {
         byte[] value = new byte[8];

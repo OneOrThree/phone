@@ -1,6 +1,7 @@
 package com.oneorthree.phone.outbox.service;
 
 import com.oneorthree.phone.config.OutboxRelayProperties;
+import com.oneorthree.phone.outbox.client.OutboxCarrier;
 import com.oneorthree.phone.outbox.client.OutboxTransport;
 import com.oneorthree.phone.outbox.client.OutboxTransportResult;
 import com.oneorthree.phone.outbox.dto.AggregateRef;
@@ -154,8 +155,8 @@ class OutboxRelayLeaseIntegrationTest {
         CountDownLatch secondRelease = new CountDownLatch(1);
         RecordingTransport transport = new RecordingTransport(target) {
             @Override
-            public OutboxTransportResult send(EventOutboxDelivery delivery, UUID user) {
-                super.send(delivery, user);
+            public OutboxTransportResult send(EventOutboxDelivery delivery, UUID user, OutboxCarrier carrier) {
+                super.send(delivery, user, carrier);
                 if (sent.size() == 1) {
                     NOW.set(START.plusSeconds(20));
                 } else {
@@ -194,7 +195,6 @@ class OutboxRelayLeaseIntegrationTest {
         UUID user = UUID.randomUUID();
         OutboxDeliveryRequest destination = switch (target) {
             case KAFKA -> OutboxDeliveryRequest.toKafka();
-            case LINK -> OutboxDeliveryRequest.toLink("LINK_TEST", null);
             case NOTI -> OutboxDeliveryRequest.toNotification("NOTI_TEST", null);
             case REALTIME -> OutboxDeliveryRequest.toRealtime("REALTIME_TEST", null);
             case SCORE -> OutboxDeliveryRequest.toScore();
@@ -231,7 +231,7 @@ class OutboxRelayLeaseIntegrationTest {
         }
 
         @Override
-        public OutboxTransportResult send(EventOutboxDelivery delivery, UUID user) {
+        public OutboxTransportResult send(EventOutboxDelivery delivery, UUID user, OutboxCarrier carrier) {
             sent.add(delivery.getId());
             return OutboxTransportResult.success();
         }
@@ -252,8 +252,8 @@ class OutboxRelayLeaseIntegrationTest {
         }
 
         @Override
-        public OutboxTransportResult send(EventOutboxDelivery delivery, UUID user) {
-            super.send(delivery, user);
+        public OutboxTransportResult send(EventOutboxDelivery delivery, UUID user, OutboxCarrier carrier) {
+            super.send(delivery, user, carrier);
             entered.countDown();
             awaitRelease(release);
             return result;

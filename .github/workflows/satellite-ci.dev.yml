@@ -4,8 +4,12 @@ name: Satellite CI (dev)
 
 on:
   pull_request:
-    branches-ignore: [release]
+    types: [opened, synchronize, reopened, edited]
+    branches: [main]
     paths:
+      - '.github/workflows/prod-ci.yml'
+      - '.github/actions/check-arm-image/**'
+      - '.dockerignore'
       - 'server/business-api/**'
       - 'server/notification/**'
       # 설정·필터 일치 테스트(test_config_contract)가 realtime 설정도 봄 (GROMO-2224)
@@ -30,12 +34,15 @@ on:
       - 'server/scripts/docker-compose*.yml'
       - 'server/realtime/Dockerfile'
       - '.github/scripts/**'
+      - '.github/release-protection.json'
       - '.github/actions/ci-jar/**'
       - '.github/actions/gar-login/**'
       - '.github/workflows/satellite-ci.*.yml'
       - '.github/workflows/satellite-check.yml'
+      - '.github/workflows/be-gradle.yml'
       - '.github/workflows/satellite-cd.dev.yml'
       - 'docs/contracts/**'
+  workflow_dispatch: {}
   push:
     branches: [main]
     paths:
@@ -64,6 +71,7 @@ on:
       - '.github/actions/gar-login/**'
       - '.github/workflows/satellite-ci.*.yml'
       - '.github/workflows/satellite-check.yml'
+      - '.github/workflows/be-gradle.yml'
       - '.github/workflows/satellite-cd.dev.yml'
       - 'docs/contracts/**'
 
@@ -107,8 +115,10 @@ jobs:
     uses: ./.github/workflows/satellite-check.yml
     permissions:
       contents: read
+      actions: read
 
   images:
+    if: github.event_name != 'workflow_dispatch'
     name: ${{ matrix.service }} 이미지
     needs: [checks, secrets-check]
     # GROMO-1918: 이미지를 «발행»하는 push 에서만 self-hosted 다. GAR 인증이 GCE 메타데이터
@@ -134,6 +144,8 @@ jobs:
         with:
           service: ${{ matrix.service }}
           operation: verify
+      - uses: docker/setup-qemu-action@v3
+        if: github.event_name == 'pull_request' && github.base_ref != 'release' && fromJSON(needs.checks.outputs.services)[matrix.service]
       - uses: docker/setup-buildx-action@v3
         if: fromJSON(needs.checks.outputs.services)[matrix.service]
       # push 에서만 돈다 — PR 은 GAR 캐시 대신 type=gha 를 쓰므로 이 토큰이 필요 없고,
@@ -143,6 +155,12 @@ jobs:
         uses: ./.github/actions/gar-login
         with:
           registry: ${{ env.GAR_HOST }}
+      - name: 동일 JAR의 운영 arm64 이미지 검증
+        if: github.event_name == 'pull_request' && github.base_ref != 'release' && fromJSON(needs.checks.outputs.services)[matrix.service]
+        uses: ./.github/actions/check-arm-image
+        with:
+          service: ${{ matrix.service }}
+
       - name: 이미지 검증 · 환경별 digest 발행
         if: fromJSON(needs.checks.outputs.services)[matrix.service]
         id: image

@@ -19,6 +19,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib.util
 import json
 import os
@@ -34,6 +35,7 @@ ROOT = Path(__file__).resolve().parents[2]
 WRITER = ROOT / ".github" / "scripts" / "write-compose-env.py"
 SATELLITES_COMPOSE = Path(__file__).resolve().with_name("docker-compose.satellites.yml")
 DATA_OVERLAY_COMPOSE = Path(__file__).resolve().with_name("docker-compose.satellites.data.yml")
+DEV_SATELLITES_COMPOSE = Path(__file__).resolve().with_name("docker-compose.satellites.dev.yml")
 DEV_DATA_OVERLAY_COMPOSE = Path(__file__).resolve().with_name("docker-compose.satellites.data.dev.yml")
 NGINX_EXAMPLE = Path(__file__).resolve().with_name("nginx-satellites.include.conf.example")
 
@@ -72,10 +74,10 @@ SHARED_ENV_NAMES = {".env", ".env.prod", ".env.dev", ".env.local"}
 FORBIDDEN_KEYS = {
     "business-api": ("API_DB_URL", "API_DB_USERNAME", "API_DB_PASSWORD",
                      "NOTI_DB_URL", "NOTI_DB_USERNAME", "NOTI_DB_PASSWORD",
-                     "FCM_SERVICE_ACCOUNT_JSON", "OPENAI_API_KEY", "LINK_CAPABILITY_KEY",
-                     "POSTGRES_PASSWORD", "LINK_MIGRATION_TOKEN"),
+                     "FCM_SERVICE_ACCOUNT_JSON", "OPENAI_API_KEY",
+                     "POSTGRES_PASSWORD"),
     "notification": ("API_DB_URL", "API_DB_USERNAME", "API_DB_PASSWORD", "JWT_SECRET",
-                     "OPENAI_API_KEY", "LINK_CAPABILITY_KEY", "POSTGRES_PASSWORD"),
+                     "OPENAI_API_KEY", "POSTGRES_PASSWORD"),
     "data-api": ("NOTI_DB_URL", "NOTI_DB_USERNAME", "NOTI_DB_PASSWORD"),
 }
 # 어느 서비스에도 가지 않는 자격 — 관측 백엔드 키와 사람이 쓰는 콘솔 비밀번호.
@@ -160,6 +162,47 @@ def empty_compose_values(required: set[str], shared_env: Path, generated_env: st
             raise PrepareError("Compose 필수 보간 검사 결과를 읽지 못했습니다") from None
 
 
+def check_obs_metadata(files: list[Path], shared_env: Path, compose_values: dict[str, str],
+                       environment: str, project: str, services: dict[str, str], quote: Any) -> None:
+    """렌더된 compose 의 로그 메타데이터(OBS_*)가 서비스·환경·배포 커밋과 맞는지 배포 전에 확인한다.
+
+    ``services`` 는 {검사할 서비스 이름: compose 서비스 키}. 공개 식별자만 말하고 다른 값은 출력하지 않는다.
+    env 파일은 아직 쓰기 전이라 같은 이름의 빈 임시 파일로 바꿔 렌더한다(GROMO-2555).
+    """
+    revision = os.environ.get("IMAGE_REVISION", "")
+    if not revision or revision == "unknown":
+        raise PrepareError("IMAGE_REVISION 환경변수가 필요합니다 — 로그의 OBS_VERSION 이 배포 커밋을 가리켜야 합니다")
+    with tempfile.TemporaryDirectory(prefix="gromo-obs-check-") as directory:
+        empty = Path(directory) / "empty.env"
+        empty.write_text("", encoding="utf-8")
+        values = {key: (str(empty) if key in COMPOSE_FILE_KEYS.values() else value)
+                  for key, value in compose_values.items()}
+        generated = Path(directory) / "compose.env"
+        generated.write_text("".join(f"{key}={quote(value)}\n" for key, value in sorted(values.items())),
+                             encoding="utf-8")
+        argv = ["docker", "compose", "-p", project]
+        for path in files:
+            argv += ["-f", str(path)]
+        argv += ["--env-file", str(shared_env), "--env-file", str(generated), "config", "--format", "json"]
+        try:
+            result = subprocess.run(argv, text=True, capture_output=True, timeout=60,
+                                    env={**os.environ, "IMAGE_REVISION": revision})
+            rendered = json.loads(result.stdout)["services"] if result.returncode == 0 else None
+        except (OSError, subprocess.SubprocessError, ValueError, KeyError, TypeError):
+            rendered = None
+    if rendered is None:
+        # config 출력과 stderr 에는 비밀이 섞일 수 있어 전달하지 않는다.
+        raise PrepareError("로그 메타데이터 검사를 위한 compose 렌더에 실패했습니다")
+    for name, key in services.items():
+        env = (rendered.get(key) or {}).get("environment") or {}
+        if env.get("OBS_SERVICE") != name:
+            raise PrepareError(f"{name}: OBS_SERVICE 가 서비스 이름과 다릅니다")
+        if env.get("OBS_ENV") != environment:
+            raise PrepareError(f"{name}: OBS_ENV 가 배포 환경({environment})과 다릅니다")
+        if env.get("OBS_VERSION") != revision:
+            raise PrepareError(f"{name}: OBS_VERSION 이 비었거나 IMAGE_REVISION 과 다릅니다")
+
+
 def check_digest(label: str, reference: str) -> str:
     reference = reference.strip()
     if not reference:
@@ -213,21 +256,18 @@ def build_plan(args: argparse.Namespace, compose_env: Path, with_data: bool) -> 
         "1. !override 지원과 서비스별 env 교체를 실제 Compose로 확인한다.",
         f"   {base} config --quiet",
         "   config 전체 출력은 비밀값을 포함하므로 로그에 남기지 않는다.",
-        "2. Business Redis 를 재생성해 ACL 파일을 다시 읽힌다. Redis 는 aclfile 을 기동 때만 읽고, ACL LOAD 를",
-        "   부를 수 있는 사용자가 없다(default off). 파일은 원자 교체(새 inode)라 기존 컨테이너의 단일 파일 바인드는",
-        "   옛 내용을 볼 수 있다 — restart 가 아니라 재생성한다.",
-        "   캐시 전용(저장 없음)이라 비워져도 다시 채워진다.",
-        f"   {base} up -d --force-recreate business-redis",
+        "2. 공유 Redis 최초 전환은 docs/architecture/shared-redis.md를 따른다.",
+        "   기존 Business Redis를 재생성하지 않는다. 차단 표지를 보존하는 bridge 기간을 먼저 거친다.",
+        "   일반 앱 배포에서는 Redis ACL과 명령 설정이 이미 적용됐는지 검사한다.",
         "3. 위성만 기동한다. Data는 아직 재생성하지 않는다.",
-        f"   {base} up -d business-api notification",
+        f"   {base} up -d --no-deps business-api notification",
         "4. 같은 구성으로 상태를 확인하고 서비스 인증·DB 권한을 검증한다.",
         f"   {base} ps business-api notification",
     ]
     if with_data:
         data_service = "data-api" if args.environment == "dev" else "app"
-        data_flags = "--no-deps " if args.environment == "dev" else ""
         lines += ["5. 제공자 준비 뒤 Data를 전용 env와 지정 digest로 재생성한다.",
-                  f"   {base} up -d {data_flags}{data_service}"]
+                  f"   {base} up -d --no-deps {data_service}"]
     else:
         lines += ["5. --data-image 미지정: Data 전환은 이 산출물에 포함되지 않았다."]
     lines += [
@@ -235,10 +275,9 @@ def build_plan(args: argparse.Namespace, compose_env: Path, with_data: bool) -> 
         f"   인프라 인도물: {NGINX_EXAMPLE}",
         "   /internal/admin/만 Notification에 공개하며 콘솔 전용 Bearer 인증을 유지한다.",
         "# 실패 복구 순서",
-        "- 트래픽/신규 쓰기 전이라면 실패한 서비스만 같은 env와 직전 검증 digest로 재기동한다.",
-        "- Link §7.2 3단계 이후에는 Neon이 정본이다. 구 Data 라우팅으로 자동 복귀하지 않는다.",
+        "- 실패한 서비스만 같은 env와 직전 검증 digest로 재기동한다. Business는 공유 Redis 지원 이미지로만 복구한다.",
+        "- Data DB 전환 후 복구는 server/data-api/docs/db/README.md의 백업·검증 절차를 따른다.",
         "- Notification 최초 gate 개방 이후에는 close/drain 후 새 경로를 수정·검증·재개한다.",
-        "- 호환 라우팅은 새 Link 경로로 교체한 뒤 인플라이트를 drain하고 Business 핸들러를 끈다.",
         "- 검증 실패 때 토큰·DB·이관 원장과 서비스별 env 파일을 보존한다.",
         "- 이 도구는 발송 gate나 relay 설정을 변경하지 않는다. 입력 SecretString의 값을 전달한다.",
     ]
@@ -260,7 +299,7 @@ def main() -> None:
     parser.add_argument("--data-image", default=None,
                         help="지정하면 Data 전용 env 와 오버레이까지 준비한다. 생략하면 Data 는 기존 구성 유지")
     parser.add_argument("--data-profiles", default=None,
-                        help="Data 오버레이가 넘길 SPRING_PROFILES_ACTIVE. 기본값은 '<environment>,satellites'")
+                        help="Data 오버레이가 넘길 SPRING_PROFILES_ACTIVE. 기본값은 '<environment>,satellites,realtime-authorization'")
     parser.add_argument("--project-name", default=None,
                         help="compose 프로젝트명. prod 는 필수 — satellites 파일의 name 이 기존 프로젝트를 갈아치우기 때문")
     args = parser.parse_args()
@@ -276,7 +315,7 @@ def main() -> None:
                 "선언하므로, 프로젝트명을 명시하지 않으면 기존 prod 스택과 «다른» 프로젝트에 컨테이너가 "
                 "생기고 기존 컨테이너는 고아가 됩니다(docker compose ls 로 현재 이름을 확인하세요)")
         args.project_name = "phone"
-    profiles = args.data_profiles if args.data_profiles is not None else f"{args.environment},satellites"
+    profiles = args.data_profiles if args.data_profiles is not None else f"{args.environment},satellites,realtime-authorization"
 
     if not args.base_compose.is_file():
         raise PrepareError(f"기존 환경 compose 를 찾을 수 없습니다: {args.base_compose}")
@@ -328,18 +367,21 @@ def main() -> None:
                 "Data 프로파일 불일치: env 파일과 오버레이가 넘길 값이 다릅니다. "
                 "기존 compose 의 app.environment 가 env_file 을 «이깁니다» — 두 값이 갈라지면 "
                 "satellites 프로파일이 조용히 빠진 채로 뜹니다")
-        if "satellites" not in {profile.strip() for profile in (active or "").split(",")}:
-            raise PrepareError("Data 프로파일에 satellites 가 없습니다")
+        active_profiles = {profile.strip() for profile in (active or "").split(",")}
+        for required_profile in writer.DATA_REQUIRED_PROFILES:
+            if required_profile not in active_profiles:
+                raise PrepareError(f"Data 프로파일에 {required_profile} 가 없습니다")
         if "DATA_API_PROFILES" in os.environ and os.environ["DATA_API_PROFILES"] != profiles:
             raise PrepareError("셸 DATA_API_PROFILES가 선택한 Data 프로파일을 덮어씁니다. "
                                "해당 환경변수를 해제하거나 --data-profiles와 같게 지정하세요")
 
     # compose 가 보간할 값. 여기에는 비밀이 없다.
     compose_values: dict[str, str] = {"DEPLOY_ENV": args.environment}
-    redis_acl = output_dir / "business-redis.acl"
+    redis_acl = output_dir / "shared-redis.acl"
     guard_output_path(redis_acl, args.shared_env_file)
-    acl_text = writer.business_redis_acl(secret)
-    compose_values["BUSINESS_REDIS_ACL_FILE"] = str(redis_acl)
+    acl_text = writer.shared_redis_acl(secret)
+    compose_values["SHARED_REDIS_ACL_FILE"] = "/var/lib/gromo/runtime/shared-redis.acl"
+    compose_values["SHARED_REDIS_ACL_SHA"] = hashlib.sha256(acl_text.encode()).hexdigest()
     for service, path in written.items():
         compose_values[COMPOSE_FILE_KEYS[service]] = str(path)
         compose_values[writer.IMAGE_KEYS[service]] = images[service]
@@ -354,7 +396,11 @@ def main() -> None:
     guard_output_path(compose_env, args.shared_env_file)
 
     # 필수 보간 변수 대조 — 실제 최종값만 검사하며 값은 로그·오류로 내보내지 않는다.
+    # 검사 파일 집합은 satellite-cd.dev.yml 의 실제 기동 파일 집합(dev.yml + satellites.yml + satellites.dev.yml)과
+    # 같아야 한다 — 한쪽을 바꾸면 다른 쪽도 바꾼다. (datadog.yml 은 OBS_* 를 건드리지 않는다.)
     checked = [args.base_compose, SATELLITES_COMPOSE]
+    if args.environment == "dev":
+        checked.append(DEV_SATELLITES_COMPOSE)
     if "data-api" in written:
         checked.append(DEV_DATA_OVERLAY_COMPOSE if args.environment == "dev" else DATA_OVERLAY_COMPOSE)
     required: set[str] = set()
@@ -366,6 +412,13 @@ def main() -> None:
         raise PrepareError(
             "compose 보간에 필요한 값이 없습니다 — " + ", ".join(missing)
             + f". 대조 대상: {', '.join(str(p) for p in checked)}")
+
+    obs_services = {"business-api": "business-api", "notification": "notification"}
+    if "data-api" in written:
+        obs_services["data-api"] = "data-api" if args.environment == "dev" else "app"
+    check_obs_metadata(checked, args.shared_env_file, compose_values, args.environment, args.project_name,
+                       {name: key for name, key in obs_services.items() if name in written},
+                       writer.dotenv_quote)
 
     for service, path in written.items():
         writer.write_atomic(path, rendered[service])

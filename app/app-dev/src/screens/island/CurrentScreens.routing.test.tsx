@@ -1,13 +1,15 @@
-// Screens.tsx 의 해당 분기는 번역하지 않은 죽은 코드 — 이 가로채기가 사라지면 한국어가 샌다(GROMO-2252).
 // `CurrentScreensContent`(CurrentScreens.tsx)는 'arrival'·'travel'·'focusTravel'·'fishingArrival'·
 // 'focusSetup'·'focus'·'rest'·'focusResult'·'returnTravel' 9개 라우트를 Screens.tsx 의
-// `RedesignScreens`에 닿기 전에 `Travel`·`FocusFlow`로 먼저 가로챈다. 이 가로채기가 지워지면
-// 번역되지 않은 `Screens.tsx` 분기가 다시 살아나 한국어 문자열이 영어 빌드에 섞여 나온다.
+// `RedesignScreens`에 닿기 전에 `Travel`·`FocusFlow`로 먼저 가로채고, 'manage'·'members' 는 `Hall` 로 보낸다.
+// GROMO-2463 에서 지운 hall·stats·ledger·construction·board·quest·notice·mail 분기도 같다.
+// 옛 번역 안 된 `Screens.tsx` 분기는 GROMO-2254 에서 지웠다 — 이 가로채기가 지워지면 그 라우트가
+// `RedesignScreens` 의 기본 화면으로 떨어지므로 여기서 고정한다(GROMO-2252).
 import React from 'react';
 import { fireEvent, render } from '@testing-library/react-native';
 import { CurrentScreens } from '@/screens/island/CurrentScreens';
 import { RedesignScreens } from '@/screens/island/Screens';
 import { initialState, reducer, type Route, type State } from '@/services/model';
+import { applyLocalePref } from '@/i18n';
 import { clearSession, saveSession } from '@/services/api/session';
 import { getTelescope } from '@/services/api/telescope';
 import { getMagazineIssue, putMagazineReceipt } from '@/services/api/magazine';
@@ -22,6 +24,26 @@ jest.mock('@/screens/world/DepartureStory', () => ({
     );
   },
 }));
+
+// manage·members 는 Hall 이 그린다 — 가짜 Hall 로 도달 여부와 route 만 본다.
+jest.mock('@/screens/island/Hall', () => {
+  const { View } = require('react-native');
+  return { Hall: ({ e }: any) => <View testID="hall-mock" accessibilityLabel={e.route} /> };
+});
+
+// hall·stats·board 등 옛 Screens.tsx 분기가 있던 라우트는 Library·Hall·InteriorRoute 가 그린다 — 도달 여부와 route 만 본다.
+jest.mock('@/screens/island/Library', () => {
+  const { View } = require('react-native');
+  return { Library: ({ e }: any) => <View testID="library-mock" accessibilityLabel={e.route} /> };
+});
+jest.mock('@/screens/interiors/BuildingInteriors', () => {
+  const actual = jest.requireActual('@/screens/interiors/BuildingInteriors');
+  const { View } = require('react-native');
+  return {
+    ...actual,
+    InteriorRoute: ({ e }: any) => <View testID="interior-mock" accessibilityLabel={e.route} />,
+  };
+});
 
 // 가로채기 고정 대상: RedesignScreens 를 호출 기록용 가짜로 바꾸되 나머지 export 는 실제 구현을 유지한다.
 jest.mock('@/screens/island/Screens', () => {
@@ -74,11 +96,12 @@ jest.mock('@/screens/focus/useFishingPeerActors', () => ({
 
 jest.mock('@/screens/focus/FishingIsland', () => {
   const actual = jest.requireActual('@/screens/focus/FishingIsland');
-  const { View } = require('react-native');
+  const { Pressable, View } = require('react-native');
   return {
     ...actual,
-    FishingIsland: ({ children, gram }: any) => (
+    FishingIsland: ({ children, gram, onGram }: any) => (
       <View testID="focus-world" accessibilityLabel={gram ? 'gram-on' : 'gram-off'}>
+        {gram && onGram && <Pressable testID="focus-gram" onPress={onGram} />}
         {children(640, 640 / 1.5, 1)}
       </View>
     ),
@@ -93,6 +116,27 @@ jest.mock('@/screens/island/useFriendsScreen', () => ({
 }));
 jest.mock('@/screens/island/useBoardHomeIndicator', () => ({
   useBoardHomeIndicator: () => ({ hasNew: false }),
+}));
+const mockFocusShopBuy = jest.fn();
+jest.mock('@/screens/island/useShop', () => ({
+  useShop: () => ({
+    items: [
+      {
+        id: 'rain',
+        title: '빗방울 소리',
+        price: 30,
+        productVersion: 1,
+        available: true,
+      },
+    ],
+    shared: { audio: ['waves', 'campfire', 'forest-wind'] },
+    titles: { rain: '빗방울 소리' },
+    loading: false,
+    error: null,
+    writing: false,
+    retry: jest.fn(),
+    buy: mockFocusShopBuy,
+  }),
 }));
 jest.mock('@/screens/interiors/useBoardNotices', () => ({
   useBoardNotices: () => ({ loading: false, error: null, quests: [] }),
@@ -122,6 +166,22 @@ jest.mock('@/services/api/telescope', () => ({
   arriveAtIsland: jest.fn(),
 }));
 
+// 잡지 리더는 실제 구현을 그대로 쓰되 마운트 횟수만 센다 — 호가 바뀔 때 새로 마운트되는지 본다.
+const mockReaderMount = jest.fn();
+jest.mock('@/screens/magazine/MagazineReader', () => {
+  const actual = jest.requireActual('@/screens/magazine/MagazineReader');
+  const React = require('react');
+  return {
+    ...actual,
+    MagazineReader: (props: any) => {
+      React.useEffect(() => {
+        mockReaderMount(props.e.detail);
+      }, []);
+      return React.createElement(actual.MagazineReader, props);
+    },
+  };
+});
+
 const redesignScreensMock = RedesignScreens as unknown as jest.Mock;
 
 // CurrentScreens.kicked.test.tsx 의 serverFocusState 를 그대로 재사용한다(새 대형 픽스처 금지).
@@ -150,30 +210,41 @@ const serverFocusState = (): State => {
   };
   return state;
 };
+const withGramophone = (state: State): State =>
+  reducer(state, {
+    type: 'SERVER_HOME',
+    facts: {
+      islandId: 'soda',
+      home: { island: { id: 'soda', role: 'member' }, wallets: { villagePoints: 100 } },
+      completedBuildings: ['hall', 'board', 'gram'],
+      members: [],
+    },
+  } as any);
 
+const screenOf = (route: Route, state: State, extra: object = {}) => (
+  <CurrentScreens
+    e={{
+      state,
+      route,
+      now: Date.now(),
+      dispatch: jest.fn(),
+      go: jest.fn(),
+      replace: jest.fn(),
+      reset: jest.fn(),
+      home: jest.fn(),
+      back: jest.fn(),
+      backOverride: { current: null },
+      notify: jest.fn(),
+      text: '',
+      setText: jest.fn(),
+      setGuideStep: jest.fn(),
+      islands: {},
+      ...extra,
+    }}
+  />
+);
 const mount = async (route: Route, state: State = serverFocusState(), extra: object = {}) =>
-  render(
-    <CurrentScreens
-      e={{
-        state,
-        route,
-        now: Date.now(),
-        dispatch: jest.fn(),
-        go: jest.fn(),
-        replace: jest.fn(),
-        reset: jest.fn(),
-        home: jest.fn(),
-        back: jest.fn(),
-        backOverride: { current: null },
-        notify: jest.fn(),
-        text: '',
-        setText: jest.fn(),
-        setGuideStep: jest.fn(),
-        islands: {},
-        ...extra,
-      }}
-    />,
-  );
+  render(screenOf(route, state, extra));
 
 beforeEach(async () => {
   jest.clearAllMocks();
@@ -181,8 +252,7 @@ beforeEach(async () => {
   await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'me' });
 });
 
-// Screens.tsx 의 route === 'arrival'/'travel'·'focusSetup'·'focus'·'rest'·'focusResult' 분기가 번역되지
-// 않은 죽은 코드인 근거가 된 9개 라우트. CurrentScreensContent 가 Travel·FocusFlow 로 먼저 가로챈다.
+// Screens.tsx 에서 분기를 지운 근거가 된 9개 라우트. CurrentScreensContent 가 Travel·FocusFlow 로 먼저 가로챈다.
 const interceptedRoutes: Route[] = [
   'arrival',
   'travel',
@@ -196,9 +266,125 @@ const interceptedRoutes: Route[] = [
 ];
 
 test.each(interceptedRoutes)(
-  '라우트 %s 는 CurrentScreensContent 가 가로채 RedesignScreens(번역 안 된 Screens.tsx 분기)를 부르지 않는다',
+  '라우트 %s 는 CurrentScreensContent 가 가로채 RedesignScreens 를 부르지 않는다',
   async (route) => {
     const screen = await mount(route);
+    expect(redesignScreensMock).not.toHaveBeenCalled();
+    await screen.unmount();
+  },
+);
+
+test('활성 집중섬 축음기는 기본곡·판매곡과 재생·정지 조작을 제공한다', async () => {
+  const state = withGramophone(serverFocusState());
+  state.settings.volume = 0;
+  const dispatch = jest.fn();
+  const playback = { update: jest.fn().mockResolvedValue({}), state: {} };
+  const screen = await mount('focus', state, { playback, dispatch });
+
+  await fireEvent.press(screen.getByTestId('focus-gram'));
+  screen.getByText('잔잔한 파도 · 무료');
+  screen.getByText('모닥불 소리 · 무료');
+  screen.getByText('숲바람 · 무료');
+  screen.getByText('빗방울 소리 · 30마리로 구매');
+  screen.getByText('재생');
+  screen.getByText('정지');
+  const volume = screen.getByLabelText('내 기기 음량');
+  expect(volume.props.accessibilityValue.now).toBe(0);
+  await fireEvent(volume, 'accessibilityAction', {
+    nativeEvent: { actionName: 'increment' },
+  });
+  expect(dispatch).toHaveBeenCalledWith({ type: 'SETTING', key: 'volume', value: 0.1 });
+
+  await fireEvent.press(screen.getByText('잔잔한 파도 · 무료'));
+  expect(playback.update).toHaveBeenCalledWith({ trackId: 'waves' });
+  await fireEvent.press(screen.getByText('재생'));
+  expect(playback.update).toHaveBeenCalledWith({ playing: true });
+  await fireEvent.press(screen.getByText('정지'));
+  expect(playback.update).toHaveBeenCalledWith({ playing: false });
+  await screen.unmount();
+});
+
+test('영어 설정에서는 집중섬 축음기 조작 문구를 영어로 표시한다', async () => {
+  applyLocalePref('en');
+  const playback = { update: jest.fn().mockResolvedValue({}), state: {} };
+  const screen = await mount('focus', withGramophone(serverFocusState()), { playback });
+
+  try {
+    await fireEvent.press(screen.getByTestId('focus-gram'));
+    screen.getByText('Gramophone Music');
+    screen.getByText('Choose a track and control playback.');
+    screen.getByText('Play');
+    screen.getByText('Stop');
+    screen.getByText('Device Volume');
+    screen.getByText('Raindrops · Buy for 30 fish');
+    screen.getByText('Back to My Spot');
+  } finally {
+    await screen.unmount();
+    applyLocalePref('ko');
+  }
+});
+
+test('집중 전 낚시섬은 곡 구매·변경만 제공하고 재생·정지는 노출하지 않는다', async () => {
+  const state = withGramophone(serverFocusState());
+  state.session = null;
+  const playback = { update: jest.fn().mockResolvedValue({}), state: {} };
+  mockFocusShopBuy.mockResolvedValue({ id: 'order-1' });
+  const screen = await mount('fishingArrival', state, { playback });
+
+  await fireEvent.press(screen.getByTestId('focus-gram'));
+  expect(screen.queryByText('재생')).toBeNull();
+  expect(screen.queryByText('정지')).toBeNull();
+  expect(screen.queryByLabelText('내 기기 음량')).toBeNull();
+  await fireEvent.press(screen.getByText('잔잔한 파도 · 무료'));
+  expect(playback.update).toHaveBeenCalledWith({ trackId: 'waves' });
+  await fireEvent.press(screen.getByText('빗방울 소리 · 30마리로 구매'));
+  await fireEvent.press(screen.getByText('30마리로 구매'));
+  expect(mockFocusShopBuy).toHaveBeenCalledWith(expect.objectContaining({ id: 'rain' }));
+  screen.getByText('이 곡으로 바꾸기');
+  await fireEvent.press(screen.getByText('나중에'));
+  screen.getByText('빗방울 소리 · 30마리로 구매');
+  await screen.unmount();
+});
+
+test('모닥불 휴식 화면에는 축음기와 음악 조작을 노출하지 않는다', async () => {
+  const state = serverFocusState();
+  state.session = { ...state.session!, status: 'paused' };
+  const screen = await mount('rest', state);
+
+  expect(screen.queryByTestId('focus-gram')).toBeNull();
+  expect(screen.queryByText('축음기 음악')).toBeNull();
+  await screen.unmount();
+});
+
+// manage·members(마을회관 관리·주민)는 로컬 모드에서도 Hall 로 가고 RedesignScreens 는 부르지 않는다.
+test.each(['manage', 'members'] as const)(
+  '로컬 모드 라우트 %s 는 Hall 이 그리고 RedesignScreens 를 부르지 않는다',
+  async (route) => {
+    const screen = await mount(route, initialState(true), { islands: undefined });
+    expect(screen.getByTestId('hall-mock').props.accessibilityLabel).toBe(route);
+    expect(redesignScreensMock).not.toHaveBeenCalled();
+    await screen.unmount();
+  },
+);
+
+// GROMO-2463: Screens.tsx 에서 지운 분기(hall·stats·ledger·construction·board·quest·questEdit·notice·noticeEdit·mail)는
+// 모두 아래 화면이 가로채 RedesignScreens 에 닿지 않는다. 이 단언이 깨지면 지운 분기가 되살아나야 하는 라우트다.
+test.each([
+  ['stats', 'library-mock'],
+  ['hall', 'hall-mock'],
+  ['ledger', 'hall-mock'],
+  ['construction', 'hall-mock'],
+  ['board', 'interior-mock'],
+  ['quest', 'interior-mock'],
+  ['questEdit', 'interior-mock'],
+  ['notice', 'interior-mock'],
+  ['noticeEdit', 'interior-mock'],
+  ['mail', 'interior-mock'],
+] as const)(
+  '지운 Screens.tsx 분기 라우트 %s 는 %s 가 그리고 RedesignScreens 를 부르지 않는다',
+  async (route, testID) => {
+    const screen = await mount(route, initialState(true), { islands: undefined });
+    expect(screen.getByTestId(testID).props.accessibilityLabel).toBe(route);
     expect(redesignScreensMock).not.toHaveBeenCalled();
     await screen.unmount();
   },
@@ -327,3 +513,55 @@ test('바다 잡지(seaMagazine) 라우트는 소속 섬이 없어도 섬 가드
   expect(putMagazineReceipt).toHaveBeenCalledWith('iss-20', { place: 'SEA', opened: true });
   await screen.unmount();
 });
+
+test('소속 섬 없이 주민 화면을 열면 「가입한 섬이 없어요」 안내가 회색 단색이 아니라 바다 장면 위에 뜬다(GROMO-2412)', async () => {
+  const state = serverFocusState();
+  state.session = null;
+  state.serverIslands = { ...state.serverIslands!, currentIslandId: null };
+  const reset = jest.fn();
+  const screen = await mount('hall', state, { reset });
+  expect(screen.getByText('가입한 섬이 없어요')).toBeTruthy();
+  expect(screen.getByTestId('no-island-background', { includeHiddenElements: true })).toBeTruthy();
+  // 장식 그림 — Overlay 가 background 를 숨김 View 로 감싸 스크린리더에서 빠진다
+  expect(screen.queryByTestId('no-island-background')).toBeNull();
+  // 버튼이 갈 곳을 말하므로 부연 문장은 두지 않는다
+  expect(screen.queryByText('바다에서 머물 섬을 찾아보세요.')).toBeNull();
+  await fireEvent.press(screen.getByText('바다로 가기'));
+  expect(reset).toHaveBeenCalledWith('sea');
+  await screen.unmount();
+});
+
+// 같은 잡지 라우트에서 호 id(detail)만 바뀌면(딥링크로 다른 호를 열 때) 리더를 새로 마운트해야 이전 호의 확대 모달·쪽 위치가 남지 않는다.
+test.each(['magazine', 'seaMagazine'] as const)(
+  '%s 라우트는 호 id 가 바뀌면 잡지 리더를 새로 마운트한다',
+  async (route) => {
+    (getMagazineIssue as jest.Mock).mockResolvedValue({
+      issue: {
+        issueId: 'iss-20',
+        issueNo: 20,
+        issueDate: '2026-10-20',
+        publishedAt: '2026-10-19T22:00:00Z',
+        current: true,
+      },
+      editorial: null,
+      cells: [],
+      nextCursor: null,
+    });
+    (putMagazineReceipt as jest.Mock).mockResolvedValue({
+      place: route === 'seaMagazine' ? 'SEA' : 'ISLAND',
+      receivedAt: 'a',
+      deferredAt: null,
+      openedAt: 'b',
+    });
+    const state = serverFocusState();
+    state.session = null;
+    const screen = await render(screenOf(route, state, { detail: 'iss-20' }));
+    await screen.findByTestId('magazine-reader');
+    expect(mockReaderMount).toHaveBeenCalledTimes(1);
+
+    await screen.rerender(screenOf(route, state, { detail: 'iss-21' }));
+    expect(mockReaderMount).toHaveBeenCalledTimes(2);
+    expect(mockReaderMount).toHaveBeenLastCalledWith('iss-21');
+    await screen.unmount();
+  },
+);

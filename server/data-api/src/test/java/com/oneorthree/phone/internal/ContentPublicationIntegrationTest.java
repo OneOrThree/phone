@@ -52,8 +52,8 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-/** 실제 release Flyway PostgreSQL에서 공개 여부·원자성·경합·관리 자격 경계를 검증한다. */
-@SpringBootTest(properties = {"notification.dispatch.mode=OUTBOX", "magazine.enabled=true"})
+/** 실제 V0+후속 PostgreSQL에서 공개 여부·원자성·경합·관리 자격 경계를 검증한다. */
+@SpringBootTest
 @AutoConfigureMockMvc
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 class ContentPublicationIntegrationTest {
@@ -65,7 +65,6 @@ class ContentPublicationIntegrationTest {
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
         OutboxTestPostgres.applyProductionMigrationWiring(registry);
-        registry.add("internal.api.enabled", () -> true);
         registry.add("internal.api.callers.console.token", () -> "content-test-console");
         registry.add("internal.api.callers.console.console-actor", () -> "member-1");
         registry.add("internal.api.callers.console.allow[0]", () -> "GET /internal/admin/content/notices");
@@ -75,13 +74,12 @@ class ContentPublicationIntegrationTest {
         registry.add("internal.api.callers.business.allow[0]", () -> "GET /internal/admin/content/notices");
     }
 
-    @Autowired com.oneorthree.phone.internal.service.ConstructionPolicyAdminService construction;
     @Autowired DeveloperNoticeService notices;
     @Autowired ContentHistoryService history;
     @Autowired MagazineReviewService reviews;
     @Autowired MagazinePublishScheduler scheduler;
-    @Autowired com.oneorthree.phone.internal.service.MagazineIssueNotifier notifier;
     @Autowired JdbcTemplate jdbc;
+    @Autowired com.oneorthree.phone.internal.service.ConstructionPolicyAdminService construction;
     @Autowired MockMvc mvc;
     @Autowired UserRepository users;
     @Autowired GroupRepository groups;
@@ -91,7 +89,6 @@ class ContentPublicationIntegrationTest {
 
     @BeforeEach
     void reset() {
-        org.springframework.test.util.ReflectionTestUtils.setField(notifier, "pageSize", 200);
         when(clock.instant()).thenReturn(NOW);
         when(clock.getZone()).thenReturn(ZonePolicy.KST);
         when(clock.withZone(any())).thenAnswer(call -> Clock.fixed(NOW, call.getArgument(0)));
@@ -235,11 +232,11 @@ class ContentPublicationIntegrationTest {
     @Test
     void closedEditorialIslandRequiresReviewAgain() {
         Group island = groups.save(Group.builder().name("새로 생긴 검토 섬").maxMembers(10).isPrivate(false).build());
-        jdbc.update("UPDATE groups SET created_at=? WHERE id=?", Timestamp.from(NOW.minusSeconds(86400)),
+        jdbc.update("UPDATE islands SET created_at=? WHERE id=?", Timestamp.from(NOW.minusSeconds(86400)),
                 island.getId());
         var preview = reviews.preview(new MagazineReviewService.PreviewRequest(DATE, null), "member-1");
         assertThat(preview.editorial().newIslands()).extracting(row -> row.islandId()).contains(island.getId());
-        jdbc.update("UPDATE groups SET deleted_at=? WHERE id=?", Timestamp.from(NOW), island.getId());
+        jdbc.update("UPDATE islands SET deleted_at=? WHERE id=?", Timestamp.from(NOW), island.getId());
         assertThatThrownBy(() -> reviews.publish(UUID.randomUUID(),
                 new MagazineReviewService.PublishRequest(preview.snapshotId(), preview.digest()), "member-1"))
                 .isInstanceOf(ContentException.class).hasMessageContaining("다시 검토");
@@ -249,11 +246,11 @@ class ContentPublicationIntegrationTest {
     @Test
     void newlyPrivateIslandRequiresReviewAgain() {
         Group island = groups.save(Group.builder().name("공개로 소개할 새 섬").maxMembers(10).isPrivate(false).build());
-        jdbc.update("UPDATE groups SET created_at=? WHERE id=?", Timestamp.from(NOW.minusSeconds(86400)),
+        jdbc.update("UPDATE islands SET created_at=? WHERE id=?", Timestamp.from(NOW.minusSeconds(86400)),
                 island.getId());
         var preview = reviews.preview(new MagazineReviewService.PreviewRequest(DATE, null), "member-1");
         assertThat(preview.editorial().newIslands()).extracting(row -> row.islandId()).contains(island.getId());
-        jdbc.update("UPDATE groups SET is_private=true WHERE id=?", island.getId());
+        jdbc.update("UPDATE islands SET is_private=true WHERE id=?", island.getId());
         assertThatThrownBy(() -> reviews.publish(UUID.randomUUID(),
                 new MagazineReviewService.PublishRequest(preview.snapshotId(), preview.digest()), "member-1"))
                 .isInstanceOf(ContentException.class).hasMessageContaining("다시 검토");
@@ -285,8 +282,6 @@ class ContentPublicationIntegrationTest {
         assertThat(count("magazine_issues")).isEqualTo(1);
         assertThat(notificationEvents(published.issueId())).isEmpty();
 
-        // release의 실제 페이지 경계마다 커밋하게 해 부분 실패를 재현한다.
-        org.springframework.test.util.ReflectionTestUtils.setField(notifier, "pageSize", 1);
         // 00:00 틱의 첫 수신자는 커밋하고 둘째에서 실패한다. 공개 호는 유지하고 완료 표시를 쓰지 않는다.
         Instant midnight = DATE.plusDays(1).atStartOfDay(ZonePolicy.KST).toInstant();
         setClock(midnight);
@@ -354,7 +349,7 @@ class ContentPublicationIntegrationTest {
     @Test
     void previewComputesTheClosedWindowBeforeFreezingCards() {
         Group island = groups.save(Group.builder().name("오늘 평균을 기다리는 섬").maxMembers(10).build());
-        jdbc.update("UPDATE groups SET created_at=? WHERE id=?", Timestamp.from(NOW.minusSeconds(86400)),
+        jdbc.update("UPDATE islands SET created_at=? WHERE id=?", Timestamp.from(NOW.minusSeconds(86400)),
                 island.getId());
         jdbc.update("INSERT INTO island_focus_averages(snapshot_date,island_id,member_count,avg_minutes_per_member_day)"
                 + " VALUES(?,?,?,?)", DATE.minusDays(1), island.getId(), 1, 77);
@@ -394,12 +389,31 @@ class ContentPublicationIntegrationTest {
         assertThat(count("magazine_issues")).isZero();
     }
 
+    private long count(String table) {
+        return jdbc.queryForObject("SELECT count(*) FROM " + table, Long.class);
+    }
+
+    private DeveloperNoticeService.Draft draft(Instant starts, Instant ends) {
+        return new DeveloperNoticeService.Draft("개발자 소식", "검토한 본문", starts, ends);
+    }
+
+    private UUID promotion() {
+        User owner = users.save(User.builder().nickname("검토-" + UUID.randomUUID()).build());
+        Group island = groups.save(Group.builder().name("검토 섬").maxMembers(10).isPrivate(false).build());
+        UUID id = UUID.randomUUID();
+        jdbc.update("INSERT INTO island_promotions(id,island_id,issue_date,applied_by,applied_at,updated_at,body,layout)"
+                        + " VALUES(?,?,?,?,?,?,?,?::jsonb)", id, island.getId(), DATE, owner.getId(),
+                Timestamp.from(NOW.minusSeconds(86400)), Timestamp.from(NOW.minusSeconds(86400)), "검토한 홍보", LAYOUT);
+        return id;
+    }
 
     @Test
     void environmentContractUsesTheActualDatabaseMarker() throws Exception {
         var environment = new org.springframework.mock.env.MockEnvironment();
         environment.setActiveProfiles("prod");
-        var controller = new InternalContentAdminController(notices, history, reviews, construction, environment, jdbc);
+        var controller = new InternalContentAdminController(notices, history, reviews,
+                construction,
+                environment, jdbc);
         var http = org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(controller).build();
         String database = jdbc.queryForObject("SELECT current_database()", String.class);
         // 테스트 컨테이너의 컨텍스트 전용 DB에만 표식을 설정한다.
@@ -422,21 +436,4 @@ class ContentPublicationIntegrationTest {
         }
     }
 
-    private long count(String table) {
-        return jdbc.queryForObject("SELECT count(*) FROM " + table, Long.class);
-    }
-
-    private DeveloperNoticeService.Draft draft(Instant starts, Instant ends) {
-        return new DeveloperNoticeService.Draft("개발자 소식", "검토한 본문", starts, ends);
-    }
-
-    private UUID promotion() {
-        User owner = users.save(User.builder().nickname("검토-" + UUID.randomUUID()).build());
-        Group island = groups.save(Group.builder().name("검토 섬").maxMembers(10).isPrivate(false).build());
-        UUID id = UUID.randomUUID();
-        jdbc.update("INSERT INTO island_promotions(id,island_id,issue_date,applied_by,applied_at,updated_at,body,layout)"
-                        + " VALUES(?,?,?,?,?,?,?,?::jsonb)", id, island.getId(), DATE, owner.getId(),
-                Timestamp.from(NOW.minusSeconds(86400)), Timestamp.from(NOW.minusSeconds(86400)), "검토한 홍보", LAYOUT);
-        return id;
-    }
 }

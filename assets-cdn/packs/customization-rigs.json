@@ -1,0 +1,14 @@
+{
+  "packId": "customization-rigs",
+  "files": {
+    "head-0093c1a9": "server/static/customization/rigs/head.0093c1a9.json",
+    "neck-calico-8b43ca75": "server/static/customization/rigs/neck-calico.8b43ca75.json",
+    "neck-cream-04affc59": "server/static/customization/rigs/neck-cream.04affc59.json",
+    "neck-ginger-a128a7c8": "server/static/customization/rigs/neck-ginger.a128a7c8.json",
+    "neck-gray-a2d5f0aa": "server/static/customization/rigs/neck-gray.a2d5f0aa.json",
+    "neck-white-68ba3741": "server/static/customization/rigs/neck-white.68ba3741.json",
+    "neck-22a4cc24": "server/static/customization/rigs/neck.22a4cc24.json",
+    "neck-e4b2796b": "server/static/customization/rigs/neck.e4b2796b.json",
+    "shoes-fbacc42b": "server/static/customization/rigs/shoes.fbacc42b.json"
+  }
+}

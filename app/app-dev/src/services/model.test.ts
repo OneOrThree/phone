@@ -371,6 +371,20 @@ test('축음기는 보유한 현재 곡이 있을 때만 재생한다', () => {
   assert.equal(currentIsland(s).playbackReset, 1);
   assert.equal(trackNames.rain, '빗방울 소리');
 });
+
+test('TRACK_SELECT는 집중 전 곡만 바꾸고 공용 재생 상태를 켜지 않는다', () => {
+  let state = initialState(true);
+  const island = currentIsland(state);
+  island.buildings = ['hall', 'board', 'gram'];
+  island.sharedOwned = ['waves', 'rain'];
+  island.track = 'waves';
+  island.playing = false;
+
+  state = act(state, 'TRACK_SELECT', { value: 'rain' });
+
+  assert.equal(currentIsland(state).track, 'rain');
+  assert.equal(currentIsland(state).playing, false);
+});
 test('PLAYBACK_SYNC는 서버가 확정한 곡과 재생 상태를 섬에 반영한다', () => {
   const before = initialState(false);
   const island = currentIsland(before);
@@ -2493,6 +2507,42 @@ test('ISLAND_SYNC — 첫 승인으로 소속만 생기고 current가 없으면 
   assert.equal(s.onboarded, false);
   assert.equal(s.serverIslands?.currentIslandId, null);
   assert.equal(s.serverIslands?.memberships.length, 1);
+});
+
+test('서버 현재 섬에서 고른 집중 자리는 로컬 목업 섬이 미가입이어도 저장된다', () => {
+  const state = act(initialState(false), 'ISLAND_SYNC', {
+    memberships: {
+      items: [sum('server-island')],
+      nextCursor: null,
+      currentIslandId: 'server-island',
+      lossReason: null,
+    },
+  });
+  const spot = { x: 18.5, y: 39.5 };
+  assert.equal(currentIsland(state).joined, false);
+  assert.equal(state.serverIslands?.currentIslandId, 'server-island');
+  const selected = act(state, 'FOCUS_SPOT', { spot });
+  assert.deepEqual(selected.focusSpot, spot);
+  assert.deepEqual(
+    act(selected, 'SESSION_SYNC', {
+      session: { id: 'focus-1', islandId: 'server-island', status: 'active', seconds: 0 },
+    }).focusSpot,
+    spot,
+  );
+  assert.equal(
+    act(
+      { ...state, serverIslands: { ...state.serverIslands!, currentIslandId: null } },
+      'FOCUS_SPOT',
+      {
+        spot,
+      },
+    ).focusSpot,
+    undefined,
+  );
+  assert.equal(
+    act({ ...state, visitingIslandId: 'another-island' }, 'FOCUS_SPOT', { spot }).focusSpot,
+    undefined,
+  );
 });
 
 test('intentKeyPool — 재시도는 같은 키, 확정·종결 후 해제하면 새 키', () => {

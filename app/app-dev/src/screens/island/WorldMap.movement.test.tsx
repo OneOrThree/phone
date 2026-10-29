@@ -1,13 +1,17 @@
 /**
- * 홈 섬 이동 동기화 배선(GROMO-2248) — 플래그 on + 타일 섬 + 서버 홈이면 이동 전용 채널을 열고,
- * 내 고양이는 서버 확정 경로·도착을 따르며 다른 주민은 Wanderer 대신 서버 위치(RemoteResident)로 그린다.
- * 플래그 off·목업 섬·채널 거절이면 이 PR 이전과 같다(채널 없음·로컬 걷기·Wanderer).
+ * 홈 섬 이동 동기화 배선(GROMO-2248) — 타일 섬(iOS·Android) + 서버 홈이면 늘 이동 전용 채널을 열고(GROMO-2476),
+ * 내 고양이는 서버 확정 경로·도착을 따르며 다른 주민은 서버 위치(RemoteResident)로 그린다.
+ * 서버 홈에서는 접속이 확인된 주민만 표시하고 목업 섬은 고정 자리(StandingResident)를 유지한다.
  */
 import React from 'react';
+import { createBuildingTransitionController } from '@/services/buildingTransition';
+import * as apiClient from '@/services/api/client';
+import { memberLooks } from '@/services/memberLooks';
 import { Animated, AppState } from 'react-native';
 import { act, fireEvent, render, within } from '@testing-library/react-native';
 import { initialState } from '@/services/model';
 import { clearSession, saveSession } from '@/services/api/session';
+import { markUserBlocked, markUserUnblocked, replaceBlockedUsers } from '@/services/blockedUsers';
 import type { IslandChannelOpts } from '@/services/islandRealtime';
 import { imageToWorld, worldToImage, worldToCell, type WorldPoint } from '@/utils/worldCoords';
 import { loadNav } from '@/utils/nav-path';
@@ -15,6 +19,9 @@ import { loadNav } from '@/utils/nav-path';
 import * as navPathModule from '@/utils/nav-path';
 import bundledNavJson from '@/assets/village-world/v1/nav.json';
 import { observeAnimatedOnJsDriver } from '@/components/animatedJsDriver.testing';
+import { movementStats, STATS_LOG_MS } from '@/services/movementStats';
+import grids from '@/constants/world-v2.json';
+import { semanticTokens } from '@/design-system/tokens';
 
 // jest.mock 팩토리는 mock 접두 변수만 참조할 수 있다.
 const mockLayoutHeight = 874;
@@ -103,10 +110,9 @@ jest.mock('@/services/movementSync', () => {
   };
 });
 
-// 플래그는 모듈 로드 때 상수로 굳는다 — env 를 먼저 세우고 require 한다(import 는 호이스팅된다).
-process.env.EXPO_PUBLIC_TILE_ISLAND = '1';
-process.env.EXPO_PUBLIC_MOVEMENT_SYNC = '1';
-const { FinalIsland, initialMapAssets } = require('./WorldMap') as typeof import('./WorldMap');
+// iOS·Android 는 늘 타일 섬이다(GROMO-2476) — jest 기본 Platform.OS(ios)로 그대로 불러온다.
+const { FinalIsland, initialMapAssets, residentSpot } =
+  require('./WorldMap') as typeof import('./WorldMap');
 
 const ME = 'a0000000-0000-4000-8000-000000000001';
 const U1 = 'a0000000-0000-4000-8000-000000000002';
@@ -236,22 +242,16 @@ const placed = (style: unknown) => {
   st.top += translateY;
   return st;
 };
-// 내 고양이 컨테이너(left = x·s − hit/2, top = y·s − cat/2 − hit/2)에서 월드 좌표를 되돌린다.
-const myCat = (screen: Screen) => {
-  const st = placed(screen.getByTestId('home-cat-container').props.style);
-  return imageToWorld(
-    {
-      x: (st.left + st.width / 2) / SCALE,
-      y: (st.top + (70 * SCALE) / 2 + st.height / 2) / SCALE,
-    },
-    SIZE,
-  );
-};
+// 고양이 상자(left = x·s − hit/2, top = y·s − cat/2 − hit/2)에서 발 기준점(이미지 px)을 되돌린다 — 내 고양이·주민 공통.
+const footOf = (st: Record<string, number>) => ({
+  x: (st.left + st.width / 2) / SCALE,
+  y: (st.top + (70 * SCALE) / 2 + st.height / 2) / SCALE,
+});
+const myCat = (screen: Screen) =>
+  imageToWorld(footOf(placed(screen.getByTestId('home-cat-container').props.style)), SIZE);
 const myMotion = (screen: Screen) => screen.getByTestId('home-cat-sprite').props.testPropMotion;
-const residentAt = (screen: Screen, userId: string) => {
-  const st = placed(screen.getByTestId(`remote-resident-${userId}`).props.style);
-  return imageToWorld({ x: st.left / SCALE, y: st.top / SCALE }, SIZE);
-};
+const residentAt = (screen: Screen, userId: string) =>
+  imageToWorld(footOf(placed(screen.getByTestId(`remote-resident-${userId}`).props.style)), SIZE);
 const residentMotion = (screen: Screen, userId: string) =>
   within(screen.getByTestId(`remote-resident-${userId}`)).getByTestId('mock-cat-sprite').props
     .testPropMotion;
@@ -260,8 +260,15 @@ const residents = (screen: Screen) =>
     .queryAllByTestId(/^remote-resident-/)
     .map((n) => n.props.testID)
     .sort();
-// 이름 없는 고양이 스프라이트 = Wanderer 또는 RemoteResident(내 고양이는 home-cat-sprite).
+// 이름 없는 고양이 스프라이트 = StandingResident 또는 RemoteResident(내 고양이는 home-cat-sprite).
 const otherCats = (screen: Screen) => screen.queryAllByTestId('mock-cat-sprite').length;
+// 동기화 위치가 없어 고정 자리에 선 주민(GROMO-2476) — 이동 없이 left/top(상자 기준)만으로 놓인다.
+const standing = (screen: Screen) =>
+  screen
+    .queryAllByTestId(/^standing-resident-/)
+    .map((n) => n.props.testID)
+    .sort();
+// 서버 홈 명단(ME·U1·U2·U3)에서 나와 털색 없는 U3 를 뺀 순서 — U1 이 0번, U2 가 1번 고정 자리다.
 // 바닥 탭 — 지형 Pressable 은 접근성에서 빠져 있어(accessible=false) 이미지 전체 크기로 찾는다.
 const tapGround = async (screen: Screen, at: WorldPoint) => {
   const [ground] = screen.container.queryAll(
@@ -627,7 +634,10 @@ it('다른 주민은 응답 appearance 로 머리·목을 입고, member.appeara
   const headOf = (color: string) =>
     screen.queryAllByTestId('mock-cat-sprite').find((n) => n.props.testPropColor === color)?.props
       .testPropOutfit?.head;
-  // 이동 동기화 전 Wanderer(ginger·white) — 응답에 옷이 있는 주민만 입는다
+  await emit(
+    fullState([actor(ME, SPAWN), actor(U1, { x: 40.5, y: 45.5 }), actor(U2, { x: 36.5, y: 45.5 })]),
+  );
+  // 접속한 주민의 응답 외양을 표시한다.
   expect(headOf('ginger')).toBe('hat-u1');
   expect(headOf('white')).toBeUndefined();
   await emit(fullState([actor(ME, SPAWN), actor(U1, { x: 40.5, y: 45.5 })]));
@@ -668,6 +678,13 @@ it('백그라운드로 채널이 닫혔다 돌아와도 같은 섬의 실시간 
     const headOf = (color: string) =>
       screen.queryAllByTestId('mock-cat-sprite').find((n) => n.props.testPropColor === color)?.props
         .testPropOutfit?.head;
+    await emit(
+      fullState([
+        actor(ME, SPAWN),
+        actor(U1, { x: 40.5, y: 45.5 }),
+        actor(U2, { x: 36.5, y: 45.5 }),
+      ]),
+    );
     await emit({
       eventId: 'e4',
       schemaVersion: 1,
@@ -679,6 +696,13 @@ it('백그라운드로 채널이 닫혔다 돌아와도 같은 섬의 실시간 
     expect(headOf('ginger')).toBe('hat-new');
     await act(async () => listeners.forEach((listener) => listener('background')));
     await act(async () => listeners.forEach((listener) => listener('active')));
+    await emit(
+      fullState([
+        actor(ME, SPAWN),
+        actor(U1, { x: 40.5, y: 45.5 }),
+        actor(U2, { x: 36.5, y: 45.5 }),
+      ]),
+    );
     expect(headOf('ginger')).toBe('hat-new');
     await screen.unmount();
   } finally {
@@ -687,12 +711,79 @@ it('백그라운드로 채널이 닫혔다 돌아와도 같은 섬의 실시간 
   }
 });
 
-it('다른 주민은 FullState 로 Wanderer 대신 RemoteResident 가 되고 — 명단 밖·털색 미선택·나는 그리지 않는다 — 스냅샷 위치로 걷는다', async () => {
+it('접속 목록을 받기 전에는 다른 주민을 표시하지 않는다', async () => {
   jest.useFakeTimers();
   const screen = await renderHome(nextIsland());
-  // FullState 전에는 이전처럼 Wanderer 둘(ginger·white).
+  expect(otherCats(screen)).toBe(0);
+  await act(async () => jest.advanceTimersByTime(10_000));
+  expect(otherCats(screen)).toBe(0);
+  expect(screen.getByTestId('home-cat-container')).toBeTruthy();
+  await screen.unmount();
+});
+
+it('홈 섬 주민 이름표는 멤버 닉네임이고 이름이 없으면 「주민」이다 — 고정 자리·동기화 위치 모두 (GROMO-2475)', async () => {
+  jest.useFakeTimers();
+  const islandId = nextIsland();
+  const state = serverState(islandId) as any;
+  state.serverIslands.home.members[2].name = null; // U2
+  const screen = await render(<FinalIsland state={state} go={jest.fn()} build={jest.fn()} />);
+  const nameIn = (testID: string) =>
+    within(screen.getByTestId(testID)).getByTestId('home-resident-name');
+  await emit(
+    fullState([actor(ME, SPAWN), actor(U1, { x: 40.5, y: 45.5 }), actor(U2, { x: 36.5, y: 45.5 })]),
+  );
+  // 접속한 주민의 이름을 표시한다.
+  expect(within(nameIn(`remote-resident-${U1}`)).getByText('주민-2')).toBeTruthy();
+  expect(within(nameIn(`remote-resident-${U2}`)).getByText('주민')).toBeTruthy();
+  await emit(fullState([actor(ME, SPAWN), actor(U1, { x: 36.5, y: 45.5 })]));
+  expect(within(nameIn(`remote-resident-${U1}`)).getByText('주민-2')).toBeTruthy();
+  await screen.unmount();
+});
+
+it('주민 고양이 부모 뷰는 내 고양이처럼 터치 영역 폭·높이를 갖고 터치 층이 그 안을 채운다 — 안드로이드 부모 경계 (GROMO-2474)', async () => {
+  jest.useFakeTimers();
+  const screen = await renderHome(nextIsland());
+  await emit(fullState([actor(ME, SPAWN), actor(U1, { x: 40.5, y: 45.5 })]));
+  await emit(
+    fullState([actor(ME, SPAWN), actor(U1, { x: 40.5, y: 45.5 }), actor(U2, { x: 36.5, y: 45.5 })]),
+  );
+  const hit = Math.max(semanticTokens.size.tapMin, 70 * SCALE);
+  // U1 은 동기화 위치(RemoteResident), U2 는 고정 자리(StandingResident)
+  for (const testID of [`remote-resident-${U1}`, `remote-resident-${U2}`]) {
+    const parent = screen.getByTestId(testID);
+    expect(flat(parent.props.style)).toMatchObject({ width: hit, height: hit });
+    const touch = within(parent).getByLabelText(/정보 보기$/);
+    expect(flat(touch.props.style)).toMatchObject({ position: 'absolute', left: 0, top: 0 });
+  }
+  await screen.unmount();
+});
+
+it('고정 자리는 홈 격자에서 주민 14명(n=0..13) 모두 서로 다른 땅 칸이다 (GROMO-2476 리뷰)', () => {
+  const spots = Array.from({ length: 14 }, (_, n) => JSON.stringify(residentSpot(grids.home, n)));
+  expect(new Set(spots).size).toBe(14);
+});
+
+it('FullState 뒤 접속한 주민은 동기화 위치로, 접속하지 않은 주민은 숨기고 퇴장 시 사라진다 (GROMO-2476)', async () => {
+  jest.useFakeTimers();
+  const screen = await renderHome(nextIsland());
+  await emit(fullState([actor(ME, SPAWN), actor(U2, { x: 36.5, y: 45.5 })]));
+  expect(residents(screen)).toEqual([`remote-resident-${U2}`]);
+  expect(residentAt(screen, U2).x).toBeCloseTo(36.5, 6);
+  expect(residentAt(screen, U2).y).toBeCloseTo(45.5, 6);
+  // U1 은 FullState 에 없다(미접속) — 순서 0번 고정 자리 그대로다. 다른 주민 순서가 바뀌어도 자리가 밀리지 않는다.
+  expect(standing(screen)).toEqual([]);
+  expect(otherCats(screen)).toBe(1);
+  await emit(fullState([actor(ME, SPAWN)]));
+  expect(otherCats(screen)).toBe(0);
+  await screen.unmount();
+});
+
+it('다른 주민은 FullState 로 RemoteResident 가 되고 — 명단 밖·털색 미선택·나는 그리지 않는다 — 스냅샷 위치로 걷는다', async () => {
+  jest.useFakeTimers();
+  const screen = await renderHome(nextIsland());
+  // FullState 전에는 고정 자리 둘(ginger·white).
   expect(residents(screen)).toEqual([]);
-  expect(otherCats(screen)).toBe(2);
+  expect(otherCats(screen)).toBe(0);
   await emit(
     fullState([
       actor(ME, SPAWN),
@@ -703,7 +794,8 @@ it('다른 주민은 FullState 로 Wanderer 대신 RemoteResident 가 되고 —
     ]),
   );
   expect(residents(screen)).toEqual([`remote-resident-${U1}`, `remote-resident-${U2}`].sort());
-  // Wanderer 는 사라지고 주민 둘만 남는다.
+  // 고정 자리 주민은 사라지고 동기화된 주민 둘만 남는다.
+  expect(standing(screen)).toEqual([]);
   expect(otherCats(screen)).toBe(2);
   expect(residentAt(screen, U2).x).toBeCloseTo(36.5, 6);
   expect(residentAt(screen, U2).y).toBeCloseTo(45.5, 6);
@@ -729,12 +821,9 @@ it('다른 주민은 FullState 로 Wanderer 대신 RemoteResident 가 되고 —
   await screen.unmount();
 });
 
-it('걷는 고양이(내 고양이·떠돌이·다른 주민)는 left/top 이 아니라 transform 을 네이티브 드라이버로 옮긴다(GROMO-2374)', async () => {
+it('걷는 고양이(내 고양이·다른 주민)는 left/top 이 아니라 transform 을 네이티브 드라이버로 옮긴다(GROMO-2374)', async () => {
   jest.useFakeTimers();
-  // 떠돌이 행선지를 고정해 FullState 전에 한 번 걷게 한다(첫 출발 1.2초 뒤).
-  const random = jest.spyOn(Math, 'random').mockReturnValue(0.9);
   const screen = await renderHome(nextIsland());
-  await act(async () => jest.advanceTimersByTime(1500));
   await emit(fullState([actor(ME, SPAWN), actor(U1, { x: 40.5, y: 45.5 })]));
   const box = (id: string) => flat(screen.getByTestId(id).props.style);
   const ids = ['home-cat-container', `remote-resident-${U1}`];
@@ -750,15 +839,15 @@ it('걷는 고양이(내 고양이·떠돌이·다른 주민)는 left/top 이 �
     expect(now.top).toBe(before[i].top);
     expect(now.transform).not.toEqual(before[i].transform);
   });
-  // 고양이 셋(떠돌이·내 고양이·다른 주민)의 이동이 모두 네이티브 드라이버 설정이다 — 테스트만 JS 로 돌린다(jsDriver).
+  // 걷는 고양이 둘(내 고양이·다른 주민)의 이동이 모두 네이티브 드라이버 설정이다 — 테스트만 JS 로 돌린다(jsDriver).
+  // 고정 자리 주민(U2)은 이동 애니메이션 자체가 없다.
   const moves = jsDriver.mock.calls.filter(([value]) => value instanceof Animated.ValueXY);
-  expect(new Set(moves.map(([value]) => value)).size).toBe(3);
+  expect(new Set(moves.map(([value]) => value)).size).toBe(2);
   for (const [, config] of moves) expect(config.useNativeDriver).toBe(true);
-  random.mockRestore();
   await screen.unmount();
 });
 
-it('이동 채널이 영구 거절되면(onMovementDenied) 토스트 없이 동기화를 끄고 Wanderer·로컬 걷기로 돌아간다', async () => {
+it('이동 채널이 영구 거절되면(onMovementDenied) 토스트 없이 동기화를 끄고 다른 주민은 숨기고 로컬로 걷는다', async () => {
   jest.useFakeTimers();
   const notify = jest.fn();
   const screen = await renderHome(nextIsland(), { notify });
@@ -770,12 +859,90 @@ it('이동 채널이 영구 거절되면(onMovementDenied) 토스트 없이 동�
   await act(async () => denied.opts.onMovementDenied?.());
   expect(denied.close).toHaveBeenCalled();
   expect(residents(screen)).toEqual([]);
-  expect(otherCats(screen)).toBe(2);
+  // 접속했던 주민도 마지막 수신 자리가 아니라 명단 순서의 고정 자리로 돌아간다.
+  expect(standing(screen)).toEqual([]);
+  expect(otherCats(screen)).toBe(0);
   await tapGround(screen, { x: 42.5, y: 45.5 });
   expect(denied.send).not.toHaveBeenCalled();
   expect(myMotion(screen)).toBe('walking');
   expect(notify).not.toHaveBeenCalled();
   await screen.unmount();
+});
+
+describe('차단한 주민 숨김 (GROMO-2470)', () => {
+  afterEach(() => replaceBlockedUsers([]));
+
+  it('차단에 성공하면 다시 열지 않아도 그 주민의 고정 자리·동기화 위치·누르는 자리가 사라지고 다른 주민 자리는 그대로, 해제하면 다시 보인다', async () => {
+    jest.useFakeTimers();
+    const screen = await renderHome(nextIsland());
+    await emit(
+      fullState([
+        actor(ME, SPAWN),
+        actor(U1, { x: 40.5, y: 45.5 }),
+        actor(U2, { x: 36.5, y: 45.5 }),
+      ]),
+    );
+    expect(residents(screen)).toEqual([`remote-resident-${U1}`, `remote-resident-${U2}`].sort());
+    // UserSafetySheet 의 차단 성공 경로와 같은 신호
+    await act(async () => markUserBlocked(U1));
+    expect(residents(screen)).toEqual([`remote-resident-${U2}`]);
+    expect(screen.queryByTestId(`home-resident-${U1}`)).toBeNull();
+    // U2 는 0번으로 당겨지지 않고 1번 자리 그대로다
+    expect(residentAt(screen, U2).x).toBeCloseTo(36.5, 6);
+    expect(otherCats(screen)).toBe(1);
+    // 차단 뒤 도착한 실시간 위치도 그 주민을 다시 그리지 않는다
+    await emit(
+      fullState([
+        actor(ME, SPAWN),
+        actor(U1, { x: 40.5, y: 45.5 }),
+        actor(U2, { x: 36.5, y: 45.5 }),
+      ]),
+    );
+    expect(residents(screen)).toEqual([`remote-resident-${U2}`]);
+    expect(otherCats(screen)).toBe(1);
+    await act(async () => markUserUnblocked(U1));
+    expect(residents(screen)).toEqual([`remote-resident-${U1}`, `remote-resident-${U2}`].sort());
+    expect(screen.getByTestId(`home-resident-${U1}`)).toBeTruthy();
+    await screen.unmount();
+  });
+
+  it('서버가 차단 상대를 catColor null 로 가려 보내도 다음 주민은 명단 순서 자리 그대로다', async () => {
+    jest.useFakeTimers();
+    const islandId = nextIsland();
+    const state = serverState(islandId) as any;
+    state.serverIslands.home.members[1].catColor = null; // U1 — 서버 마스킹
+    const screen = await render(<FinalIsland state={state} go={jest.fn()} build={jest.fn()} />);
+    await emit(
+      fullState([
+        actor(ME, SPAWN),
+        actor(U1, { x: 40.5, y: 45.5 }),
+        actor(U2, { x: 36.5, y: 45.5 }),
+      ]),
+    );
+    expect(residents(screen)).toEqual([`remote-resident-${U2}`]);
+    expect(residentAt(screen, U2).x).toBeCloseTo(36.5, 6);
+    await screen.unmount();
+  });
+
+  it('정보창이 열린 채 그 주민을 차단하면 정보창이 닫힌다', async () => {
+    jest.useFakeTimers();
+    const screen = await renderHome(nextIsland());
+    await emit(
+      fullState([
+        actor(ME, SPAWN),
+        actor(U1, { x: 40.5, y: 45.5 }),
+        actor(U2, { x: 36.5, y: 45.5 }),
+      ]),
+    );
+    await fireEvent.press(screen.getByTestId(`home-resident-${U1}`));
+    expect(screen.getByTestId('cat-info-name')).toBeTruthy();
+    await act(async () => markUserBlocked(U1));
+    expect(screen.queryByTestId('cat-info-name')).toBeNull();
+    // 해제해도 닫힌 정보창이 저절로 다시 뜨지 않는다
+    await act(async () => markUserUnblocked(U1));
+    expect(screen.queryByTestId('cat-info-name')).toBeNull();
+    await screen.unmount();
+  });
 });
 
 describe('이동 보기 오버레이 (GROMO-2249)', () => {
@@ -1188,47 +1355,236 @@ it('이동 채널의 onError(그 외 오류 큐 코드)는 동기화를 끄지 �
   await screen.unmount();
 });
 
-describe('플래그 off·서버 홈 아님', () => {
-  // 플래그는 모듈 로드 때 굳으므로 격리 로드한다. 격리 레지스트리가 React 를 따로 만들면 훅이 깨진다.
-  const isolatedIsland = (env: Record<string, string | undefined>) => {
-    const keys = ['EXPO_PUBLIC_TILE_ISLAND', 'EXPO_PUBLIC_MOVEMENT_SYNC'];
-    const saved = keys.map((k) => process.env[k]);
-    keys.forEach((k) => (env[k] === undefined ? delete process.env[k] : (process.env[k] = env[k])));
+describe('이동 동기화 집계·자동 걷기 (GROMO-2250, 개발 전용)', () => {
+  it('이동 보기를 켜면 readout 셋째 줄에 RTT·Snapshot·재접속을 모으고, 껐다 켜면 비운다', async () => {
+    jest.useFakeTimers();
+    const screen = await renderHome(nextIsland());
+    await fireEvent.press(screen.getByTestId('nav-debug-toggle'));
+    await emit(fullState([actor(ME, SPAWN)]));
+    await tapGround(screen, { x: 42.5, y: 45.5 });
+    await act(async () => jest.advanceTimersByTime(30));
+    await emit(pathAccepted(ME, 1, 1, SPAWN, [{ x: 39.5, y: 46.5 }]));
+    await emit(snapshot(101, [entity(ME, 1, SPAWN)]));
+    await act(async () => jest.advanceTimersByTime(50));
+    await emit(snapshot(102, [entity(ME, 1, { x: 39, y: 46 })]));
+    await act(async () => jest.advanceTimersByTime(100));
+    const readout = () => screen.getByTestId('nav-debug-text').props.children as string;
+    expect(readout()).toContain('RTT 1건 p50 30');
+    expect(readout()).toContain('Snap 1건 p50 50');
+    // stompjs 재접속 = 같은 채널의 두 번째 onOpen.
+    await act(async () => channel().opts.onOpen());
+    await act(async () => channel().opts.onOpen());
+    await act(async () => jest.advanceTimersByTime(500));
+    expect(readout()).toContain('재접속 1');
+    await fireEvent.press(screen.getByTestId('nav-debug-toggle'));
+    await fireEvent.press(screen.getByTestId('nav-debug-toggle'));
+    await act(async () => jest.advanceTimersByTime(100));
+    expect(readout()).toContain('RTT 0건');
+    expect(readout()).toContain('재접속 0');
+    await screen.unmount();
+  });
+
+  // AppState 리스너를 모아 run 에 「상태 바꾸기」로 넘긴다 — 위 「앱이 background 로 가면…」 테스트와 같은
+  // defineProperty 패턴이다.
+  const withAppState = async (run: (to: (state: string) => Promise<void>) => Promise<void>) => {
+    const listeners: ((state: string) => void)[] = [];
+    const originalAddEventListener = Object.getOwnPropertyDescriptor(AppState, 'addEventListener');
+    Object.defineProperty(AppState, 'addEventListener', {
+      configurable: true,
+      value: ((_type: string, listener: (state: string) => void) => {
+        listeners.push(listener);
+        return { remove: jest.fn() };
+      }) as typeof AppState.addEventListener,
+    });
     try {
-      let Island!: typeof FinalIsland;
-      jest.isolateModules(() => {
-        jest.doMock('react', () => React);
-        Island = (require('./WorldMap') as typeof import('./WorldMap')).FinalIsland;
-      });
-      return Island;
+      await run((state) => act(async () => listeners.forEach((listener) => listener(state))));
     } finally {
-      keys.forEach((k, n) =>
-        saved[n] === undefined ? delete process.env[k] : (process.env[k] = saved[n]),
-      );
+      if (originalAddEventListener) {
+        Object.defineProperty(AppState, 'addEventListener', originalAddEventListener);
+      }
     }
+  };
+  // background → active: 채널 effect 가 cleanup 뒤 다시 돌아 새 채널 인스턴스를 열고, 412ms 뒤 FullState 를 받는다.
+  const reopenAfterBackground = async (to: (state: string) => Promise<void>) => {
+    const before = channel();
+    await to('background');
+    await to('active');
+    expect(channel()).not.toBe(before);
+    await act(async () => channel().opts.onOpen());
+    await act(async () => jest.advanceTimersByTime(412));
+    await emit(fullState([actor(ME, SPAWN)]));
+    await act(async () => jest.advanceTimersByTime(500));
+  };
+
+  it('background 복귀로 채널 effect 가 다시 돌아 새 채널이 열려도 재접속으로 세고, 첫 FullState 시간은 첫 값을 지킨다', async () => {
+    jest.useFakeTimers();
+    await withAppState(async (to) => {
+      const screen = await renderHome(nextIsland());
+      await fireEvent.press(screen.getByTestId('nav-debug-toggle'));
+      await act(async () => channel().opts.onOpen());
+      await act(async () => jest.advanceTimersByTime(96));
+      await emit(fullState([actor(ME, SPAWN)]));
+      await reopenAfterBackground(to);
+      const readout = screen.getByTestId('nav-debug-text').props.children as string;
+      expect(readout).toContain('재접속 1 · FullState 412ms(첫 96ms)');
+      await screen.unmount();
+    });
+  });
+
+  it('채널이 열리고 FullState 까지 받은 뒤 이동 보기를 켜도 다음 열림을 재접속으로 세고, 측정 전 첫 연결은 「—」로 둔다', async () => {
+    jest.useFakeTimers();
+    await withAppState(async (to) => {
+      const screen = await renderHome(nextIsland());
+      // 측정 시작 전 — 채널이 열리고 첫 FullState 까지 받았다(집계는 꺼져 있다).
+      await act(async () => channel().opts.onOpen());
+      await act(async () => jest.advanceTimersByTime(96));
+      await emit(fullState([actor(ME, SPAWN)]));
+      await fireEvent.press(screen.getByTestId('nav-debug-toggle'));
+      await reopenAfterBackground(to);
+      const readout = screen.getByTestId('nav-debug-text').props.children as string;
+      expect(readout).toContain('재접속 1 · FullState 412ms(첫 —)');
+      await screen.unmount();
+    });
+  });
+
+  it('자동 걷기를 켜면 2초 뒤 탭과 같은 걷기로 intent 를 보내고, 끄면 더 보내지 않는다', async () => {
+    jest.useFakeTimers();
+    // 무작위 셀 = (42,45) 셀(index 45·100 + 42), 지터 = 0.45425 × 50ms ≈ 23ms.
+    const random = jest.spyOn(Math, 'random').mockReturnValue(0.45425);
+    const island = nextIsland();
+    const screen = await renderHome(island);
+    expect(screen.queryByTestId('auto-walk-toggle')).toBeNull();
+    await fireEvent.press(screen.getByTestId('nav-debug-toggle'));
+    await emit(fullState([actor(ME, SPAWN)]));
+    await fireEvent.press(screen.getByTestId('auto-walk-toggle'));
+    await act(async () => jest.advanceTimersByTime(2100));
+    expect(channel().send.mock.calls).toEqual([
+      [
+        `/app/islands/${island}/movement/intent`,
+        { commandSeq: 1, navRevision: 1, goalX: 42.5, goalY: 45.5 },
+      ],
+    ]);
+    await fireEvent.press(screen.getByTestId('auto-walk-toggle'));
+    // 다른 셀로 바꿔도 꺼져 있으니 더 보내지 않는다.
+    random.mockReturnValue(0.4639);
+    await act(async () => jest.advanceTimersByTime(6000));
+    expect(channel().send).toHaveBeenCalledTimes(1);
+    random.mockRestore();
+    await screen.unmount();
+  });
+  it('점프 표본은 정지 상태 보정만 — FullState 채택·도착 스냅은 잡지 않는다', async () => {
+    jest.useFakeTimers();
+    const screen = await renderHome(nextIsland());
+    await fireEvent.press(screen.getByTestId('nav-debug-toggle'));
+    await act(async () => channel().opts.onOpen());
+    // FullState 채택 — 옛 격자 스폰과 서버 스폰의 차이(> 0.1 unit)만큼 스냅한다.
+    await emit(fullState([actor(ME, SPAWN)]));
+    // 도착 스냅 — 같은 셀 탭 → 빈 경로 → Arrived 자리에 선다.
+    await tapGround(screen, { x: 38.7, y: 45.3 });
+    await emit(pathAccepted(ME, 1, 1, SPAWN, []));
+    await emit(arrived(ME, 1, { x: 38.7, y: 45.3 }));
+    await act(async () => jest.advanceTimersByTime(500));
+    expect(movementStats.summary().jump.maxScreenPx).toBe(0);
+    // 정지 상태 보정 — 서버 Snapshot 이 2.8 unit 떨어진 정지 위치를 알려 온다(CORRECTION_UNITS 1 초과).
+    await emit(snapshot(140, [entity(ME, 1, { x: 41.5, y: 45.5 }, { state: 'IDLE' })]));
+    const from = worldToImage({ x: 38.7, y: 45.3 }, SIZE),
+      to = worldToImage({ x: 41.5, y: 45.5 }, SIZE);
+    const { jump } = movementStats.summary();
+    expect(jump.maxImagePx).toBeCloseTo(Math.hypot(to.x - from.x, to.y - from.y), 6);
+    expect(jump.maxScreenPx).toBeCloseTo(jump.maxImagePx * jump.scaleAtMax, 6);
+    await screen.unmount();
+  });
+
+  it('__DEV__=false 면(이동 보기가 있는 QA 빌드) 이동 보기를 켜도 자동 걷기 버튼이 없다', async () => {
+    // CAN_PREVIEW_VILLAGE 는 모듈 로드 때(__DEV__ true) 굳어 이동 보기 버튼이 있다 — QA 빌드
+    // (EXPO_PUBLIC_VILLAGE_PREVIEW=1)와 같은 상태다. 자동 걷기는 렌더 때 __DEV__ 를 읽는다.
+    const savedDev = (globalThis as { __DEV__?: boolean }).__DEV__;
+    const screen = await renderHome(nextIsland());
+    (globalThis as { __DEV__?: boolean }).__DEV__ = false;
+    try {
+      await fireEvent.press(screen.getByTestId('nav-debug-toggle'));
+      expect(screen.getByTestId('nav-debug-text')).toBeTruthy();
+      expect(screen.queryByTestId('auto-walk-toggle')).toBeNull();
+    } finally {
+      if (savedDev === undefined) delete (globalThis as { __DEV__?: boolean }).__DEV__;
+      else (globalThis as { __DEV__?: boolean }).__DEV__ = savedDev;
+    }
+    await screen.unmount();
+  });
+
+  it('이동 보기가 꺼져 있으면(기본) 집계 1초 인터벌을 만들지 않고 movementStats.format 도 부르지 않는다', async () => {
+    jest.useFakeTimers();
+    const setIntervalSpy = jest.spyOn(global, 'setInterval');
+    const format = jest.spyOn(movementStats, 'format');
+    try {
+      const screen = await renderHome(nextIsland());
+      await act(async () => channel().opts.onOpen());
+      await emit(fullState([actor(ME, SPAWN)]));
+      await tapGround(screen, { x: 42.5, y: 45.5 });
+      await emit(pathAccepted(ME, 1, 1, SPAWN, [{ x: 39.5, y: 46.5 }]));
+      await emit(snapshot(101, [entity(ME, 1, SPAWN)]));
+      await act(async () => jest.advanceTimersByTime(3000));
+      expect(screen.queryByTestId('nav-debug-text')).toBeNull();
+      // 마운트 시계 인터벌(낮·밤 등)은 계기와 무관하다 — 집계 Metro 로그 주기의 인터벌만 없으면 된다.
+      expect(setIntervalSpy.mock.calls.map(([, ms]) => ms)).not.toContain(STATS_LOG_MS);
+      expect(format).not.toHaveBeenCalled();
+      await screen.unmount();
+    } finally {
+      setIntervalSpy.mockRestore();
+      format.mockRestore();
+    }
+  });
+});
+
+describe('웹(이미지 섬)·서버 홈 아님', () => {
+  // 웹 빌드(TILE_ISLAND=false)는 모듈 로드 때 Platform.OS 로 굳으므로 격리 로드하면서 그때만 격리 레지스트리의
+  // Platform.OS 를 'web' 으로 둔다 — jest 엔 DOM 이 없어 렌더는 기본 OS 로 되돌린 뒤 한다. 격리 레지스트리가
+  // React 를 따로 만들면 훅이 깨진다. 세션은 모듈별 캐시(getSession)라 격리 복사본엔 없다 — 그 복사본의
+  // saveSession 도 함께 돌려준다.
+  const webIsland = () => {
+    let Island!: typeof FinalIsland;
+    let isolatedSaveSession!: typeof saveSession;
+    jest.isolateModules(() => {
+      jest.doMock('react', () => React);
+      isolatedSaveSession = (
+        require('@/services/api/session') as typeof import('@/services/api/session')
+      ).saveSession;
+      const platform = (require('react-native') as typeof import('react-native')).Platform;
+      const os = platform.OS;
+      (platform as { OS: string }).OS = 'web';
+      try {
+        Island = (require('./WorldMap') as typeof import('./WorldMap')).FinalIsland;
+      } finally {
+        (platform as { OS: string }).OS = os;
+      }
+    });
+    return { Island, saveSession: isolatedSaveSession };
   };
   afterAll(() => jest.dontMock('react'));
 
-  it('EXPO_PUBLIC_MOVEMENT_SYNC 가 없으면 이동 채널 없이 Wanderer·로컬 걷기 그대로이고, events 만 연 채널로 주민 외양을 받는다 (GROMO-2390)', async () => {
+  it('웹(이미지 섬)이면 이동 채널 없이 접속 미확인 주민을 숨기고, events 만 연 채널로 주민 외양을 받는다 (GROMO-2390·2476)', async () => {
     jest.useFakeTimers();
     const opened = mockChannels.length;
+    const before = controllers.length;
     const island = nextIsland();
     const state = serverState(island);
     (state.serverIslands as any).home.members[1].appearance = { head: 'hat-old', version: 3 };
-    const Island = isolatedIsland({ EXPO_PUBLIC_TILE_ISLAND: '1' });
+    const isolated = webIsland();
+    await isolated.saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: ME });
+    const Island = isolated.Island;
     const screen = await render(<Island state={state} go={jest.fn()} build={jest.fn()} />);
-    await tapGround(screen, { x: 42.5, y: 45.5 });
     // 이동 채널은 없고 events 토픽만 여는 채널 하나
     expect(mockChannels.length).toBe(opened + 1);
     expect(channel().opts).toMatchObject({ islandId: island, events: true, presence: false });
     expect(channel().opts.movement).toBeFalsy();
-    expect(myMotion(screen)).toBe('walking');
+    expect(controllers.length).toBe(before);
     expect(residents(screen)).toEqual([]);
-    expect(otherCats(screen)).toBe(2);
+    expect(standing(screen)).toEqual([]);
+    expect(otherCats(screen)).toBe(0);
     const headOf = (color: string) =>
       screen.queryAllByTestId('mock-cat-sprite').find((n) => n.props.testPropColor === color)?.props
         .testPropOutfit?.head;
-    expect(headOf('ginger')).toBe('hat-old');
+    expect(headOf('ginger')).toBeUndefined();
     await emit({
       eventId: 'e4',
       schemaVersion: 1,
@@ -1237,32 +1593,34 @@ describe('플래그 off·서버 홈 아님', () => {
       aggregateVersion: 4,
       payload: { userId: U1, appearance: { head: 'hat-new', neck: null }, version: 4 },
     });
-    expect(headOf('ginger')).toBe('hat-new');
+    expect(headOf('ginger')).toBeUndefined();
     await screen.unmount();
     expect(mockChannels[mockChannels.length - 1].close).toHaveBeenCalled();
   });
 
-  it('플래그 off(EXPO_PUBLIC_MOVEMENT_SYNC 없음)여도 오버레이는 켜진다 — 컨트롤러가 없으니(동기화 off) 250ms no-op 플러시 인터벌은 만들지 않는다(보완9 항목 2)', async () => {
+  it('컨트롤러가 없는 홈(서버 홈이 없는 목업 섬)도 오버레이는 켜진다 — 250ms no-op 플러시 인터벌은 만들지 않는다(보완9 항목 2)', async () => {
     jest.useFakeTimers();
-    const Island = isolatedIsland({ EXPO_PUBLIC_TILE_ISLAND: '1' });
+    const before = controllers.length;
     const screen = await render(
-      <Island state={serverState(nextIsland())} go={jest.fn()} build={jest.fn()} />,
+      <FinalIsland state={initialState()} go={jest.fn()} build={jest.fn()} />,
     );
-    // jest.getTimerCount() 의 생 델타는 이 화면의 다른 setTimeout 잡음(배회하는 다른 주민의 roam() 재귀
-    // 예약, 버튼 프레스 모션)에 가려 기준선 노릇을 못 한다 — setInterval 호출만 집어 센다. WorldMap.tsx
+    expect(controllers.length).toBe(before);
+    // jest.getTimerCount() 의 생 델타는 이 화면의 다른 setTimeout 잡음(버튼 프레스 모션 등)에 가려
+    // 기준선 노릇을 못 한다 — setInterval 호출만 집어 센다. WorldMap.tsx
     // 안의 setInterval 은 낮·밤 시계(마운트 때 1회, navDebug 와 무관)와 이 250ms flush 뿐이라, 스파이를
     // 마운트 뒤에 걸면 토글이 만드는 setInterval 호출 수만 그대로 드러난다.
     const setIntervalSpy = jest.spyOn(global, 'setInterval');
     await fireEvent.press(screen.getByTestId('nav-debug-toggle'));
     // 컨트롤러가 없으면(동기화 off) server 는 null 이다(항목 2 불변) — 오버레이는 켜졌지만 flush 효과는
-    // early-return 경로만 타 250ms 인터벌(setInterval)을 한 번도 만들지 않는다.
+    // early-return 경로만 타 250ms 인터벌(setInterval)을 한 번도 만들지 않는다. 토글이 만드는 다른
+    // setInterval 은 GROMO-2250 집계의 1초 Metro 로그 하나뿐이다.
     expect(screen.getByTestId('tile-terrain').props.navDebug.server).toBeNull();
-    expect(setIntervalSpy).not.toHaveBeenCalled();
+    expect(setIntervalSpy.mock.calls.map(([, ms]) => ms)).toEqual([1000]);
     setIntervalSpy.mockRestore();
     await screen.unmount();
   });
 
-  it('플래그 on 이어도 서버 홈(facts)이 없는 목업 섬이면 채널을 열지 않는다', async () => {
+  it('타일 섬이어도 서버 홈(facts)이 없는 목업 섬이면 채널을 열지 않는다', async () => {
     const opened = mockChannels.length;
     const screen = await render(
       <FinalIsland state={initialState()} go={jest.fn()} build={jest.fn()} />,
@@ -1275,15 +1633,14 @@ describe('플래그 off·서버 홈 아님', () => {
     const opened = mockChannels.length;
     const screen = await renderHome(nextIsland(), { showActions: false });
     expect(mockChannels.length).toBe(opened);
-    expect(otherCats(screen)).toBe(2);
+    expect(otherCats(screen)).toBe(0);
     await screen.unmount();
   });
 
   // 항목 6(릴리스 음성 테스트) — WorldMap.tileIsland.test.tsx 는 movementSync mock 이 없어(다른 mock 구조)
   // 거기 추가하면 전체 테스트에 새 전역 mock 을 얹어야 한다. 이미 controllers 스파이가 있는 이 파일의
-  // __DEV__=false 케이스로 대체한다(보고: 이쪽을 선택). EXPO_PUBLIC_TILE_ISLAND·MOVEMENT_SYNC 는
-  // 이미 파일 상단에서 '1' — process.env 는 격리 레지스트리와도 공유라 다시 안 세운다. 세션은 모듈별
-  // 캐시(getSession)라 격리 복사본엔 없다 — 그 복사본의 saveSession 으로 따로 채운다.
+  // __DEV__=false 케이스로 대체한다(보고: 이쪽을 선택). 격리 복사본도 기본 Platform.OS(ios)라 타일 섬이다.
+  // 세션은 모듈별 캐시(getSession)라 격리 복사본엔 없다 — 그 복사본의 saveSession 으로 따로 채운다.
   it('__DEV__=false 릴리스 빌드는 nav-debug-toggle 이 없어 movementSync.subscribe 를 한 번도 안 부른다(음성, 항목 6)', async () => {
     jest.useFakeTimers();
     const before = controllers.length;
@@ -1325,8 +1682,204 @@ describe('플래그 off·서버 홈 아님', () => {
   });
 });
 
+// 경로선(GROMO-2479) — 지금 걷는 경로를 타일 섬 지형 캔버스(mock 호스트 뷰)의 walkPath prop 으로 넘긴다.
+describe('경로선 (GROMO-2479)', () => {
+  const route = (screen: Screen) =>
+    (screen.getByTestId('tile-terrain').props.walkPath as WorldPoint[] | null)?.map((p) =>
+      imageToWorld(p, SIZE),
+    ) ?? null;
+  const expectNear = (p: WorldPoint, q: WorldPoint) => {
+    expect(p.x).toBeCloseTo(q.x, 6);
+    expect(p.y).toBeCloseTo(q.y, 6);
+  };
+  const GOAL = { x: 42.5, y: 45.5 };
+
+  it('땅을 누르면 지금 자리 → 누른 칸 경로가 들어가고, 걸어서 도착하면 null 이다', async () => {
+    jest.useFakeTimers();
+    const screen = await renderHome(nextIsland());
+    await emit(fullState([actor(ME, SPAWN)]));
+    expect(route(screen)).toBeNull();
+    await tapGround(screen, GOAL);
+    const r = route(screen)!;
+    expect(r.length).toBeGreaterThan(1);
+    expectNear(r[0], SPAWN);
+    expectNear(r[r.length - 1], GOAL);
+    // 걷는 동안(지나온 구간 포함) 그대로 둔다.
+    await act(async () => jest.advanceTimersByTime(150));
+    expect(route(screen)).toEqual(r);
+    await walkToEnd(screen);
+    expect(myMotion(screen)).not.toBe('walking');
+    expect(route(screen)).toBeNull();
+    await screen.unmount();
+  });
+
+  it('걷는 중 새 목적지를 누르면 그 목적지 경로로 바뀐다', async () => {
+    jest.useFakeTimers();
+    const screen = await renderHome(nextIsland());
+    await emit(fullState([actor(ME, SPAWN)]));
+    await tapGround(screen, GOAL);
+    const first = route(screen)!;
+    await act(async () => jest.advanceTimersByTime(150));
+    const next = { x: 40.5, y: 46.5 };
+    await tapGround(screen, next);
+    const second = route(screen)!;
+    expect(second).not.toEqual(first);
+    // 출발점은 스폰이 아니라 그새 걸어 나간 자리다.
+    expect(second[0].x).toBeGreaterThan(SPAWN.x + 0.5);
+    expectNear(second[second.length - 1], next);
+    await screen.unmount();
+  });
+
+  it('서버 PathAccepted 로 갈아타면 서버 경로로 바뀌고, 걷는 중 받은 Arrived 는 다 걸은 뒤 지운다', async () => {
+    jest.useFakeTimers();
+    const screen = await renderHome(nextIsland());
+    await emit(fullState([actor(ME, SPAWN)]));
+    await tapGround(screen, GOAL);
+    await act(async () => jest.advanceTimersByTime(150));
+    // 서버는 한 줄 아래로 가는 경로를 확정했다.
+    await emit(
+      pathAccepted(ME, 1, 1, SPAWN, [
+        { x: 39.5, y: 46.5 },
+        { x: 40.5, y: 46.5 },
+        { x: 41.5, y: 46.5 },
+        { x: 42.5, y: 46.5 },
+      ]),
+    );
+    const r = route(screen)!;
+    expectNear(r[r.length - 1], { x: 42.5, y: 46.5 });
+    expect(r.some((p) => Math.abs(p.y - 46.5) < 1e-6)).toBe(true);
+    await emit(arrived(ME, 1, { x: 42.6, y: 46.4 }));
+    expect(route(screen)).toEqual(r);
+    await walkToEnd(screen);
+    expect(route(screen)).toBeNull();
+    await screen.unmount();
+  });
+
+  it('모션 줄이기: 고양이는 걷는 효과 없이 바로 도착해도 경로선은 남고(정적 선), 서버 Arrived 에 지운다', async () => {
+    jest.useFakeTimers();
+    const state = serverState(nextIsland());
+    state.settings.reduceMotion = true;
+    const screen = await render(<FinalIsland state={state} go={jest.fn()} build={jest.fn()} />);
+    await emit(fullState([actor(ME, SPAWN)]));
+    await tapGround(screen, GOAL);
+    expect(myMotion(screen)).not.toBe('walking');
+    expectNear(myCat(screen), GOAL);
+    expect(screen.getByTestId('tile-terrain').props.reduceMotion).toBe(true);
+    const r = route(screen)!;
+    expectNear(r[0], SPAWN);
+    expectNear(r[r.length - 1], GOAL);
+    await emit(
+      pathAccepted(ME, 1, 1, SPAWN, [
+        { x: 39.5, y: 45.5 },
+        { x: 40.5, y: 45.5 },
+        { x: 41.5, y: 45.5 },
+        GOAL,
+      ]),
+    );
+    expect(route(screen)).not.toBeNull();
+    await emit(arrived(ME, 1, GOAL));
+    expect(route(screen)).toBeNull();
+    await screen.unmount();
+  });
+
+  it('모션 줄이기: Arrived 전에 목적지를 다시 골라 로컬과 다른 서버 경로로 갈아타도 선은 서버 경로 전체로 남는다', async () => {
+    jest.useFakeTimers();
+    const state = serverState(nextIsland());
+    state.settings.reduceMotion = true;
+    const screen = await render(<FinalIsland state={state} go={jest.fn()} build={jest.fn()} />);
+    await emit(fullState([actor(ME, SPAWN)]));
+    await tapGround(screen, GOAL);
+    const next = { x: 40.5, y: 46.5 };
+    await tapGround(screen, next);
+    // 로컬 고양이는 이미 next 에 서 있다 — 서버는 한 줄 위로 돌아가는 다른 경로를 확정했다.
+    const server = [{ x: 39.5, y: 45.5 }, { x: 40.5, y: 45.5 }, next];
+    await emit(pathAccepted(ME, 2, 2, SPAWN, server));
+    const r = route(screen)!;
+    expect(r).toHaveLength(4);
+    [SPAWN, ...server].forEach((p, i) => expectNear(r[i], p));
+    await emit(arrived(ME, 2, next));
+    expect(route(screen)).toBeNull();
+    await screen.unmount();
+  });
+
+  it('건물로 걷다가 땅을 누르면 진입을 취소하고 새 목적지로 간다', async () => {
+    jest.useFakeTimers();
+    const go = jest.fn();
+    const screen = await render(
+      <FinalIsland state={serverState(nextIsland())} go={go} build={jest.fn()} />,
+    );
+    await emit(fullState([actor(ME, SPAWN)]));
+    await fireEvent.press(screen.getByTestId('building-name-hall'));
+    expect(myMotion(screen)).toBe('walking');
+    await act(async () => jest.advanceTimersByTime(150));
+    await tapGround(screen, GOAL);
+    const redirected = route(screen)!;
+    expectNear(redirected[redirected.length - 1], GOAL);
+    await walkToEnd(screen);
+    expect(go).not.toHaveBeenCalled();
+    // 취소 뒤에도 건물 진입을 다시 선택할 수 있다.
+    await fireEvent.press(screen.getByTestId('building-name-hall'));
+    await walkToEnd(screen);
+    expect(go).toHaveBeenCalled();
+    await screen.unmount();
+  });
+
+  it('건물 진입 연출이 시작되면 바닥 탭으로 새 이동이나 중복 진입을 만들지 않는다', async () => {
+    jest.useFakeTimers();
+    const transition = createBuildingTransitionController();
+    const navigate = jest.fn();
+    const go = jest.fn(() => transition.start('hall', 'enter', false, navigate, 1280));
+    const screen = await render(
+      <FinalIsland state={serverState(nextIsland())} go={go} build={jest.fn()} />,
+    );
+    await emit(fullState([actor(ME, SPAWN)]));
+    await fireEvent.press(screen.getByTestId('building-name-hall'));
+    await walkToEnd(screen);
+    expect(go).toHaveBeenCalledTimes(1);
+    expect(transition.getState().phase).toBe('entering');
+    const sends = mockChannels[0].send.mock.calls.length;
+    await tapGround(screen, GOAL);
+    await fireEvent.press(screen.getByTestId('building-name-hall'));
+    expect(mockChannels[0].send).toHaveBeenCalledTimes(sends);
+    expect(go).toHaveBeenCalledTimes(1);
+    await act(async () => jest.advanceTimersByTime(1280));
+    expect(navigate).toHaveBeenCalledTimes(1);
+    transition.cancel();
+    await screen.unmount();
+  });
+
+  it('모션 줄이기: 건물 문을 눌러 들어가면 도착에서 안 지우는 경로선도 지운다', async () => {
+    jest.useFakeTimers();
+    const state = serverState(nextIsland());
+    state.settings.reduceMotion = true;
+    const go = jest.fn();
+    const screen = await render(<FinalIsland state={state} go={go} build={jest.fn()} />);
+    await emit(fullState([actor(ME, SPAWN)]));
+    await tapGround(screen, GOAL);
+    expect(route(screen)).not.toBeNull();
+    await fireEvent.press(screen.getByTestId('building-name-hall'));
+    await act(async () => jest.advanceTimersByTime(2000));
+    expect(go).toHaveBeenCalled();
+    expect(route(screen)).toBeNull();
+    await screen.unmount();
+  });
+
+  it('섬이 바뀌면 걷던 경로선을 지운다', async () => {
+    jest.useFakeTimers();
+    const screen = await renderHome(nextIsland());
+    await emit(fullState([actor(ME, SPAWN)]));
+    await tapGround(screen, GOAL);
+    expect(route(screen)).not.toBeNull();
+    await screen.rerender(
+      <FinalIsland state={serverState(nextIsland())} go={jest.fn()} build={jest.fn()} />,
+    );
+    expect(route(screen)).toBeNull();
+    await screen.unmount();
+  });
+});
+
 // initialMapAssets(GROMO-2244, codex 지적) — movementSync 빌드는 서버와 같은 nav 아티팩트(번들)만 쓴다.
-// 순수 함수라 TILE_ISLAND·MOVEMENT_SYNC env 격리 없이 인자로 바로 검증한다.
+// 순수 함수라 인자로 바로 검증한다. 화면은 타일 섬(iOS·Android)이면 movementSync 도 켜서 부른다(GROMO-2476).
 describe('initialMapAssets (GROMO-2244)', () => {
   const cache = { kind: 'cache' as const, mapVersion: 1, dir: 'file:///v1', path: 'maps/home/v1' };
 
@@ -1346,4 +1899,41 @@ describe('initialMapAssets (GROMO-2244)', () => {
     expect(initialMapAssets(false, false, promote)).toEqual({ kind: 'bundle' });
     expect(promote).not.toHaveBeenCalled();
   });
+});
+
+it('홈 스냅샷의 최신 외양을 공용 캐시에 병합하고 재진입의 옛 응답으로 되돌리지 않는다', async () => {
+  const request = jest.spyOn(apiClient, 'request').mockResolvedValue({
+    members: [
+      { userId: U1, catColor: 'ginger', appearance: { head: 'old', neck: null, version: 1 } },
+    ],
+    hiddenUserIds: [],
+  });
+  await memberLooks.ensure([U1]);
+  const island = nextIsland();
+  const state = serverState(island);
+  (state.serverIslands as any).home.members[1].appearance = { head: 'new', neck: null, version: 4 };
+  const screen = await renderHome(island, { state });
+  await emit(
+    fullState([actor(ME, SPAWN), actor(U1, { x: 40.5, y: 45.5 }), actor(U2, { x: 36.5, y: 45.5 })]),
+  );
+  const headOf = (screen: Screen) =>
+    screen.queryAllByTestId('mock-cat-sprite').find((n) => n.props.testPropColor === 'ginger')
+      ?.props.testPropOutfit?.head;
+  expect(headOf(screen)).toBe('new');
+  expect(memberLooks.get(U1)?.appearance?.version).toBe(4);
+  await screen.unmount();
+  const oldState = serverState(island);
+  (oldState.serverIslands as any).home.members[1].appearance = {
+    head: 'stale',
+    neck: null,
+    version: 2,
+  };
+  const reopened = await renderHome(island, { state: oldState });
+  await emit(
+    fullState([actor(ME, SPAWN), actor(U1, { x: 40.5, y: 45.5 }), actor(U2, { x: 36.5, y: 45.5 })]),
+  );
+  expect(headOf(reopened)).toBe('new');
+  expect(memberLooks.get(U1)?.appearance?.version).toBe(4);
+  await reopened.unmount();
+  request.mockRestore();
 });

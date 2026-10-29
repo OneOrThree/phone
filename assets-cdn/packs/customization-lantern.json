@@ -1,0 +1,15 @@
+{
+  "packId": "customization-lantern",
+  "files": {
+    "lantern-buoy-2a6b0fe7": "server/static/customization/decor/lantern-buoy.2a6b0fe7.png",
+    "lantern-firefly-ad2c6578": "server/static/customization/decor/lantern-firefly.ad2c6578.png",
+    "lantern-fish-24e80a21": "server/static/customization/decor/lantern-fish.24e80a21.png",
+    "lantern-flower-a8cf8bf3": "server/static/customization/decor/lantern-flower.a8cf8bf3.png",
+    "lantern-milk-f4799bef": "server/static/customization/decor/lantern-milk.f4799bef.png",
+    "lantern-moon-6a81c9bd": "server/static/customization/decor/lantern-moon.6a81c9bd.png",
+    "lantern-mushroom-1ee57957": "server/static/customization/decor/lantern-mushroom.1ee57957.png",
+    "lantern-pumpkin-f4ce5010": "server/static/customization/decor/lantern-pumpkin.f4ce5010.png",
+    "lantern-shell-85fc2c4e": "server/static/customization/decor/lantern-shell.85fc2c4e.png",
+    "lantern-star-29e50e37": "server/static/customization/decor/lantern-star.29e50e37.png"
+  }
+}

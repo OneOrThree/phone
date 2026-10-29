@@ -1,3 +1,5 @@
+import { memberLooks } from './memberLooks';
+import * as apiClient from './api/client';
 // 바다 방 STOMP(GROMO-2310) — 서버가 강제하는 프레임 순서, NOT_IN_SEA_ROOM 재 enter, left 멱등, member → 참가자 폴백.
 // stompjs Client 는 목이다(islandRealtime.test 와 같은 FakeClient) — 구독·발행 순서를 그대로 기록한다.
 import { openSeaRoom, seaMemberFromWire, seaParticipantsAt, SEA_SYNC_MS } from './seaRealtime';
@@ -209,8 +211,8 @@ test('재연결하면 방 구독 없이 enter 부터 다시 한다', () => {
   ]);
 });
 
-test('sea.room.left — 같은 사건이 두 번 와도 한 번만 처리하고, adrift 면 다시 들어가지 않는다', () => {
-  const { spy } = open();
+test('sea.room.left — 같은 사건이 두 번 와도 한 번만 처리하고, adrift 면 주기 틱은 침묵하고 사용자 행동이 enter 1회 (GROMO-2484)', () => {
+  const { room, spy } = open();
   joinRoom();
   clock += 5_000;
   personal('sea.room.left', { roomId: 'room-1', reason: 'adrift' }, 'left-1');
@@ -220,6 +222,17 @@ test('sea.room.left — 같은 사건이 두 번 와도 한 번만 처리하고,
   const before = client().log.length;
   jest.advanceTimersByTime(SEA_SYNC_MS);
   expect(client().log.slice(before)).toEqual([]);
+  // 예전에는 여기서 영구히 방이 없어 이모트가 전부 「연결이 원활하지 않아요」였다 — 사용자 전송 시도가 다시 들어간다
+  expect(room.sendEmote('cheer')).toBe('no-room');
+  expect(client().log.slice(before)).toEqual(['SEND /app/sea/enter {}']);
+  joinRoom();
+  expect(room.sendEmote('cheer')).toBe('sent');
+  // 한마디·포그라운드 복귀(reconnect)도 같은 사용자 행동이다
+  clock += 5_000;
+  personal('sea.room.left', { roomId: 'room-1', reason: 'adrift' }, 'left-1b');
+  const afterSecond = client().log.length;
+  room.reconnect();
+  expect(client().log.slice(afterSecond)).toEqual(['SEND /app/sea/enter {}']);
 });
 
 test('sea.room.left(left) — 다른 기기가 나간 것이라 이 화면은 다시 enter 한다', () => {
@@ -232,18 +245,39 @@ test('sea.room.left(left) — 다른 기기가 나간 것이라 이 화면은 �
 
 test('이모트 — 방에 있을 때만 보내고 600ms 시도 창 안의 연타는 거른다, 내 sea.emote 가 ack 다', () => {
   const { room, spy } = open();
-  expect(room.sendEmote('cheer')).toBe(false); // 방 배정 전
+  expect(room.sendEmote('cheer')).toBe('no-room'); // 방 배정 전
   joinRoom();
-  expect(room.sendEmote('cheer')).toBe(true);
+  expect(room.sendEmote('cheer')).toBe('sent');
   expect(client().log.slice(-1)).toEqual(['SEND /app/sea/rooms/room-1/emotes {"type":"cheer"}']);
-  expect(room.sendEmote('hello')).toBe(false); // 같은 시각 연타
+  expect(room.sendEmote('hello')).toBe('throttled'); // 같은 시각 연타
   clock += 1_000;
-  expect(room.sendEmote('hello')).toBe(true);
+  expect(room.sendEmote('hello')).toBe('sent');
   roomEvent('sea.emote', { userId: 'me', type: 'cheer' });
   roomEvent('sea.emote', { userId: 'me', type: 'dance' }); // 모르는 타입은 버린다
   expect(spy.emotes).toEqual(['me:cheer']);
   deliver('/user/queue/errors', { code: 'EMOTE_TOO_FREQUENT', message: '...' });
   expect(spy.errors).toEqual(['이모트는 잠시 뒤에 다시 보낼 수 있어요']);
+  client().connected = false; // stompjs 재접속 대기
+  clock += 1_000;
+  expect(room.sendEmote('hello')).toBe('disconnected');
+});
+
+test('오류 큐 UPSTREAM_UNAVAILABLE — 무시하지 않고 한 번 안내, 주기 틱이 다시 enter, 사용자 재시도 뒤 또 실패하면 다시 안내 (GROMO-2484)', () => {
+  const { room, spy } = open();
+  const upstream = '바다 상태를 불러오지 못했어요. 잠시 뒤 다시 시도해 주세요.';
+  deliver('/user/queue/errors', { code: 'UPSTREAM_UNAVAILABLE', message: '...' });
+  deliver('/user/queue/errors', { code: 'UPSTREAM_UNAVAILABLE', message: '...' });
+  expect(spy.errors).toEqual([upstream]);
+  clock += 5_000;
+  const before = client().log.length;
+  jest.advanceTimersByTime(SEA_SYNC_MS);
+  expect(client().log.slice(before)).toEqual(['SEND /app/sea/enter {}']);
+  deliver('/user/queue/errors', { code: 'UPSTREAM_UNAVAILABLE', message: '...' });
+  expect(spy.errors).toEqual([upstream]); // 45초마다 토스트를 쌓지 않는다
+  clock += 5_000;
+  expect(room.sendEmote('cheer')).toBe('no-room');
+  deliver('/user/queue/errors', { code: 'UPSTREAM_UNAVAILABLE', message: '...' });
+  expect(spy.errors).toEqual([upstream, upstream]);
 });
 
 test('close — leave 를 보내고 소켓을 닫고 주기 sync 를 멈춘다', () => {
@@ -406,7 +440,7 @@ test('close 뒤 — 내 leave 의 left 가 DISCONNECT 처리 전에 돌아와도
   roomEvent('sea.member.joined', { member: member('b') });
   deliver('/user/queue/errors', { code: 'NOT_IN_SEA_ROOM', message: '...' });
   clock += 1_000;
-  expect(room.sendEmote('cheer')).toBe(false); // 닫힌 뒤의 이모트도 나가지 않는다
+  expect(room.sendEmote('cheer')).toBe('closed'); // 닫힌 뒤의 이모트도 나가지 않는다
   expect(client().log.slice(before)).toEqual([]);
   expect(spy.members.length).toBe(membersBefore);
   expect(spy.left).toEqual([]);
@@ -486,4 +520,91 @@ test('쉬는 중 reconnect() 직후 세션 폐기 close 가 오면 예약된 재
   await Promise.resolve();
   expect(client().activations).toBe(before);
   expect(client().connected).toBe(false);
+});
+
+test('외양 전용 사건은 앱 캐시를 갱신하고 이후 방 스냅샷이 새 착용을 되돌리지 않는다', async () => {
+  const userId = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+  memberLooks.clear();
+  const request = jest.spyOn(apiClient, 'request').mockResolvedValue({
+    members: [{ userId, catColor: 'black', appearance: { head: 'old', neck: null, version: 1 } }],
+    hiddenUserIds: [],
+  });
+  await memberLooks.ensure([userId]);
+  const { room, spy } = open();
+  joinRoom([member(userId)]);
+  expect(spy.members[0].outfit.head).toBe('old');
+  roomEvent('sea.member.appearance.updated', {
+    userId,
+    appearance: { head: 'new', neck: null },
+    version: 3,
+  });
+  expect(spy.members[0].outfit.head).toBe('new');
+  personal('sea.room.snapshot', { roomId: 'room-1', members: [member(userId)] });
+  expect(spy.members[0].outfit.head).toBe('new');
+  roomEvent('sea.member.appearance.updated', {
+    userId,
+    appearance: { head: 'stale', neck: null },
+    version: 2,
+  });
+  expect(spy.members[0].outfit.head).toBe('new');
+  expect(request).toHaveBeenCalledTimes(1);
+  room.close();
+  request.mockRestore();
+  memberLooks.clear();
+});
+
+test('더 최신인 바다 스냅샷과 갱신은 오래된 공용 캐시를 교체하고 추가 조회하지 않는다', async () => {
+  const userId = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
+  memberLooks.clear();
+  const request = jest.spyOn(apiClient, 'request').mockResolvedValue({
+    members: [{ userId, catColor: 'black', appearance: { head: 'old', neck: null, version: 1 } }],
+    hiddenUserIds: [],
+  });
+  await memberLooks.ensure([userId]);
+  const { room, spy } = open();
+  joinRoom([
+    member(userId, { appearance: { head: 'snapshot', neck: null, shoes: 'boots', version: 4 } }),
+  ]);
+  expect(spy.members[0].outfit.head).toBe('snapshot');
+  expect(memberLooks.get(userId)?.appearance).toMatchObject({
+    head: 'snapshot',
+    shoes: 'boots',
+    version: 4,
+  });
+  roomEvent('sea.member.updated', {
+    member: member(userId, { appearance: { head: null, neck: 'scarf', version: 5 } }),
+  });
+  expect(spy.members[0].outfit).toMatchObject({ head: null, neck: 'scarf' });
+  expect(memberLooks.get(userId)?.appearance?.version).toBe(5);
+  personal('sea.room.snapshot', {
+    roomId: 'room-1',
+    members: [member(userId, { appearance: { head: 'stale', version: 2 } })],
+  });
+  expect(spy.members[0].outfit).toMatchObject({ head: null, neck: 'scarf' });
+  expect(request).toHaveBeenCalledTimes(1);
+  room.close();
+  request.mockRestore();
+  memberLooks.clear();
+});
+
+test('초기 조회 실패 중에도 바다 외양 이벤트를 기존 멤버에 적용한다', async () => {
+  const userId = 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee';
+  memberLooks.clear();
+  const request = jest.spyOn(apiClient, 'request').mockRejectedValue(new Error('offline'));
+  await memberLooks.ensure([userId]);
+  const { room, spy } = open();
+  joinRoom([member(userId)]);
+  roomEvent('sea.member.appearance.updated', {
+    userId,
+    appearance: { head: 'hat', neck: null },
+    version: 3,
+  });
+  expect(spy.members[0].outfit).toMatchObject({ head: 'hat', neck: null });
+  expect(spy.members[0].outfitVersion).toBe(3);
+  personal('sea.room.snapshot', { roomId: 'room-1', members: [member(userId)] });
+  expect(spy.members[0].outfit.head).toBe('hat');
+  expect(request).toHaveBeenCalledTimes(1);
+  room.close();
+  request.mockRestore();
+  memberLooks.clear();
 });

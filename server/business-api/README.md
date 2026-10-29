@@ -1,6 +1,7 @@
 # Business API
 
 > 앱 요청을 검증하고 여러 서비스의 결과를 모으며, 공유 파일의 미리보기를 만드는 서버입니다.
+> Redis 통합·기존 차단 정보 전환·HA 판단은 [공유 Redis 운영](../../docs/architecture/shared-redis.md)을 따릅니다.
 
 [서버 전체 보기](../README.md) · [Data API](../data-api/README.md) · [Notification](../notification/README.md) · [내부 API 계약](../../docs/contracts/business-satellite-api.yaml)
 
@@ -151,7 +152,7 @@ HTTP 400만으로 사용자 입력 오류라고 판단하지 않는다. 내부 �
 운영 장애 집계는 공개 HTTP 5xx 건수 대신 이 내부 분류를 사용해야 한다.
 DB·SQL·예외 원문은 공개 응답에 복사하지 않는다.
 
-이 정책은 활성 공개 경로의 애플리케이션 응답에 적용한다. 기존 `/api/v1/**`·`/l/match`,
+이 정책은 활성 공개 경로의 애플리케이션 응답에 적용한다. 기존 `/api/v1/**`,
 내부·관리 경로, 프록시가 직접 생성한 장애 응답에는 적용하지 않는다.
 아래 도메인 설명의 5xx는 별도 표기가 없으면 내부 오류 분류이며, 활성 공개 전송 상태는 위 표를 따른다.
 
@@ -168,7 +169,7 @@ wrapper가 임의 JSON의 공개 권한을 검증해 주지는 않는다. 내부
 `X-Request-Id`가 같다. 외부 `X-User-Id`는 모든 헤더 접근자에서 제거하고 `@LoginUser`의 검증 주체를 쓴다.
 `/auth/sessions`의 무인증 로그인은 아직 열지 않았다.
 
-기존 `/api/v1/**`, `/l/match`, 내부·관리 경로의 기존 응답 형식은 유지한다.
+기존 `/api/v1/**`, 내부·관리 경로의 기존 응답 형식은 유지한다.
 `/api/v1/link-previews`는 기존 DTO/thumbnailUrl을, `/link-previews`는 data 봉투와 새 thumbnailUrl을 반환한다.
 `FAILED` 미리보기 항목은 정상 200 응답의 data에 남는다. 미리보기 실패가 채팅 전송 실패라는 뜻은 아니다.
 
@@ -252,13 +253,12 @@ Data가 자체 `PublicCommandFingerprint`로 저장 지문을 계산하므로 Bu
 400 `INVALID_CURSOR`, 만료는 409 `CURSOR_EXPIRED`다. 커서는 현재 접근 권한을 대체하지 않는다.
 서명은 암호화가 아니므로 boundary에 검색어·개인정보를 넣지 않는다. 정렬 동률을 풀 키도 반드시 포함한다.
 
-커서 빈은 기본 비활성이다. 후속 목록을 연결할 때 외부 설정 파일에 다음처럼 주입한다.
+커서 서명기는 항상 있다(티켓 2535 — `business.cursor.enabled`를 걷었다). 프로파일별 설정 파일에 다음처럼 키를 주입한다.
 아래 환경변수 이름은 이 예시의 placeholder이며 저장소가 자동 생성해 주는 시크릿은 아니다.
 
 ```yaml
 business:
   cursor:
-    enabled: true
     active-key: k2
     keys:
       k1: ${CURSOR_KEY_K1_BASE64}
@@ -266,9 +266,10 @@ business:
 ```
 
 키마다 별도로 생성한 최소 32바이트를 표준 Base64로 인코딩한다. JWT 키와 공유하지 않는다.
-활성 key ID는 keys에 있어야 하고 ID는 영숫자·밑줄·하이픈 1~32자다. 잘못된 키 설정은 활성화 시 부팅을 실패시킨다.
+활성 key ID는 keys에 있어야 하고 ID는 영숫자·밑줄·하이픈 1~32자다. 키가 없거나 치환되지 않았거나 base64가 아니거나 32바이트보다 짧으면 `CursorConfig`가 `RequiredConfig`로 부팅을 실패시킨다.
 현재 `CursorConfig`의 TTL은 **15분 고정**이며 설정 프로퍼티로 노출하지 않았다.
 회전은 모든 인스턴스에 k2 검증키 배포 → active-key를 k2로 전환 → 마지막 k1 발급 뒤 15분 이상 유지 → k1 제거 순서다.
+keys에 남은 키도 부팅 검사(32바이트·base64·치환)를 받으므로, 옛 키를 뺄 때는 yml의 `keys` 항목과 그 env를 함께 지운다.
 이전 키를 너무 일찍 제거하면 아직 유효한 커서도 400이 된다. 목록은 keyset 조회 경계이며 여러 페이지 전체의
 DB snapshot을 보장하지 않는다.
 
@@ -331,8 +332,7 @@ Servlet의 모든 클라이언트 연결 종료를 자동 감지해 이 context�
 | 각 대상의 `.max-attempts` / `.retry-delay` | 총 2회 / 50ms, 유효 Retry-After가 있으면 그 대기 적용 |
 | 각 대상의 `.max-connections` / `.queue-capacity` | 4 / 64, 대상별 HTTP 연결·worker와 대기열 |
 | 각 대상의 `.failure-threshold` / `.open-duration` | 연속 5회 / 10s, 대상별 circuit breaker |
-| `business.cursor.enabled` | 미설정 시 비활성 |
-| `business.cursor.active-key` / `.keys` | 기본 서명키 없음, 활성화 시 독립 키 필수 |
+| `business.cursor.active-key` / `.keys` | 기본 서명키 없음, 독립 키 필수 — 없으면 부팅 실패 |
 
 위 용량은 초기 안전 상한이며 운영 처리량/SLO 보장값은 아니다.
 대상별 HTTP worker 셋과 조합 worker의 **합계는 18 이하**(Data 4 · Notification 4 · Link 4 · Realtime 2 · 조합 4)로 기동 시 검증한다. 환경 설정으로 한 대상만
@@ -360,13 +360,13 @@ HTTP 응답 본문은 시도당 1MiB로 제한하고 초과는 계약 오류로 
 | 링크 `confirm`·`revoke`·`withdraw` 호출 | claim 확정 전달은 Data 의 락 아래 outbox + relay 가 한다(A22 ㋟). Business 가 응답을 받은 뒤 보내면 그때는 이미 락이 풀려 그 사이 revoke 가 끼어든다. 있으면 누가 그 경로를 쓴다 |
 | 범용 프록시 | 인바운드 헤더를 복사할 통로가 없다. `InternalCall` 이 `Authorization`·`X-User-Id` 를 거부하고, 경로는 각 클라이언트의 상수뿐이다 |
 
-> **⚠️ 「저장소가 없다」가 아니다.** 이 서비스에는 **미리보기 전용 Redis 가 있다** — A19 네임스페이스 표의
+> **⚠️ 「저장소가 없다」가 아니다.** 이 서비스에는 **공유 Redis에 Business 소유 키가 있다** — A19 네임스페이스 표의
 > `cache:business:*` 소유자다. 그것이 위 계약과 함께 성립하는 이유는 **사본이기 때문**이다: 정본이 없고,
 > 비워도 다음 요청이 다시 만들며, 어떤 도메인 판정도 거기에 의존하지 않는다(담기는 것은 미리보기
 > 메타데이터와 축소 PNG 뿐이다). 도메인 상태를 여기 얹는 순간 그 구분이 무너진다.
 >
 > A19 및 A22 ㋺에 따라 `business` ACL 사용자는 `cache:business:*`와 캐시 명령만 사용한다.
-> `default` 사용자는 비활성화되며, Redis는 내부 `business-cache` 네트워크에서만 접근한다.
+> `default` 사용자는 비활성화되며, 공유 Redis는 내부 네트워크에서 서비스별 ACL로 접근한다. `business-cache`는 이전 Redis 전환 연결과 단독 개발에만 사용한다.
 > `BUSINESS_REDIS_PASSWORD`는 Business 전용 env에, 해시된 ACL은 별도 파일에 주입한다.
 
 ## 보안 경계 — 필터 두 장
@@ -397,108 +397,50 @@ HTTP 응답 본문은 시도당 1MiB로 제한하고 초과는 계약 오류로 
 | 경로 | 왜 열려 있나 |
 | --- | --- |
 | `GET /health` | 컨테이너 헬스체크. 관리 포트 9091 을 호스트에 publish 하지 않으므로 서비스 포트에 정보를 담지 않는 최소 응답 하나를 둔다 |
-| `POST /l/match` | 정지 창의 구 앱 deferred 매치. 거기 닿는 사람은 아직 우리 유저가 아니다(설치 직후 첫 실행) — 인증을 붙이면 구 앱의 매치가 전멸한다 |
 | `/actuator/*` 6종 | 포트 9091 로 격리돼 있다. 서비스 포트로 불렸을 때 **401 이 아니라 404** 여야 포트 격리가 라우팅 문제를 가리지 않는다 |
 
 **본문 상한이 인증보다 앞인 이유**: 상한을 인증 필터 안에 두면 위 공개 경로들이 **상한 없이** 노출된다.
-`/l/match` 는 정지 창 동안 구 앱 전체가 두드리는 외부 진입점이라 오히려 더 필요하다.
-
 `gen` claim 은 **없으면 없는 채로 흘린다.** 구 AT 에는 `gen` 이 없는데(현 `JwtProvider` 는 `type`·`guest`
 만 싣는다) Data 의 현재 세대로 채우면 로그아웃 전에 발급된 옛 AT 가 최신 세대로 태깅돼 **기기 토큰
 tombstone 을 우회**한다(A22 ㊍).
 
-## 외부 경로 (기존 URI·성공상태·오류코드 보존)
+## 알림 외부 경로
+
+독립 Link 서비스의 발급·claim·재개와 결과 확인 API는 V0 정리에서 제거했다. 현재 섬 초대 코드는 섬 API에서 발급·검증한다.
 
 | Method · Path | 조합 | 성공 |
 | --- | --- | --- |
-| `POST /api/v1/groups/{groupId}/invite-link` | 활성검사 → Data 발급컨텍스트 → Link 발급 | 200 `{slug, url}` |
-| `POST /api/v1/invite-links/claim` | 활성검사 → Data 내구적재 → Link 잠정claim → Data 확정 | 200 (정지 창엔 202) |
-| `PUT /api/v1/users/me/device-token` | 활성검사 → (bootstrap 시) Data 세션확인 → Noti 등록 | 200 `{ownershipToken}` |
+| `PUT /api/v1/users/me/device-token` | 활성검사 → (bootstrap 시) Data 세션확인 → Noti 등록 | 200 `{ownershipToken, deliveryTag?}` |
 | `DELETE /api/v1/users/me/device-token` | Data outbox **먼저** → Noti 직접삭제 → 완료표시 | 204 |
 | `PUT /api/v1/users/me/notification-settings` | 활성검사 → Data 내구명령 → Noti 적용(version) | 204 |
 | `GET /api/v1/users/me/notification-settings` | Noti **정본** 조회 | 200 5필드 |
-| `POST /api/v1/me/challenge-results/{sessionId}/claim` | Data 단독 (재시도 없음) | 200 |
-| `POST /api/v1/me/challenge-results/{sessionId}/ack` | Noti prepare → Data ack → Noti commit | 200 |
-| `POST /l/match` | **한시**, 무인증. 구 후보 조회 + Neon 소진 | 200 `{matched…}` |
-
-`GET /me/challenge-results` 같은 순수 Data 읽기는 **여기 오지 않는다** — 위성 조합이 필요하지 않아
-1661 의 전체 전환 때 함께 옮긴다. 최소 Business 의 범위를 넓히지 않는다.
 
 ## 실패 분류 — 「아니오」로 접지 않는다
 
 | 상류 응답 | 결과 | 왜 |
 | --- | --- | --- |
-| `code` 실린 4xx(401 제외) | **legacy 경로는 그대로 중계** | 앱이 `GROUP_NOT_FOUND`·`RESULT_CLAIM_HELD` 같은 문자열로 분기한다. 재해석하면 그 분기가 조용히 빠진다 |
+| `code` 실린 4xx(401 제외) | **legacy 경로는 그대로 중계** | 앱이 `GROUP_NOT_FOUND` 같은 문자열로 분기한다. 재해석하면 그 분기가 조용히 빠진다 |
 | 모든 내부 401 · `code` 없는 403 | 502 | **우리** 서비스 토큰 문제다. 401 을 주면 정상 세션이 전부 재로그인으로 튄다 |
 | `code` 없는 그 밖 4xx | 502 | 배선·계약 어긋남. 400 으로 접으면 「잘못된 요청」으로 숨는다 |
-| 5xx · 타임아웃 · 서킷 | 503 | 「모른다」다. 정상 응답으로 접으면 되돌릴 수 없는 `matched:false` 나 토큰 영구 유실이 된다 |
+| 5xx · 타임아웃 · 서킷 | 503 | 「모른다」다. 정상 응답으로 접으면 되돌릴 수 없는 토큰 영구 유실이 된다 |
 
 ## 재시도 · 멱등
 
 재시도 대상은 **멱등 GET + 명시적으로 멱등을 선언한 명령**뿐이다(§4). GET 만 재시도하면 로그아웃의
 기기 토큰 삭제가 일시 오류 한 번에 영구 실패하고, 앱은 그 실패를 삼키고 로컬 토큰을 지워 사용자가
-재시도할 방법이 없다. 결과 선점·ack 는 조건부 원자 UPDATE 라 **재시도하지 않는다**.
+재시도할 방법이 없다.
 
 `Idempotency-Key` 는 **앱이 소유**한다(A22 ㉼). 공개 입력은 150자 이내이며 초과는 상류 호출 전 400으로 거부한다. Business 는 그 값에 단계별 접미(`:<step>`)를 붙여
 파생하고, **재시도에서 같은 값을 유지**한다. 구 앱은 키를 안 보내므로 매 호출 새 키가 되고, 그 기간엔
 「Business 내부 재시도만 보호」로 인정한다. **요청 본문 해시를 영구 멱등키로 쓰지 않는다**(A22 ㊞).
 
-시간 예산은 **재시도까지 합친 전체**다 — 구 앱 match 5초(`deferredInvite.ts:100`), claim 15초
+시간 예산은 **재시도까지 합친 전체**다 — claim 15초
 (`api.ts:215-218`). 예산을 넘긴 재시도는 앱이 이미 끊은 뒤에 성공한다.
 
-## 초기 조합 API 점검 당시의 통합 의존성 (과거 기록)
+## 폐기된 이관 경로
 
-> 아래는 main `69d05f873` 시점의 점검 기록이다. 현재 브랜치의 구현 건수를 뜻하지 않는다.
-> 현재 통합·배포 여부는 각 제공자의 코드와 배포 설정을 대조해야 하며 mock 성공만으로 판단하지 않는다.
-
-### Data API — `/internal/*` 컨트롤러 **0건**
-실제 확인: `grep -rn "/internal" server/data-api/src/main/java` → 0건 (main `69d05f873`).
-필요한 15개 경로는 `docs/contracts/business-satellite-api.yaml` 에 스키마·상태·멱등까지 정의했다.
-가장 놓치기 쉬운 것들:
-- `activation` 응답에 **`authGeneration` 을 담지 말 것** — 담으면 AT 의 빈 `gen` 을 채우려는 유혹이
-  생기고 그게 tombstone 우회다(㊍).
-- `invite-issue-context` 의 `membershipEpoch` 와 `linkVersion` 은 **발급 경로에서 같은 값**이어야 한다
-  (링크가 `ISSUE_EPOCH_MISMATCH` 400 을 준다). 갈리는 것은 폐기뿐이다.
-- `claim-intents` 조회는 **원래 `idempotencyKey` 를 저장해 돌려줘야** 한다. 재개 CLI 가 새 키를 만들면
-  클릭을 하나 더 소진한다. 그리고 **`pendingTotal`**(인플라이트 포함 전체 미완료)을 줘야 한다 —
-  「빈 페이지 = 전부 완료」로 접으면 미완료를 남긴 채 절차가 넘어간다.
-- `claim-intents/{id}/lease` 는 **`leaseToken` 을 발급**하고 `.../completed` 는 그것으로 **CAS** 해야
-  한다. 없으면 임대 만료 뒤 깨어난 옛 작업자가 새 임대의 작업을 완료로 뺀다. 그리고 **확정이 의도를
-  닫을 때 그 리스의 토큰을 완료 토큰으로 물려받아야** 한다 — `null` 로 닫으면 확정을 몰고 온 그
-  실행자의 완료 보고가 409 가 되어 성공한 재개가 실패로 세어진다.
-- `claim-intents/{id}/abandoned` 는 **`claimId=null`(셀프 초대·붙일 클릭 없음)의 의도를 닫는 유일한
-  손**이다. 확정이 없으면 Data 도 큐를 닫아 주지 못하므로, 이 경로가 없으면 정상 처리된 claim 이
-  `pendingTotal` 에 영구히 남는다. `outbox-commands/{id}/delivered` 로는 닫히지 않는다(그쪽은 봉투
-  `eventId` 로 알림 전달을 닫는 경로라 의도 id 는 **항상 404**).
-- 커서는 **시각이 아니라 commit sequence** — 시각 커서는 늦게 커밋된 행을 영구히 건너뛴다(㋖).
-- `DurableCommandAck.version` 은 **aggregate 행 잠금 아래** 발급(㊸).
-
-### 알림 서버 — 구현 중 (N 담당)
-`/internal/devices`(POST·DELETE) · `/internal/users/{id}/notification-settings`(GET·PUT) ·
-`result-ack/{prepare,commit,abort}`. 그리고 **알림 → Data 의
-`GET /internal/users/{id}/result-ack`** 이 반드시 있어야 한다 — 없으면 「롤백 직후 프로세스가 죽는
-구간」에서 abort 행이 안 생겨 **영구 억제가 실재**한다(A22 ⓓ).
-
-### 링크 서버 — 구현 중 (coordinator 직접)
-`link/src/lib/{links,migration}.ts` 를 읽어 맞췄다: `POST /internal/links` ·
-`POST /internal/links/{slug}/claim` · `POST /internal/links/match`. **확정 OpenAPI 가 나오면 다시
-대조해야 한다.**
-
-## 이관 정지 창 (§7.2)
-
-기본값이 전부 **꺼짐**이다. 컷오버 후 제거가 계약이므로(A22 ㊫) 켜진 채 배포되면 라우팅이 바뀐 뒤에도
-구 경로가 남아 이중 소진 위험이 생긴다.
-
-```
-COMPAT_MATCH_HANDLER_ENABLED=false   # 한시 /l/match
-COMPAT_IMPORT_CONTRACT_READY=false   # 구 후보 → Neon 이관 계약 준비 여부
-BUSINESS_COMPAT_CLAIM_QUEUE_REPLAY_ENABLED=false  # 202 허용 여부
-```
-
-**소진은 Neon 한 곳에서만**(A22 ㊥). 매치는 읽기가 아니라 쓰기라, 양쪽에서 소진하면 잠금이 공유되지
-않아 **같은 클릭이 두 기기에 배정**된다. `IMPORT_CONTRACT_READY=false` 인 동안은 구 후보를 조회해
-**세기만** 하고, 요청에 `migrationId` 를 **싣지 않는다** — 링크 서버는 그 필드가 있으면 import 모드로
-들어가 `openRun` 을 요구하므로 `IMPORT_CLOSED` 이후엔 빈 배열을 보내도 503 이 된다.
+V0 정리에서 챌린지 결과 claim/ack와 `/l/match` 이관 프록시, Data frozen 후보 export를 제거했다.
+현재 섬 초대 발급·claim 의도·확정·재개와 기기 등록·알림 설정은 유지한다.
 
 ### claim 의도 재개 CLI
 
@@ -567,7 +509,6 @@ export JAVA_HOME=/Users/jojaeyoung/Library/Java/JavaVirtualMachines/corretto-17.
 | 무인증 `GET /api/v1/users/me/notification-settings` | **401** `{"code":"UNAUTHORIZED",…}` |
 | 서비스 포트로 `GET /actuator/health` | **404** `ENDPOINT_NOT_FOUND` (관리 포트 9091 격리 확인) |
 | 매핑 없는 `GET /nope` | **404** `{"code":"ENDPOINT_NOT_FOUND",…}` |
-| `POST /l/match` (한시 핸들러 꺼짐) | **404** `{"code":"COMPAT_HANDLER_DISABLED",…}` |
 | 필수 시크릿 **빈 값** | **exit 1** — `IllegalStateException: LINK service-token 미설정` |
 | 필수 시크릿 **부재** | **exit 1** — `LINK service-token 이 치환되지 않았다: ${SVC_TOKEN_BIZ_TO_LINK}` |
 
@@ -583,7 +524,7 @@ export JAVA_HOME=/Users/jojaeyoung/Library/Java/JavaVirtualMachines/corretto-17.
 아니다: dev 배포의 env 생성기는 **고정 허용목록에 있는 키만 출력**하므로(A22 ㋯), 새 키를 그 목록에
 추가하는 것을 빠뜨리면 변수는 「없는」 상태가 된다. **가장 일어나기 쉬운 실수가 곧 이 구멍이었다.**
 → `RequiredConfig` 가 `${...}` 리터럴을 거절하고, 메시지에 **변수 이름**을 담아 어느 env 키가 빠졌는지
-바로 알려 준다(치환되지 않았으므로 비밀이 아니다). `jwt.secret`·`link.ip-salt`·`base-url` 에도 적용했다 —
+바로 알려 준다(치환되지 않았으므로 비밀이 아니다). `jwt.secret`·`base-url` 에도 적용했다 —
 특히 `jwt.secret` 리터럴은 32바이트를 넘어 **HS256 키로 「성립」**하므로 막지 않으면 legacy issuer 와 다른
 키로 조용히 떠서 모든 AT 가 401 이 된다.
 
@@ -628,7 +569,7 @@ Docs·Sheets·Slides의 다중 계정 경로(`/u/0/d/...` 등)도 인식한다. 
 flowchart LR
   App[앱] -->|메시지 전송·원본 URL| Chat[채팅 서버]
   App -->|access JWT + URL| Business[Business API :8080]
-  Business --> Cache[(전용 Redis / TTL 캐시)]
+  Business --> Cache[(공유 Redis / 제한된 TTL 캐시)]
   Business --> Worker[작업 4개 + 대기 8개]
   Worker --> Guard[URL·DNS·리다이렉트 검증]
   Guard --> Drive[공개 Google Drive API]
@@ -708,10 +649,10 @@ sequenceDiagram
 
 ## 제한·캐시·복구
 
-- 사용자별 캐시: `cache:business:preview:{userId}:{urlHash}`. ID를 알아도 다른 계정의 URL·이미지는 볼 수 없다. 같은 공개 링크를 받은 사용자는 자기 계정으로 POST하면 된다. 중복 방지는 같은 사용자 내에서 적용된다.
+- 사용자별 논리 캐시를 64개 고정 슬롯 `cache:business:preview:slot:v1:{0..63}`에 저장한다. 슬롯의 사용자·URL 해시를 대조하며 직렬화된 항목은 최대 1MiB다. ID를 알아도 다른 계정의 URL·이미지는 볼 수 없다. 같은 공개 링크를 받은 사용자는 자기 계정으로 POST하면 된다. 중복 방지는 같은 사용자 내에서 적용된다.
 - PENDING 90초 / READY 300초 / FAILED 30초. SET NX로 선점하고 완료 시 원래 generation이 그대로 있을 때만 교체한다. 만료 후 재생성 중에 이전 작업이 끝나도 새 결과를 덮어쓰지 못한다.
-- 프로세스 종료·Redis 장애로 결과 저장이 실패하면 pending TTL 후 POST로 복구한다. GET만으로 작업을 생성하지 않는다. Redis eviction으로 일찍 사라질 수도 있다.
-- 전용 Redis는 128MiB·allkeys-lru·영속화 없음. 캐시 손실이 허용되며 기존 채팅/프레즌스 Redis와 분리한다. 메모리 압박 시 rate key도 eviction될 수 있어 이 제한은 남용 방어의 보조 수단이다. 폐기 세션 거부 목록(`cache:business:revoked-session:*`)은 캐시와 달리 잃으면 보안 영향이 있다. 그래도 축출로 키 단위, 재시작·페일오버로 목록 전체를 잃을 수 있다. 잃은 세션의 AT 는 남은 수명(운영 최대 1시간)만큼 다시 통과한다. 최악 노출 상한이 거부 목록이 없을 때와 같아 수용한 한계다(축출 불가 저장소 이전은 ticket 2225). 인터넷 경계의 인증/IP 요청 제한과 함께 운영한다.
+- 프로세스 종료·Redis 장애로 결과 저장이 실패하면 pending TTL 후 POST로 복구한다. GET만으로 작업을 생성하지 않는다. 완료된 미리보기는 64개 한도에서 최근 조회 순서로 교체될 수 있다. 전부 처리 중이면 새 요청은 `FAILED/BUSY`다.
+- 공유 Redis는 384MiB·noeviction·AOF everysec, 컨테이너 한도는 576MiB다. 미리보기 payload는 최대 64MiB이며 Redis 자체 관리 메모리는 별도다. 세션 차단·탈퇴 표지·레이트 키는 미리보기 축출 대상에서 제외한다. Redis 장애의 인증 fail-open과 AOF 미동기화 데이터 유실 가능성은 남는다.
 - 1분 240 비용: 배치 POST URL당 4, GET/썸네일당 1. 프로세스별 동시 작업 4·대기 8, 초과는 `BUSY`로 30초 캐시한다.
 - 파일 최대 10MiB, Google 메타데이터 64KiB. 이미지 최대 2천만 픽셀·출력 480px/512KiB. PNG가 바이트 한도를 넘으면 치수를 더 줄여 재인코딩한다. SVG/WebP/HTML은 렌더링하지 않는다.
 - HTTP(S) 기본 포트만 허용한다. 사설·루프백·링크 로컬·예약 IP 및 IPv6 전환 주소를 차단한다. DNS 결과 전체를 검사하고 실제 연결 주소로 고정한다. 최대 3회 리다이렉트마다 재검증하며 HTTPS→HTTP를 거절한다. 쿠키·자동 압축·자동 재시도는 끈다. Google 키는 메타데이터 API 첫 요청에만 전송하고 Google 메타데이터 리다이렉트는 거절한다.
@@ -726,7 +667,7 @@ sequenceDiagram
 | --- | --- |
 | `JWT_SECRET` | 필수. data-api와 같은 UTF-8 HMAC 키 원문, 최소 32바이트. 기본값 없음 |
 | `GOOGLE_DRIVE_API_KEY` | Drive API를 활성화한 프로젝트의 서버 API 키. API 제한은 Drive API로 설정하고 배포 egress IP 제한을 권장. 미설정 시 일반 파일은 동작하고 Drive만 `DRIVE_NOT_CONFIGURED` |
-| `BUSINESS_REDIS_HOST/PORT/USERNAME/PASSWORD` | Redis 접속, 기본 localhost:6379. Compose는 전용 Redis 주소 주입 |
+| `BUSINESS_REDIS_HOST/PORT/USERNAME/PASSWORD` | Redis 접속, 기본 localhost:6379. 통합 Compose는 공유 Redis 주소 주입 |
 | `BUSINESS_LOG_PATH` | 기본 `logs/business-api.log` |
 
 ```sh
@@ -752,7 +693,7 @@ SPRING_PROFILES_ACTIVE=dev ./gradlew bootRun
 운영 활성화에는 라우팅·TLS와 Google API 키 설정이 함께 필요하다.
 
 API 경로의 percent encoding·matrix parameter 표기에도 인증·본문 제한·요청 로그를 동일하게 적용한다.
-인증 예외는 `GET /health`, `POST /l/match`, 그리고 관리용 `/actuator`, `/actuator/health`,
+인증 예외는 `GET /health`, 그리고 관리용 `/actuator`, `/actuator/health`,
 `/actuator/health/liveness`, `/actuator/health/readiness`, `/actuator/info`, `/actuator/prometheus`의
 **정확한 경로**뿐이다. 관리 포트는 내부 네트워크에서만 접근한다.
 
@@ -811,10 +752,10 @@ sequenceDiagram
     D-->>B: commandId/version/mask/patch/baseline/원 결과
     B->>N: 같은 내구 명령 적용
     Note over N: 이관 gate → 사용자 fence → 설정 행
-    N->>N: 선택 필드별 버전 비교 후 COMMIT
-    N-->>B: applied=true
+    N->>N: 선택 필드별 버전 비교 + 같은 잠금에서 현재 정본 읽기 후 COMMIT
+    N-->>B: applied=true + 현재 settings
     B->>D: 전달 완료 표시
-    B-->>A: 원 notifications 결과
+    B-->>A: Notification 현재 notifications 값
     Note over D,N: 적용 실패는 오류 + outbox 재전달, 완료 표시만 실패하면 원 성공 유지
 ```
 

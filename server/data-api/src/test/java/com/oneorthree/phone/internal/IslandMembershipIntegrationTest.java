@@ -2,7 +2,6 @@ package com.oneorthree.phone.internal;
 
 import com.oneorthree.phone.auth.service.AuthService;
 import com.oneorthree.phone.auth.support.JwtProvider;
-import com.oneorthree.phone.focus.dto.FocusSessionStartRequest;
 import com.oneorthree.phone.focus.exception.FocusErrorCode;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
@@ -22,7 +21,6 @@ import com.oneorthree.phone.internal.dto.IslandViewResponse;
 import com.oneorthree.phone.internal.service.IslandJoinService;
 import com.oneorthree.phone.internal.service.IslandManagementService;
 import com.oneorthree.phone.internal.service.IslandMembershipService;
-import com.oneorthree.phone.focus.service.FocusService;
 import com.oneorthree.phone.outbox.exception.OutboxException;
 import com.oneorthree.phone.outbox.support.OutboxTestPostgres;
 import com.oneorthree.phone.user.repository.UserQueryService;
@@ -69,8 +67,6 @@ class IslandMembershipIntegrationTest {
     static void properties(DynamicPropertyRegistry registry) {
         OutboxTestPostgres.applyProductionMigrationWiring(registry);
         registry.add("notification.dispatch.mode", () -> "OUTBOX");
-        registry.add("island-management.commands-enabled", () -> true);
-        registry.add("internal.api.enabled", () -> true);
         registry.add("internal.api.callers.business.token", () -> TOKEN);
         registry.add("internal.api.callers.business.allow[0]", () -> "GET /internal/islands/*");
         registry.add("internal.api.callers.business.allow[1]", () -> "POST /internal/users/*/islands");
@@ -82,8 +78,6 @@ class IslandMembershipIntegrationTest {
     IslandManagementService management;
     @Autowired
     IslandJoinService joins;
-    @Autowired
-    FocusService legacyFocus;
     @Autowired
     GroupRepository groups;
     @Autowired
@@ -142,8 +136,8 @@ class IslandMembershipIntegrationTest {
         UUID ended = publicIsland("생존섬");
         UUID deleted = publicIsland("생존섬");
         UUID secret = island("생존섬", true, 10);
-        jdbc.update("update groups set status='ENDED' where id=?", ended);
-        jdbc.update("update groups set deleted_at=now() where id=?", deleted);
+        jdbc.update("update islands set status='ENDED' where id=?", ended);
+        jdbc.update("update islands set deleted_at=now() where id=?", deleted);
         giveCurrentIsland(searcher);
 
         Set<UUID> seen = new HashSet<>(pageThroughSearch(searcher, "생존섬", 50));
@@ -173,12 +167,12 @@ class IslandMembershipIntegrationTest {
         UUID hunter = newUser();
         UUID open = publicIsland("열린섬");
         UUID approval = island("승인섬", false, 10);
-        jdbc.update("update groups set approval_required=true where id=?", approval);
+        jdbc.update("update islands set approval_required=true where id=?", approval);
         UUID secret = island("비공개섬", true, 10);
         UUID ended = publicIsland("종료섬");
-        jdbc.update("update groups set status='ENDED' where id=?", ended);
+        jdbc.update("update islands set status='ENDED' where id=?", ended);
         UUID deleted = publicIsland("삭제섬");
-        jdbc.update("update groups set deleted_at=now() where id=?", deleted);
+        jdbc.update("update islands set deleted_at=now() where id=?", deleted);
         UUID full = island("만원섬", false, 1);
         joinAs(newUser(), full, GroupMemberRole.MEMBER);
         UUID mine = publicIsland("내섬");
@@ -332,7 +326,7 @@ class IslandMembershipIntegrationTest {
                 .hasFieldOrPropertyWithValue("errorCode", GroupErrorCode.MEMBER_ONLY);
 
         UUID ended = publicIsland("끝난섬");
-        jdbc.update("update groups set status='ENDED' where id=?", ended);
+        jdbc.update("update islands set status='ENDED' where id=?", ended);
         assertThatThrownBy(() -> islands.view(ended, visitor))
                 .hasFieldOrPropertyWithValue("errorCode", GroupErrorCode.GROUP_NOT_FOUND);
     }
@@ -389,11 +383,10 @@ class IslandMembershipIntegrationTest {
         UUID other = publicIsland("다른섬");
         joinAs(user, other, GroupMemberRole.MEMBER);
 
-        // v0.3 수명주기 start 는 FocusSessionStartGate 가 아직 «항상 닫혀» 있다 — 그 게이트가 적은
-        // 선행 조건 1번이 바로 이 티켓(현재 섬을 채우는 경로)이다. 그래서 오늘 실제로 만들어지는
-        // 진행 세션인 «레거시 마커» 로 검증한다. 가드가 신·구 프로토콜을 가리지 않고 같은 조회
-        // (endedAt=null) 로 잡는다는 것까지 여기서 함께 확인된다.
-        legacyFocus.startFocusSession(user, new FocusSessionStartRequest(null, null));
+        // 진행 세션을 «레거시 마커»(endedAt=null 인 focus_sessions 행)로 만든다. 가드가 신·구 프로토콜을
+        // 가리지 않고 같은 조회(endedAt=null) 로 잡는다는 것까지 여기서 함께 확인된다.
+        jdbc.update("INSERT INTO focus_sessions (id, user_id, started_at, total_distraction_seconds) VALUES (?, ?, now(), 0)",
+                UUID.randomUUID(), user);
 
         assertThatThrownBy(() -> islands.create(user,
                 new CreateIslandCommandRequest("몰래섬", null, false, null), UUID.randomUUID()))
@@ -472,7 +465,7 @@ class IslandMembershipIntegrationTest {
         IslandCreatedView replay = islands.create(user, body, key);
 
         assertThat(replay.id()).isEqualTo(first.id());
-        assertThat(count("select count(*) from groups where name='멱등섬'")).isEqualTo(1);
+        assertThat(count("select count(*) from islands where name='멱등섬'")).isEqualTo(1);
     }
 
     @Test
@@ -500,7 +493,7 @@ class IslandMembershipIntegrationTest {
                 created.id().toString())).isEqualTo(1);
         assertThat(count("select count(*) from event_outbox where subject_id=?"
                 + " and type='island.members.updated'", created.id().toString())).isEqualTo(1);
-        assertThat(jdbc.queryForObject("select approval_required from groups where id=?",
+        assertThat(jdbc.queryForObject("select approval_required from islands where id=?",
                 Boolean.class, created.id())).isTrue();
     }
 
@@ -597,7 +590,7 @@ class IslandMembershipIntegrationTest {
     }
 
     private UUID newUser() {
-        return jwt.extractUserId(auth.guestLogin().accessToken());
+        return jwt.extractUserId(auth.guestSession(java.util.UUID.randomUUID().toString()).accessToken());
     }
 
     private UUID publicIsland(String name) {

@@ -52,7 +52,7 @@ import java.util.UUID;
  * (디코딩 전 원문)의 정확 일치로 두면 그런 변형은 목록에 없으므로 fail-closed 로 401 이 된다.
  *
  * <p>무인증 공개 경로는 세 종류다 — 컨테이너 헬스체크({@code /health}), 이관 정지 창의 무인증 구 앱
- * 매치({@code /l/match}), 관리 엔드포인트(포트 9091 로 격리돼 있고 서비스 포트로 부르면 404 여야 한다).
+ * 관리 엔드포인트(포트 9091 로 격리돼 있고 서비스 포트로 부르면 404 여야 한다).
  * RT-only 로그아웃은 별도로 정확한 DELETE 경로에서만 AT 생략을 허용하고, Data가 RT를 검증한다.
  */
 @Slf4j
@@ -72,8 +72,6 @@ public class AccessTokenFilter extends OncePerRequestFilter {
     private static final Set<String> PUBLIC_PATHS = Set.of(
             // compose 헬스체크. 관리 포트 9091 은 호스트에 publish 하지 않으므로 서비스 포트에 둔다.
             "/health",
-            // 이관 정지 창의 구 앱 deferred 매치. 여기 닿는 사람은 아직 우리 유저가 아니다(설치 직후).
-            "/l/match",
             // OpenAPI 게시용 public 그룹 스펙 — CI 가 ci 프로필 부팅에서 이 경로 하나를 긁어간다
             // (GROMO-2069). prod 는 springdoc.api-docs.enabled=false 라 매핑이 없어 404 로 닫힌다.
             // 그룹 경로 «하나»만 열고 기본 /v0/api-docs 나 swagger-ui 는 열지 않는다.

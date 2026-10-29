@@ -1,4 +1,5 @@
 import { BlurTargetView, BlurView } from 'expo-blur';
+import Svg, { Path } from 'react-native-svg';
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import {
   AccessibilityInfo,
@@ -34,7 +35,7 @@ export function GuideBox({
   skipTitle = t('onboarding.spotlightSkip'),
 }: {
   text: string;
-  character?: 'mongdol' | 'pelican' | 'dog';
+  character?: 'mongdol' | 'pelican' | 'dog' | null;
   style?: StyleProp<ViewStyle>;
   children?: React.ReactNode;
   accessibilityViewIsModal?: boolean;
@@ -45,7 +46,7 @@ export function GuideBox({
   return (
     <View style={[styles.box, style]} accessibilityViewIsModal={accessibilityViewIsModal}>
       <View style={styles.dialogue}>
-        {character === 'pelican' ? (
+        {character === null ? null : character === 'pelican' ? (
           <Image
             source={assets['characters/pelican/npc/idle.png']}
             accessible={false}
@@ -67,11 +68,7 @@ export function GuideBox({
             style={styles.mongdol}
           />
         )}
-        <Txt
-          lineBreakStrategyIOS="hangul-word"
-          style={styles.text}
-          accessibilityLiveRegion="polite"
-        >
+        <Txt style={styles.text} accessibilityLiveRegion="polite">
           {text}
         </Txt>
       </View>
@@ -196,6 +193,7 @@ export function TutorialSpotlight({
   action,
   accessibleInput,
   error,
+  radius,
 }: {
   target?: SpotlightRect | null;
   text: string;
@@ -204,6 +202,8 @@ export function TutorialSpotlight({
   accessibleInput?: React.ReactNode;
   /** 조작 실패 메시지 — 블러·딤 뒤로 가려지지 않게 대화창 안에서 읽어 준다. */
   error?: string;
+  /** 원형·둥근 버튼용 구멍 모서리 반경. 구멍 반(半)너비·반높이로 클램프된다. */
+  radius?: number;
 }) {
   const layout = useAppLayout();
   const blurTarget = useContext(BlurTargetContext);
@@ -250,6 +250,24 @@ export function TutorialSpotlight({
     y,
     Math.min(area.height, (target?.y ?? 0) - area.y + (target?.height ?? 0) + pad),
   );
+  // 둥근 버튼이면 구멍 모서리의 "틈"(사각 구멍 − 둥근 버튼)만 딤으로 가려 둥근(원형) 구멍을 만든다.
+  // 오목한 틈이라 단일 View·borderRadius로는 못 만든다 → SVG evenodd 마스크(사각 − 둥근사각)로 틈만 채운다.
+  const holeW = Math.max(0, right - x);
+  const holeH = Math.max(0, bottom - y);
+  const holeRadius = radius ? Math.min(radius, holeW / 2, holeH / 2) : 0;
+  // 바깥 사각 subpath + 안쪽 둥근사각 subpath → evenodd 로 둘 사이(모서리 틈)만 칠한다
+  const holeMaskPath =
+    holeRadius > 0
+      ? `M0 0 H${holeW} V${holeH} H0 Z ` +
+        `M${holeRadius} 0 H${holeW - holeRadius} ` +
+        `A${holeRadius} ${holeRadius} 0 0 1 ${holeW} ${holeRadius} ` +
+        `V${holeH - holeRadius} ` +
+        `A${holeRadius} ${holeRadius} 0 0 1 ${holeW - holeRadius} ${holeH} ` +
+        `H${holeRadius} ` +
+        `A${holeRadius} ${holeRadius} 0 0 1 0 ${holeH - holeRadius} ` +
+        `V${holeRadius} ` +
+        `A${holeRadius} ${holeRadius} 0 0 1 ${holeRadius} 0 Z`
+      : '';
   const panes = target
     ? [
         { left: 0, top: 0, right: 0, height: y },
@@ -299,6 +317,17 @@ export function TutorialSpotlight({
           <View style={styles.dim} />
         </BlurView>
       ))}
+      {target && holeRadius > 0 && (
+        <Svg
+          testID="spotlight-hole-mask"
+          pointerEvents="none"
+          style={{ position: 'absolute', left: x, top: y }}
+          width={holeW}
+          height={holeH}
+        >
+          <Path d={holeMaskPath} fill={semanticTokens.color.overlay} fillRule="evenodd" />
+        </Svg>
+      )}
       <ScrollView
         testID="tutorial-dialogue"
         keyboardShouldPersistTaps="handled"

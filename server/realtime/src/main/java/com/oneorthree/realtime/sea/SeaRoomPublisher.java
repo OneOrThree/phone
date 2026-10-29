@@ -3,6 +3,8 @@ package com.oneorthree.realtime.sea;
 import com.oneorthree.realtime.common.redis.RedisKeys;
 import com.oneorthree.realtime.config.RealtimeSessionRegistry;
 import com.oneorthree.realtime.config.StompTopics;
+import com.oneorthree.realtime.fanout.FanoutTelemetry;
+import com.oneorthree.realtime.logging.LogContext;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.data.redis.connection.Message;
@@ -17,6 +19,7 @@ import tools.jackson.databind.ObjectMapper;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
+import java.util.Objects;
 import java.util.UUID;
 
 /**
@@ -50,22 +53,29 @@ public class SeaRoomPublisher implements MessageListener {
         this.sessions = sessions;
     }
 
-    /** 그 방 토픽으로 사건 하나를 보낸다 — realtime-b(이모트)도 이것을 부른다. */
+    /** 방 사건을 전파한다. 스냅샷은 개인 큐, 나머지는 방 토픽으로 보낸다 — 이모트도 이 입구를 쓴다. */
     public void publish(UUID roomId, String type, JsonNode payload) {
         SeaRoomEvent event = SeaRoomEvent.of(type, roomId, clock.instant(), payload);
         String destination = StompTopics.seaRoomTopic(roomId);
-        try {
-            messagingTemplate.convertAndSend(destination, event);
-        } catch (RuntimeException e) {
-            log.error("바다 방 사건 로컬 전달 실패 — roomId={} eventId={} type={} reason={}", roomId, event.eventId(),
-                    type, e.getClass().getSimpleName());
-        }
-        try {
-            redis.convertAndSend(RedisKeys.SEA_FANOUT_CHANNEL,
-                    objectMapper.writeValueAsString(new SeaRoomFanoutEvent(instanceId, destination, event)));
-        } catch (RuntimeException e) {
-            log.error("바다 방 사건 팬아웃 발행 실패 — roomId={} eventId={} type={} reason={}", roomId, event.eventId(),
-                    type, e.getClass().getSimpleName());
+        // event_id 를 이 전달 동안 문맥에 둔다(GROMO-2581) — 로컬 구독자의 아웃바운드 작업이 실행기 장식기로 같은 값을 물려받고,
+        // wire 의 telemetry 로 다른 인스턴스의 수신 줄까지 같은 사건·원인에 이어진다.
+        String eventId = event.eventId().toString();
+        try (LogContext scope = LogContext.open().put(LogContext.EVENT_ID, eventId)) {
+            try {
+                deliverLocal(destination, event);
+            } catch (RuntimeException e) {
+                log.error("바다 방 사건 로컬 전달 실패 — roomId={} eventId={} type={} reason={}", roomId, event.eventId(),
+                        type, e.getClass().getSimpleName());
+            }
+            try {
+                Long receivers = redis.convertAndSend(RedisKeys.SEA_FANOUT_CHANNEL, objectMapper.writeValueAsString(
+                        new SeaRoomFanoutEvent(instanceId, destination, event, FanoutTelemetry.capture(eventId))));
+                LogContext.info(log, LogContext.FANOUT_PUBLISH, "팬아웃 발행 — channel={} receivers={}",
+                        RedisKeys.SEA_FANOUT_CHANNEL, receivers);
+            } catch (RuntimeException e) {
+                log.error("바다 방 사건 팬아웃 발행 실패 — roomId={} eventId={} type={} reason={}", roomId, event.eventId(),
+                        type, e.getClass().getSimpleName());
+            }
         }
     }
 
@@ -81,6 +91,10 @@ public class SeaRoomPublisher implements MessageListener {
      */
     public void publishToUser(UUID userId, UUID roomId, String type, JsonNode payload) {
         SeaRoomEvent event = SeaRoomEvent.of(type, roomId, clock.instant(), payload);
+        deliverToUser(userId, event);
+    }
+
+    private void deliverToUser(UUID userId, SeaRoomEvent event) {
         for (String sessionId : sessions.sessionIdsOf(userId)) {
             try {
                 SimpMessageHeaderAccessor headers = SimpMessageHeaderAccessor.create(SimpMessageType.MESSAGE);
@@ -89,24 +103,65 @@ public class SeaRoomPublisher implements MessageListener {
                 messagingTemplate.convertAndSendToUser(userId.toString(), "/queue/sea", event,
                         headers.getMessageHeaders());
             } catch (RuntimeException e) {
-                log.warn("바다 개인 큐 전달 실패 — roomId={} eventId={} type={} reason={}", roomId, event.eventId(),
-                        type, e.getClass().getSimpleName());
+                log.warn("바다 개인 큐 전달 실패 — roomId={} eventId={} type={} reason={}", event.roomId(), event.eventId(),
+                        event.type(), e.getClass().getSimpleName());
             }
         }
     }
 
+    /** 앱은 스냅샷을 개인 큐에서 받는다. 다른 인스턴스의 차단 갱신도 같은 경로로 보낸다. */
+    private void deliverLocal(String destination, SeaRoomEvent event) {
+        if (SeaRooms.SNAPSHOT.equals(event.type())) {
+            for (JsonNode member : event.payload().path("members")) {
+                JsonNode userId = member.path("userId");
+                if (userId.isString()) {
+                    deliverToUser(UUID.fromString(userId.stringValue()), event);
+                }
+            }
+        } else {
+            messagingTemplate.convertAndSend(destination, event);
+        }
+    }
+
+    /**
+     * 다른 인스턴스가 흘린 사건을 받는다. 로그 연결(GROMO-2581)은 다른 두 채널(GROMO-2559)과 같다 — 역직렬화 직후 발행 쪽 원인
+     * ({@code telemetry})과 사건 {@code event_id} 를 처리 동안 문맥에 두고, 자기 메아리를 포함해 {@code fanout.receive} 한 줄을 남긴다.
+     */
     @Override
     public void onMessage(Message message, byte[] pattern) {
+        SeaRoomFanoutEvent event;
         try {
-            SeaRoomFanoutEvent event = objectMapper.readValue(
+            event = objectMapper.readValue(
                     new String(message.getBody(), StandardCharsets.UTF_8), SeaRoomFanoutEvent.class);
-            if (instanceId.equals(event.originInstanceId())) {
-                return; // 내가 보낸 것 — 로컬 전달은 publish 에서 끝났다
-            }
-            messagingTemplate.convertAndSend(event.destination(), event.event());
-        } catch (Exception e) {
+        } catch (RuntimeException e) {
             // 예외 객체를 통째로 남기지 않는다 — 역직렬화 메시지에 한마디 같은 사용자 입력 조각이 실린다.
             log.error("바다 방 사건 팬아웃 수신 실패 — 이 건만 버린다. reason={}", e.getClass().getName());
+            received("invalid");
+            return;
         }
+        try (LogContext scope = FanoutTelemetry.install(event.telemetry())) {
+            if (event.event() != null) {
+                scope.put(LogContext.EVENT_ID, Objects.toString(event.event().eventId(), null));
+            }
+            received(deliver(event));
+        }
+    }
+
+    private String deliver(SeaRoomFanoutEvent event) {
+        try {
+            if (instanceId.equals(event.originInstanceId())) {
+                return "self_echo"; // 내가 보낸 것 — 로컬 전달은 publish 에서 끝났다
+            }
+            deliverLocal(event.destination(), event.event());
+            return "delivered";
+        } catch (RuntimeException e) {
+            log.error("바다 방 사건 팬아웃 수신 실패 — 이 건만 버린다. reason={}", e.getClass().getName());
+            return "failed";
+        }
+    }
+
+    private static void received(String result) {
+        LogContext.info(log, LogContext.FANOUT_RECEIVE, "팬아웃 수신 — channel={} result={}",
+                RedisKeys.SEA_FANOUT_CHANNEL, result);
     }
 }

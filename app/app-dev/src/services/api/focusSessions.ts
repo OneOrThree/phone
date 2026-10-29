@@ -4,7 +4,7 @@
  *
  * 계약(`docs/prd/fishcat/focus-rest-session/low-level-design.md` §2):
  *  - `POST /focus-sessions`                       시작. `Idempotency-Key`(UUID36) 필수,
- *                                               body `{islandId, subject, targetMinutes?}`.
+ *                                               body `{islandId, subject, targetMinutes?, seat?}`.
  *  - `GET  /focus-sessions/current`              진행 세션. 없으면 `data:null`(404 아님).
  *  - `POST /focus-sessions/{id}/pause|resume`    body `{expectedVersion}` 한 필드 + 키 필수.
  *  - `POST /focus-sessions/{id}/finish`          body `{expectedVersion}` + 키 필수 → 정산 뷰.
@@ -14,7 +14,7 @@
  * 쓰기 의도마다 `Idempotency-Key` 는 호출부가 의도당 한 번 만든다 — 응답 유실·재시도는
  * **같은 키와 같은 body** 로 보낸다(어댑터가 키를 만들면 유실 재호출 때 멱등이 깨진다).
  */
-import { request } from './client';
+import { API_URL, isProductionApiUrl, request } from './client';
 
 export type TutorialExperienceRewardView = {
   islandId: string;
@@ -95,11 +95,30 @@ export type FocusFinishView = {
   } | null;
 };
 
+/** 집중섬 자리(GROMO-2477) — 지도 % 좌표(앱 `focusSpot` 그대로, 반올림 금지). */
+export type FocusSeat = { x: number; y: number };
+
+/** 두 좌표가 숫자이고 0~100 이면 자리, 아니면 null(NaN·문자열·키 없음 포함). */
+export const focusSeat = (v: unknown): FocusSeat | null => {
+  const p = v as { x?: unknown; y?: unknown } | null | undefined;
+  return p &&
+    typeof p.x === 'number' &&
+    typeof p.y === 'number' &&
+    p.x >= 0 &&
+    p.x <= 100 &&
+    p.y >= 0 &&
+    p.y <= 100
+    ? { x: p.x, y: p.y }
+    : null;
+};
+
 export type FocusSessionStartInput = {
   islandId: string;
   subject: string;
   /** 선택 — 없으면 키 자체를 생략한다(명시적 null 금지). */
   targetMinutes?: number;
+  /** 선택(GROMO-2477) — 고른 자리가 없으면 키 자체를 생략한다(명시적 null 금지, 옛 서버는 4필드를 400). */
+  seat?: FocusSeat;
 };
 
 /** 진행 세션이 없으면 null 이 정상값이다(`data:null`). */
@@ -116,10 +135,17 @@ export function startFocusSession(
   input: FocusSessionStartInput,
   idempotencyKey: string,
 ): Promise<FocusSessionView> {
+  // 운영의 catus-v2.1.0은 seat를 알 수 없는 필드로 거절한다. 서버·DB의 자리 지원 배포를
+  // 확인한 뒤 EXPO_PUBLIC_FOCUS_SEAT_ENABLED=1로 켠다. dev는 이미 지원하므로 기본 전송한다.
+  // 빌드 종류가 아닌 실제 API 주소로 판정해 운영 서버를 쓰는 테스트 빌드도 보호한다.
+  const configured = process.env.EXPO_PUBLIC_FOCUS_SEAT_ENABLED;
+  const includeSeat = configured ? configured === '1' : !isProductionApiUrl(API_URL);
+  const body = { ...input };
+  if (!includeSeat) delete body.seat;
   return request<FocusSessionView>('/focus-sessions', {
     method: 'POST',
     idempotencyKey,
-    body: input,
+    body,
   });
 }
 

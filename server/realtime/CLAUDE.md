@@ -7,7 +7,7 @@ the root `CLAUDE.md`. Run all commands from inside `server/realtime/`.
 
 ## 서비스의 두 규칙
 
-1. 채팅은 한 섬 안에서만 이루어진다. 섬은 Data API의 `groups`이며 활성 주민만 채팅을 조회·구독·발신한다.
+1. 채팅은 한 섬 안에서만 이루어진다. 섬은 Data API의 `islands`이며 활성 주민만 채팅을 조회·구독·발신한다.
 2. 집중 중 채팅을 차단한다. CONNECT는 JWT 인증만 담당하고 집중 여부는 채팅 SUBSCRIBE·SEND·REST와
    기존 구독의 메시지 전달 직전에 검사한다. `/ws/realtime`으로 바뀌어도 채팅 제한은 유지한다.
 
@@ -55,7 +55,7 @@ Domain-based, mirroring `server/data-api/`'s conventions (see
 | `membership/` | 기존 Redis 소속 캐시 + `client/GroupClient`; 옵션 ON의 전용 Data 현재 인가 client는 아래 별도 계약 |
 | `presence/` | `FocusPresenceReader` — **read-only** view of `presence:focus:*` |
 | `focus/` | 응원 도메인 — `IslandFocusSessions`(Data 정본 인가), `FocusEmoteService`, `FocusEmoteStompController` |
-| `block/` | 받는 사람 기준 차단 — `BlockedUsers`(세대 캐시·fail-closed 판정), `client/BlockClient`(Data 정본 조회, GROMO-2182) |
+| `block/` | 받는 사람 기준 차단(양방향 — 받는 사람이 차단했든 발신자가 받는 사람을 차단했든 숨긴다, GROMO-2469) — `BlockedUsers`(세대 캐시·fail-closed 판정), `client/BlockClient`(Data 정본 조회, GROMO-2182) |
 | `sea/` | 먼바다 방(GROMO-2300) — `SeaRooms`(Redis 배정·퇴장 Lua), `SeaRoomPublisher`(로컬 + `chat:sea:v1`), `SeaStompController`·`SeaEmoteStompController`, `SeaAdriftSweeper`(떠 있는 채 10분 정리, 전용 데몬 60초) |
 | `fanout/` | Redis Pub/Sub publish + subscribe, and local delivery |
 | `message/` | The chat domain: controllers at the package root, `service/`, `repository/`(+`repository/domain/`), `dto/`, `exception/` |
@@ -96,7 +96,7 @@ Entity PKs are UUID v7 via `@GeneratedUuidV7`. Error responses use one envelope
   `realtime.authorization-client.cache-ttl-seconds`(30, 0=끔) 동안 들고 있다 — 거절·오류는 캐시하지 않는다. `island.members.updated`(가입·탈퇴·강퇴)의 `memberUserId`와
   `user.withdrawn` 이 `InboundEventService` 에서 `evictUser` 로 지우고(Redis 삭제 성패와 무관, 펜스보다 먼저), 조회 중 겹친 evict 의 옛 허용은 `mark/remember` 가 막는다.
   ⚠️ 사건은 Kafka 소비 그룹·HTTP 로 «한 인스턴스»에만 닿으므로 다른 인스턴스의 항목은 TTL 로만 닫힌다(다중 인스턴스에서 즉시성이 필요하면 0). 개별 세션 폐기(로그아웃)는
-  스위치 `AUTH_SESSION_REVOKED_REALTIME_EVENTS_ENABLED` ON 이면 `auth.session.revoked` 가 와서 그 sid 의 소켓을 즉시 닫는다(기본 OFF — 그때는 TTL 이 상한이다). 동시 상한(`max-in-flight` 16)이 차면 `wait-timeout`(200ms, 0=즉시 거절)까지만 기다린 뒤 503 — 대기는 총 예산(`request-timeout` 1.5s)에 포함된다.
+  `auth.session.revoked` 가 와서 그 sid 의 소켓을 즉시 닫는다(Data 생산 always on since 10-27, ticket 2535 — TTL is the upper bound only while the relay is off). 동시 상한(`max-in-flight` 16)이 차면 `wait-timeout`(200ms, 0=즉시 거절)까지만 기다린 뒤 503 — 대기는 총 예산(`request-timeout` 1.5s)에 포함된다.
   지표: `realtime.authorization.cache{result=hit|miss|evict}`·`.inflight`·`.limit`·`.capacity.rejected`(세마포어가 찬 거절 전부)·`.rejected{reason=timeout|interrupted}`·`.duration{outcome}`.
   OFF 모드 `GroupClient` 는 `SimpleClientHttpRequestFactory`(connect·read 2s 타임아웃이 소켓 읽기마다 적용 — 본문 정지도 끊긴다, keep-alive 는 JDK 기본)에 동시 상한 `chat.data-api.max-concurrency`(32)를 둔다.
 - **Messages are stored only through `ChatMessageAppender`, never `ChatMessageRepository.save`.**
@@ -181,8 +181,9 @@ Entity PKs are UUID v7 via `@GeneratedUuidV7`. Error responses use one envelope
   허용의 만료는 그 판정에 **쓴 원본 값의** 만료까지다 — 값과 PTTL 을 한 원자 단위(Lua GET+PTTL, `common/redis/Sourced`)로 읽는다.
   따로 읽으면 그 사이 다른 요청이 원본을 새 값·새 TTL 로 갈아 옛 판정이 새 수명을 얻는다. 멤버십(채팅·`events`)은 관문 판정 뒤
   `OutboundMembershipSource` 가 `cache:chat:member:{userId}` 를 원자 읽기해 그 값도 멤버일 때만 그 만료를 쓰고(비멤버·없음 → 담지 않음),
-  차단(필터 ON 에서 실제 조회한 채팅·`events`·응원)은 `BlockedUsers.hasBlockedSourced` 가 판정 집합과 `cache:chat:block:{userId}` 의 PTTL 을
-  함께 준다(MGET 대신 Lua 1회, 정본 재조회면 조회 시작 + TTL). 강퇴 상한은 멤버십 TTL, 차단 백스톱은 `realtime.blocks.cache-ttl-seconds`
+  차단(필터 ON 에서 실제 조회한 채팅·`events`·응원)은 `BlockedUsers.hiddenSourced` 가 받는 사람 집합(`cache:chat:block:{받는 사람}`)과,
+  거기 없으면 발신자 집합(`cache:chat:block:{발신자}`)까지 읽어 판정과 PTTL 을 함께 준다 — 허용의 만료는 둘 중 이른 쪽(양방향, GROMO-2469;
+  집합마다 MGET 대신 Lua 1회, 정본 재조회면 조회 시작 + TTL). 강퇴 상한은 멤버십 TTL, 차단 백스톱은 `realtime.blocks.cache-ttl-seconds`
   그대로다. **반영 상한 — OFF: 원본 Redis 만료(멤버십 TTL·차단 TTL)가 상한. ON(verifier): 관문 캐시(`CurrentMembershipDecisionCache`
   30s, GROMO-2342)가 상한이고, 이 캐시는 멤버십을 포함한 판정을 담지 않는다**(`OutboundMembershipSource` 가 `EXPIRED` — 겹쳐 쌓으면
   60s 가 된다; ON 의 응원(차단만)은 그대로 담는다). `OutboundAuthzCache` 는 Redis 를 읽지 않는다.
@@ -281,6 +282,7 @@ architecture decision A19 table. `movement:*`·`chat:movement:*` 는 이동 다�
 | Key | Writer | This service | Purpose |
 | --- | --- | --- | --- |
 | `cache:chat:member:{userId}` | chat | read/write | the user's island ids; service-private, never shared |
+| `cache:chat:membergen:{userId}` | chat | read/write | 멤버십 캐시 무효화 표식(GROMO-2141) — `MembershipService.evict` 가 무작위 값을 `SET … EX max(<cache-ttl>, 600)` 로 쓰고, 조회는 상류를 부르기 전에 읽어 둔 값과 같을 때만 `cache:chat:member:` 를 적재한다(Lua CAS). 표식 TTL 은 상류 조회가 멈출 수 있는 최장 시간(정상 ≈6 s)을 넘어야 해서 캐시 TTL 과 600 s 중 큰 값이다(동일성 비교만 하니 캐시보다 오래 살아도 무해) |
 | `cache:chat:block:{userId}` | realtime | read/write | 그 유저가 차단한 id 집합 + 적재 당시 세대 `<gen>\|<id>,…` (GROMO-2182). TTL 은 백스톱일 뿐 |
 | `cache:chat:blockgen:{userId}` | realtime | read/write | 그 유저의 차단 세대 — Data `user.blocks.updated` 수신마다 INCR, **수명 없음**(번호 재사용 금지). 캐시 세대와 다르면 캐시를 버린다 |
 | `cache:chat:revoked:{sessionId}` | realtime | read/write | 폐기된 로그인 세션 펜스(GROMO-2350) — `SET 1 PX <payload accessTokenExpiresAt + 60 s, 없으면 30일>`. CONNECT·REST(`JwtFilter`)가 읽는다(프레임 검사는 인메모리). 쓰기 실패는 경고만, 읽기 실패는 fail-open. 사건은 `chat:events:v1` 제어 봉투로 전 replica 에 퍼져 각자 인메모리 펜스·세션 종료를 한다 |
@@ -307,7 +309,7 @@ architecture decision A19 table. `movement:*`·`chat:movement:*` 는 이동 다�
 | `chat:movement:frames:v1` | realtime | pub/sub | 소유자 → 전 인스턴스 이동 프레임(소유자 자신도 이 메아리로 받는다) |
 | `presence:focus:{userId}` | **Data API** | **read only** | focus lease; existence is the signal, the value is not read |
 
-`Sourced.read` 는 `cache:chat:block:{userId}`·`cache:chat:blockgen:{userId}` 두 키를 한 Lua 로 읽는다. Redis Cluster 로 옮기면 두 키의 접두사가 달라 슬롯이 갈려 CROSSSLOT 이 난다. 여기서 `{userId}` 는 자리표시자이지 해시 태그가 아니다. 옮길 때 `{…}` 해시 태그로 묶거나 두 번 읽는다. 지금은 단일 노드(Sentinel 포함)라 무관하다.
+`MembershipService.myGroupIds` 의 `multiGet`(MGET)과 `MembershipService.store` 의 CAS Lua 도 `cache:chat:member:`·`cache:chat:membergen:` 두 키를 한 번에 만져 같은 제약을 받는다. `Sourced.read` 는 `cache:chat:block:{userId}`·`cache:chat:blockgen:{userId}` 두 키를 한 Lua 로 읽는다. Redis Cluster 로 옮기면 두 키의 접두사가 달라 슬롯이 갈려 CROSSSLOT 이 난다. 여기서 `{userId}` 는 자리표시자이지 해시 태그가 아니다. 옮길 때 `{…}` 해시 태그로 묶거나 두 번 읽는다. 지금은 단일 노드(Sentinel 포함)라 무관하다.
 
 **ACL 이 걸리는 날 이동 다중 인스턴스에 필요한 것**(지금은 dev·prod 모두 realtime Redis 에 ACL 파일이 없어 고칠 파일이 없다 — GROMO-1744):
 키 `~movement:*`, 채널 `&chat:movement:*`, 명령 `+eval +evalsha +publish +subscribe +getdel +mget`(Lua 안의 `TIME`·`PEXPIRE` 는
@@ -355,12 +357,12 @@ designed fresh.
 | `SUB /user/queue/errors` | send failures, same `{code, message}` envelope |
 | `SUB /user/queue/duplicates` | a resend's ack — the message already stored, sent to that sender only |
 | `SUB /topic/islands/{islandId}/focus`, `/rest` | 섬의 집중·휴식 주민 갱신. **인증만** — 비소속 관전 개방(2026-09-19) |
-| `SUB /topic/islands/{islandId}/emotes` | 응원 수신. 그 섬의 **본인 진행 세션(active·paused)** 이 있어야 한다 |
+| `SUB /topic/islands/{islandId}/emotes` | 응원 수신. 주민은 그 섬의 **본인 진행 세션(active·paused)** 이 있어야 하고, 비주민(방문자)은 세션 없이도 연다(티켓 2258 — 방문자 판정은 캐시가 아니라 상류 그룹 조회). 거절 ERROR — 미인증 `UNAUTHORIZED`(토큰 불일치·폐기 sid) · 구독 id 중복·누적 상한(`requireSubscribable`)이나 목적지 UUID 형식 불량(`uuidOrReject`)의 `INVALID_REQUEST` · 시도 창 `EMOTE_TOO_FREQUENT` · `NOT_FOCUSING`(주민인데 진행 세션 없음) · 상류 장애 `UPSTREAM_UNAVAILABLE` · 방문자 판정 조회가 토큰·사용자를 거절하면 `UNAUTHORIZED`(`UpstreamRejectedCredentialException`) — 이 중 **어느 것에도 `channel` 헤더를 싣지 않는다**(`DomainException.channel` 이 null 이면 `ChatStompErrorHandler` 가 헤더를 붙이지 않고, 응원 경로는 세팅하지 않는다). 다만 헤더 없음 자체가 「응원 구독이 거절됐다」는 증거는 아니다 — `requireSubscribable`·`uuidOrReject` 거절은 focus·rest·events·movement 구독에서도 헤더 없이 나간다 — 이유는 events 행(GROMO-2354) |
 | `SEND /app/islands/{islandId}/focus/emotes` | 응원 발신, body `{sessionId,type}`. 성공은 브로드캐스트가 ack |
-| `SUB /topic/islands/{islandId}/events` | 섬 소식(GROMO-2302) — 지금은 `island.member.arrived{islandId,userId,name,catColor,arrivedAt}`(주민 첫 도착) 하나. **현재 소속 주민만**: 구독 때 사용자 축 시도 창 `lock:chat:events:sub:{userId}` 600ms(초과는 ERROR `MOVEMENT_TOO_FREQUENT`) → `requireMember`(집중 검사 없음, 비주민은 ERROR `NOT_A_MEMBER` 뒤 연결 종료). 전달 직전 프레임마다 캐시 멤버십을 다시 본다 — 비주민·조회 불가는 프레임만 버리고(fail-closed) 소켓은 유지, 강퇴는 `MEMBER_REMOVED` 캐시 삭제 + TTL 120s 가 상한(evict 실패 시 TTL 120s 잔여 창 — 전달 경로의 stale 표시·`requireMemberUncached` 보강은 후속). 배포 순서·점검·되돌릴 신호는 LLD §9. 관측(GROMO-2332): 카운터 `realtime.island.subscribe.total{channel=events|movement,result=allow|deny,code=<거절 코드|none>}`(snapshot 구독도 `movement` 로 센다·짝 토픽의 판정 이어받기도 allow 라 movement allow 는 접속당 약 2배 — 접속 수 대용으로 읽지 말 것·**인가 판정 거절만** 센다 — 미인증·UUID 형식 거절은 `try` 밖이라 미집계), 거절은 INFO 한 줄(`userId`·`islandId`·destination·`code`), 거절 ERROR 프레임에 헤더 `channel: events|movement` — 앱은 이걸로 events 거절을 가른다(없으면 종전 코드 분류 폴백) |
-| `SUB /topic/islands/{islandId}/movement` | 섬 이동 동기화(GROMO-2247): FullState·PathAccepted·MoveRejected·Arrived — 세션별 직접 전송, **members only**(`requireMember`, 비멤버는 ERROR `NOT_A_MEMBER` 뒤 연결 종료 — 관문 거절은 STOMP ERROR 경로라 close code 는 Spring 이 ERROR 프레임 뒤 세션을 닫을 때의 값(통상 1002)이고 코드가 직접 고르지 않는다). 판정은 세션×섬마다 한 번(사용자 축 시도 창 600ms, 초과는 ERROR `MOVEMENT_TOO_FREQUENT`) — 짝 토픽은 그 세션×섬의 살아 있는(강퇴 전) 판정만 이어받는다. 첫 메시지는 항상 자기 actor 가 든 그 세션 한정 FullState. 방 상태는 JVM 메모리다 — 플래그 ON(기본)이면 섬별 소유자 인스턴스 한 곳(1대여도 Redis 리스 경로), 옵트아웃(false)이면 단일 인스턴스 가정(위 「섬 이동 다중 인스턴스」, GROMO-2339). 구독 인가 관측은 `realtime.island.subscribe.total{channel=movement,…}`, 거절 ERROR 프레임에 헤더 `channel: movement`(GROMO-2332) |
+| `SUB /topic/islands/{islandId}/events` | 섬 소식(GROMO-2302) — 지금은 `island.member.arrived{islandId,userId,name,catColor,arrivedAt}`(주민 첫 도착) 하나. **현재 소속 주민만**: 구독 때 사용자 축 시도 창 `lock:chat:events:sub:{userId}` 600ms(초과는 ERROR `MOVEMENT_TOO_FREQUENT`) → `requireMember`(집중 검사 없음, 비주민은 ERROR `NOT_A_MEMBER` 뒤 연결 종료). 전달 직전 프레임마다 캐시 멤버십을 다시 본다 — 비주민·조회 불가는 프레임만 버리고(fail-closed) 소켓은 유지, 강퇴는 `MEMBER_REMOVED` 캐시 삭제 + TTL 120s 가 상한(evict 실패 시 TTL 120s 잔여 창 — 전달 경로의 stale 표시·`requireMemberUncached` 보강은 후속). 배포 순서·점검·되돌릴 신호는 LLD §9. 관측(GROMO-2332): 카운터 `realtime.island.subscribe.total{channel=events|movement,result=allow|deny,code=<거절 코드|none>}`(snapshot 구독도 `movement` 로 센다·짝 토픽의 판정 이어받기도 allow 라 movement allow 는 접속당 약 2배 — 접속 수 대용으로 읽지 말 것·**인가 판정 거절만** 센다 — 미인증(`UNAUTHORIZED`)·UUID 형식 불량·구독 id 중복·누적 상한(둘 다 `INVALID_REQUEST`) 거절은 `requireSubscribable`·`uuidOrReject` 에서 나와 `try` 밖이라 미집계 — 이 거절들은 `channel` 헤더도 없다), 거절은 INFO 한 줄(`userId`·`islandId`·destination·`code`), 거절 ERROR 프레임에 헤더 `channel: events|movement` — 앱은 이걸로 어느 구독이 거절됐는지 가른다(없으면 종전 코드 분류 폴백). 헤더는 `DomainException.channel` 이라 `UpstreamUnavailableException`·`UpstreamRejectedCredentialException` 도 싣는다(GROMO-2354). `sea` 는 소켓이 따로라 싣지 않는다. **`emotes` 구독 거절은 일부러 싣지 않는다** — 배포된 앱은 헤더 없는 ERROR 를 «응원 구독 중단» 신호로 읽어서, 헤더가 붙으면 옛 빌드가 재접속마다 `/emotes` 를 다시 구독해 소켓이 끊겼다 붙는 루프에 빠진다. 모든 클라이언트 빌드가 `channel: emotes` 를 처리한 뒤에야 싣는다(앱 쪽 수정은 티켓 2160 의 PR #1258 빌드가 처음) |
+| `SUB /topic/islands/{islandId}/movement` | 섬 이동 동기화(GROMO-2247): FullState·PathAccepted·MoveRejected·Arrived — 세션별 직접 전송, **members only**(`requireMember`, 비멤버는 ERROR `NOT_A_MEMBER` 뒤 연결 종료 — 관문 거절은 STOMP ERROR 경로라 close code 는 Spring 이 ERROR 프레임 뒤 세션을 닫을 때의 값(통상 1002)이고 코드가 직접 고르지 않는다). 판정은 세션×섬마다 한 번(사용자 축 시도 창 600ms, 초과는 ERROR `MOVEMENT_TOO_FREQUENT`) — 짝 토픽은 그 세션×섬의 살아 있는(강퇴 전) 판정만 이어받는다. 첫 메시지는 항상 자기 actor 가 든 그 세션 한정 FullState. 방 상태는 JVM 메모리다 — 플래그 ON(기본)이면 섬별 소유자 인스턴스 한 곳(1대여도 Redis 리스 경로), 옵트아웃(false)이면 단일 인스턴스 가정(위 「섬 이동 다중 인스턴스」, GROMO-2339). 구독 인가 관측은 `realtime.island.subscribe.total{channel=movement,…}`, 거절 ERROR 프레임에 헤더 `channel: movement`(GROMO-2332) — 구독 없이 보낸 intent 의 `NOT_A_MEMBER` 도 같은 헤더(GROMO-2354) |
 | `SUB /topic/islands/{islandId}/movement/snapshot` | 같은 섬의 위치 Snapshot(≤20Hz, 세션당 최신 1개만 전송). members only. 그 세션이 movement 로 자기 FullState 를 받은 뒤부터만 보낸다 — 그 전(snapshot 먼저 구독 포함)·movement 해지 뒤·재검사로 멈춘 뒤 재동기화 전의 Snapshot 은 버린다 |
-| `SEND /app/islands/{islandId}/movement/intent` | 목적지 전송, body `{commandSeq,navRevision,goalX,goalY}`. movement 구독 보유 세션만; 응답은 PathAccepted/MoveRejected. 사용자당 10/s·순간 20 초과는 조용히 버림 |
+| `SEND /app/islands/{islandId}/movement/intent` | 목적지 전송, body `{commandSeq,navRevision,goalX,goalY}`. movement 구독 보유 세션만 — 구독 없이 보내면 ERROR `NOT_A_MEMBER` + 헤더 `channel: movement`(GROMO-2354); 응답은 PathAccepted/MoveRejected. 사용자당 10/s·순간 20 초과는 조용히 버림 |
 | `SUB /user/queue/sea` | 바다 배정 결과(`sea.room.assigned{roomId}`)·방 스냅샷(`sea.room.snapshot{roomId, members[]}`)은 그 세션 한정(`broadcast=false`). 퇴장 통지 `sea.room.left{roomId, reason}` 는 **이 JVM 의 그 사용자 모든 세션**에 간다 — 방 소속이 사용자 단위라 기기 A 의 leave 가 기기 B 를 같이 빼기 때문(다른 인스턴스의 세션은 못 받는다). 인증만 |
 | `SEND /app/sea/enter` | 먼바다 입장 `{}` → 배정(또는 기존 방 재확인). 사용자 축 시도 창 `lock:chat:sea:enter:{userId}` 600ms, 초과는 `SEA_ENTER_TOO_FREQUENT` |
 | `SEND /app/sea/sync` | 내 방의 스냅샷 요청 `{}` — 답은 그 세션의 `/user/queue/sea`. **그 세션이 방 토픽을 구독한 뒤에만** 받는다(아래 순서를 서버가 강제) — 방이 없거나 구독 전이면 `NOT_IN_SEA_ROOM` 이 `/user/queue/errors` 로(연결 유지). **앱은 30~60초 주기 또는 재연결 때 sync 를 보내고 `NOT_IN_SEA_ROOM` 이면 재 `enter`** — Redis 장애·flush·JOIN 타임아웃 뒤 서버가 먼저 알릴 수 없는 조용한 구간의 상한(결정 N39) |
@@ -377,6 +379,7 @@ designed fresh.
 
 **바다 앱 계약 보충** (앱 티켓이 되묻는 것 — 근거는 `SeaRooms`·`StompAuthChannelInterceptor`·컨트롤러 코드):
 
+- **같은 방의 차단·해제(티켓 2471)**: `user.blocks.updated` 처리로 차단 세대를 올린 뒤 현재 방 스냅샷을 `chat:sea:v1`로 전파하고, 각 인스턴스는 그 방 구성원의 모든 로컬 세션 `/user/queue/sea`로 전달한다. 전달 직전에 수신자 기준 양방향 차단 관계를 확인해 상대의 `members` 항목을 제외하며 `joined`·`updated`·`emote`도 거른다. 방·집중·항해 상태와 다른 참가자는 유지한다. 어느 방향이든 차단이 남으면 숨기고, 양쪽 모두 해제되면 같은 방의 상대를 즉시 복원한다. 최초 입장 분리와 마찬가지로 이 규칙은 `REALTIME_BLOCKS_FILTER_ENABLED`와 무관하다. 즉시 갱신에는 Data의 차단 사건 생산·relay가 필요하며, 꺼진 환경에서 TTL 복원을 즉시 처리라고 표현하지 않는다. 기존 sync 응답은 요청 세션 한정이며 같은 전달 필터를 사용한다.
 - **`sea.room.left{roomId, reason}`** 는 개인 큐 `/user/queue/sea` 로 그 사용자의 **모든 세션**(발신 세션 포함)에 간다
   (`SeaRoomPublisher.publishToUser`). `reason` ∈ `left`(자발 퇴장·방 토픽 UNSUBSCRIBE·탈퇴 `user.withdrawn`) · `adrift`(10분 정리) ·
   `disconnected`(마지막 세션 소켓 종료)(`SeaRooms.LEFT/ADRIFT/DISCONNECTED`). 방 토픽의 `sea.member.left{userId, reason}` 도 같은
@@ -431,9 +434,12 @@ migration — fix with `V<N+1>` (Flyway checksums them).
 
 기존 두 계약과 선택적인 현재 인가 HTTP 계약이다. 모두 서비스 경계를 넘는 명시적인 읽기이며 DB를 공유하지 않는다:
 
-1. `GET /api/v1/groups` with the requester's own access token → their island ids.
-   `membership/client/GroupClient`가 기존 소속 캐시·방 목록에 사용한다. 새 옵션 ON의 특정 그룹
-   채팅 검사는 아래3번을 쓰지만 방 목록까지 내부 현재 인가로 전환한 것은 아니다.
+1. `GET /internal/users/{userId}/islands` → `items[].id`의 현재 소속 섬 목록.
+   `membership/client/GroupClient`가 소속 캐시·방 목록·방문자 응원 판정에 사용한다.
+   요청자 AT는 로컬에서 검증하고 상류에는 `SVC_TOKEN_REALTIME_TO_DATA`와 검증된
+   `X-User-Id`를 보낸다. Data의 `realtime-authorization` 프로필과 전용 토큰은 기본 배포에
+   필수다. 내부 401/403은 서비스 배선 오류(503), `USER_NOT_FOUND` 404는 사용자 인증 거절이다.
+   아래 3번의 세션·세대까지 확인하는 옵션과는 별도 계약이다.
 2. `presence:focus:{userId}` in shared Redis — Data API writes, chat reads.
    Data API's side is `common/port/FocusPresencePort` and is **best-effort**: if the lease
    write fails, focus still starts and chat stays open for that person.
@@ -474,23 +480,24 @@ migration — fix with `V<N+1>` (Flyway checksums them).
 6. `GET /internal/users/{userId}/blocks` with the same Realtime service token + `X-User-Id` (GROMO-2182) — the
    blocker's blocked-id set for **recipient-side block filtering**. `ChatOutboundChannelInterceptor` drops a
    `/topic/groups/{id}` chat or `/topic/islands/{id}/emotes` frame for a session whose subject blocked the sender
-   (`senderId` / `payload.userId`). `block/BlockedUsers` caches the set in Redis tagged with a **block generation**;
-   Data writes `user.blocks.updated` (REALTIME outbox, aggregate `USER_BLOCKS`) in the block/unblock transaction and
-   `InboundEventService` INCRs `cache:chat:blockgen:{blocker}`, so the next frame re-reads Data. With the relay off
+   **or was blocked by the sender** (`senderId` / `payload.userId`; both directions since GROMO-2469 — the judgment
+   reads the viewer's set first and the sender's set only when the viewer's did not match, so an allow decision's
+   expiry is the earlier of the two caches). `block/BlockedUsers` caches each user's own set in Redis tagged with a
+   **block generation**; Data writes `user.blocks.updated` (REALTIME outbox, aggregate `USER_BLOCKS`) in the
+   block/unblock transaction and `InboundEventService` INCRs `cache:chat:blockgen:{blocker}` and evicts **both** the
+   blocker's and the blocked user's allow decisions from `OutboundAuthzCache`, so the next frame re-reads Data. With the relay off
    the change only lands after the TTL — do not call that immediate. **Fail-closed (2026-10-01 decision)**: Redis or
    Data failure, timeout, non-200, non-JSON, >256KiB, unknown/duplicate fields, trailing tokens, non-canonical UUIDs
    and an unreadable sender all drop the frame (socket kept). A chat whose `senderId` is JSON `null` (withdrawn
    sender) has nobody to filter and is delivered. The lookup result is discarded (frame dropped) if the generation
-   moved during the lookup. **Both ends are switched off by default** because Data and Realtime deploy independently:
-   Realtime `REALTIME_BLOCKS_FILTER_ENABLED` (`realtime.blocks.filter-enabled`) and Data
-   `USER_BLOCKS_REALTIME_EVENTS_ENABLED` (`user-blocks.realtime-events-enabled`). Enable order: Realtime deployed
-   (accepts `user.blocks.updated`) → Data `realtime-authorization` profile + `SVC_TOKEN_REALTIME_TO_DATA` + producer
-   flag → Realtime token wired → filter flag. The generation key has **no TTL** on purpose — an expiring
+   moved during the lookup. **The Data producer is always on (since 10-27, ticket 2535); only the Realtime filter is
+   switched, off by default**: `REALTIME_BLOCKS_FILTER_ENABLED` (`realtime.blocks.filter-enabled`). Enable order:
+   Realtime deployed (accepts `user.blocks.updated`) → Data `realtime-authorization` profile +
+   `SVC_TOKEN_REALTIME_TO_DATA` → Realtime token wired → filter flag. The generation key has **no TTL** on purpose — an expiring
    key restarts at 0 and a number can collide with a live cache written just before expiry (so it also assumes a Redis
    that does not evict keys — likewise `cache:chat:revoked:*`). Rollback: turning the filter off is immediate and safe (cached sets are ignored);
-   turning the Data producer off leaves already-queued events, which are harmless. **Never roll Realtime back to a
-   version without `user.blocks.updated` while the Data producer is on** — the old consumer answers 400 and the
-   relay marks that blocker's `USER_BLOCKS` axis permanent. Turn the producer off first.
+   there is no producer flag any more. **Never roll Realtime back to a version without `user.blocks.updated`**
+   — the old consumer answers 400 and the relay marks that blocker's `USER_BLOCKS` axis permanent. Roll Data back first.
 
 ### 선택적 현재 멤버십 인가
 
@@ -500,8 +507,8 @@ migration — fix with `V<N+1>` (Flyway checksums them).
 `cache-ttl-seconds`(30, 0=끔) 동안 캐시한다(거절·오류는 캐시하지 않고, ON 실패 시 기존 Redis 캐시 fallback도 없다).
 항목은 사용자·섬 두 축의 무효화 세대를 품고 조회 때 현재 세대와 대조한다. evict 사건 3종: `island.members.updated`
 (`memberUserId` 있으면 사용자 단위, 없으면 섬 단위), `user.withdrawn`. 이동 방 강퇴 재검사는 캐시를 우회하는
-`requireMemberUncached`를 쓰고 거절이면 그 사용자의 허용을 지운다. 개별 세션 폐기는 스위치(기본 OFF) ON 이면
-`auth.session.revoked` 가 와서 즉시 닫고, OFF 면 TTL이 상한이다. `allowed:false`는 `NOT_A_MEMBER`이며 어떤 내부 조건이
+`requireMemberUncached`를 쓰고 거절이면 그 사용자의 허용을 지운다. 개별 세션 폐기는
+`auth.session.revoked` 가 와서 즉시 닫는다(always on since 10-27, ticket 2535; TTL is the upper bound only while the relay is off). `allowed:false`는 `NOT_A_MEMBER`이며 어떤 내부 조건이
 실패했는지 추측하지 않는다. 로컬 invalid AT는401, 서비스401/403/404·5xx·malformed·timeout은503이다.
 
 현재 연결 범위는 그룹 SUBSCRIBE, SEND 서비스, 히스토리 GET, 읽음 POST, 기존 그룹 outbound

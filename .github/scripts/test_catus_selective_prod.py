@@ -7,6 +7,8 @@ import json
 import os
 import subprocess
 import sys
+import textwrap
+import zipfile
 import yaml
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -24,15 +26,85 @@ def baseline(source):
 
 
 class SelectivePlanTests(unittest.TestCase):
+    def test_공통_Gradle_검사_변경은_모든_서비스_지문에_반영된다(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            name = '.github/workflows/be-gradle.yml'
+            path = root / name
+            path.parent.mkdir(parents=True)
+            path.write_text('before')
+            before, _ = planner.fingerprints(root, [name])
+            path.write_text('after')
+            after, _ = planner.fingerprints(root, [name])
+            self.assertTrue(all(before[s] != after[s] for s in planner.SERVICES))
+
     def setUp(self):
         self.source = {service: hashlib.sha256(service.encode()).hexdigest() for service in planner.SERVICES}
         self.migrations = {service: 'd' * 64 for service in planner.SERVICES}
 
-    def test_Data변경은_Data만_빌드하고_배포한다(self):
-        current = {**self.source, 'data-api': 'e' * 64}
+    def test_Data와_Realtime은_같은_SHA의_이미지_쌍으로_빌드하고_배포한다(self):
+        for service in ['data-api', 'realtime']:
+            with self.subTest(service=service):
+                current = {**self.source, service: 'e' * 64}
+                plan = planner.plan(current, self.migrations, baseline(self.source), 'f' * 40, 'b' * 40)
+                self.assertEqual(plan['build_services'], ['data-api', 'realtime'])
+                self.assertEqual(plan['deploy_services'], ['data-api', 'realtime'])
+
+    def test_명시적_전체빌드는_기존_Infra_성공기록의_이미지를_재사용하지_않는다(self):
+        plan = planner.plan(self.source, self.migrations, baseline(self.source), 'f' * 40, 'b' * 40, force=True)
+        self.assertEqual(set(plan['build_services']), planner.SERVICES)
+        self.assertEqual(set(plan['deploy_services']), planner.SERVICES)
+
+    def test_위성만_변경되면_다른_이미지는_재빌드하지_않는다(self):
+        current = {**self.source, 'notification': 'e' * 64}
         plan = planner.plan(current, self.migrations, baseline(self.source), 'f' * 40, 'b' * 40)
-        self.assertEqual(plan['build_services'], ['data-api'])
-        self.assertEqual(plan['deploy_services'], ['data-api'])
+        self.assertEqual(plan['build_services'], ['notification'])
+        self.assertEqual(plan['deploy_services'], ['notification'])
+
+    def test_이미지에_포함하는_DB전환도구는_문서경로여도_빌드입력이다(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            name = 'server/data-api/docs/db/v0-rebase/manifest.json'
+            path = root / name
+            path.parent.mkdir(parents=True)
+            path.write_text('before')
+            before, migrations_before = planner.fingerprints(root, [name])
+            path.write_text('after')
+            after, migrations_after = planner.fingerprints(root, [name])
+            self.assertEqual({service for service in planner.SERVICES if before[service] != after[service]}, {'data-api'})
+            self.assertNotEqual(migrations_before['data-api'], migrations_after['data-api'])
+
+    def test_발행_워크플로는_기존_Infra_구성의_체크섬과_경로를_검증한다(self):
+        ci = yaml.load((Path(__file__).parents[1] / 'workflows/prod-ci.yml').read_text(), Loader=yaml.BaseLoader)
+        step = next(step for step in ci['jobs']['release']['steps'] if step.get('name') == '불변 릴리스 생성·업로드')
+        script = textwrap.dedent(step['run'].split("python3 - <<'PYTHON'\n", 1)[1].split('\nPYTHON', 1)[0])
+        for failure in (None, 'archive_checksum', 'file_checksum', 'path', 'revision'):
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory) / 'infra-config'
+                root.mkdir()
+                # 구성 검증에서는 실행기 코드를 import하지 않는다. 기존 구성에는 V0 전환 상수가 없다.
+                content = b"raise RuntimeError('must not execute during extraction')\n"
+                name = '../release.py' if failure == 'path' else 'release.py'
+                with zipfile.ZipFile(root / 'configuration.zip', 'w') as archive:
+                    archive.writestr(name, content)
+                metadata = {'product': 'catus', 'infra_revision': 'b' * 40,
+                            'sha256': hashlib.sha256((root / 'configuration.zip').read_bytes()).hexdigest(),
+                            'files': {name: hashlib.sha256(content).hexdigest()}}
+                if failure == 'archive_checksum':
+                    metadata['sha256'] = '0' * 64
+                elif failure == 'file_checksum':
+                    metadata['files'][name] = '0' * 64
+                elif failure == 'revision':
+                    metadata['infra_revision'] = 'e' * 40
+                (root / 'configuration.json').write_text(json.dumps(metadata))
+                result = subprocess.run([sys.executable, '-c', script], cwd=directory,
+                                        env={**os.environ, 'INFRA_REVISION': 'b' * 40}, capture_output=True, text=True)
+                if failure is None:
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual((root / 'release.py').read_bytes(), content)
+                else:
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertFalse((Path(directory) / 'release.py').exists())
 
     def test_Infra변경은_앱을_재빌드하지_않고_전체를_배포한다(self):
         plan = planner.plan(self.source, self.migrations, baseline(self.source), 'f' * 40, 'e' * 40)
@@ -88,6 +160,21 @@ class SelectivePlanTests(unittest.TestCase):
             (root / shared).write_text('new build contract')
             all_changed, _ = planner.fingerprints(root, files)
             self.assertTrue(all(all_changed[service] != changed[service] for service in planner.SERVICES))
+
+    def test_V0와_기본데이터를_운영_마이그레이션_지문에_포함한다(self):
+        for resource in ('v0/V0__baseline.sql', 'seed/insert.sql'):
+            with self.subTest(resource=resource), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                name = 'server/data-api/src/main/resources/db/' + resource
+                path = root / name
+                path.parent.mkdir(parents=True)
+                path.write_text('initial SQL')
+                _, before = planner.fingerprints(root, [name])
+                path.write_text('changed SQL')
+                _, after = planner.fingerprints(root, [name])
+                self.assertNotEqual(before['data-api'], after['data-api'])
+                for service in planner.SERVICES - {'data-api'}:
+                    self.assertEqual(before[service], after[service])
 
     def test_상태조회_권한실패를_최초배포로_오인하지_않는다(self):
         config = SimpleNamespace(returncode=0, stdout=json.dumps({'PRODUCT': 'catus', 'DEPLOY_BUCKET': 'catus-prod-deploy-artifacts-808715036056'}))

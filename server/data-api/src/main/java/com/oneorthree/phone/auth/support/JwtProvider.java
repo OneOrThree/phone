@@ -132,42 +132,6 @@ public class JwtProvider {
         return buildToken(userId, refreshTtlSeconds(isGuest), TYPE_REFRESH, isGuest, null, null);
     }
 
-    /**
-     * 토큰 만료 시각. 서명·만료가 무효면 JwtException 이 전파된다(extractType 과 같은 규율).
-     *
-     * @param token 서명 검증을 이미 통과한 토큰 문자열
-     * @return {@code exp} 클레임 시각. {@link #isRefreshRotationDue} 의 입력으로 쓰인다
-     */
-    public Date extractExpiration(String token) {
-        return Jwts.parser()
-                .verifyWith(secretKey)
-                .build()
-                .parseSignedClaims(token)
-                .getPayload()
-                .getExpiration();
-    }
-
-    /**
-     * refresh 토큰을 지금 갈아끼워야 하는지 — 남은 수명이 발급 수명의 <b>절반 미만</b>이면 true.
-     *
-     * <p>매 갱신마다 회전시키지 않는다. 회전 1회는 "서버는 새 해시를 커밋했는데 응답이 유실돼
-     * 클라이언트가 무효해진 옛 토큰을 든 채 남는" 창을 연다 — 그 창에 걸리면 강제 로그아웃이고,
-     * 게스트에겐 그게 계정 소실이다. access 가 1시간이라 매 갱신마다 회전하면 한 달에 700번 넘게
-     * 그 창이 열리는데, 절반 기준이면 수명당 1~2회로 줄어든다.
-     *
-     * <p>기준 수명은 <b>현재</b> 유저 상태로 정한다 — 게스트가 승격하면 다음 회전 때 소셜 수명의
-     * 토큰으로 자연히 갈아탄다.
-     *
-     * @param expiration 현재 쥔 refresh 토큰의 만료 시각 — {@link #extractExpiration} 결과
-     * @param isGuest <b>현재</b> 유저 상태(발급 시점이 아니다). 기준 수명이 여기서 갈리므로,
-     *                승격한 유저에게 게스트 수명을 넘기면 회전 판정이 느슨해진다
-     * @return true = 지금 새 refresh 토큰으로 갈아끼울 때, false = 쥔 토큰을 그대로 유지
-     */
-    public boolean isRefreshRotationDue(Date expiration, boolean isGuest) {
-        long remainingSeconds = (expiration.getTime() - System.currentTimeMillis()) / 1000;
-        return remainingSeconds < refreshTtlSeconds(isGuest) / 2;
-    }
-
     private long refreshTtlSeconds(boolean isGuest) {
         return isGuest ? guestRefreshExpiration : refreshExpiration;
     }
@@ -414,7 +378,7 @@ public class JwtProvider {
                 .subject(userId.toString())
                 .claim(CLAIM_TYPE, type)
                 .claim(CLAIM_GUEST, isGuest);
-        // JWT 시각은 초 단위다. 같은 초의 로그인·구 RT 승격도 별도 세션 자격이어야 한다.
+        // JWT 시각은 초 단위다. 같은 초의 로그인도 별도 세션 자격이어야 한다.
         if (TYPE_REFRESH.equals(type)) {
             builder = builder.id(UUID.randomUUID().toString());
         }

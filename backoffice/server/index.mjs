@@ -1,0 +1,92 @@
+import { mkdirSync, chmodSync } from "node:fs";
+import { scryptSync } from "node:crypto";
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { Store, requireValue } from "./store.mjs";
+import { Upstream } from "./upstream.mjs";
+import { createApp } from "./app.mjs";
+import { validateOperators, verifyOperatorEnvironments } from "./operators.mjs";
+const mode = process.env.BACKOFFICE_MODE ?? "local";
+const environment = mode === "local" ? "local" : process.env.BACKOFFICE_ENV;
+requireValue(
+  ["local", "connected"].includes(mode),
+  "BACKOFFICE_MODE는 local 또는 connected입니다.",
+);
+requireValue(
+  mode === "local" || ["dev", "prod"].includes(environment),
+  "연결 모드에는 BACKOFFICE_ENV=dev 또는 prod가 필요합니다.",
+);
+const origin = process.env.BACKOFFICE_ORIGIN ?? "http://127.0.0.1:4310";
+const parsed = new URL(origin);
+requireValue(
+  parsed.origin === origin,
+  "BACKOFFICE_ORIGIN에 경로를 포함하지 마세요.",
+);
+requireValue(
+  mode !== "connected" || parsed.protocol === "https:",
+  "연결 모드는 HTTPS 출처가 필요합니다.",
+);
+if (mode === "connected") {
+  requireValue(
+    typeof process.env.BACKOFFICE_FCM_PROJECT_ID === "string" &&
+      /^[a-zA-Z0-9][a-zA-Z0-9._:-]{2,127}$/.test(process.env.BACKOFFICE_FCM_PROJECT_ID),
+    "연결 모드에는 해당 환경의 BACKOFFICE_FCM_PROJECT_ID가 필요합니다.",
+  );
+  for (const name of ["NOTIFICATION_URL", "DATA_API_URL"]) {
+    const value = process.env[name];
+    requireValue(value, `${name}을 설정하세요.`);
+    const address = new URL(value);
+    requireValue(
+      ["http:", "https:"].includes(address.protocol) &&
+        !address.username &&
+        !address.password,
+      `${name}은 자격 정보 없는 HTTP(S) 서비스 주소여야 합니다.`,
+    );
+  }
+}
+const demoSalt = "0".repeat(32);
+const demoHash = `${demoSalt}:${scryptSync("test", demoSalt, 64).toString("hex")}`;
+const operators = mode === "local"
+  ? Object.fromEntries(["test", "member-1", "member-2", "member-3"]
+      .map(actor => [actor, { passwordHash: demoHash }]))
+  : JSON.parse(process.env.BACKOFFICE_OPERATORS ?? "{}");
+const operatorEntries = validateOperators(operators, mode);
+const upstream = new Upstream({
+  mode,
+  environment,
+  expectedFcmProjectId: process.env.BACKOFFICE_FCM_PROJECT_ID,
+  notificationUrl: process.env.NOTIFICATION_URL,
+  dataUrl: process.env.DATA_API_URL,
+});
+if (mode === "connected") await verifyOperatorEnvironments(upstream, environment, operatorEntries);
+const directory = resolve(process.env.BACKOFFICE_STATE_DIR ?? "var");
+process.umask(0o077);
+mkdirSync(directory, { recursive: true, mode: 0o700 });
+chmodSync(directory, 0o700);
+const store = new Store(
+  resolve(directory, `${environment}.sqlite`),
+);
+const app = createApp({
+  store,
+  upstream,
+  operators,
+  origin,
+  mode,
+  environment,
+  staticDir: fileURLToPath(new URL("../dist", import.meta.url)),
+});
+const host =
+  mode === "local" ? "127.0.0.1" : (process.env.BACKOFFICE_HOST ?? "127.0.0.1");
+app.listen(Number(process.env.PORT ?? 4310), host, () =>
+  console.log(
+    `백오피스 ${mode} 모드 · ${origin}${mode === "local" ? " · 실제 발송/게시 없음" : ""}`,
+  ),
+);
+function stop() {
+  app.close(() => {
+    store.close();
+    process.exit(0);
+  });
+}
+process.on("SIGTERM", stop);
+process.on("SIGINT", stop);

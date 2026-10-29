@@ -1,3 +1,4 @@
+import { useMemberLooks, memberLooks, ensureMemberLooks } from '@/services/memberLooks';
 /**
  * 섬 주민 집중/휴식 실시간 상태 훅 (GROMO-2010).
  *
@@ -6,11 +7,12 @@
  * 응원 자격(세션 id)은 focus/rest 소켓을 끊지 않고 emotes 구독만 갱신한다.
  * 포그라운드 복귀 때는 소켓을 다시 열고 최신 스냅숏으로 재동기화한다.
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 import { sessionGeneration } from '@/services/api/session';
+import { useBlockedUserIds } from '@/services/blockedUsers';
 import type { Color } from '@/services/model';
-import { newerLook, type MemberLook } from '@/services/memberAppearance';
+import { newerLook, parseLook, type MemberLook } from '@/services/memberAppearance';
 import {
   EMPTY_PRESENCE,
   startIslandRealtime,
@@ -95,7 +97,14 @@ export function useIslandPresence(
       events: opts.events,
       alive,
       onView: (view) => {
-        if (alive()) setSnapshot({ scope, view });
+        if (alive()) {
+          setSnapshot({ scope, view });
+          for (const member of [...view.focus, ...view.rest]) {
+            const appearance = parseLook(member.appearance);
+            if (appearance) memberLooks.accept(member.userId, appearance);
+          }
+          void ensureMemberLooks([...view.focus, ...view.rest].map((member) => member.userId));
+        }
       },
       onTransition: (transition) => {
         if (alive()) onTransition.current?.(transition);
@@ -111,6 +120,7 @@ export function useIslandPresence(
       },
       onMemberAppearance: (userId, look) => {
         if (!alive()) return;
+        memberLooks.accept(userId, look);
         setLooksState((prev) => {
           const current = prev.scope === scope ? prev.looks : NO_LOOKS;
           const next = newerLook(current[userId], look)!;
@@ -142,8 +152,43 @@ export function useIslandPresence(
     rt.current?.setEmoteSessionId(emoteSessionId ?? null);
   }, [emoteSessionId]);
 
+  // 차단을 풀면(GROMO-2470 D1) 스냅숏을 다시 읽는다 — 서버가 차단 중 가렸던 집중 주민 이름(「차단한 주민」)을
+  // 정본으로 되돌린다. 숨김 자체는 장면이 차단 목록으로 그리기만 빼므로 차단할 때는 다시 읽지 않는다.
+  const blockedIds = useBlockedUserIds(false);
+  const previousBlocked = useRef({ generation, ids: blockedIds });
+  useEffect(() => {
+    const previous = previousBlocked.current;
+    previousBlocked.current = { generation, ids: blockedIds };
+    // 계정이 바뀌어 목록이 비는 것은 해제가 아니다 — 채널은 위 effect 가 새로 연다
+    if (previous.generation !== generation) return;
+    if ([...previous.ids].some((id) => !blockedIds.has(id))) rt.current?.resync('manual');
+  }, [blockedIds, generation]);
+
+  const view = snapshot.scope === scope ? snapshot.view : EMPTY_PRESENCE;
+  const cached = useMemberLooks(
+    [...view.focus, ...view.rest].map((member) => member.userId),
+    active,
+  );
+  const enriched = useMemo(() => {
+    const enrich = <T extends { userId: string; catColor?: string | null; appearance?: unknown }>(
+      member: T,
+    ): T => {
+      const look = cached[member.userId];
+      return look
+        ? {
+            ...member,
+            catColor: look.catColor,
+            appearance: look.hidden
+              ? null
+              : newerLook(parseLook(member.appearance), look.appearance),
+          }
+        : member;
+    };
+    return { focus: view.focus.map(enrich), rest: view.rest.map(enrich) };
+  }, [view.focus, view.rest, cached]);
   return {
-    ...(snapshot.scope === scope ? snapshot.view : EMPTY_PRESENCE),
+    ...view,
+    ...enriched,
     sendEmote: useCallback((type: string) => rt.current?.sendEmote(type) ?? false, []),
     retry: useCallback(() => setNonce((n) => n + 1), []),
     resync: useCallback(() => rt.current?.resync('manual'), []),

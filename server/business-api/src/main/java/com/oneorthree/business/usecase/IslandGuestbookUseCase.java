@@ -14,7 +14,6 @@ import com.oneorthree.business.upstream.data.DataIslandClient;
 import com.oneorthree.business.upstream.data.dto.IslandGuestbooks;
 import com.oneorthree.business.upstream.data.dto.IslandNotices;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
@@ -49,15 +48,11 @@ public class IslandGuestbookUseCase {
             "INVALID_REQUEST", new PublicFailure(400, ApiErrorCode.INVALID_REQUEST, null));
 
     private final DataIslandClient data;
-    private final ObjectProvider<SignedCursorCodec> cursorCodecs;
+    private final SignedCursorCodec codec;
 
     /** 30개씩 최신순으로 읽는다. 커서는 인가가 아니므로 매 페이지 Data가 사용자·섬·시설을 판정한다. */
     public IslandGuestbookResponses.Page list(AccessTokenClaims claims, UUID islandId, String cursor,
             Deadline deadline) {
-        SignedCursorCodec codec = cursorCodecs.getIfAvailable();
-        if (codec == null) {
-            throw new PublicApiException(ApiErrorCode.SERVICE_UNAVAILABLE, null);
-        }
         CursorScope scope = new CursorScope(claims.userId(), "islands/guestbook",
                 Map.of("islandId", islandId.toString()), "created-desc", PAGE_SIZE);
         Anchor anchor = Anchor.of(codec.decode(cursor, scope));

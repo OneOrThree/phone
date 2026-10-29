@@ -18,7 +18,7 @@ class SmokeWorkflowTests(unittest.TestCase):
         self.assertEqual(workflow['on']['push']['branches'], ['main'])
         self.assertNotIn('schedule', workflow['on'])
         self.assertNotIn('workflow_call', workflow['on'])
-        for filename in ('data-api-cd.dev.yml', 'realtime-cd.dev.yml', 'satellite-cd.dev.yml'):
+        for filename in ('data-api-cd.dev.yml', 'satellite-cd.dev.yml'):
             self.assertNotIn('uses: ./.github/workflows/ops-smoke.dev.yml', (ROOT / '.github/workflows' / filename).read_text())
         self.assertNotEqual(workflow['concurrency']['group'], 'dev-vm-deploy')
         self.assertEqual(workflow['jobs']['execute']['concurrency']['group'], 'dev-vm-deploy')
@@ -31,6 +31,20 @@ class SmokeWorkflowTests(unittest.TestCase):
         for name in ('README.md', 'smoke/README.md'):
             text = (ROOT / name).read_text()
             self.assertIn('ops-smoke.dev.yml/badge.svg?branch=main&event=push', text)
+
+    def test_login_diagnostics_are_uploaded_and_regressions_run_on_report_changes(self):
+        workflow = yaml.load((ROOT / '.github/workflows/ops-smoke.dev.yml').read_text(), Loader=yaml.BaseLoader)
+        smoke = next(step for step in workflow['jobs']['execute']['steps'] if step.get('id') == 'smoke')
+        self.assertEqual(smoke['env']['SMOKE_AUTH_DIAGNOSTICS_FILE'],
+                         '${{ runner.temp }}/smoke-results/api/auth-attempts.jsonl')
+        checks = yaml.load((ROOT / '.github/workflows/smoke-check.yml').read_text(), Loader=yaml.BaseLoader)
+        self.assertIn('.github/scripts/report-smoke.py', checks['on']['pull_request']['paths'])
+        self.assertIn('.github/scripts/test_smoke_report.py', checks['on']['pull_request']['paths'])
+        commands = '\n'.join(step.get('run', '') for step in checks['jobs']['checks']['steps'])
+        self.assertIn("discover -s smoke/server/tests -p 'test_*.py'", commands)
+        self.assertIn("-p 'test_smoke_report.py'", commands)
+        self.assertIn("-p 'test_smoke_guest_budget.py'", commands)
+        self.assertIn("-p 'test_smoke_workflow.py'", commands)
 
     def test_no_service_deploy_plan_is_success_and_invalid_types_fail(self):
         workflow = yaml.load((ROOT / '.github/workflows/satellite-cd.dev.yml').read_text(), Loader=yaml.BaseLoader)

@@ -1,17 +1,20 @@
 package com.oneorthree.notification;
 
+import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpRequest;
+import org.springframework.http.client.ClientHttpRequestExecution;
+import org.springframework.http.client.ClientHttpResponse;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
+import java.io.IOException;
 import java.time.Duration;
-import java.time.Instant;
-import java.time.format.DateTimeParseException;
 import java.util.Map;
 import java.util.UUID;
 
-/** Data 조회 세 종류만 제공한다. 위성에서 Data 명령을 실행할 API는 없다. */
+/** 사용자 스냅샷과 발송 적격 조회만 제공한다. 위성에서 Data 명령을 실행할 API는 없다. */
 @Component
 class DataClient {
 
@@ -25,29 +28,28 @@ class DataClient {
         factory.setConnectTimeout(Duration.ofSeconds(1));
         factory.setReadTimeout(Duration.ofSeconds(2));
         http = RestClient.builder().baseUrl(url).requestFactory(factory)
-                .defaultHeader("Authorization", "Bearer " + token).build();
+                .defaultHeader("Authorization", "Bearer " + token)
+                .requestInterceptor(DataClient::carryOrigin).build();
     }
 
-    boolean acknowledged(UUID user, UUID session, Instant ackDeadlineAt) {
-        String body = http.get().uri(builder -> builder.path("/internal/users/{id}/result-ack")
-                .queryParam("sessionId", session).queryParam("ackDeadlineAt", ackDeadlineAt.toString()).build(user))
-                .header("X-User-Id", user.toString()).retrieve().body(String.class);
-        Map<String, Object> response = decision(body, "acknowledged");
-        boolean acknowledged = (boolean) response.get("acknowledged");
-        Object at = response.get("acknowledgedAt");
-        if (acknowledged) {
-            if (!(at instanceof String timestamp)) {
-                throw new NotificationFailure(502, "UPSTREAM_CONTRACT_MISMATCH");
-            }
-            try {
-                Instant.parse(timestamp);
-            } catch (DateTimeParseException invalid) {
-                throw new NotificationFailure(502, "UPSTREAM_CONTRACT_MISMATCH");
-            }
-        } else if (at != null) {
-            throw new NotificationFailure(502, "UPSTREAM_CONTRACT_MISMATCH");
+    /**
+     * 발송 스레드의 원인 문맥(MDC)을 Data 로 넘긴다(GROMO-2582) — Data 가 이어받아 T1→T2→T3 에서 최초 origin 을 유지한다.
+     * 값은 보내기 전에 수신 쪽과 같은 형식 검사를 거치고, 어긋나면 그 헤더만 뺀다. 문맥이 없으면 헤더를 달지 않는다.
+     */
+    private static ClientHttpResponse carryOrigin(HttpRequest request, byte[] body, ClientHttpRequestExecution next)
+            throws IOException {
+        String requestId = InboundTrace.safeId(MDC.get("origin_request_id"));
+        String traceId = InboundTrace.safeTrace(MDC.get("origin_trace_id"));
+        if (requestId != null) {
+            request.getHeaders().set("X-Origin-Request-Id", requestId);
         }
-        return acknowledged;
+        if (traceId != null) {
+            request.getHeaders().set("X-Origin-Trace-Id", traceId);
+        }
+        if (requestId != null || traceId != null) {
+            request.getHeaders().set("X-Trace-Context-Version", "1");
+        }
+        return next.execute(request, body);
     }
 
     Map<String, Object> snapshot(String cursor, int limit) {

@@ -1,6 +1,6 @@
 package com.oneorthree.realtime.sea;
 
-import com.oneorthree.realtime.TestcontainersConfiguration;
+import com.oneorthree.realtime.RestrictedRedisTestcontainersConfiguration;
 import com.oneorthree.realtime.block.client.BlockClient;
 import com.oneorthree.realtime.common.exception.CommonErrorCode;
 import com.oneorthree.realtime.common.exception.UpstreamUnavailableException;
@@ -24,6 +24,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.lang.NonNull;
 import org.springframework.messaging.converter.CompositeMessageConverter;
 import org.springframework.messaging.converter.JacksonJsonMessageConverter;
@@ -67,7 +68,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureMockMvc
 @ActiveProfiles("ci")
-@Import(TestcontainersConfiguration.class)
+@Import(RestrictedRedisTestcontainersConfiguration.class)
 class SeaRoomIntegrationTest {
 
     private static final long TIMEOUT_SECONDS = 15;
@@ -86,6 +87,9 @@ class SeaRoomIntegrationTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @Autowired
+    private JdbcTemplate jdbc;
 
     @MockitoBean
     private SeaStateClient seaState;
@@ -231,6 +235,67 @@ class SeaRoomIntegrationTest {
         given(blockClient.fetchBlockedIds(dave)).willReturn(Set.of(carol)); // 나중에 온 쪽이 차단
         UUID carolRoom = roomOf(connect(carol).enter());
         assertThat(roomOf(connect(dave).enter())).isNotEqualTo(carolRoom);
+    }
+
+    @Test
+    @DisplayName("같은 방에서 차단·해제하면 서로의 표시만 즉시 바뀌고 방·항해·집중은 유지된다")
+    void blockChangesRefreshBothViewersWithoutMovingOrEndingFocus() throws Exception {
+        UUID alice = sailor();
+        UUID bob = sailor();
+        UUID carol = sailor();
+        Client a = connect(alice);
+        UUID room = roomOf(a.enter());
+        Client b = connect(bob);
+        assertThat(roomOf(b.enter())).isEqualTo(room);
+        Client c = connect(carol);
+        assertThat(roomOf(c.enter())).isEqualTo(room);
+        a.sync();
+        b.sync();
+        c.sync();
+        Map<Object, Object> aliceBefore = redis.opsForHash().entries(RedisKeys.seaUser(alice));
+        Map<Object, Object> bobBefore = redis.opsForHash().entries(RedisKeys.seaUser(bob));
+
+        given(blockClient.fetchBlockedIds(alice)).willReturn(Set.of(bob));
+        postEvent(blockEvent(alice, bob, "BLOCKED"));
+        assertThat(memberIds(payload(await(a.assignments, snapshot -> isSnapshot(snapshot)))))
+                .containsExactlyInAnyOrder(alice.toString(), carol.toString());
+        assertThat(memberIds(payload(await(b.assignments, snapshot -> isSnapshot(snapshot)))))
+                .containsExactlyInAnyOrder(bob.toString(), carol.toString());
+        assertThat(memberIds(payload(await(c.assignments, snapshot -> isSnapshot(snapshot)))))
+                .containsExactlyInAnyOrder(alice.toString(), bob.toString(), carol.toString());
+        assertThat(memberIds(payload(a.sync()))).doesNotContain(bob.toString());
+        assertThat(memberIds(payload(b.sync()))).doesNotContain(alice.toString());
+
+        given(blockClient.fetchBlockedIds(bob)).willReturn(Set.of(alice));
+        postEvent(blockEvent(bob, alice, "BLOCKED"));
+        await(a.assignments, snapshot -> isSnapshot(snapshot));
+        await(b.assignments, snapshot -> isSnapshot(snapshot));
+        given(blockClient.fetchBlockedIds(alice)).willReturn(Set.of());
+        postEvent(blockEvent(alice, bob, "UNBLOCKED"));
+        assertThat(memberIds(payload(await(a.assignments, snapshot -> isSnapshot(snapshot)))))
+                .doesNotContain(bob.toString());
+        assertThat(memberIds(payload(await(b.assignments, snapshot -> isSnapshot(snapshot)))))
+                .doesNotContain(alice.toString());
+
+        given(blockClient.fetchBlockedIds(bob)).willReturn(Set.of());
+        postEvent(blockEvent(bob, alice, "UNBLOCKED"));
+        assertThat(memberIds(payload(await(a.assignments, snapshot -> isSnapshot(snapshot)))))
+                .containsExactlyInAnyOrder(alice.toString(), bob.toString(), carol.toString());
+        assertThat(memberIds(payload(await(b.assignments, snapshot -> isSnapshot(snapshot)))))
+                .containsExactlyInAnyOrder(alice.toString(), bob.toString(), carol.toString());
+        assertThat(redis.opsForHash().entries(RedisKeys.seaUser(alice))).isEqualTo(aliceBefore);
+        assertThat(redis.opsForHash().entries(RedisKeys.seaUser(bob))).isEqualTo(bobBefore);
+    }
+
+    private static boolean isSnapshot(Map<String, Object> frame) {
+        return "sea.room.snapshot".equals(frame.get("type"));
+    }
+
+    private static String blockEvent(UUID blocker, UUID blocked, String changeKind) {
+        return "{\"eventId\":\"" + UUID.randomUUID() + "\",\"schemaVersion\":1,\"type\":\"user.blocks.updated\","
+                + "\"occurredAt\":\"" + Instant.now() + "\",\"userId\":\"" + blocker + "\",\"params\":{"
+                + "\"blockerUserId\":\"" + blocker + "\",\"blockedUserId\":\"" + blocked
+                + "\",\"changeKind\":\"" + changeKind + "\"}}";
     }
 
     @Test
@@ -796,6 +861,14 @@ class SeaRoomIntegrationTest {
         assertThat(redis.hasKey(RedisKeys.seaUser(alice))).isFalse();
         assertThat(redis.opsForSet().isMember(RedisKeys.seaRoomMembers(room), alice.toString())).isFalse();
         assertThat(redis.opsForZSet().score(RedisKeys.SEA_ADRIFT, alice.toString())).isNull();
+
+        // Redis 퇴장과 같은 트랜잭션의 탈퇴 기록이 커밋되고, 재전달도 한 번만 적용된다.
+        postEvent(withdrawn(alice));
+        assertThat(heardByBob.poll(1, TimeUnit.SECONDS)).isNull();
+        assertThat(jdbc.queryForObject("SELECT auth_generation FROM user_tombstones WHERE user_id = ?",
+                Long.class, alice)).isEqualTo(1L);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM inbound_events WHERE event_id = ?",
+                Long.class, "user.withdrawn:" + alice)).isEqualTo(1L);
 
         UUID outsider = UUID.randomUUID();
         postEvent(withdrawn(outsider)); // 바다 밖 — 200, 방 사건 없음

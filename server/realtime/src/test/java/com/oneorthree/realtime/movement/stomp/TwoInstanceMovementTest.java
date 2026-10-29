@@ -398,8 +398,8 @@ class TwoInstanceMovementTest {
 
         @org.springframework.context.annotation.Bean
         @org.springframework.context.annotation.Primary
-        GroupClient stubGroupClient() {
-            return new GroupClient("http://localhost:1", 100) {
+        GroupClient stubGroupClient(com.oneorthree.realtime.auth.JwtValidator jwtValidator) {
+            return new GroupClient("http://localhost:1", 100, "test-realtime-to-data", jwtValidator) {
                 @Override
                 public Membership fetchMyGroupIds(String bearerToken) {
                     return membershipOf(bearerToken);

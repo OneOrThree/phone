@@ -1,41 +1,181 @@
 name: Android CD
 
-# CI(app-android-ci.yml)가 main 에서 만든 AAB → Play 내부 테스트 (GROMO-2223).
-# 트리거 없음. CI deploy 잡이 workflow_call 로 부름. 재빌드 안 함.
-# 업로드 후 internal 트랙 재조회로 확인 → 머지 PR 에 deployed:android-play-internal 라벨·코멘트.
-#
-# 선택 변수 PLAY_INTERNAL_RELEASE_STATUS (기본 completed). "Only releases with status draft may be created
-# on draft app" 나오면 draft 로 바꾸고 콘솔에서 출시. 앱이 검토 통과하면 지움.
-
+# 성공한 main Android CI의 AAB만 받아 서명·게시한다. CI와 별도 실행이며 재빌드하지 않는다.
 on:
-  workflow_call:
+  workflow_run:
+    workflows: [Android CI]
+    branches: [main]
+    types: [completed]
+  workflow_dispatch:
     inputs:
-      artifact-name:
-        description: CI 가 올린 AAB 아티팩트 이름
+      ci-run-id:
+        description: 성공한 main Android CI의 실행 ID
         required: true
         type: string
-      version-code:
-        description: AAB 의 versionCode (릴리스 이름·요약용)
-        required: true
-        type: string
-      revision:
-        description: AAB 를 만든 main commit SHA
-        required: true
-        type: string
+
+
+concurrency:
+  # CI 수동 검증의 완료 이벤트는 자동 게시 대기를 대체하지 않는다.
+  group: ${{ ((github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') || (github.event.workflow_run.event == 'push' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_repository.id == github.event.repository.id)) && 'android-play-internal' || format('android-play-validation-{0}', github.run_id) }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
-  id-token: write
-  pull-requests: write # PR 라벨·코멘트
-  issues: write # 라벨은 이슈 API
+  actions: read
 
 env:
   AWS_REGION: ap-northeast-2
   AWS_ROLE_ARN: arn:aws:iam::808715036056:role/gromo-prod-android-github-actions
   RELEASE_SECRET_ID: gromo/prod/android
+  ANDROID_UPLOAD_CERT_SHA1: 85:DF:F5:E4:96:1A:A2:32:88:E0:CF:B7:48:47:F0:55:9A:77:02:37
 
 jobs:
+  source:
+    name: 원본 main CI·산출물 검증
+    if: >-
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'main' &&
+       github.event.workflow_run.head_repository.id == github.event.repository.id &&
+       (github.event.workflow_run.event == 'push' || github.event.workflow_run.event == 'workflow_dispatch')) ||
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      run-id: ${{ steps.source.outputs.run-id }}
+      attempt: ${{ steps.source.outputs.attempt }}
+      revision: ${{ steps.source.outputs.revision }}
+      artifact-name: ${{ steps.source.outputs.artifact-name }}
+      version-code: ${{ steps.artifact.outputs.version-code }}
+      publish: ${{ steps.artifact.outputs.publish }}
+      has-artifact: ${{ steps.source.outputs.has-artifact }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: main
+          sparse-checkout: .github/ci
+      - name: 성공한 동일 저장소 main CI 확인
+        id: source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CI_RUN_ID: ${{ inputs.ci-run-id }}
+        run: python3 .github/ci/android-cd-source.py
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        if: steps.source.outputs.has-artifact == 'true'
+        with:
+          name: ${{ steps.source.outputs.artifact-name }}
+          path: android-ci-input
+          run-id: ${{ steps.source.outputs.run-id }}
+          github-token: ${{ github.token }}
+      - name: AAB·메타데이터 checksum 검증
+        if: steps.source.outputs.has-artifact == 'true'
+        id: artifact
+        env:
+          SOURCE_REVISION: ${{ steps.source.outputs.revision }}
+          SOURCE_RUN_ID: ${{ steps.source.outputs.run-id }}
+          SOURCE_ATTEMPT: ${{ steps.source.outputs.attempt }}
+        run: python3 .github/ci/android-artifact.py verify --directory android-ci-input
+
+  sign:
+    name: 업로드 키 재서명
+    needs: source
+    if: needs.source.outputs.has-artifact == 'true' && (needs.source.outputs.publish == 'true' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    outputs:
+      artifact-name: ${{ steps.artifact.outputs.name }}
+      sha256: ${{ steps.artifact.outputs.sha256 }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: main
+          sparse-checkout: .github/ci
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: 재서명 전 AAB 받기
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: ${{ needs.source.outputs.artifact-name }}
+          path: aab
+          run-id: ${{ needs.source.outputs.run-id }}
+          github-token: ${{ github.token }}
+
+      - name: 서명 전 원본 AAB·SHA·실행 검증
+        env:
+          SOURCE_REVISION: ${{ needs.source.outputs.revision }}
+          SOURCE_RUN_ID: ${{ needs.source.outputs.run-id }}
+          SOURCE_ATTEMPT: ${{ needs.source.outputs.attempt }}
+        run: python3 .github/ci/android-artifact.py verify --directory aab
+
+      - name: AWS 인증
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: 업로드 키로 재서명
+        run: |
+          set -euo pipefail
+          umask 077
+          dir="$RUNNER_TEMP/android-upload-key"; mkdir -p "$dir"
+          trap 'rm -rf "$dir"' EXIT
+          aws secretsmanager get-secret-value --secret-id "$RELEASE_SECRET_ID" \
+            --query SecretString --output text > "$dir/secret.json"
+          for k in ANDROID_UPLOAD_KEYSTORE_B64 ANDROID_UPLOAD_STORE_PASSWORD ANDROID_UPLOAD_KEY_ALIAS ANDROID_UPLOAD_KEY_PASSWORD; do
+            [ -n "$(jq -r --arg k "$k" '.[$k] // empty' "$dir/secret.json")" ] \
+              || { echo "::error::$RELEASE_SECRET_ID 에 $k 가 없다"; exit 1; }
+          done
+          for k in ANDROID_UPLOAD_STORE_PASSWORD ANDROID_UPLOAD_KEY_PASSWORD; do echo "::add-mask::$(jq -r ".$k" "$dir/secret.json")"; done
+          jq -r .ANDROID_UPLOAD_KEYSTORE_B64 "$dir/secret.json" | base64 --decode > "$dir/upload.keystore"
+          # 일회용 서명(루트 META-INF 서명 파일) 제거 → 업로드 키로 서명
+          zip -q -d aab/app-release.aab 'META-INF/*.SF' 'META-INF/*.RSA' 'META-INF/*.EC' 'META-INF/*.DSA' 'META-INF/MANIFEST.MF' || true
+          jarsigner -keystore "$dir/upload.keystore" \
+            -storepass "$(jq -r .ANDROID_UPLOAD_STORE_PASSWORD "$dir/secret.json")" \
+            -keypass "$(jq -r .ANDROID_UPLOAD_KEY_PASSWORD "$dir/secret.json")" \
+            aab/app-release.aab "$(jq -r .ANDROID_UPLOAD_KEY_ALIAS "$dir/secret.json")" > /dev/null
+
+      - name: AWS 자격 증명 비우기
+        # configure-aws-credentials 가 이후 스텝 env 로 내보낸 값 지움. 뒤 액션이 시크릿 다시 못 읽게
+        run: for v in AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN; do echo "$v=" >> "$GITHUB_ENV"; done
+
+      - name: AAB 확인 (업로드 키)
+        run: |
+          set -euo pipefail
+          verify="$(jarsigner -verify aab/app-release.aab 2>&1 || true)"
+          grep -q '^jar verified\.' <<<"$verify" || { echo "::error::AAB 서명 검증 실패: $(head -1 <<<"$verify")"; exit 1; }
+          # Play 는 등록 업로드 키 서명만 받음. 업로드 전 지문 대조
+          sha1="$(keytool -printcert -jarfile aab/app-release.aab | sed -n 's/^[[:space:]]*SHA1: //p' | head -1)"
+          [ "$sha1" = "$ANDROID_UPLOAD_CERT_SHA1" ] \
+            || { echo "::error::업로드 키 지문이 Play 등록 값과 다르다: $sha1"; exit 1; }
+
+      - name: 아티팩트 이름
+        id: artifact
+        run: |
+          echo "name=android-signed-${{ needs.source.outputs.run-id }}-${{ needs.source.outputs.attempt }}-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
+          echo "sha256=$(sha256sum aab/app-release.aab | cut -d ' ' -f1)" >> "$GITHUB_OUTPUT"
+
+      - name: AAB 아티팩트 업로드
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ${{ steps.artifact.outputs.name }}
+          path: aab/app-release.aab
+          if-no-files-found: error
+          retention-days: 14
+          overwrite: true
+
   play-internal:
+    needs: [source, sign]
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+      pull-requests: write
+      issues: write
     name: Play 내부 테스트 업로드
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -47,19 +187,28 @@ jobs:
       # checkout 은 작업 폴더를 비우므로 아티팩트 받기보다 먼저
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
+          ref: main
           sparse-checkout: .github/ci
 
       - name: AAB 받기
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          name: ${{ inputs.artifact-name }}
+          name: ${{ needs.sign.outputs.artifact-name }}
           path: aab
 
       - name: 릴리스 이름용 짧은 커밋
         id: rev
         env:
-          REVISION: ${{ inputs.revision }}
+          REVISION: ${{ needs.source.outputs.revision }}
         run: echo "short=${REVISION:0:8}" >> "$GITHUB_OUTPUT"
+
+      - name: 서명된 AAB 전송 checksum 확인
+        env:
+          EXPECTED_SHA256: ${{ needs.sign.outputs.sha256 }}
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          test "$(sha256sum aab/app-release.aab | cut -d ' ' -f1)" = "$EXPECTED_SHA256"
 
       - name: AWS 인증 (OIDC)
         uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
@@ -78,17 +227,17 @@ jobs:
           # 이후 스텝(서드파티 액션)이 AWS 자격 증명 못 쓰게 비움
           for v in AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN; do echo "$v=" >> "$GITHUB_ENV"; done
 
-      - name: 이미 올라갔는지 확인
+      - name: Play 버전 충돌·기존 업로드 checksum 확인
         id: pre
         # 재실행 대비. 업로드 성공 뒤 후속 단계만 실패했으면 같은 versionCode 재업로드는 Play 가 거부 → 건너뜀
         env:
           PLAY_SERVICE_ACCOUNT_FILE: ${{ runner.temp }}/play-sa.json
           PLAY_PACKAGE_NAME: com.oneorthree.gromo
           TRACK: internal
-          VERSION_CODE: ${{ inputs.version-code }}
+          VERSION_CODE: ${{ needs.source.outputs.version-code }}
           EXPECTED_STATUS: ${{ vars.PLAY_INTERNAL_RELEASE_STATUS || 'completed' }}
-          PRESENCE_ONLY: '1'
-        run: python3 .github/ci/play-verify-track.py
+          AAB_FILE: aab/app-release.aab
+        run: python3 .github/ci/play-verify-bundle.py
 
       - name: Play 내부 테스트 트랙 업로드
         if: steps.pre.outputs.present != 'true'
@@ -101,7 +250,7 @@ jobs:
           track: internal
           status: ${{ vars.PLAY_INTERNAL_RELEASE_STATUS || 'completed' }}
           # 릴리스 이름 50자 제한 → 커밋 8자
-          releaseName: dev ${{ inputs.version-code }} (${{ steps.rev.outputs.short }})
+          releaseName: dev ${{ needs.source.outputs.version-code }} (${{ steps.rev.outputs.short }})
 
       - name: 업로드 확인 (internal 트랙 재조회)
         id: verify
@@ -110,15 +259,35 @@ jobs:
           PLAY_SERVICE_ACCOUNT_FILE: ${{ runner.temp }}/play-sa.json
           PLAY_PACKAGE_NAME: com.oneorthree.gromo
           TRACK: internal
-          VERSION_CODE: ${{ inputs.version-code }}
+          VERSION_CODE: ${{ needs.source.outputs.version-code }}
           EXPECTED_STATUS: ${{ vars.PLAY_INTERNAL_RELEASE_STATUS || 'completed' }}
         run: |
           python3 .github/ci/play-verify-track.py
           echo "status=$EXPECTED_STATUS" >> "$GITHUB_OUTPUT"
 
+      - name: 게시된 AAB checksum 재조회
+        env:
+          PLAY_SERVICE_ACCOUNT_FILE: ${{ runner.temp }}/play-sa.json
+          PLAY_PACKAGE_NAME: com.oneorthree.gromo
+          VERSION_CODE: ${{ needs.source.outputs.version-code }}
+          AAB_FILE: aab/app-release.aab
+          REQUIRE_PRESENT: '1'
+        run: python3 .github/ci/play-verify-bundle.py
+
       - name: Play 키 지우기
         if: always()
         run: rm -f "$RUNNER_TEMP/play-sa.json"
+
+      - name: 성공한 실제 게시 SHA 기록
+        env:
+          PUBLISHED_REVISION: ${{ needs.source.outputs.revision }}
+        run: python3 .github/ci/app-change-plan.py --platform android --record
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: app-publication
+          path: app-publication.json
+          retention-days: 90
+          overwrite: true
 
       - name: 배포된 PR 에 표시
         # 커밋의 머지 PR 찾아 표시. PR 없으면 건너뜀.
@@ -126,8 +295,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           STATUS: ${{ steps.verify.outputs.status }}
-          REVISION: ${{ inputs.revision }}
-          VERSION_CODE: ${{ inputs.version-code }}
+          REVISION: ${{ needs.source.outputs.revision }}
+          VERSION_CODE: ${{ needs.source.outputs.version-code }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
@@ -160,6 +329,6 @@ jobs:
           {
             echo "## Android CD — Play 내부 테스트"
             echo "- 패키지: \`com.oneorthree.gromo\` · 트랙: internal"
-            echo "- versionCode: ${{ inputs.version-code }} · 커밋: \`${{ inputs.revision }}\`"
+            echo "- versionCode: ${{ needs.source.outputs.version-code }} · 커밋: \`${{ needs.source.outputs.revision }}\`"
             echo "- 결과: ${{ job.status }}"
           } >> "$GITHUB_STEP_SUMMARY"

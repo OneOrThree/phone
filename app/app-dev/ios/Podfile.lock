@@ -16,6 +16,8 @@ PODS:
     - PromisesObjC (~> 2.4)
     - PromisesSwift (~> 2.4)
     - RecaptchaInterop (~> 101.0)
+  - CatusAssetCache (1.0.0):
+    - ExpoModulesCore
   - DatadogCore (3.16.0):
     - DatadogInternal (= 3.16.0)
   - DatadogCrashReporting (3.16.0):
@@ -164,6 +166,8 @@ PODS:
     - ExpoModulesJSI
     - ExpoModulesWorklets
     - RNWorklets
+  - ExpoNotifications (57.0.17):
+    - ExpoModulesCore
   - ExpoScreenOrientation (57.0.2):
     - ExpoModulesCore
     - hermes-engine
@@ -222,18 +226,62 @@ PODS:
     - Yoga
   - EXUpdatesInterface (57.0.2):
     - ExpoModulesCore
+  - FBAEMKit (18.1.1):
+    - FBSDKCoreKit_Basics (= 18.1.1)
   - FBLazyVector (0.86.0)
+  - FBSDKCoreKit (18.1.1):
+    - FBAEMKit (= 18.1.1)
+    - FBSDKCoreKit_Basics (= 18.1.1)
+  - FBSDKCoreKit_Basics (18.1.1)
+  - FirebaseCore (12.19.0):
+    - FirebaseCoreInternal (~> 12.19.0)
+    - GoogleUtilities/Environment (~> 8.1)
+    - GoogleUtilities/Logger (~> 8.1)
+  - FirebaseCoreInternal (12.19.0):
+    - "GoogleUtilities/NSData+zlib (~> 8.1)"
+  - FirebaseInstallations (12.19.0):
+    - FirebaseCore (~> 12.19.0)
+    - GoogleUtilities/Environment (~> 8.1)
+    - GoogleUtilities/UserDefaults (~> 8.1)
+    - PromisesObjC (~> 2.4)
+  - FirebaseMessaging (12.19.0):
+    - FirebaseCore (~> 12.19.0)
+    - FirebaseInstallations (~> 12.19.0)
+    - GoogleDataTransport (~> 10.1)
+    - GoogleUtilities/AppDelegateSwizzler (~> 8.1)
+    - GoogleUtilities/Environment (~> 8.1)
+    - GoogleUtilities/Reachability (~> 8.1)
+    - GoogleUtilities/UserDefaults (~> 8.1)
+    - nanopb (~> 3.30910.0)
+  - GoogleDataTransport (10.1.1):
+    - nanopb (~> 3.30910.0)
+    - PromisesObjC (~> 2.4)
   - GoogleSignIn (9.2.0):
     - AppAuth (~> 2.1)
     - AppCheckCore (~> 11.0)
     - GTMAppAuth (~> 5.0)
     - GTMSessionFetcher/Core (~> 3.3)
+  - GoogleUtilities/AppDelegateSwizzler (8.1.2):
+    - GoogleUtilities/Environment
+    - GoogleUtilities/Logger
+    - GoogleUtilities/Network
+    - GoogleUtilities/Privacy
   - GoogleUtilities/Environment (8.1.2):
     - GoogleUtilities/Privacy
   - GoogleUtilities/Logger (8.1.2):
     - GoogleUtilities/Environment
     - GoogleUtilities/Privacy
+  - GoogleUtilities/Network (8.1.2):
+    - GoogleUtilities/Logger
+    - "GoogleUtilities/NSData+zlib"
+    - GoogleUtilities/Privacy
+    - GoogleUtilities/Reachability
+  - "GoogleUtilities/NSData+zlib (8.1.2)":
+    - GoogleUtilities/Privacy
   - GoogleUtilities/Privacy (8.1.2)
+  - GoogleUtilities/Reachability (8.1.2):
+    - GoogleUtilities/Logger
+    - GoogleUtilities/Privacy
   - GoogleUtilities/UserDefaults (8.1.2):
     - GoogleUtilities/Logger
     - GoogleUtilities/Privacy
@@ -269,6 +317,11 @@ PODS:
   - LineSDKSwift (5.16.1):
     - LineSDKSwift/Core (= 5.16.1)
   - LineSDKSwift/Core (5.16.1)
+  - nanopb (3.30910.0):
+    - nanopb/decode (= 3.30910.0)
+    - nanopb/encode (= 3.30910.0)
+  - nanopb/decode (3.30910.0)
+  - nanopb/encode (3.30910.0)
   - OpenTelemetry-Swift-Api (2.5.1)
   - PostHog (3.88.2)
   - posthog-react-native-plugin (2.12.6):
@@ -2546,6 +2599,7 @@ PODS:
 
 DEPENDENCIES:
   - airbridge-react-native-sdk (from `../node_modules/airbridge-react-native-sdk`)
+  - CatusAssetCache (from `../modules/catus-asset-cache/ios`)
   - "DatadogSDKReactNative (from `../node_modules/@datadog/mobile-react-native`)"
   - EASClient (from `../node_modules/expo-eas-client/ios`)
   - EXApplication (from `../node_modules/expo-application/ios`)
@@ -2570,6 +2624,7 @@ DEPENDENCIES:
   - ExpoModulesJSI (from `../node_modules/expo-modules-jsi/apple`)
   - ExpoModulesWorklets (from `../node_modules/expo-modules-core/ExpoModulesWorklets.podspec`)
   - ExpoModulesWorkletsAdapter (from `../node_modules/expo-modules-core`)
+  - ExpoNotifications (from `../node_modules/expo-notifications/ios`)
   - ExpoScreenOrientation (from `../node_modules/expo-screen-orientation/ios`)
   - ExpoSecureStore (from `../node_modules/expo-secure-store/ios`)
   - ExpoVideo (from `../node_modules/expo-video/ios/ExpoVideo.podspec`)
@@ -2577,6 +2632,8 @@ DEPENDENCIES:
   - EXUpdates (from `../node_modules/expo-updates/ios`)
   - EXUpdatesInterface (from `../node_modules/expo-updates-interface/ios`)
   - FBLazyVector (from `../node_modules/react-native/Libraries/FBLazyVector`)
+  - FBSDKCoreKit (~> 18.1.1)
+  - FirebaseMessaging (~> 12.19.0)
   - hermes-engine (from `../node_modules/react-native/sdks/hermes-engine/hermes-engine.podspec`)
   - "posthog-react-native-plugin (from `../node_modules/@posthog/react-native-plugin`)"
   - RCTDeprecation (from `../node_modules/react-native/ReactApple/Libraries/RCTFoundation/RCTDeprecation`)
@@ -2678,6 +2735,14 @@ SPEC REPOS:
     - DatadogRUM
     - DatadogTrace
     - DatadogWebViewTracking
+    - FBAEMKit
+    - FBSDKCoreKit
+    - FBSDKCoreKit_Basics
+    - FirebaseCore
+    - FirebaseCoreInternal
+    - FirebaseInstallations
+    - FirebaseMessaging
+    - GoogleDataTransport
     - GoogleSignIn
     - GoogleUtilities
     - GTMAppAuth
@@ -2687,6 +2752,7 @@ SPEC REPOS:
     - KakaoSDKUser
     - KSCrash
     - LineSDKSwift
+    - nanopb
     - OpenTelemetry-Swift-Api
     - PostHog
     - PromisesObjC
@@ -2697,6 +2763,8 @@ SPEC REPOS:
 EXTERNAL SOURCES:
   airbridge-react-native-sdk:
     :path: "../node_modules/airbridge-react-native-sdk"
+  CatusAssetCache:
+    :path: "../modules/catus-asset-cache/ios"
   DatadogSDKReactNative:
     :path: "../node_modules/@datadog/mobile-react-native"
   EASClient:
@@ -2745,6 +2813,8 @@ EXTERNAL SOURCES:
     :podspec: "../node_modules/expo-modules-core/ExpoModulesWorklets.podspec"
   ExpoModulesWorkletsAdapter:
     :path: "../node_modules/expo-modules-core"
+  ExpoNotifications:
+    :path: "../node_modules/expo-notifications/ios"
   ExpoScreenOrientation:
     :path: "../node_modules/expo-screen-orientation/ios"
   ExpoSecureStore:
@@ -2937,6 +3007,7 @@ SPEC CHECKSUMS:
   Alamofire: f36a35757af4587d8e4f4bfa223ad10be2422b8c
   AppAuth: ef4da5a3fc2e10b90c09a0a94a9baeaedc0341d5
   AppCheckCore: e215d35177a9cf469927863e69c13e220df32a8b
+  CatusAssetCache: 1276b2e178c53e01c2c05c7d9dd2dd7f1c62fa0c
   DatadogCore: 7eed8fbaaa1575503c389f343c230858343c8baf
   DatadogCrashReporting: 04f3c3a5bfd9921aef4d44b4ab80accb39c84ddb
   DatadogFlags: 033cf48e769c271843e77068c015519880011866
@@ -2965,27 +3036,37 @@ SPEC CHECKSUMS:
   ExpoKeepAwake: c26f14275017370cc8a4b7b43a0e23361f2053a5
   ExpoLocalization: f204d4ca963bfcea932068a978247878f664f5a4
   ExpoLogBox: 80957303325cd4439137765c90a87d7f22aaf2ff
-  ExpoModulesCore: 035c5dafd4fa0478cb7fada984e6d0da5a0c4ff0
+  ExpoModulesCore: e24850ddfb355c0feed25f58ce1eb0e1b42835a6
   ExpoModulesJSI: 9df8e7c9719f59e8c001ec33611774137fc1484a
   ExpoModulesWorklets: 767d05688faa3bbf38b19c08abca031b5328093a
   ExpoModulesWorkletsAdapter: 13e111038fec9c5f2e92c16481ba928fa4bf5414
+  ExpoNotifications: 42cba361a6b378e6e54b795f55932e4eba058829
   ExpoScreenOrientation: 29f306f9e1a37b304862310ceb9664866f653ebd
   ExpoSecureStore: ff1fd5e073957417ba8f9dec0bebcbd55a60e747
   ExpoVideo: 31d5dc617d913808aeba05c3ab900712637b0e47
   EXStructuredHeaders: 07c88ee9f7dfcbafeaaab0e78ea276dfe0eb332e
   EXUpdates: 0b001ff17e727d89c7dc832b080a2a675268eb9c
   EXUpdatesInterface: 4c96533f11c8cefe879bd506564cc2d537f56804
+  FBAEMKit: fbb0a50e13109400d0615e7630a0db26ec6b8206
   FBLazyVector: b3e7ad108f0d882e30445c5527d774e3fd432f3d
+  FBSDKCoreKit: 0063014b3b1f7e975e70b60232b0cf8003839746
+  FBSDKCoreKit_Basics: f4a1e0f38769eb71abaf6395b85e015318fcda49
+  FirebaseCore: c990214798d7c568ad436a15ba7da25c7a278c9a
+  FirebaseCoreInternal: 656b1c2fd5a1c5976183dc54b73deda78fb26ee3
+  FirebaseInstallations: f70a49eed611f5602f373e40974b3b01556ac217
+  FirebaseMessaging: c15f48126adbe8b4d3238a5e1fa24bab3ad3e472
+  GoogleDataTransport: a24e58982ab3ba2f64d79613e027fe7f57e88539
   GoogleSignIn: e449a40a92e9f2eea56e98b5214d13725dc5a00a
   GoogleUtilities: 766ace00c6b10d8148408f329d10c4f051931850
   GTMAppAuth: 217a876b249c3c585a54fd6f73e6b58c4f5c4238
   GTMSessionFetcher: 5aea5ba6bd522a239e236100971f10cb71b96ab6
-  hermes-engine: 83b9e0407272b71cab6c9676dc20c4fce62b13df
+  hermes-engine: 2b054e3cbe0dfdad348c99040024130d5ab796b8
   KakaoSDKAuth: 569b377eda622d93d4575240b8031cd658163eef
   KakaoSDKCommon: d57127c339fc79e73aa8b236a4c77211c29924f1
   KakaoSDKUser: 043bcd7e91454ebf3bf64f150c430e6f65f0a08d
   KSCrash: 8c4464fd5da7de520f2ce4a00fdf63f169a80f18
   LineSDKSwift: 510e2842f86816cb26e4ab227a004320d844cb12
+  nanopb: fad817b59e0457d11a5dfbde799381cd727c1275
   OpenTelemetry-Swift-Api: 3be9043f6288eb4ac3cbe7548b5bd45fb4ed5849
   PostHog: b022f9212b67fadbc2ebc52d34451d668c6335a6
   posthog-react-native-plugin: a9bee70f036afe5b7eba9e38dd0fe97c13aa35bf
@@ -3077,6 +3158,6 @@ SPEC CHECKSUMS:
   RNWorklets: 43af89f696342f91118a2f1f3a879056e2f47331
   Yoga: fe50ab299e578f397fef753cf309c6703a4db29b
 
-PODFILE CHECKSUM: 8c5301061c085065bcaec1b1e7eeaf88864eaac5
+PODFILE CHECKSUM: d8f6b0ba2418cd50ac1941a9bbb08ed93b54289f
 
 COCOAPODS: 1.16.2

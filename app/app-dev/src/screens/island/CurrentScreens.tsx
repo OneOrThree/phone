@@ -1,3 +1,4 @@
+import { DeveloperNoticesScreen } from '@/screens/island/DeveloperNoticesScreen';
 import { useAccountGuides } from '@/screens/island/useAccountGuides';
 import { useConstructionAnnouncements } from '@/screens/island/useConstructionAnnouncements';
 import { BuildingGuide, BuildingCompletionGuide } from '@/screens/island/NpcGuide';
@@ -5,11 +6,16 @@ import { AndroidAppPicker } from '@/components/AndroidAppPicker';
 import { screenTimeNative } from '@/services/ScreenTimeModule';
 import { PermissionsAndroid } from 'react-native';
 import { VisitorBoard } from '@/screens/island/VisitorBoard';
-import { useVisitorJoin } from '@/screens/island/useVisitorJoin';
+import { confirmLeaveVisit, useVisitorJoin } from '@/screens/island/useVisitorJoin';
 import { sessionGeneration } from '@/services/api/session';
-import { hasBundledAudio } from '@/constants/audio';
+import {
+  BUNDLED_AUDIO_TRACK_IDS,
+  DEFAULT_FREE_AUDIO_TRACK_IDS,
+  hasBundledAudio,
+} from '@/constants/audio';
 import { componentTokens, semanticTokens } from '@/design-system/tokens';
-import { errorTextOr, t } from '@/i18n';
+import { errorTextOr, getLocale, t } from '@/i18n';
+import { ownCatName } from '@/i18n/format';
 import { findReachableTutorialSpot } from '@/services/tutorial';
 import {
   isTutorialExperience,
@@ -17,6 +23,7 @@ import {
   tutorialExperienceAction,
 } from '@/services/tutorialExperience';
 import { syncAndroidScreenTime } from '@/services/screentimeSync';
+import { pushPermissionStatus, requestPushPermission, type PushPermission } from '@/services/push';
 import { Ticking } from '@/hooks/useNow';
 import React, { useEffect, useRef, useState } from 'react';
 import {
@@ -27,6 +34,7 @@ import {
   Keyboard,
   Linking,
   Modal,
+  PanResponder,
   Platform,
   Pressable,
   ScrollView,
@@ -34,6 +42,16 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import {
+  Circle as SvgCircle,
+  Defs as SvgDefs,
+  LinearGradient as SvgLinearGradient,
+  Path as SvgPath,
+  Polygon as SvgPolygon,
+  Rect as SvgRect,
+  Stop as SvgStop,
+  Svg,
+} from 'react-native-svg';
 import {
   State,
   Building,
@@ -58,6 +76,8 @@ import {
   islandWeeklyAverage,
   hoursMinutes,
   trackNames,
+  products,
+  canBuy,
   SERVER_VISIT_ROUTES,
 } from '@/services/model';
 import { useAppLayout } from '@/utils/layout';
@@ -75,6 +95,7 @@ import {
   fishingSpotsForActors,
   useFishingPeerActors,
   type FishingPeer,
+  type FishingPeerActor,
 } from '@/screens/focus/useFishingPeerActors';
 import { GoldenFishCutscene } from '@/screens/focus/GoldenFishCutscene';
 import { RestGroup } from '@/screens/focus/RestGroup';
@@ -85,6 +106,7 @@ import {
   FiButton,
   FiModal,
   FishingActor,
+  FishingCatArt,
   FishingIsland,
   FishingPeerActorView,
   FishingWalker,
@@ -92,26 +114,22 @@ import {
   a11yHidden,
   anchorCard,
   labelBox,
-  nearGram,
-  nearRaft,
-  occupied,
-  DEFAULT_CATCH_PLACEMENT,
   DEFAULT_SPOT,
   LANDING,
   OUTLINE,
-  PEER_SPOTS,
   castSpot,
-  fishingCatchPlacement,
   fishingPeerCatchVisible,
   fiCard,
   fiTitle,
   fishingGrid,
   hms,
+  DEFAULT_CATCH_PLACEMENT,
+  seatProblem,
 } from '@/screens/focus/FishingIsland';
 import { Text, TextInput } from '@/design-system/typography';
-import { Point, landPath, onLand } from '@/utils/world-grid';
+import { Point, landPath, nearestLand, onLand } from '@/utils/world-grid';
 import { RedesignScreens } from '@/screens/island/Screens';
-import { outfitOf } from '@/components/CatOutfitLayers';
+import { outfitOf, type Outfit } from '@/components/CatOutfitLayers';
 import { FinalIsland } from '@/screens/island/WorldMap';
 import {
   GuideBox,
@@ -121,6 +139,7 @@ import {
   useSpotlightTarget,
 } from '@/screens/island/NpcGuide';
 import { useBoardHomeIndicator } from '@/screens/island/useBoardHomeIndicator';
+import { useShop } from '@/screens/island/useShop';
 import { CatSprite } from '@/components/CatSprite';
 import { HOME_QUEST_LIST_DETAIL, pendingQuestRewards } from '@/screens/island/HomeQuestIndicator';
 import {
@@ -138,6 +157,7 @@ import {
   Strip,
   Toggle,
   Overlay,
+  NavBtn,
 } from '@/design-system/patterns';
 import { IslandSheet, IslandPopup } from '@/screens/island/IslandSheet';
 import { RaftDestinations } from '@/screens/island/RaftDestinations';
@@ -150,10 +170,14 @@ import { useMagazineToday } from '@/screens/magazine/useMagazineToday';
 import { usePromotionNewsToast } from '@/screens/magazine/usePromotionNewsToast';
 import { mockFlags } from '@/services/api/magazineMock';
 import { isMockMode } from '@/services/demoMode';
+import { josa } from '@/i18n/format';
 import { InteriorRoute } from '@/screens/interiors/BuildingInteriors';
+import { IslandChatSheet } from '@/screens/island/IslandChatSheet';
+import { useIslandChat } from '@/screens/island/useIslandChat';
 import { Library } from '@/screens/island/Library';
 import { Hall } from '@/screens/island/Hall';
 import { useFriendsScreen, type FriendsScreenState } from '@/screens/island/useFriendsScreen';
+import { CatInfoPopup, FriendActionContext } from '@/screens/island/CatInfoPopup';
 import { BlockedUsersScreen } from '@/screens/island/BlockedUsersScreen';
 import {
   isScreenTimeAvailable,
@@ -265,7 +289,9 @@ function Sheet({
 
 export function CurrentScreens({ e }: any) {
   const friendsRouteActive = e.route === 'friends' || e.route === 'friendSearch';
-  const friendsSafetyRouteActive = friendsRouteActive || e.route === 'boat' || e.route === 'home';
+  // 바다 표류 HUD(GROMO-2404)도 홈처럼 요청 배지를 보여 같은 freshness 경계에 둔다
+  const friendsSafetyRouteActive =
+    friendsRouteActive || e.route === 'boat' || e.route === 'home' || e.route === 'sea';
   const serverIslands = e.islands;
   const dispatch = e.dispatch;
   const friendsScreen = useFriendsScreen({
@@ -384,7 +410,17 @@ export function CurrentScreens({ e }: any) {
   if (owner && guides.data?.focusDone && e.route === 'guide') return null;
   return (
     <>
-      <CurrentScreensContent e={{ ...e, go, friendsScreen }} />
+      {/* 다른 고양이 정보창(GROMO-2474)의 친구 행동 — 친구 관리와 같은 서버 상태, 목업은 로컬 친구 목록 */}
+      <FriendActionContext.Provider
+        value={{
+          friendsScreen: serverIslands ? friendsScreen : null,
+          conversion: e.conversion,
+          friends: e.state.friends,
+          dispatch,
+        }}
+      >
+        <CurrentScreensContent e={{ ...e, go, friendsScreen }} />
+      </FriendActionContext.Provider>
       {pending && !guides.data && (
         <Modal
           transparent
@@ -504,6 +540,13 @@ function CurrentScreensContent({ e }: any) {
     markRead: ['board', 'notice'].includes(r),
     readVersion: boardReadVersion,
   });
+  // 우리 섬 채팅방(GROMO-2499) — 우체통 밖으로 꺼냈다. 서버 모드의 내 섬에서만 읽고, 구경 중에는 부르지 않는다.
+  // 홈 왼쪽 아래 최근 채팅 줄(GROMO-2501)도 같은 훅을 써서 홈 ↔ 채팅방을 오갈 때 다시 불러오지 않는다
+  const islandChat = useIslandChat({
+    islandId:
+      e.islands && !state.visitingIslandId ? (state.serverIslands?.currentIslandId ?? null) : null,
+    active: r === 'chat' || r === 'home',
+  });
   const rewardIslandId = r === 'quest' && e.detail === HOME_QUEST_LIST_DETAIL ? i.id : undefined;
   const rewardModalOpen =
     !state.visitingIslandId && pendingQuestRewards(state.rewards, rewardIslandId).length > 0;
@@ -580,6 +623,7 @@ function CurrentScreensContent({ e }: any) {
   if (r === 'seaMagazine')
     return (
       <MagazineReader
+        key={e.detail}
         e={e}
         place="SEA"
         background={
@@ -592,11 +636,21 @@ function CurrentScreensContent({ e }: any) {
         }
       />
     );
+  // 섬 없음 안내는 회색 단색 대신 바다 장면 위에 띄운다(GROMO-2412). 버튼이 갈 곳을 말하니 부연 문장은 두지 않는다
   if (!joined && !state.visitingIslandId && memberRoutes.includes(r))
     return (
-      <Overlay close={() => e.reset('sea')}>
+      <Overlay
+        close={() => e.reset('sea')}
+        background={
+          <Image
+            testID="no-island-background"
+            source={seaAssets.background}
+            resizeMode="cover"
+            style={noIslandScene.fill}
+          />
+        }
+      >
         <Txt kind="h17">가입한 섬이 없어요</Txt>
-        <Txt kind="meta">바다에서 머물 섬을 찾아보세요.</Txt>
         <Btn title="바다로 가기" onPress={() => e.reset('sea')} />
       </Overlay>
     );
@@ -664,7 +718,6 @@ function CurrentScreensContent({ e }: any) {
     tower: 'tower',
     explore: 'tower',
     mail: 'mail',
-    chat: 'mail',
     friendMail: 'mail',
     shop: 'shop',
     product: 'shop',
@@ -694,7 +747,15 @@ function CurrentScreensContent({ e }: any) {
         }
       >
         <Pic id={`bld/${buildingArt[required]}`} w={100} />
-        <Txt kind="h17">{t('home.lock.missing', { building: buildingNames[required] })}</Txt>
+        <Txt kind="h17">
+          {t('home.lock.missing', {
+            // 한국어는 건물명 받침에 맞춰 이/가(전망대가·축음기가). 영어 단어에는 조사를 붙이지 않는다
+            building:
+              getLocale() === 'ko'
+                ? josa(buildingNames[required], '이', '가')
+                : buildingNames[required],
+          })}
+        </Txt>
         <Txt kind="meta">
           {required === 'library' ? t('home.lock.libraryLocked') : t('home.lock.lockedGeneric')}
         </Txt>
@@ -774,8 +835,28 @@ function CurrentScreensContent({ e }: any) {
         {!state.visitingIslandId && <RewardModal e={e} rewardIslandId={rewardIslandId} />}
       </>
     );
-  if (['mail', 'chat', 'friendMail'].includes(r))
+  if (['mail', 'friendMail'].includes(r))
     return <InteriorRoute e={{ ...e, magazineToday: magazine.today }} />;
+  // 우리 섬 채팅방 — 우체통이 없어도 섬 홈 위 시트로 연다(GROMO-2499). 뒤 섬 홈은 스크린리더에서 숨긴다
+  if (r === 'chat')
+    return (
+      <>
+        <View
+          style={StyleSheet.absoluteFill}
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
+        >
+          <FinalIsland
+            state={state}
+            go={e.go}
+            build={e.build}
+            showActions={false}
+            boardStatus={boardStatus}
+          />
+        </View>
+        <IslandChatSheet e={e} chat={islandChat} />
+      </>
+    );
   if (['tower', 'explore'].includes(r)) return <Tower e={e} />;
   if (r === 'raft') return <RaftDestinations e={e} />;
   if (r === 'telescope') return <Telescope e={e} />;
@@ -784,6 +865,7 @@ function CurrentScreensContent({ e }: any) {
   if (r === 'magazine')
     return (
       <MagazineReader
+        key={e.detail}
         e={e}
         host={host && !state.visitingIslandId}
         background={
@@ -807,8 +889,9 @@ function CurrentScreensContent({ e }: any) {
       <ScreenTimePermission e={e} />
     );
   if (r === 'screenTimeApps') return <MeasuredAppPicker e={e} />;
+  if (r === 'developerNotices' || r === 'developerNotice') return <DeveloperNoticesScreen e={e} />;
   if (r === 'blockedUsers' && e.islands) return <BlockedUsersScreen e={e} />;
-  return <RedesignScreens e={{ ...screenE, magazineToday: magazine.today }} />;
+  return <RedesignScreens e={{ ...screenE, magazineToday: magazine.today, islandChat }} />;
 }
 
 async function openScreenTimeSettings(notify: (message: string) => void) {
@@ -819,7 +902,7 @@ async function openScreenTimeSettings(notify: (message: string) => void) {
       await Linking.openSettings();
     }
   } catch {
-    notify('설정을 열지 못했어요. 기기의 설정 앱에서 권한을 확인해 주세요.');
+    notify(t('settings.permissions.errors.settingsOpen'));
   }
 }
 
@@ -827,13 +910,193 @@ function ScreenTimePermissionHelp() {
   return (
     <Txt kind="meta">
       {Platform.OS === 'android'
-        ? '거절했거나 요청을 닫았어도 다시 연결할 수 있어요. 사용 정보 접근 설정에서 catus를 선택하고 허용해 주세요. 앱으로 돌아오면 권한을 다시 확인해요.'
-        : '거절했거나 요청을 닫았어도 아래에서 다시 요청할 수 있어요. 허용 창에서 승인과 기기 인증을 마쳐 주세요. 창이 열리지 않으면 시스템 설정에서 이 앱의 스크린타임 접근 권한을 확인해 주세요. 해당 항목이 없으면 앱으로 돌아와 다시 요청해 주세요.'}
+        ? t('settings.permissions.help.android')
+        : t('settings.permissions.help.ios')}
     </Txt>
   );
 }
 
+const focusBlockingIntroStyles = StyleSheet.create({
+  characterStage: {
+    position: 'relative',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  character: {
+    width: '100%',
+    height: '100%',
+  },
+  appLogo: {
+    position: 'absolute',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: componentTokens.focusBlockingIntro.logoRadius,
+    borderWidth: semanticTokens.stroke.strong,
+    borderColor: C.brown,
+    backgroundColor: C.paper,
+    boxShadow: componentTokens.focusBlockingIntro.logoShadow,
+  },
+  title: { paddingRight: semanticTokens.size.tapMin },
+  guide: { position: 'relative' },
+});
+
+function InstagramLogo() {
+  return (
+    <Svg width="68%" height="68%" viewBox="0 0 48 48">
+      <SvgDefs>
+        <SvgLinearGradient id="instagram-gradient" x1="4" y1="44" x2="44" y2="4">
+          <SvgStop offset="0" stopColor="#FFD600" />
+          <SvgStop offset="0.48" stopColor="#FF0169" />
+          <SvgStop offset="1" stopColor="#D300C5" />
+        </SvgLinearGradient>
+      </SvgDefs>
+      <SvgRect width="48" height="48" rx="12" fill="url(#instagram-gradient)" />
+      <SvgRect
+        x="11"
+        y="11"
+        width="26"
+        height="26"
+        rx="8"
+        fill="none"
+        stroke="#FFF"
+        strokeWidth="3.5"
+      />
+      <SvgCircle cx="24" cy="24" r="6.5" fill="none" stroke="#FFF" strokeWidth="3.5" />
+      <SvgCircle cx="33" cy="15" r="2.2" fill="#FFF" />
+    </Svg>
+  );
+}
+
+function YouTubeLogo() {
+  return (
+    <Svg width="72%" height="72%" viewBox="0 0 48 48">
+      <SvgRect x="3" y="9" width="42" height="30" rx="9" fill="#FF0033" />
+      <SvgPolygon points="20,17 33,24 20,31" fill="#FFF" />
+    </Svg>
+  );
+}
+
+const TIKTOK_PATH =
+  'M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-.93-.01 2.92.01 5.84-.02 8.75-.08 1.4-.54 2.79-1.35 3.94-1.31 1.92-3.58 3.17-5.91 3.21-1.43.08-2.86-.31-4.08-1.03-2.02-1.19-3.44-3.37-3.65-5.71-.02-.5-.03-1-.01-1.49.18-1.9 1.12-3.72 2.58-4.96 1.66-1.44 3.98-2.13 6.15-1.72.02 1.48-.04 2.96-.04 4.44-.99-.32-2.15-.23-3.02.37-.63.41-1.11 1.04-1.36 1.75-.21.51-.15 1.07-.14 1.61.24 1.64 1.82 3.02 3.5 2.87 1.12-.01 2.19-.66 2.77-1.61.19-.33.4-.67.41-1.06.1-1.79.06-3.57.07-5.36.01-4.03-.01-8.05.02-12.07z';
+
+function TikTokLogo() {
+  return (
+    <Svg width="66%" height="66%" viewBox="-2 -2 28 28">
+      <SvgPath d={TIKTOK_PATH} fill="#25F4EE" transform="translate(-0.65 0.55)" />
+      <SvgPath d={TIKTOK_PATH} fill="#FE2C55" transform="translate(0.65 0)" />
+      <SvgPath d={TIKTOK_PATH} fill="#121212" />
+    </Svg>
+  );
+}
+
+function FloatingAppLogo({
+  testID,
+  size,
+  style,
+  children,
+}: {
+  testID: string;
+  size: number;
+  style: any;
+  children: React.ReactNode;
+}) {
+  return (
+    <View
+      testID={testID}
+      accessible={false}
+      importantForAccessibility="no-hide-descendants"
+      style={[focusBlockingIntroStyles.appLogo, { width: size, height: size }, style]}
+    >
+      {children}
+    </View>
+  );
+}
+
+export function FocusBlockingIntro({
+  e,
+}: {
+  e: {
+    onClose: () => void;
+    onLater: () => void;
+    onAllow: () => void;
+    busy?: boolean;
+  };
+}) {
+  const layout = useAppLayout();
+  const characterSize = Math.min(
+    layout.compact ? 160 : 288,
+    layout.width - semanticTokens.spacing.page * 2,
+    layout.height * 0.34,
+  );
+  const logoSize = layout.compact ? 42 : 56;
+  return (
+    <IslandPopup onClose={e.onClose}>
+      <Txt kind="h17" accessibilityRole="header" style={focusBlockingIntroStyles.title}>
+        {t('settings.permissions.focusBlockingIntro.title')}
+      </Txt>
+      <View
+        style={[
+          focusBlockingIntroStyles.characterStage,
+          { minHeight: Math.max(characterSize, layout.height * (layout.compact ? 0.3 : 0.4)) },
+        ]}
+      >
+        <FloatingAppLogo
+          testID="focus-blocking-logo-instagram"
+          size={logoSize}
+          style={{ left: 4, top: '12%', transform: [{ rotate: '-8deg' }] }}
+        >
+          <InstagramLogo />
+        </FloatingAppLogo>
+        <FloatingAppLogo
+          testID="focus-blocking-logo-youtube"
+          size={logoSize}
+          style={{ right: 2, top: '24%', transform: [{ rotate: '7deg' }] }}
+        >
+          <YouTubeLogo />
+        </FloatingAppLogo>
+        <FloatingAppLogo
+          testID="focus-blocking-logo-tiktok"
+          size={logoSize}
+          style={{ left: 20, bottom: '10%', transform: [{ rotate: '-5deg' }] }}
+        >
+          <TikTokLogo />
+        </FloatingAppLogo>
+        <Image
+          testID="focus-blocking-character"
+          source={art['cat/black/phone']}
+          accessible={false}
+          resizeMode="contain"
+          style={[
+            focusBlockingIntroStyles.character,
+            { width: characterSize, height: characterSize },
+          ]}
+        />
+      </View>
+      <GuideBox
+        character={null}
+        text={t('settings.permissions.focusBlockingIntro.dialogue')}
+        style={focusBlockingIntroStyles.guide}
+        onSkip={e.onLater}
+        skipTitle={t('settings.permissions.focusBlockingIntro.later')}
+      >
+        <Btn
+          small
+          title={
+            e.busy
+              ? t('settings.permissions.gate.requesting')
+              : t('settings.permissions.focusBlockingIntro.allow')
+          }
+          disabled={e.busy}
+          onPress={e.onAllow}
+        />
+      </GuideBox>
+    </IslandPopup>
+  );
+}
+
 function AppPermissionManager({ e }: any) {
+  const supportsFocusShield =
+    Platform.OS !== 'android' || screenTimeNative?.supportsFocusShield !== false;
   const [status, setStatus] = useState<ScreenTimeAuthorization | 'loading'>('loading');
   const [selection, setSelection] = useState<ScreenTimeSelection | null>(null);
   const [selectionStatus, setSelectionStatus] = useState<'loading' | 'ready' | 'error'>('loading');
@@ -842,32 +1105,76 @@ function AppPermissionManager({ e }: any) {
   const [allowedCount, setAllowedCount] = useState(0);
   const [allowedPicker, setAllowedPicker] = useState(false);
   const [overlayGranted, setOverlayGranted] = useState(false);
+  // 알림 권한(GROMO-2526) — iOS 이고 푸시 브리지가 든 바이너리에서만 `unavailable` 이 아니다. 아니면 알림 섹션을 그리지 않는다.
+  const [pushPermission, setPushPermission] = useState<PushPermission>('unavailable');
+  // 알림 행은 알림을 다시 켜는 자리다 — 권한이 허용됐는데 앱 설정 「알림」이 꺼져 있으면 함께 켠다(꺼진 채로는 푸시 동기화가
+  // 등록하지 않는다). 팝업·시스템 설정을 다녀온 뒤(앞선 렌더의 클로저)에도 최신 값을 보도록 설정 값은 ref 로 읽는다.
+  const pushSettingOff = useRef(false);
+  pushSettingOff.current = e.state.settings.notifications === false;
+  // 알림 행에서 시스템 설정으로 나갔는가 — 돌아와 다시 읽은 권한이 허용이면 앱 설정도 켠다(한 번뿐, 어느 쪽이든 지운다).
+  const pushSettingsOpened = useRef(false);
+  // 권한 읽기마다 번호를 매긴다(읽기를 시작할 때 올린다) — 표시는 가장 새 읽기의 결과만 정한다(옛 결과는 버린다). 눌러서 시스템
+  // 설정으로 나간 때의 번호도 적어 두고, 그보다 새로 시작한 읽기만 「나감」 표시를 소비한다 — 나가기 전에 시작한 읽기가 나가
+  // 있는 동안 늦게 끝나도(거부) 표시를 지우지 못해, 돌아와 읽은 허용이 앱 설정을 켠다.
+  const pushReadSeq = useRef(0);
+  const pushOpenedAtSeq = useRef(0);
+  const enablePushSetting = () => {
+    if (pushSettingOff.current) e.dispatch({ type: 'SETTING', key: 'notifications', value: true });
+  };
   const unavailable = !isScreenTimeAvailable || status === 'unavailable';
   const approved = status === 'approved';
   const selectedCount = selectionCount(selection);
   const selectionDescription =
     selectionStatus === 'loading'
-      ? '선택 상태 확인 중'
+      ? t('settings.permissions.status.checking')
       : selectionStatus === 'error'
-        ? '선택 상태를 확인하지 못했어요'
+        ? t('settings.permissions.status.failed')
         : selection?.allApps
-          ? `전체 앱${selection.pending ? ' · 내일부터 적용' : ''}`
+          ? t(
+              selection.pending
+                ? 'settings.permissions.status.allAppsPending'
+                : 'settings.permissions.status.allApps',
+            )
           : selectedCount
-            ? `${selectedCount}개 선택됨${selection?.pending ? ' · 내일부터 적용' : ''}`
-            : '아직 선택하지 않았어요';
+            ? t(
+                selection?.pending
+                  ? 'settings.permissions.status.selectedCountPending'
+                  : 'settings.permissions.status.selectedCount',
+                { count: selectedCount },
+              )
+            : t('settings.permissions.status.none');
+  const pushDescription =
+    pushPermission === 'granted'
+      ? t('settings.permissions.notifications.granted')
+      : pushPermission === 'denied'
+        ? t('settings.permissions.notifications.denied')
+        : pushPermission === 'error'
+          ? t('settings.permissions.notifications.error')
+          : t('settings.permissions.notifications.undetermined');
+  // 누르면 일어날 일(changePush 와 같은 갈래) — 제목·부제만으로는 안 읽히니 힌트로 덧붙인다.
+  const pushHint =
+    pushPermission === 'undetermined'
+      ? t('settings.permissions.notifications.hint.ask')
+      : pushPermission === 'granted' && e.state.settings.notifications === false
+        ? t('settings.permissions.notifications.hint.enable')
+        : pushPermission === 'granted' || pushPermission === 'denied'
+          ? t('settings.permissions.notifications.hint.openSettings')
+          : pushPermission === 'error'
+            ? t('settings.permissions.notifications.hint.recheck')
+            : undefined;
   const permissionDescription =
     status === 'loading'
-      ? '확인 중'
+      ? t('settings.permissions.status.permissionChecking')
       : approved
-        ? '연결됨'
+        ? t('settings.permissions.connected')
         : unavailable
-          ? '사용 불가'
-          : '연결 필요';
+          ? t('settings.permissions.unavailable')
+          : t('settings.permissions.needed');
 
   useEffect(() => {
     let active = true;
     const syncPermissionState = () => {
-      if (Platform.OS === 'android') {
+      if (Platform.OS === 'android' && supportsFocusShield) {
         void screenTimeNative
           ?.canDrawOverlays?.()
           .then((value) => {
@@ -881,6 +1188,16 @@ function AppPermissionManager({ e }: any) {
           })
           .catch(() => {});
       }
+      const readSeq = ++pushReadSeq.current;
+      void pushPermissionStatus().then((next) => {
+        if (!active) return;
+        if (readSeq === pushReadSeq.current) setPushPermission(next);
+        // 확인하지 못한 읽기('error')·브리지 없음은 결과가 아니다 — 「나감」 표시를 소비하지 않고 다음 읽기에 넘긴다.
+        if (next === 'error' || next === 'unavailable') return;
+        if (!pushSettingsOpened.current || readSeq <= pushOpenedAtSeq.current) return;
+        pushSettingsOpened.current = false;
+        if (next === 'granted') enablePushSetting();
+      });
       screenTime
         .getAuthorizationStatus()
         .then((nextStatus) => {
@@ -899,22 +1216,24 @@ function AppPermissionManager({ e }: any) {
         })
         .catch(() => active && setSelectionStatus('error'));
     };
-    void screenTime
-      .getFocusAllowSafariWeb()
-      .then((value) => {
-        if (active) setAllowSafari(value);
-      })
-      .catch(() => {
-        if (active) e.notify('Safari 허용 설정을 확인하지 못했어요.');
-      });
-    void screenTime
-      .getAllowedSelectionCounts()
-      .then((value) => {
-        if (active) setAllowedCount(selectionCount(value));
-      })
-      .catch(() => {
-        if (active) e.notify('허용 앱 설정을 확인하지 못했어요.');
-      });
+    if (supportsFocusShield) {
+      void screenTime
+        .getFocusAllowSafariWeb()
+        .then((value) => {
+          if (active) setAllowSafari(value);
+        })
+        .catch(() => {
+          if (active) e.notify(t('settings.permissions.errors.safariCheck'));
+        });
+      void screenTime
+        .getAllowedSelectionCounts()
+        .then((value) => {
+          if (active) setAllowedCount(selectionCount(value));
+        })
+        .catch(() => {
+          if (active) e.notify(t('settings.permissions.errors.allowedCheck'));
+        });
+    }
     syncPermissionState();
     const subscription = AppState.addEventListener('change', (nextState) => {
       if (nextState === 'active') syncPermissionState();
@@ -928,7 +1247,7 @@ function AppPermissionManager({ e }: any) {
   const requestConnection = async () => {
     if (approved) return true;
     if (unavailable) {
-      e.notify('이 기기에서는 스크린타임을 연결할 수 없어요.');
+      e.notify(t('settings.permissions.errors.unavailable'));
       return false;
     }
     if (busy) return;
@@ -941,12 +1260,12 @@ function AppPermissionManager({ e }: any) {
       if (nextStatus !== 'approved')
         e.notify(
           Platform.OS === 'android'
-            ? '사용 정보 접근 설정에서 권한을 허용해 주세요.'
-            : 'iOS 설정에서 스크린타임 권한을 허용해 주세요.',
+            ? t('settings.permissions.errors.grantAndroid')
+            : t('settings.permissions.errors.grantIos'),
         );
       return nextStatus === 'approved';
     } catch {
-      e.notify('스크린타임 권한을 요청하지 못했어요.');
+      e.notify(t('settings.permissions.errors.requestFailed'));
       return false;
     } finally {
       setBusy(false);
@@ -964,14 +1283,41 @@ function AppPermissionManager({ e }: any) {
 
   const openSystemSettings = () => openScreenTimeSettings(e.notify);
 
+  // 아직 안 물음이면 시스템 팝업, 이미 허용인데 앱 설정 「알림」만 꺼져 있으면 바로 켠다. 그 밖(거부, 끄려는 허용)은 시스템
+  // 설정으로 보낸다 — 이미 정해진 알림 권한은 앱에서 바꿀 수 없다. 읽지 못했던('error') 권한은 먼저 다시 읽고, 읽힌 값으로
+  // 위를 그대로 이어 간다(그래도 못 읽으면 아무것도 하지 않는다).
+  const changePush = async () => {
+    let current = pushPermission;
+    if (current === 'error') {
+      const readSeq = ++pushReadSeq.current;
+      current = await pushPermissionStatus();
+      if (readSeq === pushReadSeq.current) setPushPermission(current);
+    }
+    if (current === 'undetermined') {
+      const readSeq = ++pushReadSeq.current;
+      const next = await requestPushPermission();
+      if (readSeq === pushReadSeq.current) setPushPermission(next);
+      if (next === 'granted') enablePushSetting();
+      return;
+    }
+    if (current === 'granted' && pushSettingOff.current) {
+      enablePushSetting();
+      return;
+    }
+    if (current !== 'granted' && current !== 'denied') return;
+    pushOpenedAtSeq.current = pushReadSeq.current;
+    pushSettingsOpened.current = true;
+    await openSystemSettings();
+  };
+
   const openMeasuredApps = async () => {
     if (!(approved || (await requestConnection()))) return;
     e.go('screenTimeApps', 'settings');
   };
 
-  if (allowedPicker)
+  if (supportsFocusShield && allowedPicker)
     return (
-      <Sheet e={e} title="집중 중 허용 앱">
+      <Sheet e={e} title={t('settings.permissions.sheet.allowedApps')}>
         <AndroidAppPicker
           mode="allowed"
           notify={e.notify}
@@ -986,15 +1332,15 @@ function AppPermissionManager({ e }: any) {
       </Sheet>
     );
   return (
-    <Sheet e={e} title="앱 권한 관리">
-      <Txt kind="section">스크린타임</Txt>
+    <Sheet e={e} title={t('settings.permissionManage')}>
+      <Txt kind="section">{t('settings.permissions.screenTime.title')}</Txt>
       <Group>
         <Row
-          title="스크린타임 연결"
-          sub={`${permissionDescription} · 폰 사용 퀘스트와 기록에 사용해요`}
+          title={t('settings.permissions.screenTime.connect')}
+          sub={t('settings.permissions.screenTime.sub', { description: permissionDescription })}
           tail={
             <Toggle
-              label="스크린타임 연결"
+              label={t('settings.permissions.screenTime.connect')}
               value={approved}
               disabled={busy || status === 'loading' || unavailable}
               onChange={(next: boolean) => {
@@ -1004,82 +1350,88 @@ function AppPermissionManager({ e }: any) {
           }
         />
         <Row
-          title="측정 앱"
+          title={t('settings.permissions.measuredApps.title')}
           sub={selectionDescription}
-          accessibilityLabel={`측정 앱, ${selectionDescription}`}
+          accessibilityLabel={t('settings.permissions.measuredApps.a11y', {
+            description: selectionDescription,
+          })}
           chevron
           onPress={openMeasuredApps}
         />
       </Group>
-      <Txt kind="meta">연결을 끄면 폰 사용 퀘스트 달성률은 “확인 필요”로 표시돼요.</Txt>
-      <Txt kind="section">집중 중 허용</Txt>
-      <Group>
-        <Row
-          title="허용 앱"
-          sub={`${allowedCount}개 선택됨`}
-          chevron
-          disabled={busy}
-          onPress={async () => {
-            if (!(approved || (await requestConnection()))) return;
-            if (Platform.OS === 'android') {
-              setAllowedPicker(true);
-              return;
-            }
-            setBusy(true);
-            try {
-              const picked = await screenTime.presentAllowedAppManager();
-              if (picked) setAllowedCount(selectionCount(picked));
-            } catch {
-              e.notify('허용 앱을 변경하지 못했어요.');
-            } finally {
-              setBusy(false);
-            }
-          }}
-        />
-        {Platform.OS === 'ios' && (
-          <Row
-            title="Safari 웹사이트 차단 해제"
-            sub="위 허용 앱에서 Safari도 선택해야 웹을 볼 수 있어요"
-            tail={
-              <Toggle
-                label="집중 중 Safari 웹사이트 차단 해제"
-                value={allowSafari}
-                disabled={busy || !approved}
-                onChange={async (value: boolean) => {
-                  setBusy(true);
-                  try {
-                    await screenTime.setFocusAllowSafariWeb(value);
-                    setAllowSafari(value);
-                  } catch {
-                    e.notify('Safari 허용 설정을 변경하지 못했어요.');
-                  } finally {
-                    setBusy(false);
-                  }
-                }}
+      <Txt kind="meta">{t('settings.permissions.disconnectNote')}</Txt>
+      {supportsFocusShield && (
+        <>
+          <Txt kind="section">{t('settings.permissions.allowed.section')}</Txt>
+          <Group>
+            <Row
+              title={t('settings.permissions.allowed.title')}
+              sub={t('settings.permissions.allowed.count', { count: allowedCount })}
+              chevron
+              disabled={busy}
+              onPress={async () => {
+                if (!(approved || (await requestConnection()))) return;
+                if (Platform.OS === 'android') {
+                  setAllowedPicker(true);
+                  return;
+                }
+                setBusy(true);
+                try {
+                  const picked = await screenTime.presentAllowedAppManager();
+                  if (picked) setAllowedCount(selectionCount(picked));
+                } catch {
+                  e.notify(t('settings.permissions.errors.allowedChange'));
+                } finally {
+                  setBusy(false);
+                }
+              }}
+            />
+            {Platform.OS === 'ios' && (
+              <Row
+                title={t('settings.permissions.safari.title')}
+                sub={t('settings.permissions.safari.sub')}
+                tail={
+                  <Toggle
+                    label={t('settings.permissions.safari.a11y')}
+                    value={allowSafari}
+                    disabled={busy || !approved}
+                    onChange={async (value: boolean) => {
+                      setBusy(true);
+                      try {
+                        await screenTime.setFocusAllowSafariWeb(value);
+                        setAllowSafari(value);
+                      } catch {
+                        e.notify(t('settings.permissions.errors.safariChange'));
+                      } finally {
+                        setBusy(false);
+                      }
+                    }}
+                  />
+                }
               />
-            }
-          />
-        )}
-      </Group>
-      {Platform.OS === 'android' && (
+            )}
+          </Group>
+        </>
+      )}
+      {Platform.OS === 'android' && supportsFocusShield && (
         <Group>
           <Row
-            title="다른 앱 위에 표시"
+            title={t('settings.permissions.android.overlay.title')}
             sub={
               overlayGranted
-                ? '허용됨 · 집중 중 앱 차단에 사용해요'
-                : '앱 차단을 위해 허용이 필요해요'
+                ? t('settings.permissions.android.overlay.on')
+                : t('settings.permissions.android.overlay.off')
             }
             chevron
             onPress={() =>
               screenTimeNative
                 ?.requestOverlayPermission?.()
-                .catch(() => e.notify('차단 권한 설정을 열지 못했어요.'))
+                .catch(() => e.notify(t('settings.permissions.errors.overlayOpen')))
             }
           />
           <Row
-            title="집중 상태 알림"
-            sub="알림·잠금화면에서 집중 시간을 확인해요"
+            title={t('settings.permissions.android.notice.title')}
+            sub={t('settings.permissions.android.notice.sub')}
             chevron
             onPress={async () => {
               if (Number(Platform.Version) >= 33) {
@@ -1092,6 +1444,23 @@ function AppPermissionManager({ e }: any) {
             }}
           />
         </Group>
+      )}
+      {pushPermission !== 'unavailable' && (
+        <>
+          <Txt kind="section">{t('settings.notifications')}</Txt>
+          <Group>
+            <Row
+              title={t('settings.permissions.notifications.title')}
+              sub={pushDescription}
+              accessibilityLabel={t('settings.permissions.notifications.a11y', {
+                description: pushDescription,
+              })}
+              accessibilityHint={pushHint}
+              chevron
+              onPress={changePush}
+            />
+          </Group>
+        </>
       )}
     </Sheet>
   );
@@ -1172,7 +1541,7 @@ function ScreenTimePermission({ e }: any) {
       const next = await syncStatus();
       if (next === 'approved') finish();
     } catch {
-      e.notify('스크린타임 권한을 요청하지 못했어요.');
+      e.notify(t('settings.permissions.errors.requestFailed'));
     } finally {
       setBusy(false);
     }
@@ -1181,7 +1550,7 @@ function ScreenTimePermission({ e }: any) {
     return (
       <Sheet
         e={e}
-        title="측정 권한"
+        title={t('settings.permissions.gate.title')}
         onBack={boardFirst ? skip : undefined}
         onClose={boardFirst ? skip : undefined}
       >
@@ -1194,79 +1563,94 @@ function ScreenTimePermission({ e }: any) {
   return (
     <Sheet
       e={e}
-      title="측정 권한"
+      title={t('settings.permissions.gate.title')}
       onBack={boardFirst ? skip : undefined}
       onClose={boardFirst ? skip : undefined}
     >
       <Pic id="cat/black/sitting" w={82} />
-      <Txt kind="h17">사용 시간을 정확히 기록할게요</Txt>
-      <Txt>
-        {Platform.OS === 'android'
-          ? '설정의 사용 정보 접근에서 catus를 허용해 주세요. 선택한 앱의 사용 시간을 기록해요. 화면 내용은 읽지 않으며, 집중 중 앱 차단에는 별도의 표시 권한이 필요해요.'
-          : 'catus가 선택한 앱의 사용 시간만 확인할 수 있도록 스크린타임 권한이 필요해요. 어떤 앱을 썼는지나 화면 내용은 볼 수 없어요.'}
-      </Txt>
+      <Txt kind="h17">{t('settings.permissions.gate.heading')}</Txt>
+      <Txt>{t('settings.permissions.gate.sub')}</Txt>
       <Group flat>
         <Row
-          title="스크린타임 권한"
+          title={t('settings.permissions.gate.row')}
           sub={
             unavailable
-              ? '이 기기에서는 사용할 수 없어요'
+              ? t('settings.permissions.gate.rowUnavailable')
               : status === 'approved'
-                ? '연결됨'
+                ? t('settings.permissions.connected')
                 : status === 'denied'
-                  ? '권한이 꺼져 있어요. 다시 요청할 수 있어요'
-                  : '아직 연결하지 않았어요'
+                  ? t('settings.permissions.gate.rowDenied')
+                  : t('settings.permissions.gate.rowNone')
           }
         />
       </Group>
       {Platform.OS === 'android' && status === 'approved' && (
         <Btn
-          title="사용 정보 접근 설정 열기"
+          title={t('settings.permissions.gate.openUsage')}
           kind="sec"
           onPress={async () => {
             if (!(await screenTime.openUsageAccessSettings()))
-              e.notify('사용 정보 접근 설정을 열지 못했어요.');
+              e.notify(t('settings.permissions.errors.usageOpenFailed'));
           }}
         />
       )}
       {status === 'approved' ? (
         <Btn
-          title={boardFirst ? '측정 앱 고르기' : measuredApps ? '계속' : '완료'}
+          title={
+            boardFirst
+              ? t('settings.permissions.measuredApps.pick')
+              : measuredApps
+                ? t('settings.permissions.gate.continue')
+                : t('settings.permissions.gate.done')
+          }
           onPress={finish}
         />
       ) : !unavailable && (status === 'denied' || requestAttempted) ? (
         <>
           <ScreenTimePermissionHelp />
           <Btn
-            title={busy ? '권한 요청 중…' : '권한 다시 요청하기'}
+            title={
+              busy
+                ? t('settings.permissions.gate.requesting')
+                : t('settings.permissions.gate.retry')
+            }
             disabled={busy}
             onPress={request}
           />
           <Btn
-            title="시스템 설정 열기"
+            title={t('settings.permissions.gate.openSystem')}
             kind="sec"
             disabled={busy}
             onPress={() => openScreenTimeSettings(e.notify)}
           />
           <Btn
-            title={boardFirst ? '나중에 하고 게시판 열기' : '나중에'}
+            title={boardFirst ? t('settings.permissions.gate.laterBoard') : t('common.later')}
             kind="ghost"
             onPress={skip}
           />
         </>
       ) : unavailable ? (
-        <Btn title={boardFirst ? '게시판 열기' : '확인'} onPress={skip} />
+        <Btn
+          title={boardFirst ? t('settings.permissions.gate.openBoard') : t('common.ok')}
+          onPress={skip}
+        />
       ) : (
         <>
           <Btn
-            title={busy ? '권한 요청 중…' : '스크린타임 연결하기'}
+            title={
+              busy
+                ? t('settings.permissions.gate.requesting')
+                : t('settings.permissions.gate.connectBtn')
+            }
             disabled={busy}
             onPress={request}
           />
-          {boardFirst && <Btn title="나중에 하고 게시판 열기" kind="ghost" onPress={skip} />}
+          {boardFirst && (
+            <Btn title={t('settings.permissions.gate.laterBoard')} kind="ghost" onPress={skip} />
+          )}
         </>
       )}
-      <Txt kind="meta">권한이 없으면 폰 사용 퀘스트는 0분이 아니라 “확인 필요”로 표시돼요.</Txt>
+      <Txt kind="meta">{t('settings.permissions.gate.note')}</Txt>
     </Sheet>
   );
 }
@@ -1281,13 +1665,19 @@ function MeasuredAppPicker({ e }: any) {
       } else e.back();
     };
     return (
-      <Sheet e={e} title="측정 앱" onBack={finish} onClose={finish}>
+      <Sheet
+        e={e}
+        title={t('settings.permissions.measuredApps.title')}
+        onBack={finish}
+        onClose={finish}
+      >
         <AndroidAppPicker mode="measured" notify={e.notify} onDone={finish} />
       </Sheet>
     );
   }
   return <IOSMeasuredAppPicker e={e} />;
 }
+
 function IOSMeasuredAppPicker({ e }: any) {
   const [busy, setBusy] = useState(true);
   const pickerInFlight = useRef(false);
@@ -1328,13 +1718,13 @@ function IOSMeasuredAppPicker({ e }: any) {
         e.dispatch({ type: 'SETTING', key: 'screenTimeMeasurementReady', value: true });
         e.dispatch({ type: 'SETTING', key: 'screenTimeHistoryReady', value: true });
         e.dispatch({ type: 'SCREEN_TIME', value: minutes });
-        e.notify(`측정 앱 ${count}개를 바로 적용했어요.`);
+        e.notify(t('settings.permissions.errors.appliedNow', { count }));
       } else {
-        e.notify(`측정 앱 ${count}개를 내일부터 적용해요.`);
+        e.notify(t('settings.permissions.errors.appliedTomorrow', { count }));
       }
       finish();
     } catch {
-      e.notify('측정 앱 선택 화면을 열지 못했어요.');
+      e.notify(t('settings.permissions.errors.pickerOpen'));
     } finally {
       pickerInFlight.current = false;
       setBusy(false);
@@ -1350,14 +1740,14 @@ function IOSMeasuredAppPicker({ e }: any) {
   return (
     <Sheet
       e={e}
-      title="측정 앱"
+      title={t('settings.permissions.measuredApps.title')}
       onBack={boardFirst ? finish : undefined}
       onClose={boardFirst ? finish : undefined}
     >
       {busy ? (
         <ActivityIndicator color={C.ink} />
       ) : (
-        <Btn title="측정 앱 고르기" onPress={openPicker} />
+        <Btn title={t('settings.permissions.measuredApps.pick')} onPress={openPicker} />
       )}
     </Sheet>
   );
@@ -1395,6 +1785,8 @@ function Travel({ e }: any) {
   );
 }
 const visitScene = StyleSheet.create({ fill: { flex: 1 } });
+// 웹 Image 는 크기를 안 주면 원본 크기로 그린다 — 오버레이 배경 칸을 꽉 채운다
+const noIslandScene = StyleSheet.create({ fill: { width: '100%', height: '100%' } });
 function VisitIsland({ e, onReturnFromVisit }: any) {
   const s: State = e.state,
     islandId = e.detail || s.visitingIslandId;
@@ -1467,6 +1859,15 @@ function VisitIsland({ e, onReturnFromVisit }: any) {
                   label: join.label,
                   disabled: join.disabled,
                   onPress: () => void join.serverJoin(),
+                  // 「다시 바다로」(GROMO-2405) — 소속 섬 유무와 관계없이 구경을 끝내고 바다로. 가입하지 않은 사람에겐
+                  // 뗏목 행선지와 같은 확인창을 한 번 띄운다. 소속 섬으로는 뗏목의 「< 소속 섬으로」가 있다.
+                  onLeave: () =>
+                    confirmLeaveVisit(e, s, visit, join, () => {
+                      e.dispatch({ type: 'END_VISIT' });
+                      e.reset('sea');
+                    }),
+                  // 가입 요청이 진행 중이면 떠나지 못하게 — 늦게 성공한 가입이 바다로 간 사용자를 홈으로 끌어오지 않게
+                  leaveDisabled: join.busy,
                 }
               : undefined
           }
@@ -1603,6 +2004,7 @@ function FocusVisit({ e, islandId, onBack }: any) {
               ? Math.max(0, Math.floor((e.now + live.clockOffset - m.anchorMs) / 1000))
               : 0),
           status: m.status,
+          seat: m.seat,
         }))
     : (i.members ?? [])
         .filter((member) => member.focusing)
@@ -1626,6 +2028,8 @@ function FocusVisit({ e, islandId, onBack }: any) {
   transitionHandler.current = peerFlow.onTransition;
   const peers = peerFlow.actors.filter((actor) => actor.visible);
   const spots = fishingSpotsForActors(peerFlow.actors);
+  // 누른 주민 정보창(GROMO-2474) — 누른 순간의 모습을 쥔다(그 사이 자리를 떠나도 창은 그대로)
+  const [catInfo, setCatInfo] = useState<FishingCatInfoTarget | null>(null);
   return (
     <View style={{ flex: 1 }}>
       <FishingIsland
@@ -1634,6 +2038,7 @@ function FocusVisit({ e, islandId, onBack }: any) {
         onRaft={close}
         raftLabel={visiting ? t('focusFlow.common.raftLabelVisiting') : undefined}
         gram={i.buildings.includes('gram')}
+        inert={!!catInfo}
       >
         {(size, sizeY, zoom) => {
           const shown = new Set<string>(),
@@ -1663,28 +2068,33 @@ function FocusVisit({ e, islandId, onBack }: any) {
                 kept.push(box);
                 shown.add(label.id);
               });
-          return peers.map((actor) => (
-            <FishingPeerActorView
-              key={actor.key}
-              actor={{ ...actor, subject: shown.has(actor.key) ? actor.subject : null }}
-              outfit={lookOf(
-                live.looks,
-                actor.userId,
-                live.focus.find((m) => m.userId === actor.userId),
-              )}
-              size={size}
-              sizeY={sizeY}
-              reduce={reduce}
-              onEntered={peerFlow.entered}
-              onCast={peerFlow.cast}
-              onPausedExit={peerFlow.leftForPause}
-              onStretch={peerFlow.stretched}
-              onCompletedExit={peerFlow.leftForComplete}
-            />
-          ));
+          return peers.map((actor) => {
+            const outfit = lookOf(
+              live.looks,
+              actor.userId,
+              live.focus.find((m) => m.userId === actor.userId),
+            );
+            return (
+              <FishingPeerActorView
+                key={actor.key}
+                actor={{ ...actor, subject: shown.has(actor.key) ? actor.subject : null }}
+                outfit={outfit}
+                size={size}
+                sizeY={sizeY}
+                reduce={reduce}
+                onEntered={peerFlow.entered}
+                onCast={peerFlow.cast}
+                onPausedExit={peerFlow.leftForPause}
+                onStretch={peerFlow.stretched}
+                onCompletedExit={peerFlow.leftForComplete}
+                onPress={() => setCatInfo({ actor, outfit })}
+              />
+            );
+          });
         }}
       </FishingIsland>
       <View
+        {...a11yHidden(!!catInfo)}
         style={{
           position: 'absolute',
           zIndex: 30,
@@ -1692,16 +2102,17 @@ function FocusVisit({ e, islandId, onBack }: any) {
           left: Math.max(18, safe.left + 8),
         }}
       >
-        <FiButton
-          small
-          title={visiting ? '돌아가기' : '닫기'}
-          id="close-focus-visit"
+        {/* 건물 안과 같은 ‹ 동그라미(DESIGN §7.14). 내 낚시섬은 홈(e.home), 구경은 그 섬 지도(visitMap)로 — 둘 다 섬으로 돌아간다 */}
+        <NavBtn
+          testID="close-focus-visit"
+          label={t('focusFlow.common.backToIsland')}
           onPress={close}
         />
       </View>
       {liveIslandId && live.status === 'loading' ? (
         <View
           pointerEvents="none"
+          {...a11yHidden(!!catInfo)}
           style={[
             StyleSheet.absoluteFill,
             { zIndex: 5, alignItems: 'center', justifyContent: 'center' },
@@ -1711,6 +2122,7 @@ function FocusVisit({ e, islandId, onBack }: any) {
         </View>
       ) : liveIslandId && live.status === 'error' ? (
         <View
+          {...a11yHidden(!!catInfo)}
           style={[
             StyleSheet.absoluteFill,
             { zIndex: 5, alignItems: 'center', justifyContent: 'center' },
@@ -1748,6 +2160,7 @@ function FocusVisit({ e, islandId, onBack }: any) {
       ) : !peers.length ? (
         <View
           pointerEvents="none"
+          {...a11yHidden(!!catInfo)}
           style={[
             StyleSheet.absoluteFill,
             { zIndex: 5, alignItems: 'center', justifyContent: 'center' },
@@ -1770,9 +2183,105 @@ function FocusVisit({ e, islandId, onBack }: any) {
           </View>
         </View>
       ) : null}
+      {catInfo && <FishingCatInfo target={catInfo} onClose={() => setCatInfo(null)} />}
     </View>
   );
 }
+type FishingCatInfoTarget = { actor: FishingPeerActor; outfit?: Outfit };
+/** 집중섬 다른 주민 정보창(GROMO-2474) — 낚시 자리와 같은 낚시 자세로 그린다. 주민 집중·낚시 구경이 같이 쓴다. */
+function FishingCatInfo({
+  target,
+  onClose,
+}: {
+  target: FishingCatInfoTarget;
+  onClose: () => void;
+}) {
+  const { actor, outfit } = target;
+  return (
+    <CatInfoPopup
+      key={actor.userId}
+      userId={actor.userId}
+      name={actor.name}
+      catColor={actor.color}
+      art={
+        <FishingCatArt
+          spot={actor.spot}
+          color={actor.color}
+          outfit={outfit}
+          size={componentTokens.catInfoPopup.catSize}
+        />
+      }
+      onClose={onClose}
+    />
+  );
+}
+function FocusVolume({ value, onChange }: { value: number; onChange: (value: number) => void }) {
+  const [width, setWidth] = useState(1);
+  const latest = useRef({ value, onChange, width });
+  latest.current = { value, onChange, width };
+  const setFromTouch = (locationX: number) =>
+    latest.current.onChange(Math.max(0, Math.min(1, locationX / latest.current.width)));
+  const pan = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: (event) => setFromTouch(event.nativeEvent.locationX),
+      onPanResponderMove: (event) => setFromTouch(event.nativeEvent.locationX),
+    }),
+  ).current;
+  const thumbSize = semanticTokens.spacing.section;
+  return (
+    <View
+      accessibilityRole="adjustable"
+      accessibilityLabel={t('focusFlow.music.deviceVolume')}
+      accessibilityValue={{ min: 0, max: 100, now: Math.round(value * 100) }}
+      accessibilityActions={[{ name: 'increment' }, { name: 'decrement' }]}
+      onAccessibilityAction={(event) =>
+        onChange(
+          Math.max(
+            0,
+            Math.min(1, value + (event.nativeEvent.actionName === 'increment' ? 0.1 : -0.1)),
+          ),
+        )
+      }
+      onLayout={(event) => setWidth(event.nativeEvent.layout.width)}
+      {...pan.panHandlers}
+      style={{ height: semanticTokens.size.tapMin, justifyContent: 'center' }}
+    >
+      <View
+        style={{
+          height: componentTokens.progress.height,
+          borderRadius: semanticTokens.radius.full,
+          backgroundColor: componentTokens.progress.track,
+        }}
+      >
+        <View
+          style={{
+            height: componentTokens.progress.height,
+            width: `${value * 100}%`,
+            borderRadius: semanticTokens.radius.full,
+            backgroundColor: componentTokens.progress.fill,
+          }}
+        />
+      </View>
+      <View
+        pointerEvents="none"
+        style={{
+          position: 'absolute',
+          left: width * value - thumbSize / 2,
+          top: (semanticTokens.size.tapMin - thumbSize) / 2,
+          width: thumbSize,
+          height: thumbSize,
+          borderRadius: semanticTokens.radius.full,
+          borderWidth: semanticTokens.stroke.strong,
+          borderColor: semanticTokens.color.outline,
+          backgroundColor: semanticTokens.color.surface,
+        }}
+      />
+    </View>
+  );
+}
+
 function FocusFlow({ e: environment }: any) {
   const experience = isTutorialExperience(environment.state);
   // 화면 내부에서만 체험 세션을 투영한다. API·실시간·전역 집중 상태는 연결하지 않는다.
@@ -1813,6 +2322,12 @@ function FocusFlow({ e: environment }: any) {
   const [fan, setFan] = useState(false),
     [emote, setEmote] = useState<string | null>(null),
     [dialog, setDialog] = useState<'music' | 'reward' | null>(null),
+    [soundPurchase, setSoundPurchase] = useState<{
+      kind: 'confirm' | 'success' | 'error';
+      product: any;
+    } | null>(null),
+    // 누른 주민 정보창(GROMO-2474)
+    [catInfo, setCatInfo] = useState<FishingCatInfoTarget | null>(null),
     [error, setError] = useState(''),
     [setupHeight, setSetupHeight] = useState(0),
     // 화면 높이 대신 실제 영역 높이(키보드가 뜨면 줄어듦)로 준비 카드 위치를 잡는다
@@ -1834,9 +2349,13 @@ function FocusFlow({ e: environment }: any) {
     // 첫 물고기 reel이 끝나 12단계로 갈 차례 — 황금 컷신·reel이 끝날 때까지 미룬다
     [tutorialCatchRevision, setTutorialCatchRevision] = useState<number | null>(null);
   const returningFromArrival = useRef(false);
+  // 보상을 확인하는 동안에도 결과 화면에서 고른 다음 목적지를 유지한다.
+  const resultDestination = useRef<'island' | 'focus'>('island');
   useEffect(() => {
     if (r !== 'fishingArrival') returningFromArrival.current = false;
   }, [r]);
+  // 자리 고르기·집중 화면을 떠나면(준비·휴식·결과) 열린 정보창을 닫는다
+  useEffect(() => setCatInfo(null), [r]);
   const tutorialRequest = useRef<string | null>(null);
   const tutorialRetryAt = useRef(0);
   const tutorialReelCancel = useRef<(() => void) | null>(null);
@@ -1885,6 +2404,18 @@ function FocusFlow({ e: environment }: any) {
   // GROMO-2010 — 서버 모드에서는 같은 섬 주민의 실시간 집중/휴식·응원이 정본이다.
   // 응원 채널은 내 진행 서버 세션이 이 섬에 있을 때만 구독·발신한다(없으면 서버가 거절한다).
   const liveIslandId = e.islands ? (s.serverIslands?.currentIslandId ?? null) : null;
+  const musicRoute = ['fishingArrival', 'focusSetup', 'focus'].includes(r);
+  // 집중섬 축음기는 세션 시작 전에도 구매·곡 변경이 가능하다. 일반 섬 축음기와 달리
+  // 판매 목록·공동 인벤토리·지갑을 함께 읽되, 실제 기기 재생은 App 의 active 세션 gate 가 맡는다.
+  const focusShop = useShop({
+    active: !!e.islands && musicRoute && i.buildings.includes('gram'),
+    islandId: liveIslandId,
+    route: 'sound',
+    category: 'personal',
+    orderScope: 'personal',
+    productId: null,
+    dispatch: e.dispatch,
+  });
   const emoteSessionId =
     liveIslandId && s.session?.version != null && s.session.islandId === liveIslandId
       ? s.session.id
@@ -2283,9 +2814,36 @@ function FocusFlow({ e: environment }: any) {
     advanceTutorial(tutorialStep === 17 ? 17 : 18, 19);
     e.reset('focusResult');
   };
-  // 내 자리: 옛 저장 좌표(지도 % 밖)는 도착 지점으로 대신한다
-  const minePoint =
-      s.focusSpot && s.focusSpot.x <= 100 && s.focusSpot.y <= 100 ? s.focusSpot : LANDING,
+  // 내 자리: 진행 중 세션은 서버가 기억한 내 seat 가 정본 — 다른 기기에서 시작한 세션을 복구하면 focusSpot 은 지난
+  // 세션 좌표다(SESSION_SYNC 는 focusSpot 을 바꾸지 않음). 내 항목은 아래 peerMembers 에서 거르므로 거르기 전에 꺼낸다.
+  // 서버 seat 가 없으면(옛 앱으로 시작) 로컬 focusSpot, 없거나 유효하지 않으면 보상을 놓을 수 있는 기본 자리로 대신한다
+  const liveSeat = s.session
+    ? live.focus.find((m) => m.userId === myId && m.sessionId === s.session?.id)?.seat
+    : null;
+  // 결과 화면·다른 기기 종료(SESSION_SYNC 가 세션을 먼저 지움)에선 서버가 내 항목을 지우므로 이번 세션에서 마지막으로
+  // 받은 seat 를 이어 쓴다. 세션 id 를 알면 일치할 때만, 모르면(세션·결과 id 없음) 그대로 — 새 세션은 자리 고르기·준비를
+  // 거치며 비운다
+  const lastServerSeat = useRef<{ sessionId: string; seat: Point } | null>(null);
+  // 서버는 0~100 범위만 검사하므로 물 위 seat 는 쓰지 않고 로컬 focusSpot/DEFAULT_SPOT 으로 대체한다
+  if (s.session && liveSeat && onLand(fishingGrid, liveSeat))
+    lastServerSeat.current = { sessionId: s.session.id, seat: liveSeat };
+  else if (r === 'focusSetup' || r === 'fishingArrival') lastServerSeat.current = null;
+  const knownSessionId = s.session?.id ?? resultSessionId,
+    serverSeat =
+      (r === 'focus' || r === 'rest' || r === 'focusResult') &&
+      lastServerSeat.current &&
+      (knownSessionId == null || lastServerSeat.current.sessionId === knownSessionId)
+        ? lastServerSeat.current.seat
+        : null,
+    localSpot = s.focusSpot && s.focusSpot.x <= 100 && s.focusSpot.y <= 100 ? s.focusSpot : null,
+    // 격자가 바뀌기 전(티켓 2516)에 고른 자리는 물·나무·바위 칸일 수 있다 — 가장 가까운 걸을 수 있는 칸에 앉힌다
+    minePoint =
+      serverSeat ??
+      (localSpot
+        ? onLand(fishingGrid, localSpot)
+          ? localSpot
+          : nearestLand(fishingGrid, localSpot)
+        : DEFAULT_SPOT),
     mine = castSpot(minePoint);
   if (minePoint.x === DEFAULT_SPOT.x && minePoint.y === DEFAULT_SPOT.y)
     mine.catchPlacement = DEFAULT_CATCH_PLACEMENT;
@@ -2305,6 +2863,7 @@ function FocusFlow({ e: environment }: any) {
               ? Math.max(0, Math.floor((e.now + live.clockOffset - m.anchorMs) / 1000))
               : 0),
           status: m.status,
+          seat: m.seat,
         }))
     : i.members
         .filter((m) => m.focusing)
@@ -2358,6 +2917,12 @@ function FocusFlow({ e: environment }: any) {
     realtime: liveIslandId !== null,
     snapshotVersion: live.snapshotVersion,
     snapshotTransitions: live.snapshotTransitions,
+    // 내 자리는 이번 흐름에서 고른 뒤(준비·집중·휴식·결과)에만 비켜 준다 — 자리 고르기 중의 focusSpot 은
+    // 지난 세션 좌표라 예약하면 그 자리에 앉은 주민의 seat 가 밀려난다
+    mine:
+      r === 'focusSetup' || r === 'focus' || r === 'rest' || r === 'focusResult'
+        ? minePoint
+        : undefined,
   });
   transitionHandler.current = (transition) => {
     // 내 낚시 세션이 진행 중이던 중(previous.status === 'active') 서버가 강퇴 등으로
@@ -2474,10 +3039,26 @@ function FocusFlow({ e: environment }: any) {
     go();
   };
   const result = s.lastResult,
+    canRestartFocus =
+      !!result &&
+      !s.session &&
+      !experience &&
+      !(tutorialStep >= 5 && tutorialStep <= 21) &&
+      !!(s.serverIslands ? s.serverIslands.currentIslandId : i.joined),
     leave = () => {
       const navigate = () => {
         // 자동 종료 결과는 닫을 때 acknowledge — 확인 전까지 서버가 계속 돌려주므로 실패해도 잃지 않는다
         if (result?.ackId) e.focus?.acknowledge(result.ackId).catch(() => {});
+        if (resultDestination.current === 'focus' && canRestartFocus) {
+          setDialog(null);
+          setError('');
+          // 복구한 서버 자리도 새 준비 화면에 이어 쓴다. 실제 새 세션은 시작 버튼에서 만든다.
+          e.dispatch({ type: 'FOCUS_SPOT', spot: minePoint });
+          e.reset('focusSetup');
+          // reset이 입력을 비우므로 과목은 화면을 바꾼 뒤 채운다.
+          e.setText(result?.subject ?? '');
+          return;
+        }
         s.resultFromRest
           ? e.home()
           : leaveTo(() => latest.current.r === 'focusResult' && e.go('returnTravel'));
@@ -2488,17 +3069,19 @@ function FocusFlow({ e: environment }: any) {
       }
       navigate();
     },
-    // 결과 다음에 새로 받은 보상이 있으면 보상받기 모달, 없으면 바로 섬으로.
+    // 결과 다음에 새로 받은 보상이 있으면 보상받기 모달, 없으면 선택한 목적지로.
     // 서버 경로는 회차 목록 로딩 중이거나 수령 가능한 퀘스트가 있으면 모달을 연다 —
     // 로딩이 끝났는데 받을 게 없으면 모달 스스로 닫힌다.
-    done = () =>
-      serverQuests
+    done = (destination: 'island' | 'focus' = 'island') => {
+      resultDestination.current = destination;
+      return serverQuests
         ? boardQ.loading || boardQ.quests.some((q) => q.claimable)
           ? setDialog('reward')
           : leave()
         : s.rewards?.some((x) => !x.acknowledged)
           ? setDialog('reward')
-          : leave(),
+          : leave();
+    },
     claimed = (more: boolean) => {
       if (!more) leave();
     };
@@ -2534,6 +3117,244 @@ function FocusFlow({ e: environment }: any) {
     const sail = () => latest.current.r === 'fishingArrival' && e.go('returnTravel');
     if (!walkTo(LANDING, sail)) sail();
   };
+  const activeFocus = r === 'focus' && s.session?.status === 'active' && !leg;
+  const focusAudioProducts: any[] = e.islands
+    ? focusShop.items
+    : products.filter((product) => product.kind === 'audio');
+  const focusOwnedTrackIds = (
+    e.islands && focusShop.shared ? focusShop.shared.audio : i.sharedOwned
+  ).filter(hasBundledAudio);
+  const focusTrackIds = [
+    ...focusOwnedTrackIds,
+    ...focusAudioProducts
+      .map((product) => product.id)
+      .filter((id) => !focusOwnedTrackIds.includes(id)),
+  ];
+  const focusTrackLabel = (id: string) =>
+    trackNames[id] ??
+    focusShop.titles[id] ??
+    focusAudioProducts.find((p) => p.id === id)?.title ??
+    id;
+  const changeFocusTrack = async (trackId: string) => {
+    if (!e.playback) {
+      e.dispatch({ type: 'TRACK_SELECT', value: trackId });
+      return true;
+    }
+    try {
+      // 곡 선택과 재생은 별개다. 집중 전에도 선택할 수 있지만 실제 재생은 active 집중에서만 한다.
+      await e.playback.update({ trackId });
+      return true;
+    } catch (thrown) {
+      e.notify(errorTextOr(thrown, 'focusFlow.music.changeFailed'));
+      return false;
+    }
+  };
+  const changeFocusPlaying = async (playing: boolean) => {
+    if (!activeFocus) return;
+    if (!e.playback) {
+      e.dispatch({ type: 'PLAY', value: playing });
+      return;
+    }
+    try {
+      await e.playback.update({ playing });
+    } catch (thrown) {
+      e.notify(errorTextOr(thrown, 'focusFlow.music.changeFailed'));
+    }
+  };
+  const buyFocusTrack = async () => {
+    const product = soundPurchase?.product;
+    if (!product) return;
+    if (e.islands) {
+      try {
+        await focusShop.buy(product);
+        setSoundPurchase({ kind: 'success', product });
+      } catch (thrown) {
+        if (e.conversion?.offer(thrown)) {
+          setSoundPurchase(null);
+          return;
+        }
+        if (thrown instanceof ApiError && thrown.code === 'INSUFFICIENT_FUNDS') {
+          setSoundPurchase({ kind: 'error', product });
+          return;
+        }
+        setSoundPurchase(null);
+        e.notify(errorTextOr(thrown, 'focusFlow.music.purchaseFailed'));
+      }
+      return;
+    }
+    if (canBuy(s, product)) {
+      setSoundPurchase({ kind: 'error', product });
+      return;
+    }
+    e.dispatch({ type: 'BUY', id: product.id });
+    setSoundPurchase({ kind: 'success', product });
+  };
+  const closeMusic = () => {
+    setSoundPurchase(null);
+    setDialog(null);
+  };
+  const musicHintStyle = {
+    fontSize: semanticTokens.typography.label,
+    lineHeight: semanticTokens.typography.label * 1.6,
+    color: semanticTokens.color.textMuted,
+  };
+  const musicModal =
+    dialog === 'music' && !goldenReeling ? (
+      <FiModal>
+        <Text
+          style={[
+            fiTitle(semanticTokens.typography.title),
+            { marginBottom: semanticTokens.spacing.control },
+          ]}
+        >
+          {t('focusFlow.music.title')}
+        </Text>
+        <Text
+          style={[
+            musicHintStyle,
+            {
+              marginBottom: wide
+                ? semanticTokens.spacing.control
+                : semanticTokens.spacing.component,
+            },
+          ]}
+        >
+          {t(activeFocus ? 'focusFlow.music.activeSubtitle' : 'focusFlow.music.inactiveSubtitle')}
+        </Text>
+        {soundPurchase ? (
+          <View style={{ gap: semanticTokens.spacing.control }}>
+            <Text style={[fiTitle(semanticTokens.typography.title), { textAlign: 'center' }]}>
+              {soundPurchase.kind === 'confirm'
+                ? t('focusFlow.music.purchaseConfirm', { title: soundPurchase.product.title })
+                : soundPurchase.kind === 'success'
+                  ? t('focusFlow.music.purchaseSuccess')
+                  : t('focusFlow.music.insufficientFish')}
+            </Text>
+            {soundPurchase.kind === 'confirm' && (
+              <Text style={[musicHintStyle, { textAlign: 'center' }]}>
+                {t('focusFlow.music.sharedPurchaseHint')}
+              </Text>
+            )}
+            {soundPurchase.kind === 'confirm' ? (
+              <View style={{ flexDirection: 'row', gap: semanticTokens.spacing.control }}>
+                <FiButton
+                  title={t('common.cancel')}
+                  style={{ flex: 1 }}
+                  onPress={() => setSoundPurchase(null)}
+                />
+                <FiButton
+                  primary
+                  title={t('focusFlow.music.buyForFish', {
+                    price: soundPurchase.product.price,
+                  })}
+                  style={{ flex: 1 }}
+                  onPress={buyFocusTrack}
+                />
+              </View>
+            ) : soundPurchase.kind === 'success' ? (
+              <View style={{ flexDirection: 'row', gap: semanticTokens.spacing.control }}>
+                <FiButton
+                  title={t('common.later')}
+                  style={{ flex: 1 }}
+                  onPress={() => setSoundPurchase(null)}
+                />
+                <FiButton
+                  primary
+                  title={t('focusFlow.music.switchTrack')}
+                  style={{ flex: 1 }}
+                  onPress={async () => {
+                    if (!(await changeFocusTrack(soundPurchase.product.id))) return;
+                    setSoundPurchase(null);
+                  }}
+                />
+              </View>
+            ) : (
+              <FiButton primary title={t('common.ok')} onPress={() => setSoundPurchase(null)} />
+            )}
+          </View>
+        ) : (
+          <>
+            {activeFocus && (
+              <View
+                style={{
+                  gap: semanticTokens.spacing.control,
+                  marginBottom: semanticTokens.spacing.control,
+                }}
+              >
+                <View style={{ flexDirection: 'row', gap: semanticTokens.spacing.control }}>
+                  <FiButton
+                    primary={i.playing}
+                    title={t('focusFlow.music.play')}
+                    style={{ flex: 1 }}
+                    onPress={() => void changeFocusPlaying(true)}
+                  />
+                  <FiButton
+                    primary={!i.playing}
+                    title={t('focusFlow.music.stop')}
+                    style={{ flex: 1 }}
+                    onPress={() => void changeFocusPlaying(false)}
+                  />
+                </View>
+                <View>
+                  <Text style={musicHintStyle}>{t('focusFlow.music.deviceVolume')}</Text>
+                  <FocusVolume
+                    value={s.settings.volume ?? 0.55}
+                    onChange={(value) => e.dispatch({ type: 'SETTING', key: 'volume', value })}
+                  />
+                </View>
+              </View>
+            )}
+            {e.islands && focusShop.error ? (
+              <View style={{ gap: semanticTokens.spacing.control }}>
+                <Text style={musicHintStyle}>{t('focusFlow.music.loadFailed')}</Text>
+                <FiButton title={t('common.retry')} onPress={focusShop.retry} />
+              </View>
+            ) : e.islands && focusShop.loading ? (
+              <Text style={musicHintStyle}>{t('focusFlow.music.loading')}</Text>
+            ) : (
+              <View style={{ gap: semanticTokens.spacing.control }}>
+                {focusTrackIds.map((id) => {
+                  const owned = focusOwnedTrackIds.includes(id);
+                  const product = focusAudioProducts.find((item) => item.id === id);
+                  const bundled = BUNDLED_AUDIO_TRACK_IDS.includes(
+                    id as (typeof BUNDLED_AUDIO_TRACK_IDS)[number],
+                  );
+                  if (
+                    !owned &&
+                    (!bundled || product?.available === false || product?.price == null)
+                  )
+                    return null;
+                  const status = owned
+                    ? DEFAULT_FREE_AUDIO_TRACK_IDS.includes(id)
+                      ? t('focusFlow.music.free')
+                      : t('focusFlow.music.owned')
+                    : t('focusFlow.music.buyForFish', { price: product.price });
+                  return (
+                    <FiButton
+                      key={id}
+                      left
+                      primary={owned && i.track === id}
+                      title={`${focusTrackLabel(id)} · ${status}`}
+                      onPress={() => {
+                        if (owned) void changeFocusTrack(id);
+                        else setSoundPurchase({ kind: 'confirm', product });
+                      }}
+                    />
+                  );
+                })}
+              </View>
+            )}
+            <View
+              style={{
+                marginTop: wide ? semanticTokens.spacing.control : semanticTokens.spacing.component,
+              }}
+            >
+              <FiButton primary title={t('focusFlow.music.backToSpot')} onPress={closeMusic} />
+            </View>
+          </>
+        )}
+      </FiModal>
+    ) : null;
   // 뒤로가기: 자리 선택 중에는 귀환하고, 나머지 걷기·항해 중에는 막는다. 모달은 닫기만, 결과는 '확인'(보상·귀환 흐름)과 같게, 모닥불은 '집중 이어가기'와 같게
   backRef.current = () => {
     if (tutorialStep >= 5 && tutorialStep <= 21) return true;
@@ -2555,8 +3376,12 @@ function FocusFlow({ e: environment }: any) {
       claimed(open.length > 1);
       return true;
     }
+    if (soundPurchase) {
+      setSoundPurchase(null);
+      return true;
+    }
     if (dialog) {
-      setDialog(null);
+      closeMusic();
       return true;
     }
     if (r === 'focusResult') {
@@ -2640,59 +3465,55 @@ function FocusFlow({ e: environment }: any) {
         }
       />
     );
-  // 정해진 자리 없음: 누른 땅까지 걸어가 앉고 그 자리 위에 집중 준비. 물·닿을 수 없는 곳·다른 주민 자리는 안 됨.
+  // 정해진 자리 없음: 땅을 누르면 걸어가기만 하고, 하단 [집중 시작]을 누른 자리에서 집중할 수 있는지 본다.
   const spotError = (p: Point): string | null => {
-    if (!onLand(fishingGrid, p)) return t('focusFlow.spot.onWater');
-    if (occupied(p, peerSpots)) return t('focusFlow.spot.occupied');
-    if (i.buildings.includes('gram') && nearGram(p)) return t('focusFlow.spot.nearGram');
-    if (nearRaft(p)) return t('focusFlow.spot.nearRaft');
-    const catchSpot = castSpot(p);
-    if (p.x === DEFAULT_SPOT.x && p.y === DEFAULT_SPOT.y)
-      catchSpot.catchPlacement = DEFAULT_CATCH_PLACEMENT;
-    if (
-      !fishingCatchPlacement(
-        catchSpot,
-        peerSpots,
-        peerCatchSpots,
-        i.buildings.includes('gram'),
-        PEER_SPOTS,
-      )
-    )
-      return t('focusFlow.spot.noCatchRoom');
-    return null;
+    const problem = seatProblem(p, peerSpots, i.buildings.includes('gram'));
+    return problem ? t(`focusFlow.spot.${problem}`) : null;
   };
-  const availableSpots =
-    r === 'fishingArrival'
-      ? [DEFAULT_SPOT, ...PEER_SPOTS]
-          .filter((p) => !spotError(p) && landPath(fishingGrid, walker.p, p).length > 0)
-          .slice(0, 8)
-      : [];
-  const selectSpot = (p: Point) => {
-    if (returningFromArrival.current) return;
+  // 물·이어지지 않은 땅은 홈 섬처럼 조용히 무시한다. 걷는 중 다시 누르면 지금 위치에서 새 목적지로.
+  const walkOnly = (p: Point) => {
+    if (returningFromArrival.current || !onLand(fishingGrid, p)) return;
+    walkTo(p, () => {});
+  };
+  // 자리 검사 → 자리 저장 → 준비 카드. 실패하면 이유만 알리고 제자리.
+  const startAt = (p: Point) => {
+    if (returningFromArrival.current || latest.current.r !== 'fishingArrival') return;
     const error = spotError(p);
     if (error) {
       e.notify(error);
       return;
     }
-    const walked = walkTo(p, () => {
-      if (latest.current.r !== 'fishingArrival') return;
-      e.dispatch({ type: 'FOCUS_SPOT', spot: p });
-      advanceTutorial(5, 7);
-      advanceTutorial(6, 7);
-      e.go('focusSetup');
-    });
-    // 연못 가운데 섬처럼 뗏목 쪽 땅과 이어지지 않은 곳
-    if (!walked) e.notify(t('focusFlow.spot.unreachable'));
+    e.dispatch({ type: 'FOCUS_SPOT', spot: p });
+    advanceTutorial(5, 7);
+    advanceTutorial(6, 7);
+    e.go('focusSetup');
   };
+  // [집중 시작]: 걷는 중이면 그 자리에 멈춰 선 채로 검사한다.
+  const startHere = () => {
+    // 뗏목으로 돌아가는 중이면 귀환 걷기를 끊지 않는다(끊으면 귀환 콜백이 사라져 화면에 갇힌다)
+    if (returningFromArrival.current) return;
+    if (walker.walking) {
+      walkingToken.current++;
+      setWalker((w) => ({ ...w, walking: false }));
+    }
+    startAt(position.current);
+  };
+  // 스크린리더: 걸어갈 수 있는 빈 땅을 골라 걸어간 뒤 바로 준비 카드까지 연다.
   const selectAccessibleSpot = () => {
+    // 뗏목으로 돌아가는 중이면 귀환 걷기를 끊지 않는다(startHere 와 같은 이유)
+    if (returningFromArrival.current) return;
     const spot = findReachableTutorialSpot(
       fishingGrid,
       walker.p,
       DEFAULT_SPOT,
       (p) => !spotError(p),
     );
-    if (spot) selectSpot(spot);
-    else e.notify(t('focusFlow.spot.noneFound'));
+    if (!spot) {
+      e.notify(t('focusFlow.spot.noneFound'));
+      return;
+    }
+    // 걸어갈 길이 없는 곳(뗏목 쪽 땅과 이어지지 않은 땅)
+    if (!walkTo(spot, () => startAt(spot))) e.notify(t('focusFlow.spot.unreachable'));
   };
   // 뗏목: 자리 고르기에서는 뗏목까지 걸어가 본인만 우리 섬으로, 집중 중에는 집중 종료 확인.
   const raft = () => {
@@ -2710,10 +3531,11 @@ function FocusFlow({ e: environment }: any) {
       return;
     }
     if (e.focus) {
-      // 서버 세션 — islandId·멱등 키·복구는 명령이 챙긴다. 시작 성공 뒤에만 낚시 화면으로 간다
+      // 서버 세션 — islandId·멱등 키·복구는 명령이 챙긴다. 시작 성공 뒤에만 낚시 화면으로 간다.
+      // 고른 자리(focusSpot)를 함께 보내 다른 주민 화면에도 같은 자리에 앉는다(GROMO-2478)
       setError('');
       e.focus
-        .start({ subject })
+        .start({ subject, seat: s.focusSpot })
         .then(() => {
           advanceTutorial(8, 9);
           e.go('focus');
@@ -2752,18 +3574,29 @@ function FocusFlow({ e: environment }: any) {
     <FiModal
       hidden={dialog === 'reward'}
       footer={
-        <View ref={resultTarget.ref} collapsable={false} onLayout={resultTarget.measure}>
-          <FiButton
-            primary
-            id="result-done"
-            multiline
-            title={
-              s.resultFromRest || tutorialStep === 21
-                ? t('focusFlow.common.backToIsland')
-                : t('focusFlow.result.backByBoat')
-            }
-            onPress={finishResult}
-          />
+        <View style={{ gap: semanticTokens.spacing.control }}>
+          {canRestartFocus && (
+            <FiButton
+              primary
+              id="result-restart"
+              multiline
+              title={t('focusFlow.result.restart')}
+              onPress={() => done('focus')}
+            />
+          )}
+          <View ref={resultTarget.ref} collapsable={false} onLayout={resultTarget.measure}>
+            <FiButton
+              primary={!canRestartFocus}
+              id="result-done"
+              multiline
+              title={
+                s.resultFromRest || tutorialStep === 21
+                  ? t('focusFlow.common.backToIsland')
+                  : t('focusFlow.result.backByBoat')
+              }
+              onPress={finishResult}
+            />
+          </View>
         </View>
       }
     >
@@ -2803,8 +3636,15 @@ function FocusFlow({ e: environment }: any) {
           style={{ zIndex: 100, left: (L.width - width) / 2, width, bottom: safe.bottom + 16 }}
           onSkip={skipTutorial}
         >
-          {screenReader && (
+          {screenReader ? (
             <Btn title={t('focusFlow.spot.sitEmptyButton')} onPress={selectAccessibleSpot} />
+          ) : (
+            <FiButton
+              title={t('focusFlow.spot.start')}
+              id="focus-start"
+              primary
+              onPress={startHere}
+            />
           )}
         </GuideBox>
       );
@@ -2941,7 +3781,7 @@ function FocusFlow({ e: environment }: any) {
     );
   const seated = r !== 'fishingArrival' && !leg,
     spots = [...fishingPeerSpots, ...(seated ? [mine] : [])];
-  const focusing = r === 'focus' && !!s.session && !leg,
+  const focusing = activeFocus,
     mySubject = r === 'focusSetup' ? null : (s.session?.subject ?? result?.subject ?? null);
   // 집중 준비 모달은 누른 곳(내 고양이) 위에 붙인다. 위가 좁으면 아래 → 오른쪽 → 왼쪽.
   const setup = (toScreen: (p: Point) => Point, size: number) => {
@@ -3104,46 +3944,68 @@ function FocusFlow({ e: environment }: any) {
           focus={r !== 'fishingArrival' ? mine : L.landscape ? { x: 45, y: 58 } : { x: 38, y: 56 }}
           ratio={r === 'focusSetup' ? 0.72 : 0.5}
           spots={spots}
-          onTap={r === 'fishingArrival' ? selectSpot : undefined}
+          onTap={r === 'fishingArrival' ? walkOnly : undefined}
+          onSitAccessible={r === 'fishingArrival' ? selectAccessibleSpot : undefined}
           onRaft={raft}
           gram={i.buildings.includes('gram')}
-          onGram={focusing ? () => setDialog('music') : undefined}
+          onGram={musicRoute ? () => setDialog('music') : undefined}
           seated={seated}
-          inert={!!dialog || r === 'focusResult' || !!goldenCutscene}
+          inert={!!dialog || r === 'focusResult' || !!goldenCutscene || !!catInfo}
           overlayBlocksMap={r === 'focusSetup'}
           overlay={
             r === 'focusSetup'
               ? setup
               : r === 'fishingArrival' && !(tutorialStep >= 5 && tutorialStep <= 21)
                 ? (toScreen) => (
-                    <View
-                      testID="focus-arrival-hint"
-                      pointerEvents="none"
-                      accessibilityLiveRegion="polite"
-                      style={{
-                        position: 'absolute',
-                        top: Math.min(
-                          toScreen({ x: 50, y: 100 }).y + semanticTokens.spacing.control,
-                          (boxHeight || L.height) -
-                            safe.bottom -
-                            componentTokens.focusArrival.bottomReserve,
-                        ),
-                        left: safe.left + semanticTokens.spacing.page,
-                        right: safe.right + semanticTokens.spacing.page,
-                      }}
-                    >
-                      <Text
+                    <>
+                      <View
+                        testID="focus-arrival-hint"
+                        pointerEvents="none"
+                        accessibilityLiveRegion="polite"
                         style={{
-                          ...hudText,
-                          textAlign: 'center',
-                          fontSize: componentTokens.focusArrival.fontSize,
-                          lineHeight: componentTokens.focusArrival.lineHeight,
-                          fontWeight: componentTokens.focusArrival.fontWeight,
+                          position: 'absolute',
+                          top: Math.min(
+                            toScreen({ x: 50, y: 100 }).y + semanticTokens.spacing.control,
+                            (boxHeight || L.height) -
+                              safe.bottom -
+                              componentTokens.focusArrival.bottomReserve,
+                          ),
+                          left: safe.left + semanticTokens.spacing.page,
+                          right: safe.right + semanticTokens.spacing.page,
                         }}
                       >
-                        {t('focusFlow.spot.pickPrompt')}
-                      </Text>
-                    </View>
+                        <Text
+                          style={{
+                            ...hudText,
+                            textAlign: 'center',
+                            fontSize: componentTokens.focusArrival.fontSize,
+                            lineHeight: componentTokens.focusArrival.lineHeight,
+                            fontWeight: componentTokens.focusArrival.fontWeight,
+                          }}
+                        >
+                          {t('focusFlow.spot.pickPrompt')}
+                        </Text>
+                      </View>
+                      {/* 하단 [집중 시작]: 지금 선 자리에서 집중할 수 있는지 검사해 준비 카드를 연다 */}
+                      <View
+                        testID="focus-start-bar"
+                        pointerEvents="box-none"
+                        style={{
+                          position: 'absolute',
+                          bottom: safe.bottom + semanticTokens.spacing.page,
+                          left: safe.left + semanticTokens.spacing.page,
+                          right: safe.right + semanticTokens.spacing.page,
+                          alignItems: 'center',
+                        }}
+                      >
+                        <FiButton
+                          title={t('focusFlow.spot.start')}
+                          id="focus-start"
+                          primary
+                          onPress={startHere}
+                        />
+                      </View>
+                    </>
                   )
                 : undefined
           }
@@ -3186,59 +4048,43 @@ function FocusFlow({ e: environment }: any) {
             });
             return (
               <>
-                {availableSpots.map((spot, index) => {
-                  const diameter = componentTokens.focusArrival.markerSize;
+                {peers.map((actor) => {
+                  const outfit = lookOf(
+                    live.looks,
+                    actor.userId,
+                    live.focus.find((m) => m.userId === actor.userId),
+                  );
                   return (
-                    <Pressable
-                      key={`${spot.x}:${spot.y}`}
-                      testID={`focus-available-spot-${index}`}
-                      accessibilityRole="button"
-                      accessibilityLabel={t('focusFlow.spot.available')}
-                      onPress={() => selectSpot(spot)}
-                      hitSlop={(semanticTokens.size.tapMin - diameter) / 2}
-                      style={{
-                        position: 'absolute',
-                        left: (size * spot.x) / 100 - diameter / 2,
-                        top: (sizeY * spot.y) / 100 - diameter / 2,
-                        width: diameter,
-                        height: diameter,
-                        borderRadius: diameter / 2,
-                        borderWidth: componentTokens.focusArrival.markerStroke,
-                        borderColor: componentTokens.focusArrival.markerColor,
-                        boxShadow: componentTokens.focusArrival.markerShadow,
-                      }}
+                    <FishingPeerActorView
+                      key={actor.key}
+                      actor={{ ...actor, subject: shown.has(actor.key) ? actor.subject : null }}
+                      outfit={outfit}
+                      size={size}
+                      sizeY={sizeY}
+                      emote={emoteByUser.get(actor.userId) ?? null}
+                      reduce={reduce}
+                      goldenFishCount={goldenFor(actor.userId, actor.sessionId)?.count ?? 0}
+                      goldenCatchToken={goldenFor(actor.userId, actor.sessionId)?.eventId}
+                      onEntered={peerFlow.entered}
+                      onCast={peerFlow.cast}
+                      onPausedExit={peerFlow.leftForPause}
+                      onStretch={peerFlow.stretched}
+                      onCompletedExit={peerFlow.leftForComplete}
+                      onPress={
+                        (r === 'focus' || r === 'fishingArrival') && !dialog
+                          ? () => setCatInfo({ actor, outfit })
+                          : undefined
+                      }
                     />
                   );
                 })}
-                {peers.map((actor) => (
-                  <FishingPeerActorView
-                    key={actor.key}
-                    actor={{ ...actor, subject: shown.has(actor.key) ? actor.subject : null }}
-                    outfit={lookOf(
-                      live.looks,
-                      actor.userId,
-                      live.focus.find((m) => m.userId === actor.userId),
-                    )}
-                    size={size}
-                    sizeY={sizeY}
-                    emote={emoteByUser.get(actor.userId) ?? null}
-                    reduce={reduce}
-                    goldenFishCount={goldenFor(actor.userId, actor.sessionId)?.count ?? 0}
-                    goldenCatchToken={goldenFor(actor.userId, actor.sessionId)?.eventId}
-                    onEntered={peerFlow.entered}
-                    onCast={peerFlow.cast}
-                    onPausedExit={peerFlow.leftForPause}
-                    onStretch={peerFlow.stretched}
-                    onCompletedExit={peerFlow.leftForComplete}
-                  />
-                ))}
                 {seated ? (
                   <FishingActor
                     spot={mine}
                     size={size}
                     sizeY={sizeY}
                     color={s.color}
-                    name={t('focusFlow.common.me')}
+                    name={ownCatName(s.name)}
                     me
                     subject={shown.has('me') ? mySubject : null}
                     seconds={
@@ -3278,7 +4124,6 @@ function FocusFlow({ e: environment }: any) {
                     catchAvoidSpots={peerSpots}
                     catchVisibleSpots={peerCatchSpots}
                     catchGramVisible={i.buildings.includes('gram')}
-                    catchFuturePeerSpots={PEER_SPOTS}
                     outfit={myOutfit}
                   />
                 ) : (
@@ -3291,6 +4136,7 @@ function FocusFlow({ e: environment }: any) {
                     left={walker.left}
                     reduce={reduce}
                     outfit={myOutfit}
+                    name={ownCatName(s.name)}
                   />
                 )}
               </>
@@ -3300,6 +4146,7 @@ function FocusFlow({ e: environment }: any) {
         {r === 'fishingArrival' && !(tutorialStep >= 5 && tutorialStep <= 21) && (
           <View
             pointerEvents="box-none"
+            {...a11yHidden(!!catInfo)}
             style={{
               position: 'absolute',
               top: safe.top + semanticTokens.spacing.control,
@@ -3318,6 +4165,7 @@ function FocusFlow({ e: environment }: any) {
         )}
         {liveIslandId && live.status === 'error' && (
           <View
+            {...a11yHidden(!!catInfo)}
             style={{
               position: 'absolute',
               zIndex: 5,
@@ -3351,7 +4199,7 @@ function FocusFlow({ e: environment }: any) {
           <>
             <View
               pointerEvents="none"
-              {...a11yHidden(!!dialog || !!goldenCutscene)}
+              {...a11yHidden(!!dialog || !!goldenCutscene || !!catInfo)}
               style={{
                 position: 'absolute',
                 zIndex: 5,
@@ -3383,7 +4231,7 @@ function FocusFlow({ e: environment }: any) {
               </Text>
             </View>
             <View
-              {...a11yHidden(!!dialog || !!goldenCutscene)}
+              {...a11yHidden(!!dialog || !!goldenCutscene || !!catInfo)}
               style={{
                 position: 'absolute',
                 zIndex: 5,
@@ -3426,54 +4274,12 @@ function FocusFlow({ e: environment }: any) {
                 />
               </View>
             </View>
-            {dialog === 'music' && !goldenReeling && (
-              <FiModal>
-                <Text style={[fiTitle(wide ? 19 : 22), { marginBottom: 8 }]}>
-                  {t('focusFlow.music.title')}
-                </Text>
-                <Text
-                  style={{
-                    fontSize: 13,
-                    lineHeight: 20.8,
-                    color: '#7C6857',
-                    marginBottom: wide ? 10 : 15,
-                  }}
-                >
-                  {t('focusFlow.music.subtitle')}
-                </Text>
-                <View style={{ gap: 8 }}>
-                  {i.sharedOwned.filter(hasBundledAudio).map((id) => (
-                    <FiButton
-                      key={id}
-                      left
-                      primary={i.track === id}
-                      title={trackNames[id]}
-                      onPress={() => {
-                        if (!e.playback) e.dispatch({ type: 'TRACK', value: id });
-                        else
-                          e.playback
-                            .update({ trackId: id, playing: true })
-                            .catch((thrown: unknown) =>
-                              e.notify(errorTextOr(thrown, 'focusFlow.music.changeFailed')),
-                            );
-                      }}
-                    />
-                  ))}
-                </View>
-                <View style={{ flexDirection: 'row', marginTop: wide ? 12 : 18 }}>
-                  <FiButton
-                    primary
-                    title={t('focusFlow.music.backToSpot')}
-                    style={{ flex: 1 }}
-                    onPress={() => setDialog(null)}
-                  />
-                </View>
-              </FiModal>
-            )}
           </>
         )}
+        {musicModal}
         {r === 'focusResult' && !leg && !goldenReeling && resultModal}
         {!leg && !goldenReeling && rewardModal}
+        {catInfo && <FishingCatInfo target={catInfo} onClose={() => setCatInfo(null)} />}
       </View>
       {goldenCutsceneOverlay}
     </TutorialScene>

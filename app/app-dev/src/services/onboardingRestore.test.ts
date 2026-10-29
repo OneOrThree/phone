@@ -7,7 +7,7 @@ test('이름·색 등록을 마친 무소속 계정은 이야기 진행도와 �
     expect(
       restoredRoute({ loggedIn: true, onboardingStory: checkpoint }, { onboardingComplete: true }),
     ).toBe('sea');
-    expect(firstStoryStep(checkpoint)).toBe(checkpoint === 'scope' ? 'scopeIntro' : 'choose');
+    expect(firstStoryStep(checkpoint)).toBe(checkpoint === 'scope' ? 'scope' : 'choose');
   }
 });
 test('진행 중인 실제 바다 집중은 스토리 체크포인트보다 우선한다', () => {

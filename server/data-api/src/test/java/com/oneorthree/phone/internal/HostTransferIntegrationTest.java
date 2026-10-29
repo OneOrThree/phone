@@ -1,53 +1,54 @@
 package com.oneorthree.phone.internal;
 
+import com.oneorthree.phone.internal.dto.CreateIslandCommandRequest;
+import com.oneorthree.phone.internal.service.IslandJoinService;
+import com.oneorthree.phone.internal.service.IslandMembershipService;
+import com.oneorthree.phone.user.repository.domain.User;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.oneorthree.phone.auth.exception.AuthException;
 import com.oneorthree.phone.auth.service.AuthService;
 import com.oneorthree.phone.auth.service.SessionLogoutService;
 import com.oneorthree.phone.auth.support.JwtProvider;
 import com.oneorthree.phone.config.OutboxRelayProperties;
-import com.oneorthree.phone.group.dto.CreateChallengeRequest;
-import com.oneorthree.phone.group.dto.CreateGroupRequest;
-import com.oneorthree.phone.group.dto.JoinGroupRequest;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
-import com.oneorthree.phone.group.service.GroupChallengeService;
 import com.oneorthree.phone.group.service.GroupMemberService;
-import com.oneorthree.phone.group.service.GroupService;
 import com.oneorthree.phone.internal.dto.HostTransferRequest;
 import com.oneorthree.phone.internal.dto.HostTransferResponse;
 import com.oneorthree.phone.internal.service.InternalHostTransferService;
 import com.oneorthree.phone.invitelink.repository.GroupInviteLinkRepository;
-import com.oneorthree.phone.invitelink.repository.InviteLinkClickRepository;
 import com.oneorthree.phone.invitelink.repository.domain.GroupInviteLink;
-import com.oneorthree.phone.invitelink.repository.domain.InviteLinkClick;
 import com.oneorthree.phone.outbox.exception.OutboxException;
 import com.oneorthree.phone.outbox.repository.EventOutboxDeliveryRepository;
 import com.oneorthree.phone.outbox.repository.EventOutboxRepository;
 import com.oneorthree.phone.outbox.service.OutboxRelayService;
 import com.oneorthree.phone.outbox.service.OutboxRelayStore;
-import com.oneorthree.phone.outbox.support.OutboxTestPostgres;
 import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.withdrawal.service.AccountWithdrawalService;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.annotation.DirtiesContext;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
-import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
-
 import java.time.Clock;
-import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+
+import com.oneorthree.phone.outbox.support.OutboxTestPostgres;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.test.annotation.DirtiesContext;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+
+import java.time.Duration;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
@@ -56,9 +57,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /** 실제 Flyway PostgreSQL·생산 진입점/명령으로 역할/receipt/outbox와 legacy 경합을 검증한다. */
@@ -71,9 +69,7 @@ class HostTransferIntegrationTest {
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
         OutboxTestPostgres.applyProductionMigrationWiring(registry);
-        registry.add("island-management.host-transfer-enabled", () -> true);
         registry.add("notification.dispatch.mode", () -> "OUTBOX");
-        registry.add("internal.api.enabled", () -> true);
         registry.add("internal.api.callers.business.token", () -> TOKEN);
         registry.add("internal.api.callers.business.allow[0]",
                 () -> "POST /internal/islands/*/host-transfer");
@@ -82,9 +78,9 @@ class HostTransferIntegrationTest {
     @Autowired
     InternalHostTransferService service;
     @Autowired
-    GroupService groups;
+    IslandMembershipService islands;
     @Autowired
-    GroupChallengeService challenges;
+    IslandJoinService joins;
     @Autowired
     GroupMemberService members;
     @Autowired
@@ -97,8 +93,6 @@ class HostTransferIntegrationTest {
     AccountWithdrawalService withdrawal;
     @Autowired
     GroupInviteLinkRepository inviteLinks;
-    @Autowired
-    InviteLinkClickRepository inviteClicks;
     @Autowired
     EventOutboxRepository events;
     @Autowired
@@ -136,76 +130,6 @@ class HostTransferIntegrationTest {
                 f.islandId().toString())).isZero();
         assertThat(count("select count(*) from event_outbox where subject_id=?"
                 + " and params->>'changeKind'='HOST_TRANSFER'", f.islandId().toString())).isEqualTo(1);
-    }
-
-    @Test
-    @DisplayName("실제 탈퇴 후 다른 활성 사용자가 HTTP claim 해도 익명화된 클릭은 소진 상태를 유지한다")
-    void withdrawnClaimantClickCannotBeConsumedByAnotherActiveUser() throws Exception {
-        Fixture f = fixture();
-        var first = auth.guestLogin();
-        var next = auth.guestLogin();
-        UUID firstId = jwt.extractUserId(first.accessToken());
-        UUID nextId = jwt.extractUserId(next.accessToken());
-        String slug = UUID.randomUUID().toString().replace("-", "").substring(0, 12);
-        GroupInviteLink link = inviteLinks.save(new GroupInviteLink(slug, f.islandId(), f.owner().id()));
-        UUID clickId = null;
-        try {
-            InviteLinkClick click = new InviteLinkClick(link.getId(), "0".repeat(64), "ios", "test-agent");
-            click.markMatched("withdrawal-device", "withdrawal-app");
-            click = inviteClicks.save(click);
-            clickId = click.getId();
-            String request = "{\"slug\":\"" + slug + "\"}";
-
-            mvc.perform(post("/api/v1/invite-links/claim").header("Authorization", "Bearer " + first.accessToken())
-                            .contentType("application/json").content(request))
-                    .andExpect(status().isOk());
-            InviteLinkClick claimed = inviteClicks.findById(click.getId()).orElseThrow();
-            assertThat(claimed.getClaimedUserId()).isEqualTo(firstId);
-            Instant claimedAt = claimed.getClaimedAt();
-            assertThat(claimedAt).isNotNull();
-
-            withdrawal.withdraw(firstId);
-
-            assertThat(count("select count(*) from users where id=? and is_deleted=true", firstId)).isEqualTo(1);
-            InviteLinkClick anonymized = inviteClicks.findById(click.getId()).orElseThrow();
-            assertThat(anonymized.getClaimedUserId()).isNull();
-            assertThat(anonymized.getClaimedAt()).isEqualTo(claimedAt);
-            mvc.perform(post("/api/v1/invite-links/claim").header("Authorization", "Bearer " + next.accessToken())
-                            .contentType("application/json").content(request))
-                    .andExpect(status().isOk());
-
-            InviteLinkClick stillConsumed = inviteClicks.findById(click.getId()).orElseThrow();
-            assertThat(stillConsumed.getClaimedUserId()).isNull();
-            assertThat(stillConsumed.getClaimedAt()).isEqualTo(claimedAt);
-            assertThat(stillConsumed.isMatched()).isTrue();
-            assertThat(count("select count(*) from users where id=? and is_deleted=false", nextId)).isEqualTo(1);
-        } finally {
-            // Flyway 테스트 DB는 컨텍스트 종료 뒤에도 남으므로 이 테스트가 만든 행만 역순으로 지운다.
-            if (clickId != null) {
-                inviteClicks.deleteById(clickId);
-            }
-            inviteLinks.deleteById(link.getId());
-        }
-    }
-
-    @Test
-    void flagRejectsBeforeAnyReceiptOrDomainWrite() throws Exception {
-        Fixture f = fixture();
-        long before = version(f);
-        long receipts = receiptCount(f.owner());
-        ReflectionTestUtils.setField(service, "enabled", false);
-        try {
-            mvc.perform(post(path(f)).header("Authorization", "Bearer " + TOKEN)
-                            .header("X-User-Id", f.owner().id()).header("Idempotency-Key", UUID.randomUUID())
-                            .contentType("application/json").content(body(f.owner(), f.target().id())))
-                    .andExpect(status().isServiceUnavailable())
-                    .andExpect(jsonPath("$.code").value("REALTIME_NOT_READY"));
-        } finally {
-            ReflectionTestUtils.setField(service, "enabled", true);
-        }
-        assertOwner(f, f.owner());
-        assertThat(version(f)).isEqualTo(before);
-        assertThat(receiptCount(f.owner())).isEqualTo(receipts);
     }
 
     @Test
@@ -306,11 +230,14 @@ class HostTransferIntegrationTest {
         var relay = new OutboxRelayService(store, events, properties, Clock.systemUTC(), List.of(),
                 new SimpleMeterRegistry(), Runnable::run);
         long before = eventCount(f);
+        long pendingBefore = count("select count(*) from event_outbox_deliveries d join event_outbox e on e.id=d.outbox_id"
+                + " where e.subject_id=? and d.target='REALTIME' and d.delivered_at is null"
+                + " and d.lease_token is null and d.attempt_count=0", f.islandId().toString());
         assertThat(relay.relayOnce()).isZero();
         assertThat(eventCount(f)).isEqualTo(before);
         assertThat(count("select count(*) from event_outbox_deliveries d join event_outbox e on e.id=d.outbox_id"
                 + " where e.subject_id=? and d.target='REALTIME' and d.delivered_at is null"
-                + " and d.lease_token is null and d.attempt_count=0", f.islandId().toString())).isEqualTo(before);
+                + " and d.lease_token is null and d.attempt_count=0", f.islandId().toString())).isEqualTo(pendingBefore);
     }
 
     @Test
@@ -328,7 +255,7 @@ class HostTransferIntegrationTest {
     void newTransferSerializesWithLegacyTransfer() throws Exception {
         Fixture f = fixture();
         Actor third = actor();
-        groups.joinGroup(f.islandId(), third.id(), new JoinGroupRequest(null));
+        joins.join(third.id(), f.islandId(), null, UUID.randomUUID());
         var failure = afterBlocked(() -> transfer(f, UUID.randomUUID()), () -> failure(() -> {
             members.transferOwner(f.islandId(), third.id(), f.owner().id());
             return null;
@@ -388,12 +315,12 @@ class HostTransferIntegrationTest {
     void joinAfterLastOwnerLeavesCannotReviveClosedIsland() throws Exception {
         Actor owner = actor();
         Actor newcomer = actor();
-        UUID island = groups.createGroup(owner.id(), CreateGroupRequest.builder().name("잠금 검증").build()).groupId();
+        UUID island = islands.create(owner.id(), new CreateIslandCommandRequest("잠금 검증", null, false, null), UUID.randomUUID()).id();
         Throwable failure = afterBlocked(() -> {
             members.withdrawGroup(island, owner.id());
             return null;
         }, () -> failure(() -> {
-            groups.joinGroup(island, newcomer.id(), new JoinGroupRequest(null));
+            joins.join(newcomer.id(), island, null, UUID.randomUUID());
             return null;
         }));
         assertThat(failure).isInstanceOfSatisfying(GroupException.class,
@@ -412,66 +339,17 @@ class HostTransferIntegrationTest {
                 e -> assertThat(e.getErrorCode()).isEqualTo(GroupErrorCode.NOT_FOUND));
     }
 
-    @Test
-    @DisplayName("챌린지 생성의 그룹 잠금과 탈퇴의 USER outbox 잠금이 커밋 전 알림에서 역전되지 않는다")
-    void challengeCreationBeforeWithdrawalDoesNotDeadlockUserOutbox() throws Exception {
-        Fixture f = fixture();
-        // first는 실제 createChallenge를 호출한 채 TX를 열어 둔다. 후행 탈퇴의 PG 잠금 대기를
-        // 확인한 뒤 first가 커밋되어야 BEFORE_COMMIT 알림이 USER aggregate를 획득한다.
-        afterBlocked(() -> createChallenge(f), () -> {
-            withdrawal.withdraw(f.target().id());
-            return null;
-        });
-        assertTargetWithdrawn(f);
-        assertThat(challengeNotificationCount(f.target())).isEqualTo(1);
-    }
-
-    @Test
-    @DisplayName("탈퇴가 먼저 커밋되면 챌린지 생성은 기다린 뒤 탈퇴자를 알림 수신자에서 제외한다")
-    void withdrawalBeforeChallengeCreationExcludesDepartedRecipient() throws Exception {
-        Fixture f = fixture();
-        afterBlocked(() -> {
-            withdrawal.withdraw(f.target().id());
-            return null;
-        }, () -> createChallenge(f));
-        assertTargetWithdrawn(f);
-        assertThat(challengeNotificationCount(f.target())).isZero();
-    }
-
-    private UUID createChallenge(Fixture f) throws Exception {
-        CreateChallengeRequest request = new ObjectMapper().readValue(
-                "{\"missionCategory\":\"FOCUS\",\"missionType\":\"DURATION\",\"durationMinutes\":30}",
-                CreateChallengeRequest.class);
-        return challenges.createChallenge(f.islandId(), f.owner().id(), request).getId();
-    }
-
-    private long challengeNotificationCount(Actor recipient) {
-        return count("select count(*) from event_outbox where user_id=? and type='notification.requested'"
-                + " and params->>'kind'='CHALLENGE_CREATED'", recipient.id());
-    }
-
-    private void assertTargetWithdrawn(Fixture f) {
-        assertThat(count("select count(*) from users where id=? and is_deleted=true", f.target().id()))
-                .isEqualTo(1);
-        assertThat(count("select count(*) from group_members where user_id=? and is_left=false", f.target().id()))
-                .isZero();
-        assertThat(count("select count(*) from event_outbox where user_id=? and type='user.withdrawn'", f.target().id()))
-                .isEqualTo(1);
-        assertOwner(f, f.owner());
-    }
-
     private Fixture fixture() {
         Actor owner = actor();
         Actor target = actor();
-        UUID island = groups.createGroup(owner.id(), CreateGroupRequest.builder().name("방장 위임 검증").build())
-                .groupId();
-        groups.joinGroup(island, target.id(), new JoinGroupRequest(null));
+        UUID island = islands.create(owner.id(), new CreateIslandCommandRequest("방장 위임 검증", null, false, null), UUID.randomUUID()).id();
+        joins.join(target.id(), island, null, UUID.randomUUID());
         return new Fixture(island, owner, target);
     }
 
     private Actor actor() {
-        var login = auth.guestLogin();
-        return new Actor(jwt.extractUserId(login.accessToken()), login.sessionId(), login.refreshToken());
+        var login = auth.guestSession(java.util.UUID.randomUUID().toString());
+        return new Actor(jwt.extractUserId(login.accessToken()), jwt.extractSessionId(login.accessToken()), login.refreshToken());
     }
 
     private HostTransferResponse transfer(Fixture f, UUID key) {

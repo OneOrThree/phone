@@ -80,22 +80,49 @@ class SourcedRedisReadIntegrationTest {
         try {
             redis.opsForValue().set(RedisKeys.blockCache(viewer), "0|" + blocked, Duration.ofSeconds(1));
             long before = System.nanoTime();
-            Sourced<Boolean> judged = filter.hasBlockedSourced(viewer, blocked);
+            Sourced<Boolean> judged = filter.hiddenSourced(viewer, blocked);
             long after = System.nanoTime();
             assertThat(judged.value()).isTrue();
             assertThat(judged.expiresAtNanos()).isBetween(before, after + TimeUnit.SECONDS.toNanos(1));
-            assertThat(filter.hasBlockedSourced(viewer, UUID.randomUUID()).value()).isFalse();
-            assertThat(filter.hasBlockedSourced(viewer, null).expiresAtNanos()).as("조회 없음").isEqualTo(Sourced.UNBOUNDED);
+            assertThat(filter.hiddenSourced(viewer, UUID.randomUUID()).value()).isFalse();
+            assertThat(filter.hiddenSourced(viewer, null).expiresAtNanos()).as("조회 없음").isEqualTo(Sourced.UNBOUNDED);
             verify(client, never()).fetchBlockedIds(viewer);
 
             // 세대가 올랐으면(3) 세대 0 의 캐시는 hit 가 아니다 — 정본(빈 집합)으로 판정한다.
             redis.opsForValue().set(RedisKeys.blockGeneration(viewer), "3");
             redis.opsForValue().set(RedisKeys.blockCache(viewer), "2|" + stale, Duration.ofSeconds(60));
             when(client.fetchBlockedIds(viewer)).thenReturn(Set.of());
-            assertThat(filter.hasBlockedSourced(viewer, stale).value()).as("옛 세대의 캐시는 쓰지 않는다").isFalse();
+            assertThat(filter.hiddenSourced(viewer, stale).value()).as("옛 세대의 캐시는 쓰지 않는다").isFalse();
             verify(client).fetchBlockedIds(viewer);
         } finally {
             redis.delete(List.of(RedisKeys.blockCache(viewer), RedisKeys.blockGeneration(viewer)));
+        }
+    }
+
+    @Test
+    @DisplayName("차단: 양방향이라 발신자 집합까지 읽고, «허용»의 만료는 두 집합 중 먼저 끝나는 쪽이다(GROMO-2469)")
+    void blockAllowExpiryIsTheEarlierOfBothSets() {
+        UUID viewer = UUID.randomUUID();
+        UUID sender = UUID.randomUUID();
+        BlockClient client = mock(BlockClient.class);
+        BlockedUsers filter = new BlockedUsers(client, redis, 120, true);
+        try {
+            redis.opsForValue().set(RedisKeys.blockCache(viewer), "0|", Duration.ofSeconds(60));
+            redis.opsForValue().set(RedisKeys.blockCache(sender), "0|", Duration.ofSeconds(1));
+            long before = System.nanoTime();
+            Sourced<Boolean> judged = filter.hiddenSourced(viewer, sender);
+            long after = System.nanoTime();
+            assertThat(judged.value()).isFalse();
+            assertThat(judged.expiresAtNanos()).as("발신자 집합(1s)이 먼저 끝난다")
+                    .isBetween(before, after + TimeUnit.SECONDS.toNanos(1));
+            verify(client, never()).fetchBlockedIds(viewer);
+            verify(client, never()).fetchBlockedIds(sender);
+
+            // 발신자가 받는 사람을 차단했으면 숨긴다 — 받는 사람 집합은 그대로 비어 있다.
+            redis.opsForValue().set(RedisKeys.blockCache(sender), "0|" + viewer, Duration.ofSeconds(60));
+            assertThat(filter.hiddenSourced(viewer, sender).value()).isTrue();
+        } finally {
+            redis.delete(List.of(RedisKeys.blockCache(viewer), RedisKeys.blockCache(sender)));
         }
     }
 
@@ -109,7 +136,7 @@ class SourcedRedisReadIntegrationTest {
         try {
             redis.opsForValue().set(RedisKeys.blockGeneration(viewer), "3");
             redis.opsForValue().set(RedisKeys.blockCache(viewer), "3|" + blocked, Duration.ofSeconds(60));
-            assertThat(filter.hasBlockedSourced(viewer, blocked).value()).isTrue();
+            assertThat(filter.hiddenSourced(viewer, blocked).value()).isTrue();
             verify(client, never()).fetchBlockedIds(viewer); // 현재 세대(3)의 캐시라 정본을 부르지 않는다
         } finally {
             redis.delete(List.of(RedisKeys.blockCache(viewer), RedisKeys.blockGeneration(viewer)));
@@ -126,7 +153,7 @@ class SourcedRedisReadIntegrationTest {
         BlockedUsers filter = new BlockedUsers(client, redis, 120, true);
         try {
             long before = System.nanoTime();
-            Sourced<Boolean> judged = filter.hasBlockedSourced(viewer, blocked);
+            Sourced<Boolean> judged = filter.hiddenSourced(viewer, blocked);
             long after = System.nanoTime();
             assertThat(judged.value()).isTrue();
             verify(client).fetchBlockedIds(viewer);

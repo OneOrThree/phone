@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   AccessibilityInfo,
   Image,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -21,7 +22,8 @@ import { seaClock } from '@/screens/sea/seaModel';
 import { seaAssets } from '@/screens/sea/seaAssets';
 import { updateProfile } from '@/services/api/account';
 import { sessionGeneration } from '@/services/api/session';
-import { uuid } from '@/services/api/client';
+import { ApiError, uuid } from '@/services/api/client';
+import { stripNicknameWhitespace } from '@/utils/nickname';
 import type { TelescopeItem } from '@/services/api/telescope';
 import { colorName, colors, sessionRoute, type Color, type State } from '@/services/model';
 import { errorTextOr, t } from '@/i18n';
@@ -53,6 +55,7 @@ export function OnboardingFlow({ e, previewItems }: { e: any; previewItems?: Tel
   const [departing, setDeparting] = useState<TelescopeItem | null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
+  const [bubbleH, setBubbleH] = useState(0);
   const skipAfterName = useRef(false);
   const profileSaved = useRef(false);
   const requestLock = useRef(false);
@@ -68,12 +71,16 @@ export function OnboardingFlow({ e, previewItems }: { e: any; previewItems?: Tel
   const selected =
     step === 'depart' ? departing : items.find((item) => item.islandId === selectedId);
   const lineKey =
-    step === 'scope' && items.length === 1 && items[0].memberCount === 0 ? 'uninhabited' : step;
+    step === 'ready'
+      ? selected && selected.memberCount === 0
+        ? 'readyEmpty'
+        : 'readyJoined'
+      : step;
   const line = storyHasLine(step) ? t(`onboardingStory.${lineKey}`, { name }) : '';
   const typing = useStoryLine(step, line);
   const scroll = useRef<ScrollView>(null);
   const width = Math.min(layout.width, ui.maxWidth);
-  const large = (layout.fontScale ?? 1) > 1.3;
+  const large = (layout.fontScale ?? 1) > semanticTokens.typography.largeTextThreshold;
   const height = Math.max(layout.height, large ? 1120 : 740);
   const top = Math.max(layout.insets.top, space[10]);
   const bottom = Math.max(layout.insets.bottom, space[8]);
@@ -82,7 +89,7 @@ export function OnboardingFlow({ e, previewItems }: { e: any; previewItems?: Tel
   const nameStep = step === 'name';
   const scopeStep = step === 'scope' || step === 'ready';
   const pose = storyPose(step, typing.complete);
-  const hasCta = ['name', 'invite', 'scopeIntro', 'ready', 'depart'].includes(step);
+  const hasCta = ['name', 'invite', 'ready', 'depart'].includes(step);
   const canAdvance = !hasCta && !['choose', 'arrival', 'scope'].includes(step);
   const move = (next: StoryStep) => {
     setError('');
@@ -106,6 +113,15 @@ export function OnboardingFlow({ e, previewItems }: { e: any; previewItems?: Tel
   useEffect(() => {
     if (step === 'ready' && !selected) setStep('scope');
   }, [step, selected]);
+  // 이름 입력 중 키보드가 다 올라온 뒤에 끝까지 내려야 입력 칸 아래 [이 이름으로 할게요] 까지 키보드 위에 보인다 —
+  // onFocus 시점에는 아직 KeyboardAvoidingView 가 줄어들기 전이라 scrollToEnd 가 움직일 거리가 없다
+  useEffect(() => {
+    if (!nameStep) return;
+    const shown = Keyboard.addListener('keyboardDidShow', () =>
+      scroll.current?.scrollToEnd({ animated: true }),
+    );
+    return () => shown.remove();
+  }, [nameStep]);
   // 출항 완료 직후 강제 종료됐으면 서버가 복구한 세션으로 돌아간다. 이 화면의 타이머는 정본이 아니다.
   const enterSea = () => {
     const session = latest.current.state.session;
@@ -113,7 +129,7 @@ export function OnboardingFlow({ e, previewItems }: { e: any; previewItems?: Tel
   };
   const scope = () => {
     checkpoint('scope');
-    move('scopeIntro');
+    move('scope');
   };
   const skip = () => {
     if (pending) return;
@@ -123,7 +139,7 @@ export function OnboardingFlow({ e, previewItems }: { e: any; previewItems?: Tel
     move('name');
   };
   const saveName = async () => {
-    const value = name.trim();
+    const value = name;
     if (!value) {
       setError(t('onboardingStory.nameEmpty'));
       return;
@@ -152,7 +168,12 @@ export function OnboardingFlow({ e, previewItems }: { e: any; previewItems?: Tel
         scope();
       } else move('greet');
     } catch (thrown) {
-      if (live()) setError(errorTextOr(thrown, 'errors.GENERIC'));
+      if (live())
+        setError(
+          thrown instanceof ApiError && thrown.code === 'NICKNAME_INVALID'
+            ? thrown.message
+            : errorTextOr(thrown, 'errors.GENERIC'),
+        );
     } finally {
       requestLock.current = false;
       if (mounted.current) setPending(false);
@@ -214,9 +235,9 @@ export function OnboardingFlow({ e, previewItems }: { e: any; previewItems?: Tel
       return true;
     }
     if (step === 'choose') return false;
-    if (step === 'scopeIntro') return true; // 체크포인트 이전으로 되돌려 프로필을 재저장하지 않는다
-    if (step === 'scope' || step === 'ready') {
-      move(step === 'ready' ? 'scope' : 'scopeIntro');
+    if (step === 'scope') return true; // 체크포인트 이전으로 되돌려 프로필을 재저장하지 않는다
+    if (step === 'ready') {
+      move('scope');
       return true;
     }
     move(storySteps[Math.max(0, storySteps.indexOf(step) - 1)]);
@@ -245,7 +266,6 @@ export function OnboardingFlow({ e, previewItems }: { e: any; previewItems?: Tel
   const cta = () => {
     if (nameStep) return saveName();
     if (step === 'invite') return scope();
-    if (step === 'scopeIntro') return move('scope');
     if (step === 'ready') return start();
     if (step === 'depart') return enterSea();
   };
@@ -254,14 +274,12 @@ export function OnboardingFlow({ e, previewItems }: { e: any; previewItems?: Tel
       ? 'saving'
       : 'nameCta'
     : step === 'invite'
-      ? 'join'
-      : step === 'scopeIntro'
-        ? 'scopeCta'
-        : step === 'ready'
-          ? pending
-            ? 'startPending'
-            : 'start'
-          : 'enterSea';
+      ? 'scopeCta'
+      : step === 'ready'
+        ? pending
+          ? 'startPending'
+          : 'start'
+        : 'enterSea';
 
   if (step === 'choose')
     return (
@@ -322,10 +340,11 @@ export function OnboardingFlow({ e, previewItems }: { e: any; previewItems?: Tel
       style={styles.root}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
+      {/* 키보드 대응은 바깥 KeyboardAvoidingView 하나만 — ScrollView 에 automaticallyAdjustKeyboardInsets 까지 주면 iOS 가
+          키보드 높이를 두 번 더해 장면이 2배로 밀려 올라가고 아래가 빈 바탕색으로 남는다(이름 입력 화면 깨짐) */}
       <ScrollView
         ref={scroll}
         keyboardShouldPersistTaps="handled"
-        automaticallyAdjustKeyboardInsets
         contentContainerStyle={{ flexGrow: 1, alignItems: 'center' }}
       >
         <View
@@ -367,6 +386,7 @@ export function OnboardingFlow({ e, previewItems }: { e: any; previewItems?: Tel
               accessibilityLabel={line}
               accessibilityHint={t('onboardingStory.next')}
               onPress={advance}
+              onLayout={(e) => setBubbleH(e.nativeEvent.layout.height)}
               style={[
                 styles.bubble,
                 {
@@ -385,7 +405,7 @@ export function OnboardingFlow({ e, previewItems }: { e: any; previewItems?: Tel
               {!scopeStep && <View style={styles.tail} />}
             </Pressable>
           )}
-          {!['arrival', 'name', 'scopeIntro', 'scope', 'ready', 'depart'].includes(step) && (
+          {!['arrival', 'name', 'scope', 'ready', 'depart'].includes(step) && (
             <View style={{ position: 'absolute', top, right: space[4] }}>
               <Btn
                 id="onboarding-skip"
@@ -407,7 +427,15 @@ export function OnboardingFlow({ e, previewItems }: { e: any; previewItems?: Tel
             <StoryRaft color={color} pose={pose} width={width * (nameStep ? 0.55 : ui.raftWidth)} />
           </View>
           {scopeStep && (
-            <View style={{ position: 'absolute', top: position(0.32), left: 0, right: 0 }}>
+            <View
+              style={{
+                position: 'absolute',
+                // 길어진 망원경 대사가 섬 목록·터치영역을 덮지 않도록 말풍선 높이만큼 아래로 민다
+                top: Math.max(position(0.32), position(0.16) + bubbleH + space[4]),
+                left: 0,
+                right: 0,
+              }}
+            >
               {!previewItems && list.status === 'loading' ? (
                 <Txt style={[styles.center, font]}>{t('onboardingStory.loading')}</Txt>
               ) : !previewItems && list.status === 'error' ? (
@@ -519,7 +547,11 @@ export function OnboardingFlow({ e, previewItems }: { e: any; previewItems?: Tel
                     style={[k.field, font]}
                     value={name}
                     editable={!pending}
-                    onChangeText={setName}
+                    onChangeText={(value) => {
+                      if (pending) return;
+                      setName(stripNicknameWhitespace(value));
+                      setError('');
+                    }}
                     returnKeyType="done"
                     onSubmitEditing={saveName}
                     onFocus={() => scroll.current?.scrollToEnd({ animated: true })}
@@ -535,7 +567,7 @@ export function OnboardingFlow({ e, previewItems }: { e: any; previewItems?: Tel
                 id="onboarding-continue"
                 dynamicHeight
                 title={t(`onboardingStory.${ctaText}`)}
-                disabled={pending || (nameStep && !name.trim()) || (step === 'ready' && !selected)}
+                disabled={pending || (nameStep && !name) || (step === 'ready' && !selected)}
                 onPress={cta}
               />
             </View>

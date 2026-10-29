@@ -36,7 +36,7 @@ import static org.mockito.Mockito.when;
 /**
  * 시한부 알림의 만료가 게이트·브로커 지연 뒤 발송·재시도·묶음 수집에서 지켜지는지 (GROMO-893 ⑧).
  *
- * <p>{@code LEAGUE_FINAL_DEADLINE}·{@code STREAK_AT_RISK} 는 카탈로그에서 {@code eligibility_required=false} 다. 늦게
+ * <p>{@code FRIEND_REQUEST}·{@code FRIEND_REQUEST} 는 카탈로그에서 {@code eligibility_required=false} 다. 늦게
  * 소비돼도 «마감 2시간 전!»이 마감 뒤에 나가면 안 되고, 같은 사용자의 아직 유효한 결과·환불 묶음은 함께 버려지면 안 된다.
  */
 @SpringBootTest
@@ -69,10 +69,10 @@ class DispatchExpiryTest {
 
     @BeforeEach
     void setup() {
-        store.update("TRUNCATE result_bundle_manifests,delivery_devices,deliveries,inbound_events,commands,"
-                + "device_tokens,session_fences,user_fences,settings,result_ack CASCADE");
+        store.update("TRUNCATE delivery_devices,deliveries,inbound_events,commands,"
+                + "device_tokens,session_fences,user_fences,settings CASCADE");
         store.update("UPDATE dispatch_control SET enabled=true,ever_opened=true");
-        store.update("UPDATE kinds SET quiet_policy='DROP' WHERE id='LEAGUE_FINAL_DEADLINE'");
+        store.update("UPDATE kinds SET quiet_policy='DROP' WHERE id='FRIEND_REQUEST'");
         reset(clock, data, transport);
         when(clock.instant()).thenReturn(NOW);
         when(data.eligible(any(), anyString(), any(), any())).thenReturn(true);
@@ -85,7 +85,7 @@ class DispatchExpiryTest {
     @DisplayName("게이트가 닫힌 사이 시한이 지난 알림은 게이트가 열려도 적격성 조회·발송 없이 만료로 끝난다")
     void aTimedNotificationThatExpiredWhileTheGateWasClosedIsTerminated() {
         store.update("UPDATE dispatch_control SET enabled=false");
-        timed("deadline", "LEAGUE_FINAL_DEADLINE", NOW.plusSeconds(60));
+        timed("deadline", "FRIEND_REQUEST", NOW.plusSeconds(60));
         dispatch.dispatch(delivery("deadline"));
         assertThat(status("deadline")).containsEntry("status", "PENDING");
 
@@ -137,7 +137,7 @@ class DispatchExpiryTest {
     @Test
     @DisplayName("적격성 조회를 기다리는 사이 시한이 지나면 보내지 않고 만료로 끝난다")
     void expiryReachedWhileEligibilityIsBeingCheckedDoesNotSend() {
-        timed("streak", "STREAK_AT_RISK", NOW.plusSeconds(30));
+        timed("streak", "FRIEND_REQUEST", NOW.plusSeconds(30));
         when(data.eligible(any(), anyString(), any(), any())).thenAnswer(invocation -> {
             when(clock.instant()).thenReturn(NOW.plusSeconds(31));
             return true;
@@ -152,7 +152,7 @@ class DispatchExpiryTest {
     @Test
     @DisplayName("전송 실패로 재시도를 기다리는 사이 시한이 지나면 다시 보내지 않는다")
     void aRetryAfterExpiryIsNotSent() {
-        timed("deadline", "LEAGUE_FINAL_DEADLINE", NOW.plusSeconds(90));
+        timed("deadline", "FRIEND_REQUEST", NOW.plusSeconds(90));
         when(transport.send(anyString(), any(), anyBoolean(), anyString())).thenReturn(PushTransport.Result.RETRY);
         dispatch.dispatch(delivery("deadline"));
         verify(transport, times(1)).send(anyString(), any(), anyBoolean(), anyString());
@@ -165,32 +165,12 @@ class DispatchExpiryTest {
         assertThat(status("deadline")).containsEntry("status", "SUPPRESSED").containsEntry("last_error", "EXPIRED");
     }
 
-    @Test
-    @DisplayName("시한이 지난 알림을 끝내도 같은 사용자의 아직 유효한 결과·환불 묶음은 버리지 않고 한 번 보낸다")
-    void stillValidResultsAndRefundsAreNotDiscardedWithExpiredTimedNotifications() {
-        timed("streak", "STREAK_AT_RISK", NOW.minusSeconds(1));
-        timed("deadline", "LEAGUE_FINAL_DEADLINE", NOW.minusSeconds(1));
-        result("result", "BET_RESULT");
-        result("refund", "BET_VOID_REFUND");
-        inbound.accept(event("seal", "notification.resultBundle.closed", GROUP.toString(),
-                Map.of("groupId", GROUP.toString(), "slotAt", SLOT.toString(), "eventIds", List.of("refund", "result"))));
-
-        for (UUID candidate : dispatch.candidates()) {
-            dispatch.dispatch(candidate);
-        }
-
-        verify(transport, times(1)).send(anyString(), any(), anyBoolean(), anyString());
-        assertThat(status("streak")).containsEntry("status", "SUPPRESSED").containsEntry("last_error", "EXPIRED");
-        assertThat(status("deadline")).containsEntry("status", "SUPPRESSED").containsEntry("last_error", "EXPIRED");
-        assertThat(status("result")).containsEntry("status", "SENT");
-        assertThat(status("refund")).containsEntry("status", "SENT");
-    }
 
     @Test
     @DisplayName("조용한 시간이 끝나기 전에 시한이 지나는 이월 알림은 정책 억제가 아니라 만료로 끝난다")
     void aDeferredTimedNotificationWhoseQuietHoursOutliveItsExpiryIsExpired() {
         deferLeagueFinalDeadlineInQuietHoursUntilOneHourLater();
-        timed("deadline", "LEAGUE_FINAL_DEADLINE", NOW.plusSeconds(1800));
+        timed("deadline", "FRIEND_REQUEST", NOW.plusSeconds(1800));
 
         dispatch.dispatch(delivery("deadline"));
 
@@ -202,7 +182,7 @@ class DispatchExpiryTest {
     @DisplayName("조용한 시간이 끝난 뒤에도 유효한 이월 알림은 만료로 끝내지 않고 조용한 시간 끝으로 이월한다")
     void aDeferredTimedNotificationStillValidAfterQuietHoursIsCarriedOver() {
         deferLeagueFinalDeadlineInQuietHoursUntilOneHourLater();
-        timed("deadline", "LEAGUE_FINAL_DEADLINE", NOW.plusSeconds(7200));
+        timed("deadline", "FRIEND_REQUEST", NOW.plusSeconds(7200));
 
         dispatch.dispatch(delivery("deadline"));
 
@@ -213,7 +193,7 @@ class DispatchExpiryTest {
 
     /** 콘솔 등록부가 이 시한부 종류를 «이월»로 바꾼 상태 + 사용자 조용한 시간 12:00–14:00 KST(지금 13:00 → 1시간 뒤 끝). */
     private void deferLeagueFinalDeadlineInQuietHoursUntilOneHourLater() {
-        store.update("UPDATE kinds SET quiet_policy='DEFER' WHERE id='LEAGUE_FINAL_DEADLINE'");
+        store.update("UPDATE kinds SET quiet_policy='DEFER' WHERE id='FRIEND_REQUEST'");
         store.update("INSERT INTO settings(user_id,night_mode_enabled,night_start_time,night_end_time)"
                 + " VALUES(?,true,'12:00','14:00')", USER);
     }
@@ -222,7 +202,7 @@ class DispatchExpiryTest {
     @ValueSource(booleans = {false, true})
     @DisplayName("전송 중 만료 여부와 무관하게 받은 알림은 한 번만 완료하고 임대와 재시도 사유를 지운다")
     void sentDeliverySettlesOnceEvenWhenExpiryPassesDuringSend(boolean expiresDuringSend) {
-        timed("deadline", "LEAGUE_FINAL_DEADLINE", NOW.plusSeconds(30));
+        timed("deadline", "FRIEND_REQUEST", NOW.plusSeconds(30));
         UUID id = delivery("deadline");
         store.update("UPDATE deliveries SET last_error='FCM_RETRY' WHERE id=?", id);
         Instant completedAt = expiresDuringSend ? NOW.plusSeconds(31) : NOW;
@@ -244,8 +224,7 @@ class DispatchExpiryTest {
     private void timed(String id, String kind, Instant expiresAt) {
         Map<String, Object> params = new LinkedHashMap<>();
         params.put("kind", kind);
-        params.put("rank", 3);
-        params.put("streakCount", 4);
+        params.put("counterpartNickname", "친구");
         params.put("issueNo", "7");
         params.put("issueId", UUID.randomUUID().toString());
         params.put("dedupAt", expiresAt.minusSeconds(7200).toString());
@@ -253,19 +232,6 @@ class DispatchExpiryTest {
         inbound.accept(event(id, "notification.requested", null, params));
     }
 
-    private void result(String id, String kind) {
-        Map<String, Object> params = new LinkedHashMap<>();
-        params.put("kind", kind);
-        params.put("groupId", GROUP.toString());
-        params.put("slotAt", SLOT.toString());
-        params.put("challengeId", UUID.randomUUID().toString());
-        params.put("betStatus", "SETTLED");
-        params.put("achieved", true);
-        params.put("stake", 100);
-        params.put("payout", 200);
-        params.put("voidReason", "CHALLENGE_DELETED");
-        inbound.accept(event(id, "notification.requested", UUID.randomUUID().toString(), params));
-    }
 
     private Map<String, Object> event(String id, String type, String subject, Map<String, Object> params) {
         Map<String, Object> body = new LinkedHashMap<>();

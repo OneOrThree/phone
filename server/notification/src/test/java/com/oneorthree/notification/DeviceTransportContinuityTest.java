@@ -75,6 +75,7 @@ class DeviceTransportContinuityTest {
     @Autowired DeviceService devices;
     @Autowired InboundService inbound;
     @Autowired DispatchService dispatch;
+    @Autowired JobRegistry jobs;
     @MockitoBean PushTransport transport;
     @MockitoBean DataClient data;
     @MockitoBean Clock clock;
@@ -83,11 +84,13 @@ class DeviceTransportContinuityTest {
     void resetState() {
         store.update("TRUNCATE delivery_devices,deliveries,inbound_events,commands,device_tokens,"
                 + "session_fences,legacy_session_fences,"
-                + "user_fences,settings,projections,result_ack,templates,deeplinks,kinds CASCADE");
-        store.update("UPDATE dispatch_control SET enabled=true,ever_opened=true,active_migration_id=NULL");
-        store.update("INSERT INTO kinds(id,quiet_policy) VALUES('BET_WON','BYPASS')");
+                + "user_fences,settings,projections,templates,deeplinks,kinds CASCADE");
+        store.update("UPDATE dispatch_control SET enabled=true,ever_opened=true");
+        store.update("UPDATE jobs SET enabled=false");
+        store.update("DELETE FROM job_runs");
+        store.update("INSERT INTO kinds(id,quiet_policy) VALUES('FRIEND_ACCEPTED','BYPASS')");
         store.update("INSERT INTO templates(id,kind,locale,title,body)"
-                + " VALUES('BET_WON.ko','BET_WON','ko','내기','결과가 나왔어요')");
+                + " VALUES('FRIEND_ACCEPTED.ko','FRIEND_ACCEPTED','ko','내기','결과가 나왔어요')");
         reset(transport, data, clock);
         when(clock.instant()).thenReturn(DAY);
         when(clock.getZone()).thenReturn(ZoneOffset.UTC);
@@ -156,6 +159,57 @@ class DeviceTransportContinuityTest {
         assertThat(store.rows("SELECT device_key FROM delivery_devices WHERE delivery_id=?", id)).hasSize(1);
         dispatch.dispatch(id);
         verify(transport).send(eq("fcm-valid"), any(), anyBoolean(), anyString());
+    }
+
+    /**
+     * 다른 FCM 프로젝트에서 발급된 토큰({@code 403 SENDER_ID_MISMATCH}, GROMO-2521)은 {@code UNREGISTERED} 와 같은
+     * 길을 탄다 — 응답을 실제 분류기({@code FcmTransport.classify})에 통과시킨 결과를 전송 결과로 돌린다.
+     * 재시도로 남으면 그 토큰의 delivery 가 매분 영구 재시도되고, 소유권까지 폐기하면 올바른 새 토큰이 CAS 에 걸린다.
+     */
+    @Test
+    void senderIdMismatchInvalidatesOnlyTheTransportAndIsNotRetriedForever() {
+        register("fcm-mismatch", "bootstrap", 1, "register");
+        PushTransport.Result mismatch = FcmTransport.classify(403,
+                RenderPolicyTest.fcmError(403, "PERMISSION_DENIED", "SENDER_ID_MISMATCH"));
+        when(transport.send(eq("fcm-mismatch"), any(), anyBoolean(), anyString())).thenReturn(mismatch);
+        UUID id = enqueue("mismatch");
+        dispatch.dispatch(id);
+
+        assertThat(store.one("SELECT active,transport_invalid FROM device_tokens WHERE device_token='fcm-mismatch'"))
+                .containsEntry("active", true).containsEntry("transport_invalid", true);
+
+        // 재시도 간격이 지나도 같은 토큰으로 다시 보내지 않는다.
+        when(clock.instant()).thenReturn(DAY.plusSeconds(120));
+        dispatch.dispatch(id);
+        verify(transport, times(1)).send(eq("fcm-mismatch"), any(), anyBoolean(), anyString());
+        assertThat(store.one("SELECT status,last_error FROM deliveries WHERE id=?", id))
+                .containsEntry("status", "PENDING").containsEntry("last_error", "NO_ACTIVE_DEVICE");
+    }
+
+    /**
+     * 같은 403 이라도 {@code THIRD_PARTY_AUTH_ERROR}(APNs 키·인증서 — 서버 설정 문제)는 토큰 탓이 아니다.
+     * 토큰을 죽이지 않고 재시도로 남겨, 설정이 고쳐지면 같은 토큰으로 이어서 보낸다.
+     */
+    @Test
+    void thirdPartyAuthErrorStaysRetryableAndLeavesTheTokenUsable() {
+        register("fcm-apns", "bootstrap", 1, "register");
+        PushTransport.Result authError = FcmTransport.classify(403,
+                RenderPolicyTest.fcmError(403, "PERMISSION_DENIED", "THIRD_PARTY_AUTH_ERROR"));
+        when(transport.send(eq("fcm-apns"), any(), anyBoolean(), anyString())).thenReturn(authError);
+        UUID id = enqueue("apns-auth");
+        dispatch.dispatch(id);
+
+        assertThat(store.one("SELECT active,transport_invalid FROM device_tokens WHERE device_token='fcm-apns'"))
+                .containsEntry("active", true).containsEntry("transport_invalid", false);
+        assertThat(store.one("SELECT status,last_error FROM deliveries WHERE id=?", id))
+                .containsEntry("status", "PENDING").containsEntry("last_error", "FCM_RETRY");
+
+        // 설정이 고쳐지면 같은 토큰으로 이어서 보낸다.
+        when(transport.send(eq("fcm-apns"), any(), anyBoolean(), anyString())).thenReturn(PushTransport.Result.SENT);
+        when(clock.instant()).thenReturn(DAY.plusSeconds(120));
+        dispatch.dispatch(id);
+        verify(transport, times(2)).send(eq("fcm-apns"), any(), anyBoolean(), anyString());
+        assertThat(store.one("SELECT status FROM deliveries WHERE id=?", id)).containsEntry("status", "SENT");
     }
 
     /**
@@ -327,12 +381,14 @@ class DeviceTransportContinuityTest {
                 .thenThrow(new IllegalStateException("FCM 응답이 끝내 오지 않았다"));
 
         UUID id = enqueue("half");
-        assertThatThrownBy(() -> dispatch.dispatch(id)).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> dispatch.dispatch(id))
+                .isInstanceOf(DispatchService.LeasedFailure.class)
+                .hasCauseInstanceOf(IllegalStateException.class);
 
         assertThat(store.rows("SELECT device_key FROM delivery_devices WHERE delivery_id=?", id))
                 .singleElement()
                 .satisfies(row -> assertThat(row).containsEntry("device_key", deviceKey("fcm-first")));
-        // 발송 중 펜싱 — 임대가 끝나기 전에는 같은 행이 다시 후보로 서지 않는다.
+        // 예외가 난 실행의 임대는 풀고 60초 뒤로 미룬다. 그 전에는 다시 후보로 서지 않는다.
         assertThat(dispatch.candidates()).doesNotContain(id);
 
         when(transport.send(eq("fcm-second"), any(), anyBoolean(), anyString()))
@@ -344,6 +400,52 @@ class DeviceTransportContinuityTest {
         verify(transport, times(1)).send(eq("fcm-first"), any(), anyBoolean(), anyString());
         verify(transport, times(2)).send(eq("fcm-second"), any(), anyBoolean(), anyString());
         assertThat(store.one("SELECT status FROM deliveries WHERE id=?", id)).containsEntry("status", "SENT");
+    }
+
+    @Test
+    void 환경_불일치가_지속되어도_시도_횟수를_소진하지_않고_복구_후_발송한다() {
+        register("fcm-env", "boot-env", 1, "reg-env");
+        when(transport.send(eq("fcm-env"), any(), anyBoolean(), anyString()))
+                .thenThrow(new NotificationEnvironmentGuard.EnvironmentMismatch("환경 불일치"));
+        UUID id = enqueue("env-recovery");
+        store.update("UPDATE deliveries SET attempts=59 WHERE id=?", id);
+
+        for (int minute = 0; minute < 3; minute++) {
+            when(clock.instant()).thenReturn(DAY.plusSeconds(60L * minute));
+            assertThatThrownBy(() -> dispatch.dispatch(id))
+                    .isInstanceOf(DispatchService.LeasedFailure.class)
+                    .hasCauseInstanceOf(NotificationEnvironmentGuard.EnvironmentMismatch.class);
+            assertThat(store.one("SELECT status,attempts,last_error,lease_token FROM deliveries WHERE id=?", id))
+                    .containsEntry("status", "PENDING").containsEntry("attempts", 59)
+                    .containsEntry("last_error", "ENVIRONMENT_MISMATCH").containsEntry("lease_token", null);
+        }
+
+        when(transport.send(eq("fcm-env"), any(), anyBoolean(), anyString()))
+                .thenReturn(PushTransport.Result.SENT);
+        when(clock.instant()).thenReturn(DAY.plusSeconds(180));
+        dispatch.dispatch(id);
+        assertThat(store.one("SELECT status FROM deliveries WHERE id=?", id)).containsEntry("status", "SENT");
+    }
+
+    /**
+     * 실패 기록의 UPDATE 까지 실패하면 원래 전송 예외가 보존돼야 한다. attempts 정수 오버플로로
+     * 기록 쿼리만 결정적으로 실패시키므로 DB 락이나 실행 시각에 기대지 않는다.
+     */
+    @Test
+    void 실패기록도실패하면원래전송예외에기록오류를첨부한다() {
+        register("fcm-broken", "boot-broken", 1, "reg-broken");
+        UUID id = enqueue("record-failure");
+        store.update("UPDATE deliveries SET attempts=? WHERE id=?", Integer.MAX_VALUE, id);
+        IllegalStateException sendFailure = new IllegalStateException("FCM 전송 실패");
+        when(transport.send(eq("fcm-broken"), any(), anyBoolean(), anyString())).thenThrow(sendFailure);
+
+        assertThatThrownBy(() -> dispatch.dispatch(id)).isSameAs(sendFailure).satisfies(failure -> {
+            assertThat(failure.getSuppressed()).hasSize(1);
+            assertThat(failure.getSuppressed()[0]).isInstanceOf(org.springframework.dao.DataAccessException.class);
+        });
+        assertThat(store.one("SELECT status,attempts,last_error FROM deliveries WHERE id=?", id))
+                .containsEntry("status", "PENDING").containsEntry("attempts", Integer.MAX_VALUE)
+                .containsEntry("last_error", null);
     }
 
     /**
@@ -497,6 +599,307 @@ class DeviceTransportContinuityTest {
         assertThat(store.one("SELECT status FROM deliveries WHERE id=?", id)).containsEntry("status", "SENT");
     }
 
+    /**
+     * 수신 확인 태그는 «그 기기 등록»의 값이다(GROMO-2520). 같은 사용자의 두 기기는 각자 자기 등록 응답의 태그를
+     * 받는다 — 섞이면 앱이 자기 기기로 온 정상 푸시를 버린다. 태그 없는 행(V13 전 등록)으로 가는 푸시에는 키가
+     * 없다 — 앱에 준 적 없는 값을 지어 싣지 않는다.
+     */
+    @Test
+    void eachDeviceGetsItsOwnDeliveryTagAndAnUntaggedRowGetsNoKey() {
+        String tagA = (String) devices.register(USER, body("fcm-a", "boot-a", 1L, 0L, null), "reg-a")
+                .get("deliveryTag");
+        String tagB = (String) devices.register(USER, body("fcm-b", "boot-b", 1L, 0L, null), "reg-b")
+                .get("deliveryTag");
+        register("fcm-untagged", "boot-untagged", 1, "reg-untagged");
+        // V13 전에 등록돼 앱에 태그를 준 적이 없는 행.
+        store.update("UPDATE device_tokens SET delivery_tag=NULL WHERE device_token='fcm-untagged'");
+        Map<String, Map<String, String>> sent = new LinkedHashMap<>();
+        when(transport.send(anyString(), any(), anyBoolean(), anyString())).thenAnswer(call -> {
+            sent.put(call.getArgument(0), call.<RenderedPush>getArgument(1).data());
+            return PushTransport.Result.SENT;
+        });
+
+        dispatch.dispatch(enqueue("tagged"));
+
+        assertThat(tagA).isNotNull().isNotEqualTo(tagB);
+        assertThat(sent).containsOnlyKeys("fcm-a", "fcm-b", "fcm-untagged");
+        assertThat(sent.get("fcm-a")).containsEntry("deliveryTag", tagA);
+        assertThat(sent.get("fcm-b")).containsEntry("deliveryTag", tagB);
+        assertThat(sent.get("fcm-untagged")).doesNotContainKey("deliveryTag");
+    }
+
+    /**
+     * 태그 때문에 한도를 넘는 기기 «하나»가 받을 수 있는 기기의 발송까지 막아서는 안 된다(GROMO-2520). 수신 확인 태그는 기기
+     * 행마다 있을 수도 없을 수도 있어(V13 전 등록은 NULL) 같은 문구도 봉투 크기가 기기마다 다르다 — 태그 없는 행에는 들어맞는
+     * 문구가 태그 있는 행에서만 넘는다. 넘는 기기는 호출 없이 건너뛰고, 받을 수 있는 기기에는 그대로 보내 발송으로 맺는다.
+     * 태그 있는 기기가 토큰 순으로 앞이라, 건너뛴 뒤에도 루프가 뒤의 기기로 이어지는지까지 본다.
+     */
+    @Test
+    void aDevicePushedOverTheLimitByItsTagIsSkippedWhileTheOtherDeviceStillReceivesThePush() {
+        String tag = (String) devices.register(USER, body("fcm-tagged", "boot-tagged", 1L, 0L, null), "reg-tagged")
+                .get("deliveryTag");
+        register("fcm-untagged", "boot-untagged", 1, "reg-untagged");
+        // V13 전에 등록돼 앱에 태그를 준 적이 없는 행.
+        store.update("UPDATE device_tokens SET delivery_tag=NULL WHERE device_token='fcm-untagged'");
+        sizeTheBodyToTheTagBoundary("over-by-tag", tag);
+
+        UUID id = enqueue("over-by-tag");
+        dispatch.dispatch(id);
+
+        verify(transport, never()).send(eq("fcm-tagged"), any(), anyBoolean(), anyString());
+        verify(transport, times(1)).send(eq("fcm-untagged"), any(), anyBoolean(), anyString());
+        assertThat(store.rows("SELECT device_key FROM delivery_devices WHERE delivery_id=?", id))
+                .singleElement()
+                .satisfies(row -> assertThat(row).containsEntry("device_key", deviceKey("fcm-untagged")));
+        assertThat(store.one("SELECT status FROM deliveries WHERE id=?", id)).containsEntry("status", "SENT");
+    }
+
+    /**
+     * 시도할 기기가 하나도 없으면 — 태그 있는 기기뿐인데 그 봉투가 한도를 넘으면 — 전과 같이 호출 없이, 재시도 없는
+     * FAILED 로 끝난다. 영구 문구 오류라 기기의 소유권·전송 자격은 건드리지 않는다.
+     */
+    @Test
+    void whenNoDeviceCanTakeThePushTheDeliveryStillFailsWithoutAnyCall() {
+        String tag = (String) devices.register(USER, body("fcm-tagged", "boot-tagged", 1L, 0L, null), "reg-tagged")
+                .get("deliveryTag");
+        sizeTheBodyToTheTagBoundary("over-for-all", tag);
+
+        UUID id = enqueue("over-for-all");
+        dispatch.dispatch(id);
+
+        verify(transport, never()).send(anyString(), any(), anyBoolean(), anyString());
+        assertThat(store.one("SELECT status,last_error FROM deliveries WHERE id=?", id))
+                .containsEntry("status", "FAILED").containsEntry("last_error", "FCM_PAYLOAD_TOO_LARGE");
+        assertThat(store.one("SELECT active,transport_invalid FROM device_tokens WHERE device_token='fcm-tagged'"))
+                .containsEntry("active", true).containsEntry("transport_invalid", false);
+    }
+
+    /**
+     * 이미 받은 기기가 있는 배송은 남은 기기가 한도를 넘어도 FAILED 가 아니다(GROMO-2520). V13 전에 A 는 받고 B 는 일시 실패로
+     * 재시도 중인데 B 가 재등록해 태그를 얻으면, 같은 문구가 B 에게만 한도를 넘는다. 시도할 기기는 없지만 알림은 A 에 갔으므로
+     * 호출 없이 발송으로 맺는다 — 받은 기기가 하나도 없을 때만 FAILED 다(바로 위 테스트).
+     */
+    @Test
+    void aDeliveryThatADeviceAlreadyReceivedEndsSentWhenTheRetryingDeviceIsLaterPushedOverTheLimit() {
+        register("fcm-a", "boot-a", 1, "reg-a");
+        Map<String, Object> registeredB = devices.register(USER, body("fcm-b", "boot-b", 1L, 0L, null), "reg-b");
+        // V13 전에 등록돼 앱에 태그를 준 적이 없는 두 행 — 이 모양으로 앞 라운드가 돈다.
+        store.update("UPDATE device_tokens SET delivery_tag=NULL WHERE device_token IN ('fcm-a','fcm-b')");
+        sizeTheBodyToTheTagBoundary("late-tag", (String) registeredB.get("deliveryTag"));
+        when(transport.send(eq("fcm-b"), any(), anyBoolean(), anyString())).thenReturn(PushTransport.Result.RETRY);
+
+        UUID id = enqueue("late-tag");
+        dispatch.dispatch(id);
+
+        // 앞 라운드: A 는 받았고 B 는 재시도 중이다.
+        assertThat(store.one("SELECT status,last_error FROM deliveries WHERE id=?", id))
+                .containsEntry("status", "PENDING").containsEntry("last_error", "FCM_RETRY");
+        assertThat(store.rows("SELECT device_key FROM delivery_devices WHERE delivery_id=?", id))
+                .singleElement()
+                .satisfies(row -> assertThat(row).containsEntry("device_key", deviceKey("fcm-a")));
+
+        // B 가 재등록해 태그를 얻는다 — 같은 문구가 이제 B 에게만 한도를 넘는다.
+        devices.register(USER, body("fcm-b", null, 1L, 0L, registeredB.get("ownershipToken").toString()), "re-reg-b");
+        assertThat(store.one("SELECT delivery_tag FROM device_tokens WHERE device_token='fcm-b'").get("delivery_tag"))
+                .isNotNull();
+        when(clock.instant()).thenReturn(DAY.plusSeconds(120));
+        dispatch.dispatch(id);
+
+        // 뒤 라운드: 호출은 앞 라운드의 A·B 한 번씩뿐이고, 배송은 FAILED 가 아니라 SENT 다.
+        verify(transport, times(1)).send(eq("fcm-a"), any(), anyBoolean(), anyString());
+        verify(transport, times(1)).send(eq("fcm-b"), any(), anyBoolean(), anyString());
+        assertThat(store.one("SELECT status,last_error FROM deliveries WHERE id=?", id))
+                .containsEntry("status", "SENT").containsEntry("last_error", null);
+    }
+
+    @Test
+    void 건너뛴기기와무효토큰만남으면다음틱에실패한다() {
+        String tag = (String) devices.register(USER, body("fcm-tagged", "boot-tagged", 1L, 0L, null),
+                "reg-tagged").get("deliveryTag");
+        register("fcm-untagged", "boot-untagged", 1, "reg-untagged");
+        store.update("UPDATE device_tokens SET delivery_tag=NULL WHERE device_token='fcm-untagged'");
+        sizeTheBodyToTheTagBoundary("mixed-too-large", tag);
+        when(transport.send(eq("fcm-untagged"), any(), anyBoolean(), anyString()))
+                .thenReturn(PushTransport.Result.UNREGISTERED);
+
+        UUID id = enqueue("mixed-too-large");
+        dispatch.dispatch(id);
+        assertThat(store.one("SELECT status,last_error FROM deliveries WHERE id=?", id))
+                .containsEntry("status", "PENDING").containsEntry("last_error", "NO_ACTIVE_DEVICE");
+        assertThat(store.one("SELECT transport_invalid FROM device_tokens WHERE device_token='fcm-untagged'"))
+                .containsEntry("transport_invalid", true);
+
+        when(clock.instant()).thenReturn(DAY.plusSeconds(60));
+        dispatch.dispatch(id);
+        verify(transport, times(1)).send(eq("fcm-untagged"), any(), anyBoolean(), anyString());
+        verify(transport, never()).send(eq("fcm-tagged"), any(), anyBoolean(), anyString());
+        assertThat(store.one("SELECT status,last_error FROM deliveries WHERE id=?", id))
+                .containsEntry("status", "FAILED").containsEntry("last_error", "FCM_PAYLOAD_TOO_LARGE");
+    }
+
+    @Test
+    void 같은토큰재등록은낡은태그의발송을막는다() {
+        register("fcm-a", "boot-a", 1, "reg-a");
+        Map<String, Object> before = devices.register(USER, body("fcm-b", "boot-b", 1L, 0L, null), "reg-b");
+        UUID id = enqueue("same-token-tag-fence");
+        when(transport.send(eq("fcm-a"), any(), anyBoolean(), anyString())).thenAnswer(call -> {
+            devices.register(USER, body("fcm-b", null, 1L, 0L, before.get("ownershipToken").toString()),
+                    "reg-b-again");
+            return PushTransport.Result.SENT;
+        });
+
+        dispatch.dispatch(id);
+        verify(transport, never()).send(eq("fcm-b"), any(), anyBoolean(), anyString());
+        assertThat(store.one("SELECT status,last_error FROM deliveries WHERE id=?", id))
+                .containsEntry("status", "PENDING").containsEntry("last_error", "OWNERSHIP_CHANGED");
+        String currentTag = (String) store.one("SELECT delivery_tag FROM device_tokens WHERE device_token='fcm-b'")
+                .get("delivery_tag");
+        assertThat(currentTag).isNotEqualTo(before.get("deliveryTag"));
+
+        when(transport.send(eq("fcm-b"), any(), anyBoolean(), anyString())).thenAnswer(call -> {
+            assertThat(call.<RenderedPush>getArgument(1).data()).containsEntry("deliveryTag", currentTag);
+            return PushTransport.Result.SENT;
+        });
+        when(clock.instant()).thenReturn(DAY.plusSeconds(60));
+        dispatch.dispatch(id);
+        verify(transport, times(1)).send(eq("fcm-b"), any(), anyBoolean(), anyString());
+        assertThat(store.one("SELECT status FROM deliveries WHERE id=?", id)).containsEntry("status", "SENT");
+    }
+
+    @Test
+    void 예순번째기기없는실패는종결하고임대를해제한다() {
+        UUID id = enqueue("retry-cap-empty");
+        store.update("UPDATE deliveries SET attempts=58 WHERE id=?", id);
+        dispatch.dispatch(id);
+        assertThat(store.one("SELECT status,attempts,last_error FROM deliveries WHERE id=?", id))
+                .containsEntry("status", "PENDING").containsEntry("attempts", 59)
+                .containsEntry("last_error", "NO_ACTIVE_DEVICE");
+        when(clock.instant()).thenReturn(DAY.plusSeconds(60));
+        dispatch.dispatch(id);
+        assertThat(store.one("SELECT status,attempts,last_error,lease_token FROM deliveries WHERE id=?", id))
+                .containsEntry("status", "FAILED").containsEntry("attempts", 60)
+                .containsEntry("last_error", "NO_ACTIVE_DEVICE").containsEntry("lease_token", null);
+    }
+
+    @Test
+    void 백오프도예순번째실패에서종결한다() {
+        UUID id = enqueue("retry-cap-backoff");
+        store.update("UPDATE deliveries SET attempts=58 WHERE id=?", id);
+        dispatch.backOff(id, "RENDER_FAILED");
+        assertThat(store.one("SELECT status,attempts FROM deliveries WHERE id=?", id))
+                .containsEntry("status", "PENDING").containsEntry("attempts", 59);
+        when(clock.instant()).thenReturn(DAY.plusSeconds(60));
+        dispatch.backOff(id, "RENDER_FAILED");
+        assertThat(store.one("SELECT status,attempts,last_error,lease_token FROM deliveries WHERE id=?", id))
+                .containsEntry("status", "FAILED").containsEntry("attempts", 60)
+                .containsEntry("last_error", "RENDER_FAILED").containsEntry("lease_token", null);
+    }
+
+    @Test
+    void 잡에서발송예외가반복되면예순번째에종결한다() {
+        register("fcm-broken", "boot-broken", 1, "reg-broken");
+        when(transport.send(eq("fcm-broken"), any(), anyBoolean(), anyString()))
+                .thenThrow(new IllegalStateException("FCM 응답이 끝내 오지 않았다"));
+        UUID id = enqueue("leased-failure-cap");
+        store.update("UPDATE deliveries SET attempts=58 WHERE id=?", id);
+        store.update("UPDATE jobs SET enabled=true WHERE id='delivery-dispatch'");
+        store.update("INSERT INTO job_runs(job_id,scheduled_at) VALUES('delivery-dispatch',?)",
+                java.sql.Timestamp.from(DAY.minusSeconds(1)));
+
+        jobs.tick();
+        assertThat(store.one("SELECT status,attempts,last_error,lease_token,lease_expires_at FROM deliveries"
+                + " WHERE id=?", id))
+                .containsEntry("status", "PENDING").containsEntry("attempts", 59)
+                .containsEntry("last_error", "IllegalStateException")
+                .containsEntry("lease_token", null).containsEntry("lease_expires_at", null);
+        jobs.tick();
+        verify(transport, times(1)).send(eq("fcm-broken"), any(), anyBoolean(), anyString());
+
+        when(clock.instant()).thenReturn(DAY.plusSeconds(60));
+        store.update("INSERT INTO job_runs(job_id,scheduled_at) VALUES('delivery-dispatch',?)",
+                java.sql.Timestamp.from(DAY.plusSeconds(60)));
+        jobs.tick();
+        assertThat(store.one("SELECT status,attempts,last_error,lease_token FROM deliveries WHERE id=?", id))
+                .containsEntry("status", "FAILED").containsEntry("attempts", 60)
+                .containsEntry("last_error", "IllegalStateException").containsEntry("lease_token", null);
+        verify(transport, times(2)).send(eq("fcm-broken"), any(), anyBoolean(), anyString());
+    }
+
+    @Test
+    void 낡은발송실패가새임대를덮어쓰지않는다() {
+        register("fcm-stale", "boot-stale", 1, "reg-stale");
+        UUID id = enqueue("stale-failure-lease");
+        UUID newerLease = UUID.randomUUID();
+        when(transport.send(eq("fcm-stale"), any(), anyBoolean(), anyString())).thenAnswer(call -> {
+            store.update("UPDATE deliveries SET lease_token=?,lease_expires_at=?,next_attempt_at=? WHERE id=?",
+                    newerLease, java.sql.Timestamp.from(DAY.plusSeconds(600)),
+                    java.sql.Timestamp.from(DAY.plusSeconds(600)), id);
+            throw new IllegalStateException("낡은 실행이 실패했다");
+        });
+        store.update("UPDATE jobs SET enabled=true WHERE id='delivery-dispatch'");
+        store.update("INSERT INTO job_runs(job_id,scheduled_at) VALUES('delivery-dispatch',?)",
+                java.sql.Timestamp.from(DAY.minusSeconds(1)));
+
+        jobs.tick();
+        assertThat(store.one("SELECT status,attempts,lease_token FROM deliveries WHERE id=?", id))
+                .containsEntry("status", "PENDING").containsEntry("attempts", 0)
+                .containsEntry("lease_token", newerLease);
+    }
+
+    /**
+     * 관리자 {@code dataTemplate} 이 예약 키 {@code deliveryTag} 를 넣어 둬도 그 값은 어느 기기에도 태그로 나가지 않는다
+     * (GROMO-2520). 2527 이후 저장 API 는 예약 키를 막지만, 이전에 저장된 행은 남아 있을 수 있다. 태그 있는 기기에는 그 기기 등록의 값이, 태그 없는 행(V13 전 등록)에는
+     * 키가 아예 없어야 한다. 앱에 준 적 없는 값이 태그로 가면 앱이 정상 푸시를 버리거나 낡은 푸시를 받아들인다.
+     */
+    @Test
+    void aDeliveryTagKeyInTheDeeplinkTemplateNeverReachesADeviceAsAnythingButItsOwnTag() {
+        String tag = (String) devices.register(USER, body("fcm-tagged", "boot-tagged", 1L, 0L, null), "reg-tagged")
+                .get("deliveryTag");
+        register("fcm-untagged", "boot-untagged", 1, "reg-untagged");
+        // V13 전에 등록돼 앱에 태그를 준 적이 없는 행.
+        store.update("UPDATE device_tokens SET delivery_tag=NULL WHERE device_token='fcm-untagged'");
+        store.update("INSERT INTO deeplinks(id,url_template,data_template)"
+                + " VALUES('FRIEND_ACCEPTED',NULL,'{\"deliveryTag\":\"from-admin\"}'::jsonb)");
+        Map<String, Map<String, String>> sent = new LinkedHashMap<>();
+        when(transport.send(anyString(), any(), anyBoolean(), anyString())).thenAnswer(call -> {
+            sent.put(call.getArgument(0), call.<RenderedPush>getArgument(1).data());
+            return PushTransport.Result.SENT;
+        });
+
+        dispatch.dispatch(enqueue("reserved-key"));
+
+        assertThat(sent).containsOnlyKeys("fcm-tagged", "fcm-untagged");
+        assertThat(sent.get("fcm-tagged")).containsEntry("deliveryTag", tag);
+        assertThat(sent.get("fcm-untagged")).doesNotContainKey("deliveryTag");
+    }
+
+    /**
+     * 템플릿 본문을 «태그 없이는 한도에 들어가고 태그를 더하면 넘는» 길이로 맞춘다. 숫자를 박지 않고
+     * {@link FcmPayload#requireFits} 가 실제로 세는 값으로 경계를 찾는다 — 한도나 봉투가 바뀌어도 같은 경계를 겨눈다.
+     * 소리 켜짐은 설정 행이 없을 때의 기본값이라 실제 발송과 같고, 본문은 ASCII 라 한 글자가 정확히 1바이트다.
+     */
+    private void sizeTheBodyToTheTagBoundary(String eventId, String tag) {
+        RenderedPush rendered = new Renderer(store).render("FRIEND_ACCEPTED", "ko", Map.of("kind", "FRIEND_ACCEPTED"));
+        int length = 0;
+        while (fits(rendered, "a".repeat(length), tag, eventId)) {
+            length++;
+        }
+        String filler = "a".repeat(length);
+        assertThat(fits(rendered, filler, null, eventId)).as("태그가 없으면 들어가야 한다").isTrue();
+        store.update("UPDATE templates SET body=? WHERE kind='FRIEND_ACCEPTED'", filler);
+    }
+
+    /** 이 본문의 푸시가 한도에 들어가는가 — {@code tag} 가 null 이면 태그 없는 행의 봉투다. */
+    private static boolean fits(RenderedPush rendered, String body, String tag, String eventId) {
+        RenderedPush push = new RenderedPush(rendered.title(), body, rendered.data(), rendered.silent());
+        try {
+            FcmPayload.requireFits(tag == null ? push : push.withDeliveryTag(tag), true, eventId);
+            return true;
+        } catch (NotificationFailure tooLarge) {
+            return false;
+        }
+    }
+
     private UUID deviceKey(String token) {
         return (UUID) store.one("SELECT device_key FROM device_tokens WHERE device_token=?", token).get("device_key");
     }
@@ -512,7 +915,7 @@ class DeviceTransportContinuityTest {
         event.put("locale", "ko");
         event.put("occurredAt", DAY.toString());
         event.put("scheduledAt", DAY.toString());
-        event.put("params", Map.of("kind", "BET_WON"));
+        event.put("params", Map.of("kind", "FRIEND_ACCEPTED"));
         inbound.accept(event);
         return (UUID) store.one("SELECT id FROM deliveries WHERE event_id=?", eventId).get("id");
     }

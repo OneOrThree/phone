@@ -58,7 +58,6 @@ class MainIslandIntegrationTest {
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
         OutboxTestPostgres.applyProductionMigrationWiring(registry);
-        registry.add("island-management.commands-enabled", () -> true);
         registry.add("notification.dispatch.mode", () -> "OUTBOX");
     }
 
@@ -492,8 +491,8 @@ class MainIslandIntegrationTest {
     }
 
     private Actor actor() {
-        var login = auth.guestLogin();
-        return new Actor(jwt.extractUserId(login.accessToken()), login.sessionId());
+        var login = auth.guestSession(java.util.UUID.randomUUID().toString());
+        return new Actor(jwt.extractUserId(login.accessToken()), jwt.extractSessionId(login.accessToken()));
     }
 
     /** 생산 생성 경로 — 만든 사람이 방장으로 «첫 가입» 된다. */

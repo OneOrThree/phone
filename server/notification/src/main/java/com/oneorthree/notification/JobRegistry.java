@@ -21,14 +21,12 @@ class JobRegistry {
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
     private final Store store;
     private final DispatchService dispatch;
-    private final AckService ack;
     private final SnapshotReconciler snapshots;
     private final Clock clock;
 
-    JobRegistry(Store store, DispatchService dispatch, AckService ack, SnapshotReconciler snapshots, Clock clock) {
+    JobRegistry(Store store, DispatchService dispatch, SnapshotReconciler snapshots, Clock clock) {
         this.store = store;
         this.dispatch = dispatch;
-        this.ack = ack;
         this.snapshots = snapshots;
         this.clock = clock;
     }
@@ -46,11 +44,11 @@ class JobRegistry {
                 + " AND (id='user-reconcile')=? ORDER BY id", usersOnly)) {
             String id = job.get("id").toString();
             try {
-                if ("bundle-flush".equals(id) && !dispatchOpen()) {
+                if ("delivery-dispatch".equals(id) && !dispatchOpen()) {
                     continue;
                 }
                 schedule(job);
-                // 이관 replay 가 적재한 실행도 같은 경로로 소비한다. 성공하기 전에는 완료로 기록하지 않는다.
+                // 관리자 replay가 적재한 실행도 같은 경로로 소비한다. 성공하기 전에는 완료로 기록하지 않는다.
                 List<Map<String, Object>> due = store.rows("SELECT scheduled_at FROM job_runs WHERE job_id=?"
                         + " AND completed_at IS NULL AND scheduled_at<=? ORDER BY scheduled_at LIMIT 1",
                         id, Timestamp.from(clock.instant()));
@@ -100,10 +98,9 @@ class JobRegistry {
     /** @return 회차에 남길 마지막 실패 사유 — 전부 정상이면 null */
     private String execute(String job) {
         switch (job) {
-            case "bundle-flush" -> {
+            case "delivery-dispatch" -> {
                 return flush();
             }
-            case "ack-reconcile" -> ack.reconcile();
             case "user-reconcile" -> snapshots.reconcile();
             default -> throw new NotificationFailure(422, "UNSUPPORTED_JOB");
         }
@@ -126,13 +123,18 @@ class JobRegistry {
             } catch (RuntimeException failure) {
                 outcome = reason(failure);
                 LOG.warn("발송 후보 격리: delivery={}, 원인={}", id, outcome);
-                dispatch.backOff(id, outcome);
+                if (!(failure instanceof DispatchService.LeasedFailure)) {
+                    dispatch.backOff(id, outcome);
+                }
             }
         }
         return outcome;
     }
 
     private static String reason(RuntimeException failure) {
+        if (failure instanceof DispatchService.LeasedFailure && failure.getCause() instanceof RuntimeException cause) {
+            failure = cause;
+        }
         return failure instanceof NotificationFailure coded && coded.getMessage() != null
                 ? coded.getMessage() : failure.getClass().getSimpleName();
     }

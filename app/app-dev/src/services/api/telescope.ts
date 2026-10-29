@@ -32,8 +32,8 @@ export type TelescopeItem = {
   maxMembers: number;
   approvalRequired: boolean;
   membershipStatus: 'none' | 'pending' | 'active';
-  /** joined = 내 소속 섬, nearby = 가까운 섬(15분), random = 무작위, pinned = 찜(잡지·전망대). */
-  slot: 'joined' | 'nearby' | 'random' | 'pinned';
+  /** uninhabited = DB에 아직 없는 무인도 후보. 항해 성공 시 실제 섬이 생긴다. */
+  slot: 'joined' | 'nearby' | 'random' | 'pinned' | 'uninhabited';
   sailingMinutes: number;
   /** 섬 주민 1인당 하루 평균 집중 분(최근 7일). 아직 집계 전이면 null. */
   averageFocusMinutesPerDay: number | null;

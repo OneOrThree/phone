@@ -1,3 +1,4 @@
+import { applyLocalePref } from '@/i18n';
 /** 옷장(GROMO-2311) — 슬롯별 장착·해제, 퇴역 항목, 옛 서버 인벤토리. useShop 은 목이다. */
 import assert from 'node:assert/strict';
 import React, { useMemo, useReducer, useRef, useState } from 'react';
@@ -110,6 +111,41 @@ test('옛 서버 인벤토리(head/neck/shoes 키 없음)면 새 슬롯 섹션�
   expect(screen.queryByText('목')).toBeNull();
   expect(screen.queryByText('신발')).toBeNull();
   expect(screen.queryByText('옷')).toBeNull();
+});
+
+test('가진 꾸미기가 하나도 없으면 빈 상태 한 줄, 보유품을 받기 전이나 하나라도 있으면 없다(GROMO-2412)', async () => {
+  mockShopApi = api({});
+  const empty = await render(<Harness />);
+  expect(empty.getByTestId('wardrobe-empty')).toBeTruthy();
+  expect(empty.getByText('아직 가진 꾸미기가 없어요')).toBeTruthy();
+  await empty.unmount();
+
+  mockShopApi = { ...api({}), my: null };
+  const loading = await render(<Harness />);
+  expect(loading.queryByTestId('wardrobe-empty')).toBeNull();
+  await loading.unmount();
+
+  mockShopApi = api({ head: ['cap'] });
+  const some = await render(<Harness />);
+  expect(some.queryByTestId('wardrobe-empty')).toBeNull();
+  expect(some.getByLabelText('cap-제목')).toBeTruthy();
+});
+
+test('옷장에 칸이 없는 옷(clothes)만 가졌거나 입고 있어도 빈 상태를 띄우지 않고, 선체 상수는 보유로 세지 않는다(GROMO-2412)', async () => {
+  mockShopApi = api({ clothes: ['scarf'] });
+  const owns = await render(<Harness />);
+  expect(owns.queryByTestId('wardrobe-empty')).toBeNull();
+  await owns.unmount();
+
+  mockShopApi = api({});
+  const wears = await render(<Harness equipped={{ clothes: 'scarf' }} />);
+  expect(wears.queryByTestId('wardrobe-empty')).toBeNull();
+  await wears.unmount();
+
+  // 서버 hulls 는 모두에게 같은 ["raft"] — 이것만 있으면 여전히 빈 옷장이다
+  mockShopApi = api({ hulls: ['raft'] });
+  const raftOnly = await render(<Harness />);
+  expect(raftOnly.getByTestId('wardrobe-empty')).toBeTruthy();
 });
 
 test('결과창에서 처음 받은 꾸미기는 옷장 칸에 NEW! — 한 번 누르면 사라지고 기존 보유품엔 없다 (GROMO-2382)', async () => {
@@ -291,3 +327,23 @@ function Harness({
     />
   );
 }
+
+afterEach(() => applyLocalePref('system'));
+
+test('언어 변경 시 캐시된 꾸미기 이름·접근성 라벨을 번역하고 장착 ID는 유지한다', async () => {
+  const id = 'cust.head.peach';
+  mockCatalog[id] = entry(id, 'head', { title: '복숭아 한 알' });
+  mockShopApi = api({ head: [id, 'cap'] });
+  applyLocalePref('en');
+  const screen = await render(<Harness />);
+  expect(screen.getByText('My Outfits')).toBeTruthy();
+  expect(screen.getByText('Peach')).toBeTruthy();
+  expect(screen.queryByText('복숭아 한 알')).toBeNull();
+  expect(screen.getByLabelText('cap-제목')).toBeTruthy(); // 새/미등록 상품은 서버 원문 유지
+  await fireEvent.press(screen.getByLabelText('Peach'));
+  expect(mockShopApi.equip).toHaveBeenLastCalledWith({ head: id });
+  applyLocalePref('ko');
+  await screen.rerender(<Harness />);
+  expect(screen.getByLabelText('복숭아 한 알')).toBeTruthy();
+  expect(screen.queryByText('Peach')).toBeNull();
+});

@@ -2,7 +2,6 @@ package com.oneorthree.phone.internal.service;
 
 import com.oneorthree.phone.common.support.BannedWords;
 import com.oneorthree.phone.common.util.ZonePolicy;
-import com.oneorthree.phone.construction.repository.domain.ConstructionBuilding;
 import com.oneorthree.phone.construction.service.IslandFacilityQueryService;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
@@ -39,7 +38,7 @@ import java.util.UUID;
  * ({@link GuestAccountGuards}). {@code IslandNoticeService} 와 같은 자리(엔티티·레포는 group, 조합 서비스는
  * internal)다.
  *
- * <h2>잠금 — users 공유 → 섬(groups) 배타</h2>
+ * <h2>잠금 — users 공유 → 섬(islands) 배타</h2>
  * {@code IslandNoticeService#run} 과 같은 순서다. 같은 사람의 동시 두 쓰기를 섬 잠금에 직렬화해
  * 둘째는 «오늘 이미 씀» 409 가 된다(유니크 제약
  * 위반 500 이 아니다). users 를 먼저 쥐는 이유는 계정 탈퇴(users 배타 → 섬 잠금)와 순서를 맞춰 교착을 피하는
@@ -81,14 +80,15 @@ public class IslandGuestbookService {
         if ((afterCreatedAt == null) != (afterId == null)) {
             throw new IllegalArgumentException("커서 anchor 는 시각과 id 가 함께 와야 합니다.");
         }
-        boolean built = facilities.completedBuildings(islandId).contains(ConstructionBuilding.BOARD.id());
+        boolean built = facilities.hasBoardCompleted(islandId);
         if (!facilities.hasBoard(islandId)) {
             return new IslandGuestbookViews.Page(built, List.of(), false);
         }
         PageRequest page = PageRequest.of(0, limit + 1);
+        // 요청자와 차단 관계(어느 방향이든)인 작성자의 글은 쿼리가 LIMIT 전에 뺀다(GROMO-2469) — 쪽 크기·커서가 그대로다
         List<IslandGuestbookEntry> rows = afterCreatedAt == null
-                ? entries.findFirstPage(islandId, page)
-                : entries.findPageAfter(islandId, afterCreatedAt, afterId, page);
+                ? entries.findFirstPage(islandId, callerId, page)
+                : entries.findPageAfter(islandId, callerId, afterCreatedAt, afterId, page);
         boolean hasMore = rows.size() > limit;
         List<IslandGuestbookEntry> shown = hasMore ? rows.subList(0, limit) : rows;
         Map<UUID, String> names = new HashMap<>();

@@ -75,6 +75,14 @@ test('오늘 호를 아직 안 받았으면 펠리컨이 한 번 뜨고, 뜨는 
   expect(screen.queryByTestId('magazine-home-object')).toBeNull();
 });
 
+test('펠리컨 안내창이 뜨고 지는 것을 알린다 — 홈 채팅 줄이 그동안 비킨다(GROMO-2501)', async () => {
+  const onPromptChange = jest.fn();
+  const screen = await render(layer({ onPromptChange }));
+  expect(onPromptChange).toHaveBeenLastCalledWith(true);
+  await fireEvent.press(screen.getByTestId('magazine-delivery-open'));
+  expect(onPromptChange).toHaveBeenLastCalledWith(false);
+});
+
 test('이미 받았거나 · 지난 호뿐이거나 · 구경·집중·다른 안내 중이면 뜨지 않는다', async () => {
   for (const over of [
     { today: { issue, receipt: receipt() } },

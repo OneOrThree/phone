@@ -290,7 +290,6 @@ export function LoginScreen({
           {t('login.termsAgreeText')}
         </Txt>
       </Pressable>
-      <PolicyLinks textStyle={{ fontSize: 13, color: semanticTokens.color.text }} />
       <View
         style={{
           width: '100%',
@@ -310,25 +309,17 @@ export function LoginScreen({
           {providerError}
         </Txt>
       )}
+      {/* 소셜 로그인 아래 보조 행동 — Btn Secondary(DESIGN §7.2), 소셜 버튼과 같은 폭 */}
       {!!onGuestPress && (
-        <Pressable
-          testID="login-guest"
-          accessibilityRole="button"
+        <Btn
+          kind="sec"
+          id="login-guest"
+          title={guestBusy ? t('login.guestOpening') : t('login.guestStart')}
           accessibilityLabel={t('login.guestStart')}
-          accessibilityState={{ disabled: busy || !termsAccepted }}
           disabled={busy || !termsAccepted}
           onPress={onGuestPress}
-          style={{
-            minHeight: semanticTokens.size.tapMin,
-            alignItems: 'center',
-            justifyContent: 'center',
-            opacity: busy || !termsAccepted ? 0.45 : 1,
-          }}
-        >
-          <Txt style={{ fontWeight: '700', textDecorationLine: 'underline' }}>
-            {guestBusy ? t('login.guestOpening') : t('login.guestStart')}
-          </Txt>
-        </Pressable>
+          style={{ width: '100%', maxWidth: 360, alignSelf: 'center' }}
+        />
       )}
       {!!guestError && (
         <Txt
@@ -339,6 +330,8 @@ export function LoginScreen({
           {guestError}
         </Txt>
       )}
+      {/* 약관·개인정보 보기 링크는 로그인 버튼 아래에 둔다(동의 체크박스는 버튼 위 게이트로 유지) */}
+      <PolicyLinks textStyle={{ fontSize: 13, color: semanticTokens.color.text }} />
     </View>
   );
 

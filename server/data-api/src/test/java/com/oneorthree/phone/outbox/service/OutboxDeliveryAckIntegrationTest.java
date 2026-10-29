@@ -109,14 +109,14 @@ class OutboxDeliveryAckIntegrationTest {
     }
 
     @Test
-    @DisplayName("알림 대상이 없는 명령은 닫히지 않는다 — Kafka·링크 전달이 이 경로로 표시되면 안 된다")
+    @DisplayName("알림 대상이 없는 명령은 닫히지 않는다 — Kafka·realtime 전달이 이 경로로 표시되면 안 된다")
     void doesNotCloseKafkaOrLinkTargets() {
         UUID userId = UUID.randomUUID();
         UUID outboxId = tx().execute(status -> outboxCommandPort.append(new OutboxAppendCommand(
-                "evt-ack-nonoti-" + UUID.randomUUID(), 1, "challenge.created", userId, "ko", null,
+                "evt-ack-nonoti-" + UUID.randomUUID(), 1, "notification.requested", userId, "ko", null,
                 AggregateRef.ofUser(userId), null, Map.of(),
                 List.of(OutboxDeliveryRequest.toKafka(),
-                        OutboxDeliveryRequest.toLink("LINK_USER_WITHDRAW", null)))).eventId())
+                        OutboxDeliveryRequest.toRealtime("HTTP_USER_EVENT", null)))).eventId())
                 .transform(this::outboxIdOf);
 
         assertThatThrownBy(() -> ackPort.acknowledgeNotificationDelivery(userId, outboxId))
@@ -124,7 +124,7 @@ class OutboxDeliveryAckIntegrationTest {
 
         assertThat(delivery(outboxId, OutboxTarget.KAFKA).getDeliveredAt())
                 .as("대상이 인자였다면 이 경로로 브로커 전달까지 「보냈다」고 표시할 수 있었다").isNull();
-        assertThat(delivery(outboxId, OutboxTarget.LINK).getDeliveredAt()).isNull();
+        assertThat(delivery(outboxId, OutboxTarget.REALTIME).getDeliveredAt()).isNull();
     }
 
     @Test

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import React from 'react';
-import { Platform } from 'react-native';
-import { fireEvent, render, waitFor } from '@testing-library/react-native';
+import { Platform, StyleSheet } from 'react-native';
+import { fireEvent, render, waitFor, within } from '@testing-library/react-native';
 import { ApiError } from '@/services/api/client';
 import { initialState, dayKey } from '@/services/model';
 import type { LedgerPage, TownHallScreen } from '@/services/api/townHall';
@@ -12,14 +12,16 @@ jest.mock('@/services/api/townHall', () => ({
   getTownHall: jest.fn(),
   getLedger: jest.fn(),
 }));
-jest.mock('@/utils/layout', () => ({
-  useAppLayout: () => ({
-    width: 402,
-    height: 874,
-    insets: { top: 52, bottom: 32, left: 0, right: 0 },
-    landscape: false,
-  }),
-}));
+// 기본은 402×874 시안 화면. 화면 크기별 단언은 테스트 안에서 잠시 바꾸고 되돌린다
+const DESIGN_LAYOUT = {
+  width: 402,
+  height: 874,
+  fontScale: 1,
+  insets: { top: 52, bottom: 32, left: 0, right: 0 },
+  landscape: false,
+};
+const mockLayout = { ...DESIGN_LAYOUT };
+jest.mock('@/utils/layout', () => ({ useAppLayout: () => mockLayout }));
 jest.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 52, bottom: 32, left: 0, right: 0 }),
 }));
@@ -97,14 +99,424 @@ test('서버 월 합계·지갑을 그대로 표시한다 — 보이는 rows 합
 
   await waitFor(() => assert.ok(screen.getByText('+9,999')));
   assert.ok(screen.getByText('−150'));
-  assert.ok(screen.getByText(/1,240마리/));
+  assert.ok(screen.getByText('이번 달 적립 +9,999 · 이번 달 사용 −150'));
+  // 잔액 장: 물고기 + 잔액 + 단위
+  expect(screen.getByTestId('ledger-balance')).toHaveTextContent('1,240');
+  assert.ok(screen.getByText('마리'));
   expect(screen.queryByText(/ISLAND LEDGER/)).toBeNull();
   expect(screen.queryByText('우리 섬 물고기')).toBeNull();
   // 41 은 개인 fish 다 — 공동 잔액 자리에 개인 지갑이 새어 나오면 안 된다
-  assert.equal(screen.queryByText(/41마리/), null);
+  assert.equal(within(screen.getByTestId('ledger-book')).queryByText(/41/), null);
   assert.equal(townHallMock.mock.calls.length, 1);
   assert.equal(ledgerMock.mock.calls.length, 0);
 });
+
+// 402×874 시안 화면(안전영역 위 52): 책은 시안 높이 635.3 을 꽉 채우고 폭은 그림 비율로 줄어 가운데 온다.
+// 책 윗변은 874 − 28.4 − 635.3, 왼쪽은 남는 폭의 절반
+const SC = 635.3 / 1546;
+const BOOK_TOP = 874 - 28.4 - 635.3;
+const BOOK_LEFT = (402 - 804 * SC) / 2;
+const style = (node: { props: { style?: unknown } }) =>
+  (StyleSheet.flatten(node.props.style as any) ?? {}) as Record<string, any>;
+// 화면 좌표 = 바깥 상자(ledger-book) 자리 + 그 안 상대 자리
+const onScreen = (screen: { getByTestId: (id: string) => any }, testID: string) => {
+  const frame = style(screen.getByTestId('ledger-book'));
+  const s = style(screen.getByTestId(testID));
+  return { left: frame.left + s.left, top: frame.top + s.top, width: s.width, height: s.height };
+};
+// 그린 트리의 모든 하위 요소(글자 조각 제외)
+const descendants = (node: any): any[] =>
+  (node.children ?? []).flatMap((c: any) => (typeof c === 'string' ? [] : [c, ...descendants(c)]));
+
+test('세 장짜리 책은 장부 그림 한 장이다 — 「공동 가계부」 팻말·옛 책 View·책갈피 SVG 가 없다(GROMO-2487)', async () => {
+  townHallMock.mockResolvedValue(screenBody({}));
+  const screen = await render(<Hall e={e()} />);
+  await waitFor(() => assert.ok(screen.getByTestId('ledger-tab-잔액')));
+
+  assert.equal(screen.queryByTestId('ledger-heading'), null);
+  assert.equal(screen.queryByTestId('ledger-tabs'), null);
+  assert.equal(screen.queryByText('공동 가계부'), null);
+  // 코드로 그린 종이 겹(#f1e4c9)·초록 표지(#678268)·안쪽 종이(#fff3d8) View 가 남아 있지 않다
+  const book = screen.getByTestId('ledger-book');
+  const inside = descendants(book);
+  const oldBook = inside.filter((n) =>
+    ['#f1e4c9', '#678268', '#fff3d8'].includes(style(n).backgroundColor),
+  );
+  assert.equal(oldBook.length, 0);
+  // 제비꼬리 책갈피 SVG 도 없다 — 포스트잇은 그림이다
+  assert.equal(inside.filter((n) => /svg/i.test(String(n.type))).length, 0);
+
+  // 그림은 비율 그대로: 폭 = 804 × 배율, 높이 = 635.3, 좌우 가운데 — 바깥 상자를 늘려도 화면상 자리는 종전과 같다
+  const b = onScreen(screen, 'ledger-book-body');
+  assert.ok(Math.abs(b.height - 635.3) < 1e-9);
+  assert.ok(Math.abs(b.width - 804 * SC) < 1e-9);
+  assert.ok(Math.abs(b.left - BOOK_LEFT) < 1e-9);
+  assert.ok(Math.abs(b.top - BOOK_TOP) < 1e-9);
+  const art = screen.getByTestId('ledger-book-art');
+  assert.equal(art.props.resizeMode, 'contain');
+});
+
+test('포스트잇 세 장은 모두 책 그림 앞 층이고, 펼친 장은 종이 윗변에·나머지는 제 색 단면에 걸친다(GROMO-2487)', async () => {
+  townHallMock.mockResolvedValue(screenBody({}));
+  const screen = await render(<Hall e={e()} />);
+  await waitFor(() => assert.ok(screen.getByTestId('ledger-tab-잔액')));
+
+  // 포스트잇은 책 몸통(그림·종이를 품은 상자)의 형제다 — 둘의 zIndex 가 앞뒤를 정한다
+  const bodyZ = style(screen.getByTestId('ledger-book-body')).zIndex;
+  const artZ = style(screen.getByTestId('ledger-book-art')).zIndex;
+  const z = (label: string) => style(screen.getByTestId(`ledger-tab-${label}`)).zIndex;
+  const tab = (label: string) => onScreen(screen, `ledger-tab-${label}`);
+  const labels = ['잔액', '적립', '지출'];
+  for (const label of labels) {
+    assert.ok(z(label) > bodyZ, `${label} 포스트잇이 책 뒤에 있다`);
+    assert.ok(z(label) > artZ, `${label} 포스트잇이 책 그림 뒤에 있다`);
+  }
+  // 펼친 장이 맨 앞
+  assert.ok(z('잔액') > z('적립'));
+  assert.ok(z('잔액') > z('지출'));
+
+  // 80 상자, 종이 왼쪽(60×배율) +4 부터 간격 2 (화면 좌표)
+  labels.forEach((label, n) => {
+    const t = tab(label);
+    assert.equal(t.width, 80);
+    assert.equal(t.height, 80);
+    assert.ok(Math.abs(t.left - (BOOK_LEFT + 60 * SC + 4 + n * 82)) < 1e-9);
+  });
+  // 그림 아랫변(상자 위 0.94, 책 윗변 기준): 펼친 장은 단면 띠 바닥 147 +4, 나머지는 분홍 142·노랑 118·파랑 96 +6
+  const artBottom = (label: string) => tab(label).top + 80 * 0.94 - BOOK_TOP;
+  assert.ok(Math.abs(artBottom('잔액') - (147 * SC + 4)) < 1e-9);
+  assert.ok(Math.abs(artBottom('적립') - (118 * SC + 6)) < 1e-9);
+  assert.ok(Math.abs(artBottom('지출') - (96 * SC + 6)) < 1e-9);
+
+  // 누르는 자리 84×84 = 상자 80 + 사방 2
+  assert.equal(screen.getByTestId('ledger-tab-잔액').props.hitSlop, 2);
+
+  // 적립 장을 펼치면 적립 포스트잇이 종이 윗변으로 내려오고 맨 앞이 된다. 분홍(잔액)은 제 단면으로 돌아간다
+  ledgerMock.mockResolvedValue(page({}));
+  await fireEvent.press(screen.getByTestId('ledger-tab-적립'));
+  await waitFor(() => assert.ok(screen.getByTestId('ledger-total')));
+  assert.ok(Math.abs(artBottom('적립') - (147 * SC + 4)) < 1e-9);
+  assert.ok(Math.abs(artBottom('잔액') - (142 * SC + 6)) < 1e-9);
+  assert.ok(z('적립') > z('잔액'));
+  // 장을 넘겨도 책은 움직이지 않는다
+  assert.ok(Math.abs(onScreen(screen, 'ledger-book-body').top - BOOK_TOP) < 1e-9);
+  // 종이 틴트는 펼친 장 포스트잇 색(노랑)
+  assert.equal(style(screen.getByTestId('ledger-tint')).backgroundColor, '#F1D77F');
+});
+
+test('포스트잇과 누르는 자리(hitSlop 2)는 바깥 상자 안에 든다 — 안드로이드는 부모 밖 터치를 자른다(GROMO-2487)', async () => {
+  // 402×874 시안, 360×640 안드로이드(포스트잇 줄이 책보다 넓다), 852×393 가로(책을 크게 두고 아래를 자른다)
+  const layouts = [
+    DESIGN_LAYOUT,
+    {
+      width: 360,
+      height: 640,
+      insets: { top: 24, bottom: 0, left: 0, right: 0 },
+      landscape: false,
+    },
+    {
+      width: 852,
+      height: 393,
+      insets: { top: 0, bottom: 21, left: 59, right: 59 },
+      landscape: true,
+    },
+  ];
+  try {
+    for (const layout of layouts) {
+      Object.assign(mockLayout, layout);
+      townHallMock.mockResolvedValue(screenBody({}));
+      ledgerMock.mockResolvedValue(page({}));
+      const screen = await render(<Hall e={e()} />);
+      await waitFor(() => assert.ok(screen.getByTestId('ledger-tab-잔액')));
+      const frame = style(screen.getByTestId('ledger-book'));
+      const bodyTop = () => onScreen(screen, 'ledger-book-body').top;
+      const top0 = bodyTop();
+      const inside = () => {
+        for (const label of ['잔액', '적립', '지출']) {
+          const node = screen.getByTestId(`ledger-tab-${label}`);
+          const t = style(node);
+          const slop = node.props.hitSlop as number;
+          const at = `${layout.width}×${layout.height} ${label}`;
+          assert.ok(t.top - slop >= 0, `${at}: 위가 부모 밖 ${t.top - slop}`);
+          assert.ok(t.left - slop >= 0, `${at}: 왼쪽이 부모 밖 ${t.left - slop}`);
+          assert.ok(t.top + t.height + slop <= frame.height, `${at}: 아래가 부모 밖`);
+          assert.ok(t.left + t.width + slop <= frame.width + 1e-9, `${at}: 오른쪽이 부모 밖`);
+        }
+      };
+      inside();
+      // 장을 넘겨도 안에 들고, 책의 화면상 자리는 그대로다
+      for (const label of ['적립', '지출']) {
+        await fireEvent.press(screen.getByTestId(`ledger-tab-${label}`));
+        await waitFor(() => assert.ok(screen.getByTestId('ledger-total')));
+        inside();
+        assert.ok(Math.abs(bodyTop() - top0) < 1e-9);
+      }
+      // 바깥 상자의 빈 자리는 터치를 받지 않는다
+      assert.equal(screen.getByTestId('ledger-book').props.pointerEvents, 'box-none');
+      if (layout.width === 360) {
+        // 포스트잇 줄이 책보다 넓은 화면 — 바깥 상자가 오른쪽으로 늘어 품는다
+        assert.ok(frame.width > style(screen.getByTestId('ledger-book-body')).width);
+      }
+      await screen.unmount();
+    }
+  } finally {
+    Object.assign(mockLayout, DESIGN_LAYOUT);
+  }
+});
+
+test('가로 화면은 책을 세로 폰 폭(360)으로 크게 두고 아래를 잘라 낸다 — 글 칸이 넉넉하고 종이 글은 보이는 부분 안에서 스크롤한다(GROMO-2487)', async () => {
+  // 2026-10-27 오스카: 높이에 맞춰 줄이면 852×393 에서 글 칸이 0 이 된다
+  const layouts = [
+    {
+      width: 852,
+      height: 393,
+      insets: { top: 0, bottom: 21, left: 59, right: 59 },
+      landscape: true,
+    },
+    { width: 667, height: 375, insets: { top: 0, bottom: 0, left: 0, right: 0 }, landscape: true },
+  ];
+  try {
+    for (const layout of layouts) {
+      Object.assign(mockLayout, layout);
+      townHallMock.mockResolvedValue(screenBody({ items: [entry('e1')] }));
+      const screen = await render(<Hall e={e()} />);
+      await waitFor(() => assert.ok(screen.getByTestId('ledger-amount-e1')));
+      const at = `${layout.width}×${layout.height}`;
+      const frame = style(screen.getByTestId('ledger-book'));
+      const body = style(screen.getByTestId('ledger-book-body'));
+      const art = style(screen.getByTestId('ledger-book-art'));
+      const pageBox = style(screen.getByTestId('ledger-page'));
+
+      // 책 폭 = 토큰 360(두 화면 모두 쓸 수 있는 폭이 더 넓다). 그림은 비율 그대로라 화면보다 길다
+      assert.equal(body.width, 360, at);
+      assert.ok(Math.abs(art.width - 360) < 1e-9, at);
+      assert.ok(Math.abs(art.height - (1546 * 360) / 804) < 1e-9, at);
+      // 몸통은 책 윗변(46)부터 화면 아래 여백(12)까지만 보이고 그림을 자른다
+      assert.equal(body.overflow, 'hidden', at);
+      assert.ok(body.height < art.height, `${at}: 몸통 ${body.height} ≥ 그림 ${art.height}`);
+      const bodyTop = frame.top + body.top;
+      assert.ok(Math.abs(bodyTop - 46) < 1e-9, `${at}: 책 윗변 ${bodyTop}`);
+      assert.ok(Math.abs(bodyTop + body.height - (layout.height - 12)) < 1e-9, `${at}: 몸통 아래`);
+
+      // 종이 안 글 폭: 날짜 48 + 금액 60 + 간격 8×2 + 내용 100 이상
+      const textW = body.width - pageBox.left - pageBox.right;
+      assert.ok(textW >= 48 + 60 + 16 + 100, `${at}: 글 폭 ${textW}`);
+      // 종이 스크롤 아래 끝은 그림의 종이 바닥이 아니라 보이는 몸통 아래 끝 − 여백 10
+      const pageBottom = body.height - pageBox.bottom;
+      assert.ok(
+        Math.abs(pageBottom - (body.height - 10)) < 1e-9,
+        `${at}: 스크롤 아래 끝 ${pageBottom}`,
+      );
+      assert.ok(pageBottom > pageBox.top, at);
+
+      // 포스트잇: 화면 위로 안 나가고, 바깥 상자 안·책 폭 안. 바깥 상자는 책 폭 그대로다
+      assert.ok(frame.top >= 0, `${at}: 바깥 상자 위가 화면 밖 ${frame.top}`);
+      assert.equal(frame.width, body.width, at);
+      assert.ok(
+        frame.left + frame.width <= layout.width - layout.insets.right,
+        `${at}: 오른쪽 화면 밖`,
+      );
+      for (const label of ['잔액', '적립', '지출']) {
+        const node = screen.getByTestId(`ledger-tab-${label}`);
+        const t = style(node);
+        const slop = node.props.hitSlop as number;
+        assert.ok(t.top - slop >= 0, `${at} ${label}: 위가 부모 밖`);
+        assert.ok(t.left - slop >= 0, `${at} ${label}: 왼쪽이 부모 밖`);
+        assert.ok(t.top + t.height + slop <= frame.height, `${at} ${label}: 아래가 부모 밖`);
+        assert.ok(t.left + t.width + slop <= body.width, `${at} ${label}: 책 폭 밖`);
+      }
+      await screen.unmount();
+    }
+  } finally {
+    Object.assign(mockLayout, DESIGN_LAYOUT);
+  }
+});
+
+test('월 이동 ‹ › 는 버튼 상자 자체가 44×44 이상이고 그 줄도 44 이상이다 — hitSlop 은 부모 경계를 못 넘는다(GROMO-2487)', async () => {
+  townHallMock.mockResolvedValue(screenBody({}));
+  ledgerMock.mockResolvedValue(page({}));
+  const screen = await render(<Hall e={e()} />);
+  await waitFor(() => assert.ok(screen.getByTestId('ledger-prev')));
+
+  for (const testID of ['ledger-prev', 'ledger-next']) {
+    const node = screen.getByTestId(testID);
+    const s = style(node);
+    assert.ok((s.width ?? s.minWidth) >= 44, `${testID} 폭 ${s.width ?? s.minWidth}`);
+    assert.ok((s.height ?? s.minHeight) >= 44, `${testID} 높이 ${s.height ?? s.minHeight}`);
+    // 화살표 글자는 세로 가운데
+    assert.equal(s.justifyContent, 'center');
+  }
+  // 시안 자리: ‹ 는 왼쪽 끝, › 는 오른쪽 끝
+  assert.equal(style(screen.getByTestId('ledger-prev')).alignItems, 'flex-start');
+  assert.equal(style(screen.getByTestId('ledger-next')).alignItems, 'flex-end');
+  const row = style(screen.getByTestId('ledger-month-row'));
+  assert.ok((row.height ?? row.minHeight) >= 44, `월 이동 줄 높이 ${row.height ?? row.minHeight}`);
+
+  // 이번 달이면 › 는 막혀 있고, ‹ 는 지난달을 연다
+  assert.equal(screen.getByTestId('ledger-next').props.accessibilityState?.disabled, true);
+  await fireEvent.press(screen.getByTestId('ledger-prev'));
+  await waitFor(() => assert.equal(ledgerMock.mock.calls.length, 1));
+  assert.notEqual(ledgerMock.mock.calls[0][1].month, dayKey(Date.now()).slice(0, 7));
+});
+
+test('포스트잇을 누르면 그 장이 펼쳐진다 — 잔액 → 적립 → 지출, 적립·지출 장은 그 방향 내역과 합계만(GROMO-2487)', async () => {
+  townHallMock.mockResolvedValue(
+    screenBody(
+      {
+        earnedTotal: 125,
+        spentTotal: 60,
+        items: [
+          entry('e1', { amount: 34 }),
+          entry('s1', { direction: 'spend', reason: 'construction_debit', amount: 60 }),
+        ],
+      },
+      1240,
+    ),
+  );
+  ledgerMock.mockImplementation((_island: string, { direction }: { direction?: string }) =>
+    Promise.resolve(
+      direction === 'earn'
+        ? page({
+            earnedTotal: 125,
+            spentTotal: 60,
+            items: [
+              entry('e1', { amount: 34 }),
+              entry('e2', { reason: 'quest_settlement', amount: 91 }),
+            ],
+          })
+        : page({
+            earnedTotal: 125,
+            spentTotal: 60,
+            items: [entry('s1', { direction: 'spend', reason: 'construction_debit', amount: 60 })],
+          }),
+    ),
+  );
+  const screen = await render(<Hall e={e()} />);
+  const selected = (label: string) =>
+    screen.getByTestId(`ledger-tab-${label}`).props.accessibilityState?.selected;
+
+  // 잔액 장: 잔액 큰 숫자 + 합계 한 줄 + 최근 내역
+  await waitFor(() => assert.ok(screen.getByTestId('ledger-balance')));
+  for (const label of ['잔액', '적립', '지출']) {
+    const tab = screen.getByTestId(`ledger-tab-${label}`);
+    assert.equal(tab.props.accessibilityRole, 'tab');
+    assert.equal(tab.props.accessibilityLabel, label);
+  }
+  assert.equal(selected('잔액'), true);
+  assert.equal(selected('적립'), false);
+  assert.equal(screen.queryByTestId('ledger-total'), null);
+
+  // 적립 장: 「이번 달 적립」 + 적립 합계 + 적립 내역만
+  await fireEvent.press(screen.getByTestId('ledger-tab-적립'));
+  await waitFor(() => assert.ok(screen.getByText('퀘스트 보상')));
+  assert.equal(ledgerMock.mock.calls.at(-1)[1].direction, 'earn');
+  assert.equal(selected('적립'), true);
+  assert.equal(selected('잔액'), false);
+  assert.ok(screen.getByText('이번 달 적립'));
+  expect(screen.getByTestId('ledger-total')).toHaveTextContent('+125');
+  assert.equal(style(screen.getByTestId('ledger-total')).color, '#286856');
+  assert.equal(screen.queryByTestId('ledger-balance'), null);
+  assert.equal(screen.queryByText('건설 사용'), null);
+  assert.ok(screen.getByTestId('ledger-amount-e2'));
+
+  // 지출 장: 「이번 달 사용」 + 지출 합계 + 지출 내역만
+  await fireEvent.press(screen.getByTestId('ledger-tab-지출'));
+  await waitFor(() => assert.ok(screen.getByText('건설 사용')));
+  assert.equal(ledgerMock.mock.calls.at(-1)[1].direction, 'spend');
+  assert.equal(selected('지출'), true);
+  assert.equal(selected('적립'), false);
+  assert.ok(screen.getByText('이번 달 사용'));
+  expect(screen.getByTestId('ledger-total')).toHaveTextContent('−60');
+  assert.equal(style(screen.getByTestId('ledger-total')).color, '#994C3E');
+  assert.equal(screen.queryByText('퀘스트 보상'), null);
+  assert.equal(screen.queryByTestId('ledger-amount-e1'), null);
+});
+
+test('잔액·합계·거래 금액은 줄높이가 글자보다 커서 고운돋움 숫자 윗부분이 잘리지 않는다(GROMO-2487)', async () => {
+  townHallMock.mockResolvedValue(
+    screenBody({ earnedTotal: 34, items: [entry('e1', { amount: 1234567 })] }),
+  );
+  ledgerMock.mockResolvedValue(page({ earnedTotal: 34, items: [entry('e1', { amount: 34 })] }));
+  const screen = await render(<Hall e={e()} />);
+  await waitFor(() => assert.ok(screen.getByTestId('ledger-amount-e1')));
+
+  const roomy = (testID: string) => {
+    const node = screen.getByTestId(testID);
+    const s = style(node);
+    // 잔액·합계 큰 숫자는 자르지 않고 한 줄에 맞게 줄인다 — 두 속성이 빠지면 긴 금액이 넘친다
+    if (testID === 'ledger-balance' || testID === 'ledger-total') {
+      assert.equal(node.props.numberOfLines, 1, `${testID}: numberOfLines`);
+      assert.equal(node.props.adjustsFontSizeToFit, true, `${testID}: adjustsFontSizeToFit`);
+    }
+    assert.ok(s.lineHeight > s.fontSize, `${testID}: 줄높이 ${s.lineHeight} ≤ 글자 ${s.fontSize}`);
+    // 금액 글자를 품은 줄·종이가 overflow: hidden 으로 자르지 않는다(종이 스크롤 영역까지)
+    for (let p = node.parent; p && p.props.testID !== 'ledger-page'; p = p.parent) {
+      assert.notEqual(style(p).overflow, 'hidden', `${testID} 의 부모가 글자를 자른다`);
+    }
+  };
+  roomy('ledger-balance');
+  roomy('ledger-amount-e1');
+  expect(screen.getByTestId('ledger-amount-e1')).toHaveTextContent('+1,234,567');
+
+  await fireEvent.press(screen.getByTestId('ledger-tab-적립'));
+  await waitFor(() => assert.ok(screen.getByTestId('ledger-total')));
+  roomy('ledger-total');
+  roomy('ledger-amount-e1');
+});
+
+test.each([
+  ['기본 표', 402, 874, 1, false],
+  // SE는 높이 제약으로 책 배율이 줄어 실제 종이 폭이 약 194pt가 된다.
+  ['SE의 좁은 종이', 375, 667, 1, true],
+  ['중간 글자 배율', 402, 874, 1.15, true],
+  ['큰 글자 직전', 402, 874, 1.29, true],
+  ['큰 글자 경계', 402, 874, 1.3, true],
+  ['가로 기본 표', 852, 393, 1, false],
+  ['큰 글자', 393, 852, 2.14, true],
+  ['가로 큰 글자', 852, 393, 2.14, true],
+] as const)(
+  '%s에서도 긴 거래 금액·날짜·묶음 내역을 모두 읽을 수 있다',
+  async (_name, width, height, fontScale, stacked) => {
+    Object.assign(mockLayout, { width, height, fontScale, landscape: width > height });
+    townHallMock.mockResolvedValue(
+      screenBody({
+        items: [
+          entry('large-earn', { amount: 987654321, entryCount: 987654321 }),
+          entry('large-spend', {
+            direction: 'spend',
+            reason: 'construction_debit',
+            amount: 987654321,
+          }),
+        ],
+      }),
+    );
+    try {
+      const screen = await render(<Hall e={e()} />);
+      await waitFor(() => assert.ok(screen.getByTestId('ledger-amount-large-earn')));
+      for (const [id, sign] of [
+        ['large-earn', '+'],
+        ['large-spend', '−'],
+      ] as const) {
+        const row = screen.getByTestId(`ledger-row-${id}`);
+        const amount = within(row).getByTestId(`ledger-amount-${id}`);
+        expect(amount).toHaveTextContent(`${sign}987,654,321`);
+        assert.equal(amount.props.numberOfLines, 1);
+        assert.equal(amount.props.adjustsFontSizeToFit, true);
+        assert.equal(style(amount).maxWidth, stacked ? '100%' : '50%');
+        assert.equal(style(row).flexDirection, stacked ? 'column' : 'row');
+        assert.ok(within(row).getByText('9/20'));
+      }
+      const reason = within(screen.getByTestId('ledger-row-large-earn')).getByText('집중 적립', {
+        exact: false,
+      });
+      expect(reason).toHaveTextContent('집중 적립 · 987654321회');
+      assert.equal(reason.props.numberOfLines, undefined);
+      assert.ok(screen.getByText('건설 사용'));
+    } finally {
+      Object.assign(mockLayout, DESIGN_LAYOUT);
+    }
+  },
+);
 
 test('spend 는 양수 amount 를 −로, earn 은 +로 그리고 reason 라벨·묶음 표시를 단다', async () => {
   ledgerMock.mockResolvedValue(
@@ -142,13 +554,12 @@ test('spend 는 양수 amount 를 −로, earn 은 +로 그리고 reason 라벨�
   );
   const screen = await render(<Hall e={e()} />);
 
-  // 잔액 책갈피(무필터): reason 라벨과 접힌 줄의 entryCount 보조 표시
-  await waitFor(() => assert.ok(screen.getByText('집중 적립')));
+  // 잔액 장(무필터): reason 라벨과 접힌 줄의 entryCount 보조 표시
+  await waitFor(() => assert.ok(screen.getByText('집중 적립 · 480회')));
   assert.ok(screen.getByText('퀘스트 보상'));
-  assert.ok(screen.getByText(/480회 적립/));
   assert.ok(screen.getByText('+480'));
 
-  // 지출 책갈피: 양수 DTO 그대로 오고 화면에서만 −를 단다
+  // 지출 장: 양수 DTO 그대로 오고 화면에서만 −를 단다
   await fireEvent.press(screen.getByTestId('ledger-tab-지출'));
   await waitFor(() => assert.ok(screen.getByText('건설 사용')));
   assert.ok(screen.getByText('공동 구매'));

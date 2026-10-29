@@ -14,6 +14,8 @@ import * as magazineApi from '@/services/api/magazine';
 import type { MagazineReceipt, MagazineToday } from '@/services/api/magazine';
 import { resetMagazineToday } from '@/screens/magazine/useMagazineToday';
 import { SeaVoyageHost } from './SeaVoyageHost';
+import { FriendActionContext } from '@/screens/island/CatInfoPopup';
+import type { FriendsScreenState } from '@/screens/island/useFriendsScreen';
 
 jest.mock('@/components/CatSprite', () => ({ CatSprite: () => null }));
 jest.mock('react-native-safe-area-context', () => ({
@@ -51,7 +53,11 @@ jest.mock('@/services/api/shop', () => ({
   ...jest.requireActual('@/services/api/shop'),
   getMyInventory: jest.fn(async () => ({ clothes: [], decor: [], hulls: [], equipped: {} })),
 }));
-const mockRoom = { sendEmote: jest.fn(() => true), close: jest.fn(), reconnect: jest.fn() };
+const mockRoom = {
+  sendEmote: jest.fn((): string => 'sent'),
+  close: jest.fn(),
+  reconnect: jest.fn(),
+};
 let mockRoomOpts: any;
 jest.mock('@/services/seaRealtime', () => ({
   ...jest.requireActual('@/services/seaRealtime'),
@@ -114,12 +120,24 @@ beforeEach(() => {
   jest.mocked(sendFriendRequest).mockReset();
 });
 
-const showPeer = async () => {
-  const e = env({
-    state: { name: '나냥', color: 'black', session: null },
-    friendsScreen: { refresh: jest.fn() },
-  });
-  const screen = await render(<SeaVoyageHost e={e} />);
+// 남의 뗏목 정보창(GROMO-2474)의 친구 행동은 호스트가 아니라 앱 친구 상태(FriendActionContext)가 맡는다.
+// 실패·중복·게스트·계정 전환 분기는 CatInfoPopup.test 가 본다 — 여기서는 바다 방 참가자와 이어지는지만 본다.
+test('표류 중 남의 뗏목을 누르면 정보창이 뜨고, 친구 요청은 앱 친구 상태로 보내 서버 성공 뒤 요청 중이 된다', async () => {
+  jest.mocked(sendFriendRequest).mockResolvedValue();
+  const friendsScreen = {
+    data: { friends: [], friendRequests: [], sentFriendRequests: [] },
+    busy: false,
+    refresh: jest.fn(),
+    command: jest.fn(async (fn: () => Promise<unknown>) => {
+      await fn();
+    }),
+  } as unknown as FriendsScreenState;
+  const e = env({ state: { name: '나냥', color: 'black', session: null } });
+  const screen = await render(
+    <FriendActionContext.Provider value={{ friendsScreen, conversion: e.conversion }}>
+      <SeaVoyageHost e={e} />
+    </FriendActionContext.Provider>,
+  );
   await act(async () =>
     mockRoomOpts.onMembers([
       {
@@ -133,55 +151,11 @@ const showPeer = async () => {
     ]),
   );
   await fireEvent.press(screen.getByTestId('sea-person-peer'));
-  expect(openSeaRoom).toHaveBeenCalledTimes(1);
-  return { e, screen };
-};
-
-test('바다 유저 카드의 친구 요청은 API 성공 뒤에만 완료 표시하고 친구 목록을 새로 읽는다', async () => {
-  jest.mocked(sendFriendRequest).mockResolvedValue();
-  const { e, screen } = await showPeer();
+  expect(screen.getByTestId('cat-info-name')).toHaveTextContent('치즈');
   await fireEvent.press(screen.getByLabelText('친구 요청'));
   expect(sendFriendRequest).toHaveBeenCalledWith('peer');
-  expect(e.friendsScreen.refresh).toHaveBeenCalledTimes(1);
-  expect(screen.getByLabelText('친구 요청 보냄')).toBeDisabled();
+  expect(screen.getByLabelText('요청 중')).toBeDisabled();
   expect(openSeaRoom).toHaveBeenCalledTimes(1);
-});
-
-test.each([
-  ['STATE_CONFLICT', '이미 친구이거나 보낸 요청이 있어요.'],
-  ['FORBIDDEN', '친구 요청을 보낼 수 없는 상대예요.'],
-])('친구 요청 %s 실패를 성공으로 표시하지 않고 이유를 안내한다', async (code, message) => {
-  jest.mocked(sendFriendRequest).mockRejectedValue(new ApiError(code, '', 409));
-  const { e, screen } = await showPeer();
-  await fireEvent.press(screen.getByLabelText('친구 요청'));
-  expect(e.notify).toHaveBeenCalledWith(message);
-  expect(screen.getByLabelText('친구 요청')).toBeEnabled();
-});
-
-test('게스트 친구 요청은 회원 전환을 열고 성공으로 표시하지 않는다', async () => {
-  jest.mocked(sendFriendRequest).mockRejectedValue(new ApiError('SOCIAL_LOGIN_REQUIRED', '', 403));
-  const { e, screen } = await showPeer();
-  e.conversion.offer.mockReturnValue(true);
-  await fireEvent.press(screen.getByLabelText('친구 요청'));
-  expect(e.conversion.offer).toHaveBeenCalled();
-  expect(e.notify).not.toHaveBeenCalled();
-  expect(screen.getByLabelText('친구 요청')).toBeEnabled();
-});
-
-test('계정 전환 뒤 도착한 친구 요청 성공은 새 계정에 반영하지 않는다', async () => {
-  let finish!: () => void;
-  jest.mocked(sendFriendRequest).mockImplementation(
-    () =>
-      new Promise<void>((resolve) => {
-        finish = resolve;
-      }),
-  );
-  const { e, screen } = await showPeer();
-  await fireEvent.press(screen.getByLabelText('친구 요청'));
-  jest.mocked(sessionGeneration).mockReturnValue(2);
-  await act(async () => finish());
-  expect(e.friendsScreen.refresh).not.toHaveBeenCalled();
-  expect(screen.getByLabelText('친구 요청')).toBeEnabled();
 });
 
 test('남은 분이 줄다가 목표 시간에 닿으면 「○○ 앞 정박 중」과 [섬에 내리기]로 바뀐다', async () => {
@@ -216,6 +190,19 @@ test('그만두기는 확인창을 한 번 거쳐 finish 하고, 멀어지는 �
   await fireEvent.press(screen.getByLabelText('망원경'));
   expect(e.go).toHaveBeenCalledWith('telescope');
   expect(e.replace).not.toHaveBeenCalled();
+});
+
+test('권한 미리보기의 로컬 항해도 서버 연결 없이 종료하고 표류 화면으로 돌아온다', async () => {
+  const dispatch = jest.fn();
+  const e = env({ focus: undefined, focusBlockingIntroPreview: true, dispatch });
+  const screen = await render(<SeaVoyageHost e={e} />);
+  await fireEvent.press(screen.getByLabelText('집중 마치기'));
+  await fireEvent.press(screen.getByLabelText('집중 마치기'));
+  expect(dispatch).toHaveBeenCalledWith({ type: 'SESSION_SYNC', session: null });
+  expect(openSeaRoom).not.toHaveBeenCalled();
+  await screen.rerender(<SeaVoyageHost e={{ ...e, state: { ...e.state, session: null } }} />);
+  await fireEvent.press(screen.getByTestId('abandon-cutscene'));
+  expect(screen.getByLabelText('망원경')).toBeTruthy();
 });
 
 test('부팅 소속 조회가 실패해도 바다에 머물고 망원경을 누르면 동기화를 재시도한다', async () => {
@@ -327,6 +314,24 @@ test('바다 방 구성원과 이모트가 화면에 이어지고 내 이모트�
   expect(mockRoom.close).toHaveBeenCalled();
 });
 
+test.each([
+  ['no-room', '바다에 다시 들어가는 중이에요. 잠시 뒤 다시 보내 주세요.'],
+  ['disconnected', '연결이 원활하지 않아요. 다시 눌러 시도해 주세요.'],
+  ['throttled', '이모트는 잠시 뒤에 다시 보낼 수 있어요'],
+])(
+  '이모트가 나가지 못하면 이유(%s)별 문구를 패널에 띄우고 패널은 열어 둔다 (GROMO-2484)',
+  async (reason, text) => {
+    const e = env({ state: { name: '나냥', color: 'black', session: null } });
+    const screen = await render(<SeaVoyageHost e={e} />);
+    mockRoom.sendEmote.mockReturnValueOnce(reason);
+    await fireEvent.press(screen.getByLabelText('이모트'));
+    await fireEvent.press(screen.getByLabelText('응원'));
+    await act(async () => {});
+    expect(screen.getByText(text)).toBeTruthy();
+    expect(screen.getByLabelText('응원')).toBeTruthy();
+  },
+);
+
 test('표류 중 한마디 — 저장하면 내 말풍선에 뜨고, 5분 잠금(409)은 토스트, 게스트(403)는 회원 전환', async () => {
   const e = env({ state: { name: '나냥', color: 'black', session: null } });
   const screen = await render(<SeaVoyageHost e={e} />);
@@ -339,6 +344,7 @@ test('표류 중 한마디 — 저장하면 내 말풍선에 뜨고, 5분 잠금
   mockRemark.mockRejectedValueOnce(new ApiError('SEA_REMARK_LOCKED', '잠김', 409));
   await write('공부 중');
   expect(e.notify).toHaveBeenCalledWith('한마디는 고친 뒤 5분 동안 바꿀 수 없어요');
+  expect(mockRoom.reconnect).not.toHaveBeenCalled(); // 저장 실패면 다시 들어가지 않는다
   e.conversion.offer.mockReturnValueOnce(true);
   mockRemark.mockRejectedValueOnce(new ApiError('SOCIAL_LOGIN_REQUIRED', '로그인', 403));
   await write('공부 중');
@@ -347,6 +353,8 @@ test('표류 중 한마디 — 저장하면 내 말풍선에 뜨고, 5분 잠금
   await write('공부 중');
   expect(mockRemark).toHaveBeenLastCalledWith('공부 중');
   expect(screen.getByText('공부 중')).toBeTruthy();
+  // 표류 정리 뒤면 저장 «뒤» 바다 방에 다시 들어간다 — 입장 스냅샷이 새 한마디를 싣는다(GROMO-2484)
+  expect(mockRoom.reconnect).toHaveBeenCalledTimes(1);
 });
 
 test('다른 화면에 갔다가 돌아와도(재마운트) 경과는 세션을 받은 시각부터 이어 센다', async () => {
@@ -451,6 +459,36 @@ test('저장한 한마디는 서버 확인 전 임시값 — 다른 기기에서
   await act(async () => mockRoomOpts.onMembers([me('다른 기기 한마디')]));
   expect(screen.getByText('다른 기기 한마디')).toBeTruthy();
   expect(screen.queryByText('내 새 한마디')).toBeNull();
+});
+
+test('표류 정리로 방이 비었을 때 고친 한마디 — 저장 뒤 늦게 온 옛 한마디 스냅샷이 화면을 되돌리지 않는다 (GROMO-2484)', async () => {
+  const e = env({ state: { name: '나냥', color: 'black', session: null } });
+  const me = (message: string) => ({
+    userId: 'me',
+    name: '나냥',
+    color: 'black',
+    focusing: false,
+    activeSeconds: 0,
+    anchorMs: 0,
+    message,
+  });
+  const screen = await render(<SeaVoyageHost e={e} />);
+  await act(async () => mockRoomOpts.onMembers([me('옛 한마디')]));
+  await act(async () => mockRoomOpts.onMembers([])); // sea.room.left{adrift} — 방을 버려 내 서버 값도 모른다
+  mockRemark.mockResolvedValueOnce({ remark: '내 새 한마디' });
+  await fireEvent.press(screen.getByLabelText('＋ 한마디 쓰기'));
+  await fireEvent.changeText(screen.getByLabelText('한마디 쓰기'), '내 새 한마디');
+  await fireEvent.press(screen.getByLabelText('한마디 띄우기'));
+  await act(async () => {});
+  expect(screen.getByText('내 새 한마디')).toBeTruthy();
+  // 저장 전에 시작된 재입장(직전 이모트 탭 등)의 스냅샷이 저장 뒤 옛 한마디를 싣고 온다
+  await act(async () => mockRoomOpts.onMembers([me('옛 한마디')]));
+  expect(screen.getByText('내 새 한마디')).toBeTruthy();
+  expect(screen.queryByText('옛 한마디')).toBeNull();
+  // 방금 저장한 값이 돌아오면 임시값을 푼다 — 그 뒤 다른 기기 값은 그대로 보인다
+  await act(async () => mockRoomOpts.onMembers([me('내 새 한마디')]));
+  await act(async () => mockRoomOpts.onMembers([me('다른 기기 한마디')]));
+  expect(screen.getByText('다른 기기 한마디')).toBeTruthy();
 });
 
 test('종료 응답을 잃으면 확인 중으로 두고, 재연결·복귀 때 recover 보다 먼저 같은 finish 를 다시 보내 결과창으로 간다', async () => {

@@ -3,7 +3,7 @@
  * 바다(IslandOcean)는 WorldMap 이 그려질 때마다 같이 그려지므로 그 횟수를 지도 전체 렌더 횟수로 센다.
  */
 import React from 'react';
-import { Animated, PanResponder, StyleSheet } from 'react-native';
+import { Animated, PanResponder, Platform, StyleSheet } from 'react-native';
 import { act, fireEvent, render } from '@testing-library/react-native';
 import { buildingNames, initialState } from '@/services/model';
 
@@ -32,13 +32,17 @@ jest.mock('./IslandOcean', () => {
     },
   };
 });
+// 이 파일은 이미지 섬(웹 빌드) 경로를 잰다 — iOS·Android 는 늘 타일 섬이라(GROMO-2476) 끄는 동안 카메라를 커밋하는
+// 타일 경로와 갈린다. TILE_ISLAND 는 모듈 로드 때 Platform.OS 로 굳으므로 그때만 'web' 으로 두고 되돌린다(jest 엔
+// DOM 이 없어 웹 전용 런타임 분기는 돌릴 수 없다).
+const nativeOS = Platform.OS;
+(Platform as { OS: string }).OS = 'web';
 const { FinalIsland, WorldMap } = require('./WorldMap') as typeof import('./WorldMap');
+(Platform as { OS: string }).OS = nativeOS;
 const { islandTerrain } = require('./IslandOcean') as typeof import('./IslandOcean');
 
 beforeEach(() => {
   jest.useFakeTimers();
-  // 떠돌이 고양이 행선지를 고정한다.
-  jest.spyOn(Math, 'random').mockReturnValue(0.5);
   // 걸음 하나를 95ms 타이머로 끝내 실제처럼 세그먼트마다 콜백이 따로 돈다.
   jest.spyOn(Animated, 'timing').mockImplementation(
     (value, config) =>
@@ -141,12 +145,12 @@ test('지도를 끌고 집는 동안에는 지도를 다시 그리지 않고, �
   // 손을 떼면 변환은 항등으로 돌아간다(쉬는 동안 터치·배치가 그대로 맞는다).
   expect(shifts.slice(-3)).toEqual([0, 0, 1]);
 
-  // 두 손가락 집기 30번 — 두 손가락 가운데(200, 400)를 고정점으로 1.5배
+  // 두 손가락 집기 30번 — 두 손가락 가운데(200, 400)를 고정점으로 0.75배
   mockMapRenders = 0;
   await act(async () => pan.onPanResponderGrant!(touch([100, 400], [300, 400]), {} as any));
   for (let i = 1; i <= 30; i++)
     await act(async () =>
-      pan.onPanResponderMove!(touch([100 - (50 * i) / 30, 400], [300 + (50 * i) / 30, 400]), {
+      pan.onPanResponderMove!(touch([100 + (25 * i) / 30, 400], [300 - (25 * i) / 30, 400]), {
         dx: 0,
         dy: 0,
       } as any),
@@ -154,9 +158,9 @@ test('지도를 끌고 집는 동안에는 지도를 다시 그리지 않고, �
   const pinchRenders = mockMapRenders;
   const anchor = { x: dragged.x + (200 - 201) / base, y: dragged.y + (400 - 437) / base };
   const pinched = {
-    x: anchor.x - (200 - 201) / (base * 1.5),
-    y: anchor.y - (400 - 437) / (base * 1.5),
-    z: 1.5,
+    x: anchor.x - (200 - 201) / (base * 0.75),
+    y: anchor.y - (400 - 437) / (base * 0.75),
+    z: 0.75,
   };
   expect(pinchRenders).toBeLessThanOrEqual(1);
   expectHall(dragged);
@@ -186,12 +190,12 @@ test('집었다 손을 떼면 땅 누르기는 커밋된 배율로 같은 월드
     }) as any;
   await act(async () => {
     pan.onPanResponderGrant!(pinch(200), {} as any);
-    pan.onPanResponderMove!(pinch(300), {} as any);
-    pan.onPanResponderRelease!(pinch(300), {} as any);
+    pan.onPanResponderMove!(pinch(150), {} as any);
+    pan.onPanResponderRelease!(pinch(150), {} as any);
   });
   await act(async () => jest.advanceTimersByTime(100));
-  // 쉬는 동안 transform 은 항등이라 땅 Pressable 의 로컬 좌표 = 커밋된 배치(1.5배) 좌표다.
-  const scale = (((874 / 874) * 402) / 1536) * 2.8 * 1.5;
+  // 쉬는 동안 transform 은 항등이라 땅 Pressable 의 로컬 좌표 = 커밋된 배치(0.75배) 좌표다.
+  const scale = (((874 / 874) * 402) / 1536) * 2.8 * 0.75;
   const [terrain] = screen.container.queryAll((n) => n.props.source === islandTerrain.day);
   await fireEvent.press(terrain, {
     nativeEvent: { locationX: 585 * scale, locationY: 430 * scale },

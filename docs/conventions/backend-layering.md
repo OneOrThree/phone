@@ -1,6 +1,7 @@
 # 백엔드 계층·패키지 배치 규약
 
-`server/data-api` 는 도메인 17개가 각자 계층 패키지를 갖는 도메인 우선 구조다.
+`server/data-api` 는 도메인마다 계층 패키지를 갖는 구조다. V0 정리 후 HTTP 진입점은
+`internal/`의 서버 간 계약과 공통 health 경로이며, Gromo 1.x 공개 컨트롤러는 제거했다.
 그런데 같은 성격의 클래스가 도메인마다 다른 자리에 있어서, **패키지 경로만 보고는
 그 클래스가 어느 계층인지 알 수 없는** 상태가 오래 굳어 있었다 — 리스너가 한 곳은
 `listener/`, 다른 곳은 `service/` 에 있고, 순수 계산기가 서비스 빈들 사이에 섞여
@@ -241,15 +242,16 @@ Controller  →  Service  →  Repository  →  Entity
 | --- | --- | --- |
 | L-1 | `outbox` | 내구 이벤트·명령 기반(GROMO-1659·1660, A21). **아무것도 참조하지 않는다** — 탈퇴·로그아웃처럼 L0 의 트랜잭션도 봉투를 적어야 해서 `user` 보다 아래다. 봉투는 도메인 타입을 하나도 모른다(`userId` 는 UUID, 나머지는 `params` JSON). 도메인이 이 층을 부르는 규약은 [`outbox-events.md`](outbox-events.md)(GROMO-1798) |
 | L0 | `user` | 계정. 다른 무엇도 전제하지 않는다 — **아무도 참조하지 않는다** |
-| L1 | `currency` · `item` | 유저에게 달린 원장·보유 |
+| L1 | `currency` · `content` | 유저에게 달린 원장·보유. `content`는 운영 공지·잡지 비공개 스냅샷·게시 영수증 원장이며 다른 도메인 타입을 참조하지 않는다. |
 | L2 | `focus` · `screentime` · `letter` | 유저가 만든 기록 — `letter` 는 `users.id` 두 개(sender·receiver)만 참조하는 1:1 편지(GROMO-1933). 친구 삭제 후 편지 정리가 «삭제»로 결정되면 `friend`(L3)가 이것을 참조해야 하므로 `friend` 보다 아래다 |
 | L3 | `friend` | 유저 사이의 관계 |
-| L4 | `stats` · `league` · `ranking` | 기록·관계를 집계한 파생. `ranking`(GROMO-1997)은 주간 섬 랭킹의 동결 분모 표와 주 경계 계산기뿐이고 도메인 타입을 하나도 참조하지 않는다 — 집중 합·주민 수·전망대를 «조합»하는 것은 L10 `internal` 이다 |
-| L5 | `group` | 모임·챌린지·내기 — 위 전부를 소비한다 |
+| L4 | `stats` · `ranking` | 기록·관계를 집계한 파생. `ranking`(GROMO-1997)은 주간 섬 랭킹의 동결 분모 표와 주 경계 계산기뿐이고 도메인 타입을 하나도 참조하지 않는다 — 집중 합·주민 수·전망대를 «조합»하는 것은 L10 `internal` 이다 |
+| L5 | `group` | 섬·멤버십 |
 | L6 | `invitelink` · `construction` | 그룹을 가리키는 초대 · 섬(group)에 딸린 시설·공동 지갑(GROMO-1767). 내부 표면 구현은 `internal` 이 이것을 참조하므로 이 도메인이 `internal.dto` 를 참조하면 역행이다 — 계약 view 타입은 자기 `dto/` 에 둔다 |
-| L7 | `notification` · `appearance` · `quest` | 전 도메인의 사건을 구독해 발송한다 · 섬 공동/개인 외양(GROMO-1783) · 섬 퀘스트(GROMO-1773) — 집중 구간(`focus`)·스크린타임(`screentime`)을 판정하고 섬 통장(`construction`)에 정산하므로 그 셋보다 위다. 같은 층끼리는 참조하지 않는다 |
-| L8 | `auth` · `character` · `bot` · `analytics` · `magazine` | 진입·부가 · 고양이 잡지의 홍보 칸·꾸미기 재료(GROMO-2289) — 엔티티·리포지토리·순수 규칙(`support/`)만 두고, 홍보비는 섬 통장(`construction`)에서 빠지고 재료는 카탈로그·보유품(`appearance`)을 읽으므로 둘 위다. 신청·고치기 조합은 L10 `internal` 이 한다 |
-| L9 | `profile` · `withdrawal` | **조립·오케스트레이션 전용** — 자기 테이블이 없고, 아래 도메인의 조회 결과를 합치거나(`profile`) 정리를 정해진 순서로 부른다(`withdrawal`) |
+| L7 | `notification` · `appearance` · `quest` | 현행 알림 사건을 outbox에 적는다 · 섬 공동/개인 외양(GROMO-1783) · 섬 퀘스트(GROMO-1773) — 집중 구간(`focus`)·스크린타임(`screentime`)을 판정하고 섬 통장(`construction`)에 정산하므로 그 셋보다 위다. 같은 층끼리는 참조하지 않는다 |
+| L8 | `auth` · `magazine` | 진입·부가 · 고양이 잡지의 홍보 칸·꾸미기 재료(GROMO-2289) — 엔티티·리포지토리·순수 규칙(`support/`)만 두고, 홍보비는 섬 통장(`construction`)에서 빠지고 재료는 카탈로그·보유품(`appearance`)을 읽으므로 둘 위다. 신청·고치기 조합은 L10 `internal` 이 한다 |
+| L9 | `withdrawal` | **조립·오케스트레이션 전용** — 자기 테이블이 없고, 아래 도메인의 정리를 정해진 순서로 부른다 |
+| L10 | `internal` | **가장 위** — 서비스 간 내부 표면(`/internal/*`, GROMO-1659·1660). 앱 계약이 아니라 Business·알림·링크가 부르는 입구이고 `auth`(L8)·`group`(L5)·`invitelink`(L6)·`user`(L0)·`outbox`(L-1) 등 아래 도메인을 «조합»해 응답한다 — 아무도 이 패키지를 참조하지 않는다. `internal` 은 타 도메인 repository 직접 사용을 허용하며 이 면제는 freeze 대상이 아니다 — 출발에서 제외돼 store 에 줄이 쌓이지 않는다 |
 
 `common/` 과 `config/` 는 레이어 밖이다 — 누가 참조해도 된다.
 
@@ -308,11 +310,11 @@ GROMO-1654 는 **패키지 배치만** 정리했다. 아래는 규약이지만 �
 
 | 항목 | 실측(2026-09) | 이관처 |
 | --- | --- | --- |
-| 타 도메인 repository 직접 주입 | **27파일 / import 62건** (2026-09-09 재측정, 1654 착수 시 약 120건) | 미해결 — ArchUnit 규칙 후보였으나 현행 위반이 많아 GROMO-1724 범위에서 제외 |
+| 타 도메인 repository 직접 주입 | **freeze 로 동결(기준선 479건/47파일, 2026-10-24)** — ArchUnit 의존 줄 수·출발 파일 수라 옛 import 기준(27파일 / 62건, 2026-09-09)과 단위가 다르다 | **새 위반은 빌드 실패, 줄이면 store 갱신** — `DomainLayerRulesTest`(GROMO-2198), 기준선은 `server/data-api/archunit_store/`. 제외: 출발 `config`·`common`·`internal`, 대상 읽기 경계 `QueryService` 3종(FQCN 허용 목록)·`outbox` |
 | service 의 `EntityManager` 직접 조작 | 5개 파일 | GROMO-1655 |
 | ~~도메인 간 레이어 역행 참조~~ | **0쌍 / 0건** (2026-09-08 · 착수 시 15쌍 49건, 파생 순환 238개) | GROMO-1656 완료 · **테스트로 강제됨**(GROMO-1724) |
 | 컨트롤러의 영속 enum 노출 | 6건 | GROMO-1657 (앱 계약 변경 동반) |
-| 규칙의 테스트 강제 | **도메인 의존 방향·순환만 강제됨**(`DomainLayerRulesTest`). 나머지 계층 규칙은 미강제 | GROMO-1724 (도입 완료) |
+| 규칙의 테스트 강제 | **도메인 의존 방향·순환 + 타 도메인 repository 직접 의존(freeze)** 이 강제됨(`DomainLayerRulesTest`). 나머지 계층 규칙은 미강제 | GROMO-1724 (도입 완료) · GROMO-2198 |
 
 ---
 
@@ -323,12 +325,9 @@ GROMO-1654 는 **패키지 배치만** 정리했다. 아래는 규약이지만 �
 
 | 예외 | 이유 |
 | --- | --- |
-| `analytics/domain/` 이 `repository/domain/` 이 아님 | analytics 는 영속성이 없다(repository 자체가 없음). 없는 계층 아래에 넣을 수 없다. **영속성 없는 도메인은 `domain/` 을 쓴다.** |
 | `common/api/HealthController` | 도메인 밖 유일한 컨트롤러. 헬스체크는 소유 도메인이 없고, 이것 하나 때문에 도메인을 신설할 이유가 없다 |
-| `bot/` 에 컨트롤러·dto·exception 없음 | 외부 API 표면이 없는 내부 시뮬레이터다. 없는 계층을 억지로 만들지 않는다 |
 | `support/` 가 `service/` 의 static 메서드 호출 | `GroupBetSessionFactory` → `WindowFocusAggregator.windowStartOn/windowEndOn`. 주입이 없어 배치 기준상 `support/` 가 맞지만 컴파일 타임 `support → service` 방향이 생긴다. 런타임 빈 의존이 아니라 순환·트랜잭션 문제는 없다. ArchUnit 규칙(GROMO-1724)은 **도메인 사이**의 방향만 보므로 같은 도메인 안의 이 호출은 검사 대상이 아니다 — 예외 선언이 필요 없었다 |
 | `auth/` 에 `repository/`·`domain/` 없음 | 인증은 `user` 도메인의 데이터를 쓴다. 자기 테이블이 없다 (다만 현재 user repository 를 직접 주입하고 있어 GROMO-1655 대상) |
-| `GroupChallengeBetSessionRepository.recordFailure` 의 `@Transactional` | 리포지토리에서 트랜잭션을 여는 저장소 유일 사례. 호출부 `GroupBetScheduler.retryDueSessions` 가 **건별 격리를 위해 의도적으로 무트랜잭션**인 `@Scheduled` 진입점이라, 리포지토리가 자기 트랜잭션을 열지 않으면 정산 실패를 기록할 때마다 `InvalidDataAccessApiUsageException` 이 난다. 스케줄러가 이 호출을 감싸는 대안도 되지만, "벌크 UPDATE 는 자기 트랜잭션이 필요하다"는 것은 쿼리 자체의 속성이라 쿼리 옆에 선언적으로 두는 편이 발견 가능성이 높다 (GROMO-1655) |
 
 ---
 

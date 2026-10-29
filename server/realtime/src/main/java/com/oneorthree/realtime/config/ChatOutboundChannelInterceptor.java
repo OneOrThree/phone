@@ -21,10 +21,12 @@ import org.springframework.messaging.MessageHandler;
 import org.springframework.messaging.simp.SimpMessageHeaderAccessor;
 import org.springframework.messaging.simp.SimpMessageType;
 import org.springframework.messaging.support.ExecutorChannelInterceptor;
+import org.springframework.messaging.support.MessageBuilder;
 import org.springframework.stereotype.Component;
-import org.springframework.web.socket.CloseStatus;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ArrayNode;
+import tools.jackson.databind.node.ObjectNode;
 
 import java.util.UUID;
 import java.util.regex.Matcher;
@@ -73,8 +75,8 @@ import static com.oneorthree.realtime.config.StompTopics.SEA_ROOM_TOPIC;
  * <h2>받는 사람 기준 차단 (GROMO-2182)</h2>
  * 채팅({@code /topic/groups/{id}})과 응원({@code /topic/islands/{id}/emotes})은 섬 공용 토픽이라 브로커가
  * 구독자 전원에게 같은 프레임을 복제한다. 그래서 차단은 발신 쪽이 아니라 <b>여기, 세션별 전달 직전</b>에
- * 건다 — 받는 세션의 주체가 그 프레임의 발신자(채팅 {@code senderId}, 응원 {@code payload.userId})를
- * 차단했으면 그 세션에만 보내지 않는다. 판정·세대는 {@link BlockedUsers} 에 있다.
+ * 건다 — 받는 세션의 주체와 그 프레임의 발신자(채팅 {@code senderId}, 응원 {@code payload.userId}) 사이에
+ * 차단이 있으면(어느 방향이든, GROMO-2469) 그 세션에만 보내지 않는다. 판정·세대는 {@link BlockedUsers} 에 있다.
  *
  * <p><b>판정을 못 내리면 보내지 않는다(fail-closed, 2026-10-01 결정).</b> 차단 조회 실패·timeout·계약 위반뿐
  * 아니라 프레임에서 발신자를 읽지 못한 경우도 «전달 근거 없음»이다. 발신자가 JSON {@code null} 인 채팅
@@ -182,7 +184,7 @@ public class ChatOutboundChannelInterceptor implements ExecutorChannelIntercepto
             return deliverIslandEvent(message, destination, island.group(1), island.group(2), stamp);
         }
         // 바다 방(GROMO-2300, N21) — JWT + 프레임마다 Redis 방 소속. 다른 인스턴스의 정리가 Redis 에서 사람을 빼도 이
-        // JVM 의 구독은 남으므로 레지스트리로는 못 끊는다. 판정 불가(Redis 실패)도 보내지 않는다. 차단은 배정 때 분리했다.
+        // JVM 의 구독은 남으므로 레지스트리로는 못 끊는다. 차단은 배정 이후에도 전달 직전에 양방향으로 검사한다.
         Matcher seaRoom = SEA_ROOM_TOPIC.matcher(destination);
         if (seaRoom.matches()) {
             // 정규식은 36자 모양만 본다 — 손상 값이면 프레임만 버린다(예외가 실행기로 새지 않게).
@@ -205,6 +207,18 @@ public class ChatOutboundChannelInterceptor implements ExecutorChannelIntercepto
             // 정보가 실린다)는 JWT 와 폐기 sid(GROMO-2350)를 다시 본다 — 종료가 실패해 소켓이 남은 폐기 세션에 나가지 않게.
             if (destination.equals(ERRORS_QUEUE) || destination.startsWith(ERRORS_QUEUE_RESOLVED)) {
                 return message;
+            }
+            if (destination.equals("/user/queue/sea") || destination.startsWith("/queue/sea-user")) {
+                ChatPrincipal principal = stillAuthenticated(message);
+                if (principal == null) {
+                    return null;
+                }
+                try {
+                    return filterSeaVisibility(message, principal.userId());
+                } catch (RuntimeException e) {
+                    log.debug("바다 개인 큐 전달 차단 — 판정 불가. reason={}", e.getClass().getSimpleName());
+                    return null;
+                }
             }
             return stillAuthenticated(message) == null ? null : message;
         }
@@ -229,7 +243,7 @@ public class ChatOutboundChannelInterceptor implements ExecutorChannelIntercepto
                 accessGuard.requireCanChat(islandId, principal.userId(), bearer);
                 Sourced<Boolean> blocked = filter ? blockJudgment(principal.userId(), sender) : NOT_BLOCKED;
                 if (blocked.value()) {
-                    log.debug("채팅 전달 차단 — 받는 사람이 발신자를 차단했다");
+                    log.debug("채팅 전달 차단 — 받는 사람과 발신자가 차단 관계다");
                     return null;
                 }
                 authzCache.allow(sessionId, principal.userId(), scope, stamp,
@@ -254,7 +268,8 @@ public class ChatOutboundChannelInterceptor implements ExecutorChannelIntercepto
 
     /**
      * 섬 {@code events} 프레임(GROMO-2302) — 그 주체가 지금도 그 섬 주민인가(캐시, fail-closed), 그리고 채팅·응원과 같은
-     * 받는 사람 기준 차단 필터(GROMO-2182) — 보내는 사람은 {@code payload.userId}(도착자)다. 판정 불가는 버린다.
+     * 받는 사람 기준 차단 필터(GROMO-2182, 양방향 GROMO-2469) — 보내는 사람은 {@code payload.userId}(도착자)다. 판정 불가는
+     * 버린다.
      */
     private Message<?> deliverResidentEvent(Message<?> message, String destination, ChatPrincipal principal,
             String islandIdText, long stamp) {
@@ -274,7 +289,7 @@ public class ChatOutboundChannelInterceptor implements ExecutorChannelIntercepto
             accessGuard.requireMember(islandId, principal.userId(), principal.bearer());
             Sourced<Boolean> blocked = filter ? blockJudgment(principal.userId(), arriver) : NOT_BLOCKED;
             if (blocked.value()) {
-                log.debug("섬 소식 전달 차단 — 받는 사람이 도착자를 차단했다");
+                log.debug("섬 소식 전달 차단 — 받는 사람과 도착자가 차단 관계다");
                 return null;
             }
             authzCache.allow(sessionId, principal.userId(), scope, stamp,
@@ -299,15 +314,54 @@ public class ChatOutboundChannelInterceptor implements ExecutorChannelIntercepto
         }
         try {
             if (seaRooms.isMember(principal.userId(), roomId)) {
-                return message;
+                return filterSeaVisibility(message, principal.userId());
             }
             seaDroppedNotMember.increment();
             return null;
         } catch (RuntimeException e) {
             seaDroppedRedis.increment();
-            log.debug("바다 방 전달 차단 — 소속 판정 불가. reason={}", e.getClass().getSimpleName());
+            log.debug("바다 방 전달 차단 — 소속·차단 판정 불가. reason={}", e.getClass().getSimpleName());
             return null;
         }
+    }
+
+    /** 방 상태를 바꾸지 않고 받는 사람마다 상대를 숨긴다. 늦은 스냅샷·갱신도 현재 차단 관계로 거른다. */
+    private Message<?> filterSeaVisibility(Message<?> message, UUID viewer) {
+        JsonNode root = readPayload(message);
+        if (root == null) {
+            return null;
+        }
+        String type = root.path("type").asText(null);
+        JsonNode payload = root.path("payload");
+        if (SeaRooms.SNAPSHOT.equals(type)) {
+            UUID roomId = uuidOrNull(root.path("roomId").stringValue());
+            if (roomId == null || !seaRooms.isMember(viewer, roomId) || !payload.path("members").isArray()) {
+                return null;
+            }
+            ArrayNode visible = objectMapper.createArrayNode();
+            for (JsonNode member : payload.path("members")) {
+                UUID actor = UUID.fromString(member.path("userId").stringValue());
+                if (!blockedUsers.eitherBlocked(viewer, actor)) {
+                    visible.add(member);
+                }
+            }
+            if (visible.size() == payload.path("members").size()) {
+                return message;
+            }
+            ObjectNode filtered = ((ObjectNode) root).deepCopy();
+            ((ObjectNode) filtered.path("payload")).set("members", visible);
+            return MessageBuilder.createMessage(objectMapper.writeValueAsBytes(filtered), message.getHeaders());
+        }
+        JsonNode actor = SeaRooms.MEMBER_JOINED.equals(type) || SeaRooms.MEMBER_UPDATED.equals(type)
+                ? payload.path("member").path("userId")
+                : "sea.emote".equals(type) || "sea.member.appearance.updated".equals(type)
+                        ? payload.path("userId") : null;
+        if (actor != null && (!actor.isString()
+                || blockedUsers.eitherBlocked(viewer, UUID.fromString(actor.stringValue())))) {
+            return null;
+        }
+        // left 는 이미 보이던 상대를 지우는 멱등 사건이라 차단 중에도 전달한다.
+        return message;
     }
 
     /**
@@ -345,7 +399,7 @@ public class ChatOutboundChannelInterceptor implements ExecutorChannelIntercepto
             }
             Sourced<Boolean> blocked = blockJudgment(principal.userId(), sender);
             if (blocked.value()) {
-                log.debug("응원 전달 차단 — 받는 사람이 발신자를 차단했다");
+                log.debug("응원 전달 차단 — 받는 사람과 발신자가 차단 관계다");
                 return null;
             }
             authzCache.allow(sessionId, principal.userId(), scope, stamp, blocked.expiresAtNanos());
@@ -404,12 +458,12 @@ public class ChatOutboundChannelInterceptor implements ExecutorChannelIntercepto
     private static final Sourced<Boolean> NOT_BLOCKED = new Sourced<>(false, Sourced.UNBOUNDED);
 
     /**
-     * 차단 판정 — 캐시가 켜져 있으면 판정에 쓴 집합의 만료까지 한 원자 단위로 받는다({@link BlockedUsers#hasBlockedSourced}).
+     * 차단 판정 — 캐시가 켜져 있으면 판정에 쓴 집합의 만료까지 한 원자 단위로 받는다({@link BlockedUsers#hiddenSourced}).
      * 꺼져 있으면 종전 판정 그대로(만료는 쓰지 않는다).
      */
     private Sourced<Boolean> blockJudgment(UUID viewer, UUID sender) {
-        return authzCache.enabled() ? blockedUsers.hasBlockedSourced(viewer, sender)
-                : new Sourced<>(blockedUsers.hasBlocked(viewer, sender), Sourced.UNBOUNDED);
+        return authzCache.enabled() ? blockedUsers.hiddenSourced(viewer, sender)
+                : new Sourced<>(blockedUsers.hidden(viewer, sender), Sourced.UNBOUNDED);
     }
 
     /** 멤버 허용의 만료 상한({@link OutboundMembershipSource}) — 캐시가 꺼져 있으면 읽지 않는다. */
@@ -465,7 +519,7 @@ public class ChatOutboundChannelInterceptor implements ExecutorChannelIntercepto
         // 폐기된 sid(auth.session.revoked, GROMO-2350) — 종료가 실패해 소켓이 열려 있어도 프레임은 나가지 않는다. 인메모리 조회라
         // 프레임당 비용은 맵 get 하나다(이동 20Hz 포함 — 이동 프레임도 이 길을 지난다).
         if (proof.isPresent() && chatUserFence.isRevoked(proof.get().sessionId())) {
-            sessions.close(sessionId, CloseStatus.POLICY_VIOLATION.withReason("SESSION_REVOKED"));
+            sessions.close(sessionId, RealtimeSessionRegistry.SESSION_REVOKED);
             return null;
         }
         return principal;

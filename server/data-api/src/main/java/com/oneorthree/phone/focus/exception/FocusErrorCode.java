@@ -29,7 +29,7 @@ public enum FocusErrorCode implements ErrorCode {
     OCCUPATION_REQUIRED(HttpStatus.BAD_REQUEST, "직업 정보가 없습니다."),
     OCCUPATION_TAG_NOT_RENAMABLE(HttpStatus.BAD_REQUEST, "직군 프리셋 태그는 이름을 변경할 수 없습니다."),
 
-    // ── GROMO-1764: 집중 세션 수명주기(v0.3) ──────────────────────────────────
+    // ── GROMO-1764: 집중 세션 수명주기 ──────────────────────────────────
     /** subject 누락·공백·길이 초과(기술 상한, FR-D06 최종 범위는 미결). */
     INVALID_SUBJECT(HttpStatus.BAD_REQUEST, "집중 주제가 올바르지 않습니다."),
     /** targetMinutes가 정수가 아니거나 0 이하 — FR-D06의 최종 허용 범위는 아직 정해지지 않았다. */
@@ -60,12 +60,12 @@ public enum FocusErrorCode implements ErrorCode {
     /**
      * 이 세션에 고정된 보상 정책 revision 이 없다 — finish 는 이 코드로 막힌다. 값을 지어내 "0원 지급 성공"으로
      * 위장하지 않는다(policy.md). GROMO-1924 이후 start 는 정책 revision 없이 세션을 만들지 않으므로
-     * 그 이전에 생긴 행에서만 나온다(시작 게이트가 닫혀 있어 실제로는 없다).
+     * 그 이전에 생긴 행에서만 나온다.
      */
     REWARD_POLICY_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "보상 정책이 아직 준비되지 않았습니다."),
     /**
-     * v0.3 시작 경로 비활성 — {@link com.oneorthree.phone.focus.support.FocusSessionStartGate}(배포 설정)가
-     * 닫혀 있거나 현재 보상 정책 revision 이 없으면 start 는 이 코드로 막힌다(GROMO-1924).
+     * 시작 경로 비활성 — 현재 보상 정책 revision 이 없으면 start 는 이 코드로 막힌다(GROMO-1924). 시작 게이트
+     * 설정은 2026-10-27(티켓 2535)에 걷어, 이제 이 사유 하나뿐이다.
      *
      * <p>{@link #REWARD_POLICY_UNAVAILABLE}과 같은 503이지만 코드를 나눈다 — 한쪽은 «새 세션을 열지 않는다»,
      * 다른 쪽은 «이 세션을 정산할 근거가 없다»라 앱·운영이 대응이 다르다.

@@ -13,9 +13,10 @@ import {
   Platform,
   StyleSheet,
   PanResponder,
+  type ImageSourcePropType,
 } from 'react-native';
 import Svg, { Path, Line, Circle, Polyline } from 'react-native-svg';
-import { C, useScreenInsets, MotionContext } from '@/design-system/primitives';
+import { C, Card, useScreenInsets, MotionContext } from '@/design-system/primitives';
 import { componentTokens, primitiveTokens, semanticTokens } from '@/design-system/tokens';
 import { art } from '@/constants/art';
 import { assets } from '@/constants/assets';
@@ -138,6 +139,10 @@ export function Btn({
   accessibilityLabel,
   // 제목만으로 안 읽히는 «누르면 일어날 일»을 덧붙인다(예: 흐리게 보이지만 누를 수 있는 버튼이 왜 확인창을 여는지)
   accessibilityHint,
+  // 여럿 중 고른 것(뗏목의 마지막 목적지)을 보조기기에도 알린다
+  selected,
+  // 그림 장면 위 화면(먼바다)이 버튼 글자도 고운돋움으로 맞출 때만 넘기는 글꼴 이름. 안 주면 종전 시스템 글꼴
+  font,
 }: any) {
   const reduce = React.useContext(MotionContext),
     s = useRef(new Animated.Value(1)).current;
@@ -161,7 +166,7 @@ export function Btn({
         hitSlop={small ? 3 : undefined}
         // 누를 동작이 없는 버튼(적용됨 같은 상태 표시)은 모양은 그대로 두고 비활성으로 읽는다(흐림은 disabled일 때만)
         disabled={disabled || !onPress}
-        accessibilityState={{ disabled: disabled || !onPress }}
+        accessibilityState={{ disabled: disabled || !onPress, selected }}
         onPress={onPress}
         onPressIn={() => {
           if (!reduce)
@@ -237,6 +242,7 @@ export function Btn({
                       ? C.muted
                       : C.ink,
               textAlign: 'center',
+              ...(font ? { fontFamily: font } : {}),
             }}
           >
             {title}
@@ -246,6 +252,72 @@ export function Btn({
     </Animated.View>
   );
 }
+// 뒤로(‹)·닫기(×) — 게시판은 아이콘만, 그 밖의 장면은 동그라미 안에 그린다(DESIGN §7.14).
+// 장면을 떠나거나 한 단계 위로 가면 ‹, 장면 위에 뜬 시트·패널·종이를 닫으면 close(×). 원은 34, 누르는 자리는 44 상자.
+// 나머지 Pressable 속성(testID·ref·접근성 숨김)은 그대로 넘긴다.
+const NAV_ICON = { back: 'M15 5L8 12L15 19', close: 'M6 6L18 18M18 6L6 18' };
+export const NavBtn = React.forwardRef<View, any>(function NavBtn(
+  { label, close = false, disabled = false, boardPaper = false, scrim = false, style, ...rest },
+  ref,
+) {
+  const n = componentTokens.navButton;
+  return (
+    <Pressable
+      ref={ref}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ disabled }}
+      disabled={disabled}
+      {...rest}
+      style={({ pressed }) => [
+        {
+          width: semanticTokens.size.tapMin,
+          height: semanticTokens.size.tapMin,
+          alignItems: 'center',
+          justifyContent: 'center',
+          opacity: disabled
+            ? componentTokens.button.disabledOpacity
+            : pressed
+              ? n.pressedOpacity
+              : 1,
+        },
+        style,
+      ]}
+    >
+      <View
+        style={{
+          width: n.size,
+          height: n.size,
+          borderRadius: semanticTokens.radius.full,
+          borderWidth: scrim || boardPaper ? 0 : n.borderWidth,
+          borderColor: semanticTokens.color.outline,
+          backgroundColor: scrim
+            ? n.scrimBackground
+            : boardPaper
+              ? 'transparent'
+              : semanticTokens.color.surface,
+          boxShadow:
+            disabled || boardPaper || scrim
+              ? 'none'
+              : `0px ${n.shadowOffset}px 0px ${semanticTokens.color.outline}`,
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        <Svg width={n.iconSize} height={n.iconSize} viewBox="0 0 24 24">
+          <Path
+            d={NAV_ICON[close ? 'close' : 'back']}
+            stroke={scrim ? n.scrimIcon : semanticTokens.color.text}
+            strokeWidth={boardPaper && close ? n.boardCloseStroke : n.iconStroke}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            fill="none"
+          />
+        </Svg>
+      </View>
+    </Pressable>
+  );
+});
 export function Group({ children, flat = false, style }: any) {
   return (
     <View style={[k.group, flat && { boxShadow: 'none' }, style]}>
@@ -282,6 +354,8 @@ export function Row({
   chevron = false,
   style,
   accessibilityLabel,
+  // 누르면 일어날 일이 보이는 동작과 다를 때(권한 팝업을 띄우거나 설정 앱을 연다) 덧붙인다. 눌리는 행에만 닿는다
+  accessibilityHint,
 }: any) {
   const content = (
     <>
@@ -320,6 +394,7 @@ export function Row({
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel || title}
+      accessibilityHint={accessibilityHint}
       accessibilityState={{ disabled, selected }}
       disabled={disabled}
       onPress={onPress}
@@ -536,6 +611,8 @@ export function Toggle({
   value,
   onChange,
   label,
+  // 누르는 일이 스위치를 넘기는 것만이 아닐 때(권한 팝업을 띄우거나 설정 앱을 연다) 그 일을 덧붙인다
+  accessibilityHint,
   disabled = false,
   activeColor = primitiveTokens.color.success,
 }: any) {
@@ -553,6 +630,7 @@ export function Toggle({
     <Pressable
       accessibilityRole="switch"
       accessibilityLabel={label}
+      accessibilityHint={accessibilityHint}
       accessibilityState={{ checked: value, disabled }}
       disabled={disabled}
       onPress={() => onChange(!value)}
@@ -673,6 +751,57 @@ export function Strip({ label, value }: any) {
     </View>
   );
 }
+// 빈 상태(DESIGN §7.15) — 앱에 있는 그림 한 장과 한 줄. 설명 문장을 덧붙이지 않는다.
+// 그림은 장식이라 스크린리더에서 숨기고 한 줄만 읽힌다. scene 이면 그림을 장면 상자에 깔고 한 줄을 그 위 카드에 둔다.
+export function EmptyState({
+  art: source,
+  title,
+  scene = false,
+  testID,
+}: {
+  art: ImageSourcePropType;
+  title: string;
+  scene?: boolean;
+  testID?: string;
+}) {
+  const picture = (
+    <Image
+      testID={testID && `${testID}-art`}
+      source={source}
+      resizeMode={scene ? 'cover' : 'contain'}
+      accessibilityElementsHidden
+      importantForAccessibility="no"
+      style={scene ? emptyStyles.sceneArt : emptyStyles.art}
+    />
+  );
+  const line = <Txt style={[k.h17, emptyStyles.line]}>{title}</Txt>;
+  return scene ? (
+    <View testID={testID} style={[k.preview, emptyStyles.scene]}>
+      {picture}
+      <Card>{line}</Card>
+    </View>
+  ) : (
+    <View testID={testID} style={emptyStyles.root}>
+      {picture}
+      {line}
+    </View>
+  );
+}
+const emptyStyles = StyleSheet.create({
+  root: {
+    alignItems: 'center',
+    gap: componentTokens.emptyState.gap,
+    paddingVertical: componentTokens.emptyState.padding,
+  },
+  art: { width: componentTokens.emptyState.art, height: componentTokens.emptyState.art },
+  scene: {
+    minHeight: componentTokens.emptyState.sceneMinHeight,
+    padding: componentTokens.emptyState.padding,
+  },
+  // 웹 Image 는 크기를 안 주면 원본 크기로 그려서 absoluteFill 대신 100% 를 준다
+  sceneArt: { position: 'absolute', left: 0, top: 0, width: '100%', height: '100%' },
+  line: { textAlign: 'center' },
+});
 // 헤더 톱니(섬 관리) 아이콘. Page와 IslandSheet가 같이 쓴다
 export function Gear() {
   return (

@@ -7,6 +7,7 @@ import com.oneorthree.business.common.request.CommandKeys;
 import com.oneorthree.business.common.request.ResourceVersions;
 import com.oneorthree.business.common.validation.PublicIds;
 import com.oneorthree.business.config.UpstreamConfigProperties;
+import com.oneorthree.business.upstream.data.dto.FocusSeat;
 import com.oneorthree.business.usecase.FocusSessionUseCase.FinishView;
 import com.oneorthree.business.usecase.FocusSessionUseCase.StateView;
 import com.oneorthree.business.usecase.FocusSessionUseCase.SummaryView;
@@ -92,21 +93,22 @@ public class FocusSessionController {
     public ResponseEntity<StateView> start(@RequestBody JsonNode body, HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
         UUID key = CommandKeys.required(request);
-        // targetMinutes 는 선택이다(GROMO-1990) — 그래서 필드 «개수»는 2 또는 3 이다. 개수 검사를 놓으면
-        // 알 수 없는 필드가 조용히 통과하므로, 3 인데 targetMinutes 가 없으면 그 3번째가 곧 오타다.
-        if (body == null || !body.isObject() || body.size() < 2 || body.size() > 3) {
+        // targetMinutes(GROMO-1990)·seat(GROMO-2477)는 선택이다 — 그래서 필드 «개수»는 2~4 다. 개수 검사를 놓으면
+        // 알 수 없는 필드가 조용히 통과하므로, 아는 선택 필드를 뺀 나머지가 2 가 아니면 그 남은 필드가 곧 오타다.
+        if (body == null || !body.isObject() || body.size() < 2 || body.size() > 4) {
             throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, null);
         }
         JsonNode islandId = body.get("islandId");
         JsonNode subject = body.get("subject");
         JsonNode targetMinutes = body.get("targetMinutes");
+        JsonNode seat = body.get("seat");
         if (islandId == null || !islandId.isString()) {
             throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, "islandId");
         }
         if (subject == null || !subject.isString()) {
             throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, "subject");
         }
-        if (body.size() == 3 && targetMinutes == null) {
+        if (body.size() != 2 + (targetMinutes == null ? 0 : 1) + (seat == null ? 0 : 1)) {
             throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, null);
         }
         boolean absent = targetMinutes == null || targetMinutes.isNull();
@@ -115,8 +117,25 @@ public class FocusSessionController {
             throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, "targetMinutes");
         }
         StateView started = focusSessions.start(claims, PublicIds.uuid(islandId.stringValue(), "islandId"),
-                subject.stringValue(), absent ? null : targetMinutes.intValue(), key, properties.deadline());
+                subject.stringValue(), absent ? null : targetMinutes.intValue(),
+                seat == null ? null : parseSeat(seat), key, properties.deadline());
         return ResponseEntity.status(HttpStatus.CREATED).body(started);
+    }
+
+    /**
+     * 집중섬 자리 {@code {x, y}} (GROMO-2477) — 지도 % 좌표 0~100, 두 필드 정확히. 키를 빼는 것은 허용(옛 앱)하지만
+     * 명시 null 은 거절한다. 문자열 숫자는 받지 않는다. 땅·겹침 판정은 앱 몫이라 여기서 보지 않는다.
+     */
+    private static FocusSeat parseSeat(JsonNode seat) {
+        if (!seat.isObject() || seat.size() != 2 || !percent(seat.get("x")) || !percent(seat.get("y"))) {
+            throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, "seat");
+        }
+        return new FocusSeat(seat.get("x").doubleValue(), seat.get("y").doubleValue());
+    }
+
+    /** NaN·무한대는 비교가 거짓이거나 범위 밖이라 함께 걸린다. */
+    private static boolean percent(JsonNode value) {
+        return value != null && value.isNumber() && value.doubleValue() >= 0 && value.doubleValue() <= 100;
     }
 
     /**

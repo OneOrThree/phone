@@ -27,6 +27,7 @@ import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -56,7 +57,6 @@ class AdminApiTest {
     @Autowired MockMvc mvc;
     @Autowired Store store;
     @Autowired DeviceService devices;
-    @Autowired AckService ack;
     @Autowired DispatchService dispatch;
     @MockitoBean PushTransport transport;
     @MockitoBean DataClient data;
@@ -66,13 +66,13 @@ class AdminApiTest {
     void resetState() {
         store.update("TRUNCATE delivery_devices,deliveries,inbound_events,commands,device_tokens,"
                 + "session_fences,legacy_session_fences,"
-                + "user_fences,settings,projections,result_ack,templates,deeplinks,kinds,jobs,job_runs,"
-                + "admin_audit,imports,migration_snapshots,migration_state CASCADE");
-        store.update("UPDATE dispatch_control SET enabled=false,ever_opened=false,active_migration_id=NULL");
-        store.update("INSERT INTO kinds(id,quiet_policy) VALUES('BET_RESULT','BYPASS')");
-        store.update("INSERT INTO templates(id,kind,locale,title,body)"
-                + " VALUES('BET_RESULT.ko','BET_RESULT','ko','결과','내기 {count}건')");
+                + "user_fences,settings,projections,templates,deeplinks,kinds,jobs,job_runs,"
+                + "admin_audit CASCADE");
+        store.update("UPDATE dispatch_control SET enabled=false,ever_opened=false");
+        store.update("INSERT INTO kinds(id,quiet_policy) VALUES('FRIEND_REQUEST','BYPASS')");
         store.update("INSERT INTO kinds(id,quiet_policy) VALUES('ADMIN_ANNOUNCEMENT','DEFER')");
+        store.update("INSERT INTO templates(id,kind,locale,title,body)"
+                + " VALUES('FRIEND_REQUEST.ko','FRIEND_REQUEST','ko','결과','내기 {count}건')");
         reset(transport, data, clock);
         when(clock.instant()).thenReturn(DAY);
         when(clock.getZone()).thenReturn(ZoneOffset.UTC);
@@ -159,14 +159,14 @@ class AdminApiTest {
         devices.register(USER, Map.of("deviceToken", "secret-fcm-token", "deviceBootstrap", "b", "sessionEpoch", 1),
                 "reg");
         store.update("INSERT INTO deliveries(id,event_id,user_id,kind,payload,locale) "
-                + "VALUES(?,'e1',?,'BET_RESULT','{\"count\":1,\"displayName\":\"홍길동\"}'::jsonb,'ko')",
+                + "VALUES(?,'e1',?,'FRIEND_REQUEST','{\"count\":1,\"displayName\":\"홍길동\"}'::jsonb,'ko')",
                 UUID.randomUUID(), USER);
         MvcResult result = read("/internal/admin/deliveries").andReturn();
         String json = result.getResponse().getContentAsString();
         assertThat(json).doesNotContain("홍길동").doesNotContain("secret-fcm-token");
         Map<String, Object> item = Json.map(((List<?>) body(result).get("items")).get(0));
         assertThat(item.get("paramKeys")).isEqualTo(List.of("count", "displayName"));
-        assertThat(item).containsEntry("kind", "BET_RESULT").containsEntry("status", "PENDING")
+        assertThat(item).containsEntry("kind", "FRIEND_REQUEST").containsEntry("status", "PENDING")
                 .doesNotContainKey("payload");
         assertThat(code(read("/internal/admin/deliveries?status=DROPPED"))).isEqualTo("INVALID_STATUS");
     }
@@ -174,51 +174,91 @@ class AdminApiTest {
     @Test
     void templateWriteIsRejectedUnlessItActuallyRenders() throws Exception {
         Map<String, Object> broken = template("내기 {count건");
-        assertThat(code(put("/internal/admin/templates/BET_RESULT.ko", "t1", broken)))
+        assertThat(code(put("/internal/admin/templates/FRIEND_REQUEST.ko", "t1", broken)))
                 .isEqualTo("INVALID_TEMPLATE_SYNTAX");
         Map<String, Object> missing = template("내기 {count}건 · {missing}");
-        assertThat(code(put("/internal/admin/templates/BET_RESULT.ko", "t2", missing)))
+        assertThat(code(put("/internal/admin/templates/FRIEND_REQUEST.ko", "t2", missing)))
                 .isEqualTo("TEMPLATE_ARGUMENT_MISSING");
         Map<String, Object> mismatched = template("내기 {count}건");
         mismatched.put("locale", "en");
-        assertThat(code(put("/internal/admin/templates/BET_RESULT.ko", "t3", mismatched)))
+        assertThat(code(put("/internal/admin/templates/FRIEND_REQUEST.ko", "t3", mismatched)))
                 .isEqualTo("TEMPLATE_ID_MISMATCH");
         mismatched.put("locale", "de");
-        assertThat(code(put("/internal/admin/templates/BET_RESULT.de", "t4", mismatched)))
+        assertThat(code(put("/internal/admin/templates/FRIEND_REQUEST.de", "t4", mismatched)))
                 .isEqualTo("INVALID_LOCALE");
         // 문법·인자·식별자를 모두 통과한 것만 실제로 저장된다.
-        assertThat(body(put("/internal/admin/templates/BET_RESULT.ko", "t5", template("내기 {count}건 확정")))
+        assertThat(body(put("/internal/admin/templates/FRIEND_REQUEST.ko", "t5", template("내기 {count}건 확정")))
                 .get("version")).isEqualTo(2);
-        assertThat(store.one("SELECT body FROM templates WHERE id='BET_RESULT.ko'").get("body"))
+        assertThat(store.one("SELECT body FROM templates WHERE id='FRIEND_REQUEST.ko'").get("body"))
                 .isEqualTo("내기 {count}건 확정");
+    }
+
+    @Test
+    void deeplinkCannotOverrideServerOwnedDataKeys() throws Exception {
+        for (String key : List.of("deliveryTag", "eventId")) {
+            MvcResult rejected = put("/internal/admin/deeplinks/FRIEND_REQUEST", "reserved-" + key,
+                    Map.of("dataTemplate", Map.of(key, "console-value"), "sampleParams", Map.of()));
+            assertThat(rejected.getResponse().getStatus()).isEqualTo(400);
+            assertThat(code(rejected)).isEqualTo("RESERVED_DATA_KEY");
+            assertThat(store.one("SELECT id FROM deeplinks WHERE id='FRIEND_REQUEST'")).isNull();
+        }
     }
 
     @Test
     void templatesMustFitAfterUtf8RenderingAndRejectedWritesCanRetry() throws Exception {
         Map<String, Object> multiByte = template("가".repeat(1400));
-        MvcResult rejected = put("/internal/admin/templates/BET_RESULT.ko", "oversized-template", multiByte);
+        MvcResult rejected = put("/internal/admin/templates/FRIEND_REQUEST.ko", "oversized-template", multiByte);
         assertThat(rejected.getResponse().getStatus()).isEqualTo(422);
         assertThat(code(rejected)).isEqualTo("FCM_PAYLOAD_TOO_LARGE");
-        assertThat(store.one("SELECT body,version FROM templates WHERE id='BET_RESULT.ko'"))
+        assertThat(store.one("SELECT body,version FROM templates WHERE id='FRIEND_REQUEST.ko'"))
                 .containsEntry("body", "내기 {count}건").containsEntry("version", 1L);
 
         Map<String, Object> combined = template("a".repeat(2500));
         combined.put("title", "b".repeat(2000));
-        assertThat(code(put("/internal/admin/templates/BET_RESULT.ko", "combined-template", combined)))
+        assertThat(code(put("/internal/admin/templates/FRIEND_REQUEST.ko", "combined-template", combined)))
                 .isEqualTo("FCM_PAYLOAD_TOO_LARGE");
         Map<String, Object> expanded = template("{message}");
         expanded.put("sampleParams", Map.of("message", "한".repeat(1400)));
-        assertThat(code(put("/internal/admin/templates/BET_RESULT.ko", "expanded-template", expanded)))
+        assertThat(code(put("/internal/admin/templates/FRIEND_REQUEST.ko", "expanded-template", expanded)))
                 .isEqualTo("FCM_PAYLOAD_TOO_LARGE");
 
-        assertThat(body(put("/internal/admin/templates/BET_RESULT.ko", "oversized-template", template("정상 본문"))))
+        assertThat(body(put("/internal/admin/templates/FRIEND_REQUEST.ko", "oversized-template", template("정상 본문"))))
                 .containsEntry("version", 2);
+    }
+
+    /**
+     * 실제 발송은 기기마다 deliveryTag 를 data 에 더한다(GROMO-2520). 태그 없이는 한도 안이어도 태그를 더하면
+     * 넘는 템플릿은 저장 단계에서 거절돼야 한다 — 아니면 저장은 되고 태그 있는 기기로 가는 발송만 FAILED 가 된다.
+     */
+    @Test
+    void templatesMustStillFitOnceTheDeliveryTagOfTheRealSendIsAdded() throws Exception {
+        String tag = devices.register(USER, Map.of("deviceToken", "device", "deviceBootstrap", "b", "sessionEpoch", 1),
+                "reg").get("deliveryTag").toString();
+        // 경계는 requireFits 로 직접 잰다 — 봉투가 바뀌어도 숫자가 낡지 않는다. 본문은 ASCII 라 1자 = 1byte.
+        int fitsWithTag = 0;
+        while (fits(fitsWithTag + 1, tag)) {
+            fitsWithTag++;
+        }
+        int oneOver = fitsWithTag + 1;
+        assertThat(fits(oneOver, null)).as("전제: 태그 없이 재면 이 본문은 한도 안이다").isTrue();
+        // 짧은 eventId 와 200자 ASCII 는 통과하지만, 허용된 200자 제어 문자는 JSON 이스케이프로 넘는다.
+        FcmPayload.requireFits(new RenderedPush("결과", "a".repeat(oneOver), Map.of(), false)
+                .withDeliveryTag(tag), true, "template-preview");
+        FcmPayload.requireFits(new RenderedPush("결과", "a".repeat(oneOver), Map.of(), false)
+                .withDeliveryTag(tag), true, "e".repeat(Envelope.EVENT_ID_MAX_LENGTH));
+
+        MvcResult rejected = put("/internal/admin/templates/FRIEND_REQUEST.ko", "tagged-template",
+                template("a".repeat(oneOver)));
+        assertThat(rejected.getResponse().getStatus()).isEqualTo(422);
+        assertThat(code(rejected)).isEqualTo("FCM_PAYLOAD_TOO_LARGE");
+        assertThat(store.one("SELECT body,version FROM templates WHERE id='FRIEND_REQUEST.ko'"))
+                .containsEntry("body", "내기 {count}건").containsEntry("version", 1L);
     }
 
     @Test
     void dataOwnedJobsAreRefusedAndNotificationJobsValidateCron() throws Exception {
         store.update("INSERT INTO jobs(id,owner,cron) VALUES('league-weekly','DATA','0 0 7 * * MON'),"
-                + "('bundle-flush','NOTIFICATION','0 */5 * * * *')");
+                + "('delivery-dispatch','NOTIFICATION','0 */5 * * * *')");
         Map<String, Object> change = new LinkedHashMap<>(Map.of("enabled", true, "cron", "0 0 * * * *",
                 "config", Map.of("batch", 25)));
         assertThat(code(put("/internal/admin/jobs/league-weekly", "j1", change))).isEqualTo("JOB_OWNED_BY_DATA");
@@ -226,9 +266,9 @@ class AdminApiTest {
                 .containsEntry("cron", "0 0 7 * * MON").containsEntry("enabled", false);
         Map<String, Object> broken = new LinkedHashMap<>(change);
         broken.put("cron", "every five minutes");
-        assertThat(code(put("/internal/admin/jobs/bundle-flush", "j2", broken))).isEqualTo("INVALID_CRON");
-        assertThat(body(put("/internal/admin/jobs/bundle-flush", "j3", change))).containsEntry("enabled", true);
-        assertThat(store.one("SELECT cron FROM jobs WHERE id='bundle-flush'")).containsEntry("cron", "0 0 * * * *");
+        assertThat(code(put("/internal/admin/jobs/delivery-dispatch", "j2", broken))).isEqualTo("INVALID_CRON");
+        assertThat(body(put("/internal/admin/jobs/delivery-dispatch", "j3", change))).containsEntry("enabled", true);
+        assertThat(store.one("SELECT cron FROM jobs WHERE id='delivery-dispatch'")).containsEntry("cron", "0 0 * * * *");
         assertThat(code(put("/internal/admin/deliveries/anything", "j4", change)))
                 .isEqualTo("UNKNOWN_ADMIN_RESOURCE");
     }
@@ -236,16 +276,17 @@ class AdminApiTest {
     @Test
     void previewRendersWithoutStoringAndUsesTheDeeplinkRegistry() throws Exception {
         store.update("INSERT INTO deeplinks(id,url_template,data_template)"
-                + " VALUES('BET_RESULT','gromo://bet/{count}','{\"screen\":\"bet-{count}\"}'::jsonb)");
+                + " VALUES('FRIEND_REQUEST','gromo://bet/{count}','{\"screen\":\"bet-{count}\"}'::jsonb)");
         Map<String, Object> request = new LinkedHashMap<>();
         request.put("params", Map.of("count", 3));
         request.put("body", "초안 {count}건");
-        Map<String, Object> preview = body(post("/internal/admin/templates/BET_RESULT.ko/preview", null, request));
+        Map<String, Object> preview = body(post("/internal/admin/templates/FRIEND_REQUEST.ko/preview", null, request));
         assertThat(preview).containsEntry("body", "초안 3건").containsEntry("title", "결과");
+        // 크기 검사에 쓴 태그 자리표시는 미리보기 응답에 새지 않는다(GROMO-2520).
         assertThat(Json.map(preview.get("data"))).containsEntry("link", "gromo://bet/3")
-                .containsEntry("screen", "bet-3");
+                .containsEntry("screen", "bet-3").doesNotContainKey("deliveryTag");
         // 미리보기는 저장하지 않는다.
-        assertThat(store.one("SELECT body FROM templates WHERE id='BET_RESULT.ko'").get("body"))
+        assertThat(store.one("SELECT body FROM templates WHERE id='FRIEND_REQUEST.ko'").get("body"))
                 .isEqualTo("내기 {count}건");
     }
 
@@ -255,7 +296,7 @@ class AdminApiTest {
         Map<String, Object> request = new LinkedHashMap<>();
         request.put("userId", USER.toString());
         request.put("params", Map.of("count", 2));
-        Map<String, Object> queued = body(post("/internal/admin/templates/BET_RESULT.ko/test", "x1", request));
+        Map<String, Object> queued = body(post("/internal/admin/templates/FRIEND_REQUEST.ko/test", "x1", request));
         assertThat(queued).containsEntry("status", "PENDING").containsEntry("dispatchEnabled", false);
         verifyNoInteractions(transport);
         UUID id = UUID.fromString(queued.get("deliveryId").toString());
@@ -271,12 +312,12 @@ class AdminApiTest {
     }
 
     @Test
-    void resendKeepsTheOriginalRowAndTheSubjectThatGovernsResultAck() throws Exception {
+    void resendKeepsTheOriginalRowAndSubject() throws Exception {
         devices.register(USER, Map.of("deviceToken", "device", "deviceBootstrap", "b", "sessionEpoch", 1), "reg");
         UUID session = UUID.randomUUID();
         UUID origin = UUID.randomUUID();
         store.update("INSERT INTO deliveries(id,event_id,user_id,kind,subject_id,payload,locale,status,sent_at)"
-                + " VALUES(?,'origin-event',?,'BET_RESULT',?,'{\"count\":1}'::jsonb,'ko','SENT',?)",
+                + " VALUES(?,'origin-event',?,'FRIEND_REQUEST',?,'{\"count\":1}'::jsonb,'ko','SENT',?)",
                 origin, USER, session.toString(), java.sql.Timestamp.from(DAY));
         Map<String, Object> resent = body(post("/internal/admin/deliveries/" + origin + "/resend", "r1", Map.of()));
         UUID copy = UUID.fromString(resent.get("deliveryId").toString());
@@ -290,45 +331,25 @@ class AdminApiTest {
         assertThat(row.get("event_id").toString()).startsWith("admin:").isNotEqualTo("origin-event");
         assertThat(row.get("slot_at")).isNull();
         store.update("UPDATE dispatch_control SET enabled=true,ever_opened=true");
-        // subject 를 보존했으므로 결과 ack 억제가 재전송에도 그대로 걸린다.
-        ack.command(USER, session, "prepare", "hold");
         dispatch.dispatch(copy);
-        verifyNoInteractions(transport);
-        ack.command(USER, session, "commit", "confirm");
         assertThat(store.one("SELECT status FROM deliveries WHERE id=?", copy))
-                .containsEntry("status", "SUPPRESSED");
+                .containsEntry("status", "SENT");
     }
 
     @Test
     void writesNeedAnIdempotencyKeyAndReplayIsSafe() throws Exception {
         Map<String, Object> change = template("내기 {count}건 v2");
-        assertThat(code(put("/internal/admin/templates/BET_RESULT.ko", null, change)))
+        assertThat(code(put("/internal/admin/templates/FRIEND_REQUEST.ko", null, change)))
                 .isEqualTo("IDEMPOTENCY_KEY_REQUIRED");
-        assertThat(body(put("/internal/admin/templates/BET_RESULT.ko", "k1", change)).get("version")).isEqualTo(2);
-        assertThat(body(put("/internal/admin/templates/BET_RESULT.ko", "k1", change)).get("version")).isEqualTo(2);
-        assertThat(store.one("SELECT version FROM templates WHERE id='BET_RESULT.ko'"))
+        assertThat(body(put("/internal/admin/templates/FRIEND_REQUEST.ko", "k1", change)).get("version")).isEqualTo(2);
+        assertThat(body(put("/internal/admin/templates/FRIEND_REQUEST.ko", "k1", change)).get("version")).isEqualTo(2);
+        assertThat(store.one("SELECT version FROM templates WHERE id='FRIEND_REQUEST.ko'"))
                 .containsEntry("version", 2L);
-        assertThat(code(put("/internal/admin/templates/BET_RESULT.ko", "k1", template("다른 본문 {count}"))))
+        assertThat(code(put("/internal/admin/templates/FRIEND_REQUEST.ko", "k1", template("다른 본문 {count}"))))
                 .isEqualTo("IDEMPOTENCY_KEY_CONFLICT");
     }
 
     /** 구 AT 롤아웃 창(generation-required=false)에서는 최초 게이트 개방을 허용하지 않는다(root 운영 제약). */
-    @Test
-    void gateOpenIsRefusedWhileTheLegacyAuthGenerationWindowIsOpen() throws Exception {
-        store.update("INSERT INTO migration_state(id,version,manifest,verified_at)"
-                + " VALUES('m1',1,'{\"version\":2}'::jsonb,now())");
-        Map<String, Object> manifest = Map.of("manifest", Map.of("version", 1,
-                "stopWindow", Map.of("closedAt", 0, "cursor", "c", "queueDepth", 0, "source", "data-api")));
-        // 검증 당시 매니페스트와 다른 것을 들고 오면 열리지 않는다.
-        assertThat(code(post("/internal/admin/migration/m1/dispatch/open", "o1", manifest)))
-                .isEqualTo("MANIFEST_MISMATCH");
-        store.update("UPDATE migration_state SET manifest=?::jsonb WHERE id='m1'",
-                Json.write(Json.map(manifest).get("manifest")));
-        assertThat(code(post("/internal/admin/migration/m1/dispatch/open", "o2", manifest)))
-                .isEqualTo("GENERATION_REQUIRED_FOR_OPEN");
-        assertThat(store.one("SELECT enabled,ever_opened FROM dispatch_control WHERE id=1"))
-                .containsEntry("enabled", false).containsEntry("ever_opened", false);
-    }
 
     // ── 도구 ────────────────────────────────────────────────────────────
 
@@ -336,56 +357,6 @@ class AdminApiTest {
         return org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().is(expected);
     }
 
-    private static Map<String, Object> template(String body) {
-        Map<String, Object> request = new LinkedHashMap<>();
-        request.put("kind", "BET_RESULT");
-        request.put("locale", "ko");
-        request.put("title", "결과");
-        request.put("body", body);
-        request.put("enabled", true);
-        request.put("sampleParams", Map.of("count", 1));
-        return request;
-    }
-
-    private static List<String> ids(Map<String, Object> page) {
-        return ((List<?>) page.get("items")).stream().map(item -> Json.map(item).get("id").toString()).toList();
-    }
-
-    private org.springframework.test.web.servlet.ResultActions read(String path) throws Exception {
-        return mvc.perform(console(MockMvcRequestBuilders.get(path), null));
-    }
-
-    private MvcResult put(String path, String key, Map<String, Object> body) throws Exception {
-        return mvc.perform(console(MockMvcRequestBuilders.put(path), key)
-                .contentType(MediaType.APPLICATION_JSON).content(Json.write(body))).andReturn();
-    }
-
-    private MvcResult post(String path, String key, Map<String, Object> body) throws Exception {
-        return mvc.perform(console(MockMvcRequestBuilders.post(path), key)
-                .contentType(MediaType.APPLICATION_JSON).content(Json.write(body))).andReturn();
-    }
-
-    private static MockHttpServletRequestBuilder console(MockHttpServletRequestBuilder builder, String key) {
-        builder.header("Authorization", "Bearer test-console").header("X-Console-Actor", "member-1");
-        return key == null ? builder : builder.header("Idempotency-Key", key);
-    }
-
-    private static Map<String, Object> body(MvcResult result) throws Exception {
-        return Json.map(result.getResponse().getContentAsString());
-    }
-
-    private static Map<String, Object> body(org.springframework.test.web.servlet.ResultActions actions)
-            throws Exception {
-        return body(actions.andReturn());
-    }
-
-    private static String code(MvcResult result) throws Exception {
-        return String.valueOf(body(result).get("code"));
-    }
-
-    private static String code(org.springframework.test.web.servlet.ResultActions actions) throws Exception {
-        return code(actions.andReturn());
-    }
     @Test
     void publicationIsImmutableAndUsesReviewedCopyBehindTheGate() throws Exception {
         devices.register(USER, Map.of("deviceToken", "device", "deviceBootstrap", "b", "sessionEpoch", 1), "reg");
@@ -477,6 +448,75 @@ class AdminApiTest {
         verifyNoInteractions(transport);
     }
 
+    private static Map<String, Object> publication() {
+        return new LinkedHashMap<>(Map.of("kind", "ADMIN_ANNOUNCEMENT", "locale", "ko", "title", "검토",
+                "body", "검토 완료 문구", "data", Map.of("screen", "friends"), "silent", false,
+                "params", Map.of(), "userIds", List.of(USER.toString())));
+    }
+
+    private static Map<String, Object> template(String body) {
+        Map<String, Object> request = new LinkedHashMap<>();
+        request.put("kind", "FRIEND_REQUEST");
+        request.put("locale", "ko");
+        request.put("title", "결과");
+        request.put("body", body);
+        request.put("enabled", true);
+        request.put("sampleParams", Map.of("count", 1));
+        return request;
+    }
+
+    /** 관리자 저장이 재는 봉투(제목 «결과», 빈 data, sound)에 본문 bodyLength 자와 태그(없으면 null)를 담아 한도 안인지. */
+    private static boolean fits(int bodyLength, String tag) {
+        RenderedPush push = new RenderedPush("결과", "a".repeat(bodyLength), Map.of(), false);
+        try {
+            FcmPayload.requireFits(tag == null ? push : push.withDeliveryTag(tag), true,
+                    "\0".repeat(Envelope.EVENT_ID_MAX_LENGTH));
+            return true;
+        } catch (NotificationFailure tooLarge) {
+            return false;
+        }
+    }
+
+    private static List<String> ids(Map<String, Object> page) {
+        return ((List<?>) page.get("items")).stream().map(item -> Json.map(item).get("id").toString()).toList();
+    }
+
+    private org.springframework.test.web.servlet.ResultActions read(String path) throws Exception {
+        return mvc.perform(console(MockMvcRequestBuilders.get(path), null));
+    }
+
+    private MvcResult put(String path, String key, Map<String, Object> body) throws Exception {
+        return mvc.perform(console(MockMvcRequestBuilders.put(path), key)
+                .contentType(MediaType.APPLICATION_JSON).content(Json.write(body))).andReturn();
+    }
+
+    private MvcResult post(String path, String key, Map<String, Object> body) throws Exception {
+        return mvc.perform(console(MockMvcRequestBuilders.post(path), key)
+                .contentType(MediaType.APPLICATION_JSON).content(Json.write(body))).andReturn();
+    }
+
+    private static MockHttpServletRequestBuilder console(MockHttpServletRequestBuilder builder, String key) {
+        builder.header("Authorization", "Bearer test-console").header("X-Console-Actor", "member-1");
+        return key == null ? builder : builder.header("Idempotency-Key", key);
+    }
+
+    private static Map<String, Object> body(MvcResult result) throws Exception {
+        return Json.map(result.getResponse().getContentAsString());
+    }
+
+    private static Map<String, Object> body(org.springframework.test.web.servlet.ResultActions actions)
+            throws Exception {
+        return body(actions.andReturn());
+    }
+
+    private static String code(MvcResult result) throws Exception {
+        return String.valueOf(body(result).get("code"));
+    }
+
+    private static String code(org.springframework.test.web.servlet.ResultActions actions) throws Exception {
+        return code(actions.andReturn());
+    }
+
     @Test
     void environmentMismatchReleasesLeaseWithoutConsumingAttempts() throws Exception {
         devices.register(USER, Map.of("deviceToken", "device", "deviceBootstrap", "b", "sessionEpoch", 1), "reg");
@@ -485,7 +525,9 @@ class AdminApiTest {
         store.update("UPDATE dispatch_control SET enabled=true,ever_opened=true");
         when(transport.send(anyString(), any(), anyBoolean(), anyString()))
                 .thenThrow(new NotificationEnvironmentGuard.EnvironmentMismatch("환경 불일치"));
-        dispatch.dispatch(id);
+        assertThatThrownBy(() -> dispatch.dispatch(id))
+                .isInstanceOf(DispatchService.LeasedFailure.class)
+                .hasCauseInstanceOf(NotificationEnvironmentGuard.EnvironmentMismatch.class);
         assertThat(store.one("SELECT attempts,last_error,lease_token,status FROM deliveries WHERE id=?", id))
                 .containsEntry("attempts", 0).containsEntry("last_error", "ENVIRONMENT_MISMATCH")
                 .containsEntry("lease_token", null).containsEntry("status", "PENDING");
@@ -504,12 +546,6 @@ class AdminApiTest {
         assertThat(response.getResponse().getStatus()).isEqualTo(200);
         assertThat(store.one("SELECT reviewed_push::text AS copy FROM deliveries WHERE replay_of=?", id)
                 .get("copy").toString()).contains("검토 완료 문구");
-    }
-
-    private static Map<String, Object> publication() {
-        return new LinkedHashMap<>(Map.of("kind", "ADMIN_ANNOUNCEMENT", "locale", "ko", "title", "검토",
-                "body", "검토 완료 문구", "data", Map.of("screen", "friends"), "silent", false,
-                "params", Map.of(), "userIds", List.of(USER.toString())));
     }
 
 }

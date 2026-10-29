@@ -1,6 +1,7 @@
 package com.oneorthree.phone.architecture;
 
 import com.tngtech.archunit.base.DescribedPredicate;
+import com.tngtech.archunit.core.domain.Dependency;
 import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.domain.JavaPackage;
@@ -10,14 +11,20 @@ import com.tngtech.archunit.lang.ArchCondition;
 import com.tngtech.archunit.lang.ArchRule;
 import com.tngtech.archunit.lang.ConditionEvents;
 import com.tngtech.archunit.lang.SimpleConditionEvent;
+import com.tngtech.archunit.library.freeze.FreezingArchRule;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.io.IOException;
+import java.io.InputStream;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Properties;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
 import static com.tngtech.archunit.library.dependencies.SlicesRuleDefinition.slices;
@@ -33,6 +40,12 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <p><b>규칙의 정본은 {@code docs/conventions/backend-layering.md} §4</b> 이고, 아래
  * {@link #LAYERS} 가 그것을 코드로 옮긴 것이다. 문서를 고치면 여기도 고쳐야 한다 — 어느 한쪽만
  * 바뀌면 규칙이 문서와 다른 것을 강제하게 된다.
+ *
+ * <p><b>타 도메인 repository 직접 의존은 «동결»이다 (GROMO-2198).</b> 위 두 규칙은 위반 0 을 강제하지만 이 규칙은
+ * 기존 위반이 많아 {@link FreezingArchRule} 로 <b>현재 목록을 {@code archunit_store/} 에 박아 두고 새 위반만</b> 실패시킨다.
+ * 설정은 {@code src/test/resources/archunit.properties} — 커밋 상태는 store 생성·갱신 모두 꺼 둔다.
+ * 그래서 <b>위반을 고쳐도(store 에 줄이 남은 «고쳐진 위반») 빌드가 실패한다</b>(ArchUnit 1.3.0 {@code StoreUpdateFailedException}) —
+ * 갱신 절차는 규칙 안의 주석에 있다.
  *
  * <p><b>테스트 소스는 대상이 아니다.</b> 통합 테스트가 여러 도메인을 함께 세우는 것은 정상이므로
  * {@link ImportOption.DoNotIncludeTests} 로 뺀다. 규칙이 지키려는 것은 <b>배포되는 코드</b>의
@@ -57,7 +70,6 @@ class DomainLayerRulesTest {
         LAYERS.put("user", 0);              // 계정 — 아무도 참조하지 않는다
         LAYERS.put("content", 1);           // 운영 콘텐츠와 불변 게시 영수증
         LAYERS.put("currency", 1);          // 유저에게 달린 원장·보유
-        LAYERS.put("item", 1);
         LAYERS.put("focus", 2);             // 유저가 만든 기록
         LAYERS.put("screentime", 2);
         // letter 는 users.id 두 개(sender·receiver)만 참조하는 «유저가 만든 기록»이라 여기 둔다.
@@ -67,14 +79,13 @@ class DomainLayerRulesTest {
         LAYERS.put("letter", 2);
         LAYERS.put("friend", 3);            // 유저 사이의 관계
         LAYERS.put("stats", 4);             // 기록·관계의 집계
-        LAYERS.put("league", 4);
         // ranking 은 주간 섬 랭킹의 «동결된 분모» 표와 주 경계 계산기뿐이다(GROMO-1997) —
         // 도메인 타입을 하나도 참조하지 않는다: 엔티티는 island_id 를 그냥 UUID 열로 들고 있고
         // (group 엔티티를 매핑하지 않는다), 동결은 네이티브 SQL 한 문장이며 RankingWeek 은 순수 계산기다.
         // 집중 합(focus 2)·주민 수(group 5)·전망대(construction 6)·현재 섬을 «조합»하는 것은 internal(10)의
         // IslandRankingsService 다 — 여기에 그 조합을 넣으면 이 표를 단숨에 group 위로 밀어 올린다.
         LAYERS.put("ranking", 4);
-        LAYERS.put("group", 5);             // 모임·챌린지·내기
+        LAYERS.put("group", 5);             // 섬·멤버십
         LAYERS.put("invitelink", 6);        // 그룹을 가리키는 초대
         // construction 은 섬(group)에 딸린 시설·공동 지갑(GROMO-1767) — group 바로 위다.
         // 내부 표면 구현은 internal(10)이 이것을 참조하고, 이 도메인이 internal.dto 를 참조하면
@@ -86,7 +97,7 @@ class DomainLayerRulesTest {
         // quest 는 섬 퀘스트(GROMO-1773) — 집중 구간(focus 2)·스크린타임(screentime 2)으로 판정하고
         // 섬 통장(construction 6)에 정산하므로 construction 보다 위다. 내부 표면은 internal(10)이 참조한다.
         LAYERS.put("quest", 7);
-        LAYERS.put("notification", 7);      // 전 도메인 구독
+        LAYERS.put("notification", 7);      // 친구·메인 섬 사건 구독
         // shop 은 섬 통장(construction)을 차감하고 보유품(appearance)을 지급한다(GROMO-1781) — 둘 위.
         LAYERS.put("shop", 8);
         // magazine 은 고양이 잡지(GROMO-2289)의 홍보 칸·꾸미기 재료 엔티티·리포지토리·순수 규칙뿐이다. 홍보비는 섬 통장
@@ -94,10 +105,6 @@ class DomainLayerRulesTest {
         // 그 조합(신청·고치기·불러오기)은 internal(10)의 IslandPromotionService 가 한다.
         LAYERS.put("magazine", 8);
         LAYERS.put("auth", 8);              // 진입·부가
-        LAYERS.put("character", 8);
-        LAYERS.put("bot", 8);
-        LAYERS.put("analytics", 8);
-        LAYERS.put("profile", 9);           // 조립 — 영속성 없음
         LAYERS.put("withdrawal", 9);
         // L10 «가장 위» — 서비스 간 내부 표면(GROMO-1659·1660). 이 패키지는 앱 계약이 아니라
         // Business·알림·링크가 부르는 /internal/* 이고, 그 조합을 위해 auth(8)·group(5)·invitelink(6)·
@@ -122,6 +129,34 @@ class DomainLayerRulesTest {
     private static final Set<String> LAYER_FREE = Set.of("common", "config");
 
     private static final String ROOT = "com.oneorthree.phone";
+
+    /** {@code com.oneorthree.phone.<도메인>.repository[.…]} — 그룹 1 이 대상 도메인이다. */
+    private static final Pattern REPOSITORY_PACKAGE =
+            Pattern.compile("^" + Pattern.quote(ROOT) + "\\.([^.]+)\\.repository(\\..+)?$");
+
+    /**
+     * 타 도메인 repository 직접 의존 규칙에서 «출발»로 보지 않는 도메인.
+     * {@code config}·{@code common} 은 레이어 밖이고, {@code internal}(L10)은 여러 도메인을 조합하라고 만든 자리다.
+     */
+    private static final Set<String> CROSS_REPOSITORY_EXEMPT_SOURCES = Set.of("config", "common", "internal");
+
+    /**
+     * 규칙 설명(because) — 이 문장이 freeze store 의 키(stored.rules)라서 <b>바꾸면 다른 규칙으로 취급돼 store 를 다시
+     * 만들어야 한다</b>. 예외의 이유는 {@link #noNewDirectDependencyOnOtherDomainsRepository()} 주석에 있다.
+     * 문장의 «*QueryService» 는 이름 규약이 아니라 {@link #READ_BOUNDARIES} 의 FQCN 목록을 가리킨다(키를 지키려고 문장은 그대로 둔다).
+     */
+    private static final String CROSS_REPOSITORY_BECAUSE = "도메인 간 접근은 service 를 통한다. "
+            + "예외: 출발 config·common·internal(L10 조합 자리), 대상 *QueryService(읽기 경계)·outbox(L-1 기반)";
+
+    /**
+     * 타 도메인이 쓰라고 연 읽기 전용 경계 — {@code repository} 패키지에 있지만 repository 인터페이스가 아니다.
+     * 이름 규칙({@code endsWith("QueryService")})이 아니라 FQCN 으로 허용한다: 이름만 맞추면 우회되기 때문이다.
+     * 새 QueryService 를 열 때는 여기에 FQCN 을 더한다.
+     */
+    private static final Set<String> READ_BOUNDARIES = Set.of(
+            ROOT + ".focus.repository.FocusLiveActivityQueryService",
+            ROOT + ".group.repository.GroupQueryService",
+            ROOT + ".user.repository.UserQueryService");
 
     /**
      * 집중 프레즌스를 «적는» 두 경로 — 공유 Redis 리스와 섬 focus/rest 투영 사건.
@@ -280,5 +315,78 @@ class DomainLayerRulesTest {
                 .ignoreDependency(layerFree, DescribedPredicate.alwaysTrue())
                 .ignoreDependency(DescribedPredicate.alwaysTrue(), layerFree)
                 .check(productionClasses);
+    }
+
+    /**
+     * 대상 클래스가 속한 도메인 — {@code repository} 패키지(엔티티가 사는 {@code repository.domain} 포함)에 있을 때만,
+     * 아니면 {@code null}.
+     */
+    private static String repositoryDomainOf(JavaClass javaClass) {
+        Matcher matcher = REPOSITORY_PACKAGE.matcher(javaClass.getPackageName());
+        return matcher.matches() ? matcher.group(1) : null;
+    }
+
+    @Test
+    @DisplayName("타 도메인의 repository 에 직접 의존하지 않는다 — 기존 위반은 동결, 새 위반만 실패 (GROMO-2198)")
+    void noNewDirectDependencyOnOtherDomainsRepository() {
+        // 「도메인 간 접근은 service 를 통한다」는 문서 규약뿐이었고, 위반이 많아 GROMO-1724 에서 제외했었다.
+        // 지금은 FreezingArchRule 로 «현재 위반 목록»을 archunit_store/ 에 박아 두고 새 위반만 빌드 실패로 잡는다.
+        // - 위반을 고치면: store 에 남은 «고쳐진 위반» 줄을 지우려는 ArchUnit 이 StoreUpdateFailedException 으로 실패한다
+        //   (allowStoreUpdate=false, FreezingArchRule.removeObsoleteViolationsFromStore → TextFileBasedViolationStore.save).
+        //   archunit.properties 의 allowStoreUpdate=true 로 한 번 돌려 store 를 갱신·커밋하고 false 로 되돌린다(사람이 의도적으로).
+        // - store 갱신은 고쳐진 줄을 지우는 방향으로만 쓴다 — 새 도메인 간 repository 의존을 «의도적으로» 늘리는 갱신은 하지 않고
+        //   service 경계를 만든다.
+        // 위반 메시지의 줄 번호는 freeze 가 비교에서 무시하므로 코드가 밀려도 동결은 유지된다.
+        //
+        // 예외 넷과 그 이유 (규칙 설명 CROSS_REPOSITORY_BECAUSE 에도 적혀 있다):
+        // - 출발 config·common: 레이어 밖 — 어느 도메인이든 참조할 수 있는 자리다.
+        // - 출발 internal(L10): 앱 계약이 아니라 Business·알림이 부르는 /internal/* 이고, 여러 도메인을 «조합»하라고
+        //   만든 가장 높은 층이다. 거기서 아래 도메인 repository 를 쓰는 것이 설계 의도다.
+        // - 대상 READ_BOUNDARIES: UserQueryService·GroupQueryService·FocusLiveActivityQueryService 는 repository
+        //   패키지에 있지만 타 도메인이 쓰라고 연 읽기 전용 경계(락 선택·부재 예외 구분 포함)다. repository 인터페이스가 아니다.
+        //   이름이 아니라 FQCN 목록으로 허용한다.
+        // - 대상 outbox(L-1): 내구 이벤트 봉투 기반이다. 모든 도메인이 자기 트랜잭션 안에서 봉투를 적어야 하고(outbox-events.md),
+        //   봉투는 도메인 타입을 모른다 — 도메인 데이터를 건너 읽는 것이 아니다.
+        ArchRule rule = classes()
+                .that(new DescribedPredicate<>("com.oneorthree.phone 의 레이어 표 도메인에 속하되 config·common·internal 이 아니다") {
+                    @Override
+                    public boolean test(JavaClass javaClass) {
+                        String domain = domainOf(javaClass);
+                        return LAYERS.containsKey(domain) && !CROSS_REPOSITORY_EXEMPT_SOURCES.contains(domain);
+                    }
+                })
+                .should(new ArchCondition<>("자기 도메인이 아닌 도메인의 repository 에 의존하지 않는다") {
+                    @Override
+                    public void check(JavaClass source, ConditionEvents events) {
+                        String from = domainOf(source);
+                        for (Dependency dependency : source.getDirectDependenciesFromSelf()) {
+                            JavaClass target = dependency.getTargetClass();
+                            String to = repositoryDomainOf(target);
+                            if (to == null || to.equals(from)
+                                    || "outbox".equals(to)
+                                    || READ_BOUNDARIES.contains(target.getName())) {
+                                // repository 밖, 자기 도메인, outbox(L-1 기반), 읽기 경계(FQCN 목록) — 전부 허용.
+                                continue;
+                            }
+                            events.add(SimpleConditionEvent.violated(dependency, dependency.getDescription()));
+                        }
+                    }
+                })
+                .because(CROSS_REPOSITORY_BECAUSE);
+
+        FreezingArchRule.freeze(rule).check(productionClasses);
+    }
+
+    @Test
+    @DisplayName("커밋된 archunit.properties 는 store 생성·갱신을 둘 다 끈다 — true 를 실수로 커밋하지 않는다 (GROMO-2198)")
+    void committedFreezeConfigDisallowsStoreWrites() throws IOException {
+        Properties properties = new Properties();
+        try (InputStream in = DomainLayerRulesTest.class.getResourceAsStream("/archunit.properties")) {
+            assertThat(in).as("src/test/resources/archunit.properties").isNotNull();
+            properties.load(in);
+        }
+
+        assertThat(properties.getProperty("freeze.store.default.allowStoreCreation")).isEqualTo("false");
+        assertThat(properties.getProperty("freeze.store.default.allowStoreUpdate")).isEqualTo("false");
     }
 }

@@ -1,5 +1,6 @@
 {
   "common": {
+    "back": "Back",
     "characterLimit": "Up to {{max}} characters · {{count}}/{{max}}",
     "cancel": "Cancel",
     "ok": "OK",
@@ -8,6 +9,7 @@
     "save": "Save",
     "later": "Later",
     "manageIsland": "Manage island",
+    "clearSearch": "Clear search",
     "readyStampA11y": "Ready stamp",
     "caughtItem": "Caught item",
     "newBadge": "NEW!"
@@ -19,7 +21,7 @@
     "INVALID_IDEMPOTENCY_KEY": "The request key is invalid.",
     "INVALID_CURSOR": "The list position is invalid.",
     "UNSUPPORTED_PROVIDER": "This social login provider isn't supported.",
-    "NICKNAME_INVALID": "Nicknames must be 2–10 characters, not counting leading or trailing spaces.",
+    "NICKNAME_INVALID": "Nicknames must be 2–10 characters without whitespace.",
     "BANNED_WORD": "It contains words that aren't allowed.",
     "HOST_WITHDRAW": "Hand over your island host role before leaving the island.",
     "REFRESH_TOKEN": "Your login is no longer valid.",
@@ -101,6 +103,134 @@
     "permissionSection": "Permissions",
     "permissionManage": "Manage App Permissions",
     "permissionManageSub": "Screen Time permission · Measured apps",
+    "permissions": {
+      "gate": {
+        "title": "Measurement permission",
+        "heading": "We'll record your usage accurately",
+        "sub": "Only the apps you select are recorded.",
+        "row": "Screen Time permission",
+        "rowUnavailable": "Not available on this device",
+        "rowDenied": "Permission is off. You can request it again.",
+        "rowNone": "Not connected yet",
+        "openUsage": "Open Usage Access settings",
+        "done": "Done",
+        "continue": "Continue",
+        "retry": "Ask for permission again",
+        "requesting": "Requesting permission…",
+        "openSystem": "Open system settings",
+        "laterBoard": "Skip for now and open the board",
+        "openBoard": "Open the board",
+        "connectBtn": "Connect Screen Time",
+        "note": "Without permission, phone-use quests show “Needs check” instead of 0 minutes."
+      },
+      "status": {
+        "permissionChecking": "Checking",
+        "checking": "Checking selection",
+        "failed": "Couldn't check the selection",
+        "allApps": "All apps",
+        "allAppsPending": "All apps · Applies from tomorrow",
+        "selectedCount": "{{count}} selected",
+        "selectedCountPending": "{{count}} selected · Applies from tomorrow",
+        "none": "Nothing selected yet"
+      },
+      "connected": "Connected",
+      "unavailable": "Unavailable",
+      "needed": "Connection needed",
+      "sheet": {
+        "allowedApps": "Apps allowed during focus"
+      },
+      "screenTime": {
+        "title": "Screen Time",
+        "connect": "Connect Screen Time",
+        "sub": "{{description}} · Used for phone-use quests and records"
+      },
+      "focusBlockingIntro": {
+        "title": "Block apps during focus",
+        "dialogue": "I can block other apps while you focus.\nAllow access, then pick only the apps you really need!\nYou can always set this up later in Settings!",
+        "allow": "Allow access",
+        "later": "Not now"
+      },
+      "measuredApps": {
+        "title": "Measured apps",
+        "a11y": "Measured apps, {{description}}",
+        "pick": "Pick measured apps"
+      },
+      "disconnectNote": "If you turn this off, phone-use quest progress shows “Needs check”.",
+      "allowed": {
+        "section": "Allowed during focus",
+        "title": "Allowed apps",
+        "count": "{{count}} selected"
+      },
+      "safari": {
+        "title": "Unblock Safari websites",
+        "sub": "Also pick Safari in the allowed apps above to browse the web",
+        "a11y": "Unblock Safari websites during focus"
+      },
+      "android": {
+        "overlay": {
+          "title": "Display over other apps",
+          "on": "Allowed · Used to block apps during focus",
+          "off": "Permission needed to block apps"
+        },
+        "notice": {
+          "title": "Focus status notification",
+          "sub": "See your focus time in notifications and on the lock screen"
+        }
+      },
+      "notifications": {
+        "title": "Notification permission",
+        "granted": "Allowed",
+        "denied": "Off",
+        "undetermined": "Not asked yet",
+        "error": "Couldn't check",
+        "a11y": "Notification permission, {{description}}",
+        "hint": {
+          "ask": "Asks for notification permission",
+          "openSettings": "Opens the Settings app",
+          "enable": "Turns notifications on",
+          "recheck": "Checks the permission again"
+        }
+      },
+      "help": {
+        "android": "Allow this app in Usage Access settings.",
+        "ios": "If the permission prompt doesn't appear, allow it in system Settings."
+      },
+      "errors": {
+        "usageOpenFailed": "Couldn't open Usage Access settings.",
+        "settingsOpen": "Couldn't open settings. Check the permission in your device's Settings app.",
+        "safariCheck": "Couldn't check the Safari setting.",
+        "allowedCheck": "Couldn't check the allowed apps setting.",
+        "unavailable": "Screen Time can't be connected on this device.",
+        "grantAndroid": "Allow the permission in Usage Access settings.",
+        "grantIos": "Allow Screen Time in iOS Settings.",
+        "requestFailed": "Couldn't request Screen Time permission.",
+        "allowedChange": "Couldn't change allowed apps.",
+        "safariChange": "Couldn't change the Safari setting.",
+        "overlayOpen": "Couldn't open the blocking permission settings.",
+        "appliedNow": "Applied {{count}} measured apps right away.",
+        "appliedTomorrow": "{{count}} measured apps will apply from tomorrow.",
+        "pickerOpen": "Couldn't open the measured apps picker."
+      },
+      "androidPicker": {
+        "savedAllowed": "Saved your allowed apps.",
+        "savedTomorrow": "Measured apps will apply from tomorrow.",
+        "savedNow": "Started measuring the selected apps.",
+        "syncLater": "Saved your selection. We'll check usage again.",
+        "saveFailed": "Couldn't save your selection. Please try again.",
+        "loadFailed": "Couldn't load the installed apps.",
+        "loading": "Loading apps…",
+        "descAllowed": "Selected apps stay usable during focus. If you select none, no extra apps are allowed.",
+        "descMeasured": "Your first selection applies right away. Changes to existing apps apply from midnight KST the next day.",
+        "allApps": "Measure all apps",
+        "search": "Search apps",
+        "select": "Select {{label}}",
+        "none": "No matching apps.",
+        "more": "Show more apps",
+        "saving": "Saving…",
+        "save": "Save selection",
+        "back": "Back"
+      }
+    },
     "safetySection": "Safety",
     "blockedUsersSub": "Review and unblock your blocked list",
     "helpSection": "Help",
@@ -111,14 +241,14 @@
     "report": {
       "title": "Report center",
       "sub": "Report by email",
-      "subject": "[catus report] Report center",
+      "subject": "[{{brand}} report] Report center",
       "body": "What happened:\n\nNickname or island name:\n\nWhen it happened:\n\nPlease attach screenshots to this email, if available.",
       "openFailed": "Couldn't open your mail app. Set up a mail app and try again, or email us directly at:\n\n{{email}}"
     },
     "feedback": {
       "title": "Contact us",
       "sub": "Report a bug or suggest a feature",
-      "subject": "[catus feedback] Bug report · Feature suggestion",
+      "subject": "[{{brand}} feedback] Bug report · Feature suggestion",
       "body": "Type (bug / suggestion):\n\nDetails:\n\nPlease attach screenshots to this email, if available.\n\nApp version: {{version}}\nDevice: {{os}}",
       "openFailed": "Couldn't open your mail app. Set up a mail app and try again, or email us directly at:\n\n{{email}}"
     },
@@ -144,7 +274,7 @@
     "guestStart": "Start as a guest",
     "guestOpening": "Opening your guest account…",
     "guestHint": "You can start with a guest account first.",
-    "fallbackStart": "Start GROMO",
+    "fallbackStart": "Get started",
     "heroTitle": "Focus a little at a time,\nand grow together.",
     "heroSubtitle": "A focus habit that starts on your little raft.",
     "policy": {
@@ -159,6 +289,7 @@
       "appleNoCredential": "Couldn't get your Apple sign-in info. Please try again.",
       "googleCancelled": "Google sign-in cancelled",
       "googleNoCredential": "Couldn't get your Google sign-in info. Please try again.",
+      "googleNotConfigured": "Google sign-in isn't available in this build.",
       "guestFailed": "Couldn't open a guest account. Please try again in a moment.",
       "socialFailed": "Couldn't finish signing in. Please try again."
     }
@@ -193,7 +324,7 @@
       "nickname": "Nickname",
       "nicknamePlaceholder": "Enter a nickname",
       "linkedAccount": "Linked Account",
-      "accountSummary": "{{name}}'s GROMO account · {{providers}}",
+      "accountSummary": "{{name}}'s account · {{providers}}",
       "noLinkedAccount": "No linked account",
       "providers": {
         "google": "Google",
@@ -220,7 +351,7 @@
     },
     "switch": {
       "title": "This Account Is Already Linked",
-      "body": "This social account is linked to another GROMO account. Switching to the existing account deletes this guest's cat, island, and records, and this can't be undone. Switch anyway?",
+      "body": "Switching to the existing account deletes this guest's cat, island, and records, and this can't be undone. Switch anyway?",
       "confirm": "Switch"
     },
     "blocked": {
@@ -271,7 +402,6 @@
       "approvalAfterJoinSub": "Residents join only after the host approves",
       "title": "Create a New Island",
       "submit": "Create Island",
-      "capacityRangeError": "Capacity must be between {{min}} and {{max}}.",
       "doneTitle": "Island Created!",
       "doneSub": "\"{{island}}\" is now your island.",
       "nameLabel": "Island Name",
@@ -300,10 +430,17 @@
       "pendingWaitSubGeneric": "We'll let you know once the host responds"
     },
     "guide": {
-      "line1": "Hey! You're a new face.\nI'm Mongdol. I've lived on this island for a long time.",
-      "line2": "This used to be a lively island with lots of visitors.\nBut at some point everyone stopped coming, and now it's an island nobody visits anymore.",
-      "line3": "With you here, I think we can bring this island back to life.\nWant to help me revive it together?",
-      "line4": "Great, let's start with the first step to revive the island.\nHere, the time you spend focusing becomes the power that grows the island.\nYou'll quickly get the hang of it once you try it yourself.",
+      "empty": {
+        "line1": "Hey! You're the first visitor to this island.\nI'm Mongdol — I've lived here alone for a long time.",
+        "line2": "It used to be a lively island full of people,\nbut now no one comes by.",
+        "line3": "With you here,\nI think we can bring this island back to life.",
+        "line4": "The time you spend focusing becomes the power that grows the island."
+      },
+      "joined": {
+        "line1": "Hey! You must be new here.\nI'm Mongdol — I've watched over this island for a long time.",
+        "line2": "This island is already cared for by many.\nThe residents will be glad to see you.",
+        "line3": "The more you focus,\nthe more you can help this island grow."
+      },
       "skip": "Skip",
       "next": "Next",
       "last": "Let's do it together"
@@ -313,6 +450,7 @@
     "finishFocusTitle": "Finish focusing?",
     "finishFocusBody": "This will save your focus session.",
     "linkUnsupported": "This invite or group link isn't supported in this version, so we took you home.",
+    "linkIslandUnavailable": "That island can't be opened right now.",
     "storageRetrying": "A device storage issue is delaying your save. We'll keep retrying automatically.",
     "memberConverted": "You're now a member.",
     "restoreFailed": "Couldn't load your saved data.",
@@ -371,7 +509,6 @@
   },
   "home": {
     "hud": {
-      "todayFocus": "Focus today",
       "visiting": "Visiting {{name}}",
       "focusingNow": "{{count}} focusing on Fishing Island now",
       "quietNow": "Fishing Island is quiet right now",
@@ -441,6 +578,7 @@
     },
     "door": {
       "mailNewLetter": "Mailbox, you have a new letter from a friend.",
+      "inboxNewLetters": "Open received letters, {{count}} new",
       "mailNewMagazine": "Mailbox, a new cat magazine arrived.",
       "newComment": "{{label}}, there's a new comment.",
       "unreadNotice": "{{label}}, there's an unread notice.",
@@ -458,11 +596,7 @@
       "membersOnly": "Only residents can use this."
     },
     "a11y": {
-      "walk": "Walk around the island",
       "campfire": "Campfire",
-      "gram": "Gramophone",
-      "boat": "My Boat",
-      "dock": "Dock",
       "todayFocusClock": "{{name}}, focus today {{clock}}",
       "raft": "Raft",
       "viewFishingIsland": "View the Fishing Island",
@@ -487,6 +621,7 @@
     }
   },
   "wardrobe": {
+    "title": "My Outfits",
     "default": "Default",
     "defaultFor": "{{slot}}: default",
     "section": {
@@ -496,17 +631,22 @@
       "shoes": "Shoes"
     }
   },
+  "emptyState": {
+    "shop": "Nothing for sale yet",
+    "wardrobe": "No outfits yet",
+    "friends": "No friends yet"
+  },
   "focusFlow": {
     "visitorCheered": "A visitor cheered you on 🎉",
     "memberArrived": "{{name}} has arrived",
     "common": {
       "holdEndFocus": "End",
-      "holdEndHint": "Hold for 3 seconds to end focus. Release early to cancel.",
-      "holdEndA11yHint": "Double-tap to end focus after 3 seconds. Double-tap again to cancel.",
-      "holdEndStart": "End focus after 3 seconds",
+      "holdEndHint": "Hold for 1.5 seconds to end focus. Release early to cancel.",
+      "holdEndA11yHint": "Double-tap to end focus after 1.5 seconds. Double-tap again to cancel.",
+      "holdEndStart": "End focus after 1.5 seconds",
       "holdEndCancel": "Cancel ending focus",
       "holdEndCancelHint": "Double-tap again to cancel ending focus.",
-      "holdEndStarted": "Ending in 3 seconds. Double-tap again to cancel.",
+      "holdEndStarted": "Ending in 1.5 seconds. Double-tap again to cancel.",
       "ourIsland": "Our Island",
       "fishingIsland": "Fishing Island",
       "myLittleBoat": "My Little Raft",
@@ -528,17 +668,15 @@
     "spot": {
       "pickPrompt": "Choose a spot to focus!",
       "backToMainIsland": "← Main island",
-      "onWater": "You can't sit on the water.",
       "occupied": "A resident is sitting here. Please sit a little further over.",
       "nearGram": "You can't sit here because of the gramophone. Please sit a little further over.",
       "nearRaft": "This is where the raft docks. Please sit a little further over.",
-      "noCatchRoom": "There's no room to place a fish here. Please sit a little further over.",
       "unreachable": "Please choose a spot connected by land.",
       "noneFound": "Couldn't find an open spot. Please try again in a moment.",
-      "groundA11y": "Fishing Island ground · Tap where you want to sit",
+      "groundA11y": "Fishing Island ground · Tap where you want to walk",
       "sitEmptyA11y": "Sit in an empty spot",
       "sitEmptyButton": "Take a spot on empty ground",
-      "available": "Available focus spot"
+      "start": "Start Focus"
     },
     "setup": {
       "title": "Get Ready to Focus",
@@ -572,11 +710,28 @@
     "music": {
       "title": "Gramophone Music",
       "subtitle": "Choose from the tracks you own.",
+      "activeSubtitle": "Choose a track and control playback.",
+      "inactiveSubtitle": "You can buy tracks and choose the next one before focusing.",
       "changeFailed": "Couldn't change the music.",
+      "purchaseFailed": "Couldn't purchase the track.",
+      "purchaseConfirm": "Purchase {{title}}?",
+      "purchaseSuccess": "Purchased",
+      "insufficientFish": "Not enough fish",
+      "sharedPurchaseHint": "Everyone on your island can use purchased tracks.",
+      "buyForFish": "Buy for {{price}} fish",
+      "switchTrack": "Switch to This Track",
+      "play": "Play",
+      "stop": "Stop",
+      "deviceVolume": "Device Volume",
+      "loadFailed": "Couldn't load the track list.",
+      "loading": "Loading tracks.",
+      "free": "Free",
+      "owned": "Owned",
       "backToSpot": "Back to My Spot",
       "gramA11y": "Gramophone · Choose music"
     },
     "result": {
+      "restart": "Focus again",
       "title": "This Focus Session's Results",
       "defaultSubject": "This Focus Session",
       "durationLabel": "This Session's Focus Time",
@@ -592,19 +747,19 @@
       "backByBoat": "By Boat to Our Island"
     },
     "tutorial": {
-      "step5": "Tap an empty spot on the ground to choose your seat.",
-      "step6": "You can't choose the water or a spot where another resident is sitting.\nJust tap the spot you like.",
+      "step5": "Walk to where you want to focus, then tap Start Focus below.",
+      "step6": "You can't start where another resident sits.\nStep aside a little and try again.",
       "step6SkipButton": "Stop Showing This Guide",
       "step7": "Write what you want to do, or skip this step.",
       "step7Done": "Done",
       "step8": "Good. Now tap Start Focus.",
       "step9": "Focus has started.\nUp top, you'll see the to-do you just wrote and your actual focus time.",
-      "step10": "While you focus, {{name}} will go fishing.\nFocusing together with more people raises the chance of catching a rare fish, so keep that in mind.",
+      "step10": "While you focus, the fishing continues.\nFocusing together with more people raises the chance of catching a rare fish, so keep that in mind.",
       "step12": "You caught your first fish!\nYou can use this fish to help your island grow!",
       "step14": "Let's take a quick break this time.\nTap Take a Break below.",
       "step15": "If other residents on the same island are on a break, you can see them together here at the campfire.\nOnce you've rested enough, tap Resume Focus.",
       "step16": "You're back at the spot you picked earlier.\nYour to-do and focus time picked up right where they left off before your break, didn't they?",
-      "step17": "Now hold the end focus button for 3 seconds.",
+      "step17": "Now hold the end focus button for 1.5 seconds.",
       "step18": "Tap End Focus to finish.",
       "step19": "The time you just focused has been recorded.\nTime spent on break isn't included in your focus time.",
       "step20": "You can also check the fish you caught by focusing here.",
@@ -631,7 +786,7 @@
     "chooseJoined": "Choose an island you joined",
     "mainTitle": "Change Main Island",
     "currentTitle": "Change Current Island",
-    "mainDescription": "Choose the island to show on your profile and friends list. Your current island will stay the same.",
+    "mainDescription": "This island shows on your profile and friends list.",
     "currentDescription": "Choose one of your islands to enter. Your main island will stay the same.",
     "loading": "Loading your islands…",
     "members": "Residents {{count}}/{{max}}",
@@ -649,6 +804,7 @@
     "leaveWithoutJoinTitle": "Leave without joining?",
     "leaveWithoutJoinBody": "Become a resident to focus together here.",
     "leaveWithoutJoinLeave": "Leave",
+    "backToSea": "Back to sea",
     "visitorJoin": {
       "join": "Join This Island",
       "apply": "Request to Join",
@@ -696,7 +852,12 @@
   },
   "hall": {
     "greeting": "Greeting",
-    "greetingPlaceholder": "Leave blank to use the default greeting"
+    "greetingPlaceholder": "Leave blank to use the default greeting",
+    "leave": {
+      "soloText": "You're the only one left, so all shared island data will be deleted.",
+      "memberText": "The fish and records you collected stay on the island.",
+      "detail": "Your account, cat, friends, and items stay with you."
+    }
   },
   "guestbook": {
     "title": "Guestbook",
@@ -722,7 +883,7 @@
   },
   "telescope": {
     "back": "Back",
-    "nextIslands": "New islands in {{minutes}} min",
+    "nextIslands": "Islands change in {{minutes}} min",
     "loading": "Looking for islands…",
     "empty": "No islands in sight right now",
     "loadFailed": "Couldn't load the islands.",
@@ -759,7 +920,6 @@
   "observatory": {
     "searchTitle": "Find islands",
     "searchPlaceholder": "Island name",
-    "searchGuide": "Type an island name. Islands you've joined are marked Joined; add any other island to your telescope to sail there again.",
     "searchEmpty": "No islands found. Check the island name and try again.",
     "searchFailed": "Couldn't search for islands.",
     "searchMore": "There are more islands. Type more of the name to narrow it down.",
@@ -769,7 +929,36 @@
     "pinned": "Added to your telescope — see it in your raft's telescope",
     "pinnedEvicted": "{{name}} was removed from your telescope",
     "pinForbidden": "You can't add this island",
-    "pinAlreadyMember": "This is already one of your islands"
+    "pinAlreadyMember": "This is already one of your islands",
+    "title": "Observatory",
+    "average": "Average {{time}}",
+    "loading": "Loading rankings…",
+    "empty": "No ranked islands yet",
+    "failed": "Couldn’t load rankings.",
+    "rankLabel": "Rank {{rank}} {{name}}, average {{time}}"
+  },
+  "mailbox": {
+    "systemSender": "Island notice"
+  },
+  "islandChat": {
+    "title": "Island chat",
+    "open": "Open island chat",
+    "placeholder": "Message to all residents",
+    "send": "Send",
+    "loading": "Loading messages…",
+    "empty": "No messages yet.",
+    "more": "Load earlier messages",
+    "loadingMore": "Loading…",
+    "failed": "Not sent",
+    "resend": "Resend",
+    "me": "Me",
+    "unknown": "Unknown",
+    "emptyText": "Write a message first",
+    "sendFailed": "Couldn't send the message",
+    "justNow": "just now",
+    "minutesAgo": "{{n}}m ago",
+    "hoursAgo": "{{n}}h ago",
+    "date": "{{month}}/{{date}}"
   },
   "magazine": {
     "islandTitle": "{{name}} Island",
@@ -850,7 +1039,9 @@
     },
     "news": {
       "promotion": "The host spent 60 fish on a magazine promotion today · it appears in tomorrow morning's issue",
-      "promotionYesterday": "The host spent 60 fish on a magazine promotion yesterday · it appears in this morning's issue"
+      "promotionYesterday": "The host spent 60 fish on a magazine promotion yesterday · it appears in this morning's issue",
+      "title": "Island news",
+      "promotionRow": "The host spent 60 fish on a magazine promotion"
     },
     "reader": {
       "title": "Nyaong",
@@ -894,7 +1085,10 @@
     },
     "mail": {
       "open": "Read Cat Magazine · No. {{no}}",
-      "unreadA11y": "Read Cat Magazine No. {{no}}, unread"
+      "unreadA11y": "Read Cat Magazine No. {{no}}, unread",
+      "slot": "Cat Magazine",
+      "issueNo": "No. {{no}}",
+      "pastIssues": "Past issues"
     },
     "delivery": {
       "mailbox": "A cat magazine arrived in your mailbox!",
@@ -1054,6 +1248,8 @@
     "remarkLocked": "You can change your message again 5 minutes after editing it.",
     "remarkFailed": "Could not share your message. Please write it again at sea.",
     "emoteTooFrequent": "You can send another emote in a moment.",
+    "rejoining": "Rejoining the sea. Please send it again in a moment.",
+    "upstreamUnavailable": "Could not load the sea. Please try again in a moment.",
     "backBlocked": "Use [Finish focusing] to end this focus session.",
     "finishChecking": "Checking your voyage result. It will continue once connected.",
     "finishUnconfirmed": "Could not confirm your voyage result. Please check your records.",
@@ -1062,11 +1258,17 @@
     "rewardsUnknown": "Checking. See your inventory.",
     "welcomeTitle": "Welcome!",
     "welcomeBody": "You arrived at \"{{island}}\" as a new resident.",
-    "focusTime": "Focus time",
-    "requestFriend": "Add friend",
-    "friendRequested": "Request sent",
-    "friendExists": "You are already friends or have a pending request.",
-    "friendUnavailable": "You cannot send a friend request to this user."
+    "focusTime": "Focus time"
+  },
+  "catInfo": {
+    "open": "View {{name}}",
+    "todayFocus": "Focused today {{duration}}",
+    "request": "Add friend",
+    "accept": "Accept friend request",
+    "requested": "Requested",
+    "processing": "Processing…",
+    "friends": "Friends",
+    "failed": "Couldn't send the request. Tap to try again."
   },
   "safety": {
     "blockTitle": "Block user",
@@ -1094,29 +1296,27 @@
     "hello": "Hi?",
     "name": "What’s your name?",
     "greet": "Nice to meet you,\n{{name}}...",
-    "resolve": "I can’t lie here\nforever, can I?",
+    "resolve": "I can’t keep lying\nhere like this.",
     "settle": "I think I’ll find\nan island to call home.",
     "promise": "While you focus,\nI’ll do the rowing.",
     "islandFriends": "I wonder who we’ll meet there.",
     "islandLife": "We could build a place together…\nI’m starting to have plans.",
-    "invite": "Want to come with me?",
-    "scopeIntro": "Great. Let’s pick\nwhere to go first.",
-    "scope": "Look, islands!\nPick one you’d like to visit.",
-    "uninhabited": "Look, an uninhabited island.\nShall we head there?",
-    "ready": "Focus on what you need to do.\nI’ll head that way.",
-    "depart": "All right.\nI’ll tell you when we arrive.",
+    "invite": "Want to come with me?\nHow long can you focus right now?",
+    "scope": "Each island takes a different time to reach.\nPick one that matches how long you’ll focus.\nOr come find me again later when you want to focus!",
+    "readyEmpty": "No one lives here yet.\nLet’s build it up from scratch together.",
+    "readyJoined": "People already live on this island.\nThey’ll be glad to meet you.",
+    "depart": "All right, let’s go!\nI’ll tell you when we arrive.",
     "skip": "Skip",
     "next": "Tap to continue the story",
     "nameLabel": "Name",
     "namePlaceholder": "Tell me your name",
     "nameCta": "That’s my name",
     "nameEmpty": "Please enter your name.",
-    "join": "Let’s go",
     "scopeCta": "Look through the telescope",
     "start": "Focus and set sail",
     "enterSea": "Focus together",
     "destination": "{{minutes}} min to {{name}}",
-    "duration": "Focus for {{minutes}} minutes",
+    "duration": "Focus for {{minutes}} min until we arrive.",
     "sailing": "Heading to {{name}}",
     "empty": "There are no islands available yet.",
     "retry": "Try again",
@@ -1128,5 +1328,117 @@
     "previewRestart": "Start over",
     "islandLabel": "{{name}} · {{minutes}} min",
     "back": "Back"
+  },
+  "developerNotices": {
+    "title": "Developer notices",
+    "section": "News",
+    "subtitle": "Service news and updates",
+    "loading": "Loading notices…",
+    "empty": "There are no published notices.",
+    "failed": "Could not load notices. Please try again.",
+    "missing": "This notice has expired or is no longer available."
+  },
+  "customization": {
+    "items": {
+      "head": {
+        "mandarin": "Mandarin",
+        "riceball": "Little Rice Ball",
+        "bun": "Round Bun",
+        "peach": "Peach",
+        "duck-plush": "Duck Plush",
+        "chick": "Chick Plush",
+        "frog": "Frog Plush",
+        "bear": "Teddy Bear",
+        "bunny": "Bunny Plush",
+        "seal": "Sleeping Seal Plush",
+        "duck": "Duck Hat"
+      },
+      "neck": {
+        "bell": "Butter Bell Necklace",
+        "bow": "Butter Bow",
+        "picnic": "Picnic Scarf",
+        "leaf": "Leaf Bandana",
+        "shell": "Seashell Necklace",
+        "flower": "Daisy Necklace",
+        "sailor": "Sailor Scarf",
+        "strawberry": "Strawberry Bandana",
+        "pompom": "Pom-Pom Scarf",
+        "star": "Star Bow"
+      },
+      "shoes": {
+        "butter": "Butter Slippers",
+        "leaf": "Leaf Slippers",
+        "acorn": "Acorn Slippers",
+        "sailor": "Sailor Slippers",
+        "peach": "Peach Slippers",
+        "flower": "Flower Slippers",
+        "strawberry": "Strawberry Slippers",
+        "cloud": "Cloud Slippers",
+        "shell": "Seashell Slippers",
+        "pudding": "Pudding Slippers"
+      },
+      "decor": {
+        "flag-fish": "Fish Flag",
+        "flag-paw": "Paw Flag",
+        "flag-leaf": "Leaf Flag",
+        "flag-picnic": "Picnic Flag",
+        "flag-strawberry": "Strawberry Flag",
+        "flag-flower": "Flower Flag",
+        "flag-shell": "Seashell Flag",
+        "flag-duck": "Duck Flag",
+        "flag-cloud": "Cloud Flag",
+        "flag-moon": "Moonlit Flag",
+        "mat-leaf": "Leaf Mat",
+        "mat-picnic": "Checkered Picnic Mat",
+        "mat-basket": "Woven Cushion",
+        "mat-fish": "Fish Cushion",
+        "mat-flower": "Flower Cushion",
+        "mat-strawberry": "Strawberry Mat",
+        "mat-toast": "Toast Cushion",
+        "mat-shell": "Seashell Cushion",
+        "mat-cloud": "Cloud Cushion",
+        "mat-moon": "Crescent Moon Cushion",
+        "oar-fish": "Fish Tail Oar",
+        "oar-leaf": "Leaf Oar",
+        "oar-spoon": "Wooden Spoon Oar",
+        "oar-paw": "Paw Oar",
+        "oar-flower": "Petal Oar",
+        "oar-shell": "Seashell Oar",
+        "oar-heart": "Heart Oar",
+        "oar-duck": "Duck Foot Oar",
+        "oar-whale": "Whale Tail Oar",
+        "oar-star": "Star Oar",
+        "cargo-fishbucket": "Fish Bucket",
+        "cargo-tackle": "Tackle Box",
+        "cargo-bundle": "Travel Bundle",
+        "cargo-bread": "Bread Basket",
+        "cargo-picnic": "Picnic Basket",
+        "cargo-shells": "Seashell Basket",
+        "cargo-plant": "Seedling Pot",
+        "cargo-berries": "Strawberry Basket",
+        "cargo-teapot": "Picnic Teapot",
+        "cargo-bottle": "Message Bottle",
+        "lantern-milk": "Milk Bottle Lamp",
+        "lantern-buoy": "Buoy Lamp",
+        "lantern-fish": "Fish Lamp",
+        "lantern-pumpkin": "Pumpkin Lamp",
+        "lantern-flower": "Flower Lamp",
+        "lantern-shell": "Seashell Lamp",
+        "lantern-mushroom": "Mushroom Lamp",
+        "lantern-star": "Star Lamp",
+        "lantern-moon": "Crescent Moon Lamp",
+        "lantern-firefly": "Firefly Jar Lamp",
+        "canopy-picnic": "Checkered Parasol",
+        "canopy-sailor": "Sailor Parasol",
+        "canopy-leaf": "Leaf Parasol",
+        "canopy-lotus": "Lotus Leaf Parasol",
+        "canopy-flower": "Flower Parasol",
+        "canopy-strawberry": "Strawberry Parasol",
+        "canopy-shell": "Seashell Parasol",
+        "canopy-mushroom": "Mushroom Parasol",
+        "canopy-cloud": "Cloud Canopy",
+        "canopy-moon": "Moonlight Parasol"
+      }
+    }
   }
 }

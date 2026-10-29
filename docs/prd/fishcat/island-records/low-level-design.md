@@ -10,7 +10,7 @@
 > - **측정 창**(RC-D04): `measuredAt ∈ [날짜 00:00Z, 서버+1분]`, 보고 마감 다음 날 12:00Z. 설정 `island-records.screen-time.{future-tolerance,report-grace}`.
 > - **기간 resolver**(§2, RC-D03): 합계는 지난 날짜가 전부 authorized 일 때만, 기간 상태 = 가장 최근 날짜 상태, 최근이 denied 면 과거 authorized 날짜를 series 에서 뺀다.
 > - **스냅샷·커서**(§3, RC-P12-적용): scope=island 는 커서를 발급하지 않고(정원 15 < 페이지 30, 들어온 커서 400), scope=me 만 본인 기록 스냅샷(`focus_statistics_snapshots`, 15분)에서 30건씩 잇는다. 커서는 Business HMAC(스냅샷 id·offset + 사용자·섬·기간 지문). 타인 PII 사본이 없으므로 공통 lifecycle 잠금·전 사용자 역색인은 두지 않았다. 스냅샷은 탈퇴 TX 에서 지운다. `limit` query 는 받지 않는다.
-> - **집계 세션**(RC-D05·범위): ACTIVE·PAUSED·COMPLETED 인 v0.3 세션만. 진행 중 열린 구간은 asOf 로 임시로 닫는다. 주민 목록은 현재 활성 주민만.
+> - **집계 세션**(RC-D05·범위): ACTIVE·PAUSED·COMPLETED 인 v0.3 세션만. 진행 중 열린 구간은 asOf 로 임시로 닫는다. 주민 목록은 현재 활성 주민만 — 요청자와 차단 관계(어느 방향이든)인 주민은 집중·스크린타임 island scope 에서 뺀다(2026-10-26 GROMO-2469, 결정 로그 RP-차단양방향).
 
 ## 1. 원본 요청·응답 보존
 
@@ -164,7 +164,8 @@ PR743의 단일 계산식을 사용한다. ACTIVE 구간은 `[start,end)`, 진�
 **조회 범위와 트랜잭션(GROMO-2344).** 상세에는 구간 시각이 없어 겹침 판정이 주민의 «전생애» 세션마다 구간을
 탐침했다. 끝난 세션의 `last_transition_at` 은 종결 시각이고 그 세션 어떤 구간의 `ended_at` 보다도 작지 않으므로
 `(진행 중) OR last_transition_at > from` 을 바깥 조건으로 더하고 V130 `(user_id, island_id, last_transition_at)`
-인덱스로 범위를 자른다(정확한 겹침은 여전히 EXISTS). 구간은 **매칭된 세션의 전체**를 그대로 읽는다 — 날짜 배분이
+인덱스로 범위를 자른다(정확한 겹침은 여전히 EXISTS). 이 거름은 «끝난 세션의 `last_transition_at` ≥ 모든 구간의 `ended_at`»
+전제에 기대므로 배포 전에 점검 SQL 로 확인한다([운영 런북 §2](../island-rankings/ops-runbook.md)). 구간은 **매칭된 세션의 전체**를 그대로 읽는다 — 날짜 배분이
 세션 전체의 누적 μs 에 기대므로 창 밖 구간을 빼면 경계 날짜가 최대 1초 달라진다. 조회는 REPEATABLE READ
 **읽기 전용** 트랜잭션이고, scope=me 기록이 한 페이지를 넘을 때의 스냅샷 저장만 조회가 끝난 뒤 별 쓰기 트랜잭션에서 한다.
 

@@ -4,7 +4,6 @@ import com.oneorthree.phone.auth.exception.AuthErrorCode;
 import com.oneorthree.phone.auth.exception.AuthException;
 import com.oneorthree.phone.auth.repository.LoginAttemptRepository;
 import com.oneorthree.phone.auth.dto.res.SocialLoginResponse;
-import com.oneorthree.phone.auth.repository.domain.AuthSession;
 import com.oneorthree.phone.auth.repository.domain.LoginAttempt;
 import com.oneorthree.phone.auth.repository.domain.LoginAttemptStatus;
 import com.oneorthree.phone.auth.repository.domain.LoginTokenMaterials;
@@ -32,8 +31,10 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -78,29 +79,32 @@ class LoginAttemptServiceGateTest {
         lenient().when(userQueryService.getCaller(USER_ID)).thenReturn(User.builder().build());
     }
 
+    /** 세션 관문 거절 스텁 — 판정은 {@code AuthSessionService#requireActive} 의 몫이다 (GROMO-2450). */
+    private void rejectSession(UUID sessionId, Long claimedGeneration) {
+        willThrow(new AuthException(AuthErrorCode.SESSION_NOT_ACTIVE))
+                .given(authSessionService).requireActive(USER_ID, 0L, sessionId, claimedGeneration);
+    }
+
     @Test
     @DisplayName("AT 가 없으면 관문을 타지 않는다 — 최초 로그인은 원래 AT 가 없다")
     void 토큰없음() {
         assertThatCode(() -> service.gateOptionalSession(null)).doesNotThrowAnyException();
         verify(userQueryService, never()).getCaller(any());
-        verify(authSessionService, never()).verifySession(any(), any());
+        verify(authSessionService, never()).requireActive(any(), anyLong(), any(), any());
     }
 
     @Test
     @DisplayName("활성 세션 + 세대 일치면 통과한다 — 게스트 승격의 정상 경로")
     void 활성세션통과() {
-        given(authSessionService.verifySession(USER_ID, SESSION_ID))
-                .willReturn(Optional.of(AuthSession.builder().id(SESSION_ID).userId(USER_ID).build()));
-
         assertThatCode(() -> service.gateOptionalSession(TOKEN)).doesNotThrowAnyException();
+        // requireActive 는 void — 거절이 없으면 통과다. 사용자 세대·AT 의 sid·gen 이 그대로 넘어가는지 고정한다.
+        verify(authSessionService).requireActive(USER_ID, 0L, SESSION_ID, 0L);
     }
 
     @Test
     @DisplayName("폐기된 세션의 AT 는 SESSION_NOT_ACTIVE — 서명이 멀쩡해도 승격 자격이 아니다")
     void 폐기된세션() {
-        given(authSessionService.verifySession(USER_ID, SESSION_ID))
-                .willReturn(Optional.of(AuthSession.builder().id(SESSION_ID).userId(USER_ID)
-                        .revokedAt(Instant.now()).build()));
+        rejectSession(SESSION_ID, 0L);
 
         assertThatThrownBy(() -> service.gateOptionalSession(TOKEN))
                 .isInstanceOf(AuthException.class)
@@ -108,9 +112,9 @@ class LoginAttemptServiceGateTest {
     }
 
     @Test
-    @DisplayName("세션 행이 없거나 남의 것이면 SESSION_NOT_ACTIVE — verifySession 이 비어 온다")
+    @DisplayName("세션 행이 없거나 남의 것이면 SESSION_NOT_ACTIVE — requireActive 가 거절한다")
     void 세션없음() {
-        given(authSessionService.verifySession(USER_ID, SESSION_ID)).willReturn(Optional.empty());
+        rejectSession(SESSION_ID, 0L);
 
         assertThatThrownBy(() -> service.gateOptionalSession(TOKEN))
                 .isInstanceOf(AuthException.class)
@@ -118,25 +122,27 @@ class LoginAttemptServiceGateTest {
     }
 
     @Test
-    @DisplayName("authGeneration 불일치는 SESSION_NOT_ACTIVE — 세션 조회 전에 끊는다")
+    @DisplayName("authGeneration 불일치는 SESSION_NOT_ACTIVE — AT 의 세대를 requireActive 에 그대로 넘겨 거절한다")
     void 세대불일치() {
         given(jwtProvider.extractAuthGeneration(TOKEN)).willReturn(1L);
+        rejectSession(SESSION_ID, 1L);
 
         assertThatThrownBy(() -> service.gateOptionalSession(TOKEN))
                 .isInstanceOf(AuthException.class)
                 .hasFieldOrPropertyWithValue("errorCode", AuthErrorCode.SESSION_NOT_ACTIVE);
-        verify(authSessionService, never()).verifySession(any(), any());
+        verify(authSessionService).requireActive(USER_ID, 0L, SESSION_ID, 1L);
     }
 
     @Test
     @DisplayName("sid 없는 구 AT 는 SESSION_NOT_ACTIVE — 어느 세션인지 증명할 수 없어 폐기 fence 를 못 건다")
     void sid없음() {
         given(jwtProvider.extractSessionId(TOKEN)).willReturn(null);
+        rejectSession(null, 0L);
 
         assertThatThrownBy(() -> service.gateOptionalSession(TOKEN))
                 .isInstanceOf(AuthException.class)
                 .hasFieldOrPropertyWithValue("errorCode", AuthErrorCode.SESSION_NOT_ACTIVE);
-        verify(authSessionService, never()).verifySession(any(), any());
+        verify(authSessionService).requireActive(USER_ID, 0L, null, 0L);
     }
 
     // ── 임차 펜스 (GROMO-2215) ──

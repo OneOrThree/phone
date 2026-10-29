@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """PR 변경 입력으로 위성 전체 검사·이미지를 선택한다. 계약 검사는 별도로 유지한다."""
 import json
+import io
+import zipfile
 import os
+import re
 from pathlib import Path
 import subprocess
 
@@ -13,11 +16,13 @@ SERVICES = ('business-api', 'notification')
 # 안 가르면 워크플로 한 줄만 고쳐도 business-api·notification 전체 빌드가 켜져
 # 러너 슬롯을 오래 물고, 관계없는 PR 까지 줄줄이 대기한다 (GROMO-1918).
 BUILD_AFFECTING = (
+    '.github/workflows/be-gradle.yml',
+    '.github/workflows/prod-ci.yml',
+    '.dockerignore',
     '.github/workflows/satellite-check.yml',
     '.github/workflows/satellite-ci.dev.yml',
     '.github/workflows/satellite-ci.prod.yml',
     '.github/scripts/satellite-ci-plan.py',
-    '.github/scripts/check-migration-checksum.py',
     # JAR 재사용 팩·검증 로직 — build 와 images 가 이 스크립트로 아티팩트를 주고받는다.
     # 처음에 `.github/actions/ci-jar/` 만 넣고 이걸 빠뜨렸다가 test_ci_build_reuse 에 잡혔다.
     '.github/scripts/ci-jar.py',
@@ -31,6 +36,7 @@ BUILD_AFFECTING = (
 )
 BUILD_AFFECTING_PREFIXES = (
     '.github/actions/ci-jar/',
+    '.github/actions/check-arm-image/',
 )
 # 계약 검사(runtime-contracts·public-command-contracts)만 돌리면 되는 입력.
 # 이 잡들은 어차피 ubuntu-latest 에서 몇 분이면 끝나고 서비스 빌드와 무관하다.
@@ -53,6 +59,8 @@ def plan(paths):
     if not paths:
         return {service: True for service in SERVICES}
     for path in paths:
+        if path.endswith(('.md', '.mdx', '.rst', '.txt')):
+            continue
         if path.startswith('server/data-api/'):
             # 실제 Noti bootJar를 이용한 체크섬·공개 명령 계약은 workflow가 계속 검사한다.
             continue
@@ -70,12 +78,55 @@ def plan(paths):
     return selected
 
 
+def github_api(path):
+    return json.loads(subprocess.check_output([
+        'gh', 'api', 'repos/' + os.environ['GITHUB_REPOSITORY'] + path,
+    ], timeout=20))
+
+
+def last_deployed_revision(head):
+    """취소된 대기 CI의 변경도 포함하도록 성공한 실제 CD를 기준으로 삼는다."""
+    runs = github_api('/actions/workflows/satellite-cd.dev.yml/runs?branch=main&event=workflow_run&status=success&per_page=20')['workflow_runs']
+    for run in runs:
+        if (run.get('event') != 'workflow_run' or run.get('head_branch') != 'main'
+                or run.get('conclusion') != 'success'
+                or str((run.get('head_repository') or {}).get('id')) != os.environ['GITHUB_REPOSITORY_ID']):
+            continue
+        artifacts = github_api(f'/actions/runs/{run["id"]}/artifacts?per_page=100')['artifacts']
+        records = [item for item in artifacts if item['name'] == 'satellite-deploy-record' and not item['expired']]
+        if not records:
+            continue
+        record = max(records, key=lambda item: item['id'])
+        content = subprocess.check_output(['gh', 'api', 'repos/' + os.environ['GITHUB_REPOSITORY']
+                                          + f'/actions/artifacts/{record["id"]}/zip'], timeout=20)
+        with zipfile.ZipFile(io.BytesIO(content)) as archive:
+            if archive.namelist() != ['satellite-deploy-record.json']:
+                raise ValueError('위성 성공 배포 기록 ZIP 형식 오류')
+            record = json.loads(archive.read('satellite-deploy-record.json'))
+        revision = record.get('head_sha', '')
+        if not re.fullmatch('[0-9a-f]{40}', revision):
+            raise ValueError('위성 성공 배포 기록 SHA 오류')
+        if any(type(record.get(service)) is not bool for service in SERVICES):
+            raise ValueError('위성 성공 배포 기록 서비스 형식 오류')
+        if subprocess.run(['git', 'merge-base', '--is-ancestor', revision, head],
+                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0:
+            return revision
+    raise ValueError('확인 가능한 위성 성공 배포 기준이 없습니다.')
+
+
 def changed_paths(event):
-    pr = event['pull_request']
+    if 'pull_request' in event:
+        pr = event['pull_request']
+        base, head, separator = pr['base']['sha'], pr['head']['sha'], '...'
+    else:
+        head, separator = event['after'], '..'
+        base = last_deployed_revision(head)
+    if any(not re.fullmatch('[0-9a-f]{40}', sha) or sha == '0' * 40 for sha in (base, head)):
+        raise ValueError('변경 범위 SHA 오류')
     # API 파일 목록의 상한 없이 rename 전후·삭제 경로까지 검사한다.
     result = subprocess.check_output([
         'git', 'diff', '--no-renames', '--name-only', '-z',
-        f"{pr['base']['sha']}...{pr['head']['sha']}", '--',
+        base + separator + head, '--',
     ])
     return [p for p in result.decode().split('\0') if p]
 
@@ -84,12 +135,13 @@ def main():
     event = json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text())
     selected = {service: True for service in SERVICES}
     reason = 'main/release는 최종 SHA의 두 이미지를 모두 검증·발행한다'
-    if os.environ['GITHUB_EVENT_NAME'] == 'pull_request':
+    if (os.environ['GITHUB_EVENT_NAME'] == 'pull_request' or
+            (os.environ['GITHUB_EVENT_NAME'] == 'push' and os.environ.get('GITHUB_REF') == 'refs/heads/main')):
         try:
             paths = changed_paths(event)
             selected = plan(paths)
-            reason = f'PR 변경 경로 {len(paths)}개를 검사했다'
-        except (KeyError, ValueError, UnicodeError, subprocess.CalledProcessError) as error:
+            reason = f'변경 경로 {len(paths)}개로 필요한 위성만 선택했다'
+        except (KeyError, ValueError, UnicodeError, subprocess.SubprocessError, zipfile.BadZipFile) as error:
             reason = f'변경 범위 판정 실패: 전체 검사 ({type(error).__name__})'
     result = {'services': selected, 'reason': reason}
     print(json.dumps(result, ensure_ascii=False))

@@ -85,7 +85,7 @@ class AdminService {
 
     /**
      * 수동 재전송. 원본 행을 «건드리지 않고» 새 사건 키·새 id 로 한 건을 더 만든다.
-     * subject_id 는 그대로 둔다 — null 로 바꾸면 BET_RESULT 의 결과 ack 억제(A22 ⓓ)가 통째로 우회된다.
+     * subject_id는 그대로 둔다. 친구 차단 등 현재 대상의 발송 적격성을 재확인할 때 필요하다.
      * 도메인 사건 키 충돌은 admin_actor 가 붙은 행을 dedup 인덱스에서 빼는 방식으로 피한다.
      */
     @Transactional

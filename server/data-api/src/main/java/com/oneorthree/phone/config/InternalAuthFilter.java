@@ -23,14 +23,14 @@ import java.util.UUID;
  * {@code /internal/*} 전용 인증 필터 — 앱 JWT 와 <b>완전히 다른 축</b>이다 (A22 ㉸ · ㉱ · ㊀).
  *
  * <h2>왜 별도 필터인가</h2>
- * {@code JwtFilter} 는 {@code /api/*} 에만 걸리고 1661 전환 전까지 그대로 유지된다. 내부 표면은
+ * 내부 표면은
  * <b>앱 JWT 로 인증하지 않는다</b> — 위성·Business 는 앱 토큰을 들고 있지 않고, 반대로 앱 토큰으로
  * 내부 명령에 닿을 수 있으면 「정상 AT 를 가진 사용자」가 임의 {@code X-User-Id} 로 남의 데이터를
  * 읽고 쓴다(㉸). 두 축을 한 필터에 합치면 그 경계가 조건문 하나로 좁아진다.
  *
  * <h2>통과 조건 넷</h2>
  * <ol>
- *   <li><b>켜져 있을 것</b> — caller 설정이 없으면 이 경로는 «존재하지 않는다»(404).</li>
+ *   <li><b>토큰이 있는 caller 가 하나라도 있을 것</b> — 없으면 이 경로는 «존재하지 않는다»(404).</li>
  *   <li><b>{@code Authorization: Bearer} 가 알려진 caller 의 토큰일 것</b> — 비교는 상수 시간이다.</li>
  *   <li><b>그 caller 의 허용목록에 {@code METHOD + 경로} 가 있을 것</b>(㉱) — 이름만 나누면 최소
  *       권한이 안 선다.</li>
@@ -81,29 +81,30 @@ public class InternalAuthFilter extends OncePerRequestFilter {
     private final Map<String, List<AllowedCall>> allowByCaller;
 
     /**
-     * @param properties 내부 표면 설정. 꺼져 있으면 어떤 caller 도 만들지 않는다
+     * @param properties 내부 표면 설정. 토큰이 있는 caller 가 하나라도 있을 것 — 없으면 404
      */
     public InternalAuthFilter(InternalApiProperties properties) {
         Map<String, String> tokens = new LinkedHashMap<>();
         Map<String, String> actors = new LinkedHashMap<>();
         Map<String, List<AllowedCall>> allow = new LinkedHashMap<>();
-        if (properties.isEnabled()) {
-            properties.getCallers().forEach((name, caller) -> {
-                if (!caller.hasToken()) {
-                    return;
-                }
-                tokens.put(caller.getToken(), name);
-                if (caller.getConsoleActor() != null) {
-                    actors.put(name, caller.getConsoleActor());
-                }
-                List<AllowedCall> parsed = new ArrayList<>();
-                caller.getAllow().forEach(entry -> {
-                    String[] parts = entry.trim().split("\\s+");
-                    parsed.add(new AllowedCall(parts[0].toUpperCase(Locale.ROOT), parts[1]));
-                });
-                allow.put(name, List.copyOf(parsed));
+        properties.getCallers().forEach((name, caller) -> {
+            if (!caller.hasToken()) {
+                // 빈 토큰을 맵에 넣으면 `Bearer ` 뒤가 빈 요청이 이 caller 로 통과한다(상수 시간 비교가 빈 값끼리 같다고
+                // 답한다). 토큰이 빈 선택 caller 는 «없는» caller 다.
+                return;
+            }
+            tokens.put(caller.getToken(), name);
+            if (caller.getConsoleActor() != null) {
+                actors.put(name, caller.getConsoleActor());
+            }
+            List<AllowedCall> parsed = new ArrayList<>();
+            caller.getAllow().forEach(entry -> {
+                String[] parts = entry.trim().split("\\s+");
+                parsed.add(new AllowedCall(parts[0].toUpperCase(Locale.ROOT), parts[1]));
             });
-        }
+            allow.put(name, List.copyOf(parsed));
+        });
+        // 등록된 토큰이 하나도 없으면 «없는» 표면이다 — 토큰이 빈 선택 caller 만 배선돼 있어도 401 이 아니라 404 로 답한다.
         this.consoleActors = Map.copyOf(actors);
         this.enabled = !tokens.isEmpty();
         this.callerByToken = Map.copyOf(tokens);
@@ -188,7 +189,7 @@ public class InternalAuthFilter extends OncePerRequestFilter {
         }
 
         if (userId != null) {
-            // 통과한 주체를 request 에 심는다 — 읽는 쪽은 내부 컨트롤러다. JwtFilter 와 같은 키를 쓰므로
+            // 통과한 주체를 request 에 심는다 — 읽는 쪽은 내부 컨트롤러다. 공유 인증 속성 키를 쓰므로
             // TraceIdFilter 가 붙는 날에도 유저 식별이 같은 자리에서 나온다.
             request.setAttribute(AuthAttributes.USER_ID, userId);
         }

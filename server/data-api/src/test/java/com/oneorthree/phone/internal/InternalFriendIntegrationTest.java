@@ -70,7 +70,6 @@ class InternalFriendIntegrationTest {
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
         OutboxTestPostgres.applyProductionMigrationWiring(registry);
-        registry.add("internal.api.enabled", () -> true);
         registry.add("internal.api.callers.business.token", () -> TOKEN);
         // 배포 yml 의 7줄과 같다 — yml 자체와 컨트롤러의 대조는 InternalFriendAllowlistTest 가 맡는다.
         registry.add("internal.api.callers.business.allow[0]", () -> "GET /internal/users/*/friends");
@@ -171,10 +170,11 @@ class InternalFriendIntegrationTest {
     }
 
     @Test
-    @DisplayName("차단한 상대는 blocker의 친구 목록과 검색 결과에서만 제외한다")
+    @DisplayName("차단한 상대는 양쪽의 친구 목록과 검색 결과에서 제외한다")
     void blockExcludesCounterpartFromFriendsAndSearch() throws Exception {
         UUID blocker = newUser();
         UUID blocked = newUser();
+        nickname(blocker, "차단한친구");
         nickname(blocked, "차단친구");
         friendService.acceptRequest(blocked, friendService.createRequest(blocker, blocked));
 
@@ -185,9 +185,11 @@ class InternalFriendIntegrationTest {
                 .andExpect(status().isOk()).andExpect(content().json("[]"));
         as(blocker, get(path(blocker, "/friend-search")).param("type", "NICKNAME").param("q", "차단친구"))
                 .andExpect(status().isOk()).andExpect(content().json("[]"));
-        // 반대 방향 차단은 없으므로 상대의 목록은 그대로다.
+        // 한 방향 차단도 상대의 친구 목록·검색에서 함께 숨긴다.
         as(blocked, get(path(blocked, "/friends")).param("date", DATE))
-                .andExpect(status().isOk()).andExpect(jsonPath("$[0].userId").value(blocker.toString()));
+                .andExpect(status().isOk()).andExpect(content().json("[]"));
+        as(blocked, get(path(blocked, "/friend-search")).param("type", "NICKNAME").param("q", "차단한친구"))
+                .andExpect(status().isOk()).andExpect(content().json("[]"));
     }
 
     @Test
@@ -246,7 +248,7 @@ class InternalFriendIntegrationTest {
     @Test
     @DisplayName("게스트는 요청 생성만 403 이고, 받은 요청 수락·친구 목록은 그대로 된다 (GROMO-1992)")
     void guestCannotOpenFriendRequestsButStillAcceptsThem() throws Exception {
-        UUID guest = jwt.extractUserId(auth.guestLogin().accessToken());
+        UUID guest = jwt.extractUserId(auth.guestSession(java.util.UUID.randomUUID().toString()).accessToken());
         UUID member = newUser();
 
         as(guest, post(path(guest, "/friend-requests")).contentType(MediaType.APPLICATION_JSON)
@@ -370,7 +372,7 @@ class InternalFriendIntegrationTest {
      * 주며 본인과 탈퇴한 사용자는 제외한다.」 + 비친구에게는 티어·준비 시험을 주지 않는다.
      */
     @Test
-    @DisplayName("검색 — 대소문자 무시 전체 일치, 본인·탈퇴자 제외, 비친구는 tier·occupation 이 null")
+    @DisplayName("검색 — 대소문자 무시 전체 일치, 본인·탈퇴자 제외, 친구 관계 표시")
     void searchMatchesWholeNicknameIgnoringCaseAndHidesNonFriendFields() throws Exception {
         UUID me = newUser();
         UUID other = newUser();
@@ -378,7 +380,6 @@ class InternalFriendIntegrationTest {
         nickname(me, "Alice");
         nickname(other, "Bob");
         nickname(withdrawn, "Carol");
-        jdbc.update("update users set occupation = 'LABOR_ATTORNEY' where id = ?", other);
         jdbc.update("update users set is_deleted = true where id = ?", withdrawn);
 
         // 대문자로 쳐도 찾힌다.
@@ -404,12 +405,12 @@ class InternalFriendIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(0));
 
-        // 친구가 되면 티어·준비 시험이 열린다 — 가리는 축이 relation 이라는 증명이다.
+        // 친구가 되면 관계 표시가 바뀌고 폐기한 프로필 필드는 계속 노출하지 않는다.
         friendService.acceptRequest(other, friendService.createRequest(me, other));
         as(me, get(path(me, "/friend-search")).param("type", "NICKNAME").param("q", "bob"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].relation").value("FRIEND"))
-                .andExpect(jsonPath("$[0].occupation").value("LABOR_ATTORNEY"));
+                .andExpect(jsonPath("$[0].occupation").doesNotExist());
     }
 
     @Test
@@ -441,7 +442,7 @@ class InternalFriendIntegrationTest {
      * 것은 관계 상태·잠금이지 승격 경로가 아니다.
      */
     private UUID newUser() {
-        UUID id = jwt.extractUserId(auth.guestLogin().accessToken());
+        UUID id = jwt.extractUserId(auth.guestSession(java.util.UUID.randomUUID().toString()).accessToken());
         jdbc.update("update users set is_guest = false where id = ?", id);
         return id;
     }

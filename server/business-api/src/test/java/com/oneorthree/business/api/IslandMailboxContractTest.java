@@ -3,6 +3,7 @@ package com.oneorthree.business.api;
 import com.oneorthree.business.support.MockUpstream;
 import com.oneorthree.business.support.Tokens;
 import com.oneorthree.business.support.UpstreamTestBase;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
@@ -41,9 +42,11 @@ class IslandMailboxContractTest extends UpstreamTestBase {
     private static final String RT_HISTORY = "GET " + RT_MESSAGES;
     private static final String RT_STORE = "POST " + RT_MESSAGES;
 
+    /** {@code sender} 가 null 이면 JSON null — 실시간이 tombstone 뒤 탈퇴 발신자에게 주는 모양이다. */
     private static String rtMessage(UUID id, UUID sender, String content, UUID key) {
-        return "{\"messageId\":\"" + id + "\",\"groupId\":\"" + ISLAND + "\",\"senderId\":\"" + sender
-                + "\",\"content\":\"" + content + "\",\"sentAt\":\"2026-09-18T09:10:00Z\",\"clientMessageId\":\""
+        return "{\"messageId\":\"" + id + "\",\"groupId\":\"" + ISLAND + "\",\"senderId\":"
+                + (sender == null ? "null" : "\"" + sender + "\"")
+                + ",\"content\":\"" + content + "\",\"sentAt\":\"2026-09-18T09:10:00Z\",\"clientMessageId\":\""
                 + key + "\"}";
     }
 
@@ -368,6 +371,76 @@ class IslandMailboxContractTest extends UpstreamTestBase {
                 .andExpect(jsonPath("$.data.items").isEmpty())
                 .andExpect(jsonPath("$.data.nextCursor").isString());
         assertThat(REALTIME.hits(RT_HISTORY)).isEqualTo(3);
+    }
+
+    // ---------------------------------------------------------------- 탈퇴 발신자 (GROMO-2208)
+
+    /**
+     * 탈퇴 발신자(senderId null)가 섞인 쪽도 200 이다 — null 은 Data 작성자 조회에 보내지 않고(Data 는 null 원소를
+     * 400 으로 거절한다), 그 편지는 userId·name null 로 나간다. 응답에 {@code hiddenUserIds} 키가 없는 경우.
+     */
+    @Test
+    @DisplayName("탈퇴 발신자가 섞인 쪽은 200 — 그 편지는 userId·name 이 null 이고 Data 에는 null 을 보내지 않는다")
+    void listKeepsWithdrawnSenderMessageWithoutAuthor() throws Exception {
+        stubHappyPath();
+        DATA.on(DATA_AUTHORS, request -> ok("{\"authors\":[{\"userId\":\"" + USER + "\",\"name\":\"수빈\"}]}"));
+        REALTIME.on(RT_HISTORY, request -> ok("{\"messages\":[" + rtMessage(M2, USER, "두 번째", KEY) + ","
+                + rtMessage(M1, null, "탈퇴자 편지", UUID.randomUUID()) + "],\"nextCursor\":null,\"hasMore\":false}"));
+        mockMvc.perform(auth(get(PUBLIC)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items.length()").value(2))
+                .andExpect(jsonPath("$.data.items[0].id").value(M1.toString()))
+                .andExpect(jsonPath("$.data.items[0].userId").value(nullValue()))
+                .andExpect(jsonPath("$.data.items[0].name").value(nullValue()))
+                .andExpect(jsonPath("$.data.items[0].text").value("탈퇴자 편지"))
+                .andExpect(jsonPath("$.data.items[1].id").value(M2.toString()))
+                .andExpect(jsonPath("$.data.items[1].userId").value(USER.toString()))
+                .andExpect(jsonPath("$.data.items[1].name").value("수빈"));
+        assertThat(DATA.hits(DATA_AUTHORS)).isEqualTo(1);
+        assertThat(DATA.receivedFor(DATA_AUTHORS).get(0).body()).contains(USER.toString()).doesNotContain("null");
+    }
+
+    /** 같은 상황에서 Data 가 {@code hiddenUserIds} 를 주면 — 차단한 사람은 빠지고 탈퇴 발신자는 그대로 남는다. */
+    @Test
+    @DisplayName("hiddenUserIds 가 있어도 탈퇴 발신자 편지는 남고 차단한 사람 편지만 빠진다")
+    void listKeepsWithdrawnSenderWhileDroppingBlockedSender() throws Exception {
+        UUID m3 = UUID.fromString("01990000-0000-7000-8000-000000000003");
+        stubHappyPath();
+        DATA.on(DATA_AUTHORS, request -> ok("{\"authors\":[{\"userId\":\"" + USER + "\",\"name\":\"수빈\"}],"
+                + "\"hiddenUserIds\":[\"" + OTHER + "\"]}"));
+        REALTIME.on(RT_HISTORY, request -> ok("{\"messages\":[" + rtMessage(m3, null, "탈퇴자 편지", UUID.randomUUID())
+                + "," + rtMessage(M2, USER, "두 번째", KEY) + "," + rtMessage(M1, OTHER, "차단", UUID.randomUUID())
+                + "],\"nextCursor\":null,\"hasMore\":false}"));
+        mockMvc.perform(auth(get(PUBLIC)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items.length()").value(2))
+                .andExpect(jsonPath("$.data.items[0].id").value(M2.toString()))
+                .andExpect(jsonPath("$.data.items[0].name").value("수빈"))
+                .andExpect(jsonPath("$.data.items[1].id").value(m3.toString()))
+                .andExpect(jsonPath("$.data.items[1].userId").value(nullValue()))
+                .andExpect(jsonPath("$.data.items[1].name").value(nullValue()));
+        assertThat(DATA.receivedFor(DATA_AUTHORS).get(0).body()).contains(USER.toString(), OTHER.toString())
+                .doesNotContain("null");
+    }
+
+    /** 전원이 탈퇴 발신자면 모을 sender 가 없다 — Data 는 빈 목록을 400 으로 거절하므로 부르지 않고 200 이다. */
+    @Test
+    @DisplayName("전원이 탈퇴 발신자인 쪽은 Data 작성자 조회를 하지 않고 200")
+    void listWithAllSendersWithdrawnSkipsAuthorLookup() throws Exception {
+        stubHappyPath();
+        REALTIME.on(RT_HISTORY, request -> ok("{\"messages\":[" + rtMessage(M2, null, "둘", KEY) + ","
+                + rtMessage(M1, null, "하나", UUID.randomUUID()) + "],\"nextCursor\":null,\"hasMore\":false}"));
+        mockMvc.perform(auth(get(PUBLIC)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items.length()").value(2))
+                .andExpect(jsonPath("$.data.items[0].id").value(M1.toString()))
+                .andExpect(jsonPath("$.data.items[0].userId").value(nullValue()))
+                .andExpect(jsonPath("$.data.items[0].name").value(nullValue()))
+                .andExpect(jsonPath("$.data.items[1].id").value(M2.toString()))
+                .andExpect(jsonPath("$.data.items[1].userId").value(nullValue()))
+                .andExpect(jsonPath("$.data.items[1].name").value(nullValue()))
+                .andExpect(jsonPath("$.data.nextCursor").value(nullValue()));
+        assertThat(DATA.hits(DATA_AUTHORS)).isZero();
     }
 
     private static java.util.List<String> queryParams(String query) {

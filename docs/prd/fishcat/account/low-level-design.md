@@ -85,7 +85,7 @@ GROMO-1756 · [정책](policy.md) · [HLD](high-level-design.md) · [원본 예�
 
 **알려진 천장 둘.** ⓐ `withdraw` 의 마지막 단계가 소셜 벌크 DELETE 라 영속성 컨텍스트를 비워 로그인과 한 TX 에 담을 수 없다. 그래서 「탈퇴 커밋 → 로그인」 두 조각이고 **탈퇴만 커밋된 채 로그인이 실패하는 창**이 남는다. 그때 잃는 것은 이미 폐기에 동의한 게스트 데이터뿐이고 대상 회원 계정은 그대로라 선택 AT 없는 새 로그인으로 복구된다. 순서를 뒤집으면 「전환은 됐는데 게스트가 유령 주민으로 남는」 되돌릴 수 없는 쪽으로 깨진다. 재개 요청은 활성 게스트 검사가 걸러 탈퇴를 건너뛰고 로그인만 이어 한다. ⓑ 그 창에서 같은 attempt 로 재시도하면 `gateOptionalSession` 이 이미 탈퇴한 주체를 404 `USER_NOT_FOUND` 로 먼저 거절한다 — 앱의 답은 로컬 자격을 비우고 선택 AT 없이 다시 로그인하는 것이다.
 
-**서버와 앱의 경계.** 서버가 책임지는 것은 여기까지다 — 게스트 계정 폐기, 그 계정의 **전 세션·bootstrap 폐기와 `authGeneration` 상승**, 기기 삭제 outbox(전부 `withdraw` 안에서 일어난다). 서버는 새 세션의 기기 등록을 대신하지 않는다. 앞 절 「계정·로그인 세션 전환의 이전 기기 정리」가 앱에 요구하는 **FCM 토큰 교체·B 세션 bootstrap 으로의 재등록·`deliveryTag` 대조**는 이 구현에 **없다**(등록 응답에 `deliveryTag` 자체가 아직 없다). 그 절의 활성 조건은 그대로 미충족이며, 이 2단계 확인이 그것을 해결했다고 주장하지 않는다.
+**서버와 앱의 경계.** 서버가 책임지는 것은 여기까지다 — 게스트 계정 폐기, 그 계정의 **전 세션·bootstrap 폐기와 `authGeneration` 상승**, 기기 삭제 outbox(전부 `withdraw` 안에서 일어난다). 서버는 새 세션의 기기 등록을 대신하지 않는다. 앞 절 「계정·로그인 세션 전환의 이전 기기 정리」가 앱에 요구하는 **FCM 토큰 교체·B 세션 bootstrap 으로의 재등록·`deliveryTag` 대조**는 이 구현에 **없다**(그 절 후속 계약의 ② — 등록 응답과 모든 푸시 data 의 `deliveryTag` — 는 서버에 구현됐다: notification V13, GROMO-2520. ①·③과 OS 자동 표시 활성 조건은 앱 몫이다). 그 절의 활성 조건은 그대로 미충족이며, 이 2단계 확인이 그것을 해결했다고 주장하지 않는다.
 
 ### 2.2 GET /me
 
@@ -107,7 +107,7 @@ name/catColor null 허용은 온보딩 전 상태를 표현하기 위한 원본 
 
 ### 2.3 PATCH /me
 
-요청 `{ "name": "수빈", "catColor": "calico" }`. 두 필드 중 하나 이상 필수이고 생략한 필드는 보존한다. null·빈 객체는 400이다. name은 기존 nickname의 정규화(`String.strip` — 앞뒤 공백 제거)/2~10 UTF-16 단위/대소문자 무시 중복 정책을 그대로 사용한다. 길이는 정규화 **뒤** 값으로 잰다 — 공백만으로 이루어진 이름과 공백을 벗기면 2자 미만인 이름은 400 `NICKNAME_INVALID`다(GROMO-2051). 자체 신규 정규화나 대소문자 접기를 추가하지 않는다. catColor는 Q03 카탈로그의 허용 ID만 저장하며 문자열을 이미지 URL·파일 경로로 해석하지 않는다.
+요청 `{ "name": "수빈", "catColor": "calico" }`. 두 필드 중 하나 이상 필수이고 생략한 필드는 보존한다. null·빈 객체는 400이다. name은 새 가입·실제 변경 시 공백 없이 2~10 UTF-16 단위이고 대소문자 무시 중복을 금지한다. Unicode White_Space(탭·개행·전각 공백 포함)와 BOM이 있으면 원문 그대로 400 `NICKNAME_INVALID`로 거절하며 메시지는 「닉네임은 공백 없이 2~10자여야 합니다.」다. 기존 공백 닉네임은 이행·강제 변경하지 않고 요청 원문이 기존 값과 같거나 name을 생략하면 보존한다(티켓 2492). catColor는 Q03 카탈로그의 허용 ID만 저장하며 문자열을 이미지 URL·파일 경로로 해석하지 않는다.
 
 활성 사용자 배타 잠금 → 기존 멱등 결과 확인 → 변경 전 완료 상태 판정 → name 검증/유일 제약과 기존 표시정보 writer 위임 → catColor 적용 → 변경 후 완료 상태 판정 → 필요한 전이 사건과 결과/receipt를 같은 Data TX에 기록하는 순서다. name 검증 실패나 사건/outbox 저장 실패 시 프로필·완료 전이·receipt·사건 모두 rollback하며 부분 성공은 없다. 현재 User 엔티티는 전체 컬럼 UPDATE이므로 공유 잠금 뒤 승급하거나 잠금 전에 읽은 엔티티를 저장하지 않는다.
 
@@ -298,7 +298,7 @@ Data의 기존 `AccountWithdrawalService.withdraw` 단일 TX에 신규 파기를
 {"commandId":"01991930-0000-7000-8000-000000000002","version":42,"mask":["notificationEnabled"],"patch":{"notificationEnabled":false},"authGeneration":3}
 ```
 
-사용자 주체는 Business가 새로 만든 내부 위임 헤더에서 받는다. 요청 본문의 userId를 신뢰하지 않는다. Data는 같은 키 재개에서 기존 commandId/version/mask/patch를 반환하며 새로운 명령을 만들지 않는다. Notification은 자신의 사용자 폐기 tombstone과 generation을 대조하고 선택 필드의 저장 version보다 큰 경우에만 그 필드를 바꾼다. 같은 명령 재전달은 다시 적용하지 않는 멱등 처리다. 낮은 버전은 이미 대체된 상태를 덮지 않는다. Notification은 최초 처리 결과를 APPLIED/SUPERSEDED로 명령 receipt에 확정하되 이 구분은 **재적용 여부 판정에만** 쓴다. 재전달은 APPLIED·SUPERSEDED 모두 새 적용 없이 같은 로컬 판독 경계에서 정본 현재 값을 다시 읽어 반환한다. 예를 들어 v42(false)가 적용된 뒤 응답이 유실되고 다른 기기의 v43(true)이 적용됐다면 v42 재시도의 응답은 true다. Business의 범용 멱등 receipt도 이 명령에는 첫 200 본문의 값을 저장·재생하지 않고, 같은 키 재개에서 상태·명령 식별만 재생한 뒤 Notification의 현재 값을 다시 읽는다. 새 오류 코드나 응답 필드는 추가하지 않는다. 앱은 응답이 **자신이 마지막으로 보낸 설정 명령의 키**에 대한 것일 때만 로컬 값과 화면에 반영하고, 이전 키의 늦은 응답·재생은 버리며, 불일치가 의심되면 GET으로 정본을 재조회한다. 마지막 키 규칙은 같은 기기에서 앞선 요청의 늦은 응답이 뒤 요청의 응답을 덮는 것을 막고, 현재 값 응답은 다른 기기 변경 뒤 재시도한 응답이 옛 값을 되돌려 쓰는 것을 막는다. 응답 뒤에 일어난 동시 변경은 다음 GET·동기화로 수렴한다.
+사용자 주체는 Business가 새로 만든 내부 위임 헤더에서 받는다. 요청 본문의 userId를 신뢰하지 않는다. Data는 같은 키 재개에서 기존 commandId/version/mask/patch를 반환하며 새로운 명령을 만들지 않는다. Notification은 자신의 사용자 폐기 tombstone과 generation을 대조하고 선택 필드의 저장 version보다 큰 경우에만 그 필드를 바꾼다. 같은 명령 재전달은 다시 적용하지 않는 멱등 처리다. 낮은 버전은 이미 대체된 상태를 덮지 않는다. 재전달은 action을 다시 실행하지 않으므로 receipt 구분(APPLIED/SUPERSEDED) 없이 최초 처리와 같은 로컬 잠금 경계에서 정본 현재 값을 읽어 반환한다. 예를 들어 v42(false)가 적용된 뒤 응답이 유실되고 다른 기기의 v43(true)이 적용됐다면 v42 재시도의 응답은 true다. Business의 범용 멱등 receipt도 이 명령에는 첫 200 본문의 값을 저장·재생하지 않고, 같은 키 재개에서 상태·명령 식별만 재생한 뒤 Notification의 현재 값을 다시 읽는다. 공개 API에는 새 오류 코드나 응답 필드를 추가하지 않는다(내부 Notification 응답의 `settings` 추가는 별개). 앱은 응답이 **자신이 마지막으로 보낸 설정 명령의 키**에 대한 것일 때만 로컬 값과 화면에 반영하고, 이전 키의 늦은 응답·재생은 버리며, 불일치가 의심되면 GET으로 정본을 재조회한다. 마지막 키 규칙은 같은 기기에서 앞선 요청의 늦은 응답이 뒤 요청의 응답을 덮는 것을 막고, 현재 값 응답은 다른 기기 변경 뒤 재시도한 응답이 옛 값을 되돌려 쓰는 것을 막는다. 응답 뒤에 일어난 동시 변경은 다음 GET·동기화로 수렴한다.
 
 예: v41 sound=true가 지연되고 v42 notifications=false가 먼저 와도, sound의 적용 버전이 40이면 v41은 sound만 반영한다. 전체 버전 42를 보고 v41을 통째로 버리지 않는다. legacy 5필드 전체 PUT은 mask에 5개 모두를 담고 각 필드에서 동일 비교를 한다.
 
@@ -827,7 +827,7 @@ Docker 컨테이너 로그·Datadog·dev Loki에 복사된다.
 시점은 「그 사용자의 마지막 기록 + 그 저장소의 보존 기간」이다.
 
 보존 기간의 정본은 [policy.md 로그·분석 보존 기간](policy.md#로그분석-보존-기간) 표다. 로컬 logback `maxHistory`(APP 7일·user-activity
-30일)와 S3 적재본 수명 주기 규칙(버킷 `gromo-prod-logs-808715036056`의 `system_log/`·`user_log/`·`user-activity/` 접두
+30일)와 S3 적재본 수명 주기 규칙(버킷 `gromo-prod-logs-<account-id>`의 `system_log/`·`user_log/`·`user-activity/` 접두
 모두 90일, 기록은 `server/scripts/s3-log-archive-lifecycle.json`)은 **값이 서로 다르며 각각 그 표의 자기 행을 구현하는
 설정**이고 스스로 보존 근거가 되지 않는다. 설정 값을 바꾸면 policy.md 표의 해당 행을 같은 변경에서 맞춘다.
 표에 기간이 없거나 설정이 미확인인 저장소(Datadog Logs·APM trace, Docker 컨테이너 로그 등)는 파기 완료를 주장하지 않고
@@ -885,7 +885,7 @@ Business가 표지를 두기 전에 죽으면 탈퇴 명령도 전달되지 않�
 현재 main의 외부 FCM 호출 뒤 `saveAll`만으로 이 증거/멱등 경계가 구현됐다는 뜻은 아니다.
 원 발송 식별자·증거의 내구 보존과 결과 기록 연결을 검증하기 전 이 경합 보호를 완료로 표시하지 않는다.
 
-위성 이관 후에도 중앙 삭제만으로 완료 처리하지 않는다. 기존 `user.withdrawn` 및 알림 대상 내구 파기 명령에 위 수신자/사용자 상대 범위를 포함하고, Notification은 같은 fencing TX에서 미발송을 중단하고 위 종류별 삭제/nullify와 사용자 연계 payload/이관 복사본 제거를 적용해야 한다. 활성 수신자의 RANK_OVERTAKE 상한 근거는 위성에서도 보존하며 파기 재전달로 카운트를 줄이지 않는다. 최소 tombstone만 기존 계약대로 유지하여 늦은 direct/relay/import가 삭제한 관계 이력을 부활시키지 못하게 한다. 현재 `DeviceService.generation`의 미발송 SUPPRESSED·projection/settings 삭제만으로 이 발송 이력 파기까지 구현됐다고 주장하지 않는다. 위성별 파기 완료를 확인하며, 재전달 실패는 기존 outbox로 복구하고 중앙 탈퇴를 재실행하지 않는다.
+위성 이관 후에도 중앙 삭제만으로 완료 처리하지 않는다. 기존 `user.withdrawn` 및 알림 대상 내구 파기 명령에 위 수신자/사용자 상대 범위를 포함하고, Notification은 같은 fencing TX에서 미발송을 중단하고 위 종류별 삭제/nullify와 사용자 연계 payload/이관 복사본 제거를 적용해야 한다. 활성 수신자의 RANK_OVERTAKE 상한 근거는 위성에서도 보존하며 파기 재전달로 카운트를 줄이지 않는다. 최소 tombstone만 기존 계약대로 유지하여 늦은 direct/relay/import가 삭제한 관계 이력을 부활시키지 못하게 한다. 현재 `DeviceService.generation`은 탈퇴 TX에서 그 사용자의 발송 로그(`deliveries`·`delivery_devices`)·projection·settings를 하드 삭제하고, `inbound_events` 수신 원문을 null로 바꾸며(`event_id`·`envelope_hash`만 보존), 멱등 기록 `commands`를 지운다(GROMO-1943·2212). 다른 수신자 사본에 실린 상대 정보(예: `deliveries.payload`의 `counterpartNickname`)는 이 파기에 포함되지 않으므로, 이것만으로 위 수신자/사용자 상대 범위의 발송 이력 파기까지 구현됐다고 주장하지 않는다. 위성별 파기 완료를 확인하며, 재전달 실패는 기존 outbox로 복구하고 중앙 탈퇴를 재실행하지 않는다.
 
 #### 내기 정산 근거와 결과 열람 이력의 분리
 

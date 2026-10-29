@@ -19,7 +19,7 @@ const settle = async () => {
   for (let i = 0; i < 12; i++) await Promise.resolve();
 };
 
-function setup(os = 'ios', initialAppState = 'active') {
+function setup(os = 'ios', initialAppState = 'active', supportsFocusShield?: boolean) {
   jest.resetModules();
   jest.useFakeTimers();
   let tokenListener!: (value: typeof token) => void;
@@ -27,6 +27,7 @@ function setup(os = 'ios', initialAppState = 'active') {
   const request = jest.fn().mockResolvedValue(undefined);
   const generation = jest.fn(() => 1);
   const native = {
+    supportsFocusShield,
     getPushTokens: jest.fn().mockResolvedValue([token]),
     getFocusPushToken: jest.fn().mockResolvedValue('android-token-' + 'x'.repeat(40)),
   };
@@ -162,6 +163,16 @@ test('Android FCM 토큰을 별도 환경으로 등록하고 회전 뒤 재등�
   test.foreground();
   await settle();
   expect(test.request).toHaveBeenCalledTimes(2);
+  test.stop();
+});
+
+test('차단 미지원 Android는 집중 푸시 토큰·리스너·폴링을 등록하지 않는다', async () => {
+  const test = setup('android', 'active', false);
+  await settle();
+  expect(test.native.getFocusPushToken).not.toHaveBeenCalled();
+  expect(test.request).not.toHaveBeenCalled();
+  expect(test.appState.addEventListener).not.toHaveBeenCalled();
+  expect(jest.getTimerCount()).toBe(0);
   test.stop();
 });
 

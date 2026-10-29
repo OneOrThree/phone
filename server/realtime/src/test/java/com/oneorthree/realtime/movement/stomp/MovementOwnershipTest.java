@@ -1,6 +1,6 @@
 package com.oneorthree.realtime.movement.stomp;
 
-import com.oneorthree.realtime.TestcontainersConfiguration;
+import com.oneorthree.realtime.RestrictedRedisTestcontainersConfiguration;
 import com.oneorthree.realtime.common.redis.RedisKeys;
 import com.oneorthree.realtime.config.RealtimeSessionRegistry;
 import com.oneorthree.realtime.movement.MovementEvent;
@@ -36,7 +36,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 @SpringBootTest
 @ActiveProfiles("ci")
-@Import(TestcontainersConfiguration.class)
+@Import(RestrictedRedisTestcontainersConfiguration.class)
 class MovementOwnershipTest {
 
     @Autowired

@@ -1,7 +1,6 @@
 package com.oneorthree.phone.group.repository;
 
 import com.oneorthree.phone.group.repository.domain.Group;
-import com.oneorthree.phone.group.repository.domain.GroupStatus;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
@@ -22,15 +21,7 @@ import java.util.UUID;
  */
 public interface GroupRepository extends JpaRepository<Group, UUID> {
 
-    /**
-     * 상태별 그룹 전량 조회 — <b>프로덕션 호출부가 없다</b>. 페이징·삭제 필터가 없어 그대로 쓰면
-     * 지워진 방까지 전부 실린다.
-     *
-     * @param status 찾을 상태. 살아 있는 방은 사실상 전부 {@code WAITING} 이라 이 축만으로는 거의
-     *     걸러지지 않는다
-     * @return 조건에 맞는 그룹 전량(정렬·상한 없음). 빈 리스트는 그 상태의 방이 없다는 뜻일 뿐이다
-     */
-    List<Group> findByStatus(GroupStatus status);
+
 
     /**
      * 그룹 행 배타 락 — 챌린지 생성 직렬화(LLD §2.1 · GROMO-1422)와 그룹 탈퇴의 잠금 순서에 쓴다.
@@ -81,43 +72,14 @@ public interface GroupRepository extends JpaRepository<Group, UUID> {
             + "and gm.isLeft = false")
     boolean existsGroupOwnedBy(@Param("userId") UUID userId);
 
-    /**
-     * 공개 그룹 이름 trgm fuzzy 검색. 비공개(is_private)·삭제 그룹은 제외한다.
-     * 전제: pg_trgm 확장(V1) + groups.is_private(V17) + groups.name GIN trgm 인덱스(V18).
-     * % = 트라이그램 유사도 매칭, &lt;-> = 거리(가까운 순). 임계값(기본 0.3)은 닉네임 검색과 함께만 조정한다.
-     *
-     * @param q 검색어 원문 — 파라미터 바인딩이라 {@code %}·{@code _} 같은 문자가 와도 패턴으로 해석되지
-     *     않는다. 유사도 임계값에 못 미치면 아무것도 안 걸린다
-     * @param limit 상한 건수. 정렬이 거리순이라 상한을 넘긴 뒤쪽은 "덜 비슷한" 쪽이 잘린다
-     * @return 유사한 순(거리 오름차순) 공개·미삭제 그룹. <b>종료(ENDED)된 방은 걸러지지 않는다</b>.
-     *     빈 리스트는 "임계값을 넘는 이름이 없다"는 뜻이지 오타를 못 잡았다는 뜻이 아니다
-     */
-    @Query(value = "SELECT * FROM groups g"
-            + " WHERE g.name % :q AND g.is_private = false AND g.deleted_at IS NULL"
-            + " ORDER BY g.name <-> :q"
-            + " LIMIT :limit", nativeQuery = true)
-    List<Group> searchPublicByNameTrgm(@Param("q") String q, @Param("limit") int limit);
 
-    /**
-     * A-10: 그룹 찾기 검색어 입력 전 기본 목록 — 공개(비공개·삭제 제외) 그룹을 최신 생성순으로 상위 N개.
-     *
-     * @param limit 상한 건수 — 검색어가 없을 때의 화면 한 판 분량이다
-     * @return 생성 최신순 공개·미삭제 그룹. 정원이 찼거나 종료된 방도 그대로 실리므로, 참여 가능
-     *     여부는 화면 조립 단계에서 따로 붙인다
-     */
-    @Query(value = "SELECT * FROM groups g"
-            + " WHERE g.is_private = false AND g.deleted_at IS NULL"
-            + " ORDER BY g.created_at DESC"
-            + " LIMIT :limit", nativeQuery = true)
-    List<Group> findTopPublicGroups(@Param("limit") int limit);
+
+
 
     /**
      * 섬 이름 검색 한 페이지 (GROMO-1759, 섬 소속 LLD §3.2·§5).
      *
-     * <p>{@link #searchPublicByNameTrgm} 과 <b>따로</b> 두는 이유가 둘이다. 첫째, 이 쪽은 keyset 커서를
-     * 받는다. 둘째, 생존 필터가 다르다 — 기존 검색은 {@code deleted_at} 만 보고 {@code status='ENDED'}
-     * 를 걸러내지 않아 «끝난 그룹» 이 결과에 남는데, 새 계약은 "public·생존 그룹만"이다(§3.2). 기존
-     * 질의를 고치면 {@code /api/v1/groups/search} 의 결과가 조용히 달라지므로 손대지 않는다.
+     * public·생존 그룹을 keyset 커서로 조회한다.
      *
      * <p>커서는 마지막 행의 <b>섬 id 하나</b> 이고 trgm 거리는 그 행을 다시 읽어 재계산한다 — 거리
      * 값을 토큰에 실으면 검색어 원문이 커서로 새기 때문이다(§5).
@@ -128,15 +90,15 @@ public interface GroupRepository extends JpaRepository<Group, UUID> {
      * @param limit 페이지 크기
      * @return 정렬 순서를 유지한 섬 id
      */
-    @Query(value = "SELECT g.id FROM groups g "
+    @Query(value = "SELECT g.id FROM islands g "
             + "WHERE g.name % :q AND g.is_private = false AND g.deleted_at IS NULL "
             + "AND g.status <> 'ENDED' "
             + "AND (SELECT count(*) FROM group_members m "
             + "     WHERE m.group_id = g.id AND m.is_left = false) < g.max_members "
             + "AND (CAST(:cursorId AS uuid) IS NULL "
-            + "     OR ((g.name <-> :q) > (SELECT c.name <-> :q FROM groups c "
+            + "     OR ((g.name <-> :q) > (SELECT c.name <-> :q FROM islands c "
             + "                            WHERE c.id = CAST(:cursorId AS uuid)) "
-            + "         OR ((g.name <-> :q) = (SELECT c.name <-> :q FROM groups c "
+            + "         OR ((g.name <-> :q) = (SELECT c.name <-> :q FROM islands c "
             + "                                WHERE c.id = CAST(:cursorId AS uuid)) "
             + "             AND g.id > CAST(:cursorId AS uuid)))) "
             + "ORDER BY (g.name <-> :q) ASC, g.id ASC LIMIT :limit", nativeQuery = true)
@@ -147,7 +109,7 @@ public interface GroupRepository extends JpaRepository<Group, UUID> {
     /**
      * 검색어 없는 기본 목록 한 페이지 (GROMO-1759, LLD §3.2 "q 가 비어 있으면 최신 생성 순").
      *
-     * <p>정렬 키가 {@code id} 하나인 것이 의도다. {@code groups.id} 는 UUIDv7 이라 생성 시각과 같은
+     * <p>정렬 키가 {@code id} 하나인 것이 의도다. {@code islands.id} 는 UUIDv7 이라 생성 시각과 같은
      * 방향으로 증가하므로 {@code created_at} 과 동률 키를 따로 둘 필요가 없다 — 한 컬럼 keyset 이면
      * 동률 자체가 생기지 않아 «빠뜨림/중복» 이 구조적으로 불가능하다.
      *
@@ -155,7 +117,7 @@ public interface GroupRepository extends JpaRepository<Group, UUID> {
      * @param limit 페이지 크기
      * @return 최신순 섬 id
      */
-    @Query(value = "SELECT g.id FROM groups g "
+    @Query(value = "SELECT g.id FROM islands g "
             + "WHERE g.is_private = false AND g.deleted_at IS NULL AND g.status <> 'ENDED' "
             + "AND (SELECT count(*) FROM group_members m "
             + "     WHERE m.group_id = g.id AND m.is_left = false) < g.max_members "
@@ -180,7 +142,7 @@ public interface GroupRepository extends JpaRepository<Group, UUID> {
      * @param limit 페이지 크기
      * @return 셔플 순서를 유지한 후보 섬 id
      */
-    @Query(value = "SELECT g.id FROM groups g "
+    @Query(value = "SELECT g.id FROM islands g "
             + "WHERE g.is_private = false AND g.deleted_at IS NULL AND g.status <> 'ENDED' "
             + "AND (SELECT count(*) FROM group_members m "
             + "     WHERE m.group_id = g.id AND m.is_left = false) < g.max_members "
@@ -203,7 +165,7 @@ public interface GroupRepository extends JpaRepository<Group, UUID> {
     String TELESCOPE_VISIBLE_SQL = "SELECT g.id, g.max_members, "
             + "(SELECT count(*) FROM group_members m JOIN users u ON u.id = m.user_id "
             + " WHERE m.group_id = g.id AND m.is_left = false AND u.is_deleted = false) AS member_count "
-            + "FROM groups g "
+            + "FROM islands g "
             + "WHERE g.is_private = false AND g.deleted_at IS NULL AND g.status <> 'ENDED' "
             + "AND NOT EXISTS (SELECT 1 FROM group_members k WHERE k.group_id = g.id "
             + "                AND k.user_id = CAST(:userId AS uuid) AND k.is_left = false)";
@@ -284,7 +246,7 @@ public interface GroupRepository extends JpaRepository<Group, UUID> {
      * 「어제 새로 생긴 섬」(GROMO-2289, 계획 P17)이다. 가입 유도 칸이라 공개 섬만 싣는다 — 비공개 섬도 랭킹·홍보 칸에는
      * 실린다(10/16, GROMO-2305).
      */
-    @Query(value = "SELECT * FROM groups g WHERE g.is_private = false AND g.deleted_at IS NULL "
+    @Query(value = "SELECT * FROM islands g WHERE g.is_private = false AND g.deleted_at IS NULL "
             + "AND g.status <> 'ENDED' AND g.created_at >= :from AND g.created_at < :to "
             + "ORDER BY g.created_at, g.id LIMIT :limit", nativeQuery = true)
     List<Group> findPublicAliveCreatedBetween(@Param("from") Instant from, @Param("to") Instant to,

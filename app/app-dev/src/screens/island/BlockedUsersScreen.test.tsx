@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 import { BlockedUsersScreen } from '@/screens/island/BlockedUsersScreen';
+import { UserSafetySheet } from '@/components/UserSafetySheet';
 import { ApiError } from '@/services/api/client';
-import { getBlockedUsers, unblockUser } from '@/services/api/safety';
+import { blockUser, getBlockedUsers, unblockUser } from '@/services/api/safety';
 import { applyLocalePref } from '@/i18n';
 import {
   isUserBlocked,
@@ -24,6 +25,7 @@ jest.mock('@/utils/layout', () => ({
 }));
 
 jest.mock('@/services/api/safety', () => ({
+  blockUser: jest.fn(),
   getBlockedUsers: jest.fn(),
   unblockUser: jest.fn(),
 }));
@@ -145,6 +147,30 @@ test('전역 차단 목록 snapshot이 바뀌면 열린 화면의 행도 즉시 
 
   await waitFor(() => assert.ok(screen.getByText('서윤')));
   assert.equal(screen.queryByText('민지'), null);
+});
+
+test('친구 관리에서 방금 차단한 사용자는 차단한 사용자 화면에 바로 나타난다(GROMO-2467)', async () => {
+  // 직전에 읽은 목록(빈 목록)이 아직 캐시 유효 시간 안이어도 화면 진입은 서버 정본을 다시 읽는다
+  listMock.mockResolvedValue([]);
+  (blockUser as jest.Mock).mockResolvedValue(undefined);
+  const sheet = await render(
+    <UserSafetySheet
+      visible
+      targetUserId="user-2"
+      targetName="민지"
+      initialMode="block"
+      onClose={jest.fn()}
+      onMessage={jest.fn()}
+    />,
+  );
+  await fireEvent.press(sheet.getByText('차단'));
+  assert.equal(isUserBlocked('user-2'), true);
+  await sheet.unmount();
+
+  listMock.mockResolvedValue([user]);
+  const screen = await render(<BlockedUsersScreen e={events()} />);
+
+  await waitFor(() => assert.ok(screen.getByText('민지')));
 });
 
 test('차단 목록은 단방향 숨김과 해제 뒤 재노출 가능성을 안내한다', async () => {

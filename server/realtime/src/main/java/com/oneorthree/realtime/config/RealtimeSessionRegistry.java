@@ -29,8 +29,8 @@ import java.util.concurrent.ConcurrentHashMap;
  * ({@code focus}·{@code rest})이 가장 싸게 쌓인다 — 공개라서 상류 조회조차 타지 않기 때문이다.
  *
  * <p>빈도 창({@code lock:chat:emote:sub:*})은 <b>상류 조회</b>를 막지 <b>누적 구독 수</b>를 막지
- * 않는다(창마다 하나씩 꾸준히 쌓으면 걸리지 않는다). 그래서 여기서 두 가지를 따로 막는다 —
- * <b>중복</b>(같은 목적지)과 <b>총량</b>(세션당 구독 수).
+ * 않는다(창마다 하나씩 꾸준히 쌓으면 걸리지 않는다). 그래서 여기서 세 가지를 따로 막는다 —
+ * <b>id 의 목적지 변경</b>(같은 id 로 다른 목적지)·<b>중복</b>(같은 목적지)·<b>총량</b>(세션당 구독 수).
  */
 @Slf4j
 @Component
@@ -52,6 +52,12 @@ public class RealtimeSessionRegistry implements MeterBinder {
      * 이 상한에 닿지 않는다. 해지 없이 계속 쌓기만 하면 걸리는데, 그건 고쳐야 할 클라이언트 쪽 버그다.
      */
     static final int MAX_SUBSCRIPTIONS_PER_SESSION = 96;
+
+    /** 토큰 만료·불일치로 닫는다(1008) — 앱은 토큰을 갱신해 다시 붙는다. */
+    public static final CloseStatus UNAUTHORIZED = CloseStatus.POLICY_VIOLATION.withReason("UNAUTHORIZED");
+
+    /** 그 로그인 세션이 폐기돼 닫는다(1008, GROMO-2350). */
+    public static final CloseStatus SESSION_REVOKED = CloseStatus.POLICY_VIOLATION.withReason("SESSION_REVOKED");
 
     private final Map<String, ChatPrincipal> principals = new ConcurrentHashMap<>();
     private final Map<String, WebSocketSession> sockets = new ConcurrentHashMap<>();
@@ -91,12 +97,13 @@ public class RealtimeSessionRegistry implements MeterBinder {
     /**
      * 이 세션에 구독 하나를 더할 수 있는지 — 더할 수 있으면 기록하고 {@code true}.
      *
-     * <p>거절하는 둘은 서로 다른 것을 막는다. <b>중복</b>은 같은 목적지가 여러 번 등록돼 사건 하나가
-     * 복제되는 것을, <b>총량</b>은 임의 UUID 로 목적지를 계속 바꿔 레지스트리를 불리는 것을 막는다.
-     * 하나만으로는 다른 하나가 그대로 샌다.
+     * <p>거절하는 셋은 서로 다른 것을 막는다. <b>id 의 목적지 변경</b>은 브로커 레지스트리와 이 기록이 어긋나는
+     * 것을, <b>중복</b>은 같은 목적지가 여러 번 등록돼 사건 하나가 복제되는 것을, <b>총량</b>은 임의 UUID 로
+     * 목적지를 계속 바꿔 레지스트리를 불리는 것을 막는다. 하나만으로는 나머지가 그대로 샌다.
      *
      * <p>같은 {@code subscriptionId} 로 같은 목적지를 다시 보내는 것은 <b>재전송</b>으로 보고 통과시킨다 —
-     * 그걸 중복으로 세면 프레임 한 번이 늦게 도착한 것만으로 세션이 끊긴다.
+     * 그걸 중복으로 세면 프레임 한 번이 늦게 도착한 것만으로 세션이 끊긴다. 같은 id 로 <b>다른</b> 목적지를
+     * 보내는 것은 거절한다 — id 의 목적지는 처음 등록된 값에 고정되고, 바꾸려면 UNSUBSCRIBE 뒤 새로 구독한다.
      *
      * @return 세션을 추적할 수 없으면({@code sessionId}·{@code subscriptionId} 가 없으면) {@code true} —
      *         정상 STOMP 클라이언트에는 둘 다 있고, 없는 프레임은 관문의 다른 검사가 막는다
@@ -110,11 +117,26 @@ public class RealtimeSessionRegistry implements MeterBinder {
             if (destination.equals(held.get(subscriptionId))) {
                 return true;
             }
+            // 브로커 레지스트리는 같은 id 의 두 번째 등록을 putIfAbsent 로 무시해 옛 목적지가 남는다. 여기서 바꿔 끼우면
+            // 뒤이은 다른 id 의 같은 목적지 구독이 중복 검사를 통과해 같은 사건을 두 번 전송하게 된다(GROMO-2210).
+            if (held.containsKey(subscriptionId)) {
+                return false;
+            }
             if (held.containsValue(destination) || held.size() >= MAX_SUBSCRIPTIONS_PER_SESSION) {
                 return false;
             }
             held.put(subscriptionId, destination);
             return true;
+        }
+    }
+
+    /**
+     * 끝난 세션의 구독 기록을 통째로 지운다 — 종료 정리(disconnected·closed)보다 늦게 남은 기록용(EndedSessionGuard).
+     * <b>끝난 세션 전용</b>: 살아 있는 세션에 부르면 그 세션의 구독 기록이 사라진다.
+     */
+    public void forgetSubscriptions(String sessionId) {
+        if (sessionId != null) {
+            subscriptions.remove(sessionId);
         }
     }
 
@@ -212,7 +234,7 @@ public class RealtimeSessionRegistry implements MeterBinder {
 
     /** 수신만 하던 앱도 토큰 갱신·재연결을 시작할 수 있게 실제 연결을 끝낸다. */
     public void closeUnauthorized(String sessionId) {
-        close(sessionId, CloseStatus.POLICY_VIOLATION.withReason("UNAUTHORIZED"));
+        close(sessionId, UNAUTHORIZED);
     }
 
     /**

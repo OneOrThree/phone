@@ -63,6 +63,8 @@ export type Route =
   | 'settings'
   | 'language'
   | 'blockedUsers'
+  | 'developerNotices'
+  | 'developerNotice'
   | 'wardrobe'
   | 'sound'
   | 'library'
@@ -281,6 +283,8 @@ export type State = {
   // 서버에서 소속 없음이 확인된 신규 흐름만 첫 소속 확정 후 안내를 시작한다.
   tutorialEnrollment?: 'awaiting-first-island' | 'existing';
   focusGuideDone?: boolean;
+  /** 계정 귀속: 튜토리얼 집중 정상 완료 후 예약하고 다음 집중 안내를 열 때 소비한다. */
+  focusBlockingIntro?: 'pending' | 'seen';
   version: 1;
   schema?: 2;
   friends?: Friend[];
@@ -1678,8 +1682,14 @@ export function reducer(state: State, a: Action): State {
     'BUILD',
   ];
   if (hostOnly.includes(a.type) && !isHost(currentIsland(state))) return state;
+  // 서버 섬의 소속은 serverIslands가 정본이다. 로컬 목업 섬은 미가입이어도 자리 선택을 저장해야 한다.
+  if (a.type === 'FOCUS_SPOT') {
+    const hasCurrentIsland = state.serverIslands
+      ? state.serverIslands.currentIslandId !== null
+      : currentIsland(state).joined;
+    if (!hasCurrentIsland || state.visitingIslandId) return state;
+  }
   const joinedOnly = [
-    'FOCUS_SPOT',
     'START',
     'COMMENT',
     'MESSAGE',
@@ -1712,9 +1722,14 @@ export function reducer(state: State, a: Action): State {
   switch (a.type) {
     case 'FOCUS_GUIDE_RESTORED':
       s.focusGuideDone = true;
+      if (a.focusBlockingIntro && s.focusBlockingIntro !== 'seen')
+        s.focusBlockingIntro = a.focusBlockingIntro;
       s.tutorialEnrollment = 'existing';
       s.tutorial = { step: 99 };
       delete s.tutorialExperience;
+      break;
+    case 'FOCUS_BLOCKING_INTRO_SEEN':
+      s.focusBlockingIntro = 'seen';
       break;
     case 'GUIDE_STEP': {
       if (
@@ -1725,6 +1740,7 @@ export function reducer(state: State, a: Action): State {
         return state;
       const step = a.step as number;
       if (s.focusGuideDone && step < 22) return state;
+      if (step === 22 && !s.focusGuideDone) s.focusBlockingIntro ??= 'pending';
       if (step >= 22) s.focusGuideDone = true;
       if ([0, 4, 99].includes(step)) delete s.tutorialExperience;
       s.tutorialRevision = (s.tutorialRevision ?? 0) + 1;
@@ -1752,12 +1768,12 @@ export function reducer(state: State, a: Action): State {
       if (['intro', 'scope', 'done'].includes(a.checkpoint)) s.onboardingStory = a.checkpoint;
       break;
     case 'PROFILE':
-      if (a.name?.trim() && a.name.trim() !== s.name)
+      if (typeof a.name === 'string' && a.name && a.name !== s.name)
         s.profileNames = [
-          ...new Set([...(s.profileNames ?? [s.name]), s.name, a.name.trim()].filter(Boolean)),
+          ...new Set([...(s.profileNames ?? [s.name]), s.name, a.name].filter(Boolean)),
         ];
-      // 편집 중에는 빈 문자열도 실제 초안 값이다. 최종 저장 검증은 화면에서 처리한다.
-      if (typeof a.name === 'string') s.name = a.name.trim();
+      // 새 입력은 화면에서 공백을 제거한다. 서버가 보존한 기존 이름과 빈 편집 초안은 원문 그대로 둔다.
+      if (typeof a.name === 'string') s.name = a.name;
       s.color = a.color || s.color;
       break;
     // ── 섬 — 만들기·가입·이동 ──
@@ -2607,6 +2623,9 @@ export function reducer(state: State, a: Action): State {
         i.playing = true;
       }
       break;
+    case 'TRACK_SELECT':
+      if (i.buildings.includes('gram') && i.sharedOwned.includes(a.value)) i.track = a.value;
+      break;
     case 'PLAY':
       if (
         i.buildings.includes('gram') &&
@@ -2774,6 +2793,7 @@ export function reducer(state: State, a: Action): State {
       delete s.tutorialExperience;
       delete s.tutorialEnrollment;
       delete s.focusGuideDone;
+      delete s.focusBlockingIntro;
       s.tutorialRevision = (s.tutorialRevision ?? 0) + 1;
       // 서버 온보딩 스냅샷도 계정과 함께 버린다 — A 계정의 orphan 신청이 B 계정에 섞이지 않게
       s.serverIslands = null;

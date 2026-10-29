@@ -1,6 +1,5 @@
 package com.oneorthree.phone.internal;
 
-import com.oneorthree.phone.auth.dto.req.LogoutRequest;
 import com.oneorthree.phone.auth.exception.AccessCredentialException;
 import com.oneorthree.phone.auth.exception.InvalidTokenException;
 import com.oneorthree.phone.auth.repository.AuthSessionRepository;
@@ -59,7 +58,6 @@ class SessionLogoutIntegrationTest {
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
         OutboxTestPostgres.applyProductionMigrationWiring(registry);
-        registry.add("internal.api.enabled", () -> true);
         registry.add("internal.api.callers.business.token", () -> SERVICE_TOKEN);
         registry.add("internal.api.callers.business.allow[0]", () -> "POST " + PATH);
         registry.add("internal.api.callers.notification.token", () -> "test-notification-session-logout");
@@ -116,7 +114,7 @@ class SessionLogoutIntegrationTest {
         assertThat(stopped.isActive()).isFalse();
         assertThat(stopped.getSessionEpoch()).isGreaterThan(before);
         assertThat(stopped.getLogoutRefreshExpiresAt())
-                .isEqualTo(jwt.extractExpiration(actor.refreshToken()).toInstant());
+                .isEqualTo(jwt.verifyLogoutToken(actor.refreshToken(), JwtProvider.TYPE_REFRESH).expiresAt());
         assertThat(stopped.getRevokeReason()).isEqualTo("LOGOUT");
         assertThat(stopped.getBootstrapNonceHash()).isNotBlank();
         // 멱등 재생도 같은 세션 id 를 돌려줘야 business 거부목록 기록이 재시도로 복구된다.
@@ -144,12 +142,13 @@ class SessionLogoutIntegrationTest {
     }
 
     @Test
-    @DisplayName("실제 guestLogin의 sid AT와 sid 없는 RT 그대로 종료·재생하고 타 세션 AT는 거절한다")
+    @DisplayName("실제 게스트 세션 발급기의 sid AT와 sid 없는 RT 그대로 종료·재생하고 타 세션 AT는 거절한다")
     void actualIssuerCredentialsProveSessionByRefreshHash() throws Exception {
-        var login = auth.guestLogin();
-        Actor actor = new Actor(jwt.extractUserId(login.accessToken()), login.sessionId(), login.refreshToken());
+        var login = auth.guestSession(java.util.UUID.randomUUID().toString());
+        Actor actor = new Actor(jwt.extractUserId(login.accessToken()),
+                jwt.extractSessionId(login.accessToken()), login.refreshToken());
         assertThat(jwt.extractSessionId(login.refreshToken())).isNull();
-        assertThat(jwt.extractSessionId(login.accessToken())).isEqualTo(login.sessionId());
+        assertThat(row(actor).getRefreshTokenHash()).isEqualTo(TokenHasher.sha256Hex(login.refreshToken()));
         assertAccessRejected(actor, jwt.generateAccessToken(actor.userId(), true, 0L, UUID.randomUUID()));
         for (int attempt = 0; attempt < 2; attempt++) {
             mvc.perform(post(PATH).header("Authorization", "Bearer " + SERVICE_TOKEN)
@@ -161,19 +160,19 @@ class SessionLogoutIntegrationTest {
     }
 
     @Test
-    @DisplayName("legacy 자격은 같은 주체·세션 증명을 요구하고 근거 없는 혼합은 거절한다")
-    void legacyAndMixedCredentials() {
+    @DisplayName("동봉 AT는 동일 세션을 증명해야 하며 세션 없는 RT는 거절한다")
+    void rejectsCredentialsWithoutMatchingSession() {
         Actor legacy = actor();
         assertAccessRejected(legacy, jwt.generateAccessToken(legacy.userId(), true, 0L, UUID.randomUUID()));
         Actor sid = withRefresh(actor(), true, Instant.now().plusSeconds(3600));
         assertAccessRejected(sid, jwt.generateAccessToken(sid.userId(), true));
-        service.logout(legacy.refreshToken(), jwt.generateAccessToken(legacy.userId(), true));
-        assertThat(row(legacy).isActive()).isFalse();
+        assertAccessRejected(legacy, jwt.generateAccessToken(legacy.userId(), true));
+        assertThat(row(legacy).isActive()).isTrue();
         Actor noSession = actor();
         jdbc.update("delete from auth_sessions where id=?", noSession.sessionId());
         String access = jwt.generateAccessToken(noSession.userId(), true, 0L, noSession.sessionId());
         assertThatThrownBy(() -> service.logout(noSession.refreshToken(), access))
-                .isInstanceOf(AccessCredentialException.class);
+                .isInstanceOf(InvalidTokenException.class);
         assertThat(revocationCount(noSession)).isZero();
     }
 
@@ -225,25 +224,22 @@ class SessionLogoutIntegrationTest {
     }
 
     @Test
-    @DisplayName("세션행 없는 실제 legacy 해시는 종료행으로 백필하고 동일 증거를 재생한다")
-    void absentLegacySession() {
+    @DisplayName("서명은 유효해도 세션 행이 없는 RT는 종료 증거를 만들지 않는다")
+    void absentSessionIsRejected() {
         Actor actor = actor();
         jdbc.update("delete from auth_sessions where id=?", actor.sessionId());
-        service.logout(actor.refreshToken(), null);
-        service.logout(actor.refreshToken(), null);
-        var stopped = sessionRows.findByRefreshTokenHash(TokenHasher.sha256Hex(actor.refreshToken())).orElseThrow();
-        assertThat(stopped.isLegacy()).isTrue();
-        assertThat(stopped.isActive()).isFalse();
-        assertThat(stopped.getBootstrapNonceHash()).isNull();
-        assertThat(stopped.getLogoutRefreshExpiresAt()).isNotNull();
-        assertThat(revocationCount(actor)).isEqualTo(1);
+
+        assertThatThrownBy(() -> service.logout(actor.refreshToken(), null))
+                .isInstanceOf(InvalidTokenException.class);
+        assertThat(revocationCount(actor)).isZero();
     }
 
     @Test
-    @DisplayName("legacy 종료 proof null과 타 사유 폐기는 새 종료 재생으로 인정하지 않는다")
-    void rejectsOtherRevocationsAndLegacyProof() {
+    @DisplayName("만료 증거 없는 종료와 타 사유 폐기는 재생으로 인정하지 않는다")
+    void rejectsOtherRevocationsAndMissingProof() {
         Actor legacy = actor();
-        auth.logout(new LogoutRequest(legacy.refreshToken()));
+        service.logout(legacy.refreshToken(), null);
+        jdbc.update("UPDATE auth_sessions SET logout_refresh_expires_at = NULL WHERE id = ?", legacy.sessionId());
         assertThatThrownBy(() -> service.logout(legacy.refreshToken(), null)).isInstanceOf(InvalidTokenException.class);
         Actor other = actor();
         tx().executeWithoutResult(status -> sessions.revokeAll(other.userId(), "LOGOUT_ALL"));
@@ -268,66 +264,18 @@ class SessionLogoutIntegrationTest {
         Actor actor = actor();
         String second = jwt.generateRefreshToken(actor.userId(), true);
         UUID secondId = tx().execute(status -> {
-            users.getCallerForUpdate(actor.userId()).setRefreshTokenHash(TokenHasher.sha256Hex(second));
+            users.getCallerForUpdate(actor.userId());
             return sessions.open(actor.userId(), second).sessionId();
         });
         service.logout(actor.refreshToken(), null);
         assertThat(sessionRows.findById(secondId).orElseThrow().isActive()).isTrue();
-        assertThat(auth.refreshToken(second).accessToken()).isNotBlank();
-        assertThatThrownBy(() -> auth.refreshToken(actor.refreshToken())).isInstanceOf(InvalidTokenException.class);
+        assertThat(auth.refreshSessionAccessToken(second).accessToken()).isNotBlank();
+        assertThatThrownBy(() -> auth.refreshSessionAccessToken(actor.refreshToken()))
+                .isInstanceOf(InvalidTokenException.class);
     }
 
     @Test
-    @DisplayName("B가 단일 해시를 가진 뒤 회전한 A의 실제 새 자격은 종료·재생되고 B는 유지된다")
-    void rotatedSessionLogsOutWithoutRevokingOtherDevice() throws Exception {
-        Actor first = actor();
-        // 실제 발급기와 같은 JWT 구조에 짧은 수명만 주어 생산 refresh의 회전을 유도한다.
-        String expiring = new JwtProvider(secret, 3600L, 600L, 600L)
-                .generateRefreshToken(first.userId(), true);
-        replaceRefresh(first, expiring);
-        String second = jwt.generateRefreshToken(first.userId(), true);
-        UUID secondId = tx().execute(status -> {
-            users.getCallerForUpdate(first.userId()).setRefreshTokenHash(TokenHasher.sha256Hex(second));
-            return sessions.open(first.userId(), second).sessionId();
-        });
-        var rotated = auth.refreshToken(expiring);
-        assertThat(rotated.refreshToken()).isNotBlank();
-        assertThat(rotated.sessionId()).isEqualTo(first.sessionId());
-        assertThat(jwt.extractSessionId(rotated.refreshToken())).isNull();
-        assertThat(jwt.extractSessionId(rotated.accessToken())).isEqualTo(first.sessionId());
-        var afterRotation = row(first);
-        long rotationEpoch = afterRotation.getSessionEpoch();
-        String bootstrapHash = afterRotation.getBootstrapNonceHash();
-
-        mvc.perform(post(PATH).header("Authorization", "Bearer " + SERVICE_TOKEN)
-                        .contentType("application/json").content(body(rotated.refreshToken(), rotated.accessToken())))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.revoked").value(true));
-        long logoutEpoch = row(first).getSessionEpoch();
-        assertThat(logoutEpoch).isGreaterThan(rotationEpoch);
-        mvc.perform(post(PATH).header("Authorization", "Bearer " + SERVICE_TOKEN)
-                        .contentType("application/json").content(body(rotated.refreshToken(), rotated.accessToken())))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.revoked").value(true));
-
-        var stopped = row(first);
-        assertThat(stopped.isActive()).isFalse();
-        assertThat(stopped.getSessionEpoch()).isEqualTo(logoutEpoch);
-        assertThat(stopped.getRevokeReason()).isEqualTo("LOGOUT");
-        assertThat(stopped.getRefreshTokenHash()).isEqualTo(TokenHasher.sha256Hex(rotated.refreshToken()));
-        assertThat(stopped.getLogoutRefreshExpiresAt())
-                .isEqualTo(jwt.extractExpiration(rotated.refreshToken()).toInstant());
-        assertThat(stopped.getBootstrapNonceHash()).isEqualTo(bootstrapHash);
-        assertThat(revocationCount(first)).isEqualTo(1);
-        assertThat(jdbc.queryForObject("select refresh_token_hash from users where id=?", String.class, first.userId()))
-                .isEqualTo(TokenHasher.sha256Hex(second));
-        assertThat(sessionRows.findById(secondId).orElseThrow().isActive()).isTrue();
-        assertThat(auth.refreshToken(second).sessionId()).isEqualTo(secondId);
-        assertThatThrownBy(() -> auth.refreshToken(expiring)).isInstanceOf(InvalidTokenException.class);
-        assertThatThrownBy(() -> service.logout(expiring, null)).isInstanceOf(InvalidTokenException.class);
-        assertThatThrownBy(() -> auth.refreshToken(rotated.refreshToken())).isInstanceOf(InvalidTokenException.class);
-    }
-
-    @Test
-    @DisplayName("바깥 TX rollback은 users 해시·epoch·종료 증거·outbox를 모두 되돌린다")
+    @DisplayName("바깥 TX rollback은 epoch·종료 증거·outbox를 모두 되돌린다")
     void transactionRollback() {
         Actor actor = actor();
         long before = row(actor).getSessionEpoch();
@@ -339,7 +287,7 @@ class SessionLogoutIntegrationTest {
         assertThat(row(actor).getSessionEpoch()).isEqualTo(before);
         assertThat(row(actor).getLogoutRefreshExpiresAt()).isNull();
         assertThat(revocationCount(actor)).isZero();
-        assertThat(auth.refreshToken(actor.refreshToken()).accessToken()).isNotBlank();
+        assertThat(auth.refreshSessionAccessToken(actor.refreshToken()).accessToken()).isNotBlank();
     }
 
     @Test
@@ -369,37 +317,6 @@ class SessionLogoutIntegrationTest {
     }
 
     @Test
-    @DisplayName("회전이 먼저 확정되면 잠금 대기한 옛 RT 종료는 새 해시를 폐기하지 않는다")
-    void refreshCommitsBeforeLogout() throws Exception {
-        Actor actor = withRefresh(actor(), false, Instant.now().plusSeconds(60));
-        var executor = Executors.newSingleThreadExecutor();
-        try {
-            var future = tx().execute(status -> {
-                users.getCallerForUpdate(actor.userId());
-                var rotated = auth.refreshToken(actor.refreshToken());
-                assertThat(rotated.refreshToken()).isNotBlank();
-                CountDownLatch started = new CountDownLatch(1);
-                AtomicInteger pid = new AtomicInteger();
-                var pending = executor.submit(() -> tx().executeWithoutResult(inner -> {
-                    pid.set(jdbc.queryForObject("select pg_backend_pid()", Integer.class));
-                    started.countDown();
-                    assertThatThrownBy(() -> service.logout(actor.refreshToken(), null))
-                            .isInstanceOf(InvalidTokenException.class);
-                    inner.setRollbackOnly();
-                }));
-                await(started);
-                awaitDatabaseLock(pid.get());
-                return pending;
-            });
-            future.get(20, TimeUnit.SECONDS);
-            assertThat(row(actor).isActive()).isTrue();
-            assertThat(revocationCount(actor)).isZero();
-        } finally {
-            executor.shutdownNow();
-        }
-    }
-
-    @Test
     @DisplayName("신규 종료가 먼저 커밋되면 실제 users 잠금을 기다린 refresh는 거절되고 종료 증거는 재생된다")
     void logoutCommitsBeforeRefresh() throws Exception {
         Actor original = actor();
@@ -417,7 +334,7 @@ class SessionLogoutIntegrationTest {
                 var pending = executor.submit(() -> tx().executeWithoutResult(inner -> {
                     pid.set(jdbc.queryForObject("select pg_backend_pid()", Integer.class));
                     started.countDown();
-                    assertThatThrownBy(() -> auth.refreshToken(actor.refreshToken()))
+                    assertThatThrownBy(() -> auth.refreshSessionAccessToken(actor.refreshToken()))
                             .isInstanceOf(InvalidTokenException.class);
                     inner.setRollbackOnly();
                 }));
@@ -432,7 +349,8 @@ class SessionLogoutIntegrationTest {
             assertThat(logoutEpoch).isGreaterThan(before);
             assertThat(stopped.isActive()).isFalse();
             assertThat(stopped.getRevokeReason()).isEqualTo("LOGOUT");
-            assertThat(stopped.getLogoutRefreshExpiresAt()).isEqualTo(jwt.extractExpiration(expiring).toInstant());
+            assertThat(stopped.getLogoutRefreshExpiresAt())
+                    .isEqualTo(jwt.verifyLogoutToken(expiring, JwtProvider.TYPE_REFRESH).expiresAt());
             assertThat(stopped.getRefreshTokenHash()).isEqualTo(TokenHasher.sha256Hex(expiring));
             mvc.perform(post(PATH).header("Authorization", "Bearer " + SERVICE_TOKEN)
                             .contentType("application/json").content(body(expiring, null)))
@@ -440,8 +358,6 @@ class SessionLogoutIntegrationTest {
             assertThat(row(actor).getSessionEpoch()).isEqualTo(logoutEpoch);
             assertThat(row(actor).getRevokedAt()).isEqualTo(revokedAt);
             assertThat(revocationCount(actor)).isEqualTo(1);
-            assertThat(jdbc.queryForObject("select refresh_token_hash from users where id=?", String.class,
-                    actor.userId())).isNull();
         } finally {
             executor.shutdownNow();
         }
@@ -468,8 +384,9 @@ class SessionLogoutIntegrationTest {
     }
 
     private Actor actor() {
-        var login = auth.guestLogin();
-        return new Actor(jwt.extractUserId(login.accessToken()), login.sessionId(), login.refreshToken());
+        var login = auth.guestSession(java.util.UUID.randomUUID().toString());
+        return new Actor(jwt.extractUserId(login.accessToken()),
+                jwt.extractSessionId(login.accessToken()), login.refreshToken());
     }
 
     private Actor withRefresh(Actor actor, boolean withSid, Instant expires) {
@@ -482,7 +399,6 @@ class SessionLogoutIntegrationTest {
     private void replaceRefresh(Actor actor, String refresh) {
         String hash = TokenHasher.sha256Hex(refresh);
         tx().executeWithoutResult(status -> {
-            jdbc.update("update users set refresh_token_hash=? where id=?", hash, actor.userId());
             jdbc.update("update auth_sessions set refresh_token_hash=? where id=?", hash, actor.sessionId());
         });
     }

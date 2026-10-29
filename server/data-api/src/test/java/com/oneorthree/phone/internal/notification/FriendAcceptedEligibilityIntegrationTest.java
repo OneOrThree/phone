@@ -6,6 +6,7 @@ import com.oneorthree.phone.friend.repository.domain.Friendship;
 import com.oneorthree.phone.friend.repository.domain.FriendshipStatus;
 import com.oneorthree.phone.friend.service.FriendService;
 import com.oneorthree.phone.notification.service.FriendNotificationService;
+import com.oneorthree.phone.notification.producer.NotificationOutboxProducer;
 import com.oneorthree.phone.outbox.repository.domain.EventOutbox;
 import com.oneorthree.phone.outbox.support.OutboxTestPostgres;
 import com.oneorthree.phone.user.repository.UserRepository;
@@ -33,7 +34,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /** 실제 outbox의 과거 닉네임을 보존한 채 현재 정본 상태를 HTTP 적격성 표면에서 다시 판정한다. */
-@SpringBootTest(properties = "notification.dispatch.mode=OUTBOX")
+@SpringBootTest
 @AutoConfigureMockMvc
 @Transactional
 class FriendAcceptedEligibilityIntegrationTest {
@@ -43,7 +44,6 @@ class FriendAcceptedEligibilityIntegrationTest {
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
         OutboxTestPostgres.applyProductionMigrationWiring(registry);
-        registry.add("internal.api.enabled", () -> true);
         registry.add("internal.api.callers.notification.token", () -> TOKEN);
         registry.add("internal.api.callers.notification.allow[0]",
                 () -> "POST /internal/notifications/eligibility");
@@ -55,6 +55,7 @@ class FriendAcceptedEligibilityIntegrationTest {
     @Autowired UserRepository users;
     @Autowired FriendshipRepository friendships;
     @Autowired FriendNotificationService notifications;
+    @Autowired NotificationOutboxProducer producer;
     @Autowired FriendService friends;
     private User recipient;
     private User counterpart;
@@ -112,8 +113,8 @@ class FriendAcceptedEligibilityIntegrationTest {
     void friendRequestAlreadyStopsWhenWithdrawalDeletesItsPendingRequest() throws Exception {
         Friendship friendship = friendships.saveAndFlush(Friendship.builder().fromUser(counterpart)
                 .toUser(recipient).status(FriendshipStatus.PENDING).build());
-        assertThat(notifications.enqueueFriendRequestNotification(friendship.getId(),
-                recipient.getId(), counterpart.getId())).isTrue();
+        assertThat(producer.append(notifications.friendRequestRequest(friendship.getId(),
+                recipient.getId(), counterpart.getId()).orElseThrow())).isPresent();
         flushAndClear();
         Map<String, Object> event = from(recordedEvent());
         evaluate(event).andExpect(jsonPath("$.eligible").value(true));
@@ -125,7 +126,8 @@ class FriendAcceptedEligibilityIntegrationTest {
     private Map<String, Object> acceptedEvent() {
         friendships.saveAndFlush(Friendship.builder().fromUser(recipient).toUser(counterpart)
                 .status(FriendshipStatus.ACCEPTED).build());
-        assertThat(notifications.enqueueFriendAcceptedNotification(recipient.getId(), counterpart.getId())).isTrue();
+        assertThat(producer.append(notifications.friendAcceptedRequest(recipient.getId(),
+                counterpart.getId()).orElseThrow())).isPresent();
         flushAndClear();
         EventOutbox event = recordedEvent();
         assertThat(event.getSubjectId()).isEqualTo(counterpart.getId().toString());

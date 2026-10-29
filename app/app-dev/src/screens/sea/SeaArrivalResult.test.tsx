@@ -1,7 +1,10 @@
+import { applyLocalePref } from '@/i18n';
 import React from 'react';
 import { render } from '@testing-library/react-native';
+import { StyleSheet } from 'react-native';
 import type { CatalogEntry } from '@/services/customizationCatalog';
 import { SeaArrivalResult } from './SeaArrivalResult';
+import { GOWUN } from '@/screens/island/sceneKit';
 
 jest.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }),
@@ -120,4 +123,38 @@ test('「낚은 아이템」 아래 보이고, 처음 받은 것만 NEW! — 필
   const old = await render(<SeaArrivalResult result={result(['cust.neck.bell'])} {...props} />);
   expect(old.queryByText('NEW!')).toBeNull();
   expect(mockAddUnseen).not.toHaveBeenCalled();
+});
+
+test('결과창 제목·시간·버튼 글자는 고운돋움이다(GROMO-2334)', async () => {
+  mockTable = loaded;
+  const screen = await render(
+    <SeaArrivalResult result={result(['cust.neck.bell'])} pending={false} onExplore={jest.fn()} />,
+  );
+  for (const text of ['별고래섬', '30분 0초', '버터 방울 목걸이', '섬 둘러보기'])
+    expect(StyleSheet.flatten(screen.getByText(text).props.style).fontFamily).toBe(GOWUN);
+});
+
+afterEach(() => applyLocalePref('system'));
+
+test('영어 항해 결과의 대표·추가 보상은 같은 번역을 쓰고 목적지 이름은 유지한다', async () => {
+  mockTable = {
+    ...loaded,
+    'cust.head.peach': {
+      ...loaded['cust.neck.bell'],
+      productId: 'cust.head.peach',
+      title: '복숭아 한 알',
+    },
+  };
+  applyLocalePref('en');
+  const screen = await render(
+    <SeaArrivalResult
+      result={result(['cust.neck.bell', 'cust.head.peach'])}
+      pending={false}
+      onExplore={jest.fn()}
+    />,
+  );
+  expect(screen.getByText('Butter Bell Necklace')).toBeTruthy();
+  expect(screen.getByText(/Peach/)).toBeTruthy();
+  expect(screen.getByText('별고래섬')).toBeTruthy();
+  expect(screen.queryByText('버터 방울 목걸이')).toBeNull();
 });

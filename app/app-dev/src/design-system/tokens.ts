@@ -15,6 +15,10 @@ export const primitiveTokens = {
     cream: '#FFF7EB',
     paper: '#FFFDFA',
     brown: '#8B6956',
+    movementPing: '#74CDBF',
+    movementPingLight: '#88D9CC',
+    movementPingDark: '#43A99D',
+    movementPingOutline: '#6E4B33',
     ink: '#493B39',
     mutedBrown: '#796256',
     selectedPink: '#FFE2EA',
@@ -72,6 +76,14 @@ export const primitiveTokens = {
     fishingSplashRing: '#FFF4CE',
     fishingFloatRing: '#FFF6D5',
     fishingGlint: '#FFF9DC',
+    // 공동 가계부 장부 종이 위 보조 글자·표 줄(GROMO-2487 승인 시안 A안 통장)
+    ledgerFaint: '#8A7461',
+    ledgerRule: '#C9AD87',
+    ledgerDash: '#D8C3A3',
+    // 잔액·적립·지출 장의 고양이 포스트잇 색 — 펼친 장 종이에 옅게 덮는 틴트로 쓴다
+    ledgerTabPink: '#F2C1C8',
+    ledgerTabButter: '#F1D77F',
+    ledgerTabSky: '#ACD5DF',
   },
   space: {
     0: 0,
@@ -184,6 +196,8 @@ export const semanticTokens = {
     semibold: fontWeight.semibold,
     bold: fontWeight.bold,
     extraBold: fontWeight.extraBold,
+    // 시스템 글자 배율이 이 값 이상이면 큰 글자 배치 — 각 사용처가 `>=` 로 비교한다(결과창·온보딩만 `>`, GROMO-2281). raftDestinations 의 1.2 는 다른 판정.
+    largeTextThreshold: 1.3,
   },
   radius: {
     control: radius.control,
@@ -199,11 +213,72 @@ export const semanticTokens = {
 } as const;
 
 export const componentTokens = {
+  observatory: {
+    portraitSize: 48,
+    portraitZoom: 1.8,
+    rankGap: space[2],
+    rankMinWidth: space[6],
+    rankSize: 18,
+    rankLineHeight: 26.1,
+    introGap: space[1],
+    contentMaxWidth: 540,
+    toolbarSize: 26,
+    toolbarLineHeight: 32,
+    pagePadding: space[5],
+    sectionGap: space[6],
+    rowGap: space[3],
+    rowPadding: space[3],
+    rowHeight: 80,
+    paperPadding: space[3],
+    paperShadow: `0px ${space[1]}px 0px ${color.brown}`,
+    chevronWidth: space[4],
+    chevronHeight: space[5],
+    headingSize: 20,
+    headingLineHeight: 29,
+    scenery: {
+      podiumTop: space[4],
+      sky: color.sky,
+      footerHeight: 116,
+      raftWidth: 104,
+    },
+    podium: {
+      winnerSize: 88,
+      finalistSize: 72,
+      bodyHeight: 148,
+      joinedBodyHeight: 168,
+      winnerHeight: 72,
+      secondHeight: 48,
+      thirdHeight: 32,
+      crownSize: 24,
+      nameSize: 16,
+      nameLineHeight: 23.2,
+      averageSize: 12,
+      averageLineHeight: 17.4,
+      numberSize: 26,
+      numberLineHeight: 32,
+      gap: space[2],
+      columnPadding: space[1],
+      baseHeight: space[1],
+    },
+  },
   seaParticipant: {
     focusInk: color.focusInk,
     clockBackground: `${color.paper}E6`,
     cardRaftSize: 192,
     cardMaxWidth: 354,
+  },
+  // 다른 고양이 정보창(GROMO-2474) — 홈·집중섬·휴식 고양이 그림, 바다 뗏목 그림, 바다 한마디 말풍선
+  catInfoPopup: {
+    catSize: 112,
+    raftSize: 160,
+    bubbleMaxWidth: 240,
+    tailWidth: space[3],
+    tailHeight: space[2],
+    gap: space[2],
+  },
+  focusBlockingIntro: {
+    logoRadius: semanticTokens.radius.full,
+    logoShadow: `0px ${space[1]}px 0px ${semanticTokens.color.outline}`,
   },
   homeNavigation: {
     background: `${color.paper}AD`,
@@ -221,6 +296,24 @@ export const componentTokens = {
     shadowOffset: 2,
     shadowColor: `${color.brown}4D`,
   },
+  // 홈 왼쪽 아래 최근 채팅 줄(GROMO-2501) — 게임 채팅창처럼 잠깐 떴다 흐려진다. 표면은 홈 HUD 와 같은 얇은 반투명 Paper
+  homeChatLog: {
+    maxLines: 3,
+    lineMs: 8000,
+    fadeMs: 400,
+    gap: space[1] + 2,
+    background: `${color.paper}D9`,
+    border: `${color.brown}33`,
+    radius: radius.control,
+    paddingVertical: 3,
+    paddingHorizontal: space[3],
+    textSize: fontSize.sm,
+    lineHeight: 20,
+    bubbleSize: 44,
+    iconSize: 22,
+    // 말풍선 버튼의 스티커 그림자 y 오프셋(색은 outline)
+    bubbleShadowOffset: 3,
+  },
   raftDestinations: {
     imageWidth: 1024,
     imageHeight: 1536,
@@ -230,16 +323,12 @@ export const componentTokens = {
     imageBleedY: 1.02,
     narrowWidth: 350,
     captionInset: 0.11,
-    backIconSize: 13,
-    forwardIconSize: 18,
-    inlineGap: 2,
-    pressedOpacity: 0.7,
-    textShadowRadius: { title: 5, members: 3, choice: 8 },
+    // 입구·목적지는 Btn(바다 위 glass)이라 글자 그림자는 제목·집중섬 이름에만 남는다
+    textShadowRadius: { title: 5 },
     headerTop: space[10],
     titleOffset: space[3],
     titleSize: 19,
     largeTextThreshold: 1.2,
-    choiceSize: 21,
     seaTop: 0.28,
     focusTop: 0.505,
     choiceInset: 0.04,
@@ -293,14 +382,11 @@ export const componentTokens = {
     fontSize: fontSize.md,
     lineHeight: space[6],
     fontWeight: primitiveTokens.fontWeight.bold,
-    bottomReserve: space[16],
-    markerSize: space[8],
-    markerStroke: primitiveTokens.stroke.strong,
-    markerColor: color.paper,
-    markerShadow: `0px 1px 2px ${color.brown}`,
+    // 안내 글이 하단 [집중 시작] 버튼(52 + 그림자 4 + 간격) 위에 머물게 비워 두는 높이
+    bottomReserve: space[16] + space[12],
   },
   focusEndHold: {
-    durationMs: 3000,
+    durationMs: 1500,
     hapticIntervalMs: 120,
     fill: color.pink,
   },
@@ -357,6 +443,19 @@ export const componentTokens = {
     borderWidth: semanticTokens.stroke.strong,
     disabledOpacity: 0.45,
   },
+  // 뒤로(‹)·닫기(×) 동그라미 하나(`NavBtn`, DESIGN §7.14). 보이는 원은 34, 누르는 자리는 tapMin(44) 상자다
+  navButton: {
+    size: 34,
+    iconSize: 18,
+    iconStroke: 2.4,
+    boardCloseStroke: 3.4,
+    borderWidth: semanticTokens.stroke.default,
+    shadowOffset: 2,
+    pressedOpacity: 0.7,
+    // 게시판처럼 바탕(종이)이 복잡해 뒤로 원이 잘 안 보이는 곳에서 쓰는 반투명 원(scrim) 변형
+    scrimBackground: semanticTokens.color.overlayCinematic,
+    scrimIcon: color.white,
+  },
   card: {
     background: semanticTokens.color.surface,
     foreground: semanticTokens.color.text,
@@ -397,12 +496,104 @@ export const componentTokens = {
     innerStroke: primitiveTokens.stroke.subtle,
     frameGap: 2,
     radius: 3,
+    // 오른쪽 여백(건물 목록 아래 여백 겸용)
     inset: space[1],
+    // 바닥에 붙으면 너무 내려가 보여 조금 띄운다(2026-10-26 오스카) — 12 면 이름이 두 줄로 접힐 때 닿아 8
+    bottomInset: space[2],
     labelInset: space[1],
     fontSize: primitiveTokens.fontSize.xs,
     lineHeight: 18,
     letterSpacing: 1,
-    rotation: '-8deg',
+    rotation: '-14deg',
+    // 글 위에 겹쳐 찍으므로 밑 글이 비쳐 읽히게 — 잉크 도장의 반투명 느낌(2026-10-26)
+    opacity: 0.85,
+  },
+  // 공동 가계부 — 세 장짜리 책(GROMO-2487 A안 통장, 2026-10-27). 장부 그림 한 장을 비율 유지로 깔고 그 종이
+  // 영역 비율로 글을 둔다. 수치는 승인 시안(screen-review.html 의 ledgerFrame · T['2487'] A안)의 px 다.
+  ledger: {
+    // 원본 그림(804×1546) 좌표: 책 위 페이지 단면 띠 바닥 y 147, 빈 종이 x 60~758 · y 147~1359
+    art: {
+      width: 804,
+      height: 1546,
+      bandBottom: 147,
+      paperLeft: 60,
+      paperTop: 147,
+      paperRight: 758,
+      paperBottom: 1359,
+    },
+    // 잔액·적립·지출 장의 페이지 단면 y(분홍 142 · 노랑 118 · 파랑 96) — 안 고른 포스트잇 아래가 여기 걸친다
+    pageEdges: [142, 118, 96],
+    tabColors: [color.ledgerTabPink, color.ledgerTabButter, color.ledgerTabSky],
+    // 세로: 좌우 18.1 · 아래 28.4 · 874 화면 책 높이 635.3 · 낮은 화면은 뒤로 버튼·명판 아래(안전영역 위 + 94).
+    // 가로: 위 46 · 오른쪽 18 · 아래 12(왼쪽은 회관 패널 자리 side)
+    side: 18.1,
+    bottom: 28.4,
+    maxHeight: 635.3,
+    topBelowInset: 94,
+    landTop: 46,
+    landRight: 18,
+    landBottom: 12,
+    // 가로 화면 책 폭(쓸 수 있는 폭이 더 좁으면 그 폭) — 세로 iPhone 15 책 폭(393 − 18.1×2 ≈ 357)과 비슷하게 크게 두고
+    // 책 아래쪽은 화면 아래 여백에서 잘라 낸다(2026-10-27 오스카). 높이에 맞춰 줄이면 852×393 에서 글 칸이 0 이 된다
+    landscapeBookWidth: 360,
+    // 포스트잇 상자 80(그림은 상자 위 0.94 까지 채움), 종이 왼쪽 +4 부터 간격 2. 펼친 장은 단면 띠 바닥 +4,
+    // 나머지는 제 색 단면 +6 에 아래가 걸친다. 세 장 모두 책 그림 앞 층(펼친 장이 맨 앞)
+    tabSize: 80,
+    tabArtBottom: 0.94,
+    tabLeft: 4,
+    tabGap: 2,
+    tabOpenOverlap: 4,
+    tabRestOverlap: 6,
+    // 누르는 자리 84×84 = 상자 80 + 사방 2. 책을 감싼 바깥 상자는 이 자리까지 품도록 위·오른쪽으로 늘어난다(안드로이드 부모 밖 터치)
+    tabHitSlop: 2,
+    // 라벨은 그림 세로 0.5 자리
+    tabLabelTop: 0.5,
+    tabLabel: { fontSize: 15.5, lineHeight: 19.375 },
+    artZ: 4,
+    tintZ: 5,
+    contentZ: 6,
+    tabZ: 8,
+    tabOpenZ: 9,
+    // 펼친 장 종이에 포스트잇 색을 곱하기로 옅게
+    tintOpacity: 0.18,
+    tintRadius: 6,
+    contentInsetX: 14,
+    contentInsetY: 10,
+    earn: color.focusInk,
+    spend: color.danger,
+    faint: color.ledgerFaint,
+    rule: color.ledgerRule,
+    dash: color.ledgerDash,
+    // 글자(크기/줄높이). 고운돋움은 글리프가 커서 줄높이가 크기와 같으면 숫자 윗부분이 잘린다 — 줄높이는 늘 크기보다 크다
+    navArrow: { fontSize: 16.8, lineHeight: 26.88 },
+    month: { fontSize: 14, lineHeight: 22 },
+    balance: { fontSize: 34, lineHeight: 40 },
+    unit: { fontSize: 14, lineHeight: 20 },
+    caption: { fontSize: 13, lineHeight: 20 },
+    tableHead: { fontSize: 12, lineHeight: 16 },
+    date: { fontSize: 13, lineHeight: 18 },
+    reason: { fontSize: 15.5, lineHeight: 20 },
+    // 내용 뒤에 붙는 「 · 3회」(내용 줄 안의 작은 글자)
+    countFontSize: 12,
+    amount: { fontSize: 18, lineHeight: 22 },
+    // 월 이동 ‹ › 는 글자만 보이고 버튼 상자는 semanticTokens.size.tapMin(44) 정사각 이상이다. 이번 달이면 › 를 흐리게 막는다
+    navGap: 6.5,
+    navDisabledOpacity: 0.35,
+    fishSize: 26,
+    headGap: space[2],
+    headTop: 6,
+    summaryTop: 2,
+    tableTop: 10,
+    columnGap: space[2],
+    dateWidth: 48,
+    amountMinWidth: 60,
+    // 이보다 좁은 종이는 날짜·내용 아래 별도 줄로 금액을 읽는다.
+    rowStackWidth: 240,
+    tableHeadPadding: { top: 6, bottom: 4 },
+    rowPaddingVertical: space[2],
+    cellPaddingHorizontal: 2,
+    headRule: 1.3,
+    rowRule: stroke.subtle,
   },
   tileFacility: {
     outline: color.cream,
@@ -434,6 +625,11 @@ export const componentTokens = {
     topOffset: -11,
     rightOffset: 21,
   },
+  // 우체통 안 「받은 편지」 칸 오른쪽 위 모서리에 걸치는 새 편지 배지 자리(GROMO-2489)
+  mailInboxNewBadge: {
+    topOffset: -6,
+    rightOffset: -6,
+  },
   villageBuildingThemeTint: {
     color: '#d7829b',
     opacity: 0.3,
@@ -458,7 +654,6 @@ export const componentTokens = {
     contentPaddingLeft: space[4],
     contentPaddingRight: space[12],
     largeTextContentPaddingRight: space[16],
-    largeTextThreshold: 1.3,
     backWidth: 184,
     backFarInsetLeft: 10,
     backFarInsetTop: space[3],
@@ -476,6 +671,22 @@ export const componentTokens = {
     wake: color.sailingWake,
     wakeRadius: semanticTokens.radius.full,
     ripple: color.sailingRipple,
+  },
+  // 고양이 이름표(GROMO-2475) — 모든 화면 공통. 내 이름표만 me. 피그마 확정 전 임시값
+  nameplate: { ink: '#493B39', outline: '#8B6956', me: '#246A8A', shadow: '#FFFDFA' },
+  // 바닥 목적지 표식과 이동 점선. 치수는 화면 pt로 줌과 무관하다.
+  walkPath: {
+    color: color.brown,
+    markerSize: 36,
+    fill: color.movementPing,
+    highlight: color.movementPingLight,
+    shade: color.movementPingDark,
+    outline: color.movementPingOutline,
+    shine: color.paper,
+    routeWidth: 1.4,
+    routeOpacity: 0.8,
+    dashLength: 2,
+    dashGap: 5,
   },
   fishingScene: {
     splashDrop: color.fishingSplash,
@@ -521,29 +732,34 @@ export const componentTokens = {
     recordSize: 112,
     controlWidth: 60,
     rowMinHeight: semanticTokens.size.tapMin,
-    largeTextThreshold: 1.3,
+    // 글자 크기 단계(DESIGN §5.2) — 현재 곡 제목 lg · 부제 xs, 곡 행 이름 sm · 상태(무료·보유·재생 중) xs
+    titleText: { fontSize: fontSize.lg, lineHeight: 24 },
+    captionText: { fontSize: fontSize.xs, lineHeight: 16 },
+    rowTitleText: { fontSize: fontSize.sm, lineHeight: 18 },
+    rowStatusText: { fontSize: fontSize.xs, lineHeight: 16 },
+    // 현재 곡 칸 = 제목 줄 24 + 부제 줄 16
+    currentTrackMinHeight: 40,
   },
-  // 망원경(GROMO-2266) — 시스템 글자 배율이 이 값 이상이면 이름 알약이 두 줄까지 늘고 작은 버튼은 높이를 콘텐츠에 맞춘다.
+  // 망원경(GROMO-2266) — 큰 글자(semanticTokens.typography.largeTextThreshold 이상)면 이름 알약이 두 줄까지 늘고 작은 버튼은 높이를 콘텐츠에 맞춘다.
   // ribbonTilt(GROMO-2273) — 잡지에서 넣은 섬에 붙이는 「찜」 리본이 마스킹테이프처럼 살짝 기울어 붙은 각도
-  // 망원경 파노라마(GROMO-2317 승인 시안 T1, 402×874). 섬 칸 122 안에 섬 그림 92 를 위에서 37 내려 가운데, 이름 알약은 그림 12 아래.
+  // 망원경 파노라마(GROMO-2317 승인 시안 T1, 402×874 · GROMO-2414 확대). 섬 칸 146 안에 섬 그림 126 을 위에서 37 내려 가운데, 이름 알약은 그림 12 아래.
   // 칸 폭은 알약이 더 길면 알약을 따라 늘어(최대 pillMaxWidth) 서로 겹치지 않는다. 홀수 번째 섬은 stagger 만큼 낮다.
-  // 짝수 번째 섬 칸 위쪽이 수평선보다 horizonGap 위에 오게 띠를 내린다. 뗏목 고양이는 안전 영역 안쪽 오른쪽 아래(시안 아래 84 = 홈 인디케이터 34 + 50).
+  // 짝수 번째 섬 칸 위쪽이 수평선보다 horizonGap 위에 오게 띠를 둔다 — 섬 그림이 수평선에 걸쳐 하늘 쪽으로 솟아 빈 하늘이 줄어든다.
+  // 뗏목 고양이는 안전 영역 안쪽 오른쪽 아래(시안 아래 84 = 홈 인디케이터 34 + 50).
   telescope: {
-    largeTextThreshold: 1.3,
     ribbonTilt: '-12deg',
-    islandBox: 122,
-    islandArtWidth: 92,
+    islandBox: 146,
+    islandArtWidth: 126,
     islandArtTop: 37,
     cellGap: space[1],
     pillGap: space[3],
     pillMaxWidth: 200,
-    stagger: 34,
-    horizonGap: 18,
+    stagger: 40,
+    horizonGap: 80,
     ribbonOffset: { left: -4, top: -6 },
     raft: { width: 200, right: 26, bottom: 50 },
   },
-  // 우리 섬 홍보 쓰기(GROMO-2289 C1) — 칸 틀 견본·스티커 서랍 칸·고른 꾸미기 손잡이·서랍 최소 높이. 글자 배율이 largeTextThreshold
-  // 이상이면 아래 고정 줄의 [새로 꾸미기]·[잡지에 싣기]를 세로로 쌓고 버튼 높이를 글자에 맞춘다(망원경과 같은 판정).
+  // 우리 섬 홍보 쓰기(GROMO-2289 C1) — 칸 틀 견본·스티커 서랍 칸·고른 꾸미기 손잡이·서랍 최소 높이.
   promotionEditor: {
     headerHeight: 52,
     frameTileWidth: 64,
@@ -555,21 +771,51 @@ export const componentTokens = {
     selectionRadius: 6,
     handleSize: 18,
     drawerMinHeight: 140,
-    largeTextThreshold: 1.3,
   },
   // 우체통 첫 화면의 행동 버튼(잡지 보기 · 잡지 꽂이, GROMO-2289) — 편지 칸과 같은 짙은 나무 테·바닥 그림자를
   // 쓰고 바탕만 역할 색이다. 우체통 장면 팔레트가 바뀌면 여기 한 곳을 고친다.
+  // 우리 섬 채팅방 말풍선(GROMO-2499) — 내 말풍선·남의 말풍선이 같은 여백·반경을 공유한다.
+  // tail* 은 프로필을 향하는 각진 모서리(내 말풍선은 오른쪽 아래, 남의 말풍선은 왼쪽 위)
+  islandChatBubble: {
+    gap: space[2],
+    paddingVertical: space[2],
+    paddingHorizontal: space[3],
+    radius: 16,
+    tailRadius: space[1],
+    mineMaxWidth: '82%' as const,
+    // 채팅 시트의 입력 줄·상태 문구·재시도 칸, 말풍선 안 이름·시간 줄과 본문 간격
+    inputGap: space[2],
+    statusPaddingVertical: space[6],
+    retryGap: space[2],
+    retryPaddingVertical: space[3],
+    nameGap: 6,
+    textMarginTop: 2,
+  },
+  // 우체통 첫 화면 큰 칸의 고양이 잡지(GROMO-2500 C안) — 칸 바탕(옆 하늘·분홍 편지 칸과 구분되는 버터색)·표지,
+  // 칸 안 [지난 호] 작은 알약, 안 읽음 점(점 테두리는 편지 종이색)
   mailboxAction: {
-    // 편지 칸 사이 간격과 같은 7 — 칸 줄 아래·위에 붙는다
-    gap: 7,
+    slot: '#f5e2a6',
+    // 칸 외형 — 옆 편지 칸과 같은 우체통 홈 칸 모양(안쪽 아래 그림자 + 스티커 그림자, 반경 5, 살짝 기울임)
+    slotShadow: 'inset 0 -8px #c99870,0 3px 0 #3f1d18',
+    slotRadius: 5,
+    slotRotate: '-1deg',
+    slotMinHeight: 151,
+    slotPaddingTop: 10,
+    slotPaddingBottom: 9,
+    slotPaddingHorizontal: 7,
+    coverWidth: 92,
+    coverHeight: 110,
+    coverTilt: '-4deg',
+    coverMarginBottom: space[1],
+    pastIssuesPaddingVertical: 3,
     paddingHorizontal: 10,
-    // 잡지 보기·꽂이 알약과 안 읽음 점(점 테두리는 편지 종이색)
     pillRadius: 22,
     dotSize: 14,
+    dotInset: 7,
     dotBorder: '#fff8e8',
     border: '#684434',
     borderWidth: 1.5,
-    shadow: 'inset 0 -6px #c99870,0 3px 0 #3f1d18',
+    shadow: '0 2px 0 #3f1d18',
   },
   // 고양이 잡지 칸(GROMO-2289) — Figma A안 C1 편집 칸 338×199 를 기준으로 잰 치수다. AdCell 이 실제 칸 너비 ÷
   // referenceWidth 를 곱해 그리므로 쓰기 화면·잡지 지면·망원경 미리보기에서 같은 모양이 된다.
@@ -607,8 +853,6 @@ export const componentTokens = {
     navHeight: 30,
     // 표지 띠·쪽 번호는 속지 그림의 정해진 자리에 놓여 큰 글자에서도 이 배율까지만 키운다(칸 글자 P12 와 같은 이유)
     fixedTextMaxScale: 1.3,
-    // 글자 배율이 이 값 이상이면 편집부 섬 줄의 숫자(평균·주민)를 이름 아래로 내린다
-    largeTextThreshold: 1.3,
     pageNumberMinWidth: 56,
     closeArt: 36,
     // 닫기 버튼(44)이 속지 오른쪽 위 모서리에 걸치는 만큼
@@ -674,6 +918,14 @@ export const componentTokens = {
     sheetRadius: semanticTokens.radius.sheet,
     borderWidth: semanticTokens.stroke.strong,
     shadow: `0px 6px 0px ${semanticTokens.color.outline}`,
+  },
+  // 빈 상태(GROMO-2412) — 그림 한 장과 한 줄. scene 은 장면 그림을 상자에 깔고 한 줄을 그 위 카드에 둔다
+  emptyState: {
+    art: 96,
+    gap: space[3],
+    padding: space[6],
+    // 최소 높이 — 가로 폰·큰 글자에서 카드 글줄이 길어지면 상자가 따라 늘어난다
+    sceneMinHeight: 240,
   },
 } as const;
 

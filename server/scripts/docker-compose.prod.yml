@@ -19,6 +19,20 @@ x-infra-logging: &infra-logging
   options: {max-size: "10m", max-file: "3"}
 
 services:
+  redis:
+    image: redis:7.4.11-alpine
+    command: [redis-server, --aclfile, /etc/redis/shared.acl, --maxmemory, 384mb, --maxmemory-policy, noeviction, --appendonly, "yes", --appendfsync, everysec]
+    volumes:
+      - ${SHARED_REDIS_ACL_FILE:?공유 Redis ACL 필요}:/etc/redis/shared.acl:ro
+      - shared-redis-data:/data
+    networks: [app-network]
+    mem_limit: 576m
+    restart: unless-stopped
+    healthcheck:
+      test: [CMD, redis-cli, -e, --user, health, --pass, "", --no-auth-warning, ping]
+      interval: 5s
+      timeout: 3s
+      retries: 10
   app:
     logging: *app-logging
     image: ${ECR_REPO}:${IMAGE_TAG}
@@ -122,6 +136,7 @@ services:
     networks: [app-network]
 
 volumes:
+  shared-redis-data: {}
   datadog_agent_run:
 
 networks:

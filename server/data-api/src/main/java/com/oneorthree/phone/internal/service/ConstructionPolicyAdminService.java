@@ -1,6 +1,5 @@
 package com.oneorthree.phone.internal.service;
 
-import com.oneorthree.phone.construction.repository.domain.ConstructionBuilding;
 import com.oneorthree.phone.content.exception.ContentErrorCode;
 import com.oneorthree.phone.content.exception.ContentException;
 import com.oneorthree.phone.content.repository.ContentStore;
@@ -35,26 +34,23 @@ public class ConstructionPolicyAdminService {
     @Transactional(readOnly = true)
     public ConstructionPolicyView current() {
         // 포인터와 행을 한 SQL 스냅샷에서 읽어 조회 도중 정책이 바뀌어도 섞이지 않는다.
-        var rows = jdbc.query("SELECT p.revision,p.published_at,c.building_id,c.cost,c.build_seconds"
-                        + " FROM construction_cost_policy_publication p"
-                        + " JOIN construction_cost_policies c ON c.revision=p.revision"
-                        + " WHERE p.singleton=true ORDER BY c.building_id",
+        var rows = jdbc.query("SELECT p.revision,p.published_at,b.id,b.display_name,c.cost,c.build_seconds"
+                        + " FROM construction_cost_policy_publication p CROSS JOIN construction_buildings b"
+                        + " LEFT JOIN construction_cost_policies c ON c.revision=p.revision AND c.building_id=b.id"
+                        + " WHERE p.singleton=true ORDER BY b.display_order,b.id",
                 (rs, row) -> {
                     if (rs.getObject("cost") == null || rs.getObject("build_seconds") == null) {
                         throw new IllegalStateException("현재 정책에 건물별 비용·공사 시간이 없습니다.");
                     }
                     return new CurrentRow(rs.getInt("revision"), rs.getTimestamp("published_at").toInstant(),
-                            new ConstructionPolicyView.Item(rs.getString("building_id"),
-                                    ConstructionBuilding.byId(rs.getString("building_id")).orElseThrow().displayName(),
+                            new ConstructionPolicyView.Item(rs.getString("id"), rs.getString("display_name"),
                                     rs.getInt("cost"), rs.getInt("build_seconds")));
                 });
-        if (rows.size() != ConstructionBuilding.values().length) {
+        if (rows.isEmpty()) {
             throw new IllegalStateException("현재 건설 정책 또는 건물 목록이 없습니다.");
         }
         return new ConstructionPolicyView(rows.get(0).revision(), rows.get(0).publishedAt(),
-                rows.stream().map(CurrentRow::item)
-                        .sorted(Comparator.comparingInt(item ->
-                                ConstructionBuilding.byId(item.buildingId()).orElseThrow().ordinal())).toList());
+                rows.stream().map(CurrentRow::item).toList());
     }
 
     @Transactional

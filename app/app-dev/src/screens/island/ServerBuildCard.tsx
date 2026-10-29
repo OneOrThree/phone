@@ -2,13 +2,13 @@
  * 서버 모드 홈의 첫 건물(회관·게시판) 짓기 카드 (GROMO-2139).
  *
  * 기획상 회관·게시판은 홈에서 고정 순서로 짓는다(회관이 생기기 전이라 회관 화면을 쓸 수 없다).
- * 한 번 눌러 바로 짓도록 카드가 보이면 서버 건설 옵션(`useConstruction`)을 미리 읽는다 — 이 카드는
- * 방장에게, 첫 두 건물이 남았을 때만 뜨므로 추가 조회는 그 경우 1회다. 가격·건설 가능 여부는 서버
- * 옵션이 정본이고, 착공 뒤 홈 반영은 `onChanged`(홈 스냅샷 재조회)로만 한다 — 로컬 BUILD 는 부르지 않는다.
+ * 첫 두 건물이 남았으면 모든 주민에게 목표·진행 상태를 보여 주고 서버 건설 옵션(`useConstruction`)을
+ * 미리 읽는다. 가격·건설 가능 여부는 서버 옵션이 정본이며, 일반 주민은 진행 상태와 방장 착공 안내를
+ * 본다. 착공 뒤 홈 반영은 `onChanged`(홈 스냅샷 재조회)로만 한다 — 로컬 BUILD 는 부르지 않는다.
  * 완공은 서버 스케줄러가 매분 처리하므로, 예정 시각이 지나면 카드가 스스로 홈을 다시 읽는다.
  */
 import React, { useEffect, useRef, useState } from 'react';
-import { View, type ViewStyle } from 'react-native';
+import { View, type LayoutChangeEvent, type ViewStyle } from 'react-native';
 import { Bar, Btn, Txt } from '@/design-system/patterns';
 import { primitiveTokens } from '@/design-system/tokens';
 import { buildingNames, type Building } from '@/services/model';
@@ -28,6 +28,7 @@ export function ServerBuildCard({
   villagePoints,
   tracked,
   style,
+  onLayout,
   onStarted,
   onChanged,
 }: {
@@ -39,6 +40,8 @@ export function ServerBuildCard({
   /** 이 기기에서 받은 착공 receipt(clientConstruction) — 공사 중 표시용. */
   tracked: Tracked;
   style: ViewStyle;
+  /** 홈이 카드 높이를 재 채팅 줄을 그 위에 둔다(GROMO-2501). */
+  onLayout?: (event: LayoutChangeEvent) => void;
   onStarted: (receipt: {
     islandId: string;
     building: Building;
@@ -197,7 +200,11 @@ export function ServerBuildCard({
   }
 
   return (
-    <View testID="server-build-card" style={[style, { gap: primitiveTokens.space[2] }]}>
+    <View
+      testID="server-build-card"
+      onLayout={onLayout}
+      style={[style, { gap: primitiveTokens.space[2] }]}
+    >
       <View
         style={{
           flexDirection: 'row',

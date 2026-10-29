@@ -1,6 +1,6 @@
 # 서버 스모크 실행
 
-[GROMO-2285](https://romance.atlassian.net/browse/GROMO-2285) · [TC 명세](TCL.md) · [공통 계획](../README.md)
+[GROMO-2285](https://romance.atlassian.net/browse/GROMO-2285) · [TC 명세](TCL.md) · [전체 실행 흐름](../README.md#전체-실행-흐름) · [로그인 AS IS / TO BE](login-retry.md)
 
 ## 실행
 
@@ -51,6 +51,36 @@ BASE_URL=https://oneorthree.dev.mooo.com SMOKE_CORE_ENABLED=1 \
 
 014·015·016의 DB 초기 준비는 내부에서만 한다. 014는 게스트 상태를 유지하고 실제 집중 적립·회관 착공 후 구매 403 SOCIAL_LOGIN_REQUIRED와 지갑·주문·인벤토리 무변경을 검증한다. 빈 카탈로그면 유효한 형식의 fixture 상품 ID로 회원 gate를 확인한다. 015는 독립 도서관 fixture, 016은 두 전용 계정의 친구 관계 fixture를 사용한다. 게스트 구매·친구 요청 제한은 변경하지 않는다.
 
+## 로그인이 늦을 때
+
+[AS IS / TO BE 차트](login-retry.md) · [작업 티켓](https://romance.atlassian.net/browse/GROMO-2543)
+
+게스트 로그인만 같은 기기 UUID로 **매번 5초 기다린 뒤 최대 두 번 더 요청**한다(최초 포함 3회).
+첫 요청부터 요청·대기를 합해 40초 안에 끝내고, 각 HTTP·연결 제한은 기존 값과 남은 전체 시간 중 작은 값을 쓴다.
+마지막 실패 후에는 더 기다리지 않는다. 타임아웃이 계속되면 해당 TC는 FAIL, 그 로그인에 의존한 TC는 SKIP이다.
+
+다시 시도하는 오류는 `504 / UPSTREAM_TIMEOUT`, `503 / SERVICE_UNAVAILABLE`, 앱 오류 봉투가 없는 gateway 502·503·504,
+curl의 연결 실패·시간 초과·빈 응답·수신 단절(7·28·52·56)이다.
+429·400·401·403 등, `UPSTREAM_AUTH_FAILED`·`UPSTREAM_CONTRACT_ERROR`, 알 수 없는 앱 오류,
+201 응답의 필수 필드 누락과 인증서 오류는 한 번에 실패한다. 섬 생성·집중·건설 등 다른 API에는 재시도를 추가하지 않는다.
+
+전체 모드는 `main`, `friend-owner`, `friend-peer`, `core`, `statistics`의 첫 요청 최대 5회를 예약한다.
+부모와 자식은 임시 경로 `SMOKE_GUEST_STATE_DIR`의 잠긴 파일에서 실제 요청을 차감하며,
+재시도를 합해 **전체 10회 이하**로 제한한다. 아직 시작하지 않은 로그인의 첫 요청 몫은 재시도에 쓰지 않는다.
+기본 공개 모드는 `main`만 예약한다. 서버의 5분 기기 복구 창 안 재시도는 같은 userId의 **새 세션**을 받을 수 있다.
+기기 UUID도 복구 자격이므로 기록에 남기지 않는다.
+
+자동 실행의 기존 3,601초 생성 제한 창 대기는 유지하며 모든 시도 직전에 마지막 요청 시각을 갱신한다.
+이 예산은 서버의 기본 IP별 10회/1시간 제한을 올리거나 같은 IP의 다른 트래픽까지 예약하는 기능이 아니다.
+429는 계속 요청하지 않고 실패로 보고한다.
+
+`results.tsv`의 기존 5열과 최종 판정을 유지한다. TC002 사유에는 `attempts`(실제 요청 수), `retries`(추가 요청 수),
+`elapsed_ms`(대기를 포함한 전체 시간), `first_error`를 표시한다. 다른 게스트 준비도 같은 로그와 진단을 남긴다.
+Actions의 `auth-attempts.jsonl`에는 역할·횟수·허용한 오류 코드·시도/전체 시간만 담고,
+본문·헤더·토큰·기기 UUID·사용자 ID·원문 curl 오류를 보관하지 않는다.
+전체 TC가 PASS이면 재시도 후 성공도 실행은 성공이지만, 요약에서 **재시도 후 통과**로 구분한다.
+중간 timeout을 별도 TC FAIL로 남겨 최종 성공과 중복 집계하지 않는다.
+
 ## 환경변수
 
 | 변수 | 기본값·역할 |
@@ -61,7 +91,10 @@ BASE_URL=https://oneorthree.dev.mooo.com SMOKE_CORE_ENABLED=1 \
 | `SMOKE_CORE_ENABLED` | `1`이면 014와 독립된 015 준비도 실행. DB 설정 시 전체 모드 기본 1 |
 | `SMOKE_DEVICE_ID` | 미지정 시 새 UUID. 실사용자의 기기 값을 넣지 않음 |
 | `SMOKE_WS_URL` | 미지정 시 BASE_URL의 `/ws/realtime`, https→wss/http→ws |
-| `SMOKE_HTTP_TIMEOUT` | 10초. HTTP 요청 상한 |
+| `SMOKE_HTTP_TIMEOUT` | 10초. HTTP 요청 상한. 로그인은 남은 전체 시간으로 제한 |
+| `SMOKE_AUTH_MAX_RETRIES` | `2`. 게스트 로그인 추가 시도 수(0·1·2). `0`이면 단발 요청 |
+| `SMOKE_AUTH_TOTAL_TIMEOUT_SECONDS` | 40초. 로그인 요청·대기의 총 제한(0보다 크고 40 이하) |
+| `SMOKE_AUTH_DIAGNOSTICS_FILE` | 선택. 자격을 제외한 JSONL 경로. Actions는 `smoke-results/api/auth-attempts.jsonl`, 로컬 미지정 시 임시 파일 |
 | `SMOKE_CONNECT_TIMEOUT` | 2초. HTTP 연결 상한 |
 | `SMOKE_HEALTH_TIMEOUT_MS` | 2000ms. 공개 health 판정 |
 | `SMOKE_WS_CONNECT_TIMEOUT_MS` | 5000ms. STOMP 연결·구독 준비 |
@@ -86,7 +119,7 @@ DB SQL은 30분 이내 신규 게스트·활성 로그인 세션·테스트 이�
 
 014는 실시간으로 유효 집중 1분을 채운다(현재 정책의 secondsPerFish 사용). 크론이 먼저 적립할 수 있으므로 종료 직전이 아닌 집중 시작 전 잔액과 비교한다. 건설은 착공과 차감을 확인하고 완공 대기는 생략한다. 구매 거절 후 지갑 잔액·version, 주문·인벤토리를 전후 비교한다. 회원 구매·장착 성공은 이번 검증 범위에서 제외한다.
 
-종료 시 진행 중 세션·친구 관계·주민 가입은 API로 정리한다. 전용 테스트 게스트·섬과 보상·건설 이력은 보존된다. 일괄 삭제·전체 테이블 초기화·Redis FLUSH는 하지 않는다. 테스트 계정 삭제 정책은 별도 범위를 확정한 뒤 적용한다.
+종료 시 진행 중 세션·친구 관계·주민 가입을 정리하고, 이번 실행에서 만든 섬은 마지막 주민 퇴장 API로 닫는다. 014 섬은 015가 재사용한 뒤 닫는다. 중간 실패에도 정리를 시도하며 섬 정리 실패는 FAIL이다. 전용 게스트 계정과 개인 집중 기록은 보존되지만, 섬 종료 시 공동 통장·건설 상태와 기여·공동 구매 기록은 삭제된다. 일괄 삭제·전체 테이블 초기화·Redis FLUSH는 하지 않는다. 테스트 계정 삭제 정책은 별도 범위를 확정한 뒤 적용한다.
 
 ## 검증 명령
 
@@ -95,8 +128,8 @@ DB SQL은 30분 이내 신규 게스트·활성 로그인 세션·테스트 이�
 bash smoke/server/tests/api-runner.sh
 # 비정상 UUID·fixture·SQL 모드가 DB 접속 전에 차단됨
 bash smoke/server/tests/seed-guards.sh
-# 내부 health/Redis 실패·정리·자격 비노출
-python3 smoke/server/tests/test_internal.py
+# 로그인 retry·실제 curl timeout/응답 유실·공유 예산, 내부 health/Redis·정리·자격 비노출
+python3 -m unittest discover -s smoke/server/tests -p 'test_*.py' -v
 # Actions 결과 보고·누락, main 주기·배지·무배포 판정, 배포 대기 회귀 검사
 # 기존 Satellite CI의 test_*.py 수집 대상 중 스모크 검사만 실행한다. GitHub 요청은 mock.
 python3 -m pip install 'pyyaml==6.0.2'

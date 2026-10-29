@@ -1,3 +1,28 @@
+// 워클릿 안 M. 읽기 금지 셀렉터 — 테스트 override 가 no-restricted-syntax 옵션을 base 와 병합하지 않고
+// 통째로 대체하므로, 상수로 빼 base 와 override 가 같은 목록을 쓴다.
+const WORKLET_RESTRICTED_SYNTAX = [
+  {
+    // useAnimatedStyle·useAnimatedReaction 등의 콜백은 'worklet' 지시어가 없어도
+    // babel 플러그인이 워클릿으로 만든다 — 호출 자체를 훑는다.
+    selector:
+      "CallExpression[callee.name=/^use(AnimatedStyle|AnimatedReaction|AnimatedProps|DerivedValue|FrameCallback)$/] MemberExpression[object.name='M']",
+    message:
+      '워클릿 안에서 M.…을 읽지 마세요 — M 전체가 UI 런타임으로 복사되며 CubicBezierEasing에서 죽습니다(GROMO-1601). 값을 모듈 스코프 상수로 꺼내 쓰세요.',
+  },
+  {
+    // 명시적 'worklet' 지시어 함수 — runOnUI 등에 직접 넘기는 워클릿.
+    // ⚠️ esquery 는 :has() 안의 **선행 자식 결합자**(:has(> …))를 함수 노드에서 못 푼다 —
+    // :function:has(> BlockStatement > …) 는 어떤 워클릿에도 매치되지 않아 CI 를 그냥
+    // 통과시켰다(코덱스 리뷰). BlockStatement 를 앵커로 잡으면 :has(> …) 가 정상 동작하고,
+    // 함수 자신의 본문 지시어만 보므로 워클릿을 품은 바깥 일반 함수는 오탐하지 않는다
+    // (자손 전체를 훑는 :has(BlockStatement > …) 는 바깥 함수까지 잡는다 — 검증 완료).
+    selector:
+      ":function > BlockStatement:has(> ExpressionStatement[directive='worklet']) MemberExpression[object.name='M']",
+    message:
+      '워클릿 안에서 M.…을 읽지 마세요 — M 전체가 UI 런타임으로 복사되며 CubicBezierEasing에서 죽습니다(GROMO-1601). 값을 모듈 스코프 상수로 꺼내 쓰세요.',
+  },
+];
+
 module.exports = {
   root: true,
   extends: ['@react-native/eslint-config'],
@@ -24,29 +49,7 @@ module.exports = {
     // "[Worklets] Cannot copy value of type `CubicBezierEasing`"으로 죽는다.
     // 값만 모듈 스코프 상수로 꺼내 참조할 것 — 실물: constants/motion.ts `STANDARD_POINTS`,
     // screens/league/rankSwap.ts, components/ConfettiBurst.tsx `REDUCE_NEVER`.
-    'no-restricted-syntax': [
-      'error',
-      {
-        // useAnimatedStyle·useAnimatedReaction 등의 콜백은 'worklet' 지시어가 없어도
-        // babel 플러그인이 워클릿으로 만든다 — 호출 자체를 훑는다.
-        selector:
-          "CallExpression[callee.name=/^use(AnimatedStyle|AnimatedReaction|AnimatedProps|DerivedValue|FrameCallback)$/] MemberExpression[object.name='M']",
-        message:
-          '워클릿 안에서 M.…을 읽지 마세요 — M 전체가 UI 런타임으로 복사되며 CubicBezierEasing에서 죽습니다(GROMO-1601). 값을 모듈 스코프 상수로 꺼내 쓰세요.',
-      },
-      {
-        // 명시적 'worklet' 지시어 함수 — runOnUI 등에 직접 넘기는 워클릿.
-        // ⚠️ esquery 는 :has() 안의 **선행 자식 결합자**(:has(> …))를 함수 노드에서 못 푼다 —
-        // :function:has(> BlockStatement > …) 는 어떤 워클릿에도 매치되지 않아 CI 를 그냥
-        // 통과시켰다(코덱스 리뷰). BlockStatement 를 앵커로 잡으면 :has(> …) 가 정상 동작하고,
-        // 함수 자신의 본문 지시어만 보므로 워클릿을 품은 바깥 일반 함수는 오탐하지 않는다
-        // (자손 전체를 훑는 :has(BlockStatement > …) 는 바깥 함수까지 잡는다 — 검증 완료).
-        selector:
-          ":function > BlockStatement:has(> ExpressionStatement[directive='worklet']) MemberExpression[object.name='M']",
-        message:
-          '워클릿 안에서 M.…을 읽지 마세요 — M 전체가 UI 런타임으로 복사되며 CubicBezierEasing에서 죽습니다(GROMO-1601). 값을 모듈 스코프 상수로 꺼내 쓰세요.',
-      },
-    ],
+    'no-restricted-syntax': ['error', ...WORKLET_RESTRICTED_SYNTAX],
   },
   overrides: [
     {
@@ -55,6 +58,25 @@ module.exports = {
       parser: '@typescript-eslint/parser',
       parserOptions: {
         requireConfigFile: false,
+      },
+    },
+    {
+      // 테스트는 시계·시간대에 기대지 않는다 — TZ 의존 호출(getHours·getDay·getDate·toLocale*)은 고정 시각
+      // (jest.setSystemTime)으로 쓴다. 제품 코드는 로컬 시각이 본래 뜻이라 테스트에만 건다(GROMO-2253).
+      // ⚠️ 일부만 막는다 — getMonth·getFullYear·getTimezoneOffset·Intl.DateTimeFormat 은 안 잡고, toLocale*( 는 Date 뿐 아니라 숫자(Number#toLocaleString)도 잡는다.
+      // ⚠️ override 의 옵션은 base 옵션을 병합하지 않고 대체한다 — 워클릿 셀렉터를 같이 넣어야 테스트 파일에서도 유지된다.
+      files: ['*.test.ts', '*.test.tsx', '*.test.js'],
+      rules: {
+        'no-restricted-syntax': [
+          'error',
+          ...WORKLET_RESTRICTED_SYNTAX,
+          {
+            selector:
+              'CallExpression[callee.property.name=/^(getHours|getDay|getDate|toLocale.*)$/]',
+            message:
+              '테스트에서 시계·시간대 의존 호출 금지 — 고정 시각(jest.setSystemTime)을 쓴다(GROMO-2253).',
+          },
+        ],
       },
     },
   ],

@@ -3,6 +3,7 @@ import { CANONICAL_BUILDINGS, type BuildingId } from '@/services/api/home';
 
 export type AccountGuides = {
   focusDone: boolean;
+  focusBlockingIntro?: 'pending' | 'seen';
   buildings: BuildingId[];
   completions: string[];
 };
@@ -24,6 +25,8 @@ function decode(raw: string | null): AccountGuides {
   if (
     !value ||
     typeof value.focusDone !== 'boolean' ||
+    (value.focusBlockingIntro !== undefined &&
+      !['pending', 'seen'].includes(value.focusBlockingIntro)) ||
     !Array.isArray(value.buildings) ||
     !Array.isArray(value.completions) ||
     value.buildings.some((b: BuildingId) => !CANONICAL_BUILDINGS.includes(b)) ||
@@ -46,6 +49,15 @@ export function saveAccountGuides(
       const current = decode(raw);
       const next = {
         focusDone: current.focusDone || !!update.focusDone,
+        // 안내 소비는 되돌리지 않는다. 늦게 끝난 완료·이관 쓰기가 다시 예약하지 않게 한다.
+        ...(current.focusBlockingIntro || update.focusBlockingIntro
+          ? {
+              focusBlockingIntro:
+                current.focusBlockingIntro === 'seen' || update.focusBlockingIntro === 'seen'
+                  ? ('seen' as const)
+                  : ('pending' as const),
+            }
+          : {}),
         buildings: [...new Set([...current.buildings, ...(update.buildings ?? [])])],
         completions: [...new Set([...current.completions, ...(update.completions ?? [])])],
       };

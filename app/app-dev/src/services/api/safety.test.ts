@@ -55,7 +55,7 @@ test('단일 신고 메일은 수신 주소와 작성 안내만 포함하고 사
   const url = reportEmailUrl();
   const decoded = decodeURIComponent(url);
   assert.ok(url.startsWith(`mailto:${REPORT_EMAIL_RECIPIENT}?`));
-  assert.ok(decoded.includes('subject=[catus 신고] 신고센터'));
+  assert.ok(decoded.includes('subject=[집중할고양 신고] 신고센터'));
   assert.ok(decoded.includes('신고 내용:'));
   assert.ok(decoded.includes('상대 닉네임·섬 이름:'));
   assert.ok(!decoded.includes('[신고 대상 원문]'));
@@ -72,7 +72,7 @@ test('문의 메일은 신고와 같은 주소에 문의 말머리·앱 버전·
   const url = feedbackEmailUrl('2.0.1');
   const decoded = decodeURIComponent(url);
   assert.ok(url.startsWith(`mailto:${REPORT_EMAIL_RECIPIENT}?`));
-  assert.ok(decoded.includes('subject=[catus 문의] 오류 제보·기능 제안'));
+  assert.ok(decoded.includes('subject=[집중할고양 문의] 오류 제보·기능 제안'));
   assert.ok(decoded.includes('앱 버전: 2.0.1'));
   assert.match(decoded, /기기: (ios|android) \S+/);
   const open = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined);

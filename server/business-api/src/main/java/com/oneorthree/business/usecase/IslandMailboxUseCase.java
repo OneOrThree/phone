@@ -20,10 +20,10 @@ import com.oneorthree.business.upstream.realtime.dto.RealtimeMessage;
 import com.oneorthree.business.upstream.realtime.dto.RealtimeStoreResult;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
@@ -72,6 +72,7 @@ public class IslandMailboxUseCase {
     private static final Map<String, PublicFailure> DOMAIN_FAILURES = Map.ofEntries(
             // Data — 주민 인가 술어(InternalIslandMailboxService.requireResident)
             Map.entry("MEMBER_ONLY", new PublicFailure(403, ApiErrorCode.FORBIDDEN, "islandId")),
+            // 순차 배포 중 구버전 Data의 시설 거절도 기존 공개 코드로 옮긴다. 현재 Data는 채팅에서 반환하지 않는다.
             Map.entry("MAILBOX_LOCKED", new PublicFailure(403, ApiErrorCode.FACILITY_LOCKED, null)),
             Map.entry("USER_NOT_FOUND", new PublicFailure(404, ApiErrorCode.USER_NOT_FOUND, null)),
             // 실시간 — 같은 키·다른 본문(M05). field 가 헤더가 아니라 본문 필드라 기본 매핑을 쓰지 않는다
@@ -84,7 +85,7 @@ public class IslandMailboxUseCase {
 
     private final DataIslandClient data;
     private final RealtimeApiClient realtime;
-    private final ObjectProvider<SignedCursorCodec> cursorCodecs;
+    private final SignedCursorCodec codec;
 
     /**
      * 목록 — 최신 묶음부터 과거로, 묶음 안에서는 오름차순(M06).
@@ -95,7 +96,7 @@ public class IslandMailboxUseCase {
     public MailboxPageResponse list(AccessTokenClaims claims, UUID islandId, String cursorToken, int limit,
             Deadline deadline) {
         CursorScope scope = scope(claims, islandId, limit);
-        UUID anchor = anchorOf(codec().decode(cursorToken, scope));
+        UUID anchor = anchorOf(codec.decode(cursorToken, scope));
         return present(claims, islandId, scope, history(claims, islandId, anchor, limit, deadline), limit, deadline);
     }
 
@@ -192,7 +193,7 @@ public class IslandMailboxUseCase {
             items.add(publicMessage(message, names.get(message.senderId())));
         }
         String cursor = next == null ? null
-                : codec().encode(scope, new CursorBoundary(next.toString(), next.toString()));
+                : codec.encode(scope, new CursorBoundary(next.toString(), next.toString()));
         return new MailboxPageResponse(items, cursor);
     }
 
@@ -264,16 +265,23 @@ public class IslandMailboxUseCase {
      * 페이지의 sender 집합으로 <b>한 번</b> batch 조회한다(LLD §5). 상류 장애는 그대로 올린다 — 활성 작성자를
      * 「알 수 없음」으로 바꿔 그리지 않는다(LLD §2). 응답에 없는 id 는 계정이 없는 것이고 그때만 null 이다.
      * 같은 응답의 {@code hiddenUserIds} 가 요청자가 차단한 sender 다(GROMO-2181) — 판정은 Data 가 한다.
+     *
+     * <p><b>탈퇴 발신자(senderId null)는 조회 대상이 아니다(GROMO-2208).</b> 실시간 서버는 tombstone 뒤 탈퇴 발신자를
+     * null 로 주고, Data {@code messageAuthors} 는 null 원소·빈 목록을 400 으로 거절한다. 그래서 null 은 모으지
+     * 않고, 전원이 탈퇴라 모을 것이 없으면 Data 를 부르지 않는다. 그 메시지는 이름 없음(userId·name null)으로 나간다.
      */
     private AuthorView authorView(UUID islandId, AccessTokenClaims claims, List<RealtimeMessage> messages,
             Deadline deadline) {
         LinkedHashSet<UUID> senders = new LinkedHashSet<>();
         for (RealtimeMessage message : messages) {
-            senders.add(message.senderId());
+            if (message.senderId() != null) {
+                senders.add(message.senderId());
+            }
         }
         Map<UUID, String> names = new HashMap<>();
         if (senders.isEmpty()) {
-            return new AuthorView(names, Set.of());
+            // Set.of() 는 contains(null) 에 NPE 를 던진다 — 탈퇴 발신자(null)를 묻는 호출부가 있어 null 안전한 집합을 쓴다.
+            return new AuthorView(names, Collections.emptySet());
         }
         MessageAuthors authors = relay(
                 () -> data.messageAuthors(islandId, claims.userId(), List.copyOf(senders), deadline));
@@ -283,7 +291,8 @@ public class IslandMailboxUseCase {
         for (MailboxViewer author : authors.authors()) {
             names.put(author.userId(), author.name());
         }
-        Set<UUID> hidden = authors.hiddenUserIds() == null ? Set.of() : new HashSet<>(authors.hiddenUserIds());
+        Set<UUID> hidden = authors.hiddenUserIds() == null ? Collections.emptySet()
+                : new HashSet<>(authors.hiddenUserIds());
         return new AuthorView(names, hidden);
     }
 
@@ -294,19 +303,6 @@ public class IslandMailboxUseCase {
     private static MailboxMessageResponse publicMessage(RealtimeMessage message, String name) {
         return new MailboxMessageResponse(message.messageId(), message.clientMessageId(), message.senderId(), name,
                 message.content(), message.sentAt());
-    }
-
-    /**
-     * {@code SignedCursorCodec} 은 {@code business.cursor.enabled=true} 와 독립 서명키가 있을 때만 등록된다
-     * (1759 와 같은 블록·같은 env). 키가 없는 환경에서 커서를 «없는 셈» 치고 첫 페이지를 돌려주면 위조 커서를
-     * 조용히 허용하는 것과 같으므로 명시적으로 실패시킨다 — {@code IslandMembershipUseCase#codec} 과 같은 모양.
-     */
-    private SignedCursorCodec codec() {
-        SignedCursorCodec codec = cursorCodecs.getIfAvailable();
-        if (codec == null) {
-            throw new PublicApiException(ApiErrorCode.SERVICE_UNAVAILABLE, null);
-        }
-        return codec;
     }
 
     /** 커서 본문의 anchor(저장소 id). 서명은 통과했는데 값이 UUID 가 아니면 위조·손상이다 — 같은 400. */

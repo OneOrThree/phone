@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Image, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
-import { art, Seg } from '@/design-system/patterns';
+import { art, NavBtn, Seg } from '@/design-system/patterns';
 import { Button } from '@/design-system/primitives';
 import { componentTokens, semanticTokens } from '@/design-system/tokens';
 import { CatAvatar } from '@/components/CatAvatar';
@@ -26,9 +26,11 @@ import {
   timetableRows,
   weekday,
   weekdays,
+  weekRange,
   type DiaryRecord,
   type Period,
 } from './diaryData';
+import { WeekLineChart } from './WeekLineChart';
 
 const D = componentTokens.diary;
 const C = semanticTokens.color;
@@ -48,9 +50,16 @@ export function Diary({ e, font }: { e: any; font?: string }) {
   const [selected, setSelected] = useState(today);
   const [memberId, setMemberId] = useState<string | null>(e.body || null);
   const scroll = useRef<ScrollView>(null);
-  const range = neighbors
-    ? { from: shiftDate(today, -6), to: today }
-    : diaryRange(period, offset, e.now, false);
+  // 이웃 일기장 내용 높이 — 짧으면 책을 그만큼 줄여 빈 페이지를 남기지 않는다(GROMO-2412)
+  const [neighborHeight, setNeighborHeight] = useState<number | null>(null);
+  // 내 일기장으로 갔다 돌아오면 새로 잴 때까지 옛 높이로 책을 줄이지 않는다
+  useEffect(() => {
+    if (!neighbors) setNeighborHeight(null);
+  }, [neighbors]);
+  // 이웃 상세의 주 이동(GROMO-2488) — 0 이번 주, 음수는 지난주. 다른 이웃을 열면 이번 주로 돌아간다
+  const [weekOffset, setWeekOffset] = useState(0);
+  useEffect(() => setWeekOffset(0), [memberId]);
+  const range = neighbors ? weekRange(today, weekOffset) : diaryRange(period, offset, e.now, false);
   const srv = useLibraryDiary({
     active: server,
     nb: neighbors,
@@ -59,7 +68,8 @@ export function Diary({ e, font }: { e: any; font?: string }) {
     offset,
     combined: neighbors || period === '월',
     focusSummaryOnly: !neighbors && period === '월',
-    rangeOverride: !neighbors && period === '주' && offset === 0 ? undefined : range,
+    // 주간이 월~일이라(GROMO-2488) `/screens/library` 의 이번 주 조각(일~토)은 재사용하지 않고 늘 범위를 준다
+    rangeOverride: range,
     islandKey: island.id,
   });
   // 도서관 새 읽을거리 배지는 이 화면이 실제로 표시한 /screens/library 응답으로만 확인 처리한다.
@@ -447,6 +457,7 @@ export function Diary({ e, font }: { e: any; font?: string }) {
                 style={({ pressed }) => [styles.resident, pressed && styles.pressed]}
               >
                 <CatAvatar
+                  userId={m.id}
                   color={m.color}
                   outfit={'outfit' in m ? m.outfit : undefined}
                   still="idle"
@@ -464,6 +475,7 @@ export function Diary({ e, font }: { e: any; font?: string }) {
       <>
         <View style={styles.profile}>
           <CatAvatar
+            userId={resident.id}
             color={resident.color}
             outfit={'outfit' in resident ? resident.outfit : undefined}
             still="idle"
@@ -471,9 +483,18 @@ export function Diary({ e, font }: { e: any; font?: string }) {
           />
           <T style={styles.profileName}>{resident.name}</T>
         </View>
-        <T style={styles.centerMeta}>
-          최근 7일 · {shortDate(range.from)} – {shortDate(range.to)}
-        </T>
+        <DatePicker
+          label={`${shortDate(range.from)} – ${shortDate(range.to)}`}
+          previous={() => {
+            setWeekOffset((n) => n - 1);
+            resetScroll();
+          }}
+          next={() => {
+            setWeekOffset((n) => Math.min(0, n + 1));
+            resetScroll();
+          }}
+          nextDisabled={weekOffset === 0}
+        />
         <T style={styles.centerMeta}>집중</T>
         <T style={styles.total}>{focus == null ? '—' : hm(focus)}</T>
         <View style={styles.row}>
@@ -481,29 +502,27 @@ export function Diary({ e, font }: { e: any; font?: string }) {
           <Metric label="모은 물고기" value={fish == null ? '—' : `${fish}마리`} />
         </View>
         <View style={styles.divider} />
-        <T style={styles.centerTitle}>날짜별 기록</T>
-        <View style={styles.tableRow}>
-          <T style={styles.dateCell}>날짜</T>
-          <T style={styles.tableCell}>집중</T>
-          <T style={styles.tableCell}>폰 사용</T>
-        </View>
-        {[...days].reverse().map((key) => (
-          <View key={key} style={styles.tableRow}>
-            <T style={styles.dateCell}>
-              {shortDate(key)} {weekday(key)}
-            </T>
-            <T style={[styles.tableCell, styles.bold]}>
-              {focusAvailable ? hm(focusSeries.get(key) ?? 0) : '—'}
-            </T>
-            <T style={styles.tableCell}>{usageAllowed ? usageText(usageSeries.get(key)) : '—'}</T>
-          </View>
-        ))}
+        {/* 날짜별 표 대신 그 주의 월~일 선그래프(GROMO-2488). 집중이 아직 없으면 0 선, 폰 사용은 측정 허용 날만 */}
+        <WeekLineChart
+          days={allDays}
+          today={today}
+          focus={focusAvailable ? focusSeries : new Map()}
+          usage={usageSeries}
+          usageAllowed={!!usageAllowed}
+        />
       </>
     );
   };
 
   return (
-    <Book title={title} font={font} onBack={back} onClose={close}>
+    <Book
+      title={title}
+      font={font}
+      onBack={back}
+      fitHeight={neighbors ? neighborHeight : null}
+      // 이웃 상세의 ‹ 는 목적지(이웃 목록)가 정해져 있어 그것을 읽고, 그 밖은 들어온 화면으로 가는 「뒤로」다
+      backLabel={neighbors && memberId ? '이웃들의 일기장으로 돌아가기' : '뒤로'}
+    >
       {!neighbors && (
         <View style={styles.controls}>
           <Seg
@@ -548,9 +567,12 @@ export function Diary({ e, font }: { e: any; font?: string }) {
       )}
       <ScrollView
         ref={scroll}
+        testID="diary-scroll"
         style={styles.scroll}
-        showsVerticalScrollIndicator
+        // 이웃 상세는 넘칠 때만 책 안에서 밀고 막대는 숨긴다(GROMO-2488)
+        showsVerticalScrollIndicator={!neighbors}
         contentContainerStyle={[styles.content, neighbors && styles.neighborContent]}
+        onContentSizeChange={neighbors ? (_, h) => setNeighborHeight(h) : undefined}
         key={`${neighbors ? 'neighbors' : period}-${state.islandId}`}
       >
         {!neighbors && period !== '월' && tab === '폰 사용' && !state.settings.permission
@@ -565,13 +587,16 @@ function Book({
   title,
   font,
   onBack,
-  onClose,
+  fitHeight = null,
+  backLabel,
   children,
 }: React.PropsWithChildren<{
   title: string;
   font?: string;
   onBack: () => void;
-  onClose: () => void;
+  // 내용 높이를 주면 책을 그 높이까지만 펼친다(화면보다 길면 지금처럼 끝까지)
+  fitHeight?: number | null;
+  backLabel: string;
 }>) {
   const L = useAppLayout();
   const width = Math.min(D.maxWidth, L.width - L.insets.left - L.insets.right);
@@ -579,6 +604,13 @@ function Book({
   const top = Math.max(D.headerTop, L.insets.top);
   const bookTop = L.landscape ? top + D.headerHeight : top + D.bookTop - D.headerTop;
   const contentTop = L.landscape ? bookTop + S.section : top + D.contentTop - D.headerTop;
+  const contentBottom = Math.max(
+    L.insets.bottom + S.component,
+    L.landscape ? S.section : D.contentBottom,
+  );
+  const fullContent = Math.max(0, L.height - contentTop - contentBottom);
+  // 줄인 만큼 책 바닥도 올린다 — 내용 아래 책 여백은 그대로
+  const shrink = fitHeight == null ? 0 : Math.max(0, fullContent - fitHeight);
   return (
     <View style={styles.root}>
       <Image
@@ -588,13 +620,14 @@ function Book({
       />
       <View pointerEvents="none" style={[fill, styles.scrim]} />
       <View
+        testID="diary-book"
         pointerEvents="none"
         style={{
           position: 'absolute',
           left,
           top: bookTop,
           width,
-          height: Math.max(0, L.height - bookTop - S.control),
+          height: Math.max(0, L.height - bookTop - S.control - shrink),
         }}
       >
         <Image source={art['lib/page']} resizeMode="stretch" style={fill} />
@@ -602,11 +635,13 @@ function Book({
       <View
         style={[styles.header, { left: left + D.headerInset, right: left + D.headerInset, top }]}
       >
-        <Arrow label="뒤로" onPress={onBack} glyph="‹" />
+        {/* 뒤로 하나만 둔다(DESIGN §7.14) — 이웃 상세에서는 목록으로, 그 밖에는 도서관으로 */}
+        <NavBtn label={backLabel} onPress={onBack} />
         <T numberOfLines={1} style={[styles.headerTitle, { fontFamily: font }]}>
           {title}
         </T>
-        <Arrow label="책 덮기" onPress={onClose} glyph="×" />
+        {/* 제목을 가운데에 두려고 뒤로 버튼만큼 비운다 */}
+        <View style={styles.headerSpacer} />
       </View>
       <View
         style={{
@@ -614,10 +649,7 @@ function Book({
           left: left + width * D.contentLeftRatio,
           right: left + width * D.contentRightRatio,
           top: contentTop,
-          bottom: Math.max(
-            L.insets.bottom + S.component,
-            L.landscape ? S.section : D.contentBottom,
-          ),
+          bottom: contentBottom + shrink,
         }}
       >
         {children}
@@ -876,6 +908,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   headerTitle: { flex: 1, textAlign: 'center', fontSize: F.body },
+  headerSpacer: { width: semanticTokens.size.tapMin },
   arrow: {
     minWidth: semanticTokens.size.tapMin,
     minHeight: semanticTokens.size.tapMin,
@@ -899,13 +932,13 @@ const styles = StyleSheet.create({
   tabSelected: { borderBottomColor: C.primary },
   scroll: { flex: 1 },
   content: { flexGrow: 1, gap: D.contentGap, paddingBottom: S.section },
-  neighborContent: { gap: S.control },
+  // 이웃 일기장은 내용 높이를 재서 책을 줄이므로 남는 높이를 채우지 않는다
+  neighborContent: { gap: S.control, flexGrow: 0 },
   body: { fontSize: F.label, color: C.text, flexShrink: 1 },
   bold: { fontWeight: F.bold },
   meta: { fontSize: F.caption, color: C.textMuted },
   centerMeta: { fontSize: F.caption, color: C.textMuted, textAlign: 'center' },
   sectionTitle: { fontSize: F.body, fontWeight: F.bold },
-  centerTitle: { fontSize: F.body, fontWeight: F.bold, textAlign: 'center' },
   total: {
     fontSize: F.display,
     fontWeight: F.extraBold,
@@ -958,16 +991,6 @@ const styles = StyleSheet.create({
   residentName: { fontSize: F.label, fontWeight: F.bold, textAlign: 'center' },
   profile: { flexDirection: 'row', alignItems: 'center', gap: S.control },
   profileName: { fontSize: F.heading },
-  tableRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    minHeight: D.tableRowHeight,
-    paddingHorizontal: S.control / 2,
-    borderBottomWidth: semanticTokens.stroke.subtle,
-    borderBottomColor: C.divider,
-  },
-  dateCell: { flex: 0.7, textAlign: 'center', fontSize: F.caption },
-  tableCell: { flex: 1, textAlign: 'center', fontSize: F.label, fontVariant: ['tabular-nums'] },
   chart: { flexDirection: 'row', gap: S.control / 2, paddingVertical: S.component },
   chartColumn: { flex: 1, alignItems: 'center', gap: S.control / 2 },
   chartLabel: { fontSize: F.caption, color: C.textMuted, textAlign: 'center' },

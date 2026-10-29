@@ -69,10 +69,7 @@ import java.util.UUID;
 public class FocusRewardAccrualService {
 
     /**
-     * 하루 상한의 날짜 축 — <b>UTC</b>(결정 D8 · {@code focus-rest-session/policy.md} FR-D01 「하루 상한의
-     * 「하루」 경계는 D8(UTC 00:00 리셋)을 따른다」). 일 집계({@code daily_focus_stats})의 KST 축과 다른
-     * 것은 의도다: 그쪽은 전환 계획(GROMO-1930) 대기 중인 레거시 축이고, 신규 축은 퀘스트(Q-6)·회관
-     * 기록(RC-축)과 같이 처음부터 UTC 다. 축을 바꾸려면 여기 한 곳만 바꾸면 된다.
+     * 보상 하루 상한의 날짜 축. UTC 자정에 초기화하며, 집중 일 집계의 KST 날짜 축과 구분한다.
      */
     public static final ZoneOffset REWARD_DAY_ZONE = ZoneOffset.UTC;
 
@@ -87,7 +84,9 @@ public class FocusRewardAccrualService {
     private final FocusRewardAccrualRepository focusRewardAccrualRepository;
     private final IslandWalletService islandWalletService;
     private final IslandWalletEvents islandWalletEvents;
-    /** 바다 집중 판정 seam (GROMO-2274) — 바다 세션은 섬 통장에 적립하지 않는다. 지금은 늘 {@code false} 다. */
+    /**
+     * 바다 세션은 섬 통장 적립에서 제외한다.
+     */
     private final SeaSessionPredicate seaSessions;
     private final Clock clock;
 
@@ -123,8 +122,7 @@ public class FocusRewardAccrualService {
         if (seaSessions.isSea(detail)) {
             return 0;
         }
-        // 기본 마커가 바깥에서 닫힌 세션(레거시 start 의 autoCloseOpenMarkersOf)은 사용자에게 이미 끝난
-        // 세션이다 — 그런 세션에 물고기를 계속 넣지 않는다. 종결 자체는 수명주기 서비스가 한다.
+        // 기본 세션이 이미 닫힌 기록에는 추가 적립하지 않는다. 상세의 종결은 수명주기 서비스가 처리한다.
         if (focusSessionRepository.findEndedAtById(sessionId).isPresent()) {
             return 0;
         }

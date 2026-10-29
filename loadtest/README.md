@@ -59,8 +59,6 @@ make write-fixture SLOTS=50
 make test-existing BASE_URL=http://localhost:18088 PARAMS_DIR=$PWD/.local/params PROFILE=smoke RATE=2 DURATION=1m K6_SCRIPT=k6/scenarios/island_switch.js
 ```
 
-`join_approval`은 Data의 `ISLAND_MANAGEMENT_COMMANDS_ENABLED=true`가 필요하다(기본 false — 운영 기본에선 승인·나가기가 503 `ISLAND_MANAGEMENT_NOT_READY`). 로컬 compose(`infra/local/compose.yml`)는 켜 두었다.
-
 정리 호출(나가기·신청 취소)과 `join_approval`의 첫 신청은 예상 4xx(404·409)를 `http_req_failed`에서 제외한다.
 
 **쓰기 시나리오는 한 번에 하나만 실행한다** — 같은 slot을 공유해 `join_approval`이 남기는 시스템 편지가 `letter_exchange`의 `GET /letters` 응답 시간을 오염시킨다.
@@ -211,3 +209,10 @@ sequenceDiagram
 - **평시 전부 중지** — `make down`이 곧 과금 차단. 부하 VM(spot)은 run마다 생성·삭제.
 - run 비교는 **메타(sha·seed·스펙) 동일**할 때만 유효 — 다르면 verdict가 diff를 거부한다.
 - 실부하 DB에 `EXPLAIN ANALYZE` 금지 — 심층 분석은 `analysis` 클론에서.
+
+## 외부 대상 혼합 시험의 중단 증거
+
+명시한 대상에서 HTTP와 WebSocket을 함께 측정하고 중단된 단계의 원시 결과를 보존하는 방법은
+[혼합 부하의 중단 결과와 종료 진단](docs/mixed-results.md)을 참고한다. 실제 공통 측정 시간이 부족하면 개별 단계가 통과했어도 혼합 시험은 통과하지 않는다.
+
+집중 세션의 응답 유실 진단·소유권 기반 정리·서버 원장 대조는 [집중 실패 원장](docs/aws-focus-failure-ledger.md)을 참고한다.

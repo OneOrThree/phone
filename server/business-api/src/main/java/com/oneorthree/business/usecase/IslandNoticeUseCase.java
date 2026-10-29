@@ -16,7 +16,6 @@ import com.oneorthree.business.common.request.SignedCursorCodec;
 import com.oneorthree.business.upstream.data.DataIslandClient;
 import com.oneorthree.business.upstream.data.dto.IslandNotices;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
@@ -37,9 +36,6 @@ import java.util.function.Supplier;
  * 사용자·섬(·공지)·정렬·페이지 크기가 묶이므로 다른 섬·다른 공지의 커서는 400 이다. 오류 field 는 실제로 제출된
  * 이름이다 — 목록은 {@code cursor}, 상세의 댓글 쪽은 {@code commentsCursor}. 페이지 크기는 서버 내부 값(30)이고
  * 원본 query 에 limit 을 추가하지 않는다.
- *
- * <p>커서 서명기는 {@code business.cursor.enabled=true} 일 때만 있다 — 없으면 커서를 «없는 셈» 치지 않고 503 으로
- * 실패한다({@code IslandMailboxUseCase#codec} 과 같은 모양).
  */
 @Service
 @RequiredArgsConstructor
@@ -76,14 +72,14 @@ public class IslandNoticeUseCase {
             Map.entry("INVALID_REQUEST", new PublicFailure(400, ApiErrorCode.INVALID_REQUEST, null)));
 
     private final DataIslandClient data;
-    private final ObjectProvider<SignedCursorCodec> cursorCodecs;
+    private final SignedCursorCodec codec;
 
     /** 목록 — 커서를 먼저 푸는 것은 위조·만료 커서로 상류를 두드리지 않기 위해서다. 인가는 매 쪽 Data 가 한다. */
     public IslandNoticeResponses.Page list(AccessTokenClaims claims, UUID islandId, String cursor,
             Deadline deadline) {
         CursorScope scope = new CursorScope(claims.userId(), "islands/notices",
                 Map.of("islandId", islandId.toString()), "created-desc", PAGE_SIZE);
-        Anchor anchor = Anchor.of(codec().decode(cursor, scope, FIELD_CURSOR), FIELD_CURSOR);
+        Anchor anchor = Anchor.of(codec.decode(cursor, scope, FIELD_CURSOR), FIELD_CURSOR);
         IslandNotices.Page page = relay(() -> data.fetchNotices(claims.userId(), islandId,
                 anchor == null ? null : anchor.createdAt(), anchor == null ? null : anchor.id(), PAGE_SIZE,
                 deadline));
@@ -96,7 +92,7 @@ public class IslandNoticeUseCase {
         String next = null;
         if (page.hasMore()) {
             IslandNotices.Item last = lastOf(page.items());
-            next = codec().encode(scope, new CursorBoundary(last.createdAt().toString(), last.id().toString()));
+            next = codec.encode(scope, new CursorBoundary(last.createdAt().toString(), last.id().toString()));
         }
         return new IslandNoticeResponses.Page(items, next);
     }
@@ -107,7 +103,7 @@ public class IslandNoticeUseCase {
         CursorScope scope = new CursorScope(claims.userId(), "islands/notices/comments",
                 Map.of("islandId", islandId.toString(), "noticeId", noticeId.toString()), "created-asc",
                 PAGE_SIZE);
-        Anchor anchor = Anchor.of(codec().decode(commentsCursor, scope, FIELD_COMMENTS_CURSOR),
+        Anchor anchor = Anchor.of(codec.decode(commentsCursor, scope, FIELD_COMMENTS_CURSOR),
                 FIELD_COMMENTS_CURSOR);
         IslandNotices.Detail notice = relay(() -> data.fetchNotice(claims.userId(), islandId, noticeId,
                 anchor == null ? null : anchor.createdAt(), anchor == null ? null : anchor.id(), PAGE_SIZE,
@@ -121,7 +117,7 @@ public class IslandNoticeUseCase {
         String next = null;
         if (notice.hasMoreComments()) {
             IslandNotices.Comment last = lastOf(notice.comments());
-            next = codec().encode(scope, new CursorBoundary(last.createdAt().toString(), last.id().toString()));
+            next = codec.encode(scope, new CursorBoundary(last.createdAt().toString(), last.id().toString()));
         }
         return new IslandNoticeResponses.Detail(notice.id(), notice.title(), notice.body(), notice.version(),
                 comments, next);
@@ -189,15 +185,6 @@ public class IslandNoticeUseCase {
             throw new UpstreamContractMismatchException("게시판 명령 응답이 없습니다");
         }
         return value;
-    }
-
-    /** {@link IslandMailboxUseCase} 와 같은 이유로 서명기가 없으면 503 이다. */
-    private SignedCursorCodec codec() {
-        SignedCursorCodec codec = cursorCodecs.getIfAvailable();
-        if (codec == null) {
-            throw new PublicApiException(ApiErrorCode.SERVICE_UNAVAILABLE, null);
-        }
-        return codec;
     }
 
     private static <T> T relay(Supplier<T> upstream) {

@@ -66,6 +66,9 @@ final class EventPayloadValidator {
             uuidField(payload, "userId");
             instantField(payload, "arrivedAt", false);
         }
+        if (type == RealtimeEventType.MEMBER_APPEARANCE_UPDATED) {
+            validateAppearance(payload);
+        }
         if (type == RealtimeEventType.FOCUS_EMOTE) {
             validateEmote(payload);
         }
@@ -88,6 +91,22 @@ final class EventPayloadValidator {
                 throw new IllegalArgumentException("자산 소유자와 재화가 일치하지 않습니다.");
             }
         }
+    }
+
+    private static void validateAppearance(JsonNode payload) {
+        uuidField(payload, "userId");
+        JsonNode look = payload.get("appearance");
+        if (look == null || !look.isObject()) {
+            throw new IllegalArgumentException("외양 객체가 필요합니다.");
+        }
+        for (String slot : new String[] {"clothes", "decor", "head", "neck", "shoes"}) {
+            JsonNode value = look.get(slot);
+            if (value == null || (!value.isNull() && (!value.isString() || value.stringValue().length() > 128))) {
+                throw new IllegalArgumentException("외양 슬롯이 올바르지 않습니다.");
+            }
+        }
+        textField(look, "hull");
+        textField(look, "position");
     }
 
     /**

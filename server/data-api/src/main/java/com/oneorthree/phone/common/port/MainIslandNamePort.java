@@ -10,7 +10,7 @@ import java.util.UUID;
  * <p><b>왜 포트인가.</b> 친구 목록은 {@code friend}(L3)가 만드는데 메인 섬과 섬 이름은 {@code group}(L5)의
  * 데이터다 — 직접 부르면 레이어 역행이라 {@code DomainLayerRulesTest} 가 빌드를 깬다. 필요한 것은 이 질문
  * 하나뿐이라 답을 아는 쪽({@code group})이 구현하고 묻는 쪽은 인터페이스만 본다
- * ({@link InviteAttributionPort} 와 같은 논증).
+ *
  *
  * <p>구현: {@code group/service/MainIslandService}.
  */

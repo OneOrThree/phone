@@ -8,13 +8,16 @@ import java.io.InputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.TreeMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * 위성 서비스(링크·알림) 자리에 세우는 <b>진짜 HTTP 서버</b>.
+ * 위성 서비스(realtime·알림) 자리에 세우는 <b>진짜 HTTP 서버</b>.
  *
  * <p>목 대신 실제 소켓을 쓰는 이유: 검증 대상이 「relay 가 무엇을 보내는가」가 아니라 <b>상태 코드에
  * 따라 무엇을 표시하는가</b>이기 때문이다. 목으로 세우면 HTTP 배선(헤더·본문·타임아웃)이 통째로
@@ -54,11 +57,15 @@ public final class StubSatelliteServer {
         try (InputStream in = exchange.getRequestBody()) {
             body = new String(in.readAllBytes(), StandardCharsets.UTF_8);
         }
+        Map<String, String> headers = new TreeMap<>();
+        exchange.getRequestHeaders().forEach((name, values) ->
+                headers.put(name.toLowerCase(Locale.ROOT), values.isEmpty() ? "" : values.get(0)));
         received.add(new Received(
                 exchange.getRequestMethod(),
                 exchange.getRequestURI().getPath(),
                 exchange.getRequestHeaders().getFirst("Authorization"),
-                body));
+                body,
+                Map.copyOf(headers)));
         ResponseGate gate = responseGate;
         if (gate != null) {
             gate.entered().countDown();
@@ -123,7 +130,17 @@ public final class StubSatelliteServer {
      * @param path         경로 — {@code {userId}} 가 실제 값으로 채워졌는지 본다
      * @param serviceToken caller 별 서비스 토큰
      * @param body         본문
+     * @param headers      받은 헤더 — 이름은 소문자, 값은 첫 값(원인 문맥 carrier 를 본다, GROMO-2557)
      */
-    public record Received(String method, String path, String serviceToken, String body) {
+    public record Received(String method, String path, String serviceToken, String body,
+            Map<String, String> headers) {
+
+        /**
+         * @param name 헤더 이름(대소문자 무관)
+         * @return 값 — 없으면 {@code null}
+         */
+        public String header(String name) {
+            return headers.get(name.toLowerCase(Locale.ROOT));
+        }
     }
 }

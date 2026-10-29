@@ -3,6 +3,7 @@ import { act, fireEvent, render } from '@testing-library/react-native';
 import { MotionContext } from '@/design-system/primitives';
 import { initialState, reducer, type State } from '@/services/model';
 import { updateProfile } from '@/services/api/account';
+import { ApiError } from '@/services/api/client';
 import { useTelescope } from '@/screens/island/useTelescope';
 import { OnboardingFlow } from './OnboardingFlow';
 import { applyLocalePref } from '@/i18n';
@@ -105,7 +106,20 @@ test('선택한 색과 이름을 함께 저장하고 건너뛰면 망원경 체�
   await fireEvent.press(screen.getByTestId('onboarding-skip'));
   expect(screen.getByTestId('onboarding-name')).toBeTruthy();
   expect(screen.queryByTestId('onboarding-skip')).toBeNull();
-  await fireEvent.changeText(screen.getByTestId('onboarding-name'), '  하루  ');
+  for (const value of [
+    ' 하 루 ',
+    '하\t루',
+    '하\n루',
+    '하\u3000루',
+    '하\u00a0루',
+    '하\u0085루',
+    '하\ufeff루',
+    '하\u2028루',
+    '하\u202f루',
+  ]) {
+    await fireEvent.changeText(screen.getByTestId('onboarding-name'), value);
+    expect(screen.getByTestId('onboarding-name').props.value).toBe('하루');
+  }
   await pressContinue(screen);
   expect(updateProfile).toHaveBeenCalledWith(
     { name: '하루', catColor: 'calico' },
@@ -114,7 +128,7 @@ test('선택한 색과 이름을 함께 저장하고 건너뛰면 망원경 체�
   expect(current.name).toBe('하루');
   expect(current.color).toBe('calico');
   expect(current.onboardingStory).toBe('scope');
-  expect(screen.getByTestId('onboarding-scopeIntro')).toBeTruthy();
+  expect(screen.getByTestId('onboarding-scope')).toBeTruthy();
 });
 
 test('프로필 저장 실패는 이름 입력을 유지하고 같은 의도 키로 재시도한다', async () => {
@@ -133,11 +147,50 @@ test('프로필 저장 실패는 이름 입력을 유지하고 같은 의도 키
   expect(current.onboardingStory).toBe('scope');
 });
 
+const openName = async (screen: Awaited<ReturnType<typeof render>>) => {
+  await fireEvent.press(screen.getByTestId('onboarding-choose-next'));
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 1250));
+  });
+  await fireEvent.press(screen.getByTestId('onboarding-skip'));
+};
+
+test('닉네임 형식 거절은 서버 메시지를 이름 칸 아래에 표시하고 편집하면 지운다', async () => {
+  const message = '서버가 보낸 닉네임 형식 안내';
+  (updateProfile as jest.Mock).mockRejectedValueOnce(
+    new ApiError('NICKNAME_INVALID', message, 400),
+  );
+  const screen = await render(<Harness savedName="하루" />);
+  await openName(screen);
+  await pressContinue(screen);
+
+  expect(await screen.findByText(message)).toBeTruthy();
+  expect(screen.getByRole('alert')).toBeTruthy();
+  expect(current.onboardingStory).toBe('intro');
+  expect(screen.getByTestId('onboarding-name').props.value).toBe('하루');
+  await fireEvent.changeText(screen.getByTestId('onboarding-name'), '새 이름');
+  expect(screen.getByTestId('onboarding-name').props.value).toBe('새이름');
+  expect(screen.queryByText(message)).toBeNull();
+});
+
+test('기존 공백 닉네임은 입력을 바꾸지 않으면 저장 요청과 저장된 상태에서 그대로 유지한다', async () => {
+  const legacy = '\u00a0하루\ufeff';
+  const screen = await render(<Harness savedName={legacy} />);
+  await openName(screen);
+  expect(screen.getByTestId('onboarding-name').props.value).toBe(legacy);
+  await pressContinue(screen);
+
+  expect(updateProfile).toHaveBeenCalledWith(
+    expect.objectContaining({ name: legacy }),
+    expect.any(String),
+  );
+  expect(current.name).toBe(legacy);
+});
+
 test('망원경 재진입은 안내부터 시작하며 실제 세션 시작 성공 뒤에만 완료한다', async () => {
   startSea.mockResolvedValue({ id: 's1', kind: 'sea', islandId: 'island-1' });
   const screen = await render(<Harness checkpoint="scope" savedName="하루" />);
-  expect(screen.getByTestId('onboarding-scopeIntro')).toBeTruthy();
-  await pressContinue(screen);
+  expect(screen.getByTestId('onboarding-scope')).toBeTruthy();
   await fireEvent.press(screen.getByTestId('onboarding-island-island-1'));
   expect(current.onboardingStory).toBe('scope');
   await pressContinue(screen);
@@ -153,7 +206,6 @@ test('망원경 재진입은 안내부터 시작하며 실제 세션 시작 성�
 test('출발 실패 시 완료하지 않고 목적지를 유지한다', async () => {
   startSea.mockRejectedValue(new Error('offline'));
   const screen = await render(<Harness checkpoint="scope" />);
-  await pressContinue(screen);
   await fireEvent.press(screen.getByTestId('onboarding-island-island-1'));
   await pressContinue(screen);
   expect(current.onboardingStory).toBe('scope');
@@ -170,12 +222,14 @@ test('계정 세대가 바뀐 뒤 도착한 출항 응답은 진행도와 화면
       }),
   );
   const screen = await render(<Harness checkpoint="scope" />);
-  await pressContinue(screen);
   await fireEvent.press(screen.getByTestId('onboarding-island-island-1'));
   const pressing = pressContinue(screen);
   await new Promise((r) => setTimeout(r, 0));
   mockGeneration++;
-  resolve({ id: 's1', kind: 'sea', islandId: 'island-1' });
+  await act(async () => {
+    resolve({ id: 's1', kind: 'sea', islandId: 'island-1' });
+    await new Promise((r) => setTimeout(r, 0));
+  });
   await pressing;
   expect(current.onboardingStory).toBe('scope');
   expect(reset).not.toHaveBeenCalled();
@@ -192,7 +246,6 @@ test.each(['focus', 'rest', 'sea'])(
     startSea.mockRejectedValue({ code: 'STATE_CONFLICT' });
     recover.mockResolvedValue(route);
     const screen = await render(<Harness checkpoint="scope" />);
-    await pressContinue(screen);
     await fireEvent.press(screen.getByTestId('onboarding-island-island-1'));
     await pressContinue(screen);
     expect(reset).toHaveBeenCalledWith(route);
@@ -219,7 +272,6 @@ test.each([false, true])(
       reload: jest.fn(),
     });
     const screen = await render(<Harness checkpoint="scope" />);
-    await pressContinue(screen);
     expect(screen.queryByTestId('onboarding-island-island-1')).toBeNull();
     expect(screen.getByLabelText('무인도까지 15분')).toBeTruthy();
     expect(screen.getByTestId('onboarding-island-art-reserved-island').props.source).toEqual(
@@ -253,7 +305,6 @@ test.each([
     reload: jest.fn(),
   });
   const screen = await render(<Harness checkpoint="scope" />);
-  await pressContinue(screen);
   expect(screen.getByTestId('onboarding-island-island-1')).toBeTruthy();
   expect(screen.queryByTestId('onboarding-island-reserved-island')).toBeNull();
 });

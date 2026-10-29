@@ -54,7 +54,6 @@ class ConstructionPolicyAdminIntegrationTest {
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
         OutboxTestPostgres.applyProductionMigrationWiring(registry);
-        registry.add("internal.api.enabled", () -> true);
         registry.add("internal.api.callers.console.token", () -> "policy-local-console");
         registry.add("internal.api.callers.console.console-actor", () -> "member-1");
         registry.add("internal.api.callers.console.allow[0]", () -> "GET " + PATH);

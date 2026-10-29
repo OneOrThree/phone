@@ -18,14 +18,14 @@ class FriendsScreenContractTest extends ScreenContractTestBase {
     private static final UUID PEER = UUID.fromString("aaaaaaaa-1899-0000-0000-000000000013");
     private static final String DATA_FRIENDS = "GET " + USERS + "/friends";
     private static final String DATA_REQUESTS = "GET " + USERS + "/friend-requests";
-    private static final String FRIENDS = "[{\"userId\":\"" + PEER + "\",\"nickname\":\"짝꿍\",\"tierLevel\":3,"
-            + "\"occupation\":\"CODING\",\"isPinned\":true,\"isFocusing\":true,\"focusTimeMinutes\":42,"
+    private static final String FRIENDS = "[{\"userId\":\"" + PEER + "\",\"nickname\":\"짝꿍\","
+            + "\"isFocusing\":true,\"focusTimeMinutes\":42,"
             + "\"focusStartedAt\":\"2026-09-18T01:00:00Z\",\"focusTagName\":\"전공\","
             + "\"mainIslandName\":\"모래섬\"}]";
 
     private static String requestItem(String nickname) {
         return "[{\"requestId\":\"" + UUID.randomUUID() + "\",\"userId\":\"" + UUID.randomUUID()
-                + "\",\"nickname\":\"" + nickname + "\",\"tierLevel\":null,\"createdAt\":\"2026-09-18T01:00:00Z\"}]";
+                + "\",\"nickname\":\"" + nickname + "\",\"createdAt\":\"2026-09-18T01:00:00Z\"}]";
     }
 
     @BeforeEach
@@ -41,7 +41,7 @@ class FriendsScreenContractTest extends ScreenContractTestBase {
                 .andExpect(status().isOk())
                 .andExpect(header().string("Cache-Control", "no-store"))
                 .andExpect(jsonPath("$.data.friends[0].userId").value(PEER.toString()))
-                .andExpect(jsonPath("$.data.friends[0].isPinned").value(true))
+                .andExpect(jsonPath("$.data.friends[0].isPinned").doesNotExist())
                 .andExpect(jsonPath("$.data.friends[0].focusTimeMinutes").value(42))
                 .andExpect(jsonPath("$.data.friends[0].mainIslandName").value("모래섬"))
                 .andExpect(jsonPath("$.data.friendRequests[0].nickname").value("받은"))

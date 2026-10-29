@@ -96,7 +96,7 @@ class TestPostgresSchemaIsolationTest {
             assertThat(group).isNotNull();
             assertThat(group.getName()).isEqualTo(name);
             // 기존 서비스의 무접두어 native SQL도 같은 스키마를 읽는지 확인한다.
-            assertThat(entityManager.createNativeQuery("SELECT name FROM groups WHERE id = :id", String.class)
+            assertThat(entityManager.createNativeQuery("SELECT name FROM islands WHERE id = :id", String.class)
                     .setParameter("id", id).getSingleResult()).isEqualTo(name);
         }
     }

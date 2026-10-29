@@ -1,6 +1,6 @@
 # 전망대 주간 랭킹 설계
 
-GROMO-1776 설계, **GROMO-1997 구현**. [PRD](prd.md)·[정책](policy.md)·[HLD](high-level-design.md)·[LLD](low-level-design.md)·[원본2계약](source-contracts.json). 정책 충돌 시 policy.md 가 우선한다.
+GROMO-1776 설계, **GROMO-1997 구현**. [PRD](prd.md)·[정책](policy.md)·[HLD](high-level-design.md)·[LLD](low-level-design.md)·[운영 런북](ops-runbook.md)·[원본2계약](source-contracts.json). 정책 충돌 시 policy.md 가 우선한다.
 
 > **2026-09-21 현행화** — 구현과 함께 세 가지가 확정돼 이 폴더 전체에 반영했다.
 > ① **주민 랭킹 폐지**(2026-09-16 결정 B23·B15): `GET /islands/{islandId}/rankings/members` 는 엔드포인트 자체가

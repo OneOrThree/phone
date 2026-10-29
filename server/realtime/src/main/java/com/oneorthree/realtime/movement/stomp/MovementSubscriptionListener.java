@@ -6,6 +6,7 @@ import com.oneorthree.realtime.common.exception.CommonErrorCode;
 import com.oneorthree.realtime.common.exception.DomainException;
 import com.oneorthree.realtime.config.RealtimeSessionRegistry;
 import com.oneorthree.realtime.config.StompTopics;
+import com.oneorthree.realtime.logging.LogContext;
 import com.oneorthree.realtime.message.exception.ChatErrorCode;
 import com.oneorthree.realtime.message.service.ChatAccessGuard;
 import com.oneorthree.realtime.movement.MovementRooms;
@@ -27,6 +28,7 @@ import org.springframework.web.socket.CloseStatus;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledExecutorService;
@@ -63,6 +65,8 @@ import java.util.regex.Matcher;
  * 1·2·4·8·16초 뒤 다시 판정한다 — 비멤버면 퇴장, 토큰이 죽었으면 1008, 31초 예산을 다 쓰면 1011
  * {@code MEMBERSHIP_UNVERIFIED} 로 닫아 앱이 다시 붙어 구독 관문에서 새로 판정받게 한다. 세대 교체·멈춤과
  * 세대 확인·재개는 {@code rechecks} 의 같은 키 잠금 안에서 한다 — 옛 세대의 통과가 새 사건의 멈춤을 덮지 못한다.
+ * 판정 작업은 예약한 스레드의 원인 문맥(강퇴 사건의 {@code event_id}·origin, 다른 인스턴스 RECHECK 의 telemetry)을 싣고 가
+ * 재시도까지 판정·종료 로그가 그 사건에 이어진다(GROMO-2581).
  *
  * <h2>짝 토픽 판정 이어받기의 근거는 이 색인이다</h2>
  * 관문은 이 세션이 그 섬의 <b>살아 있는</b> outbox 를 들고 있을 때만({@link #holdsLiveOutbox}) 멤버십 판정을
@@ -97,6 +101,10 @@ public class MovementSubscriptionListener implements ChannelInterceptor {
     private static final long GENERATION_TTL_NANOS = TimeUnit.MINUTES.toNanos(10);
 
     private static final CloseStatus UNVERIFIED = CloseStatus.SERVER_ERROR.withReason("MEMBERSHIP_UNVERIFIED");
+
+    /** 이동이 소켓을 닫을 때 쓰는 reason — 연결 진단 로그는 서버 reason 만 그대로 남긴다({@code WebSocketConnectionDiagnostics}). */
+    public static final Set<String> CLOSE_REASONS = Set.of(MovementOutbox.BACKPRESSURE.getReason(),
+            MovementOutbox.SEND_FAILED.getReason(), UNVERIFIED.getReason());
 
     private final MovementCluster cluster;
     private final MovementPublisher publisher;
@@ -253,8 +261,8 @@ public class MovementSubscriptionListener implements ChannelInterceptor {
         String destination = accessor.getDestination();
         Matcher topic = destination == null ? null : StompTopics.MOVEMENT_TOPIC.matcher(destination);
         if (topic == null || !topic.matches() || !(accessor.getUser() instanceof ChatPrincipal principal)) {
-            // 이동 토픽이 아니어도 이 id 가 이동 구독에 묶여 있었으면(해지 없이 id 를 재사용 — 레지스트리는 id 의
-            // 목적지를 바꿔 끼운다) 그 묶음부터 해지 경로로 푼다. 묶인 곳이 없으면 아무 일도 없다.
+            // 관문은 같은 id 의 목적지 변경을 거절하므로(GROMO-2210) 이 분기는 방어용이다 — 이동 토픽이 아니어도 이 id 가
+            // 이동 구독에 묶여 있었으면 그 묶음부터 해지 경로로 푼다. 묶인 곳이 없으면 아무 일도 없다.
             unsubscribed(accessor.getSessionId(), subscriptionId);
             return;
         }
@@ -269,9 +277,9 @@ public class MovementSubscriptionListener implements ChannelInterceptor {
             Map<UUID, MovementOutbox> outboxes = held != null ? held : new ConcurrentHashMap<>();
             MovementOutbox outbox = outboxes.get(islandId);
             if (outbox == null || !outbox.holds(subscriptionId, snapshot)) {
-                // 같은 id 가 이 세션의 다른 이동 목적지에 묶여 있었으면(해지 없이 id 를 재사용 — 레지스트리는 id 의 목적지를
-                // 바꿔 끼운다) 그 묶음부터 해지 경로로 푼다. 옛 섬 actor·outbox 가 유령으로 남거나 옛 섬 사건이 이 id 로
-                // 나가지 않게. 묶인 곳이 없으면 아무 일도 없고, 같은 목적지 재전송은 여기 오지 않는다.
+                // 관문은 같은 id 의 목적지 변경을 거절하므로(GROMO-2210) 이 분기는 방어용이다 — 같은 id 가 이 세션의 다른
+                // 이동 목적지에 묶여 있었으면 그 묶음부터 해지 경로로 푼다. 옛 섬 actor·outbox 가 유령으로 남거나 옛 섬
+                // 사건이 이 id 로 나가지 않게. 묶인 곳이 없으면 아무 일도 없고, 같은 목적지 재전송은 여기 오지 않는다.
                 detach(sessionId, outboxes, subscriptionId);
                 outbox = outboxes.get(islandId);
             }
@@ -476,7 +484,7 @@ public class MovementSubscriptionListener implements ChannelInterceptor {
         });
         cancel(previous[0]);
         suspendedCount.increment();
-        first.future = scheduler.schedule(() -> judgeAndAct(outbox, first), 0, TimeUnit.SECONDS);
+        first.future = scheduler.schedule(LogContext.carrying(() -> judgeAndAct(outbox, first)), 0, TimeUnit.SECONDS);
     }
 
     /**
@@ -542,7 +550,7 @@ public class MovementSubscriptionListener implements ChannelInterceptor {
             case UNAUTHORIZED -> {
                 // 그 토큰으로는 다시 물어도 같다 — 기존 만료 토큰 규칙대로 1008 로 닫아 앱이 갱신·재연결하게 한다.
                 if (rechecks.remove(outbox, recheck)) {
-                    closeLater(outbox.sessionId(), CloseStatus.POLICY_VIOLATION.withReason("UNAUTHORIZED"));
+                    closeLater(outbox.sessionId(), RealtimeSessionRegistry.UNAUTHORIZED);
                 }
             }
             case GONE -> rechecks.remove(outbox, recheck);
@@ -581,8 +589,8 @@ public class MovementSubscriptionListener implements ChannelInterceptor {
         }
         Recheck next = new Recheck(recheck.islandId, recheck.attempt + 1);
         if (rechecks.replace(outbox, recheck, next)) {
-            next.future = scheduler.schedule(() -> judgeAndAct(outbox, next), RETRY_DELAYS_SECONDS[recheck.attempt],
-                    TimeUnit.SECONDS);
+            next.future = scheduler.schedule(LogContext.carrying(() -> judgeAndAct(outbox, next)),
+                    RETRY_DELAYS_SECONDS[recheck.attempt], TimeUnit.SECONDS);
         }
     }
 

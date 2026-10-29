@@ -1,15 +1,23 @@
 import React from 'react';
 import { act, fireEvent, render } from '@testing-library/react-native';
-import { StyleSheet } from 'react-native';
+import { StyleProp, StyleSheet, TextStyle } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SeaScreen, SeaScreenProps } from './SeaScreen';
 import { SeaArrival, SeaParticipant, SeaVoyage, seaPeerPages } from './seaModel';
 import { duckPreviewArt } from './seaRewardCatalog';
 import { SeaRaft } from './SeaRaft';
 import { applyLocalePref } from '@/i18n';
+import { GOWUN } from '@/screens/island/sceneKit';
+import { FriendActionContext } from '@/screens/island/CatInfoPopup';
+import type { FriendsScreenState } from '@/screens/island/useFriendsScreen';
+import { sendFriendRequest } from '@/services/api/friends';
 
 jest.mock('@/components/CatSprite', () => ({ CatSprite: () => null }));
 jest.mock('./SeaRaft', () => ({ SeaRaft: jest.fn(() => null) }));
+jest.mock('@/services/api/friends', () => ({
+  ...jest.requireActual('@/services/api/friends'),
+  sendFriendRequest: jest.fn(),
+}));
 jest.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: jest.fn(() => ({ top: 0, bottom: 0, left: 0, right: 0 })),
 }));
@@ -40,10 +48,25 @@ const props = (): SeaScreenProps => ({
   onTelescope: jest.fn(),
   onMessage: jest.fn(async () => {}),
   onEmote: jest.fn(async () => {}),
-  onFriendRequest: jest.fn(async () => true),
 });
 
-test('유저 카드는 고양이·장착 정보·집중 시간·한마디 전체와 친구 요청을 표시한다', async () => {
+// 정보창 친구 행동의 출처(useFriendsScreen 대역) — command 는 실제 훅처럼 fn 을 부른다
+const friendSource = () => ({
+  friendsScreen: {
+    data: { friends: [], friendRequests: [], sentFriendRequests: [] },
+    busy: false,
+    refresh: jest.fn(),
+    command: jest.fn(async (fn: () => Promise<unknown>) => {
+      await fn();
+    }),
+  } as unknown as FriendsScreenState,
+});
+const withFriends = (ui: React.ReactElement) => (
+  <FriendActionContext.Provider value={friendSource()}>{ui}</FriendActionContext.Provider>
+);
+
+test('남의 뗏목을 누르면 정보창(뗏목·이름·한마디 말풍선·친구 요청), 내 뗏목은 기존 내 카드다(GROMO-2474)', async () => {
+  (sendFriendRequest as jest.Mock).mockResolvedValue(undefined);
   const p = props();
   const person: SeaParticipant = {
     ...people[1],
@@ -52,92 +75,49 @@ test('유저 카드는 고양이·장착 정보·집중 시간·한마디 전체
     message: '오늘도 내 속도로 한 걸음씩 가보자!',
     outfit: { head: 'hat', neck: null, shoes: undefined },
   };
-  const screen = await render(<SeaScreen {...p} participants={[people[0], person]} />);
+  const screen = await render(withFriends(<SeaScreen {...p} participants={[people[0], person]} />));
   await fireEvent.press(screen.getByTestId('sea-person-1'));
-  expect(screen.getByText(person.message!)).toBeTruthy();
-  expect(screen.getByText('집중 시간')).toBeTruthy();
-  expect(screen.getByText('01:01:01')).toBeTruthy();
+  expect(screen.getByTestId('cat-info-name')).toHaveTextContent('고양이1');
+  expect(screen.getByTestId('cat-info-message')).toHaveTextContent(person.message!);
   expect(SeaRaft).toHaveBeenLastCalledWith(
     expect.objectContaining({ color: 'calico', focusing: true, outfit: person.outfit }),
     undefined,
   );
-  expect(screen.queryByLabelText('차단하기')).toBeNull();
+  // 정보창에는 상태·과목·세션 시계가 없다
+  expect(screen.queryByText('집중 시간')).toBeNull();
+  expect(screen.queryByText('01:01:01')).toBeNull();
   await fireEvent.press(screen.getByLabelText('친구 요청'));
-  expect(p.onFriendRequest).toHaveBeenCalledWith('1');
-  expect(screen.getByLabelText('친구 요청 보냄')).toBeDisabled();
-  await fireEvent.press(screen.getByLabelText('친구 요청 보냄'));
-  expect(p.onFriendRequest).toHaveBeenCalledTimes(1);
-});
-
-test('친구 요청 중에는 중복 탭·카드 닫기를 막고 실패 후 다시 요청할 수 있다', async () => {
-  let finish!: (ok: boolean) => void;
-  const p = props();
-  p.onFriendRequest = jest.fn(
-    () =>
-      new Promise<boolean>((resolve) => {
-        finish = resolve;
-      }),
-  );
-  const screen = await render(<SeaScreen {...p} />);
-  await fireEvent.press(screen.getByTestId('sea-person-1'));
-  await fireEvent.press(screen.getByLabelText('친구 요청'));
-  await fireEvent.press(screen.getByLabelText('처리 중…'));
+  expect(sendFriendRequest).toHaveBeenCalledWith('1');
+  expect(screen.getByLabelText('요청 중')).toBeDisabled();
   await fireEvent.press(screen.getByLabelText('닫기'));
-  expect(p.onFriendRequest).toHaveBeenCalledTimes(1);
-  expect(screen.getByTestId('sea-participant-avatar')).toBeTruthy();
-  await act(async () => finish(false));
-  expect(screen.getByLabelText('친구 요청')).toBeEnabled();
-  await fireEvent.press(screen.getByLabelText('친구 요청'));
-  await act(async () => finish(true));
-  expect(screen.getByLabelText('친구 요청 보냄')).toBeDisabled();
-});
-
-test('본인에게는 친구 요청이 없고 참가자가 떠나면 카드의 친구 요청도 없어진다', async () => {
-  const p = props();
-  const screen = await render(<SeaScreen {...p} />);
+  expect(screen.queryByTestId('cat-info-name')).toBeNull();
   await fireEvent.press(screen.getByLabelText('내 뗏목'));
-  expect(screen.queryByLabelText('친구 요청')).toBeNull();
-  await fireEvent.press(screen.getByLabelText('닫기'));
-  await fireEvent.press(screen.getByTestId('sea-person-1'));
-  await screen.rerender(
-    <SeaScreen {...p} participants={people.filter((person) => person.userId !== '1')} />,
-  );
-  expect(screen.getByText('바다를 떠난 고양이예요')).toBeTruthy();
+  expect(screen.getByText('집중 시간')).toBeTruthy();
+  expect(screen.getByTestId('sea-participant-avatar')).toBeTruthy();
+  expect(screen.queryByTestId('cat-info-name')).toBeNull();
   expect(screen.queryByLabelText('친구 요청')).toBeNull();
 });
 
-test('게스트의 친구 요청은 로그인으로 이어지고 이전 계정의 늦은 성공을 적용하지 않는다', async () => {
+test('정보창을 연 채 참가자가 떠나도 누른 순간의 모습으로 남고, 한마디가 없으면 말풍선도 없다', async () => {
   const p = props();
-  const signIn = jest.fn();
-  const screen = await render(<SeaScreen {...p} guest onSignIn={signIn} />);
+  const screen = await render(withFriends(<SeaScreen {...p} />));
   await fireEvent.press(screen.getByTestId('sea-person-1'));
-  await fireEvent.press(screen.getByLabelText('친구 요청'));
-  expect(signIn).toHaveBeenCalledTimes(1);
-  expect(p.onFriendRequest).not.toHaveBeenCalled();
-  let finish!: (ok: boolean) => void;
-  p.onFriendRequest = jest.fn(
-    () =>
-      new Promise<boolean>((resolve) => {
-        finish = resolve;
-      }),
+  expect(screen.queryByTestId('cat-info-message')).toBeNull();
+  await screen.rerender(
+    withFriends(
+      <SeaScreen {...p} participants={people.filter((person) => person.userId !== '1')} />,
+    ),
   );
-  await screen.rerender(<SeaScreen {...p} />);
-  await fireEvent.press(screen.getByLabelText('친구 요청'));
-  const next = { ...p, self: { ...p.self, userId: 'new-account' } };
-  await screen.rerender(<SeaScreen {...next} />);
-  await act(async () => finish(true));
-  await fireEvent.press(screen.getByTestId('sea-person-1'));
+  expect(screen.getByTestId('cat-info-name')).toHaveTextContent('고양이1');
   expect(screen.getByLabelText('친구 요청')).toBeEnabled();
 });
 
-test('친구 요청 버튼과 집중 시간은 영어 설정도 따른다', async () => {
+test('정보창 문구는 영어 설정도 따른다', async () => {
   applyLocalePref('en');
   try {
-    const screen = await render(<SeaScreen {...props()} />);
+    const screen = await render(withFriends(<SeaScreen {...props()} />));
     await fireEvent.press(screen.getByTestId('sea-person-1'));
-    expect(screen.getByText('Focus time')).toBeTruthy();
-    await fireEvent.press(screen.getByLabelText('Add friend'));
-    expect(screen.getByLabelText('Request sent')).toBeDisabled();
+    expect(screen.getByLabelText('Add friend')).toBeTruthy();
   } finally {
     applyLocalePref('ko');
   }
@@ -257,7 +237,8 @@ test('내 상세도 참가자 정보보다 현재 항해 과목과 시간을 사
   expect(screen.queryByText('바다 구경 중')).toBeNull();
 });
 
-test.each(['self', 'peer'])('비집중 %s 상세에는 이전 과목을 표시하지 않는다', async (target) => {
+// 남의 정보창(GROMO-2474)에는 상태·과목 글줄 자체가 없다 — 내 카드만 본다
+test('비집중 내 상세에는 이전 과목을 표시하지 않는다', async () => {
   const p = props();
   const screen = await render(
     <SeaScreen
@@ -270,9 +251,7 @@ test.each(['self', 'peer'])('비집중 %s 상세에는 이전 과목을 표시�
       }))}
     />,
   );
-  await fireEvent.press(
-    target === 'self' ? screen.getByLabelText('내 뗏목') : screen.getByTestId('sea-person-1'),
-  );
+  await fireEvent.press(screen.getByLabelText('내 뗏목'));
   expect(screen.getByText('바다 구경 중')).toBeTruthy();
   expect(screen.queryByText('내 이전 과목')).toBeNull();
   expect(screen.queryByText('이웃 이전 과목')).toBeNull();
@@ -524,6 +503,25 @@ test('게스트와 한마디 쿨다운 상태에서는 저장 요청을 보낼 �
   expect(p.onMessage).not.toHaveBeenCalled();
 });
 
+test('표류 중 「＋ 한마디 쓰기」 칩은 내 뗏목 크기에 비례해 내려와 내 고양이 머리 위에 붙고, 뗏목보다 위라 눌린다(GROMO-2414)', async () => {
+  const screen = await render(<SeaScreen {...props()} />);
+  // 내 뗏목은 장면에서 마지막으로 그린 SeaRaft 다(참가자 페이지 뒤)
+  const selfRaft = () => jest.mocked(SeaRaft).mock.calls.at(-1)![0].size;
+  const chip = () => StyleSheet.flatten(screen.getByTestId('sea-message-chip').props.style);
+  // 세로 402 폭 — 뗏목 160, 상자 위 빈 띠 160×152/512 ≈ 48 만큼 겹친다(예전 고정 20 은 칩이 남의 뗏목 줄에 떠 보였다)
+  expect(selfRaft()).toBe(160);
+  expect(chip().marginBottom).toBe(-48);
+  expect(chip().zIndex).toBeGreaterThan(0);
+  // 가로 compact — 작은 뗏목에 맞춰 덜 겹친다
+  const layout = { x: 0, y: 0, width: 874, height: 402 };
+  await fireEvent(screen.getByTestId('sea-screen'), 'layout', { nativeEvent: { layout } });
+  await fireEvent(screen.getByTestId('sea-scene'), 'layout', { nativeEvent: { layout } });
+  expect(selfRaft()).toBeLessThan(160);
+  expect(chip().marginBottom).toBe(-Math.round((selfRaft() * 152) / 512));
+  await fireEvent.press(screen.getByLabelText('＋ 한마디 쓰기'));
+  expect(screen.getByLabelText('한마디 쓰기')).toBeTruthy();
+});
+
 test('뗏목 위 잡지(GROMO-2314) — 세로는 고양이 오른쪽에 얹고, 가로 compact 는 뗏목 크기에 비례해 줄여 옆에 나란히 둔다', async () => {
   const onOpen = jest.fn();
   const magazine = {
@@ -571,4 +569,39 @@ test('집중 중 내 말풍선에서도 한마디 입력을 열고 저장하며 
   await fireEvent.press(screen.getByRole('button', { name: '한마디 띄우기' }));
   expect(p.onMessage).toHaveBeenCalledWith('함께 집중해요');
   expect(p.onFinish).not.toHaveBeenCalled();
+});
+
+test('표류 중에는 위쪽에 홈과 같은 친구·설정 버튼과 내 고양이 아바타를 두고, 항해 중에는 숨긴다(GROMO-2404)', async () => {
+  const go = jest.fn();
+  const p = props();
+  const screen = await render(<SeaScreen {...p} hud={{ requests: 2, go }} />);
+  await fireEvent.press(screen.getByLabelText('내 고양이 꾸미기'));
+  await fireEvent.press(screen.getByLabelText('친구, 받은 요청 2개'));
+  await fireEvent.press(screen.getByLabelText('설정'));
+  expect(go.mock.calls).toEqual([['wardrobe'], ['friends'], ['settings']]);
+  // 항해 집중 중에는 과목·시간 HUD 만 남는다
+  await screen.rerender(<SeaScreen {...p} hud={{ requests: 2, go }} voyage={voyage} />);
+  expect(screen.queryByLabelText('설정')).toBeNull();
+  expect(screen.queryByLabelText('내 고양이 꾸미기')).toBeNull();
+  expect(screen.getByTestId('sea-focus-clock')).toBeTruthy();
+  // 호스트가 HUD 를 주지 않으면(결과창·출항 연출) 그리지 않는다
+  await screen.rerender(<SeaScreen {...p} hud={null} />);
+  expect(screen.queryByLabelText('설정')).toBeNull();
+});
+
+test('먼바다 장면·집중 HUD·버튼·한마디 입력 글자는 고운돋움 하나다(GROMO-2334)', async () => {
+  const font = (node: { props: { style?: StyleProp<TextStyle> } }) =>
+    StyleSheet.flatten(node.props.style)?.fontFamily;
+  const screen = await render(<SeaScreen {...props()} voyage={voyage} />);
+  // 플랫폼별 이름은 sceneKit.GOWUN 이 안다(jest 는 iOS)
+  expect(font(screen.getByTestId('sea-focus-clock'))).toBe(GOWUN);
+  expect(font(screen.getByTestId('sea-self-clock'))).toBe(GOWUN);
+  expect(font(screen.getByText('고양이1'))).toBe(GOWUN);
+  expect(font(screen.getByText('섬에 내리기'))).toBe(GOWUN);
+  await fireEvent.press(screen.getByTestId('sea-focus-message'));
+  expect(font(screen.getByLabelText('한마디 쓰기'))).toBe(GOWUN);
+  expect(font(screen.getByText('닫기'))).toBe(GOWUN);
+  // 표류 중 위쪽 HUD 의 받은 요청 수 배지도 같은 글꼴
+  const drift = await render(<SeaScreen {...props()} hud={{ requests: 2, go: jest.fn() }} />);
+  expect(font(drift.getByText('2'))).toBe(GOWUN);
 });

@@ -8,7 +8,7 @@ import {
   render,
   renderHook,
 } from '@testing-library/react-native';
-import { Animated, PanResponder, Platform, StyleSheet } from 'react-native';
+import { Animated, PanResponder, Platform, StyleSheet, View } from 'react-native';
 import {
   constructionPlacement,
   createWorldProjector,
@@ -31,11 +31,12 @@ import {
 // 건물 모션·알림 배지는 장식 레이어라 스크린리더에서 숨긴다. 배치 검증을 위해 숨김 요소까지 조회한다.
 configure({ defaultIncludeHiddenElements: true });
 
+let mockFontScale = 1;
 jest.mock('@/utils/layout', () => ({
   useAppLayout: () => ({
     width: 402,
     height: 874,
-    fontScale: 1,
+    fontScale: mockFontScale,
     compact: false,
     landscape: false,
     tablet: false,
@@ -116,6 +117,37 @@ test('홈 우체통의 서버 상태는 로컬 상태보다 우선하고 배지�
   await screen.rerender(renderHome());
   expect(screen.getByTestId('mailbox-new-indicator', { includeHiddenElements: true })).toBeTruthy();
   expect(screen.getByLabelText('우체통, 친구에게 받은 새 편지가 있어요')).toBeTruthy();
+});
+
+test('내 고양이 이름표는 닉네임이고 닉네임이 비면 「나」/「Me」다 (GROMO-2475)', async () => {
+  const state = initialState(true);
+  state.name = '  하늘  ';
+  const screen = await render(<FinalIsland state={state} go={jest.fn()} build={jest.fn()} />);
+  expect(within(screen.getByTestId('home-cat-name')).getByText('하늘')).toBeTruthy();
+  state.name = '';
+  await screen.rerender(<FinalIsland state={state} go={jest.fn()} build={jest.fn()} />);
+  expect(within(screen.getByTestId('home-cat-name')).getByText('나')).toBeTruthy();
+  await applyLocalePref('en');
+  await screen.rerender(<FinalIsland state={{ ...state }} go={jest.fn()} build={jest.fn()} />);
+  expect(within(screen.getByTestId('home-cat-name')).getByText('Me')).toBeTruthy();
+  await applyLocalePref('ko');
+});
+
+test('태블릿(짧은 변 600pt 이상)에서 홈 이름표 글자는 공용 Text 의 1.25배다 (GROMO-2475)', async () => {
+  const rn = jest.requireActual('react-native');
+  const spy = jest
+    .spyOn(rn, 'useWindowDimensions')
+    .mockReturnValue({ width: 820, height: 1180, scale: 2, fontScale: 1 });
+  try {
+    const state = initialState(true);
+    state.name = '하늘';
+    const screen = await render(<FinalIsland state={state} go={jest.fn()} build={jest.fn()} />);
+    const text = within(screen.getByTestId('home-cat-name')).getByText('하늘');
+    expect(StyleSheet.flatten(text.props.style).fontSize).toBeCloseTo(11 * 1.25);
+    await screen.unmount();
+  } finally {
+    spy.mockRestore();
+  }
 });
 
 test('일반 이미지 섬의 새 편지 터치 영역은 펠리컨 전체를 포함하고 팻말 위치는 유지한다', async () => {
@@ -539,6 +571,75 @@ test('홈을 최대로 축소해도 뗏목 터치 영역은 44pt 이상이며 �
   expect(raft.top + raft.height).toBeGreaterThanOrEqual(925 * scale);
 });
 
+test('홈 지도는 기본 화면보다 더 확대되지 않는다', async () => {
+  const createPanResponder = jest.spyOn(PanResponder, 'create');
+  const screen = await render(
+    <FinalIsland state={initialState(true)} go={jest.fn()} build={jest.fn()} />,
+  );
+  const pan = createPanResponder.mock.calls[0][0];
+  const pinch = (distance: number) =>
+    ({
+      nativeEvent: {
+        touches: [
+          { pageX: 100, pageY: 400 },
+          { pageX: 100 + distance, pageY: 400 },
+        ],
+      },
+    }) as any;
+  const buildingWidth = () =>
+    StyleSheet.flatten(screen.getByTestId('world-hall-motion').props.style).width;
+  const initialWidth = buildingWidth();
+
+  await act(async () => {
+    pan.onPanResponderGrant!(pinch(200), {} as any);
+    pan.onPanResponderMove!(pinch(520), {} as any);
+    pan.onPanResponderRelease!(pinch(520), {} as any);
+  });
+
+  expect(buildingWidth()).toBeCloseTo(initialWidth);
+  await screen.unmount();
+});
+
+test('새 마을 미리보기는 기존처럼 기본 화면보다 확대할 수 있다', async () => {
+  const createPanResponder = jest.spyOn(PanResponder, 'create');
+  const state = initialState(true);
+  const screen = await render(
+    <WorldMap state={state} village={villageScene(['hall'])}>
+      {(scale) => <View testID="preview-scale" style={{ width: scale }} />}
+    </WorldMap>,
+  );
+  const pan = createPanResponder.mock.calls[0][0];
+  const pinch = (distance: number) =>
+    ({
+      nativeEvent: {
+        touches: [
+          { pageX: 100, pageY: 400 },
+          { pageX: 100 + distance, pageY: 400 },
+        ],
+      },
+    }) as any;
+  const initialScale = StyleSheet.flatten(screen.getByTestId('preview-scale').props.style).width;
+
+  await act(async () => {
+    pan.onPanResponderGrant!(pinch(200), {} as any);
+    pan.onPanResponderMove!(pinch(520), {} as any);
+    pan.onPanResponderRelease!(pinch(520), {} as any);
+  });
+
+  expect(StyleSheet.flatten(screen.getByTestId('preview-scale').props.style).width).toBeGreaterThan(
+    initialScale,
+  );
+  await screen.rerender(
+    <WorldMap state={state}>
+      {(scale) => <View testID="preview-scale" style={{ width: scale }} />}
+    </WorldMap>,
+  );
+  expect(StyleSheet.flatten(screen.getByTestId('preview-scale').props.style).width).toBeCloseTo(
+    initialScale,
+  );
+  await screen.unmount();
+});
+
 test('뗏목은 모션 설정과 무관하게 걷기나 갸웃 모션을 기다리지 않고 뗏목 행선지를 연다', async () => {
   const go = jest.fn();
   const state = initialState(true);
@@ -661,27 +762,38 @@ test.each([false, true])(
   },
 );
 
-test('홈 모닥불은 실제 화덕 경계에서 낮 연기와 밤 불꽃을 재생한다', async () => {
+test('홈 모닥불은 낮에도 밤과 같은 화덕 경계에서 불꽃을 재생하고, 동작 줄이기에선 켜진 정지 불꽃이다(GROMO-2483)', async () => {
   observeAnimatedOnJsDriver(); // 건물 모션 진행을 JS 드라이버로 관찰한다(GROMO-2375).
   jest.useFakeTimers();
-  jest.setSystemTime(new Date('2026-06-15T12:00:00'));
   const state = initialState(true);
-  const screen = await render(<WorldMap state={state} />);
   const worldScale = (((874 / 874) * 402) / 1536) * 2.8;
   const worldLeft = 402 / 2 - 585 * worldScale;
   const worldTop = 874 / 2 - 430 * worldScale;
+  const lit = expect.arrayContaining([
+    expect.objectContaining({
+      left: worldLeft + 405 * worldScale,
+      top: worldTop + 437 * worldScale,
+      width: 140 * worldScale,
+      height: 93 * worldScale,
+    }),
+  ]);
+  const shown = (view: Awaited<ReturnType<typeof render>>, index: number) =>
+    StyleSheet.flatten(view.getByTestId(`fire-motion-frame-${index}`).props.style).opacity;
 
-  expect(screen.getByTestId('world-fire-motion').props.accessibilityLabel).toBe('모닥불, 낮, 연기');
-  expect(screen.getByTestId('world-fire-motion').props.style).toEqual(
-    expect.arrayContaining([
-      expect.objectContaining({
-        left: worldLeft + 402 * worldScale,
-        top: worldTop + 425 * worldScale,
-        width: 116 * worldScale,
-        height: 77 * worldScale,
-      }),
-    ]),
-  );
+  // 낮 12시와 밤 9시 모두 같은 자리·같은 불꽃 — 쉬는 주민 수·시간과 무관하게 늘 켜져 있다
+  for (const time of ['2026-06-15T12:00:00', '2026-06-15T21:00:00']) {
+    jest.setSystemTime(new Date(time));
+    const screen = await render(<WorldMap state={state} />);
+    expect(screen.getByTestId('world-fire-motion').props.accessibilityLabel).toBe('모닥불, 불꽃');
+    expect(screen.getByTestId('world-fire-motion').props.style).toEqual(lit);
+    expect(shown(screen, 1)).toBe(1);
+    await act(async () => jest.advanceTimersByTime(155));
+    expect(shown(screen, 2)).toBe(1);
+    expect(screen.queryByTestId('fire-motion-glow')).toBeNull();
+    await screen.unmount();
+  }
+  jest.setSystemTime(new Date('2026-06-15T12:00:00'));
+  const screen = await render(<WorldMap state={state} />);
   expect(screen.getByTestId('world-raft-water-motion').props.style).toEqual(
     expect.arrayContaining([
       expect.objectContaining({
@@ -692,29 +804,16 @@ test('홈 모닥불은 실제 화덕 경계에서 낮 연기와 밤 불꽃을 �
       }),
     ]),
   );
-  await act(async () => jest.advanceTimersByTime(360));
-  expect(
-    StyleSheet.flatten(screen.getByTestId('fire-motion-frame-day-1').props.style),
-  ).toMatchObject({ opacity: 1 });
-
   await screen.unmount();
-  jest.setSystemTime(new Date('2026-06-15T21:00:00'));
-  const night = await render(<WorldMap state={state} />);
-  expect(night.getByTestId('world-fire-motion').props.accessibilityLabel).toBe(
-    '모닥불, 저녁, 불꽃',
+
+  // 동작 줄이기: 낮에도 켜진 불꽃 한 장(1번)에서 멈춘다
+  const still = await render(
+    <WorldMap state={{ ...state, settings: { ...state.settings, reduceMotion: true } }} />,
   );
-  expect(night.getByTestId('world-fire-motion').props.style).toEqual(
-    expect.arrayContaining([
-      expect.objectContaining({
-        left: worldLeft + 405 * worldScale,
-        top: worldTop + 437 * worldScale,
-        width: 140 * worldScale,
-        height: 93 * worldScale,
-      }),
-    ]),
-  );
-  expect(night.queryByTestId('fire-motion-glow')).toBeNull();
-  await night.unmount();
+  expect(shown(still, 1)).toBe(1);
+  await act(async () => jest.advanceTimersByTime(5_000));
+  expect(shown(still, 1)).toBe(1);
+  await still.unmount();
   jest.useRealTimers();
 });
 
@@ -725,14 +824,25 @@ test('demo night 쿼리는 현재 시간이 낮이어도 저녁 모습을 고정
   const previousLocation = window.location;
   (Platform as { OS: string }).OS = 'web';
   Object.defineProperty(window, 'location', {
-    value: { search: '?demo=1&night=1' },
+    value: { search: '?demo=1' },
     configurable: true,
   });
 
   try {
+    // 대조: 같은 낮 12시에 night 쿼리가 없으면 회관은 낮 프레임이다
+    const day = await render(<WorldMap state={initialState(true)} />);
+    expect(day.getByTestId('village-hall-frame-0').props.source).toBe(
+      require('@/assets/village-world/motion/hall/frame-0.png'),
+    );
+    await day.unmount();
+    Object.defineProperty(window, 'location', {
+      value: { search: '?demo=1&night=1' },
+      configurable: true,
+    });
     const screen = await render(<WorldMap state={initialState(true)} />);
-    expect(screen.getByTestId('world-fire-motion').props.accessibilityLabel).toBe(
-      '모닥불, 저녁, 불꽃',
+    // 모닥불은 낮밤이 같다(GROMO-2483) — 밤 고정은 회관 밤 프레임으로 본다
+    expect(screen.getByTestId('village-hall-frame-0').props.source).toBe(
+      require('@/assets/village-world/motion/hall/night-frame-0.png'),
     );
     await screen.unmount();
   } finally {
@@ -1418,6 +1528,37 @@ test('언어를 바꾸면 건물 이름과 긴 번역의 팻말 폭을 함께 �
   }
 });
 
+// 위 테스트는 기존 마을(팻말) 경로다. 새 마을 장면에는 팻말이 없고 문 Pressable 의 접근성 라벨만 건물명을 싣는다 —
+// 장면 경로에서도 라벨이 언어 전환을 따라가는지 따로 본다(GROMO-2253).
+test('마을 장면 경로에서도 언어를 바꾸면 문 라벨이 새 언어로 바뀐다', async () => {
+  const state = initialState(true);
+  const island = state.islands.find((item) => item.id === state.islandId)!;
+  for (const id of ['hall', 'tower'] as const)
+    if (!island.buildings.includes(id)) island.buildings.push(id);
+  const home = () => <FinalIsland state={state} go={jest.fn()} build={jest.fn()} />;
+  applyLocalePref('ko');
+  try {
+    const screen = await render(home());
+    await fireEvent.press(screen.getByTestId('village-preview-toggle'));
+    expect(screen.queryByTestId('building-name-tower')).toBeNull(); // 장면에는 팻말이 없다
+    expect(screen.getByRole('button', { name: '전망대' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '마을회관' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '모닥불' })).toBeTruthy();
+
+    applyLocalePref('en');
+    await screen.rerender(home());
+    expect(screen.getByTestId('village-preview-toggle')).toBeTruthy();
+    expect(screen.queryByTestId('building-name-tower')).toBeNull(); // 리렌더 뒤에도 장면이 유지된다
+    expect(screen.getByRole('button', { name: 'Lookout Tower' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Town Hall' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Campfire' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '전망대' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '모닥불' })).toBeNull();
+  } finally {
+    applyLocalePref('system');
+  }
+});
+
 test('빠른 핀치 반복에도 팻말은 건물과 같은 배율로 확대되고 내부 이미지 좌표는 유지한다', async () => {
   const createPan = jest.spyOn(PanResponder, 'create');
   const screen = await render(
@@ -1556,3 +1697,82 @@ test.each(['day', 'night'] as const)(
     await screen.unmount();
   },
 );
+
+test('구경 중 HUD 의 긴 섬 이름은 한 줄로 줄이고 「다시 바다로」 버튼을 가입 버튼 옆에 둔다(GROMO-2405)', async () => {
+  const state = initialState(true);
+  const visited = state.islands.find((island) => island.id !== state.islandId)!;
+  visited.name = 'smoke-friends-d99a696f-ae05-49bc-8d44-544b2bb984d8';
+  state.visitingIslandId = visited.id;
+  const onLeave = jest.fn();
+  const onPress = jest.fn();
+  const screen = await render(
+    <FinalIsland
+      state={state}
+      go={jest.fn()}
+      build={jest.fn()}
+      visitJoin={{ label: '이 섬에 가입', disabled: false, onPress, onLeave }}
+    />,
+  );
+  const name = screen.getByText(`${visited.name} 구경 중`);
+  expect(name.props.numberOfLines).toBe(1);
+  expect(name.props.ellipsizeMode).toBe('middle');
+  await fireEvent.press(screen.getByLabelText('다시 바다로'));
+  expect(onLeave).toHaveBeenCalledTimes(1);
+  await fireEvent.press(screen.getByLabelText('이 섬에 가입'));
+  expect(onPress).toHaveBeenCalledTimes(1);
+});
+
+test('구경 중 하단 두 버튼은 폭을 나눠 쓰고, 큰 글자에서는 세로로 쌓는다(GROMO-2405)', async () => {
+  const state = initialState(true);
+  const visited = state.islands.find((island) => island.id !== state.islandId)!;
+  state.visitingIslandId = visited.id;
+  const join = {
+    label: '이 섬에 가입',
+    disabled: false,
+    onPress: jest.fn(),
+    onLeave: jest.fn(),
+    leaveDisabled: true,
+  };
+  const screen = await render(
+    <FinalIsland state={state} go={jest.fn()} build={jest.fn()} visitJoin={join} />,
+  );
+  const row = () => Object.assign({}, ...[screen.getByTestId('visit-actions').props.style].flat());
+  expect(row().flexDirection).toBe('row');
+  // 가입 요청 진행 중에는 「다시 바다로」를 누를 수 없다
+  await fireEvent.press(screen.getByLabelText('다시 바다로'));
+  expect(join.onLeave).not.toHaveBeenCalled();
+  mockFontScale = 1.3;
+  await screen.rerender(
+    <FinalIsland state={state} go={jest.fn()} build={jest.fn()} visitJoin={join} />,
+  );
+  expect(row().flexDirection).toBe('column');
+  mockFontScale = 1;
+});
+
+test('홈 채팅 줄은 집중 시작 버튼 왼쪽 아래에 두고, 건설 카드가 있으면 그 위로 올린다(GROMO-2501)', async () => {
+  const chat = <View testID="chat-content" />;
+  const state = initialState(true);
+  const island = state.islands.find((item) => item.id === state.islandId)!;
+  island.buildings = island.buildings.filter((b) => b !== 'board');
+  island.construction = undefined;
+  const screen = await render(
+    <FinalIsland state={state} go={jest.fn()} build={jest.fn()} homeChat={chat} />,
+  );
+  screen.getByTestId('chat-content');
+  const slot = () => StyleSheet.flatten(screen.getByTestId('home-chat-slot').props.style);
+  // 세로 폰: 왼쪽 20 · 오른쪽은 집중 버튼(오른쪽 20 + 지름 88) + 간격 12 · 건설 카드(아래 52) 위 8
+  expect(slot()).toMatchObject({ left: 20, right: 120, bottom: 60 });
+  await fireEvent(screen.getByTestId('local-build-card'), 'layout', {
+    nativeEvent: { layout: { x: 0, y: 0, width: 209, height: 90 } },
+  });
+  expect(slot().bottom).toBe(150);
+
+  // 건설 카드가 없으면 집중 버튼과 같은 바닥 높이(아래 44)
+  island.buildings.push('board');
+  await screen.rerender(
+    <FinalIsland state={{ ...state }} go={jest.fn()} build={jest.fn()} homeChat={chat} />,
+  );
+  expect(screen.queryByTestId('local-build-card')).toBeNull();
+  expect(slot()).toMatchObject({ left: 20, right: 120, bottom: 44 });
+  await screen.unmount();
+});

@@ -5,7 +5,8 @@
 import React from 'react';
 import { AccessibilityInfo, Platform, StyleSheet } from 'react-native';
 import { act, fireEvent, render, within } from '@testing-library/react-native';
-import { componentTokens } from '@/design-system/tokens';
+import { semanticTokens } from '@/design-system/tokens';
+import { Txt } from '@/design-system/patterns';
 import { ObservatorySearch } from '@/screens/island/ObservatorySearch';
 import { SEARCH_DEBOUNCE_MS } from '@/screens/island/useIslandSearch';
 import { applyLocalePref } from '@/i18n';
@@ -101,14 +102,13 @@ const type = async (screen: any, query: string) => {
   });
 };
 
-test('처음에는 안내만 보이고 서버를 부르지 않는다(공개 섬 탐색 discover 도 없다)', async () => {
+test('처음에는 입력칸만 보이고 서버를 부르지 않는다(공개 섬 탐색 discover 도 없다)', async () => {
   const screen = await render(<ObservatorySearch e={env()} />);
   await act(async () => {
     jest.advanceTimersByTime(SEARCH_DEBOUNCE_MS * 3);
   });
-  screen.getByText('섬 찾기'); // 제목
+  screen.getByText('전망대'); // 랭킹과 검색의 공통 제목
   screen.getByLabelText('섬 이름'); // 입력 — 초대 코드가 아니라 섬 이름만 받는다
-  screen.getByText(/섬 이름을 입력해요/);
   expect(screen.queryByTestId('observatory-search-loading')).toBeNull();
   expect(screen.queryByTestId('observatory-search-empty')).toBeNull();
   expect(searchMock).not.toHaveBeenCalled();
@@ -233,12 +233,12 @@ test('가입 신청 중인 섬은 «신청 중» 배지가 붙지만 망원경�
 });
 
 test.each([
-  [1, false],
-  [componentTokens.telescope.largeTextThreshold - 0.01, false],
-  [componentTokens.telescope.largeTextThreshold, true],
+  [1, true],
+  [semanticTokens.typography.largeTextThreshold - 0.01, true],
+  [semanticTokens.typography.largeTextThreshold, true],
   [3, true],
 ])(
-  '검색 행 «소속됨»·«신청 중» 배지 — 글자 배율 %s 에서 이름 아래 줄로 내려가는가: %s',
+  '검색 행 «소속됨»·«신청 중» 배지 — 글자 배율 %s 에서 이름 아래 줄에 유지되는가: %s',
   async (scale, stacked) => {
     mockFontScale = scale;
     searchMock.mockResolvedValue(
@@ -252,12 +252,11 @@ test.each([
       ['우리섬', '소속됨'],
       ['신청섬', '신청 중'],
     ]) {
-      // 이름 글자의 부모가 본문(이름·소개) 칸이다. 고정 폭 썸네일 옆 오른쪽에 배지를 두면 큰 글자에서 배지가
-      // 행 폭을 다 차지해 이 칸이 0 으로 줄어든다 — 큰 글자에서는 배지가 이 칸 안으로 내려온다.
+      // 이름 글자의 부모가 본문(이름·소개) 칸이다. 왼쪽 원형 섬 프로필 옆에서 본문 폭을 확보하고, 배지는 항상 본문 안에 둔다.
       const body = screen.getByText(name).parent!;
       expect(StyleSheet.flatten(body.props.style)).toMatchObject({ flex: 1, minWidth: 0 });
       expect(within(body).queryByText(badge) !== null).toBe(stacked);
-      // 보통 글자에서는 지금 자리 그대로 — 같은 행의 오른쪽 끝(본문 칸 밖)
+      // 행 전체에도 상태 라벨이 유지된다.
       within(body.parent!).getByText(badge);
     }
   },
@@ -302,6 +301,18 @@ test('핀이 가득 차 밀려난 섬이 있으면 같은 토스트에 한 줄 �
   expect(e.notify).toHaveBeenCalledWith(
     '망원경에 넣었어요 — 뗏목의 망원경에서 볼 수 있어요\n바람섬이 망원경에서 빠졌어요',
   );
+});
+
+test('밀려난 섬 이름이 이미 「섬」으로 끝나면 토스트에 「섬」을 한 번 더 붙이지 않는다', async () => {
+  searchMock.mockResolvedValue(page([island('i1', { name: '단풍섬' })]));
+  pinMock.mockResolvedValue(pinned('i1', { islandId: 'old', name: '단풍섬' }));
+  const { screen, e } = await search('단풍');
+  await fireEvent.press(screen.getByRole('button', { name: /^단풍섬/ }));
+  await act(async () => e.confirm.mock.calls[0][2]());
+  expect(e.notify).toHaveBeenCalledTimes(1);
+  const toast = e.notify.mock.calls[0][0] as string;
+  expect(toast).toContain('단풍섬이 망원경에서 빠졌어요');
+  expect(toast).not.toContain('단풍섬섬');
 });
 
 test('확인 버튼을 연달아 눌러 같은 확인 동작이 두 번 불려도 요청은 한 번만 나간다', async () => {
@@ -453,8 +464,9 @@ test('영어 로케일 — 안내·배지·확인창·토스트가 모두 번역
   pinMock.mockResolvedValue(pinned('i1', { islandId: 'old', name: 'Breeze' }));
   const e = env();
   const screen = await render(<ObservatorySearch e={e} />);
-  screen.getByText('Find islands');
+  screen.getByText('Observatory');
   await fireEvent.changeText(screen.getByLabelText('Island name'), 'm');
+  screen.getByLabelText('Clear search'); // 입력이 있으면 지우기 버튼의 읽는 이름도 번역된다
   await act(async () => {
     jest.advanceTimersByTime(SEARCH_DEBOUNCE_MS);
   });
@@ -467,7 +479,7 @@ test('영어 로케일 — 안내·배지·확인창·토스트가 모두 번역
   expect(opts).toEqual({ ok: 'Add to telescope' });
   await act(async () => e.confirm.mock.calls[0][2]());
   expect(e.notify).toHaveBeenCalledWith(
-    "Added to your telescope — see it in your raft's telescope\nBreeze was removed from your telescope",
+    "Added to your telescope — see it in your raft's telescope\nBreeze Island was removed from your telescope",
   );
 });
 
@@ -478,4 +490,16 @@ test('뒤로·닫기는 e.back · e.home 이다', async () => {
   expect(e.back).toHaveBeenCalledTimes(1);
   await fireEvent.press(screen.getByLabelText('닫기'));
   expect(e.home).toHaveBeenCalledTimes(1);
+});
+
+test('랭킹 안에서 바로 검색하고 검색어를 지우면 같은 화면의 랭킹으로 돌아온다', async () => {
+  searchMock.mockResolvedValue(page([island('inline', { name: '단풍섬' })]));
+  const screen = await render(<ObservatorySearch e={env()} ranking={<Txt>주간 랭킹 내용</Txt>} />);
+  expect(screen.getByText('주간 랭킹 내용')).toBeTruthy();
+  await type(screen, '단풍');
+  expect(screen.queryByText('주간 랭킹 내용')).toBeNull();
+  expect(await screen.findByText('단풍섬')).toBeTruthy();
+  await fireEvent.changeText(screen.getByLabelText('섬 이름'), '');
+  expect(screen.getByText('주간 랭킹 내용')).toBeTruthy();
+  expect(screen.queryByText('단풍섬')).toBeNull();
 });

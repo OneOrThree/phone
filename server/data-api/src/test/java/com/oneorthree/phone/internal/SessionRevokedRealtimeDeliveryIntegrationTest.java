@@ -1,7 +1,7 @@
 package com.oneorthree.phone.internal;
 
-import com.oneorthree.phone.auth.dto.req.LogoutRequest;
-import com.oneorthree.phone.auth.dto.res.GuestLoginResponse;
+import com.oneorthree.phone.auth.service.SessionLogoutService;
+import com.oneorthree.phone.auth.service.AuthService.LoginSessionResult;
 import com.oneorthree.phone.auth.repository.AuthSessionRepository;
 import com.oneorthree.phone.auth.service.AuthService;
 import com.oneorthree.phone.auth.support.JwtProvider;
@@ -27,8 +27,8 @@ import static org.assertj.core.api.Assertions.tuple;
 import static org.assertj.core.api.Assertions.within;
 
 /**
- * GROMO-2350 — 스위치 {@code auth.session-revoked.realtime-events-enabled} ON 이면 세션 폐기 사건이 NOTI 에 더해
- * REALTIME 으로도 남는다. 기본 OFF 에서 NOTI 1행뿐인 것은 {@code SatelliteCoreContractIntegrationTest} 가 잡는다.
+ * GROMO-2350 — 세션 폐기 사건은 NOTI 에 더해 REALTIME 으로도 남는다(항상, 티켓 2535 — 종전 생산 스위치
+ * {@code auth.session-revoked.realtime-events-enabled} 를 걷었다).
  */
 @SpringBootTest
 class SessionRevokedRealtimeDeliveryIntegrationTest {
@@ -36,11 +36,12 @@ class SessionRevokedRealtimeDeliveryIntegrationTest {
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
         OutboxTestPostgres.applyProductionMigrationWiring(registry);
-        registry.add("auth.session-revoked.realtime-events-enabled", () -> true);
     }
 
     @Autowired
     AuthService authService;
+    @Autowired
+    SessionLogoutService logout;
     @Autowired
     JwtProvider jwtProvider;
     @Autowired
@@ -51,19 +52,19 @@ class SessionRevokedRealtimeDeliveryIntegrationTest {
     EventOutboxDeliveryRepository eventOutboxDeliveryRepository;
 
     @Test
-    @DisplayName("스위치 ON — 로그아웃의 auth.session.revoked 는 NOTI(noti.sessionRevoked)와 REALTIME(auth.session.revoked) 2행이다")
+    @DisplayName("로그아웃의 auth.session.revoked 는 NOTI(noti.sessionRevoked)와 REALTIME(auth.session.revoked) 2행이다")
     void logoutAddsRealtimeDelivery() {
-        GuestLoginResponse login = authService.guestLogin();
+        LoginSessionResult login = authService.guestSession(java.util.UUID.randomUUID().toString());
         UUID userId = jwtProvider.extractUserId(login.accessToken());
 
-        authService.logout(new LogoutRequest(login.refreshToken()));
+        logout.logout(login.refreshToken(), null);
 
         List<EventOutbox> revoked = eventOutboxRepository.findAll().stream()
                 .filter(row -> row.getUserId().equals(userId) && row.getType().equals("auth.session.revoked"))
                 .toList();
         assertThat(revoked).hasSize(1);
         // GROMO-2386 — realtime 펜스 TTL 의 근거: 폐기 시각 + AT 수명(ci 3600 s)
-        Instant revokedAt = authSessionRepository.findById(login.sessionId()).orElseThrow().getRevokedAt();
+        Instant revokedAt = authSessionRepository.findById(jwtProvider.extractSessionId(login.accessToken())).orElseThrow().getRevokedAt();
         assertThat(Instant.parse((String) revoked.get(0).getParams().get("accessTokenExpiresAt")))
                 // payload 는 메모리 시각(ns), DB 는 µs 반올림이라 동등 비교하지 않는다
                 .isCloseTo(revokedAt.plusSeconds(3600), within(1, java.time.temporal.ChronoUnit.MICROS));

@@ -1,5 +1,6 @@
 package com.oneorthree.realtime.config;
 
+import com.oneorthree.realtime.logging.LogContext;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.DistributionSummary;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -79,6 +80,12 @@ import static com.oneorthree.realtime.config.StompTopics.MOVEMENT_TOPIC;
  * {@code WsSession.close} → {@code sendCloseMessage} 가 close 프레임을 {@code sendMessageBlock} 으로 쓴다. 1000 이 아닌
  * 코드(여기는 1008)는 {@code ABNORMAL_SESSION_CLOSE_SEND_TIMEOUT}(기본 50ms) 안에 진행 중 쓰기 세마포어·쓰기를 못 끝내면
  * 연결을 끊는다 — 그래서 한 건의 상한은 수십 ms 다. 그래도 밀리면 종료가 늦어질 뿐, 위 차단이 보장을 유지한다.
+ *
+ * <h2>로그 문맥 전달 (GROMO-2559)</h2>
+ * 같은 장식기가 제출 스레드(팬아웃 구독자·STOMP 처리·브로커)의 앱 로그 키 스냅샷을 작업에 실어 실행 동안 설치하고 끝나면 실행 스레드의
+ * 원래 값으로 되돌린다 — 전달 직전 판정({@code ChatOutboundChannelInterceptor.beforeHandle}) 로그가 같은 event_id·message_id·원인 요청을
+ * 단다. 앱 allowlist 키만 옮기고 tracer 소유 {@code dd.*}·{@code trace_id}·{@code span_id} 는 옮기지 않는다. 장식기 자리가 하나라
+ * 세기와 한 작업 객체로 합쳤다.
  *
  * <h2>지표</h2>
  * <ul>
@@ -192,21 +199,24 @@ public class OutboundSendBudget implements ExecutorChannelInterceptor, RejectedE
         executor.setMaxPoolSize(maxThreads);
         executor.setQueueCapacity(queueCapacity);
         executor.setRejectedExecutionHandler(this);
-        executor.setTaskDecorator(this::count);
+        executor.setTaskDecorator(this::decorate);
         return executor;
     }
 
-    /** 작업을 세션별로 센다 — 실행기에 들어가는 순간 +1, 끝나거나({@code run}) 거부되면 -1. */
-    private Runnable count(Runnable task) {
+    /**
+     * 작업을 세션별로 세고(실행기에 들어가는 순간 +1, 끝나거나({@code run}) 거부되면 -1) 제출 스레드의 앱 로그 문맥을 싣는다.
+     * 제출 스레드에서 불린다. brokerChannel 은 동기(executor 없음)라야 그 제출 스레드 MDC 가 원인 요청의 것이다 —
+     * brokerChannel 에 executor 를 주면 제출 스레드 MDC 캡처가 끊긴다(WebSocketConfigTest 가 고정).
+     */
+    private Runnable decorate(Runnable task) {
         if (!(task instanceof MessageHandlingRunnable handling)) {
             return task;
         }
         String sessionId = SimpMessageHeaderAccessor.getSessionId(handling.getMessage().getHeaders());
-        if (sessionId == null) {
-            return task;
+        if (sessionId != null) {
+            pending.merge(sessionId, 1, Integer::sum);
         }
-        pending.merge(sessionId, 1, Integer::sum);
-        return new CountedTask(handling, sessionId);
+        return new CountedTask(handling, sessionId, LogContext.capture());
     }
 
     private void uncount(String sessionId) {
@@ -217,11 +227,14 @@ public class OutboundSendBudget implements ExecutorChannelInterceptor, RejectedE
     private final class CountedTask implements MessageHandlingRunnable {
 
         private final MessageHandlingRunnable delegate;
+        /** null 이면 세지 않은 작업(세션 없는 프레임)이다. */
         private final String sessionId;
+        private final Map<String, String> logContext;
 
-        CountedTask(MessageHandlingRunnable delegate, String sessionId) {
+        CountedTask(MessageHandlingRunnable delegate, String sessionId, Map<String, String> logContext) {
             this.delegate = delegate;
             this.sessionId = sessionId;
+            this.logContext = logContext;
         }
 
         @Override
@@ -236,10 +249,12 @@ public class OutboundSendBudget implements ExecutorChannelInterceptor, RejectedE
 
         @Override
         public void run() {
-            try {
+            try (LogContext scope = LogContext.replace(logContext)) {
                 delegate.run();
             } finally {
-                uncount(sessionId);
+                if (sessionId != null) {
+                    uncount(sessionId);
+                }
             }
         }
     }
@@ -365,10 +380,10 @@ public class OutboundSendBudget implements ExecutorChannelInterceptor, RejectedE
         }
     }
 
-    /** 종료 예약된 세션의 프레임은 큐에 넣지 않는다. */
+    /** 종료 예약된 세션의 프레임과 끝난 세션 보상의 ACK({@link EndedSessionGuard}, 받을 소켓이 없다)는 큐에 넣지 않는다. */
     @Override
     public Message<?> preSend(Message<?> message, MessageChannel channel) {
-        return closingSession(message) ? null : message;
+        return EndedSessionGuard.isCompensationAck(message) || closingSession(message) ? null : message;
     }
 
     @Override

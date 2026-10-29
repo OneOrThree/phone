@@ -1,6 +1,6 @@
 package com.oneorthree.phone.internal.dto;
 
-import com.oneorthree.phone.group.dto.CreateGroupRequest;
+import com.oneorthree.phone.group.support.IslandInputPolicy;
 
 /**
  * 바다 한마디 변경 본문 (GROMO-2299, 계약 §2). 0~20 코드포인트이고 빈 문자열은 «지움» 이다. 앞뒤 공백은 잘라 판정한다.
@@ -20,7 +20,7 @@ public record SeaRemarkRequest(String remark) {
         if (stripped.codePointCount(0, stripped.length()) > REMARK_MAX) {
             throw new IllegalArgumentException("한마디는 20자 이하여야 합니다.");
         }
-        if (!stripped.isEmpty() && !stripped.matches(CreateGroupRequest.NAME_PATTERN)) {
+        if (!stripped.isEmpty() && !stripped.matches(IslandInputPolicy.NAME_PATTERN)) {
             throw new IllegalArgumentException("한마디는 한 줄이어야 합니다.");
         }
         remark = stripped;

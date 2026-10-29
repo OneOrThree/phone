@@ -65,7 +65,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 /**
  * 섬 인사말 · 방명록 (GROMO-2262)을 <b>실제 Flyway PostgreSQL</b> 위에서 생산 진입점(내부 표면)으로 검증한다.
- * 시설 게이트·섬 관리 명령 스위치를 켜고, 시계는 고정한다(KST 하루 경계). 시드는 전부 생산 엔티티·서비스다 —
+ * 시설 게이트를 켜고, 시계는 고정한다(KST 하루 경계). 시드는 전부 생산 엔티티·서비스다 —
  * 게시판만 {@code island_facilities} 행으로 «지어진 것» 으로 둔다.
  */
 @SpringBootTest
@@ -80,8 +80,6 @@ class IslandGuestbookIntegrationTest {
     static void properties(DynamicPropertyRegistry registry) {
         OutboxTestPostgres.applyProductionMigrationWiring(registry);
         registry.add("construction.facility-gates.enforce", () -> true);
-        registry.add("island-management.commands-enabled", () -> true);
-        registry.add("internal.api.enabled", () -> true);
         registry.add("internal.api.callers.business.token", () -> TOKEN);
         String[] allow = {"PATCH /internal/islands/*", "GET /internal/islands/*",
             "GET /internal/islands/*/guestbook",
@@ -142,7 +140,7 @@ class IslandGuestbookIntegrationTest {
 
         assertThat(view.greeting()).isEqualTo("고래섬에 온 걸 환영해요! 같이 집중해요 🐟");
         assertThat(view.greetingIsDefault()).isTrue();
-        assertThat(jdbc.queryForObject("select greeting from groups where id=?", String.class, islandId)).isNull();
+        assertThat(jdbc.queryForObject("select greeting from islands where id=?", String.class, islandId)).isNull();
     }
 
     @Test
@@ -240,7 +238,7 @@ class IslandGuestbookIntegrationTest {
 
         patchGreeting(island.host, island.id, "너 씨발").andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("BANNED_WORD"));
-        assertThat(jdbc.queryForObject("select greeting from groups where id=?", String.class, island.id)).isNull();
+        assertThat(jdbc.queryForObject("select greeting from islands where id=?", String.class, island.id)).isNull();
 
         write(island.visitor, island.id, "씨 발!!").andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("BANNED_WORD"));
@@ -485,7 +483,7 @@ class IslandGuestbookIntegrationTest {
             Future<?> holder = pool.submit(() -> new TransactionTemplate(transactions).executeWithoutResult(status -> {
                 // NO KEY UPDATE — 방명록 삽입의 FK 검사(KEY SHARE)와는 부딪치지 않고, 섬 행 잠금(lockGroup)하고만
                 // 부딪친다. FOR UPDATE 로 쥐면 잠금이 없어도 삽입이 FK 검사에서 막혀 이 테스트가 잠금을 증명하지 못한다.
-                jdbc.queryForObject("select id from groups where id=? for no key update", UUID.class, island.id);
+                jdbc.queryForObject("select id from islands where id=? for no key update", UUID.class, island.id);
                 held.countDown();
                 await(release);
             }));
@@ -546,7 +544,7 @@ class IslandGuestbookIntegrationTest {
 
         management.leave(host, islandId, UUID.randomUUID());
 
-        assertThat(count("select count(*) from groups where id=? and deleted_at is not null", islandId))
+        assertThat(count("select count(*) from islands where id=? and deleted_at is not null", islandId))
                 .as("삭제 묘비").isEqualTo(1);
         assertThat(count("select count(*) from island_guestbook_entries where island_id=?", islandId))
                 .as("닫힌 섬의 방명록").isZero();
@@ -586,7 +584,7 @@ class IslandGuestbookIntegrationTest {
     }
 
     private UUID newGuest() {
-        return jwt.extractUserId(auth.guestLogin().accessToken());
+        return jwt.extractUserId(auth.guestSession(java.util.UUID.randomUUID().toString()).accessToken());
     }
 
     private ResultActions patchGreeting(UUID actor, UUID islandId, String greeting) throws Exception {
@@ -685,7 +683,7 @@ class IslandGuestbookIntegrationTest {
     }
 
     private String storedGreeting(UUID islandId) {
-        return jdbc.queryForObject("select greeting from groups where id=?", String.class, islandId);
+        return jdbc.queryForObject("select greeting from islands where id=?", String.class, islandId);
     }
 
     private long count(String sql, Object... args) {

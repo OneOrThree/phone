@@ -1,7 +1,8 @@
 import { Text } from '@/design-system/typography';
 import { t } from '@/i18n';
+import { ownCatName } from '@/i18n/format';
 import React, { useState, useMemo, useRef, useContext } from 'react';
-import { View, Image, StyleSheet } from 'react-native';
+import { View, Image, Pressable, StyleSheet } from 'react-native';
 import { Color, State, currentIsland } from '@/services/model';
 import { getSession } from '@/services/api/session';
 import { Ticking } from '@/hooks/useNow';
@@ -18,11 +19,14 @@ import {
   hms,
 } from '@/screens/focus/FishingIsland';
 import { C, MotionContext } from '@/design-system/primitives';
+import { componentTokens, semanticTokens } from '@/design-system/tokens';
+import { CatInfoPopup } from '@/screens/island/CatInfoPopup';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { TutorialScene, TutorialSpotlight, useSpotlightTarget } from '@/screens/island/NpcGuide';
 import { CatSprite } from '@/components/CatSprite';
 import { outfitOf, type Outfit } from '@/components/CatOutfitLayers';
 import { lookOf } from '@/services/memberAppearance';
+import { useBlockedUserIds } from '@/services/blockedUsers';
 import { art } from '@/constants/art';
 import { assets } from '@/constants/assets';
 import {
@@ -66,6 +70,7 @@ const loafTop: Record<Color, number> = {
   cream: 126,
 };
 const seatScale = (dy: number) => BASE * (1 + 0.14 * dy); // 앞자리는 조금 크게
+const CAT = componentTokens.catInfoPopup.catSize;
 const seatTop = (dy: number) => FIRE.y + dy * RY - (seatScale(dy) * 464) / 512;
 type Rect = { l: number; t: number; r: number; b: number };
 const overlaps = (a: Rect, b: Rect) => a.l < b.r && b.l < a.r && a.t < b.b && b.t < a.b;
@@ -193,6 +198,14 @@ export function RestGroup({
   const started = useRef(
     state.session?.restStartedAt || ended?.intervals?.at(-1)?.end || Date.now(),
   ).current;
+  // 누른 주민 정보창(GROMO-2474) — 누른 순간의 모습을 쥔다(그 사이 자리를 떠나도 창은 그대로)
+  const [catInfo, setCatInfo] = useState<{
+    id: string;
+    name: string;
+    color: Color;
+    outfit?: Outfit;
+  } | null>(null);
+  const blockedIds = useBlockedUserIds(false);
   const restTime = (now: number, restStartedAt?: number) =>
     hms(Math.max(0, (now - (restStartedAt || started)) / 1000));
   // 서버 모드는 실시간 rest 멤버가 정본 — 휴식 시작 시각은 서버 시계를 단말 시계로 환산한다.
@@ -231,7 +244,7 @@ export function RestGroup({
             seat: 1,
             me: true,
             id: getSession()?.userId ?? 'me',
-            name: t('focusFlow.common.me'),
+            name: ownCatName(state.name),
             color: state.color,
             outfit: outfitOf(state),
             restStartedAt: started,
@@ -255,10 +268,11 @@ export function RestGroup({
     () => restSeats(seatCount, W, H, { top: it, bottom: ib, left: il, right: ir }),
     [seatCount, W, H, it, ib, il, ir],
   );
-  // 자리가 없는 인원은 건너뛴다(restSeats 는 인원수만큼 돌려주지만 렌더링이 죽지 않게 한 번 더 막는다)
+  // 자리가 없는 인원은 건너뛴다(restSeats 는 인원수만큼 돌려주지만 렌더링이 죽지 않게 한 번 더 막는다).
+  // 차단한 상대(GROMO-2470)는 자리 번호·좌석 수에는 넣고 그리기만 뺀다 — 다른 주민이 그 자리로 옮겨 앉지 않는다.
   const placed = actors.flatMap((a) => {
     const seat = seats[a.seat];
-    if (!seat) return [];
+    if (!seat || blockedIds.has(a.id)) return [];
     const { dx, n, top, x } = seat;
     return {
       ...a,
@@ -287,7 +301,11 @@ export function RestGroup({
       }
     >
       {/* 결과창이 떠 있으면 뒤 장면은 스크린리더에서 숨긴다 */}
-      <View pointerEvents="box-none" style={StyleSheet.absoluteFill} {...a11yHidden(result)}>
+      <View
+        pointerEvents="box-none"
+        style={StyleSheet.absoluteFill}
+        {...a11yHidden(result || !!catInfo)}
+      >
         <Image
           source={require('@/assets/backgrounds/campfire/day.jpg')}
           style={{
@@ -412,6 +430,24 @@ export function RestGroup({
                 {a.name}
               </Text>
             </View>
+            {/* 다른 주민 식빵(머리~발)을 누르면 정보창 — 결과창 배경에서는 누르지 않는다. 내 고양이는 반응 없음 그대로 */}
+            {!result && !a.me && (
+              <Pressable
+                testID={`rest-cat-${a.id}`}
+                accessibilityRole="button"
+                accessibilityLabel={t('catInfo.open', { name: a.name })}
+                onPress={() =>
+                  setCatInfo({ id: a.id, name: a.name, color: a.color, outfit: a.outfit })
+                }
+                style={{
+                  position: 'absolute',
+                  left: a.x - Math.max(semanticTokens.size.tapMin, a.n * 0.82) / 2,
+                  top: a.head,
+                  width: Math.max(semanticTokens.size.tapMin, a.n * 0.82),
+                  height: Math.max(semanticTokens.size.tapMin, a.foot - a.head),
+                }}
+              />
+            )}
           </React.Fragment>
         ))}
         <View
@@ -511,6 +547,7 @@ export function RestGroup({
       </View>
       {!result && (
         <View
+          {...a11yHidden(!!catInfo)}
           style={{
             position: 'absolute',
             bottom: wide ? Math.max(18, safe.bottom) : Math.max(36, safe.bottom + 4),
@@ -536,6 +573,32 @@ export function RestGroup({
             />
           </View>
         </View>
+      )}
+      {catInfo && (
+        <CatInfoPopup
+          key={catInfo.id}
+          userId={catInfo.id}
+          name={catInfo.name}
+          catColor={catInfo.color}
+          art={
+            // 휴식 자리와 같은 자세(식빵·책 읽기)를 멈춘 채로
+            <View style={{ width: CAT, height: CAT }}>
+              <RestCat
+                t={clock}
+                still
+                pose={restPose(catInfo.id)}
+                color={catInfo.color}
+                loafSource={loaf[catInfo.color]}
+                outfit={catInfo.outfit}
+                x={CAT / 2}
+                top={0}
+                n={CAT}
+                flip={false}
+              />
+            </View>
+          }
+          onClose={() => setCatInfo(null)}
+        />
       )}
     </TutorialScene>
   );

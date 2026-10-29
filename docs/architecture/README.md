@@ -8,6 +8,8 @@
 | [`system-architecture.md`](system-architecture.md) | 어디에 떠 있고 어떻게 배포·관측하나 — 환경 실측 · 노출면 · DB · CI/CD · Target-2 진입 조건 |
 | [`decisions.md`](decisions.md) | 왜 그렇게 정했나 — 결정 장부 A1~A19 (**충돌 시 정본**). 본문의 숫자 티켓은 Jira `GROMO-####` |
 | [`kafka-consumption.md`](kafka-consumption.md) | 소비자는 어떻게 읽나 — offset 커밋 시점 · 리밸런싱 · 소비 그룹 개수 · 파티션 ≥ 소비자 · 왜 이 경계에 브로커인가. 두 서비스 `application.yml` 의 절 번호 주석이 여기를 가리킨다 |
+| [`image-cdn/README.md`](image-cdn/README.md) | 이미지 CDN 사전 조사 — [구현 PRD·정책·HLD·LLD](../prd/fishcat/image-cdn/README.md)로 연결 (미적용) |
+| [`server-log-observability/README.md`](server-log-observability/README.md) | 서버 로그 통합 설계·스레드 전파·S3 보관·티켓 및 구현 현황 |
 | [`diagrams/`](diagrams/) | 직각 연결선 SVG 6장 — 서비스 구도 · 랭킹 3시점 · 배치 · 레포 |
 
 ## 한 문장

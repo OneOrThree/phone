@@ -8,9 +8,11 @@ import {
   componentTokens as c,
 } from '@/design-system/tokens';
 import { t } from '@/i18n';
+import { ownCatName } from '@/i18n/format';
 import { seaAssets } from './seaAssets';
 import { art } from '@/constants/art';
 import { MAGAZINE_UI } from '@/constants/magazineAssets';
+import { useGowun } from '@/screens/island/sceneKit';
 import { SeaRaft } from './SeaRaft';
 import { SeaParticipant, seaClock, seaPeerPages } from './seaModel';
 
@@ -29,6 +31,8 @@ type Props = {
 };
 
 const M = c.magazineReader.seaObject;
+/** 뗏목 상자 위쪽 빈 띠 — 뒤 판자 그림(raft back-day 512px)이 152px 부터 시작한다. 내 한마디 칩은 이만큼 내려와 뗏목에 붙는다. */
+const RAFT_TOP = 152 / 512;
 const DOT = c.magazineReader.unreadDot;
 
 export function SeaScene({
@@ -44,6 +48,8 @@ export function SeaScene({
   children,
 }: Props) {
   const insets = useScreenInsets();
+  // 이름표·말풍선·집중 시간 글자는 고운돋움(DESIGN.md 그림 장면 위 화면 규칙)
+  const font = { fontFamily: useGowun() };
   const [bounds, setBounds] = useState({ width: 402, height: 788 });
   const [page, setPage] = useState(0);
   const scroll = useRef<ScrollView>(null);
@@ -193,7 +199,7 @@ export function SeaScene({
                     style={styles.person}
                   >
                     <View style={styles.bubble}>
-                      <Text numberOfLines={1} style={styles.caption}>
+                      <Text numberOfLines={1} style={[styles.caption, font]}>
                         {/* 한마디는 집중 중에도 머리 위에 늘 뜬다(GROMO-2310) — 바다 세션은 과목이 비어 있다 */}
                         {person.message ||
                           (person.focusing
@@ -209,11 +215,11 @@ export function SeaScene({
                       size={compact ? compactRaft : size * sizeScale}
                       reduceMotion={reduceMotion || index !== visiblePage}
                     />
-                    <Text numberOfLines={1} style={styles.name}>
+                    <Text numberOfLines={1} style={[styles.name, font]}>
                       {person.name}
                     </Text>
                     {person.focusing && (
-                      <Text style={styles.clock}>{seaClock(person.activeSeconds)}</Text>
+                      <Text style={[styles.clock, font]}>{seaClock(person.activeSeconds)}</Text>
                     )}
                     {!!person.emote && (
                       <Image
@@ -251,20 +257,25 @@ export function SeaScene({
             onPress={onMessage}
             style={[styles.bubble, styles.selfSubject, { minHeight: s.size.tapMin }]}
           >
-            <Text numberOfLines={1} style={styles.caption}>
+            <Text numberOfLines={1} style={[styles.caption, font]}>
               {self.message || self.subject || t('openSea.focusing')}
             </Text>
             <View style={styles.bubbleTail} accessible={false} />
           </Pressable>
         ) : (
           <Pressable
+            testID="sea-message-chip"
             accessibilityRole="button"
             accessibilityLabel={t('openSea.writeMessage')}
             onPress={onMessage}
-            style={styles.messageTouch}
+            // 뗏목 상자 위 빈 띠만큼 내려 내 고양이 머리 위에 꼬리로 붙인다 — 상자 위에 떠 있으면 남의 뗏목 줄에 끼어 보였다(GROMO-2414)
+            style={[styles.messageTouch, { marginBottom: -Math.round(selfRaft * RAFT_TOP) }]}
           >
             <View style={styles.bubble}>
-              <Text style={styles.caption}>{self.message || t('openSea.writeMessage')}</Text>
+              <Text style={[styles.caption, font]}>
+                {self.message || t('openSea.writeMessage')}
+              </Text>
+              <View style={styles.bubbleTail} accessible={false} />
             </View>
           </Pressable>
         )}
@@ -290,9 +301,9 @@ export function SeaScene({
               size={selfRaft}
               reduceMotion={reduceMotion}
             />
-            <Text style={[styles.name, styles.me]}>{t('openSea.me')}</Text>
+            <Text style={[styles.name, styles.me, font]}>{ownCatName(self.name)}</Text>
             {focusing && (
-              <Text testID="sea-self-clock" style={styles.clock}>
+              <Text testID="sea-self-clock" style={[styles.clock, font]}>
                 {seaClock(self.activeSeconds)}
               </Text>
             )}
@@ -371,7 +382,8 @@ const styles = StyleSheet.create({
     borderRightColor: 'transparent',
     borderTopColor: `${s.color.surface}E6`,
   },
-  caption: { fontSize: s.typography.caption, color: s.color.textMuted, textAlign: 'center' },
+  // 한마디 말풍선·이름표는 라벨·칩 크기(sm 14) — 넓은 바다 위에서 12 는 읽기 어려웠다. 집중 시간(clock)은 캡션 12
+  caption: { fontSize: s.typography.label, color: s.color.textMuted, textAlign: 'center' },
   clock: {
     fontSize: s.typography.caption,
     lineHeight: 16,
@@ -384,18 +396,19 @@ const styles = StyleSheet.create({
   },
   selfSubject: { marginBottom: -p.space[2] },
   name: {
-    fontSize: s.typography.caption,
+    fontSize: s.typography.label,
     color: s.color.text,
     backgroundColor: `${s.color.surface}8C`,
     borderRadius: p.radius.control,
-    lineHeight: 16,
+    lineHeight: 18,
     includeFontPadding: false,
     paddingHorizontal: 2,
     paddingVertical: 0,
     marginTop: -p.space[2],
   },
   me: { color: s.color.text, backgroundColor: s.color.selected },
-  messageTouch: { minHeight: s.size.tapMin, justifyContent: 'center', marginBottom: -p.space[5] },
+  // 뗏목 상자와 겹치는 아래쪽도 칩이 눌리게 뗏목(뒤 형제)보다 위에 둔다
+  messageTouch: { minHeight: s.size.tapMin, justifyContent: 'center', zIndex: 1 },
   emote: { position: 'absolute', right: 0, top: 0, width: 40, height: 40 },
   besideRaft: { flexDirection: 'row', alignItems: 'center' },
   magazine: { alignItems: 'center', justifyContent: 'center' },
@@ -412,3 +425,5 @@ const styles = StyleSheet.create({
     backgroundColor: s.color.danger,
   },
 });
+/** 한마디 말풍선 상자·글자 — 다른 고양이 정보창(CatInfoPopup)도 같은 모양으로 그린다(GROMO-2474). */
+export const seaBubble = { box: styles.bubble, text: styles.caption };

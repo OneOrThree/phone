@@ -42,7 +42,7 @@ export function HomeQuestIndicator({ quests, rewardCount, onPress, style }: Prop
   const first = quests[0];
   if (!first && rewardCount === 0) return null;
 
-  const largeText = fontScale >= componentTokens.homeQuestIndicator.largeTextThreshold;
+  const largeText = fontScale >= semanticTokens.typography.largeTextThreshold;
   const reward = rewardCount > 0;
   const multiple = !reward && quests.length > 1;
   const count = reward ? rewardCount : multiple ? quests.length : null;

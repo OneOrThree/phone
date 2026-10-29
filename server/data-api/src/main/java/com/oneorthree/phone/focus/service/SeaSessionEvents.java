@@ -5,9 +5,6 @@ import com.oneorthree.phone.outbox.dto.EventEnvelope;
 import com.oneorthree.phone.outbox.dto.OutboxAppendCommand;
 import com.oneorthree.phone.outbox.dto.OutboxDeliveryRequest;
 import com.oneorthree.phone.outbox.service.OutboxCommandPort;
-import io.micrometer.core.instrument.MeterRegistry;
-import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -27,10 +24,9 @@ import java.util.UUID;
  *
  * <p>앱으로 나가지 않는 내부 제어 사건이라 realtime-events 14종 공개 계약에 속하지 않는다.
  *
- * <p><b>생산 스위치 {@code focus.sea.realtime-events-enabled}(기본 false).</b> 이 type 을 모르는 옛 Realtime 에 보내면
+ * <p><b>항상 적는다</b>(2026-10-27, 티켓 2535 — 종전 생산 스위치를 걷었다). 이 type 을 모르는 옛 Realtime 에 보내면
  * 400 → relay 가 그 사용자의 USER 축을 permanent 로 막는다 — USER 축은 {@code user.withdrawn} 과 같은 축이라 탈퇴
- * 전파까지 막힌다({@code UserBlockEvents} 와 같은 함정). Realtime 이 이 type 을 받는 버전으로 배포된 것을 확인한 뒤
- * env 로 켠다. 꺼져 있으면 적지 않고 빈 목록을 돌려준다.
+ * 전파까지 막힌다({@code UserBlockEvents} 와 같은 함정). Realtime 은 이 type 을 받는 버전이 먼저 배포돼 있어야 한다.
  */
 @Service
 @Transactional(propagation = Propagation.MANDATORY)
@@ -41,18 +37,10 @@ public class SeaSessionEvents {
     public static final String STATUS_ENDED = "ended";
     public static final String STATUS_REMARK = "remark";
 
-    /** 스위치가 꺼져 건너뛴 사건 수 — 켠 뒤 «왜 방에 안 보이나» 를 가르는 근거. */
-    public static final String SKIPPED_METRIC = "focus.sea.events.skipped";
-
     private final OutboxCommandPort outbox;
-    private final ObjectProvider<MeterRegistry> meterRegistry;
-    private final boolean enabled;
 
-    public SeaSessionEvents(OutboxCommandPort outbox, ObjectProvider<MeterRegistry> meterRegistry,
-            @Value("${focus.sea.realtime-events-enabled:false}") boolean enabled) {
+    public SeaSessionEvents(OutboxCommandPort outbox) {
         this.outbox = outbox;
-        this.meterRegistry = meterRegistry;
-        this.enabled = enabled;
     }
 
     /** 바다 세션이 시작됐다. */
@@ -81,13 +69,6 @@ public class SeaSessionEvents {
     private List<EventEnvelope> append(UUID userId, String key, String status, UUID sessionId,
                                        UUID destinationIslandId, Integer sailingMinutes, long activeSeconds,
                                        Boolean arrived, String remark, Instant serverNow) {
-        if (!enabled) {
-            MeterRegistry registry = meterRegistry.getIfAvailable();
-            if (registry != null) {
-                registry.counter(SKIPPED_METRIC, "status", status).increment();
-            }
-            return List.of();
-        }
         // null 값 키를 유지한다(계약 §4) — Map.of 는 null 을 못 담는다.
         Map<String, Object> params = new LinkedHashMap<>();
         params.put("status", status);

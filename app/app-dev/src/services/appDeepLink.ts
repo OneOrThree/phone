@@ -4,15 +4,48 @@ export type AppDeepLinkRoute = 'home' | 'focusSetup' | 'friends';
 
 export type AppDeepLinkTarget =
   | { kind: 'route'; route: AppDeepLinkRoute }
+  | { kind: 'invitation'; code: string }
+  | { kind: 'island'; islandId: string }
+  | { kind: 'magazine'; issueId: string }
   | { kind: 'unsupported'; legacyPath: 'join' | 'group' | 'league' }
   | null;
 
-/** 1.x scheme 경로 중 2.0에서 실제 제공하는 화면만 열고, 나머지는 안전한 fallback 대상으로 분류한다. */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** 쿼리에서 `key`의 UUID 값을 소문자로 꺼낸다. 없거나 깨졌거나 UUID가 아니면 null — 다른 파라미터(challenge 등)는 무시한다. */
+function queryUuid(query: string, key: 'g' | 'issue'): string | null {
+  const raw = new RegExp(`(?:^|&)${key}=([^&]*)`).exec(query)?.[1];
+  if (raw === undefined) return null;
+  try {
+    const value = decodeURIComponent(raw);
+    return UUID.test(value) ? value.toLowerCase() : null; // 서버 id 는 소문자 — 대문자 링크도 같은 id 로 본다
+  } catch {
+    return null; // 잘못된 퍼센트 인코딩
+  }
+}
+
+/**
+ * 서버가 보내는 링크(home·friends·group?g=·magazine?issue=)와 기기에 남은 1.x 링크(focus·league·join·챌린지 group)를
+ * 분류한다. 2.0에 없는 화면은 안전한 fallback 대상(unsupported)으로 둔다.
+ */
 export function parseAppDeepLink(rawUrl: string): AppDeepLinkTarget {
-  const match = /^gromo:\/\/+([^?#]*)(?:[?#].*)?$/i.exec(rawUrl.trim());
+  // 섬 ID 쿼리는 신뢰하지 않는다. 서버가 초대 코드를 해석한 섬만 연다.
+  const invitation =
+    /^(?:https:\/\/(?:link\.oneorthree\.world|oneorthree\.dev\.mooo\.com)\/l\/)([23456789abcdefghjkmnpqrstuvwxyz]{8})(?:[?#].*)?$/i.exec(
+      rawUrl.trim(),
+    );
+  if (invitation) return { kind: 'invitation', code: invitation[1].toLowerCase() };
+  const schemeInvite = /^gromo:\/\/+join\/?\?([^#]*)/i.exec(rawUrl.trim());
+  if (schemeInvite) {
+    const codes = new URLSearchParams(schemeInvite[1]).getAll('s');
+    if (codes.length === 1 && /^[23456789abcdefghjkmnpqrstuvwxyz]{8}$/i.test(codes[0]))
+      return { kind: 'invitation', code: codes[0].toLowerCase() };
+  }
+  const match = /^gromo:\/\/+([^?#]*)(?:\?([^#]*))?(?:#.*)?$/i.exec(rawUrl.trim());
   if (!match) return null;
 
   const path = match[1].split('/').filter(Boolean)[0]?.toLowerCase();
+  const query = match[2] ?? '';
   switch (path) {
     case 'home':
       return { kind: 'route', route: 'home' };
@@ -20,8 +53,15 @@ export function parseAppDeepLink(rawUrl: string): AppDeepLinkTarget {
       return { kind: 'route', route: 'focusSetup' };
     case 'friends':
       return { kind: 'route', route: 'friends' };
+    case 'group': {
+      const islandId = queryUuid(query, 'g');
+      return islandId ? { kind: 'island', islandId } : { kind: 'unsupported', legacyPath: 'group' };
+    }
+    case 'magazine': {
+      const issueId = queryUuid(query, 'issue');
+      return issueId ? { kind: 'magazine', issueId } : { kind: 'route', route: 'home' };
+    }
     case 'join':
-    case 'group':
     case 'league':
       return { kind: 'unsupported', legacyPath: path };
     default:
@@ -31,7 +71,28 @@ export function parseAppDeepLink(rawUrl: string): AppDeepLinkTarget {
 
 export type AppLinkSource = Pick<typeof Linking, 'getInitialURL' | 'addEventListener'>;
 
-/** 콜드 스타트 URL과 singleTask 웜 URL을 같은 소비자에게 전달한다. */
+const inAppLinks = new Set<(url: string) => void>();
+let pendingAirbridgeLink: string | undefined;
+
+/** SDK가 복원한 링크만 기존 라우터에 전달한다. JS 화면 구독 전의 지연 딥링크는 보관한다. */
+export function openAirbridgeLink(url: string): void {
+  if (!parseAppDeepLink(url)) return;
+  if (inAppLinks.size === 0) {
+    pendingAirbridgeLink = url;
+    return;
+  }
+  openAppLink(url);
+}
+
+/**
+ * 앱 안에서 연 링크(푸시 탭 — GROMO-2525)를 URL 이벤트와 같은 소비자에게 건넨다. 받는 쪽은 같은 보관·가드
+ * (로그인·온보딩 중 보관, 세션 확인)를 그대로 적용한다.
+ */
+export function openAppLink(url: string): void {
+  inAppLinks.forEach((listener) => listener(url));
+}
+
+/** 콜드 스타트 URL과 singleTask 웜 URL, 앱 안에서 연 링크를 같은 소비자에게 전달한다. */
 export function subscribeToAppLinks(
   onUrl: (url: string) => void,
   source: AppLinkSource = Linking,
@@ -39,20 +100,37 @@ export function subscribeToAppLinks(
   let active = true;
   // 초기 URL 조회가 끝나기 전에 새 URL 이벤트가 오면 그쪽이 더 최신이다 — 늦은 초기 URL로 덮지 않는다.
   let receivedEvent = false;
+  let lastTarget: string | undefined;
+  let lastReceivedAt = 0;
+  const forward = (url: string) => {
+    receivedEvent = true;
+    // 같은 탭이 OS URL과 SDK 콜백으로 함께 오더라도 화면 이동은 한 번만 수행한다.
+    const target = parseAppDeepLink(url);
+    const key = target ? JSON.stringify(target) : url;
+    const now = Date.now();
+    if (key === lastTarget && now - lastReceivedAt < 1000) return;
+    lastTarget = key;
+    lastReceivedAt = now;
+    if (active) onUrl(url);
+  };
   void source
     .getInitialURL()
     .then((url) => {
-      if (active && url && !receivedEvent) onUrl(url);
+      if (active && url && !receivedEvent) forward(url);
     })
     .catch(() => {
       // initial URL 조회 실패는 일반 앱 진입을 막지 않는다.
     });
-  const subscription = source.addEventListener('url', ({ url }) => {
-    receivedEvent = true;
-    if (active) onUrl(url);
-  });
+  const subscription = source.addEventListener('url', ({ url }) => forward(url));
+  inAppLinks.add(forward);
+  if (pendingAirbridgeLink) {
+    const url = pendingAirbridgeLink;
+    pendingAirbridgeLink = undefined;
+    forward(url);
+  }
   return () => {
     active = false;
+    inAppLinks.delete(forward);
     subscription.remove();
   };
 }

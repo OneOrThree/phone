@@ -24,7 +24,7 @@ platform :ios, podfile_properties['ios.deploymentTarget'] || '16.4'
 
 prepare_react_native_project!
 
-target 'GROMO' do
+target 'Cattus' do
   use_expo_modules!
 
   if ENV['EXPO_USE_COMMUNITY_AUTOLINKING'] == '1'
@@ -55,6 +55,14 @@ target 'GROMO' do
     :app_path => "#{Pod::Config.instance.installation_root}/..",
     :privacy_file_aggregation_enabled => podfile_properties['apple.privacyManifestAggregationEnabled'] != 'false',
   )
+
+  # GROMO-2523 FCM 토큰은 RN Firebase 가 아니라 이 pod 하나 + 손 브리지(Cattus/FCMTokenModule.swift)로 받는다.
+  # RN Firebase 는 use_frameworks! 를 요구해(1.x 는 그래서 useFrameworks static + RN 소스 빌드) 프리빌트 RN·정적 라이브러리인 2.0 과 맞지 않는다.
+  # modular headers 는 FirebaseMessaging(ObjC, DEFINES_MODULE 없음)에만 켠다. 의존하는 GoogleUtilities 는
+  # use_expo_modules! 가 ExpoAdapterGoogleSignIn 의 직접 의존으로 이미 모듈로 만든다(pod install 로그 「Enabling modular headers for pod GoogleUtilities」).
+  pod 'FirebaseMessaging', '~> 12.19.0', :modular_headers => true
+  # GROMO-2544 iOS 앱 이벤트만 연결한다. Android SDK는 별도 네이티브 구현을 쓴다.
+  pod 'FBSDKCoreKit', '~> 18.1.1'
 
   post_install do |installer|
     react_native_post_install(

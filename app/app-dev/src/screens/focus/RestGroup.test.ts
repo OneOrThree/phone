@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
 import React from 'react';
 import { act, fireEvent, render, renderHook } from '@testing-library/react-native';
-import { Animated, AppState } from 'react-native';
+import { Animated, AppState, StyleSheet } from 'react-native';
 import { RestGroup, restSeats, seatBox } from '@/screens/focus/RestGroup';
 import { restPose, useRestClock } from '@/screens/focus/RestCampfireMotion';
 import { initialState } from '@/services/model';
 import { applyLocalePref } from '@/i18n';
+import { markUserBlocked, markUserUnblocked, replaceBlockedUsers } from '@/services/blockedUsers';
 
 jest.mock('@/utils/layout', () => ({
   useAppLayout: () => ({
@@ -58,6 +59,7 @@ test('모닥불: 정원 15명이 모두 화면 안에 서로 겹치지 않게 �
 
 test('집중 세션이 있으면 멈춘 집중 정보가 보인다', async () => {
   const state = initialState(true);
+  state.name = '하늘이';
   state.session = {
     id: 'focus-session',
     islandId: state.islandId,
@@ -80,6 +82,8 @@ test('집중 세션이 있으면 멈춘 집중 정보가 보인다', async () =>
 
   assert.ok(screen.getByTestId('paused-focus-info'));
   assert.ok(screen.getByText('휴식 중...'));
+  assert.ok(screen.getByText('하늘이')); // 내 이름표는 「나」가 아니라 닉네임(GROMO-2475)
+  expect(screen.queryByText('나')).toBeNull();
   assert.ok(screen.getByTestId('loaf-1'));
   expect(screen.queryByTestId('end-rest')).toBeNull();
   expect(screen.queryByTestId('confirm-end-rest')).toBeNull();
@@ -116,6 +120,95 @@ test('집중 세션 없는 모닥불은 본인 휴식과 타이머를 만들지 
   expect(resume).not.toHaveBeenCalled();
   expect(state.session).toBeFalsy();
   await screen.unmount();
+});
+
+test('다른 주민 식빵을 누르면 정보창이 뜨고(GROMO-2474), 내 고양이는 누를 자리가 없다', async () => {
+  const state = initialState(true);
+  state.session = {
+    id: 'focus-session',
+    islandId: state.islandId,
+    subject: '영어',
+    startedAt: 0,
+    restStartedAt: 123_000,
+    seconds: 60,
+    status: 'paused',
+    intervals: [],
+  };
+  const live = {
+    status: 'ready',
+    clockOffset: 0,
+    rest: [
+      {
+        userId: 'peer',
+        name: '두부',
+        catColor: 'cream',
+        restStartedAt: new Date().toISOString(),
+        restSeat: 1,
+      },
+    ],
+  } as any;
+  const screen = await render(
+    React.createElement(RestGroup, { state, live, home: jest.fn(), resume: jest.fn() }),
+  );
+  // 내 자리(1번 loaf-1)에는 누르는 자리가 없다
+  assert.ok(screen.getByTestId('loaf-1'));
+  assert.equal(screen.queryByTestId('rest-cat-me'), null);
+  await fireEvent.press(screen.getByLabelText('두부 정보 보기'));
+  expect(screen.getByTestId('cat-info-name')).toHaveTextContent('두부');
+  // 정보창이 떠 있는 동안 뒤 장면(주민 누르는 자리·집중 이어가기)은 스크린리더에서 숨는다(안드로이드 no-hide-descendants 포함)
+  assert.equal(screen.queryByLabelText('두부 정보 보기'), null);
+  assert.equal(screen.queryByTestId('resume-focus'), null);
+  const hidden = screen.getByLabelText('두부 정보 보기', { includeHiddenElements: true });
+  let scene: any = hidden.parent;
+  while (scene && scene.props.importantForAccessibility !== 'no-hide-descendants')
+    scene = scene.parent;
+  assert.equal(scene?.props.accessibilityElementsHidden, true);
+  await fireEvent.press(screen.getByLabelText('닫기'));
+  assert.ok(screen.getByLabelText('두부 정보 보기'));
+  assert.equal(screen.queryByTestId('cat-info-name'), null);
+  await screen.unmount();
+});
+
+test('차단한 주민(GROMO-2470)은 차단 직후 식빵·이름·누르는 자리·열린 정보창이 사라지고 다른 주민은 제 자리 그대로, 해제하면 다시 앉는다', async () => {
+  replaceBlockedUsers([]);
+  // 서버 restSeat 가 없는 두 주민 — 순서대로 0·1번 자리를 받는다
+  const resting = (userId: string, name: string) => ({
+    userId,
+    name,
+    catColor: 'cream',
+    restStartedAt: new Date().toISOString(),
+    restSeat: null,
+  });
+  const live = {
+    status: 'ready',
+    clockOffset: 0,
+    rest: [resting('blocked', '밍키'), resting('other', '두부')],
+  } as any;
+  const screen = await render(
+    React.createElement(RestGroup, {
+      state: initialState(true),
+      live,
+      home: jest.fn(),
+      resume: jest.fn(),
+    }),
+  );
+  assert.ok(screen.getByTestId('loaf-0'));
+  assert.ok(screen.getByTestId('loaf-1'));
+  await fireEvent.press(screen.getByLabelText('밍키 정보 보기'));
+  expect(screen.getByTestId('cat-info-name')).toHaveTextContent('밍키');
+  await act(async () => markUserBlocked('blocked'));
+  assert.equal(screen.queryByTestId('cat-info-name'), null);
+  assert.equal(screen.queryByTestId('loaf-0'), null);
+  assert.equal(screen.queryByText('밍키'), null);
+  assert.equal(screen.queryByTestId('rest-cat-blocked'), null);
+  // 두부는 빈 0번으로 옮기지 않는다
+  assert.ok(screen.getByTestId('loaf-1'));
+  assert.ok(screen.getByTestId('rest-cat-other'));
+  await act(async () => markUserUnblocked('blocked'));
+  assert.ok(screen.getByTestId('loaf-0'));
+  assert.ok(screen.getByText('밍키'));
+  await screen.unmount();
+  replaceBlockedUsers([]);
 });
 
 test('영어 모닥불 구경은 서버 휴식 주민만 표시하고 준비 중에는 목업 주민을 쓰지 않는다', async () => {
@@ -202,6 +295,15 @@ test.each([
     expect(loop).toHaveBeenCalledTimes(loops);
     screen.getByTestId('rest-campfire-back');
     screen.getByTestId('rest-campfire-front');
+    if (reduceMotion) {
+      // 동작 줄이기에서도 모닥불은 켜진 정지 불꽃 한 장이다(GROMO-2483) — 연기·불티만 뺀다
+      const lit = ([1, 2, 3] as const).filter(
+        (f) =>
+          StyleSheet.flatten(screen.getByTestId(`rest-campfire-flame-${f}`).props.style).opacity ===
+          1,
+      );
+      expect(lit).toEqual([1]);
+    }
     await screen.unmount();
   } finally {
     loop.mockRestore();

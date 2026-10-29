@@ -26,45 +26,52 @@ class InternalApiPropertiesTest {
     }
 
     @Test
-    @DisplayName("꺼져 있으면 아무 값도 요구하지 않는다")
-    void disabledRequiresNothing() {
-        assertThatCode(() -> new InternalApiProperties().validateWhenEnabled()).doesNotThrowAnyException();
-    }
-
-    @Test
-    @DisplayName("켰는데 caller 가 없으면 기동을 거부한다")
-    void enabledWithoutCallersFails() {
-        InternalApiProperties properties = new InternalApiProperties();
-        properties.setEnabled(true);
-
-        assertThatThrownBy(properties::validateWhenEnabled)
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("caller");
+    @DisplayName("caller 가 없으면 요구할 값이 없다 — 표면은 «없는» 표면으로 동작한다")
+    void noCallersRequiresNothing() {
+        assertThatCode(() -> new InternalApiProperties().validate()).doesNotThrowAnyException();
     }
 
     @Test
     @DisplayName("빈 토큰·빈 허용목록은 기동을 거부한다")
     void blankCredentialsFail() {
         InternalApiProperties blankToken = new InternalApiProperties();
-        blankToken.setEnabled(true);
         blankToken.getCallers().put("business", caller(" ", "GET /internal/users/*/activation"));
-        assertThatThrownBy(blankToken::validateWhenEnabled).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(blankToken::validate).isInstanceOf(IllegalStateException.class);
 
         InternalApiProperties emptyAllow = new InternalApiProperties();
-        emptyAllow.setEnabled(true);
         emptyAllow.getCallers().put("business", caller("t"));
-        assertThatThrownBy(emptyAllow::validateWhenEnabled).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(emptyAllow::validate).isInstanceOf(IllegalStateException.class);
+    }
+
+    @Test
+    @DisplayName("선택 caller 는 토큰이 비면 건너뛴다(허용목록도 안 본다) — 토큰이 있으면 필수 caller 처럼 검증한다")
+    void optionalCallerWithBlankTokenIsSkipped() {
+        for (String blank : new String[] {null, "", " "}) {
+            InternalApiProperties properties = new InternalApiProperties();
+            properties.getCallers().put("business", caller("biz", "GET /internal/users/*/activation"));
+            InternalApiProperties.Caller ops = caller(blank);
+            ops.setOptional(true);
+            properties.getCallers().put("ops", ops);
+
+            assertThatCode(properties::validate).as("token=[" + blank + "]").doesNotThrowAnyException();
+        }
+
+        InternalApiProperties filled = new InternalApiProperties();
+        InternalApiProperties.Caller ops = caller("ops");
+        ops.setOptional(true);
+        filled.getCallers().put("ops", ops);
+        assertThatThrownBy(filled::validate).as("토큰이 있으면 빈 허용목록은 종전대로 거부")
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining("allow");
     }
 
     @Test
     @DisplayName("토큰이 겹치면 두 caller 의 권한이 사실상 합쳐진다 — 기동에서 막는다")
     void duplicateTokensFail() {
         InternalApiProperties properties = new InternalApiProperties();
-        properties.setEnabled(true);
         properties.getCallers().put("business", caller("same", "GET /internal/users/*/activation"));
-        properties.getCallers().put("notification", caller("same", "GET /internal/users/*/result-ack"));
+        properties.getCallers().put("notification", caller("same", "GET /internal/users/notification-snapshot"));
 
-        assertThatThrownBy(properties::validateWhenEnabled)
+        assertThatThrownBy(properties::validate)
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("겹칩");
     }
@@ -74,11 +81,10 @@ class InternalApiPropertiesTest {
     @DisplayName("앞뒤 공백으로만 다른 caller 토큰은 기동에서 거절한다")
     void paddedTokensFailBeforeCallerResolution(String padded) {
         InternalApiProperties properties = new InternalApiProperties();
-        properties.setEnabled(true);
         properties.getCallers().put("business", caller("same", "GET /internal/users/*/activation"));
-        properties.getCallers().put("notification", caller(padded, "GET /internal/users/*/result-ack"));
+        properties.getCallers().put("notification", caller(padded, "GET /internal/users/notification-snapshot"));
 
-        assertThatThrownBy(properties::validateWhenEnabled)
+        assertThatThrownBy(properties::validate)
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("공백");
     }
@@ -87,10 +93,9 @@ class InternalApiPropertiesTest {
     @DisplayName("/internal 밖 경로는 허용목록에 넣을 수 없다 — 앱 JWT 경로를 서비스 토큰으로 여는 길이 생긴다")
     void allowlistCannotLeaveInternalPrefix() {
         InternalApiProperties properties = new InternalApiProperties();
-        properties.setEnabled(true);
         properties.getCallers().put("business", caller("t", "GET /api/v1/users/me"));
 
-        assertThatThrownBy(properties::validateWhenEnabled)
+        assertThatThrownBy(properties::validate)
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("/internal/");
     }
@@ -99,38 +104,36 @@ class InternalApiPropertiesTest {
     @DisplayName("형식이 어긋난 허용 항목은 기동에서 막는다")
     void malformedAllowEntryFails() {
         InternalApiProperties properties = new InternalApiProperties();
-        properties.setEnabled(true);
         properties.getCallers().put("business", caller("t", "/internal/users/*/activation"));
 
-        assertThatThrownBy(properties::validateWhenEnabled).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(properties::validate).isInstanceOf(IllegalStateException.class);
     }
 
     @Test
     @DisplayName("실제 satellites 프로파일과 같은 모양은 통과한다")
     void realShapePasses() {
         InternalApiProperties properties = new InternalApiProperties();
-        properties.setEnabled(true);
         properties.getCallers().put("business", caller("biz",
                 "GET /internal/users/*/activation",
                 "POST /internal/auth/device-sessions/verify",
                 "POST /internal/outbox-commands/*/delivered",
                 "GET /internal/migrations/*/invite-link-clicks/candidates"));
-        properties.getCallers().put("notification", caller("noti", "GET /internal/users/*/result-ack"));
+        properties.getCallers().put("notification", caller("noti", "GET /internal/users/notification-snapshot"));
 
-        assertThatCode(properties::validateWhenEnabled).doesNotThrowAnyException();
+        assertThatCode(properties::validate).doesNotThrowAnyException();
     }
 
     @Test
     void optionalBlankConsoleCredentialsRemainInactive() {
         InternalApiProperties properties = new InternalApiProperties();
-        properties.setEnabled(true);
         var console = caller("", "GET /internal/admin/content/environment");
         console.setOptional(true);
         console.setConsoleActor("member-1");
         properties.getCallers().put("console", console);
-        assertThatCode(properties::validateWhenEnabled).doesNotThrowAnyException();
+        assertThatCode(properties::validate).doesNotThrowAnyException();
         console.setToken("console-token");
         console.setConsoleActor("member-4");
-        assertThatThrownBy(properties::validateWhenEnabled).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(properties::validate).isInstanceOf(IllegalStateException.class);
     }
+
 }

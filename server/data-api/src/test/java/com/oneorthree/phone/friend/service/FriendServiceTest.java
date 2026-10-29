@@ -3,33 +3,23 @@ package com.oneorthree.phone.friend.service;
 import com.oneorthree.phone.common.logging.UserActivityEvent;
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
 import com.oneorthree.phone.common.port.MainIslandNamePort;
-import com.oneorthree.phone.common.ratelimit.PerUserHourlyLimiter;
 import com.oneorthree.phone.friend.repository.domain.Friendship;
 import com.oneorthree.phone.friend.repository.domain.FriendshipStatus;
 import com.oneorthree.phone.friend.dto.FriendRelation;
 import com.oneorthree.phone.friend.dto.FriendRequestResponse;
 import com.oneorthree.phone.friend.dto.FriendResponse;
 import com.oneorthree.phone.friend.dto.FriendSearchResultResponse;
-import com.oneorthree.phone.focus.repository.domain.DailyFocusStat;
-import com.oneorthree.phone.focus.repository.domain.FocusSession;
 import com.oneorthree.phone.focus.dto.FocusLiveInfo;
 import com.oneorthree.phone.focus.service.FocusLiveInfoLookup;
-import com.oneorthree.phone.focus.repository.DailyFocusStatRepository;
-import com.oneorthree.phone.focus.repository.FocusSessionRepository;
-import com.oneorthree.phone.item.repository.CharacterEquipmentRepository;
 import com.oneorthree.phone.letter.repository.LetterRepository;
-import com.oneorthree.phone.friend.repository.domain.PinnedUser;
-import com.oneorthree.phone.friend.dto.PinnedUserResponse;
 import com.oneorthree.phone.friend.event.FriendRequestAcceptedEvent;
 import com.oneorthree.phone.friend.event.FriendRequestSentEvent;
 import com.oneorthree.phone.friend.exception.FriendErrorCode;
 import com.oneorthree.phone.friend.exception.FriendException;
 import com.oneorthree.phone.friend.repository.FriendshipRepository;
-import com.oneorthree.phone.friend.repository.PinnedUserRepository;
 import com.oneorthree.phone.friend.service.search.FriendSearchResult;
 import com.oneorthree.phone.friend.service.search.FriendSearchStrategy;
 import com.oneorthree.phone.friend.service.search.SearchType;
-import com.oneorthree.phone.user.service.UserTierLookup;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.exception.UserErrorCode;
 import com.oneorthree.phone.user.exception.UserException;
@@ -44,7 +34,6 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
 
-import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
@@ -59,7 +48,6 @@ import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.lenient;
-import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
@@ -73,25 +61,10 @@ class FriendServiceTest {
     private UserQueryService userQueryService;
 
     @Mock
-    private PinnedUserRepository pinnedUserRepository;
-
-    @Mock
-    private DailyFocusStatRepository dailyFocusStatRepository;
-
-    @Mock
-    private FocusSessionRepository focusSessionRepository;
-
-    @Mock
-    private CharacterEquipmentRepository characterEquipmentRepository;
-
-    @Mock
     private FriendSearchStrategy nicknameStrategy;
 
     @Mock
     private UserActivityEventLogger userActivityEventLogger;
-
-    @Mock
-    private UserTierLookup userTierLookup;
 
     @Mock
     private FocusLiveInfoLookup focusLiveInfoLookup;
@@ -130,14 +103,11 @@ class FriendServiceTest {
         // 실제 판정 로직(리포지토리 스텁 기반)을 통과하도록 한다 (GROMO-1631, 스텁이 시임을 덮지 않게).
         // 차단 제외는 별도 경로라 이 스위트에선 항상 빈 집합 — strict 스텁 검사를 피하려고 lenient.
         lenient().when(userBlockService.blockedIds(any())).thenReturn(java.util.Set.of());
-        friendService = new FriendService(friendshipRepository, userQueryService, pinnedUserRepository,
-                dailyFocusStatRepository, focusSessionRepository, characterEquipmentRepository,
-                userActivityEventLogger, userTierLookup, focusLiveInfoLookup,
+        friendService = new FriendService(friendshipRepository, userQueryService,
+                userActivityEventLogger, focusLiveInfoLookup,
                 new FriendRelationLookup(friendshipRepository), mainIslandNamePort, letterRepository,
                 userBlockService, eventPublisher,
-                List.of(nicknameStrategy),
-                // 한도 자체는 PerUserHourlyLimiterTest·PerUserRateLimitIntegrationTest 가 본다 — 여기선 닿지 않게.
-                new PerUserHourlyLimiter("test", 1_000_000, Clock.systemUTC()));
+                List.of(nicknameStrategy));
 
         meId = UUID.randomUUID();
         targetId = UUID.randomUUID();
@@ -225,18 +195,6 @@ class FriendServiceTest {
         verify(userQueryService).getCallerForShare(meId);
         verify(userQueryService).getTargetForShare(targetId);
         verify(userQueryService, never()).getTarget(any());
-    }
-
-    @Test
-    @DisplayName("핀 설정 — 탈퇴 유저는 핀할 수 없다 (GROMO-801)")
-    void pinFriend_withdrawnTarget_throws() {
-        given(userQueryService.getCallerForShare(meId)).willReturn(me);
-        given(userQueryService.getTargetForShare(targetId)).willThrow(new UserException(UserErrorCode.TARGET_USER_NOT_FOUND));
-
-        assertThatThrownBy(() -> friendService.pinFriend(meId, targetId))
-                .isInstanceOf(UserException.class)
-                .extracting("errorCode").isEqualTo(UserErrorCode.TARGET_USER_NOT_FOUND);
-        verify(pinnedUserRepository, never()).insertIgnoreConflict(any(), any(), any());
     }
 
     @Test
@@ -790,22 +748,10 @@ class FriendServiceTest {
         assertThat(f.getDeletedAt()).isNotNull();
     }
 
-    @Test
-    @DisplayName("핀 해제 — 상대가 탈퇴했어도 해제할 수 있다 (GROMO-801)")
-    void unpinFriend_withdrawnCounterpart_stillUnpins() {
-        User withdrawn = User.builder().id(targetId).build();   // 닉네임 파기된 탈퇴자
-        given(userQueryService.getCaller(meId)).willReturn(me);
-        given(userQueryService.getAny(targetId)).willReturn(withdrawn);
-
-        friendService.unpinFriend(meId, targetId);
-
-        verify(pinnedUserRepository).deletePin(meId, targetId);
-    }
-
     // ── getFriends ─────────────────────────────────────────
 
     @Test
-    @DisplayName("친구 목록 — 양방향(from/to) 모두 상대 유저로 매핑, isPinned=false")
+    @DisplayName("친구 목록 — 양방향(from/to) 모두 상대 유저로 매핑")
     void getFriends_mapsCounterpart_bothDirections() {
         User a = user(UUID.randomUUID(), "alice");
         User b = user(UUID.randomUUID(), "bob");
@@ -821,29 +767,6 @@ class FriendServiceTest {
                 .containsExactlyInAnyOrder(a.getId(), b.getId());
         assertThat(friends).extracting(FriendResponse::getNickname)
                 .containsExactlyInAnyOrder("alice", "bob");
-        assertThat(friends).allMatch(f -> !f.isPinned());
-    }
-
-    @Test
-    @DisplayName("친구 목록 — 아레나 소속과 무관하게 User 티어를 UserTierLookup 에서 도출 (GROMO-814)")
-    void getFriends_restoresTierLevel_fromLeagueLookup() {
-        User a = user(UUID.randomUUID(), "alice");
-        User b = user(UUID.randomUUID(), "bob");
-        given(userQueryService.getCaller(meId)).willReturn(me);
-        given(friendshipRepository.findAcceptedByUser(me)).willReturn(List.of(
-                friendship(me, a, FriendshipStatus.ACCEPTED),
-                friendship(me, b, FriendshipStatus.ACCEPTED)
-        ));
-        // 상대 userId 들을 한 번에 모아 배치 조회 → alice=티어3, 신규 bob=기본 티어1
-        given(userTierLookup.tierLevelsByUserId(List.of(a.getId(), b.getId())))
-                .willReturn(Map.of(a.getId(), 3, b.getId(), 1));
-
-        List<FriendResponse> friends = friendService.getFriends(meId, DATE);
-
-        assertThat(friends).filteredOn(f -> f.getUserId().equals(a.getId()))
-                .extracting(FriendResponse::getTierLevel).containsExactly(3);
-        assertThat(friends).filteredOn(f -> f.getUserId().equals(b.getId()))
-                .extracting(FriendResponse::getTierLevel).containsExactly(1);
     }
 
     // ── getRequests ────────────────────────────────────────
@@ -922,40 +845,6 @@ class FriendServiceTest {
                 assertThat(r.getCreatedAt()).isEqualTo(originalCreatedAt));
     }
 
-    @Test
-    @DisplayName("요청 목록 — 티어는 users.tier_level 기반 UserTierLookup 에서 도출 (GROMO-814)")
-    void getRequests_restoresTierLevel_fromLeagueLookup() {
-        Friendship req = friendship(target, me, FriendshipStatus.PENDING);
-        given(userQueryService.getCaller(meId)).willReturn(me);
-        given(friendshipRepository.findByToUserAndStatusAndDeletedAtIsNull(me, FriendshipStatus.PENDING))
-                .willReturn(List.of(req));
-        given(userTierLookup.tierLevelsByUserId(List.of(targetId)))
-                .willReturn(Map.of(targetId, 4));
-
-        List<FriendRequestResponse> requests = friendService.getRequests(meId, "received");
-
-        assertThat(requests).hasSize(1);
-        assertThat(requests.get(0).getTierLevel()).isEqualTo(4);
-    }
-
-    @Test
-    @DisplayName("보낸 요청 목록(sent) — 티어는 toUser(상대) 기준으로 도출·매핑 (GROMO-710)")
-    void getRequests_sent_restoresTierLevel_fromLeagueLookup() {
-        Friendship req = friendship(me, target, FriendshipStatus.PENDING);
-        given(userQueryService.getCaller(meId)).willReturn(me);
-        given(friendshipRepository.findByFromUserAndStatusAndDeletedAtIsNull(me, FriendshipStatus.PENDING))
-                .willReturn(List.of(req));
-        // sent 방향: 상대는 toUser(target) — 티어 배치 조회 대상도 target 이어야 한다
-        given(userTierLookup.tierLevelsByUserId(List.of(targetId)))
-                .willReturn(Map.of(targetId, 2));
-
-        List<FriendRequestResponse> requests = friendService.getRequests(meId, "sent");
-
-        assertThat(requests).hasSize(1);
-        assertThat(requests.get(0).getUserId()).isEqualTo(targetId);
-        assertThat(requests.get(0).getTierLevel()).isEqualTo(2);
-    }
-
     // ── search ─────────────────────────────────────────────
 
     @Test
@@ -994,120 +883,10 @@ class FriendServiceTest {
         assertThat(results).filteredOn(r -> r.getUserId().equals(strangerId))
                 .extracting(FriendSearchResultResponse::getRelation)
                 .containsExactly(FriendRelation.NONE);
-        // 전략이 채운 티어는 «친구에게만» 흐른다 (GROMO-1996) — 상세는 아래 전용 테스트가 본다.
-        assertThat(results).filteredOn(r -> r.getUserId().equals(friendId))
-                .extracting(FriendSearchResultResponse::getTierLevel)
-                .containsExactly(1);
-    }
-
-    @Test
-    @DisplayName("검색 — 친구가 아니면 tierLevel·occupation 을 주지 않는다 (GROMO-1996)")
-    void search_hidesTierAndOccupationFromNonFriends() {
-        UUID friendId = UUID.randomUUID();
-        UUID pendingId = UUID.randomUUID();
-        UUID strangerId = UUID.randomUUID();
-        User friend = user(friendId, "friend");
-        User pending = user(pendingId, "pending");
-
-        given(userQueryService.getCaller(meId)).willReturn(me);
-        given(nicknameStrategy.search(meId, "q")).willReturn(List.of(
-                result(friendId, "friend"), result(pendingId, "pending"), result(strangerId, "stranger")));
-        given(friendshipRepository.findAcceptedByUser(me))
-                .willReturn(List.of(friendship(me, friend, FriendshipStatus.ACCEPTED)));
-        given(friendshipRepository.findByFromUserAndStatusAndDeletedAtIsNull(me, FriendshipStatus.PENDING))
-                .willReturn(List.of(friendship(me, pending, FriendshipStatus.PENDING)));
-        given(friendshipRepository.findByToUserAndStatusAndDeletedAtIsNull(me, FriendshipStatus.PENDING))
-                .willReturn(List.of());
-
-        List<FriendSearchResultResponse> results = friendService.search(meId, SearchType.NICKNAME, "q");
-
-        // 친구만 값을 받는다.
-        assertThat(results).filteredOn(r -> r.getUserId().equals(friendId))
-                .extracting(FriendSearchResultResponse::getTierLevel, FriendSearchResultResponse::getOccupation)
-                .containsExactly(org.assertj.core.groups.Tuple.tuple(1, "LABOR_ATTORNEY"));
-        // 요청중(PENDING)도 아직 친구가 아니다 — 수락 전에 미리 보여 주지 않는다.
-        assertThat(results).filteredOn(r -> !r.getUserId().equals(friendId))
-                .allSatisfy(r -> {
-                    assertThat(r.getTierLevel()).isNull();
-                    assertThat(r.getOccupation()).isNull();
-                    // 요청 버튼을 그리는 데 필요한 셋은 그대로 남는다.
-                    assertThat(r.getUserId()).isNotNull();
-                    assertThat(r.getNickname()).isNotNull();
-                    assertThat(r.getRelation()).isNotNull();
-                });
-        assertThat(results).extracting(FriendSearchResultResponse::getUserId)
-                .containsExactlyInAnyOrder(friendId, pendingId, strangerId);
     }
 
     private FriendSearchResult result(UUID userId, String nickname) {
-        return FriendSearchResult.builder().userId(userId).nickname(nickname)
-                .tierLevel(1).occupation("LABOR_ATTORNEY").build();
-    }
-
-    // ── pin / unpin / getPinned ────────────────────────────
-
-    @Test
-    @DisplayName("핀 설정 — 대상이 존재하면 친구 아니어도 ON CONFLICT insert 호출(user 핀 통일)")
-    void pinFriend_nonFriendTarget_inserts() {
-        given(userQueryService.getCallerForShare(meId)).willReturn(me);
-        given(userQueryService.getTargetForShare(targetId)).willReturn(target);
-
-        friendService.pinFriend(meId, targetId);
-
-        // 친구관계(findAcceptedBetween) 검증 없이 바로 insert — user 핀 통일
-        verify(pinnedUserRepository).insertIgnoreConflict(any(), eq(meId), eq(targetId));
-    }
-
-    @Test
-    @DisplayName("핀 설정 — 자기 자신은 FriendException(SELF_PIN), insert 미호출")
-    void pinFriend_self_throws() {
-        assertThatThrownBy(() -> friendService.pinFriend(meId, meId))
-                .isInstanceOf(FriendException.class)
-                .extracting("errorCode")
-                .isEqualTo(FriendErrorCode.SELF_PIN);
-        verify(pinnedUserRepository, never()).insertIgnoreConflict(any(), any(), any());
-    }
-
-    @Test
-    @DisplayName("핀 설정 — 대상 유저 없으면 UserException, insert 미호출")
-    void pinFriend_userNotFound_throws() {
-        given(userQueryService.getCallerForShare(meId)).willReturn(me);
-        given(userQueryService.getTargetForShare(targetId)).willThrow(new UserException(UserErrorCode.TARGET_USER_NOT_FOUND));
-
-        assertThatThrownBy(() -> friendService.pinFriend(meId, targetId))
-                .isInstanceOf(UserException.class);
-        verify(pinnedUserRepository, never()).insertIgnoreConflict(any(), any(), any());
-    }
-
-    @Test
-    @DisplayName("핀 해제 — 핀이 없어도(0행) 예외 없이 멱등 성공 (GROMO-801)")
-    void unpinFriend_noPin_idempotent() {
-        // 조회 후 remove 방식이면 탈퇴의 핀 정리와 겹칠 때 0행 DELETE 로 StaleStateException(500) 이 났다.
-        // 벌크 DELETE 는 0행 매치를 정상으로 처리한다.
-        given(userQueryService.getCaller(meId)).willReturn(me);
-        given(userQueryService.getAny(targetId)).willReturn(target);
-        given(pinnedUserRepository.deletePin(meId, targetId)).willReturn(0);
-
-        friendService.unpinFriend(meId, targetId);
-
-        verify(pinnedUserRepository).deletePin(meId, targetId);
-        verify(pinnedUserRepository, never()).delete(any());
-    }
-
-    @Test
-    @DisplayName("친구 목록 — 핀한 친구는 isPinned=true 매핑")
-    void getFriends_pinnedFriend_isPinnedTrue() {
-        given(userQueryService.getCaller(meId)).willReturn(me);
-        given(friendshipRepository.findAcceptedByUser(me))
-                .willReturn(List.of(friendship(me, target, FriendshipStatus.ACCEPTED)));
-        given(pinnedUserRepository.findByUser(me))
-                .willReturn(List.of(PinnedUser.builder().user(me).pinnedUser(target).build()));
-
-        List<FriendResponse> friends = friendService.getFriends(meId, DATE);
-
-        assertThat(friends).hasSize(1);
-        assertThat(friends.get(0).getUserId()).isEqualTo(targetId);
-        assertThat(friends.get(0).isPinned()).isTrue();
+        return FriendSearchResult.builder().userId(userId).nickname(nickname).build();
     }
 
     @Test
@@ -1161,54 +940,15 @@ class FriendServiceTest {
         verify(focusLiveInfoLookup).liveInfoByUserId(anyList(), eq(DATE));
     }
 
-    @Test
-    @DisplayName("핀 해제 — 핀 있으면 삭제")
-    void unpinFriend_deletesWhenPresent() {
-        given(userQueryService.getCaller(meId)).willReturn(me);
-        given(userQueryService.getAny(targetId)).willReturn(target);
-        given(pinnedUserRepository.deletePin(meId, targetId)).willReturn(1);
-
-        friendService.unpinFriend(meId, targetId);
-
-        verify(pinnedUserRepository).deletePin(meId, targetId);
-    }
-
-    @Test
-    @DisplayName("핀 친구 조회 — 오늘 집중분/진행중 매핑")
-    void getPinnedFriends_mapsFocusInfo() {
-        given(userQueryService.getCaller(meId)).willReturn(me);
-        given(pinnedUserRepository.findByUser(me))
-                .willReturn(List.of(PinnedUser.builder().user(me).pinnedUser(target).build()));
-
-        DailyFocusStat stat = mock(DailyFocusStat.class);
-        given(stat.getUser()).willReturn(target);
-        given(stat.getTotalFocusSeconds()).willReturn(42 * 60);
-        given(dailyFocusStatRepository.findByUserInAndDate(any(), any())).willReturn(List.of(stat));
-
-        FocusSession session = mock(FocusSession.class);
-        given(session.getUser()).willReturn(target);
-        given(focusSessionRepository.findByUserInAndEndedAtIsNull(any())).willReturn(List.of(session));
-
-        given(characterEquipmentRepository.findByUserIn(any())).willReturn(List.of());
-
-        List<PinnedUserResponse> result = friendService.getPinnedFriends(meId, LocalDate.of(2026, 7, 3));
-
-        assertThat(result).hasSize(1);
-        assertThat(result.get(0).getUserId()).isEqualTo(targetId);
-        assertThat(result.get(0).getFocusTimeMinutes()).isEqualTo(42);
-        assertThat(result.get(0).isFocusing()).isTrue();
-        assertThat(result.get(0).getCharacter()).isEmpty();
-    }
     // ── detachWithdrawnUser (계정 탈퇴자 관계 정리, GROMO-1656 이전) ────────
 
     @Test
-    @DisplayName("탈퇴자 관계는 status·deleted_at 과 무관하게 양방향 하드 삭제, 핀도 하드 삭제 (GROMO-1801)")
+    @DisplayName("탈퇴자 관계는 status·deleted_at 과 무관하게 양방향 하드 삭제 (GROMO-1801)")
     void detachWithdrawnUserHardDeletesEveryRelation() {
         UUID withdrawerId = UUID.fromString("00000000-0000-0000-0000-0000000000f1");
 
         friendService.detachWithdrawnUser(withdrawerId);
 
         verify(friendshipRepository).deleteAllInvolving(withdrawerId);
-        verify(pinnedUserRepository).deleteAllInvolving(withdrawerId);
     }
 }

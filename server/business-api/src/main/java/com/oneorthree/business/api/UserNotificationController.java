@@ -27,7 +27,8 @@ import org.springframework.web.bind.annotation.RestController;
  * 기기 토큰·알림 설정 — <b>기존 URI·성공 상태를 보존</b>한다.
  *
  * <ul>
- *   <li>{@code PUT /api/v1/users/me/device-token} → 204 (본문은 additive 하게 추가)</li>
+ *   <li>{@code PUT /api/v1/users/me/device-token} → 200 {@code {ownershipToken, deliveryTag?}} (구 계약 204 에 본문
+ *       additive)</li>
  *   <li>{@code DELETE /api/v1/users/me/device-token} → 204</li>
  *   <li>{@code PUT /api/v1/users/me/notification-settings} → 204</li>
  *   <li>{@code GET /api/v1/users/me/notification-settings} → 200 5필드</li>
@@ -66,9 +67,9 @@ public class UserNotificationController {
                 body.ownershipToken(), body.deviceBootstrap(),
                 RequestIdempotencyKeys.from(idempotencyKey), Deadline.unbounded());
 
-        // 기존 계약은 204 본문 없음이다. 구 앱은 본문을 읽지 않으므로 값을 실어도 깨지지 않는다.
-        return ResponseEntity.ok(new DeviceTokenRegisterResponse(
-                result == null ? null : result.ownershipToken()));
+        // 구 계약은 204 본문 없음이었다. 구 앱은 본문을 읽지 않으므로 값을 실어도 깨지지 않는다. deliveryTag 는
+        // 없을 수 있고(V13 전에 저장된 등록 응답의 재생) 그때도 200 이다 — 키만 생략한다.
+        return ResponseEntity.ok(new DeviceTokenRegisterResponse(result.ownershipToken(), result.deliveryTag()));
     }
 
     @DeleteMapping("/users/me/device-token")

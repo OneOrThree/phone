@@ -37,6 +37,7 @@ const focusSnap = {
       subject: '영어 단어',
       activeSeconds: 1320,
       status: 'active',
+      seat: { x: 34.1, y: 55.9 },
     },
   ],
   serverNow: '2026-09-24T12:00:00Z',
@@ -73,6 +74,7 @@ test('focus-members·rest-members 는 무접두 공개 경로로 읽고 {data}�
   assert.equal(path(calls[1]), '/islands/i%201/rest-members');
   assert.equal((calls[0].init.headers as Record<string, string>).Authorization, 'Bearer AT');
   assert.equal(focus.items[0].userId, 'u1');
+  assert.deepEqual(focus.items[0].seat, { x: 34.1, y: 55.9 });
   assert.equal(focus.watermarks?.[0].version, 3);
   assert.equal(rest.items[0].restSeat, 1);
 });

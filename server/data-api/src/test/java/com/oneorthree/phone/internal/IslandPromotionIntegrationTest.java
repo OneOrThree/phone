@@ -34,8 +34,6 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.annotation.DirtiesContext;
-import org.springframework.test.util.AopTestUtils;
-import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -84,7 +82,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  *
  * <p>보는 것: 신청의 차감·원장·칸·소식·이벤트, 한 호에 한 번과 신청 창(07~24시), 비공개 섬, 글·배치·보유 검증(직전 칸에
  * 있던 재료 포함), 잔액 부족의 무흔적 실패, 섬장·게스트 가드, 같은 키 재생(재생 인가·다른 본문 포함), 동시 두 신청,
- * 고치기(창 안에서만·돈·지면 순서 불변), 쓰기 화면 불러오기, 꾸미기 재료 목록, 기능 스위치, 소식 읽기, 섬이 닫힐 때의
+ * 고치기(창 안에서만·돈·지면 순서 불변), 쓰기 화면 불러오기, 꾸미기 재료 목록, 소식 읽기, 섬이 닫힐 때의
  * 정리, 지갑 계층 계약과 공동 가계부 반영.
  */
 @SpringBootTest
@@ -104,11 +102,7 @@ class IslandPromotionIntegrationTest {
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
         OutboxTestPostgres.applyProductionMigrationWiring(registry);
-        // 섬이 닫히는 경로(마지막 주민의 나가기)가 섬 관리 명령 스위치 뒤에 있다.
-        registry.add("island-management.commands-enabled", () -> true);
-        registry.add("internal.api.enabled", () -> true);
         registry.add("internal.api.callers.business.token", () -> TOKEN);
-        registry.add("magazine.enabled", () -> true);
         String[] allow = {"POST /internal/users/*/islands/*/promotions", "GET /internal/users/*/islands/*/news",
             "PUT /internal/users/*/islands/*/promotions/*", "GET /internal/users/*/islands/*/promotions/editor",
             "GET /internal/users/*/magazine/assets"};
@@ -144,8 +138,6 @@ class IslandPromotionIntegrationTest {
     JdbcTemplate jdbc;
     @Autowired
     MockMvc mvc;
-    @Autowired
-    IslandPromotionService promotionService;
     @Autowired
     MagazinePublishService publisher;
     @Autowired
@@ -243,7 +235,7 @@ class IslandPromotionIntegrationTest {
     @DisplayName("비공개 섬도 신청된다(10/16) — 201·차감·칸·소식·receipt 가 있고, 다음 호 발행 때 칸이 실려 읽힌다(privateIsland=true)")
     void privateIslandCanPromote() throws Exception {
         Island island = island(100);
-        jdbc.update("update groups set is_private = true where id = ?", island.id);
+        jdbc.update("update islands set is_private = true where id = ?", island.id);
 
         promote(island.host, island.id, UUID.randomUUID()).andExpect(status().isCreated());
 
@@ -505,7 +497,7 @@ class IslandPromotionIntegrationTest {
 
         management.leave(host, closing, UUID.randomUUID());
 
-        assertThat(count("select count(*) from groups where id = ? and deleted_at is not null", closing))
+        assertThat(count("select count(*) from islands where id = ? and deleted_at is not null", closing))
                 .as("삭제 묘비 — 섬 행이 남아 ON DELETE CASCADE 는 돌지 않는다").isEqualTo(1);
         assertThat(newsRows(closing))
                 .as("닫힌 섬의 소식").isZero();
@@ -666,7 +658,7 @@ class IslandPromotionIntegrationTest {
                 .andExpect(jsonPath("$.code").value("NOT_OWNER"));
         editor(island.visitor, island.id).andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("NOT_OWNER"));
-        jdbc.update("update groups set is_private = true where id = ?", island.id);
+        jdbc.update("update islands set is_private = true where id = ?", island.id);
         editor(island.host, island.id).andExpect(status().isOk())
                 .andExpect(jsonPath("$.privateIsland").value(true));
 
@@ -709,30 +701,6 @@ class IslandPromotionIntegrationTest {
                 .getContentAsString(StandardCharsets.UTF_8), Map.class), "stickers", season))
                 .containsEntry("owned", true);
         assets(guest).andExpect(status().isOk()).andExpect(jsonPath("$.frames.length()").isNumber());
-    }
-
-    // ---------------------------------------------------------------- 기능 스위치
-
-    @Test
-    @DisplayName("magazine.enabled 가 꺼져 있으면 신청·고치기는 503 MAGAZINE_NOT_READY 이고 아무것도 남지 않는다 — 읽기는 열려 있다")
-    void featureSwitchClosesWrites() throws Exception {
-        Island island = island(100);
-        String promotionId = promotionIdOf(promote(island.host, island.id, UUID.randomUUID()));
-        Object target = AopTestUtils.getUltimateTargetObject(promotionService);
-        ReflectionTestUtils.setField(target, "enabled", false);
-        try {
-            Island fresh = island(100);
-            promote(fresh.host, fresh.id, UUID.randomUUID()).andExpect(status().isServiceUnavailable())
-                    .andExpect(jsonPath("$.code").value("MAGAZINE_NOT_READY"));
-            update(island.host, island.id, promotionId, content("고친 글", layout(FRAME, List.of(), null)))
-                    .andExpect(status().isServiceUnavailable())
-                    .andExpect(jsonPath("$.code").value("MAGAZINE_NOT_READY"));
-            assertNothingWritten(fresh, 100);
-            editor(island.host, island.id).andExpect(status().isOk());
-            assets(island.host).andExpect(status().isOk());
-        } finally {
-            ReflectionTestUtils.setField(target, "enabled", true);
-        }
     }
 
     // ---------------------------------------------------------------- 지갑 계층 · 가계부
@@ -822,7 +790,7 @@ class IslandPromotionIntegrationTest {
     }
 
     private UUID newGuest() {
-        return jwt.extractUserId(auth.guestLogin().accessToken());
+        return jwt.extractUserId(auth.guestSession(java.util.UUID.randomUUID().toString()).accessToken());
     }
 
     /** 기본 칸 — 틀·스티커 하나·테이프. */

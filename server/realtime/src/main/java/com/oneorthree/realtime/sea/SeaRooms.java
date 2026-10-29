@@ -269,8 +269,8 @@ public class SeaRooms {
     }
 
     /**
-     * 지금 방의 구성원 전부 — {@code SEND /app/sea/sync} 의 답. 방 토픽을 구독한 뒤에 부르므로 그 뒤 사건과 겹칠 수는
-     * 있어도 빠지지는 않는다.
+     * 지금 방의 원본 스냅샷 — {@code SEND /app/sea/sync} 의 답. 전달 직전에 수신자별 양방향 차단을 거른다.
+     * 방 토픽을 구독한 뒤에 부르므로 그 뒤 사건과 겹칠 수는 있어도 빠지지는 않는다.
      *
      * @throws ChatException {@code NOT_IN_SEA_ROOM} — 방이 없다
      */
@@ -303,10 +303,26 @@ public class SeaRooms {
         return SeaRoomEvent.of(SNAPSHOT, roomId, clock.instant(), payload);
     }
 
+    /** 차단·해제 후 같은 방의 모든 기기에 표시를 갱신한다. 방·집중·항해 상태는 바꾸지 않는다. */
+    public void refreshBlockVisibility(UUID blockerId) {
+        UUID roomId = currentRoom(blockerId);
+        if (roomId != null) {
+            publisher.publish(roomId, SNAPSHOT, snapshotOf(roomId).payload());
+        }
+    }
+
     /** 지금 들어 있는 방에서 나간다. 방이 없으면 아무 일도 없다. */
     public boolean leaveCurrent(UUID userId, String reason) {
         UUID roomId = currentRoom(userId);
         return roomId != null && leave(userId, roomId, reason);
+    }
+
+    /** 외양 변경 한 건당 방 조회 한 번. 외양 해시 쓰기·구성원 재조회 없이 이벤트 본문을 전달한다. */
+    public void publishAppearance(UUID userId, JsonNode payload) {
+        UUID roomId = currentRoom(userId);
+        if (roomId != null) {
+            publisher.publish(roomId, "sea.member.appearance.updated", payload);
+        }
     }
 
     /**

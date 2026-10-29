@@ -1,6 +1,6 @@
 package com.oneorthree.realtime.sea;
 
-import com.oneorthree.realtime.TestcontainersConfiguration;
+import com.oneorthree.realtime.RestrictedRedisTestcontainersConfiguration;
 import com.oneorthree.realtime.common.redis.RedisKeys;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -22,7 +22,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 @SpringBootTest
 @ActiveProfiles("ci")
-@Import(TestcontainersConfiguration.class)
+@Import(RestrictedRedisTestcontainersConfiguration.class)
 class SeaRoomsScriptTest {
 
     @Autowired
@@ -30,6 +30,23 @@ class SeaRoomsScriptTest {
 
     @Autowired
     private SeaRooms seaRooms;
+
+    @Test
+    @DisplayName("외양 변경은 Redis 사용자 해시와 TTL을 수정하지 않는다")
+    void appearanceEventDoesNotReplicateLookIntoRedis() {
+        UUID user = UUID.randomUUID();
+        UUID room = UUID.randomUUID();
+        join(user, room);
+        var before = redis.opsForHash().entries(RedisKeys.seaUser(user));
+        var payload = new tools.jackson.databind.ObjectMapper().createObjectNode();
+        payload.put("userId", user.toString()).put("version", 3);
+        payload.putObject("appearance").put("head", "duck");
+        seaRooms.publishAppearance(user, payload);
+        assertThat(redis.opsForHash().entries(RedisKeys.seaUser(user))).isEqualTo(before);
+        UUID absent = UUID.randomUUID();
+        seaRooms.publishAppearance(absent, payload);
+        assertThat(redis.hasKey(RedisKeys.seaUser(absent))).isFalse();
+    }
 
     @Test
     @DisplayName("membersOf — 해시가 만료된 유령은 SET 에서 치워져 정원이 풀리고 새 입장이 된다")

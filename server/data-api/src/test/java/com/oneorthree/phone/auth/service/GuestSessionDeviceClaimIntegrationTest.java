@@ -6,11 +6,8 @@ import com.oneorthree.phone.auth.repository.AuthSessionRepository;
 import com.oneorthree.phone.auth.repository.GuestDeviceClaimRepository;
 import com.oneorthree.phone.auth.support.TokenHasher;
 import com.oneorthree.phone.common.support.IntegrationTestBase;
-import com.oneorthree.phone.user.repository.UserFocusTimeSettingsRepository;
 import com.oneorthree.phone.user.repository.UserNotificationSettingsRepository;
 import com.oneorthree.phone.user.repository.UserRepository;
-import com.oneorthree.phone.user.repository.UserScreenTimeSettingsRepository;
-import com.oneorthree.phone.user.repository.UserWalletRepository;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -48,12 +45,6 @@ class GuestSessionDeviceClaimIntegrationTest extends IntegrationTestBase {
     @Autowired
     AuthSessionRepository authSessionRepository;
     @Autowired
-    UserWalletRepository userWalletRepository;
-    @Autowired
-    UserScreenTimeSettingsRepository userScreenTimeSettingsRepository;
-    @Autowired
-    UserFocusTimeSettingsRepository userFocusTimeSettingsRepository;
-    @Autowired
     UserNotificationSettingsRepository userNotificationSettingsRepository;
     @Autowired
     JdbcTemplate jdbc;
@@ -66,9 +57,7 @@ class GuestSessionDeviceClaimIntegrationTest extends IntegrationTestBase {
         claimedDigests.forEach(guestDeviceClaimRepository::deleteById);
         createdUsers.forEach(userId -> {
             authSessionRepository.findActiveByUserId(userId).forEach(authSessionRepository::delete);
-            userWalletRepository.deleteById(userId);
-            userScreenTimeSettingsRepository.deleteById(userId);
-            userFocusTimeSettingsRepository.deleteById(userId);
+
             userNotificationSettingsRepository.deleteById(userId);
             userRepository.deleteById(userId);
         });
@@ -145,9 +134,6 @@ class GuestSessionDeviceClaimIntegrationTest extends IntegrationTestBase {
     void createsTheFourSideRowsJustLikeTheLegacyGuestPath() {
         AuthService.LoginSessionResult issued = issue(digest("eeee"));
 
-        assertThat(userWalletRepository.findById(issued.userId())).isPresent();
-        assertThat(userScreenTimeSettingsRepository.findById(issued.userId())).isPresent();
-        assertThat(userFocusTimeSettingsRepository.findById(issued.userId())).isPresent();
         assertThat(userNotificationSettingsRepository.findById(issued.userId())).isPresent();
         assertThat(userRepository.findById(issued.userId())).get()
                 .extracting(user -> user.isGuest()).isEqualTo(true);

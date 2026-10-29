@@ -102,7 +102,7 @@ A22 ㋺의 기존 미리보기 통합으로 Business 컨테이너 한도는 2 Gi
 | `NOTI_DB_URL` · `NOTI_DB_USERNAME` · `NOTI_DB_PASSWORD` (gromo_notification) | notification — 신규라 이름을 새로 정하지만 **Data API 의 `API_DB_*` 와 같은 형태로 맞춘다** |
 | **`FCM_PROJECT_ID` · `FCM_SERVICE_ACCOUNT_JSON`** | 최종적으로 notification **만**. **단 회수 시점은 Target-1 배포 시점이 아니다** — 이관 절차 ④′ 까지는 Data API 안의 구 `NotificationScheduler` 가 실제 푸시를 계속 보내야 하는데, `FcmPushNotificationClient` 는 **둘 중 하나만 없어도 기동을 막는 fail-fast** 생성자라 배포와 동시에 빼면 **Data API 가 아예 안 뜨거나 구 발송 경로를 먼저 죽여야** 해서 이중 쓰기·백필·drain 기간의 알림이 끊긴다. 순서: **전환용 Data 이미지에는 자격을 병행 배포 → ④′ drain 과 legacy FCM 빈 제거 확인 → 그 다음 배포에서 data-api 자격 회수** — `FcmPushNotificationClient` 는 **둘 중 하나라도 없으면 기동을 실패**시키고, 프로퍼티 키가 env 자동 변환과 정확히 일치해야 한다(그 클래스 주석). `_BASE64` 접미사 붙은 이름이 아니고, **project ID 도 함께 옮겨야 한다** |
 | `SVC_TOKEN_BIZ_TO_DATA` · **`SVC_TOKEN_NOTI_TO_DATA`**(리컨실 — 서비스 전용 호출) · **`SVC_TOKEN_BIZ_TO_NOTI`** · **`SVC_TOKEN_DATA_TO_NOTI`** · ~~`SVC_TOKEN_CONSOLE_TO_NOTI`~~(→ A23: A11 ⑥ 의 `link콘솔→notification` 폐기 — 콘솔은 Business API 안, 알림 화면은 L16 대로 나중) · ~~**`SVC_TOKEN_BIZ_TO_LINK`** · **`SVC_TOKEN_DATA_TO_LINK`**~~(→ A23: 링크 서버 없음 — #745 잔여는 링크 구현 PR 이 걷어낸다, 링크 LLD §9) — **위성 호출 토큰은 caller 별로 쪼갠다**(~~총 7종~~ → 4종). 같은 비밀값을 Business 와 Data 에 함께 주면 수신 측이 **어느 프로세스가 불렀는지 구분할 수 없어** Business 용 경로(기기 토큰·설정~~·링크 발급~~)와 Data relay 용 경로(~~withdraw·revoke·joined~~ → A23: 알림 대상 재전달)의 허용목록이 **합쳐지고**, 한쪽 자격이 유출되면 다른 쪽 전용 명령까지 열린다. 토큰마다 audience 와 메서드·경로를 **독립적으로** 제한한다(A11) | 발신·수신 양쪽 |
-| **`BATCH_ADMIN_KEY`** (배치 트리거 `X-Batch-Admin-Key` 대조값) | **data-api** — A8 이 「⑴ nginx·Business 허용목록에서 `/api/v1/**` 의 배치 경로 제외 ⑵ `/internal/*` 로만 노출 ⑶ 그때까지 가드 유지」를 동시에 요구하므로, 세 조건이 갖춰지기 전까지 이 키는 **계속 배포된다**. `@Value("${BATCH_ADMIN_KEY:}")` 라 미주입이 기동을 막지는 않지만, **빈 값이면 가드가 사실상 열린다** |
+| ~~**`BATCH_ADMIN_KEY`** (배치 트리거 `X-Batch-Admin-Key` 대조값)~~ | **제거됨(2026-10-22, 티켓 2421 · PR #1247)** — 레거시 `/api/v1` 배치 컨트롤러(`GroupBetBatchController`·`LeagueBatchController`·`GroupNotificationBatchController`)와 `X-Batch-Admin-Key` 가드를 삭제해 **어느 서비스도 이 키를 읽지 않는다**. 이 행이 걸던 A8 의 「가드 유지」 조건은 가드 자체가 없어져 소멸했다. SM 에 값이 남아 있어도 `write-compose-env.py` 허용목록에 없어 컨테이너에 주입되지 않으며 `--report-unused` 의 「어느 서비스도 안 쓰는 SM 키」 경고 대상이다. 주간 섬 랭킹 재계산은 티켓 2349(#1261)의 기동 시 1회 옵션으로 대체됐다 |
 | **GA4 4종**(`GA4_FIREBASE_APP_ID` · `GA4_APP_API_SECRET` · `GA4_WEB_MEASUREMENT_ID` · `GA4_WEB_API_SECRET`) | ~~**data-api 와 링크 서버 양쪽** — 현 `InviteLinkGa4Events` 가 `invite_link_created`·`invite_link_clicked`·`invite_match_resolved` 를 이 네 값으로 발행하는데, Target-1 에서 **발급·랜딩·매치가 링크 서버로 넘어가므로 그 이벤트 발행도 함께 넘어간다**. 링크 서버에 안 주면 **가입 이벤트만 Data 에 남고 클릭·매치 퍼널이 조용히 끊긴다**(대안으로 링크 → 코어 전달 경로를 만드는 건 단방향 규칙에 어긋난다).~~ → **A23(2026-09-13): data-api 만** — 서버 GA4 이벤트는 data-api 가 발행한다(링크 HLD §1 · LLD §8). 가입 귀속(`group_joined`)은 `publishJoinAttribution` 이 Data 에 남으므로 data-api 도 계속 보유 — 가입 귀속 발행(`publishJoinAttribution`)이 GA4 전송을 겸하고 그 코드가 Data 에 남으므로 함께 남는다. 넷 다 **기본값 있는 선택 주입**이라 미주입이 기동을 막지 않고 WARN 1회만 남긴다(FCM 의 fail-fast 와 대비 — 분석 배선 누락이 서비스를 세우면 안 된다는 현행 판단을 유지) |
 | **`OPENAI_API_KEY`** | **data-api** — `/api/v1/character/moderation`(캐릭터 이미지 모더레이션)은 도메인 기능이라 Data 에 남고 Business 는 패스스루한다. 현 배포 생성기 `.github/scripts/write-compose-env.py:24` 가 **필수로 취급**하고 `OpenAiModerationClient:69` 는 값이 없으면 **모든 모더레이션 요청을 예외로 차단**하므로, 표에서 빠지면 그 경로가 전면 실패한다 |
 | 콘솔 비밀번호(해시) | ~~Vercel env (링크 레포)~~ → A23: business-api env — 팀원별 `CONSOLE_SLOT_<NAME>_HASH`(bcrypt) + `CONSOLE_COOKIE_KEY`(링크 정책 L16 · LLD §6.1) |
@@ -214,22 +214,22 @@ server/.github/workflows/
 소비자의 실패 토픽 resolver는 배포된 `notification-events.DLT`와 같은 이름을 명시한다(A22 ㋱). Spring Kafka 4의 `-dlt` 기본값과 자동 토픽 생성에 의존하지 않는다.
 
 
-### Target-1 이관 검증 산출물
+### 기기 등록·발송 게이트 운영 규칙
 
-Data CLI는 export마다 고유한 `manifest.snapshot`을 생성하고 모든 `*.import-####.json` 청크와 `*.verify.json`에 같은 값을 넣는다. 빈 전체 집합도 하나의 빈 import 파일을 만든다. 초기·최종 파일을 섞지 않고 최종 집합의 검증을 통과한 뒤 최초 발송 게이트를 연다(A22 ㋼).
+Data 알림 export·Notification import/verify 검증 경로는 #1247(티켓 2421)에서 제거했다. 발송 게이트의 개방·차단은 [Notification 운영 절차](../../server/notification/README.md#dev-발송-게이트)를 따른다.
 
-GROMO-1659의 Data export는 settings·device·delivery·user·participation 다섯 자원의 건수·체크섬을 같은 RR 스냅샷에서 생성한다. 실제 Noti bootJar의 정규화·키 유도 함수와 Data export 직렬화를 CI에서 함께 실행한다(A22 ㋳·㋶). ~~Link 이관에는 필드별 표시 version과 LEGACY 귀속을 포함하며,~~(→ A23: 링크 이관 없음) 서비스별 시크릿·이미지 digest·nginx 적용 준비는 `docs/prd/fishcat/server-separation/deployment.md`를 따른다(A22 ㋷·㋸).
+서비스별 시크릿·이미지 digest·nginx 적용 준비는 `docs/prd/fishcat/server-separation/deployment.md`를 따른다(A22 ㋷·㋸).
 
 
 기기 등록 롤아웃은 두 설정을 따로 전환한다(A22 ㋲). `NOTIFICATION_GENERATION_REQUIRED`는 구 AT 수명 대기 뒤
-켜고, `NOTIFICATION_LEGACY_DEVICE_REGISTRATION`은 소유권 프로토콜 미지원 구 앱 지원 종료 뒤 끈다.
+켜고, `NOTIFICATION_LEGACY_DEVICE_REGISTRATION`은 구 앱 지원 종료만으로 끄지 않는다. 2.0 앱도 서명된 sid 창에 기대므로 끄는 조건과 영향은 [`device-token` 계약](../contracts/business-satellite-api.yaml)을 확인한다.
 둘은 Notification 전용 env로 주입한다. 구 앱도 새 AT의 gen·sid를 사용할 수 있으므로 gen 존재로 앱 전환을 추정하지 않는다.
 
 앱 업그레이드 호환 정리는 소유권 기록이 없는 기기의 SDK 토큰 조회에도 의존한다(A22 ㋲). SDK 조회까지 실패한 세션 미연결 구 토큰의 정리는 보장하지 않으며, 사용자 전체 삭제로 다른 기기를 비활성화하지 않는다. RT 폐기는 계속 수행한다.
 
 Business 내부 HTTP의 복구 탐침은 요청 예산 검사 후에만 획득하며, 4xx 판정·자격 거절·계약 오류·요청 구성 예외에서도 정리한다(A22 ㋽). 기존 오류 분류와 재시도 범위를 유지하고 상류 복구 뒤 후속 요청이 통과하는지 실제 HTTP 응답으로 검증한다.
 
-게이트 close는 같은 키의 재시도도 다시 닫고 발송 drain을 기다린다. open 재시도는 게이트 잠금 아래 현재 개방과 실제 데이터를 재검증하며, 이후 close로 닫혔으면 `409 DISPATCH_OPEN_REPLAY_STALE`로 거절한다. 의도적인 재개는 새 open 키를 사용한다. 실제 데이터 재검증 실패는 발송을 닫고 drain한 뒤 검증 태그를 지운다(A22 ㋾). GroupMember의 역할·권한·설정 변경은 실제 변경 컬럼만 저장해 동시 표시 버전 갱신을 보존한다(A22 ㋻).
+게이트 close는 같은 키의 재시도도 다시 닫고 발송 drain을 기다린다. open 재시도는 게이트 잠금 아래 지금 열려 있을 때만 원 응답을 재생하고, 이후 close로 닫혔으면 `409 DISPATCH_CLOSED`로 거절한다. 의도적인 재개는 새 open 키를 사용한다(A22 ㋾ — 이관 검증 경로는 #1247 에서 제거해 데이터 재검증·검증 태그는 없다). dev 는 2026-10-27 부터 게이트를 상시 열어 둔다(티켓 2522, `server/notification/README.md` 「dev 발송 게이트」). GroupMember의 역할·권한·설정 변경은 실제 변경 컬럼만 저장해 동시 표시 버전 갱신을 보존한다(A22 ㋻).
 
 refresh는 서명된 userId의 활성 users 행을 잠근 뒤 RT 세션을 조회한다. 세션이 있으면 그 행의 소유자·폐기를 판정하고 세션 RT를 조건부 회전한다. users의 단일 해시는 세션 없는 구 RT의 승격에만 유효성 근거로 사용하며, 회전 시에도 같은 옛 해시를 가리킬 때만 동기화한다. 다른 기기의 로그인·회전·개별 로그아웃은 살아 있는 세션의 갱신을 무효화하지 않는다. (A22 ㋣)
 

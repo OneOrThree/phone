@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import React, { useState } from 'react';
-import { Linking, Platform } from 'react-native';
+import { Linking, Platform, StyleSheet } from 'react-native';
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 import { ApiError } from '@/services/api/client';
 import { clearSession, saveSession } from '@/services/api/session';
@@ -11,20 +11,24 @@ import {
   revalidateBlockedUsers,
 } from '@/services/blockedUsers';
 import { blockUser, getBlockedUsers } from '@/services/api/safety';
-import { InteriorScreen } from '@/screens/interiors/BuildingInteriors';
+import { InteriorRoute, InteriorScreen } from '@/screens/interiors/BuildingInteriors';
 import {
   closeLetter,
   getLetter,
   getMailboxScreen,
   listIslandMessages,
   listLetters,
+  listSystemLetters,
   sendIslandMessage,
   sendLetter,
 } from '@/services/api/letters';
 
 jest.mock('@/services/api/letters', () => ({
+  // 시스템 편지 판별 헬퍼(isSystemLetter·isSystemLetterView)는 실제 구현을 쓴다.
+  ...jest.requireActual('@/services/api/letters'),
   getMailboxScreen: jest.fn(),
   listLetters: jest.fn(),
+  listSystemLetters: jest.fn(),
   getLetter: jest.fn(),
   sendLetter: jest.fn(),
   closeLetter: jest.fn(),
@@ -101,6 +105,27 @@ const letterItem = (over: Record<string, unknown> = {}) => ({
   ...over,
 });
 
+// 섬 시스템 편지(강퇴·가입 승인, GROMO-2275) — 발신자가 없어 counterpartUserId 가 null 이다.
+const SYSTEM_LETTER = 'sys-1';
+const systemItem = (over: Record<string, unknown> = {}) => ({
+  id: SYSTEM_LETTER,
+  counterpartUserId: null,
+  counterpartNickname: null,
+  content: '소다 섬에서 나가게 됐어요',
+  isRead: false,
+  createdAt: '2026-09-20T12:00:00Z',
+  kind: 'KICK',
+  islandId: 'island-2',
+  ...over,
+});
+
+const slice = (content: Record<string, unknown>[]) => ({
+  content,
+  size: 20,
+  hasNext: false,
+  nextCursor: null,
+});
+
 const letterView = (over: Record<string, unknown> = {}) => ({
   id: LETTER,
   senderId: 'u2',
@@ -114,6 +139,7 @@ const letterView = (over: Record<string, unknown> = {}) => ({
 
 const screenMock = getMailboxScreen as jest.Mock;
 const listLettersMock = listLetters as jest.Mock;
+const listSystemMock = listSystemLetters as jest.Mock;
 const getLetterMock = getLetter as jest.Mock;
 const sendLetterMock = sendLetter as jest.Mock;
 const closeLetterMock = closeLetter as jest.Mock;
@@ -216,6 +242,26 @@ beforeEach(async () => {
   await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'u1' });
   replaceBlockedUsers([]);
   blockedUsersMock.mockResolvedValue([]);
+  listSystemMock.mockResolvedValue(slice([]));
+});
+
+test('우체통 편지 칸 — 글자는 덮개 그림 아래에서 시작한다(새 편지 줄이 붙어도, GROMO-2409)', async () => {
+  const ui = await renderMail(null);
+  // 글자 칸은 가운데 정렬이라 줄이 늘면 위로 올라온다 — 시작선(paddingTop)이 그림 바닥보다 아래여야 덮개에 안 가린다
+  for (const i of [1, 2]) {
+    const card = StyleSheet.flatten(ui.getByTestId(`mail-home-${i}`).props.style);
+    const art = StyleSheet.flatten(ui.getByTestId(`mail-home-${i}-art`).props.style);
+    assert.ok(card.paddingTop > art.top + art.height, `칸 ${i}: 글자 시작이 그림 바닥 아래`);
+  }
+  await ui.unmount();
+});
+
+test('우체통 첫 칸은 고양이 잡지다 — 채팅방 칸·길이 없다(GROMO-2500)', async () => {
+  const ui = await renderMail(null);
+  assert.ok(ui.getByTestId('mail-home-0-art'));
+  assert.ok(ui.getByText('고양이 잡지'));
+  expect(ui.queryByText('우리 섬 채팅방')).toBeNull();
+  await ui.unmount();
 });
 
 test('받은 편지 — 화면 묶음의 편지를 그리고 보낸 사람 이름이 보인다', async () => {
@@ -225,6 +271,23 @@ test('받은 편지 — 화면 묶음의 편지를 그리고 보낸 사람 이�
   await waitFor(() => assert.ok(ui.getByText('민지')));
   assert.ok(ui.getByTestId('received-letter-0'));
   assert.equal(screenMock.mock.calls.length, 1);
+  await ui.unmount();
+});
+
+test('우체통은 장면을 k배 키워 그려도 뒤로 동그라미는 1/k 로 줄여 다른 건물과 같은 화면 자리·크기다', async () => {
+  screenMock.mockResolvedValue(screen([]));
+  const ui = await render(<InteriorRoute e={makeE()} />);
+  const back = await ui.findByTestId('scene-back');
+  // 402×874 창 → 316×686 시안을 k 배(작은 쪽 비율)로 키운다
+  const k = Math.min(402 / 316, 874 / 686);
+  const style = StyleSheet.flatten(back.props.style);
+  expect(style.transform).toEqual([{ scale: 1 / k }]);
+  expect(style.transformOrigin).toBe('left top');
+  // 장면 좌표 × k = 화면 좌표. 게시판(k = 1)과 같은 왼쪽 9 · 위 31(안전 영역 52 이하)에 상자 모서리가 온다
+  expect(style.left * k).toBeCloseTo(9);
+  expect(style.top * k).toBeCloseTo(31);
+  // 상자는 장면 좌표 44 를 k 배 키운 장면 안에서 1/k 로 줄이므로 화면에서도 44 다
+  expect(style.width).toBe(44);
   await ui.unmount();
 });
 
@@ -312,6 +375,147 @@ test('받은 편지 상세 더보기는 신고 없이 발신자 차단 시트로
   assert.equal(ui.queryByText('신고하기'), null);
   assert.ok(ui.getByText('차단하기'));
   await ui.unmount();
+});
+
+test('시스템 편지 — 발신자가 없으면 받은함에 「섬 알림」으로 보이고 친구 편지와 최신순으로 섞인다', async () => {
+  screenMock.mockResolvedValue(screen([letterItem()]));
+  listSystemMock.mockResolvedValue(slice([systemItem()]));
+  const ui = await renderMail(makeE());
+
+  await waitFor(() => assert.ok(ui.getByLabelText('섬 알림의 편지 열기')));
+  assert.equal(listSystemMock.mock.calls.length, 1);
+  // 시스템 편지가 더 최근(12시)이라 맨 위, 친구 편지(11시)가 그 아래다.
+  assert.equal(ui.getByTestId('received-letter-0').props.accessibilityLabel, '섬 알림의 편지 열기');
+  assert.equal(ui.getByTestId('received-letter-1').props.accessibilityLabel, '민지의 편지 열기');
+  await ui.unmount();
+});
+
+test('시스템 편지 상세 — 발신자는 「섬 알림」이고 답장 버튼·더보기(차단)가 없다', async () => {
+  screenMock.mockResolvedValue(screen([]));
+  listSystemMock.mockResolvedValue(slice([systemItem()]));
+  getLetterMock.mockResolvedValue(
+    letterView({
+      id: SYSTEM_LETTER,
+      senderId: null,
+      senderNickname: null,
+      content: '소다 섬에서 나가게 됐어요',
+      kind: 'KICK',
+    }),
+  );
+  const ui = await renderMail(makeE());
+  await waitFor(() => assert.ok(ui.getByTestId('received-letter-0')));
+
+  await fireEvent.press(ui.getByTestId('received-letter-0'));
+
+  await waitFor(() => assert.ok(ui.getByText('소다 섬에서 나가게 됐어요')));
+  assert.ok(ui.getByText('섬 알림'));
+  // 닫기는 남는다 — 시스템 편지도 읽고 닫으면 사라진다.
+  assert.ok(ui.getByTestId('close-letter'));
+  expect(ui.queryByTestId('reply-to-letter')).toBeNull();
+  expect(ui.queryByLabelText('섬 알림 더보기')).toBeNull();
+  await ui.unmount();
+});
+
+test('시스템 편지 — kind 가 있으면 발신자 id·닉네임이 채워져 와도 「섬 알림」이고 답장·더보기가 없다', async () => {
+  const filled = { counterpartUserId: 'u9', counterpartNickname: '방장' };
+  screenMock.mockResolvedValue(screen([]));
+  listSystemMock.mockResolvedValue(slice([systemItem(filled)]));
+  getLetterMock.mockResolvedValue(
+    letterView({
+      id: SYSTEM_LETTER,
+      senderId: 'u9',
+      senderNickname: '방장',
+      content: '소다 섬에서 나가게 됐어요',
+      kind: 'KICK',
+    }),
+  );
+  const ui = await renderMail(makeE());
+  await waitFor(() => assert.ok(ui.getByLabelText('섬 알림의 편지 열기')));
+  expect(ui.queryByLabelText('방장의 편지 열기')).toBeNull();
+
+  await fireEvent.press(ui.getByTestId('received-letter-0'));
+
+  await waitFor(() => assert.ok(ui.getByText('소다 섬에서 나가게 됐어요')));
+  assert.ok(ui.getByText('섬 알림'));
+  expect(ui.queryByText('방장')).toBeNull();
+  expect(ui.queryByTestId('reply-to-letter')).toBeNull();
+  expect(ui.queryByLabelText('방장 더보기')).toBeNull();
+  expect(ui.queryByLabelText('섬 알림 더보기')).toBeNull();
+  await ui.unmount();
+});
+
+test('회귀 — 친구 편지 상세는 답장 버튼과 「민지 더보기」가 그대로 있다', async () => {
+  screenMock.mockResolvedValue(screen([letterItem()]));
+  listSystemMock.mockResolvedValue(slice([systemItem()]));
+  getLetterMock.mockResolvedValue(letterView());
+  const ui = await renderMail(makeE());
+  await waitFor(() => assert.ok(ui.getByLabelText('민지의 편지 열기')));
+
+  await fireEvent.press(ui.getByLabelText('민지의 편지 열기'));
+
+  await waitFor(() => assert.ok(ui.getByTestId('reply-to-letter')));
+  assert.ok(ui.getByLabelText('민지 더보기'));
+  await ui.unmount();
+});
+
+test('안 읽음 수는 친구 편지 + 시스템 편지를 함께 센다(GROMO-2489)', async () => {
+  // 안 읽은 시스템 편지 1 + 안 읽은 친구 편지 1 + 읽은 친구 편지 1 → 2통, 행은 3개
+  screenMock.mockResolvedValue(
+    screen([letterItem(), letterItem({ id: 'letter-2', isRead: true, content: '읽은 편지' })]),
+  );
+  listSystemMock.mockResolvedValue(slice([systemItem()]));
+  const inbox = await renderMail(makeE());
+
+  await waitFor(() => assert.ok(inbox.getByText('아직 열지 않은 편지 2통')));
+  assert.equal(inbox.getAllByTestId(/^received-letter-/).length, 3);
+  await inbox.unmount();
+
+  // 첫 화면 「새 편지 N통」도 같은 기준이고, 받은 편지 칸 모서리에 느낌표 배지가 붙는다
+  const home = await renderMail(makeE({ tab: '' }));
+  await waitFor(() => assert.ok(home.getByText('새 편지 2통')));
+  assert.ok(home.getByTestId('mail-home-inbox-new-indicator', { includeHiddenElements: true }));
+  assert.equal(
+    home.getByTestId('mail-home-1').props.accessibilityLabel,
+    '받은 편지 열기, 새 편지 2통',
+  );
+  await home.unmount();
+});
+
+test('시스템 편지 1통만 안 읽어도 받은 편지 칸 배지·「새 편지 1통」이 뜨고, 읽으면 사라진다(GROMO-2489)', async () => {
+  screenMock.mockResolvedValue(screen([]));
+  listSystemMock.mockResolvedValue(slice([systemItem()]));
+  const e = makeE({ tab: '' });
+  const unread = await renderMail(e);
+  await waitFor(() => assert.ok(unread.getByText('새 편지 1통')));
+  assert.ok(unread.getByTestId('mail-home-inbox-new-indicator', { includeHiddenElements: true }));
+  assert.equal(
+    unread.getByTestId('mail-home-1').props.accessibilityLabel,
+    '받은 편지 열기, 새 편지 1통',
+  );
+  // 같은 화면에서 받은함으로 가 그 시스템 편지를 열어 읽은(readAt 있음 → 목록의 isRead 갱신) 뒤
+  // 뒤로가기로 받은함 → 우체통 안으로 — 배지·새 편지 줄이 없고 라벨은 평소대로
+  getLetterMock.mockResolvedValue(
+    letterView({
+      id: SYSTEM_LETTER,
+      senderId: null,
+      senderNickname: null,
+      content: '소다 섬에서 나가게 됐어요',
+      kind: 'KICK',
+    }),
+  );
+  await act(async () => e.setTab('받은 편지'));
+  await waitFor(() => assert.ok(unread.getByTestId('received-letter-0')));
+  await fireEvent.press(unread.getByTestId('received-letter-0'));
+  await waitFor(() => assert.ok(unread.getByText('소다 섬에서 나가게 됐어요')));
+  await act(async () => e.back());
+  await act(async () => e.setTab(''));
+  await waitFor(() => assert.ok(unread.getByTestId('mail-home-1')));
+  expect(unread.queryByText(/새 편지 \d+통/)).toBeNull();
+  expect(
+    unread.queryByTestId('mail-home-inbox-new-indicator', { includeHiddenElements: true }),
+  ).toBeNull();
+  assert.equal(unread.getByTestId('mail-home-1').props.accessibilityLabel, '받은 편지 열기');
+  await unread.unmount();
 });
 
 test('편지 더보기의 차단은 유지하고 개별 신고 메일은 열지 않는다', async () => {
@@ -453,29 +657,6 @@ test('게스트 발송 거절 — SOCIAL_LOGIN_REQUIRED 는 회원 전환 시트
   await ui.unmount();
 });
 
-test('채팅방 — 서버 낙서를 그리고 보내기는 POST messages 로 간다', async () => {
-  screenMock.mockResolvedValue(screen([]));
-  sendMessageMock.mockResolvedValue({
-    id: 'm9',
-    clientMessageId: 'k1',
-    userId: 'u1',
-    name: '나',
-    text: '같이 해요',
-    createdAt: '2026-09-20T12:00:00Z',
-  });
-  const e = makeE({ route: 'chat', text: '같이 해요' });
-  const ui = await renderMail(e);
-  await waitFor(() => assert.ok(ui.getByText('오늘도 같이 하자')));
-
-  await fireEvent.press(ui.getByTestId('island-message-send'));
-  await waitFor(() => assert.equal(sendMessageMock.mock.calls.length, 1));
-  assert.equal(sendMessageMock.mock.calls[0][0], ISLAND);
-  assert.equal(sendMessageMock.mock.calls[0][1].text, '같이 해요');
-  assert.equal(typeof sendMessageMock.mock.calls[0][1].clientMessageId, 'string');
-  await waitFor(() => assert.ok(ui.getByText('같이 해요')));
-  await ui.unmount();
-});
-
 test('목업 ?review — e 가 있어도 우체통 API 는 0건이다', async () => {
   const restore = webMockMode('?review');
   try {
@@ -484,6 +665,7 @@ test('목업 ?review — e 가 있어도 우체통 API 는 0건이다', async ()
     for (const m of [
       screenMock,
       listLettersMock,
+      listSystemMock,
       getLetterMock,
       sendLetterMock,
       closeLetterMock,
@@ -515,7 +697,7 @@ test('우체통 첫 화면에는 「우리 섬 홍보 쓰기」 입구가 없다
   }
 });
 
-test('우체통 첫 화면 — 오늘 고양이 잡지 보기(안 읽음 점)와 잡지 꽂이(GROMO-2289 · C4·C5)', async () => {
+test('우체통 첫 칸 고양이 잡지 — 누르면 최근 호(안 읽음 점), 칸 안 [지난 호] 는 잡지 꽂이(GROMO-2500 C안)', async () => {
   const restore = webMockMode('?review');
   try {
     const issue = {
@@ -527,19 +709,31 @@ test('우체통 첫 화면 — 오늘 고양이 잡지 보기(안 읽음 점)와
     };
     const e = makeE({ tab: '', magazineToday: { issue, receipt: null } });
     const ui = await renderMail(e);
-    assert.ok(ui.getByText('고양이 잡지 보기 · 19호'));
+    assert.ok(ui.getByText('고양이 잡지'));
+    assert.ok(ui.getByText('19호'));
     assert.equal(
       ui.getByTestId('mail-home-magazine').props.accessibilityLabel,
       '고양이 잡지 보기 19호, 아직 안 읽음',
     );
-    assert.ok(ui.getByTestId('mail-home-magazine-dot'));
+    // 빨간 점은 칸 테두리 안쪽 오른쪽 위에 있다
+    const dot = StyleSheet.flatten(ui.getByTestId('mail-home-magazine-dot').props.style);
+    assert.ok(dot.top > 0 && dot.right > 0);
+    await fireEvent.press(ui.getByTestId('mail-home-magazine'));
+    expect(e.go).toHaveBeenCalledWith('magazine', 'mock-issue-19');
+    // [지난 호] 는 누르는 자리가 44 이상이다
+    const rack = StyleSheet.flatten(ui.getByTestId('mail-home-rack').props.style);
+    assert.ok(rack.minHeight >= 44);
+    assert.equal(ui.getByTestId('mail-home-rack').props.accessibilityLabel, '지난 호');
     await fireEvent.press(ui.getByTestId('mail-home-rack'));
     await waitFor(() => assert.ok(ui.getByTestId('magazine-rack-13')));
     await fireEvent.press(ui.getByTestId('magazine-rack-17'));
     expect(e.go).toHaveBeenCalledWith('magazine', 'mock-issue-17');
+    // 위쪽 알약 줄(잡지 보기·꽂이)은 없다
+    expect(ui.queryByText('고양이 잡지 보기 · 19호')).toBeNull();
+    expect(ui.queryByText('잡지 꽂이')).toBeNull();
     await ui.unmount();
 
-    // 읽은 오늘 호는 점이 없다 · 오늘 호가 없으면(발행 지연) 꽂이만 · 잡지가 아예 없으면 둘 다 없다
+    // 읽은 오늘 호는 점이 없다 · 발행이 늦어 지난 호만 있어도 칸은 그 호를 연다 · 잡지가 아예 없으면 칸만 남고 꽂이는 없다
     const read = await renderMail(
       makeE({
         tab: '',
@@ -549,17 +743,22 @@ test('우체통 첫 화면 — 오늘 고양이 잡지 보기(안 읽음 점)와
         },
       }),
     );
-    assert.equal(read.queryByTestId('mail-home-magazine-dot'), null);
-    await fireEvent.press(read.getByTestId('mail-home-magazine'));
+    expect(read.queryByTestId('mail-home-magazine-dot')).toBeNull();
     await read.unmount();
-    const stale = await renderMail(
-      makeE({ tab: '', magazineToday: { issue: { ...issue, current: false }, receipt: null } }),
-    );
-    assert.equal(stale.queryByTestId('mail-home-magazine'), null);
+    const staleE = makeE({
+      tab: '',
+      magazineToday: { issue: { ...issue, current: false }, receipt: null },
+    });
+    const stale = await renderMail(staleE);
+    await fireEvent.press(stale.getByTestId('mail-home-magazine'));
+    expect(staleE.go).toHaveBeenCalledWith('magazine', 'mock-issue-19');
     assert.ok(stale.getByTestId('mail-home-rack'));
     await stale.unmount();
-    const none = await renderMail(makeE({ tab: '' }));
-    assert.equal(none.queryByTestId('mail-home-rack'), null);
+    const noneE = makeE({ tab: '' });
+    const none = await renderMail(noneE);
+    expect(none.queryByTestId('mail-home-rack')).toBeNull();
+    expect(none.queryByText('19호')).toBeNull();
+    assert.equal(none.getByTestId('mail-home-magazine').props.accessibilityState?.disabled, true);
     await none.unmount();
   } finally {
     restore();

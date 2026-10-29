@@ -14,7 +14,7 @@
 | --- | --- |
 | `FocusSessionView` | id:Id, islandId:Id, subject:string, targetMinutes:integer, status:active\|paused, activeSeconds:Seconds, serverNow:Instant, startedAt:Instant, restStartedAt:Instant?, version:Version, activeIntervals:[{startedAt:Instant,endedAt:Instant}](GROMO-2131 — 이 세션의 ACTIVE 구간만, REST 제외, ordinal 순. 열린 ACTIVE 구간은 이 응답의 `serverNow` 로 임시로 닫아 싣는다 — 그래서 구간 길이 합이 `activeSeconds` 와 같다(서브초 절삭 제외). 없으면 빈 목록) |
 | `FocusFinishView` | recordId:Id, islandId:Id, subject:string, targetMinutes:integer, activeSeconds:Seconds, goalAchieved:boolean, earnedFish:integer, allocation:{personalFishAdded:integer,constructionFishAdded:integer}(2026-09-18 D5-귀속으로 «되살아난» 필드 — **2026-09-21 재화-단일로 `personalFishAdded` 는 영구 0, `constructionFishAdded` 가 `earnedFish` 전부다**. 개인 물고기 지갑이 없어 비율이라는 축 자체가 없다. 두 필드는 호환으로 유지하고 제거는 앱 전량 전환 뒤 별도 티켓(재화-단일-호환 ③). `constructionFishAdded` 는 섬 통장 몫인데 이름이 건설로 좁다(섬 통장은 공동 구매에도 쓰인다) — 이름 재검토는 LLD 개정 몫), completedAt:Instant, questProgress:[{id:Id,myRate:number}], activeIntervals:[{startedAt:Instant,endedAt:Instant}](GROMO-2131 — 이 세션의 ACTIVE 구간 전부, REST 제외, ordinal 순. finish 시점엔 이미 전부 닫혀 있다. 없으면 빈 목록), seaReward:{grantedProductIds:[string],minutesToNextTier:integer?,newProductIds:[string]}?(모양은 GROMO-2274 섬 외부 계약 §8 + `newProductIds`, 의미는 **GROMO-2301 집중 꾸미기 보상** — 섬·바다 세션 모두 늘 객체다. 휴식 제외 집중이 15분(정책 `minimum_active_seconds`) 이상이면 장소별 확률로 꾸미기 아이템을 **정확히 1개** 뽑아 `grantedProductIds` 에 담고, 15분 미만이면 빈 목록이다. 세션끼리 시간을 더하지 않고 누적 단계표도 없어 `minutesToNextTier` 는 늘 `null`. 이미 가진 아이템이 뽑혀도 결과에 나온다(보유 행은 처음 한 번만). `newProductIds` 는 `grantedProductIds` 중 이번 지급으로 처음 가진 것(결과창 NEW! 표시)이고, 이미 가진 아이템을 또 뽑았거나 뽑지 않았으면 빈 목록이다. 추첨은 정산 때 서버 난수(`SecureRandom`)로 한 번만 한다 — 공개된 세션 id 로 결과를 고정하면 사용자가 결과를 미리 계산해 세션을 골라낼 수 있다. 뽑힌 상품과 «처음 가짐» 은 정산 행 `focus_settlements.customization_reward_*` 에 고정돼 방금 정산한 응답·새 키 finish·`pending-result`(휴식 자동 종료)가 같은 값이다. Data 는 더 이상 `null` 을 내지 않지만 business-api 는 구버전 Data 의 `null` 을 그대로 전달하고, `newProductIds` 를 모르는 구버전 Data 응답은 빈 목록으로 채운다) |
-| `FocusMember` | userId:Id, name:string, catColor:catalogKey, appearance:{clothes:catalogKey?,decor:catalogKey?,hull:catalogKey,position:front\|back}, sessionId:Id, subject:string, activeSeconds:Seconds, status:active\|paused |
+| `FocusMember` | userId:Id, name:string, catColor:catalogKey, appearance:{clothes:catalogKey?,decor:catalogKey?,hull:catalogKey,position:front\|back}, sessionId:Id, subject:string, activeSeconds:Seconds, status:active\|paused, seat:{x:number,y:number}\|null(GROMO-2477 — 집중섬에서 앉은 자리. 시작 때 앱이 보낸 지도 % 좌표 0~100 그대로(반올림 없음). 자리 없이 시작했으면 null, 키는 항상 실린다. `appearance.position` 은 꾸미기 앞/뒤라 자리가 아니다) |
 | `RestMember` | userId:Id, name:string, catColor:catalogKey, restSeat:integer, restStartedAt:Instant |
 | `FocusSummary` | date:KST date, completedSeconds:Seconds, currentSessionSecondsToday:Seconds, totalSeconds:Seconds, serverNow:Instant |
 
@@ -34,7 +34,11 @@ FocusFinishView의 myRate 범위·퀘스트 포함 기준은 1772/1773의 승인
 
 ### start — POST /focus-sessions, 201
 
-입력은 `{islandId, subject, targetMinutes}`. Idempotency-Key 필수, expectedVersion 없음.
+입력은 `{islandId, subject, targetMinutes?, seat?}`. Idempotency-Key 필수, expectedVersion 없음.
+`seat:{x,y}`(GROMO-2477)는 집중섬에서 앉은 자리의 지도 % 좌표다 — 선택이고, 키를 빼면 자리 없이 시작한다(옛 앱).
+명시 null·숫자가 아닌 값·두 필드가 아닌 객체·0~100 밖(NaN 포함)은 400 INVALID_REQUEST다. 서버는 범위만 보고
+땅·겹침 판정은 앱이 한다(맞지 않으면 앱이 빈 자리로 다시 배정한다). 값은 시작 후 바뀌지 않으며 멱등 지문에 들어간다 —
+같은 키에 다른 자리는 409다. 자리 없는 시작의 지문은 seat 도입 전과 같다.
 Data 사용자 잠금 아래 계정 활성, 현재 섬 일치, 활성 membership, 미종료 세션 부재를 검증한다.
 같은 키의 성공 재생은 원201/같은 id·startedAt·serverNow·version을 유지한다. 새로운 키로 이미 진행 중이면
 409 STATE_CONFLICT다. 사전 GET가 null이었다고 새 세션을 무조건 만들지 않는다.
@@ -55,7 +59,8 @@ completed를 current로 반환하지 않고 data=null이다. 다기기에서 같
 닫고 REST 구간을 열며, paused/restStartedAt=t와 sessionVersion+1을 저장한다.
 restSeat는 섬의 허용 주민 수에 맞는 서버 자리1..capacity 중 빈 최소 번호를 같은 섬 잠금 아래 배정하는
 기술 선택이다. paused 동안 유지하며 같은 섬의 두 paused 사용자에게 같은 자리를 주지 않는다.
-자리 배치는 로컬 연출이고 자리 선택/예약 API를 추가하지 않는다. 같은 키는 원 결과, 다른 키의 paused 재요청은409다.
+집중섬 자리는 시작 때 앱이 고른 지도 % 좌표를 세션에 저장해 주민 목록·이벤트로 공유한다(GROMO-2477). 모닥불 자리는
+서버가 배정하는 rest_seat 로 그대로다. 같은 키는 원 결과, 다른 키의 paused 재요청은409다.
 
 ### resume — POST /focus-sessions/{sessionId}/resume, 200
 
@@ -422,6 +427,8 @@ ECR 이미지 존재 여부뿐이다. `:62~69`는 해당 이미지를 SSM 배포
 | 3. 분당 적립 크론 활성화 (GROMO-1990) | 위 2단계가 끝나고 **배포가 한 버전으로 수렴한 뒤** `focus.reward.accrual-enabled`(기본 **false**, `FocusRewardAccrualGate`)를 켠다. 혼합 버전 창에서는 새 이미지의 크론이 `focus:<세션>:<분>` 으로, **옛 이미지의 finish 가 세션 전체를 `focus:<세션>` 으로** 지급해 같은 시간이 두 번 나간다 — 두 키는 접두사가 달라 `uq_island_wallet_tx_idem` 에도 안 걸린다 | 끄고 있는 동안에도 사용자는 손해 보지 않는다(finish 가 그 자리에서 적립을 확정한다). **켠 뒤 롤백하려면 flag 를 «먼저» 끄고 그때 진행 중이던 세션이 전부 끝난 뒤에 이미지를 내린다** — 켜진 채로 옛 이미지로 되돌리면 이미 분 단위로 지급된 세션을 옛 finish 가 통째로 재지급한다 |
 | 활성화 후 장애 | 새 세션 생성의 활성화 flag를 닫고 상세를 이해하는 호환 이미지로만 rollback/roll-forward | 이미 존재하는 active/paused 상세·구간·정산을 보존하고 승인된 재개/종료 경로 유지. 비호환 구 이미지로 복귀 금지 |
 
+> 2026-10-27(티켓 2535): 2.5·3단계의 스위치 `focus.session.start-enabled`·`focus.reward.accrual-enabled` 는 걷었다 — 시작 경로와 분당 적립 크론은 항상 켜져 있고, 위 표의 두 단계와 «활성화 후 장애» 행의 flag 는 걷기 전의 단계 기록이다.
+
 최소 호환 baseline은 단순 tag 문자열의 사전순 비교가 아니라 검증된 이미지/프로토콜 호환 증거로 판단한다.
 DB에 신규 상세 행이 남아 있는 동안 flag를 껐다는 이유로 baseline 제한을 해제하지 않는다. 배포·롤백
 guard 구현과 실제 거절/복구 검증은 후속 구현의 release gate이며, 이 문서 PR이 workflow를 수정하거나
@@ -439,7 +446,7 @@ schemaVersion=1이다. 버전 없는 emote만 aggregateVersion=null. 나머지�
 
 | 사건 | payload 필수 필드 | 비교 축 / 수신 |
 | --- | --- | --- |
-| focus.member.updated | userId,sessionId,status(active/paused/completed),subject,activeSeconds,serverNow,sessionVersion | (focus.member,islandId,userId) / 해당 섬 주민 focus 토픽 |
+| focus.member.updated | userId,sessionId,status(active/paused/completed),subject,activeSeconds,serverNow,sessionVersion,seat({x,y}\|null — GROMO-2477. 키 유지, 시작 때 저장한 자리를 start·pause·resume 마다 싣고 자리 없이 시작했거나 completed 면 null) | (focus.member,islandId,userId) / 해당 섬 주민 focus 토픽 |
 | rest.member.updated | userId,sessionId,status,restStartedAt,restSeat,serverNow,sessionVersion | (rest.member,islandId,userId) / 해당 섬 주민 rest 토픽 |
 | focus.emote | userId,sessionId,type,expiresAt | version 없음, eventId+만료 / 같은 섬 진행 세션(active·paused) 주민 emotes 토픽 |
 | wallet.updated | ownerType,ownerId,currency,version | **(island,islandId,village_points) 만** / 해당 섬 events 토픽, 섬 통장이 실제 바뀐 경우만. ~~개인(user,id,fish)은 islandId=null · 본인 user queue~~ 는 재화-단일로 폐기 — 개인 지갑이 없어 발행자가 없다 |

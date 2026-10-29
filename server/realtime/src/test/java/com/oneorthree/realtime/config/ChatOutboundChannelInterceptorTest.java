@@ -147,7 +147,7 @@ class ChatOutboundChannelInterceptorTest {
         // 채팅·응원과 같은 받는 사람 기준 차단 필터(GROMO-2182) — 보내는 사람은 payload.userId(도착자)다.
         WebSocketSession socket = openSocket("socket");
         UUID blocked = UUID.randomUUID();
-        when(blockedUsers.hasBlocked(user, blocked)).thenReturn(true);
+        when(blockedUsers.hidden(user, blocked)).thenReturn(true);
 
         assertThat(interceptor.beforeHandle(arrival(blocked), null, null)).isNull();
         Message<?> fromOther = arrival(UUID.randomUUID());
@@ -160,11 +160,11 @@ class ChatOutboundChannelInterceptorTest {
         // OFF = 이 기능 이전과 같은 경로 — 차단 관계여도 events 프레임은 멤버십만 보고 나간다.
         when(blockedUsers.enabled()).thenReturn(false);
         UUID blocked = UUID.randomUUID();
-        when(blockedUsers.hasBlocked(user, blocked)).thenReturn(true);
+        when(blockedUsers.hidden(user, blocked)).thenReturn(true);
 
         Message<?> fromBlocked = arrival(blocked);
         assertThat(interceptor.beforeHandle(fromBlocked, null, null)).isSameAs(fromBlocked);
-        verify(blockedUsers, never()).hasBlocked(any(), any());
+        verify(blockedUsers, never()).hidden(any(), any());
     }
 
     private Message<?> arrival(UUID arriver) {
@@ -182,7 +182,7 @@ class ChatOutboundChannelInterceptorTest {
             assertThat(interceptor.beforeHandle(message, null, null)).isSameAs(message);
         }
         org.mockito.Mockito.verifyNoInteractions(guard, delivery);
-        verify(blockedUsers, never()).hasBlocked(any(), any());
+        verify(blockedUsers, never()).hidden(any(), any());
         // 열거 밖 이동 하위 목적지는 계속 닫혀 있다.
         assertThat(interceptor.beforeHandle(frame("socket", "/topic/islands/" + island + "/movement/other"), null,
                 null)).isNull();
@@ -213,7 +213,7 @@ class ChatOutboundChannelInterceptorTest {
         assertThat(interceptor.beforeHandle(frame("socket", "/topic/sea/other", "{}"), null, null)).isNull();
         assertThat(meters.counter("sea.deliver.dropped", "reason", "not_member").count()).isEqualTo(1.0);
         assertThat(meters.counter("sea.deliver.dropped", "reason", "redis").count()).isEqualTo(1.0);
-        verify(blockedUsers, never()).hasBlocked(any(), any());
+        verify(blockedUsers, never()).hidden(any(), any());
     }
 
     @Test
@@ -228,13 +228,58 @@ class ChatOutboundChannelInterceptorTest {
         verify(socket).close(CloseStatus.POLICY_VIOLATION.withReason("UNAUTHORIZED"));
     }
 
+    @Test
+    void seaSnapshotHidesEitherBlockedPeerAndFailsClosedEvenWithChatFilterDisabled() {
+        UUID room = UUID.randomUUID();
+        UUID blocked = UUID.randomUUID();
+        when(blockedUsers.enabled()).thenReturn(false);
+        when(seaRooms.isMember(user, room)).thenReturn(true);
+        when(blockedUsers.eitherBlocked(user, blocked)).thenReturn(true);
+        String body = "{\"type\":\"sea.room.snapshot\",\"roomId\":\"" + room
+                + "\",\"payload\":{\"roomId\":\"" + room + "\",\"members\":[{\"userId\":\"" + user
+                + "\"},{\"userId\":\"" + blocked + "\"}]}}";
+        Message<?> snapshot = frame("socket", "/queue/sea-usersocket", body);
+
+        Message<?> filtered = interceptor.beforeHandle(snapshot, null, null);
+
+        assertThat(filtered).isNotNull();
+        var root = new tools.jackson.databind.ObjectMapper().readTree((byte[]) filtered.getPayload());
+        assertThat(root.path("payload").path("members").size()).isEqualTo(1);
+        assertThat(root.path("payload").path("members").get(0).path("userId").stringValue())
+                .isEqualTo(user.toString());
+        // 원 프레임은 공유되므로 바꾸면 다른 수신자의 스냅샷까지 오염된다.
+        assertThat(new String((byte[]) snapshot.getPayload(), StandardCharsets.UTF_8)).isEqualTo(body);
+        when(blockedUsers.eitherBlocked(user, blocked)).thenThrow(new UpstreamUnavailableException());
+        assertThat(interceptor.beforeHandle(snapshot, null, null)).isNull();
+        when(seaRooms.isMember(user, room)).thenReturn(false);
+        assertThat(interceptor.beforeHandle(snapshot, null, null)).isNull();
+    }
+
+    @Test
+    void blockedSeaMemberCannotReappearThroughQueuedUpdatesOrEmotes() {
+        UUID room = UUID.randomUUID();
+        UUID blocked = UUID.randomUUID();
+        when(seaRooms.isMember(user, room)).thenReturn(true);
+        when(blockedUsers.eitherBlocked(user, blocked)).thenReturn(true);
+        for (String type : java.util.List.of("sea.member.joined", "sea.member.updated", "sea.emote")) {
+            String payload = type.equals("sea.emote") ? "\"userId\":\"" + blocked + "\""
+                    : "\"member\":{\"userId\":\"" + blocked + "\"}";
+            Message<?> event = frame("socket", "/topic/sea/rooms/" + room,
+                    "{\"type\":\"" + type + "\",\"payload\":{" + payload + "}}");
+            assertThat(interceptor.beforeHandle(event, null, null)).as(type).isNull();
+        }
+        Message<?> left = frame("socket", "/topic/sea/rooms/" + room,
+                "{\"type\":\"sea.member.left\",\"payload\":{\"userId\":\"" + blocked + "\"}}");
+        assertThat(interceptor.beforeHandle(left, null, null)).isSameAs(left);
+    }
+
     // ── GROMO-2182 받는 사람 기준 차단 ─────────────────────────────────────
 
     @Test
     void chatFromBlockedSenderIsNotDeliveredToTheBlocker() {
         UUID blocked = UUID.randomUUID();
         UUID other = UUID.randomUUID();
-        when(blockedUsers.hasBlocked(user, blocked)).thenReturn(true);
+        when(blockedUsers.hidden(user, blocked)).thenReturn(true);
 
         assertThat(interceptor.beforeHandle(chat(blocked), null, null)).isNull();
         Message<?> fromOther = chat(other);
@@ -246,7 +291,7 @@ class ChatOutboundChannelInterceptorTest {
         // fail-closed(2026-10-01 결정) — 판정 불가는 전달 근거가 없다. 자격은 유효하므로 소켓은 유지한다.
         WebSocketSession socket = openSocket("socket");
         UUID sender = UUID.randomUUID();
-        when(blockedUsers.hasBlocked(user, sender)).thenThrow(new UpstreamUnavailableException());
+        when(blockedUsers.hidden(user, sender)).thenThrow(new UpstreamUnavailableException());
 
         assertThat(interceptor.beforeHandle(chat(sender), null, null)).isNull();
         verify(socket, never()).close(any(CloseStatus.class));
@@ -259,7 +304,7 @@ class ChatOutboundChannelInterceptorTest {
         assertThat(interceptor.beforeHandle(frame("socket", group, "{\"senderId\":\"not-a-uuid\"}"), null, null))
                 .isNull();
         assertThat(interceptor.beforeHandle(frame("socket", group, "not json"), null, null)).isNull();
-        verify(blockedUsers, never()).hasBlocked(any(), any());
+        verify(blockedUsers, never()).hidden(any(), any());
     }
 
     @Test
@@ -274,7 +319,7 @@ class ChatOutboundChannelInterceptorTest {
         Message<?> emoteWithoutUser = frame("socket", "/topic/islands/" + island + "/emotes",
                 "{\"eventId\":\"" + eventId + "\",\"payload\":{}}");
         assertThat(interceptor.beforeHandle(emoteWithoutUser, null, null)).isSameAs(emoteWithoutUser);
-        verify(blockedUsers, never()).hasBlocked(any(), any());
+        verify(blockedUsers, never()).hidden(any(), any());
     }
 
     @Test
@@ -290,13 +335,13 @@ class ChatOutboundChannelInterceptorTest {
         UUID other = UUID.randomUUID();
         UUID eventId = UUID.randomUUID();
         when(delivery.mayReceive(eventId, user)).thenReturn(true);
-        when(blockedUsers.hasBlocked(user, blocked)).thenReturn(true);
+        when(blockedUsers.hidden(user, blocked)).thenReturn(true);
 
         assertThat(interceptor.beforeHandle(emote(eventId, blocked), null, null)).isNull();
         Message<?> fromOther = emote(eventId, other);
         assertThat(interceptor.beforeHandle(fromOther, null, null)).isSameAs(fromOther);
 
-        when(blockedUsers.hasBlocked(user, other)).thenThrow(new UpstreamUnavailableException());
+        when(blockedUsers.hidden(user, other)).thenThrow(new UpstreamUnavailableException());
         assertThat(interceptor.beforeHandle(emote(eventId, other), null, null)).isNull();
         // 발신자가 없는 응원은 판정 근거가 없다.
         assertThat(interceptor.beforeHandle(frame("socket", "/topic/islands/" + island + "/emotes",
@@ -349,12 +394,12 @@ class ChatOutboundChannelInterceptorTest {
             new com.oneorthree.realtime.message.service.ChatUserFence(null, null, null,
                     java.time.Clock.systemUTC(), null, new io.micrometer.core.instrument.simple.SimpleMeterRegistry()));
 
-    /** 캐시 켠 경로의 원본 만료 — 멤버십은 제한 없음, 차단은 같은 판정(hasBlocked 스텁)을 만료 제한 없이 돌려준다. */
+    /** 캐시 켠 경로의 원본 만료 — 멤버십은 제한 없음, 차단은 같은 판정(hidden 스텁)을 만료 제한 없이 돌려준다. */
     @BeforeEach
     void sourcedJudgments() {
         when(membershipSource.notAfter(any(), any())).thenReturn(Sourced.UNBOUNDED);
-        when(blockedUsers.hasBlockedSourced(any(), any())).thenAnswer(invocation -> new Sourced<>(
-                blockedUsers.hasBlocked(invocation.getArgument(0), invocation.getArgument(1)), Sourced.UNBOUNDED));
+        when(blockedUsers.hiddenSourced(any(), any())).thenAnswer(invocation -> new Sourced<>(
+                blockedUsers.hidden(invocation.getArgument(0), invocation.getArgument(1)), Sourced.UNBOUNDED));
     }
 
     @Test
@@ -374,7 +419,7 @@ class ChatOutboundChannelInterceptorTest {
         assertThat(cached.beforeHandle(chat(sender), null, null)).isNotNull();
         // 상류(집중·멤버십·차단)는 첫 프레임 한 번만 — 둘째는 캐시 hit.
         verify(guard, org.mockito.Mockito.times(1)).requireCanChat(island, user, "Bearer token");
-        verify(blockedUsers, org.mockito.Mockito.times(1)).hasBlocked(user, sender);
+        verify(blockedUsers, org.mockito.Mockito.times(1)).hidden(user, sender);
         verify(guard, org.mockito.Mockito.times(1)).requireNotFocusing(user); // hit 도 집중은 다시 본다
         // 다른 발신자는 차단 판정이 달라 따로 묻는다.
         assertThat(cached.beforeHandle(chat(UUID.randomUUID()), null, null)).isNotNull();
@@ -406,10 +451,10 @@ class ChatOutboundChannelInterceptorTest {
         assertThat(cached.beforeHandle(chat(sender), null, null)).isNotNull();
 
         UUID blocked = UUID.randomUUID();
-        when(blockedUsers.hasBlocked(user, blocked)).thenReturn(true);
+        when(blockedUsers.hidden(user, blocked)).thenReturn(true);
         assertThat(cached.beforeHandle(chat(blocked), null, null)).isNull();
         assertThat(cached.beforeHandle(chat(blocked), null, null)).isNull();
-        verify(blockedUsers, org.mockito.Mockito.times(2)).hasBlocked(user, blocked);
+        verify(blockedUsers, org.mockito.Mockito.times(2)).hidden(user, blocked);
     }
 
     @Test

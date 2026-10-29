@@ -15,7 +15,7 @@ import java.util.Map;
  * <p>주입 없는 순수 변환이라 {@code support/} 다(규약 §2). 스프링 컨텍스트 없이 단위 테스트할 수 있다.
  *
  * <p><b>시각은 ISO-8601 문자열이다.</b> 기본 Jackson 은 {@code Instant} 를 epoch 초 실수로 쓰는데,
- * 그러면 소비자(알림 서버·링크 서버)가 언어마다 다른 부동소수 파싱에 걸리고 계약 문서
+ * 그러면 소비자(알림 서버·realtime 서버)가 언어마다 다른 부동소수 파싱에 걸리고 계약 문서
  * ({@code docs/contracts/notification-event-v1.json})와도 어긋난다.
  *
  * <p><b>{@code null} 필드를 지우지 않는다.</b> {@code scheduledAt}·{@code locale}·{@code subjectId} 의

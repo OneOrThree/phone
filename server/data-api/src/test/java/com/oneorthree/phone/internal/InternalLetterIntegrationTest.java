@@ -70,7 +70,6 @@ class InternalLetterIntegrationTest {
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
         OutboxTestPostgres.applyProductionMigrationWiring(registry);
-        registry.add("internal.api.enabled", () -> true);
         registry.add("internal.api.callers.business.token", () -> TOKEN);
         // 배포 yml 의 3줄과 같다 — yml 자체와 컨트롤러의 대조는 InternalLetterAllowlistTest 가 맡는다.
         registry.add("internal.api.callers.business.allow[0]", () -> "POST /internal/users/*/letters");
@@ -582,7 +581,7 @@ class InternalLetterIntegrationTest {
     }
 
     private UUID newGuest() {
-        return jwt.extractUserId(auth.guestLogin().accessToken());
+        return jwt.extractUserId(auth.guestSession(java.util.UUID.randomUUID().toString()).accessToken());
     }
 
     /** ACCEPTED 친구로 만든다 — 요청 → 수락 두 걸음이 FriendService 의 정상 경로다. */

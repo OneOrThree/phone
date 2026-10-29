@@ -1,6 +1,7 @@
 package com.oneorthree.notification;
 
 import lombok.extern.slf4j.Slf4j;
+import org.slf4j.MDC;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
@@ -13,19 +14,16 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
-import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
-import java.util.Set;
 import java.util.UUID;
 
 /**
  * 외부 발송은 이 클래스 한 곳만 호출한다.
  *
  * <p><b>외부 호출은 트랜잭션 «밖»에서 돈다.</b> 로컬 판정·묶음 수집을 짧게 커밋한 뒤 Data 적격성을
- * 조회하고, 새 트랜잭션에서 행 동일성·게이트·소유권·ack를 재확인한다. FCM 호출도 커밋 뒤에 한다. 한 사용자의 활성 기기 수만큼 순차로 도는 외부
+ * 조회하고, 새 트랜잭션에서 행 동일성·게이트·소유권를 재확인한다. FCM 호출도 커밋 뒤에 한다. 한 사용자의 활성 기기 수만큼 순차로 도는 외부
  * 호출을 트랜잭션 안에 두면 두 가지가 같이 무너진다:
  *
  * <ul>
@@ -40,11 +38,6 @@ import java.util.UUID;
  * 만큼 뒤로 물려 발송이 도는 동안 후보로 다시 서지 않게 하고, 기기 한 대의 결과는 그 기기의 호출이
  * 끝나는 즉시 <b>자기 트랜잭션</b>으로 내구화한다. 그래서 도중에 무엇이 터져도 «이미 받은 기기»는 받은
  * 기기로 남고, 재시도는 못 받은 기기에만 간다.
- *
- * <p>판정 잠금을 발송까지 끌고 가지 않아도 ack 계약은 그대로다. 보류(ack prepare)와 발송의 <b>판정</b>은
- * 여전히 같은 사건 잠금 아래에서 직렬화되고, 그 판정이 「보낸다」로 끝난 뒤에 도착한 보류는 예전에도
- * — 잠금이 풀릴 때까지 기다렸다가 — 이미 나간 발송을 되돌리지 못했다. 달라지는 것은 그 보류가
- * 발송이 끝나기를 기다리지 않는다는 것뿐이다.
  *
  * <h2>소유권 펜스</h2>
  * 전역 잠금을 놓는 대신 <b>기기별 펜스</b>를 둔다. 판정 때 기기마다 소유권 세대
@@ -85,9 +78,6 @@ import java.util.UUID;
 @Service
 class DispatchService {
 
-    /** 풀릴 시각을 알 수 없는 보류의 재확인 주기 — 상한을 점거하지 않을 만큼만 미룬다. */
-    private static final int HOLD_SECONDS = 30;
-
     /**
      * 발송 중 펜싱의 길이 — 판정과 상태 맺기 사이에 이 행을 «후보 밖»에 둔다.
      *
@@ -102,14 +92,8 @@ class DispatchService {
     /** 결과를 적는 트랜잭션의 상한 — UPDATE·INSERT 몇 건뿐이다. */
     private static final int RECORD_TIMEOUT_SECONDS = 15;
 
-    /**
-     * 「묶음이 다 오기를 기다리는 중」 표식.
-     *
-     * <p>{@link #retry} 도 행을 {@code PENDING} 인 채로 미래 시각에 세워 둔다(전송 실패·기기 없음).
-     * 표식 없이 «미래 시각인 PENDING» 을 전부 되돌리면 그 재시도 backoff 까지 취소해, 실패한 행을
-     * 매 tick 다시 때린다. 그래서 이 대기만 표식으로 갈라내고, 되돌릴 때 표식을 지운다.
-     */
-    private static final String INCOMPLETE = "BUNDLE_INCOMPLETE";
+    // ponytail: 고정 60초 간격의 재시도는 60번째 실패까지만 허용한다. 운영에서 종류별 기한이 필요해지면 정책으로 올린다.
+    private static final int MAX_ATTEMPTS = 60;
 
     /**
      * 원사건의 유효기간이 지나 «보내지 않고 끝낸» 행의 사유 (GROMO-893 ⑧).
@@ -126,20 +110,17 @@ class DispatchService {
     private final DataClient data;
     private final Renderer renderer;
     private final PushTransport transport;
-    private final ResultBundleCompletion resultBundles;
     private final Clock clock;
     private final TransactionTemplate preparation;
     private final TransactionTemplate recording;
 
     DispatchService(Store store, SettingsService settings, DataClient data, Renderer renderer,
-            PushTransport transport, Clock clock, PlatformTransactionManager manager,
-            ResultBundleCompletion resultBundles) {
+            PushTransport transport, Clock clock, PlatformTransactionManager manager) {
         this.store = store;
         this.settings = settings;
         this.data = data;
         this.renderer = renderer;
         this.transport = transport;
-        this.resultBundles = resultBundles;
         this.clock = clock;
         // REQUIRES_NEW 로 못 박는다 — 나중에 누가 이 메서드를 트랜잭션 안에서 부르더라도 판정이
         // 그 트랜잭션에 합류해 외부 호출을 다시 감싸는 일이 없도록.
@@ -171,6 +152,13 @@ class DispatchService {
         if (inspected == null) {
             return;
         }
+        // 원인 문맥은 검사에서 이미 읽은 행에서 얻는다(새 쿼리 없음). 행이 둘 이상이면 임의의 한 원인을 싣지 않는다.
+        try (InboundTrace.Scope ignored = entryScope(inspected.ready())) {
+            send(id, inspected);
+        }
+    }
+
+    private void send(UUID id, Inspection inspected) {
         Map<UUID, Boolean> decisions = new LinkedHashMap<>();
         for (Map<String, Object> row : inspected.ready()) {
             decisions.put((UUID) row.get("id"), remotelyEligible(row));
@@ -179,50 +167,84 @@ class DispatchService {
         if (plan == null) {
             return;
         }
-        boolean failed = false;
-        boolean fenced = false;
-        for (Attempt attempt : plan.attempts()) {
-            if (!Boolean.TRUE.equals(recording.execute(status -> renewLease(plan)))) {
-                return;
+        try {
+            boolean failed = false;
+            boolean fenced = false;
+            for (Attempt attempt : plan.attempts()) {
+                if (!Boolean.TRUE.equals(recording.execute(status -> renewLease(plan)))) {
+                    logSettleAs(plan.deliveries(), plan.causes(), "lease_lost");
+                    return;
+                }
+                // 판정 뒤 기기 루프(기기마다 최대 6초)가 도는 사이에도 시한이 지날 수 있다 — «보내기 직전»에 다시 본다.
+                // 만료분만 들어 있으면 이 기기엔 보내지 않는다. 아직 유효한 형제와 함께 렌더된 묶음이면 만료분이 빠진
+                // 문구로 다시 렌더해야 하므로 보내지 않고 재시도로 돌린다 — 유효한 형제는 버리지 않는다.
+                List<UUID> expiredNow = plan.expiredAt(attempt.deliveries(), clock.instant());
+                if (!expiredNow.isEmpty()) {
+                    failed |= expiredNow.size() < attempt.deliveries().size();
+                    continue;
+                }
+                if (!Boolean.TRUE.equals(recording.execute(status -> stillOurs(attempt)))) {
+                    // 같은 사용자 기기의 정상 토큰 회전이면 새 토큰에 다시 보내야 한다.
+                    // 다른 계정으로 이전되거나 삭제된 기기는 더 이상 이 사용자의 수신 대상이 아니다.
+                    boolean rotated = store.one("SELECT 1 FROM device_tokens WHERE device_key=? AND user_id=?"
+                            + " AND active AND NOT transport_invalid", attempt.device(), attempt.user()) != null;
+                    failed |= rotated;
+                    fenced |= rotated;
+                    continue;
+                }
+                // 여기가 트랜잭션 밖이다 — 몇 초가 걸려도 쥐고 있는 잠금이 없다.
+                String operationId = UUID.randomUUID().toString();
+                logLink(operationId, attempt.deliveries(), plan.causes());
+                // operation_id 를 외부 호출과 결과 기록 전체에 씌운다 — FcmTransport 가 send 안에서 남기는 오류 로그도
+                // 같은 operation 으로 조회된다. 끝나면 이전 값으로 복원한다.
+                PushTransport.Result result;
+                try (InboundTrace.Scope operation = new InboundTrace.Scope().set("operation_id", operationId)) {
+                    try {
+                        result = transport.send(attempt.token(), attempt.push(), plan.sound(), plan.eventId());
+                    } catch (RuntimeException sendFailure) {
+                        logTransportResult("EXCEPTION");
+                        throw sendFailure;
+                    }
+                    logTransportResult(String.valueOf(result));
+                }
+                Outcome outcome = recording.execute(status -> recordAttempt(plan, attempt, result));
+                if (outcome == Outcome.LEASE_LOST) {
+                    logSettleAs(plan.deliveries(), plan.causes(), "lease_lost");
+                    return;
+                }
+                failed |= outcome != Outcome.DONE;
+                fenced |= outcome == Outcome.OWNERSHIP_CHANGED;
             }
-            // 판정 뒤 기기 루프(기기마다 최대 6초)가 도는 사이에도 시한이 지날 수 있다 — «보내기 직전»에 다시 본다.
-            // 만료분만 들어 있으면 이 기기엔 보내지 않는다. 아직 유효한 형제와 함께 렌더된 묶음이면 만료분이 빠진
-            // 문구로 다시 렌더해야 하므로 보내지 않고 재시도로 돌린다 — 유효한 형제는 버리지 않는다.
-            List<UUID> expiredNow = plan.expiredAt(attempt.deliveries(), clock.instant());
-            if (!expiredNow.isEmpty()) {
-                failed |= expiredNow.size() < attempt.deliveries().size();
-                continue;
-            }
-            if (!Boolean.TRUE.equals(recording.execute(status -> stillOurs(attempt)))) {
-                // 같은 사용자 기기의 정상 토큰 회전이면 새 토큰에 다시 보내야 한다.
-                // 다른 계정으로 이전되거나 삭제된 기기는 더 이상 이 사용자의 수신 대상이 아니다.
-                boolean rotated = store.one("SELECT 1 FROM device_tokens WHERE device_key=? AND user_id=?"
-                        + " AND active AND NOT transport_invalid", attempt.device(), attempt.user()) != null;
-                failed |= rotated;
-                fenced |= rotated;
-                continue;
-            }
-            // 여기가 트랜잭션 밖이다 — 몇 초가 걸려도 쥐고 있는 잠금이 없다.
-            PushTransport.Result result;
+            boolean retried = failed;
+            // 남은 창(대조 커밋 ~ 외부 호출)에 걸린 발송은 FCM 실패와 «원인이 다르다». 같은 FCM_RETRY 로
+            // 적으면 그 사실이 재시도 통계에 섞여 사라지고, 사고 조사에서 「남의 기기로 나간 발송이
+            // 있었는가」를 물을 방법이 없다. 이유를 갈라 행에 남긴다.
+            String reason = fenced ? "OWNERSHIP_CHANGED" : "FCM_RETRY";
+            logSettle(plan.deliveries(), plan.causes(),
+                    recording.execute(status -> settle(plan, retried, reason)));
+        } catch (RuntimeException failure) {
+            // 이 실행이 만든 임대만 풀고 실패를 적는다. 호출부에는 기록 완료를 알려 중복 계산을 막는다.
             try {
-                result = transport.send(attempt.token(), attempt.push(), plan.sound(), plan.eventId());
-            } catch (NotificationEnvironmentGuard.EnvironmentMismatch mismatch) {
-                recording.executeWithoutResult(status -> deferEnvironmentLeased(plan));
-                return;
+                Map<UUID, String> states = failure instanceof NotificationEnvironmentGuard.EnvironmentMismatch
+                        ? recording.execute(status -> deferEnvironmentLeased(plan))
+                        : recording.execute(status -> backOffLeased(plan, failureReason(failure)));
+                logSettle(plan.deliveries(), plan.causes(), states);
+            } catch (RuntimeException recordFailure) {
+                failure.addSuppressed(recordFailure);
+                log.warn("알림 발송 실패 기록 불가 deliveryId={} failure={} recordFailure={}",
+                        id, failure.getClass().getSimpleName(),
+                        recordFailure.getClass().getSimpleName());
+                throw failure;
             }
-            Outcome outcome = recording.execute(status -> recordAttempt(plan, attempt, result));
-            if (outcome == Outcome.LEASE_LOST) {
-                return;
-            }
-            failed |= outcome != Outcome.DONE;
-            fenced |= outcome == Outcome.OWNERSHIP_CHANGED;
+            throw new LeasedFailure(failure);
         }
-        boolean retried = failed;
-        // 남은 창(대조 커밋 ~ 외부 호출)에 걸린 발송은 FCM 실패와 «원인이 다르다». 같은 FCM_RETRY 로
-        // 적으면 그 사실이 재시도 통계에 섞여 사라지고, 사고 조사에서 「남의 기기로 나간 발송이
-        // 있었는가」를 물을 방법이 없다. 이유를 갈라 행에 남긴다.
-        String reason = fenced ? "OWNERSHIP_CHANGED" : "FCM_RETRY";
-        recording.executeWithoutResult(status -> settle(plan, retried, reason));
+    }
+
+    /** 발송 계획의 임대를 가진 예외가 이미 별도 트랜잭션에 기록됐음을 호출부에 알린다. */
+    static final class LeasedFailure extends RuntimeException {
+        LeasedFailure(RuntimeException cause) {
+            super(cause);
+        }
     }
 
     /**
@@ -237,14 +259,14 @@ class DispatchService {
     private Inspection inspect(UUID id) {
         List<Map<String, Object>> rows = lockedCandidates(id);
         List<Map<String, Object>> ready = ready(rows);
-        // bundleCandidates의 releaseParked와 로컬 hold/suppress 등 자기 변경까지 반영한 축이다.
+        // 로컬 억제·이월 등 자기 변경까지 반영한 상태를 캡처한다.
         return ready.isEmpty() ? null : new Inspection(id, snapshot(rows), ready);
     }
 
     private Plan prepare(Inspection inspected, Map<UUID, Boolean> decisions) {
         List<Map<String, Object>> rows = lockedCandidates(inspected.id());
         if (!inspected.axis().equals(snapshot(rows))) {
-            // 새 멤버·이관 교체·다른 워커의 변경에는 조회하지 않은 판정을 재사용하지 않는다.
+            // 다른 워커가 대상을 변경했으면 이전 상태의 적격 판정을 재사용하지 않는다.
             return null;
         }
         List<Map<String, Object>> ready = ready(rows);
@@ -265,7 +287,7 @@ class DispatchService {
         return allowed.isEmpty() ? null : plan(allowed);
     }
 
-    /** 잠금 순서는 두 판정 단계 모두 gate → device → ack → delivery로 같다. */
+    /** 잠금 순서는 두 판정 단계 모두 gate → device → delivery로 같다. */
     private List<Map<String, Object>> lockedCandidates(UUID id) {
         Map<String, Object> gate = store.one("SELECT enabled FROM dispatch_control WHERE id=1 FOR SHARE");
         if (gate == null || !Boolean.TRUE.equals(gate.get("enabled"))) {
@@ -276,16 +298,9 @@ class DispatchService {
         if (candidate == null) {
             return List.of();
         }
-        // bundleCandidates는 같은 user_id만 묶는다. 같은 사용자 opt-out·탈퇴는 이 잠금으로 «판정»과
-        // 직렬화된다 — 전송은 이 트랜잭션이 커밋한 «뒤»에 돌므로 그때까지 기다리지는 않는다.
+        // 같은 사용자의 opt-out과 탈퇴를 발송 판정과 직렬화한다.
         store.lock("user-state:" + candidate.get("user_id"));
-        List<Map<String, Object>> rows = bundleCandidates(candidate);
-        for (Map<String, Object> row : rows) {
-            if ("BET_RESULT".equals(row.get("kind")) && row.get("subject_id") != null) {
-                store.lock("ack:" + row.get("user_id") + ":" + row.get("subject_id"));
-            }
-        }
-        return rows;
+        return List.of(candidate);
     }
 
     private List<Map<String, Object>> ready(List<Map<String, Object>> rows) {
@@ -313,122 +328,10 @@ class DispatchService {
     private record Inspection(UUID id, Map<UUID, Map<String, Object>> axis, List<Map<String, Object>> ready) {
     }
 
-    private List<Map<String, Object>> bundleCandidates(Map<String, Object> first) {
-        Bundles.Family family = Bundles.of(first.get("kind"));
-        if (family == null || first.get("admin_actor") != null || first.get("slot_at") == null
-                || first.get("group_id") == null) {
-            return List.of(first);
-        }
-        // 결과 슬롯은 15분 버킷이 닫힌 뒤에만 flush. 모집·종료의 slot은 원래 예정 발송 시각이다.
-        if (family.waitsForSlotClose()) {
-            Instant closesAt = ((Timestamp) first.get("slot_at")).toInstant()
-                    .plusSeconds(Bundles.RESULT_SLOT_SECONDS);
-            if (closesAt.isAfter(clock.instant())) {
-                holdUntil((UUID) first.get("id"), closesAt);
-                return List.of();
-            }
-        }
-        // 상태를 가리지 않고 «축 전체»를 읽는다 — 이미 나간 형제까지 세어야 배치가 다 왔는지 알 수 있다.
-        // 실제로 보낼 행은 아래 FOR UPDATE 가 상태·시각으로 다시 고른다.
-        List<Map<String, Object>> axis = store.rows("SELECT * FROM deliveries"
-                + " WHERE user_id=? AND group_id=? AND slot_at=? AND admin_actor IS NULL AND " + family.predicate()
-                + " ORDER BY " + family.order(),
-                first.get("user_id"), first.get("group_id"), first.get("slot_at"));
-        if (family.waitsForSlotClose()) {
-            if (!resultBundles.complete(first, axis)) {
-                parkForBatch((UUID) first.get("id"));
-                return List.of();
-            }
-            releaseParked(first, family);
-        }
-        Set<String> declared = declaredMembers(axis);
-        if (!declared.isEmpty()) {
-            if (!arrived(axis).containsAll(declared)) {
-                // 아직 다 오지 않았다 — «보내지 않고» 뒤로 물린다. 뒤에 선 다른 후보는 그동안 흐른다.
-                parkForBatch((UUID) first.get("id"));
-                return List.of();
-            }
-            releaseParked(first, family);
-        }
-        return axis;
-    }
-
-    /**
-     * 이 묶음 축에 «어떤 사건들이 올 것»이라고 발송부가 적어 보냈는지 — 기대 대상 id 의 합집합.
-     *
-     * <p>구 경로의 보장은 「한 배치당 (유저 × 그룹) 한 건」이었다. 신 경로는 그 한 건을 사건 N 개로
-     * 쪼개 보내므로, <b>첫 사건만 도착한 사이에 flush 가 끼면 같은 배치가 두 번 나간다</b> — 수신
-     * 순서나 relay 의 전달 원자성에 기댈 수 없는 지점이다.
-     *
-     * <p>개수가 아니라 <b>id 집합</b>으로 판정한다. (유저 × 그룹 × 그날) 축에는 하루 동안 여러 배치가
-     * 겹쳐 들어오므로 「몇 건 왔나」는 완전성의 증거가 되지 못한다. 합집합을 쓰는 것은 뒤 배치가
-     * 대상을 더할 수 있기 때문이고, 앞 배치가 선언한 대상은 그대로 남아야 하기 때문이다.
-     *
-     * @param axis 묶음 축의 모든 행(상태 무관)
-     * @return 기대 대상 id — 아무도 선언하지 않았으면 빈 집합(기다리지 않는다)
-     */
-    private static Set<String> declaredMembers(List<Map<String, Object>> axis) {
-        Set<String> declared = new LinkedHashSet<>();
-        for (Map<String, Object> row : axis) {
-            if (Json.map(row.get("payload").toString()).get("bundleMembers") instanceof List<?> members) {
-                members.stream().filter(Objects::nonNull).map(Object::toString).forEach(declared::add);
-            }
-        }
-        return declared;
-    }
-
-    /**
-     * @param axis 묶음 축의 모든 행
-     * @return 실제로 도착한 대상 id — 이미 나갔거나({@code SENT}) 걸러진({@code SUPPRESSED}) 형제도
-     *     «수신은 됐다». 상태로 거르면 같은 배치가 영원히 미달로 남는다
-     */
-    private static Set<String> arrived(List<Map<String, Object>> axis) {
-        Set<String> received = new LinkedHashSet<>();
-        for (Map<String, Object> row : axis) {
-            if (row.get("subject_id") != null) {
-                received.add(row.get("subject_id").toString());
-            }
-        }
-        return received;
-    }
-
-    /**
-     * 배치를 기다리느라 «세워 둔» 형제를 다시 세운다 — {@link #INCOMPLETE} 표식이 붙은 행만.
-     *
-     * <p>기다림은 후보 상한을 비우려고 {@code next_attempt_at} 을 미뤄 둔 것이다. 배치가 다 온 순간
-     * 그 시각을 되돌리지 않으면 마지막에 도착한 사건만 발송 대상이 되어, 정작 <b>대표가 빠진 채</b>
-     * 한 건이 나간다 — 유실분이 DLT 로 되돌아온 복구 경로가 정확히 그 모양이다.
-     *
-     * <p>표식이 없는 미래 시각은 되돌리지 않는다: 조용한 시간 이월({@code DEFERRED})은 정책이고,
-     * 전송 실패·기기 없음의 재시도 backoff 는 <b>아직 기다려야 할 시간</b>이다.
-     */
-    private void releaseParked(Map<String, Object> first, Bundles.Family family) {
-        store.update("UPDATE deliveries SET next_attempt_at=?,last_error=NULL"
-                + " WHERE user_id=? AND group_id=? AND slot_at=? AND admin_actor IS NULL AND " + family.predicate()
-                + " AND status='PENDING' AND last_error=?",
-                Timestamp.from(clock.instant()), first.get("user_id"), first.get("group_id"),
-                first.get("slot_at"), INCOMPLETE);
-    }
-
-    /**
-     * 묶음이 다 오기를 기다리며 이 행을 뒤로 물린다 — 표식을 남겨 재시도 backoff 와 갈라 둔다.
-     *
-     * <p>{@code next_attempt_at<=now} 인 행, 즉 «지금 후보로 선 행»만 물린다. 이미 미래에 세워진 행은
-     * 재시도 backoff 중이므로 건드리지 않는다 — 그래야 되돌릴 때도 그 backoff 를 깨지 않는다.
-     * 시도 횟수는 올리지 않는다. 기다림은 실패가 아니다.
-     */
-    private void parkForBatch(UUID id) {
-        Timestamp now = Timestamp.from(clock.instant());
-        store.update("UPDATE deliveries SET next_attempt_at=?,last_error=? WHERE id=?"
-                + " AND status='PENDING' AND next_attempt_at<=?",
-                Timestamp.from(clock.instant().plusSeconds(HOLD_SECONDS)), INCOMPLETE, id, now);
-    }
-
     private boolean locallyEligible(Map<String, Object> delivery) {
         UUID id = (UUID) delivery.get("id");
         UUID user = (UUID) delivery.get("user_id");
         String kind = delivery.get("kind").toString();
-        String subject = (String) delivery.get("subject_id");
         Map<String, Object> catalog = store.one("SELECT * FROM kinds WHERE id=?", kind);
         Map<String, Object> fence = store.one("SELECT withdrawn FROM user_fences WHERE user_id=?", user);
         if (catalog == null || !Boolean.TRUE.equals(catalog.get("enabled"))
@@ -443,22 +346,6 @@ class DispatchService {
                 && expired(Json.map(delivery.get("payload").toString()), clock.instant())) {
             expire(id);
             return false;
-        }
-        if ("BET_RESULT".equals(kind) && subject != null) {
-            Map<String, Object> ack = store.one("SELECT state,held_until FROM result_ack"
-                    + " WHERE user_id=? AND session_id=?", user, UUID.fromString(subject));
-            if (ack != null && !"RELEASED".equals(ack.get("state"))) {
-                if ("CONFIRMED".equals(ack.get("state"))) {
-                    suppress(id);
-                    return false;
-                }
-                // 보류는 «아직 못 보낸다»이지 실패가 아니다. 그대로 두면 이 행이 후보 상한을 계속 점거해
-                // 뒤에 선 다른 사용자의 알림과 BET_SILENT_FLUSH 까지 보류가 풀릴 때까지 굶는다.
-                // HELD 는 만료 시각까지, 판정 대기(NEEDS_CONFIRM)는 리컨실 주기만큼 이월한다.
-                Timestamp until = (Timestamp) ack.get("held_until");
-                holdUntil(id, until == null ? clock.instant().plusSeconds(HOLD_SECONDS) : until.toInstant());
-                return false;
-            }
         }
         Map<String, Object> preferences = settings.read(user);
         Map<String, Object> params = Json.map(delivery.get("payload").toString());
@@ -514,7 +401,7 @@ class DispatchService {
         // 두 축을 모두 본다: active 는 «소유권이 살아 있는가»(로그아웃·삭제·탈퇴·세션 폐기),
         // transport_invalid 는 «FCM 이 이 토큰을 아직 받는가». 전자만 보면 UNREGISTERED 토큰에
         // 계속 때리고, 후자를 active 에 적으면 정상 세션의 토큰 교체가 막힌다.
-        List<Map<String, Object>> tokens = store.rows("SELECT device_token,device_key,ownership_version"
+        List<Map<String, Object>> tokens = store.rows("SELECT device_token,device_key,ownership_version,delivery_tag"
                 + " FROM device_tokens WHERE user_id=? AND active AND NOT transport_invalid"
                 + " ORDER BY device_token", user);
         List<UUID> deliveries = ready.stream().map(row -> (UUID) row.get("id")).toList();
@@ -533,6 +420,8 @@ class DispatchService {
             return null;
         }
         List<Attempt> attempts = new ArrayList<>();
+        // 크기 초과로 건너뛴 기기가 있었으면 그 사유 — 시도할 기기가 하나도 없을 때만 행을 FAILED 로 접는 근거다.
+        NotificationFailure oversized = null;
         for (Map<String, Object> token : tokens) {
             // 중복 방지의 키는 «기기»다. 소유권은 등록마다 회전하므로(A22 ㊚) 그것으로 세면 재시도
             // 사이에 앱을 재시작한 기기가 미전송으로 되돌아가 같은 알림을 두 번 받는다.
@@ -546,22 +435,49 @@ class DispatchService {
             // 렌더도 여기서 끝낸다 — 템플릿 조회가 DB 를 타므로 트랜잭션 밖으로 미룰 이유가 없고,
             // 템플릿 부재(TEMPLATE_UNAVAILABLE)는 «보내기 전»에 드러나야 한다.
             Map<String, Object> message = unsent.get(0);
-            RenderedPush push = message.get("reviewed_push") == null ? renderer.renderBundle(unsent)
+            RenderedPush push = message.get("reviewed_push") == null
+                    ? renderer.render(message.get("kind").toString(),
+                            (String) message.get("locale"), Json.map(message.get("payload").toString()))
                     : PublicationService.reviewedPush(Json.map(message.get("reviewed_push").toString()));
+            // 수신 확인 태그는 «이 기기 등록»의 값이라 기기별 렌더 직후에 싣는다(GROMO-2520) — 크기 검사도 태그를
+            // 포함해 본다. 태그 없는 행(V13 전 등록)에는 키를 싣지 않는다 — 관리자 dataTemplate 이 deliveryTag 를 넣어
+            // 뒀어도 렌더 결과에서 지워야 하므로 태그 유무와 무관하게 «모든 기기에» 부른다. 태그는 ownership_version 과
+            // 같은 등록 UPSERT 에서만 바뀌므로, 판정 뒤 재등록으로 태그가 바뀌면 stillOurs 의 세대 대조가 이 발송을 거른다.
+            // 관리자 템플릿 저장·미리보기는 AdminCatalog.renderDraft 가 같은 길이의 자리표시를 더해 미리 잰다.
+            push = push.withDeliveryTag((String) token.get("delivery_tag"));
             try {
                 FcmPayload.requireFits(push, sound, collapseEventId(ready));
             } catch (NotificationFailure invalid) {
                 if (!"FCM_PAYLOAD_TOO_LARGE".equals(invalid.getMessage())) {
                     throw invalid;
                 }
-                // 영구 문구 오류는 기기 폐기나 무한 재시도가 아니다. 아직 외부 발송은 시작하지 않았다.
-                deliveries.forEach(delivery -> store.update("UPDATE deliveries SET status='FAILED',last_error=?,"
-                        + "lease_token=NULL,lease_expires_at=NULL WHERE id=?", invalid.getMessage(), delivery));
-                return null;
+                // 크기는 «기기 단위»로 본다. 수신 확인 태그(값 36자 + 키)는 기기 행마다 있을 수도 없을 수도 있어(V13 전
+                // 등록은 NULL) 같은 문구도 봉투 크기가 기기마다 다르다 — 태그 없는 행에는 들어맞는 문구가 태그 있는
+                // 행에서만 넘을 수 있다. 한 기기의 초과로 묶음 전체를 접으면 정상으로 받을 수 있는 기기의 알림까지
+                // 잃으니 그 기기만 건너뛴다(GROMO-2520). 한계: 건너뛴 기기는 이 알림을 받지 못한다 — 재시도에서도 같은
+                // 크기라 다시 건너뛴다. 아직 외부 발송은 시작하지 않았다.
+                log.warn("푸시가 크기 한도를 넘는 기기 — 이 기기만 건너뛴다. deviceKey={} deliveries={}",
+                        device, deliveries);
+                oversized = invalid;
+                continue;
             }
             attempts.add(new Attempt(user, device, token.get("device_token").toString(),
                     ((Number) token.get("ownership_version")).longValue(), push,
                     unsent.stream().map(row -> (UUID) row.get("id")).toList()));
+        }
+        if (attempts.isEmpty() && oversized != null) {
+            // 시도할 기기가 하나도 없다. 영구 문구 오류는 기기 폐기나 무한 재시도가 아니다 — 재시도 없이 끝낸다.
+            // 모든 기기가 이미 받아 시도가 없는 경우(oversized == null)는 여기에 오지 않고 settle 이 발송으로 맺는다.
+            // 한 대라도 이미 받은 행(settle 과 같은 delivery_devices 기준)은 실패가 아니라 발송이다 — 초과는 남은 기기의 사정.
+            for (UUID delivery : deliveries) {
+                if (store.one("SELECT 1 FROM delivery_devices WHERE delivery_id=? LIMIT 1", delivery) != null) {
+                    markSent(delivery);
+                } else {
+                    store.update("UPDATE deliveries SET status='FAILED',last_error=?,"
+                            + "lease_token=NULL,lease_expires_at=NULL WHERE id=?", oversized.getMessage(), delivery);
+                }
+            }
+            return null;
         }
         // 펜싱. 외부 호출이 도는 동안 이 행들을 후보 밖에 둔다 — 상태를 맺는 것은 settle 이고,
         // 그 전에 프로세스가 죽어도 임대가 끝나기 전에는 다시 집히지 않는다.
@@ -569,17 +485,17 @@ class DispatchService {
         // lease_token·lease_expires_at 을 «함께» 적는 이유는 두 가지다.
         // ① next_attempt_at 만으로는 「발송 중」과 「재시도 backoff」가 구분되지 않는다. 둘 다 미래
         //    시각인 PENDING 이라 밖에서 보면 같은 모양이다.
-        // ② 그 구분이 없으면 게이트 닫기(MigrationService.close)가 «진행 중인 발송»을 기다릴 수
+        // ② 그 구분이 없으면 게이트 닫기(DispatchControlService.close)가 «진행 중인 발송»을 기다릴 수
         //    없다. 판정 트랜잭션은 이미 커밋됐으므로 게이트 행 잠금은 그 워커를 붙잡지 못한다.
-        // retireDelivery 가 「손대지 않은 행」의 정의에 lease_token 을 넣어 둔 것도 같은 뜻이다 —
-        // 발송 중인 행은 라이브가 주인이므로 이관이 접으면 안 된다.
         Timestamp lease = Timestamp.from(clock.instant().plusSeconds(SEND_LEASE_SECONDS));
         UUID leaseToken = UUID.randomUUID();
         for (UUID delivery : deliveries) {
             store.update("UPDATE deliveries SET next_attempt_at=GREATEST(next_attempt_at,?),"
                     + "lease_token=?,lease_expires_at=? WHERE id=?", lease, leaseToken, lease, delivery);
         }
-        return new Plan(deliveries, sound, collapseEventId(ready), attempts, leaseToken, expiries);
+        Map<UUID, Cause> causes = new LinkedHashMap<>();
+        ready.forEach(row -> causes.put((UUID) row.get("id"), Cause.of(row)));
+        return new Plan(deliveries, sound, collapseEventId(ready), attempts, leaseToken, expiries, causes);
     }
 
     /**
@@ -646,9 +562,11 @@ class DispatchService {
      * @param failed 기기 하나라도 재시도가 필요했는가
      * @param reason 재시도로 남길 이유 — 소유권 변경과 전송 실패를 가른다
      */
-    private void settle(Plan plan, boolean failed, String reason) {
+    private Map<UUID, String> settle(Plan plan, boolean failed, String reason) {
+        Map<UUID, String> states = new LinkedHashMap<>();
         if (!holdsLease(plan)) {
-            return;
+            plan.deliveries().forEach(delivery -> states.put(delivery, "lease_lost"));
+            return states;
         }
         for (UUID delivery : plan.deliveries()) {
             boolean deliveredSomewhere =
@@ -657,26 +575,28 @@ class DispatchService {
                 // 시한이 지났다. 한 대라도 받았으면 발송으로 맺고, 아무도 못 받았으면 종결한다 — 재시도로 남기면
                 // 다음 틱이 만료를 다시 확인하는 사이 후보 상한을 차지하고, 형제의 재시도에 딸려 되살아날 여지가 남는다.
                 if (deliveredSomewhere) {
-                    markSent(delivery);
+                    states.put(delivery, markSent(delivery) > 0 ? "sent" : "unchanged");
                 } else {
-                    expire(delivery);
+                    states.put(delivery, expire(delivery) > 0 ? "expired" : "unchanged");
                 }
             } else if (failed) {
-                retry(delivery, reason);
+                states.put(delivery, retry(delivery, reason));
             } else if (!deliveredSomewhere) {
                 // UNREGISTERED는 성공이 아니다. 이 알림의 성공 이력이 전혀 없으면 정상 토큰을
                 // 기다린다. 다른 기기에 이미 성공한 알림은 무효 토큰 때문에 다시 보내지 않는다.
-                retry(delivery, "NO_ACTIVE_DEVICE");
+                states.put(delivery, retry(delivery, "NO_ACTIVE_DEVICE"));
             } else {
-                markSent(delivery);
+                states.put(delivery, markSent(delivery) > 0 ? "sent" : "unchanged");
             }
             releaseLease(delivery, plan.leaseToken());
         }
+        return states;
     }
 
-    private void markSent(UUID delivery) {
+    /** @return 영향 행 수 — 그사이 상태가 바뀐 행이면 0 */
+    private int markSent(UUID delivery) {
         // 판정 잠금은 이미 풀렸다 — 상태를 다시 걸어, 그사이 탈퇴가 억제한 행을 되살리지 않는다.
-        store.update("UPDATE deliveries SET status='SENT',sent_at=?,attempts=attempts+1,"
+        return store.update("UPDATE deliveries SET status='SENT',sent_at=?,attempts=attempts+1,"
                 + "last_error=NULL WHERE id=? AND status IN ('PENDING','DEFERRED')",
                 Timestamp.from(clock.instant()), delivery);
     }
@@ -749,11 +669,12 @@ class DispatchService {
 
     /** 판정이 끝난 한 번의 발송 — 트랜잭션 밖으로 들고 나갈 값만 담는다. */
     private record Plan(List<UUID> deliveries, boolean sound, String eventId, List<Attempt> attempts,
-            UUID leaseToken, Map<UUID, Instant> expiries) {
+            UUID leaseToken, Map<UUID, Instant> expiries, Map<UUID, Cause> causes) {
         Plan {
             deliveries = List.copyOf(deliveries);
             attempts = List.copyOf(attempts);
             expiries = Map.copyOf(expiries);
+            causes = Map.copyOf(causes);
         }
 
         /**
@@ -766,27 +687,97 @@ class DispatchService {
         }
     }
 
-    /** 환경 복구 후 재시도하도록 횟수를 소진하지 않고 이 실행의 임대만 해제한다. */
-    private void deferEnvironmentLeased(Plan plan) {
-        for (UUID id : plan.deliveries()) {
-            store.update("UPDATE deliveries SET last_error='ENVIRONMENT_MISMATCH',next_attempt_at=?,"
-                    + "lease_token=NULL,lease_expires_at=NULL WHERE id=?"
-                    + " AND status IN ('PENDING','DEFERRED') AND lease_token=?",
-                    Timestamp.from(clock.instant().plusSeconds(60)), id, plan.leaseToken());
+    /**
+     * 전달 행 하나의 원인 문맥 (GROMO-2558, 로그 계약 §2).
+     *
+     * <p>발송 로그의 {@code delivery_id}·{@code attempt} 는 이 서비스의 {@code deliveries.id}·이 dispatch 가 본
+     * {@code attempts+1} 이며, 수신 로그({@code consumer.accept})의 relay 값과 ID 공간이 다르다 — 서비스 사이 연결은
+     * {@code event_id} 다. {@code lease_lost} 는 «이 인스턴스가 잃었다» 는 뜻이라 다른 인스턴스의 {@code sent} 와 같은
+     * delivery 에서 함께 보일 수 있다. {@code backOffLeased} 가 0행이면 임대 상실뿐 아니라 그사이 억제된 경우에도
+     * {@code lease_lost} 로 찍힌다.
+     *
+     * @param eventId         원사건 id
+     * @param originRequestId 최초 원인 요청 ID — 구버전 행이면 {@code null}
+     * @param originTraceId   최초 원인 trace 원문 — 구버전 행이면 {@code null}
+     * @param attempt         이번 dispatch 의 시도 번호(행의 {@code attempts}+1). 값이 없으면 0 이고 로그에서 키를 생략한다
+     */
+    record Cause(String eventId, String originRequestId, String originTraceId, int attempt) {
+        static Cause of(Map<String, Object> row) {
+            // 수신 경로(InboundTrace)와 같은 형식 검사 — 어긋난 값은 키를 생략한다.
+            return new Cause(InboundTrace.safeId(row.get("event_id")),
+                    InboundTrace.safeId(row.get("origin_request_id")),
+                    InboundTrace.safeTrace(row.get("origin_trace_id")),
+                    row.get("attempts") instanceof Number n ? n.intValue() + 1 : 0);
+        }
+    }
+
+    private static InboundTrace.Scope causeScope(UUID delivery, Cause cause) {
+        InboundTrace.Scope scope = new InboundTrace.Scope().set("delivery_id", delivery.toString());
+        return scope.set("event_id", cause == null ? null : cause.eventId())
+                .set("origin_request_id", cause == null ? null : cause.originRequestId())
+                .set("origin_trace_id", cause == null ? null : cause.originTraceId())
+                .set("attempt", cause == null || cause.attempt() <= 0 ? null : String.valueOf(cause.attempt()));
+    }
+
+    /**
+     * 한 행이면 그 원인을 싣고, 둘 이상이면 임의의 한 원인을 싣지 않도록 키를 비운다. 묶음 발송이 제거돼 둘 이상 분기는
+     * 현재 도달할 수 없고, 그래서 테스트도 없다.
+     */
+    private InboundTrace.Scope entryScope(List<Map<String, Object>> ready) {
+        if (ready.size() == 1) {
+            return causeScope((UUID) ready.get(0).get("id"), Cause.of(ready.get(0)));
+        }
+        return new InboundTrace.Scope().set("delivery_id", null).set("event_id", null)
+                .set("origin_request_id", null).set("origin_trace_id", null).set("attempt", null);
+    }
+
+    /**
+     * 기기별 전송 한 번에 operation_id 를 붙이고, 그 호출에 참여한 구성원마다 연결 로그 한 줄을 남긴다.
+     * 로그 실패가 발송을 막지 않는다.
+     */
+    static void logLink(String operationId, List<UUID> members, Map<UUID, Cause> causes) {
+        for (UUID member : members) {
+            try (InboundTrace.Scope scope = causeScope(member, causes.get(member))) {
+                scope.set("operation_id", operationId).set("event_name", "operation.link");
+                log.info("알림 전송 연결 operation={}", operationId);
+            } catch (RuntimeException ignored) {
+                // 관측 실패는 업무를 막지 않는다.
+            }
+        }
+    }
+
+    // operation scope 는 transport.send·transport.result 만 감싼다. recordAttempt·settle 로그에는 operation_id 가 없다
+    // (조회는 operation.link → operation_id → transport.result 순).
+    /** 외부 호출 결과(SENT·UNREGISTERED·RETRY·EXCEPTION). DB 반영 결과는 {@link #logSettle} 가 따로 남긴다. */
+    private static void logTransportResult(String result) {
+        try (InboundTrace.Scope scope = new InboundTrace.Scope()) {
+            scope.set("event_name", "transport.result");
+            log.info("알림 전송 결과 operation={} result={}", MDC.get("operation_id"), result);
+        } catch (RuntimeException ignored) {
+            // 관측 실패는 업무를 막지 않는다.
+        }
+    }
+
+    /** DB 에 반영된 최종 상태 — 구성원마다 한 줄. */
+    private static void logSettle(List<UUID> members, Map<UUID, Cause> causes, Map<UUID, String> states) {
+        for (UUID member : members) {
+            logSettleAs(List.of(member), causes, states.getOrDefault(member, "unchanged"));
+        }
+    }
+
+    private static void logSettleAs(List<UUID> members, Map<UUID, Cause> causes, String state) {
+        for (UUID member : members) {
+            try (InboundTrace.Scope scope = causeScope(member, causes.get(member))) {
+                scope.set("event_name", "dispatch.settle");
+                log.info("알림 발송 맺음 state={}", state);
+            } catch (RuntimeException ignored) {
+                // 관측 실패는 업무를 막지 않는다.
+            }
         }
     }
 
     private String collapseEventId(List<Map<String, Object>> rows) {
-        Map<String, Object> first = rows.get(0);
-        Bundles.Family family = Bundles.of(first.get("kind"));
-        // 묶음 축과 같은 조건이라야 한다 — 여기만 넓으면 묶이지도 않은 서로 다른 알림이 같은 collapse
-        // 키로 나가 트레이에서 서로를 덮는다.
-        if (family == null || first.get("slot_at") == null || first.get("admin_actor") != null
-                || first.get("group_id") == null) {
-            return first.get("event_id").toString();
-        }
-        return "bundle:" + first.get("user_id") + ":" + first.get("group_id") + ":" + family.id()
-                + ":" + ((Timestamp) first.get("slot_at")).toInstant();
+        return rows.get(0).get("event_id").toString();
     }
 
     private void deferOrSuppress(UUID id, Map<String, Object> catalog, Map<String, Object> params, Instant quietEnd,
@@ -810,29 +801,60 @@ class DispatchService {
     /**
      * 후보 한 건의 실패를 «별도 트랜잭션»으로 내구화한다.
      *
-     * <p>{@link #dispatch(UUID)} 가 예외로 끝나면 그 트랜잭션은 통째로 되감겨 {@code next_attempt_at}
-     * 도 {@code attempts} 도 그대로다. 그 행은 다음 tick 에서도 같은 정렬로 후보 맨 앞에 다시 서고,
-     * 그래서 한 종류의 템플릿 비활성화·렌더 입력 누락 하나가 «다른 종류·다른 사용자»의 정상 알림까지
-     * 무기한 막는다. 재시도 시각을 밀어 두면 큐가 계속 흐른다.
+     * <p>발송 계획을 만들기 전의 예외만 여기서 기록한다. 계획 이후의 예외는 그 실행의 임대 토큰을
+     * 대조하는 {@link #backOffLeased} 가 기록한다. 중복 호출이나 아직 진행 중인 다른 실행은 건너뛴다.
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW, timeout = 30)
     public void backOff(UUID id, String reason) {
-        store.update("UPDATE deliveries SET attempts=attempts+1,last_error=?,next_attempt_at=? WHERE id=?"
-                + " AND (lease_expires_at IS NULL OR lease_expires_at<=?)", reason,
-                Timestamp.from(clock.instant().plusSeconds(60)), id, Timestamp.from(clock.instant()));
+        Map<String, Object> updated = store.one("UPDATE deliveries SET attempts=attempts+1,last_error=?,"
+                + "status=CASE WHEN attempts+1>=? THEN 'FAILED' ELSE status END,"
+                + "next_attempt_at=?,lease_token=CASE WHEN attempts+1>=? THEN NULL ELSE lease_token END,"
+                + "lease_expires_at=CASE WHEN attempts+1>=? THEN NULL ELSE lease_expires_at END WHERE id=?"
+                + " AND status IN ('PENDING','DEFERRED') AND next_attempt_at<=?"
+                + " AND (lease_expires_at IS NULL OR lease_expires_at<=?)"
+                + " RETURNING status,kind", reason, MAX_ATTEMPTS,
+                Timestamp.from(clock.instant().plusSeconds(60)), MAX_ATTEMPTS, MAX_ATTEMPTS,
+                id, Timestamp.from(clock.instant()), Timestamp.from(clock.instant()));
+        warnIfExhausted(id, reason, updated);
+    }
+
+    /** 예외가 난 실행의 임대 토큰이 그대로일 때만 기록한다. 새 실행의 임대는 건드리지 않는다. */
+    private Map<UUID, String> backOffLeased(Plan plan, String reason) {
+        Map<UUID, String> states = new LinkedHashMap<>();
+        for (UUID id : plan.deliveries()) {
+            Map<String, Object> updated = store.one("UPDATE deliveries SET attempts=attempts+1,last_error=?,"
+                    + "status=CASE WHEN attempts+1>=? THEN 'FAILED' ELSE status END,"
+                    + "next_attempt_at=?,lease_token=NULL,lease_expires_at=NULL WHERE id=?"
+                    + " AND status IN ('PENDING','DEFERRED') AND lease_token=? RETURNING status,kind",
+                    reason, MAX_ATTEMPTS, Timestamp.from(clock.instant().plusSeconds(60)), id, plan.leaseToken());
+            warnIfExhausted(id, reason, updated);
+            // 조건이 임대 토큰이라 0행이면 임대를 잃은 것 — settle 과 같은 라벨.
+            states.put(id, updated == null ? "lease_lost" : stateOf(updated));
+        }
+        return states;
     }
 
     /**
-     * 아직 «보낼 수 없을 뿐»인 행을 실제 발송 가능 시각으로 이월한다.
+     * 환경 설정을 복구하면 다시 보낼 수 있도록 발송 횟수는 소진하지 않고 임대만 해제한다.
      *
-     * <p>{@link #retry}와 달리 {@code attempts}·{@code last_error}를 건드리지 않는다 — 실패가 아니라
-     * 기다림이다. 이월하지 않으면 그 행이 후보 정렬(next_attempt_at,id)의 앞자리를 계속 차지해,
-     * 상한 25건이 그런 행으로 채워지는 순간 <b>뒤에 선 모든 사용자</b>의 발송이 멈춘다.
+     * @return 구성원별 settle 라벨 — 다시 보낼 행은 {@code retry}, 임대 토큰 조건이 0행이면 {@code backOffLeased} 와 같은
+     *         {@code lease_lost}
      */
-    private void holdUntil(UUID id, Instant until) {
-        Instant target = until.isAfter(clock.instant()) ? until : clock.instant().plusSeconds(HOLD_SECONDS);
-        store.update("UPDATE deliveries SET next_attempt_at=GREATEST(next_attempt_at,?) WHERE id=?"
-                + " AND status IN ('PENDING','DEFERRED')", Timestamp.from(target), id);
+    private Map<UUID, String> deferEnvironmentLeased(Plan plan) {
+        Map<UUID, String> states = new LinkedHashMap<>();
+        for (UUID id : plan.deliveries()) {
+            int updated = store.update("UPDATE deliveries SET last_error='ENVIRONMENT_MISMATCH',next_attempt_at=?,"
+                    + "lease_token=NULL,lease_expires_at=NULL WHERE id=?"
+                    + " AND status IN ('PENDING','DEFERRED') AND lease_token=?",
+                    Timestamp.from(clock.instant().plusSeconds(60)), id, plan.leaseToken());
+            states.put(id, updated > 0 ? "retry" : "lease_lost");
+        }
+        return states;
+    }
+
+    private String failureReason(RuntimeException failure) {
+        return failure instanceof NotificationFailure coded && coded.getMessage() != null
+                ? coded.getMessage() : failure.getClass().getSimpleName();
     }
 
     private void suppress(UUID id) {
@@ -840,8 +862,8 @@ class DispatchService {
     }
 
     /** 시한이 지난 행을 종결한다 — 억제와 같은 종결 상태지만 사유를 남겨 정책 억제와 가른다. */
-    private void expire(UUID id) {
-        store.update("UPDATE deliveries SET status='SUPPRESSED',last_error=? WHERE id=?"
+    private int expire(UUID id) {
+        return store.update("UPDATE deliveries SET status='SUPPRESSED',last_error=? WHERE id=?"
                 + " AND status IN ('PENDING','DEFERRED')", EXPIRED, id);
     }
 
@@ -892,8 +914,23 @@ class DispatchService {
         }
     }
 
-    private void retry(UUID id, String reason) {
-        store.update("UPDATE deliveries SET attempts=attempts+1,last_error=?,next_attempt_at=? WHERE id=?",
-                reason, Timestamp.from(clock.instant().plusSeconds(60)), id);
+    /** @return 재시도로 남겼으면 {@code retry}, 상한에 닿아 접혔으면 {@code failed} */
+    private String retry(UUID id, String reason) {
+        Map<String, Object> updated = store.one("UPDATE deliveries SET attempts=attempts+1,last_error=?,"
+                + "status=CASE WHEN attempts+1>=? THEN 'FAILED' ELSE status END,next_attempt_at=?"
+                + " WHERE id=? AND status IN ('PENDING','DEFERRED') RETURNING status,kind",
+                reason, MAX_ATTEMPTS, Timestamp.from(clock.instant().plusSeconds(60)), id);
+        warnIfExhausted(id, reason, updated);
+        return stateOf(updated);
+    }
+
+    private static String stateOf(Map<String, Object> updated) {
+        return updated == null ? "unchanged" : "FAILED".equals(updated.get("status")) ? "failed" : "retry";
+    }
+
+    private void warnIfExhausted(UUID id, String reason, Map<String, Object> updated) {
+        if (updated != null && "FAILED".equals(updated.get("status"))) {
+            log.warn("알림 재시도 상한 도달 deliveryId={} kind={} reason={}", id, updated.get("kind"), reason);
+        }
     }
 }

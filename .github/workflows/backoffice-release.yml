@@ -1,0 +1,76 @@
+name: Backoffice Release
+on:
+  push:
+    tags: ['backoffice-v*']
+permissions:
+  contents: read
+concurrency:
+  group: backoffice-release-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      RELEASE_TAG: ${{ github.ref_name }}
+      RELEASE_BUCKET: ${{ vars.BACKOFFICE_RELEASE_BUCKET }}
+      DOCUMENT_VERSION: ${{ vars.BACKOFFICE_SSM_DOCUMENT_VERSION }}
+      ECR: 808715036056.dkr.ecr.ap-northeast-2.amazonaws.com/catus-backoffice-prod
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Validate release source
+        run: |
+          python3 - <<'PY'
+          import os, re
+          assert re.fullmatch(r'backoffice-v(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)', os.environ['RELEASE_TAG'])
+          assert re.fullmatch(r'[1-9][0-9]*', os.environ['DOCUMENT_VERSION'])
+          assert os.environ['RELEASE_BUCKET'] == 'catus-backoffice-prod-backups-808715036056'
+          PY
+          git fetch origin main
+          git merge-base --is-ancestor HEAD origin/main
+          test "$(git rev-parse HEAD)" = "$(git rev-parse "$RELEASE_TAG^{commit}")"
+          echo "SOURCE_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: backoffice/package-lock.json
+      - run: npm ci && npm test && npm run build
+        working-directory: backoffice
+      - run: python3 -m unittest discover -s .github/scripts -p 'test_backoffice*.py' -v
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::808715036056:role/catus-backoffice-publish
+          aws-region: ap-northeast-2
+      - name: Publish immutable ARM64 image
+        run: |
+          aws ecr get-login-password | docker login --username AWS --password-stdin "${ECR%/*}"
+          aws ecr describe-images --repository-name catus-backoffice-prod --output json > images.json
+          DIGEST=$(python3 -c 'import json,os; print(next((i["imageDigest"] for i in json.load(open("images.json"))["imageDetails"] if os.environ["RELEASE_TAG"] in i.get("imageTags", [])), ""))')
+          if [ -z "$DIGEST" ]; then
+            docker build --platform linux/arm64 --label "org.opencontainers.image.revision=$SOURCE_SHA" --label "org.opencontainers.image.version=$RELEASE_TAG" -t "$ECR:$RELEASE_TAG" backoffice
+            docker push "$ECR:$RELEASE_TAG"
+            DIGEST=$(aws ecr describe-images --repository-name catus-backoffice-prod --image-ids "imageTag=$RELEASE_TAG" --query 'imageDetails[0].imageDigest' --output text)
+          fi
+          docker pull "$ECR@$DIGEST"
+          test "$(docker inspect "$ECR@$DIGEST" --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}')" = "$SOURCE_SHA"
+          test "$(docker inspect "$ECR@$DIGEST" --format '{{ .Architecture }}')" = arm64
+          python3 .github/scripts/backoffice-release.py create --tag "$RELEASE_TAG" --commit "$SOURCE_SHA" --digest "$DIGEST" --document-version "$DOCUMENT_VERSION"
+      - name: Publish write-once release manifest
+        run: |
+          if ! aws s3api put-object --bucket "$RELEASE_BUCKET" --key "releases/$RELEASE_TAG.json" --body backoffice-release.json --content-type application/json --if-none-match '*'; then
+            aws s3api get-object --bucket "$RELEASE_BUCKET" --key "releases/$RELEASE_TAG.json" existing-release.json
+            cmp backoffice-release.json existing-release.json
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ github.ref_name }}-${{ github.run_attempt }}
+          path: backoffice-release.json
+      - name: Release summary
+        run: |
+          echo '백오피스 이미지를 발행했습니다. 운영 배포는 Backoffice Production Deploy에서 별도로 실행합니다.' >> "$GITHUB_STEP_SUMMARY"
+          cat backoffice-release.json >> "$GITHUB_STEP_SUMMARY"

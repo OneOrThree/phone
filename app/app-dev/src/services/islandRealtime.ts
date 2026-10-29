@@ -1,3 +1,4 @@
+import { memberLooks, ensureMemberLooks } from './memberLooks';
 /**
  * 섬 주민 집중/휴식과 공용 재생 실시간 동기화 (GROMO-2010, GROMO-1845).
  *
@@ -20,9 +21,11 @@
 import { Client, type IFrame, type IMessage } from '@stomp/stompjs';
 import { t } from '@/i18n';
 import { API_URL, ApiError } from '@/services/api/client';
+import { focusSeat } from '@/services/api/focusSessions';
 import { getAccessToken, getSession } from '@/services/api/session';
 import type { MoveIntent } from '@/services/movementSync';
 import { parseAppearanceEvent, type MemberLook } from '@/services/memberAppearance';
+import { isUserBlocked } from '@/services/blockedUsers';
 import {
   focusMembers,
   restMembers,
@@ -147,7 +150,7 @@ export function parseMemberArrivedEvent(raw: unknown, islandId: string): MemberA
 
 /**
  * 도착 사건 필터 — `eventId` 로 중복만 거르고(`aggregateVersion` 은 섬 전체 카운터라 (섬, 사용자) 워터마크와 비교하지 않는다)
- * 내 도착은 버린다. 받는 사람 기준 차단은 서버가 이미 걸렀다.
+ * 내 도착은 버린다. 서버의 받는 사람 기준 차단 필터는 배포 스위치(기본 꺼짐)라, 내가 차단한 상대의 도착도 여기서 버린다(GROMO-2470).
  */
 export function memberArrivalFilter(islandId: string, selfId: () => string | undefined) {
   const seen = new Set<string>();
@@ -158,7 +161,7 @@ export function memberArrivalFilter(islandId: string, selfId: () => string | und
     seen.add(event.eventId);
     order.push(event.eventId);
     if (order.length > 200) seen.delete(order.shift()!);
-    return event.userId === selfId() ? null : event;
+    return event.userId === selfId() || isUserBlocked(event.userId) ? null : event;
   };
 }
 
@@ -250,6 +253,7 @@ export class IslandProjection {
       this.focusMap.set(m.userId, {
         ...m,
         status: m.status === 'paused' ? 'paused' : 'active',
+        seat: focusSeat(m.seat),
         anchorMs: Number.isFinite(anchorMs) ? anchorMs : Date.now(),
       });
     }
@@ -359,16 +363,25 @@ export class IslandProjection {
             : null,
         };
       }
-      const profile = prev ?? this.profiles.get(userId);
+      const profile = prev ?? this.profiles.get(userId),
+        sessionId = str(p?.sessionId) ?? prev?.sessionId ?? '';
       this.focusMap.set(userId, {
         userId,
         name: profile?.name ?? null,
         catColor: profile?.catColor ?? null,
         appearance: profile?.appearance ?? null,
-        sessionId: str(p?.sessionId) ?? prev?.sessionId ?? '',
+        sessionId,
         subject: str(p?.subject) ?? prev?.subject ?? '',
         activeSeconds: num(p?.activeSeconds) ?? 0,
         status: status === 'paused' ? 'paused' : 'active',
+        // 자리(GROMO-2478) — seat 키가 있으면 그 값이 정본(null = 자리 없이 시작). 키가 없는 옛 서버 이벤트는
+        // 같은 세션일 때만 이전 자리를 잇는다 — 새 세션이 이전 세션 완료보다 먼저 와도 옛 좌표를 물려받지 않게
+        seat:
+          p && 'seat' in p
+            ? focusSeat(p.seat)
+            : prev?.sessionId === sessionId
+              ? (prev.seat ?? null)
+              : null,
         anchorMs: Number.isFinite(anchor) ? anchor : this.serverNowMs(),
       });
       const current = this.focusMap.get(userId)!;
@@ -586,18 +599,10 @@ const PERMANENT_MOVEMENT_DENY = new Set([
 ]);
 /** 일시 오류가 이 횟수만큼 쌓이면 그때부터 영구 차단한다 — 무한 재접속·재거절 루프 방지. */
 const MOVEMENT_TRANSIENT_ERROR_LIMIT = 3;
+/** 서버 응원 시도 창(600ms)을 넘기면 ERROR + 연결 종료라 앱이 먼저 거른다(섬·바다 공용, GROMO-2160). */
+export const EMOTE_TRY_MS = 700;
 
-/** events 구독에서는 나올 수 없는 ERROR 코드 — 응원(`NOT_FOCUSING`·`NO_ONE_FOCUSING`·`EMOTE_TOO_FREQUENT`)과 바다 방 전용
- * (`SEA_ENTER_TOO_FREQUENT`·`NOT_IN_SEA_ROOM`·`INVALID_EMOTE_TYPE`). 근거: server/realtime/CLAUDE.md 오류 코드 표(236~241행). */
-const NOT_FROM_EVENTS = new Set([
-  'NOT_FOCUSING',
-  'NO_ONE_FOCUSING',
-  'EMOTE_TOO_FREQUENT',
-  'SEA_ENTER_TOO_FREQUENT',
-  'NOT_IN_SEA_ROOM',
-  'INVALID_EMOTE_TYPE',
-]);
-/** 같은 코드의 events 탓 ERROR 가 이만큼 쌓이면 /events 를 끈다. */
+/** 같은 코드의 events 탓(`channel: events` 헤더) ERROR 가 이만큼 쌓이면 /events 를 끈다 — 추정이 아니라 무한 재접속·재거절 루프의 상한. */
 const EVENTS_STRIKE_LIMIT = 2;
 /** events 구독이 ERROR 없이 이만큼 유지되면 strike 를 비운다. */
 const EVENTS_HEALTHY_MS = 60_000;
@@ -612,6 +617,9 @@ export function stompIslandChannel(opts: IslandChannelOpts): IslandChannel {
   let closed = false;
   let revoked = false; // 세션 폐기 close — reopen(포그라운드 복귀)도 폐기된 토큰으로 되살리지 않는다
   let emoteDenied = false;
+  let emoteTransientErrors = 0; // 접속 사이에 누적 — setEmoteEnabled(true) 로 비운다
+  let emoteErrorCountedSinceConnect = false; // 접속당 1회만 센다 — onConnect 에서 false 로
+  let lastEmoteErrorAt = 0; // 마지막으로 센 응원 ERROR 시각 — 오래 조용했으면 카운트를 새로 시작한다
   let emoteEnabled = opts.emote;
   let emoteSubscription: { unsubscribe(): void } | null = null;
   // 이동 구독이 거절되면 서버가 소켓을 닫고 stompjs 가 5초마다 재접속·재거절한다 — 같은 방식으로 끊는다.
@@ -646,6 +654,7 @@ export function stompIslandChannel(opts: IslandChannelOpts): IslandChannel {
     ...realtimeClientOptions(),
     onConnect: () => {
       emoteSubscription = null;
+      emoteErrorCountedSinceConnect = false;
       movementErrorCountedSinceConnect = false;
       eventsStruckSinceConnect = false;
       if (opts.presence !== false) {
@@ -697,27 +706,38 @@ export function stompIslandChannel(opts: IslandChannelOpts): IslandChannel {
       // Spring 전송 계층 ERROR 라 close 가 따라오고 재접속이 처리한다 — 거절 상태·strike 에 넣거나 토스트하지 않는다.
       // (프레임 파싱 실패처럼 close 없이 오는 Spring ERROR 는 조용히 무시되고 연결이 산다 — stompjs 가 만드는 프레임이라 드물고, 허용한 트레이드오프)
       if (!/^[A-Z][A-Z0-9_]*$/.test(code)) return;
-      // 섬 구독 거절 ERROR 는 어느 채널 탓인지 `channel` 네이티브 헤더로 알려 준다(없으면 아래 종전 분류).
+      // 서버는 섬 events·movement 거절 ERROR 에 어느 채널 탓인지 `channel` 네이티브 헤더(events|movement)를 싣는다.
+      // 응원 거절에는 헤더를 싣지 않는다(구 앱 호환) — 헤더가 없는 ERROR 는 응원 몫이다. 코드로 채널을 추정하지 않는다.
       const channel = str(frame.headers.channel);
       stopEventsHealthyTimer();
-      // 구독이 둘 이상인 접속(이동·응원 + 주민 소식)의 ERROR 가 events 탓인지 가른다.
-      //  - events 에서 나올 수 없는 코드(응원·바다 전용)는 events 와 무관 — events 도 다른 채널 처리도 평소대로.
-      //  - events 와 겹치는 코드(NOT_A_MEMBER·MOVEMENT_TOO_FREQUENT 등)는 어느 구독 탓인지 모른다 — 접속당 1번만 events 탓으로
-      //    치고(strike) 재접속에서 /events 를 다시 구독한다. 같은 코드가 2번 쌓이면 그때 events 를 끈다(화면 재진입까지).
-      //    이 ERROR 는 다른 채널의 거절 상태(emoteDenied·movementDenied·일시 오류 카운트)에 반영하지 않는다.
-      const eventsFault =
-        !!opts.events &&
-        !eventsDenied &&
-        (channel ? channel === 'events' : !NOT_FROM_EVENTS.has(code));
+      // 헤더로 events 탓이 분명한 ERROR 는 접속당 1번만 세고(strike) 재접속에서 /events 를 다시 구독한다. 같은 코드가
+      // EVENTS_STRIKE_LIMIT 번 쌓이면 그때 events 를 끈다(화면 재진입까지) — 무한 재접속·재거절 루프의 상한이다.
+      // 이 ERROR 는 다른 채널의 거절 상태(emoteDenied·movementDenied·일시 오류 카운트)에 반영하지 않는다.
+      const eventsFault = !!opts.events && !eventsDenied && channel === 'events';
       if (eventsFault && !eventsStruckSinceConnect) {
         eventsStruckSinceConnect = true;
         const strikes = (eventsStrikes.get(code) ?? 0) + 1;
         eventsStrikes.set(code, strikes);
         if (strikes >= EVENTS_STRIKE_LIMIT) eventsDenied = true;
       }
-      // channel 헤더로 events·movement 탓이 분명한 ERROR 는 응원 구독에 반영하지 않는다(헤더 없는 ERROR 만 종전 규칙)
-      if (emoteEnabled && !eventsFault && !channel) emoteDenied = true;
-      if (opts.movement && (channel ? channel === 'movement' : !eventsFault)) {
+      // 응원 구독은 «다시 구독해도 같은 답»(NOT_FOCUSING)일 때만 이번 세션 동안 끈다. 그 외(UNAUTHORIZED 포함)는 일시 오류라
+      // 재접속에서 다시 구독하고 접속당 1번 세어 3번째에 끈다(GROMO-2160). EMOTE_TOO_FREQUENT 도 센다 — 서버 시도 창은
+      // userId 단위라 두 기기가 600ms 안에 재접속하면 서로 거절하며 «ERROR → 소켓 종료 → 재접속» 을 되풀이할 수 있어, 세지 않으면
+      // 그 루프의 상한이 사라진다(발신 연타는 위 700ms 앱 거름이 막으므로 이 비용은 두 기기 충돌에서만 든다).
+      // channel 헤더로 events·movement 탓이 분명한 ERROR 는 반영하지 않는다 — 헤더가 없거나 emotes 인 것만 본다.
+      if (emoteEnabled && (!channel || channel === 'emotes')) {
+        if (code === 'NOT_FOCUSING') emoteDenied = true;
+        else if (!emoteErrorCountedSinceConnect) {
+          emoteErrorCountedSinceConnect = true;
+          // 몇 시간 이어지는 집중 중 드문 상류 장애 세 번이 쌓여 응원을 영영 잃지 않게, 오래 조용했으면 카운트를 새로 센다.
+          const now = Date.now();
+          if (now < lastEmoteErrorAt || now - lastEmoteErrorAt > EVENTS_HEALTHY_MS)
+            emoteTransientErrors = 0;
+          lastEmoteErrorAt = now;
+          if (++emoteTransientErrors >= MOVEMENT_TRANSIENT_ERROR_LIMIT) emoteDenied = true;
+        }
+      }
+      if (opts.movement && channel === 'movement') {
         // 코덱스 지적(에픽 PR #1111): 서버 관문은 일시 상류 장애·시도 창 초과(MOVEMENT_TOO_FREQUENT)에도
         // ERROR 프레임을 보낸다 — 멤버 아님·인증 오류만 영구 차단하고, 그 외는 재접속에서 다시 구독하게
         // 두되 상한(3)에 닿으면 그때 차단해 무한 재접속·재거절 루프를 막는다.
@@ -749,7 +769,11 @@ export function stompIslandChannel(opts: IslandChannelOpts): IslandChannel {
       return true;
     },
     setEmoteEnabled: (enabled) => {
-      if (enabled) emoteDenied = false;
+      if (enabled) {
+        emoteDenied = false;
+        emoteTransientErrors = 0;
+        lastEmoteErrorAt = 0;
+      }
       emoteEnabled = enabled;
       if (!enabled) {
         if (client.connected) emoteSubscription?.unsubscribe();
@@ -841,7 +865,8 @@ export function startIslandRealtime(deps: IslandRealtimeDeps): IslandRealtime {
   const arrivalFilter = memberArrivalFilter(islandId, sessionSelfId);
   const projection = new IslandProjection(islandId);
   projection.onVisitorEmote = (emote) => {
-    if (!disposed && alive()) deps.onVisitorEmote?.(emote);
+    // 내가 차단한 방문자의 응원 알림은 띄우지 않는다(GROMO-2470)
+    if (!disposed && alive() && !isUserBlocked(emote.userId)) deps.onVisitorEmote?.(emote);
   };
   let disposed = false;
   let resyncing = false;
@@ -1007,6 +1032,12 @@ export function startIslandRealtime(deps: IslandRealtimeDeps): IslandRealtime {
       hadData = true;
       if (source !== 'event-gap') snapshotVersion = ++nextSnapshotVersion;
       publish('ready', null, source !== 'event-gap' ? transitions : []);
+      if (source === 'reconnect') {
+        void ensureMemberLooks(
+          [...projection.focus(), ...projection.rest()].map((member) => member.userId),
+          true,
+        );
+      }
       if (source !== 'event-gap') {
         for (const transition of transitions) deps.onTransition?.(transition);
       }
@@ -1061,6 +1092,7 @@ export function startIslandRealtime(deps: IslandRealtimeDeps): IslandRealtime {
     }
   };
 
+  let lastEmoteAt = -Infinity;
   const conn = connect({
     islandId,
     emote: !!emoteSessionId || !!deps.visitor,
@@ -1074,7 +1106,10 @@ export function startIslandRealtime(deps: IslandRealtimeDeps): IslandRealtime {
       }
       if ((raw as RealtimeEnvelope | null)?.type === 'member.appearance.updated') {
         const changed = parseAppearanceEvent(raw, islandId);
-        if (changed) deps.onMemberAppearance?.(changed.userId, changed.look);
+        if (changed) {
+          memberLooks.accept(changed.userId, changed.look);
+          deps.onMemberAppearance?.(changed.userId, changed.look);
+        }
         return;
       }
       const golden = parseGoldenFishEvent(raw, islandId);
@@ -1120,10 +1155,15 @@ export function startIslandRealtime(deps: IslandRealtimeDeps): IslandRealtime {
       const sessionId = emoteSessionId;
       if (!EMOTE_TYPES.has(type)) return false;
       if (!sessionId && !deps.visitor) return false;
-      return conn.send(
+      // 연타는 서버 시도 창 전에 앱이 거른다(실패 토스트 없이). 간격이 음수면 시계가 뒤로 갔다 — 막지 말고 보내고 다시 찍는다.
+      const since = Date.now() - lastEmoteAt;
+      if (since >= 0 && since < EMOTE_TRY_MS) return true;
+      const sent = conn.send(
         `/app/islands/${islandId}/focus/emotes`,
         sessionId ? { sessionId, type } : { type },
       );
+      if (sent) lastEmoteAt = Date.now();
+      return sent;
     },
     setEmoteSessionId: (sessionId) => {
       emoteSessionId = sessionId;

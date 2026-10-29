@@ -1,12 +1,16 @@
+import { getAssetRepository } from '@/services/assets/repository';
 import { syncAndroidMeasurement, syncAndroidFocus } from '@/services/androidScreenTime';
 import { startLiveActivityPushSync } from '@/services/liveActivityPush';
 import { updateIOSHomeWidget } from '@/services/iosHomeWidget';
-import { syncFocusShield } from '@/services/focusShield';
+import { shouldReportShieldFailure, syncFocusShield } from '@/services/focusShield';
 import { Text } from '@/design-system/typography';
 import { useAppLayout } from '@/utils/layout';
 import { useRouteOrientation } from '@/utils/orientation';
 import { Btn as NativeButton, Overlay, Txt as NativeText } from '@/design-system/patterns';
-import { CurrentScreens as RedesignScreens } from '@/screens/island/CurrentScreens';
+import {
+  CurrentScreens as RedesignScreens,
+  FocusBlockingIntro,
+} from '@/screens/island/CurrentScreens';
 import React, { useState, useReducer, useEffect, useMemo, useRef } from 'react';
 import {
   View,
@@ -42,7 +46,7 @@ import {
   shouldReconcileExpiredRest,
   syncLiveActivity,
 } from '@/services/liveActivity';
-import { shouldGateScreenTimeBoard } from '@/services/screenTimeFlow';
+import { shouldGateFocusBlockingIntro, shouldGateScreenTimeBoard } from '@/services/screenTimeFlow';
 import { saveAccountGuides } from '@/services/accountGuides';
 import { reconcileTutorial } from '@/services/tutorial';
 import { syncIOSScreenTime } from '@/services/iosScreenTimeSync';
@@ -71,8 +75,6 @@ import { primitiveTokens, semanticTokens } from '@/design-system/tokens';
 import { assets, cat } from '@/constants/assets';
 import { Flag, BoatPortrait, IslandDecor, IslandPreview } from '@/screens/cosmetics/Cosmetics';
 import { IslandDiscovery } from '@/screens/discovery/IslandDiscovery';
-import { IslandHome } from '@/screens/island/IslandHome';
-import { Welcome, SceneHero, RestWorld, Sailing } from '@/screens/world/WorldViews';
 import { FocusSea, clock } from '@/screens/focus/FocusSea';
 import {
   initialState,
@@ -80,6 +82,7 @@ import {
   reducer,
   displayIsland as currentIsland,
   viewIsland,
+  serverHome,
   sessionSeconds,
   questRate,
   canBuild,
@@ -139,6 +142,7 @@ import { createSessionCommands } from '@/services/sessionCommands';
 import { decideBootRoute } from '@/services/islandBoot';
 import { createShieldedRouteTransition } from '@/services/routeTransition';
 import { parseAppDeepLink, subscribeToAppLinks } from '@/services/appDeepLink';
+import { islandErrorMessage } from '@/services/islandErrors';
 import {
   BUILDING_TRANSITION_DURATION_MS,
   BUILDING_TRANSITION_RETURN_TARGET,
@@ -158,6 +162,13 @@ import { adoptSignedInAccount, createMemberConversion } from '@/services/memberC
 import { trackDatadogView } from '@/services/datadog';
 import { PostHogAnalyticsProvider } from '@/services/PostHogAnalyticsProvider';
 import { startSocialAnalytics } from '@/services/socialAnalytics';
+import { startMetaTracking } from '@/services/metaSdk';
+import {
+  refreshPush,
+  requestPushPermission,
+  startPushSync,
+  unregisterPushDevice,
+} from '@/services/push';
 import {
   captureProductEvent,
   identifyPostHogUser,
@@ -176,6 +187,13 @@ import { isDemoMode, isReviewMode } from '@/services/demoMode';
 // 판정 정본은 services/demoMode — 회관·게시판·우체통·posthog 도 같은 함수를 본다
 const REVIEW = isReviewMode();
 const DEMO = isDemoMode();
+// 목업에서 GROMO-2491 앱 차단 안내를 검토하는 진입점. 네이티브는 개발 번들에서만 켠다.
+const FOCUS_BLOCKING_PREVIEW =
+  DEMO &&
+  ((__DEV__ && process.env.EXPO_PUBLIC_FOCUS_BLOCKING_PREVIEW === '1') ||
+    (Platform.OS === 'web' &&
+      typeof window !== 'undefined' &&
+      new URLSearchParams(window.location.search).has('focus-blocking-preview')));
 // 검토·데모 모드 전용 언어 고정(`?review=1&lang=en`) — 저장된 gromo.locale 을 읽지 않는 mock 부팅에서
 // 쓴다. 없으면 'ko' 로 폴백(기존 캡처 스크립트가 한국어 이름을 찾는다), 지원 밖 값은 applyLocalePref 가
 // 이미 'system' 으로 정규화한다.
@@ -240,6 +258,8 @@ const titles: Record<Route, string> = {
   settings: '앱 설정',
   language: '언어',
   blockedUsers: '차단한 사용자',
+  developerNotices: '개발자 공지',
+  developerNotice: '개발자 공지 상세',
   wardrobe: '내 꾸미기',
   sound: '꽃나팔 방송기',
   library: '도서관',
@@ -308,6 +328,34 @@ const DEEP_LINK_HOLD_ROUTES: Route[] = [
   'approval',
   'guide',
 ];
+// 바다 표류 HUD 로 여는 친구·설정·꾸미기와 그 안에서 이어 여는 화면(GROMO-2404) — 계정 단위 화면이라 소속 섬이
+// 없어도 머물고, 닫기는 홈 대신 바다로 간다. 강퇴 복구 신호도 이 화면들은 옮기지 않는다.
+const SEA_HUD_ROUTES: Route[] = [
+  'friends',
+  'friendSearch',
+  'blockedUsers',
+  'developerNotices',
+  'developerNotice',
+  'settings',
+  'mainIsland',
+  'profile',
+  'language',
+  'permission',
+  'screenTimeApps',
+  'wardrobe',
+];
+// 소속 섬이 없어도 머무는 화면 — 로그인·계정 온보딩·섬 고르기·구경, 바다 표류에서 연 망원경(GROMO-2366), 위 HUD 화면.
+const NO_ISLAND_ROUTES: Route[] = [
+  'login',
+  'character',
+  'createIsland',
+  'joinIsland',
+  'approval',
+  'currentIsland',
+  'visit',
+  'telescope',
+  ...SEA_HUD_ROUTES,
+];
 
 function Gromo() {
   const layout = useAppLayout();
@@ -322,7 +370,10 @@ function Gromo() {
     [hasServerSession, setHasServerSession] = useState(
       () => !REVIEW && !DEMO && getSession() !== null,
     ),
-    [route, setRoute] = useState<Route>(DEMO ? 'home' : 'login'),
+    [authGeneration, setAuthGeneration] = useState(sessionGeneration),
+    [route, setRoute] = useState<Route>(
+      FOCUS_BLOCKING_PREVIEW ? 'telescope' : DEMO ? 'home' : 'login',
+    ),
     // 언어 설정 — 바뀌면 이 state 의 재렌더로 화면의 t() 문구가 새 언어로 다시 그려진다.
     [localePref, setLocalePref] = useState<LocalePref>('system'),
     [routeTransitionShielded, setRouteTransitionShielded] = useState(false),
@@ -379,11 +430,23 @@ function Gromo() {
     [previewAudio, setPreviewAudio] = useState(false),
     [failNext, setFailNext] = useState(false),
     [walkRequest, setWalkRequest] = useState<Route | null>(null),
-    [restTravel, setRestTravel] = useState(false),
+    [focusBlockingGate, setFocusBlockingGate] = useState<{
+      route: Route;
+      detail: string;
+      onContinue?: () => void;
+    } | null>(null),
+    [focusBlockingPermissionBusy, setFocusBlockingPermissionBusy] = useState(false),
     [reviewEpoch, setReviewEpoch] = useState(0);
   const guideStep = state.tutorial?.step ?? 0;
   const tutorialOwner = getSession()?.userId;
   const tutorialGeneration = sessionGeneration();
+  const focusBlockingGateRef = useRef(focusBlockingGate);
+  focusBlockingGateRef.current = focusBlockingGate;
+  const focusBlockingRequestInFlight = useRef(false);
+  useEffect(() => {
+    setFocusBlockingGate(null);
+    setFocusBlockingPermissionBusy(false);
+  }, [tutorialOwner, tutorialGeneration]);
   const setGuideStep = (step: number, expected?: { step: number; revision: number }) => {
     if (sessionGeneration() !== tutorialGeneration || getSession()?.userId !== tutorialOwner)
       return;
@@ -396,7 +459,12 @@ function Gromo() {
       return;
     const owner = getSession()?.userId;
     if (step >= 22 && owner && !REVIEW && !DEMO) {
-      void saveAccountGuides(owner, { focusDone: true }).catch(() => notify(t('app.storageCheck')));
+      void saveAccountGuides(owner, {
+        focusDone: true,
+        ...(step === 22 && !current.focusGuideDone
+          ? { focusBlockingIntro: 'pending' as const }
+          : {}),
+      }).catch(() => notify(t('app.storageCheck')));
     }
     dispatch({ type: 'GUIDE_STEP', step, expected });
   };
@@ -423,6 +491,7 @@ function Gromo() {
     setStorageOwnerReady(ready);
   };
   const [incomingAppLink, setIncomingAppLink] = useState<string | null>(null);
+  const [openingInvitation, setOpeningInvitation] = useState(false);
   const socialLoginAttempt = useRef<{
     provider: Provider;
     credential: string;
@@ -510,7 +579,15 @@ function Gromo() {
         !island.nextBuilding &&
         !island.completed),
     record = state.lastResult;
-  const player = useSoundPlayer((message) => notify(message));
+  // 공용 곡 선택과 기기의 실제 재생은 별개다. 축음기를 열어도 집중 밖에서는 듣지 않는다.
+  const islandAudioOn =
+    loaded &&
+    state.session?.status === 'active' &&
+    island.playing &&
+    bundledAudioSource(island.track) !== null &&
+    state.settings.sound &&
+    (state.settings.volume ?? 0.55) > 0;
+  const player = useSoundPlayer((message) => notify(message), islandAudioOn);
   const notify = (s: string) => {
     setToast(s);
     if (toastTimer.current) clearTimeout(toastTimer.current);
@@ -521,16 +598,33 @@ function Gromo() {
     islandId: state.serverIslands?.currentIslandId ?? null,
     dispatch,
   });
-  const performGo = (r: Route, id = '', options: { sessionIsAlreadyPaused?: boolean } = {}) => {
+  const performGo = (
+    r: Route,
+    id = '',
+    options: { sessionIsAlreadyPaused?: boolean; skipFocusBlockingIntro?: boolean } = {},
+  ) => {
     const gateBoard = shouldGateScreenTimeBoard(r, {
       isIOS: Platform.OS === 'ios',
       isAndroid: Platform.OS === 'android',
       promptSeen: !!state.settings.screenTimeBoardPromptSeen,
       visiting: !!state.visitingIslandId,
     });
+    const gateFocusBlocking =
+      !options.skipFocusBlockingIntro &&
+      ((FOCUS_BLOCKING_PREVIEW && r === 'focusTravel') ||
+        shouldGateFocusBlockingIntro(r, {
+          isIOS: Platform.OS === 'ios',
+          promptPending: state.focusBlockingIntro === 'pending',
+          visiting: !!state.visitingIslandId,
+        }));
+    if (gateFocusBlocking) {
+      Keyboard.dismiss();
+      consumeFocusBlockingIntro();
+      setFocusBlockingGate({ route: r, detail: id });
+      return;
+    }
     const nextRoute: Route = gateBoard ? 'permission' : r;
     const nextDetail = gateBoard ? `board-first|${r}|${encodeURIComponent(id)}` : id;
-    if (r === 'rest') setRestTravel(route === 'focus');
     if (r === 'home' || route === 'home') setWalkRequest(null);
     if (r === 'rest' && !options.sessionIsAlreadyPaused && state.session?.status === 'active')
       dispatch({ type: 'PAUSE' });
@@ -542,6 +636,75 @@ function Gromo() {
     setHistory((h) => [...h, { route, detail, tab, text, body }]);
     transitionRoute(nextRoute);
     if (state.settings.haptics && Platform.OS !== 'web') Haptics.selectionAsync().catch(() => {});
+  };
+  const consumeFocusBlockingIntro = () => {
+    dispatch({ type: 'FOCUS_BLOCKING_INTRO_SEEN' });
+    const owner = getSession()?.userId;
+    const generation = sessionGeneration();
+    if (owner && !REVIEW && !DEMO)
+      void saveAccountGuides(owner, { focusBlockingIntro: 'seen' }).catch(() => {
+        if (sessionGeneration() === generation && getSession()?.userId === owner)
+          notify(t('app.storageCheck'));
+      });
+  };
+  const continueFocusBlockingTravel = () => {
+    const pending = focusBlockingGate;
+    if (!pending) return;
+    setFocusBlockingGate(null);
+    if (pending.onContinue) pending.onContinue();
+    else performGo(pending.route, pending.detail, { skipFocusBlockingIntro: true });
+  };
+  const beforeSeaVoyage = (onContinue: () => void) => {
+    if (
+      FOCUS_BLOCKING_PREVIEW ||
+      shouldGateFocusBlockingIntro('focusTravel', {
+        isIOS: Platform.OS === 'ios',
+        promptPending: state.focusBlockingIntro === 'pending',
+        visiting: !!state.visitingIslandId,
+      })
+    ) {
+      Keyboard.dismiss();
+      consumeFocusBlockingIntro();
+      setFocusBlockingGate({ route: 'sea', detail: '', onContinue });
+    } else onContinue();
+  };
+  const requestFocusBlockingPermission = async () => {
+    if (!focusBlockingGate || focusBlockingRequestInFlight.current) return;
+    const gate = focusBlockingGate;
+    const generation = sessionGeneration();
+    const owner = getSession()?.userId;
+    const isCurrent = () =>
+      focusBlockingGateRef.current === gate &&
+      sessionGeneration() === generation &&
+      getSession()?.userId === owner;
+    focusBlockingRequestInFlight.current = true;
+    setFocusBlockingPermissionBusy(true);
+    try {
+      await screenTime.requestAuthorization();
+      if (!isCurrent()) return;
+      const status = await screenTime.getAuthorizationStatus();
+      if (!isCurrent()) return;
+      dispatch({ type: 'SETTING', key: 'permission', value: status === 'approved' });
+      if (status !== 'approved') {
+        notify(t('settings.permissions.errors.grantIos'));
+        return;
+      }
+      // Family Controls 권한창이 완전히 닫힌 다음 picker를 present해야 iOS가 두 번째 시트를 누락하지 않는다.
+      await new Promise<void>((resolve) => setTimeout(resolve, 450));
+      if (!isCurrent()) return;
+      try {
+        await screenTime.presentAllowedAppManager();
+      } catch {
+        if (isCurrent()) notify(t('settings.permissions.errors.allowedChange'));
+        return;
+      }
+      if (isCurrent()) continueFocusBlockingTravel();
+    } catch {
+      if (isCurrent()) notify(t('settings.permissions.errors.requestFailed'));
+    } finally {
+      focusBlockingRequestInFlight.current = false;
+      setFocusBlockingPermissionBusy(false);
+    }
   };
   const go = (r: Route, id = '', onTransitionCancel?: () => void) => {
     const direction =
@@ -633,7 +796,11 @@ function Gromo() {
     const finish = () => {
       setWalkRequest(null);
       setHistory([]);
-      transitionRoute('home');
+      // 바다 표류에서 연 친구·설정·꾸미기의 닫기(GROMO-2404)는 홈이 아니라 연 곳인 바다로 — 소속 섬이 있어도 같다.
+      // 「어디서 열었나」는 기록의 바닥(첫 항목)으로 본다. 기록이 없으면(부팅 복구 등) 섬이 없을 때만 바다다.
+      // state.onboarded 만 보지 않는 이유: 가입 dispatch 직후 같은 핸들러의 home() 은 옛 값을 읽는다.
+      const fromSea = history.length ? seaRouteHeld(history[0].route) : !state.onboarded;
+      transitionRoute(fromSea && SEA_HUD_ROUTES.includes(route) ? 'sea' : 'home');
     };
     const target = BUILDING_TRANSITION_RETURN_TARGET[route];
     if (target) returnToIsland(target, finish);
@@ -654,14 +821,87 @@ function Gromo() {
   routeRef.current = route;
   const goRef = useRef(go);
   goRef.current = go;
+  const resetRef = useRef(reset);
+  resetRef.current = reset;
   const notifyRef = useRef(notify);
   notifyRef.current = notify;
+  // 소비한 링크 번호 — 섬 이동 응답이 늦게 와도 그 사이 더 새 링크를 열었으면 화면을 덮지 않는다.
+  const linkSeq = useRef(0);
+  // 화면 위치(라우트·상세·이동 기록 길이) — 섬 이동 응답을 기다리는 사이 사용자가 직접 옮겼는지 가린다.
+  const navKeyRef = useRef('');
+  navKeyRef.current = `${route}|${detail}|${history.length}`;
+  // 링크가 시작한 섬 이동이 진행 중인 세션 세대(없으면 null — 세대 0 과 구분한다), 그 사이 도착해 REQUEST_IN_PROGRESS 로
+  // 거절된 «가장 최근» 섬 링크 하나. 둘 다 세대를 달아, 이전 세션의 늦은 응답이 새 세션의 값을 건드리지 못하게 한다.
+  const islandsSynced = !!state.serverIslands;
+  const linkSwitching = useRef<number | null>(null);
+  const queuedIslandLink = useRef<{
+    islandId: string;
+    seq: number;
+    navKey: string;
+    generation: number;
+  } | null>(null);
   useEffect(() => subscribeToAppLinks((url) => setIncomingAppLink(url)), []);
   useEffect(() => {
     if (!loaded || !incomingAppLink) return;
     const target = parseAppDeepLink(incomingAppLink);
     if (!target) {
       setIncomingAppLink(null);
+      return;
+    }
+    if (target.kind === 'invitation') {
+      // 초대는 첫 섬 선택을 대신한다. 계정 준비와 진행 중 집중만 끝나기를 기다린다.
+      if (
+        !hasServerSession ||
+        !islandsSynced ||
+        fireTransition.phase !== 'idle' ||
+        ['login', 'character', 'guide'].includes(route) ||
+        (route === 'home' && !!state.tutorial && state.tutorial.step <= 3) ||
+        state.session ||
+        openingInvitation
+      )
+        return;
+      setIncomingAppLink(null);
+      setOpeningInvitation(true);
+      const gen = sessionGeneration();
+      const seq = ++linkSeq.current;
+      const nav = navKeyRef.current;
+      const latest = () =>
+        gen === sessionGeneration() && seq === linkSeq.current && nav === navKeyRef.current;
+      void (async () => {
+        try {
+          const commands = islandCmds.current!.commands;
+          const island = await commands.resolveInvite(target.code, { arrive: true });
+          if (!latest()) return;
+          // 초대 해석 직후의 서버 상태를 쓴다. 로컬 소속·현재 섬은 다른 기기의 변경보다 늦을 수 있다.
+          if (island.membershipStatus === 'active') {
+            await commands.switchCurrent(island.id);
+          } else {
+            const result = await commands.join(island.id, { showApproval: false });
+            if (!latest()) {
+              if (gen === sessionGeneration())
+                notifyRef.current(
+                  result.status === 'pending'
+                    ? '초대받은 섬에 가입을 신청했어요.'
+                    : '초대받은 섬에 합류했어요.',
+                );
+              return;
+            }
+            if (result.status === 'pending') {
+              if (stateRef.current.visitingIslandId) dispatch({ type: 'END_VISIT' });
+              resetRef.current('approval', island.id);
+              return;
+            }
+          }
+          if (latest()) {
+            if (stateRef.current.visitingIslandId) dispatch({ type: 'END_VISIT' });
+            resetRef.current('home');
+          }
+        } catch (error) {
+          if (latest()) notifyRef.current(islandErrorMessage(error));
+        } finally {
+          setOpeningInvitation(false);
+        }
+      })();
       return;
     }
     // 앱 부팅 전이나 로그인 중 받은 링크는 보관했다가 세션이 준비된 뒤에만 연다.
@@ -673,22 +913,119 @@ function Gromo() {
     // 지원하지 않는 초대·그룹 링크도 같은 guard 뒤에서 홈 이동과 안내를 함께 처리한다.
     // 첫 안내 초반(3단계 이하)의 홈은 튜토리얼 effect 가 같은 렌더에서 guide 로 되돌린다. 여기서 링크를
     // 소비하면 목적지 이동이 덮여 링크가 사라지므로 안내 화면과 같이 보관한다.
+    // 현재 섬 유무(state.onboarded)는 계정 온보딩과 별개다 — 계정 온보딩(character)은 위 보관 화면이 이미 막는다.
+    // 호 읽기는 소속 섬이 없는 바다에서도 열려서(seaMagazine) 현재 섬을 요구하지 않는다. 그 밖의 링크는 현재 섬이 있어야 한다
+    // (섬 이동은 첫 섬 안내 대기(awaiting-first-island)를 건너뛰지 않게 onboarded 로 막는다).
+    // 다만 잡지는 섬/바다를 serverIslands 로 가르므로 섬 동기화(ISLAND_SYNC)를 한 번이라도 마친 뒤에 연다. 부팅(decideBootRoute)과
+    // 로그인 채택(navigate)은 동기화 뒤에 loaded·화면 이동을 하니 성공하면 항상 채워져 있다 — 비는 것은 동기화가 실패한 경우뿐이다.
     const tutorialForcesGuide = route === 'home' && !!state.tutorial && state.tutorial.step <= 3;
+    // 건물·휴식 전환 애니메이션이 도는 동안에도 보관한다 — 끝날 때 부르는 navigate 가 링크 목적지를 덮는다.
+    // 전환을 취소하지 않고, 끝나면(phase idle) 이 effect 가 다시 돌아 그때 연다.
     if (
       !hasServerSession ||
-      !state.onboarded ||
+      (target.kind === 'magazine' ? !islandsSynced : !state.onboarded) ||
       DEEP_LINK_HOLD_ROUTES.includes(route) ||
-      tutorialForcesGuide
+      tutorialForcesGuide ||
+      fireTransition.phase !== 'idle'
     )
       return;
     setIncomingAppLink(null);
+    const seq = ++linkSeq.current;
+    // 서버 섬 구경 중에는 SERVER_VISIT_ROUTES 만 열려 홈·잡지·친구가 «주민만 이용할 수 있어요» 로 막힌다.
+    // 구경을 먼저 끝내고(END_VISIT + reset — endServerVisit·뒤로가기와 같은 짝) 연다. reset 은 구경 화면 기록도 비운다.
+    const open = (r: Route, id = '', clearHistory = false) => {
+      const visiting = !!stateRef.current.visitingIslandId;
+      if (visiting) dispatch({ type: 'END_VISIT' });
+      if (visiting || clearHistory) resetRef.current(r, id);
+      else goRef.current(r, id);
+    };
     if (target.kind === 'unsupported') {
-      goRef.current('home');
+      open('home');
       notifyRef.current(t('app.linkUnsupported'));
       return;
     }
-    goRef.current(target.route);
-  }, [loaded, incomingAppLink, hasServerSession, state.onboarded, state.tutorial, route]);
+    if (target.kind === 'magazine') {
+      // 소속 섬이 있으면 섬에서, 없으면 바다에서 펼친다(둘 다 호가 없으면 리더가 «사라진 호»로 안내한다).
+      open(
+        stateRef.current.serverIslands?.currentIslandId ? 'magazine' : 'seaMagazine',
+        target.issueId,
+      );
+      return;
+    }
+    if (target.kind === 'island') {
+      // 불변식: 보관(queuedIslandLink)은 followsAnother — 같은 세대의 링크 전환이 아직 진행 중일 때 — 에만 일어난다. 보관분을
+      // 다시 열 때는 앞선 전환이 끝나 linkSwitching 이 비었으니 followsAnother=false 라 다시 보관되지 않는다(무한 재시도 없음).
+      // 재개가 가능한 전제: islandCommands.ts 의 selection 잠금이 finally 에서 풀린 뒤에야 switchCurrent 가 resolve/reject 한다.
+      const openIsland = (islandId: string, order: number, navKey: string) => {
+        const unavailable = () => {
+          open('home');
+          notifyRef.current(t('app.linkIslandUnavailable'));
+        };
+        // 소속 여부는 로컬 스냅샷이 아니라 서버가 판정한다 — 다른 기기에서 방금 가입·승인된 섬일 수 있다. 소속이 아니면 서버 거절이
+        // 아래 실패 경로로 같은 안내를 낸다. 캐시가 «이미 현재 섬» 이어도 서버에 확인한다(다른 기기에서 바꿨을 수 있고, 같은 섬 PUT 은
+        // 멱등 200 상태확인이며 집중 세션 가드도 걸지 않는다 — IslandMembershipService.switchCurrentIsland).
+        // 다른 섬으로 옮기는데 집중 중이면(섬 고르기의 sessionBlocksMove 와 같은 규칙) 보내지 않는다.
+        if (
+          stateRef.current.session &&
+          islandId !== stateRef.current.serverIslands?.currentIslandId
+        )
+          return unavailable();
+        const generation = sessionGeneration();
+        // 응답 전에 더 새 링크를 열었거나(번호 변경) 사용자가 직접 다른 화면으로 옮겼으면(위치 변경) 화면을 건드리지 않는다.
+        // 이동을 막지는 않는다. 계정이 바뀐(세대 변경) 응답은 settle 맨 앞에서 통째로 버린다.
+        const latest = () => linkSeq.current === order && navKeyRef.current === navKey;
+        const followsAnother = linkSwitching.current === generation;
+        linkSwitching.current = generation;
+        const settle = (ok: boolean, thrown?: unknown) => {
+          // 이전 세션의 늦은 응답은 새 세션의 진행 표시·보관 링크를 지우지 않는다.
+          if (sessionGeneration() !== generation) return;
+          if (
+            !ok &&
+            followsAnother &&
+            (thrown as { code?: string } | undefined)?.code === 'REQUEST_IN_PROGRESS'
+          ) {
+            // 앞선 링크의 섬 이동이 아직 끝나지 않았다 — 가장 최근 목적지 하나만 보관했다가 그 이동이 끝나면 다시 연다.
+            if (linkSeq.current === order)
+              queuedIslandLink.current = { islandId, seq: order, navKey, generation };
+            return;
+          }
+          linkSwitching.current = null;
+          // 옮긴 뒤 홈으로 — 섬 고르기(ServerIslandPicker)와 같다. 실패(소속 변동·네트워크)도 같은 안내로 홈에 둔다.
+          if (latest()) {
+            if (ok) open('home', '', true);
+            else unavailable();
+          }
+          const queued = queuedIslandLink.current;
+          queuedIslandLink.current = null;
+          if (
+            queued &&
+            queued.generation === generation &&
+            queued.seq === linkSeq.current &&
+            queued.navKey === navKeyRef.current
+          )
+            openIsland(queued.islandId, queued.seq, queued.navKey);
+        };
+        islandCmds.current!.commands.switchCurrent(islandId).then(
+          () => settle(true),
+          (thrown) => settle(false, thrown),
+        );
+      };
+      openIsland(target.islandId, seq, navKeyRef.current);
+      return;
+    }
+    open(target.route);
+  }, [
+    loaded,
+    incomingAppLink,
+    hasServerSession,
+    state.onboarded,
+    islandsSynced,
+    state.tutorial,
+    route,
+    fireTransition.phase,
+    openingInvitation,
+    state.session,
+  ]);
   const islandCmds = useRef<ReturnType<typeof createIslandCommands> | null>(null);
   islandCmds.current ??= createIslandCommands({
     dispatch,
@@ -765,6 +1102,8 @@ function Gromo() {
       'product',
       'orders',
       'sound',
+      // 잡지 배경이 섬 홈이고 섬장만 끝 쪽 안내를 본다 — 링크로 바로 열어도 홈 스냅샷을 받아야 한다. 바다 잡지(seaMagazine)는 홈이 없다.
+      'magazine',
     ].includes(route);
   const buildingIndicators = useBuildingIndicators({
     active: !!serverCurrent,
@@ -1310,6 +1649,7 @@ function Gromo() {
     }
     return subscribeSession((session) => {
       const generation = sessionGeneration();
+      setAuthGeneration(generation);
       if (generation !== socialAttemptGeneration.current) {
         const transition = conversionSessionTransition.current;
         const expectedConversionTransition =
@@ -1357,11 +1697,77 @@ function Gromo() {
       else resetPostHogUser();
     });
     const stopSocialAnalytics = startSocialAnalytics();
+    const stopMetaTracking = startMetaTracking();
+    // 푸시 등록·수신·탭(GROMO-2525) — iOS 이고 FCM 브리지가 든 바이너리에서만 돈다.
+    const stopPushSync = startPushSync(() => stateRef.current.settings.notifications !== false);
     return () => {
+      stopPushSync();
       stopSocialAnalytics();
+      stopMetaTracking();
       unsubscribe();
     };
   }, [loaded]);
+  // 설정 「알림」이 바뀌면 바로 맞춘다 — 끄면 FCM 토큰을 지워야 OS 가 띄우는 백그라운드 푸시도 멈춘다. 렌더 뒤
+  // effect 라 동기화가 읽는 stateRef 는 이미 새 값이고, 동기화가 돌기 전(첫 렌더·부팅 LOAD)에는 아무 일도 하지 않는다.
+  useEffect(() => {
+    refreshPush();
+  }, [state.settings.notifications]);
+  // 화면 전환 덮개(경로 전환 방패·건물·불 전환)가 앱 내용을 덮는 동안이다 — 접근성 트리에서도 내용을 숨기는 그 조건이다.
+  const appContentHidden =
+    !!focusBlockingGate ||
+    routeTransitionShielded ||
+    buildingRouteCovered ||
+    buildingTransitionActive ||
+    fireTransition.phase !== 'idle';
+  // 알림 권한(GROMO-2526) — 섬 홈이 실제로 그려진 뒤 시스템 팝업으로 한 번 묻는다: 서버 홈 스냅샷이 현재 섬 것으로 적용되고
+  // 오류가 없을 때다. 그 전에는 홈 자리에 로딩·오류 화면이 떠 있어 그 위로 팝업이 뜨고 한 번뿐인 기회가 쓰인다. 전환 덮개도
+  // 걷힌 뒤여야 한다 — 방패(350ms)는 화면 전환 직후의 터치가 새 화면에 닿지 않게 막는데, 시스템 팝업은 그 바깥이라 그 터치를 받는다.
+  // 아직 안 물음일 때만 팝업이 뜨므로 「물어봤음」을 저장하지 않고, ref 는 같은 실행에서 헛된 조회를 줄일 뿐이다. 소속 섬 없이
+  // 바다에 있으면(route 가 home 이 아님) 묻지 않는다 — 설정 「알림」 토글로 켠다. 튜토리얼은 끝난 뒤(step 22 이상)부터다:
+  // state.tutorial 은 끝난 뒤에도 남는다. 권한을 읽는 사이 이 조건이 사라질 수 있다(홈을 떠남·로그아웃) — 조건 전체를 렌더마다
+  // ref 에 두고, requestPushPermission 이 팝업 직전에 다시 본다(shouldAsk).
+  const pushAsked = useRef(false);
+  const inTutorial = !!state.tutorial && state.tutorial.step < 22;
+  const islandHomeShown = !homeError && !!serverHome(state);
+  // 앱이 앞에 있는가('active' 만 앞이다) — 백그라운드에서는 시스템 팝업을 사용자가 못 본다. 앞/뒤를 조건에 넣어, 돌아올 때 effect 가
+  // 다시 돌아 되돌려진(error) 한 번뿐인 기회를 다시 쓰게 한다. 팝업이 떠 있는 동안은 'inactive' 지만, shouldAsk 는 팝업 직전에 보고
+  // 요청이 도는 동안은 pushAsked 가 참이라 다시 묻지 않는다.
+  const [appActive, setAppActive] = useState(AppState.currentState === 'active');
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (next) =>
+      setAppActive(next === 'active'),
+    );
+    return () => subscription.remove();
+  }, []);
+  useEffect(() => {
+    if (appActive)
+      void getAssetRepository()
+        ?.onForeground()
+        .catch(() => {});
+  }, [appActive]);
+  const pushPromptReady =
+    loaded &&
+    !REVIEW &&
+    !DEMO &&
+    route === 'home' &&
+    hasServerSession &&
+    !inTutorial &&
+    islandHomeShown &&
+    !appContentHidden &&
+    appActive &&
+    state.settings.notifications !== false;
+  const pushPromptReadyRef = useRef(pushPromptReady);
+  pushPromptReadyRef.current = pushPromptReady;
+  useEffect(() => {
+    if (pushAsked.current || !pushPromptReady) return;
+    pushAsked.current = true;
+    void requestPushPermission(() => pushPromptReadyRef.current).then((permission) => {
+      // 못 물었으면 이 실행의 한 번뿐인 기회를 쓰지 않는다 — 다음 홈 진입에서 다시 묻는다: 네이티브가 일시적으로 실패했거나
+      // ('error'), 브리지가 없거나('unavailable'), 읽는 사이 조건이 사라져 팝업을 막았다('undetermined' 그대로).
+      if (permission === 'error' || permission === 'unavailable' || permission === 'undetermined')
+        pushAsked.current = false;
+    });
+  }, [pushPromptReady]);
   useEffect(() => {
     if (loaded && !REVIEW && !DEMO) trackPostHogScreen(route);
   }, [loaded, route]);
@@ -1377,6 +1783,8 @@ function Gromo() {
       setConvUi(null);
       setTerms(false);
       settleSwitch(false);
+      // 보관 중이던 링크는 끝난 세션의 것이다 — 다음 로그인에서 열지 않는다.
+      setIncomingAppLink(null);
       dispatch({ type: 'LOGOUT' });
       void endLiveActivities().catch(() => {});
       reset('login');
@@ -1567,6 +1975,12 @@ function Gromo() {
       .catch(() => notify(t('app.restoreFailed')))
       .finally(() => setLoaded(true));
   }, []);
+  useEffect(() => {
+    if (!loaded || !FOCUS_BLOCKING_PREVIEW) return;
+    setRoute('telescope');
+    setDetail('');
+    setFocusBlockingGate(null);
+  }, [loaded]);
   const kickedDestination =
     ['visit', 'travel'].includes(route) &&
     state.islands.some((candidate) => candidate.id === (detail || visited) && candidate.kicked);
@@ -1578,6 +1992,12 @@ function Gromo() {
       return;
     }
     if (state.membershipRecovery || kickedDestination) {
+      // 계정 단위 화면(친구·설정·꾸미기)은 강퇴로 섬이 사라져도 그대로 둔다 — 강퇴 안내만 뜨고, 닫기·뒤로가기 때
+      // 아래 평소 검사가 바다로 보낸다. 강퇴된 섬을 보는 방문·항해 화면은 그대로 옮긴다.
+      if (!kickedDestination && SEA_HUD_ROUTES.includes(route)) {
+        dispatch({ type: 'MEMBERSHIP_RECOVERY_HANDLED' });
+        return;
+      }
       setModal(null);
       setWalkRequest(null);
       setVisited(state.onboarded ? state.islandId : '');
@@ -1588,20 +2008,7 @@ function Gromo() {
     if (state.onboarded) return;
     // 소속 없이 구경 중(바다 도착 뒤 등) — 방문이 끝나면(visitingIslandId 해제) 평소 검사가 다시 돈다
     if (visitRouteHeld(route, state.visitingIslandId)) return;
-    if (
-      [
-        'login',
-        'character',
-        'createIsland',
-        'joinIsland',
-        'approval',
-        'currentIsland',
-        'visit',
-        // 바다 표류에서 연 망원경(GROMO-2366) — 섬이 없어도 여기서 갈 섬을 고른다
-        'telescope',
-      ].includes(route)
-    )
-      return;
+    if (NO_ISLAND_ROUTES.includes(route)) return;
     // 마지막 소속에서 강퇴되거나 동기화 결과 소속이 0개가 되면 이전 화면 기록까지 지운다.
     // 현재 섬이 없으면 이야기 이력·소속 상실 사유와 관계없이 바다로 보낸다.
     reset('sea');
@@ -1830,31 +2237,80 @@ function Gromo() {
       subscription.remove();
     };
   }, [loaded, hasServerSession, storageOwnerReady]);
+  const focusShieldOwner = getSession()?.userId;
   useEffect(() => {
     if (!loaded || !storageOwnerReady || (Platform.OS !== 'ios' && Platform.OS !== 'android'))
       return;
-    const sync = () => {
-      const session = hasServerSession ? stateRef.current.session : null;
-      void (
-        Platform.OS === 'android'
-          ? syncAndroidFocus(session, stateRef.current.color, true)
-          : syncFocusShield(session, stateRef.current.color, true)
-      )
-        .then((applied) => {
-          if (!applied && session?.status === 'active')
-            notify('앱 차단을 적용하지 못했어요. 스크린타임 권한을 확인해 주세요.');
-        })
-        .catch(() => notify('앱 차단 상태를 변경하지 못했어요. 다시 확인해 주세요.'));
+    let active = true;
+    let foreground = AppState.currentState === 'active';
+    let request = 0;
+    let retryDelay = 2000;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    // 같은 사용자 ID의 회원 전환도 이전 재시도를 정리하고 새 인증 세대로 동기화한다.
+    const generation = authGeneration;
+    const current = () =>
+      active && generation === sessionGeneration() && focusShieldOwner === getSession()?.userId;
+    const clearRetry = () => {
+      clearTimeout(retryTimer);
+      retryTimer = undefined;
     };
-    sync();
+    const retry = () => {
+      if (!current() || !foreground || !hasServerSession || Platform.OS !== 'ios') return;
+      clearRetry();
+      retryTimer = setTimeout(() => {
+        retryTimer = undefined;
+        void sync(false);
+      }, retryDelay);
+      retryDelay = Math.min(retryDelay * 2, 30000);
+    };
+    const sync = async (reportFailure = true) => {
+      if (!current()) return;
+      const sequence = ++request;
+      const latest = () => current() && sequence === request;
+      clearRetry();
+      const session = hasServerSession ? stateRef.current.session : null;
+      try {
+        const applied = await (Platform.OS === 'android'
+          ? syncAndroidFocus(session, stateRef.current.color, true)
+          : syncFocusShield(session, stateRef.current.color, true, latest));
+        if (!latest()) return;
+        if (applied) {
+          retryDelay = 2000;
+          return;
+        }
+        if (
+          reportFailure &&
+          session?.status === 'active' &&
+          (await shouldReportShieldFailure()) &&
+          latest()
+        )
+          notify('앱 차단을 적용하지 못했어요. 스크린타임 권한을 확인해 주세요.');
+        if (latest()) retry();
+      } catch {
+        if (!latest()) return;
+        if (reportFailure && (await shouldReportShieldFailure()) && latest())
+          notify('앱 차단 상태를 변경하지 못했어요. 다시 확인해 주세요.');
+        if (latest()) retry();
+      }
+    };
+    void sync();
     const subscription = AppState.addEventListener('change', (next) => {
-      if (next === 'active') sync();
+      foreground = next === 'active';
+      if (foreground) void sync();
+      else clearRetry();
     });
-    return () => subscription.remove();
+    return () => {
+      active = false;
+      clearRetry();
+      subscription.remove();
+    };
   }, [
     loaded,
     storageOwnerReady,
     hasServerSession,
+    authGeneration,
+    focusShieldOwner,
+    state.settings.permission,
     state.session?.id,
     state.session?.version,
     state.session?.status,
@@ -1951,6 +2407,10 @@ function Gromo() {
     // 열린 확인창·진행 중인 건물 전환·화면이 건 뒤로 가기(backOverride)를 방문 분기보다 먼저 본다 — back() 의 앞 세
     // 검사와 같은 순서다. 그래서 방문 화면에서도 확인창이나 팝업이 END_VISIT 보다 먼저 닫히고, 집중→휴식 전환 취소처럼
     // override 보다 전환 취소가 앞서던 기존 순서도 그대로다(back() 는 그대로 둔다).
+    if (focusBlockingGate) {
+      if (!focusBlockingPermissionBusy) setFocusBlockingGate(null);
+      return true;
+    }
     if (modal) {
       setModal(null);
       return true;
@@ -1987,9 +2447,15 @@ function Gromo() {
       hardwareBack.current(),
     );
     return () => subscription.remove();
-  }, [history, route, modal, state.visitingIslandId, island.id]);
-  // 섬 음악은 집중 중이거나 축음기 시트를 보고 있을 때 들린다. 시트를 떠나면 집중 중이 아닐 때 멈춘다
-  const islandAudioOn = island.playing && (state.session?.status === 'active' || route === 'sound');
+  }, [
+    history,
+    route,
+    modal,
+    focusBlockingGate,
+    focusBlockingPermissionBusy,
+    state.visitingIslandId,
+    island.id,
+  ]);
   const islandAudioOnRef = useRef(islandAudioOn);
   islandAudioOnRef.current = islandAudioOn;
   // 곡 로드는 곡·섬이 바뀔 때만 한다. 재생/정지는 아래 volume effect가 islandAudioOn으로 따로 다루므로
@@ -2026,8 +2492,8 @@ function Gromo() {
     } catch {}
   }, [island.id, island.playbackReset]);
   useEffect(() => {
-    if (route !== 'product') setPreviewAudio(false);
-  }, [route]);
+    if (route !== 'product' || !islandAudioOn) setPreviewAudio(false);
+  }, [route, islandAudioOn]);
   // GROMO-1839 시작·가입 화면만 세로로 고정하고 나머지는 기기 방향을 따른다
   useRouteOrientation(route);
   useEffect(() => {
@@ -2069,7 +2535,6 @@ function Gromo() {
         setTab(opts.tab || '');
         setText(opts.text || '');
         setBody(opts.body || '');
-        setRestTravel(!!opts.travel);
         // LOAD로 받은 진행도를 보존한다. 안내 단계는 명시한 검수 화면에서만 바꾼다.
         if (opts.guideStep !== undefined) setGuideStep(opts.guideStep);
         setFailNext(!!opts.failNext);
@@ -2135,10 +2600,14 @@ function Gromo() {
     setConvUi(null);
     setTerms(false);
     settleSwitch(false);
+    // 보관 중이던 링크는 떠나는 세션의 것이다 — 다음 로그인에서 열지 않는다.
+    setIncomingAppLink(null);
     void endLiveActivities().catch(() => {});
     // 안드로이드 홈 위젯을 비운다 — 로그아웃 뒤에도 런처에 이전 계정의 공부시간이 남지 않게(1.x 로그아웃과
     // 같은 처리). 탈퇴 완료도 이 경로를 지난다. best-effort 라 로그아웃을 막지 않는다.
     void clearStudyWidget();
+    // 푸시 기기 삭제는 logout 이 세션을 지우기 전에 시작한다 — 요청이 첫 await 전에 지금 AT 를 싣는다(GROMO-2525).
+    unregisterPushDevice();
     // 확인한 준비 결과를 실제 정리에 넘긴다 — logout 이 다시 준비하면 그 실패는 여기서 못 본다.
     logout(preparation).catch(() => {});
     return true;
@@ -2205,7 +2674,6 @@ function Gromo() {
           walkTo,
           newQuest,
           walkRequest,
-          restTravel,
           windowStart,
           setWindowStart,
           windowEnd,
@@ -2238,6 +2706,8 @@ function Gromo() {
           // 언어 화면은 e.setLocalePref(applyLocalePref(pref)) 로 바꾼다.
           localePref,
           setLocalePref,
+          beforeSeaVoyage,
+          focusBlockingIntroPreview: FOCUS_BLOCKING_PREVIEW,
         }}
       />
     );
@@ -2260,11 +2730,6 @@ function Gromo() {
         <T>{t('account.loadingIsland')}</T>
       </SafeAreaView>
     );
-  const appContentHidden =
-    routeTransitionShielded ||
-    buildingRouteCovered ||
-    buildingTransitionActive ||
-    fireTransition.phase !== 'idle';
   return (
     <MotionContext.Provider value={state.settings.reduceMotion}>
       <SafeAreaView edges={[]} style={[S.page, { backgroundColor: C.cream }]}>
@@ -2295,6 +2760,22 @@ function Gromo() {
             {render()}
           </Animated.View>
         </KeyboardAvoidingView>
+        {focusBlockingGate && (
+          <FocusBlockingIntro
+            e={{
+              onClose: () => {
+                if (!focusBlockingPermissionBusy) setFocusBlockingGate(null);
+              },
+              onLater: () => {
+                if (!focusBlockingPermissionBusy) continueFocusBlockingTravel();
+              },
+              onAllow: () => {
+                void requestFocusBlockingPermission();
+              },
+              busy: focusBlockingPermissionBusy,
+            }}
+          />
+        )}
         <RouteTransitionShield
           visible={routeTransitionShielded || buildingRouteCovered}
           coverLoading={buildingRouteCovered}
@@ -2375,7 +2856,6 @@ function Gromo() {
                 </NativeText>
                 {/* 한국어 문장은 단어 단위로 줄바꿈(시안 .dlg .body word-break:keep-all) */}
                 <NativeText
-                  lineBreakStrategyIOS="hangul-word"
                   style={[
                     { color: C.muted },
                     Platform.OS === 'web' && ({ wordBreak: 'keep-all' } as any),
@@ -2461,7 +2941,6 @@ function Gromo() {
                     {t('account.guest.title')}
                   </NativeText>
                   <NativeText
-                    lineBreakStrategyIOS="hangul-word"
                     style={[
                       { color: C.muted },
                       Platform.OS === 'web' && ({ wordBreak: 'keep-all' } as any),
@@ -2563,7 +3042,6 @@ function Gromo() {
                   {t('account.switch.title')}
                 </NativeText>
                 <NativeText
-                  lineBreakStrategyIOS="hangul-word"
                   style={[
                     { color: C.muted },
                     Platform.OS === 'web' && ({ wordBreak: 'keep-all' } as any),

@@ -126,6 +126,8 @@
 
 모든 경로 islandId는 UUID36, 인증은 서버가 검증한 활성 사용자다. 앱의 X-User-Id·session·generation 값을 그대로 신뢰하지 않는다. Business가 검증한 주체와 내부 서비스 인증만 전달하고 Data는 TX 안에서 현재 사용자·세션·소속·섬 종료 상태를 다시 검사한다. 모든 조회도 일관된 스냅샷에서 현재 소속과 시설/잔액/정책을 읽는다. 요청에 사용자 ID, 가격, 잔액, 완료 상태를 받지 않는다.
 
+구현(GROMO-2207): Business는 세 라우트 모두 서명된 AT의 sid·gen을 `X-Session-Id`·`X-Auth-Generation` 헤더로 싣고, Data 내부 라우트는 두 헤더를 필수로 받는다(없으면 400). 앱이 보낸 같은 이름의 헤더는 상류로 복사하지 않는다. Data의 폐기 판정 403 `SESSION_NOT_ACTIVE`는 공개 401 `UNAUTHORIZED`로 옮긴다.
+
 | API | request | data |
 | --- | --- | --- |
 | GET options | query/body 없음 | islandVersion, **costPolicyVersion**, selectedBuildingId nullable, villagePoints, **walletVersion**, items[] |
@@ -186,9 +188,10 @@ Data 커밋 뒤 응답 변환 실패 등으로500을 받으면 실패가 미차�
 
 논리 저장 단위는 섬 시설(섬+buildingId 유일, 완료 시각), 섬 목표/공개 island version, 불변 비용 revision과 publication, 초기 집중 기여 진행량, 공동 지갑/원장, 전체 외양 projection이다. 물리 테이블·Flyway 번호·DBML 컬럼은 구현 조정자가 배정한다. 기존 공통 PublicCommandService/receipt와 outbox를 재사용하며 별도 receipt/outbox 테이블을 발명하지 않는다.
 
-잠금 순서는 PR743/742와 합류한다: 영향 사용자 UUID 정렬 lifecycle → receipt 선점 → 섬/현재 membership/context → 필요한 집중/시설 → 정책 publication/불변 자산 → 지갑(ownerType/id/currency 정렬) → 외양/각 projection. 건설은 없는 단계를 건너뛴다. 강퇴/탈퇴/집중 종료 writer도 같은 순서다. 그룹 잠금 뒤 새 사용자 잠금을 역순으로 잡아야 하면 TX를 다시 시작한다.
+잠금 순서는 PR743/742와 합류한다: 영향 사용자 UUID 정렬 lifecycle → receipt 선점 → 섬/현재 membership/context → 필요한 집중/시설 → 정책 publication/불변 자산 → 지갑(ownerType/id/currency 정렬) → 외양/각 projection. 건설은 없는 단계를 건너뛴다. 강퇴/탈퇴/집중 종료 writer도 같은 순서다. 그룹 잠금 뒤 새 사용자 잠금을 역순으로 잡아야 하면 TX를 다시 시작한다. 건설 명령(GROMO-2207)은 이 순서 앞에 users → auth_sessions(세션 행) 두 단계가 붙는다 — 로그아웃과 같은 순서이고, 건설 쪽에서 이 둘을 역순으로 잡는 경로는 없다.
 
 1. 검증 사용자·session/generation·활성 소속·섬 활성 및 승인된 실행 권한을 TX에서 검사한다. 동일 키 결과가 있으면 현재 권한을 확인하고 재생한다.
+   구현(GROMO-2207): session/generation은 internal(L10) 관문 `InternalIslandConstructionService`가 users 행을 FOR UPDATE로 잠근 뒤(로그아웃과 같은 순서) receipt 재생보다 먼저 검사하고, 같은 TX에서 건설 서비스를 부른다 — 폐기된 세션은 성공 receipt를 받지 못한다. 건설(L6)은 auth(L8)를 참조할 수 없어 검사가 관문에 있다. GET options는 행 잠금이 필요한 세션 검사를 짧은 쓰기 TX로 먼저 끝내고 조회는 기존 읽기 전용 REPEATABLE READ TX에서 따로 한다. 두 TX 사이의 로그아웃은 조회라 상태를 바꾸지 않는다.
 2. 새 명령은 expectedVersion과 가격 expectedCostPolicyVersion을 현재 publication과 비교한다. 시설 완료 유일성·선행 조건을 검사한다.
 3. 게시판 이후 건설은 island/village_points의 충분한 잔액을 잠근 뒤 원장 debit와 잔액 갱신을 수행한다. 개인 fish를 대신 차감하거나 다른 서비스 TX로 보내지 않는다.
 4. 동일 완공 primitive로 시설, 승인된 목표 후처리, island version, 새 기본 테마를 포함한 전체 외양 및 appearance version을 저장한다. 초기 건설도 이 primitive를 쓴다. ~~개인/기여 분배는 FR-D02 승인 전 구현 활성화 금지다.~~ FR-D02 는 D6 로 폐기됐다 — 분배 축이 없고, 완공 트리거(P-D02 잔여)·n빵 정산(P-D04) 확정 전 활성화 금지다.

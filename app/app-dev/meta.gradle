@@ -1,0 +1,26 @@
+// App Secret이 아닌 앱에 포함할 Client Token만 읽는다.
+def metaProcessBuilder = new ProcessBuilder("node", "scripts/meta-build-config.cjs")
+    .directory(rootProject.projectDir.parentFile)
+metaProcessBuilder.environment().clear()
+metaProcessBuilder.environment().putAll(System.getenv())
+def metaProcess = metaProcessBuilder.start()
+def metaOutput = metaProcess.inputStream.text
+def metaError = metaProcess.errorStream.text
+if (metaProcess.waitFor() != 0) {
+    throw new GradleException("Meta 빌드 설정을 읽지 못했습니다: " +
+        metaError.replaceAll(/[a-fA-F0-9]{32}/, "[REDACTED]"))
+}
+def metaConfig = new groovy.json.JsonSlurper().parseText(metaOutput)
+def metaConfigured = !metaConfig.clientToken.isEmpty()
+
+android.defaultConfig {
+    resValue "string", "facebook_client_token", metaConfig.clientToken
+    manifestPlaceholders += [metaSdkEnabled: metaConfigured.toString()]
+}
+android.buildTypes.debug {
+    // 개발 앱의 자동 설치·실행 이벤트는 명시적으로 허용한 경우에만 전송한다.
+    manifestPlaceholders += [metaSdkEnabled: (metaConfigured && metaConfig.devEnabled).toString()]
+}
+if (!metaConfigured) {
+    logger.lifecycle("Meta: META_CLIENT_TOKEN 미설정 — SDK 초기화·자동 이벤트 수집 비활성화")
+}

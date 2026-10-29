@@ -32,9 +32,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * 바다 방 사건 {@code sea.member.updated} (GROMO-2299, 계약 §4) — 스위치 {@code focus.sea.realtime-events-enabled} 를 켠 쪽을
- * <b>실제 Flyway PostgreSQL</b> 위에서 본다. start 뒤 {@code sailing}, finish 뒤 {@code ended}(arrived 포함) 두 줄이 USER 축
- * ({@code subject_id = userId})으로 REALTIME 대상에 남는다. 꺼진 쪽은 {@code SeaFocusSessionIntegrationTest} 가 0건을 본다.
+ * 바다 방 사건 {@code sea.member.updated} (GROMO-2299, 계약 §4) 를 <b>실제 Flyway PostgreSQL</b> 위에서 본다.
+ * start 뒤 {@code sailing}, finish 뒤 {@code ended}(arrived 포함) 두 줄이 USER 축({@code subject_id = userId})으로
+ * REALTIME 대상에 남는다. 사건은 항상 적는다(티켓 2535 — 종전 생산 스위치를 걷었다).
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -46,9 +46,6 @@ class SeaFocusSessionEventsIntegrationTest {
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
         OutboxTestPostgres.applyProductionMigrationWiring(registry);
-        registry.add("focus.session.start-enabled", () -> true);
-        registry.add("focus.sea.realtime-events-enabled", () -> true);
-        registry.add("internal.api.enabled", () -> true);
         registry.add("internal.api.callers.business.token", () -> TOKEN);
         List<String> allow = List.of(
                 "POST /internal/users/*/focus-sessions",
@@ -77,7 +74,7 @@ class SeaFocusSessionEventsIntegrationTest {
     MockMvc mvc;
 
     @Test
-    @DisplayName("스위치가 켜져 있으면 start 뒤 sailing, finish 뒤 ended 가 USER 축 REALTIME 사건으로 남는다")
+    @DisplayName("start 뒤 sailing, finish 뒤 ended 가 USER 축 REALTIME 사건으로 남는다")
     void sailingAndEndedAreAppended() throws Exception {
         UUID island = newIsland();
         UUID user = newUser();
@@ -128,7 +125,7 @@ class SeaFocusSessionEventsIntegrationTest {
     }
 
     private UUID newUser() {
-        return jwt.extractUserId(auth.guestLogin().accessToken());
+        return jwt.extractUserId(auth.guestSession(java.util.UUID.randomUUID().toString()).accessToken());
     }
 
     ResultActions call(MockHttpServletRequestBuilder request, UUID user, String body) throws Exception {

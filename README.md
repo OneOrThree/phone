@@ -13,7 +13,7 @@ React Native(Expo) 앱과 네 개의 Spring Boot 서버를 한 저장소에서 �
 | 바로 시작하기 | 문서 |
 | --- | --- |
 | 앱을 실행하고 싶어요 | [2.0 앱 시작하기](app/app-dev/README.md#로컬-실행) |
-| 서버 스모크 결과·실행 방법을 알고 싶어요 | [스모크 문서](smoke/README.md) |
+| 서버 스모크 결과·실행 방법을 알고 싶어요 | [전체 실행 흐름](smoke/README.md#전체-실행-흐름) · [로그인 재시도 차트](smoke/server/login-retry.md) |
 | 서버 구성을 알고 싶어요 | [서버 전체 문서](server/README.md) |
 | 기능 정책·설계를 찾고 싶어요 | [문서 인덱스](docs/README.md) |
 | 시스템의 목표 구조를 보고 싶어요 | [서비스 아키텍처](docs/architecture/service-architecture.md) |
@@ -102,3 +102,22 @@ API는 `http://localhost:8080`, Swagger UI는 `http://localhost:8080/swagger-ui/
 ## 변경에 참여하기
 
 브랜치 이름과 커밋·PR 형식(담당자·라벨·머지 조건 포함)은 [docs/conventions/git-pr-conventions.md](docs/conventions/git-pr-conventions.md), 지라 티켓 양식은 [docs/conventions/jira-ticket-template.md](docs/conventions/jira-ticket-template.md), 리뷰 언어와 심각도 표기는 [AGENTS.md](AGENTS.md)를 따릅니다. 앱과 서버는 툴링을 공유하지 않으므로 변경한 서비스 디렉터리에서 해당 검증 명령을 실행합니다.
+
+## Catus V2 운영 배포
+
+기존 Catus VPC에 앱·Kafka·Redis·백오피스 호스트와 프라이빗 RDS를 분리한다. V2용 파일·태그·IAM·SSM·배포 상태는 기존 배포와 구분한다. 기존 env 자격은 재사용하고 DB·Kafka·Redis 주소는 V2 자원으로 생성한다.
+
+main 대상 PR 검사 → main에서 release로 merge commit 승격 → release에서 단위별 V2 태그·산출물 발행 → release 전용 CD 순서다. 앱은 변경 서비스만 빌드·배포하며 현재 Data·Realtime 계약 쌍은 유지한다. Kafka·Redis 설정은 `server/scripts/runtime-V2/`가 소유한다. 운영 비밀은 Git에 보관하지 않는다.
+
+| 단위 | CI | CD | 마지막 운영 성공 버전 |
+| --- | --- | --- | --- |
+| 앱 조합 | prod-ci-V2.yml | prod-cd-V2.yml | ![앱 V2](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/OneOrThree/phone/deployment-status/prod-V2/app.json) |
+| Data | 서비스별 선택 빌드 | 앱 CD에서 대상 선택 | ![Data V2](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/OneOrThree/phone/deployment-status/prod-V2/data-api.json) |
+| Business | 서비스별 선택 빌드 | 앱 CD에서 대상 선택 | ![Business V2](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/OneOrThree/phone/deployment-status/prod-V2/business-api.json) |
+| Realtime | 서비스별 선택 빌드 | 앱 CD에서 대상 선택 | ![Realtime V2](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/OneOrThree/phone/deployment-status/prod-V2/realtime.json) |
+| Notification | 서비스별 선택 빌드 | 앱 CD에서 대상 선택 | ![Notification V2](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/OneOrThree/phone/deployment-status/prod-V2/notification.json) |
+| Kafka | kafka-ci.prod-V2.yml | kafka-cd.prod-V2.yml | ![Kafka V2](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/OneOrThree/phone/deployment-status/prod-V2/kafka.json) |
+| Redis | redis-ci.prod-V2.yml | redis-cd.prod-V2.yml | ![Redis V2](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/OneOrThree/phone/deployment-status/prod-V2/redis.json) |
+| 백오피스 | backoffice-ci.prod-V2.yml | backoffice-cd.prod-V2.yml | ![백오피스 V2](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/OneOrThree/phone/deployment-status/prod-V2/backoffice.json) |
+
+버전 태그는 `catus-vX.Y.Z-V2`, `kafka-vX.Y.Z-V2`, `redis-vX.Y.Z-V2`, `backoffice-vX.Y.Z-V2`다. 배지는 마지막 검증 성공 버전이며 실시간 가용성 감시는 아니다. 최초 성공 기록 전에는 운영 미확인 상태다. 실패·부분 적용·롤백 결과와 실행 링크는 별도 배포 결과 및 관련 PR 댓글에 남긴다. 표시 재시도는 호스트를 다시 배포하지 않는다.

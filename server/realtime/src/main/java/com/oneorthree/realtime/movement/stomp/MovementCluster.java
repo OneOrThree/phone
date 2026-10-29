@@ -1,6 +1,8 @@
 package com.oneorthree.realtime.movement.stomp;
 
 import com.oneorthree.realtime.common.redis.RedisKeys;
+import com.oneorthree.realtime.fanout.FanoutTelemetry;
+import com.oneorthree.realtime.logging.LogContext;
 import com.oneorthree.realtime.movement.MoveIntent;
 import com.oneorthree.realtime.movement.MovementEvent;
 import com.oneorthree.realtime.movement.MovementRooms;
@@ -15,6 +17,7 @@ import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
+import org.slf4j.MDC;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -64,6 +67,11 @@ import java.util.concurrent.TimeUnit;
  * 교체를 보면(감시·더 큰 epoch 프레임) 그 섬의 내 세션 전부 게이트를 닫고(resync) 새 소유자에게 다시 입장시킨다 —
  * 새 소유자의 세션 한정 FullState 가 게이트를 다시 연다(wire 변경 없음 — 앱은 serverTick 역행을 이미 수렴한다).
  * 옛 epoch 프레임은 버린다({@code movement.relay.stale}).
+ *
+ * <h2>로그 문맥(GROMO-2581)</h2>
+ * 길잡이 스레드에 넘기는 작업은 넣은 스레드의 원인 문맥(STOMP 프레임의 {@code request_id}, 받은 명령의 origin)을 싣고 간다. 다른
+ * 인스턴스로 가는 명령은 그 문맥을 {@link Command#telemetry()} 로 싣고, 받는 쪽은 처리 동안 설치한다 — 소유자 쪽 적용·실패 로그가
+ * 원래 요청에 이어진다. 틱이 만든 프레임은 여러 요청이 섞인 결과라 싣지 않는다.
  */
 @Slf4j
 @Component
@@ -373,18 +381,24 @@ public class MovementCluster implements MessageListener, SmartLifecycle {
         if (!enabled) {
             return;
         }
-        relay.publishCommand(new Command(me, null, 0, islandId, Type.RECHECK, userId, null, null, cacheStale));
+        relay.publishCommand(new Command(me, null, 0, islandId, Type.RECHECK, userId, null, null, cacheStale, null,
+                cause()));
+    }
+
+    /** 지금 스레드의 원인 문맥 — 강퇴 사건이면 그 {@code event_id}·origin, STOMP 프레임이면 그 {@code request_id} 가 origin 이 된다. */
+    private static FanoutTelemetry cause() {
+        return FanoutTelemetry.capture(MDC.get(LogContext.EVENT_ID));
     }
 
     private void submit(Runnable task) {
         try {
-            executor.execute(() -> {
+            executor.execute(LogContext.carrying(() -> {
                 try {
                     task.run();
                 } catch (RuntimeException e) {
                     log.warn("이동 명령 처리 실패 — reason={}", e.getClass().getSimpleName(), e);
                 }
-            });
+            }));
         } catch (RuntimeException e) {
             log.debug("이동 길잡이 종료 중 — 명령을 버린다");
         }
@@ -410,7 +424,7 @@ public class MovementCluster implements MessageListener, SmartLifecycle {
             return;
         }
         relay.publishCommand(new Command(me, owner.instanceId(), owner.epoch(), islandId, type, userId, sessionKey,
-                intent, false));
+                intent, false, null, cause()));
         forwarded.get(type).increment();
     }
 
@@ -665,7 +679,11 @@ public class MovementCluster implements MessageListener, SmartLifecycle {
             if (RedisKeys.MOVEMENT_FRAMES_CHANNEL.equals(channel)) {
                 onFrame(objectMapper.readValue(message.getBody(), Frame.class));
             } else if (RedisKeys.MOVEMENT_CMD_CHANNEL.equals(channel) || channel.equals(ownCmdChannel)) {
-                onCommand(objectMapper.readValue(message.getBody(), Command.class));
+                Command command = objectMapper.readValue(message.getBody(), Command.class);
+                // 보낸 쪽 원인을 처리 동안 둔다 — 여기서 넘기는 길잡이 작업·재검사 예약이 같은 값을 싣고 간다.
+                try (LogContext scope = FanoutTelemetry.install(command.telemetry())) {
+                    onCommand(command);
+                }
             }
         } catch (RuntimeException e) {
             log.warn("이동 릴레이 수신 처리 실패 — reason={}", e.getClass().getSimpleName());

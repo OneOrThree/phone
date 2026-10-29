@@ -37,7 +37,6 @@ class InternalAuthFilterTest {
 
     private static InternalApiProperties enabledProperties() {
         InternalApiProperties properties = new InternalApiProperties();
-        properties.setEnabled(true);
         InternalApiProperties.Caller business = new InternalApiProperties.Caller();
         business.setToken(BUSINESS_TOKEN);
         business.setAllow(List.of(
@@ -46,7 +45,7 @@ class InternalAuthFilterTest {
         properties.getCallers().put("business", business);
         InternalApiProperties.Caller notification = new InternalApiProperties.Caller();
         notification.setToken(NOTI_TOKEN);
-        notification.setAllow(List.of("GET /internal/users/*/result-ack"));
+        notification.setAllow(List.of("GET /internal/users/notification-snapshot"));
         properties.getCallers().put("notification", notification);
         return properties;
     }
@@ -108,6 +107,44 @@ class InternalAuthFilterTest {
 
         assertThat(response.getStatus()).isEqualTo(HttpServletResponse.SC_UNAUTHORIZED);
         assertThat(response.getContentAsString()).isEmpty();
+        assertThat(chain.getRequest()).isNull();
+    }
+
+    @Test
+    @DisplayName("토큰이 빈 caller 는 등록되지 않는다 — `Bearer ` 뒤가 빈 요청이 그 caller 로 통과하지 못한다")
+    void blankTokenCallerIsNeverMatched() throws Exception {
+        InternalApiProperties properties = enabledProperties();
+        InternalApiProperties.Caller ops = new InternalApiProperties.Caller();
+        ops.setToken("");
+        ops.setOptional(true);
+        ops.setAllow(List.of("POST /internal/admin/island-focus-averages/snapshots"));
+        properties.getCallers().put("ops", ops);
+        MockHttpServletRequest request = request("POST", "/internal/admin/island-focus-averages/snapshots");
+        request.addHeader("Authorization", "Bearer ");
+        MockFilterChain chain = new MockFilterChain();
+
+        MockHttpServletResponse response = run(properties, request, chain);
+
+        assertThat(response.getStatus()).isEqualTo(HttpServletResponse.SC_UNAUTHORIZED);
+        assertThat(chain.getRequest()).isNull();
+    }
+
+    @Test
+    @DisplayName("토큰이 있는 caller 가 하나도 없으면 «없는» 표면이다 — 토큰이 빈 선택 caller 만 배선돼도 401 이 아니라 404 다")
+    void onlyBlankTokenOptionalCallersMeansNotFound() throws Exception {
+        InternalApiProperties properties = new InternalApiProperties();
+        InternalApiProperties.Caller ops = new InternalApiProperties.Caller();
+        ops.setToken("");
+        ops.setOptional(true);
+        ops.setAllow(List.of("POST /internal/admin/island-focus-averages/snapshots"));
+        properties.getCallers().put("ops", ops);
+        MockHttpServletRequest request = request("POST", "/internal/admin/island-focus-averages/snapshots");
+        request.addHeader("Authorization", "Bearer " + BUSINESS_TOKEN);
+        MockFilterChain chain = new MockFilterChain();
+
+        MockHttpServletResponse response = run(properties, request, chain);
+
+        assertThat(response.getStatus()).isEqualTo(HttpServletResponse.SC_NOT_FOUND);
         assertThat(chain.getRequest()).isNull();
     }
 
@@ -299,19 +336,13 @@ class InternalAuthFilterTest {
     }
 
     @Test
-    void consoleCredentialsRespectDisabledGateAndCannotUseBusinessRoutes() throws Exception {
+    void consoleCredentialsCannotUseBusinessRoutes() throws Exception {
         InternalApiProperties properties = new InternalApiProperties();
         var console = new InternalApiProperties.Caller();
         console.setToken("console-token");
         console.setConsoleActor("member-1");
         console.setAllow(List.of("GET /internal/admin/content/environment", "GET /internal/users/*/activation"));
         properties.getCallers().put("console", console);
-        var disabled = request("GET", "/internal/admin/content/environment");
-        disabled.addHeader("Authorization", "Bearer console-token");
-        var disabledChain = new MockFilterChain();
-        assertThat(run(properties, disabled, disabledChain).getStatus()).isEqualTo(404);
-        assertThat(disabledChain.getRequest()).isNull();
-        properties.setEnabled(true);
         UUID userId = UUID.randomUUID();
         var outside = request("GET", "/internal/users/" + userId + "/activation");
         outside.addHeader("Authorization", "Bearer console-token");
@@ -324,7 +355,6 @@ class InternalAuthFilterTest {
     @Test
     void optionalBlankConsoleDoesNotRegisterAnEmptyBearerCredential() throws Exception {
         InternalApiProperties properties = new InternalApiProperties();
-        properties.setEnabled(true);
         var console = new InternalApiProperties.Caller();
         console.setOptional(true);
         console.setToken("");
@@ -337,4 +367,5 @@ class InternalAuthFilterTest {
         assertThat(run(properties, request, chain).getStatus()).isEqualTo(404);
         assertThat(chain.getRequest()).isNull();
     }
+
 }

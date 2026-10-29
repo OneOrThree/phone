@@ -2,7 +2,19 @@ import React from 'react';
 import { applyLocalePref } from '@/i18n';
 import { StyleSheet, ScrollView } from 'react-native';
 import { render, fireEvent } from '@testing-library/react-native';
-import { Page, Badge, Btn, CharCount, Field, Wheel, Seg } from './patterns';
+import {
+  Page,
+  Badge,
+  Btn,
+  CharCount,
+  Field,
+  NavBtn,
+  Row,
+  Toggle,
+  Wheel,
+  Seg,
+  Txt,
+} from './patterns';
 import { componentTokens, semanticTokens } from './tokens';
 
 jest.mock('@/utils/layout', () => ({
@@ -38,6 +50,12 @@ afterEach(() => {
   applyLocalePref('system');
 });
 
+// App.tsx 의 NativeText 도 이 Txt 의 별칭이다 — 공용 Text 를 거쳐 한국어 단어 단위 줄바꿈 기본값을 받는다(GROMO-2413)
+test('Txt 는 공용 Text 를 거쳐 hangul-word 줄바꿈 기본값을 받는다', async () => {
+  const s = await render(<Txt testID="txt">계정을 바꾸면 지금 기기에 남은 기록이 사라져요</Txt>);
+  expect(s.getByTestId('txt').props.lineBreakStrategyIOS).toBe('hangul-word');
+});
+
 test('inset 탭은 테두리와 패딩을 제외해도 터치 높이 44pt를 유지한다', async () => {
   const onChange = jest.fn();
   const { getByLabelText } = await render(
@@ -57,6 +75,55 @@ test('Page 뒤로가기는 양 축 최소 터치 영역 44pt를 지킨다', asyn
   const s = StyleSheet.flatten(getByLabelText('뒤로').props.style);
   expect(s.width).toBeGreaterThanOrEqual(semanticTokens.size.tapMin);
   expect(s.height).toBeGreaterThanOrEqual(semanticTokens.size.tapMin);
+});
+
+test('NavBtn 은 34 원을 44 누르는 자리 가운데에 두고, 읽는 이름·비활성을 그대로 전한다', async () => {
+  const onPress = jest.fn();
+  const { getByLabelText, rerender } = await render(
+    <NavBtn label="섬으로 돌아가기" onPress={onPress} testID="back" />,
+  );
+  const button = getByLabelText('섬으로 돌아가기');
+  const box = StyleSheet.flatten(button.props.style);
+  expect(box.width).toBe(semanticTokens.size.tapMin);
+  expect(box.height).toBe(semanticTokens.size.tapMin);
+  expect(button.props.testID).toBe('back');
+  const circle = StyleSheet.flatten((button.children[0] as any).props.style);
+  expect(circle.width).toBe(componentTokens.navButton.size);
+  expect(circle.backgroundColor).toBe(semanticTokens.color.surface);
+  expect(circle.borderColor).toBe(semanticTokens.color.outline);
+  await fireEvent.press(button);
+  expect(onPress).toHaveBeenCalledTimes(1);
+
+  await rerender(<NavBtn close label="닫기" disabled onPress={onPress} />);
+  const close = getByLabelText('닫기');
+  expect(close.props.accessibilityState).toEqual({ disabled: true });
+  expect(StyleSheet.flatten(close.props.style).opacity).toBe(
+    componentTokens.button.disabledOpacity,
+  );
+  await fireEvent.press(close);
+  expect(onPress).toHaveBeenCalledTimes(1);
+});
+
+test('Btn selected 는 고른 상태를 accessibilityState 로 알린다', async () => {
+  const { getByLabelText } = await render(
+    <>
+      <Btn title="바다" selected onPress={jest.fn()} />
+      <Btn title="섬" onPress={jest.fn()} />
+    </>,
+  );
+  expect(getByLabelText('바다').props.accessibilityState.selected).toBe(true);
+  expect(getByLabelText('섬').props.accessibilityState.selected).toBeFalsy();
+});
+
+test('Btn 은 font 를 안 주면 글자에 글꼴을 넣지 않고(종전 그대로), 주면 그 글꼴로 그린다', async () => {
+  const { getByText } = await render(
+    <>
+      <Btn title="평범" onPress={jest.fn()} />
+      <Btn title="바다" font="Gowun Dodum" onPress={jest.fn()} />
+    </>,
+  );
+  expect(StyleSheet.flatten(getByText('평범').props.style)).not.toHaveProperty('fontFamily');
+  expect(StyleSheet.flatten(getByText('바다').props.style).fontFamily).toBe('Gowun Dodum');
 });
 
 test('Badge는 componentTokens.badge의 default/soft를 그대로 쓴다', async () => {
@@ -106,6 +173,28 @@ test('Btn 은 accessibilityHint 를 안 주면 비워 두고, 주면 그대로 �
   const hinted = getByLabelText('흐림');
   expect(hinted.props.accessibilityHint).toBe('왜 흐린지');
   expect(hinted.props.accessibilityState.disabled).toBe(false);
+});
+
+test('Toggle·Row 는 accessibilityHint 를 안 주면 비워 두고, 주면 누르는 쪽(Pressable)에 그대로 싣는다', async () => {
+  const { getByRole, getByLabelText } = await render(
+    <>
+      <Toggle label="평범한 스위치" value={false} onChange={() => {}} />
+      <Toggle
+        label="힌트 스위치"
+        value={false}
+        onChange={() => {}}
+        accessibilityHint="누르면 권한을 물어요"
+      />
+      <Row title="평범한 행" onPress={() => {}} />
+      <Row title="힌트 행" onPress={() => {}} accessibilityHint="누르면 설정 앱이 열려요" />
+    </>,
+  );
+  expect(getByRole('switch', { name: '평범한 스위치' }).props.accessibilityHint).toBeUndefined();
+  expect(getByRole('switch', { name: '힌트 스위치' }).props.accessibilityHint).toBe(
+    '누르면 권한을 물어요',
+  );
+  expect(getByLabelText('평범한 행').props.accessibilityHint).toBeUndefined();
+  expect(getByLabelText('힌트 행').props.accessibilityHint).toBe('누르면 설정 앱이 열려요');
 });
 
 test('작은 배지는 글자 크기 확대 시 늘어날 수 있도록 최소 높이와 세로 패딩을 쓴다', async () => {

@@ -16,17 +16,17 @@ aws secretsmanager get-secret-value --secret-id gromo/dev/env --query SecretStri
       --output .runtime/business-api.env
 ```
 
-같은 명령에서 `--service notification`으로 알림 파일, `--service data-api`로 Data 파일을 만든다. dev VM 에서 `/var/lib/gromo/runtime/` 에 직접 만들 때는 그 디렉터리가 runner 소유 0700 이라 `sudo -u runner` 로 실행한다 — 다른 계정 소유로 생기면 다음 CD 가 못 읽어 파일이 없는 것과 같다. 특히 `data-api.env` 는 CD 가 다시 만들지 않는 수동 파일이다. 이미지 digest는 해당 서비스 CI 산출물의 값을 사용한다. 운영에서는 `--environment prod`와 `gromo/prod/env`를 사용한다. 파일은 원자 교체하고 권한은 0600, 상위 디렉터리는 0700이다. 검증 실패는 기존 파일을 보존한다.
+같은 명령에서 `--service notification`으로 알림 파일, `--service data-api`로 Data 파일을 만든다. 현재 dev CD는 `.github/scripts/dev-env.sh`로 매 실행마다 `$RUNNER_TEMP`에 필요한 env를 만들고 종료 시 삭제한다. 영구 수동 env를 배포 입력으로 사용하지 않는다. 이미지 digest는 해당 서비스 CI 산출물의 값을 사용한다. Catus 운영은 Infra runtime이 `catus/prod/env`와 `catus/prod/database`에서 서비스별 임시 env를 만든다. 파일은 원자 교체하고 권한은 0600, 상위 디렉터리는 0700이다. 검증 실패는 기존 파일을 보존한다.
 
 | 서비스 | 필수 자격 |
 |---|---|
-| data-api | API_DB 3종, OPENAI_API_KEY, BIZ_TO_DATA·NOTI_TO_DATA·DATA_TO_NOTI·DATA_TO_LINK 서비스 토큰, LINK_CAPABILITY_KEY, LINK_IP_SALT, LINK_BASE_URL, NOTIFICATION_BASE_URL, KAFKA_BOOTSTRAP_SERVERS (relay 를 켜면 REALTIME_BASE_URL·DATA_TO_REALTIME 토큰도 — [relay ON 체크리스트](#relay-on-체크리스트)) |
-| business-api | JWT_SECRET, BIZ_TO_DATA·BIZ_TO_NOTI·BIZ_TO_LINK·BIZ_TO_REALTIME 서비스 토큰, DATA_API_BASE_URL, NOTIFICATION_BASE_URL, LINK_BASE_URL, REALTIME_BASE_URL, LINK_IP_SALT, BUSINESS_REDIS_PASSWORD, LOGIN_ATTEMPT_DIGEST_SECRET, BUSINESS_CURSOR_ENABLED·BUSINESS_CURSOR_KEY_V1 (prod 는 LINK_PROXY_SECRET 추가) |
+| data-api | API_DB 3종, BIZ_TO_DATA·NOTI_TO_DATA·REALTIME_TO_DATA·DATA_TO_NOTI 서비스 토큰, LINK_BASE_URL, NOTIFICATION_BASE_URL, KAFKA_BOOTSTRAP_SERVERS (relay 를 켜면 REALTIME_BASE_URL·DATA_TO_REALTIME 토큰도 — [relay ON 체크리스트](#relay-on-체크리스트)) |
+| business-api | JWT_SECRET, BIZ_TO_DATA·BIZ_TO_NOTI·BIZ_TO_REALTIME 서비스 토큰, DATA_API_BASE_URL, NOTIFICATION_BASE_URL, REALTIME_BASE_URL, BUSINESS_REDIS_PASSWORD, LOGIN_ATTEMPT_DIGEST_SECRET, BUSINESS_CURSOR_KEY_V1 (prod 는 LINK_PROXY_SECRET 추가) |
 | notification | NOTI_DB 3종, FCM 2종, BIZ_TO_NOTI·DATA_TO_NOTI·CONSOLE_TO_NOTI·NOTI_TO_DATA 서비스 토큰, DATA_API_BASE_URL, KAFKA_BOOTSTRAP_SERVERS |
 
-표의 서비스 토큰에는 모두 `SVC_TOKEN_` 접두가 붙는다. 대상이 다른 caller 토큰을 같은 값으로 재사용하지 않는다. 표의 링크 관련 값(`DATA_TO_LINK`·`BIZ_TO_LINK` 토큰 · `LINK_CAPABILITY_KEY` · `LINK_BASE_URL` · business-api 의 `LINK_IP_SALT`)은 A23 으로 폐기된 #745 잔재다 — 생성기가 요구하는 동안만 채우고, `LINK_IP_SALT` 는 최종적으로 data-api 만 갖는다(링크 정책 L03). `DD_API_KEY`와 콘솔 로그인/sudo 비밀번호는 세 서비스 어디에도 전달하지 않는다.
+표의 서비스 토큰에는 모두 `SVC_TOKEN_` 접두가 붙는다. 대상이 다른 caller 토큰을 같은 값으로 재사용하지 않는다. Data·Realtime에는 같은 `REALTIME_TO_DATA` 토큰을 공급하고 Data 프로파일에 `satellites,realtime-authorization`을 포함한다. `LINK_BASE_URL`은 현재 섬 초대 공유 주소이며, `LINK_PROXY_SECRET`은 게스트 요청의 프록시 신뢰 검증용이다. 폐기한 독립 Link 자격과 OpenAI 키는 주입하지 않는다. `DD_API_KEY`와 콘솔 로그인/sudo 비밀번호는 세 서비스 어디에도 전달하지 않는다.
 
-Data 파일은 기본 `--phase transition`에서 JWT·Google/Apple client ID·FCM 2종도 요구한다. 구 코드가 기동·발송해야 하는 기간의 자격이다. 구 빈 제거·트래픽 전환·롤백 창 종료 확인 후에만 `--phase final`을 사용한다. writer의 final 선택 자체가 구 빈 제거를 수행하지는 않는다.
+Data 파일은 기본 `--phase transition`에서 JWT·Google/Apple client ID·FCM 2종도 요구한다. FCM은 현재 집중 상태 알림에서도 쓰므로 `final` 허용 목록에도 유지한다. `--phase final`은 env 분리 옵션으로, DB 전환이나 트래픽 교체를 대신 수행하지 않는다. 자동 배포·실패 복구는 [배포 문서](deployment.md)를 따른다.
 
 ## 기존 볼륨과 RDS의 알림 DB 초기화
 
@@ -68,10 +68,11 @@ dev(GCP `gromo-dev-app`, e2-standard-2 · 2 vCPU · 8 GB, decisions.md A25)에�
 |---|---|---|
 | 0 | `data-api-cd.dev.yml` 조건부 오버레이 + `ops-kafka.dev.yml` 머지. `phone-kafka` 미실행이고 `/var/lib/gromo/runtime/data-api.env`가 없으면 배포 입력은 `docker-compose.dev.yml`(+기존 datadog) 그대로다 — **no-op** | 해당 PR revert |
 | 1 | 서버에서 `free -m` 확인 → Actions **Dev Kafka** `up`. 여유 1024 MiB 미만이면 워크플로가 거부한다. 브로커만 뜨고 토픽은 없다(자동 생성 꺼짐). 이후 CD는 `phone-kafka`가 돌면 `docker-compose.kafka.yml`을 함께 물린다 | **Dev Kafka** `down` (`kafka-data` 볼륨 보존) |
-| 2 | `/var/lib/gromo/runtime/data-api.env`(0600, VM 시작 스크립트가 만드는 고정 경로 — GROMO-2134)를 [서비스별 시크릿 생성](#서비스별-시크릿-생성)의 `--service data-api --environment dev`로 만든다. 스위치는 전부 끈 채로 둔다: `INTERNAL_API_ENABLED=false`, `OUTBOX_RELAY_ENABLED=false`, `NOTIFICATION_DISPATCH_MODE=LEGACY`. 다음 CD부터 `docker-compose.satellites.data.yml`이 마지막 `-f`로 붙어 파일의 `SPRING_PROFILES_ACTIVE`(기본 `dev,satellites`)로 뜬다 | 파일 삭제 → 다음 CD가 dev 단독으로 app 재생성 |
-| 3 | relay ON. A18의 `OUTBOX_RELAY_*` 여섯 값을 모두 명시하고, 정적 목적지 ~~`LINK_BASE_URL`·~~`NOTIFICATION_BASE_URL`이 app 컨테이너 안에서 풀려야 한다(A23: relay 를 켜기 전에 `outbox.relay.endpoints` 의 `link.*` 대상을 뺀다 — 링크 LLD §9.1). `notification-events`·`.DLT` 토픽은 이때 NewTopic 빈이 만든다. REALTIME 대상도 이때 함께 열리므로 아래 [relay ON 체크리스트](#relay-on-체크리스트)를 먼저 채운다 | `OUTBOX_RELAY_ENABLED=false` (미전달 행 보존) |
+| 2 | `/var/lib/gromo/runtime/data-api.env`(0600, VM 시작 스크립트가 만드는 고정 경로 — GROMO-2134)를 [서비스별 시크릿 생성](#서비스별-시크릿-생성)의 `--service data-api --environment dev`로 만든다. `OUTBOX_RELAY_ENABLED=false`로 둔다(내부 API 는 스위치가 없다 — caller 토큰이 문이다, 10-27 티켓 2535). 다음 CD부터 `docker-compose.satellites.data.yml`이 마지막 `-f`로 붙어 파일의 `SPRING_PROFILES_ACTIVE`(기본 `dev,satellites`)로 뜬다 | 파일 삭제 → 다음 CD가 dev 단독으로 app 재생성 |
+| 3 | relay ON. A18의 `OUTBOX_RELAY_*` 여섯 값을 모두 명시하고, 정적 목적지 ~~`LINK_BASE_URL`·~~`NOTIFICATION_BASE_URL`이 app 컨테이너 안에서 풀려야 한다(A23: relay 를 켜기 전에 `outbox.relay.endpoints` 의 `link.*` 대상을 뺀다 — 링크 LLD §9.1, GROMO-2407 로 완료). `notification-events`·`.DLT` 토픽은 이때 NewTopic 빈이 만든다. REALTIME 대상도 이때 함께 열리므로 아래 [relay ON 체크리스트](#relay-on-체크리스트)를 먼저 채운다 | `OUTBOX_RELAY_ENABLED=false` (미전달 행 보존) |
 | 4 | Notification·Business 위성 기동 — [신규 서비스 compose](#신규-서비스-compose)와 [deployment.md](deployment.md) | 해당 서비스만 제거 |
-| 5 | `NOTIFICATION_DISPATCH_MODE=OUTBOX` — [OUTBOX 선행 조건](#outbox-후보-배치-활성화-선행-조건)(GROMO-893) 해소 후에만. **단방향** | 되돌리지 않는다. OUTBOX→LEGACY는 알림을 재발송한다 |
+| 5 | ~~`NOTIFICATION_DISPATCH_MODE=OUTBOX` — GROMO-893 해소 후에만. **단방향**~~ → 스위치 삭제(#1247, 티켓 2421): Data 에 구 FCM 발송 경로가 없어 Notification 이 유일한 발송 경로다 | — |
+| 6 | Notification 발송 게이트 상시 개방(dev 만, 2026-10-27 티켓 2522): SM `NOTIFICATION_SCHEDULING_ENABLED=true` → `ops-redeploy.dev` notification → 열기 전 대기 발송 확인 → `PUT /internal/admin/jobs/delivery-dispatch`(`enabled=true`) → `POST /internal/admin/dispatch/open`(새 멱등 키). 절차는 [notification README](../../../../server/notification/README.md#dev-발송-게이트) | `POST /internal/admin/dispatch/close`(새 멱등 키, 진행 중 발송 drain) |
 
 ### relay ON 체크리스트
 
@@ -87,7 +88,6 @@ dev(GCP `gromo-dev-app`, e2-standard-2 · 2 vCPU · 8 GB, decisions.md A25)에�
 
 - **A18 보류** — relay 재시도 값이 정해지지 않아 3단계 이후로 못 간다.
 - **dev VM 메모리** — kafka.yml의 512 MB 힙은 prod t4g.large(8 GB) 기준이다. dev는 e2-medium(4 GB)에서 **e2-standard-2(8 GB)로 사이즈업**(decisions.md A25 — 경유했던 e2-custom-2-6144(6 GB)는 존 자원 부족으로 기동 거부, 09-24)했지만 app·db·redis·(datadog-agent 512 MB)가 이미 있어 여유가 넉넉하지 않다. 1단계의 메모리 게이트가 첫 관문이고, 여유가 없으면 관측 스택 정리가 먼저다.
-- **GROMO-893** — 5단계 선행 조건.
 
 2단계 주의:
 
@@ -110,14 +110,13 @@ python3 -m unittest discover -s .github/scripts -p 'test_*.py' -v
 
 | 스위치 | 초기값 | 전환 조건 |
 |---|---|---|
-| Data `INTERNAL_API_ENABLED` | false | 서비스별 caller/token 설정 검증 후 true |
 | Data `OUTBOX_RELAY_ENABLED` | false | A18 재시도 정책 입력과 Kafka/HTTP 목적지 준비 후 true |
-| Data `NOTIFICATION_DISPATCH_MODE` | LEGACY | 구 FCM·리스너·flush 정지/drain 후 OUTBOX |
+| ~~Data `NOTIFICATION_DISPATCH_MODE`~~ | ~~LEGACY~~ | ~~구 FCM·리스너·flush 정지/drain 후 OUTBOX~~ → 스위치 삭제(#1247, 위 5단계) |
 | Notification `NOTIFICATION_KAFKA_ENABLED` | false | `.DLT`까지 토픽 준비 후 true. 수신·내구 적재만 시작 |
 | Notification `NOTIFICATION_GENERATION_REQUIRED` | false | gen 발급 롤아웃 + 구 AT 최대수명 대기 후 true |
-| Notification `NOTIFICATION_LEGACY_DEVICE_REGISTRATION` | true | 소유권·bootstrap 미지원 구 앱 지원 종료 후 false. AT의 gen 존재와 별개인 앱 롤아웃 축 |
-| Notification `NOTIFICATION_SCHEDULING_ENABLED` | false | 각 등록부 job 활성화와 함께 true. 공통 gate는 계속 별도 |
-| Notification `dispatch_control.enabled` | false | 최종 import/verify/stopWindow 검증 후 Console open으로만 true |
+| Notification `NOTIFICATION_LEGACY_DEVICE_REGISTRATION` | true | 구 앱 지원 종료만으로 끄지 않는다. 2.0 앱도 서명된 sid 창에 기대므로 끄는 조건과 영향은 [기기 등록 계약](../../../../docs/contracts/business-satellite-api.yaml)의 device-token 절을 확인한다. AT의 gen 존재와 별개인 앱 롤아웃 축 |
+| Notification `NOTIFICATION_SCHEDULING_ENABLED` | false | 각 등록부 job 활성화와 함께 true. 공통 gate는 계속 별도. dev 는 2026-10-27 부터 true(위 6단계) |
+| Notification `dispatch_control.enabled` | false | `POST /internal/admin/dispatch/open` 으로만 true(이관용 import/verify 경로는 #1247 에서 제거). dev 는 2026-10-27 부터 상시 개방(위 6단계 — 운영은 바꾸지 않음) |
 
 `OUTBOX_RELAY_BATCH_SIZE`, `OUTBOX_RELAY_LEASE_DURATION`, `OUTBOX_RELAY_POLL_INTERVAL`,
 `OUTBOX_RELAY_INITIAL_BACKOFF`, `OUTBOX_RELAY_MAX_BACKOFF`, `OUTBOX_RELAY_WARNING_ATTEMPTS`는
@@ -126,79 +125,25 @@ relay를 켤 때 모두 명시한다. warning attempts는 폐기 횟수가 아�
 라운드)는 **선택**이다 — 비우면 괄호의 기본값(GROMO-2338). poll 1s·예산 5s 면 relay 가 일하는 비율은 ≈ 83%다.
 Kafka4 기본 DLT 이름에 의존하지 않고 수신기가 `notification-events.DLT`를 명시한다.
 
-### ~~Link 정지 스냅샷 이관~~ → A23: 링크 이관 없음
+### 폐기한 Link 정지 스냅샷 이관
 
-> A23(2026-09-13): 이관 절차 자체가 폐기됐다(링크 정본 HLD §7 — 같은 DB 를 두 경로가 읽으므로 데이터 이관 창이 없다). 아래는 #745 가 남긴 `migrate-link.py`·`link-migration` 프로필의 운용 설명이며 링크 구현 PR 이 걷어낸다(링크 LLD §9.2). 실행하지 않는다.
-
-Data 실행 profile에 `link-migration`을 **한시적으로** 추가한다(예: `dev,satellites,link-migration`).
-기존 `BATCH_ADMIN_KEY`로 운영 caller를 인증하며 freeze·manifest·두 export·close 다섯 경로만 연다.
-Business/Notification 서비스 토큰은 이 운영 권한을 갖지 않는다. 이관 완료 뒤 profile을 제거한다.
-
-아래 명령은 이관 호스트에서 `BATCH_ADMIN_KEY`, `LINK_MIGRATION_TOKEN`을 환경변수로 주입한 뒤 실행한다. Link의 일회성 이관 자격은 상시 Data relay 자격과 별개다.
-토큰을 명령행 인수로 넣거나 결과 로그에 출력하지 않는다. Data URL은 private origin, Link URL은
-운영자가 확정한 Vercel origin이다. redirect 응답은 토큰을 전달하지 않고 실패한다.
-
-```bash
-python3 server/scripts/migrate-link.py freeze --data-url "$DATA_URL" --link-url "$LINK_URL" \
-  --migration-id "$MIGRATION_ID" --source-drained
-python3 server/scripts/migrate-link.py import --data-url "$DATA_URL" --link-url "$LINK_URL" \
-  --migration-id "$MIGRATION_ID"
-python3 server/scripts/migrate-link.py verify --data-url "$DATA_URL" --link-url "$LINK_URL" \
-  --migration-id "$MIGRATION_ID"
-python3 server/scripts/migrate-link.py close --data-url "$DATA_URL" --link-url "$LINK_URL" \
-  --migration-id "$MIGRATION_ID"
-```
-
-freeze 전에 기존 landing/match/claim/발급 쓰기를 정지하고 drain한다. `--source-drained`는 이 작업을
-수행했다는 운영자 입력이며 스크립트가 nginx나 프로세스를 정지했다는 뜻이 아니다.
-freeze 응답 유실은 같은 migration ID로 재실행한다. import는 0클릭 링크까지 전체 링크를 먼저,
-그 뒤 클릭을 가져온다. 배치는 최대20이고 기본10이다. 503이면 배치를 나눠 동일 체크섬으로 재시도한다.
-실패한 import/verify는 원본을 수정하지 말고 같은 회차의 import부터 재개한다.
-close는 Link의 원자 검증·importer drain·IMPORT_CLOSED가 성공한 뒤 Data를 닫는다.
-Data close 응답 유실도 같은 close를 재실행한다. 어느 단계도 DNS·nginx·발송 gate를 자동 전환하지 않는다.
+A23에서 링크 이관 절차를 폐기했으며, V0 전환에서 정지 스냅샷 API·프로필·실행 도구를 제거했다.
+현행 섬 초대 링크는 Data 내부 API가 관리한다. 현재 DB 전환과 Data·Realtime 교체는
+[서버 실행 가이드](../../../../server/scripts/README.md#catus-v0-전환과-datarealtime-동시-교체)와
+[Data V0 전환 절차](../../../../server/data-api/docs/db/README.md)를 따른다.
 
 ### 알림 예약·재생과 등록부
 
-Flyway V2는 **사건19종 + 렌더 전용 묶음4종, 각4 locale**를 시드한다. 한국어는 현재 발송 분기를
-보존하고, en/ja/zh-Hant 문구는 알림 등록부가 소유한다. 묶음 kind를 Data producer가 발행하지 않는다.
-몰수는 달성 여부보다 먼저 판정하고, 과거 `voidReason=null`은 일반 무효 환불 문구로 렌더한다.
+Notification 등록부의 현행 발송 kind는 `FRIEND_REQUEST`·`FRIEND_ACCEPTED`·`MAIN_ISLAND_TRANSFERRED`·`MAGAZINE_PUBLISHED`·`ISLAND_KICKED` 다(#1247, 티켓 2421). 과거 V2의 19종과 묶음 4종은 현행 발송 대상이 아니다. 실행 job은 `delivery-dispatch`와 `user-reconcile` 둘이며, 기본 비활성이다. `delivery-dispatch`는 이전 `bundle-flush`의 설정·실행 이력을 승계한다. Data 소유 잡은 Notification에서 실행하지 않는다. `user-reconcile`은 Data snapshot의 탈퇴·세대·locale/version만 반영하며 위성 설정·기기 소유권은 덮지 않는다.
 
-V3의 실행 job은 `bundle-flush`, `ack-reconcile`, `user-reconcile`이다. 기본은 비활성이다.
-나머지 Data 소유 잡은 읽기만 가능하며 실제 cron 식·replay CLI ID를 config에 함께 둔다.
-종류19개, 기존 `@Scheduled`17개, 기존 메서드16개는 다른 수치다. 코어를 읽는 판정은 A22 ⓘ·ⓤ에
-따라 Data에 남기므로 문서의 과거 "22잡 이관" 숫자만 보고 메서드를 통째로 끄면 안 된다.
-`JobRegistry`가 cron과 `job_runs`의 재생 요청을 함께 소비한다. Data 소유 잡은 호출할 수 없으며,
-실행 오류는 완료로 기록하지 않는다. 다중 Notification 인스턴스는 자기 DB의 ShedLock을 공유한다.
-`user-reconcile`은 전용 단일 스레드 스케줄러와 `notification-user-reconcile` 잠금으로 실행하며,
-`bundle-flush`·`ack-reconcile`의 스케줄러와 `notification-registry` 잠금을 공유하지 않는다.
-각 실행은 완료 뒤에만 다시 예약되므로 전수 snapshot 조회가 느려도 발송·ack 회차는 계속 진행한다.
-종료 인터럽트는 페이지 조회 전후·행 적용 전에 확인하며, 중단된 회차는 완료로 기록하지 않는다.
-직접 `SnapshotReconciler.reconcile()` 호출은 기존처럼 호출 스레드에서 전수 조회를 마친다.
-Data의 알림 배치는 OUTBOX 모드에서 잠금 충돌 — DB 직렬화 충돌(40001)과 교착 희생자(40P01) — 을 재시도한다(GROMO-893).
-판정 스냅샷은 배치 트랜잭션에 두고 적기만 짧은 조각 트랜잭션으로 나누므로, 조각이 충돌하면 **이미 판정된 같은 요청**으로 그 조각만
-새 트랜잭션에서 다시 적는다 — 횟수는 `notification.fanout.chunk-max-attempts`(기본 3), 재시도마다 지표 `notification.fanout.chunk.retry`. 판정 트랜잭션 자체가 충돌했고 아직 커밋된 조각이 없을 때만
-전체를 롤백한 뒤 동일 슬롯으로 다시 판정한다(최대 3회). **조각이 하나라도 커밋된 뒤에는 다시 판정하지 않는다** — 새 스냅샷에서
-상태가 바뀐 사용자에게 다른 종류의 알림이 같은 슬롯에 또 적히기 때문이다. 이때 `notification.batch.partial_commit` 지표와 함께
-재생 좌표(잡 이름·원래 슬롯)를 실은 실패가 올라온다. 소진되면 스케줄 실패 로그의 슬롯을 확인하고
-`--notification.migration.replay=<잡 이름>@<놓친 슬롯 ISO-8601>`로 유효기간 안에 재생한다 — 부분 커밋된 슬롯의 재생은 새 스냅샷으로
-다시 판정하므로(이미 적힌 같은 종류는 결정적 키로 접힌다) 운영자가 판단한다. LEGACY 모드는 FCM 중복을 피하기 위해 자동 재시도하지 않는다.
-`user-reconcile`은 Data snapshot의 탈퇴·세대·locale/version만 반영하고 위성 설정·기기 소유권은 덮지 않는다.
+gate 개방과 재개는 `docs/contracts/notification-admin-api.yaml`의 `dispatch/open`·`dispatch/close`를 사용한다
+(이관용 import/verify 경로와 manifest 대조는 #1247 에서 제거했다).
+같은 close 키의 재시도도 다시 닫고 drain한다. 응답 유실로 open을 같은 키로 재전송하면 지금 열려 있을 때만 원 응답을 재생하고, 이후 close로 닫혔으면 `409 DISPATCH_CLOSED`이며 자동 재개하지 않는다. 의도적으로 다시 열 때에는 새 open 키를 쓴다.
+Data 에는 구 FCM 발송 경로가 없다(#1247). 발송을 고칠 때는 close 로 진행 중 발송을 drain 한 뒤 고친다.
 
-최초 gate 개방과 이후 재개는 `docs/contracts/notification-admin-api.yaml`의 import/verify/open/close를
-사용한다. open은 manifest를 실제 DB와 다시 대조한다. 실패하면 닫은 채 최종 import/verify로 돌아간다.
-같은 close 키의 재시도도 다시 닫고 drain한다. 응답 유실로 open을 같은 키로 재전송할 때에는 현재 개방과 실제 데이터를 재검증한다. 이후 close로 닫혔으면 `409 DISPATCH_OPEN_REPLAY_STALE`이며 자동 재개하지 않는다. 의도적으로 다시 열 때에는 새 open 키로 전체 검증을 거친다.
-한 번 열린 뒤에는 구 Data FCM 경로로 되돌리지 않는다. close가 진행 중 발송을 drain한 뒤 새 경로를 수정한다.
+## 기기 등록과 세션 호환
 
-## 최종 알림 export
-
-Data의 CLI를 `notification.migration.enabled=true`로 기동하고 `notification.migration.export-to=<로컬 파일>` 및 `notification.migration.id=<고정 ID>`를 지정한다. 구 발송·쓰기 인플라이트를 실제로 drain한 뒤 최종본에는 `notification.migration.closed-at=<epoch millis>`와 `notification.migration.inflight-drained=true`를 함께 준다. 최초 탐색에서는 두 값을 생략한다. 재조립 실패 또는 미전달 outbox가 남으면 최종본을 만들지 않는다.
-
-export마다 고유한 `manifest.snapshot`이 만들어진다. 모든 `*.import-####.json`은 같은 `snapshot`을 포함하며, 빈 전체 export도 `records: []`인 import 파일 하나를 만든다. 한 export의 청크와 manifest를 섞지 않고 재시도에는 같은 파일·명령 키를 사용한다. 재추출은 새 snapshot이며 최종 verify/open은 그 새 manifest로 수행한다. import 멱등 키는 `noti-import:<snapshot>:<청크 번호>`처럼 export·청크별로 발급한다. 새 snapshot에 이전 요청 키를 재사용하면 본문 충돌이므로 새 키를 쓰고, 같은 파일 재전송만 같은 키를 유지한다. 부분 적재는 검증 실패로 닫힌 채 재개하고, 최초 개방 직전에 선택한 집합 밖의 변경되지 않은 이관 소유 행만 정리한다. 라이브 설정·기기 소유권·더 높은 버전은 보존한다.
-
-`*.import-0000.json`의 500건 이하 배치를 Noti import API에 순서대로 전달하고, `*.verify.json`의 manifest로 검증한다. PENDING·DEFERRED는 미발송 데이터로 적재하며 queueDepth에는 포함하지 않는다. 빈 settings/device/delivery도 count 0과 SHA256(empty)를 manifest에 기록한다. 각 파일은 생성 시 0600이며 기존 파일을 덮지 않는다. 동일 원본 재시도는 새 출력 경로를 지정해 같은 migrationId에 반영한다.
-
-직렬화 호환 검증은 Noti bootJar 빌드 뒤 `python3 .github/scripts/check-migration-checksum.py`로 실행한다. 발송 개방 전 실제 DB의 건수·체크섬·필드·미발송 렌더 검증은 별도로 통과해야 한다.
-
+Data 알림 export·Notification import/verify 절차는 #1247(티켓 2421)에서 폐기됐다. 현재 발송 게이트는 위 `dispatch/open`·`dispatch/close`로 관리한다.
 
 앱의 최초 기기 등록은 sid 없는 로그인을 먼저 refresh해 승격한 뒤 전송한다. 따라서 gen·sid·bootstrap을
 발급하는 Data 인증 제공자를 앱 변경보다 먼저 배포한다. 갱신 장애나 세션 응답 미지원은 미전송 큐로 남긴다.
@@ -206,22 +151,9 @@ export마다 고유한 `manifest.snapshot`이 만들어진다. 모든 `*.import-
 이 호환 경로는 현대 bootstrap 행을 덮지 않는다. 현대 등록 이후 구 JS로 롤백하는 배포는 호환 범위에 포함하지 않는다.
 
 
-Data→Link 가입 relay를 활성화하기 전에 MMP의 A22 ㋻ 가입 귀속 검증을 배포·검증한다.
-Data가 알 수 없는 새 slug도 가입 사실로 전달하므로, MMP의 그룹 일치·셀프 초대 제외 검증 없이
-가입 relay부터 켜면 잘못된 귀속이 남는다. Data 제공자 배포 → MMP 검증 배포 → 가입 relay 개방 순서다.
+## Kafka 영속성과 기기 등록 안전 규칙
 
-
-## OUTBOX 후보 배치 활성화 선행 조건
-
-[GROMO-893](https://romance.atlassian.net/browse/GROMO-893)의 다중 수신자 USER 잠금 경계와
-결과·환불 후보 배치의 수신 완료 경계를
-완료·검증하기 전에는 `NOTIFICATION_DISPATCH_MODE=OUTBOX`로 전환하지 않는다. 기본 LEGACY를
-유지한다. 여러 페이지·그룹을 넘는 트랜잭션은 부분 정렬로 순서가 통일되지 않아 교착 시
-생성 요청이나 해당 알림 슬롯 전체가 롤백될 수 있다. Foundation 코드 머지가 이 운영 조건의
-해결을 뜻하지 않는다. 코어 mutation/outbox 원자성과 RR 판정 의미를 보존하는 수정이 선행한다.
-결과·환불 재훑기는 이미 닫힌 같은 슬롯의 여러 사건을 생산하지만 현재 `bundleMembers`를
-전달하지 않는다. 두 수신 사이에 flush가 실행되면 한 배치가 여러 푸시로 나갈 수 있으므로,
-이 경계의 수정과 실제 수신·flush 교차 회귀도 위 선행 작업에 포함한다.
+과거 OUTBOX 후보 배치 전환 조건(GROMO-893)은 #1247에서 발송 모드와 함께 폐기됐다. 현재 Data의 알림 사건은 outbox에 기록되고 Notification이 발송한다.
 
 Kafka 오버레이는 `KAFKA_LOG_DIRS=/var/lib/kafka/data`를 영속 볼륨과 연결한다. `.github/scripts/test_kafka_persistence.py`는 실제 오버레이에서 별도 테스트 자원 이름만 적용하고 토픽 생성·메시지 발행·컨테이너 재생성·재수신을 검사한다. 운영 브로커에는 실행하지 않는다.
 

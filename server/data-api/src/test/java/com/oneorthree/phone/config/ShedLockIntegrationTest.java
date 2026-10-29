@@ -2,7 +2,7 @@ package com.oneorthree.phone.config;
 
 import com.oneorthree.phone.common.support.IntegrationTestBase;
 import com.oneorthree.phone.config.SchedulingConfig;
-import com.oneorthree.phone.group.scheduler.GroupBetScheduler;
+import com.oneorthree.phone.quest.scheduler.IslandQuestScheduler;
 import net.javacrumbs.shedlock.core.LockConfiguration;
 import net.javacrumbs.shedlock.core.LockProvider;
 import net.javacrumbs.shedlock.core.SimpleLock;
@@ -78,7 +78,7 @@ class ShedLockIntegrationTest extends IntegrationTestBase {
     @DisplayName("정산 계열 크론은 전용 스케줄러에서 돈다 — 알림 팬아웃이 돈 처리를 잠식하지 못한다")
     void settlementCronsRunOnDedicatedScheduler() {
         int settlementCrons = 0;
-        for (Method method : GroupBetScheduler.class.getDeclaredMethods()) {
+        for (Method method : IslandQuestScheduler.class.getDeclaredMethods()) {
             Scheduled[] schedules = method.getAnnotationsByType(Scheduled.class);
             if (schedules.length == 0) {
                 continue;
@@ -91,20 +91,11 @@ class ShedLockIntegrationTest extends IntegrationTestBase {
                         .isEqualTo(SchedulingConfig.SETTLEMENT_SCHEDULER);
             }
         }
-        assertThat(settlementCrons).isEqualTo(3);
+        assertThat(settlementCrons).isEqualTo(2);
 
         // 두 풀은 서로 다른 빈이어야 격리가 성립한다(같은 빈이면 이름만 다른 공용 풀이다).
         assertThat(applicationContext.getBean(SchedulingConfig.SETTLEMENT_SCHEDULER))
                 .isNotSameAs(applicationContext.getBean("taskScheduler"));
-        // 알림 크론은 반대로 공용 풀을 쓴다(전용 풀을 잠식하지 않는다).
-        for (Method method : com.oneorthree.phone.notification.scheduler.NotificationScheduler.class
-                .getDeclaredMethods()) {
-            for (Scheduled schedule : method.getAnnotationsByType(Scheduled.class)) {
-                assertThat(schedule.scheduler())
-                        .as("알림 크론 %s 가 정산 전용 풀을 쓰면 격리가 무의미해진다", method.getName())
-                        .isNotEqualTo(SchedulingConfig.SETTLEMENT_SCHEDULER);
-            }
-        }
     }
 
     /**
@@ -142,8 +133,7 @@ class ShedLockIntegrationTest extends IntegrationTestBase {
             }
         }
         // 스케줄러가 통째로 사라지면(=탐색 실패) 검사가 공회전한다 — 하한을 둔다.
-        assertThat(scheduled).isGreaterThanOrEqualTo(15);
-        assertThat(ownerByLockName).containsKeys("league-weekly-batch", "focus-orphan-sweep",
-                "group-bet-settle-scan", "notification-bet-event-flush");
+        assertThat(scheduled).isGreaterThanOrEqualTo(5);
+        assertThat(ownerByLockName).containsKeys("island-quest-bonus-settle", "island-construction-completion-sweep");
     }
 }

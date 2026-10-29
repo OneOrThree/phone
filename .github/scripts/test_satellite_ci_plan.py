@@ -58,7 +58,6 @@ class SatelliteCiPlanTest(unittest.TestCase):
         """빌드가 바뀌었으면 그 빌드가 실제로 도는지 증명해야 한다."""
         self.assert_plan(['.github/workflows/satellite-check.yml'], True, True)
         self.assert_plan(['.github/scripts/satellite-ci-plan.py'], True, True)
-        self.assert_plan(['.github/scripts/check-migration-checksum.py'], True, True)
         self.assert_plan(['.github/actions/ci-jar/action.yml'], True, True)
         # 위성 배포가 실행하는 공용 스크립트·CD 도 배포 대상 (GROMO-2224)
         for path in ('.github/scripts/dev-env.sh', '.github/scripts/write-compose-env.py',
@@ -75,7 +74,72 @@ class SatelliteCiPlanTest(unittest.TestCase):
     def test_서비스_안의_같은_이름_파일은_그_서비스를_켠다(self):
         """루트 예외가 서비스 안까지 번지면 그 서비스 빌드가 통째로 빠진다."""
         self.assert_plan(['server/business-api/.gitignore'], True, False)
-        self.assert_plan(['server/notification/README.md'], False, True)
+        self.assert_plan(['server/notification/README.md'], False, False)
+
+    def test_조사에서_발견한_문서와_smoke_변경은_이미지를_만들지_않는다(self):
+        self.assert_plan(['docs/architecture/system-architecture.md', 'server/realtime/CLAUDE.md'], False, False)
+        self.assert_plan(['server/business-api/README.md', 'server/notification/README.md'], False, False)
+        self.assert_plan(['.github/scripts/dev-image-retention.py', '.github/workflows/ops-smoke.dev.yml'], False, False)
+
+    def test_push는_여러_커밋의_before_after_전체를_검사한다(self):
+        from unittest.mock import patch
+        event = {'before': '1' * 40, 'after': '2' * 40}
+        with patch.object(plan_module, 'last_deployed_revision', return_value='1' * 40), \
+             patch.object(plan_module.subprocess, 'check_output', return_value=b'server/notification/src/Main.java\0') as git:
+            self.assertEqual(plan_module.changed_paths(event), ['server/notification/src/Main.java'])
+        self.assertIn('1' * 40 + '..' + '2' * 40, git.call_args.args[0])
+
+    def test_취소된_notification_push도_다음_business_push에_누적된다(self):
+        from unittest.mock import patch
+        # A 배포 성공 → B(notification) 대기 취소 → C(business)만 마지막 push.
+        # B가 아닌 성공한 A부터 C까지 diff해야 두 서비스를 모두 선택한다.
+        event = {'before': '2' * 40, 'after': '3' * 40}
+        changed = b'server/notification/src/Main.java\0server/business-api/src/Main.java\0'
+        with patch.object(plan_module, 'last_deployed_revision', return_value='1' * 40), \
+             patch.object(plan_module.subprocess, 'check_output', return_value=changed) as git:
+            self.assertTrue(all(plan_module.plan(plan_module.changed_paths(event)).values()))
+        self.assertIn('1' * 40 + '..' + '3' * 40, git.call_args.args[0])
+
+    def test_CD의_head_sha가_아닌_실제_배포_기록_SHA를_사용한다(self):
+        import io
+        import json
+        import os
+        import zipfile
+        from unittest.mock import patch
+        deployed = '1' * 40
+        record = {'head_sha': deployed, 'business-api': False, 'notification': True}
+        stream = io.BytesIO()
+        with zipfile.ZipFile(stream, 'w') as archive:
+            archive.writestr('satellite-deploy-record.json', json.dumps(record))
+        def api(path):
+            if '/artifacts?' in path:
+                return {'artifacts': [{'id': 7, 'name': 'satellite-deploy-record', 'expired': False}]}
+            return {'workflow_runs': [{'id': 10, 'event': 'workflow_run', 'head_branch': 'main',
+                                      'conclusion': 'success', 'head_sha': '9' * 40,
+                                      'head_repository': {'id': 1}}]}
+        with patch.dict(os.environ, {'GITHUB_REPOSITORY_ID': '1', 'GITHUB_REPOSITORY': 'OneOrThree/phone'}), \
+             patch.object(plan_module, 'github_api', api), \
+             patch.object(plan_module.subprocess, 'check_output', return_value=stream.getvalue()), \
+             patch.object(plan_module.subprocess, 'run') as git:
+            git.return_value.returncode = 0
+            self.assertEqual(plan_module.last_deployed_revision('3' * 40), deployed)
+        self.assertIn(deployed, git.call_args.args[0])
+
+    def test_성공_기준_조회_실패는_배포를_누락하지_않고_전체_선택한다(self):
+        import json
+        import os
+        import tempfile
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            (root / 'event').write_text(json.dumps({'before': '1' * 40, 'after': '2' * 40}))
+            env = {'GITHUB_EVENT_NAME': 'push', 'GITHUB_REF': 'refs/heads/main',
+                   'GITHUB_EVENT_PATH': str(root / 'event'), 'GITHUB_OUTPUT': str(root / 'output'),
+                   'GITHUB_STEP_SUMMARY': str(root / 'summary')}
+            with patch.dict(os.environ, env), patch.object(plan_module, 'last_deployed_revision', side_effect=ValueError('missing')):
+                plan_module.main()
+            self.assertIn('"business-api": true', (root / 'output').read_text())
+            self.assertIn('"notification": true', (root / 'output').read_text())
 
     def test_분류하지_않은_경로는_안전한_쪽으로_간다(self):
         self.assert_plan(['server/scripts/docker-compose.dev.yml'], True, True)

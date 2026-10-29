@@ -1,17 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import {
-  BackHandler,
-  Image,
-  Platform,
-  Pressable,
-  ScrollView,
-  Share,
-  TextInput,
-  View,
-} from 'react-native';
+import { BackHandler, Image, Platform, Pressable, ScrollView, TextInput, View } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import { isMockMode } from '@/services/demoMode';
-import { art, CharCount, Wheel } from '@/design-system/patterns';
+import { art, CharCount, NavBtn, Wheel } from '@/design-system/patterns';
 import { componentTokens, semanticTokens } from '@/design-system/tokens';
 import { CatAvatar } from '@/components/CatAvatar';
 import { appearanceOutfit, outfitOf, type Outfit } from '@/components/CatOutfitLayers';
@@ -55,6 +46,8 @@ import {
 import { getSession, sessionGeneration } from '@/services/api/session';
 import { t } from '@/i18n';
 import { useVisitorJoin } from '@/screens/island/useVisitorJoin';
+import { useInviteShare } from '@/screens/island/useInviteShare';
+import { useIslandNews } from '@/screens/magazine/useIslandNews';
 import {
   ISLAND_GREETING_MAX,
   ISLAND_INTRO_MAX,
@@ -85,6 +78,15 @@ const promotionRowBusy = {
   opacity: componentTokens.button.disabledOpacity,
 } as const;
 const completionStamp = componentTokens.hallCompletionStamp;
+// 공동 가계부 장부 한 장과 잔액·적립·지출 고양이 포스트잇(GROMO-2487) — 새 그림이라 OTA 경로(src/assets/ota/)에 둔다
+const ledgerArt = {
+  book: require('@/assets/ota/interiors/ui/ledger-book-v2.png'),
+  tabs: [
+    require('@/assets/ota/interiors/ui/tab-pink.png'),
+    require('@/assets/ota/interiors/ui/tab-yellow.png'),
+    require('@/assets/ota/interiors/ui/tab-blue.png'),
+  ],
+};
 // 받침 유무로 조사 고르기 (을/를, 으로/로: ㄹ받침은 로)
 const final = (word: string) => {
   const c = word.charCodeAt(word.length - 1) - 0xac00;
@@ -96,8 +98,8 @@ const grid = ['library', 'tower', 'mail', 'gram', 'shop'] as const satisfies rea
 const cardDesc: Record<string, string> = {
   hall: '주민이 모이는 곳',
   board: '섬 공지와 퀘스트',
-  library: '집중·스크린타임 기록',
-  tower: '다른 섬 랭킹과 탐색',
+  library: '집중과 스크린타임',
+  tower: '섬 랭킹과 탐색',
   mail: '주민·친구 편지',
   gram: '공동 음원 재생',
   shop: '의상·섬 테마 구매',
@@ -171,7 +173,7 @@ function Icon({ d, size }: { d: string; size: number }) {
 }
 // 고양이 색 미선택(null)·모름 — 남의 칸을 내 색으로 칠하지 않고 빈 자리표시자 원으로 둔다(2-16 H21)
 const NO_CAT_COLOR = '';
-function Avatar({ color, outfit, n, size }: any) {
+function Avatar({ color, outfit, userId, n, size }: any) {
   return (
     <View
       style={{
@@ -185,6 +187,7 @@ function Avatar({ color, outfit, n, size }: any) {
       }}
     >
       <CatAvatar
+        userId={userId}
         color={color}
         outfit={outfit}
         size={size - 2.6}
@@ -206,8 +209,9 @@ export function Hall({ e }: any) {
     host = isHost(i),
     // 다른 섬을 구경 중(주민 아님)이면 섬 정보 카드를 방문자 뷰로 보여 준다
     visitor = !!s.visitingIslandId,
-    // 서버 훅이 부를 섬 — 서버 모드 current 는 로컬 목업 섬 목록에 없다(GROMO-2138). 목업은 기존 섬 id
-    liveIslandId = s.serverIslands?.currentIslandId ?? i.id;
+    // 서버 훅이 부를 섬 — 서버 모드 current 는 로컬 목업 섬 목록에 없다(GROMO-2138). 서버 모드(e.islands)에선
+    // 서버 id 가 도착하기 전(null)에 목업 id 로 소식·관리를 부르지 않는다(GROMO-2460). 목업은 기존 섬 id
+    liveIslandId = e.islands ? (s.serverIslands?.currentIslandId ?? null) : i.id;
   // review/demo에는 서버가 없으므로 관리 hook을 열지 않고 기존 시연 섬 정보를 유지한다.
   const liveManagement = (r === 'manage' || r === 'members') && !visitor && !ledgerMockMode();
   // `manage`/`members`는 실제 App 경로(CurrentScreens → Hall)다. 로컬 Island를 서버 DTO로
@@ -298,7 +302,7 @@ export function Hall({ e }: any) {
   const mockLedger = ledgerMockMode();
   const serverLedger = useLedgerScreen({
     active: r === 'ledger' && !visitor && !mockLedger,
-    islandId: liveIslandId,
+    islandId: liveIslandId ?? i.id, // URL 에 안 쓰는 값이라 타입만 지킨다
     currentMonth: thisMonth,
   });
   // 건설 화면도 같은 서버 정본 규칙 — 방문자·모크 모드는 로컬 시연 UI 를 유지한다.
@@ -388,6 +392,7 @@ export function Hall({ e }: any) {
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(() => setToast(''), 2400);
   };
+  const inviteShare = useInviteShare(liveIslandId ?? '', management.detail?.name ?? i.name, notify);
   const {
     join,
     disabled: joinDisabled,
@@ -395,6 +400,8 @@ export function Hall({ e }: any) {
     busy: visitorJoinBusy,
     serverJoin,
   } = useVisitorJoin(e, s, i, notify);
+  // 섬 소식(GROMO-2282) — 주민 전용 목록이라 구경 중이 아닐 때 관리·주민 카드에서만 부른다. 실패·403 은 빈 목록이다
+  const news = useIslandNews((r === 'manage' || r === 'members') && !visitor, liveIslandId);
   // .hl 글자: 고운돋움, 자간 −0.15
   const g = (size: number, lh: number, extra?: object) => ({
     fontFamily: font,
@@ -437,10 +444,10 @@ export function Hall({ e }: any) {
       )}
     </>
   );
-  const back = (onPress: () => void) => (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel="뒤로"
+  // 목적지가 정해진 ‹ 는 목적지를 읽고(책상 → 섬), 이전 화면으로 가는 ‹ 는 「뒤로」다(DESIGN §7.14)
+  const back = (onPress: () => void, label = '뒤로') => (
+    <NavBtn
+      label={label}
       testID="hall-back"
       onPress={onPress}
       style={{
@@ -448,19 +455,8 @@ export function Hall({ e }: any) {
         zIndex: 12,
         left: (land ? 56 : 18) + off.left,
         top: (land ? 14 : 46.5) + off.top,
-        width: 43.9,
-        height: 43.9,
-        borderRadius: 22,
-        borderWidth: 2.6,
-        borderColor: BROWN,
-        backgroundColor: '#fff7eb',
-        boxShadow: `0px 3.9px 0px ${BROWN}`,
-        alignItems: 'center',
-        justifyContent: 'center',
       }}
-    >
-      <T style={g(29.7, 29.7, { fontWeight: '800' })}>‹</T>
-    </Pressable>
+    />
   );
   const toastView = toast !== '' && (
     <View
@@ -560,10 +556,11 @@ export function Hall({ e }: any) {
                   borderWidth: 1.5,
                   borderColor: BROWN,
                   borderRadius: 99,
+                  // 주 행동은 Pink(DESIGN §7.2), 위험 행동만 빨강
                   backgroundColor: ok
                     ? dialog.danger
                       ? '#e9a49d'
-                      : semanticTokens.color.accent
+                      : componentTokens.button.background
                     : undefined,
                 }}
               >
@@ -582,7 +579,7 @@ export function Hall({ e }: any) {
       </View>
     </>
   );
-  const shell = (children: React.ReactNode, backPress?: () => void) => (
+  const shell = (children: React.ReactNode, backPress?: () => void, backLabel?: string) => (
     <View style={{ flex: 1 }}>
       {/* 확인창이 열린 동안 뒤 장면은 보조기기에서 숨긴다 */}
       <View
@@ -592,7 +589,7 @@ export function Hall({ e }: any) {
         importantForAccessibility={dialog ? 'no-hide-descendants' : 'auto'}
       >
         {scene}
-        {backPress && back(backPress)}
+        {backPress && back(backPress, backLabel)}
         {children}
       </View>
       {dialogView}
@@ -715,6 +712,7 @@ export function Hall({ e }: any) {
         ))}
       </>,
       e.home,
+      '섬으로 돌아가기',
     );
   }
 
@@ -755,7 +753,7 @@ export function Hall({ e }: any) {
       );
     }
     const [ledgerYear, ledgerMonth] = ledger.month.split('-').map(Number);
-    // 책갈피 라벨 ↔ 서버 direction scope. 잔액은 무필터(최근 두 줄), 적립·지출은 해당 방향 전체
+    // 포스트잇 라벨 ↔ 서버 direction scope. 잔액은 무필터(최근 두 줄), 적립·지출은 해당 방향 전체
     const TAB_KEY = { 잔액: 'balance', 적립: 'earn', 지출: 'spend' } as const;
     const TAB_LABEL = { balance: '잔액', earn: '적립', spend: '지출' } as const;
     // 서버 원장 사유 → 한 줄 표시 (GROMO-1786 · IslandWalletTransactionType). 거래 주체는 계약에 없다
@@ -768,79 +766,107 @@ export function Hall({ e }: any) {
       promotion_fee: t('magazine.ledger.promotionFee'),
     };
     const shown = ledger.tab === 'balance' ? ledger.items.slice(0, 2) : ledger.items;
-    const bookmark = (label: keyof typeof TAB_KEY, n: number) => {
-      const key = TAB_KEY[label];
-      const on = ledger.tab === key;
-      const color = ['#f2c1c8', '#f1d77f', '#acd5df'][n];
-      return (
-        <Pressable
-          key={label}
-          testID={`ledger-tab-${label}`}
-          accessibilityRole="button"
-          accessibilityLabel={label}
-          accessibilityState={{ selected: on }}
-          onPress={() => ledger.setTab(key)}
-          style={[
-            {
-              width: 72.3,
-              height: 51.6,
-              alignItems: 'center',
-              justifyContent: 'center',
-              paddingTop: 6.5,
-              paddingBottom: 10.3,
-              transform: [{ translateY: on ? -7.7 : 0 }],
-            },
-            on && web({ filter: 'brightness(1.04)' }),
-          ]}
-        >
-          {/* 아래가 제비꼬리로 파인 책갈피. 테두리는 위·양옆만 */}
-          <Svg width={72.3} height={51.6} style={{ position: 'absolute', left: 0, top: 0 }}>
-            <Path d="M0 0H72.3V51.6L36.15 41.28L0 51.6Z" fill={color} />
-            <Path
-              d="M0.95 51.6V6.15Q0.95 0.95 6.15 0.95H66.15Q71.35 0.95 71.35 6.15V51.6"
-              fill="none"
-              stroke="#775846"
-              strokeWidth={1.9}
-            />
-          </Svg>
-          <T style={g(15.5, 19.375, { fontWeight: '800' })}>{label}</T>
-        </Pressable>
-      );
-    };
     const numberText = (n: number, sign: '+' | '−') =>
       `${sign}${Math.abs(n).toLocaleString('ko-KR')}`;
+    const LG = componentTokens.ledger;
+    // 세 장짜리 책: 장부 그림 한 장을 비율 그대로 깔고(세로는 폭은 좌우 여백 안, 높이는 위~아래 여백 안 — 작은 쪽에 맞춰
+    // 가운데) 그림 속 종이 영역 비율로 글을 둔다
+    const A = LG.art;
+    const bookLeft = land ? side : LG.side;
+    const room = W - bookLeft - (land ? LG.landRight : LG.side);
+    // 세로: 874 화면은 시안 높이 635.3 그대로, 낮은 화면은 뒤로 버튼·명판 아래에서 시작
+    const bookTop = land
+      ? LG.landTop
+      : Math.max(L.insets.top + LG.topBelowInset, H - LG.bottom - LG.maxHeight);
+    const visibleH = H - bookTop - (land ? LG.landBottom : LG.bottom);
+    // 가로는 높이에 맞춰 줄이지 않는다 — 세로 폰과 비슷한 폭으로 크게 두고 아래쪽을 화면 밖으로 잘라 낸다(2026-10-27 오스카)
+    const sc = land
+      ? Math.min(room, LG.landscapeBookWidth) / A.width
+      : Math.min(room / A.width, visibleH / A.height);
+    const artH = A.height * sc;
+    const bookW = A.width * sc;
+    // 보이는 책 몸통 높이 — 세로는 그림 높이 그대로, 가로는 화면 아래 여백에서 잘린다
+    const bodyH = Math.min(artH, visibleH);
+    const paper = {
+      left: A.paperLeft * sc,
+      top: A.paperTop * sc,
+      right: (A.width - A.paperRight) * sc,
+      bottom: (A.height - A.paperBottom) * sc,
+    };
+    // 큰 글자·좁은 종이는 날짜·내용 아래에 금액을 따로 놓아 어느 열도 밀려 사라지지 않게 한다.
+    const contentWidth = bookW - paper.left - paper.right - LG.contentInsetX * 2;
+    const stackedRows =
+      (L.fontScale ?? 1) >= semanticTokens.typography.largeTextThreshold ||
+      contentWidth < LG.rowStackWidth * Math.max(1, L.fontScale ?? 1);
+    // 토큰의 { 크기, 줄높이 } 로 고운돋움 글자 스타일을 만든다
+    const lt = (type: { fontSize: number; lineHeight: number }, extra?: object) =>
+      g(type.fontSize, type.lineHeight, extra);
+    const tnum = { fontVariant: ['tabular-nums'] };
+    // 이번 달이 아니면 「그 달」
+    const monthWord = ledger.offset ? '그 달' : '이번 달';
+    // 통장 표 한 줄: 날짜 | 내용(묶인 줄은 · N회) | 물고기 금액. 금액 줄높이 22 > 크기 18 이라 고운돋움 숫자 윗부분이 잘리지 않는다
     const list = shown.map((l) => {
-      const [mm, dd] = kstMonthDay(Date.parse(l.createdAt)).split('/');
+      const spend = l.direction === 'spend';
       return (
         <View
           key={l.id}
+          testID={`ledger-row-${l.id}`}
           style={{
-            flexDirection: 'row',
-            justifyContent: 'space-between',
+            flexDirection: stackedRows ? 'column' : 'row',
             alignItems: 'center',
-            gap: 10.3,
-            paddingVertical: 9,
-            paddingHorizontal: 1.3,
-            borderBottomWidth: 1.3,
+            gap: LG.columnGap,
+            paddingVertical: LG.rowPaddingVertical,
+            paddingHorizontal: LG.cellPaddingHorizontal,
+            borderBottomWidth: LG.rowRule,
             borderStyle: 'dashed',
-            borderBottomColor: '#c9ad87',
+            borderBottomColor: LG.dash,
           }}
         >
-          <View style={{ flexShrink: 1 }}>
-            {/* 모크 모드의 reason 자리에는 로컬 제목이 실려 있다 — 그대로 보여 준다 */}
-            <T style={g(16.8, 26.88, { fontWeight: '700' })}>
-              {mockLedger ? l.reason : (REASON[l.reason] ?? '기타')}
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: LG.columnGap,
+              flex: stackedRows ? undefined : 1,
+              alignSelf: stackedRows ? 'stretch' : undefined,
+              minWidth: 0,
+            }}
+          >
+            <T style={lt(LG.date, { minWidth: LG.dateWidth, color: LG.faint, ...tnum })}>
+              {kstMonthDay(Date.parse(l.createdAt))}
             </T>
-            <T style={g(15.5, 24.8, { color: MUTED })}>
-              {mm}월 {dd}일{l.entryCount > 1 ? ` · ${l.entryCount}회 적립` : ''}
+            {/* 모크 모드의 reason 자리에는 로컬 제목이 실려 있다 — 그대로 보여 준다 */}
+            <T style={lt(LG.reason, { flex: 1, minWidth: 0 })}>
+              {mockLedger ? l.reason : (REASON[l.reason] ?? '기타')}
+              {l.entryCount > 1 ? (
+                <T
+                  style={{ fontSize: LG.countFontSize, color: LG.faint }}
+                >{` · ${l.entryCount}회`}</T>
+              ) : null}
             </T>
           </View>
           {/* 서버 amount 는 항상 양수 — 부호는 direction 이 정한다 */}
-          <T style={g(20.7, 20.7)}>{numberText(l.amount, l.direction === 'spend' ? '−' : '+')}</T>
+          <T
+            testID={`ledger-amount-${l.id}`}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            style={lt(LG.amount, {
+              minWidth: stackedRows ? 0 : LG.amountMinWidth,
+              maxWidth: stackedRows ? '100%' : '50%',
+              alignSelf: stackedRows ? 'stretch' : undefined,
+              flexShrink: 1,
+              textAlign: 'right',
+              fontWeight: '700',
+              color: spend ? LG.spend : LG.earn,
+              ...tnum,
+            })}
+          >
+            {numberText(l.amount, spend ? '−' : '+')}
+          </T>
         </View>
       );
     });
-    // 다음 쪽(같은 월·방향의 서명 커서) 더 보기. 잔액 책갈피는 최근 두 줄만 보는 자리라 붙이지 않는다
+    // 다음 쪽(같은 월·방향의 서명 커서) 더 보기. 잔액 장은 최근 두 줄만 보는 자리라 붙이지 않는다
     const more =
       ledger.tab !== 'balance' && ledger.nextCursor ? (
         <Pressable
@@ -927,98 +953,110 @@ export function Hall({ e }: any) {
           </Pressable>
         </View>
       ) : null;
-    const left = (
-      <View style={land ? { flex: 1, minWidth: 0 } : undefined}>
-        <T style={g(36.2, 45.25, { marginTop: 2.6 })} numberOfLines={1}>
-          🐟 {ledger.villagePoints === null ? '—' : ledger.villagePoints.toLocaleString('ko-KR')}
-          마리
-        </T>
-        <View
-          style={{
-            alignSelf: 'flex-start',
-            marginTop: 6.5,
-            marginBottom: 11.6,
-            paddingVertical: 2.6,
-            paddingHorizontal: 9,
-            borderWidth: 1.3,
-            borderColor: '#886b53',
-            borderRadius: 6.5,
-            backgroundColor: '#efd070',
-            transform: [{ rotate: '-2deg' }],
-          }}
+    const tableHead = (
+      <View
+        style={{
+          flexDirection: 'row',
+          gap: LG.columnGap,
+          paddingTop: LG.tableHeadPadding.top,
+          paddingBottom: LG.tableHeadPadding.bottom,
+          paddingHorizontal: LG.cellPaddingHorizontal,
+          borderBottomWidth: LG.headRule,
+          borderBottomColor: LG.rule,
+        }}
+      >
+        <T style={lt(LG.tableHead, { minWidth: LG.dateWidth, color: LG.faint })}>날짜</T>
+        <T style={lt(LG.tableHead, { flex: 1, color: LG.faint })}>내용</T>
+        <T
+          style={lt(LG.tableHead, {
+            minWidth: LG.amountMinWidth,
+            textAlign: 'right',
+            color: LG.faint,
+          })}
         >
-          <T style={g(15.5, 20.15)}>섬 주민이 함께 모은 물고기</T>
-        </View>
+          🐟
+        </T>
       </View>
     );
-    const right = (
-      <View style={land ? { flex: 1, minWidth: 0 } : undefined}>
-        <View
-          style={{ flexDirection: 'row', gap: 9, marginTop: land ? 0 : 11.6, marginBottom: 11.6 }}
-        >
-          {[
-            ['이번 달 적립', numberText(ledger.earnedTotal, '+')],
-            ['이번 달 사용', numberText(ledger.spentTotal, '−')],
-          ].map(([label, value]) => (
-            <View
-              key={label}
-              style={{
-                flex: 1,
-                padding: 9,
-                borderWidth: 1.3,
-                borderColor: '#c7aa83',
-                backgroundColor: '#fff8e7',
-              }}
-            >
-              <T style={g(15.5, 24.8)}>{ledger.offset ? label.replace('이번', '그') : label}</T>
-              <T style={g(22, 30.8, { marginBottom: 1.24 })}>{value}</T>
-            </View>
-          ))}
-        </View>
-        {/* 조회 실패·로딩·진짜 빈 달은 서로 다른 상태다 — 실패를 빈 내역으로 접지 않는다 */}
-        {stateBox ? (
-          stateBox
-        ) : shown.length ? (
-          land ? (
-            <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
-              {list}
-              {more}
-              {moreRetry}
-            </ScrollView>
-          ) : (
-            <>
-              {list}
-              {more}
-              {moreRetry}
-            </>
-          )
-        ) : (
+    const empty = (
+      <View
+        testID="ledger-empty"
+        style={{
+          alignItems: 'center',
+          gap: 5.2,
+          paddingVertical: 23.2,
+          paddingHorizontal: 12.9,
+          borderWidth: 1.9,
+          borderStyle: 'dashed',
+          borderColor: '#c5ad8a',
+          borderRadius: 12.9,
+        }}
+      >
+        <T style={g(16.8, 26.88, { fontWeight: '700', textAlign: 'center' })}>
+          {ledger.tab === 'balance'
+            ? '아직 쌓인 내역이 없어요'
+            : `이 달 ${TAB_LABEL[ledger.tab]} 내역이 없어요`}
+        </T>
+        <T style={g(15.5, 21.7, { color: MUTED, textAlign: 'center' })}>
+          주민이 함께 모으고 쓰면 여기 쌓여요
+        </T>
+      </View>
+    );
+    // 잔액 장: 물고기 + 잔액 + 단위, 그 아래 이번 달 적립·사용 한 줄. 적립·지출 장: 그 달 합계 하나
+    // 큰 숫자는 줄높이 40 > 크기 34. 긴 금액·큰 글자는 자르지 않고 한 줄에 맞게 줄인다
+    const head =
+      ledger.tab === 'balance' ? (
+        <>
           <View
-            testID="ledger-empty"
             style={{
-              alignItems: 'center',
-              gap: 5.2,
-              paddingVertical: 23.2,
-              paddingHorizontal: 12.9,
-              borderWidth: 1.9,
-              borderStyle: 'dashed',
-              borderColor: '#c5ad8a',
-              borderRadius: 12.9,
+              flexDirection: 'row',
+              alignItems: 'baseline',
+              gap: LG.headGap,
+              marginTop: LG.headTop,
             }}
           >
-            <T style={g(16.8, 26.88, { fontWeight: '700', textAlign: 'center' })}>
-              {ledger.tab === 'balance'
-                ? '아직 쌓인 내역이 없어요'
-                : `이 달 ${TAB_LABEL[ledger.tab]} 내역이 없어요`}
+            <Image
+              source={art.fish}
+              accessible={false}
+              style={{ width: LG.fishSize, height: LG.fishSize }}
+            />
+            <T
+              testID="ledger-balance"
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              style={lt(LG.balance, { flexShrink: 1, ...tnum })}
+            >
+              {ledger.villagePoints === null ? '—' : ledger.villagePoints.toLocaleString('ko-KR')}
             </T>
-            <T style={g(15.5, 21.7, { color: MUTED, textAlign: 'center' })}>
-              주민이 함께 모으고 쓰면 여기 쌓여요
-            </T>
+            <T style={lt(LG.unit, { color: MUTED })}>마리</T>
           </View>
-        )}
-      </View>
-    );
-    const perBtn = (dir: -1 | 1) => {
+          <T style={lt(LG.caption, { marginTop: LG.summaryTop, color: MUTED })}>
+            {`${monthWord} 적립 `}
+            <T style={{ color: LG.earn, ...tnum }}>{numberText(ledger.earnedTotal, '+')}</T>
+            {` · ${monthWord} 사용 `}
+            <T style={{ color: LG.spend, ...tnum }}>{numberText(ledger.spentTotal, '−')}</T>
+          </T>
+        </>
+      ) : (
+        <>
+          <T style={lt(LG.caption, { marginTop: LG.headTop, color: MUTED })}>
+            {`${monthWord} ${ledger.tab === 'earn' ? '적립' : '사용'}`}
+          </T>
+          <T
+            testID="ledger-total"
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            style={lt(LG.balance, { color: ledger.tab === 'earn' ? LG.earn : LG.spend, ...tnum })}
+          >
+            {ledger.tab === 'earn'
+              ? numberText(ledger.earnedTotal, '+')
+              : numberText(ledger.spentTotal, '−')}
+          </T>
+        </>
+      );
+    // 월 이동 ‹ › — 글자만 보이고 버튼 상자 자체가 44×44 다(hitSlop 은 부모 행·스크롤 경계를 못 넘어 44 가 안 나온다).
+    // 화살표는 시안 자리대로 ‹ 는 왼쪽 끝, › 는 오른쪽 끝에 붙이고 세로 가운데. 두 상자 폭이 같아 월 글자는 가운데 그대로
+    const nav = (dir: -1 | 1) => {
       const disabled = dir === 1 && !ledger.canNext;
       return (
         <Pressable
@@ -1029,200 +1067,182 @@ export function Hall({ e }: any) {
           disabled={disabled}
           onPress={() => (dir < 0 ? ledger.prevMonth() : ledger.nextMonth())}
           style={{
-            width: 41.3,
-            height: 41.3,
-            borderRadius: 20.65,
-            borderWidth: 2.6,
-            borderColor: BROWN,
-            backgroundColor: '#fff7eb',
-            boxShadow: disabled ? undefined : `0px 3.9px 0px ${BROWN}`,
-            opacity: disabled ? 0.35 : 1,
-            alignItems: 'center',
+            minWidth: semanticTokens.size.tapMin,
+            minHeight: semanticTokens.size.tapMin,
+            alignItems: dir < 0 ? 'flex-start' : 'flex-end',
             justifyContent: 'center',
+            opacity: disabled ? LG.navDisabledOpacity : 1,
           }}
         >
-          <T style={g(16.8, 26.88, { fontWeight: '800' })}>{dir < 0 ? '‹' : '›'}</T>
+          <T style={lt(LG.navArrow, { fontWeight: '800', color: LG.faint })}>
+            {dir < 0 ? '‹' : '›'}
+          </T>
+        </Pressable>
+      );
+    };
+    const labels = ['잔액', '적립', '지출'] as const;
+    const tabLeft = (n: number) => paper.left + LG.tabLeft + n * (LG.tabSize + LG.tabGap);
+    // 포스트잇은 책 위로(좁은 화면은 오른쪽으로도) 나온다. 안드로이드는 부모 상자 밖 터치를 자르므로 바깥 상자를
+    // 누르는 자리(hitSlop 포함)까지 위·오른쪽으로 늘리고, 책은 그 안에서 rise 만큼 내려 화면상 자리는 그대로 둔다.
+    // rise 는 장과 상관없이 가장 높이 오는 자리(가장 위 단면 또는 펼친 자리) 기준이라 장을 넘겨도 책이 움직이지 않는다
+    const rise = Math.max(
+      0,
+      LG.tabSize * LG.tabArtBottom +
+        LG.tabHitSlop -
+        Math.min(
+          A.bandBottom * sc + LG.tabOpenOverlap,
+          ...LG.pageEdges.map((y) => y * sc + LG.tabRestOverlap),
+        ),
+    );
+    const frameW = Math.max(bookW, tabLeft(labels.length - 1) + LG.tabSize + LG.tabHitSlop);
+    // 고양이 포스트잇 — 세 장 모두 책 그림 앞. 펼친 장은 아래가 단면 띠 바닥 +4(종이에 붙음), 나머지는 제 색 단면 +6 에 걸친다.
+    // 누르면 그 장이 펼쳐진다(넘김 애니메이션 없음)
+    const postIt = (label: (typeof labels)[number], n: number) => {
+      const on = ledger.tab === TAB_KEY[label];
+      const artBottom = on
+        ? A.bandBottom * sc + LG.tabOpenOverlap
+        : LG.pageEdges[n] * sc + LG.tabRestOverlap;
+      return (
+        <Pressable
+          key={label}
+          testID={`ledger-tab-${label}`}
+          accessibilityRole="tab"
+          accessibilityLabel={label}
+          accessibilityState={{ selected: on }}
+          hitSlop={LG.tabHitSlop}
+          onPress={() => ledger.setTab(TAB_KEY[label])}
+          style={{
+            position: 'absolute',
+            zIndex: on ? LG.tabOpenZ : LG.tabZ,
+            left: tabLeft(n),
+            top: rise + artBottom - LG.tabSize * LG.tabArtBottom,
+            width: LG.tabSize,
+            height: LG.tabSize,
+          }}
+        >
+          <Image source={ledgerArt.tabs[n]} resizeMode="contain" style={fill} />
+          <T
+            style={lt(LG.tabLabel, {
+              position: 'absolute',
+              left: 0,
+              right: 0,
+              top: LG.tabSize * LG.tabLabelTop,
+              textAlign: 'center',
+              fontWeight: '800',
+            })}
+          >
+            {label}
+          </T>
         </Pressable>
       );
     };
     return shell(
+      // 바깥 상자 = 책 + 포스트잇 누르는 자리. 빈 부분은 터치를 받지 않는다(box-none)
       <View
+        testID="ledger-book"
+        pointerEvents="box-none"
         style={[
           {
             position: 'absolute',
             zIndex: 7,
-            left: land ? side : 18.1,
-            right: land ? 18 : 18.1,
-            // 세로: 874 화면은 시안 높이 635.3 그대로, 낮은 화면은 뒤로 버튼·명판 아래에서 시작
-            top: land ? 46 : Math.max(L.insets.top + 94, H - 28.4 - 635.3),
-            bottom: land ? 12 : 28.4,
+            left: bookLeft + (room - bookW) / 2,
+            top: bookTop - rise,
+            width: frameW,
+            height: bodyH + rise,
           },
           web({ filter: 'drop-shadow(rgba(60, 38, 27, 0.384) 0px 14.2px 15.5px)' }),
         ]}
       >
-        {/* 종이 겹과 초록 표지 */}
+        {/* 책 몸통은 보이는 높이에서 그림을 자른다. 포스트잇은 몸통 밖 형제라 잘리지 않는다 */}
         <View
-          style={[
-            {
-              position: 'absolute',
-              top: 11.6,
-              right: -3.9,
-              bottom: -6.5,
-              left: 12.9,
-              borderWidth: 2.6,
-              borderColor: '#6f503a',
-              borderTopLeftRadius: 9,
-              borderTopRightRadius: 16.8,
-              borderBottomRightRadius: 16.8,
-              borderBottomLeftRadius: 7.7,
-              backgroundColor: '#f1e4c9',
-              boxShadow: 'inset 9px 0px 0px rgb(72, 99, 77)',
-            },
-            web({
-              backgroundImage:
-                'repeating-linear-gradient(rgb(241, 228, 201) 0px, rgb(241, 228, 201) 3.9px, rgb(185, 155, 118) 5.2px, rgb(241, 228, 201) 6.5px)',
-            }),
-          ]}
-        />
-        <View
+          testID="ledger-book-body"
           style={{
             position: 'absolute',
-            top: 5.2,
-            right: 5.2,
-            bottom: 1.3,
-            left: 6.5,
-            borderWidth: 2.6,
-            borderColor: '#684d39',
-            borderTopLeftRadius: 7.7,
-            borderTopRightRadius: 15.5,
-            borderBottomRightRadius: 15.5,
-            borderBottomLeftRadius: 7.7,
-            backgroundColor: '#678268',
-            boxShadow: 'inset 10.3px 0px 0px rgb(64, 94, 72)',
+            zIndex: LG.artZ,
+            left: 0,
+            top: rise,
+            width: bookW,
+            height: bodyH,
+            overflow: 'hidden',
           }}
-        />
-        <View
-          style={[
-            {
-              position: 'absolute',
-              top: 12.9,
-              right: 10.3,
-              bottom: 9,
-              left: 19.4,
-              paddingTop: land ? 66 : 60.7,
-              paddingRight: land ? 20 : 28.4,
-              paddingBottom: land ? 12 : 23.2,
-              paddingLeft: land ? 30 : 37.4,
-              borderWidth: 1.9,
-              borderColor: '#937154',
-              borderTopLeftRadius: 5.2,
-              borderTopRightRadius: 12.9,
-              borderBottomRightRadius: 12.9,
-              borderBottomLeftRadius: 6.5,
-              backgroundColor: '#fff3d8',
-              boxShadow: 'inset 9px 0px 11.6px rgba(141, 112, 67, 0.2)',
-            },
-            web({
-              backgroundImage:
-                'linear-gradient(90deg, rgba(195, 167, 125, 0.133) 0px, rgba(195, 167, 125, 0.133) 3%, transparent 8%), repeating-linear-gradient(rgb(255, 243, 216) 0px, rgb(255, 243, 216) 31px, rgb(234, 216, 185) 32.3px)',
-            }),
-          ]}
         >
-          <View
+          <Image
+            testID="ledger-book-art"
+            source={ledgerArt.book}
+            resizeMode="contain"
             style={{
               position: 'absolute',
-              left: 5.2,
-              top: '4%',
-              bottom: '4%',
-              width: 12.9,
-              borderRadius: 6.45,
-              backgroundColor: 'rgba(153, 118, 75, 0.133)',
-              // 시안은 50% 둥글기(세로로 긴 타원)
-              ...web({ borderRadius: '50%' }),
-              boxShadow: 'inset -3.9px 0px 5.2px rgba(122, 90, 56, 0.2)',
+              zIndex: LG.artZ,
+              left: 0,
+              top: 0,
+              width: bookW,
+              height: artH,
             }}
           />
+          {/* 펼친 장 종이에 그 장 포스트잇 색을 곱하기로 옅게 덮는다 */}
           <View
+            testID="ledger-tint"
+            pointerEvents="none"
             style={{
               position: 'absolute',
-              left: 41.3,
-              right: 28.4,
-              top: 18.1,
-              flexDirection: 'row',
-              alignItems: 'center',
-              gap: 6.5,
+              zIndex: LG.tintZ,
+              left: paper.left,
+              right: paper.right,
+              top: paper.top,
+              height: artH - paper.top - paper.bottom,
+              borderRadius: LG.tintRadius,
+              backgroundColor: LG.tabColors[labels.findIndex((x) => TAB_KEY[x] === ledger.tab)],
+              opacity: LG.tintOpacity,
+              mixBlendMode: 'multiply',
+            }}
+          />
+          {/* 종이 안: 낮은 화면·긴 내역은 종이 안에서 스크롤한다. 아래 끝은 그림의 종이 바닥과 보이는 몸통 아래 끝 중
+              위쪽(− 여백) — 가로에서 잘린 책이어도 글이 화면 밖으로 숨지 않고 스크롤된다 */}
+          <ScrollView
+            testID="ledger-page"
+            showsVerticalScrollIndicator={false}
+            style={{
+              position: 'absolute',
+              zIndex: LG.contentZ,
+              left: paper.left + LG.contentInsetX,
+              right: paper.right + LG.contentInsetX,
+              top: paper.top + LG.contentInsetY,
+              bottom: Math.max(0, bodyH - artH + paper.bottom) + LG.contentInsetY,
             }}
           >
-            {perBtn(-1)}
-            <T style={g(15.5, 24.8, { flex: 1, textAlign: 'center' })}>
-              {ledgerYear}년 {ledgerMonth}월
-            </T>
-            {perBtn(1)}
-          </View>
-          {land ? (
-            <View style={{ flex: 1, flexDirection: 'row', gap: 24 }}>
-              {left}
-              {right}
+            <View
+              testID="ledger-month-row"
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: LG.navGap,
+                minHeight: semanticTokens.size.tapMin,
+              }}
+            >
+              {nav(-1)}
+              <T style={lt(LG.month, { flex: 1, textAlign: 'center', color: LG.faint })}>
+                {ledgerYear}년 {ledgerMonth}월
+              </T>
+              {nav(1)}
             </View>
-          ) : (
-            // 세로는 화면이 낮으면 책 안에서 스크롤한다
-            <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
-              {left}
-              {right}
-            </ScrollView>
-          )}
+            {head}
+            {/* 조회 실패·로딩·진짜 빈 달은 서로 다른 상태다 — 실패를 빈 내역으로 접지 않는다 */}
+            <View style={{ marginTop: LG.tableTop }}>
+              {stateBox ??
+                (shown.length ? (
+                  <>
+                    {tableHead}
+                    {list}
+                    {more}
+                    {moreRetry}
+                  </>
+                ) : (
+                  empty
+                ))}
+            </View>
+          </ScrollView>
         </View>
-        <View
-          style={[
-            {
-              position: 'absolute',
-              zIndex: 4,
-              left: 12.9,
-              top: -43.9,
-              minWidth: 133,
-              paddingTop: 7.7,
-              paddingHorizontal: 19.4,
-              paddingBottom: 9,
-              borderWidth: 1.9,
-              borderColor: '#68482f',
-              borderTopLeftRadius: 7.7,
-              borderTopRightRadius: 7.7,
-              borderBottomLeftRadius: 11.6,
-              borderBottomRightRadius: 11.6,
-              backgroundColor: '#c78e58',
-              boxShadow: '0px 3.9px 0px rgb(104, 72, 47)',
-              transform: [{ rotate: '-1deg' }],
-            },
-            web({
-              backgroundImage:
-                'linear-gradient(90deg, rgb(185, 121, 73), rgb(210, 160, 100), rgb(189, 129, 77))',
-            }),
-          ]}
-        >
-          <T
-            style={g(19.4, 23.28, {
-              color: '#fff8e8',
-              textAlign: 'center',
-              textShadowColor: 'rgb(102, 68, 46)',
-              textShadowOffset: { width: 0, height: 1.3 },
-              textShadowRadius: 0,
-            })}
-          >
-            공동 가계부
-          </T>
-        </View>
-        <View
-          style={{
-            position: 'absolute',
-            zIndex: 5,
-            right: 19.4,
-            top: -22,
-            flexDirection: 'row',
-            gap: 3.9,
-          }}
-        >
-          {(['잔액', '적립', '지출'] as const).map(bookmark)}
-        </View>
+        {labels.map(postIt)}
       </View>,
       e.back,
     );
@@ -1262,9 +1282,10 @@ export function Hall({ e }: any) {
         : st === 'locked' || (!!i.construction && st === 'none');
     };
     const gap = land ? 10 : 12.9,
-      // 격자 폭 = 패널 폭 − 테두리 4 − 안쪽 여백 (세로 18.1·16.8, 가로 side+16·16)
-      gridW = land ? W - side - 16 - 4 - 32 : W - 36.2 - 4 - 33.6,
-      // 가로는 카드가 140 이상일 때만 3열
+      // 격자 폭 = 패널 폭 − 테두리 2.6×2 − 안쪽 여백 (세로 18.1·16.8, 가로 side+16·16).
+      // 테두리를 4 로 빼면 393(iPhone 15)·375(SE)에서 두 카드 + 간격이 실제 안쪽 폭을 넘어 둘째 카드가 다음 줄로 밀렸다(GROMO-2486)
+      gridW = land ? W - side - 16 - 5.2 - 32 : W - 36.2 - 5.2 - 33.6,
+      // 가로는 격자가 450 이상(카드 약 143)일 때만 3열
       cols = land && gridW >= 450 ? 3 : 2,
       // 내림: 소수 폭이면 iOS 가 둘째 카드를 다음 줄로 넘긴다
       cardW = Math.floor((gridW - gap * (cols - 1)) / cols);
@@ -1329,7 +1350,7 @@ export function Hall({ e }: any) {
                     borderWidth: 2.6,
                     borderColor: BROWN,
                     borderRadius: 999,
-                    backgroundColor: '#ffa6bc',
+                    backgroundColor: componentTokens.button.background,
                     boxShadow: `0px 5.2px 0px ${BROWN}`,
                   }}
                 >
@@ -1373,10 +1394,9 @@ export function Hall({ e }: any) {
             transform: [{ scale: plan ? 0.985 : 1 }],
           }}
         >
-          {cards.map((b, n) => {
+          {cards.map((b, idx) => {
             const st = status(b),
               off = dim(b),
-              wide = n === cards.length - 1 && n % 2 === 0,
               item = liveConstruction ? liveItem(b) : undefined,
               cardName = item?.name ?? buildingNames[b];
             // 흐린 카드도 눌러서 잠금 사유·공사 상태 패널을 본다
@@ -1392,8 +1412,9 @@ export function Hall({ e }: any) {
                 disabled={!tappable}
                 onPress={() => setPlan(b)}
                 style={{
-                  // 홀수 마지막 카드는 세로 두 칸 전체, 가로 두 칸을 차지한다
-                  width: wide ? (cols === 3 ? cardW * 2 + gap : gridW) : cardW,
+                  // 마지막 줄에 혼자 남는 카드(2열의 상점)는 한 줄 전체 폭(GROMO-2486 — 2413 의 같은 폭 규칙을 뒤집음).
+                  // 3열 가로에서는 5장이 3+2 라 혼자 남지 않는다
+                  width: idx === cards.length - 1 && cards.length % cols === 1 ? gridW : cardW,
                   gap: 3.9,
                   minHeight: land ? 100 : 113.6,
                   paddingVertical: 9,
@@ -1406,23 +1427,6 @@ export function Hall({ e }: any) {
                   opacity: off ? 0.6 : 1,
                 }}
               >
-                {st === 'done' && (
-                  <Image
-                    testID={`hall-completion-stamp-${b}`}
-                    source={require('@/assets/ui/construction-complete.png')}
-                    accessible={false}
-                    resizeMode="contain"
-                    fadeDuration={0}
-                    style={{
-                      alignSelf: 'flex-end',
-                      width: completionStamp.width,
-                      height: completionStamp.height,
-                      marginRight: completionStamp.inset,
-                      marginBottom: completionStamp.inset,
-                      transform: [{ rotate: completionStamp.rotation }],
-                    }}
-                  />
-                )}
                 {st === 'build' && (
                   <View
                     style={{
@@ -1455,8 +1459,10 @@ export function Hall({ e }: any) {
                   />
                   <View style={{ flex: 1, minWidth: 0, gap: 2.6 }}>
                     <T style={g(18.1, 23.53, { fontWeight: '800' })}>{cardName}</T>
+                    {/* 설명은 두 줄까지 — 좁은 폰(375)에서도 단어가 한 줄에 들도록 라벨 크기(sm 14)로 둔다 */}
                     <T
-                      style={g(15.5, 21.7, {
+                      numberOfLines={2}
+                      style={g(semanticTokens.typography.label, 19.6, {
                         color: MUTED,
                         ...(land ? web({ wordBreak: 'keep-all' }) : null),
                       })}
@@ -1465,6 +1471,26 @@ export function Hall({ e }: any) {
                     </T>
                   </View>
                 </View>
+                {/* 완공 도장은 그림·글 위에 겹쳐 찍는다(10/26 오스카) — 흐름에 두면 글이 아래로 밀려 도장 띠가 생긴다 */}
+                {st === 'done' && (
+                  <Image
+                    testID={`hall-completion-stamp-${b}`}
+                    source={require('@/assets/ui/construction-complete.png')}
+                    accessible={false}
+                    resizeMode="contain"
+                    fadeDuration={0}
+                    style={{
+                      // 오른쪽 아래 — 건물 이름은 가리지 않고 설명 위에 비스듬히 찍힌다(10/26 오스카). 살짝 비쳐 밑 글이 읽힌다
+                      position: 'absolute',
+                      bottom: completionStamp.bottomInset,
+                      right: completionStamp.inset,
+                      width: completionStamp.width,
+                      height: completionStamp.height,
+                      opacity: completionStamp.opacity,
+                      transform: [{ rotate: completionStamp.rotation }],
+                    }}
+                  />
+                )}
               </Pressable>
             );
           })}
@@ -1561,7 +1587,7 @@ export function Hall({ e }: any) {
             borderWidth: 2.6,
             borderColor: BROWN,
             borderRadius: 999,
-            backgroundColor: '#ffa6bc',
+            backgroundColor: componentTokens.button.background,
             boxShadow: `0px 5.2px 0px ${BROWN}`,
           }}
         >
@@ -1936,6 +1962,7 @@ export function Hall({ e }: any) {
         {planView}
       </>,
       plan ? () => setPlan(null) : e.back,
+      plan ? '건물 목록으로 돌아가기' : undefined,
     );
   }
 
@@ -1959,7 +1986,8 @@ export function Hall({ e }: any) {
   );
   // 관리 표면은 server snapshot을 받기 전 로컬 Island를 대체 화면으로 쓰지 않는다.
   if (liveManagement) {
-    if (management.loading && !management.detail) {
+    // 서버 섬 id 가 오기 전(GROMO-2460)에도 같은 로딩 화면 — 빈 카드·초대·탈퇴를 그리지 않는다
+    if (!liveIslandId || (management.loading && !management.detail)) {
       return shell(
         managementFrame(
           <View
@@ -2060,10 +2088,8 @@ export function Hall({ e }: any) {
       const islandName = management.detail?.name ?? '';
       setDialog({
         title: `${eul(islandName)} 떠날까요?`,
-        text: liveSolo
-          ? '현재 이 섬에는 나만 남아 있어요.\n탈퇴하면 섬에 쌓인 공동 데이터가 모두 삭제돼요.'
-          : '내가 모은 물고기와 기록은 섬에 남아요.',
-        detail: '계정·고양이·닉네임·친구·개인 보유품·개인 집중 기록은 그대로 유지돼요.',
+        text: t(liveSolo ? 'hall.leave.soloText' : 'hall.leave.memberText'),
+        detail: t('hall.leave.detail'),
         ok: liveSolo ? '삭제하고 나가기' : '탈퇴하기',
         danger: true,
         onOk: () =>
@@ -2080,17 +2106,9 @@ export function Hall({ e }: any) {
     const solo = !i.members.length;
     setDialog({
       title: `${eul(i.name)} 떠날까요?`,
-      text: solo
-        ? '현재 이 섬에는 나만 남아 있어요.\n탈퇴하면 섬에 쌓인 공동 데이터가 모두 삭제돼요.'
-        : '내가 모은 물고기와 기록은 섬에 남아요.',
-      detail: next ? (
-        <>
-          이후 <T style={g(14, 20.3, { color: CARD_INK, fontWeight: '700' })}>{next.name}</T>
-          {ro(next.name).slice(next.name.length)} 이동해요.
-        </>
-      ) : (
-        '이후 「혼자 시작 / 기존 섬 참여」 화면으로 이동해요.\n계정·고양이·닉네임·친구·개인 보유품·개인 집중 기록은 그대로 유지돼요.'
-      ),
+      // 서버 경로와 같은 문구 — 행선지(다른 소속 섬·바다)는 약속하지 않는다.
+      text: t(solo ? 'hall.leave.soloText' : 'hall.leave.memberText'),
+      detail: t('hall.leave.detail'),
       ok: solo ? (next ? '삭제하고 탈퇴' : '삭제하고 나가기') : '탈퇴하기',
       danger: true,
       onOk: () => {
@@ -2101,18 +2119,7 @@ export function Hall({ e }: any) {
     });
   };
   const close = (onPress: () => void, style?: object) => (
-    <Pressable
-      testID="hall-close"
-      accessibilityRole="button"
-      accessibilityLabel="닫기"
-      onPress={onPress}
-      style={[
-        { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center' },
-        style,
-      ]}
-    >
-      <T style={{ fontSize: 27, lineHeight: 27, color: '#5e4d42' }}>×</T>
-    </Pressable>
+    <NavBtn close testID="hall-close" label="닫기" onPress={onPress} style={style} />
   );
   const person = (
     m: { id: string; name: string; color: string; outfit?: Outfit },
@@ -2142,7 +2149,13 @@ export function Hall({ e }: any) {
       ]}
     >
       <View pointerEvents="none">
-        <Avatar color={m.color} outfit={m.outfit} n={n} size={opts.av ?? (land ? 31 : 38)} />
+        <Avatar
+          userId={m.id}
+          color={m.color}
+          outfit={m.outfit}
+          n={n}
+          size={opts.av ?? (land ? 31 : 38)}
+        />
         {/* 방장 왕관: 아바타 지름의 절반 크기로 테두리 1시 방향에 걸치고 시계 방향으로 18° 기울인다.
             Avatar는 원 밖을 잘라 내므로(overflow hidden) 바깥 형제로 겹친다 */}
         {opts.crown && (
@@ -2521,7 +2534,9 @@ export function Hall({ e }: any) {
     const capacity = setting(
       '주민 정원',
       `현재 ${liveManagement ? (management.members?.length ?? 0) : residentCount(i)}명 · 최대 ${CAPACITY_MAX}명`,
-      <T style={g(15, 24, { color: CARD_INK, fontWeight: '700' })}>{draft.capacity}명</T>,
+      <T style={g(15, 24, { color: CARD_INK, fontWeight: '700' })}>
+        {t('onboarding.createIsland.capacityUnit', { count: draft.capacity })}
+      </T>,
       {
         testID: 'hall-capacity',
         onPress: () => {
@@ -2529,7 +2544,11 @@ export function Hall({ e }: any) {
             CAPACITY_MIN,
             liveManagement ? (management.members?.length ?? CAPACITY_MIN) : residentCount(i),
           );
-          let picked = `${draft.capacity}명`;
+          let picked: number = draft.capacity;
+          // 라벨은 숫자에서 만든다 — 고른 값은 숫자로만 든다(로케일을 바꿔도 저장값 유지)
+          const items = Array.from({ length: CAPACITY_MAX - min + 1 }, (_, n) =>
+            t('onboarding.createIsland.capacityUnit', { count: n + min }),
+          );
           setDialog({
             title: '주민 정원',
             text: '현재 주민 수보다 작게 줄일 수는 없어요.',
@@ -2538,14 +2557,14 @@ export function Hall({ e }: any) {
                 <Wheel
                   label=""
                   a11yLabel="주민 정원"
-                  items={Array.from({ length: CAPACITY_MAX - min + 1 }, (_, n) => `${n + min}명`)}
-                  value={picked}
-                  onChange={(v: string) => (picked = v)}
+                  items={items}
+                  value={items[picked - min]}
+                  onChange={(v: string) => (picked = items.indexOf(v) + min)}
                 />
               </View>
             ),
             ok: '정하기',
-            onOk: () => setDraft((d) => ({ ...d, capacity: parseInt(picked, 10) })),
+            onOk: () => setDraft((d) => ({ ...d, capacity: picked })),
           });
         },
       },
@@ -2609,7 +2628,7 @@ export function Hall({ e }: any) {
           borderWidth: 2,
           borderColor: BROWN,
           borderRadius: 99,
-          backgroundColor: semanticTokens.color.accent,
+          backgroundColor: componentTokens.button.background,
           boxShadow: `0px 3px 0px ${BROWN}`,
           opacity: draft.name.trim() ? 1 : 0.5,
         }}
@@ -2902,7 +2921,7 @@ export function Hall({ e }: any) {
                   borderWidth: 1.5,
                   borderColor: BROWN,
                   borderRadius: 99,
-                  backgroundColor: semanticTokens.color.accent,
+                  backgroundColor: componentTokens.button.background,
                 }}
               >
                 <T style={g(14, 22.4, { color: CARD_INK, fontWeight: '700' })}>승인</T>
@@ -2937,6 +2956,28 @@ export function Hall({ e }: any) {
         </View>,
         `${residents.length} / ${liveManagement ? (management.detail?.maxMembers ?? 0) : capacityOf(i)}명`,
       )}
+      {news.length > 0 &&
+        section(
+          t('magazine.news.title'),
+          news.map((n) => (
+            <View
+              key={n.id}
+              testID={`hall-news-${n.id}`}
+              style={{
+                flexDirection: 'row',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                gap: 12,
+                paddingVertical: 5,
+              }}
+            >
+              <T style={g(15, 24, { color: CARD_INK, flexShrink: 1 })}>
+                {t('magazine.news.promotionRow')}
+              </T>
+              <T style={g(15, 24, { color: MUTED })}>{kstMonthDay(Date.parse(n.createdAt))}</T>
+            </View>
+          )),
+        )}
       {!visitor && (
         <View style={{ marginTop: land ? 5 : 14, paddingTop: 6 }}>
           {displayHost && (
@@ -2975,11 +3016,9 @@ export function Hall({ e }: any) {
               testID="hall-invite"
               accessibilityRole="button"
               accessibilityLabel="섬에 친구 초대하기"
-              onPress={() =>
-                Share.share({
-                  message: `${i.name}에서 같이 집중해요! 초대 코드: ${inviteCodeOf(i)}`,
-                }).catch(() => notify(`초대 코드 ${inviteCodeOf(i)}를 친구에게 알려 주세요.`))
-              }
+              disabled={inviteShare.busy}
+              accessibilityState={{ disabled: inviteShare.busy, busy: inviteShare.busy }}
+              onPress={inviteShare.share}
               style={{
                 width: 44,
                 height: 44,

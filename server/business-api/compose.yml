@@ -10,12 +10,13 @@ services:
     - --maxmemory
     - 128mb
     - --maxmemory-policy
-    - allkeys-lru
+    - noeviction
     - --save
     - ''
     - --appendonly
-    - 'no'
+    - 'yes'
     volumes:
+    - business-redis-data:/data
     - ${BUSINESS_REDIS_ACL_FILE:?Business Redis ACL 파일 필요}:/etc/redis/business.acl:ro
     networks:
     - business-cache
@@ -41,6 +42,9 @@ services:
     environment:
       SERVER_PORT: '8080'
       DD_SERVICE: gromo-business-${DEPLOY_ENV:-dev}
+      OBS_SERVICE: business-api
+      OBS_ENV: ${DEPLOY_ENV:-dev}
+      OBS_VERSION: ${IMAGE_REVISION:-unknown}
       BUSINESS_REDIS_HOST: business-redis
       BUSINESS_REDIS_USERNAME: business
     ports:
@@ -81,4 +85,5 @@ networks:
   app-network:
     driver: bridge
 volumes:
+  business-redis-data: {}
   business-logs: null

@@ -85,7 +85,7 @@ public class EventOutbox {
      * version</b> 으로 막는다(A21) — 유저 단위 최대값 하나로 뭉치면 지연 도착한 다른 subject 의
      * 사건이 「오래된 것」으로 폐기된다.
      *
-     * <p>uuid 가 아니라 문자열인 이유: 링크 멤버십 전이처럼 복합 키를 정규 문자열로 싣는 자리가 있다.
+     * <p>uuid 가 아니라 문자열인 이유: 사건 종류마다 UUID 또는 복합 키를 정규 문자열로 싣는 자리가 있다.
      */
     @Column(name = "subject_id", length = 200)
     private String subjectId;
@@ -94,7 +94,7 @@ public class EventOutbox {
     @Column(name = "aggregate_type", nullable = false, length = 60)
     private String aggregateType;
 
-    /** 순서 축의 식별자 — 유저 축은 userId, 링크 멤버십 전이는 {@code "<groupId>:<inviterId>"}. */
+    /** 순서 축의 식별자 — 유저 축은 userId, 섬 축은 islandId. */
     @Column(name = "aggregate_id", nullable = false, length = 200)
     private String aggregateId;
 
@@ -114,6 +114,21 @@ public class EventOutbox {
 
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
+
+    /**
+     * 최초 원인 요청의 {@code request_id}(GROMO-2557, V7). 봉투 본문이 아니라 별도 열이라 소비자·멱등 비교에 섞이지 않는다.
+     * append 때 한 번 적고 이후 바꾸지 않는다 — relay 재시도·재선점이 이 값을 그대로 헤더로 나른다.
+     */
+    @Column(name = "origin_request_id", length = 128)
+    private String originRequestId;
+
+    /** 최초 원인 trace id 원문 — 10진·32자리 hex 그대로. 없으면 {@code null}. */
+    @Column(name = "origin_trace_id", length = 64)
+    private String originTraceId;
+
+    /** 위 두 값의 형식 버전 — 하나라도 있으면 1. 지금은 쓰기만 한다 — carrier 형식이 갈릴 때 읽기 위한 열이다. */
+    @Column(name = "trace_context_version")
+    private Short traceContextVersion;
 
     /**
      * {@code params} 의 방어 복사본 — 저장된 봉투를 호출부가 뒤에서 고칠 수 없게 한다.

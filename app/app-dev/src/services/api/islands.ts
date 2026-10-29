@@ -26,6 +26,7 @@
  * 유실 재호출 때 키가 바뀌어 멱등이 깨지므로 필수 인자다.
  */
 import { ApiError, request } from './client';
+import type { FocusSeat } from './focusSessions';
 import { CANONICAL_BUILDINGS, CLIENT_CONTRACT_ERROR, type BuildingId } from './home';
 
 export type IslandSummary = {
@@ -241,11 +242,26 @@ export function cancelJoinRequest(
   });
 }
 
-/** 초대 코드 해석. 조회 성격이라 `Idempotency-Key` 를 보내지 않는다. 성공만으로 가입하지 않는다. */
+/** 기본은 초대 미리보기. arrive=true는 도착을 기록하고 공개 섬이면 가입까지 수행한다. */
 export function resolveInvitation(
   code: string,
+  options?: { arrive?: boolean },
 ): Promise<{ island: IslandSummary; invitationToken: string }> {
-  return request('/invitations/resolve', { method: 'POST', body: { code } });
+  return request('/invitations/resolve', {
+    method: 'POST',
+    body: { code, ...(options?.arrive && { arrive: true }) },
+  });
+}
+
+/** 활성 주민의 초대 링크 발급. 공유 URL은 서버 응답을 그대로 사용한다. */
+export function issueInvitation(
+  islandId: string,
+  idempotencyKey: string,
+): Promise<{ code: string; url: string; expiresAt: string | null }> {
+  return request(`/islands/${encodeURIComponent(islandId)}/invitations`, {
+    method: 'POST',
+    idempotencyKey,
+  });
 }
 
 /** 내 섬 정본 — `currentIslandId` 가 null 이면 소속이 없을 수 있다. */
@@ -330,6 +346,8 @@ export type FocusMember = {
   subject: string;
   activeSeconds: number;
   status: 'active' | 'paused';
+  /** 시작 때 고른 집중섬 자리(GROMO-2477) — 고르지 않았으면 null, 옛 서버는 키가 없다. */
+  seat?: FocusSeat | null;
 };
 
 export type RestMember = {

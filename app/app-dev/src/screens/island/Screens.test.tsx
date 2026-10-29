@@ -5,13 +5,24 @@
  */
 import assert from 'node:assert/strict';
 import React, { useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import { BackHandler, Keyboard, Linking, StyleSheet, View } from 'react-native';
+import {
+  AccessibilityInfo,
+  AppState,
+  BackHandler,
+  Keyboard,
+  Linking,
+  Platform,
+  StyleSheet,
+  View,
+  type AppStateStatus,
+} from 'react-native';
+import { telescopeSea } from '@/screens/sea/seaAssets';
 import { act, cleanup, fireEvent, render, waitFor, within } from '@testing-library/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import { RedesignScreens } from '@/screens/island/Screens';
 import { art } from '@/constants/art';
-import { componentTokens } from '@/design-system/tokens';
+import { semanticTokens } from '@/design-system/tokens';
 import { buildingNames, initialState, reducer } from '@/services/model';
 import { ApiError } from '@/services/api/client';
 import { createRouteTransitionShield } from '@/services/routeTransition';
@@ -62,6 +73,13 @@ jest.mock('@/services/studyWidget', () => ({
   ...jest.requireActual('@/services/studyWidget'),
   clearStudyWidget: () => mockClearStudyWidget(),
 }));
+// 설정 「알림」 토글(GROMO-2526)이 부르는 권한 조회·요청만 관찰한다 — 실제 구현은 push.test.ts 가 고정한다.
+const mockPushPermissionStatus = jest.fn();
+const mockRequestPushPermission = jest.fn();
+jest.mock('@/services/push', () => ({
+  pushPermissionStatus: () => mockPushPermissionStatus(),
+  requestPushPermission: () => mockRequestPushPermission(),
+}));
 const mockUpdateProfile = updateProfile as jest.Mock;
 const mockWithdrawAccount = withdrawAccount as jest.Mock;
 const mockShopBuy = jest.fn();
@@ -97,6 +115,10 @@ beforeEach(() => {
   mockUpdateProfile.mockReset();
   mockWithdrawAccount.mockReset();
   mockAppleAuthorizationCode.mockReset();
+  mockPushPermissionStatus.mockReset();
+  mockPushPermissionStatus.mockResolvedValue('unavailable');
+  mockRequestPushPermission.mockReset();
+  mockRequestPushPermission.mockResolvedValue('granted');
   mockClearStudyWidget.mockClear();
   mockShopBuy.mockReset();
   Object.assign(mockShopState, {
@@ -186,6 +208,8 @@ function Harness({
   friendsScreen,
   conversion,
   playback,
+  soundPlayer,
+  onPreviewAudio,
   localePref = 'system',
 }: any) {
   const [activeRoute, setActiveRoute] = useState(route);
@@ -280,9 +304,14 @@ function Harness({
         setVisited: jest.fn(),
         guideStep: 0,
         setGuideStep: jest.fn(),
-        player: { addListener: () => ({ remove() {} }), replace() {}, play() {}, pause() {} },
+        player: soundPlayer ?? {
+          addListener: () => ({ remove() {} }),
+          replace() {},
+          play() {},
+          pause() {},
+        },
         previewAudio: false,
-        setPreviewAudio: jest.fn(),
+        setPreviewAudio: onPreviewAudio ?? jest.fn(),
         walkTo: jest.fn(),
         newQuest: jest.fn(),
         walkRequest: null,
@@ -430,7 +459,7 @@ test('로그인 직후 터치 차단막이 끝나야 새 온보딩의 고양이 
   try {
     const screen = await render(<Harness route="login" flow />);
     await fireEvent.press(screen.getByRole('checkbox'));
-    await fireEvent.press(screen.getByText('GROMO 시작하기'));
+    await fireEvent.press(screen.getByText('시작하기'));
     expect(screen.getByTestId('onboarding-choose')).toBeTruthy();
     expect(
       screen.getByTestId('route-transition-shield', { includeHiddenElements: true }).props
@@ -562,6 +591,29 @@ test('joinIsland 진입 시 explore를 호출하고 실패하면 오류+재시�
   await fireEvent.press(s.getByText('다시 불러오기'));
   await waitFor(() => s.getByText('바람 섬'));
   assert.equal(calls, 2);
+});
+
+test('서버 섬 찾기에서 공개 섬이 0건이면 바다 장면 위 카드 한 줄로 알린다(GROMO-2412)', async () => {
+  const api = (dispatch: any) => ({
+    explore: jest.fn(async () => {
+      dispatch({ type: 'ISLAND_CANDIDATES', items: [], nextCursor: null, reset: true });
+      return { items: [], nextCursor: null };
+    }),
+  });
+  const s = await render(<Harness route="joinIsland" api={api} />);
+  const empty = await waitFor(() => s.getByTestId('join-island-empty'));
+  within(empty).getByText('지금 참여할 수 있는 공개 섬이 없어요.');
+  assert.equal(
+    s.getByTestId('join-island-empty-art', { includeHiddenElements: true }).props.source,
+    telescopeSea.source,
+  );
+});
+
+test('목업 섬 찾기도 공개 섬이 없으면 같은 장면 빈 안내를 쓴다(GROMO-2412)', async () => {
+  const initial = { ...initialState(false), name: '수빈', profileNames: ['수빈'] };
+  initial.islands = initial.islands.map((i) => ({ ...i, visibility: 'private' as const }));
+  const s = await render(<Harness route="joinIsland" initial={initial} />);
+  within(s.getByTestId('join-island-empty')).getByText('지금 참여할 수 있는 공개 섬이 없어요.');
 });
 
 test('active 가입은 서버 응답 뒤 성공 확인 카드를 보여주고 arrival로 가지 않는다', async () => {
@@ -914,7 +966,7 @@ test('joinIsland를 나갔다 같은 route로 재진입하면 explore를 다시 
   await waitFor(() => assert.equal(explore.mock.calls.length, 2));
 });
 
-test('축음기에서 판매곡을 구매한 뒤 바로 공용 재생한다', async () => {
+test('일반 섬 축음기는 판매곡을 구매해도 현재 곡과 재생 상태를 바꾸지 않는다', async () => {
   let exposed: any;
   const state = initialState(false);
   state.islands[0].joined = true;
@@ -932,9 +984,10 @@ test('축음기에서 판매곡을 구매한 뒤 바로 공용 재생한다', as
   assert.equal(background.props.pointerEvents, 'none');
   await fireEvent.press(s.getByText('30마리로 구매'));
   s.getByText('구매했어요');
-  await fireEvent.press(s.getByText('지금 재생하기'));
+  await fireEvent.press(s.getByText('확인'));
   assert.ok(exposed.actions.includes('BUY'));
-  assert.ok(exposed.actions.includes('TRACK'));
+  assert.ok(!exposed.actions.includes('TRACK'));
+  assert.ok(!exposed.actions.includes('PLAY'));
 });
 
 test('축음기 배경은 집중 세션이 없을 때 축음기 전용 일러스트를 그린다', async () => {
@@ -954,12 +1007,14 @@ test('축음기 배경은 집중 세션이 없을 때 축음기 전용 일러스
   assert.ok(!sources.includes(art['bldbg/gram']));
 });
 
-test('축음기 조작 요소는 44pt 터치 영역을 확보하고 곡 헤더 높이를 고정하지 않는다', async () => {
+test('일반 섬 축음기는 구매 행만 44pt 터치 영역을 확보하고 재생 조작을 노출하지 않는다', async () => {
   const state = initialState(false);
   state.islands[0].joined = true;
   state.islands[0].buildings.push('gram');
   const s = await render(<Harness route="sound" initial={state} />);
-  assert.ok(StyleSheet.flatten(s.getByLabelText('재생').props.style).height >= 44);
+  assert.equal(s.queryByLabelText('재생'), null);
+  assert.equal(s.queryByLabelText('정지'), null);
+  assert.equal(s.queryByLabelText('내 기기 음량'), null);
   assert.ok(StyleSheet.flatten(s.getByLabelText('섬으로 돌아가기').props.style).width >= 44);
   assert.ok(
     StyleSheet.flatten(s.getByLabelText('빗방울 소리, 30마리로 구매').props.style).minHeight >= 44,
@@ -975,21 +1030,24 @@ test('축음기 조작 요소는 44pt 터치 영역을 확보하고 곡 헤더 �
   const statusStyle = StyleSheet.flatten(s.getByTestId('sound-track-status-rain').props.style);
   assert.equal(statusStyle.flexShrink, 1);
   assert.equal(statusStyle.maxWidth, '45%');
+  // 곡 행 글자는 글자 크기 단계(12 이상) 안이다(GROMO-2413) — 예전 9·11 은 읽기 어려웠다
+  assert.ok(statusStyle.fontSize >= 12);
+  assert.ok(StyleSheet.flatten(s.getByTestId('sound-track-title-rain').props.style).fontSize >= 12);
 });
 
-test('보유곡이 없으면 재생을 막고 빈 상태를 표시한다', async () => {
+test('일반 섬 축음기는 보유곡이 없어도 판매 목록만 보여 준다', async () => {
   const state = initialState(false);
   state.islands[0].joined = true;
   state.islands[0].buildings.push('gram');
   state.islands[0].sharedOwned = [];
   const s = await render(<Harness route="sound" initial={state} />);
 
-  s.getByText('보유한 곡이 없어요');
-  s.getByText('곡을 구매해 주세요');
-  assert.equal(s.getByLabelText('재생').props.accessibilityState.disabled, true);
+  s.getByText('음원 구매');
+  s.getByLabelText('빗방울 소리, 30마리로 구매');
+  assert.equal(s.queryByLabelText('재생'), null);
 });
 
-test('현재 곡을 보유하지 않았으면 다른 보유곡이 있어도 재생을 막는다', async () => {
+test('일반 섬 축음기의 보유곡은 상태만 표시하고 곡을 바꾸지 않는다', async () => {
   const state = initialState(false);
   state.islands[0].joined = true;
   state.islands[0].buildings.push('gram');
@@ -997,23 +1055,18 @@ test('현재 곡을 보유하지 않았으면 다른 보유곡이 있어도 재�
   state.islands[0].track = 'waves';
   const s = await render(<Harness route="sound" initial={state} />);
 
-  s.getByText('재생할 곡을 골라 주세요');
-  assert.equal(s.getByLabelText('재생').props.accessibilityState.disabled, true);
-  await fireEvent.press(s.getByLabelText('빗방울 소리, 보유'));
-  await waitFor(() =>
-    assert.equal(s.getByLabelText('재생').props.accessibilityState.disabled, false),
-  );
+  assert.equal(s.getByLabelText('빗방울 소리, 보유').props.accessibilityState.disabled, true);
+  assert.equal(s.queryByLabelText('재생'), null);
 });
 
 test.each(['active', 'paused'] as const)(
-  '세션 %s 중 축음기는 보유곡만 표시하고 복귀 목적지를 안내한다',
+  '세션 상태가 %s여도 일반 섬 축음기는 구매 전용이다',
   async (status) => {
     const state = initialState(false);
     state.islands[0].joined = true;
     state.islands[0].buildings.push('gram');
     state.islands[0].sharedOwned = ['waves'];
     state.islands[0].fish = 10_000;
-    let exposed: any;
     state.session = {
       id: 'focus-1',
       islandId: state.islands[0].id,
@@ -1022,19 +1075,18 @@ test.each(['active', 'paused'] as const)(
       seconds: 0,
       status,
     };
-    const s = await render(
-      <Harness route="sound" initial={state} expose={(value: any) => (exposed = value)} />,
-    );
+    const s = await render(<Harness route="sound" initial={state} />);
 
-    s.getByLabelText(status === 'active' ? '집중으로 돌아가기' : '휴식으로 돌아가기');
+    s.getByLabelText('섬으로 돌아가기');
     s.getByLabelText('잔잔한 파도, 무료');
-    expect(s.queryByLabelText('빗방울 소리, 30마리로 구매')).toBeNull();
-    expect(exposed.actions).not.toContain('BUY');
+    s.getByLabelText('빗방울 소리, 30마리로 구매');
+    expect(s.queryByLabelText('재생')).toBeNull();
+    expect(s.queryByLabelText('정지')).toBeNull();
   },
 );
 
 test.each([null, 'active', 'paused'] as const)(
-  '세션 %s에서 판매 목록이 비어도 무료 기본 세 곡을 구매 없이 재생한다',
+  '세션 %s에서 일반 섬의 무료 기본 세 곡은 선택·재생하지 못한다',
   async (status) => {
     const state = initialState(false);
     state.islands[0].joined = true;
@@ -1063,14 +1115,14 @@ test.each([null, 'active', 'paused'] as const)(
         expose={(value: any) => (exposed = value)}
       />,
     );
-    for (const [id, name] of [
+    for (const [, name] of [
       ['waves', '잔잔한 파도'],
       ['campfire', '모닥불 소리'],
       ['forest-wind', '숲바람'],
     ]) {
-      await fireEvent.press(s.getByLabelText(`${name}, 무료`));
-      expect(update).toHaveBeenCalledWith({ trackId: id, playing: true });
+      expect(s.getByLabelText(`${name}, 무료`).props.accessibilityState.disabled).toBe(true);
     }
+    expect(update).not.toHaveBeenCalled();
     expect(mockShopBuy).not.toHaveBeenCalled();
     expect(exposed.actions).not.toContain('BUY');
     expect(exposed.actions).not.toContain('TRACK');
@@ -1119,22 +1171,6 @@ test('공동 보유품 중 실제 음원만 축음기 목록에 표시한다', a
   assert.equal(s.queryByText('pine'), null);
 });
 
-test('축음기에서 내 기기 음량을 조절한다', async () => {
-  const state = initialState(false);
-  state.islands[0].joined = true;
-  state.islands[0].buildings.push('gram');
-  const s = await render(<Harness route="sound" initial={state} />);
-  const volume = s.getByLabelText('내 기기 음량');
-
-  assert.equal(volume.props.accessibilityValue.now, 55);
-  await fireEvent(volume, 'accessibilityAction', {
-    nativeEvent: { actionName: 'increment' },
-  });
-  await waitFor(() =>
-    assert.equal(s.getByLabelText('내 기기 음량').props.accessibilityValue.now, 65),
-  );
-});
-
 test('큰 글자에서는 구매 창을 스크롤하고 동작 버튼을 세로로 배치한다', async () => {
   mockFontScale = 1.5;
   const state = initialState(false);
@@ -1154,7 +1190,7 @@ test('큰 글자에서는 구매 창을 스크롤하고 동작 버튼을 세로�
   assert.equal(purchaseStyle.height, undefined);
   assert.ok(purchaseStyle.minHeight >= 52);
   await fireEvent.press(s.getByLabelText('30마리로 구매'));
-  const successStyle = StyleSheet.flatten(s.getByLabelText('지금 재생하기').props.style);
+  const successStyle = StyleSheet.flatten(s.getByLabelText('확인').props.style);
   assert.equal(successStyle.height, undefined);
   assert.ok(successStyle.minHeight >= 52);
 });
@@ -1470,22 +1506,41 @@ test('앱 설정은 권한 관련 진입을 앱 권한 관리 한 줄로 합친�
   assert.equal(s.queryByText('측정 앱'), null);
 });
 
+test('설정 소식에서 개발자 공지 목록으로 이동한다', async () => {
+  let exposed: any;
+  const screen = await render(
+    <Harness route="settings" full expose={(value: any) => (exposed = value)} />,
+  );
+  await fireEvent.press(screen.getByText('개발자 공지'));
+  assert.equal(exposed.go.mock.calls[0][0], 'developerNotices');
+});
+
 test('목업 앱 설정에서는 실제 안전 API 진입로를 숨긴다', async () => {
   const s = await render(<Harness route="settings" full />);
 
   assert.equal(s.queryByText('차단한 사용자'), null);
 });
 
-test('앱 설정은 개인정보처리방침 하나만 남기고 차단 관리를 숨긴다', async () => {
-  const s = await render(<Harness route="settings" full api={() => ({})} />);
+test('앱 설정은 개인정보처리방침 하나만 남기고 안전 첫 줄에서 차단 사용자 목록으로 진입한다', async () => {
+  let exposed: any;
+  const s = await render(
+    <Harness route="settings" full api={() => ({})} expose={(value: any) => (exposed = value)} />,
+  );
   assert.equal(s.queryByText('개인정보 처리 안내'), null);
-  assert.equal(s.queryByText('차단한 사용자'), null);
   assert.equal(s.getAllByText('개인정보처리방침').length, 1);
   assert.ok(s.getByTestId('settings-app-version'));
+  // 안전 그룹 첫 줄 — 신고센터보다 앞(GROMO-2473). SheetRow 는 읽는 이름에 제목을 넣으므로 버튼 순서로 본다
+  const rows = s
+    .getAllByRole('button')
+    .map((node: any) => String(node.props.accessibilityLabel ?? ''));
+  const blocked = rows.findIndex((label) => label.includes('차단한 사용자'));
+  const report = rows.findIndex((label) => label.includes('신고센터'));
+  assert.ok(blocked >= 0 && blocked < report);
+  await fireEvent.press(s.getByText('차단한 사용자'));
+  assert.equal(exposed.go.mock.calls[0][0], 'blockedUsers');
 });
 
-test('친구 관리에서 차단 사용자 목록으로 진입한다', async () => {
-  let exposed: any;
+test('친구 관리 머리에는 차단한 사용자 진입이 없다', async () => {
   const friendsScreen = {
     data: { friends: [], friendRequests: [], sentFriendRequests: [] },
     status: 'ready',
@@ -1499,16 +1554,9 @@ test('친구 관리에서 차단 사용자 목록으로 진입한다', async () 
     command: jest.fn(),
   };
   const s = await render(
-    <Harness
-      route="friends"
-      full
-      api={() => ({})}
-      friendsScreen={friendsScreen}
-      expose={(value: any) => (exposed = value)}
-    />,
+    <Harness route="friends" full api={() => ({})} friendsScreen={friendsScreen} />,
   );
-  await fireEvent.press(s.getByText('차단한 사용자'));
-  assert.equal(exposed.go.mock.calls[0][0], 'blockedUsers');
+  assert.equal(s.queryByText('차단한 사용자'), null);
 });
 
 test('앱 설정의 언어 행은 기기 언어 따름이면 그 문구를 보여주고 탭하면 언어 화면으로 이동한다', async () => {
@@ -1758,7 +1806,7 @@ test('프로필은 /me 에서 채택한 연결 제공자들을 표시한다', as
     linkedProviders: ['google', 'kakao', 'line'],
   };
   const s = await render(<Harness route="profile" initial={initial} api={() => ({})} />);
-  assert.ok(s.getByText('수빈님의 GROMO 계정 · Google · 카카오 · LINE'));
+  assert.ok(s.getByText('수빈님의 계정 · Google · 카카오 · LINE'));
 });
 
 test('프로필 저장은 PATCH 성공 뒤에만 PROFILE을 디스패치하고, 진행 중 중복 탭은 한 번만 보낸다', async () => {
@@ -1769,11 +1817,23 @@ test('프로필 저장은 PATCH 성공 뒤에만 PROFILE을 디스패치하고, 
     <Harness route="profile" full api={() => ({})} expose={(x: any) => (exposed = x)} />,
   );
 
-  await fireEvent.changeText(s.getByLabelText('닉네임'), '  구름이  ');
+  for (const value of [
+    ' 구 름 이 ',
+    '구\t름\n이',
+    '구\u3000름이',
+    '구\u00a0름이',
+    '구\u0085름이',
+    '구\ufeff름이',
+    '구\u2028름이',
+    '구\u202f름이',
+  ]) {
+    await fireEvent.changeText(s.getByLabelText('닉네임'), value);
+    assert.equal(s.getByLabelText('닉네임').props.value, '구름이');
+  }
   await fireEvent.press(s.getByText('저장'));
   await fireEvent.press(s.getByText('저장'));
   assert.equal(mockUpdateProfile.mock.calls.length, 1);
-  // 본문은 trim 된 닉네임과 현재 고양이 색 — 서버 계약 키만 보낸다
+  // 입력 시 공백이 제거된 닉네임과 현재 고양이 색 — 서버 계약 키만 보낸다
   assert.deepEqual(mockUpdateProfile.mock.calls[0][0], { name: '구름이', catColor: 'black' });
   assert.ok(!exposed.actions.includes('PROFILE'));
 
@@ -1813,6 +1873,62 @@ test('프로필 저장 실패는 PROFILE·뒤로가기·성공 문구 없이 서
   await fireEvent.press(s.getByText('저장'));
   await waitFor(() => assert.equal(mockUpdateProfile.mock.calls.length, 2));
   assert.equal(mockUpdateProfile.mock.calls[0][1], mockUpdateProfile.mock.calls[1][1]);
+});
+
+test('닉네임 형식 거절은 서버 메시지를 칸 아래에 표시하고 편집하면 지운다', async () => {
+  let exposed: any;
+  const message = '서버가 보낸 닉네임 형식 안내';
+  mockUpdateProfile.mockRejectedValue(new ApiError('NICKNAME_INVALID', message, 400));
+  const s = await render(
+    <Harness route="profile" full api={() => ({})} expose={(x: any) => (exposed = x)} />,
+  );
+  await fireEvent.changeText(s.getByLabelText('닉네임'), '구름이');
+  await fireEvent.press(s.getByText('저장'));
+
+  expect(await s.findByText(message)).toBeTruthy();
+  expect(s.getByRole('alert')).toBeTruthy();
+  expect(exposed.actions).not.toContain('PROFILE');
+  expect(backMock).not.toHaveBeenCalled();
+  expect(notifyMock.mock.calls.some((call) => call[0] === message)).toBe(false);
+  await waitFor(() => expect(s.getByLabelText('닉네임').props.editable).toBe(true));
+  await fireEvent.changeText(s.getByLabelText('닉네임'), '새 이름');
+  expect(s.getByLabelText('닉네임').props.value).toBe('새이름');
+  expect(s.queryByText(message)).toBeNull();
+});
+
+test('다시 연 프로필에 이전 저장 요청의 늦은 닉네임 오류를 표시하지 않는다', async () => {
+  let rejectRequest: (reason: unknown) => void = () => {};
+  mockUpdateProfile.mockImplementation(
+    () => new Promise((_resolve, reject) => (rejectRequest = reject)),
+  );
+  const api = () => ({});
+  const s = await render(<Harness route="profile" full api={api} />);
+  await fireEvent.changeText(s.getByLabelText('닉네임'), '구름이');
+  await fireEvent.press(s.getByText('저장'));
+  await waitFor(() => expect(mockUpdateProfile).toHaveBeenCalledTimes(1));
+  await s.rerender(<Harness route="settings" full api={api} />);
+  await s.rerender(<Harness route="profile" full api={api} />);
+  await act(async () => rejectRequest(new ApiError('NICKNAME_INVALID', '이전 요청의 오류', 400)));
+  await waitFor(() => expect(s.getByLabelText('닉네임').props.editable).toBe(true));
+
+  expect(s.queryByText('이전 요청의 오류')).toBeNull();
+  expect(s.getByLabelText('닉네임').props.value).toBe('수빈');
+});
+
+test('기존 공백 닉네임은 저장 요청과 저장 응답 반영 후에도 원문을 유지한다', async () => {
+  const legacy = '\u00a0검은 고양이\ufeff';
+  const initial = { ...initialState(true), name: legacy, profileNames: [legacy] };
+  mockUpdateProfile.mockResolvedValue({ name: legacy, catColor: 'black' });
+  const s = await render(<Harness route="profile" full initial={initial} api={() => ({})} />);
+  expect(s.getByLabelText('닉네임').props.value).toBe(legacy);
+  await fireEvent.press(s.getByText('저장'));
+  await waitFor(() => expect(backMock).toHaveBeenCalledTimes(1));
+
+  expect(mockUpdateProfile).toHaveBeenCalledWith(
+    expect.objectContaining({ name: legacy }),
+    expect.any(String),
+  );
+  expect(s.getByLabelText('닉네임').props.value).toBe(legacy);
 });
 
 test('프로필 저장 중에는 후속 편집을 받지 않는다', async () => {
@@ -2297,6 +2413,46 @@ test('섬 만들기 이름 칸은 글자 수를 보여 주고 한도에 닿으�
   assert.ok(s.getByText('50자까지 쓸 수 있어요 · 50/50'));
 });
 
+// 정원 휠 선택값은 숫자 상태다 — 라벨은 렌더 시점의 로케일로 만들고 create 에는 그 숫자가 간다.
+const wheelWeight = (label: string, s: any) =>
+  StyleSheet.flatten(s.getByText(label).props.style)?.fontWeight;
+
+test('섬 만들기 정원 휠에서 «3명» 을 고르면 create 에 maxMembers 3 이 간다(ko)', async () => {
+  const create = jest.fn(async (_input: any) => {});
+  const s = await render(<Harness route="createIsland" api={() => ({ create })} />);
+  assert.equal(wheelWeight('15명', s), '800');
+  await fireEvent.press(s.getByLabelText('정원 3명'));
+  assert.equal(wheelWeight('3명', s), '800');
+  await fireEvent.changeText(s.getByLabelText('섬 이름'), '새 섬');
+  await fireEvent.press(s.getByLabelText('섬 만들기'));
+  await waitFor(() => assert.equal(create.mock.calls.length, 1));
+  assert.equal(create.mock.calls[0][0].maxMembers, 3);
+});
+
+test('섬 만들기 정원 휠에서 «3 residents» 를 고르면 create 에 maxMembers 3 이 간다(en)', async () => {
+  applyLocalePref('en');
+  const create = jest.fn(async (_input: any) => {});
+  const s = await render(<Harness route="createIsland" api={() => ({ create })} />);
+  assert.equal(wheelWeight('15 residents', s), '800');
+  await fireEvent.press(s.getByLabelText('Capacity 3 residents'));
+  assert.equal(wheelWeight('3 residents', s), '800');
+  await fireEvent.changeText(s.getByLabelText('Island Name'), 'New Island');
+  await fireEvent.press(s.getByLabelText('Create Island'));
+  await waitFor(() => assert.equal(create.mock.calls.length, 1));
+  assert.equal(create.mock.calls[0][0].maxMembers, 3);
+});
+
+test('섬 만들기 화면에서 언어를 바꿔도 고른 정원 항목이 강조된 채 남는다', async () => {
+  const s = await render(<Harness route="createIsland" api={() => ({})} />);
+  await fireEvent.press(s.getByLabelText('정원 7명'));
+  assert.equal(wheelWeight('7명', s), '800');
+  applyLocalePref('en');
+  // 새 엘리먼트로 다시 그린다 — 같은 엘리먼트면 React 가 렌더를 건너뛴다
+  await s.rerender(<Harness route="createIsland" api={() => ({})} />);
+  assert.equal(wheelWeight('7 residents', s), '800');
+  assert.equal(wheelWeight('15 residents', s), '400');
+});
+
 test('대표 섬 선택은 서버 소속만 표시하고 저장 성공 뒤에 닫는다', async () => {
   const initial = reducer(initialState(true), {
     type: 'ISLAND_SYNC',
@@ -2472,6 +2628,15 @@ describe('en', () => {
     assert.ok(s.getByText('Nickname'));
   });
 
+  test('en 로케일 — 내 꾸미기 제목은 영문이다', async () => {
+    mockLocales.mockReturnValue([{ languageCode: 'en', languageTag: 'en-US' }]);
+    applyLocalePref('system');
+    const s = await render(<Harness route="wardrobe" full />);
+
+    assert.ok(s.getByText('My Outfits'));
+    assert.equal(s.queryByText('내 꾸미기'), null);
+  });
+
   test('en 로케일 — 앱 설정은 영문 섹션·행을 보여준다', async () => {
     mockLocales.mockReturnValue([{ languageCode: 'en', languageTag: 'en-US' }]);
     applyLocalePref('system');
@@ -2519,7 +2684,7 @@ describe('en', () => {
 
     assert.ok(
       s.getByText(
-        "Hey! You're a new face.\nI'm Mongdol. I've lived on this island for a long time.",
+        "Hey! You're the first visitor to this island.\nI'm Mongdol — I've lived here alone for a long time.",
       ),
     );
     assert.ok(s.getByText('Next'));
@@ -2667,6 +2832,79 @@ test('전망대 순위의 섬 행은 방문 화면 대신 [망원경에 넣기] 
   expect(mockSearch).not.toHaveBeenCalled();
 });
 
+test('전망대 시상대는 서버 공동 1위·빈 2위·3위를 보존하고 4위는 아래 목록에 둔다', async () => {
+  const mine = islandSummary({ id: 'mine', name: '우리 섬', membershipStatus: 'active' });
+  const firstA = islandSummary({ id: 'first-a', name: '공동 하나' });
+  const firstB = islandSummary({ id: 'first-b', name: '공동 둘' });
+  const third = islandSummary({ id: 'third', name: '셋째 섬' });
+  const fourth = islandSummary({ id: 'fourth', name: '넷째 섬' });
+  mockRankings.mockReturnValue({
+    status: 'ready',
+    data: {
+      items: [ranked(firstA, 1), ranked(firstB, 1), ranked(third, 3), ranked(fourth, 4)],
+      myRank: null,
+    },
+  });
+  const screen = await render(
+    <Harness route="tower" initial={toweredState(mine)} api={() => ({})} />,
+  );
+  const podium = within(screen.getByTestId('observatory-podium'));
+  const first = within(screen.getByTestId('observatory-podium-1'));
+  expect(first.getByText('공동 하나')).toBeTruthy();
+  expect(first.getByText('공동 둘')).toBeTruthy();
+  expect(
+    within(screen.getByTestId('observatory-podium-2')).queryAllByLabelText(/위 /),
+  ).toHaveLength(0);
+  expect(within(screen.getByTestId('observatory-podium-3')).getByText('셋째 섬')).toBeTruthy();
+  expect(podium.queryByText('넷째 섬')).toBeNull();
+  expect(screen.getByLabelText('4위 넷째 섬, 평균 1시간')).toBeTruthy();
+});
+
+test('전망대는 화면 읽기가 켜지면 공동 순위를 유지한 오름차순 목록으로 탐색한다', async () => {
+  const reader = jest.spyOn(AccessibilityInfo, 'isScreenReaderEnabled');
+  const originalReader = reader.getMockImplementation();
+  reader.mockResolvedValue(true);
+  try {
+    const mine = islandSummary({ id: 'mine', name: '우리 섬', membershipStatus: 'active' });
+    const firstA = islandSummary({ id: 'first-a', name: '공동 하나' });
+    const firstB = islandSummary({ id: 'first-b', name: '공동 둘' });
+    mockRankings.mockReturnValue({
+      status: 'ready',
+      data: { items: [ranked(mine, 3), ranked(firstA, 1), ranked(firstB, 1)], myRank: 3 },
+    });
+    const screen = await render(
+      <Harness route="tower" initial={toweredState(mine)} api={() => ({})} />,
+    );
+    await waitFor(() => expect(screen.queryByTestId('observatory-podium-1')).toBeNull());
+    const podium = within(screen.getByTestId('observatory-podium'));
+    expect(podium.getAllByLabelText(/^\d위 /).map((row) => row.props.accessibilityLabel)).toEqual([
+      '1위 공동 하나, 평균 1시간',
+      '1위 공동 둘, 평균 1시간',
+      '3위 우리 섬, 평균 1시간, 소속됨',
+    ]);
+    expect(podium.queryByRole('button', { name: /^3위 / })).toBeNull();
+  } finally {
+    reader.mockImplementation(originalReader!);
+  }
+});
+
+test.each([57, null])(
+  '전망대는 내 섬 순위(%s)와 주간 제목·안내 요약을 표시하지 않는다',
+  async (myRank) => {
+    const mine = islandSummary({ id: 'mine', name: '우리 섬', membershipStatus: 'active' });
+    const other = islandSummary({ id: 'other', name: '다른 섬' });
+    mockRankings.mockReturnValue({ status: 'ready', data: { items: [ranked(other, 1)], myRank } });
+    const screen = await render(
+      <Harness route="tower" initial={toweredState(mine)} api={() => ({})} />,
+    );
+    expect(screen.queryByLabelText(/^우리 섬 이번 주/)).toBeNull();
+    expect(screen.queryByText('우리 섬 순위')).toBeNull();
+    expect(screen.queryByText('이번 주 섬 랭킹')).toBeNull();
+    expect(screen.queryByText(/일요일마다 새로 시작/)).toBeNull();
+    expect(screen.getByText('다른 섬')).toBeTruthy();
+  },
+);
+
 test('전망대 순위는 소속 섬이 여럿이어도(현재 섬이 아니어도) 모두 «소속됨» 으로 막는다', async () => {
   const current = islandSummary({ id: 'cur', name: '지금 섬', membershipStatus: 'active' });
   const second = islandSummary({ id: 'second', name: '두번째 섬', membershipStatus: 'active' });
@@ -2698,12 +2936,12 @@ test('전망대 순위는 소속 섬이 여럿이어도(현재 섬이 아니어�
 });
 
 test.each([
-  [1, false],
-  [componentTokens.telescope.largeTextThreshold - 0.01, false],
-  [componentTokens.telescope.largeTextThreshold, true],
+  [1, true],
+  [semanticTokens.typography.largeTextThreshold - 0.01, true],
+  [semanticTokens.typography.largeTextThreshold, true],
   [3, true],
 ])(
-  '전망대 순위 «소속됨» 배지 — 글자 배율 %s 에서 이름 아래 줄로 내려가는가: %s',
+  '전망대 순위 «소속됨» 배지 — 글자 배율 %s 에서 이름 아래 줄에 유지되는가: %s',
   async (scale, stacked) => {
     mockFontScale = scale;
     const mine = islandSummary({ id: 'mine', name: '우리 섬', membershipStatus: 'active' });
@@ -2714,18 +2952,21 @@ test.each([
     const screen = await render(
       <Harness route="tower" initial={toweredState(mine)} api={() => ({})} />,
     );
-    // 이름 글자의 부모가 본문(이름·평균) 칸이다. 고정 폭 순위·썸네일 옆 오른쪽에 배지를 두면 큰 글자에서 배지가
-    // 행 폭을 다 차지해 이 칸이 0 으로 줄어든다 — 큰 글자에서는 배지가 이 칸 안으로 내려온다.
+    // 이름 글자의 부모가 본문(이름·평균) 칸이다. 왼쪽 원형 섬 프로필 옆에서 본문 폭을 확보하고, 배지는 항상 본문 안에 둔다.
     const body = screen.getByText('우리 섬').parent!;
-    expect(StyleSheet.flatten(body.props.style)).toMatchObject({ flex: 1, minWidth: 0 });
+    expect(StyleSheet.flatten(body.props.style)).toMatchObject(
+      scale >= semanticTokens.typography.largeTextThreshold
+        ? { flex: 1, minWidth: 0 }
+        : { minWidth: 0, maxWidth: '100%' },
+    );
     screen.getByText('평균 1시간'); // 평균 집중 줄은 어느 쪽이든 같은 칸에 있다
     expect(within(body).queryByText('소속됨') !== null).toBe(stacked);
-    // 보통 글자에서는 지금 자리 그대로 — 같은 행의 오른쪽 끝(본문 칸 밖)
+    // 행 전체에도 상태 라벨이 유지된다.
     within(body.parent!).getByText('소속됨');
   },
 );
 
-test('전망대의 «섬 찾기» 는 explore 로 가고, 전망대가 서버 모드에서 부르는 API 는 랭킹뿐이다', async () => {
+test('전망대는 처음부터 검색창을 보여 주되 검색어가 없으면 랭킹만 읽는다', async () => {
   const mine = islandSummary({ id: 'mine', name: '우리 섬', membershipStatus: 'active' });
   mockRankings.mockReturnValue({ status: 'ready', data: { items: [], myRank: null } });
   let exposed: any;
@@ -2737,11 +2978,59 @@ test('전망대의 «섬 찾기» 는 explore 로 가고, 전망대가 서버 �
       expose={(v: any) => (exposed = v)}
     />,
   );
-  await fireEvent.press(screen.getByLabelText('섬 찾기'));
-  expect(exposed.go).toHaveBeenCalledWith('explore');
+  expect(screen.getByLabelText('섬 이름')).toBeTruthy();
+  expect(exposed.go).not.toHaveBeenCalled();
   expect(mockSearch).not.toHaveBeenCalled();
   expect(mockDiscover).not.toHaveBeenCalled();
   expect(mockPin).not.toHaveBeenCalled();
+});
+
+test('랭킹과 인라인 검색을 오가도 망원경 넣기 요청 중에는 양쪽 행이 함께 잠긴다', async () => {
+  jest.useFakeTimers();
+  let finish: ((value: any) => void) | undefined;
+  try {
+    const mine = islandSummary({ id: 'mine', name: '우리 섬', membershipStatus: 'active' });
+    const other = islandSummary({ id: 'ranked', name: '랭킹 섬' });
+    mockRankings.mockReturnValue({
+      status: 'ready',
+      data: { items: [ranked(other, 1)], myRank: null },
+    });
+    mockSearch.mockResolvedValue({
+      items: [islandSummary({ id: 'search-result', name: '검색 섬' })],
+      nextCursor: null,
+    });
+    mockPin.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const screen = await render(
+      <Harness route="tower" initial={toweredState(mine)} api={() => ({})} />,
+    );
+    await fireEvent.press(screen.getByText('랭킹 섬'));
+    expect(mockPin).toHaveBeenCalledTimes(1);
+    await fireEvent.changeText(screen.getByLabelText('섬 이름'), '검색');
+    await act(async () => {
+      jest.advanceTimersByTime(300);
+    });
+    const result = await screen.findByRole('button', { name: /^검색 섬,/ });
+    expect(result.props.accessibilityState.disabled).toBe(true);
+    await fireEvent.press(result);
+    expect(mockPin).toHaveBeenCalledTimes(1);
+    await fireEvent.changeText(screen.getByLabelText('섬 이름'), '');
+    expect(
+      screen.getByRole('button', { name: /^1위 랭킹 섬/ }).props.accessibilityState.disabled,
+    ).toBe(true);
+    await act(async () => {
+      finish?.({ item: { islandId: other.id, slot: 'pinned' } });
+    });
+    expect(
+      screen.getByRole('button', { name: /^1위 랭킹 섬/ }).props.accessibilityState.disabled,
+    ).toBe(false);
+  } finally {
+    jest.useRealTimers();
+  }
 });
 
 test('서버 모드 explore 는 로컬 목업 섬이 아니라 서버 이름 검색 결과를 그리고, discover 는 부르지 않는다', async () => {
@@ -2845,7 +3134,7 @@ test('문의하기는 신고센터 아래 행에서 메일을 열고, 실패하�
   let exposed: any;
   const ui = await render(<Harness route="settings" full expose={(e: any) => (exposed = e)} />);
   await fireEvent.press(ui.getByText('문의하기'));
-  assert.ok(decodeURIComponent(open.mock.calls[0][0]).includes('subject=[catus 문의]'));
+  assert.ok(decodeURIComponent(open.mock.calls[0][0]).includes('subject=[집중할고양 문의]'));
   open.mockRejectedValue(new Error('no mail'));
   await fireEvent.press(ui.getByText('문의하기'));
   await waitFor(() => expect(exposed.confirm).toHaveBeenCalled());
@@ -2861,7 +3150,7 @@ test('영어 설정에서도 신고센터가 영어 작성 안내가 담긴 메�
   const ui = await render(<Harness route="settings" full localePref="en" />);
   await fireEvent.press(ui.getByText('Report center'));
   assert.ok(
-    decodeURIComponent(open.mock.calls[0][0]).includes('subject=[catus report] Report center'),
+    decodeURIComponent(open.mock.calls[0][0]).includes('subject=[Focus Cat report] Report center'),
   );
   assert.ok(decodeURIComponent(open.mock.calls[0][0]).includes('What happened:'));
   open.mockRestore();
@@ -2881,4 +3170,524 @@ test('신규 계정은 여섯 고양이 선택으로 진입하고 출항 완료 
   await act(async () => exposed.dispatch({ type: 'ONBOARDING_STORY', checkpoint: 'done' }));
   expect(screen.getByTestId('onboarding-choose')).toBeTruthy();
   expect(screen.queryByLabelText('닉네임')).toBeNull();
+});
+
+test.each([false, true])(
+  '음원 미리듣기는 재생 허용 %s일 때만 음원과 버튼 상태를 바꾼다',
+  async (allowed) => {
+    const player = {
+      playbackAllowed: allowed,
+      replace: jest.fn(),
+      play: jest.fn(() => allowed),
+      pause: jest.fn(),
+      addListener: () => ({ remove() {} }),
+      loop: true,
+    };
+    const onPreviewAudio = jest.fn();
+    const screen = await render(
+      <Harness
+        route="product"
+        detail="rain"
+        full
+        soundPlayer={player}
+        onPreviewAudio={onPreviewAudio}
+      />,
+    );
+    const button = screen.getByLabelText('나만 미리듣기');
+    expect(button.props.accessibilityState.disabled).toBe(!allowed);
+    await fireEvent.press(button);
+    expect(player.replace).toHaveBeenCalledTimes(allowed ? 1 : 0);
+    expect(player.play).toHaveBeenCalledTimes(allowed ? 1 : 0);
+    if (allowed) expect(onPreviewAudio).toHaveBeenCalledWith(true);
+    else expect(onPreviewAudio).not.toHaveBeenCalled();
+  },
+);
+
+// ── 설정 「알림」 토글의 시스템 권한(GROMO-2526) ──
+describe('설정 「알림」 토글', () => {
+  // RN jest 설정이 이미 목으로 둔 함수라 spyOn 은 새 스파이를 만들지 않는다 — 호출 기록과 구현을, 단언이 실패한 뒤에도 새지 않게
+  // 매 테스트 앞뒤로 직접 되돌린다. 플랫폼도 되돌린다.
+  const originalOS = Platform.OS;
+  const resetPlatformMocks = () => {
+    Platform.OS = originalOS;
+    jest.mocked(Linking.openSettings).mockReset();
+    jest
+      .mocked(AppState.addEventListener)
+      .mockReset()
+      .mockImplementation(() => ({ remove: jest.fn() }));
+  };
+  beforeEach(resetPlatformMocks);
+  afterEach(resetPlatformMocks);
+
+  // 앱이 활성으로 돌아오는 장면(시스템 설정에서 돌아온 때)
+  const captureAppActive = () => {
+    const listeners: ((state: AppStateStatus) => void)[] = [];
+    jest.spyOn(AppState, 'addEventListener').mockImplementation((_event, listener) => {
+      listeners.push(listener);
+      return { remove: jest.fn() };
+    });
+    return () => act(async () => listeners.forEach((listener) => listener('active')));
+  };
+
+  test.each([
+    ['granted'],
+    // 푸시 브리지가 없는 바이너리(Android·옛 iOS·웹) — 토글은 앱 설정 그대로다.
+    ['unavailable'],
+  ] as const)(
+    '설정 「알림」 — 권한이 %s 면 앱 설정대로 켜진 채로 보이고, 끌 때는 권한을 보지 않으며, 다시 켜도 시스템 팝업·시스템 설정을 열지 않는다',
+    async (permission) => {
+      mockPushPermissionStatus.mockResolvedValue(permission);
+      const openSettings = jest.spyOn(Linking, 'openSettings').mockResolvedValue(undefined);
+      const ui = await render(<Harness route="settings" full />);
+      await flush();
+      const toggle = () => ui.getByRole('switch', { name: '알림' });
+      const reads = mockPushPermissionStatus.mock.calls.length;
+      expect(toggle().props.accessibilityState.checked).toBe(true);
+
+      // 끄기 — 앱 설정만 바뀐다.
+      await fireEvent.press(toggle());
+      await flush();
+      expect(toggle().props.accessibilityState.checked).toBe(false);
+      expect(mockPushPermissionStatus).toHaveBeenCalledTimes(reads);
+      expect(mockRequestPushPermission).not.toHaveBeenCalled();
+      expect(openSettings).not.toHaveBeenCalled();
+
+      // 켜기 — 이미 허용(또는 브리지 없음)이라 팝업도 시스템 설정도 없다.
+      await fireEvent.press(toggle());
+      await flush();
+      expect(toggle().props.accessibilityState.checked).toBe(true);
+      expect(mockRequestPushPermission).not.toHaveBeenCalled();
+      expect(openSettings).not.toHaveBeenCalled();
+    },
+  );
+
+  test('설정 「알림」 — 권한을 아직 안 물었으면 앱 설정이 켜져 있어도 꺼진 것으로 보이고, 첫 누름은 앱 설정을 끄지 않고 시스템 팝업을 띄우며, 허용하면 켜진 것으로 보인다', async () => {
+    mockPushPermissionStatus.mockResolvedValue('undetermined');
+    mockRequestPushPermission.mockResolvedValue('granted');
+    let exposed: any;
+    const ui = await render(
+      <Harness route="settings" full expose={(value: any) => (exposed = value)} />,
+    );
+    await flush();
+    const toggle = () => ui.getByRole('switch', { name: '알림' });
+    expect(toggle().props.accessibilityState.checked).toBe(false);
+
+    await fireEvent.press(toggle());
+    await flush();
+    expect(mockRequestPushPermission).toHaveBeenCalledTimes(1);
+    // 앱 설정은 이미 켜져 있다 — 첫 누름이 끄지도(SETTING false) 다시 쓰지도 않는다.
+    expect(exposed.actions).not.toContain('SETTING');
+    expect(toggle().props.accessibilityState.checked).toBe(true);
+  });
+
+  test('설정 「알림」 — 앱 설정이 꺼져 있고 권한을 아직 안 물었으면 누를 때 앱 설정을 켜고 시스템 팝업을 띄운다', async () => {
+    mockPushPermissionStatus.mockResolvedValue('undetermined');
+    mockRequestPushPermission.mockResolvedValue('granted');
+    const ui = await render(
+      <Harness
+        route="settings"
+        full
+        seed={(d: any) => d({ type: 'SETTING', key: 'notifications', value: false })}
+      />,
+    );
+    await flush();
+    const toggle = () => ui.getByRole('switch', { name: '알림' });
+    expect(toggle().props.accessibilityState.checked).toBe(false);
+
+    await fireEvent.press(toggle());
+    await flush();
+    expect(mockRequestPushPermission).toHaveBeenCalledTimes(1);
+    // 허용돼 켜진 것으로 보이려면 앱 설정도 켜졌어야 한다.
+    expect(toggle().props.accessibilityState.checked).toBe(true);
+  });
+
+  test('설정 「알림」 — 권한을 읽지 못해도(error) 토글은 앱 설정대로 켜진 것으로 보이되 「확인하지 못했어요」 를 붙이고, 끄면 권한을 다시 읽지 않고 앱 설정만 끈다', async () => {
+    mockPushPermissionStatus.mockResolvedValue('error');
+    let exposed: any;
+    const ui = await render(
+      <Harness route="settings" full expose={(value: any) => (exposed = value)} />,
+    );
+    await flush();
+    const toggle = () => ui.getByRole('switch', { name: /^알림/ });
+    // 확인 못 한 권한이라도 앱에서 끌 수 있어야 한다 — 꺼진 것으로 그리지 않는다.
+    expect(toggle().props.accessibilityState.checked).toBe(true);
+    expect(ui.getByText('확인하지 못했어요')).toBeTruthy();
+    const reads = mockPushPermissionStatus.mock.calls.length;
+
+    await fireEvent.press(toggle());
+    await flush();
+    expect(exposed.actions.filter((type: string) => type === 'SETTING')).toHaveLength(1);
+    expect(toggle().props.accessibilityState.checked).toBe(false);
+    expect(mockPushPermissionStatus).toHaveBeenCalledTimes(reads);
+    expect(mockRequestPushPermission).not.toHaveBeenCalled();
+    // 아직 확인한 게 아니다.
+    expect(ui.getByText('확인하지 못했어요')).toBeTruthy();
+  });
+
+  test.each([
+    { fresh: 'granted', requests: 0, opens: 0, on: true, label: false },
+    { fresh: 'undetermined', requests: 1, opens: 0, on: true, label: false },
+    { fresh: 'denied', requests: 0, opens: 1, on: false, label: false },
+    // 그래도 못 읽으면 앱 설정만 켠다.
+    { fresh: 'error', requests: 0, opens: 0, on: true, label: true },
+  ] as const)(
+    '설정 「알림」 — 읽지 못했고(error) 앱 설정이 꺼져 있으면 누를 때 앱 설정을 켜고 다시 읽어, 읽힌 값이 $fresh 면 팝업 $requests회·시스템 설정 $opens회·켜진 것으로 보이는가 $on·「확인하지 못했어요」 표시 $label',
+    async ({ fresh, requests, opens, on, label }) => {
+      // 시트가 열릴 때는 못 읽고, 누를 때 다시 읽은 값이 fresh 다.
+      mockPushPermissionStatus.mockResolvedValueOnce('error').mockResolvedValue(fresh);
+      const openSettings = jest.spyOn(Linking, 'openSettings').mockResolvedValue(undefined);
+      let exposed: any;
+      const ui = await render(
+        <Harness
+          route="settings"
+          full
+          seed={(d: any) => d({ type: 'SETTING', key: 'notifications', value: false })}
+          expose={(value: any) => (exposed = value)}
+        />,
+      );
+      await flush();
+      const toggle = () => ui.getByRole('switch', { name: /^알림/ });
+      const settingWrites = () =>
+        exposed.actions.filter((type: string) => type === 'SETTING').length;
+      expect(toggle().props.accessibilityState.checked).toBe(false);
+      expect(ui.getByText('확인하지 못했어요')).toBeTruthy();
+      const reads = mockPushPermissionStatus.mock.calls.length;
+      const writes = settingWrites();
+
+      await fireEvent.press(toggle());
+      await flush();
+      expect(mockPushPermissionStatus).toHaveBeenCalledTimes(reads + 1);
+      expect(settingWrites()).toBe(writes + 1);
+      expect(mockRequestPushPermission).toHaveBeenCalledTimes(requests);
+      expect(openSettings).toHaveBeenCalledTimes(opens);
+      expect(toggle().props.accessibilityState.checked).toBe(on);
+      expect(ui.queryByText('확인하지 못했어요') !== null).toBe(label);
+    },
+  );
+
+  test.each([
+    ['ios', false],
+    // 푸시 브리지가 없는 플랫폼은 읽기 전에도 앱 설정 그대로 그린다 — 읽은 뒤 바뀌는 깜빡임이 없다.
+    ['android', true],
+  ] as const)(
+    '설정 「알림」 — 권한을 읽기 전(%s)에는 켜진 것으로 보이는가: %s, 읽은 뒤에는 앱 설정대로 켜진 것으로 보인다',
+    async (os, shownBeforeRead) => {
+      Platform.OS = os;
+      let answer!: (permission: string) => void;
+      mockPushPermissionStatus.mockReturnValue(
+        new Promise((done) => {
+          answer = done;
+        }),
+      );
+      const ui = await render(<Harness route="settings" full />);
+      const toggle = () => ui.getByRole('switch', { name: '알림' });
+      expect(toggle().props.accessibilityState.checked).toBe(shownBeforeRead);
+
+      await act(async () => answer(os === 'ios' ? 'granted' : 'unavailable'));
+      expect(toggle().props.accessibilityState.checked).toBe(true);
+    },
+  );
+
+  test('설정 「알림」 — 권한이 거부면 앱 설정이 켜져 있어도 꺼진 것으로 보이고, 누르면 앱 설정은 두고 시스템 설정을 열며, 허용으로 돌아오면 켜진 것으로 보인다', async () => {
+    mockPushPermissionStatus.mockResolvedValue('denied');
+    const openSettings = jest.spyOn(Linking, 'openSettings').mockResolvedValue(undefined);
+    const returnToApp = captureAppActive();
+    let exposed: any;
+    const ui = await render(
+      <Harness route="settings" full expose={(value: any) => (exposed = value)} />,
+    );
+    await flush();
+    const toggle = () => ui.getByRole('switch', { name: '알림' });
+    expect(toggle().props.accessibilityState.checked).toBe(false);
+
+    await fireEvent.press(toggle());
+    await flush();
+    expect(openSettings).toHaveBeenCalledTimes(1);
+    expect(mockRequestPushPermission).not.toHaveBeenCalled();
+    // 앱 설정은 이미 켜져 있다 — 다시 쓰지 않는다(꺼 버리지도 않는다).
+    expect(exposed.actions).not.toContain('SETTING');
+    expect(toggle().props.accessibilityState.checked).toBe(false);
+
+    // 시스템 설정에서 허용하고 돌아왔다 — 다시 읽어 켜진 것으로 보인다(앱 설정이 켜진 채였다는 뜻이다).
+    mockPushPermissionStatus.mockResolvedValue('granted');
+    await returnToApp();
+    await waitFor(() => expect(toggle().props.accessibilityState.checked).toBe(true));
+  });
+
+  test('설정 「알림」 — 앱 설정이 꺼져 있고 권한이 거부면 누를 때 앱 설정을 켜고 시스템 설정을 연다', async () => {
+    mockPushPermissionStatus.mockResolvedValue('denied');
+    const openSettings = jest.spyOn(Linking, 'openSettings').mockResolvedValue(undefined);
+    const returnToApp = captureAppActive();
+    const ui = await render(
+      <Harness
+        route="settings"
+        full
+        seed={(d: any) => d({ type: 'SETTING', key: 'notifications', value: false })}
+      />,
+    );
+    await flush();
+    const toggle = () => ui.getByRole('switch', { name: '알림' });
+    expect(toggle().props.accessibilityState.checked).toBe(false);
+
+    await fireEvent.press(toggle());
+    await flush();
+    expect(openSettings).toHaveBeenCalledTimes(1);
+    expect(toggle().props.accessibilityState.checked).toBe(false);
+
+    // 앱 설정이 켜졌다는 것은 허용으로 돌아왔을 때 켜진 것으로 보이는 데서 드러난다.
+    mockPushPermissionStatus.mockResolvedValue('granted');
+    await returnToApp();
+    await waitFor(() => expect(toggle().props.accessibilityState.checked).toBe(true));
+  });
+
+  test('설정 「알림」 — 시스템 팝업에서 거부하면 꺼진 채로 보이고, 다시 누르면 팝업 없이 시스템 설정을 연다', async () => {
+    mockPushPermissionStatus.mockResolvedValue('undetermined');
+    mockRequestPushPermission.mockResolvedValue('denied');
+    const openSettings = jest.spyOn(Linking, 'openSettings').mockResolvedValue(undefined);
+    const ui = await render(<Harness route="settings" full />);
+    await flush();
+    const toggle = () => ui.getByRole('switch', { name: '알림' });
+
+    await fireEvent.press(toggle());
+    await flush();
+    expect(mockRequestPushPermission).toHaveBeenCalledTimes(1);
+    expect(toggle().props.accessibilityState.checked).toBe(false);
+
+    // 이제 시스템 권한은 거부다 — 다시 누르면 시스템 설정으로 보낸다.
+    mockPushPermissionStatus.mockResolvedValue('denied');
+    await fireEvent.press(toggle());
+    await flush();
+    expect(mockRequestPushPermission).toHaveBeenCalledTimes(1);
+    expect(openSettings).toHaveBeenCalledTimes(1);
+  });
+
+  test.each([
+    { permission: 'undetermined', hint: '누르면 알림 권한을 물어요' },
+    { permission: 'denied', hint: '누르면 설정 앱이 열려요' },
+    { permission: 'granted', hint: undefined },
+    { permission: 'unavailable', hint: undefined },
+  ] as const)(
+    '설정 「알림」 — 권한이 $permission 이면 스위치의 힌트는 $hint',
+    async ({ permission, hint }) => {
+      mockPushPermissionStatus.mockResolvedValue(permission);
+      const ui = await render(<Harness route="settings" full />);
+      await flush();
+      expect(ui.getByRole('switch', { name: '알림' }).props.accessibilityHint).toBe(hint);
+    },
+  );
+
+  test('설정 「알림」 — 권한을 읽지 못하면(error) 「확인하지 못했어요」 가 스위치 이름에도 붙고 힌트는 없다', async () => {
+    mockPushPermissionStatus.mockResolvedValue('error');
+    const ui = await render(<Harness route="settings" full />);
+    await flush();
+    const toggle = ui.getByRole('switch', { name: '알림, 확인하지 못했어요' });
+    expect(toggle.props.accessibilityHint).toBeUndefined();
+    // 눈에 보이는 부제는 그대로다.
+    expect(ui.getByText('확인하지 못했어요')).toBeTruthy();
+  });
+
+  test.each([
+    { permission: 'error', name: "Notifications, Couldn't check", hint: undefined },
+    { permission: 'undetermined', name: 'Notifications', hint: 'Asks for notification permission' },
+    { permission: 'denied', name: 'Notifications', hint: 'Opens the Settings app' },
+  ] as const)(
+    'en 로케일 — 권한이 $permission 이면 스위치 이름·힌트가 영문이다',
+    async ({ permission, name, hint }) => {
+      applyLocalePref('en');
+      mockPushPermissionStatus.mockResolvedValue(permission);
+      const ui = await render(<Harness route="settings" full localePref="en" />);
+      await flush();
+      const toggle = ui.getByRole('switch', { name });
+      expect(toggle.props.accessibilityHint).toBe(hint);
+      expect(toggle.props.accessibilityLabel).not.toMatch(/[가-힣]/);
+    },
+  );
+
+  test('설정 「알림」 — 권한이 거부인데 시스템 설정을 열지 못하면 안내한다', async () => {
+    mockPushPermissionStatus.mockResolvedValue('denied');
+    jest.spyOn(Linking, 'openSettings').mockRejectedValue(new Error('unavailable'));
+    const ui = await render(<Harness route="settings" full />);
+    await flush();
+    await fireEvent.press(ui.getByRole('switch', { name: '알림' }));
+    await waitFor(() =>
+      expect(notifyMock).toHaveBeenCalledWith(
+        '설정을 열지 못했어요. 기기의 설정 앱에서 권한을 확인해 주세요.',
+      ),
+    );
+  });
+
+  // ── 권한 읽기 순서 — 늦게 끝난 옛 읽기·요청이 더 새 결과를 덮지 못한다(가장 새 것만 토글을 정한다) ──
+  function deferred<T>() {
+    let resolve!: (value: T) => void;
+    const promise = new Promise<T>((done) => {
+      resolve = done;
+    });
+    return { promise, resolve };
+  }
+
+  test('설정 「알림」 — 시트가 열릴 때의 읽기가 걸린 채 눌러 허용받은 뒤 그 옛 읽기(아직 안 물음)가 끝나도 토글을 덮지 못한다', async () => {
+    const mountRead = deferred<string>();
+    mockPushPermissionStatus
+      .mockImplementationOnce(() => mountRead.promise)
+      .mockResolvedValue('undetermined');
+    mockRequestPushPermission.mockResolvedValue('granted');
+    const ui = await render(<Harness route="settings" full />);
+    await flush();
+    const toggle = () => ui.getByRole('switch', { name: '알림' });
+
+    // 읽기 전에는 iOS 가 꺼진 것으로 보인다 — 누르면 다시 읽어(아직 안 물음) 팝업을 띄우고 허용받는다.
+    await fireEvent.press(toggle());
+    await flush();
+    expect(mockRequestPushPermission).toHaveBeenCalledTimes(1);
+    expect(toggle().props.accessibilityState.checked).toBe(true);
+
+    await act(async () => mountRead.resolve('undetermined'));
+    await flush();
+    expect(toggle().props.accessibilityState.checked).toBe(true);
+  });
+
+  test('설정 「알림」 — 앱 활성 읽기가 걸린 채 눌러 허용받은 뒤 그 옛 읽기(아직 안 물음)가 끝나도 토글을 덮지 못한다', async () => {
+    const returnToApp = captureAppActive();
+    const activeRead = deferred<string>();
+    mockPushPermissionStatus
+      .mockResolvedValueOnce('undetermined')
+      .mockImplementationOnce(() => activeRead.promise)
+      .mockResolvedValue('undetermined');
+    mockRequestPushPermission.mockResolvedValue('granted');
+    const ui = await render(<Harness route="settings" full />);
+    await flush();
+    const toggle = () => ui.getByRole('switch', { name: '알림' });
+    expect(toggle().props.accessibilityState.checked).toBe(false);
+
+    await returnToApp();
+    await fireEvent.press(toggle());
+    await flush();
+    expect(toggle().props.accessibilityState.checked).toBe(true);
+
+    await act(async () => activeRead.resolve('undetermined'));
+    await flush();
+    expect(toggle().props.accessibilityState.checked).toBe(true);
+  });
+
+  test('설정 「알림」 — 눌러 다시 읽는 동안 그 앞에 시작한 옛 읽기(허용)가 먼저 끝나도 토글을 정하지 못하고, 눌림의 읽기(거부)를 따른다', async () => {
+    const mountRead = deferred<string>();
+    const pressRead = deferred<string>();
+    mockPushPermissionStatus
+      .mockImplementationOnce(() => mountRead.promise)
+      .mockImplementationOnce(() => pressRead.promise);
+    const openSettings = jest.spyOn(Linking, 'openSettings').mockResolvedValue(undefined);
+    let exposed: any;
+    // 앱 설정은 켜짐(기본값)이다 — 토글이 켜진 것으로 보이는지는 시스템 권한 읽기 결과가 정한다.
+    const ui = await render(
+      <Harness route="settings" full expose={(value: any) => (exposed = value)} />,
+    );
+    await flush();
+    const toggle = () => ui.getByRole('switch', { name: '알림' });
+    expect(toggle().props.accessibilityState.checked).toBe(false);
+
+    // 눌러서 다시 읽는다(걸림) — fireEvent.press 는 핸들러가 끝나야 끝나니 await 하지 않는다.
+    const pressing = fireEvent.press(toggle());
+    await new Promise((done) => setTimeout(done, 0));
+    // 눌림 앞에 시작한 옛 읽기(허용)가 먼저 끝난다 — 적용되면 토글이 켜진 것으로 보인다. 눌림의 읽기가 더 새 것이라 정하지 못한다.
+    await act(async () => mountRead.resolve('granted'));
+    await flush();
+    expect(toggle().props.accessibilityState.checked).toBe(false);
+
+    await act(async () => {
+      pressRead.resolve('denied');
+      await new Promise((done) => setTimeout(done, 0));
+    });
+    await pressing;
+    // 눌림의 읽기(거부)를 따른다 — 시스템 설정을 연다. 앱 설정은 이미 켜져 있어 다시 쓰지 않는다.
+    expect(openSettings).toHaveBeenCalledTimes(1);
+    expect(exposed.actions).not.toContain('SETTING');
+    expect(toggle().props.accessibilityState.checked).toBe(false);
+  });
+
+  test('설정 「알림」 — 눌러 다시 읽어 허용된 뒤 그 앞에 시작한 옛 읽기(거부)가 늦게 끝나도 토글을 덮지 못한다', async () => {
+    const mountRead = deferred<string>();
+    mockPushPermissionStatus
+      .mockImplementationOnce(() => mountRead.promise)
+      .mockResolvedValue('granted');
+    const ui = await render(<Harness route="settings" full />);
+    await flush();
+    const toggle = () => ui.getByRole('switch', { name: '알림' });
+
+    // 눌러서 다시 읽으면 허용이다 — 팝업·시스템 설정 없이 켜진 것으로 보인다.
+    await fireEvent.press(toggle());
+    await flush();
+    expect(mockRequestPushPermission).not.toHaveBeenCalled();
+    expect(toggle().props.accessibilityState.checked).toBe(true);
+
+    // 눌림 앞에 시작한 옛 읽기(거부)가 이제야 끝난다 — 눌림의 읽기가 더 새 것이라 덮지 못한다.
+    await act(async () => mountRead.resolve('denied'));
+    await flush();
+    expect(toggle().props.accessibilityState.checked).toBe(true);
+  });
+
+  test('설정 「알림」 — 팝업이 떠 있는 동안 시작한 더 새 읽기가 먼저 끝나면, 늦게 끝난 팝업 답이 토글을 덮지 못한다', async () => {
+    const returnToApp = captureAppActive();
+    const popup = deferred<string>();
+    const newerRead = deferred<string>();
+    mockPushPermissionStatus
+      .mockResolvedValueOnce('undetermined')
+      .mockResolvedValueOnce('undetermined')
+      .mockImplementationOnce(() => newerRead.promise);
+    mockRequestPushPermission.mockImplementationOnce(() => popup.promise);
+    const ui = await render(<Harness route="settings" full />);
+    await flush();
+    const toggle = () => ui.getByRole('switch', { name: '알림' });
+
+    // fireEvent.press 는 핸들러(팝업 답을 기다리는 change)가 끝나야 끝난다 — await 하지 않고 눌림의 act 만 끝나게 둔다.
+    const pressing = fireEvent.press(toggle());
+    await new Promise((done) => setTimeout(done, 0));
+    expect(mockRequestPushPermission).toHaveBeenCalledTimes(1);
+
+    // 팝업이 떠 있는 동안 앱이 활성이 돼 더 새 읽기가 시작되고 먼저 끝난다.
+    await returnToApp();
+    await act(async () => newerRead.resolve('granted'));
+    await waitFor(() => expect(toggle().props.accessibilityState.checked).toBe(true));
+
+    await act(async () => {
+      popup.resolve('denied');
+      await new Promise((done) => setTimeout(done, 0));
+    });
+    await pressing;
+    expect(toggle().props.accessibilityState.checked).toBe(true);
+  });
+
+  test('설정 「알림」 — 눌러 다시 읽는 사이 더 새 읽기가 끝나면, 늦게 끝난 눌림의 읽기가 토글을 덮지 못한다', async () => {
+    const returnToApp = captureAppActive();
+    const pressRead = deferred<string>();
+    const newerRead = deferred<string>();
+    mockPushPermissionStatus
+      .mockResolvedValueOnce('error')
+      .mockImplementationOnce(() => pressRead.promise)
+      .mockImplementationOnce(() => newerRead.promise);
+    jest.spyOn(Linking, 'openSettings').mockResolvedValue(undefined);
+    const ui = await render(
+      <Harness
+        route="settings"
+        full
+        seed={(d: any) => d({ type: 'SETTING', key: 'notifications', value: false })}
+      />,
+    );
+    await flush();
+    const toggle = () => ui.getByRole('switch', { name: /^알림/ });
+
+    const pressing = fireEvent.press(toggle());
+    await new Promise((done) => setTimeout(done, 0));
+    await returnToApp();
+    await act(async () => newerRead.resolve('granted'));
+    await waitFor(() => expect(toggle().props.accessibilityState.checked).toBe(true));
+
+    await act(async () => {
+      pressRead.resolve('denied');
+      await new Promise((done) => setTimeout(done, 0));
+    });
+    await pressing;
+    // 눌림은 자기 읽기 값(거부)으로 이어 가 시스템 설정을 열지만, 토글은 가장 새 읽기(허용)를 따른다.
+    expect(Linking.openSettings).toHaveBeenCalledTimes(1);
+    expect(toggle().props.accessibilityState.checked).toBe(true);
+  });
 });

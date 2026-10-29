@@ -210,6 +210,8 @@ public class InboundEventService {
             advanceBlockGeneration(eventId, envelope);
         } else if (SEA_MEMBER_UPDATED.equals(type)) {
             seaRooms.applyMemberUpdated(envelope);
+        } else if (RealtimeEventType.MEMBER_APPEARANCE_UPDATED.wireName().equals(type)) {
+            deliverAppearance(eventId, envelope);
         } else if (AUTH_SESSION_REVOKED.equals(type)) {
             closeRevokedSession(eventId, envelope);
         } else {
@@ -329,19 +331,20 @@ public class InboundEventService {
      */
     private void advanceBlockGeneration(String eventId, JsonNode envelope) {
         JsonNode params = envelope.get("params");
-        JsonNode blocker = params == null || !params.isObject() ? null : params.get("blockerUserId");
-        UUID blockerId;
-        try {
-            blockerId = blocker == null || !blocker.isString() ? null : UUID.fromString(blocker.stringValue());
-        } catch (IllegalArgumentException e) {
-            blockerId = null;
-        }
+        UUID blockerId = params == null || !params.isObject() ? null : uuidOrNull(params.get("blockerUserId"));
         if (blockerId == null) {
             log.warn("차단 사건에 blockerUserId 가 없다 — 세대를 올리지 않는다. eventId={}", eventId);
             return;
         }
         blockedUsers.advanceGeneration(blockerId);
         outboundAuthzCache.evictUser(blockerId);
+        // 숨김은 양방향(GROMO-2469)이라 차단당한 쪽 세션이 들고 있던 「차단자의 프레임 허용」도 지운다. 세대는 차단자 것 하나면
+        // 된다 — 전달 직전 판정이 두 집합 중 차단자의 집합에서 이 관계를 읽기 때문이다. 옛 사건엔 필드가 없을 수 있다.
+        UUID blockedId = uuidOrNull(params.get("blockedUserId"));
+        if (blockedId != null) {
+            outboundAuthzCache.evictUser(blockedId);
+        }
+        seaRooms.refreshBlockVisibility(blockerId);
     }
 
     /**
@@ -365,7 +368,7 @@ public class InboundEventService {
         // 만료는 payload 의 폐기 시각 + AT 수명이라 relay 재시도에도 변하지 않는다. 없으면(옛 Data) 30일 폴백.
         Instant until = fenceUntil(eventId, params);
         chatUserFence.revokeSession(sid, until);
-        eventDelivery.publishSessionRevoked(userId, sid, until);
+        eventDelivery.publishSessionRevoked(userId, sid, until, eventId);
         closeLocalSessions(userId, sid);
     }
 
@@ -409,7 +412,7 @@ public class InboundEventService {
             }
         }
         currentMembershipCache.evictUser(userId);
-        CloseStatus status = CloseStatus.POLICY_VIOLATION.withReason("SESSION_REVOKED");
+        CloseStatus status = RealtimeSessionRegistry.SESSION_REVOKED;
         boolean failed = false;
         for (String stompId : revoked) {
             outboundAuthzCache.evictSession(stompId);
@@ -424,6 +427,34 @@ public class InboundEventService {
         }
         if (failed) {
             throw new IllegalStateException("폐기된 세션의 연결을 닫지 못했다");
+        }
+    }
+
+    /** 외양은 Redis 상태에 복제하지 않고 검증한 변경분만 기존 전달 채널로 보낸다. */
+    private void deliverAppearance(String eventId, JsonNode envelope) {
+        RealtimeEventEnvelope event;
+        try {
+            JsonNode subject = envelope.get("subjectId");
+            UUID islandId = subject == null || subject.isNull() ? null : UUID.fromString(subject.stringValue());
+            ObjectNode payload = JsonNodeFactory.instance.objectNode();
+            JsonNode params = envelope.path("params");
+            for (String key : List.of("userId", "appearance", "version")) {
+                if (params.has(key)) {
+                    payload.set(key, params.get(key));
+                }
+            }
+            event = new RealtimeEventEnvelope(UUID.fromString(eventId), intValue(envelope, "schemaVersion"),
+                    RealtimeEventType.MEMBER_APPEARANCE_UPDATED, islandId, longValue(envelope, "version"),
+                    Instant.parse(requiredText(envelope, "occurredAt")), payload);
+        } catch (RuntimeException e) {
+            log.error("외양 사건 변환 실패 — 전달하지 않는다. eventId={} reason={}",
+                    eventId, e.getClass().getSimpleName());
+            return;
+        }
+        if (event.islandId() == null) {
+            seaRooms.publishAppearance(UUID.fromString(event.payload().path("userId").stringValue()), event.payload());
+        } else {
+            eventRouter.route(event, new RealtimeAudience.IslandAudience(event.islandId()));
         }
     }
 

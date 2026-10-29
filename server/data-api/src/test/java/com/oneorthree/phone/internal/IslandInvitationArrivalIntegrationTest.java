@@ -3,9 +3,7 @@ package com.oneorthree.phone.internal;
 import com.oneorthree.phone.auth.service.AuthService;
 import com.oneorthree.phone.auth.support.JwtProvider;
 import com.oneorthree.phone.common.util.ZonePolicy;
-import com.oneorthree.phone.focus.dto.FocusSessionStartRequest;
 import com.oneorthree.phone.focus.exception.FocusErrorCode;
-import com.oneorthree.phone.focus.service.FocusService;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupRepository;
@@ -74,9 +72,7 @@ class IslandInvitationArrivalIntegrationTest {
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
         OutboxTestPostgres.applyProductionMigrationWiring(registry);
-        registry.add("island-management.commands-enabled", () -> true);
         registry.add("notification.dispatch.mode", () -> "OUTBOX");
-        registry.add("internal.api.enabled", () -> true);
         registry.add("internal.api.callers.business.token", () -> TOKEN);
         String[] allow = {"POST /internal/users/*/invitations/resolve",
             "POST /internal/users/*/islands/*/memberships", "PUT /internal/users/*/current-island"};
@@ -94,8 +90,6 @@ class IslandInvitationArrivalIntegrationTest {
     IslandJoinService joins;
     @Autowired
     IslandMembershipService islands;
-    @Autowired
-    FocusService legacyFocus;
     @Autowired
     GroupRepository groups;
     @Autowired
@@ -501,7 +495,7 @@ class IslandInvitationArrivalIntegrationTest {
         // 발급 뒤 발급자의 세대가 바뀌면(이탈·재가입) 그 코드는 폐기다 — 섬 종결도 같은 410 이다.
         jdbc.update("update group_members set membership_epoch=membership_epoch+1"
                 + " where group_id=? and user_id=?", stale, host);
-        jdbc.update("update groups set status='ENDED' where id=?", closed);
+        jdbc.update("update islands set status='ENDED' where id=?", closed);
         UUID user = newUser();
         long staleEvents = islandEvents(stale);
         long closedEvents = islandEvents(closed);
@@ -528,7 +522,8 @@ class IslandInvitationArrivalIntegrationTest {
         UUID user = newUser();
         UUID home = islands.create(user, new CreateIslandCommandRequest("집중섬", null, false, null),
                 UUID.randomUUID()).id();
-        legacyFocus.startFocusSession(user, new FocusSessionStartRequest(null, null));
+        jdbc.update("INSERT INTO focus_sessions (id, user_id, started_at, total_distraction_seconds) VALUES (?, ?, now(), 0)",
+                UUID.randomUUID(), user);
         long islandEvents = islandEvents(islandId);
 
         assertThatThrownBy(() -> resolve(user, code))
@@ -554,10 +549,10 @@ class IslandInvitationArrivalIntegrationTest {
     }
 
     @Test
-    @DisplayName("주민 첫 도착 사건 스위치가 꺼져 있으면(기본) 사건은 0건이고 arrivedBefore 는 그대로 계산한다 (GROMO-2302)")
-    void firstMemberArrivalWithTheSwitchOffPublishesNothing() {
+    @DisplayName("주민 첫 도착은 사건을 정확히 1건 남기고 두 번째 도착은 남기지 않는다 (GROMO-2302)")
+    void firstMemberArrivalPublishesExactlyOneEvent() {
         UUID host = newUser();
-        UUID islandId = island("스위치섬", false, false);
+        UUID islandId = island("첫도착섬", false, false);
         joinAs(host, islandId, GroupMemberRole.OWNER);
         UUID user = newUser();
         joins.join(user, islandId, new JoinIslandCommandRequest(null, "telescope"), UUID.randomUUID());
@@ -566,8 +561,8 @@ class IslandInvitationArrivalIntegrationTest {
 
         assertThat(islands.arrive(user, islandId, UUID.randomUUID()).arrivedBefore()).isFalse();
         assertThat(islands.arrive(user, islandId, UUID.randomUUID()).arrivedBefore()).isTrue();
-        assertThat(count("select count(*) from event_outbox where type='island.member.arrived' and subject_id=?",
-                islandId.toString())).isZero();
+        assertThat(count("select count(*) from event_outbox where type='island.member.arrived' and subject_id=?"
+                + " and params->>'userId'=?", islandId.toString(), user.toString())).isEqualTo(1);
     }
 
     @Test
@@ -587,8 +582,8 @@ class IslandInvitationArrivalIntegrationTest {
                 .as("주민 도착 기록은 멤버십 시작 이후다").isTrue();
 
         assertThat(islands.arrive(user, islandId, UUID.randomUUID()).arrivedBefore()).isTrue();
-        assertThat(count("select count(*) from event_outbox where type='island.member.arrived' and subject_id=?",
-                islandId.toString())).isZero();
+        assertThat(count("select count(*) from event_outbox where type='island.member.arrived' and subject_id=?"
+                + " and params->>'userId'=?", islandId.toString(), user.toString())).isZero();
     }
 
     // ---------------------------------------------------------------- 도구
@@ -657,7 +652,7 @@ class IslandInvitationArrivalIntegrationTest {
     }
 
     private UUID newUser() {
-        return jwt.extractUserId(auth.guestLogin().accessToken());
+        return jwt.extractUserId(auth.guestSession(java.util.UUID.randomUUID().toString()).accessToken());
     }
 
     private UUID island(String name, boolean isPrivate, boolean approvalRequired) {

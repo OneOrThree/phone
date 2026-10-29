@@ -53,7 +53,6 @@ class CustomizationRewardSettlementIntegrationTest {
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
         OutboxTestPostgres.applyProductionMigrationWiring(registry);
-        registry.add("focus.session.start-enabled", () -> true);
     }
 
     @Autowired
@@ -442,7 +441,7 @@ class CustomizationRewardSettlementIntegrationTest {
     }
 
     private UUID newUser() {
-        return jwt.extractUserId(auth.guestLogin().accessToken());
+        return jwt.extractUserId(auth.guestSession(java.util.UUID.randomUUID().toString()).accessToken());
     }
 
     private UUID newIsland(UUID owner) {

@@ -1,7 +1,16 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 import type PostHog from 'posthog-react-native';
+import {
+  readAnalyticsDeviceProperties,
+  type AnalyticsDeviceProperties,
+} from '@/services/analyticsDevice';
 import { isMockMode } from '@/services/demoMode';
+import {
+  captureAirbridgeEvent,
+  identifyAirbridgeUser,
+  resetAirbridgeUser,
+} from '@/services/airbridge';
 
 // Catus / Catus의 공개 수집 토큰. 빌드 환경변수가 없어도 이 프로젝트로 보낸다.
 const projectToken =
@@ -10,6 +19,7 @@ const projectToken =
 const host = process.env.EXPO_PUBLIC_POSTHOG_HOST ?? 'https://us.i.posthog.com';
 
 let client: PostHog | null = null;
+let identityRevision = 0;
 
 function analyticsEnvironment(): 'production' | 'development' {
   const environment = process.env.EXPO_PUBLIC_ENV?.trim().toLowerCase();
@@ -22,6 +32,8 @@ function analyticsEnvironment(): 'production' | 'development' {
 export function initPostHog(): void {
   if (client || !projectToken || !host) return;
   if (__DEV__ && process.env.EXPO_PUBLIC_POSTHOG_DEV_ENABLED !== '1') return;
+  // Android dev 배포·로컬 테스트는 운영 프로젝트에 이벤트와 리플레이를 보내지 않는다.
+  if (Platform.OS === 'android' && analyticsEnvironment() === 'development') return;
   // review·demo 목업(웹 ?review/?demo, 네이티브 EXPO_PUBLIC_DEMO=1)은 계측하지 않는다
   if (isMockMode()) return;
 
@@ -29,11 +41,20 @@ export function initPostHog(): void {
     const PostHogClient = require('posthog-react-native').default as typeof PostHog;
     const environment = analyticsEnvironment();
     const native = Platform.OS === 'ios' || Platform.OS === 'android';
+    let deviceProperties: AnalyticsDeviceProperties = {};
+    const devicePropertiesReady = readAnalyticsDeviceProperties().then((properties) => {
+      deviceProperties = properties;
+    });
     client = new PostHogClient(projectToken, {
       host,
       // 이전 프로젝트의 대기 이벤트와 식별자를 새 프로젝트로 보내지 않는다.
       customStorage: {
-        getItem: (key) => AsyncStorage.getItem(`posthog:${projectToken}:${key}`),
+        // SDK의 저장소 복원 완료 전에 IDFV를 읽어 첫 lifecycle 이벤트부터 속성을 붙인다.
+        // 클라이언트는 즉시 만들기 때문에 앱 진입·Provider·인증 구독은 기다리지 않는다.
+        getItem: async (key) => {
+          await devicePropertiesReady;
+          return AsyncStorage.getItem(`posthog:${projectToken}:${key}`);
+        },
         setItem: (key, value) => AsyncStorage.setItem(`posthog:${projectToken}:${key}`, value),
       },
       captureAppLifecycleEvents: true,
@@ -50,7 +71,12 @@ export function initPostHog(): void {
         },
       },
       before_send: (event) => {
-        if (event) event.properties = { ...event.properties, analytics_environment: environment };
+        if (event)
+          event.properties = {
+            ...event.properties,
+            ...deviceProperties,
+            analytics_environment: environment,
+          };
         return event;
       },
       sessionReplayConfig: {
@@ -82,6 +108,7 @@ export function captureProductEvent(
   event: string,
   properties?: Record<string, string | number>,
 ): void {
+  captureAirbridgeEvent(event, properties);
   try {
     client?.capture(event, {
       ...properties,
@@ -93,13 +120,27 @@ export function captureProductEvent(
 }
 
 export function identifyPostHogUser(userId: string): void {
+  identifyAirbridgeUser(userId);
+  identityRevision += 1;
   try {
     client?.identify(userId);
   } catch {}
 }
 
 export function resetPostHogUser(): void {
+  resetAirbridgeUser();
+  const currentClient = client;
+  const revision = ++identityRevision;
+  if (!currentClient) return;
   try {
-    client?.reset();
+    // 초기 무인증 snapshot은 로그아웃이 아니다. 저장된 식별자를 읽은 뒤 이미 익명이면 유지한다.
+    // 대기 중 새 로그인이 완료됐다면 그 계정까지 초기화하지 않는다.
+    currentClient
+      .ready()
+      .then(() => {
+        if (revision !== identityRevision) return;
+        if (currentClient.getDistinctId() !== currentClient.getAnonymousId()) currentClient.reset();
+      })
+      .catch(() => {});
   } catch {}
 }

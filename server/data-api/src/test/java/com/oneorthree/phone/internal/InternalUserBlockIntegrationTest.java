@@ -69,8 +69,6 @@ class InternalUserBlockIntegrationTest {
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
         OutboxTestPostgres.applyProductionMigrationWiring(registry);
-        registry.add("internal.api.enabled", () -> true);
-        registry.add("user-blocks.realtime-events-enabled", () -> true);
         registry.add("internal.api.callers.business.token", () -> TOKEN);
         // 배포 yml 의 3줄 + 이 파일이 친구 제외를 증명하려고 여는 2줄.
         // yml 자체와 컨트롤러의 대조는 InternalUserBlockAllowlistTest 가 맡는다.
@@ -251,7 +249,7 @@ class InternalUserBlockIntegrationTest {
     // ---------------------------------------------------------------- 3. 화면 제외
 
     @Test
-    @DisplayName("차단한 친구는 내 목록과 검색에서 빠지고, 해제하면 다시 보인다 — 관계 행은 남는다")
+    @DisplayName("차단한 친구는 양쪽 목록과 검색에서 빠지고, 해제하면 다시 보인다 — 관계 행은 남는다")
     void blockedFriendDisappearsFromListAndSearchUntilUnblocked() throws Exception {
         UUID a = newUser();
         UUID b = newUser();
@@ -275,10 +273,10 @@ class InternalUserBlockIntegrationTest {
         as(a, get(path(a, "/friend-search")).param("type", "NICKNAME").param("q", "숨을친구"))
                 .andExpect(status().isOk())
                 .andExpect(content().json("[]"));
-        // 제외는 blocker 관점이다 — 차단당한 쪽의 목록·친구 관계는 그대로다.
+        // 한 방향 차단도 양쪽 목록에서 제외하되 친구 관계는 보존한다.
         as(b, get(path(b, "/friends")).param("date", DATE))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(1));
+                .andExpect(content().json("[]"));
 
         as(a, delete(path(a, "/blocks/" + b))).andExpect(status().isNoContent());
         as(a, get(path(a, "/friends")).param("date", DATE))
@@ -476,24 +474,6 @@ class InternalUserBlockIntegrationTest {
                 .andExpect(jsonPath("$.length()").value(1));
     }
 
-    @Test
-    @DisplayName("차단한 친구는 핀이 남아 있어도 고정 친구에서 빠지고, 해제하면 다시 보인다")
-    void pinnedFriendsExcludeBlocked() {
-        UUID a = newUser();
-        UUID b = newUser();
-        friendService.acceptRequest(b, friendService.createRequest(a, b));
-        friendService.pinFriend(a, b);
-        LocalDate date = LocalDate.parse(DATE);
-        assertThat(friendService.getPinnedFriends(a, date)).hasSize(1);
-
-        userBlockService.block(a, b);
-        assertThat(friendService.getPinnedFriends(a, date)).isEmpty();
-        assertThat(jdbc.queryForObject("select count(*) from pinned_users where user_id = ? and pinned_user_id = ?",
-                Integer.class, a, b)).as("핀 행은 지우지 않는다").isEqualTo(1);
-
-        userBlockService.unblock(a, b);
-        assertThat(friendService.getPinnedFriends(a, date)).hasSize(1);
-    }
 
     // ---------------------------------------------------------------- 도구
 
@@ -539,7 +519,7 @@ class InternalUserBlockIntegrationTest {
 
     /** 게스트로 만든 뒤 {@code is_guest} 만 내린 회원 — 이 파일이 보는 것은 관계·필터지 승격이 아니다. */
     private UUID newUser() {
-        UUID id = jwt.extractUserId(auth.guestLogin().accessToken());
+        UUID id = jwt.extractUserId(auth.guestSession(java.util.UUID.randomUUID().toString()).accessToken());
         jdbc.update("update users set is_guest = false where id = ?", id);
         return id;
     }

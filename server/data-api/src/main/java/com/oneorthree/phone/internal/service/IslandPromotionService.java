@@ -32,7 +32,6 @@ import com.oneorthree.phone.outbox.service.PublicCommandService;
 import com.oneorthree.phone.user.repository.UserQueryService;
 import com.oneorthree.phone.user.repository.domain.User;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
@@ -72,7 +71,7 @@ import java.util.stream.Collectors;
  * receipt 도 차감도 칸도 남기지 않는다.
  *
  * <h2>판정 순서 — 싼 검사 → 잠금 → 돈</h2>
- * 게스트(컨트롤러) → 기능 스위치 → 유저(배타) → 섬(groups 배타) → 섬 살아 있음 → 섬장 → 신청 창 → 이 호에 이미
+ * 게스트(컨트롤러) → 유저(배타) → 섬(groups 배타) → 섬 살아 있음 → 섬장 → 신청 창 → 이 호에 이미
  * → 글·배치·보유 → 지갑(배타) 차감 → 칸·소식·지갑 사건. 섬 잠금이 «이 호에 이미 신청했나» 판정과 차감을 섬 단위로
  * 직렬화한다 — 섬장이 위임으로 바뀌는 날 두 사람이 동시에 신청해도 한 건만 통과한다.
  *
@@ -87,7 +86,15 @@ import java.util.stream.Collectors;
 @Transactional(readOnly = true)
 public class IslandPromotionService {
 
-    /** 홍보비 — 고정 60마리다(결정 N1). 설정값이 아니다. */
+    /**
+     * 홍보비 — 고정 60마리다(결정 N1). 설정값이 아니다.
+     *
+     * <p>값을 바꾸면 함께 갱신한다 — 앱 {@code app/app-dev/src/i18n/locales/{ko,en}.json} 의
+     * {@code magazine.news.promotion}·{@code magazine.news.promotionYesterday}·{@code magazine.news.promotionRow}
+     * (문구에 60 이 박혀 있다), 앱 {@code src/services/api/magazineMock.ts} 의 body 문자열·{@code feeFish: 60}·잔액 차감(60),
+     * 서버 테스트 {@code IslandPromotionIntegrationTest}·{@code IslandNewsV116MigrationTest}, business-api
+     * {@code IslandPromotionContractTest} 의 문구.
+     */
     public static final int PROMOTION_FEE_FISH = 60;
 
     /** 소식 목록 상한 — 기본값(20)은 Business 의 몫이다. */
@@ -110,17 +117,12 @@ public class IslandPromotionService {
     private final BannedWords bannedWords;
     private final Clock clock;
 
-    /** 기능 스위치 — 꺼져 있으면 신청·고치기가 receipt·잠금보다 먼저 503 {@code MAGAZINE_NOT_READY} 다. 읽기는 막지 않는다. */
-    @Value("${magazine.enabled:false}")
-    private boolean enabled;
-
     /**
      * 홍보 신청 — 섬장만(비주민·일반 주민은 403 {@code NOT_OWNER}). 같은 키·같은 요청의 재생도 <b>지금</b> 섬장이어야
      * 원 결과를 돌려준다(상점 구매의 재생 인가와 같은 규칙). 게스트는 컨트롤러가 이 앞에서 막는다.
      */
     @Transactional
     public IslandPromotionViews.Created promote(UUID userId, UUID islandId, UUID key, PromotionContent content) {
-        requireEnabled();
         PublicCommandRequest command = new PublicCommandRequest(userId,
                 "POST:/islands/" + islandId + "/promotions", key, InternalJson.tree(content));
         JsonNode data = publicCommands.run(command,
@@ -163,7 +165,6 @@ public class IslandPromotionService {
     @Transactional
     public IslandPromotionViews.Updated update(UUID userId, UUID islandId, UUID promotionId,
                                                PromotionContent content) {
-        requireEnabled();
         membershipLocks.lockGroup(islandId);
         requireHost(userId, islandId);
         IslandPromotion promotion = promotions.findByIdAndIslandId(promotionId, islandId)
@@ -310,12 +311,6 @@ public class IslandPromotionService {
     private static Map<String, Integer> retainedAssets(Optional<IslandPromotion> previous) {
         return previous.map(p -> new HashMap<>(PromotionContent.assetCounts(p.getLayout())))
                 .orElseGet(HashMap::new);
-    }
-
-    private void requireEnabled() {
-        if (!enabled) {
-            throw new MagazineException(MagazineErrorCode.MAGAZINE_NOT_READY);
-        }
     }
 
     /** 살아 있는 섬의 현재 섬장 — 비주민도 «섬장이 아니다» 라 {@code NOT_OWNER} 다(방명록 삭제·섬 관리와 같다). */

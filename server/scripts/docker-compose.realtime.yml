@@ -62,9 +62,9 @@ services:
 
   realtime:
     logging: *app-logging
-    # 이미지는 main push 때 realtime-ci.dev.yml 이 realtime/realtime:<sha> 로 올리고 realtime-cd.dev.yml 이 digest 로 넘김.
+    # Data CI가 같은 main SHA의 두 이미지를 만들고 공동 CD가 digest로 함께 교체한다.
     # 기본값 없음 — 예전 기본값(ci-cache/realtime:latest)은 올리는 곳과 다른 옛 저장소라 비면 옛 이미지로 조용히 떴음.
-    # 수동 실행·되돌리기: REALTIME_IMAGE=asia-northeast3-docker.pkg.dev/oneorthree2/realtime/realtime:<sha> docker compose … up -d
+    # 운영 재실행은 Ops Dev Redeploy를 사용한다. Data와 다른 SHA를 독립 배포하지 않는다.
     image: ${REALTIME_IMAGE:?Realtime 이미지 필요 — REALTIME_IMAGE=…/realtime/realtime:<sha> 또는 @digest}
     container_name: phone-realtime
     ports:
@@ -79,6 +79,10 @@ services:
       DD_VERSION: ${IMAGE_REVISION:-unknown}
       DD_TRACE_SAMPLE_RATE: ${DD_TRACE_SAMPLE_RATE:-1.0}
       DD_LOGS_INJECTION: "true"
+      OBS_SERVICE: realtime
+      OBS_ENV: dev
+      OBS_VERSION: ${IMAGE_REVISION:-unknown}
+      DD_TRACE_128_BIT_TRACEID_LOGGING_ENABLED: "true"
       DD_RUNTIME_METRICS_ENABLED: "true"
       DD_PROFILING_ENABLED: "true"
       DD_DATA_STREAMS_ENABLED: "true"
@@ -93,6 +97,8 @@ services:
       CHAT_DB_USERNAME: ${POSTGRES_USER}
       CHAT_DB_PASSWORD: ${POSTGRES_PASSWORD}
       REDIS_HOST: redis
+      REDIS_USERNAME: realtime
+      REDIS_PASSWORD: ${REDIS_REALTIME_PASSWORD:?Realtime Redis 비밀번호 필요}
       # 4GB dev VM에서 여러 JVM을 함께 시작하면 Redis 초기 handshake가 기본 2초를 넘겨 앱이 종료된다.
       SPRING_DATA_REDIS_CONNECT_TIMEOUT: 5s
       SPRING_DATA_REDIS_TIMEOUT: 10s
@@ -115,12 +121,11 @@ services:
       # Business 우체통 내부 어댑터(/internal/*, GROMO-1775) 자격. 비면 그 경로만 401 — Business 의
       # SVC_TOKEN_BIZ_TO_REALTIME 과 «같은 값», Data 토큰과는 «다른 값»(A22 ㊀).
       SVC_TOKEN_BIZ_TO_REALTIME: ${SVC_TOKEN_BIZ_TO_REALTIME:-}
-      # Realtime → Data 내부 조회(응원 인가 GROMO-1765 · 받는 사람 기준 차단 GROMO-2182) 대상·자격.
-      # ⚠️ 차단 필터는 fail-closed 라 REALTIME_BLOCKS_FILTER_ENABLED=true 에서 토큰이 비면 섬 채팅·응원 수신이 전부
-      #    멈춘다. Data 는 realtime-authorization 프로필(DATA_API_PROFILES)과 같은 SVC_TOKEN_REALTIME_TO_DATA 를 먼저
-      #    갖춰야 한다. dev 는 SM gromo/dev/env → dev-env.sh → write-compose-env.py(임시 dev.env) 경로로 온다.
+      # Realtime → Data의 섬 목록·멤버십·차단 조회는 내부 API 서비스 자격을 사용한다.
+      # Data는 realtime-authorization 프로필과 같은 SVC_TOKEN_REALTIME_TO_DATA가 필요하다.
+      # dev는 SM gromo/dev/env → dev-env.sh → write-compose-env.py(임시 dev.env) 경로로 온다.
       REALTIME_AUTHORIZATION_DATA_URL: ${REALTIME_AUTHORIZATION_DATA_URL:-}
-      SVC_TOKEN_REALTIME_TO_DATA: ${SVC_TOKEN_REALTIME_TO_DATA:-}
+      SVC_TOKEN_REALTIME_TO_DATA: ${SVC_TOKEN_REALTIME_TO_DATA:?Realtime에서 Data 내부 API를 호출할 서비스 토큰 필요}
       # 받는 사람 기준 차단 필터 스위치(GROMO-2182). 기본 꺼짐 — 위 배선 확인 뒤 켠다.
       REALTIME_BLOCKS_FILTER_ENABLED: ${REALTIME_BLOCKS_FILTER_ENABLED:-false}
       # 채팅 이력 인가 예산(GROMO-2342). ON 모드 동시 16 초과 시 유한 대기·허용 결정 캐시 TTL(0=끔), OFF 모드 GroupClient 동시 상한.
@@ -158,10 +163,14 @@ services:
     healthcheck:
       # 관리 포트는 컨테이너 안에서만 보인다 — 헬스체크는 컨테이너 안에서 돌므로 닿는다.
       test: ["CMD-SHELL", "curl -fsS http://localhost:9091/actuator/health/readiness || exit 1"]
-      interval: 15s
+      interval: 10s
       timeout: 5s
-      retries: 5
-      start_period: 60s
+      retries: 6
+      # dev 앱 공통 정책(10초 간격·6회 실패 허용)에서 시작 유예는 서비스별 실측에 맞춘다 — Realtime 180초(아래), 위성 240초(GROMO-2452, write-compose-env.py).
+      # Realtime 은 dev 실측 21회가 p50 125s·p95 170s·max 188s 라(GROMO-2286) 120초면 unhealthy 판정(≈170s)이 p95 를 못 넘어
+      # 정상 기동 중 일부(170초 초과)도 unhealthy 로 표시된다.
+      # 180초면 판정 ≈230s. 유예 중에도 readiness가 성공하면 즉시 healthy가 되므로 정상 기동은 느려지지 않는다.
+      start_period: 180s
 
 networks:
   app-network:

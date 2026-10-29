@@ -16,6 +16,12 @@ set -euo pipefail
 # Data 프로파일 (비밀 아님). realtime-authorization: Realtime → Data 조회 인가 (GROMO-2182)
 DATA_API_PROFILES=${DATA_API_PROFILES:-dev,satellites,realtime-authorization}
 
+# 실패한 DB 전환을 다른 ops·위성 배포가 우회하여 다시 열 수 없다.
+# 공동 CD만 journal과 실제 DB를 검증하여 복구한다. check는 읽기 전용 CI 검사다.
+if [ "${1:-}" != check ] && [ "${CATUS_PAIRED_DEPLOY:-0}" != 1 ]; then
+  python3 "$(dirname "$0")/deploy-core-dev.py" --assert-idle
+fi
+
 # 원본은 gromo/dev/env 하나. 서버별로 필요한 키만 고르는 건 write-compose-env.py(필터)가 맡음
 secrets() {
   aws secretsmanager get-secret-value --secret-id "${DEV_SECRET_ID:-gromo/dev/env}" \
@@ -51,12 +57,16 @@ echo "RUNTIME_ENV_FILE=$dir/dev.env" >> "${GITHUB_ENV:-/dev/null}"
 trap 'rm -rf "$dir"' ERR
 writer="$(dirname "$0")/write-compose-env.py"
 json=$(secrets)  # SM 한 번만 읽음. 값은 셸 변수에만 두고 디스크엔 필터 결과만 씀
-printf '%s' "$json" | python3 "$writer" --report-unused --output "$dir/dev.env" --app-image "$image"
+printf '%s' "$json" | python3 "$writer" --report-unused --output "$dir/dev.env" --app-image "$image" --shared-redis-acl-output "$dir/shared-redis.acl"
+printf '%s' "$json" | python3 "$(dirname "$0")/check-shared-redis.py" --expected-acl "$dir/shared-redis.acl"
+{
+  echo "SHARED_REDIS_ACL_FILE=/var/lib/gromo/runtime/shared-redis.acl"
+  echo "SHARED_REDIS_ACL_SHA=$(shasum -a 256 "$dir/shared-redis.acl" | cut -d' ' -f1)"
+} >> "${GITHUB_ENV:-/dev/null}"
 # Data 컨테이너 env (satellites.data.dev.yml 이 env_file 로 통째 교체). 예전엔 VM 에 손으로 둔 파일.
-# 비밀 아닌 설정 2개는 SM 대신 여기 고정: 내부 API 스위치(business·notification 이 Data 내부 API 호출)
+# 비밀 아닌 설정은 SM 대신 여기 고정: 프로파일(DATA_API_PROFILES). 내부 API 는 항상 켜져 있어 스위치가 없다(티켓 2535).
 if [ "$data_api_running" = true ]; then
   printf '%s' "$json" \
-    | jq '. + {INTERNAL_API_ENABLED: "true"}' \
     | python3 "$writer" --service data-api --environment dev --data-profiles "$DATA_API_PROFILES" \
         --output "$dir/data-api.env" --image "$image"
   echo "DATA_API_ENV_FILE=$dir/data-api.env" >> "${GITHUB_ENV:-/dev/null}"

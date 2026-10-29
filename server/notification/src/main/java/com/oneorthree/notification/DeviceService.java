@@ -214,6 +214,11 @@ class DeviceService {
                     user, legacySession, token);
         }
         UUID next = UUID.randomUUID();
+        // 수신 확인 태그 — 등록마다 새로 발급해 응답과 이 기기로 가는 모든 푸시 data 에 싣는다(GROMO-2520).
+        // 소유권(next)을 재사용하지 않는다: 소유권은 CAS 자격이라 payload 로 내보내면 안 된다. 태그는 아래
+        // UPSERT 에서만, ownership_version 과 함께 바꾼다 — 그래야 발송 펜스(DispatchService.stillOurs)의
+        // 세대 대조가 낡은 태그로 나가는 발송까지 거른다.
+        String tag = UUID.randomUUID().toString();
         UUID deviceKey = deviceIdentity(user, previous, cas ? knownOwner : null, legacySessionWindow ? legacyLinked
                 : List.of());
         if (cas && !token.equals(knownOwner.get("device_token"))) {
@@ -224,16 +229,17 @@ class DeviceService {
         // transport_invalid 는 여기서 반드시 내린다 — 새 토큰(또는 다시 올라온 같은 토큰)은 «아직
         // 거절당한 적 없는» 전송 자격이다. 남겨 두면 등록은 성공했는데 발송 대상에서는 빠진다.
         store.update("INSERT INTO device_tokens(device_token,user_id,ownership_token,device_key,auth_generation,"
-                + "bootstrap_hash,session_epoch,legacy_session_id) VALUES(?,?,?,?,?,?,?,?)"
+                + "bootstrap_hash,session_epoch,legacy_session_id,delivery_tag) VALUES(?,?,?,?,?,?,?,?,?)"
                 + " ON CONFLICT(device_token) DO UPDATE SET "
                 + "user_id=EXCLUDED.user_id,ownership_token=EXCLUDED.ownership_token,"
                 + "device_key=EXCLUDED.device_key,"
                 + "ownership_version=device_tokens.ownership_version+1,auth_generation=EXCLUDED.auth_generation,"
                 + "bootstrap_hash=EXCLUDED.bootstrap_hash,session_epoch=EXCLUDED.session_epoch,"
-                + "legacy_session_id=EXCLUDED.legacy_session_id,active=true,transport_invalid=false,imported_by=NULL,"
-                + "updated_at=now()",
-                token, user, next, deviceKey, generation, hash, epoch, legacySession);
-        return Map.of("ownershipToken", next.toString());
+                + "legacy_session_id=EXCLUDED.legacy_session_id,delivery_tag=EXCLUDED.delivery_tag,"
+                + "active=true,transport_invalid=false,updated_at=now()",
+                token, user, next, deviceKey, generation, hash, epoch, legacySession, tag);
+        // 재생은 Store.command 가 저장한 이 응답을 그대로 돌려주므로 같은 키의 재시도는 같은 태그를 받는다.
+        return Map.of("ownershipToken", next.toString(), "deliveryTag", tag);
     }
 
     /**
@@ -311,11 +317,6 @@ class DeviceService {
 
     void deleteLocked(UUID user, String token, String owner, Long generation,
             String sessionId, String bootstrapHash) {
-        deleteLocked(user, token, owner, generation, sessionId, bootstrapHash, false);
-    }
-
-    void deleteLocked(UUID user, String token, String owner, Long generation,
-            String sessionId, String bootstrapHash, boolean legacyUnboundOnly) {
         if (owner != null && !CANONICAL_UUID.matcher(owner).matches()) {
             LOG.warn("기기 토큰 삭제 — 소유권 값의 형식이 깨졌다. 어느 행에도 맞지 않으므로 아무것도 지우지 않고"
                     + " 소비한다. userId={}", user);
@@ -323,9 +324,6 @@ class DeviceService {
         }
         if (token == null || token.isBlank()) {
             token = null;
-        }
-        if (legacyUnboundOnly && token == null) {
-            return; // 원래 토큰을 모르는 구 로그아웃을 세션·유저 전체 삭제로 넓히지 않는다.
         }
         if (token == null && owner == null) {
             // 대상 없는 구 사건도 들어온다. 전체 기기로 넓히지 않고 안전하게 소비한다.
@@ -342,8 +340,9 @@ class DeviceService {
             return;
         }
         store.lock("device-ownership");
-        userFence(user);
-        if (token != null) {
+        Map<String, Object> fence = userFence(user);
+        // 탈퇴자에게는 tombstone 행을 새로 만들지 않는다 — 지연 재등록은 registerLocked 의 withdrawn 검사가 막는다.
+        if (token != null && !Boolean.TRUE.equals(fence.get("withdrawn"))) {
             // 삭제가 등록보다 먼저 도착해도 행 부재 예외가 다시 열리지 않는다.
             UUID tombstoneOwner = owner == null ? UUID.randomUUID() : UUID.fromString(owner);
             store.update("INSERT INTO device_tokens(device_token,user_id,ownership_token,auth_generation,active)"
@@ -355,9 +354,8 @@ class DeviceService {
         store.update("UPDATE device_tokens SET active=false,ownership_version=ownership_version+1,updated_at=now()"
                 + " WHERE user_id=? AND active AND (?::text IS NULL OR device_token=?)"
                 + " AND (?::uuid IS NULL OR ownership_token=?::uuid)"
-                + " AND (?::bigint IS NULL OR auth_generation IS NULL OR auth_generation<=?)"
-                + " AND (NOT ?::boolean OR (legacy_session_id IS NULL AND bootstrap_hash IS NULL))",
-                user, token, token, owner, owner, generation, generation, legacyUnboundOnly);
+                + " AND (?::bigint IS NULL OR auth_generation IS NULL OR auth_generation<=?)",
+                user, token, token, owner, owner, generation, generation);
     }
 
     /**
@@ -401,6 +399,11 @@ class DeviceService {
             eraseDeliveries(user);
             store.update("DELETE FROM projections WHERE user_id=?", user);
             store.update("DELETE FROM settings WHERE user_id=?", user);
+            // 수신 원문만 지우고 event_id·envelope_hash 는 남긴다 — 재전달 멱등의 최소 증거다(GROMO-2212).
+            store.update("UPDATE inbound_events SET envelope=NULL WHERE user_id=? AND envelope IS NOT NULL", user);
+            // 멱등 기록도 지운다(Data forgetReceiptsOf 와 같은 뜻). 같은 키 재시도는 fence 가 STALE 로 거절한다.
+            store.update("DELETE FROM commands WHERE scope IN ('device-register:'||?,'device-delete:'||?,"
+                    + "'settings:'||?,'settings-patch:'||?)", user, user, user, user);
         }
     }
 

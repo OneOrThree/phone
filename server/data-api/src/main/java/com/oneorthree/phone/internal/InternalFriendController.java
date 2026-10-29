@@ -33,22 +33,10 @@ import java.util.Locale;
 import java.util.UUID;
 
 /**
- * 친구 8종의 <b>내부 표면</b> (GROMO-1894 7종 + GROMO-1996 검색) — 공개
- * {@code /friends…} 는 Business 의 {@code FriendController} 가 열고 여기는 그 위임만 받는다. 레거시
- * {@code /api/v1/friends…}({@code friend.FriendController})는 그대로 두고 동작도 바꾸지 않는다 — 두 표면이
- * 같은 {@code FriendService} 를 부른다.
+ * Business의 친구 API 위임을 처리하는 내부 컨트롤러.
  *
- * <p>경로 규칙은 B26(bff-screens policy)의 「본인 것만 읽는 조회는 {@code /internal/users/{userId}/…}」다 —
- * {@code InternalAuthFilter} 가 그 접두어에서 경로의 userId 와 {@code X-User-Id} 의 일치를 강제하므로
- * {@code @LoginUser} 대신 경로 변수로 주체를 받는다. 명령도 같은 축에 둔다(GROMO-1764·1759 선례).
- * 조회 이름 {@code friends}·{@code friend-requests} 는 LLD §1.15 그대로이고, 명령은 그 이름 아래에 둔다.
- *
- * <p>HLD §3 은 이 컨트롤러를 {@code friend} 패키지에 두자고 했지만 그 전제(「도메인 전용 내부 표면은
- * 도메인 패키지가 갖는다」)는 이미 깨져 있다 — 집중 세션·섬 소속·호스트 이전의 내부 표면이 전부 이
- * 패키지(L10)에 있다. 선례를 따른다.
- *
- * <p>응답은 {@code {"data": …}} 로 감싸지 않고(봉투는 Business 몫), 명령도 빈 본문 대신 결과 상태 한 겹을
- * 돌려준다({@link FriendRequestStateView}). Swagger 문서는 붙이지 않는다 — 서비스 간 계약이다.
+ * <p>{@code InternalAuthFilter}가 경로의 {@code userId}와 {@code X-User-Id}의 일치를 확인한다.
+ * 응답 봉투는 Business가 만들고, 이 컨트롤러는 조회 결과나 명령의 결과 상태를 반환한다.
  */
 @RestController
 @RequestMapping("/internal/users/{userId}")
@@ -100,14 +88,9 @@ public class InternalFriendController {
     }
 
     /**
-     * 친구 요청 생성 (LLD §1.1). 복원·재전환이면 되살린 행의 id 가 돌아온다.
+     * 친구 요청 생성. {@link GuestAccountGuards}로 소셜 연동을 확인한다.
      *
-     * <p>게스트는 여기서 막힌다 (GROMO-1992) — 「친구 추가…를 처음 시도할 때 소셜 로그인을
-     * 요청한다」. 공유 {@code FriendService} 가 아니라 <b>이 2.0 표면</b> 에 거는 이유는
-     * {@link GuestAccountGuards} 클래스 주석에 있다(레거시 1.x 동작 보존).
-     * <p><b>받은 요청 «수락» 에는 걸지 않는다.</b> 걸면 게스트가 친구를 가질 수 없게 되어
-     * 「게스트도 편지를 보낼 수 있다」(FL-결정-1)가 도달 불가능한 문장이 된다 — 정책이 막는 것은
-     * 게스트가 <b>먼저 손을 내미는</b> 쪽이다.
+     * <p>복원·재전환이면 기존 행의 id를 반환한다. 받은 요청의 수락에는 이 가드를 적용하지 않는다.
      */
     @PostMapping("/friend-requests")
     @ResponseStatus(HttpStatus.CREATED)

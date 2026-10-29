@@ -58,7 +58,7 @@ public class ContentStore {
     /** 기존 자동 발행과 관리자 게시도 같은 테이블 잠금에서 호수·홍보 변경을 직렬화한다. */
     public void lockMagazine(List<UUID> islandIds) {
         islandIds.stream().distinct().sorted(java.util.Comparator.comparing(UUID::toString)).forEach(id ->
-                jdbc.queryForList("SELECT id FROM groups WHERE id=? FOR SHARE", id));
+                jdbc.queryForList("SELECT id FROM islands WHERE id=? FOR SHARE", id));
         jdbc.execute("LOCK TABLE magazine_issues, island_promotions IN SHARE ROW EXCLUSIVE MODE");
     }
 

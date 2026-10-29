@@ -19,7 +19,10 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
- * 받는 사람 기준 차단 판정 (GROMO-2182) — 「이 세션의 주체가 이 발신자를 차단했는가」.
+ * 받는 사람 기준 차단 판정 (GROMO-2182) — 「이 세션의 주체와 이 발신자 사이에 차단이 있는가」. 처음(2182)엔 받는
+ * 사람이 차단한 발신자만 걸렀고, GROMO-2469 부터 발신자가 받는 사람을 차단한 경우도 같이 거른다(character-report
+ * policy RP-차단 «어느 방향이든 숨긴다»). 그래서 전달 직전 판정은 두 사람의 차단 집합을 둘 다 읽는다 — 받는 사람 집합이
+ * 먼저고, 거기 없을 때만 발신자 집합을 읽는다.
  *
  * <h2>세대와 캐시</h2>
  * 차단 집합은 Data 정본({@code user_blocks})의 사본이다. 채팅 한 건이 구독 세션 수만큼 이 판정을 부르므로
@@ -80,35 +83,44 @@ public class BlockedUsers {
     /**
      * @param viewerId 받는 세션의 주체
      * @param senderId 보낸 사람. {@code null}(탈퇴 발신자)·본인이면 거르지 않고 조회도 하지 않는다
-     * @return 받는 사람이 보낸 사람을 차단했으면 {@code true}
+     * @return 받는 사람이 보낸 사람을 차단했거나 보낸 사람이 받는 사람을 차단했으면 {@code true}(GROMO-2469)
      * @throws UpstreamUnavailableException 판정할 수 없을 때 — 호출자는 전달하지 않는다
      */
-    public boolean hasBlocked(UUID viewerId, UUID senderId) {
+    public boolean hidden(UUID viewerId, UUID senderId) {
         if (!enabled || senderId == null || senderId.equals(viewerId)) {
             return false;
         }
-        return blockedBy(viewerId).contains(senderId);
+        return eitherBlocked(viewerId, senderId);
     }
 
     /**
-     * {@link #hasBlocked} 와 같은 판정에, 그 판정이 기댄 차단 집합 캐시의 만료를 함께 돌려준다(GROMO-2340). 캐시 hit 이면 집합과
+     * {@link #hidden} 와 같은 판정에, 그 판정이 기댄 차단 집합 캐시의 만료를 함께 돌려준다(GROMO-2340). 캐시 hit 이면 집합과
      * 그 만료를 한 원자 단위({@link Sourced#read})로 읽고 — MGET 한 번을 대신하므로 왕복은 늘지 않는다 — 정본에서 새로 읽었으면 그 적재 수명
      * (조회 시작 + TTL)이다. 조회가 없으면(꺼짐·발신자 없음·본인) 만료는 {@link Sourced#UNBOUNDED}.
      *
+     * <p>양방향이라 집합을 둘 읽을 수 있다 — 받는 사람 집합에 발신자가 있으면 거기서 끝(차단은 캐시하지 않으므로 만료는 안
+     * 쓰인다), 없으면 발신자 집합까지 읽고 «허용»의 만료는 두 집합 중 먼저 끝나는 쪽이다.
+     *
      * @throws UpstreamUnavailableException 판정할 수 없을 때 — 호출자는 전달하지 않는다
      */
-    public Sourced<Boolean> hasBlockedSourced(UUID viewerId, UUID senderId) {
+    public Sourced<Boolean> hiddenSourced(UUID viewerId, UUID senderId) {
         if (!enabled || senderId == null || senderId.equals(viewerId)) {
             return new Sourced<>(false, Sourced.UNBOUNDED);
         }
-        Sourced<Set<UUID>> blocked = load(viewerId, this::readWithExpiry);
-        return new Sourced<>(blocked.value().contains(senderId), blocked.expiresAtNanos());
+        Sourced<Set<UUID>> mine = load(viewerId, this::readWithExpiry);
+        if (mine.value().contains(senderId)) {
+            return new Sourced<>(true, mine.expiresAtNanos());
+        }
+        Sourced<Set<UUID>> theirs = load(senderId, this::readWithExpiry);
+        return new Sourced<>(theirs.value().contains(viewerId),
+                Math.min(mine.expiresAtNanos(), theirs.expiresAtNanos()));
     }
 
     /**
-     * 두 사람 중 <b>어느 한쪽이라도</b> 상대를 차단했는가 — 바다 방 배정의 분리 판정(GROMO-2300).
+     * 두 사람 중 <b>어느 한쪽이라도</b> 상대를 차단했는가 — 바다 방 배정의 분리 판정(GROMO-2300)이자 {@link #hidden} 의
+     * 본체(GROMO-2469).
      *
-     * <p>{@link #hasBlocked} 와 달리 <b>필터 스위치를 보지 않는다</b>. 스위치는 «전달 직전 필터»를 켜는 것이고,
+     * <p>{@link #hidden} 와 달리 <b>필터 스위치를 보지 않는다</b>. 스위치는 «전달 직전 필터»를 켜는 것이고,
      * 배정 분리는 그와 별개의 규칙이라 꺼진 배포에서도 같은 방에 넣지 않는다. 세대 캐시·fail-closed 는 같다.
      *
      * @throws UpstreamUnavailableException 판정할 수 없을 때 — 호출자는 그 방을 후보에서 뺀다

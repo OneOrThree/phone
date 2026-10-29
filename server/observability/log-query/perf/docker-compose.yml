@@ -1,0 +1,34 @@
+# GROMO-2560 로컬 수집기 비용 측정. 2555/2556 하네스와 같은 이미지·설정 디렉터리를 쓰되 프로젝트 이름·포트가 달라 겹치지 않는다.
+# 설정(`../../fluent-bit`, `../../loki`)은 읽기 전용 마운트이며 수정하지 않는다. 실행은 collector_cost.py 가 한다.
+name: obs2562-2560perf
+
+services:
+  loki:
+    image: grafana/loki:3.3.2
+    command: -config.file=/etc/loki/loki-config.yml
+    volumes:
+      - ../../loki/loki-config.yml:/etc/loki/loki-config.yml:ro
+    ports: ["127.0.0.1:23100:3100"]
+
+  fluent-bit:
+    image: fluent/fluent-bit:4.2.8
+    command: ["-c", "/fluent-bit/etc/fluent-bit.conf"]
+    environment:
+      FLB_COMPOSE_PROJECT: obs2562-2560perf
+      FLB_ENV: dev
+    volumes:
+      - ../../fluent-bit:/fluent-bit/etc:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - fluent_bit_state:/var/lib/fluent-bit
+    ports: ["127.0.0.1:22020:2020"]
+    depends_on: [loki]
+
+  # 허용 서비스 이름(data-api)으로 떠야 수집기를 통과한다. `compose run -d` 로 띄운다.
+  data-api:
+    image: python:3.12-alpine
+    profiles: [gen]
+    volumes: ["./rate_gen.py:/gen.py:ro"]
+    entrypoint: ["python", "-u", "/gen.py"]
+
+volumes:
+  fluent_bit_state:

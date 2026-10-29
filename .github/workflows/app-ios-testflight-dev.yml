@@ -7,10 +7,10 @@ name: iOS TestFlight (dev)
 # 리눅스의 10배 요금이고 매번 빈 컴퓨터라 인증서·키를 다시 넣어야 한다. 대신 팀원 각자의 맥을
 # self-hosted 러너로 등록하고(라벨 = 깃허브 아이디), 이 워크플로가 `github.actor` 라벨로
 # 머지 버튼을 누른 사람의 맥을 고른다. 등록 방법은 docs/conventions/ios-testflight-dev-runner.md.
-# 아직 러너를 등록하지 않은 사람(레포 변수 IOS_DEV_RUNNERS 에 없는 아이디)이 머지하면 오너 맥
-# (flying-adventure)으로 간다 — 등록 전에 머지해도 잡이 영원히 대기하지 않게. 등록 스크립트가
-# 변수에 아이디를 덧붙인다. (GITHUB_TOKEN 으로는 러너 목록 API 를 못 읽어 변수로 판단한다.)
-# 이 폴백은 main push 에만 있다. 수동 실행은 항상 누른 사람의 맥이다(아래 "공개 레포 주의").
+# 레포 변수 IOS_DEV_RUNNERS 에 없는 아이디가 머지하면 빌드를 건너뛴다. 변수가 없거나 비어
+# 있어도 자동 빌드는 하지 않는다. 등록 스크립트가 변수에 아이디를 덧붙인다.
+# (GITHUB_TOKEN 으로는 러너 목록 API 를 못 읽어 변수로 판단한다.)
+# 수동 실행은 목록과 관계없이 항상 누른 사람의 맥이다(아래 "공개 레포 주의").
 #
 # ## 공개 레포 주의 — 트리거를 늘리지 말 것
 # 이 레포는 공개 레포다. 개인 맥 러너에서 도는 잡은 **main push 와 수동 실행에서만** 돈다.
@@ -30,33 +30,91 @@ on:
     branches: [main]
     paths:
       - 'app/app-dev/**'
+      - '!app/app-dev/**/*.md'
+      - '!app/app-dev/**/*.mdx'
+      - '!app/app-dev/docs/**'
+      - '!app/app-dev/.docs/**'
+      - '!app/app-dev/android/**'
+      - '!app/app-dev/modules/**/android/**'
+      - '.github/workflows/app-ios-testflight-dev.yml'
+      - '.github/workflows/app-lint.yml'
+      - '.github/scripts/wait-app-checks.py'
+      - '.github/ci/app-change-plan.py'
   workflow_dispatch:
 
 # 빌드는 한 번에 하나만(빌드 번호가 TestFlight 최신 + 1 이라 겹치면 안 된다). 연달아 머지되면
-# 뒤 것들이 순서대로 기다린다 — 기본값(queue: single)은 대기 중인 실행을 하나만 남기고 취소한다.
+# 실행 중 빌드는 유지하고 대기 중인 빌드는 최신 하나만 남긴다.
+
 concurrency:
-  group: ios-testflight-dev
+  group: ${{ (github.event_name == 'workflow_dispatch' || contains(format(',{0},', vars.IOS_DEV_RUNNERS), format(',{0},', github.actor))) && 'ios-testflight-dev' || format('ios-testflight-validation-{0}', github.run_id) }}
   cancel-in-progress: false
-  queue: max
 
 permissions:
   contents: read
 
 jobs:
+  change-plan:
+    name: iOS 자동 게시 범위 판정
+    if: github.event_name == 'workflow_dispatch' || contains(format(',{0},', vars.IOS_DEV_RUNNERS), format(',{0},', github.actor))
+    permissions:
+      contents: read
+      actions: read
+    runs-on: ubuntu-latest
+    outputs:
+      publish: ${{ steps.plan.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .github/ci/app-change-plan.py --platform ios
+
+  quality-gate:
+    name: 동일 SHA 앱 필수 검사 확인
+    needs: change-plan
+    if: github.event_name == 'push' && needs.change-plan.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: python3 -m pip install 'PyYAML==6.0.2'
+      - name: 앱 검사 완료 대기
+        env:
+          GH_TOKEN: ${{ github.token }}
+          APP_PLATFORM: ios
+        run: python3 .github/scripts/wait-app-checks.py
+
+  manual-quality:
+    if: github.event_name == 'workflow_dispatch'
+    uses: ./.github/workflows/app-lint.yml
+
   testflight-dev:
+    needs: [quality-gate, manual-quality, change-plan]
     # 이번 main 푸시만 업로드를 생략하려면 PR 제목·머지 메시지에 [skip testflight]를 남긴다.
     # 다른 CI와 다음 푸시는 그대로 실행하고, 수동 실행도 항상 허용한다.
-    if: ${{ github.event_name != 'push' || !contains(github.event.head_commit.message, '[skip testflight]') }}
-    # main push: 머지한 사람이 IOS_DEV_RUNNERS(쉼표 목록) 에 있으면 그 사람 맥, 아니면 오너 맥. 양쪽에 쉼표를
-    # 붙여 부분 일치(예: "kim" 이 "kimchi" 에 걸림)를 막는다. 변수가 없으면 ",," 라 항상 오너 맥.
-    # 수동 실행: 폴백 없이 항상 누른 사람의 맥 — 아무 브랜치나 고를 수 있는 수동 실행이 남의 맥으로 가면 안 된다.
-    # runs-on 은 env 컨텍스트를 못 쓰므로 name 과 runs-on 두 곳에 같은 식이 있다 — 고칠 때 둘 다.
-    name: dev TestFlight 빌드 (${{ (github.event_name == 'workflow_dispatch' || contains(format(',{0},', vars.IOS_DEV_RUNNERS), format(',{0},', github.actor))) && github.actor || 'flying-adventure' }})
-    runs-on: [self-hosted, macOS, ios, "${{ (github.event_name == 'workflow_dispatch' || contains(format(',{0},', vars.IOS_DEV_RUNNERS), format(',{0},', github.actor))) && github.actor || 'flying-adventure' }}"]
+    if: >-
+      !cancelled() &&
+      ((github.event_name == 'push' && contains(format(',{0},', vars.IOS_DEV_RUNNERS), format(',{0},', github.actor)) && needs.change-plan.outputs.publish == 'true' && needs.quality-gate.result == 'success' && !contains(github.event.head_commit.message, '[skip testflight]')) ||
+       (github.event_name == 'workflow_dispatch' && needs.manual-quality.result == 'success'))
+    # main push는 등록된 본인의 맥에서만 실행한다. 미등록자는 자동 게시를 생략한다.
+    # 수동 실행도 누른 사람의 맥만 사용한다.
+    name: dev TestFlight 빌드 (${{ github.actor }})
+    runs-on: [self-hosted, macOS, ios, "${{ github.actor }}"]
     timeout-minutes: 90
     env:
-      CI: '1'
+      CI: "1"
       LANG: en_US.UTF-8
+      AIRBRIDGE_APP_TOKEN: ${{ vars.AIRBRIDGE_APP_TOKEN }}
+      EXPO_PUBLIC_IMAGE_ASSETS_ENABLED: ${{ vars.IMAGE_ASSETS_DEV_ENABLED || 'false' }}
+      EXPO_PUBLIC_IMAGE_ASSETS_URL: ${{ vars.IMAGE_ASSETS_DEV_URL || '' }}
+      EXPO_PUBLIC_IMAGE_ASSETS_ENV: dev
     steps:
       - uses: actions/checkout@v4
 
@@ -64,7 +122,7 @@ jobs:
       # 버전 범위를 러너마다 확인하지 않아도 되게. 러너의 _work/_tool 에 한 번 받아두고 재사용한다.
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: "24"
 
       - name: 러너 준비 상태 확인
         # 빌드 20분을 돌리기 전에 빠지기 쉬운 것부터 확인한다. 실패 문구가 곧 등록 안내다.
@@ -98,12 +156,21 @@ jobs:
         working-directory: app/app-dev/ios
         run: ./testflight.sh --dev
 
+      - name: 성공한 실제 게시 SHA 기록
+        run: python3 .github/ci/app-change-plan.py --platform ios --record
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: app-publication
+          path: app-publication.json
+          retention-days: 90
+          overwrite: true
+
       - name: 결과 요약
         if: always()
         run: |
           {
             echo "## dev TestFlight"
-            echo "- 러너: \`${{ runner.name }}\` — 고른 라벨은 잡 이름에, 머지한 사람은 ${{ github.actor }} (둘이 다르면 미등록이라 오너 맥으로 폴백)"
+            echo "- 러너: \`${{ runner.name }}\` — 실행한 사람의 라벨: ${{ github.actor }}"
             echo "- 커밋: \`${{ github.sha }}\`"
             echo "- 결과: ${{ job.status }}"
           } >> "$GITHUB_STEP_SUMMARY"

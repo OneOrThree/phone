@@ -204,6 +204,20 @@ test('start — memberships current 로 POST 하고 성공 뒤 세션·version �
   assert.equal(h.state().session?.status, 'active');
 });
 
+test('start — 고른 자리(0~100)는 seat 로 싣고, 범위 밖·없음이면 키를 생략한다 (GROMO-2478)', async () => {
+  const h = harness();
+  h.join();
+  await h.cmds.start({ subject: '수학', seat: { x: 34.1, y: 55.9 } });
+  assert.equal(
+    h.calls[0],
+    'start([{"islandId":"srv-island","subject":"수학","seat":{"x":34.1,"y":55.9}},"k1"])',
+  );
+  const legacy = harness();
+  legacy.join();
+  await legacy.cmds.start({ subject: '수학', seat: { x: 340, y: 55.9 } });
+  assert.equal(legacy.calls[0], 'start([{"islandId":"srv-island","subject":"수학"},"k1"])');
+});
+
 test('start — 소속 current 가 없으면 요청을 보내지 않고 ISLAND_NOT_CURRENT', async () => {
   const h = harness();
   const error = await h.cmds.start({ subject: '수학' }).catch((e) => e);

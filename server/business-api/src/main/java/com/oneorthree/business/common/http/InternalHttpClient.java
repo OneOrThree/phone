@@ -11,6 +11,7 @@ import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Tags;
 import io.micrometer.core.instrument.binder.jvm.ExecutorServiceMetrics;
 import lombok.extern.slf4j.Slf4j;
+import org.slf4j.MDC;
 import org.apache.hc.client5.http.classic.methods.HttpUriRequestBase;
 import org.apache.hc.client5.http.config.ConnectionConfig;
 import org.apache.hc.client5.http.config.RequestConfig;
@@ -44,6 +45,7 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.regex.Pattern;
 
 /**
  * 내부 HTTP의 유일한 창구. 전체 예산에는 큐·연결·본문·재시도가 모두 포함된다.
@@ -53,6 +55,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 @Slf4j
 public class InternalHttpClient implements AutoCloseable {
 
+    /** 로그 계약 §2.1 — 나가는 쪽 ID 형식(공개 요청 ID 보다 넓어 {@code .}·{@code :} 를 허용). */
+    private static final Pattern ORIGIN_ID = Pattern.compile("[A-Za-z0-9_.:-]{1,128}");
     private static final int MAX_RESPONSE_BYTES = 1024 * 1024;
     private static final Duration MAX_RETRY_WAIT = Duration.ofSeconds(1);
 
@@ -219,7 +223,8 @@ public class InternalHttpClient implements AutoCloseable {
         Future<T> future = null;
         try {
             context.checkActive();
-            future = workers.submit(() -> send(request, call, responseType, context, responseStatus));
+            future = workers.submit(() -> context.within(
+                    () -> send(request, call, responseType, context, responseStatus)));
             // enqueue 비용도 예산이다. 대기 시작 때 남은 시간을 다시 읽는다.
             nanos = Math.min(nanos, context.deadline().remaining().toNanos());
             T result = future.get(nanos, TimeUnit.NANOSECONDS);
@@ -280,7 +285,32 @@ public class InternalHttpClient implements AutoCloseable {
             request.setHeader("Idempotency-Key", call.idempotencyKey());
         }
         call.declaredHeaders().forEach(request::setHeader);
+        carryOrigin(request);
         return request;
+    }
+
+    /**
+     * 호출 스레드에 원인 문맥(MDC)이 있으면 내부 서비스로 넘긴다(GROMO-2582) — Data 가 {@code /internal/*} 에서 채택한다.
+     * 값은 보내기 전에 형식을 검사하고 어긋나면 그 헤더만 뺀다. 문맥이 없으면 달지 않는다 — 공개 요청의 원인은
+     * 이미 {@code X-Request-Id} 로 간다.
+     */
+    private static void carryOrigin(HttpUriRequestBase request) {
+        String requestId = originValue("origin_request_id", 128);
+        String traceId = originValue("origin_trace_id", 64);
+        if (requestId != null) {
+            request.setHeader("X-Origin-Request-Id", requestId);
+        }
+        if (traceId != null) {
+            request.setHeader("X-Origin-Trace-Id", traceId);
+        }
+        if (requestId != null || traceId != null) {
+            request.setHeader("X-Trace-Context-Version", "1");
+        }
+    }
+
+    private static String originValue(String key, int maxLength) {
+        String value = MDC.get(key);
+        return value != null && value.length() <= maxLength && ORIGIN_ID.matcher(value).matches() ? value : null;
     }
 
     private <T> T send(HttpUriRequestBase request, InternalCall call, ParameterizedTypeReference<T> responseType,

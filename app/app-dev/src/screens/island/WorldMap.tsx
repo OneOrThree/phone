@@ -1,3 +1,4 @@
+import { useMemberLooks, memberLooks } from '@/services/memberLooks';
 import { IslandOcean, islandTerrain } from './IslandOcean';
 import { NATIVE, useMapGesture, viewportShift } from './mapGesture';
 import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
@@ -33,7 +34,9 @@ import {
 } from '@/services/model';
 import { assets, cat } from '@/constants/assets';
 import { t } from '@/i18n';
-import { formatDuration } from '@/i18n/format';
+import { formatDuration, ownCatName } from '@/i18n/format';
+import { Text } from '@/design-system/typography';
+import { nameText } from '@/screens/focus/FishingIsland';
 import { CatSprite, CatMotionInput } from '@/components/CatSprite';
 import { outfitOf, type Outfit } from '@/components/CatOutfitLayers';
 import { buildStudyWidgetSnapshot, updateStudyWidget } from '@/services/studyWidget';
@@ -74,6 +77,7 @@ import {
   type TilesetFile,
 } from '@/services/mapAssets';
 import { applyLayout, legacyLayoutOffsets } from '@/utils/island-layout';
+import { keepLabelInView } from '@/utils/island-camera';
 import {
   loadNav,
   MS_PER_UNIT,
@@ -82,7 +86,13 @@ import {
   tapToWorld,
   tilePath,
 } from '@/utils/nav-path';
-import { imageToWorld, worldToCell, worldToImage, type WorldPoint } from '@/utils/worldCoords';
+import {
+  cellCenterToWorld,
+  imageToWorld,
+  worldToCell,
+  worldToImage,
+  type WorldPoint,
+} from '@/utils/worldCoords';
 import {
   publishMoveIntent,
   memberArrivalFilter,
@@ -99,6 +109,7 @@ import {
   type MovementCallbacks,
   type MovementController,
 } from '@/services/movementSync';
+import { movementStats, STATS_LOG_MS } from '@/services/movementStats';
 import { villageAssets } from '@/constants/village-assets';
 import {
   villageScene,
@@ -109,20 +120,27 @@ import {
 } from '@/utils/village-world';
 import { semanticTokens } from '@/design-system/tokens';
 import { componentTokens, primitiveTokens } from '@/design-system/tokens';
+import { CatInfoPopup } from './CatInfoPopup';
 import { TutorialScene, TutorialSpotlight, useSpotlightTarget } from '@/screens/island/NpcGuide';
 import { getSession } from '@/services/api/session';
 import { catColor } from '@/screens/focus/useIslandPresence';
+import { useBlockedUserIds } from '@/services/blockedUsers';
 import {
   lookOf,
   newerLook,
   parseAppearanceEvent,
+  parseLook,
   type MemberLook,
 } from '@/services/memberAppearance';
 import {
   constructionPhase,
   normalizedConstructionProgress,
 } from '@/screens/island/constructionProgress';
-import { runBuildingEntryWalk, type BuildingTransitionTarget } from '@/services/buildingTransition';
+import {
+  isBuildingTransitionActive,
+  runBuildingEntryWalk,
+  type BuildingTransitionTarget,
+} from '@/services/buildingTransition';
 import { VillageHallMotion } from '@/components/village-motion/VillageHallMotion';
 import { VillageBoardIndicator } from '@/components/village-motion/VillageBoardIndicator';
 import {
@@ -150,20 +168,20 @@ import {
 import { ImageTerrainFacilities } from './ImageTerrainFacilities';
 import { VillageNotificationBadge } from '@/components/village-motion/VillageNotificationBadge';
 
-// 타일 섬 지형(GROMO-2230): 켜면 기존 마을 홈 섬의 바닥을 Skia Atlas 로 그리고 탭·걷기를 v1/nav.json A* 로 한다.
-// 새 마을 미리보기(layered)는 플래그와 무관하게 자기 지형 이미지·villagePath 를 그대로 쓴다.
-// 웹은 canvaskit wasm 로딩이 필요해 이 티켓 밖 — 플래그를 무시하고 기존 Image 를 쓴다.
-const TILE_ISLAND = Platform.OS !== 'web' && process.env.EXPO_PUBLIC_TILE_ISLAND === '1';
-// 이동 동기화(GROMO-2248): 타일 섬 + 이 플래그 + 서버 홈일 때만 이동 채널을 열어 서버 확정 경로를 따른다.
-// 서버가 없거나 거절하면 지금처럼 로컬로 걷고 주민은 Wanderer 로 돌아다닌다.
-const MOVEMENT_SYNC = TILE_ISLAND && process.env.EXPO_PUBLIC_MOVEMENT_SYNC === '1';
-// 타일 섬 = 플래그 + 기존 마을 홈 섬(새 마을 미리보기·낚시가 아님). 지형(WorldMap)과 걷기(FinalIslandScene)가
+// 타일 섬 지형(GROMO-2230): iOS·Android 는 늘 기존 마을 홈 섬의 바닥을 Skia Atlas 로 그리고 탭·걷기를 v1/nav.json
+// A* 로 한다(GROMO-2476 플래그 제거). 웹은 canvaskit wasm 로딩이 필요해 기존 Image 섬 그대로다.
+// 새 마을 미리보기(layered)는 이와 무관하게 자기 지형 이미지·villagePath 를 그대로 쓴다.
+// 이동 동기화(GROMO-2248)도 따로 끄는 플래그가 없다: 타일 섬 + 서버 홈이면 늘 이동 채널을 열어 서버 확정 경로를
+// 따른다. 서버가 없거나 거절하면 로컬로 걷고, 다른 주민은 고정 자리(residentSpot)에 서 있다.
+const TILE_ISLAND = Platform.OS !== 'web';
+// 타일 섬 = 네이티브 + 기존 마을 홈 섬(새 마을 미리보기·낚시가 아님). 지형(WorldMap)과 걷기(FinalIslandScene)가
 // 같은 판정을 쓰도록 한 곳에 둔다 — 갈라지면 지형은 타일인데 걷기는 landPath 가 된다.
 const isTileIsland = (village: unknown, fishing = false) => TILE_ISLAND && !village && !fishing;
 const BUNDLE_ASSETS: MapAssetSource = { kind: 'bundle' };
-// 홈 지도 확대·축소 한계. 최소 배율은 손가락으로 끄는 동안 바다를 미리 깔 범위도 정한다.
+// 최소 배율은 손가락으로 끄는 동안 바다를 미리 깔 범위도 정한다.
 const MIN_ZOOM = 0.35,
-  MAX_ZOOM = 2.6;
+  HOME_MAX_ZOOM = 1,
+  OTHER_MAX_ZOOM = 2.6;
 /**
  * 화면 마운트 때 쓸 맵 에셋 스냅샷(GROMO-2244, codex 지적 — 서버 `MovementRooms.java:46` 기준).
  * 서버 이동 엔진은 1단계에서 번들 nav.json 만 쓰므로, movementSync 빌드는 캐시 승격(promote)을
@@ -238,7 +256,7 @@ export const legacyDoors: Record<string, Door> = (() => {
         return t('home.a11y.campfire');
       },
       memberOnly: true,
-      // 낮 연기와 밤 불꽃이 그려지는 영역을 함께 덮는다.
+      // 늘 켜진 불꽃 영역(405, 437 · 140×93)을 덮는다. 위 여백은 종전 낮 연기 자리라 누르는 범위를 줄이지 않고 둔다(GROMO-2483).
       hitbox: d.fire.hitbox,
     },
     hall: building('hall', 'hall'),
@@ -312,11 +330,28 @@ const constructionPhaseLabels: Readonly<Record<ConstructionSpritePhase, string>>
   },
 };
 const homePositions: Record<string, Point> = {};
-// 섬을 돌아다니는 주민 고양이 두 마리의 출발 자리(모닥불 근처 땅)
-const WANDER_STARTS: Point[] = [
+// 동기화 위치가 없는 주민(FullState 전·거절·미접속·목업 섬·웹)의 고정 자리(GROMO-2476). 모닥불 근처 두 점을
+// 번갈아 쓰고, 한 바퀴마다 고정 오프셋 하나만큼 옮긴다 — 랜덤이 없어 폰마다 같은 주민이 같은 자리에 선다.
+// 홈 격자에서 14자리(정원 15 − 나)가 모두 다른 땅 칸이다. 그보다 많으면 처음 자리부터 겹친다.
+const RESIDENT_BASES: Point[] = [
   { x: 470, y: 560 },
   { x: 720, y: 520 },
 ];
+const RESIDENT_OFFSETS: Point[] = [
+  { x: 0, y: 0 },
+  { x: -70, y: 40 },
+  { x: 70, y: 40 },
+  { x: -70, y: -40 },
+  { x: 70, y: -40 },
+  { x: 0, y: 80 },
+  { x: 0, y: -80 },
+];
+/** 주민 순서 n(0부터)의 고정 자리(이미지 px, 땅으로 보정). */
+export function residentSpot(grid: Grid, n: number): Point {
+  const base = RESIDENT_BASES[n % RESIDENT_BASES.length],
+    offset = RESIDENT_OFFSETS[Math.floor(n / RESIDENT_BASES.length) % RESIDENT_OFFSETS.length];
+  return nearestLand(grid, { x: base.x + offset.x, y: base.y + offset.y });
+}
 // 내 고양이 걸음 곡선 — Animated.timing 기본값(easing 을 안 줄 때)과 같다. 걷는 도중 자리 계산(livePosition)도 이것을 쓴다.
 const WALK_EASE = Easing.inOut(Easing.ease);
 // 고양이 이동(GROMO-2374) — left/top 대신 transform 값을 네이티브 드라이버로 옮겨 걷는 동안 JS 스레드가 프레임마다
@@ -337,140 +372,119 @@ function moveCat(
   }
   Animated.timing(xy, { toValue, duration, easing, ...NATIVE }).start(done);
 }
-// 주민 고양이: 내 고양이와 다른 색으로, 근처 땅을 골라 걸어갔다 잠시 쉬기를 되풀이한다 (연출 전용, 상태 없음)
-function Wanderer({
+// 홈 섬 고양이 이름표(GROMO-2475) — 발 기준점 아래, 낚시섬 FishingWalker 와 같은 규격. 가장자리 보정(keepLabelInView)은 움직이는 래퍼 안이라 생략.
+function CatNameplate({
+  name,
+  size,
+  me,
+  testID,
+}: {
+  name: string;
+  size: number;
+  me?: boolean;
+  testID: string;
+}) {
+  return (
+    <View
+      testID={testID}
+      pointerEvents="none"
+      style={{ position: 'absolute', top: size * (0.98 - 0.90625), left: -100, width: 200 }}
+    >
+      <Text numberOfLines={1} style={[nameText(!!me), { textAlign: 'center' }]}>
+        {name}
+      </Text>
+    </View>
+  );
+}
+// 동기화 위치가 없는 주민(GROMO-2476): 고정 자리에 서 있기만 한다 — 이동·타이머 없음(눈 깜빡임은 CatSprite 몫).
+function StandingResident({
+  userId,
+  name,
   color,
-  start,
+  outfit,
+  at,
   s,
   reduce,
-  delay,
-  scene,
-  assets,
-  buildings,
-  outfit,
+  layered,
+  press,
 }: {
+  userId: string;
+  name: string;
   color: Color;
   outfit?: Outfit;
-  start: Point;
+  at: Point;
   s: number;
   reduce: boolean;
-  delay: number;
-  scene?: VillageScene;
-  assets: MapAssetSource;
-  buildings: readonly string[];
+  layered: boolean;
+  press?: ResidentPress;
 }) {
-  const xy = useRef(new Animated.ValueXY(start)).current,
-    at = useRef(start);
-  const [walking, setWalking] = useState(false),
-    [left, setLeft] = useState(false),
-    [depth, setDepth] = useState(start.y);
-  useEffect(() => {
-    let alive = true,
-      timer: ReturnType<typeof setTimeout>;
-    const roam = () => {
-      if (!alive) return;
-      // 지금 자리에서 ±200·±150px 안의 땅 한 곳으로, 최대 14칸까지만 걷는다
-      const target = nearestLand(scene?.grid ?? grids.home, {
-        x: at.current.x + Math.random() * 400 - 200,
-        y: at.current.y + Math.random() * 300 - 150,
-      });
-      const size = sizeOf(grids.home);
-      const path = (
-        scene
-          ? villagePath(scene, at.current, target)
-          : TILE_ISLAND
-            ? [
-                at.current,
-                ...navPath(
-                  activeNav(assets, buildings),
-                  imageToWorld(at.current, size),
-                  imageToWorld(target, size),
-                ).map((n) => worldToImage(n, size)),
-              ]
-            : landPath(grids.home, at.current, target)
-      ).slice(1, 15);
-      if (!path.length) {
-        timer = setTimeout(roam, 1500);
-        return;
-      }
-      setLeft(path[path.length - 1].x < at.current.x);
-      setWalking(true);
-      let idx = 0;
-      const step = () => {
-        if (!alive) return;
-        if (idx >= path.length) {
-          setWalking(false);
-          timer = setTimeout(roam, 2000 + Math.random() * 4000);
-          return;
-        }
-        const next = path[idx++];
-        moveCat(
-          xy,
-          next,
-          reduce ? 0 : 130,
-          ({ finished }) => {
-            if (!finished) return;
-            at.current = next;
-            // 깊이는 layered 미리보기(scene)의 zIndex 에만 쓴다 — 운영에서는 걸음마다 다시 그리지 않는다(GROMO-2371).
-            if (scene) setDepth(next.y);
-            step();
-          },
-          Easing.linear,
-        );
-      };
-      step();
-    };
-    timer = setTimeout(roam, delay);
-    return () => {
-      alive = false;
-      clearTimeout(timer);
-      xy.stopAnimation();
-    };
-  }, [scene, reduce, assets]);
+  const box = residentBox(70 * s);
   return (
-    <Animated.View
-      pointerEvents="none"
+    <View
+      testID={`standing-resident-${userId}`}
+      pointerEvents={press ? 'box-none' : 'none'}
       style={{
         position: 'absolute',
-        left: 0,
-        top: 0,
-        transform: [
-          { translateX: Animated.multiply(xy.x, s) },
-          { translateY: Animated.multiply(xy.y, s) },
-        ],
-        zIndex: scene ? Math.round(depth) : undefined,
+        left: at.x * s + box.left,
+        top: at.y * s + box.top,
+        width: box.hit,
+        height: box.hit,
+        // 새 마을 미리보기(layered)만 발 높이로 건물과 앞뒤를 가린다(예전 Wanderer 와 같다).
+        zIndex: layered ? Math.round(at.y) : undefined,
       }}
     >
-      <CatSprite
-        color={color}
-        size={70 * s}
-        motion={walking ? 'walking' : 'blink'}
-        left={left}
-        reduce={reduce}
-        outfit={outfit}
-      />
-    </Animated.View>
+      <View style={{ position: 'absolute', left: -box.left, top: -box.top }}>
+        <CatSprite color={color} size={70 * s} motion="blink" reduce={reduce} outfit={outfit} />
+        <CatNameplate testID="home-resident-name" name={name} size={70 * s} />
+      </View>
+      {press && <ResidentTouch press={press} />}
+    </View>
+  );
+}
+// 다른 주민 고양이를 누르면 정보창(GROMO-2474) — 홈 주민은 모두 신원(서버 주민·목업 주민)이 있다(GROMO-2476 이 보충 고양이를 뺐다)
+type ResidentPress = { userId: string; name: string; onPress: () => void };
+// 주민 상자 = 내 고양이(home-cat-container)의 터치 영역과 같은 크기·자리 — 발 기준점 위 몸 가운데에 최소 44pt.
+// 부모가 0×0 이면 안드로이드는 부모 경계 밖 터치를 버려 ResidentTouch 가 안 눌린다. 그래서 부모 자체를 이 상자로
+// 두고 발 기준점에서 (left, top) 만큼 옮기며, 그림·이름표는 상자 안 발 기준점(−left, −top)에 다시 놓는다.
+function residentBox(catSize: number) {
+  const hit = Math.max(semanticTokens.size.tapMin, catSize);
+  return { hit, left: -hit / 2, top: -(catSize / 2 + hit / 2) };
+}
+// 누르는 자리는 부모 상자 전체다
+function ResidentTouch({ press }: { press: ResidentPress }) {
+  return (
+    <Pressable
+      testID={`home-resident-${press.userId}`}
+      accessibilityRole="button"
+      accessibilityLabel={t('catInfo.open', { name: press.name })}
+      onPress={press.onPress}
+      style={StyleSheet.absoluteFill}
+    />
   );
 }
 type RemoteListener = (p: Point, moving: boolean, durationMs: number) => void;
-// 다른 주민(GROMO-2248): 배회 대신 서버가 정한 위치(100ms 늦춰 경로 위로 보간한 값)만 받아 그린다.
+// 다른 주민(GROMO-2248): 서버가 정한 위치(100ms 늦춰 경로 위로 보간한 값)만 받아 그린다.
 // 위치는 React state 가 아니라 Animated 값으로만 옮긴다(20Hz setState 금지) — 자세·방향만 바뀔 때 state.
 function RemoteResident({
   userId,
+  name,
   color,
   start,
   s,
   reduce,
   subscribe,
   outfit,
+  press,
 }: {
   userId: string;
+  name: string;
   color: Color;
   outfit?: Outfit;
   start: Point;
   s: number;
   reduce: boolean;
   subscribe: (userId: string, listener: RemoteListener) => () => void;
+  press?: ResidentPress;
 }) {
   const xy = useRef(new Animated.ValueXY(start)).current,
     at = useRef(start);
@@ -494,28 +508,36 @@ function RemoteResident({
       xy.stopAnimation();
     };
   }, [userId, subscribe, reduce, xy]);
+  const box = residentBox(70 * s);
   return (
     <Animated.View
       testID={`remote-resident-${userId}`}
-      pointerEvents="none"
+      pointerEvents={press ? 'box-none' : 'none'}
       style={{
         position: 'absolute',
-        left: 0,
-        top: 0,
+        // 내 고양이처럼 발 기준점 맞춤은 고정 left/top, 이동은 transform(residentBox 주석)
+        left: box.left,
+        top: box.top,
+        width: box.hit,
+        height: box.hit,
         transform: [
           { translateX: Animated.multiply(xy.x, s) },
           { translateY: Animated.multiply(xy.y, s) },
         ],
       }}
     >
-      <CatSprite
-        color={color}
-        size={70 * s}
-        motion={walking ? 'walking' : 'blink'}
-        left={left}
-        reduce={reduce}
-        outfit={outfit}
-      />
+      <View style={{ position: 'absolute', left: -box.left, top: -box.top }}>
+        <CatSprite
+          color={color}
+          size={70 * s}
+          motion={walking ? 'walking' : 'blink'}
+          left={left}
+          reduce={reduce}
+          outfit={outfit}
+        />
+        <CatNameplate testID="home-resident-name" name={name} size={70 * s} />
+      </View>
+      {press && <ResidentTouch press={press} />}
     </Animated.View>
   );
 }
@@ -571,6 +593,7 @@ export function WorldMap({
   mapAssets = BUNDLE_ASSETS,
   onMapAssetsFail,
   navDebug,
+  walkPath,
   debugNow,
   buildingOffsets,
   pressedFacility,
@@ -606,6 +629,8 @@ export function WorldMap({
   onMapAssetsFail?: (file: TilesetFile) => void;
   /** 개발 전용 이동 보기(타일 섬만). */
   navDebug?: NavDebug | null;
+  /** 내 고양이가 지금 걷는 경로(1x 이미지 px, GROMO-2479) — 타일 섬 지형 캔버스가 경로선으로 그린다. */
+  walkPath?: Point[] | null;
   /** 틱 지연·대기 readout 시계 — FinalIslandScene 이 serverDebug flush 와 같은 동기 구간에서
    * 갱신한다(GROMO-2249 보완8 항목 2). navDebug 없이 호출하는 쪽(WorldMap.test.tsx)은 readout 자체를
    * 안 그리니 안 넘겨도 된다. */
@@ -624,7 +649,7 @@ export function WorldMap({
   const L = useAppLayout(),
     grid: Grid = fishing ? grids.fishing : (village?.grid ?? grids.home),
     island = state.islands.find((item) => item.id === islandId) ?? homeIsland(state);
-  // 타일 섬 지형 캔버스는 기존 마을 홈 섬 + 플래그일 때만. 낚시·새 마을 미리보기는 기존 Image 그대로.
+  // 타일 섬 지형 캔버스는 기존 마을 홈 섬 + iOS·Android 일 때만. 낚시·새 마을 미리보기는 기존 Image 그대로.
   const tileTerrain = isTileIsland(village, fishing);
   const facilityDecorations = !village && !fishing;
   const reduceFacilityMotion = useContext(MotionContext) || state.settings.reduceMotion;
@@ -643,6 +668,10 @@ export function WorldMap({
     : L.landscape
       ? (L.height / 1140) * 1.5
       : (((L.height / 874) * 402) / 1536) * 2.8;
+  const maxZoom = fishing || village ? OTHER_MAX_ZOOM : HOME_MAX_ZOOM;
+  useEffect(() => {
+    setCamera((c) => (c.z > maxZoom ? { ...c, z: maxZoom } : c));
+  }, [maxZoom]);
   const scale = base * camera.z,
     left = L.width / 2 - camera.x * scale,
     top = L.height / 2 - camera.y * scale;
@@ -654,6 +683,7 @@ export function WorldMap({
     top,
     width: L.width,
     height: L.height,
+    maxZoom,
     onSpot,
   });
   current.current = {
@@ -664,6 +694,7 @@ export function WorldMap({
     top,
     width: L.width,
     height: L.height,
+    maxZoom,
     onSpot,
   };
   const projectCurrentWorldPoint = useRef(createWorldProjector(() => current.current)).current;
@@ -679,12 +710,12 @@ export function WorldMap({
     ...c,
     x: Math.max(0, Math.min(grid.w, c.x)),
     y: Math.max(0, Math.min(grid.h, c.y)),
-    z: Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, c.z)),
+    z: Math.max(MIN_ZOOM, Math.min(current.current.maxZoom, c.z)),
   });
   // 끄는 동안(GROMO-2373): state 는 그대로 두고 커밋된 배치를 c 카메라 자리로 옮겨 보이기만 한다.
   const show = (c: typeof camera) => {
     // 타일 섬의 Skia 캔버스는 화면 크기 표면이라 컨테이너 transform 으로 옮기면 끄는 동안 가장자리가 빈다 —
-    // 그 경로(EXPO_PUBLIC_TILE_ISLAND)만 예전처럼 움직일 때마다 카메라를 커밋해 캔버스가 다시 그리게 한다
+    // 그 경로(타일 섬)만 예전처럼 움직일 때마다 카메라를 커밋해 캔버스가 다시 그리게 한다
     if (tileTerrainRef.current) {
       setCamera(c);
       return;
@@ -743,7 +774,7 @@ export function WorldMap({
             begin(tp);
             return;
           }
-          const z = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, (o.z * dist(tp)) / o.dist)),
+          const z = Math.max(MIN_ZOOM, Math.min(v.maxZoom, (o.z * dist(tp)) / o.dist)),
             m = midpoint(tp);
           show(
             clamp({
@@ -883,6 +914,7 @@ export function WorldMap({
             assets={mapAssets}
             onAssetsFail={onMapAssetsFail}
             navDebug={navDebug}
+            walkPath={walkPath}
             reduceMotion={reduceFacilityMotion}
             pressedFacility={pressedFacility}
             showFacilityOutlines
@@ -916,7 +948,7 @@ export function WorldMap({
             if (onLand(grid, p)) current.current.onSpot?.(p);
           }}
         >
-          {/* 타일 섬 플래그면 지형은 위 Skia 캔버스가 그리고, Pressable 은 탭 영역으로만 남는다. */}
+          {/* 타일 섬이면 지형은 위 Skia 캔버스가 그리고, Pressable 은 탭 영역으로만 남는다. */}
           {!tileTerrain && (
             <Image
               source={
@@ -1111,17 +1143,17 @@ export function WorldMap({
                 }}
               />
             )}
+            {/* 모닥불은 낮에도 밤과 같은 불꽃으로 늘 켜져 있다(GROMO-2483, 2026-10-27 오스카) — 밤 불꽃의 화덕 경계를 그대로 쓴다 */}
             <FireMotion
               testID="world-fire-motion"
-              mode={dayNight === 'day' ? 'day' : 'evening'}
               reduceMotion={state.settings.reduceMotion}
               style={{
                 ...pressStyle('fire'),
                 position: 'absolute',
-                left: left + (dayNight === 'day' ? 402 : 405) * scale,
-                top: top + (dayNight === 'day' ? 425 : 437) * scale,
-                width: (dayNight === 'day' ? 116 : 140) * scale,
-                height: (dayNight === 'day' ? 77 : 93) * scale,
+                left: left + 405 * scale,
+                top: top + 437 * scale,
+                width: 140 * scale,
+                height: 93 * scale,
               }}
             />
             <RaftWaterMotion
@@ -1233,7 +1265,13 @@ export function WorldMap({
             backgroundColor: 'rgba(0,0,0,0.6)',
           }}
         >
-          {navDebugText(navDebug.walk, mapAssets.kind, navDebug.server, debugNow)}
+          {navDebugText(
+            navDebug.walk,
+            mapAssets.kind,
+            navDebug.server,
+            debugNow,
+            movementStats.format(debugNow),
+          )}
         </Txt>
       )}
     </View>
@@ -1300,12 +1338,14 @@ function FinalIslandScene({
   onBuildingEntrySound,
   layeredPreview = false,
   onServerBuilt,
+  homeChat,
   onReturnFromVisit,
   visitHud,
   visitJoin,
   mapAssets = BUNDLE_ASSETS,
   onMapAssetsFail,
   navDebug = false,
+  autoWalk = false,
 }: {
   state: State;
   go: (r: Route, id?: string) => boolean | void;
@@ -1331,16 +1371,29 @@ function FinalIslandScene({
   layeredPreview?: boolean;
   /** 서버 모드 홈 스냅샷 재조회 — 넘긴 화면(홈)에서만 서버 짓기 카드를 띄운다. */
   onServerBuilt?: () => void;
+  /** 홈 왼쪽 아래 최근 채팅 줄(GROMO-2501) — 집중 시작 버튼 왼쪽, 건설 카드가 있으면 그 위에 둔다. */
+  homeChat?: React.ReactNode;
   /** 서버 방문은 현재 소속 섬을 변경하지 않고 구경만 끝낸다. */
   onReturnFromVisit?: () => void;
   /** 서버 방문 HUD(GROMO-2259) — 집중 중 인원(null 이면 줄을 숨긴다)·오늘 집중 분(없으면 숨긴다). */
   visitHud?: { focusCount: number | null; onFocusPress: () => void; todayMinutes?: number };
-  /** 서버 방문 하단 가입 버튼(GROMO-2259) — 있으면 「원래 섬으로」 자리를 대신한다. */
-  visitJoin?: { label: string; disabled: boolean; onPress: () => void };
+  /**
+   * 서버 방문 하단 가입 버튼(GROMO-2259) — 있으면 「원래 섬으로」 자리를 대신한다. `onLeave` 가 있으면 왼쪽에
+   * 「다시 바다로」(GROMO-2405)를 나란히 두고, `leaveDisabled` 면(가입 요청 진행 중) 그 버튼을 막는다.
+   */
+  visitJoin?: {
+    label: string;
+    disabled: boolean;
+    onPress: () => void;
+    onLeave?: () => void;
+    leaveDisabled?: boolean;
+  };
   mapAssets?: MapAssetSource;
   onMapAssetsFail?: (file: TilesetFile) => void;
   /** 개발 전용 이동 보기 — 켜진 동안만 마지막 걷기를 기록한다. */
   navDebug?: boolean;
+  /** 개발 전용 자동 걷기(GROMO-2250) — 이동 보기·동기화가 켜진 동안 2초마다 무작위 통행 셀로 걷는다. */
+  autoWalk?: boolean;
 }) {
   // 구경 중이면 구경하는 섬을 그리고, 내 고양이·집중·건설 없이 둘러보기만 한다.
   // viewingIslandId는 방문 카드에서 들어온 읽기 전용 경로라 전역 소속/방문 상태를 바꾸지 않는다.
@@ -1403,7 +1456,7 @@ function FinalIslandScene({
     const built = villageScene(navBuildings);
     // ponytail: 서버 배치는 그리는 위치만 바꾼다. 통행 셀(grid)·공사 위치는 map.json 기준 그대로 —
     // 서버 배치는 이 브랜치에 들어왔고(2232), 통행·건설 위치를 layout 으로 옮기는 것은 후속에 villageScene 이 objects 를 받아 다시 계산하게 한다.
-    // 플래그 off 에서는 서버 배치를 무시해 map.json 그대로 그린다.
+    // 웹(이미지 섬)에서는 서버 배치를 무시해 map.json 그대로 그린다.
     // 타일 섬(기존 마을)은 여기가 아니라 아래 buildingOffsets(건물별 평행이동)로 layout 을 적용한다.
     const objects = TILE_ISLAND ? applyLayout(built.objects, layout, mapAssets) : built.objects;
     return objects === built.objects ? built : { ...built, objects };
@@ -1581,6 +1634,27 @@ function FinalIslandScene({
     }
   };
   const scaleRef = useRef(1);
+  // 누른 주민 정보창(GROMO-2474) — 누른 순간의 모습을 쥔다
+  const [catInfo, setCatInfo] = useState<{
+    userId: string;
+    name: string;
+    color: Color;
+    outfit?: Outfit;
+  } | null>(null);
+  const residentPress = (
+    userId: string,
+    name: string | null,
+    color: Color,
+    outfit?: Outfit,
+  ): ResidentPress | undefined => {
+    if (!showActions) return undefined;
+    const label = name ?? t('focusFlow.common.resident');
+    return {
+      userId,
+      name: label,
+      onPress: () => setCatInfo({ userId, name: label, color, outfit }),
+    };
+  };
 
   const handleCatPress = (e: any) => {
     if (walking) return;
@@ -1624,10 +1698,13 @@ function FinalIslandScene({
     const k = WALK_EASE(Math.min(1, (Date.now() - g.t0) / g.ms));
     return { x: g.from.x + (g.to.x - g.from.x) * k, y: g.from.y + (g.to.y - g.from.y) * k };
   };
-  // 타일 섬 = 플래그 + 기존 마을(새 마을 미리보기가 아님). 홈 섬 장면이라 낚시는 여기 오지 않는다.
+  // 타일 섬 = iOS·Android + 기존 마을(새 마을 미리보기가 아님). 홈 섬 장면이라 낚시는 여기 오지 않는다.
   const tileNav = isTileIsland(scene);
   const facilityDecorations = !scene;
   const [navWalk, setNavWalk] = useState<NavWalk | null>(null);
+  // 지도에 그리는 경로선(GROMO-2479) — walkPath 에 들어온 경로 전체(로컬 tilePath·서버 경로 갈아타기 모두).
+  // 걷는 동안 지나온 구간도 그대로 두고, 도착·제자리 맞춤(place)·섬 전환 때 지운다.
+  const [walkRoute, setWalkRoute] = useState<Point[] | null>(null);
   // background 전환(codex 지적, PR #1111 — WorldMap.tsx:1625) — 홈이 마운트된 채 background 로 가도
   // 언마운트·syncIslandId/me 변경 때만 채널 effect 가 정리돼 channel.close() 가 안 불린다. 서버는 소켓
   // 종료에서만 rooms.leave 하므로 OS 가 WebSocket 을 유지하면 다른 주민에게 내 actor 가 계속 남는다.
@@ -1638,10 +1715,10 @@ function FinalIslandScene({
     const subscription = AppState.addEventListener('change', (s) => setAppActive(s === 'active'));
     return () => subscription.remove();
   }, []);
-  // 이동 동기화(GROMO-2248) — 플래그·타일 섬·서버 홈일 때만 켠다. 꺼져 있으면 movement 가 null 이라 걷기는 이전과 같다.
+  // 이동 동기화(GROMO-2248) — 타일 섬·서버 홈이면 늘 켠다(GROMO-2476 플래그 제거). 그 밖(웹·이미지 섬·목업)은 movement 가
+  // null 이라 로컬로 걷는다.
   // 배경으로 깔린 홈(showActions=false — 집중 준비·잠금 안내·우체통 안내 뒤)은 조작이 없으니 열지 않는다(구독 = 방 입장).
-  const syncIslandId =
-    MOVEMENT_SYNC && tileNav && facts && showActions && appActive ? facts.islandId : null;
+  const syncIslandId = tileNav && facts && showActions && appActive ? facts.islandId : null;
   // 채널 effect 의존성에 넣어 로그인 세션이 바뀌면(계정 전환 등) 묵은 me 로 연 채널을 그대로 쓰지 않는다.
   const me = getSession()?.userId;
   const movement = useRef<MovementController | null>(null),
@@ -1649,7 +1726,11 @@ function FinalIslandScene({
     stepping = useRef(false),
     walkDone = useRef<(() => void) | undefined>(undefined),
     walkCells = useRef<WorldPoint[]>([]),
-    arrival = useRef<Point | null>(null);
+    arrival = useRef<Point | null>(null),
+    // 이 화면에서 이동 채널이 한 번이라도 열렸는지 — 측정을 그 뒤에 켜도 다음 열림을 재접속으로 센다(GROMO-2250 집계).
+    movementOpened = useRef(false),
+    // 지금 처리 중인 메시지가 FullState 인지 — 그 채택 스냅도 onMyCorrection 으로 와서 집계 「점프」에서 뺀다(GROMO-2250).
+    adoptingFullState = useRef(false);
   const [remoteActors, setRemoteActors] = useState<MovementActor[] | null>(null);
   // 실시간으로 받은 다른 주민의 외양(GROMO-2390) — 홈 응답의 appearance 와 version 으로 합쳐 그린다
   const [looks, setLooks] = useState<Record<string, MemberLook>>({});
@@ -1676,10 +1757,13 @@ function FinalIslandScene({
     location.current = p;
     setPos(p);
     homePositions[positionKey] = p;
+    // 서버 도착·보정으로 선 자리에 맞추면 가던 길은 끝났다 — 경로선도 지운다(GROMO-2479).
+    setWalkRoute(null);
   };
   // 주어진 이미지 px 경로(출발점 포함)를 걷는다. 반환값·done 계약은 walk 그대로다(buildingTransition 이 의존).
   // msPerUnit 은 서버 경로를 걸을 때 서버 속도(1000/speed), 없으면 로컬 MS_PER_UNIT.
-  const walkPath = (path: Point[], done?: () => void, msPerUnit?: number) => {
+  // display 는 표시선만 — 서버 경로로 갈아탈 때 출발점부터의 확정 경로(이동은 path=남은 구간). 없으면 path.
+  const walkPath = (path: Point[], done?: () => void, msPerUnit?: number, display?: Point[]) => {
     const run = ++token.current;
     // 걷는 도중 멈추면 고양이는 구간 중간에 서 있다 — 첫 구간의 보이는 출발점으로 기억한다(livePosition).
     let from = livePosition();
@@ -1688,6 +1772,9 @@ function FinalIslandScene({
     arrival.current = null;
     // false 를 돌려준 걷기의 done 은 호출부가 이미 포기했다 — 서버 경로로 갈아탈 때 되살리지 않는다.
     walkDone.current = path.length ? done : undefined;
+    // 새 목적지·서버 경로 갈아타기는 선을 통째로 바꾼다. 갈 곳이 없거나(빈 경로) 같은 칸([from])이면 선이 없다.
+    const route = display ?? path;
+    setWalkRoute(route.length > 1 ? route : null);
     if (!path.length) {
       moving(false);
       return false;
@@ -1704,6 +1791,10 @@ function FinalIslandScene({
         // 걷는 중에 서버 Arrived 가 왔으면 마지막 세그먼트를 마친 뒤 그 자리에 선다.
         if (arrival.current) place(arrival.current);
         arrival.current = null;
+        // 모션 줄이기면 걸음이 0ms 라 탭한 그 틱에 도착한다 — 여기서 지우면 선이 한 번도 안 보인다. 그때는
+        // 서버 도착·보정(place)·다음 목적지·섬 전환 때 지운다.
+        // ponytail: 동기화가 없는 홈(목업 섬·채널 거절)은 다음 탭까지 남는다. 정해진 시간 뒤 지워야 하면 타이머로.
+        if (!state.settings.reduceMotion) setWalkRoute(null);
         if (!done && pathDistance(path) >= 180) {
           triggerMotion('stretch');
         }
@@ -1767,6 +1858,32 @@ function FinalIslandScene({
     }
     return walkPath(path, done);
   };
+  // 바닥 탭 → 걷기. 자동 걷기(GROMO-2250)도 이 함수로 걷는다.
+  const tapWalk = (p: Point) => {
+    if (isBuildingTransitionActive()) return;
+    // 바닥 탭은 건물 진입 예약을 취소하고 새 목적지로 걷는다.
+    buildingEntryPending.current = false;
+    walkDone.current = undefined;
+    walk(p);
+  };
+  // 자동 걷기 한 걸음(개발 전용) — 지금 자리와 같은 연결 영역의 무작위 통행 셀(측정 스크립트와 같은 부하 모양).
+  // 렌더마다 최신 클로저로 갈아 끼운다(sync 와 같은 방식). 20회 안에 못 찾으면 이번 턴은 건너뛴다.
+  const autoWalkStep = useRef<() => void>(() => {});
+  autoWalkStep.current = () => {
+    const g = activeNav(mapAssets, navBuildings);
+    const size = sizeOf(grid);
+    const here = imageToWorld(location.current, size);
+    const hc = worldToCell(here);
+    const hereRegion = g.region[hc.cy * g.cols + hc.cx] ?? -1;
+    for (let tries = 0; tries < 20; tries++) {
+      const c = Math.floor(Math.random() * g.cols * g.rows);
+      if (!g.walkable[c] || (hereRegion >= 0 && g.region[c] !== hereRegion)) continue;
+      const to = cellCenterToWorld({ cx: c % g.cols, cy: Math.floor(c / g.cols) });
+      if (!navPath(g, here, to).length) continue;
+      tapWalk(worldToImage(to, size));
+      return;
+    }
+  };
   // 이동 채널 콜백 — 렌더마다 최신 클로저로 갈아 끼운다(채널은 섬이 바뀔 때만 다시 연다).
   const notifyRef = useRef(notify);
   notifyRef.current = notify;
@@ -1806,7 +1923,13 @@ function FinalIslandScene({
         return;
       }
       const worldPath = connect.length ? [...connect, ...rest.slice(1)] : rest;
-      walkPath([here, ...worldPath.map((p) => worldToImage(p, size))], walkDone.current, msPerUnit);
+      walkPath(
+        [here, ...worldPath.map((p) => worldToImage(p, size))],
+        walkDone.current,
+        msPerUnit,
+        // 표시선은 서버가 확정한 경로 전체 — 남은 구간만 쓰면 이미 도착한 모션 줄이기에서 길이 0 선이 된다.
+        [start, ...waypoints].map((p) => worldToImage(p, size)),
+      );
     },
     onMyArrived: (p) => {
       const at = worldToImage(p, sizeOf(grid));
@@ -1816,7 +1939,12 @@ function FinalIslandScene({
         moving(false);
       }
     },
-    onMyCorrection: (p) => place(worldToImage(p, sizeOf(grid))),
+    onMyCorrection: (p) => {
+      const at = worldToImage(p, sizeOf(grid));
+      // 집계 「점프」(GROMO-2250)는 정지 상태 보정만 잰다 — FullState 채택·도착·경로 갈아타기 스냅은 정상 동작이라 뺀다.
+      if (!adoptingFullState.current) movementStats.jump(location.current, at, scaleRef.current);
+      place(at);
+    },
     onActors: setRemoteActors,
     onRemotePosition: (userId, p, durationMs) =>
       remoteListeners.get(userId)?.(worldToImage(p, sizeOf(grid)), p.moving, durationMs),
@@ -1824,12 +1952,13 @@ function FinalIslandScene({
   const applyAppearance = useCallback((body: unknown, islandId: string) => {
     const changed = parseAppearanceEvent(body, islandId);
     if (!changed) return;
+    memberLooks.accept(changed.userId, changed.look);
     setLooks((prev) => {
       const next = newerLook(prev[changed.userId], changed.look)!;
       return next === prev[changed.userId] ? prev : { ...prev, [changed.userId]: next };
     });
   }, []);
-  // 이동 동기화가 꺼진 빌드(기본·웹)도 주민 외양은 실시간으로 받는다 — 그 섬 events 토픽만 여는 가벼운 채널.
+  // 이동 채널이 없는 홈(웹·이미지 섬)도 주민 외양은 실시간으로 받는다 — 그 섬 events 토픽만 여는 가벼운 채널.
   // 이동 채널이 열리는 조건(아래 effect)과 겹치지 않아 한 섬에 events 구독은 하나뿐이다.
   const eventsOnlyIslandId =
     !(syncIslandId && me) && facts && showActions && appActive ? facts.islandId : null;
@@ -1851,7 +1980,11 @@ function FinalIslandScene({
     let channel: IslandChannel | null = null;
     const controller = createMovementController({
       me,
-      send: (intent) => !!channel && publishMoveIntent(channel, syncIslandId, intent),
+      send: (intent) => {
+        const ok = !!channel && publishMoveIntent(channel, syncIslandId, intent);
+        if (ok) movementStats.sent(intent.commandSeq);
+        return ok;
+      },
       position: () => sync.current.position(),
       walking: () => stepping.current,
       onMyPath: (...args) => sync.current.onMyPath(...args),
@@ -1876,10 +2009,24 @@ function FinalIslandScene({
           const arrived = arrivals(body);
           if (arrived) notifyRef.current?.(memberArrivedText(arrived));
         } else if (type === 'member.appearance.updated') applyAppearance(body, syncIslandId);
-        else controller.onMessage(body);
+        else {
+          movementStats.onMessage(body, me);
+          adoptingFullState.current = type === 'FullState';
+          // onMessage 가 던져도 표시를 풀어야 다음 settle() 보정(onMessage 밖 경로)이 점프 표본에서 빠지지 않는다.
+          try {
+            controller.onMessage(body);
+          } finally {
+            adoptingFullState.current = false;
+          }
+        }
       },
-      onOpen: () => {},
-      // 이동 채널 영구 거절(STOMP ERROR·NOT_A_MEMBER)일 때만 이 화면 동안 동기화를 끄고 로컬 걷기·Wanderer 로
+      // 재접속 판정(GROMO-2250 집계)은 movementStats 가 측정 세션 단위로 한다 — 이 effect 가 다시 돌아 새 채널을
+      // 열어도(background 복귀 등) 이미 한 번 열린 세션이면 재접속으로 센다.
+      onOpen: () => {
+        movementOpened.current = true;
+        movementStats.opened();
+      },
+      // 이동 채널 영구 거절(STOMP ERROR·NOT_A_MEMBER)일 때만 이 화면 동안 동기화를 끄고 로컬 걷기·주민 고정 자리로
       // 돌아간다 — 토스트는 없다. 그 외 오류 큐 코드(예: 속도 제한)는 onError 로만 오고 동기화는 그대로 둔다.
       onMovementDenied: () => {
         // 섬 전환으로 이미 해제된 옛 채널의 늦은 거절일 수 있다 — 소유권을 먼저 확인해 새 컨트롤러를 끄지 않는다.
@@ -1999,6 +2146,45 @@ function FinalIslandScene({
     };
     // me: 컨트롤러 교체(계정 전환 등)를 추적해 effect 를 다시 돌려 새 controller 를 다시 캡처한다(보완 4).
   }, [navDebug, tileNav, grid, syncIslandId, me]);
+  // 이동 동기화 집계(GROMO-2250, 개발 전용) — 이동 보기가 켜진 동안만 기록하고 1초마다 Metro 에 찍는다.
+  // syncIslandId 를 deps 에 넣지 않는다 — background 복귀(null↔id)로 집계가 비워지지 않게.
+  useEffect(() => {
+    if (!navDebug || !tileNav) return;
+    // 채널이 이미 열린 뒤 「이동 보기」로 켜면 그 채널은 다시 열리지 않는다 — 「이미 연결됨」에서 시작한다.
+    movementStats.reset(movementOpened.current);
+    const id = setInterval(
+      () => console.log('[GROMO-2250] ' + movementStats.format()),
+      STATS_LOG_MS,
+    );
+    return () => {
+      clearInterval(id);
+      console.log('[GROMO-2250] END ' + movementStats.format());
+      movementStats.stop();
+    };
+  }, [navDebug, tileNav]);
+  // 자동 걷기(GROMO-2250, 개발 전용) — 2,000ms + 0~50ms 지터마다 한 걸음. 이동 보기·동기화가 꺼지거나
+  // 화면을 떠나면(syncIslandId null) 멈춘다.
+  // __DEV__ 한정 — 이동 보기가 있는 QA 빌드(EXPO_PUBLIC_VILLAGE_PREVIEW)에서도 자동 걷기는 돌지 않는다.
+  const autoWalking = __DEV__ && autoWalk && navDebug && tileNav && !!syncIslandId;
+  useEffect(() => {
+    if (!autoWalking) return;
+    console.log('[GROMO-2250] AUTO on');
+    let timer: ReturnType<typeof setTimeout>;
+    const next = () => {
+      timer = setTimeout(
+        () => {
+          autoWalkStep.current();
+          next();
+        },
+        2000 + Math.random() * 50,
+      );
+    };
+    next();
+    return () => {
+      clearTimeout(timer);
+      console.log('[GROMO-2250] AUTO off');
+    };
+  }, [autoWalking]);
   // 깜빡임·readout 시계 체인(GROMO-2249 보완4 지적 2 · 보완8 항목 2 · 보완9 항목 1) — flush 효과와는
   // 별도다. navDebugClock.debugClockPeriod 가 이제 live 여부만 보므로(보정 창 50ms 분기 제거, 보완9
   // 항목 1) deps 도 debugLive 하나면 된다 — 보정이 와도(correctedAt 변경) 주기가 안 바뀌니 이 effect 를
@@ -2027,6 +2213,7 @@ function FinalIslandScene({
     setPos(p);
     setWalking(false);
     stepping.current = false;
+    setWalkRoute(null);
     return () => {
       token.current++;
       xy.stopAnimation();
@@ -2048,24 +2235,58 @@ function FinalIslandScene({
     }
   }, [request]);
 
-  const wanderers = useMemo(() => {
+  // 홈 섬 다른 주민(GROMO-2476) — 서버 홈은 facts.members, 목업 섬은 i.members 순서 그대로. 털색을 고른 주민만
+  // (catColor null 은 임의 색으로 채우지 않는다). 서버 홈은 접속 목록에 있는 주민만 표시한다.
+  // name 은 홈 섬 이름표(GROMO-2475)에 쓴다.
+  // 차단한 상대(GROMO-2470)는 그리지 않는다. 고정 자리는 거르기 전 명단 순서로 먼저 정한다 — 차단 상대·털색 미선택
+  // (서버는 내가 차단한 주민의 catColor 를 null 로 가린다)을 빼도 다른 주민 자리가 당겨지지 않게.
+  const blockedIds = useBlockedUserIds(false);
+  const residentLooks = useMemberLooks(facts?.members.map((member) => member.id) ?? [], !!facts);
+  useEffect(() => {
+    for (const member of facts?.members ?? []) {
+      const appearance = parseLook(member.appearance);
+      if (appearance) memberLooks.accept(member.id, appearance);
+    }
+  }, [facts]);
+  const residents = useMemo(() => {
     const myId = getSession()?.userId;
-    // 서버 주민 색은 고른 사람만 — catColor null 은 임의 색으로 채우지 않는다
     const others = facts
       ? facts.members
-          .filter((m) => m.id !== myId && m.catColor)
-          .map((m) => ({ color: catColor(m.catColor), outfit: lookOf(looks, m.id, m) }))
+          .filter((m) => m.id !== myId)
+          .map((m) => ({
+            id: m.id,
+            name: m.name,
+            drawn:
+              !!(residentLooks[m.id] ? residentLooks[m.id].catColor : m.catColor) &&
+              !residentLooks[m.id]?.hidden,
+            color: catColor(residentLooks[m.id] ? residentLooks[m.id].catColor : m.catColor),
+            outfit: lookOf(looks, m.id, {
+              ...m,
+              ...residentLooks[m.id],
+              appearance: newerLook(
+                parseLook(m.appearance),
+                residentLooks[m.id]?.appearance ?? null,
+              ),
+            }),
+          }))
       : i.members
           .filter((m) => m.id !== 'me')
-          .map((m) => ({ color: m.color as Color, outfit: undefined }));
-    // 모자란 자리를 보충 색으로 채우는 연출은 목업 섬에서만 — 서버 홈엔 없는 주민을 세우지 않는다
-    const spare = facts
-      ? []
-      : (['white', 'gray', 'ginger', 'calico', 'cream', 'black'] as Color[])
-          .filter((c) => c !== state.color && !others.some((o) => o.color === c))
-          .map((color) => ({ color, outfit: undefined }));
-    return [...others, ...spare].slice(0, 2);
-  }, [i.members, facts, state.color, looks]);
+          .map((m) => ({
+            id: m.id,
+            name: m.name,
+            drawn: true,
+            color: m.color as Color,
+            outfit: undefined,
+          }));
+    return others
+      .map((m, n) => ({ ...m, spot: residentSpot(grid, n) }))
+      .filter(
+        (m) =>
+          m.drawn &&
+          !blockedIds.has(m.id) &&
+          (!facts || !!remoteActors?.some((actor) => actor.userId === m.id)),
+      );
+  }, [i.members, facts, looks, grid, blockedIds, residentLooks, remoteActors]);
   // Child positions scale with the camera, rather than being pasted onto a cropped image.
   const actors = (s: number, project: (point: Point) => Point, baseScale: number) => {
     scaleRef.current = s;
@@ -2166,7 +2387,11 @@ function FinalIslandScene({
               buildingEntryPending.current = true;
               return runBuildingEntryWalk(
                 (onArrival) => walk(d, onArrival),
-                () => navigateOnArrival(d.r),
+                () => {
+                  // 건물에 들어가면 가던 길은 끝 — 모션 줄이기에서도 지운다(GROMO-2479 r1).
+                  setWalkRoute(null);
+                  return navigateOnArrival(d.r);
+                },
                 () => {
                   buildingEntryPending.current = false;
                 },
@@ -2196,7 +2421,15 @@ function FinalIslandScene({
                   position: 'absolute',
                   zIndex: 2001,
                   ...signBoxes[id],
-                  left: screenOrigin.x + signBoxes[id].left,
+                  // 화면 가장자리에 걸친 팻말이 반쯤 잘리지 않게 민다 — 건물이 화면 안이면(기본 카메라의 우체통) 안으로, 밖이면 밖으로
+                  left:
+                    keepLabelInView(
+                      screenOrigin.x + signBoxes[id].left + signBoxes[id].width / 2,
+                      signBoxes[id].width,
+                      L.insets.left,
+                      L.width - L.insets.right,
+                    ) -
+                    signBoxes[id].width / 2,
                   top: screenOrigin.y + signBoxes[id].top,
                 }}
               >
@@ -2273,38 +2506,36 @@ function FinalIslandScene({
             </React.Fragment>
           );
         })}
-        {/* 주민 고양이 두 마리: 주민 색을 우선 쓰고, 모자라면 내 색과 다른 색으로 채운다 */}
-        {!remoteActors &&
-          wanderers.map(({ color, outfit }, n) => (
-            <Wanderer
-              key={color + n}
-              color={color}
-              outfit={outfit}
-              start={nearestLand(grid, WANDER_STARTS[n])}
-              scene={scene}
-              assets={mapAssets}
-              buildings={navBuildings}
-              s={s}
-              reduce={state.settings.reduceMotion}
-              delay={1200 + n * 2500}
-            />
-          ))}
-        {/* 이동 동기화 중이면 Wanderer 대신 서버가 정한 주민 — 색을 고른 주민만(catColor null·명단 밖은 그리지 않는다) */}
-        {remoteActors?.map((a) => {
-          const member = facts?.members.find((m) => m.id === a.userId);
-          const color = member?.catColor;
-          return color ? (
+        {/* 다른 주민(GROMO-2476): 동기화 위치가 있으면 서버 위치, 없으면 고정 자리에 서 있다(명단 밖 actor 는 그리지 않는다) */}
+        {residents.map((m) => {
+          const synced = remoteActors?.find((a) => a.userId === m.id);
+          return synced ? (
             <RemoteResident
-              key={a.userId}
-              userId={a.userId}
-              color={catColor(color)}
-              outfit={lookOf(looks, a.userId, member)}
-              start={worldToImage(a, sizeOf(grid))}
+              key={m.id}
+              userId={m.id}
+              name={m.name ?? t('focusFlow.common.resident')}
+              color={m.color}
+              outfit={m.outfit}
+              press={residentPress(m.id, m.name, m.color, m.outfit)}
+              start={worldToImage(synced, sizeOf(grid))}
               s={s}
               reduce={state.settings.reduceMotion}
               subscribe={subscribeRemote}
             />
-          ) : null;
+          ) : (
+            <StandingResident
+              key={m.id}
+              userId={m.id}
+              name={m.name ?? t('focusFlow.common.resident')}
+              color={m.color}
+              outfit={m.outfit}
+              press={residentPress(m.id, m.name, m.color, m.outfit)}
+              at={m.spot}
+              s={s}
+              reduce={state.settings.reduceMotion}
+              layered={!!scene}
+            />
+          );
         })}
         {/* 구경 중에는 내 고양이가 이 섬에 없다 */}
         {!visiting && (
@@ -2325,7 +2556,7 @@ function FinalIslandScene({
               zIndex: scene ? Math.round(pos.y) : 25,
             }}
           >
-            {/* v2 홈 시안은 고양이 100px(섬 원본 좌표)인데 카메라를 당기면서 70px 로 줄임 · 이름표 없음 */}
+            {/* v2 홈 시안은 고양이 100px(섬 원본 좌표)인데 카메라를 당기면서 70px 로 줄임 · 건물 이름표 없음 */}
             <Pressable
               testID="home-cat-actor"
               accessibilityRole="button"
@@ -2356,6 +2587,12 @@ function FinalIslandScene({
                   generation={motionGen}
                   outfit={outfitOf(state)}
                 />
+                <CatNameplate
+                  testID="home-cat-name"
+                  name={ownCatName(state.name)}
+                  size={catSize}
+                  me
+                />
               </View>
             </Pressable>
           </Animated.View>
@@ -2369,6 +2606,8 @@ function FinalIslandScene({
     : !i.buildings.includes('board')
       ? 'board'
       : null;
+  // 건설 카드가 떠 있으면 채팅 줄을 그 위로 올린다 — 카드 높이는 그려진 뒤 잰다
+  const [buildCardHeight, setBuildCardHeight] = useState(0);
   const buildCardStyle = {
     position: 'absolute',
     left: L.landscape ? Math.max(56, L.insets.left + 4) : 20,
@@ -2383,6 +2622,9 @@ function FinalIslandScene({
     paddingHorizontal: semanticTokens.spacing.control,
     gap: primitiveTokens.space[2],
   } as const;
+  // 첫 건물(회관·게시판)의 목표·공사 상태는 모든 주민에게 보인다. 착공 권한은 서버 옵션으로 판단한다.
+  const serverBuildCard = !visiting && facts && next && onServerBuilt;
+  const mockBuildCard = !visiting && !facts && (i.construction || next);
   const today = facts ? facts.home.focusSummary.totalSeconds : todayFocusSeconds(state, i.id),
     todayClock = [Math.floor(today / 3600), Math.floor(today / 60) % 60, Math.floor(today) % 60]
       .map((v) => String(v).padStart(2, '0'))
@@ -2398,6 +2640,9 @@ function FinalIslandScene({
     hudRight = L.landscape ? Math.max(56, L.insets.right + 4) : 20,
     hudAvailable = Math.max(0, L.width - hudLeft - hudRight),
     hudMax = visiting ? Math.min(L.width / 2, hudAvailable) : hudAvailable,
+    // 구경 중 하단 「다시 바다로」·가입 버튼(GROMO-2405) — 큰 글자(1.3배 이상)면 세로로 쌓고, 가로일 때만 폭을 나눈다
+    stackedActions = (L.fontScale ?? 1) >= semanticTokens.typography.largeTextThreshold,
+    actionStyle = stackedActions ? undefined : { flex: 1 },
     rewardCount = claimableQuestRewardCount(state.rewards, i.id),
     showQuestIndicator =
       showHud &&
@@ -2415,13 +2660,39 @@ function FinalIslandScene({
     <TutorialScene
       style={{ flex: 1 }}
       onSkip={focusTutorial?.onSkip}
+      // 주민 정보창(GROMO-2474)도 장면 밖 층에 띄우고, 떠 있는 동안 뒤 장면을 스크린리더에서 숨긴다(안드로이드 포함)
+      isolateAccessibility={!focusTutorial && !!catInfo}
       overlay={
-        focusTutorial && (
+        focusTutorial ? (
           <TutorialSpotlight
             target={focusTarget.rect}
             text={focusTutorial.text}
             action={{ title: t('focus.start'), onPress: departFocus }}
+            radius={999}
           />
+        ) : (
+          catInfo && (
+            <CatInfoPopup
+              key={catInfo.userId}
+              userId={catInfo.userId}
+              name={catInfo.name}
+              catColor={catInfo.color}
+              art={
+                // 홈 고양이와 같은 idle 그림(움직임 없이)
+                <View style={{ width: CAT_INFO, height: CAT_INFO }}>
+                  <CatSprite
+                    color={catInfo.color}
+                    size={CAT_INFO}
+                    motion="idle"
+                    reduce
+                    anchored={false}
+                    outfit={catInfo.outfit}
+                  />
+                </View>
+              }
+              onClose={() => setCatInfo(null)}
+            />
+          )
         )
       }
     >
@@ -2437,6 +2708,7 @@ function FinalIslandScene({
             ? { nav: activeNav(mapAssets, navBuildings), walk: navWalk, server: serverDebug }
             : null
         }
+        walkPath={walkRoute}
         debugNow={debugNow}
         islandId={i.id}
         boardStatus={visiting ? null : boardStatus}
@@ -2447,13 +2719,7 @@ function FinalIslandScene({
         showMailboxMagazine={mailboxMagazine}
         hiddenVillageBuilding={activeBuilding}
         dayNight={dayNight}
-        onSpot={
-          visiting
-            ? undefined
-            : (p) => {
-                if (!buildingEntryPending.current) walk(p);
-              }
-        }
+        onSpot={visiting ? undefined : tapWalk}
         children={actors}
       />
       {showHud && (
@@ -2492,7 +2758,13 @@ function FinalIslandScene({
                 maxWidth: hudMax,
               }}
             >
-              <Txt kind="meta" style={{ fontSize: 13, lineHeight: 18.85, fontWeight: '600' }}>
+              {/* 긴 섬 이름은 한 줄로 가운데를 줄여 「구경 중」을 남긴다(GROMO-2405). 스크린리더는 잘려도 전체 글자를 읽는다 */}
+              <Txt
+                kind="meta"
+                numberOfLines={1}
+                ellipsizeMode="middle"
+                style={{ fontSize: 13, lineHeight: 18.85, fontWeight: '600' }}
+              >
                 {t('home.hud.visiting', { name: i.name })}
               </Txt>
               {visitHud?.todayMinutes != null && (
@@ -2540,8 +2812,8 @@ function FinalIslandScene({
       )}
       {showActions && (
         <>
-          {/* 서버 모드 첫 건물(회관·게시판)은 방장만 홈에서 서버 건설로 짓는다(GROMO-2139) */}
-          {!visiting && facts && next && facts.home.island.role === 'host' && onServerBuilt && (
+          {/* 첫 건물(회관·게시판) 카드는 주민 모두에게 표시하고 채팅 줄은 카드 위에 둔다. */}
+          {serverBuildCard && (
             <ServerBuildCard
               key={`${facts.islandId}:${next}`}
               islandId={facts.islandId}
@@ -2549,6 +2821,7 @@ function FinalIslandScene({
               villagePoints={facts.home.wallets.villagePoints}
               tracked={trackedConstruction}
               style={buildCardStyle}
+              onLayout={(ev) => setBuildCardHeight(ev.nativeEvent.layout.height)}
               onStarted={(receipt) =>
                 dispatch?.({
                   type: 'SERVER_CONSTRUCTION_STARTED',
@@ -2559,8 +2832,12 @@ function FinalIslandScene({
             />
           )}
           {/* 로컬 비용·BUILD 카드는 목업에서만 띄운다 */}
-          {!visiting && !facts && (i.construction || next) && (
-            <View style={buildCardStyle}>
+          {mockBuildCard && (
+            <View
+              testID="local-build-card"
+              style={buildCardStyle}
+              onLayout={(ev) => setBuildCardHeight(ev.nativeEvent.layout.height)}
+            >
               <View
                 style={{
                   flexDirection: 'row',
@@ -2632,6 +2909,23 @@ function FinalIslandScene({
               )}
             </View>
           )}
+          {!visiting && homeChat && (
+            <View
+              testID="home-chat-slot"
+              pointerEvents="box-none"
+              style={{
+                position: 'absolute',
+                left: buildCardStyle.left,
+                right: focusButtonInset(L).right + FOCUS_BUTTON_SIZE + primitiveTokens.space[3],
+                bottom:
+                  serverBuildCard || mockBuildCard
+                    ? buildCardStyle.bottom + buildCardHeight + primitiveTokens.space[2]
+                    : focusButtonInset(L).bottom,
+              }}
+            >
+              {homeChat}
+            </View>
+          )}
           <View
             pointerEvents="box-none"
             style={{
@@ -2643,13 +2937,40 @@ function FinalIslandScene({
             }}
           >
             {visiting && visitJoin ? (
-              <Btn
-                kind="butter"
-                title={visitJoin.label}
-                id="visit-join"
-                disabled={visitJoin.disabled}
-                onPress={visitJoin.onPress}
-              />
+              // 두 버튼이 가용 폭을 나눠 쓰고(가로일 때만 flex: 1 — 세로에서는 높이가 auto 라 flex 가 공간을 보장하지
+              // 않는다) 글자에 맞춰 높이가 늘며, 큰 글자(1.3배 이상)에서는 세로로 쌓아 320pt 폭·영문에서도 화면 밖으로
+              // 밀리지 않는다. 좌우 여백은 안전 영역(가로 노치)을 더한다
+              <View
+                testID="visit-actions"
+                style={{
+                  alignSelf: 'stretch',
+                  paddingLeft: L.insets.left + primitiveTokens.space[5],
+                  paddingRight: L.insets.right + primitiveTokens.space[5],
+                  flexDirection: stackedActions ? 'column' : 'row',
+                  gap: primitiveTokens.space[3],
+                }}
+              >
+                {visitJoin.onLeave && (
+                  <Btn
+                    kind="glass"
+                    dynamicHeight
+                    title={t('islandVisit.backToSea')}
+                    id="visit-leave"
+                    disabled={visitJoin.leaveDisabled}
+                    onPress={visitJoin.onLeave}
+                    style={actionStyle}
+                  />
+                )}
+                <Btn
+                  kind="butter"
+                  dynamicHeight
+                  title={visitJoin.label}
+                  id="visit-join"
+                  disabled={visitJoin.disabled}
+                  onPress={visitJoin.onPress}
+                  style={actionStyle}
+                />
+              </View>
             ) : visiting ? (
               <Btn
                 kind="butter"
@@ -2664,7 +2985,12 @@ function FinalIslandScene({
                 }}
               />
             ) : (
-              <View ref={focusTarget.ref} collapsable={false} onLayout={focusTarget.measure}>
+              <View
+                ref={focusTarget.ref}
+                collapsable={false}
+                onLayout={focusTarget.measure}
+                style={{ alignSelf: 'flex-start' }}
+              >
                 <Btn round title={t('focus.start')} id="depart-focus" onPress={departFocus} />
               </View>
             )}
@@ -2674,9 +3000,12 @@ function FinalIslandScene({
     </TutorialScene>
   );
 }
+const CAT_INFO = componentTokens.catInfoPopup.catSize;
 
 // 개발 빌드 또는 명시적인 QA 빌드에서만 제공하는 로컬 표시 전환이다.
 const CAN_PREVIEW_VILLAGE = __DEV__ || process.env.EXPO_PUBLIC_VILLAGE_PREVIEW === '1';
+// 개발 빌드에서만 — 이동 보기·자동 걷기를 켠 채 시작(GROMO-2250 실기기 측정 자동 시작).
+const MEASURE_AUTOSTART = __DEV__ && process.env.EXPO_PUBLIC_MOVEMENT_MEASURE === '1';
 const sizeOf = (g: { w: number; h: number }) => ({ imageWidth: g.w, imageHeight: g.h });
 // 두 월드 점이 같은 통행 셀인지 — 연결 경로(navPath)가 비어도 되는 정상 경우(같은 셀)를 가려낸다.
 const cellEq = (a: WorldPoint, b: WorldPoint) => {
@@ -2703,16 +3032,17 @@ export function FinalIsland(props: React.ComponentProps<typeof FinalIslandScene>
   const L = useAppLayout();
   // 맵 에셋(GROMO-2233): 이전에 받아 둔 새 버전은 이 화면이 뜰 때 한 번만 스냅샷으로 고정해 렌더러·nav·layout 에
   // 내려준다(렌더 중 교체 금지). 백그라운드 동기화는 완료돼도 다음 홈 진입부터 반영된다.
-  // 플래그 off 면 캐시를 읽지 않고 항상 번들이다.
+  // 웹(이미지 섬)은 캐시를 읽지 않고 항상 번들이다.
   const [mapAssets, setMapAssets] = useState(() =>
-    initialMapAssets(TILE_ISLAND, MOVEMENT_SYNC, () => promoteMapAssets('home')),
+    // 타일 섬은 곧 이동 동기화라(GROMO-2476) 늘 번들로 고정된다 — promote(캐시 승격)는 홈에서 불리지 않는다.
+    initialMapAssets(TILE_ISLAND, TILE_ISLAND, () => promoteMapAssets('home')),
   );
   // 캐시 이미지 디코드 실패 → 전역도, 이 화면의 스냅샷도 번들로 내린다(빈 섬 방지).
   const failMapAssets = useCallback((file: TilesetFile) => {
     demoteToBundle('home', undefined, file);
     setMapAssets(BUNDLE_ASSETS);
   }, []);
-  // 동기화 빌드(MOVEMENT_SYNC)에서도 그대로 돈다 — 캐시는 갱신되지만 initialMapAssets 가 항상 번들로
+  // 이동 동기화(타일 섬)에서도 그대로 돈다 — 캐시는 갱신되지만 initialMapAssets 가 항상 번들로
   // 고정하므로(위) 이 화면·다음 마운트 모두 반영되지 않는다(서버와 같은 nav 아티팩트를 유지하는 트레이드오프).
   useEffect(() => {
     if (TILE_ISLAND) void syncMapAssets('home');
@@ -2725,7 +3055,10 @@ export function FinalIsland(props: React.ComponentProps<typeof FinalIslandScene>
         new URLSearchParams(window.location.search).get('village') === 'layered') ||
         process.env.EXPO_PUBLIC_VILLAGE_PREVIEW === '1'),
   );
-  const [navDebug, setNavDebug] = useState(false);
+  // 측정 자동 시작(GROMO-2250, 개발 전용): EXPO_PUBLIC_MOVEMENT_MEASURE=1 이면 이동 보기·자동 걷기를 켠 채로
+  // 시작한다 — 실기기 10분 런을 사람 탭 없이 돌리기 위한 것. 버튼으로 끌 수 있다.
+  const [navDebug, setNavDebug] = useState(MEASURE_AUTOSTART);
+  const [autoWalk, setAutoWalk] = useState(MEASURE_AUTOSTART);
   const demoMotionStates = isDemoMode();
   return (
     <View style={{ flex: 1 }}>
@@ -2742,6 +3075,7 @@ export function FinalIsland(props: React.ComponentProps<typeof FinalIslandScene>
         mapAssets={mapAssets}
         onMapAssetsFail={failMapAssets}
         navDebug={navDebug}
+        autoWalk={navDebug && autoWalk}
       />
       {CAN_PREVIEW_VILLAGE && props.showHud !== false && props.showActions !== false && (
         <View
@@ -2766,7 +3100,19 @@ export function FinalIsland(props: React.ComponentProps<typeof FinalIslandScene>
               id="nav-debug-toggle"
               kind="sec"
               title={navDebug ? '이동 숨기기' : '이동 보기'}
-              onPress={() => setNavDebug((value) => !value)}
+              onPress={() => {
+                setNavDebug((value) => !value);
+                setAutoWalk(false);
+              }}
+            />
+          )}
+          {/* 자동 걷기는 개발 빌드만 — QA 빌드(EXPO_PUBLIC_VILLAGE_PREVIEW)에는 이동 보기만 있다(GROMO-2250). */}
+          {__DEV__ && TILE_ISLAND && navDebug && (
+            <Btn
+              id="auto-walk-toggle"
+              kind="sec"
+              title={autoWalk ? '자동 멈춤' : '자동 걷기'}
+              onPress={() => setAutoWalk((value) => !value)}
             />
           )}
         </View>
