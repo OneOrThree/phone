@@ -136,6 +136,8 @@ apple:
     base-url: https://appleid.apple.com
 
 logging:
+  pattern:
+    level: "%5p [request_id=%X{request_id}]"
   level:
     com.oneorthree.business: INFO
     org.apache.hc.client5.http: WARN

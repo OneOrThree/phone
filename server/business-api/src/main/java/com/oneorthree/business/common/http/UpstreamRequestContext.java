@@ -1,6 +1,7 @@
 package com.oneorthree.business.common.http;
 
 import com.oneorthree.business.common.exception.UpstreamTimeoutException;
+import com.oneorthree.business.common.logging.RequestLogContext;
 import com.oneorthree.business.config.RequestEnvelopeFilter;
 import org.springframework.http.HttpMethod;
 import org.springframework.web.context.request.RequestAttributes;
@@ -35,7 +36,7 @@ public final class UpstreamRequestContext {
     private UpstreamRequestContext(String requestId, UUID subject, Deadline deadline,
             Cancellation cancellation, boolean readOnly, boolean strictErrorContract,
             ConcurrentMap<Object, Object> memo) {
-        if (requestId == null || !requestId.matches("[A-Za-z0-9_-]{1,128}")) {
+        if (requestId == null || !RequestLogContext.SAFE_ID.matcher(requestId).matches()) {
             throw new IllegalArgumentException("서버 requestId 형식이 올바르지 않습니다.");
         }
         this.requestId = requestId;
@@ -107,7 +108,7 @@ public final class UpstreamRequestContext {
     <T> T within(Supplier<T> work) {
         UpstreamRequestContext previous = CURRENT.get();
         CURRENT.set(this);
-        try {
+        try (RequestLogContext ignored = RequestLogContext.open(requestId)) {
             checkActive();
             return work.get();
         } finally {
