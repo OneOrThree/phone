@@ -281,7 +281,7 @@ aws --profile gromo s3api list-multipart-uploads --bucket "$B" --max-uploads 100
 aws --profile gromo s3api list-objects-v2 --bucket "$B" --prefix system_log/ --max-items 5
 ```
 
-설정이 없으면 `NoSuchLifecycleConfiguration`, `NoSuchBucketPolicy`, `ServerSideEncryptionConfigurationNotFoundError` 같은 오류로 끝난다. 이 오류도 «없음»이라는 판정 결과이므로 오류 응답 그대로 기록한다. 단 `AccessDenied` 는 «없음»이 아니라 **판정 불가**다. 운영자 쪽에도 `iam:SimulatePrincipalPolicy`·`iam:GetRole` 등 읽기 권한과 `ec2:DescribeInstances` 가 필요하므로, 권한 부족 오류를 «없음»으로 적지 않는다.
+설정이 없으면 `NoSuchLifecycleConfiguration`, `NoSuchBucketPolicy`, `ServerSideEncryptionConfigurationNotFoundError` 같은 오류로 끝난다. 이 오류도 «없음»이라는 판정 결과이므로 오류 응답 그대로 기록한다. 단 `AccessDenied` 는 «없음»이 아니라 **판정 불가**다. 운영자 쪽에도 `iam:SimulatePrincipalPolicy`·`iam:GetRole`·`kms:GetKeyPolicy`·`kms:ListGrants` 등 읽기 권한과 `ec2:DescribeInstances` 가 필요하므로, 권한 부족 오류를 «없음»으로 적지 않는다.
 
 **대상 역할 찾기.** 역할 이름을 추측(`log`·`fluent` 포함 여부)하지 않는다. 아래 순서로 실제 사용 중인 역할을 먼저 찾는다.
 
@@ -304,18 +304,19 @@ aws --profile gromo iam get-policy-version --policy-arn "$P" --version-id "$V"
 aws --profile gromo iam get-role-policy --role-name "$R" --policy-name <POLICY_NAME>
 
 # 판정: 정책 본문을 눈으로 읽지 않고 결합 평가(권한 경계 포함)를 시뮬레이션한다.
+RP=$(aws --profile gromo s3api get-bucket-policy --bucket "$B" --query Policy --output text)   # 정책이 없으면 --resource-policy·--policy-input-list 와 함께 뺀다
 # 먼저 이 역할 정책이 참조하는 조건 키를 읽어 --context-entries 에 채울 값을 정한다(읽기 전용).
-aws --profile gromo iam get-context-keys-for-principal-policy --policy-source-arn "$(aws --profile gromo iam get-role --role-name "$R" --query Role.Arn --output text)"
+# 이 명령은 역할 정책만 본다. 버킷 정책의 조건 키는 아래 RP 를 --policy-input-list "$RP" 로 함께 넘겨 포함한다.
+aws --profile gromo iam get-context-keys-for-principal-policy --policy-source-arn "$(aws --profile gromo iam get-role --role-name "$R" --query Role.Arn --output text)" --policy-input-list "$RP"
 # --action-names 와 --resource-arns 는 모든 조합으로 평가되므로, 리소스 유형(객체/버킷)이 맞는 묶음끼리 따로 호출한다.
 ARN=$(aws --profile gromo iam get-role --role-name "$R" --query Role.Arn --output text)
-RP=$(aws --profile gromo s3api get-bucket-policy --bucket "$B" --query Policy --output text)   # 정책이 없으면 --resource-policy 와 함께 뺀다
 OBJ="arn:aws:s3:::$B/system_log/v2"
-# (1) 객체 ARN 호출: 허용 env 접두 안 / 다른 env= / 이웃 접두 여섯 곳 모두에 Put 과 Delete* 를 넣는다
+# (1) 객체 ARN 호출: 허용 env 접두 안 / 다른 env= / 이웃 접두 아래 ARN 전부에 Put 과 Delete*·AbortMultipartUpload 를 넣는다
 #   env=<허용 env 를 접두로 포함하는 값>: 허용 env 가 prod 면 env=prod2 (정책이 env=prod* 로 쓰인 경우만 잡힌다)
 #   system_log/app-1 (590 업로더 경로), system_log/v2 (env 없이), user-activity/dt=2026-01-01
 # --resource-policy 가 여러 객체 ARN 에서 오류를 내면 ARN 마다 나눠 호출한다.
 aws --profile gromo iam simulate-principal-policy --policy-source-arn "$ARN" \
-  --action-names s3:PutObject s3:DeleteObject s3:DeleteObjectVersion \
+  --action-names s3:PutObject s3:DeleteObject s3:DeleteObjectVersion s3:AbortMultipartUpload \
   --resource-arns "$OBJ/env=<허용 env>/x" "$OBJ/env=<다른 env>/x" "$OBJ/env=<허용 env를 접두로 포함하는 값>/x" \
     "$OBJ/x" "arn:aws:s3:::$B/system_log/app-1/x" "arn:aws:s3:::$B/user-activity/dt=2026-01-01/x" "arn:aws:s3:::$B/user_log/x" \
   --resource-policy "$RP" \
@@ -324,7 +325,7 @@ aws --profile gromo iam simulate-principal-policy --policy-source-arn "$ARN" \
     "ContextKeyName=s3:x-amz-server-side-encryption,ContextKeyValues=<정책이 요구하는 값>,ContextKeyType=string"
 # (2) 버킷 ARN 호출: 버킷 수준 액션은 버킷 ARN 으로만
 aws --profile gromo iam simulate-principal-policy --policy-source-arn "$ARN" \
-  --action-names s3:PutLifecycleConfiguration s3:PutBucketPolicy s3:PutBucketVersioning s3:PutEncryptionConfiguration s3:DeleteBucket \
+  --action-names s3:PutLifecycleConfiguration s3:PutBucketPolicy s3:PutBucketVersioning s3:PutEncryptionConfiguration s3:DeleteBucket s3:ListBucketMultipartUploads \
   --resource-arns "arn:aws:s3:::$B" --resource-policy "$RP"
 # (3) SSE-KMS 버킷이면 키 ARN 과 다른 키 ARN 에 각각 넣는다
 aws --profile gromo iam simulate-principal-policy --policy-source-arn "$ARN" \
@@ -344,12 +345,14 @@ aws --profile gromo kms list-grants --key-id "<키 ARN>"
 | 쓰기 범위 | `s3:PutObject`가 `arn:aws:s3:::<bucket>/system_log/v2/env=<env>/*`에서 `allowed`(합격), 다른 접두에서는 아래 행 |
 | 삭제·수명주기·버킷 변경 권한 부재 | `s3:DeleteObject`, `s3:DeleteObjectVersion`은 (1)의 객체 ARN 전부(허용 env 안 포함), `s3:PutLifecycleConfiguration`·`s3:PutBucketPolicy`·`s3:PutBucketVersioning`·`s3:PutEncryptionConfiguration`·`s3:DeleteBucket`은 버킷 ARN 에서 `implicitDeny` 또는 `explicitDeny`. 한 곳이라도 `allowed` 면 불합격 |
 | 타 환경 쓰기 차단 | 다른 `env=` 접두(허용 env 를 접두로 포함하는 값 포함)와 `system_log/v2/` 밖(`system_log/app-1/`·env 없는 `system_log/v2/`·`user-activity/`·`user_log/`)에 대한 `s3:PutObject`가 `implicitDeny` 또는 `explicitDeny`. `allowed` 면 불합격 |
+| 다른 KMS 키 차단 | (3)의 다른 키가 `implicitDeny` 또는 `explicitDeny` 이고, (4)로 읽은 그 키의 키 정책·grant 에 이 역할 ARN 이 직접 명시돼 있지 않아야 한다. 키 정책이 IAM 위임(`arn:aws:iam::<ACCOUNT_ID>:root`)만 쓰는 경우에 한해 (3)의 `implicitDeny` 를 차단 근거로 인정한다. 그 밖이면 판정 불가로 기록 |
 | 판정 불가 | `implicitDeny` 라도 `MissingContextValues` 가 비어 있지 않으면 합격으로 기록하지 않는다. 값을 채워 다시 실행한다 |
 
 **허용 예외(삭제 권한 부재 판정과 혼동하지 않는다).** Fluent Bit S3 플러그인은 multipart 업로드를 쓰므로 `s3:PutObject`만으로는 실패할 수 있다. 아래는 허용되어도 합격이다.
 
 - `s3:AbortMultipartUpload`: 객체 접두(`system_log/v2/env=<env>/*`)로 제한된 경우.
 - `s3:ListBucketMultipartUploads`: 필요한 경우에 한해 버킷 단위로만.
+- 판정 방향은 쓰기 범위와 같다. (1)의 `s3:AbortMultipartUpload`는 허용 env 접두 안에서만 `allowed`이고 그 밖(다른 env·`system_log/app-1/`·`user_log/` 등)은 `implicitDeny` 또는 `explicitDeny`여야 한다. (2)의 `s3:ListBucketMultipartUploads`는 버킷 ARN 의 `allowed`만 허용 예외다.
 - 버킷이 SSE-KMS(`get-bucket-encryption` 결과)이면 multipart 업로드에는 `kms:GenerateDataKey` 와 `kms:Decrypt` 가 둘 다 필요한 것으로 알려져 있다(AWS 문서 확인 필요). 두 액션은 해당 키 ARN 에 한해서만 허용돼야 하며, 위 (3) 호출에서 버킷 키는 `allowed`, 다른 키는 `implicitDeny` 또는 `explicitDeny` 인지 확인한다.
 
 **시뮬레이션의 한계.** KMS 는 키 정책이 같은 계정의 역할을 직접 허용할 수 있어 역할 쪽 `implicitDeny` 만으로 «다른 키 차단»을 확정할 수 없고, 시뮬레이터는 키 정책을 평가하지 않는 것으로 알려져 있다(확인 필요). 그래서 (4)로 대상 키의 키 정책과 grant 를 직접 읽는다. 시뮬레이터는 `NotAction`/`NotResource` 를 정상 반영한다. 실제 한계는 SCP(조직 정책)가 평가에 포함되지 않는 점, 세션 정책, 그리고 실제 호출 시점의 컨텍스트와 입력한 컨텍스트의 차이다. 삭제·타 환경 항목에서 `allowed` 가 나오면 불합격이고 부여 경로를 추가 조사한다. 반대로 `implicitDeny` 가 나와도 SCP·세션 정책·컨텍스트 차이는 남으므로 실제 호출 시험은 별도다. dev 호스트의 사용자·그룹 경로 자격(`list-attached-user-policies` 등)은 dev -> S3 자격 방식 결정 뒤로 미룬다.
