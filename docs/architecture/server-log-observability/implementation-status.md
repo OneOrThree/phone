@@ -12,7 +12,7 @@
 | 티켓 | 검증 가능한 작업 단위 | 선행 | 초기 예상 | 현황 |
 | --- | --- | --- | --- | --- |
 | [2553](https://romance.atlassian.net/browse/GROMO-2553) | Business 요청 → 조합 worker → HTTP worker → Data 요청 로그 연결 | 없음 | 8h | 진행 중, 아래 로컬 구현 |
-| [2554](https://romance.atlassian.net/browse/GROMO-2554) | 실제 수집 경로·버전·용량·IAM·보존·업로더 조사 | 없음, 2553과 병행 | 4h | 스프린트 대기 |
+| [2554](https://romance.atlassian.net/browse/GROMO-2554) | 실제 수집 경로·버전·용량·IAM·보존·업로더 조사 | 없음, 2553과 병행 | 4h | dev 실측·Datadog 조회 완료, AWS·prod 미확인 → [조사표](runtime-inventory.md) |
 | [2555](https://romance.atlassian.net/browse/GROMO-2555) | 4개 JVM JSON → Fluent Bit → dev Loki 조회 | 2553·2554 | 2d | 스프린트 대기 |
 | [2556](https://romance.atlassian.net/browse/GROMO-2556) | 시스템/Nginx 원본 → S3·장애 복구·컷오버 | 2555 | 2d | 스프린트 대기 |
 | [2557](https://romance.atlassian.net/browse/GROMO-2557) | Outbox → Kafka/HTTP 소비·재시도 원인 연결 | 2555 | 2d | 스프린트 대기 |
