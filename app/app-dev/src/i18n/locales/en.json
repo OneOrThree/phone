@@ -731,6 +731,7 @@
       "gramA11y": "Gramophone · Choose music"
     },
     "result": {
+      "restart": "Focus again",
       "title": "This Focus Session's Results",
       "defaultSubject": "This Focus Session",
       "durationLabel": "This Session's Focus Time",

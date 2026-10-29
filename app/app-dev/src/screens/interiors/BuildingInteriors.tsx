@@ -4709,7 +4709,12 @@ export function Board({
     backToQuests: () =>
       e
         ? e.back()
-        : render({ view: s.editing ? 'detail' : 'list', questForm: null, editing: false }),
+        : render({
+            view: s.editing ? 'detail' : 'list',
+            questForm: null,
+            editing: false,
+            error: '',
+          }),
     newQuest: () => {
       if (!owner) return;
       if (!e) return render({ view: 'write', questForm: null, editing: false, error: '' });
