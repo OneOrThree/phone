@@ -52,12 +52,7 @@ public class InternalContentAdminController {
             throw new IllegalStateException("Data 환경 프로파일이 하나로 결정되지 않았습니다.");
         }
         String expected = dev ? "dev" : "prod";
-        var markers = jdbc.queryForList("SELECT split_part(config, '=', 2)"
-                + " FROM pg_db_role_setting setting JOIN pg_database db ON db.oid=setting.setdatabase"
-                + " CROSS JOIN LATERAL unnest(setting.setconfig) config"
-                + " WHERE db.datname=current_database() AND setting.setrole=0"
-                + " AND config LIKE 'gromo.environment=%'", String.class);
-        if (markers.size() != 1 || !expected.equals(markers.get(0))) {
+        if (!DatabaseEnvironmentMarker.matches(jdbc, expected)) {
             throw new IllegalStateException("Data DB 환경이 실행 프로파일과 일치하지 않습니다.");
         }
         return expected;
