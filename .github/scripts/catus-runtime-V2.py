@@ -109,11 +109,11 @@ def immutable_put(path,key):
 def related_prs(plan,prior):
     repo=os.environ.get('GITHUB_REPOSITORY','OneOrThree/phone')
     paths=['.github/scripts/catus-runtime-V2.py']
+    paths += ['backoffice'] if plan['role']=='backoffice' else ['server/scripts/runtime-V2'] if plan['role'] in ['kafka','redis'] else ['server/'+service for service in plan['build_services']]
     if prior:
-        paths += ['backoffice'] if plan['role']=='backoffice' else ['server/scripts/runtime-V2'] if plan['role'] in ['kafka','redis'] else ['server/'+s for s in plan['build_services']]
         revisions=run(['git','rev-list',prior['source_revision']+'..'+plan['source_revision'],'--',*paths]).splitlines()
     else:
-        revisions=run(['git','log','--format=%H','--',*paths]).splitlines()
+        revisions=sorted({revision for path in paths for revision in run(['git','log','-1','--format=%H',plan['source_revision'],'--',path]).splitlines()})
     numbers=set()
     for revision in revisions:
         for item in json.loads(run(['gh','api',f'repos/{repo}/commits/{revision}/pulls'])):
@@ -292,6 +292,15 @@ def record(args):
 
 
 def publish_badge(result,repo):
+    for attempt in range(8):
+        try:return publish_badge_once(result,repo)
+        except subprocess.CalledProcessError as error:
+            detail=error.stderr or ''
+            if attempt==7 or not any(code in detail for code in ['HTTP 409','HTTP 422','not a fast forward','is not a fast forward']):raise
+            time.sleep(min(2**attempt,15))
+
+
+def publish_badge_once(result,repo):
     branch='deployment-status'
     head=json.loads(run(['gh','api',f'repos/{repo}/git/ref/heads/{branch}']))['object']['sha']
     tree=json.loads(run(['gh','api',f'repos/{repo}/git/commits/{head}']))['tree']['sha']

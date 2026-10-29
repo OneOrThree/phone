@@ -53,9 +53,6 @@ jobs:
     needs: deploy
     if: always() && github.ref == 'refs/heads/release' && needs.deploy.result != 'skipped'
     runs-on: ubuntu-latest
-    concurrency:
-      group: catus-V2-status-record
-      cancel-in-progress: false
     permissions:
       contents: write
       pull-requests: write

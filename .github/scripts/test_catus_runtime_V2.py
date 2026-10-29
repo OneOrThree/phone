@@ -13,6 +13,22 @@ runtime=importlib.util.module_from_spec(spec);spec.loader.exec_module(runtime)
 
 
 class RuntimeTest(unittest.TestCase):
+    def test_최초_발행도_각_서비스_소스의_최근_PR을_연결한다(self):
+        paths=[]
+        def run(args,**kwargs):
+            if args[:2]==['git','log']:
+                paths.append(args[-1]);return {'server/data-api':'a','server/realtime':'b'}.get(args[-1],'c')+'\n'
+            return json.dumps([{'number':{'a':10,'b':11,'c':12}[args[-1].split('/')[-2]],'merged_at':'now'}])
+        plan={'role':'app','source_revision':'s','build_services':['data-api','realtime']}
+        with patch.object(runtime,'run',side_effect=run):self.assertEqual(runtime.related_prs(plan,None),[10,11,12])
+        self.assertIn('server/data-api',paths);self.assertIn('server/realtime',paths)
+
+    def test_배지_브랜치_동시_갱신_충돌은_최신_기준으로_재시도한다(self):
+        conflict=subprocess.CalledProcessError(1,['gh'],stderr='HTTP 422: Update is not a fast forward')
+        with patch.object(runtime,'publish_badge_once',side_effect=[conflict,None]) as publish,patch.object(runtime.time,'sleep'):
+            runtime.publish_badge({},'repo')
+            self.assertEqual(publish.call_count,2)
+
     def test_단위별_V2_태그만_허용한다(self):
         self.assertEqual(runtime.version('catus-v2.0.1-V2','app'),(2,0,1))
         for value in ['catus-v2.0.1','redis-v2.0.1-V2','catus-v02.0.1-V2','catus-v2.0.1-V2-other']:
