@@ -580,7 +580,7 @@ Semantic spacing:
 #### 고양이 이름표 (GROMO-2475)
 
 - 모든 화면(홈 섬·집중섬·모닥불·먼바다)의 고양이 아래에는 닉네임을 쓴다. 내 이름표도 「나」가 아니라 내 닉네임이고, 닉네임이 비어 있을 때만 「나」/「Me」(`ownCatName`, `i18n/format.ts`)로 대신한다. 다른 주민은 멤버 이름, 없으면 「주민」/「Resident」다.
-- 색은 `componentTokens.nameplate`: 글자 `ink` `#493B39`, 윤곽 `outline` `#8B6956`, 글자 번짐 `shadow` `#FFFDFA`, 내 이름표 강조 `me` `#B83D63`. 내 이름표만 `me`를 쓴다.
+- 색은 `componentTokens.nameplate`: 글자 `ink` `#493B39`, 윤곽 `outline` `#8B6956`, 글자 번짐 `shadow` `#FFFDFA`, 내 이름표 강조 `me` `#246A8A`(진한 하늘색, 2026-10-29). 내 이름표만 `me`를 쓴다.
 - 글꼴은 `FishingIsland`의 `nameText` 규격(11 / 17.6 / 900, 번짐 반경 5)이다. 발 기준점 아래에 가운데 정렬로 둔다.
 - 피그마 확정 전 임시 값이다. 확정되면 토큰 값만 바꾼다.
 

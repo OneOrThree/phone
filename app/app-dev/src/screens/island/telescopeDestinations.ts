@@ -1,7 +1,7 @@
 import type { TelescopeItem } from '@/services/api/telescope';
 
 /**
- * 서버의 무인도 후보(`slot=uninhabited`)는 일반 목록과 별개인 20% 추첨이라 들어갈 섬이 있어도 함께 보인다.
+ * 서버의 무인도 후보(`slot=uninhabited`)는 일반 목록과 별개로 정해져 들어갈 섬이 있어도 함께 보인다.
  * 옛 서버의 예약 무인도(주민 0명·일반 slot)는 기존 섬이 없거나 들어갈 섬이 없을 때만 하나 보인다.
  */
 export function visibleTelescopeItems(items: TelescopeItem[]): TelescopeItem[] {
