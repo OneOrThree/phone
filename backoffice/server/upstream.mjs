@@ -1,6 +1,7 @@
 import { policyRequest } from "./construction.mjs";
 import { randomUUID, createHash } from "node:crypto";
 import { Failure } from "./store.mjs";
+import contract from "./contract.json" with { type: "json" };
 export class Upstream {
   constructor({ mode, environment, expectedFcmProjectId, notificationUrl, dataUrl, fetchImpl = fetch }) {
     Object.assign(this, { mode, environment, expectedFcmProjectId, notificationUrl, dataUrl, fetchImpl });
@@ -13,6 +14,13 @@ export class Upstream {
         this.request(this.notificationUrl, "/internal/admin/publications/environment", actor,
           operator.notificationToken, undefined, "GET"),
       ]);
+      for (const [service, identity] of Object.entries({ data, notification })) {
+        if (identity.contractVersion !== contract.contractVersion
+            || !Array.isArray(identity.capabilities)
+            || !contract[service].every(capability => identity.capabilities.includes(capability))) {
+          throw new Failure(503, `${service} API가 백오피스 필수 계약을 지원하지 않습니다.`);
+        }
+      }
       if (data.environment !== expected || notification.environment !== expected
           || notification.fcmProjectId !== this.expectedFcmProjectId) {
         throw new Failure(503, "Data·Notification DB 또는 FCM 프로젝트가 백오피스 환경과 일치하지 않습니다.");

@@ -1,10 +1,10 @@
 name: Backoffice CI
 on:
   pull_request:
-    paths: ['backoffice/**', '.github/workflows/backoffice-ci.yml']
+    paths: ['backoffice/**', '.github/workflows/backoffice-*.yml', '.github/scripts/backoffice-*.py', '.github/scripts/test_backoffice*.py']
   push:
     branches: [main]
-    paths: ['backoffice/**', '.github/workflows/backoffice-ci.yml']
+    paths: ['backoffice/**', '.github/workflows/backoffice-*.yml', '.github/scripts/backoffice-*.py', '.github/scripts/test_backoffice*.py']
 permissions:
   contents: read
 jobs:
@@ -23,3 +23,5 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
+      - run: python3 -m unittest discover -s .github/scripts -p 'test_backoffice*.py' -v
+        working-directory: .

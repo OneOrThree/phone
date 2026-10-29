@@ -1,3 +1,5 @@
+import contract from "../server/contract.json" with { type: "json" };
+const apiContract = { contractVersion: contract.contractVersion, capabilities: [...contract.data, ...contract.notification] };
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash, scryptSync } from "node:crypto";
@@ -131,7 +133,7 @@ test("상류 정책 조회·발행은 환경 확인과 승인 payload, 운영자
     dataUrl: "http://data.internal", notificationUrl: "http://notification.internal",
     fetchImpl: async (url, options) => {
       calls.push({ path: url.pathname, method: options.method, headers: options.headers, body: options.body });
-      if (url.pathname.endsWith("/environment")) return new Response(JSON.stringify({ environment: "dev", fcmProjectId: "gromo-dev" }));
+      if (url.pathname.endsWith("/environment")) return new Response(JSON.stringify({ ...apiContract, environment: "dev", fcmProjectId: "gromo-dev" }));
       if (options.method === "GET") return new Response(JSON.stringify({ current: { revision: 1, policy }, history: [] }));
       if (url.pathname.includes("/approvals/") && options.method === "DELETE") return new Response(null, { status: 204 });
       if (url.pathname.includes("/approvals/")) return new Response(JSON.stringify({ approvalId: "approval-id", expectedRevision: 1,
@@ -173,7 +175,7 @@ test("Data revision 충돌은 확정 실패로 분류해 새 수정본·재승�
   const upstream = new Upstream({ mode: "connected", environment: "dev", expectedFcmProjectId: "gromo-dev",
     dataUrl: "http://data.internal", notificationUrl: "http://notification.internal",
     fetchImpl: async (url) => url.pathname.endsWith("/environment")
-      ? new Response(JSON.stringify({ environment: "dev", fcmProjectId: "gromo-dev" }))
+      ? new Response(JSON.stringify({ ...apiContract, environment: "dev", fcmProjectId: "gromo-dev" }))
       : new Response(JSON.stringify({ error: "REVISION_CONFLICT" }), { status: 409 }) });
   let error;
   try { await upstream.publishFocusPolicy(item, "member-2", { dataToken: "data", notificationToken: "noti" }); }
