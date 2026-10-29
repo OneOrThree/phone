@@ -6009,6 +6009,84 @@
         }
       }
     },
+    "/internal/admin/content/history/notices": {
+      "get": {
+        "tags": [
+          "internal-content-admin-controller"
+        ],
+        "operationId": "noticeHistory",
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContentHistoryPage"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/admin/content/history/magazines": {
+      "get": {
+        "tags": [
+          "internal-content-admin-controller"
+        ],
+        "operationId": "magazineHistory",
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContentHistoryPage"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/internal/admin/content/environment": {
       "get": {
         "tags": [
@@ -10686,6 +10764,25 @@
           "renderData": {
             "type": "object",
             "additionalProperties": {}
+          }
+        }
+      },
+      "ContentHistoryPage": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": {}
+            }
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "nextCursor": {
+            "type": "string"
           }
         }
       },
