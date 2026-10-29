@@ -2171,31 +2171,78 @@ function Gromo() {
       subscription.remove();
     };
   }, [loaded, hasServerSession, storageOwnerReady]);
+  const focusShieldOwner = getSession()?.userId;
   useEffect(() => {
     if (!loaded || !storageOwnerReady || (Platform.OS !== 'ios' && Platform.OS !== 'android'))
       return;
-    const sync = () => {
-      const session = hasServerSession ? stateRef.current.session : null;
-      void (
-        Platform.OS === 'android'
-          ? syncAndroidFocus(session, stateRef.current.color, true)
-          : syncFocusShield(session, stateRef.current.color, true)
-      )
-        .then(async (applied) => {
-          if (!applied && session?.status === 'active' && (await shouldReportShieldFailure()))
-            notify('앱 차단을 적용하지 못했어요. 스크린타임 권한을 확인해 주세요.');
-        })
-        .catch(() => notify('앱 차단 상태를 변경하지 못했어요. 다시 확인해 주세요.'));
+    let active = true;
+    let foreground = AppState.currentState === 'active';
+    let request = 0;
+    let retryDelay = 2000;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    const generation = sessionGeneration();
+    const current = () =>
+      active && generation === sessionGeneration() && focusShieldOwner === getSession()?.userId;
+    const clearRetry = () => {
+      clearTimeout(retryTimer);
+      retryTimer = undefined;
     };
-    sync();
+    const retry = () => {
+      if (!current() || !foreground || !hasServerSession || Platform.OS !== 'ios') return;
+      clearRetry();
+      retryTimer = setTimeout(() => {
+        retryTimer = undefined;
+        void sync(false);
+      }, retryDelay);
+      retryDelay = Math.min(retryDelay * 2, 30000);
+    };
+    const sync = async (reportFailure = true) => {
+      if (!current()) return;
+      const sequence = ++request;
+      const latest = () => current() && sequence === request;
+      clearRetry();
+      const session = hasServerSession ? stateRef.current.session : null;
+      try {
+        const applied = await (Platform.OS === 'android'
+          ? syncAndroidFocus(session, stateRef.current.color, true)
+          : syncFocusShield(session, stateRef.current.color, true, latest));
+        if (!latest()) return;
+        if (applied) {
+          retryDelay = 2000;
+          return;
+        }
+        if (
+          reportFailure &&
+          session?.status === 'active' &&
+          (await shouldReportShieldFailure()) &&
+          latest()
+        )
+          notify('앱 차단을 적용하지 못했어요. 스크린타임 권한을 확인해 주세요.');
+        if (latest()) retry();
+      } catch {
+        if (!latest()) return;
+        if (reportFailure && (await shouldReportShieldFailure()) && latest())
+          notify('앱 차단 상태를 변경하지 못했어요. 다시 확인해 주세요.');
+        if (latest()) retry();
+      }
+    };
+    void sync();
     const subscription = AppState.addEventListener('change', (next) => {
-      if (next === 'active') sync();
+      foreground = next === 'active';
+      if (foreground) void sync();
+      else clearRetry();
     });
-    return () => subscription.remove();
+    return () => {
+      active = false;
+      clearRetry();
+      subscription.remove();
+    };
   }, [
     loaded,
     storageOwnerReady,
     hasServerSession,
+    focusShieldOwner,
+    state.settings.permission,
     state.session?.id,
     state.session?.version,
     state.session?.status,
