@@ -25,7 +25,7 @@
 | D5 | Data 마이그레이션(V5)·Notification(V15) 적용 확인 후 Outbox 경로 동작. 이벤트 하나가 `outbox.delivery` → `consumer.accept` → `operation.link` → `transport.result` → `dispatch.settle` 로 이어지고 `event_id`·origin 이 유지되는지 | [조회 안내 §1](query-guide.md) 의 ②~④ 패널 | 미실행 |
 | D6 | Realtime 두 인스턴스: A → Redis → B 의 `fanout.publish` / `fanout.receive`, 구·신 인스턴스 혼합 | `message_id`·`event_id` 조회, 자기 echo 중복 없음 | 미실행(인스턴스 2개가 dev 에 있는지 미확인) |
 | D7 | 관찰: 일정 기간(길이는 미정) canary·`dropped_records`·`parse_error` 를 보고 §4 기준을 정해 기록 | 아래 §4 | 미실행 |
-| D8 | (선택, **dev 에서는 켜지 않는다**) S3 출력 `OBS_LOG_S3=on`, Nginx 호스트 `OBS_LOG_NGINX_HOST=on`: dev 에는 S3 자격이 없다(2554 실측)고 [런북 §1](ingestion-runbook.md)이 정한다. `ops-monitor.dev.yml` 이 `OBS_LOG_*` 를 넘기는 경로도 아직 없다(후속) | — | 차단(자격 결정 대기) |
+| D8 | (선택, **dev 에서는 켜지 않는다**) S3 출력 `OBS_LOG_S3=on`, Nginx 호스트 `OBS_LOG_NGINX_HOST=on`: dev 에는 S3 자격이 없다(2554 실측)고 [런북 §1](ingestion-runbook.md)이 정한다. `ops-monitor.dev.yml` 이 `OBS_LOG_*` 를 넘기는 경로도 아직 없다(후속) | — | 차단(자격 결정 대기 —[decisions-ingest-and-s3-credentials.md](decisions-ingest-and-s3-credentials.md)) |
 
 ## 3. prod 전환 순서
 
