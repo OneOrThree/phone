@@ -3,6 +3,7 @@ package com.oneorthree.notification;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.clients.admin.NewTopic;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
@@ -83,6 +84,7 @@ class KafkaInboundTest {
     @Autowired Store store;
     @Autowired KafkaTemplate<Object, Object> kafka;
     @Autowired MockMvc mvc;
+    @Autowired MeterRegistry metrics;
     @MockitoBean PushTransport transport;
 
     /** 수신 결과 로그 — MDC 는 로그를 낸 스레드에서 붙잡는다(지연 조회하면 테스트 스레드 MDC 를 읽는다). */
@@ -239,7 +241,9 @@ class KafkaInboundTest {
         assertThat(store.rows("SELECT origin_request_id FROM deliveries WHERE event_id=?", eventId))
                 .singleElement().satisfies(row -> assertThat(row).containsEntry("origin_request_id", "req-first"));
         assertThat(acceptLogs(eventId).get(1).getMDCPropertyMap())
-                .as("중복 수신 로그는 이번 시도의 relay 값으로 남는다").containsEntry("attempt", "2");
+                .as("중복 수신 로그는 이번 시도의 relay 값으로 남는다").containsEntry("attempt", "2")
+                .as("event_id 와 처음 수신 때의 origin 이 남는다 — 재전달 헤더의 origin 이 아니다(GROMO-2582)")
+                .containsEntry("event_id", eventId).containsEntry("origin_request_id", "req-first");
     }
 
     @Test
@@ -253,6 +257,9 @@ class KafkaInboundTest {
                 header("x-delivery-id", "../../etc"),
                 header("x-attempt", "0"),
                 header("x-trace-context-version", "1")));
+        double badRequestId = dropped("X-Origin-Request-Id");
+        double badAttempt = dropped("X-Attempt");
+        double badVersion = dropped("X-Trace-Context-Version");
         List<Header> future = carrier("req-v2", unknownVersion, "1");
         future.removeIf(h -> h.key().equals("x-trace-context-version"));
         future.add(header("x-trace-context-version", "2"));
@@ -270,7 +277,16 @@ class KafkaInboundTest {
                 .hasSize(2);
         assertThat(acceptLog(malformed).getMDCPropertyMap())
                 .doesNotContainKeys("origin_request_id", "origin_trace_id", "delivery_id", "attempt");
+        // 버린 값은 남기지 않고 헤더 이름으로만 센다(GROMO-2582).
+        assertThat(dropped("X-Origin-Request-Id")).isEqualTo(badRequestId + 1);
+        assertThat(dropped("X-Attempt")).isEqualTo(badAttempt + 1);
+        assertThat(dropped("X-Trace-Context-Version")).isEqualTo(badVersion + 1);
         assertThat(acceptLog(unknownVersion).getMDCPropertyMap()).doesNotContainKeys("origin_request_id", "attempt");
+    }
+
+    private double dropped(String header) {
+        var counter = metrics.find(InboundTrace.DROPPED).tag("header", header).counter();
+        return counter == null ? 0 : counter.count();
     }
 
     @Test
@@ -302,6 +318,19 @@ class KafkaInboundTest {
         assertThat(acceptLog(viaOrigin).getMDCPropertyMap()).containsEntry("delivery_id", "relay-delivery-9")
                 .containsEntry("event_id", viaOrigin);
         assertThat(MDC.get("origin_request_id")).as("요청 처리 스레드(테스트 스레드)에 문맥이 남지 않는다").isNull();
+    }
+
+    @Test
+    void requestWithoutAnyCarrierHeaderCountsNoDroppedCarrier() throws Exception {
+        String eventId = "http-no-carrier-" + UUID.randomUUID();
+        double before = metrics.find(InboundTrace.DROPPED).counters().stream().mapToDouble(c -> c.count()).sum();
+
+        mvc.perform(MockMvcRequestBuilders.post("/internal/events").header("Authorization", "Bearer test-data")
+                        .contentType(MediaType.APPLICATION_JSON).content(request(eventId, UUID.randomUUID())))
+                .andExpect(status().isOk());
+
+        assertThat(metrics.find(InboundTrace.DROPPED).counters().stream().mapToDouble(c -> c.count()).sum())
+                .as("헤더가 없는 것은 버린 carrier 가 아니다(값이 있는데 검사 실패일 때만 센다)").isEqualTo(before);
     }
 
     private static String request(String eventId, UUID user) {

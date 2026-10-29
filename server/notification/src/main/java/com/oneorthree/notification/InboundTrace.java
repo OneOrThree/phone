@@ -1,5 +1,6 @@
 package com.oneorthree.notification;
 
+import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.servlet.http.HttpServletRequest;
 import org.apache.kafka.common.header.Header;
 import org.apache.kafka.common.header.Headers;
@@ -24,7 +25,11 @@ import java.util.regex.Pattern;
  * <p>{@code delivery_id}·{@code attempt} 는 헤더로 받은 <b>relay 의</b> 값이다(이 서비스의 {@code deliveries.id} 와 다르다).
  * 서비스 사이 연결 키는 {@code event_id} 다.
  *
- * <p>{@code X-Trace-Context-Version} 헤더가 없고 origin 헤더만 있으면 v1 로 간주한다(의도).
+ * <p>{@code X-Trace-Context-Version} 헤더가 없거나 비어 있고 origin 헤더만 있으면 v1 로 간주한다(의도). 앞뒤 공백은 걷어 내며,
+ * 공백만 있는 헤더는 «없음»이라 세지 않는다 — Data {@code TraceIdFilter} 와 같은 규칙이다.
+ *
+ * <p>버린 carrier 는 값 없이 <b>헤더 이름만</b> {@value #DROPPED} 카운터(태그 {@code header})로 센다(GROMO-2582) —
+ * 값은 신뢰할 수 없는 입력이라 로그·태그에 싣지 않고, 태그 값은 고정된 6개 이름뿐이라 카디널리티가 낮다.
  *
  * @param originRequestId 최초 원인 요청 ID
  * @param originTraceId   최초 원인 trace id 원문
@@ -33,6 +38,8 @@ import java.util.regex.Pattern;
  */
 record InboundTrace(String originRequestId, String originTraceId, String deliveryId, String attempt) {
 
+    /** 형식이 어긋나 버린 carrier 헤더 수 — 태그 {@code header} 는 헤더 이름. */
+    static final String DROPPED = "notification.inbound.carrier.dropped";
     static final InboundTrace NONE = new InboundTrace(null, null, null, null);
 
     private static final Logger LOG = LoggerFactory.getLogger(InboundTrace.class);
@@ -45,27 +52,30 @@ record InboundTrace(String originRequestId, String originTraceId, String deliver
 
     /**
      * @param headers Kafka 레코드 헤더 — 이름은 소문자(§3)
+     * @param metrics 버린 carrier 를 세는 레지스트리
      * @return 검사를 통과한 문맥
      */
-    static InboundTrace fromKafka(Headers headers) {
+    static InboundTrace fromKafka(Headers headers, MeterRegistry metrics) {
         return read(name -> {
             Header header = headers.lastHeader(name.toLowerCase(Locale.ROOT));
             return header == null || header.value() == null
                     ? null : new String(header.value(), StandardCharsets.UTF_8);
-        });
+        }, metrics);
     }
 
     /**
      * 서비스 인증({@link ServiceAuth})을 통과한 내부 요청의 헤더에서 읽는다. origin 헤더가 없고 {@code X-Request-Id} 가
-     * 유효하면 그 요청 번호를 origin 으로 삼는다(직접 호출 경로, §3).
+     * 유효하면 그 요청 번호를 origin 으로 삼는다(직접 호출 경로, §3). origin 헤더가 하나라도 있으면(깨졌어도) 이 대체는
+     * 돌지 않으므로 그때의 깨진 {@code X-Request-Id} 는 세지 않는다.
      *
      * @param request 인증을 통과한 요청
+     * @param metrics 버린 carrier 를 세는 레지스트리
      * @return 검사를 통과한 문맥
      */
-    static InboundTrace fromHttp(HttpServletRequest request) {
-        InboundTrace trace = read(request::getHeader);
+    static InboundTrace fromHttp(HttpServletRequest request, MeterRegistry metrics) {
+        InboundTrace trace = read(request::getHeader, metrics);
         if (trace.originRequestId == null && trace.originTraceId == null) {
-            String requestId = safeId(request.getHeader("X-Request-Id"));
+            String requestId = checked(metrics, "X-Request-Id", request.getHeader("X-Request-Id"), false);
             if (requestId != null) {
                 return new InboundTrace(requestId, null, trace.deliveryId, trace.attempt);
             }
@@ -73,18 +83,36 @@ record InboundTrace(String originRequestId, String originTraceId, String deliver
         return trace;
     }
 
-    private static InboundTrace read(Function<String, String> header) {
-        String version = header.apply("X-Trace-Context-Version");
+    private static InboundTrace read(Function<String, String> header, MeterRegistry metrics) {
+        String version = strip(header.apply("X-Trace-Context-Version"));
         if (version != null && !"1".equals(version)) {
+            drop(metrics, "X-Trace-Context-Version");
             return NONE;
         }
-        String trace = safeTrace(header.apply("X-Origin-Trace-Id"));
-        String attempt = header.apply("X-Attempt");
-        return new InboundTrace(safeId(header.apply("X-Origin-Request-Id")),
-                trace,
-                safeId(header.apply("X-Delivery-Id")),
-                attempt != null && ATTEMPT.matcher(attempt).matches() && Integer.parseInt(attempt) <= MAX_ATTEMPT
-                        ? attempt : null);
+        String attempt = strip(header.apply("X-Attempt"));
+        return new InboundTrace(checked(metrics, "X-Origin-Request-Id", header.apply("X-Origin-Request-Id"), false),
+                checked(metrics, "X-Origin-Trace-Id", header.apply("X-Origin-Trace-Id"), true),
+                checked(metrics, "X-Delivery-Id", header.apply("X-Delivery-Id"), false),
+                attempt == null || ATTEMPT.matcher(attempt).matches() && Integer.parseInt(attempt) <= MAX_ATTEMPT
+                        ? attempt : drop(metrics, "X-Attempt"));
+    }
+
+    /** 값이 있는데 형식 검사를 통과하지 못하면 헤더 이름만 센다. */
+    private static String checked(MeterRegistry metrics, String name, String value, boolean trace) {
+        String raw = strip(value);
+        String safe = trace ? safeTrace(raw) : safeId(raw);
+        return raw != null && safe == null ? drop(metrics, name) : safe;
+    }
+
+    /** 앞뒤 공백을 걷어 내고, 비었으면 «없음»({@code null}) — 빈 헤더는 버린 carrier 로 세지 않는다. */
+    private static String strip(String raw) {
+        String stripped = raw == null ? null : raw.strip();
+        return stripped == null || stripped.isEmpty() ? null : stripped;
+    }
+
+    private static String drop(MeterRegistry metrics, String name) {
+        metrics.counter(DROPPED, "header", name).increment();
+        return null;
     }
 
     /** 형식 규칙 한 곳 — 발송 쪽 {@code DispatchService.Cause} 도 DB 값을 MDC 에 넣기 전에 여기를 거친다. */
@@ -123,8 +151,32 @@ record InboundTrace(String originRequestId, String originTraceId, String deliver
                 }
                 throw failure;
             }
-            logResult(applied ? "accepted" : "duplicate", source);
+            if (applied) {
+                logResult("accepted", source);
+            } else {
+                logDuplicate(inbound, eventId, source);
+            }
             return InboundService.ACCEPTED;
+        }
+    }
+
+    /**
+     * 재전달은 헤더가 달라도 기존 행을 건드리지 않으므로, 로그도 처음 수신 때 적은 origin 으로 남긴다(GROMO-2582).
+     * 발송 작업 행이 있으면 그 값이 헤더 값을 대신하고(null 이면 키를 뺀다), 없으면 헤더 값 그대로다. 조회 실패는 로그만 잃는다.
+     */
+    private static void logDuplicate(InboundService inbound, Object eventId, String source) {
+        try (Scope scope = new Scope()) {
+            Map<String, Object> first = null;
+            try {
+                first = eventId instanceof String id ? inbound.firstOrigin(id) : null;
+            } catch (RuntimeException lookupFailure) {
+                // 조회 실패는 헤더 값 그대로 남긴다.
+            }
+            if (first != null) {
+                scope.set("origin_request_id", safeId(first.get("origin_request_id")))
+                        .set("origin_trace_id", safeTrace(first.get("origin_trace_id")));
+            }
+            logResult("duplicate", source);
         }
     }
 

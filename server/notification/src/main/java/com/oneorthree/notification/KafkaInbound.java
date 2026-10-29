@@ -1,5 +1,6 @@
 package com.oneorthree.notification;
 
+import io.micrometer.core.instrument.MeterRegistry;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.common.TopicPartition;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -20,9 +21,11 @@ import org.springframework.util.backoff.FixedBackOff;
 class KafkaInbound {
 
     private final InboundService inbound;
+    private final MeterRegistry metrics;
 
-    KafkaInbound(InboundService inbound) {
+    KafkaInbound(InboundService inbound, MeterRegistry metrics) {
         this.inbound = inbound;
+        this.metrics = metrics;
     }
 
     /**
@@ -31,7 +34,7 @@ class KafkaInbound {
      */
     @KafkaListener(topics = "notification-events", groupId = "notification-v1")
     public void receive(ConsumerRecord<String, String> record) {
-        InboundTrace.fromKafka(record.headers()).accept(inbound, Json.map(record.value()), "kafka");
+        InboundTrace.fromKafka(record.headers(), metrics).accept(inbound, Json.map(record.value()), "kafka");
     }
 
     @Bean

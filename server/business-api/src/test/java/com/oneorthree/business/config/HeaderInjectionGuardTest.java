@@ -38,6 +38,15 @@ class HeaderInjectionGuardTest {
     }
 
     @Test
+    @DisplayName("앞뒤 공백이 낀 헤더 이름은 token 규칙 위반으로 거절한다 — 금지 목록 우회 변형")
+    void 공백이름거절() {
+        assertThatThrownBy(() -> InternalCall.to(HttpMethod.GET, "/internal/x")
+                .header(" X-User-Id ", "spoof")
+                .build())
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
     @DisplayName("Authorization 도 막힌다 — 대상별 서비스 토큰만 실려야 한다")
     void 자격헤더금지() {
         assertThatThrownBy(() -> InternalCall.to(HttpMethod.GET, "/internal/x")
