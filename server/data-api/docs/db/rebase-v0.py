@@ -27,6 +27,64 @@ LINK_EVENT_TYPES_SQL = ("'link.revoked', 'link.joined', 'link.claimConfirmed', "
 UUID_PATTERN = '([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})'
 
 
+
+EXTENSION_SCRIPT = 'V137_1__backoffice_publications.sql'
+EXTENSION_SHA256 = 'acaea4884a14d0c25ed5039116b4034615c3c7e7327d0622bd267629bfe0e92a'
+EXTENSION_TABLES = ['content_publications', 'developer_notices', 'magazine_review_snapshots',
+                    'focus_reward_policy_approvals', 'focus_reward_policy_publications']
+
+
+def extension_entry(directory=None):
+    path = (directory or BASELINE.parent.parent / 'migration') / EXTENSION_SCRIPT
+    if hashlib.sha256(path.read_bytes()).hexdigest() != EXTENSION_SHA256:
+        raise ValueError('승인된 백오피스 V137.1 SQL과 다릅니다')
+    return {'version': '137.1', 'type': 'SQL', 'script': EXTENSION_SCRIPT,
+            'checksum': checksum(path), 'success': True}
+
+
+def extension_profile(manifest):
+    profile = json.loads((ASSETS / 'backoffice-profile.json').read_text())
+    if profile['extension_sha256'] != EXTENSION_SHA256:
+        raise ValueError('백오피스 확장 profile SHA 불일치')
+    entry = extension_entry()
+    if entry != profile['extension_history']:
+        raise ValueError('백오피스 확장 migration 이력 불일치')
+    for item in profile['bridge_history']:
+        path = BASELINE.parent / item['script']
+        if checksum(path) != item['checksum'] or hashlib.sha256(path.read_bytes()).hexdigest() != profile['canonical_sha256'][item['script']]:
+            raise ValueError('백오피스 bridge의 canonical migration 불일치: ' + item['script'])
+    if [item['version'] for item in profile['bridge_history']] != ['1', '2', '3', '4', '5', '6']:
+        raise ValueError('백오피스 bridge는 검증된 V1..6만 지원합니다')
+    for key in ('source_schemas', 'target_schemas', 'final_schemas'):
+        if not profile.get(key) or any(not re.fullmatch('[0-9a-f]{32}', value) for value in profile[key]):
+            raise ValueError('백오피스 bridge 구조 지문 누락: ' + key)
+    source = sorted([*manifest['source_history'], entry], key=lambda item: tuple(map(int, item['version'].split('.'))))
+    return {**manifest, **profile, 'source_history': source,
+            'source_tables': sorted(manifest['source_tables'] + EXTENSION_TABLES),
+            'profile': 'backoffice-137.1'}
+
+
+def profile_for_history(manifest, history):
+    return extension_profile(manifest) if any(item['version'] == '137.1' for item in history) else manifest
+
+
+def bridge_sql(manifest):
+    if manifest.get('profile') != 'backoffice-137.1':
+        return ''
+    # V4..6의 효과는 이미 exact source/target fingerprint로 확인했다.
+    # V1..3은 실제 실행하고, V0 교체와 같은 transaction에서 V1..6의 정확한 이력을 기록한다.
+    sql = '\n'.join((BASELINE.parent / item['script']).read_text()
+                    for item in manifest['bridge_history'] if item['version'] in ('1', '2', '3'))
+    for rank, item in enumerate(manifest['bridge_history'], 2):
+        description = item['script'].split('__', 1)[1].removesuffix('.sql').replace('_', ' ')
+        sql += ("\nINSERT INTO public.flyway_schema_history (installed_rank,version,description,type,script,"
+                "checksum,installed_by,execution_time,success) VALUES ("
+                + str(rank) + ',' + quote(item['version']) + ',' + quote(description)
+                + ",'SQL'," + quote(item['script']) + ',' + str(item['checksum']) + ',current_user,0,true);')
+    return sql + "\nDO $bridge$ BEGIN IF " + schema_expression() + ' NOT IN (' + ','.join(
+        quote(value) for value in manifest['final_schemas']) + ") THEN RAISE EXCEPTION '백오피스 bridge 결과가 canonical V0..6 구조와 다릅니다'; END IF; END $bridge$;\n"
+
+
 def quote(value):
     return "'" + value.replace("'", "''") + "'"
 
@@ -336,6 +394,7 @@ TRUNCATE TABLE public.flyway_schema_history;
 INSERT INTO public.flyway_schema_history
     (installed_rank, version, description, type, script, checksum, installed_by, execution_time, success)
 VALUES (1, '0', 'baseline', 'SQL', 'V0__baseline.sql', {v0_checksum}, current_user, 0, true);
+{bridge_sql(manifest)}
 COMMIT;
 """
 
@@ -376,7 +435,16 @@ def main():
     database.sql(public_schema_guard())
     history = database.data("SELECT json_agg(row_to_json(h) ORDER BY h.version::numeric) FROM "
                             "(SELECT version,type,script,checksum,success FROM flyway_schema_history) h;")
+    manifest = profile_for_history(manifest, history or [])
     fingerprint = database.fingerprint()
+    if history and history[0]['version'] == '0' and len(history) == 7:
+        extended = extension_profile(manifest)
+        canonical = [{'version': '0', 'type': 'SQL', 'script': 'V0__baseline.sql',
+                      'checksum': expected_checksum, 'success': True}, *extended['bridge_history']]
+        if history != canonical or fingerprint not in extended['final_schemas']:
+            raise ValueError('백오피스 V0..6 history/스키마가 일치하지 않습니다.')
+        print('이미 검증된 백오피스 V0..6입니다. 구조 변경 없음.')
+        return
     if len(history or []) == 1 and history[0]['version'] == '0':
         if (history[0]['checksum'] != expected_checksum or not history[0]['success']
                 or history[0]['type'] != 'SQL' or history[0]['script'] != 'V0__baseline.sql'
@@ -401,7 +469,7 @@ def main():
     link_deliveries = int(database.sql("SELECT count(*) FROM event_outbox_deliveries WHERE target='LINK';"))
     link_events = int(database.sql('SELECT count(*) FROM event_outbox s WHERE ' + orphan_link_event() + ';'))
     plan = {'environment': args.environment, 'host': database.env['PGHOST'], 'port': database.env['PGPORT'],
-            **info, 'from_version': manifest['source_version'], 'to_version': '0', 'retired_table_rows': counts,
+            **info, 'from_version': manifest['source_version'], 'to_version': '6' if manifest.get('profile') else '0', 'retired_table_rows': counts,
             'v0_checksum': expected_checksum, 'seed_checksum': manifest['seed_checksum'],
             'seed_sha256': manifest['seed_sha256'], 'default_rows': manifest['default_rows'],
             'seed_bot_accounts': bots, 'legacy_focus_markers_to_close': legacy_open,

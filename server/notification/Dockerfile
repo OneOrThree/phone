@@ -48,6 +48,7 @@ WORKDIR /app
 ENV JAVA_OPTS="-Djava.security.egd=file:/dev/./urandom -javaagent:/opt/dd-java-agent.jar"
 
 COPY --from=artifact /app/app.jar app.jar
+COPY --chmod=755 scripts/bridge-release.sh /app/bridge-release
 
 # 8082 — compose 가 SERVER_PORT=8082 을 주고 /health 를 검사한다.
 # 관리 포트 9091 은 EXPOSE 하지 않는다: 포트 격리가 /actuator/* 를 사설로 유지하는 유일한 수단이다.

@@ -232,3 +232,22 @@ V138→V0 CLI 전환·전체 백업 복원과 위 테스트를 검증한다. 이
 V0와 호환되지 않는다. 경로만 V0로 바꾸어 실행하지 않는다. 현행 스키마에 맞는
 seed 정비 전에는 이 부하 테스트 초기화 절차를 사용할 수 없다. loadtest 앱의
 Flyway 위치도 V0이므로 기존 원본 migration 체인의 golden DB를 그대로 연결하면 기동하지 않는다.
+
+## 백오피스 선별 release의 V137.1 호환 전환
+
+운영 release의 `V137_1__backoffice_publications.sql`은 main의 V4·V5·V6 효과를 미리 적용한 승인된 확장이다. main 이미지에도 이 파일을 원문 SHA256 `acaea4884a14d0c25ed5039116b4034615c3c7e7327d0622bd267629bfe0e92a` 그대로 보관한다. 기존 V0·V1..6 SQL과 원본 `manifest.json`은 변경하지 않는다.
+
+`v0-rebase/backoffice-profile.json`은 확장 migration checksum/SHA, canonical V1..6 checksum/SHA, 원본·복원본의 정확한 source/중간/final schema 지문을 고정한다. 자동 실행은 원본 history prefix 또는 이 확장의 history prefix만 인식한다. 알려지지 않은 추가 이력·확장 checksum·구조는 중단한다.
+
+- V138 미만 원본: 기존 legacy Flyway가 V137.1과 V138까지 순서대로 적용하고 확장 profile로 전환한다.
+- V137.1 선별 운영 DB: 기존 legacy Flyway가 V138만 추가하고 확장 profile로 전환한다.
+- 확장 없는 V138: 기존 원본 profile로 V0 전환 후 V1..6을 정상 실행한다. 누락된 V137.1을 out-of-order로 끼워 넣지 않는다.
+- 확장 있는 V138: 원본 retirement와 보존 행 수 검증 후 같은 transaction에서 V1..3을 실제 실행한다. 이미 검증된 V4..6 효과를 중복 생성하지 않고 canonical 이력을 기록한 다음 전체 V0..6 지문을 확인하여 commit한다. 실패하면 DDL·이력·보존 데이터 모두 rollback한다.
+
+검토 snapshot, 공지, 발행 영수증, 정책 승인·발행과 기존 revision은 보존 대상이다. exact source schema를 먼저 확인하며 확장 테이블을 fingerprint에서 제외하지 않는다. 기존 V1 `BASELINE` 이력 허용 조건도 유지한다.
+
+PostgreSQL dump/restore는 동등한 CHECK의 varchar-array/text cast 표현을 정규화한다. 따라서 기존 도구와 마찬가지로 원본 직접 전환·dump 복원본 전환·fresh canonical의 **검증된 세 final 지문만** 허용한다. 통합 테스트는 세 결과를 dump/restore로 동일하게 정규화했을 때 전체 카탈로그 지문이 fresh V0..6과 정확히 같음을 확인한다. 운영 DB의 업무 제약을 임의로 재작성하지 않는다.
+
+`python3 docs/db/test-backoffice-bridge-integration.py`는 기존 DB나 원격 접속 인자를 받지 않고 전용 PostgreSQL 컨테이너 하나를 생성·정리한다. 실제 populated receipt/revision 보존, 원본 및 BASELINE 복원 이력, unknown schema/checksum 거부, 마지막 검증 실패의 전체 transaction rollback, plain V138 경로를 확인한다. `--generate-profile`은 격리 fixture에서 지문을 재생성하는 개발 전용 옵션이며 운영 DB의 지문을 자동 승인하는 기능이 아니다. `DeploymentMigrationMainTest`는 전환 결과에 실제 Flyway validate와 반복 migrate를 실행한다.
+
+Dockerfile의 기존 `COPY docs/db/v0-rebase`와 `COPY src/main/resources/db/migration`가 새 profile 및 원문 확장을 같은 이미지에 포함한다. 별도 호스트 자료나 운영 DB 직접 수정은 필요 없다.

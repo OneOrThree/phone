@@ -34,6 +34,32 @@ class RebaseGuardTest(unittest.TestCase):
             with self.subTest(value=value), self.assertRaises(ValueError):
                 rebase.assert_history(value, self.known)
 
+    def test_백오피스_profile은_정확한_확장과_canonical_체크섬을_고정한다(self):
+        original = rebase.load_manifest()
+        extended = rebase.extension_profile(original)
+        self.assertEqual(126, len(original['source_history']))
+        self.assertEqual(127, len(extended['source_history']))
+        self.assertEqual(['1','2','3','4','5','6'], [item['version'] for item in extended['bridge_history']])
+        self.assertEqual(5, len(set(extended['source_tables']) - set(original['source_tables'])))
+        self.assertEqual('backoffice-137.1', rebase.profile_for_history(original, [rebase.extension_entry()])['profile'])
+        self.assertIs(original, rebase.profile_for_history(original, original['source_history']))
+
+    def test_백오피스_SQL_원문_변조는_허용하지_않는다(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / rebase.EXTENSION_SCRIPT
+            path.write_text('CREATE TABLE arbitrary(id integer);')
+            with self.assertRaisesRegex(ValueError, '승인된 백오피스'):
+                rebase.extension_entry(Path(directory))
+
+    def test_백오피스_bridge는_실행과_이력을_같은_transaction에서_확정한다(self):
+        manifest = rebase.extension_profile(rebase.load_manifest())
+        sql = rebase.apply_sql(manifest, manifest['v0_checksum'])
+        self.assertIn('ADD COLUMN seat_x', sql)
+        self.assertIn('CREATE TABLE construction_buildings', sql)
+        self.assertNotIn('CREATE TABLE content_publications', sql)
+        self.assertNotIn('CREATE TABLE focus_reward_policy_approvals', sql)
+        self.assertLess(sql.index('백오피스 bridge 결과'), sql.rindex('COMMIT;'))
+
     def test_연결_대상이_없으면_기본_DB로_접속하지_않는다(self):
         for missing in ('PGHOST', 'PGDATABASE', 'PGUSER'):
             env = {'PGHOST': 'localhost', 'PGDATABASE': 'audit', 'PGUSER': 'audit'}

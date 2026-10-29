@@ -188,3 +188,45 @@ UPDATE device_tokens SET transport_invalid=false WHERE active AND transport_inva
 - 검토 발행 API는 `ADMIN_ANNOUNCEMENT` 서비스 공지만 허용합니다. 다른 종류는 `400 INVALID_PUBLICATION_KIND`로 거부하며 기존 사건 발송 경로를 사용합니다. subjectId는 publicationId로 고정하고, 별도 사건 시한이 없어 params는 빈 객체를 사용할 수 있습니다. 자격 없는 대상은 공통 발송 경로에서 제외됩니다.
 - 승인 상태와 승인된 버전의 불변성은 호출하는 백오피스가 관리합니다. 이 내부 API는 콘솔 자격만 신뢰하며 공개 브라우저에 서비스 토큰을 배포하지 않습니다.
 - V14는 nullable JSONB 컬럼만 추가합니다. 이 기능으로 적재한 PENDING 행이 있으면 이전 이미지로 되돌리지 않습니다. 이전 발송기는 고정 문구를 읽지 않고 템플릿을 다시 렌더링하기 때문입니다.
+
+### V9.1 선택 릴리스에서 정규 V15로 전환
+
+선택 배포한 `V9_1__backoffice_publications.sql`은 정규 V14·V15와 같은 스키마 변경을 미리 적용한 이력입니다.
+이 DB에 main 이미지를 바로 기동하면 기본 Flyway 검증이 실패해야 정상입니다. `repair`, validation 비활성화,
+`outOfOrder=true`로 우회하지 않습니다. 원본 V1–V15 SQL과 이미 적용한 V9.1 SQL은 변경하지 않습니다.
+
+이미지 안의 `/app/bridge-release`는 Spring을 띄우지 않는 명시적 JDBC 전환 도구입니다. 다음 조건을 모두 준비합니다.
+
+1. Notification 및 해당 DB에 접속하는 백오피스·관리 도구·배치 등 모든 DB 클라이언트를 정지하고 재접속을 차단합니다.
+2. 정지 상태에서 대상 DB를 `pg_dump -Fc`로 백업합니다. 별도 격리 PostgreSQL에 `pg_restore`하여 복원 가능성과
+   DB 이름·환경·FCM 표식·Flyway V1–V9 및 V9.1 원장을 확인합니다. 백업 SHA256과 대상 DB 이름을 운영 기록에 남깁니다.
+3. 해당 이미지의 전환 도구를 단독 실행합니다. `NOTI_DB_URL`, `NOTI_DB_USERNAME`, `NOTI_DB_PASSWORD`는 환경변수로
+   전달하고 백업 파일을 읽기 전용으로 마운트합니다. 예시는 인자를 설명하며 자동 배포 단계가 아닙니다.
+
+```sh
+# 컨테이너 entrypoint를 /app/bridge-release로 바꾸고 아래 인자를 전달한다.
+/app/bridge-release --writers-stopped --apply \
+  --database gromo_notification --environment prod --fcm-project catus-prod \
+  --backup /backup/notification.dump --backup-sha256 '<백업 SHA256>'
+```
+
+전환기는 PostgreSQL 16, 실제 DB 이름, DB 수준 환경·FCM 표식, 다른 client 연결 부재, 원본 SQL SHA256,
+정확한 Flyway 버전·설명·스크립트·checksum·성공·순서를 검사합니다. `public` 관계·열·제약·인덱스·트리거·함수·정책·시퀀스
+정의도 원본 SQL로 만든 구조 manifest와 비교합니다. 소유자·ACL과 데이터 내용 전체를 동등성 검증하는 도구는 아닙니다.
+백업 검사 자체는 **custom archive의 PGDMP 헤더와 제공된 SHA256 일치**만 확인합니다. 그 파일의 대상 DB 출처나 복원 가능성은
+자동 증명하지 않으므로 위의 격리 복원 검증과 운영 기록이 필수입니다.
+
+전환은 advisory lock과 `public` 테이블 잠금 아래 단일 트랜잭션으로 실행합니다. 정규 V10–V13 SQL을 그대로 실행하되
+V10이 건드리는 `ADMIN_ANNOUNCEMENT` 종류의 모든 설정, 해당 템플릿 enabled 및 발송 원장의 status·last_error·lease를
+복원합니다. 승인 문구·payload·수신자·시도 횟수는 그대로 유지합니다. 정규 V15 스키마와 일치하는 것을 확인한 뒤
+V9.1만 V14·V15 이력으로 대체하고 V1–V9 원본 이력은 보존합니다. V10–V13의 기존 기능 정리와 데이터 변경은 정규 main 승격 범위입니다.
+
+원본 이력 전체와 백업 SHA·DB 정체성은 별도 `notification_release_bridge.receipt`에 보존합니다. 이 audit 스키마는
+애플리케이션 Flyway의 `public` 스키마 밖에 있습니다. 실패하면 DDL·데이터·원장·receipt가 모두 롤백됩니다.
+재실행은 같은 백업 증거, 정확한 target 구조·원장, 기존 receipt가 모두 맞을 때만 아무 변경 없이 성공합니다.
+전환 후 일반 main 이미지의 Flyway validate/migrate가 성공하고 추가 migration 0건인지 확인한 뒤 서비스를 재기동합니다.
+서비스 정지는 운영자가 보장해야 하며 연결 부재 확인과 DB 잠금만으로 새로운 관리자 연결까지 영구 차단하지는 않습니다.
+
+로컬 검증은 `./gradlew test --tests '*NotificationReleaseBridgeTest' checkstyleMain spotbugsMain`입니다.
+테스트는 실제 V9.1 원장에서 정규 V15로 이행하고, 승인 발송/설정 보존, checksum·구조·환경·동시 연결 거절,
+정규 SQL 실패 롤백, 재실행, 새 DB의 원본 V1–V15 경로를 검사합니다. 운영 DB에서는 이 테스트를 실행하지 않습니다.
