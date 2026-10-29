@@ -12,6 +12,11 @@ export EXPO_PUBLIC_TERMS_VERSION="${EXPO_PUBLIC_TERMS_VERSION:-2026-09}"
 export EXPO_PUBLIC_DATADOG_APPLICATION_ID="${EXPO_PUBLIC_DATADOG_APPLICATION_ID:-44a4f021-ed4d-4134-b59d-63a40e37c2ff}"
 export EXPO_PUBLIC_DATADOG_CLIENT_TOKEN="${EXPO_PUBLIC_DATADOG_CLIENT_TOKEN:-pub851a727c3f95bc795ae8f9a15f5326d4}"
 
+# 집중 시작의 자리 좌표 — 비우면 실제 API 주소로 판정(운영 생략, dev 전송)한다.
+# 운영 Business·Data와 seat_x/seat_y DB 배포를 확인한 뒤 기본값을 1로 바꾼다.
+# OTA도 이 파일을 읽으므로 셸의 EXPO_PUBLIC_* 값만으로 운영 기능을 켜지 않는다.
+export EXPO_PUBLIC_FOCUS_SEAT_ENABLED="${EXPO_PUBLIC_FOCUS_SEAT_ENABLED:-}"
+
 # GROMO-2523 Firebase 프로젝트 ID — 각 환경 알림 서버의 FCM_PROJECT_ID(공개값). 빌드 단계
 # scripts/firebase-plist-xcode.sh 가 GoogleService-Info.plist 의 PROJECT_ID 와 대조한다.
 # dev 는 dev 알림 서버(phone-notification-1)의 값을 2026-10-26 에 확인했다.
