@@ -40,6 +40,18 @@ class ReleaseTest(unittest.TestCase):
             r.aws('ssm', 'send-command')
             self.assertEqual(run.call_args.kwargs['env']['AWS_MAX_ATTEMPTS'], '1')
 
+    def test_list_commands_retries_throttling_without_sending(self):
+        with patch.object(r.subprocess, 'run') as run, patch.object(r.time, 'sleep') as sleep:
+            run.side_effect = [
+                type('Result', (), {'returncode': 254, 'stderr': 'ThrottlingException: Rate exceeded'})(),
+                type('Result', (), {'returncode': 0, 'stdout': '{"Commands": []}'})(),
+            ]
+            self.assertEqual(r.aws('ssm', 'list-commands', '--filters',
+                                   'key=DocumentName,value=' + r.DOCUMENT), {'Commands': []})
+            self.assertEqual(run.call_count, 2)
+            self.assertEqual(run.call_args.kwargs['env']['AWS_MAX_ATTEMPTS'], '1')
+            sleep.assert_called_once_with(1)
+
     def test_ecr_digest_mismatch(self):
         with self.assertRaises(ValueError):
             r.verify_image(self.manifest, lambda *args: {'imageDetails':[{'imageDigest':'sha256:'+'c'*64}]})
@@ -55,8 +67,10 @@ class ReleaseTest(unittest.TestCase):
         def call(*args):
             calls.append(args)
             if args[1]=='send-command': return {'Command':{'CommandId':'command-1'}}
-            return {'Commands':[] if len(args)==2 else [{'Status':next(statuses)}]}
+            return {'Commands':[] if args[2]=='--filters' else [{'Status':next(statuses)}]}
         self.assertEqual(r.execute(self.manifest,'backoffice:123',1,call,lambda _:None), 'command-1')
+        self.assertEqual(calls[0], ('ssm', 'list-commands', '--filters',
+                                    'key=DocumentName,value=' + r.DOCUMENT))
         sent=next(c for c in calls if c[1]=='send-command')
         self.assertIn(r.INSTANCE,sent)
         self.assertIn(r.DOCUMENT,sent)
@@ -67,7 +81,7 @@ class ReleaseTest(unittest.TestCase):
         calls=[]
         def call(*args):
             calls.append(args)
-            return {'Commands':[self.command()] if len(args)==2 else [{'Status':'Success'}]}
+            return {'Commands':[self.command()] if args[2]=='--filters' else [{'Status':'Success'}]}
         r.execute(self.manifest,'backoffice:123',2,call,lambda _:None)
         self.assertFalse(any(c[1]=='send-command' for c in calls))
 
@@ -84,7 +98,7 @@ class ReleaseTest(unittest.TestCase):
     def test_ssm_failure_is_not_success(self):
         for status in ('Failed','Cancelled','TimedOut','Cancelling'):
             def call(*args):
-                return {'Commands':[self.command()] if len(args)==2 else [{'Status':status}]}
+                return {'Commands':[self.command()] if args[2]=='--filters' else [{'Status':status}]}
             with self.subTest(status=status), self.assertRaisesRegex(ValueError,'SSM 배포 실패'):
                 r.execute(self.manifest,'backoffice:123',2,call,lambda _:None)
 
@@ -92,7 +106,7 @@ class ReleaseTest(unittest.TestCase):
         now=iter([0,1,100])
         with self.assertRaises(TimeoutError):
             r.execute(self.manifest,'backoffice:123',2,
-                      lambda *args:{'Commands':[self.command()] if len(args)==2 else [{'Status':'InProgress'}]},
+                      lambda *args:{'Commands':[self.command()] if args[2]=='--filters' else [{'Status':'InProgress'}]},
                       lambda _:None,lambda:next(now),timeout=10)
 
 
