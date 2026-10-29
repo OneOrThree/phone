@@ -1,6 +1,6 @@
 package com.oneorthree.realtime.event;
 
-import com.oneorthree.realtime.TestcontainersConfiguration;
+import com.oneorthree.realtime.RestrictedRedisTestcontainersConfiguration;
 import com.oneorthree.realtime.auth.ChatPrincipal;
 import com.oneorthree.realtime.auth.JwtValidator;
 import com.oneorthree.realtime.block.BlockedUsers;
@@ -68,7 +68,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @SpringBootTest
 @AutoConfigureMockMvc
 @ActiveProfiles("ci")
-@Import(TestcontainersConfiguration.class)
+@Import(RestrictedRedisTestcontainersConfiguration.class)
 class InboundEventServiceTest {
 
     @Autowired
@@ -134,6 +134,8 @@ class InboundEventServiceTest {
                 .isZero();
         assertThat(jdbc.queryForObject("SELECT count(*) FROM inbound_events WHERE event_id = ?", Long.class,
                 "user.withdrawn:" + user)).isEqualTo(1L);
+        assertThat(jdbc.queryForObject("SELECT auth_generation FROM user_tombstones WHERE user_id = ?",
+                Long.class, user)).isEqualTo(4L);
     }
 
     @Test
