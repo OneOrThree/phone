@@ -178,6 +178,18 @@ Android release task graph는 기본 차단됩니다. Android legacy 세션의 R
 
 토큰 갱신(`POST /auth/sessions/current/refresh`, GROMO-2035)과 게스트 세션 발급(`POST /auth/sessions/guest`, GROMO-2036)은 2.0 공개 표면에 있고 앱이 호출합니다 — 401 은 갱신을 한 번 시도한 뒤 실패하면 재로그인입니다. 로그인 화면 제공자는 iOS 애플·구글, Android 구글입니다(계정 정책 LOGIN-D04). Kakao·LINE SDK 와 버튼 코드는 남아 있어 `src/services/loginProviders.ts` 목록만 바꾸면 되돌릴 수 있으며, Apple-only 기존 계정의 재진입을 보장하려면 서버가 Apple의 `gromo`와 `focuscat` audience를 모두 허용해야 합니다. 이 준비 전에는 Apple 버튼만 숨기지 않고 iOS 2.0 전체 출시를 보류합니다. LLD §2.1 의 `X-Device-Bootstrap`(1회용 기기 등록 자격)은 서버가 로그인 201·게스트 시작 응답 헤더로 싣습니다(결과 재생·refresh 응답에는 없음). `login()`·`guestLogin()` 이 `request()` 의 `onHeaders` 로 받아 리프레시 토큰에 묶어 **메모리에만** 두고, 기기 등록이 `takeDeviceBootstrap(refreshToken)` 으로 한 번 꺼내 씁니다(저장소·로그에 남기지 않음). 기기 토큰 API(`PUT`·`DELETE /api/v1/users/me/device-token`)는 2.0 앱이 `/api/v1` 을 부르는 첫 예외이며 `services/api/deviceToken.ts` 에만 있습니다.
 
+### 집중 시작의 운영 계약 호환
+
+2026-10-29 확인한 운영 `catus-v2.1.0`은 집중 시작 본문의 `seat`를 거절합니다. 실제 API 주소가
+`https://catus-api.oneorthree.world`이면 기본적으로 자리 좌표만 생략하고 집중을 시작합니다.
+운영 API를 쓰는 개발·TestFlight 빌드도 같은 동작이며, 이미 지원하는 dev API에는 좌표를 보냅니다.
+
+`EXPO_PUBLIC_FOCUS_SEAT_ENABLED=0`은 모든 환경에서 생략, `1`은 모든 환경에서 전송입니다.
+공개 릴리스 설정의 정본은 `ios/release-config.sh`이며 비어 있으면 위 API 주소 기준을 사용합니다.
+운영 Business·Data의 자리 계약과 DB의 `seat_x`·`seat_y` 배포를 확인한 뒤 기본값을 `1`로 바꾸세요.
+OTA 스크립트는 셸의 `EXPO_PUBLIC_*`를 비우고 이 정본을 읽습니다. 전송 실패 뒤 키나 본문을 바꾸는
+자동 재시도는 추가하지 않습니다. 이 설정을 포함한 앱 또는 호환 OTA 적용 뒤에 복구됩니다.
+
 ## TestFlight
 
 Catus 테스트 빌드를 TestFlight에 올립니다. 공개 릴리스 설정(약관 버전·Datadog RUM)은 `ios/release-config.sh`, App Store Connect API 키는 `ios/fastlane/.env`(gitignore, 양식은 `.env.example`)에 둡니다.
