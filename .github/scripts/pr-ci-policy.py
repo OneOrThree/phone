@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """PR 대상과 실행 이벤트로 전체 기능 검사·운영 승격을 구분한다."""
+import argparse
 import json
 import os
 from pathlib import Path
 
 
-def policy(event_name, event, repository, ref):
+def policy(event_name, event, repository, ref, validate_labels=False):
     pr = event.get('pull_request', {})
     base = pr.get('base', {}).get('ref')
     head = pr.get('head', {})
@@ -14,7 +15,7 @@ def policy(event_name, event, repository, ref):
                  and head.get('repo', {}).get('full_name') == repository)
     labels = [label['name'] for label in pr.get('labels', [])
               if label.get('name', '').startswith('release:')]
-    if promotion and (len(labels) > 1 or any(label not in {
+    if validate_labels and promotion and (len(labels) > 1 or any(label not in {
             'release:major', 'release:minor', 'release:patch'} for label in labels)):
         raise ValueError('운영 승격 버전 라벨은 release:major|minor|patch 중 최대 하나다')
     checks = ((event_name == 'pull_request' and base in {'main', 'release'} and not promotion)
@@ -25,9 +26,12 @@ def policy(event_name, event, repository, ref):
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--validate-labels', action='store_true')
+    args = parser.parse_args()
     result = policy(os.environ['GITHUB_EVENT_NAME'],
                     json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text()),
-                    os.environ['GITHUB_REPOSITORY'], os.environ.get('GITHUB_REF', ''))
+                    os.environ['GITHUB_REPOSITORY'], os.environ.get('GITHUB_REF', ''), args.validate_labels)
     with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
         for key, value in result.items():
             output.write(f'{key}={str(value).lower()}\n')

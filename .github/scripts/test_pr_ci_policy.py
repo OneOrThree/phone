@@ -66,7 +66,29 @@ class PolicyTests(unittest.TestCase):
                                        'OneOrThree/phone', '')['version-bump'], 'minor')
         for labels in [['release:major', 'release:patch'], ['release:other']]:
             with self.assertRaises(ValueError):
-                policy.policy('pull_request', pr('release', 'main', labels=labels), 'OneOrThree/phone', '')
+                policy.policy('pull_request', pr('release', 'main', labels=labels),
+                              'OneOrThree/phone', '', validate_labels=True)
+
+    def test_only_lightweight_label_gate_reruns_when_labels_change(self):
+        events = workflow('pr-ci-policy')['on']['pull_request']['types']
+        self.assertIn('labeled', events)
+        self.assertIn('unlabeled', events)
+        step = next(step for step in workflow('pr-ci-policy')['jobs']['policy']['steps']
+                    if step.get('id') == 'policy')
+        self.assertEqual(step['run'], 'python3 .github/scripts/pr-ci-policy.py --validate-labels')
+        # 발행·검사 분류는 라벨과 무관하므로 이전 라벨 스냅샷으로 재실행해도 막히지 않는다.
+        self.assertFalse(policy.policy('pull_request', pr('release', 'main', labels=['release:invalid']),
+                                       'OneOrThree/phone', '')['full-checks'])
+        for name in ['prod-ci', 'prod-ci-V2']:
+            self.assertNotIn('labeled', workflow(name)['on']['pull_request']['types'])
+
+    def test_promotion_skips_nested_data_api_functional_tests(self):
+        shared = workflow('satellite-check')
+        self.assertEqual(shared['on']['workflow_call']['inputs']['run-functional-tests']['default'], 'true')
+        self.assertEqual(shared['jobs']['public-command-contracts']['if'], 'inputs.run-functional-tests')
+        candidate = workflow('satellite-ci.prod')['jobs']['checks']['with']['run-functional-tests']
+        self.assertIn("github.head_ref == 'main'", candidate)
+        self.assertIn('github.event.pull_request.head.repo.full_name == github.repository', candidate)
 
     def test_production_jobs_consume_the_policy_before_full_gradle_and_images(self):
         prod = workflow('prod-ci')['jobs']

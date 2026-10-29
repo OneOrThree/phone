@@ -1,6 +1,7 @@
 name: Catus backoffice CI V2
 'on':
   pull_request:
+    types: [opened, synchronize, reopened, edited]
     branches:
     - main
     - release

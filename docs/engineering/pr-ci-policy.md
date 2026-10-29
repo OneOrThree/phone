@@ -14,6 +14,7 @@
 main → release는 **Create a merge commit**으로 main 부모 이력을 보존한다.
 `release:major`, `release:minor`, `release:patch`는 최대 하나를 붙이며 없으면 patch다.
 포크 저장소의 main 또는 선별 이식 브랜치 → release는 main 승격으로 간주하지 않고 기존 기능 검증을 유지한다.
+PR 대상 브랜치를 바꾸는 `edited` 이벤트도 검사한다. 승격 라벨 변경은 가벼운 정책 workflow만 다시 실행하고 전체 기능 테스트는 재시작하지 않는다.
 승격 PR에서 기능 테스트를 생략해도 release push에서 운영 JAR·이미지를 만들고 검증하는 절차는 유지한다.
 백오피스의 기존 독립 태그 발행 경로와 운영 CD 승인·인증은 이 정책에서 변경하지 않는다.
 
@@ -39,3 +40,4 @@ GitHub Actions의 **Run workflow**에서 브랜치를 선택해도 된다. 정�
 - Data·Realtime·Satellite·Backoffice dev CI: main 대상 필터와 수동 검사
 - `prod-ci.yml`, `prod-ci-V2.yml`: 승격 PR의 전체 Gradle·이미지 검사 생략
 - `backoffice-ci.prod-V2.yml`: 승격 PR의 중복 npm 기능 검사 생략
+- `satellite-ci.prod.yml` → `satellite-check.yml`: 승격 PR에서 공개 명령·Outbox의 Data API 통합 테스트 생략, 가벼운 격리 계약 검사 유지

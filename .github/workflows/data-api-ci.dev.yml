@@ -2,6 +2,7 @@ name: Data API CI
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, edited]
     # 피처 간 전체 기능 검사는 수동 실행하고, 통합 검증은 main에서 수행한다.
     branches: [main]
     paths:

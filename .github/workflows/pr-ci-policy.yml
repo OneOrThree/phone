@@ -2,6 +2,7 @@ name: PR CI 정책
 on:
   pull_request:
     branches: [main, release]
+    types: [opened, synchronize, reopened, edited, labeled, unlabeled]
   workflow_dispatch:
 permissions:
   contents: read
@@ -15,5 +16,5 @@ jobs:
           python-version: '3.12'
       - run: python3 -m pip install 'PyYAML==6.0.2'
       - id: policy
-        run: python3 .github/scripts/pr-ci-policy.py
+        run: python3 .github/scripts/pr-ci-policy.py --validate-labels
       - run: python3 -m unittest discover -s .github/scripts -p 'test_pr_ci_policy.py' -v
