@@ -507,6 +507,47 @@
         }
       }
     },
+    "/internal/admin/policies/focus/publications/{publicationId}": {
+      "put": {
+        "tags": [
+          "internal-focus-policy-admin-controller"
+        ],
+        "operationId": "publish",
+        "parameters": [
+          {
+            "name": "publicationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublishRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/Publication"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/internal/admin/content/notices/{publicationId}": {
       "put": {
         "tags": [
@@ -2967,6 +3008,69 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/internal/admin/policies/focus/approvals/{approvalId}": {
+      "post": {
+        "tags": [
+          "internal-focus-policy-admin-controller"
+        ],
+        "operationId": "approve",
+        "parameters": [
+          {
+            "name": "approvalId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApproveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/Approval"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "internal-focus-policy-admin-controller"
+        ],
+        "operationId": "revoke",
+        "parameters": [
+          {
+            "name": "approvalId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
           }
         }
       }
@@ -6030,6 +6134,26 @@
         }
       }
     },
+    "/internal/admin/policies/focus": {
+      "get": {
+        "tags": [
+          "internal-focus-policy-admin-controller"
+        ],
+        "operationId": "current_2",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/View"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/internal/admin/content/notices": {
       "get": {
         "tags": [
@@ -6844,6 +6968,94 @@
           "version": {
             "type": "integer",
             "format": "int64"
+          }
+        }
+      },
+      "Policy": {
+        "type": "object",
+        "properties": {
+          "secondsPerFish": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "dailyCapFish": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "personalSharePercent": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "goldenFishReward": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "goldenMaxMembers": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "goldenChancePpm": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        }
+      },
+      "PublishRequest": {
+        "type": "object",
+        "properties": {
+          "approvalId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "expectedRevision": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "policy": {
+            "$ref": "#/components/schemas/Policy"
+          },
+          "approvedDigest": {
+            "type": "string"
+          }
+        }
+      },
+      "Publication": {
+        "type": "object",
+        "properties": {
+          "publicationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "approvalId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "previousRevision": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "actor": {
+            "type": "string"
+          },
+          "approvedBy": {
+            "type": "string"
+          },
+          "approvedDigest": {
+            "type": "string"
+          },
+          "publishedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "policy": {
+            "$ref": "#/components/schemas/Policy"
           }
         }
       },
@@ -8430,6 +8642,47 @@
           "deviceBootstrap"
         ]
       },
+      "ApproveRequest": {
+        "type": "object",
+        "properties": {
+          "expectedRevision": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "policy": {
+            "$ref": "#/components/schemas/Policy"
+          },
+          "approvedDigest": {
+            "type": "string"
+          }
+        }
+      },
+      "Approval": {
+        "type": "object",
+        "properties": {
+          "approvalId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "expectedRevision": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "policy": {
+            "$ref": "#/components/schemas/Policy"
+          },
+          "approvedDigest": {
+            "type": "string"
+          },
+          "approvedBy": {
+            "type": "string"
+          },
+          "approvedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
       "IslandFocusAverageSnapshotView": {
         "type": "object",
         "properties": {
@@ -8440,18 +8693,6 @@
           "inserted": {
             "type": "integer",
             "format": "int32"
-          }
-        }
-      },
-      "PublishRequest": {
-        "type": "object",
-        "properties": {
-          "snapshotId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "digest": {
-            "type": "string"
           }
         }
       },
@@ -10863,6 +11104,36 @@
           "renderData": {
             "type": "object",
             "additionalProperties": {}
+          }
+        }
+      },
+      "Revision": {
+        "type": "object",
+        "properties": {
+          "revision": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "policy": {
+            "$ref": "#/components/schemas/Policy"
+          },
+          "publishedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "View": {
+        "type": "object",
+        "properties": {
+          "current": {
+            "$ref": "#/components/schemas/Revision"
+          },
+          "history": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Publication"
+            }
           }
         }
       },
