@@ -223,3 +223,9 @@
 3. Data API 내부 표면 → **A9**
 4. 시스템 → **A10 · A11**. 남은 실측·미결은 `system-architecture.md` §8 (prod 사양 · dev nginx · Vercel Pro vs CF)
 5. **분리가 깨뜨리는 트랜잭션 불변식 → A22**. 이관·전달 절차의 상세는 `service-architecture.md` §5·§7 이지만 **불변식 자체는 A22 가 정본**이다 — 산문을 고칠 때 A22 와 어긋나면 A22 가 맞다.
+
+## 이미지 CDN 정적 자산 경로 — 제안, 미적용 (2026-10-29)
+
+앱→Business API 원칙의 예외로 **공개 정적 이미지/팩 manifest에 한해 앱→CloudFront→비공개 S3** 경로를 제안한다. 새 업무 서비스/DB/Redis 저장소는 추가하지 않으며 사용자 권한·장착 데이터는 기존 API 소유다. 새 저장소의 쓰기는 콘텐츠 CI, 읽기는 OAC와 공개 CDN, 기기 파일 관리는 앱 AssetRepository가 담당한다.
+
+[구현 PRD와 설계](../prd/fishcat/image-cdn/README.md)를 따른다. 이 항목은 인프라 적용이나 기존 A 결정의 운영 전환 완료 선언이 아니다. 인프라/앱 적용 PR에서 service-architecture의 허용 경로, system-architecture의 노출면·저장소·그림을 함께 갱신하고 실제 검증 근거와 함께 정식 결정 번호를 부여한다.

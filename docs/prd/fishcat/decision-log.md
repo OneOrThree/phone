@@ -154,3 +154,13 @@
 - [집중·휴식 LLD](focus-rest-session/low-level-design.md) §2 pause 절의 「자리 배치는 로컬 연출이고 자리 선택/예약 API를 추가하지 않는다」를 대체한다.
 - 배포 순서: 서버가 먼저 나가고 앱(GROMO-2478)이 뒤따른다 — 옛 business-api 는 4필드 시작 본문을 400 으로 거절한다.
 - 관련: GROMO-2477 · GROMO-2478.
+
+## 2026-10-29 이미지 CDN 구현 설계
+
+| ID | 결정 | 상태·근거 | 전파 위치 |
+| --- | --- | --- | --- |
+| CDN-D01 | 공개 정적 이미지 CDN과 기기 캐시를 도입하고 수명/삭제 정책을 명시한다 | 사용자 요청. 구현/배포 전 | [PRD](image-cdn/prd.md) |
+| CDN-D02 | 파일 만료 없음, 6h 재확인·7d 직전 버전·30d 미사용·256/192MiB 캐시를 초기 기본값으로 사용한다 | 설계 제안값. 실기기 최적값이라는 의미 아님 | [policy](image-cdn/policy.md) |
+| CDN-D03 | 네이티브 제한 수신·SHA와 seq+digest 불변 snapshot을 사용한다 | Expo progress/overwrite 동작 독립 검토 반영. 새 바이너리 필요 | [LLD](image-cdn/low-level-design.md) |
+
+기존 맵 통행/배치 계약·카탈로그 계정 권한·업무 데이터 최신성은 변경하지 않는다.
