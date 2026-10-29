@@ -71,12 +71,12 @@
 | 구성 | Agent 재가동 + Fluent Bit | Agent만(Fluent Bit 수집 중단) | Agent 로그 수집 끄기(`DD_LOGS_ENABLED=false`), APM은 유지 | 예: 앱 4종은 Loki, Kafka·DB·Redis는 Datadog 또는 제외 |
 | 비용 | §1.3의 Datadog 분 + Loki 디스크 | §1.3의 Datadog 분 | Datadog Logs 0, Loki 디스크 | 일부만 |
 | 보존 | Datadog 보존(계약 미확인) + Loki 7일 | Datadog 보존만 | Loki 7일(S3는 dev 미사용이면 없음) | 혼합 |
-| 조회 용도 | 기존 Datadog 화면 유지 + 요청 타임라인(Loki) | 에픽 목표(요청 타임라인·Grafana)를 dev에서 못 씀 | 에픽 목표 충족, Datadog APM trace에서 로그로 이동 불가 | 서비스마다 다름 |
+| 조회 용도 | 기존 Datadog 화면 유지 + 요청 타임라인(Loki) | 에픽 목표(요청 타임라인·Grafana)를 dev에서 못 씀 | 앱 4종·Nginx는 에픽 목표 충족. **Kafka·PostgreSQL·Redis 등 인프라 로그는 중앙 수집이 끊긴다** — Fluent Bit `logs.lua` 의 `ALLOWED` 가 앱 4종과 Nginx만 허용하고 나머지는 `select_container()` 에서 버린다. Fluent Bit에 인프라 수집을 더하는 일이 선행 조건이거나, 그 로그의 중앙 보관·조회를 포기하는 선택이다. Datadog APM trace에서 로그로 이동 불가 | 서비스마다 다름 |
 | 운영 부담 | 두 곳을 맞춰 봐야 함, 파이프라인(severity 등) 이중 관리 | 가장 적음 | 중간 | 가장 큼 |
 | 보안 | 마스킹을 두 경로에서 모두 검증 | 기존 그대로 | Loki 접근 통제 필요 | 두 경로 모두 |
 | 되돌림 | 쉬움(한쪽 중지) | 쉬움 | Agent 설정 복원 필요 | 복잡 |
 
-**추천 1개 (제안): A, 단 dev 한정·기간 한정.** 이유: 에픽의 가치(Loki 요청 타임라인)를 검증하려면 Fluent Bit이 필요하고, Datadog APM↔로그 연결과 기존 severity 파이프라인([datadog-severity-pipeline.md](datadog-severity-pipeline.md))은 Datadog 쪽에 이미 있다. dev 분량의 목록 가격 비용은 §1.3 수준이라 비교 검증 기간의 중복 비용이 작다. 검증 뒤 Kafka·Business 두 서비스(약 91%)만 Datadog에서 제외하는 D로 줄이는 판단은 그때 §1.1 수치를 다시 조회해서 한다. prod는 이 추천에 포함하지 않는다.
+**추천 1개 (제안): A, 단 dev 한정·기간 한정.** 이유: 에픽의 가치(Loki 요청 타임라인)를 검증하려면 Fluent Bit이 필요하고, Datadog APM↔로그 연결은 Datadog 쪽에 이미 있다. 심각도 파이프라인([datadog-severity-pipeline.md](datadog-severity-pipeline.md))은 **정의·도구만 있고 Datadog에 적용하지 않은 상태**다(원격 검증·적용 미수행 — 그 문서 상단). 적용 전에는 정상 Kafka Exporter·PostgreSQL 로그가 여전히 `status=error` 로 분류되므로, Agent 재가동만으로 보정된 결과를 비교할 수 없고 파이프라인 원격 검증·적용이 별도로 필요하다. 또 C안과 달리 인프라 로그는 Datadog 쪽에서만 계속 볼 수 있다. dev 분량의 목록 가격 비용은 §1.3 수준이라 비교 검증 기간의 중복 비용이 작다. 검증 뒤 Kafka·Business 두 서비스(약 91%)만 Datadog에서 제외하는 D로 줄이는 판단은 그때 §1.1 수치를 다시 조회해서 한다. prod는 이 추천에 포함하지 않는다.
 
 재영님이 정할 질문:
 1. dev 로그를 Datadog에도 계속 보낼 것인가(Agent 재가동 시점 포함)? 현재 중지 상태를 유지할 것인가?
