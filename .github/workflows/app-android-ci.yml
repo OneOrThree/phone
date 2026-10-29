@@ -17,7 +17,7 @@ name: Android CI
 # - 앱 com.oneorthree.gromo, 서버 dev(https://oneorthree.dev.mooo.com). 운영 아님.
 # - GROMO_ANDROID_AUDIENCE=dev 로 build.gradle 의 dev 가드 탐. 수동 운영 빌드는 이 값 없음 → 기존 가드 그대로.
 # - OTA 끈 채 빌드. build.gradle 이 GROMO_ANDROID_AUDIENCE=dev 를 보고 매니페스트에서 끔. OTA 채널이 production 이라
-#   켜 두면 운영 OTA 받아 운영 API JS 로 바뀜 (2026-10-07 팀 결정을 GROMO-2368 에서 바꿈). PostHog 는 켠 채.
+#   켜 두면 운영 OTA 받아 운영 API JS 로 바뀜 (2026-10-07 팀 결정을 GROMO-2368 에서 바꿈). PostHog 수집도 끈다.
 
 on:
   pull_request:
@@ -183,6 +183,11 @@ jobs:
       GROMO_ANDROID_AUDIENCE: dev
       EXPO_PUBLIC_API_URL: https://oneorthree.dev.mooo.com
       EXPO_PUBLIC_ENV: dev
+      EXPO_PUBLIC_IMAGE_ASSETS_ENABLED: ${{ vars.IMAGE_ASSETS_DEV_ENABLED || 'false' }}
+      EXPO_PUBLIC_IMAGE_ASSETS_URL: ${{ vars.IMAGE_ASSETS_DEV_URL || '' }}
+      EXPO_PUBLIC_IMAGE_ASSETS_ENV: dev
+      # iOS dev TestFlight와 동일하게 빈 토큰을 인라인해 SDK 초기화를 막는다. PR 빌드에도 적용한다.
+      EXPO_PUBLIC_POSTHOG_PROJECT_TOKEN: ""
       # 앱에 포함되는 공개 SDK 토큰. API·서명 키와 달리 AWS 권한 없는 빌드 잡에서 사용한다.
       AIRBRIDGE_APP_TOKEN: ${{ vars.AIRBRIDGE_APP_TOKEN }}
     steps:
@@ -202,7 +207,7 @@ jobs:
           [ -n "$PROJECT_TOKEN" ] && [ -n "$SDK_HOST" ] && [ -n "$CLI_HOST" ] \
             || { echo "::error::PostHog SDK 공개 설정을 전달받지 못했습니다"; exit 1; }
           {
-            echo "EXPO_PUBLIC_POSTHOG_PROJECT_TOKEN=$PROJECT_TOKEN"
+            echo "EXPO_PUBLIC_POSTHOG_PROJECT_TOKEN="
             echo "EXPO_PUBLIC_POSTHOG_HOST=$SDK_HOST"
             echo "POSTHOG_CLI_HOST=$CLI_HOST"
           } >> "$GITHUB_ENV"

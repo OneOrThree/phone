@@ -62,10 +62,13 @@ afterEach(() => {
 test('차단 적용 응답이 늦어도 휴식·종료 해제가 마지막에 실행된다', async () => {
   const { shield, focusShield } = setup();
   const pending = deferred();
-  shield.startFocusShield.mockReturnValueOnce(pending.promise);
+  const applying = deferred();
+  shield.startFocusShield.mockImplementationOnce(() => {
+    applying.resolve(true);
+    return pending.promise;
+  });
   const start = focusShield.syncFocusShield(focus, 'calico');
-  await Promise.resolve();
-  await Promise.resolve();
+  await applying.promise;
   const resume = focusShield.syncFocusShield(focus);
   const end = focusShield.syncFocusShield(null);
   pending.resolve(true);
@@ -140,6 +143,10 @@ test('iOS는 서버에서 확인한 과목으로만 차단하고 조회 실패 �
   await expect(focusShield.syncFocusShield(focus, 'calico', true)).rejects.toThrow('OFFLINE');
   expect(shield.startFocusShield).toHaveBeenCalledTimes(1);
   expect(shield.stopFocusShield).toHaveBeenCalledTimes(1);
+  current.mockResolvedValue({ status: 'active', subject: '복구한 집중' });
+  await expect(focusShield.syncFocusShield(focus, 'calico', true)).resolves.toBe(true);
+  expect(shield.startFocusShield).toHaveBeenLastCalledWith('복구한 집중', 'calico');
+  expect(shield.startFocusShield).toHaveBeenCalledTimes(2);
 });
 test('iOS 서버 확인 중 계정이 바뀌면 이전 응답으로 차단하지 않는다', async () => {
   const { shield, current, focusShield, auth } = setup();
@@ -167,4 +174,68 @@ test('권한 조회가 실패하면 차단 실패를 알리지 않는다', async
   const { focusShield, shield } = setup();
   shield.getAuthorizationStatus.mockRejectedValue(new Error('native'));
   await expect(focusShield.shouldReportShieldFailure()).resolves.toBe(false);
+});
+
+test.each([null, { ...focus, status: 'paused' as const, version: 2 }])(
+  '서버 조회 중에도 휴식·종료(%s)는 차단을 즉시 해제하고 늦은 활성 응답을 버린다',
+  async (next) => {
+    const { shield, current, focusShield } = setup();
+    const reading = deferred();
+    const pending = deferred();
+    current.mockImplementationOnce(async () => {
+      reading.resolve(true);
+      await pending.promise;
+      return { status: 'active', subject: '오래된 집중' };
+    });
+    const start = focusShield.syncFocusShield(focus, 'black', true);
+    await reading.promise;
+    await focusShield.syncFocusShield(next, 'black', true);
+    expect(shield.stopFocusShield).toHaveBeenCalledTimes(1);
+    expect(shield.startFocusShield).not.toHaveBeenCalled();
+    pending.resolve(true);
+    await start;
+    expect(shield.startFocusShield).not.toHaveBeenCalled();
+  },
+);
+
+test.each([null, { ...focus, status: 'paused' as const, version: 2 }])(
+  '휴식·종료(%s)는 자기 서버 재조회 응답보다 먼저 차단을 해제한다',
+  async (next) => {
+    const { shield, current, focusShield } = setup();
+    const reading = deferred();
+    const pending = deferred();
+    current.mockImplementationOnce(async () => {
+      reading.resolve(true);
+      await pending.promise;
+      return null;
+    });
+    const syncing = focusShield.syncFocusShield(next, 'black', true);
+    await reading.promise;
+    expect(shield.stopFocusShield).toHaveBeenCalledTimes(1);
+    pending.resolve(true);
+    await syncing;
+  },
+);
+
+test.each(['denied', 'notDetermined', 'unavailable'])(
+  '권한=%s이면 기존 차단을 해제하고 서버 조회와 차단 적용을 생략한다',
+  async (status) => {
+    const { shield, current, focusShield } = setup();
+    shield.getAuthorizationStatus.mockResolvedValue(status);
+    await expect(focusShield.syncFocusShield(focus, 'black', true)).resolves.toBe(true);
+    expect(shield.stopFocusShield).toHaveBeenCalledTimes(1);
+    expect(shield.startFocusShield).not.toHaveBeenCalled();
+    expect(current).not.toHaveBeenCalled();
+  },
+);
+
+test('화면 정리 뒤 늦게 온 서버 응답은 차단을 다시 적용하지 않는다', async () => {
+  const { shield, current, focusShield } = setup();
+  let active = true;
+  current.mockImplementationOnce(async () => {
+    active = false;
+    return { status: 'active', subject: '종료된 화면' };
+  });
+  await focusShield.syncFocusShield(focus, 'black', true, () => active);
+  expect(shield.startFocusShield).not.toHaveBeenCalled();
 });

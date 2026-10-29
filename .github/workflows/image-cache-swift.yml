@@ -1,0 +1,26 @@
+name: 이미지 캐시 Swift 검사
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "app/app-dev/modules/catus-asset-cache/**"
+      - ".github/workflows/image-cache-swift.yml"
+  push:
+    branches: [main]
+    paths:
+      - "app/app-dev/modules/catus-asset-cache/**"
+      - ".github/workflows/image-cache-swift.yml"
+permissions:
+  contents: read
+jobs:
+  core:
+    runs-on: macos-15
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: 실제 수신·저장 구현 회귀 검사
+        working-directory: app/app-dev/modules/catus-asset-cache
+        run: |
+          mkdir -p tests/.build
+          swiftc ios/AssetCacheStore.swift tests/AssetCacheStoreTests.swift -o tests/.build/swift-tests
+          tests/.build/swift-tests tests/.build

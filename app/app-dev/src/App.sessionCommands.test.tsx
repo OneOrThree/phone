@@ -2865,7 +2865,15 @@ test('소속 섬이 없는 계정이 바다에서 연 친구·설정·꾸미기�
     captured.dispatch(islandSync(null, null));
     captured.reset('sea');
   });
-  for (const route of ['friends', 'settings', 'wardrobe', 'profile', 'blockedUsers']) {
+  for (const route of [
+    'friends',
+    'settings',
+    'wardrobe',
+    'profile',
+    'blockedUsers',
+    'developerNotices',
+    'developerNotice',
+  ]) {
     await act(async () => {
       captured.go(route);
       await new Promise((done) => setTimeout(done, 50));

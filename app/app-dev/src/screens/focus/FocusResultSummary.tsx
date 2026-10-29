@@ -1,3 +1,4 @@
+import { customizationTitle } from '@/i18n/customization';
 import React, { useEffect } from 'react';
 import { Image, StyleSheet, View, useWindowDimensions } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
@@ -34,6 +35,7 @@ export function FocusResultSummary({
   const largeText = useWindowDimensions().fontScale > semanticTokens.typography.largeTextThreshold;
   const catalog = useCustomizationCatalog();
   const item = rewardId ? catalog[rewardId] : undefined;
+  const itemTitle = item ? customizationTitle(item.productId, item.title) : undefined;
   useEffect(() => {
     if (recordId && rewardId && rewardNew) addUnseenOutfits(recordId, [rewardId]);
   }, [recordId, rewardId, rewardNew]);
@@ -69,11 +71,7 @@ export function FocusResultSummary({
         <View
           testID="focus-result-item"
           accessible
-          accessibilityLabel={[
-            t('common.caughtItem'),
-            item.title,
-            rewardNew && t('common.newBadge'),
-          ]
+          accessibilityLabel={[t('common.caughtItem'), itemTitle, rewardNew && t('common.newBadge')]
             .filter(Boolean)
             .join(' ')}
           style={styles.item}
@@ -81,7 +79,7 @@ export function FocusResultSummary({
           <Text style={styles.label}>{t('common.caughtItem')}</Text>
           <View style={styles.itemRow}>
             <OutfitItemArt entry={item} size={token.itemSize} />
-            <Text style={styles.itemTitle}>{item.title}</Text>
+            <Text style={styles.itemTitle}>{itemTitle}</Text>
             {rewardNew && (
               <Badge small style={styles.newBadge}>
                 {t('common.newBadge')}

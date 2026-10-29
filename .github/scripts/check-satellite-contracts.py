@@ -43,10 +43,11 @@ seed = '\n'.join(path.read_text() for path in sorted(
         key=lambda path: int(path.name.split('__', 1)[0][1:])))
 consumers = set(re.findall(r"INSERT INTO kinds\([^\n]+VALUES\('([^']+)'", seed))
 require(producer == {'FRIEND_REQUEST', 'FRIEND_ACCEPTED', 'MAIN_ISLAND_TRANSFERRED',
-                      'MAGAZINE_PUBLISHED', 'ISLAND_KICKED'},
+                      'MAGAZINE_PUBLISHED', 'ISLAND_KICKED', 'ADMIN_ANNOUNCEMENT'},
         f'현재 제품 알림 종류 불일치: {producer}')
 require(producer <= consumers, f'현재 알림 카탈로그 수신 누락: {producer-consumers}')
-for kind in producer:
+# 운영 공지는 검토한 문구를 직접 고정하므로 템플릿을 사용하지 않는다.
+for kind in producer - {'ADMIN_ANNOUNCEMENT'}:
     for locale in ['ko', 'en', 'ja', 'zh-Hant']:
         require(f"'{kind}.{locale}','{kind}','{locale}'" in seed,
                 f'{kind}/{locale}: 템플릿 시드 없음')
@@ -182,4 +183,4 @@ require(not list((ROOT / 'server/data-api/src/main/java/com/oneorthree/phone/not
 if errors:
     print('\n'.join(errors), file=sys.stderr)
     raise SystemExit(1)
-print(f'A22 위성 계약 검사 통과: producer {len(producer)}종 · template {len(producer)*4}개')
+print(f'A22 위성 계약 검사 통과: producer {len(producer)}종 · template {(len(producer)-1)*4}개')

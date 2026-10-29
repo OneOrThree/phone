@@ -45,6 +45,9 @@ public class InternalApiProperties {
         /** 이 호출자에게만 발급한 서비스 토큰. */
         private String token;
 
+        /** 관리 자격에 결박된 행위자. 일반 서비스에는 지정하지 않는다. */
+        private String consoleActor;
+
         /**
          * 허용 조합 — {@code "METHOD /internal/…"} 형식. 경로는 Ant 패턴({@code *} · {@code **})이다.
          *
@@ -83,6 +86,10 @@ public class InternalApiProperties {
                 return;
             }
             requireResolvedSecret("internal.api.callers." + name + ".token", caller.getToken());
+            if (caller.getConsoleActor() != null
+                    && !caller.getConsoleActor().matches("member-[1-3]")) {
+                throw new IllegalStateException("관리 행위자는 member-1~3 중 하나여야 합니다.");
+            }
             if (caller.getAllow() == null || caller.getAllow().isEmpty()) {
                 throw new IllegalStateException(
                         "internal.api.callers." + name + ".allow 가 비었습니다 — 허용목록 없는 자격은 만들지 않습니다.");
