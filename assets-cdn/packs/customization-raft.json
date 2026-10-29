@@ -1,0 +1,7 @@
+{
+  "packId": "customization-raft",
+  "files": {
+    "isometric-2ee6df4a": "server/static/customization/raft/isometric.2ee6df4a.png",
+    "side-fa9f24ea": "server/static/customization/raft/side.fa9f24ea.png"
+  }
+}

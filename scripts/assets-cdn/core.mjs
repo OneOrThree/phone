@@ -48,6 +48,19 @@ export function png(bytes) {
     throw Error("PNG 해상도 초과");
   return { width, height };
 }
+export function assetFile(bytes, extension) {
+  if (extension === ".png")
+    return { mediaType: "image/png", ...png(bytes) };
+  if (extension === ".json") {
+    if (bytes.length < 2 || bytes.length > limits.file)
+      throw Error("JSON 크기 초과");
+    const parsed = JSON.parse(bytes.toString("utf8"));
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+      throw Error("잘못된 JSON");
+    return { mediaType: "application/json" };
+  }
+  throw Error("지원하지 않는 에셋 형식");
+}
 export function validateManifest(m) {
   if (m?.schemaVersion !== 1 || m.assetApiVersion !== 1)
     throw Error("호환되지 않는 manifest");
@@ -67,20 +80,27 @@ export function validateManifest(m) {
     let size = 0;
     for (const [assetId, f] of files) {
       token(assetId);
+      const extension = f.mediaType === "image/png" ? "png" :
+        f.mediaType === "application/json" ? "json" : null;
+      const hashedPath = f.path === `assets/${f.sha256}.${extension}`;
+      const staticPath = typeof f.sha256 === "string" && extension && new RegExp(
+        `^static/customization/(decor|head|neck|shoes|raft|rigs)/[A-Za-z0-9_-]+\\.${f.sha256.slice(0, 8)}\\.${extension}$`,
+      ).test(f.path);
       if (
+        !extension ||
         !/^[a-f0-9]{64}$/.test(f.sha256) ||
-        f.path !== `assets/${f.sha256}.png` ||
-        f.mediaType !== "image/png" ||
+        (!hashedPath && !staticPath) ||
         !Number.isSafeInteger(f.bytes) ||
-        f.bytes < 33 ||
+        f.bytes < (extension === "png" ? 33 : 2) ||
         f.bytes > limits.file ||
-        !Number.isSafeInteger(f.width) ||
-        !Number.isSafeInteger(f.height) ||
-        f.width < 1 ||
-        f.height < 1 ||
-        f.width > 4096 ||
-        f.height > 4096 ||
-        f.width * f.height > 16777216
+        (extension === "png" && (
+          !Number.isSafeInteger(f.width) ||
+          !Number.isSafeInteger(f.height) ||
+          f.width < 1 || f.height < 1 ||
+          f.width > 4096 || f.height > 4096 ||
+          f.width * f.height > 16777216
+        )) ||
+        (extension === "json" && (f.width !== undefined || f.height !== undefined))
       )
         throw Error("잘못된 파일");
       size += f.bytes;
