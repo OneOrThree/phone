@@ -215,6 +215,24 @@
         },
         "options": [
           {
+        "type": "textbox",
+        "name": "attempt",
+        "label": "④ notification attempt (③ 표에서 클릭)",
+        "query": "",
+        "current": {
+          "text": "",
+          "value": ""
+        },
+        "options": [
+          {
+            "selected": true,
+            "text": "",
+            "value": ""
+          }
+        ],
+        "hide": 0
+      },
+      {
             "selected": true,
             "text": "",
             "value": ""
@@ -515,7 +533,7 @@
                 "value": [
                   {
                     "title": "이 operation 의 결과 보기 (④)",
-                    "url": "/d/log-investigation/?orgId=1&${__url_time_range}&${env:queryparam}&${service:queryparam}&${level:queryparam}&${request_id:queryparam}&${origin:queryparam}&${event_id:queryparam}&${message_id:queryparam}&${dd_site:queryparam}&var-operation_id=${__value.raw}&var-delivery_id=${__data.fields.delivery_id}"
+                    "url": "/d/log-investigation/?orgId=1&${__url_time_range}&${env:queryparam}&${service:queryparam}&${level:queryparam}&${request_id:queryparam}&${origin:queryparam}&${event_id:queryparam}&${message_id:queryparam}&${dd_site:queryparam}&var-operation_id=${__value.raw}&var-delivery_id=${__data.fields.delivery_id}&var-attempt=${__data.fields.attempt}"
                   }
                 ]
               }
@@ -683,7 +701,7 @@
                 "value": [
                   {
                     "title": "이 operation 의 결과 보기 (④)",
-                    "url": "/d/log-investigation/?orgId=1&${__url_time_range}&${env:queryparam}&${service:queryparam}&${level:queryparam}&${request_id:queryparam}&${origin:queryparam}&${event_id:queryparam}&${message_id:queryparam}&${dd_site:queryparam}&var-operation_id=${__value.raw}&var-delivery_id=${__data.fields.delivery_id}"
+                    "url": "/d/log-investigation/?orgId=1&${__url_time_range}&${env:queryparam}&${service:queryparam}&${level:queryparam}&${request_id:queryparam}&${origin:queryparam}&${event_id:queryparam}&${message_id:queryparam}&${dd_site:queryparam}&var-operation_id=${__value.raw}&var-delivery_id=${__data.fields.delivery_id}&var-attempt=${__data.fields.attempt}"
                   }
                 ]
               }
@@ -719,7 +737,7 @@
       "id": 6,
       "type": "table",
       "title": "④ $operation_id 의 결과",
-      "description": "operation_id 가 같은 줄(모든 구성원의 operation.link·transport.result·FCM 오류) + 클릭한 delivery_id 의 dispatch.settle. settle 에는 operation_id 가 없어 delivery_id 로 찾는다.",
+      "description": "operation_id 가 같은 줄(모든 구성원의 operation.link·transport.result·FCM 오류) + 클릭한 (delivery_id, attempt) 의 dispatch.settle. settle 에는 operation_id 가 없어 delivery_id 로 찾고, 같은 delivery 의 재시도 settle 이 섞이지 않게 attempt 로 좁힌다.",
       "datasource": {
         "type": "loki",
         "uid": "loki"
@@ -737,7 +755,7 @@
             "type": "loki",
             "uid": "loki"
           },
-          "expr": "{env=~\"$env\", service=\"notification\"} | json | (operation_id!=\"\" and operation_id=\"$operation_id\") or (event_name=\"dispatch.settle\" and delivery_id!=\"\" and delivery_id=\"$delivery_id\")",
+          "expr": "{env=~\"$env\", service=\"notification\"} | json | (operation_id!=\"\" and operation_id=\"$operation_id\") or (event_name=\"dispatch.settle\" and delivery_id!=\"\" and delivery_id=\"$delivery_id\" and attempt!=\"\" and attempt=\"$attempt\")",
           "queryType": "range",
           "maxLines": 1000
         }
@@ -890,7 +908,7 @@
             "type": "loki",
             "uid": "loki"
           },
-          "expr": "sum(count_over_time({env=~\"$env\", service=\"notification\"} | json | (operation_id!=\"\" and operation_id=\"$operation_id\") or (event_name=\"dispatch.settle\" and delivery_id!=\"\" and delivery_id=\"$delivery_id\") | keep service [$__range]))",
+          "expr": "sum(count_over_time({env=~\"$env\", service=\"notification\"} | json | (operation_id!=\"\" and operation_id=\"$operation_id\") or (event_name=\"dispatch.settle\" and delivery_id!=\"\" and delivery_id=\"$delivery_id\" and attempt!=\"\" and attempt=\"$attempt\") | keep service [$__range]))",
           "queryType": "instant"
         }
       ],

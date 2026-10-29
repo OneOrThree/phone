@@ -19,14 +19,14 @@
 | ① | 일반 로그 | 서비스·시간·level로 거른 로그. 옆 패널은 범위 안 줄 수다 |
 | ② | 원인 키로 찾은 로그(표) | `request_id`는 `request_id`와 `origin_request_id`를, `origin`은 `origin_trace_id`·`dd_trace_id`·`trace_id`를 찾는다. `event_id`와 `message_id`는 같은 이름의 필드를 찾는다. 결과는 시간순 표로 보인다 |
 | ③ | operation 목록(표) | ②의 원인 키로 걸러진 `operation.link`에서 `operation_id`·Notification `delivery_id`를 뽑는다. 행의 `operation_id`를 누르면 ④의 변수가 채워진다 |
-| ④ | operation 결과(표) | 같은 `operation_id`의 모든 구성원 연결 로그, `transport.result`, FCM 오류 로그에 클릭한 `delivery_id`의 `dispatch.settle`을 더한다. Notification 코드는 `dispatch.settle`에 `operation_id`를 남기지 않아서 `delivery_id`로 찾는다 |
+| ④ | operation 결과(표) | 같은 `operation_id`의 모든 구성원 연결 로그, `transport.result`, FCM 오류 로그에 클릭한 `(delivery_id, attempt)`의 `dispatch.settle`을 더한다. Notification 코드는 `dispatch.settle`에 `operation_id`를 남기지 않아서 `delivery_id`로 찾는다. 재시도는 `delivery_id`를 유지하고 `attempt`·`operation_id`만 바뀌므로, `attempt`로 좁히지 않으면 실패한 시도를 눌러도 뒤 성공 결과가 함께 보인다 |
 | ⑤ | 상한 안내·서비스별 분할 | 아래 2절 |
 
 ②·④ 표의 열 링크:
 
 - `dd_trace_id`를 누르면 `https://$dd_site/apm/trace/<값>`(Datadog APM)이 열린다. 사이트 호스트는 변수 `dd_site`(기본 `us5.datadoghq.com`, 저장소의 `DD_SITE` 기본값)로 정한다. 조직 값은 넣지 않았다. trace ID가 10진이면 상위 64비트를 잃었을 수 있다([README §4](README.md#4-이벤트-스키마와-연결-규칙)). 이때 APM에서 찾지 못할 수 있다.
 - `Time`을 누르면 `gromo-overview`가 그 줄의 시각을 중심으로 10분 범위로 열린다(`time`·`time.window` URL 인자). 대시보드 상단 링크 «Prometheus 지표»는 지금 시간 범위를 그대로 가져간다.
-- `operation_id`(②·③)를 누르면 ④가 그 operation으로 채워진다. 다른 변수와 시간 범위는 유지된다.
+- `operation_id`(②·③)를 누르면 ④가 그 operation으로 채워진다(`delivery_id`·`attempt`도 함께). 다른 변수와 시간 범위는 유지된다.
 
 Loki는 같은 `log_id`의 수집 사본을 지우지 않는다. 표에 같은 `log_id`가 두 줄 보이면 재전송 사본이다. 같은 `event_id`의 다른 단계·재시도는 `log_id`가 서로 다른 별개 로그다.
 
@@ -107,6 +107,7 @@ raw 줄(`parse_error=true`)에는 `timestamp`가 없다. 질의는 `observed_at`
 | Loki ① `service=data-api` / `level=ERROR` | 612줄(bulk 600 포함) / 1줄 |
 | Loki ③ `req-r1` / `req-r2` / `evt-e3` | `(op-1, nt-del-1)` / `(op-1, nt-del-2)` / `(op-2, nt-del-3)` |
 | Loki ④ `op-1` + `nt-del-1` / + `nt-del-2` | 5줄씩(두 구성원 연결·transport.result·FCM 오류 + 그 구성원의 settle) |
+| Loki ④ `op-3` + `nt-del-1` + `attempt 2` (같은 delivery 재시도) | 3줄(연결·transport.result·attempt 2 의 settle). attempt 1 의 settle 은 섞이지 않는다. `attempt` 를 비우면 settle 은 나오지 않는다 |
 | 상한: 같은 시각 1200줄 | 표 1000줄, 줄 수 패널 1200(빨강 기준 1000). 1ms 창으로 좁혀도 1000줄. 서비스별 분할 data-api 600·notification 600 |
 | Grafana | 대시보드 4개 로드. `/api/ds/query` ② R1 10줄. 프레임 필드 `labels, Time, Line, tsNs, labelTypes, id` |
 | Trino 테이블 | 데이터 열 37, 파티션 6, 행 1230 |

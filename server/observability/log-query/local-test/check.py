@@ -130,7 +130,7 @@ def panels_by_id(dash):
 
 
 DEFAULT_VARS = {"env": "dev", "service": ".+", "level": ".*", "request_id": "", "origin": "", "event_id": "", "message_id": "",
-                "operation_id": "", "delivery_id": "", "dd_site": "us5.datadoghq.com"}
+                "operation_id": "", "delivery_id": "", "attempt": "", "dd_site": "us5.datadoghq.com"}
 
 
 def interpolate(expr, values, range_s):
@@ -183,7 +183,7 @@ def check_loki(dash, expected, loki):
 
     link_expr = target_of(panels[PANEL["links"]])["expr"]
     for case in expected["links"]:
-        got = sorted([r["metric"].get("operation_id"), r["metric"].get("delivery_id")]
+        got = sorted([r["metric"].get("operation_id"), r["metric"].get("delivery_id"), r["metric"].get("attempt")]
                      for r in loki.instant(interpolate(link_expr, case["vars"], loki.range_s)))
         check(got == sorted(case["operations"]), f"Loki {case['name']}", f"got={got}")
 
@@ -225,6 +225,7 @@ def check_links(dash):
     for pid in (PANEL["cause"], PANEL["links"]):
         (url,) = links[(pid, "operation_id")]
         check("var-operation_id=${__value.raw}" in url and "var-delivery_id=${__data.fields.delivery_id}" in url
+              and "var-attempt=${__data.fields.attempt}" in url
               and url.startswith("/d/" + dash["uid"] + "/"), f"패널 {pid} operation_id 클릭 → ④ 변수 설정 링크")
     for pid in (PANEL["cause"], PANEL["operation"]):
         (dd,) = links[(pid, "dd_trace_id")]
