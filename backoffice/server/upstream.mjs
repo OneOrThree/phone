@@ -1,3 +1,4 @@
+import { policyRequest } from "./construction.mjs";
 import { randomUUID, createHash } from "node:crypto";
 import { Failure } from "./store.mjs";
 export class Upstream {
@@ -123,7 +124,18 @@ export class Upstream {
       "GET",
     );
   }
+  async constructionPolicy(actor, operator) {
+    await this.verifyEnvironment(this.environment, actor, operator);
+    return this.request(this.dataUrl, "/internal/admin/content/construction-policy",
+      actor, operator.dataToken, undefined, "GET");
+  }
   async publish(item, actor, operator) {
+    if (item.kind === "construction") {
+      if (this.mode === "local") throw new Failure(503, "로컬 정책 저장소가 필요합니다.");
+      await this.verifyEnvironment(this.environment, actor, operator);
+      return this.request(this.dataUrl, `/internal/admin/content/construction-policy/${item.publicationId}`,
+        actor, operator.dataToken, policyRequest(item), "PUT");
+    }
     if (this.mode === "local")
       return {
         publicationId: item.publicationId,

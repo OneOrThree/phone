@@ -229,3 +229,34 @@ test("정적 루트 제공과 경로 이탈 거부", async (t) => {
   assert.match(await root.text(), /콘텐츠/);
   assert.equal((await fetch(base + "/%2e%2e%2fsecret")).status, 404);
 });
+
+test("건설 정책 조회·CSRF·승인 적용은 로컬 정책을 한 번만 전환한다", async t => {
+  const { base, origin } = await setup(t);
+  assert.equal((await fetch(base + "/api/construction/policy")).status, 401);
+  let headers = { "Content-Type": "application/json", Origin: origin };
+  const post = (path, body, override = headers) => fetch(base + path,
+    { method: "POST", headers: override, body: JSON.stringify(body) });
+  const login = await post("/api/login", { actor: "member-1", password });
+  headers.Cookie = login.headers.get("set-cookie").split(";")[0];
+  headers["X-CSRF-Token"] = (await login.json()).csrfToken;
+  const policy = await (await fetch(base + "/api/construction/policy", { headers })).json();
+  const input = { kind: "construction", title: "건설 정책 변경", data: { construction: {
+    snapshotId: policy.snapshotId, digest: policy.digest,
+    items: policy.items.map(row => ({ buildingId: row.buildingId, cost: row.cost + 10, buildSeconds: 0 })),
+  } } };
+  assert.equal((await post("/api/items", input, { ...headers, "X-CSRF-Token": "wrong" })).status, 403);
+  let item = await (await post("/api/items", input)).json();
+  assert.equal((await post(`/api/items/${item.id}/publish`, { revision: item.revision })).status, 409);
+  for (const action of ["review", "approve", "publish"]) {
+    const response = await post(`/api/items/${item.id}/${action}`, { revision: item.revision });
+    assert.equal(response.status, 200);
+    item = await response.json();
+  }
+  assert.equal(item.status, "published");
+  assert.equal(item.receipt.local, true);
+  assert.equal(item.receipt.costPolicyVersion, 2);
+  const current = await (await fetch(base + "/api/construction/policy", { headers })).json();
+  assert.equal(current.items[0].cost, 70);
+  assert.equal(current.items[0].buildSeconds, 0);
+  assert.equal((await post(`/api/items/${item.id}/publish`, { revision: item.revision })).status, 409);
+});

@@ -42,6 +42,8 @@ internal:
         allow:
           - 'GET /internal/admin/content/notices'
           - 'GET /internal/admin/content/environment'
+          - 'GET /internal/admin/content/construction-policy'
+          - 'PUT /internal/admin/content/construction-policy/*'
           - 'PUT /internal/admin/content/notices/*'
           - 'POST /internal/admin/content/magazine/previews'
           - 'POST /internal/admin/content/magazine/publications/*'
@@ -52,6 +54,8 @@ internal:
         allow:
           - 'GET /internal/admin/content/notices'
           - 'GET /internal/admin/content/environment'
+          - 'GET /internal/admin/content/construction-policy'
+          - 'PUT /internal/admin/content/construction-policy/*'
           - 'PUT /internal/admin/content/notices/*'
           - 'POST /internal/admin/content/magazine/previews'
           - 'POST /internal/admin/content/magazine/publications/*'
@@ -62,6 +66,8 @@ internal:
         allow:
           - 'GET /internal/admin/content/notices'
           - 'GET /internal/admin/content/environment'
+          - 'GET /internal/admin/content/construction-policy'
+          - 'PUT /internal/admin/content/construction-policy/*'
           - 'PUT /internal/admin/content/notices/*'
           - 'POST /internal/admin/content/magazine/previews'
           - 'POST /internal/admin/content/magazine/publications/*'
