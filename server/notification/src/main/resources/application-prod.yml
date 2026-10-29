@@ -25,3 +25,8 @@ notification:
 fcm:
   project-id: ${FCM_PROJECT_ID:}
   service-account-json: ${FCM_SERVICE_ACCOUNT_JSON:}
+logging:
+  # 관측 JSON(schema_version 1)은 콘솔(stdout)에만. ci·기본 프로파일은 사람이 읽는 텍스트 그대로.
+  structured:
+    format:
+      console: com.oneorthree.notification.logging.ObservationJsonProvider
