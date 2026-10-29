@@ -64,11 +64,40 @@ class DeploymentMigrationMainTest {
 
         DeploymentMigrationMain.configuration("legacy", environment).load().migrate();
 
-        assertThat(jdbc.queryForObject("SELECT count(*) FROM flyway_schema_history", Integer.class)).isEqualTo(126);
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM flyway_schema_history", Integer.class)).isEqualTo(127);
         assertThat(jdbc.queryForObject("SELECT version FROM flyway_schema_history ORDER BY installed_rank DESC LIMIT 1",
                 String.class)).isEqualTo("138");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM flyway_schema_history WHERE version='137.1'", Integer.class))
+                .isEqualTo(1);
         assertThat(jdbc.queryForObject("SELECT to_regclass('public.groups') IS NOT NULL", Boolean.class)).isTrue();
         assertThat(jdbc.queryForObject("SELECT count(*) FROM customization_reward_items", Integer.class)).isEqualTo(110);
+    }
+
+    @Test
+    void 백오피스_확장_이력을_보존해_전환한_뒤_실제_Flyway_validate와_재이행이_성공한다() throws Exception {
+        DeploymentMigrationMain.configuration("legacy", environment).target("137.1").load().migrate();
+        assertThat(DeploymentMigrationMain.configuration("legacy", environment).load().migrate().migrationsExecuted)
+                .isEqualTo(1);
+        jdbc.execute("INSERT INTO content_publications VALUES "
+                + "('10000000-0000-0000-0000-000000000001','NOTICE',repeat('a',64),"
+                + "'{\"status\":\"PUBLISHED\"}','member-1',now())");
+        String script = "import importlib.util; from pathlib import Path; "
+                + "p=Path('docs/db/rebase-v0.py'); s=importlib.util.spec_from_file_location('r',p); "
+                + "r=importlib.util.module_from_spec(s); s.loader.exec_module(r); "
+                + "m=r.extension_profile(r.load_manifest()); print(r.apply_sql(m,m['v0_checksum']))";
+        Process process = new ProcessBuilder("python3", "-c", script).redirectErrorStream(true).start();
+        String sql = new String(process.getInputStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+        assertThat(process.waitFor()).as(sql).isZero();
+        jdbc.execute(sql);
+
+        var current = DeploymentMigrationMain.configuration("current", environment).load();
+        current.validate();
+        assertThat(current.migrate().migrationsExecuted).isZero();
+        current.validate();
+        assertThat(jdbc.queryForList("SELECT version FROM flyway_schema_history ORDER BY installed_rank", String.class))
+                .containsExactly("0", "1", "2", "3", "4", "5", "6");
+        assertThat(jdbc.queryForObject("SELECT result->>'status' FROM content_publications", String.class))
+                .isEqualTo("PUBLISHED");
     }
 
     @Test
