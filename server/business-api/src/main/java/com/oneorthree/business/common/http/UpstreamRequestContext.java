@@ -1,6 +1,7 @@
 package com.oneorthree.business.common.http;
 
 import com.oneorthree.business.common.exception.UpstreamTimeoutException;
+import com.oneorthree.business.common.logging.RequestLogContext;
 import com.oneorthree.business.config.RequestEnvelopeFilter;
 import org.springframework.http.HttpMethod;
 import org.springframework.web.context.request.RequestAttributes;
@@ -107,7 +108,7 @@ public final class UpstreamRequestContext {
     <T> T within(Supplier<T> work) {
         UpstreamRequestContext previous = CURRENT.get();
         CURRENT.set(this);
-        try {
+        try (RequestLogContext ignored = RequestLogContext.open(requestId)) {
             checkActive();
             return work.get();
         } finally {

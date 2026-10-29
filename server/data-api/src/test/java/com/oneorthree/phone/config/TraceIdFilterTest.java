@@ -208,4 +208,50 @@ class TraceIdFilterTest {
 
         assertThat(MDC.getCopyOfContextMap()).isNullOrEmpty();
     }
+    @Test
+    void requestIdIsIndependentOfLegacyTraceId() throws Exception {
+        MockHttpServletRequest request = request();
+        request.addHeader("X-Trace-Id", "legacy-trace");
+        request.addHeader("X-Request-Id", "business-request");
+        run(request, (req, response) -> {
+            assertThat(MDC.get("trace_id")).isEqualTo("legacy-trace");
+            assertThat(MDC.get("request_id")).isEqualTo("business-request");
+        });
+        assertThat(MDC.get("request_id")).isNull();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"forged\nline", "request id", "a;b", "한글"})
+    void invalidRequestIdCannotEnterLogsEvenWithValidLegacyTrace(String id) throws Exception {
+        MockHttpServletRequest request = request();
+        request.addHeader("X-Trace-Id", "legacy-trace");
+        request.addHeader("X-Request-Id", id);
+        run(request, (req, response) -> {
+            assertThat(MDC.get("request_id")).matches("[a-f0-9-]{36}");
+            assertThat(MDC.get("trace_id")).isEqualTo("legacy-trace");
+        });
+    }
+
+    @Test
+    void exceptionRestoresOwnedKeysWithoutClearingTracerOrOtherContexts() {
+        MDC.put("trace_id", "outer-trace");
+        MDC.put("request_id", "outer-request");
+        MDC.put("user_id", "outer-user");
+        MDC.put("dd.trace_id", "12345");
+        MDC.put("dd.span_id", "67890");
+        assertThatThrownBy(() -> run(request(), (req, response) -> {
+            assertThat(MDC.get("user_id")).isNull();
+            assertThat(MDC.get("request_id")).isNotEqualTo("outer-request");
+            assertThat(MDC.get("dd.trace_id")).isEqualTo("12345");
+            MDC.put("foreign", "updated");
+            throw new ServletException("synthetic");
+        })).isInstanceOf(ServletException.class);
+        assertThat(MDC.get("trace_id")).isEqualTo("outer-trace");
+        assertThat(MDC.get("request_id")).isEqualTo("outer-request");
+        assertThat(MDC.get("user_id")).isEqualTo("outer-user");
+        assertThat(MDC.get("dd.trace_id")).isEqualTo("12345");
+        assertThat(MDC.get("dd.span_id")).isEqualTo("67890");
+        assertThat(MDC.get("foreign")).isEqualTo("updated");
+    }
+
 }

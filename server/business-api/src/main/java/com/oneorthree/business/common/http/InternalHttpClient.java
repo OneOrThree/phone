@@ -219,7 +219,8 @@ public class InternalHttpClient implements AutoCloseable {
         Future<T> future = null;
         try {
             context.checkActive();
-            future = workers.submit(() -> send(request, call, responseType, context, responseStatus));
+            future = workers.submit(() -> context.within(
+                    () -> send(request, call, responseType, context, responseStatus)));
             // enqueue 비용도 예산이다. 대기 시작 때 남은 시간을 다시 읽는다.
             nanos = Math.min(nanos, context.deadline().remaining().toNanos());
             T result = future.get(nanos, TimeUnit.NANOSECONDS);

@@ -17,6 +17,8 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.BufferedReader;
 import java.io.IOException;
+
+import com.oneorthree.business.common.logging.RequestLogContext;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
@@ -46,25 +48,27 @@ public class RequestEnvelopeFilter extends OncePerRequestFilter {
         request.setAttribute(STRICT_ERROR_CONTRACT, PublicApiRoutes.usesEnvelope(request));
         response.setHeader("X-Request-Id", requestId);
         response.setHeader("Cache-Control", "no-store");
-        if (request.getHeader(HEADER_USER_ID) != null) {
-            log.warn("외부 사용자 신원 헤더를 폐기했다");
-        }
-        try {
-            if (request.getContentLengthLong() > MAX_BODY) {
+        try (RequestLogContext ignored = RequestLogContext.open(requestId)) {
+            if (request.getHeader(HEADER_USER_ID) != null) {
+                log.warn("외부 사용자 신원 헤더를 폐기했다");
+            }
+            try {
+                if (request.getContentLengthLong() > MAX_BODY) {
+                    reject(request, response);
+                    return;
+                }
+                chain.doFilter(new LimitedBodyRequest(request), response);
+            } catch (IOException | ServletException error) {
+                if (!RequestBodyTooLargeException.causedBy(error) || response.isCommitted()) {
+                    throw error;
+                }
+                response.resetBuffer();
                 reject(request, response);
-                return;
+            } finally {
+                log.info("business_request request_id={} method={} status={} duration_ms={}", requestId,
+                        request.getMethod(), response.getStatus(),
+                        TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started));
             }
-            chain.doFilter(new LimitedBodyRequest(request), response);
-        } catch (IOException | ServletException error) {
-            if (!RequestBodyTooLargeException.causedBy(error) || response.isCommitted()) {
-                throw error;
-            }
-            response.resetBuffer();
-            reject(request, response);
-        } finally {
-            log.info("business_request request_id={} method={} status={} duration_ms={}", requestId,
-                    request.getMethod(), response.getStatus(),
-                    TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started));
         }
     }
 
