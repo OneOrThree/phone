@@ -1,7 +1,7 @@
 import { ConstructionEditor, ConstructionReview, proposalFrom, type PolicySnapshot } from './ConstructionPolicy';
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { ApiError, request } from './api';
-import type { ContentItem, ContentKind, ContentStatus, Draft, HistoryItem, HistoryPage, MagazineCard, MagazineSnapshot, Session } from './types';
+import type { ContentItem, ContentKind, ContentStatus, Draft, FcmCatalogPage, FcmTemplate, HistoryItem, HistoryPage, MagazineCard, MagazineSnapshot, Session } from './types';
 import { FocusPolicyPanel } from './FocusPolicyPanel';
 import { confirmEditorLeave } from './navigation';
 
@@ -112,6 +112,31 @@ function HistoryPanel({ kind }: { kind: ContentKind }) {
     {nextCursor && <button className="button secondary" disabled={loading} onClick={() => void load(nextCursor)}>이전 기록 더 보기</button>}
   </section>;
 }
+function FcmCatalogPanel() {
+  const [items, setItems] = useState<FcmTemplate[]>([]);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  async function load(cursor = '') {
+    setLoading(true); setError('');
+    try {
+      const page = await request<FcmCatalogPage>(`/api/fcm/catalog${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`);
+      setItems(previous => cursor ? [...previous, ...page.items.filter(item => !previous.some(loaded => loaded.id === item.id))] : page.items);
+      setNextCursor(page.nextCursor ?? null);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'FCM 알림 설정을 불러오지 못했습니다.');
+    } finally { setLoading(false); }
+  }
+  useEffect(() => { void load(); }, []);
+  return <section className="history-panel" aria-label="FCM 알림 설정">
+    <div className="section-heading"><div><h2>FCM 알림 설정</h2><p className="field-hint">Notification 서비스에 등록된 발송 문구입니다. 작성·검토 초안 및 실제 발송 이력과는 별개입니다.</p></div><button className="button secondary" disabled={loading} onClick={() => void load()}>새로고침</button></div>
+    {error && <p role="alert" className="error-message">{error}</p>}
+    <p className="list-caption">{items.length}개 알림 문구</p>
+    {items.length ? <ol className="history-list">{items.map(item => <li key={item.id}><details><summary><strong>{item.title || item.kind}</strong><span>{item.enabled ? '사용 중' : '사용 안 함'}</span><span>{item.locale} · v{item.version}</span></summary><div className="history-details"><dl className="snapshot-fields"><div><dt>알림 종류</dt><dd>{item.kind}</dd></div><div><dt>제목</dt><dd>{item.title || '없음'}</dd></div><div><dt>본문</dt><dd className="prewrap">{item.body}</dd></div></dl></div></details></li>)}</ol> : !loading && !error && <p className="list-empty">등록된 FCM 알림 문구가 없습니다.</p>}
+    {loading && <p role="status" className="list-loading">FCM 알림 설정을 불러오는 중…</p>}
+    {nextCursor && <button className="button secondary" disabled={loading} onClick={() => void load(nextCursor)}>알림 문구 더 보기</button>}
+  </section>;
+}
 function IslandSummary({ card }: { card: MagazineCard }) {
   return <div className="island-summary"><strong>{card.name}</strong><span>멤버 {card.memberCount}/{card.maxMembers}명 · 건물 {card.buildingCount}개</span><span>하루 평균 집중 {card.averageFocusMinutesPerDay === null ? '집계 전' : `${card.averageFocusMinutesPerDay}분`}</span></div>;
 }
@@ -182,7 +207,7 @@ export default function App() {
   const [channel, setChannel] = useState<ContentKind>('fcm');
   const [policyOpen, setPolicyOpen] = useState(false);
   const [policyDirty, setPolicyDirty] = useState(false);
-  const [view, setView] = useState<'workflow' | 'history'>('workflow');
+  const [view, setView] = useState<'workflow' | 'history' | 'catalog'>('catalog');
   const [items, setItems] = useState<ContentItem[]>([]);
   const [selected, setSelected] = useState<ContentItem | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -243,7 +268,7 @@ export default function App() {
     () => window.confirm('저장하지 않은 변경 내용이 있습니다. 변경을 버리고 이동할까요?')); }
   function changeChannel(next: ContentKind) {
     if (busy || !mayLeave()) return;
-    setChannel(next); if (next === 'construction') setView('workflow');
+    setChannel(next); setView(next === 'fcm' ? 'catalog' : 'workflow');
     setPolicyOpen(false); setPolicyDirty(false); setSelected(null); setDraft(null); setSearch(''); setFilter('all'); setError('');
   }
   function createDraft() {
@@ -318,8 +343,8 @@ export default function App() {
     <main className="workspace" id="workspace">{policyOpen ? <FocusPolicyPanel session={session} onDirtyChange={setPolicyDirty} onUnauthorized={() => handleError(new ApiError('로그인이 필요합니다.', 401))} /> : <><header className="workspace-header"><div><h1>{currentChannel.name}</h1><p>{currentChannel.description}</p></div><button className="button primary" onClick={createDraft} disabled={!!busy}><Icon name="plus" />새 초안</button></header>
       <div className="local-banner"><strong>{session.environment === 'local' ? '로컬 작업 공간' : session.environment === 'dev' ? '개발 환경 · dev' : '운영 환경 · prod'}</strong><span>{session.environment === 'local' ? '발송·게시는 로컬 기록으로만 처리됩니다.' : '검토와 발행은 이 환경의 Data·Notification에서만 처리됩니다.'}</span></div>
       {error && <div className="error-banner" role="alert"><span>{error}</span><button className="text-button" onClick={() => setError('')}>닫기</button></div>}
-      {channel !== 'construction' && <div className="view-switch" role="group" aria-label="작업과 운영 이력"><button className={view === 'workflow' ? 'active' : ''} aria-pressed={view === 'workflow'} onClick={() => { if (mayLeave()) setView('workflow'); }}>작성·검토</button><button className={view === 'history' ? 'active' : ''} aria-pressed={view === 'history'} onClick={() => { if (mayLeave()) setView('history'); }}>운영 이력</button></div>}
-      {view === 'history' && channel !== 'construction' ? <HistoryPanel key={channel} kind={channel} /> : <div className="workspace-grid"><section className="item-panel" aria-label={`${currentChannel.name} 목록`}>
+      {channel !== 'construction' && <div className="view-switch" role="group" aria-label="작업과 운영 이력">{channel === 'fcm' && <button className={view === 'catalog' ? 'active' : ''} aria-pressed={view === 'catalog'} onClick={() => { if (mayLeave()) setView('catalog'); }}>알림 설정</button>}<button className={view === 'workflow' ? 'active' : ''} aria-pressed={view === 'workflow'} onClick={() => { if (mayLeave()) setView('workflow'); }}>작성·검토</button><button className={view === 'history' ? 'active' : ''} aria-pressed={view === 'history'} onClick={() => { if (mayLeave()) setView('history'); }}>운영 이력</button></div>}
+      {view === 'catalog' && channel === 'fcm' ? <FcmCatalogPanel /> : view === 'history' && channel !== 'construction' ? <HistoryPanel key={channel} kind={channel} /> : <div className="workspace-grid"><section className="item-panel" aria-label={`${currentChannel.name} 목록`}>
         <div className="list-toolbar"><label className="search-label"><span className="sr-only">콘텐츠 검색</span><input type="search" placeholder="제목·본문 검색" value={search} onChange={event => setSearch(event.target.value)} /></label><label><span className="sr-only">상태 필터</span><select value={filter} onChange={event => setFilter(event.target.value)}><option value="all">모든 상태</option>{Object.entries(STATUS).map(([key, label]) => <option value={key} key={key}>{key === 'published' && channel === 'fcm' ? '발송 요청됨' : key === 'published' && channel === 'construction' ? '적용됨' : label}</option>)}</select></label></div>
         <div className="list-caption"><span>{filtered.length}개의 콘텐츠</span><button className="text-button" disabled={!!busy || listLoading} onClick={() => void perform('refresh', async () => { setItems((await request<{ items: ContentItem[] }>('/api/items')).items); })}>새로고침</button></div>
         {listLoading ? <div className="list-loading" role="status" aria-busy="true"><span>목록을 불러오는 중…</span>{[1, 2, 3].map(index => <div className="skeleton-row" key={index} />)}</div> : filtered.length ? <ul className="item-list">{filtered.map(item => <li key={item.id}><button className={`item-row ${selected?.id === item.id ? 'selected' : ''}`} aria-current={selected?.id === item.id ? 'true' : undefined} disabled={!!busy} onClick={() => { if (mayLeave()) void perform('select', async () => showItem(await request<ContentItem>(`/api/items/${encodeURIComponent(item.id)}`))); }}><div className="item-row-top"><Badge item={item} /><span>v{item.revision}</span></div><strong>{item.title}</strong><p>{item.body || (item.kind === 'magazine' ? `${item.issueDate} 발행` : '본문 없음')}</p><time dateTime={item.updatedAt}>{readableDate(item.updatedAt)}</time></button></li>)}</ul> : <div className="list-empty"><Icon name={currentChannel.icon} /><h2>{search || filter !== 'all' ? '조건에 맞는 콘텐츠가 없어요' : '아직 작성한 콘텐츠가 없어요'}</h2><p>{search || filter !== 'all' ? '검색어나 상태 필터를 바꿔보세요.' : '새 초안을 작성하고 검토를 시작하세요.'}</p>{!search && filter === 'all' && <button className="button secondary" onClick={createDraft} disabled={!!busy}>초안 작성</button>}</div>}
