@@ -35,6 +35,8 @@ rows = [
     E('2026/10/29 10:00:00 [error] 1#1: *16 connect() failed, client: 203.0.113.9, server: x, request: "GET /a HTTP/1.1", upstream: "http://svcuser:UPPASS777@10.0.0.1:8080/p?q=1", host: "h"'),
     E('2026/10/29 10:00:00 [error] 1#1: *17 connect() failed, client: 203.0.113.9, server: x, request: "GET /a HTTP/1.1", upstream: "http://svcuser:UPPASS888@10.0.0.1:8080/p'),
     E('2026/10/29 10:00:00 [error] 1#1: *18 no live upstreams while connecting to upstream, client: 203.0.113.9, server: x, request: "GET /a"x HTTP/1.1", upstream: "http://svcuser:UPPASS999@backend/p", host: "h"'),
+    E('2026/10/29 10:00:00 [error] 1#1: *20 connect() failed, client: 203.0.113.9, server: x, request: "GET /a HTTP/1.1", upstream: "http://svcuser:UPPASS111@backend.internal:8080/p", host: "h"'),
+    E('2026/10/29 10:00:00 [error] 1#1: *21 connect() failed, client: 203.0.113.9, server: x, request: "GET /a HTTP/1.1", upstream: "https://svcuser:UPPASS222@api.svc.cluster.local:443/p?q=1", host: "h"'),
     # ⑨ '/' 없는 토큰 — 한계 유지(런북 §4.1). 비밀 꼴 토큰은 남고, 호스트 이름(숫자 포함 20자 이상)은 가려지지 않아야 한다.
     E('2026/10/29 10:00:00 [error] 1#1: *19 client sent invalid header NOSLASHTOKEN1234567890abcdef, client: 203.0.113.9, server: x, host: "gromo-dev-app.asia-northeast3-a.c.oneorthree2.internal"'),
 ]
@@ -66,10 +68,13 @@ checks = [
      and 'request: "GET /api/x HTTP' in got[16]["message"] and "http://10.0.0.1:8080/p" in got[17]["message"] and '"/var/www/a" failed' in got[18]["message"]),
     ("⑦ 정상 인코딩 경로(%20·%2F·%253F) 유지", 'request: "GET /a%20b/c%2Fd%253F HTTP/1.1"' in got[21]["message"]),
     ("⑧ upstream userinfo(user:pass@) 잔존 없음, 호스트·경로 유지(닫힘·query·잘림·따옴표 안 URI 4형)",
-     not any(x in json.dumps(got[i]) for i in range(22, 26) for x in ("svcuser", "UPPASS")) and "http://:redacted@10.0.0.1:8080/p" in got[22]["message"]
-     and "http://:redacted@backend/p" in got[25]["message"]),
+     not any(x in json.dumps(got[i]) for i in range(22, 26) for x in ("svcuser", "UPPASS")) and "http://10.0.0.1:8080/p" in got[22]["message"]
+     and "http://backend/p" in got[25]["message"]),
+    ("⑧ 도메인 호스트(여러 단계)는 userinfo 만 지우고 호스트 원문 보존(이메일 규칙과 충돌 없음)",
+     not any(x in json.dumps(got[i]) for i in (26, 27) for x in ("svcuser", "UPPASS", "@")) and 'upstream: "http://backend.internal:8080/p"' in got[26]["message"]
+     and 'upstream: "https://api.svc.cluster.local:443/p"' in got[27]["message"]),
     ("⑨ '/' 없는 토큰은 한계 유지(비밀 꼴 토큰이 남는다) — 호스트 이름은 가려지지 않는다",
-     "NOSLASHTOKEN1234567890abcdef" in got[26]["message"] and "gromo-dev-app.asia-northeast3-a.c.oneorthree2.internal" in got[26]["message"]),
+     "NOSLASHTOKEN1234567890abcdef" in got[28]["message"] and "gromo-dev-app.asia-northeast3-a.c.oneorthree2.internal" in got[28]["message"]),
     ("③ combined 원본 시각 보존(+0900)", got[4]["timestamp"] == "2019-12-31T15:00:00.000Z"),
     ("③ combined 원본 시각 보존(-0500, 윤일)", got[5]["timestamp"] == "2024-03-01T04:59:59.000Z"),
 ]

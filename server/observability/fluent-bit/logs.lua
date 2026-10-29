@@ -188,9 +188,10 @@ end
 
 -- 줄 전체 백스톱: Nginx 는 요청 줄·헤더를 이스케이프 없이 error 로그에 쓰므로 따옴표 경계가 모호하다(`request: "GET /a"?q=S HTTP/1.1"`).
 -- 따옴표와 무관하게 공백으로 나뉜 각 토큰에서 ?·# 뒤를 지우고(토큰 끝의 닫는 `"`·`,` 는 남긴다), '/' 가 든 토큰은 경로 토큰 규칙을 적용한다(스킴://호스트는 건드리지 않는다).
--- upstream URL 의 userinfo(`user:pass@`)는 호스트 앞에서 지운다. base 는 `스킴://권한부` 라 마지막 '@' 까지가 userinfo 다.
+-- upstream URL 의 userinfo(`user:pass@`)는 '@' 째로 지운다. base 는 `스킴://권한부` 라 마지막 '@' 까지가 userinfo 다.
+-- '@' 를 남기면 뒤따르는 mask() 의 이메일 규칙이 도메인 호스트를 가리므로 표식 없이 지운다.
 local function redact_userinfo(base)
-  return (base:gsub("^(.-://).*@", "%1:redacted@"))
+  return (base:gsub("^(.-://).*@", "%1"))
 end
 local function backstop(text)
   return (text:gsub("%S+", function(tok)
