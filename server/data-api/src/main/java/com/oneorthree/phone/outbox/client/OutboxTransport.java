@@ -26,7 +26,8 @@ public interface OutboxTransport {
      *
      * @param delivery 보낼 전달 행 — payload·endpointKey 가 여기 있다
      * @param userId   봉투의 수신자. Kafka 키이자 HTTP 경로 자리표시자의 <b>유일한</b> 출처다
+     * @param carrier  이번 시도의 원인 문맥 — 본문이 아니라 헤더로만 싣는다(GROMO-2557)
      * @return 전달 결과
      */
-    OutboxTransportResult send(EventOutboxDelivery delivery, UUID userId);
+    OutboxTransportResult send(EventOutboxDelivery delivery, UUID userId, OutboxCarrier carrier);
 }

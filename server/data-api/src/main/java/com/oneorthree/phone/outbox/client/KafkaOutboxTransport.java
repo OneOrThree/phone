@@ -5,8 +5,11 @@ import com.oneorthree.phone.outbox.repository.domain.EventOutboxDelivery;
 import com.oneorthree.phone.outbox.repository.domain.OutboxTarget;
 import com.oneorthree.phone.outbox.support.OutboxEnvelopeCodec;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.kafka.clients.producer.ProducerRecord;
 import org.springframework.kafka.core.KafkaTemplate;
 
+import java.nio.charset.StandardCharsets;
+import java.util.Locale;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -52,10 +55,14 @@ public class KafkaOutboxTransport implements OutboxTransport {
     }
 
     @Override
-    public OutboxTransportResult send(EventOutboxDelivery delivery, UUID userId) {
+    public OutboxTransportResult send(EventOutboxDelivery delivery, UUID userId, OutboxCarrier carrier) {
         String value = OutboxEnvelopeCodec.toJson(delivery.getPayload());
+        // send(topic, key, value) 와 같은 레코드(파티션은 키 해시)에 원인 문맥 헤더만 더한다 — 값·키·토픽은 그대로다.
+        ProducerRecord<String, String> record = new ProducerRecord<>(topic, userId.toString(), value);
+        carrier.headers().forEach((name, header) -> record.headers()
+                .add(name.toLowerCase(Locale.ROOT), header.getBytes(StandardCharsets.UTF_8)));
         try {
-            kafkaTemplate.send(topic, userId.toString(), value)
+            kafkaTemplate.send(record)
                     .get(properties.getKafka().getSendTimeout().toMillis(), TimeUnit.MILLISECONDS);
             return OutboxTransportResult.success();
         } catch (InterruptedException e) {

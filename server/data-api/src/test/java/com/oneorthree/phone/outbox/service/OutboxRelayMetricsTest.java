@@ -1,6 +1,7 @@
 package com.oneorthree.phone.outbox.service;
 
 import com.oneorthree.phone.config.OutboxRelayProperties;
+import com.oneorthree.phone.outbox.client.OutboxCarrier;
 import com.oneorthree.phone.outbox.client.OutboxTransport;
 import com.oneorthree.phone.outbox.client.OutboxTransportResult;
 import com.oneorthree.phone.outbox.dto.AggregateRef;
@@ -91,7 +92,7 @@ class OutboxRelayMetricsTest {
             }
 
             @Override
-            public OutboxTransportResult send(EventOutboxDelivery delivery, UUID user) {
+            public OutboxTransportResult send(EventOutboxDelivery delivery, UUID user, OutboxCarrier carrier) {
                 return calls.incrementAndGet() == 1
                         ? OutboxTransportResult.success() : OutboxTransportResult.retry("broker down");
             }

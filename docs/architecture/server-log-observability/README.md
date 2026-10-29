@@ -23,7 +23,7 @@
 | [로그 적재](diagrams/05-ingestion.svg) | JSON 출력부터 Loki/S3 독립 저장까지 |
 | [장애 조사](diagrams/06-investigation.svg) | 검색에서 요청·사건·지표·과거 원본으로 이동 |
 | [Realtime 인스턴스 간 전달](diagrams/07-realtime.svg) | Redis Pub/Sub를 건너는 사건·채팅 문맥 |
-| [묶음 발송 연결](diagrams/08-bundled-send.svg) | 여러 원요청과 공통 외부 호출의 연결 |
+| [발송 시도 연결](diagrams/08-bundled-send.svg) | 원사건과 기기별 외부 호출(operation)의 연결. 그림은 설계 시점의 묶음 구조다(현재는 구성원 1개, 티켓 2421) |
 
 ## 1. 범위와 설계 결정
 
@@ -31,7 +31,7 @@
 | --- | --- |
 | 애플리케이션 | Business API·Data API·Notification·Realtime의 일반 서버 로그, 접근 로그, 예외 |
 | 인프라 | 컨테이너 PostgreSQL·Redis·Kafka, prod 컨테이너 Nginx, dev 호스트 Nginx의 별도 파일/journal 경로. RDS 로그는 별도 export 확인 |
-| 연결 | HTTP는 trace/request 문맥, 비동기는 event/origin ID, 묶음 처리는 operation ID, Realtime Redis는 event/message ID와 내부 carrier |
+| 연결 | HTTP는 trace/request 문맥, 비동기는 event/origin ID, 기기별 발송 시도는 operation ID, Realtime Redis는 event/message ID와 내부 carrier |
 | 조회 | Loki/Grafana로 최근 로그를 검색하고 기존 Datadog APM으로 호출 시간 확인 |
 | 보관 | Fluent Bit에서 S3로 압축 JSON Lines 원본 적재. 정상 상태 가시성 목표 5분 이내 |
 | 보존 | dev Loki 7일·시스템 로그 S3 90일은 기존 정책 유지. prod Loki 신규 도입의 7일 제안은 정책 정본 반영 후 적용 |
@@ -51,7 +51,7 @@
 | [Data TraceIdFilter](../../../server/data-api/src/main/java/com/oneorthree/phone/config/TraceIdFilter.java)·[등록](../../../server/data-api/src/main/java/com/oneorthree/phone/config/FilterConfig.java) | 기준 커밋은 `/api/*`에 인증 뒤 등록. `X-Trace-Id` 또는 UUID로 MDC `trace_id` 생성, 종료 시 `MDC.clear()` | `/internal/*` 및 인증 거절을 포함한 적용 범위, agent MDC와의 공존, 문맥 복원 보완 |
 | [Business 요청 필터](../../../server/business-api/src/main/java/com/oneorthree/business/config/RequestEnvelopeFilter.java)·[내부 HTTP](../../../server/business-api/src/main/java/com/oneorthree/business/common/http/InternalHttpClient.java) | 요청마다 `request_id` 생성·응답, 내부 호출은 `X-Request-Id` 전달 | `request_id`와 APM trace ID를 분리하고 두 서비스에서 함께 기록 |
 | [Outbox 엔티티](../../../server/data-api/src/main/java/com/oneorthree/phone/outbox/repository/domain/EventOutbox.java)·[Relay](../../../server/data-api/src/main/java/com/oneorthree/phone/outbox/service/OutboxRelayService.java)·[Kafka 발행](../../../server/data-api/src/main/java/com/oneorthree/phone/outbox/client/KafkaOutboxTransport.java) | `event_id`와 전달 행은 있으나 원요청 trace 문맥 전용 저장 필드는 확인되지 않음. 발행은 scheduler에서 수행 | Kafka 자동 계측만으로 원요청까지 연결된다고 가정하지 않음. 문맥 영속화와 재시도 모델 필요 |
-| [Notification 발송](../../../server/notification/src/main/java/com/oneorthree/notification/DispatchService.java) | 여러 delivery를 묶고 bundle collapse key로 전송 | 각 원사건→operation 연결 로그와 공통 전송 로그 분리 |
+| [Notification 발송](../../../server/notification/src/main/java/com/oneorthree/notification/DispatchService.java) | delivery 1개 × 기기 N개, 기기별 `transport.send` (티켓 2421로 묶음 제거) | 원사건→기기별 operation 연결 로그와 그 operation의 전송·반영 로그 분리 |
 | [Realtime Redis 구성](../../../server/realtime/src/main/java/com/oneorthree/realtime/config/RedisConfig.java) | `chat:fanout`·`chat:events:v1`의 subscriber는 별도 thread/인스턴스에서 동작 | 내부 wire 문맥, 채팅 message ID, 구버전 호환·두 인스턴스 검증 추가 |
 | [Notification 소비](../../../server/notification/src/main/java/com/oneorthree/notification/KafkaInbound.java)·[Realtime 소비](../../../server/realtime/src/main/java/com/oneorthree/realtime/event/KafkaEventInbound.java) | listener·DLT 처리 존재 | 수신·재시도·DLT·최종 작업 단계에서 event ID와 attempt 로그 보강 |
 | [관측 compose](../../../server/scripts/docker-compose.observability.yml)·[Loki](../../../server/observability/loki/loki-config.yml) | dev Promtail→Loki, filesystem 저장, 168h retention과 compactor | dev 자산 재사용, 수집기 교체. prod 운영 구성은 별도 검증 |
@@ -126,23 +126,23 @@ flowchart LR
 
 | 필드 | 규칙 |
 | --- | --- |
-| `schema_version`, `log_kind` | 초기 버전 `1`, `application` / `access` / `infrastructure`. user-activity 계약은 별도 유지 |
+| `schema_version`, `log_kind` | 초기 버전 `1`. 앱 JSON의 `log_kind`는 `application` / `access`, 수집기가 JSON이 아닌 줄에 붙이는 값은 `raw`(`parse_error=true`). `infrastructure`는 인프라 컨테이너가 아직 수집 대상이 아니어서 쓰지 않는다. user-activity 계약은 별도 유지 |
 | `log_id` | 로그 **한 건**의 식별자. JVM에서는 encoder가 출력 전에 부여하고 수집·재전송 동안 보존. 도메인 event ID와 다름 |
-| `timestamp`, `observed_at` | 발생 시각과 최초 수집 시각, UTC RFC3339. 재전송 시 observed_at을 다시 쓰지 않음 |
+| `timestamp`, `observed_at` | 발생 시각(밀리초)과 수집 시각, UTC RFC3339. `observed_at`은 Fluent Bit 필터가 줄을 **처음 처리한 시각**이며 초 단위다. 필터 뒤 chunk가 디스크에 저장되므로 Fluent Bit 재시도에서는 보존된다. tail DB가 사라지거나 처음부터 다시 읽으면 새 값이 붙는다 |
 | `service`, `env`, `instance_id`, `version` | 서비스·환경·실행 인스턴스·배포 revision. 검증된 실행 메타데이터로 보강 |
 | `level`, `logger`, `thread`, `message`, `exception` | 평소 서버 로그와 예외를 유지. JSON 한 줄 안에서 개행 escape |
-| `trace_id`, `span_id` | 실제 tracer의 ID. 표준 표기는 32자리/16자리 소문자 hex 목표. Datadog 필드는 별도 유지하고 변환은 P0 실측 후 확정 |
-| `dd.trace_id`, `dd.span_id` | agent가 제공한 값을 문자열로 보존. 숫자로 파싱하거나 앱 UUID로 덮어쓰지 않음 |
+| `trace_id`, `span_id` | 실제 tracer의 ID. 32자리/16자리 소문자 hex. 32자리 hex trace와 10진 span만 변환하고, 10진 trace는 canonical 없이 `dd` 원문만 낸다 |
+| `dd` | 중첩 객체 `dd{trace_id, span_id}`. agent가 제공한 값을 문자열로 보존(Loki `\| json`에서는 `dd_trace_id`·`dd_span_id`로 보인다). 숫자로 파싱하거나 앱 UUID로 덮어쓰지 않음 |
 | `request_id`, `origin_request_id`, `origin_trace_id` | 현재 요청 번호 / 최초 원인 요청 번호 / 최초 원인 trace. 다단계 작업에서도 기존 origin 우선 |
 | `event_id`, `delivery_id`, `attempt` | 도메인 사건 / 전달 대상별 작업 / 시도 횟수. 한 사건의 여러 로그는 제거 대상 중복이 아님 |
-| `operation_id`, `event_name` | 여러 원사건이 공유한 외부 호출 식별자 / `operation.link` 등 허용된 로그 사건명 |
+| `operation_id`, `event_name` | 기기별 외부 호출 한 번의 식별자(묶음 복귀 시 여러 원사건이 공유) / `operation.link` 등 허용된 로그 사건명 |
 | `message_id`, `edge_request_id` | Realtime 채팅 식별자 / Nginx에서 시작하는 요청 식별자. 업무 event ID와 구분 |
 | `http_method`, `http_route`, `status_code`, `duration_ms` | 접근 로그의 검색 필드. route는 `/items/{id}` 템플릿. 지연은 monotonic clock으로 측정 |
 | `user_id` | 필요하고 인증된 경우만 기록. 외부 `X-User-Id`를 신뢰하지 않음 |
 
 `trace_id`는 일반 로그의 필수값이 아니다. 기동·스케줄러·인프라 로그에는 없을 수 있다. agent가 꺼져 있으면 `request_id`로 연결하고 trace가 없다고 표시한다. 임의 UUID를 실제 APM trace처럼 넣지 않는다.
 
-Loki label은 `env`, `service`, `log_kind`처럼 값의 종류가 제한된 필드로 시작한다. 여러 호스트가 같은 stream에 쓰는 경우 고정 호스트/서비스 슬롯을 나타내는 bounded `source` label을 추가해 독립 source의 지연·재전송을 구분한다. 요청별 ID나 매 배포 바뀌는 컨테이너 ID를 source label로 쓰지 않는다. `trace_id`, `request_id`, `user_id`, `log_id`, `event_id`, `operation_id`, `message_id`, `instance_id`, `version`은 JSON 필드 또는 structured metadata로 둔다. 상세 근거는 [조사 기록](research.md)을 따른다.
+Loki label은 `env`, `service`, `log_kind`처럼 값의 종류가 제한된 필드로 시작한다. 여러 호스트가 같은 stream에 쓰는 경우 고정 호스트/서비스 슬롯을 나타내는 bounded `source` label을 추가해 독립 source의 지연·재전송을 구분한다(dev는 단일 호스트라 아직 적용하지 않았다). 요청별 ID나 매 배포 바뀌는 컨테이너 ID를 source label로 쓰지 않는다. `trace_id`, `request_id`, `user_id`, `log_id`, `event_id`, `operation_id`, `message_id`, `instance_id`, `version`은 JSON 필드 또는 structured metadata로 둔다. 상세 근거는 [조사 기록](research.md)을 따른다.
 
 ### HTTP 요청 흐름
 
@@ -224,7 +224,9 @@ flowchart LR
     F --> D[DB 반영 결과 로그: OP1]
 ```
 
-묶음 발송은 원인을 한 값으로 축약하지 않는다. 각 사건 조회에서 연결 로그를 찾고 OP1로 추가 조회한다. 실제 외부 호출은 한 번 기록하고 domain bundle key와 로그 operation ID를 구분한다. 상세 규칙과 Athena semijoin은 [구현 상세](implementation-details.md)에 있다.
+위 그림은 설계 시점(묶음 존재)의 구조다. 티켓 2421로 묶음이 제거돼 현재는 한 operation의 구성원이 1개이고, 기기마다 operation이 따로 생긴다.
+
+발송은 원인을 한 값으로 축약하지 않는다. 각 사건 조회에서 연결 로그를 찾고 OP1로 추가 조회한다. 실제 외부 호출은 한 번 기록하고 collapse 키(`event_id`)와 로그 operation ID를 구분한다. 상세 규칙과 Athena semijoin은 [구현 상세](implementation-details.md)에 있다.
 
 ## 5. 로그 수집·보관 데이터 흐름
 
@@ -243,8 +245,10 @@ flowchart TD
 ```
 
 - APP 수집 원천은 stdout/stderr 한 경로로 정한다. 같은 메시지의 `app.log`도 tail하지 않는다. user-activity는 콘솔에 없는 환경이 있으므로 기존 별도 수집을 유지한다.
+- 수집기가 `parse_error`로 보관하는 raw 줄의 마스킹은 일반 단어 키(`token`·`refresh`·`authorization`)도 가린다. 앱이 마스킹하지 못한 줄이라 Java 규칙보다 넓게 잡았고, 그래서 `refresh: 30s` 같은 일반 값도 가려진다(앱 JSON에는 적용하지 않는다).
 - Java 예외는 JSON 문자열 안에 둔다. Docker 분할 메시지 재조립과 실제 multiline 처리를 구분해 검증한다. 비정상 JSON은 버리지 않고 `parse_error`로 구분하되, 원문 무조건 우회 보관으로 마스킹을 깨지 않는다.
-- 인프라 로그의 `log_id`는 원천의 안정적인 커서가 제공되면 컨테이너 ID·파일 세대·offset 등으로 만든다. 불가능하면 수집 시 부여하되 재수집 dedup 한계를 기록한다. 메시지 내용만 해시하면 정상적으로 반복된 로그까지 지울 수 있다.
+- 인프라 로그의 `log_id`는 원천의 안정적인 커서가 제공되면 컨테이너 ID·파일 세대·offset 등으로 만든다. 불가능하면 수집 시 부여하되 재수집 dedup 한계를 기록한다. **현재 구현(2555)은 raw 줄에 `log_id`를 부여하지 않는다.** 앱 JSON의 `log_id`만 보존하고, raw 줄은 Loki의 «같은 시각·같은 줄» 중복 제거에 기대므로 재읽기 때 중복이 생길 수 있다. 메시지 내용만 해시하면 정상적으로 반복된 로그까지 지울 수 있다.
+- 실제 컨테이너가 출력한 JSON의 service/env/version 확인과 `parse_error` 건수 알림은 아직 없다(2556·2560 범위).
 - 두 출력은 독립적이며 원자적으로 commit되지 않는다. Loki 성공·S3 실패 및 그 반대 모두 가능하다. 디스크·source 회전 한계를 넘으면 유실될 수 있으므로 **무유실·exactly-once를 약속하지 않는다**. 같은 `log_id` 재전송 중복과 서로 다른 재시도 로그를 구분한다.
 - tail DB는 읽은 위치이지 모든 sink에 영구 저장됐다는 증명이 아니다. engine disk buffer와 S3 buffer의 crash 복구 범위도 따로 검증한다.
 - Loki의 재전송 수용 시간창과 source 시계 오차를 별도 검증한다. `reject_old_samples: false`만으로 stream의 out-of-order 제한이 사라지지 않는다. 보관 예산 안의 재전송은 통과해야 하며, 창 밖에서 영구 거절되는 로그는 원본 시각을 바꿔 억지로 넣지 않고 S3 적재 확인·경보·archive 조사로 처리한다. [Loki 시간창 설명](https://grafana.com/blog/new-feature-in-loki-2-4-no-more-ordering-constraint/)
@@ -282,7 +286,7 @@ flowchart TD
     B -->|최근 보존 범위 밖| S[S3 기간별 원본 조회]
 ```
 
-위 흐름도의 `trace_id` 분기는 목표 상태(JSON 로그 티켓 이후 실제 tracer ID)다. 현재 서비스 간 연결 키는 `request_id`다.
+위 흐름도의 «공통 묶음 발송 로그»는 «기기별 발송 로그»(operation_id 단위)를 뜻한다. 묶음은 티켓 2421로 제거됐다. `trace_id` 분기는 목표 상태(JSON 로그 티켓 이후 실제 tracer ID)다. 현재 서비스 간 연결 키는 `request_id`다.
 
 초기 LogQL 예시(목표 스키마 기준, 아직 배포되지 않은 쿼리. `trace_id` 쿼리는 실제 tracer ID가 실린 뒤에만 유효하다):
 

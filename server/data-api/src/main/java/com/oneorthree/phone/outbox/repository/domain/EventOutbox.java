@@ -116,6 +116,21 @@ public class EventOutbox {
     private Instant createdAt;
 
     /**
+     * 최초 원인 요청의 {@code request_id}(GROMO-2557, V4). 봉투 본문이 아니라 별도 열이라 소비자·멱등 비교에 섞이지 않는다.
+     * append 때 한 번 적고 이후 바꾸지 않는다 — relay 재시도·재선점이 이 값을 그대로 헤더로 나른다.
+     */
+    @Column(name = "origin_request_id", length = 128)
+    private String originRequestId;
+
+    /** 최초 원인 trace id 원문 — 10진·32자리 hex 그대로. 없으면 {@code null}. */
+    @Column(name = "origin_trace_id", length = 64)
+    private String originTraceId;
+
+    /** 위 두 값의 형식 버전 — 하나라도 있으면 1. 지금은 쓰기만 한다 — carrier 형식이 갈릴 때 읽기 위한 열이다. */
+    @Column(name = "trace_context_version")
+    private Short traceContextVersion;
+
+    /**
      * {@code params} 의 방어 복사본 — 저장된 봉투를 호출부가 뒤에서 고칠 수 없게 한다.
      *
      * @return 순서를 보존한 복사본. 저장 시 {@code null} 이 들어올 수 없으므로 빈 맵은 「필드가 없는
