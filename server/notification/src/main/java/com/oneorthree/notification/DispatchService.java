@@ -151,6 +151,13 @@ class DispatchService {
         if (inspected == null) {
             return;
         }
+        // 원인 문맥은 검사에서 이미 읽은 행에서 얻는다(새 쿼리 없음). 행이 둘 이상이면 임의의 한 원인을 싣지 않는다.
+        try (InboundTrace.Scope ignored = entryScope(inspected.ready())) {
+            send(id, inspected);
+        }
+    }
+
+    private void send(UUID id, Inspection inspected) {
         Map<UUID, Boolean> decisions = new LinkedHashMap<>();
         for (Map<String, Object> row : inspected.ready()) {
             decisions.put((UUID) row.get("id"), remotelyEligible(row));
@@ -164,6 +171,7 @@ class DispatchService {
             boolean fenced = false;
             for (Attempt attempt : plan.attempts()) {
                 if (!Boolean.TRUE.equals(recording.execute(status -> renewLease(plan)))) {
+                    logSettleAs(plan.deliveries(), plan.causes(), "lease_lost");
                     return;
                 }
                 // 판정 뒤 기기 루프(기기마다 최대 6초)가 도는 사이에도 시한이 지날 수 있다 — «보내기 직전»에 다시 본다.
@@ -184,10 +192,19 @@ class DispatchService {
                     continue;
                 }
                 // 여기가 트랜잭션 밖이다 — 몇 초가 걸려도 쥐고 있는 잠금이 없다.
-                PushTransport.Result result = transport.send(attempt.token(), attempt.push(), plan.sound(),
-                        plan.eventId());
+                String operationId = UUID.randomUUID().toString();
+                logLink(operationId, attempt.deliveries(), plan.causes());
+                PushTransport.Result result;
+                try {
+                    result = transport.send(attempt.token(), attempt.push(), plan.sound(), plan.eventId());
+                } catch (RuntimeException sendFailure) {
+                    logTransportResult(operationId, "EXCEPTION");
+                    throw sendFailure;
+                }
+                logTransportResult(operationId, result.name());
                 Outcome outcome = recording.execute(status -> recordAttempt(plan, attempt, result));
                 if (outcome == Outcome.LEASE_LOST) {
+                    logSettleAs(plan.deliveries(), plan.causes(), "lease_lost");
                     return;
                 }
                 failed |= outcome != Outcome.DONE;
@@ -198,11 +215,13 @@ class DispatchService {
             // 적으면 그 사실이 재시도 통계에 섞여 사라지고, 사고 조사에서 「남의 기기로 나간 발송이
             // 있었는가」를 물을 방법이 없다. 이유를 갈라 행에 남긴다.
             String reason = fenced ? "OWNERSHIP_CHANGED" : "FCM_RETRY";
-            recording.executeWithoutResult(status -> settle(plan, retried, reason));
+            logSettle(plan.deliveries(), plan.causes(),
+                    recording.execute(status -> settle(plan, retried, reason)));
         } catch (RuntimeException failure) {
             // 이 실행이 만든 임대만 풀고 실패를 적는다. 호출부에는 기록 완료를 알려 중복 계산을 막는다.
             try {
-                recording.executeWithoutResult(status -> backOffLeased(plan, failureReason(failure)));
+                logSettle(plan.deliveries(), plan.causes(),
+                        recording.execute(status -> backOffLeased(plan, failureReason(failure))));
             } catch (RuntimeException recordFailure) {
                 failure.addSuppressed(recordFailure);
                 log.warn("알림 발송 실패 기록 불가 deliveryId={} failure={} recordFailure={}",
@@ -464,7 +483,9 @@ class DispatchService {
             store.update("UPDATE deliveries SET next_attempt_at=GREATEST(next_attempt_at,?),"
                     + "lease_token=?,lease_expires_at=? WHERE id=?", lease, leaseToken, lease, delivery);
         }
-        return new Plan(deliveries, sound, collapseEventId(ready), attempts, leaseToken, expiries);
+        Map<UUID, Cause> causes = new LinkedHashMap<>();
+        ready.forEach(row -> causes.put((UUID) row.get("id"), Cause.of(row)));
+        return new Plan(deliveries, sound, collapseEventId(ready), attempts, leaseToken, expiries, causes);
     }
 
     /**
@@ -531,9 +552,11 @@ class DispatchService {
      * @param failed 기기 하나라도 재시도가 필요했는가
      * @param reason 재시도로 남길 이유 — 소유권 변경과 전송 실패를 가른다
      */
-    private void settle(Plan plan, boolean failed, String reason) {
+    private Map<UUID, String> settle(Plan plan, boolean failed, String reason) {
+        Map<UUID, String> states = new LinkedHashMap<>();
         if (!holdsLease(plan)) {
-            return;
+            plan.deliveries().forEach(delivery -> states.put(delivery, "lease_lost"));
+            return states;
         }
         for (UUID delivery : plan.deliveries()) {
             boolean deliveredSomewhere =
@@ -543,20 +566,24 @@ class DispatchService {
                 // 다음 틱이 만료를 다시 확인하는 사이 후보 상한을 차지하고, 형제의 재시도에 딸려 되살아날 여지가 남는다.
                 if (deliveredSomewhere) {
                     markSent(delivery);
+                    states.put(delivery, "sent");
                 } else {
                     expire(delivery);
+                    states.put(delivery, "expired");
                 }
             } else if (failed) {
-                retry(delivery, reason);
+                states.put(delivery, retry(delivery, reason));
             } else if (!deliveredSomewhere) {
                 // UNREGISTERED는 성공이 아니다. 이 알림의 성공 이력이 전혀 없으면 정상 토큰을
                 // 기다린다. 다른 기기에 이미 성공한 알림은 무효 토큰 때문에 다시 보내지 않는다.
-                retry(delivery, "NO_ACTIVE_DEVICE");
+                states.put(delivery, retry(delivery, "NO_ACTIVE_DEVICE"));
             } else {
                 markSent(delivery);
+                states.put(delivery, "sent");
             }
             releaseLease(delivery, plan.leaseToken());
         }
+        return states;
     }
 
     private void markSent(UUID delivery) {
@@ -634,11 +661,12 @@ class DispatchService {
 
     /** 판정이 끝난 한 번의 발송 — 트랜잭션 밖으로 들고 나갈 값만 담는다. */
     private record Plan(List<UUID> deliveries, boolean sound, String eventId, List<Attempt> attempts,
-            UUID leaseToken, Map<UUID, Instant> expiries) {
+            UUID leaseToken, Map<UUID, Instant> expiries, Map<UUID, Cause> causes) {
         Plan {
             deliveries = List.copyOf(deliveries);
             attempts = List.copyOf(attempts);
             expiries = Map.copyOf(expiries);
+            causes = Map.copyOf(causes);
         }
 
         /**
@@ -648,6 +676,83 @@ class DispatchService {
          */
         List<UUID> expiredAt(List<UUID> ids, Instant now) {
             return ids.stream().filter(id -> expiries.containsKey(id) && !now.isBefore(expiries.get(id))).toList();
+        }
+    }
+
+    /**
+     * 전달 행 하나의 원인 문맥 (GROMO-2558, 로그 계약 §2).
+     *
+     * @param eventId         원사건 id
+     * @param originRequestId 최초 원인 요청 ID — 구버전 행이면 {@code null}
+     * @param originTraceId   최초 원인 trace 원문 — 구버전 행이면 {@code null}
+     * @param attempt         이번 dispatch 의 시도 번호(행의 {@code attempts}+1)
+     */
+    record Cause(String eventId, String originRequestId, String originTraceId, int attempt) {
+        static Cause of(Map<String, Object> row) {
+            Object origin = row.get("origin_request_id");
+            Object trace = row.get("origin_trace_id");
+            return new Cause(String.valueOf(row.get("event_id")), origin == null ? null : origin.toString(),
+                    trace == null ? null : trace.toString(), ((Number) row.get("attempts")).intValue() + 1);
+        }
+    }
+
+    private static InboundTrace.Scope causeScope(UUID delivery, Cause cause) {
+        InboundTrace.Scope scope = new InboundTrace.Scope().set("delivery_id", delivery.toString());
+        return scope.set("event_id", cause == null ? null : cause.eventId())
+                .set("origin_request_id", cause == null ? null : cause.originRequestId())
+                .set("origin_trace_id", cause == null ? null : cause.originTraceId())
+                .set("attempt", cause == null ? null : String.valueOf(cause.attempt()));
+    }
+
+    /** 한 행이면 그 원인을 싣고, 둘 이상이면 임의의 한 원인을 싣지 않도록 키를 비운다. */
+    private InboundTrace.Scope entryScope(List<Map<String, Object>> ready) {
+        if (ready.size() == 1) {
+            return causeScope((UUID) ready.get(0).get("id"), Cause.of(ready.get(0)));
+        }
+        return new InboundTrace.Scope().set("delivery_id", null).set("event_id", null)
+                .set("origin_request_id", null).set("origin_trace_id", null).set("attempt", null);
+    }
+
+    /**
+     * 기기별 전송 한 번에 operation_id 를 붙이고, 그 호출에 참여한 구성원마다 연결 로그 한 줄을 남긴다.
+     * 로그 실패가 발송을 막지 않는다.
+     */
+    static void logLink(String operationId, List<UUID> members, Map<UUID, Cause> causes) {
+        for (UUID member : members) {
+            try (InboundTrace.Scope scope = causeScope(member, causes.get(member))) {
+                scope.set("operation_id", operationId).set("event_name", "operation.link");
+                log.info("알림 전송 연결 operation={}", operationId);
+            } catch (RuntimeException ignored) {
+                // 관측 실패는 업무를 막지 않는다.
+            }
+        }
+    }
+
+    /** 외부 호출 결과(SENT·UNREGISTERED·RETRY·EXCEPTION). DB 반영 결과는 {@link #logSettle} 가 따로 남긴다. */
+    private static void logTransportResult(String operationId, String result) {
+        try (InboundTrace.Scope scope = new InboundTrace.Scope()) {
+            scope.set("operation_id", operationId).set("event_name", "transport.result");
+            log.info("알림 전송 결과 operation={} result={}", operationId, result);
+        } catch (RuntimeException ignored) {
+            // 관측 실패는 업무를 막지 않는다.
+        }
+    }
+
+    /** DB 에 반영된 최종 상태 — 구성원마다 한 줄. */
+    private static void logSettle(List<UUID> members, Map<UUID, Cause> causes, Map<UUID, String> states) {
+        for (UUID member : members) {
+            logSettleAs(List.of(member), causes, states.getOrDefault(member, "unchanged"));
+        }
+    }
+
+    private static void logSettleAs(List<UUID> members, Map<UUID, Cause> causes, String state) {
+        for (UUID member : members) {
+            try (InboundTrace.Scope scope = causeScope(member, causes.get(member))) {
+                scope.set("event_name", "dispatch.settle");
+                log.info("알림 발송 맺음 state={}", state);
+            } catch (RuntimeException ignored) {
+                // 관측 실패는 업무를 막지 않는다.
+            }
         }
     }
 
@@ -694,7 +799,8 @@ class DispatchService {
     }
 
     /** 예외가 난 실행의 임대 토큰이 그대로일 때만 기록한다. 새 실행의 임대는 건드리지 않는다. */
-    private void backOffLeased(Plan plan, String reason) {
+    private Map<UUID, String> backOffLeased(Plan plan, String reason) {
+        Map<UUID, String> states = new LinkedHashMap<>();
         for (UUID id : plan.deliveries()) {
             Map<String, Object> updated = store.one("UPDATE deliveries SET attempts=attempts+1,last_error=?,"
                     + "status=CASE WHEN attempts+1>=? THEN 'FAILED' ELSE status END,"
@@ -702,7 +808,9 @@ class DispatchService {
                     + " AND status IN ('PENDING','DEFERRED') AND lease_token=? RETURNING status,kind",
                     reason, MAX_ATTEMPTS, Timestamp.from(clock.instant().plusSeconds(60)), id, plan.leaseToken());
             warnIfExhausted(id, reason, updated);
+            states.put(id, stateOf(updated));
         }
+        return states;
     }
 
     private String failureReason(RuntimeException failure) {
@@ -766,12 +874,18 @@ class DispatchService {
         }
     }
 
-    private void retry(UUID id, String reason) {
+    /** @return 재시도로 남겼으면 {@code retry}, 상한에 닿아 접혔으면 {@code failed} */
+    private String retry(UUID id, String reason) {
         Map<String, Object> updated = store.one("UPDATE deliveries SET attempts=attempts+1,last_error=?,"
                 + "status=CASE WHEN attempts+1>=? THEN 'FAILED' ELSE status END,next_attempt_at=?"
                 + " WHERE id=? AND status IN ('PENDING','DEFERRED') RETURNING status,kind",
                 reason, MAX_ATTEMPTS, Timestamp.from(clock.instant().plusSeconds(60)), id);
         warnIfExhausted(id, reason, updated);
+        return stateOf(updated);
+    }
+
+    private static String stateOf(Map<String, Object> updated) {
+        return updated == null ? "unchanged" : "FAILED".equals(updated.get("status")) ? "failed" : "retry";
     }
 
     private void warnIfExhausted(UUID id, String reason, Map<String, Object> updated) {

@@ -127,7 +127,7 @@ record InboundTrace(String originRequestId, String originTraceId, String deliver
     }
 
     /** 자기가 넣은 키만 이전 값으로 되돌린다. 전체 MDC 를 지우지 않는다(§2.2). */
-    private static final class Scope implements AutoCloseable {
+    static final class Scope implements AutoCloseable {
         private final Map<String, String> previous = new LinkedHashMap<>();
 
         Scope set(String key, String value) {
