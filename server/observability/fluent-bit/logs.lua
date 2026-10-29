@@ -153,14 +153,24 @@ local function raw_record(line, stream)
   return out
 end
 
--- 경로: query·fragment 제거, 토큰처럼 보이는 긴 글자 묶음(20자 이상 영숫자/-_.~%, UUID 8-4-4-4-12 제외)은 :redacted, 이메일·휴대폰은 mask 규칙.
--- '/' 는 묶음에 안 들어가므로 보통 경로에서는 «세그먼트 단위» 와 같고, 잘린 error 줄처럼 경로 뒤에 다른 글이 붙어도 토큰 부분만 가린다.
--- 한계: 20자 미만 세그먼트(짧은 OTP·초대 코드 등)는 가리지 못한다 — 경로에 비밀을 싣는 라우트는 앱에서 막아야 한다.
+-- 경로: query·fragment 제거, 토큰처럼 보이는 긴 글자 묶음([%w-_.~%] 로 이어진 글자, '/' 는 경계)은 아래 규칙으로 :redacted, 이메일·휴대폰은 mask 규칙.
+--   1) 묶음 끝의 확장자(점 + 영숫자 1~5자)를 떼어 «stem» 으로 판정하고 확장자는 남긴다(main.<해시>.js -> :redacted.js).
+--   2) stem 이 UUID 8-4-4-4-12 면 유지(/files/<uuid>.png 포함).
+--   3) stem 길이 >= 20 이고 (숫자 포함 또는 대문자 포함 또는 구분자 - _ . 가 하나도 없음) 이면 :redacted. 소문자 kebab/snake 라우트(notification-preferences)는 유지.
+-- 한계: ① 20자 미만 세그먼트(짧은 OTP·초대 코드)는 가리지 못한다. ② 구분자를 포함한 «소문자 전용» 20자 이상 비밀(예: abcd-efgh-ijkl-mnop-qrst)은
+-- 라우트 이름과 구별되지 않아 가리지 못한다 — 경로에 비밀을 싣는 라우트는 앱에서 막아야 한다.
 local UUID = "^" .. ("%x"):rep(8) .. "%-" .. ("%x"):rep(4) .. "%-" .. ("%x"):rep(4) .. "%-" .. ("%x"):rep(4) .. "%-" .. ("%x"):rep(12) .. "$"
 local TOKEN_RUN = ("[%w%-_%.~%%]"):rep(20) .. "[%w%-_%.~%%]*"
+local function redact_run(run)
+  local stem, ext = run:match("^(.-)(%.%w%w?%w?%w?%w?)$")
+  if not stem or stem == "" then stem, ext = run, "" end
+  if run:match(UUID) or stem:match(UUID) or #stem < 20 then return run end
+  if stem:find("%d") or stem:find("%u") or not stem:find("[%-_%.]") then return ":redacted" .. ext end
+  return run
+end
 local function sanitize_path(uri)
   uri = tostring(uri or ""):gsub("[?#].*$", ""):gsub("[%c]", "")
-  uri = uri:gsub(TOKEN_RUN, function(run) return run:match(UUID) and run or ":redacted" end)
+  uri = uri:gsub(TOKEN_RUN, redact_run)
   return (truncate(mask(uri), 512))
 end
 

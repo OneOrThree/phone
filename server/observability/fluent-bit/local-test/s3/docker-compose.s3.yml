@@ -2,6 +2,7 @@
 # AWS 에는 아무 요청도 보내지 않는다. 호스트 포트는 2555 하네스(13100·12020)와 겹치지 않게 2xxxx 를 쓴다.
 # 사용: docker compose -p obs2562-s3 -f docker-compose.yml -f s3/docker-compose.s3.yml ...   (compose 파일 경로는 첫 파일 기준)
 name: obs2562-s3
+# canary 간격: fluent-bit.conf 의 dummy 입력 `Interval_Sec 60`·`Rate 1`(= 60초마다 1건)과 canary.py `--interval`(기본 60)은 같아야 한다 — 하나를 바꾸면 둘 다 바꾼다.
 
 services:
   loki:

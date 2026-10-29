@@ -8,8 +8,9 @@
 #                          주므로, 이 값이 앱 로그의 request_id 와 만난다. 502/504/413 처럼 upstream 에 닿지 않았으면 빈 문자열.
 #   connection / connection_requests   같은 TCP 연결의 번호와 그 연결의 n 번째 요청(error 로그의 *<번호> 와 보조 연계용)
 #   uri                    $request_uri 가 아니라 $uri — query string 이 없다. (경로 자체에 토큰이 들어가는 라우트는 수집기가
-#                          20자 이상 이어진 영숫자 묶음을 :redacted 로 바꾼다. 20자 미만 토큰 — 짧은 OTP·초대 코드 — 은 못 가린다:
-#                          경로에 비밀을 싣는 라우트는 앱에서 막아야 한다.)
+#                          «확장자를 뗀 20자 이상 묶음 중 숫자·대문자가 있거나 구분자(-_.)가 없는 것» 을 :redacted 로 바꾼다(UUID 와
+#                          소문자 kebab 라우트는 유지, 확장자는 남김). 한계: 20자 미만 토큰 — 짧은 OTP·초대 코드 — 과 구분자를 포함한
+#                          소문자 전용 20자 이상 비밀은 못 가린다: 경로에 비밀을 싣는 라우트는 앱에서 막아야 한다.)
 # 일부러 넣지 않은 것: client IP($remote_addr·$http_x_forwarded_for), $http_referer, $http_user_agent, $args, Authorization/Cookie.
 # escape=json 이 따옴표·제어문자를 이스케이프하므로 이 줄은 항상 유효한 JSON 한 줄이다.
 log_format gromo_json escape=json

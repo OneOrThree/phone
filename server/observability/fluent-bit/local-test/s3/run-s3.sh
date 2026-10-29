@@ -67,13 +67,13 @@ wait_ready
 sleep 8
 # canary 관측 창 = 첫 시나리오 시작 ~ 마지막 시나리오 끝 + max-delay(canary.py 가 SIGTERM 뒤 그만큼 더 본다).
 # sink 를 일부러 멈추는 시나리오가 있으면 그 지연(최대 약 7분, 런북 §7)을 덮도록 max-delay 를 늘리고, 유실을 일부러 만드는 f1·f2 가
-# 있으면 빠진 canary 를 출력만 한다(--allow-loss). 정지·조회 실패(STALE)·0건은 그래도 실패다.
-CANARY_MAX_DELAY=120; CANARY_ALLOW=""
+# 있으면 그 두 시나리오의 시간 창(START:END, $LOSS_WINDOWS)에서 «발행된» canary 만 유실을 허용한다. 창 밖 유실·STALE·0건은 실패다.
+# canary.py 는 SIGTERM 뒤 max(max-delay, 2*interval+5)초 더 봐서 마지막 시나리오 끝의 꼬리 유실도 번호 공백으로 드러나게 한다.
+CANARY_MAX_DELAY=120; LOSS_WINDOWS="$TMP/loss-windows.txt"; : > "$LOSS_WINDOWS"
 for s in "${SCENARIOS[@]}"; do
   case "$s" in c|d|d2|d3|d4|e|e2|f1|f2) CANARY_MAX_DELAY=600;; esac
-  case "$s" in f1|f2) CANARY_ALLOW="--allow-loss";; esac
 done
-python3 "$HERE/canary.py" --max-delay "$CANARY_MAX_DELAY" $CANARY_ALLOW > "$TMP/canary.out" 2>&1 & CANARY_PID=$!
+python3 "$HERE/canary.py" --max-delay "$CANARY_MAX_DELAY" --allow-loss-file "$LOSS_WINDOWS" > "$TMP/canary.out" 2>&1 & CANARY_PID=$!
 
 if want a; then echo "== (a) 정상 N=600"
   start_watch a a; gen a 600 20; finish a 90 a:600
@@ -132,10 +132,10 @@ limit_run() { # NAME RUN COUNT INTERVAL [docker 옵션...] — 작은 한도로 
   dc up -d --force-recreate fluent-bit >/dev/null   # 기본 한도로 복귀(HARNESS_ETC=기본)
 }
 if want f1; then echo "== (f1) 디스크 한도 — Loki 엔진 1M·S3 엔진 1M·store_dir 2M, 두 sink 정지, N=6000 (Docker 로그 회전 없음)"
-  limit_run f1 f1 6000 5
+  W0=$(date +%s); limit_run f1 f1 6000 5; echo "$W0:$(date +%s)" >> "$LOSS_WINDOWS"
 fi
 if want f2; then echo "== (f2) 디스크 한도 + 소스 회전 — 위와 같고 생성기 Docker 로그를 500k x 2 로 회전"
-  limit_run f2 f2 6000 5 --log-opt max-size=500k --log-opt max-file=2
+  W0=$(date +%s); limit_run f2 f2 6000 5 --log-opt max-size=500k --log-opt max-file=2; echo "$W0:$(date +%s)" >> "$LOSS_WINDOWS"
 fi
 if want h; then echo "== (h) Fluent Bit 정지 중 생성기 컨테이너 새로 생성 → 재기동 뒤 누락 0"
   start_watch h h; dc stop fluent-bit >/dev/null; gen h 400 20; docker wait obs2562s3-gen-h >/dev/null; sleep 3
@@ -193,7 +193,7 @@ PYEOF
   docker rm -f obs2562s3-gen-k >/dev/null
 fi
 
-echo "== canary 판정 대기(${CANARY_MAX_DELAY}s — 마지막 시나리오 뒤 늦게 오는 canary 를 본다)"
+echo "== canary 판정 대기(${CANARY_MAX_DELAY}s — 마지막 시나리오 뒤 늦게 오는 canary 와 꼬리 공백을 본다)"
 kill -TERM "$CANARY_PID" 2>/dev/null || true
 wait "$CANARY_PID" || { echo "FAIL: canary 검사 실패"; FAILS=$((FAILS + 1)); }; CANARY_PID=""
 echo "== canary"; cat "$TMP/canary.out" | tee -a "$RESULTS" | tail -40
