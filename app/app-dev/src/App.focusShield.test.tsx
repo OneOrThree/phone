@@ -3,7 +3,13 @@ import { AppState, type AppStateStatus } from 'react-native';
 import { act, render, waitFor } from '@testing-library/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import App from '@/App';
-import { clearSession, rememberLocalDataOwner, saveSession } from '@/services/api/session';
+import {
+  clearSession,
+  rememberLocalDataOwner,
+  saveRefreshedSession,
+  saveSession,
+  sessionGeneration,
+} from '@/services/api/session';
 import { syncFocusShield } from '@/services/focusShield';
 import { screenTime } from '@/services/screenTime';
 import type { ScreenTimeAuthorization } from '@/services/ScreenTimeModule';
@@ -144,6 +150,95 @@ test('앱 안에서 권한을 허용하면 세션 변경이나 앱 복귀 없이
   const before = sync.mock.calls.length;
   authorization.mockResolvedValue('approved');
   await act(async () => captured.dispatch({ type: 'SETTING', key: 'permission', value: true }));
+  expect(sync).toHaveBeenCalledTimes(before + 1);
+  await app.unmount();
+});
+
+test('같은 사용자로 회원 전환하면 유지 중인 집중의 차단을 다시 동기화하고 재시도한다', async () => {
+  const app = await mountSignedIn();
+  await act(async () =>
+    captured.dispatch({
+      type: 'SESSION_SYNC',
+      session: {
+        id: 'focus-1',
+        islandId: 'island-1',
+        subject: '집중',
+        startedAt: Date.now(),
+        seconds: 0,
+        status: 'active',
+        intervals: [],
+      },
+    }),
+  );
+  const before = sync.mock.calls.length;
+  const generation = sessionGeneration();
+  await act(async () => {
+    await saveSession({
+      accessToken: 'MEMBER_AT',
+      refreshToken: 'MEMBER_RT',
+      userId: 'shield-owner',
+      provider: 'apple',
+    });
+  });
+  expect(sessionGeneration()).toBe(generation + 1);
+  expect(captured.state.session).toMatchObject({ id: 'focus-1', status: 'active' });
+  expect(sync).toHaveBeenCalledTimes(before + 1);
+  sync.mockResolvedValue(true);
+  await advance(2000);
+  expect(sync).toHaveBeenCalledTimes(before + 2);
+  await advance(30000);
+  expect(sync).toHaveBeenCalledTimes(before + 2);
+  await emitAppState('background');
+  await emitAppState('active');
+  expect(sync).toHaveBeenCalledTimes(before + 3);
+  await app.unmount();
+});
+
+test('회원 전환 전의 지연된 실패가 새 인증 세대의 재시도를 변경하지 않는다', async () => {
+  sync.mockResolvedValue(true);
+  const app = await mountSignedIn();
+  let rejectPrevious!: (error: Error) => void;
+  sync.mockImplementationOnce(
+    () =>
+      new Promise((_resolve, reject) => {
+        rejectPrevious = reject;
+      }),
+  );
+  await emitAppState('active');
+  const before = sync.mock.calls.length;
+  const previousCurrent = sync.mock.calls.at(-1)![3]!;
+  sync.mockRejectedValue(new Error('CURRENT_OFFLINE'));
+  await act(async () => {
+    await saveSession({
+      accessToken: 'MEMBER_AT',
+      refreshToken: 'MEMBER_RT',
+      userId: 'shield-owner',
+      provider: 'apple',
+    });
+  });
+  expect(previousCurrent()).toBe(false);
+  expect(sync).toHaveBeenCalledTimes(before + 1);
+  await act(async () => rejectPrevious(new Error('PREVIOUS_OFFLINE')));
+  sync.mockResolvedValue(true);
+  await advance(2000);
+  expect(sync).toHaveBeenCalledTimes(before + 2);
+  await advance(30000);
+  expect(sync).toHaveBeenCalledTimes(before + 2);
+  await app.unmount();
+});
+
+test('같은 인증 세대의 토큰 갱신은 차단 동기화와 재시도 타이머를 재시작하지 않는다', async () => {
+  const app = await mountSignedIn();
+  const before = sync.mock.calls.length;
+  const generation = sessionGeneration();
+  await advance(1000);
+  await act(async () => {
+    await saveRefreshedSession('REFRESHED_AT', 'REFRESHED_RT', generation, 'AT', 'RT');
+  });
+  expect(sessionGeneration()).toBe(generation);
+  expect(sync).toHaveBeenCalledTimes(before);
+  sync.mockResolvedValue(true);
+  await advance(1000);
   expect(sync).toHaveBeenCalledTimes(before + 1);
   await app.unmount();
 });

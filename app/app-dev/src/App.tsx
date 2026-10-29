@@ -365,6 +365,7 @@ function Gromo() {
     [hasServerSession, setHasServerSession] = useState(
       () => !REVIEW && !DEMO && getSession() !== null,
     ),
+    [authGeneration, setAuthGeneration] = useState(sessionGeneration),
     [route, setRoute] = useState<Route>(
       FOCUS_BLOCKING_PREVIEW ? 'telescope' : DEMO ? 'home' : 'login',
     ),
@@ -1584,6 +1585,7 @@ function Gromo() {
     }
     return subscribeSession((session) => {
       const generation = sessionGeneration();
+      setAuthGeneration(generation);
       if (generation !== socialAttemptGeneration.current) {
         const transition = conversionSessionTransition.current;
         const expectedConversionTransition =
@@ -2180,7 +2182,8 @@ function Gromo() {
     let request = 0;
     let retryDelay = 2000;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
-    const generation = sessionGeneration();
+    // 같은 사용자 ID의 회원 전환도 이전 재시도를 정리하고 새 인증 세대로 동기화한다.
+    const generation = authGeneration;
     const current = () =>
       active && generation === sessionGeneration() && focusShieldOwner === getSession()?.userId;
     const clearRetry = () => {
@@ -2241,6 +2244,7 @@ function Gromo() {
     loaded,
     storageOwnerReady,
     hasServerSession,
+    authGeneration,
     focusShieldOwner,
     state.settings.permission,
     state.session?.id,
