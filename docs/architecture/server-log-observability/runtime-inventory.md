@@ -356,8 +356,11 @@ aws --profile gromo s3api get-bucket-policy --bucket "$B" --query Policy --outpu
 | 이 역할을 여는 `Allow` 의 범위 | Principal 이 이 역할 ARN, 역할이 속한 계정 `:root`, 또는 `*` 인 `Allow` 문장마다 Action·Resource·Condition 을 적는다. `system_log/v2/env=<env>/*` 쓰기 밖의 객체 ARN, `s3:Delete*`, 버킷 설정 변경(`s3:PutBucket*`·`s3:PutLifecycleConfiguration`·`s3:PutEncryptionConfiguration`·`s3:DeleteBucket*`)을 여는 문장이 하나라도 있으면 불합격 |
 | `NotPrincipal`·`NotAction`·`NotResource` | 쓰인 문장이 있으면 실제로 열리는 범위를 풀어서 적고 위 행으로 판정한다. 풀 수 없으면 판정 불가 |
 | 필요한 `Deny` | 타 env 접두 쓰기 차단 `Deny` 가 있는지 적는다. 없는 것이 불합격은 아니다(그 경우 차단은 (A)의 역할 정책 `implicitDeny` 에만 의존함을 기록). 있으면 Condition 을 적는다 |
+| 허용 쓰기를 막는 `Deny` | 이 역할의 `system_log/v2/env=<env>/*` 쓰기(`s3:PutObject`·multipart 액션)를 거부하는 `Deny` 문장이 있는지 적는다. 있으면 그 Condition 을 실제 호출이 만족하는지 판단하고, 판단하지 못하면 판정 불가 |
 | 조건 키 | 문장에 쓰인 Condition 키(`aws:SecureTransport`·`aws:SourceVpce`·`s3:x-amz-server-side-encryption` 등)를 모두 적는다. 역할 호출이 이 조건을 만족하는지 판단하지 못하면 판정 불가 |
 | 정책 없음 | `NoSuchBucketPolicy` 이면 «버킷 정책 없음»으로 기록하고 (B)는 이 상태로 종료. 역할 쪽 평가는 (A)만 근거다 |
+
+**최종 판정 규칙.** 쓰기 범위 제한·삭제 권한 부재·타 환경 쓰기 차단은 항목마다 **(A) 합격 그리고 (B) 합격**일 때만 합격이다. 어느 한쪽이 불합격이면 그 항목은 불합격, 판정 불가면 판정 불가다. 이것은 두 평가 결과를 합친 것이 아니라 각각의 판정을 함께 만족하라는 규칙이다. 예를 들어 (A)가 `implicitDeny` 로 삭제를 막아도 버킷 정책이 이 역할이나 `*` 에 `s3:Delete*` 를 `Allow` 로 열면(같은 계정에서는 한쪽 `Allow` 로 접근이 열린다) 삭제 권한 부재는 불합격이다.
 
 **허용 예외(삭제 권한 부재 판정과 혼동하지 않는다).** Fluent Bit S3 플러그인은 multipart 업로드를 쓰므로 `s3:PutObject`만으로는 실패할 수 있다. 아래는 허용되어도 합격이다.
 
@@ -366,7 +369,7 @@ aws --profile gromo s3api get-bucket-policy --bucket "$B" --query Policy --outpu
 - 판정 방향은 쓰기 범위와 같다. (1)의 `s3:AbortMultipartUpload`는 허용 env 접두 안에서만 `allowed`이고 그 밖(다른 env·`system_log/app-1/`·`user_log/` 등)은 `implicitDeny` 또는 `explicitDeny`여야 한다. (2)의 `s3:ListBucketMultipartUploads`는 버킷 ARN 의 `allowed`만 허용 예외다.
 - 버킷이 SSE-KMS(`get-bucket-encryption` 결과)이면 multipart 업로드에는 `kms:GenerateDataKey` 와 `kms:Decrypt` 가 둘 다 필요한 것으로 알려져 있다(AWS 문서 확인 필요). 두 액션은 해당 키 ARN 에 한해서만 허용돼야 하며, 위 (3) 호출에서 버킷 키는 `allowed`, 다른 키는 `implicitDeny` 또는 `explicitDeny` 인지 확인한다.
 
-**시뮬레이션의 한계.** 역할에 대한 리소스 정책 시뮬레이션은 지원되지 않아, 역할 정책과 버킷 정책의 결합 평가는 이 절차로 얻을 수 없다. 결합 결과(교차 계정 접근에서 양쪽 허용이 모두 필요한 규칙, 같은 계정에서 버킷 정책의 `Allow` 가 역할 정책 없이도 통하는 경우, 어느 한쪽의 명시적 `Deny` 우선)는 (A)와 (B)를 사람이 읽고 AWS 평가 규칙(https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_evaluation-logic.html)을 적용해 판정한다. 이 판정은 배포 합격의 자동 근거가 아니라 검토 기록이며, 실제 호출 시험은 별도다. KMS 는 키 정책이 같은 계정의 역할을 직접 허용할 수 있어 역할 쪽 `implicitDeny` 만으로 «다른 키 차단»을 확정할 수 없고, 시뮬레이터는 키 정책을 평가하지 않는 것으로 알려져 있다(확인 필요). 그래서 (4)로 대상 키의 키 정책과 grant 를 직접 읽는다. 시뮬레이터는 `NotAction`/`NotResource` 를 정상 반영한다. 실제 한계는 SCP(조직 정책)가 평가에 포함되지 않는 점, 세션 정책, 그리고 실제 호출 시점의 컨텍스트와 입력한 컨텍스트의 차이다. 삭제·타 환경 항목에서 `allowed` 가 나오면 불합격이고 부여 경로를 추가 조사한다. 반대로 `implicitDeny` 가 나와도 SCP·세션 정책·컨텍스트 차이는 남으므로 실제 호출 시험은 별도다. dev 호스트의 사용자·그룹 경로 자격(`list-attached-user-policies` 등)은 dev -> S3 자격 방식 결정 뒤로 미룬다.
+**시뮬레이션의 한계.** 역할에 대한 리소스 정책 시뮬레이션은 지원되지 않아, 역할 정책과 버킷 정책의 결합 평가는 이 절차로 얻을 수 없다. 결합 결과(교차 계정 접근에서 양쪽 허용이 모두 필요한 규칙, 같은 계정에서 버킷 정책의 `Allow` 가 역할 정책 없이도 통하는 경우, 어느 한쪽의 명시적 `Deny` 우선)는 (A)와 (B)를 사람이 읽고 AWS 평가 규칙(https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_evaluation-logic.html)을 적용해 판정한다. 합격 근거는 (A)·(B) 각각의 판정과 위 최종 판정 규칙이며, 결합 평가 결과는 만들지 않는다. 실제 호출 시험은 별도다. KMS 는 키 정책이 같은 계정의 역할을 직접 허용할 수 있어 역할 쪽 `implicitDeny` 만으로 «다른 키 차단»을 확정할 수 없고, 시뮬레이터는 키 정책을 평가하지 않는 것으로 알려져 있다(확인 필요). 그래서 (4)로 대상 키의 키 정책과 grant 를 직접 읽는다. 시뮬레이터는 `NotAction`/`NotResource` 를 정상 반영한다. 실제 한계는 SCP(조직 정책)가 평가에 포함되지 않는 점, 세션 정책, 그리고 실제 호출 시점의 컨텍스트와 입력한 컨텍스트의 차이다. 삭제·타 환경 항목에서 `allowed` 가 나오면 불합격이고 부여 경로를 추가 조사한다. 반대로 `implicitDeny` 가 나와도 SCP·세션 정책·컨텍스트 차이는 남으므로 실제 호출 시험은 별도다. dev 호스트의 사용자·그룹 경로 자격(`list-attached-user-policies` 등)은 dev -> S3 자격 방식 결정 뒤로 미룬다.
 
 결과를 문서에 남길 때 계정 ID, 키, 정책 본문의 시크릿 값은 가린다(정책 본문은 Action·Resource 구조만 옮기고 계정 ID는 `<ACCOUNT_ID>`로 바꾼다). `list-objects-v2` 결과를 옮길 때는 객체 키에 사용자 값이 섞이지 않았는지 확인한다.
 
