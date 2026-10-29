@@ -10,13 +10,13 @@ interface Current { revision: number; policy: Policy; publishedAt: string | null
 interface Published { publicationId: string | null; revision: number; previousRevision: number | null;
   actor: string | null; approvedBy: string | null; approvedDigest: string | null; publishedAt: string; policy: Policy }
 interface Catalog { current: Current; history: Published[]; local?: boolean }
-type Status = 'draft' | 'review' | 'approved' | 'publishing' | 'published' | 'failed' | 'uncertain' | 'cancelled';
+type Status = 'draft' | 'review' | 'approving' | 'approval_uncertain' | 'approved' | 'publishing' | 'published' | 'failed' | 'uncertain' | 'cancelled';
 interface Draft { id: string; revision: number; expectedRevision: number; policy: Policy; status: Status;
-  approvedBy?: string; approvedDigest?: string; dispatchActor?: string; publicationId?: string;
+  approvalActor?: string; approvedBy?: string; approvedDigest?: string; dispatchActor?: string; publicationId?: string;
   receipt?: Published & { local?: boolean }; error?: string; updatedAt: string;
   audit: { at: string; actor: string; action: string; revision: number }[] }
 interface Snapshot { revision: number; policy: Policy; digest: string }
-const STATUS: Record<Status, string> = { draft: '작성 중', review: '검토 대기', approved: '승인됨',
+const STATUS: Record<Status, string> = { draft: '작성 중', review: '검토 대기', approving: '승인 중', approval_uncertain: '승인 결과 확인 필요', approved: '승인됨',
   publishing: '적용 중', published: '적용 완료', failed: '적용 실패', uncertain: '결과 확인 필요', cancelled: '철회됨' };
 const FIELDS: { key: keyof Omit<Policy, 'goldenChancePpm'>; label: string; hint: string }[] = [
   { key: 'secondsPerFish', label: '물고기 1마리당 집중 시간(초)', hint: '새로 시작하는 집중 세션부터 적용' },
@@ -57,6 +57,14 @@ export function FocusPolicyPanel({ session, onDirtyChange, onUnauthorized }: {
   const [error, setError] = useState('');
   const [dirty, setDirty] = useState(false);
   useEffect(() => { onDirtyChange(dirty); }, [dirty, onDirtyChange]);
+  useEffect(() => {
+    let active = true;
+    setVersions([]);
+    if (selected) void request<{ items: Snapshot[] }>(`/api/policies/focus/drafts/${selected.id}/versions`)
+      .then(value => { if (active) setVersions(value.items); })
+      .catch(cause => { if (active) report(cause); });
+    return () => { active = false; };
+  }, [selected]);
   async function refresh() {
     const [current, drafts] = await Promise.all([
       request<Catalog>('/api/policies/focus'),
@@ -88,9 +96,8 @@ export function FocusPolicyPanel({ session, onDirtyChange, onUnauthorized }: {
   function canLeave() { return !dirty || window.confirm('저장하지 않은 정책 변경이 있습니다. 버릴까요?'); }
   function select(item: Draft) {
     if (!canLeave()) return;
-    setSelected(item); setPolicy(copy(item.policy)); setExpectedRevision(item.expectedRevision); setDirty(false);
-    void request<{ items: Snapshot[] }>(`/api/policies/focus/drafts/${item.id}/versions`)
-      .then(value => setVersions(value.items)).catch(cause => { setVersions([]); report(cause); });
+    setSelected({ ...item }); setPolicy(copy(item.policy)); setExpectedRevision(item.expectedRevision); setDirty(false);
+    setVersions([]);
   }
   function newDraft() {
     if (!catalog || !canLeave()) return;
@@ -112,7 +119,7 @@ export function FocusPolicyPanel({ session, onDirtyChange, onUnauthorized }: {
       });
       setItems(previous => [item, ...previous.filter(value => value.id !== item.id)]);
       setSelected(item); setPolicy(copy(item.policy)); setDirty(false);
-      setVersions((await request<{ items: Snapshot[] }>(`/api/policies/focus/drafts/${item.id}/versions`)).items);
+      setVersions([]);
     });
   }
   async function transition(action: 'review' | 'approve' | 'publish' | 'cancel') {
@@ -163,10 +170,11 @@ export function FocusPolicyPanel({ session, onDirtyChange, onUnauthorized }: {
         </fieldset></form><div className="action-buttons">
           {editable && <button className="button secondary" type="submit" form="policy-form" disabled={!!busy || (!!selected && !dirty && selected.status !== 'failed')}>변경안 저장</button>}
           {selected?.status === 'draft' && <button className="button primary" disabled={!!busy || dirty} onClick={() => void transition('review')}>검토 요청</button>}
-          {selected?.status === 'review' && <button className="button primary" disabled={!!busy || dirty} onClick={() => void transition('approve')}>승인하기</button>}
+          {selected && (selected.status === 'review' || (selected.status === 'approval_uncertain' && selected.approvalActor === session.actor)) && <button className="button primary" disabled={!!busy || dirty} onClick={() => void transition('approve')}>{selected.status === 'approval_uncertain' ? '같은 승인 요청 재시도' : '승인하기'}</button>}
           {canPublish && <button className="button primary" disabled={!!busy || dirty} onClick={() => void transition('publish')}>{selected?.status === 'uncertain' ? '같은 요청 재시도' : '정책 적용'}</button>}
-          {selected && ['draft', 'review', 'approved', 'failed'].includes(selected.status) && <button className="button secondary" disabled={!!busy || dirty} onClick={() => void transition('cancel')}>변경안 철회</button>}
+          {selected && ['draft', 'review', 'approved', 'failed', 'approval_uncertain'].includes(selected.status) && <button className="button secondary" disabled={!!busy || dirty} onClick={() => void transition('cancel')}>변경안 철회</button>}
         </div>{selected?.status === 'approved' && selected.approvedBy === session.actor && <p className="callout">승인자와 다른 운영자가 로그인해 적용해야 합니다.</p>}
+        {selected?.status === 'approval_uncertain' && <p className="callout">승인 결과를 확인하지 못했습니다. 최초 승인자가 같은 승인 요청을 재시도하거나 변경안을 철회하세요. 철회는 서버의 승인 취소가 확인된 뒤 완료됩니다.</p>}
         {selected?.status === 'uncertain' && <p className="callout">결과를 단정할 수 없습니다. 최초 적용자가 같은 요청으로 재시도해 확인해야 합니다. 결과가 확인되기 전에는 수정하거나 철회할 수 없습니다.</p>}
         {selected?.error && <p className="error-message" role="alert">{selected.error}</p>}
         {selected?.receipt && <p className="callout">{selected.receipt.local ? '로컬 모의 적용' : '적용 완료'} · revision {selected.receipt.revision}</p>}

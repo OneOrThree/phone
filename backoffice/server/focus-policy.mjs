@@ -35,7 +35,12 @@ export class FocusPolicyStore {
       + " BEGIN SELECT RAISE(ABORT, 'policy snapshot is immutable'); END;"
       + "CREATE TRIGGER IF NOT EXISTS focus_policy_snapshots_no_delete BEFORE DELETE ON focus_policy_snapshots"
       + " BEGIN SELECT RAISE(ABORT, 'policy snapshot is immutable'); END;");
-    for (const item of this.list()) if (item.status === "publishing") {
+    for (const item of this.list()) if (item.status === "approving") {
+      item.status = "approval_uncertain";
+      item.approvalUncertain = true;
+      item.error = "서버 재시작으로 승인 결과 확인이 필요합니다. 같은 승인 요청을 재시도하거나 승인을 취소하세요.";
+      this.save(item);
+    } else if (item.status === "publishing") {
       item.status = "uncertain";
       item.error = "서버 재시작으로 적용 결과 확인이 필요합니다. 같은 요청으로 재시도하세요.";
       this.save(item);
@@ -83,7 +88,7 @@ export class FocusPolicyStore {
   changeRequest(id, revision) {
     const item = this.get(id);
     this.checkRevision(item, revision);
-    requireValue(["draft", "review", "approved", "failed"].includes(item.status),
+    requireValue(["draft", "review", "approved", "failed", "approval_uncertain"].includes(item.status),
       "적용 중이거나 완료된 정책은 수정하거나 철회할 수 없습니다.", 409);
     return item.approvalId ?? null;
   }
@@ -104,6 +109,8 @@ export class FocusPolicyStore {
       delete item.approvedDigest;
       delete item.approvedPolicy;
       delete item.approvalId;
+      delete item.approvalActor;
+      delete item.approvalUncertain;
       delete item.error;
       delete item.receipt;
       delete item.dispatchActor;
@@ -127,13 +134,46 @@ export class FocusPolicyStore {
   approvalRequest(id, revision) {
     const item = this.get(id);
     this.checkRevision(item, revision);
-    requireValue(item.status === "review", "검토 요청된 정책만 승인할 수 있습니다.", 409);
+    requireValue(["review", "approving", "approval_uncertain"].includes(item.status), "검토 요청된 정책만 승인할 수 있습니다.", 409);
     const snapshot = this.db.prepare("SELECT document,digest FROM focus_policy_snapshots WHERE draft_id=? AND revision=?")
       .get(item.id, item.revision);
     requireValue(snapshot?.document === JSON.stringify(normalizeFocusPolicy(item.policy))
       && snapshot?.digest === focusDigest(item.policy), "검토한 정책 수정본이 다릅니다.", 409);
     return { approvalId: publicationId({ id: `approval:${item.id}`, revision: item.revision }),
       expectedRevision: item.expectedRevision, policy: JSON.parse(snapshot.document), approvedDigest: snapshot.digest };
+  }
+  beginApproval(id, revision, actor) {
+    return this.store.transaction(() => {
+      const item = this.get(id);
+      requireValue(["review", "approval_uncertain"].includes(item.status),
+        "검토 요청되었거나 승인 결과 확인이 필요한 정책만 승인할 수 있습니다.", 409);
+      requireValue(!item.approvalActor || item.approvalActor === actor,
+        "승인 결과가 불확실한 요청은 최초 승인자가 재시도해야 합니다.", 409);
+      const request = this.approvalRequest(id, revision);
+      item.approvalId = request.approvalId;
+      item.approvalActor = actor;
+      item.approvalUncertain = item.approvalUncertain || item.status === "approval_uncertain";
+      item.status = "approving";
+      this.event(item, actor, "approving");
+      this.save(item);
+      return request;
+    });
+  }
+  failApproval(id, error) {
+    return this.store.transaction(() => {
+      const item = this.get(id);
+      requireValue(item.status === "approving", "승인 상태가 변경되었습니다.", 409);
+      item.approvalUncertain = item.approvalUncertain || !error.definite;
+      item.status = item.approvalUncertain ? "approval_uncertain" : "review";
+      const actor = item.approvalActor;
+      if (!item.approvalUncertain) {
+        delete item.approvalId;
+        delete item.approvalActor;
+      }
+      item.error = error.message;
+      this.event(item, actor, item.status);
+      return this.save(item);
+    });
   }
   transition(id, revision, actor, action, approval) {
     return this.store.transaction(() => {
@@ -143,6 +183,8 @@ export class FocusPolicyStore {
         requireValue(item.status === "draft", "작성 중인 정책만 검토 요청할 수 있습니다.", 409);
         item.status = "review";
       } else if (action === "approve") {
+        requireValue(item.status === "approving" && item.approvalActor === actor,
+          "시작한 승인 요청의 운영자가 다릅니다.", 409);
         const expected = this.approvalRequest(id, revision);
         requireValue(approval?.approvalId === expected.approvalId
           && approval?.approvedBy === actor
@@ -156,6 +198,8 @@ export class FocusPolicyStore {
         item.approvedBy = approval.approvedBy;
         item.approvedAt = approval.approvedAt;
         item.status = "approved";
+        delete item.approvalUncertain;
+        delete item.error;
       } else if (action === "publish") {
         requireValue(item.status === "approved" || item.status === "uncertain",
           "승인된 정책만 적용할 수 있습니다.", 409);

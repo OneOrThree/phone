@@ -286,10 +286,16 @@ export function createApp({
               if (approvalId) await upstream.revokeFocusPolicy(approvalId, auth.actor, operator);
               return policies.cancel(id, revision, auth.actor);
             }
-            const approval = action === "approve"
-              ? await upstream.approveFocusPolicy(policies.approvalRequest(id, revision), auth.actor, operator)
-              : undefined;
-            let item = policies.transition(id, revision, auth.actor, action, approval);
+            if (action === "approve") {
+              const request = policies.beginApproval(id, revision, auth.actor);
+              try {
+                const approval = await upstream.approveFocusPolicy(request, auth.actor, operator);
+                return policies.transition(id, revision, auth.actor, action, approval);
+              } catch (error) {
+                return policies.failApproval(id, error);
+              }
+            }
+            let item = policies.transition(id, revision, auth.actor, action);
             if (action === "publish") {
               try {
                 if (mode === "local") {

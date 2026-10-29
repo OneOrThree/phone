@@ -31,7 +31,7 @@ test("연결 모드는 운영자 2명과 각자의 서비스 환경 검증이 �
   } }, "prod", entries), /두 번째 운영자/);
 });
 function approve(store, item, actor) {
-  const request = store.approvalRequest(item.id, item.revision);
+  const request = store.beginApproval(item.id, item.revision, actor);
   return store.transition(item.id, item.revision, actor, "approve",
     { ...request, approvedBy: actor, approvedAt: new Date().toISOString() });
 }
@@ -49,10 +49,11 @@ test("정책 변경은 승인 snapshot만 적용하며 수정 시 재승인하�
   let item = store.create({ policy, expectedRevision: 1 }, "member-1");
   assert.throws(() => store.transition(item.id, item.revision, "member-2", "publish"), /승인된/);
   item = store.transition(item.id, item.revision, "member-1", "review");
-  const request = store.approvalRequest(item.id, item.revision);
+  const request = store.beginApproval(item.id, item.revision, "member-1");
   assert.throws(() => store.transition(item.id, item.revision, "member-1", "approve",
     { ...request, approvedBy: "member-2" }), /Data 승인 기록/);
-  item = approve(store, item, "member-1");
+  item = store.transition(item.id, item.revision, "member-1", "approve",
+    { ...request, approvedBy: "member-1", approvedAt: new Date().toISOString() });
   assert.equal(item.approvedDigest, focusDigest(policy));
   assert.equal(item.approvalId, request.approvalId);
   assert.throws(() => store.transition(item.id, item.revision, "member-1", "publish"), /다른 운영자/);
@@ -353,4 +354,119 @@ test("응답 유실 뒤 409는 Data 발행 원장과 현재 revision으로 정�
   currentRevision = 3;
   item = await post(`/api/policies/focus/drafts/${item.id}/publish`, { revision: item.revision }, two);
   assert.equal(item.status, "failed");
+});
+
+test("승인 전 저장한 ID와 운영자는 재시작 뒤에도 유지되고 확정 거부로 잠금이 풀리지 않는다", t => {
+  const dir = mkdtempSync(join(tmpdir(), "focus-approval-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const path = join(dir, "state.sqlite");
+  let db = new Store(path), store = new FocusPolicyStore(db);
+  let item = store.create({ policy, expectedRevision: 1 }, "member-1");
+  item = store.transition(item.id, item.revision, "member-1", "review");
+  const request = store.beginApproval(item.id, item.revision, "member-1");
+  assert.equal(store.get(item.id).status, "approving");
+  assert.throws(() => store.changeRequest(item.id, item.revision), /수정하거나 철회/);
+  db.close();
+  db = new Store(path); store = new FocusPolicyStore(db);
+  t.after(() => db.close());
+  item = store.get(item.id);
+  assert.equal(item.status, "approval_uncertain");
+  assert.equal(item.approvalId, request.approvalId);
+  assert.equal(item.approvalActor, "member-1");
+  assert.throws(() => store.beginApproval(item.id, item.revision, "member-2"), /최초 승인자/);
+  assert.deepEqual(store.beginApproval(item.id, item.revision, "member-1"), request);
+  item = store.failApproval(item.id, Object.assign(new Failure(409, "재시도 거부"), { definite: true }));
+  assert.equal(item.status, "approval_uncertain");
+  assert.equal(store.changeRequest(item.id, item.revision), request.approvalId);
+  assert.throws(() => store.transition(item.id, item.revision, "member-2", "publish"), /승인된/);
+  item = approve(store, item, "member-1");
+  assert.equal(item.status, "approved");
+  assert.equal(item.approvalId, request.approvalId);
+  assert.equal(item.error, undefined);
+});
+
+test("첫 승인 요청이 확정 거부되면 검토 상태로 돌아가 새 수정본을 만들 수 있다", t => {
+  const db = new Store(":memory:"); t.after(() => db.close());
+  const store = new FocusPolicyStore(db);
+  let item = store.create({ policy, expectedRevision: 1 }, "member-1");
+  item = store.transition(item.id, item.revision, "member-1", "review");
+  store.beginApproval(item.id, item.revision, "member-1");
+  item = store.failApproval(item.id, Object.assign(new Failure(409, "정책 변경"), { definite: true }));
+  assert.equal(item.status, "review");
+  assert.equal(store.changeRequest(item.id, item.revision), null);
+  item = store.edit(item.id, { revision: item.revision, expectedRevision: 2, policy }, "member-1");
+  assert.equal(item.status, "draft");
+  assert.equal(item.revision, 2);
+});
+
+test("Data 승인 성공 후 응답 유실은 같은 ID 재시도 또는 서버 취소 뒤에만 수정·철회된다", async t => {
+  const db = new Store(":memory:"), store = new FocusPolicyStore(db);
+  const approvals = new Map(), revoked = new Set();
+  const origin = "http://127.0.0.1:4310", salt = "approval-loss";
+  let denyRevoke = false;
+  const upstream = {
+    approveFocusPolicy: async (request, actor) => {
+      const saved = store.list().find(item => item.approvalId === request.approvalId);
+      assert.equal(saved.status, "approving");
+      assert.equal(saved.approvalActor, actor);
+      if (approvals.has(request.approvalId)) return approvals.get(request.approvalId);
+      const receipt = { ...request, approvedBy: actor, approvedAt: new Date().toISOString() };
+      approvals.set(request.approvalId, receipt);
+      throw new Failure(502, "Data 승인 후 응답 유실");
+    },
+    revokeFocusPolicy: async id => {
+      assert.ok(approvals.has(id));
+      if (denyRevoke) throw new Failure(502, "승인 취소 미확인");
+      revoked.add(id);
+      return { ok: true };
+    },
+  };
+  const operators = Object.fromEntries(["member-1", "member-2"].map(actor =>
+    [actor, { passwordHash: `${salt}:${scryptSync(actor, salt, 64).toString("hex")}` }]));
+  const app = createApp({ store: db, upstream, origin, operators, mode: "connected", environment: "dev" });
+  await new Promise(resolve => app.listen(0, "127.0.0.1", resolve));
+  t.after(async () => { await new Promise(resolve => app.close(resolve)); db.close(); });
+  const base = `http://127.0.0.1:${app.address().port}`;
+  const auth = {};
+  for (const actor of Object.keys(operators)) {
+    const response = await fetch(base + "/api/login", { method: "POST",
+      headers: { Origin: origin, "Content-Type": "application/json" }, body: JSON.stringify({ actor, password: actor }) });
+    assert.equal(response.status, 200);
+    auth[actor] = { Cookie: response.headers.get("set-cookie").split(";")[0], "X-CSRF-Token": (await response.json()).csrfToken };
+  }
+  const call = (item, action, actor = "member-1", extra = {}, method = "POST") => fetch(
+    `${base}/api/policies/focus/drafts/${item.id}${action ? '/' + action : ''}`,
+    { method, headers: { Origin: origin, "Content-Type": "application/json", ...auth[actor] },
+      body: JSON.stringify({ revision: item.revision, ...extra }) });
+  for (const action of ["retry", "cancel", "edit"]) {
+    let item = store.create({ policy, expectedRevision: 1 }, "member-1");
+    item = store.transition(item.id, item.revision, "member-1", "review");
+    let response = await call(item, "approve");
+    assert.equal(response.status, 200);
+    item = await response.json();
+    assert.equal(item.status, "approval_uncertain");
+    assert.ok(approvals.has(item.approvalId));
+    assert.equal((await call(item, "approve", "member-2")).status, 409);
+    assert.equal((await call(item, "publish", "member-2")).status, 409);
+    if (action === "retry") {
+      response = await call(item, "approve");
+      assert.equal(response.status, 200);
+      const approved = await response.json();
+      assert.equal(approved.status, "approved");
+      assert.equal(approved.approvalId, item.approvalId);
+    } else {
+      const invoke = () => action === "cancel" ? call(item, "cancel", "member-2")
+        : call(item, "", "member-2", { expectedRevision: 1, policy: { ...policy, goldenFishReward: 20 } }, "PATCH");
+      denyRevoke = true;
+      assert.equal((await invoke()).status, 502);
+      assert.equal(store.get(item.id).status, "approval_uncertain");
+      assert.equal(revoked.has(item.approvalId), false);
+      denyRevoke = false;
+      response = await invoke();
+      assert.equal(response.status, 200);
+      assert.equal((await response.json()).status, action === "cancel" ? "cancelled" : "draft");
+      assert.equal(revoked.has(item.approvalId), true);
+    }
+  }
+  assert.equal(approvals.size, 3);
 });
