@@ -44,11 +44,12 @@ rows = [
     E('2026/10/29 10:00:00 [error] 1#1: *33 connect() failed, client: 203.0.113.9, server: x, request: "GET /a HTTP/1.1", upstream: "http://10.0.0.1:8080/users/@me", host: "h"'),
     E('2026/10/29 10:00:00 [error] 1#1: *34 connect() failed, client: 203.0.113.9, server: x, request: "GET /a HTTP/1.1", upstream: "http://10.0.0.1:8080%3Fcode=HOSTQ1/p", host: "h"'),
     E('2026/10/29 10:00:00 [error] 1#1: *35 connect() failed, client: 203.0.113.9, server: x, request: "GET /a HTTP/1.1", upstream: "http://10.0.0.1:8080/p?email=a@b.com&code=QSECRET1", host: "h"'),
-    # ⑨ '/' 없는 토큰 — 한계 유지(런북 §4.1). 비밀 꼴 토큰은 남고, 호스트 이름(숫자 포함 20자 이상)은 가려지지 않아야 한다.
+    # ⑧ 밑줄·IPv6 호스트, 비밀번호의 '/' + query 안 '@', 새 한계 고정(비밀번호 '?' + query 안 '@' + host 꼴 아님)
     E('2026/10/29 10:00:00 [error] 1#1: *36 connect() failed, client: 203.0.113.9, server: x, request: "GET /a HTTP/1.1", upstream: "http://svcuser:UP?PASS4@my_backend:8080/p", host: "h"'),
     E('2026/10/29 10:00:00 [error] 1#1: *37 connect() failed, client: 203.0.113.9, server: x, request: "GET /a HTTP/1.1", upstream: "http://svcuser:UP?PASS5@[::1]:8080/p", host: "h"'),
     E('2026/10/29 10:00:00 [error] 1#1: *38 connect() failed, client: 203.0.113.9, server: x, request: "GET /a HTTP/1.1", upstream: "http://svcuser:UP/PASS6@10.0.0.1:8080/x?e=a@b.com", host: "h"'),
     E('2026/10/29 10:00:00 [error] 1#1: *39 connect() failed, client: 203.0.113.9, server: x, request: "GET /a HTTP/1.1", upstream: "http://svcuser:UP?PASS7@10.0.0.1:8080/x?e=a@b.com&code=Q", host: "h"'),
+    # ⑨ '/' 없는 토큰 — 한계 유지(런북 §4.1). 비밀 꼴 토큰은 남고, 호스트 이름(숫자 포함 20자 이상)은 가려지지 않아야 한다.
     E('2026/10/29 10:00:00 [error] 1#1: *19 client sent invalid header NOSLASHTOKEN1234567890abcdef, client: 203.0.113.9, server: x, host: "gromo-dev-app.asia-northeast3-a.c.oneorthree2.internal"'),
 ]
 d = tempfile.mkdtemp()
