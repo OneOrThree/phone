@@ -6,10 +6,11 @@ SDK 57 로컬 Expo 모듈. 새 네이티브 바이너리가 필요하며, `getAs
 - `fetchMetadata`: 채널·manifest를 최대 1MiB, 10초 이내에서 메모리에 제한 수신한다. 호출자는 채널에 16KiB 한도를 준다. 200은 UTF-8 text, 304/4xx/5xx는 빈 text와 status를 반환한다. 선택적 `If-None-Match`만 추가한다.
 - 둘 모두 신뢰된 빌드 설정에서 전달한 HTTPS origin만 허용하며 userinfo/query/fragment, 모든 redirect, identity 외 Content-Encoding을 거부한다. 허용 origin을 원격 manifest에서 만들면 안 된다.
 - `cancelDownload`: writer 종료와 핸들 닫기·실패 정리가 완료될 때까지 기다린다.
+- `inspectPng`: root 내부의 최대 16MiB 파일에서 처음 33바이트만 읽어 PNG signature, 첫 IHDR의 길이 13·유형, 양수 해상도와 한 변 4096/면적 16,777,216 한도를 확인한다. 런타임은 manifest 해상도와 비교한 뒤 실제 디코더를 호출한다.
 - `publishObject`: root 내부 staging 파일을 다시 해시 검사하고 objects에 공개한다. 기존 정상 객체는 유지하고 손상 객체만 삭제 후 검증된 staging으로 복구한다. 열린 lease의 손상 객체 복구 보류는 런타임 책임이다.
 - `writeSnapshot`: 최대 2MiB UTF-8, 양의 safe integer seq. `indexes/<seq>.<sha>.json`을 exclusive 생성하고 flush/close/해시 재검증한다. 기존 snapshot을 삭제하지 않는다. schema/seq 검증, 최신·직전 참조 보존과 GC는 런타임 책임이다.
 
-오류 코드는 `E_INPUT`, `E_ORIGIN`, `E_PATH`, `E_BUSY`, `E_EXISTS`, `E_SIZE`, `E_ENCODING`, `E_INTEGRITY`, `E_TIMEOUT`, `E_CANCELLED`, `E_REDIRECT`, `E_HTTP_<status>`, `E_IO`이다. 파일 flush는 프로세스 종료 복구를 위한 것이며 전원 상실 내구성을 주장하지 않는다.
+오류 코드는 `E_INPUT`, `E_ORIGIN`, `E_PATH`, `E_BUSY`, `E_EXISTS`, `E_SIZE`, `E_PNG`, `E_ENCODING`, `E_INTEGRITY`, `E_TIMEOUT`, `E_CANCELLED`, `E_REDIRECT`, `E_HTTP_<status>`, `E_IO`이다. 파일 flush는 프로세스 종료 복구를 위한 것이며 전원 상실 내구성을 주장하지 않는다.
 
 ## 로컬 검증
 

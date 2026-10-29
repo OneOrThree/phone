@@ -12,6 +12,7 @@ const native = () => ({
   fetchMetadata: jest.fn(),
   cancelDownload: jest.fn(),
   inspectFile: jest.fn(),
+  inspectPng: jest.fn(),
   publishObject: jest.fn(),
   writeSnapshot: jest.fn(),
 });
@@ -25,7 +26,12 @@ test('구 바이너리에 네이티브 모듈이 없으면 번들 대체용 null
 });
 
 test('호환되지 않은 버전이나 불완전 capability는 사용하지 않는다', () => {
-  for (const overrides of [{ apiVersion: 2 }, { rootUri: '' }, { fetchMetadata: undefined }]) {
+  for (const overrides of [
+    { apiVersion: 2 },
+    { rootUri: '' },
+    { fetchMetadata: undefined },
+    { inspectPng: undefined },
+  ]) {
     mockResolveNative.mockReturnValue({ ...native(), ...overrides });
     expect(getAssetCacheNative()).toBeNull();
   }

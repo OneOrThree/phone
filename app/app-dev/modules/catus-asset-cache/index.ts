@@ -20,6 +20,7 @@ export interface AssetCacheNative {
   }): Promise<{ status: number; text: string; etag?: string }>;
   cancelDownload(jobId: string): Promise<void>;
   inspectFile(uri: string): Promise<{ bytes: number; sha256: string }>;
+  inspectPng(uri: string): Promise<{ width: number; height: number }>;
   publishObject(options: { uri: string; sha256: string; extension: 'png' }): Promise<string>;
   writeSnapshot(options: {
     seq: number;
@@ -38,6 +39,7 @@ export function getAssetCacheNative(): AssetCacheNative | null {
       'fetchMetadata',
       'cancelDownload',
       'inspectFile',
+      'inspectPng',
       'publishObject',
       'writeSnapshot',
     ].every((method) => typeof native[method as keyof AssetCacheNative] === 'function')

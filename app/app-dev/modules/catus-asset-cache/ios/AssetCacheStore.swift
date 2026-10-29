@@ -121,6 +121,31 @@ final class AssetCacheStore {
     }
     return ["bytes": count, "sha256": digest.finalize().map { String(format: "%02x", $0) }.joined()]
   }
+  func inspectPng(_ uri: String) throws -> [String: Int] {
+    let file = try contained(uri)
+    let attributes = try FileManager.default.attributesOfItem(atPath: file.path)
+    guard attributes[.type] as? FileAttributeType == .typeRegular,
+      let size = attributes[.size] as? NSNumber, (33...Self.maxFile).contains(size.int64Value)
+    else { throw cacheFail("E_SIZE", "PNG 파일 크기 오류") }
+    let handle = try FileHandle(forReadingFrom: file)
+    defer { try? handle.close() }
+    // 디코더가 대형 버퍼를 할당하기 전에 고정 길이 헤더만 읽는다.
+    var header = Data()
+    while header.count < 33 {
+      guard let part = try handle.read(upToCount: 33 - header.count), !part.isEmpty else { throw cacheFail("E_PNG", "잘린 PNG 헤더") }
+      header.append(part)
+    }
+    func uint32(_ offset: Int) -> UInt64 {
+      header[offset..<(offset + 4)].reduce(UInt64(0)) { ($0 << 8) | UInt64($1) }
+    }
+    guard Array(header[0..<8]) == [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a],
+      uint32(8) == 13, Array(header[12..<16]) == [0x49, 0x48, 0x44, 0x52]
+    else { throw cacheFail("E_PNG", "PNG signature 또는 IHDR 오류") }
+    let width = uint32(16), height = uint32(20)
+    guard (1...4096).contains(width), (1...4096).contains(height), width * height <= 16777216
+    else { throw cacheFail("E_PNG", "PNG 해상도 상한 초과") }
+    return ["width": Int(width), "height": Int(height)]
+  }
   func publish(uri: String, sha256: String, ext: String) throws -> String {
     fileLock.lock(); defer { fileLock.unlock() }
     guard Self.validHash(sha256), ext == "png" else { throw cacheFail("E_INPUT", "객체 이름 오류") }

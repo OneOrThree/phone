@@ -115,6 +115,31 @@ final class FixtureProtocol: URLProtocol {
     check(errorCode(metadata()) == "E_REDIRECT", "metadata redirect 거부")
     FixtureProtocol.handler = { _ in }
     check(errorCode(metadata(timeout: 30)) == "E_TIMEOUT", "metadata native timeout")
+    let pngFile = base.appendingPathComponent("staging/header.partial")
+    var pngHeader = Data(repeating: 0, count: 33)
+    pngHeader.replaceSubrange(0..<8, with: [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+    func putUInt32(_ data: inout Data, _ offset: Int, _ value: UInt32) {
+      for index in 0..<4 { data[offset + index] = UInt8((value >> (24 - index * 8)) & 255) }
+    }
+    putUInt32(&pngHeader, 8, 13); putUInt32(&pngHeader, 12, 0x49484452)
+    putUInt32(&pngHeader, 16, 4096); putUInt32(&pngHeader, 20, 4096)
+    try pngHeader.write(to: pngFile)
+    check(try store.inspectPng(pngFile.absoluteString) == ["width": 4096, "height": 4096], "PNG 최대 허용 해상도")
+    for (offset, value): (Int, UInt32) in [(0, 0), (8, 12), (12, 0), (16, 0), (16, 4097), (20, 4097), (16, UInt32.max)] {
+      var corrupt = pngHeader; putUInt32(&corrupt, offset, value); try corrupt.write(to: pngFile)
+      do { _ = try store.inspectPng(pngFile.absoluteString); fatalError("잘못된 PNG 헤더 허용") }
+      catch { check((error as? CacheFailure)?.code == "E_PNG", "PNG signature/IHDR/해상도 거부 \(offset):\(value)") }
+    }
+    try pngHeader.prefix(32).write(to: pngFile)
+    do { _ = try store.inspectPng(pngFile.absoluteString); fatalError("잘린 PNG 허용") }
+    catch { check((error as? CacheFailure)?.code == "E_SIZE", "잘린 PNG 거부") }
+    try pngHeader.write(to: pngFile)
+    let oversized = try FileHandle(forWritingTo: pngFile)
+    try oversized.truncate(atOffset: UInt64(AssetCacheStore.maxFile + 1)); try oversized.close()
+    do { _ = try store.inspectPng(pngFile.absoluteString); fatalError("대형 PNG 허용") }
+    catch { check((error as? CacheFailure)?.code == "E_SIZE", "PNG 파일 16MiB 상한") }
+    do { _ = try store.inspectPng("file:///etc/passwd"); fatalError("PNG root 탈출") }
+    catch { check((error as? CacheFailure)?.code == "E_PATH", "PNG root 탈출 거부") }
     print("Swift native tests: \(passed) passed")
   }
 }

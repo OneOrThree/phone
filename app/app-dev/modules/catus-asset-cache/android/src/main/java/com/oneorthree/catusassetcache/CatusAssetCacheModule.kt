@@ -68,6 +68,9 @@ class CatusAssetCacheModule : Module() {
     AsyncFunction("inspectFile") { uri: String, promise: Promise ->
       runCatching { store.inspect(uri) }.fold({ promise.resolve(it) }, { reject(promise, it) })
     }
+    AsyncFunction("inspectPng") { uri: String, promise: Promise ->
+      runCatching { store.inspectPng(uri) }.fold({ promise.resolve(it) }, { reject(promise, it) })
+    }
     AsyncFunction("publishObject") { options: PublishOptions, promise: Promise ->
       runCatching { store.publish(options.uri, options.sha256, options.extension) }
         .fold({ promise.resolve(it) }, { reject(promise, it) })

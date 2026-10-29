@@ -1,6 +1,7 @@
 package com.oneorthree.catusassetcache
 
 import java.io.File
+import java.io.DataInputStream
 import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
 import java.nio.charset.CodingErrorAction
@@ -226,6 +227,22 @@ internal class AssetCacheStore(
       }
     }
     return mapOf("bytes" to count, "sha256" to hex(hash.digest()))
+  }
+
+  fun inspectPng(uri: String): Map<String, Int> {
+    val file = contained(uri)
+    if (!file.isFile || file.length() !in 33..MAX_FILE) fail("E_SIZE", "PNG 파일 크기 오류")
+    // 디코더가 대형 버퍼를 할당하기 전에 고정 길이 헤더만 읽는다.
+    val header = ByteArray(33)
+    DataInputStream(file.inputStream()).use { it.readFully(header) }
+    val signature = byteArrayOf(0x89.toByte(), 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a)
+    val bytes = ByteBuffer.wrap(header)
+    if (!header.copyOfRange(0, 8).contentEquals(signature) || bytes.getInt(8) != 13 ||
+      !header.copyOfRange(12, 16).contentEquals(byteArrayOf(0x49, 0x48, 0x44, 0x52))) fail("E_PNG", "PNG signature 또는 IHDR 오류")
+    val width = bytes.getInt(16).toLong() and 0xffffffffL
+    val height = bytes.getInt(20).toLong() and 0xffffffffL
+    if (width !in 1..4096 || height !in 1..4096 || width * height > 16777216) fail("E_PNG", "PNG 해상도 상한 초과")
+    return mapOf("width" to width.toInt(), "height" to height.toInt())
   }
 
   @Synchronized fun publish(uri: String, sha256: String, extension: String): String {

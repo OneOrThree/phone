@@ -74,6 +74,9 @@ public final class CatusAssetCacheModule: Module {
     AsyncFunction("inspectFile") { (uri: String, promise: Promise) in
       do { promise.resolve(try self.cache().inspect(uri)) } catch { self.reject(promise, error) }
     }
+    AsyncFunction("inspectPng") { (uri: String, promise: Promise) in
+      do { promise.resolve(try self.cache().inspectPng(uri)) } catch { self.reject(promise, error) }
+    }
     AsyncFunction("publishObject") { (options: PublishOptions, promise: Promise) in
       do { promise.resolve(try self.cache().publish(uri: options.uri, sha256: options.sha256, ext: options.extension)) }
       catch { self.reject(promise, error) }

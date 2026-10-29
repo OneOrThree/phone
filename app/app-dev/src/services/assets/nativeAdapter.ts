@@ -90,8 +90,11 @@ export function nativePort(): AssetPort | null {
         .writeSnapshot({ seq, payload })
         .then((result) => ({ ...result, uri: checked(result.uri) }));
     },
-    decode(uri, width, height) {
-      return new Promise((resolve, reject) =>
+    async decode(uri, width, height) {
+      const dimensions = await native.inspectPng(checked(uri));
+      if (dimensions.width !== width || dimensions.height !== height)
+        throw new Error('PNG dimensions');
+      return new Promise<void>((resolve, reject) =>
         Image.getSize(
           checked(uri),
           (w, h) =>

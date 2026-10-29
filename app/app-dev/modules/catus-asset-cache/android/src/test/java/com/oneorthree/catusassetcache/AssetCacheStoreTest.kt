@@ -114,6 +114,30 @@ class AssetCacheStoreTest {
       assertEquals(modified, file.lastModified())
     }
   }
+  @Test fun boundedPngHeaderBeforeDecode() {
+    using(store(ByteArray(0))) { cache ->
+      val file = File(cache.root, "staging/header.partial")
+      val header = ByteArray(33)
+      byteArrayOf(0x89.toByte(), 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a).copyInto(header)
+      val buffer = java.nio.ByteBuffer.wrap(header)
+      buffer.putInt(8, 13); buffer.putInt(12, 0x49484452)
+      buffer.putInt(16, 4096); buffer.putInt(20, 4096)
+      file.writeBytes(header)
+      assertEquals(mapOf("width" to 4096, "height" to 4096), cache.inspectPng(AssetCacheStore.uri(file)))
+      for ((offset, value) in listOf(0 to 0, 8 to 12, 12 to 0, 16 to 0, 16 to 4097, 20 to 4097, 16 to -1)) {
+        val corrupt = header.copyOf()
+        java.nio.ByteBuffer.wrap(corrupt).putInt(offset, value)
+        file.writeBytes(corrupt)
+        assertEquals("E_PNG", assertThrows(CacheFailure::class.java) { cache.inspectPng(AssetCacheStore.uri(file)) }.errorCode)
+      }
+      file.writeBytes(header.copyOf(32))
+      assertEquals("E_SIZE", assertThrows(CacheFailure::class.java) { cache.inspectPng(AssetCacheStore.uri(file)) }.errorCode)
+      file.writeBytes(header)
+      java.io.RandomAccessFile(file, "rw").use { it.setLength(AssetCacheStore.MAX_FILE + 1) }
+      assertEquals("E_SIZE", assertThrows(CacheFailure::class.java) { cache.inspectPng(AssetCacheStore.uri(file)) }.errorCode)
+      assertThrows(CacheFailure::class.java) { cache.inspectPng("file:///etc/passwd") }
+    }
+  }
   @Test fun inputSecurity() {
     for (url in listOf("http://cdn.example/a", "https://user@cdn.example/a", "https://evil.example/a", "https://cdn.example/a?token=x")) {
       assertThrows(Exception::class.java) { AssetCacheStore.validate(DownloadInput(url, "job", 0, "0".repeat(64), listOf("https://cdn.example"), 1000)) }
