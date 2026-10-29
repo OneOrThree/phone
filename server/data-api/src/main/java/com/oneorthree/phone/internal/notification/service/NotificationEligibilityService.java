@@ -149,7 +149,7 @@ public class NotificationEligibilityService {
             case MAGAZINE_PUBLISHED -> evaluateMagazinePublished(request);
             // ISLAND_KICKED(GROMO-2315)도 «이미 커밋된 강퇴»의 통보다 — 그 뒤 다시 들어왔어도 되묻지 않는다.
             case LEAGUE_WEEKLY_RESULT, LEAGUE_DEADLINE, LEAGUE_FINAL_DEADLINE, MAIN_ISLAND_TRANSFERRED,
-                    ISLAND_KICKED -> NotificationEligibilityResponse.allow();
+                    ISLAND_KICKED, ADMIN_ANNOUNCEMENT -> NotificationEligibilityResponse.allow();
         };
     }
 

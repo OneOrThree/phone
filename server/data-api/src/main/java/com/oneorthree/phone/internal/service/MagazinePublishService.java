@@ -1,6 +1,9 @@
 package com.oneorthree.phone.internal.service;
 
 import com.oneorthree.phone.common.util.ZonePolicy;
+import com.oneorthree.phone.content.exception.ContentErrorCode;
+import com.oneorthree.phone.content.exception.ContentException;
+import com.oneorthree.phone.magazine.support.PromotionContent;
 import com.oneorthree.phone.construction.repository.IslandFacilityRepository;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupRepository;
@@ -21,6 +24,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -152,6 +157,94 @@ public class MagazinePublishService {
         return issue;
     }
 
+    /** 검토용 동결 값. 공개 호·홍보 스냅샷·알림은 만들지 않는다. */
+    public Review preview(LocalDate issueDate, String editorialBody) {
+        Instant now = clock.instant();
+        List<IslandRanking> ranked = rankings.top(now, EDITORIAL_SLOTS);
+        List<Group> fresh = islands.findPublicAliveCreatedBetween(
+                issueDate.minusDays(1).atStartOfDay(ZonePolicy.KST).toInstant(),
+                issueDate.atStartOfDay(ZonePolicy.KST).toInstant(), EDITORIAL_SLOTS);
+        List<IslandPromotion> requested = promotions.findByIssueDateOrderByAppliedAtAscIdAsc(issueDate);
+        Set<UUID> ids = new LinkedHashSet<>();
+        ranked.forEach(row -> ids.add(row.islandId()));
+        fresh.forEach(row -> ids.add(row.getId()));
+        requested.forEach(row -> ids.add(row.getIslandId()));
+        Map<UUID, IslandCard> frozen = cards(ids);
+        int number = issues.maxIssueNo() + 1;
+        MagazineEditorial.Note note = editorialBody == null
+                ? editorialNotes.findById(issueDate).map(row -> MagazineEditorial.Note.editor(row.getBody()))
+                    .orElseGet(() -> MagazineEditorial.Note.tip(number % TIP_COUNT))
+                : MagazineEditorial.Note.editor(editorialBody);
+        MagazineEditorial editorial = new MagazineEditorial(
+                ranked.stream().filter(row -> frozen.containsKey(row.islandId()))
+                    .map(row -> new MagazineEditorial.Ranked(row.rank(), frozen.get(row.islandId()))).toList(),
+                fresh.stream().map(row -> frozen.get(row.getId())).filter(Objects::nonNull).toList(), note);
+        return new Review(issueDate, number, editorial, requested.stream()
+                .map(row -> new ReviewCell(row.getId(), row.getIslandId(), row.getUpdatedAt(), row.getBody(),
+                        row.getLayout(), row.getModeration(), frozen.get(row.getIslandId()))).toList());
+    }
+
+    /** 호출자가 발행·홍보 테이블 잠금과 트랜잭션을 보유한다. 승인된 본문·지면만 게시한다. */
+    public MagazineIssue publishReviewed(Review review) {
+        if (issues.existsByIssueDate(review.issueDate()) || issues.maxIssueNo() + 1 != review.issueNo()) {
+            throw new ContentException(ContentErrorCode.CONTENT_REVIEW_STALE);
+        }
+        List<IslandPromotion> current = promotions.findByIssueDateOrderByAppliedAtAscIdAsc(review.issueDate());
+        if (current.size() != review.cells().size()) {
+            throw new ContentException(ContentErrorCode.CONTENT_REVIEW_STALE);
+        }
+        Set<UUID> requiredIslands = new LinkedHashSet<>();
+        review.editorial().ranking().forEach(row -> requiredIslands.add(row.island().islandId()));
+        review.editorial().newIslands().forEach(row -> requiredIslands.add(row.islandId()));
+        review.cells().stream().filter(row -> row.card() != null)
+                .forEach(row -> requiredIslands.add(row.islandId()));
+        Map<UUID, Group> alive = new HashMap<>();
+        islands.findAllById(requiredIslands).forEach(row -> alive.put(row.getId(), row));
+        if (requiredIslands.stream().anyMatch(id -> !alive.containsKey(id)
+                || !IslandMovementGuards.isAlive(alive.get(id)))) {
+            throw new ContentException(ContentErrorCode.CONTENT_REVIEW_STALE);
+        }
+        // 새로 생긴 섬은 공개 섬만 소개한다. 랭킹·홍보는 기존 비공개 섬 허용 정책을 유지한다.
+        if (review.editorial().newIslands().stream().anyMatch(row -> alive.get(row.islandId()).isPrivate())) {
+            throw new ContentException(ContentErrorCode.CONTENT_REVIEW_STALE);
+        }
+        int count = 0;
+        for (int i = 0; i < current.size(); i++) {
+            IslandPromotion row = current.get(i);
+            ReviewCell frozen = review.cells().get(i);
+            if (!frozen.matches(row) || (frozen.card() != null
+                    && (!alive.containsKey(row.getIslandId())
+                        || !IslandMovementGuards.isAlive(alive.get(row.getIslandId()))))) {
+                throw new ContentException(ContentErrorCode.CONTENT_REVIEW_STALE);
+            }
+            if (frozen.card() != null) {
+                row.publish(frozen.card());
+                count++;
+            }
+        }
+        MagazineIssue issue = issues.saveAndFlush(new MagazineIssue(review.issueDate(), review.issueNo(),
+                clock.instant(), review.editorial(), count));
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                forgetOutsideLatestSeven(issue.getIssueDate());
+            }
+        });
+        return issue;
+    }
+
+    public record Review(LocalDate issueDate, int issueNo, MagazineEditorial editorial, List<ReviewCell> cells) {
+    }
+
+    public record ReviewCell(UUID promotionId, UUID islandId, Instant updatedAt, String body,
+                             PromotionContent.Layout layout, String moderation, IslandCard card) {
+        boolean matches(IslandPromotion row) {
+            return promotionId.equals(row.getId()) && islandId.equals(row.getIslandId())
+                    && updatedAt.equals(row.getUpdatedAt()) && body.equals(row.getBody())
+                    && layout.equals(row.getLayout()) && moderation.equals(row.getModeration());
+        }
+    }
+
     /**
      * 살아 있는 섬(비공개 포함)의 발행 순간 숫자. 닫힌 섬은 결과에 없다 — 호출자가 «싣지 않음» 으로 읽는다.
      *
@@ -193,7 +286,9 @@ public class MagazinePublishService {
      */
     private void forgetOutsideLatestSeven(LocalDate issueDate) {
         try {
-            Integer forgotten = new TransactionTemplate(transactionManager).execute(status -> {
+            TransactionTemplate cleanup = new TransactionTemplate(transactionManager);
+            cleanup.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+            Integer forgotten = cleanup.execute(status -> {
                 receipts.lockForCleanup(MagazineReceiptRepository.LOCK_KEY);
                 return receipts.deleteOutsideLatestSeven();
             });

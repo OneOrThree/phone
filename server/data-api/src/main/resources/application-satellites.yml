@@ -77,9 +77,65 @@ internal:
   api:
     enabled: ${INTERNAL_API_ENABLED:false}
     callers:
+      console-member-1:
+        token: ${SVC_TOKEN_CONSOLE_MEMBER_1_TO_DATA:}
+        optional: true
+        console-actor: member-1
+        allow:
+          - 'GET /internal/admin/content/notices'
+          - 'GET /internal/admin/content/history/notices'
+          - 'GET /internal/admin/content/history/magazines'
+          - 'GET /internal/admin/content/environment'
+          - 'GET /internal/admin/policies/focus'
+          - 'PUT /internal/admin/policies/focus/publications/*'
+          - 'POST /internal/admin/policies/focus/approvals/*'
+          - 'DELETE /internal/admin/policies/focus/approvals/*'
+          - 'GET /internal/admin/content/construction-policy'
+          - 'PUT /internal/admin/content/construction-policy/*'
+          - 'PUT /internal/admin/content/notices/*'
+          - 'POST /internal/admin/content/magazine/previews'
+          - 'POST /internal/admin/content/magazine/publications/*'
+      console-member-2:
+        token: ${SVC_TOKEN_CONSOLE_MEMBER_2_TO_DATA:}
+        optional: true
+        console-actor: member-2
+        allow:
+          - 'GET /internal/admin/content/notices'
+          - 'GET /internal/admin/content/history/notices'
+          - 'GET /internal/admin/content/history/magazines'
+          - 'GET /internal/admin/content/environment'
+          - 'GET /internal/admin/policies/focus'
+          - 'PUT /internal/admin/policies/focus/publications/*'
+          - 'POST /internal/admin/policies/focus/approvals/*'
+          - 'DELETE /internal/admin/policies/focus/approvals/*'
+          - 'GET /internal/admin/content/construction-policy'
+          - 'PUT /internal/admin/content/construction-policy/*'
+          - 'PUT /internal/admin/content/notices/*'
+          - 'POST /internal/admin/content/magazine/previews'
+          - 'POST /internal/admin/content/magazine/publications/*'
+      console-member-3:
+        token: ${SVC_TOKEN_CONSOLE_MEMBER_3_TO_DATA:}
+        optional: true
+        console-actor: member-3
+        allow:
+          - 'GET /internal/admin/content/notices'
+          - 'GET /internal/admin/content/history/notices'
+          - 'GET /internal/admin/content/history/magazines'
+          - 'GET /internal/admin/content/environment'
+          - 'GET /internal/admin/policies/focus'
+          - 'PUT /internal/admin/policies/focus/publications/*'
+          - 'POST /internal/admin/policies/focus/approvals/*'
+          - 'DELETE /internal/admin/policies/focus/approvals/*'
+          - 'GET /internal/admin/content/construction-policy'
+          - 'PUT /internal/admin/content/construction-policy/*'
+          - 'PUT /internal/admin/content/notices/*'
+          - 'POST /internal/admin/content/magazine/previews'
+          - 'POST /internal/admin/content/magazine/publications/*'
       business:
         token: ${SVC_TOKEN_BIZ_TO_DATA}
         allow:
+          - 'GET /internal/users/*/developer-notices'
+          - 'GET /internal/users/*/developer-notices/*'
           - 'GET /internal/users/*/activation'
           - 'POST /internal/auth/device-sessions/verify'
           - 'POST /internal/auth/sessions/verify'

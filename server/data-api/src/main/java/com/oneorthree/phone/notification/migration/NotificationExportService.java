@@ -675,7 +675,7 @@ public class NotificationExportService {
             case MAGAZINE_PUBLISHED -> new Enrichment(Map.of("issueId", subjectId.toString()), null, null, true);
             // 구 경로에 대응물이 없는 kind 다(GROMO-1971) — 구 sent_log 에 이 종류의 행이 존재할 수 없어
             // 여기 닿는 것 자체가 이관 입력이 오염됐다는 뜻이다. 조용히 통과시키지 않고 실패로 남긴다.
-            case MAIN_ISLAND_TRANSFERRED, ISLAND_KICKED -> Enrichment.fail(FAIL_UNKNOWN_KIND,
+            case MAIN_ISLAND_TRANSFERRED, ISLAND_KICKED, ADMIN_ANNOUNCEMENT -> Enrichment.fail(FAIL_UNKNOWN_KIND,
                     "구 경로에 없던 kind 입니다: " + kind.name());
         };
     }
