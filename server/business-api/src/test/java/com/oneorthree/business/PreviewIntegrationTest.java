@@ -166,6 +166,18 @@ class PreviewIntegrationTest {
     }
 
     @Test
+    void oversizedResolverResultBecomesShortLivedFailure() throws Exception {
+        when(resolver.resolve(any())).thenReturn(new PreviewContent("큰 이미지", "image/png", null,
+                "FILE", "A".repeat(1024 * 1024)));
+        String id = submit("https://example.com/large.png");
+        await().atMost(5, TimeUnit.SECONDS).untilAsserted(() ->
+                mvc.perform(get("/api/v1/link-previews/" + id).header("Authorization", token))
+                        .andExpect(jsonPath("$.status").value("FAILED"))
+                        .andExpect(jsonPath("$.errorCode").value("CACHE_ENTRY_TOO_LARGE")));
+        assertThat(redis.getExpire(previewSlot(user, id))).isBetween(20L, 30L);
+    }
+
+    @Test
     void rejectsMissingExpiredRefreshAndNoExpiryTokens() throws Exception {
         mvc.perform(post("/api/v1/link-previews")).andExpect(status().isUnauthorized());
         for (String invalid : List.of(token(user, "refresh", Instant.now().plusSeconds(60)),

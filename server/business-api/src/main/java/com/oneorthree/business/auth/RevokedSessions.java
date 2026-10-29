@@ -37,7 +37,7 @@ public class RevokedSessions {
     static final String KEY_PREFIX = "cache:business:revoked-session:";
     /** 서버 간 시계 차이 여유. TTL 은 폐기 시점부터, AT 수명은 발급 시점부터 세므로 원래도 남는 쪽이다. */
     private static final Duration CLOCK_SKEW = Duration.ofSeconds(60);
-    /** 조회가 실패하면 이 시간 동안 Redis 를 부르지 않는다 — 장애 중 요청마다 타임아웃(2s)을 물지 않게. */
+    /** 새 Redis 조회가 실패하면 이 시간 동안 재시도를 건너뛴다. 기존 Redis에는 별도 차단기가 있다. */
     static final Duration BREAKER_OPEN = Duration.ofSeconds(30);
 
     private final BusinessRedisMarkers markers;
@@ -80,7 +80,7 @@ public class RevokedSessions {
             return false;
         }
         try {
-            return markers.contains(KEY_PREFIX + sessionId);
+            return markers.containsRevocation(KEY_PREFIX + sessionId);
         } catch (RuntimeException e) {
             skipUntil = now.plus(BREAKER_OPEN);
             log.warn("폐기 세션 조회 실패 — {} 동안 조회를 건너뛰고 fail-open 으로 통과시킨다. sid={}",

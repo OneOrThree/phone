@@ -76,6 +76,9 @@ public class PreviewCache {
     }
 
     public void complete(String user, Entry pending, Entry result) {
+        if (markers.contains(withdrawnKey(user))) {
+            return;
+        }
         redis.execute(COMPLETE, keys(withdrawnKey(user)), identity(user, pending.preview().id()),
                 pending.generation(), encode(result), "READY".equals(result.preview().status()) ? "300" : "30");
     }

@@ -4,6 +4,8 @@ import io.lettuce.core.resource.ClientResources;
 import jakarta.annotation.PreDestroy;
 import java.time.Duration;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.connection.RedisStandaloneConfiguration;
@@ -19,6 +21,7 @@ import org.springframework.stereotype.Component;
  * 기존 Redis는 최대 표지 수명이 지난 뒤 분리한다. 일반 캐시에는 이중 저장을 적용하지 않는다.
  */
 @Component
+@Slf4j
 public class BusinessRedisMarkers {
     private static final DefaultRedisScript<Long> PUT = new DefaultRedisScript<>("""
             redis.call('SET', KEYS[1], '1', 'PXAT', ARGV[1])
@@ -27,6 +30,7 @@ public class BusinessRedisMarkers {
     private final StringRedisTemplate redis;
     private final StringRedisTemplate legacy;
     private final LettuceConnectionFactory legacyFactory;
+    private volatile long legacyReadRetryAt;
 
     @Autowired
     public BusinessRedisMarkers(StringRedisTemplate redis, ClientResources resources,
@@ -66,6 +70,24 @@ public class BusinessRedisMarkers {
 
     public boolean contains(String key) {
         return redis.opsForValue().get(key) != null || legacy != null && legacy.opsForValue().get(key) != null;
+    }
+
+    /** 기존 Redis만 실패해도 새 저장소의 차단 표지는 계속 검사한다. */
+    public boolean containsRevocation(String key) {
+        if (redis.opsForValue().get(key) != null) {
+            return true;
+        }
+        if (legacy == null || System.nanoTime() < legacyReadRetryAt) {
+            return false;
+        }
+        try {
+            return legacy.opsForValue().get(key) != null;
+        } catch (RuntimeException e) {
+            legacyReadRetryAt = System.nanoTime() + TimeUnit.SECONDS.toNanos(30);
+            log.warn("기존 Business Redis 차단 표지 조회 실패 — 새 저장소는 계속 검사한다. exception_type={}",
+                    e.getClass().getSimpleName());
+            return false;
+        }
     }
 
     public long put(String key, Duration ttl) {

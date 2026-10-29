@@ -97,6 +97,19 @@ public class PreviewService {
         }
         try {
             cache.complete(user, pending, result);
+        } catch (PreviewException e) {
+            if (!"CACHE_ENTRY_TOO_LARGE".equals(e.getCode())) {
+                LOG.warn("preview_cache_write_failed request_id={} preview_id={} exception_type={}",
+                        requestId, pending.preview().id(), e.getClass().getSimpleName());
+            } else {
+                result = failed(pending, "CACHE_ENTRY_TOO_LARGE");
+                try {
+                    cache.complete(user, pending, result);
+                } catch (RuntimeException writeFailure) {
+                    LOG.warn("preview_cache_write_failed request_id={} preview_id={} exception_type={}",
+                            requestId, pending.preview().id(), writeFailure.getClass().getSimpleName());
+                }
+            }
         } catch (RuntimeException e) {
             // Redis 복구 후 90초 pending TTL이 끝나면 재요청으로 재생성할 수 있다.
             LOG.warn("preview_cache_write_failed request_id={} preview_id={} exception_type={}",

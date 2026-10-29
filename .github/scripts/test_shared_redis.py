@@ -115,7 +115,9 @@ class TransitionGuardTest(unittest.TestCase):
         acl = b"fixture"
         state = {"Config": {"Env": ["ACL_REVISION=" + hashlib.sha256(acl).hexdigest()],
                  "Cmd": ["redis-server", "--maxmemory", "384mb", "--maxmemory-policy", "noeviction",
-                         "--appendonly", "yes", "--appendfsync", "everysec"]},
+                         "--appendonly", "yes", "--appendfsync", "everysec",
+                         "--aclfile", "/etc/redis/shared.acl"]},
+                 "HostConfig": {"Memory": 576 * 1024 * 1024},
                  "State": {"Health": {"Status": "healthy"}}}
         with self.assertRaises(ValueError):
             guard.check({}, acl, state, "old")
@@ -123,6 +125,9 @@ class TransitionGuardTest(unittest.TestCase):
                     acl, state, "old")
         with self.assertRaises(ValueError):
             guard.check({}, b"changed", state, "")
+        state["HostConfig"]["Memory"] = 0
+        with self.assertRaisesRegex(ValueError, "메모리 한도"):
+            guard.check({}, acl, state, "")
 
     def test_retirement_requires_supported_image_and_elapsed_marker_lifetime(self):
         now = datetime.now(timezone.utc)

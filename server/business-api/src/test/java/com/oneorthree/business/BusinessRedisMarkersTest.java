@@ -20,6 +20,10 @@ import tools.jackson.databind.json.JsonMapper;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 @Testcontainers
 class BusinessRedisMarkersTest {
@@ -85,6 +89,46 @@ class BusinessRedisMarkersTest {
             var revoked = new RevokedSessions(new BusinessRedisMarkers(shared, old), Duration.ofHours(1));
             assertThat(revoked.isRevoked(sid)).isTrue();
             assertThat(revoked.isRevoked(UUID.randomUUID())).isFalse();
+        } finally {
+            oldFactory.destroy();
+            newFactory.destroy();
+        }
+    }
+
+    @Test
+    void legacyReadFailureDoesNotDisableSharedRevocationChecks() {
+        var newFactory = factory(SHARED);
+        try {
+            var shared = new StringRedisTemplate(newFactory);
+            var broken = mock(StringRedisTemplate.class);
+            when(broken.opsForValue()).thenThrow(new IllegalStateException("legacy unavailable"));
+            var revoked = new RevokedSessions(new BusinessRedisMarkers(shared, broken), Duration.ofHours(1));
+            assertThat(revoked.isRevoked(UUID.randomUUID())).isFalse();
+            UUID blocked = UUID.randomUUID();
+            shared.opsForValue().set("cache:business:revoked-session:" + blocked, "1", Duration.ofMinutes(1));
+            assertThat(revoked.isRevoked(blocked)).isTrue();
+            verify(broken, times(1)).opsForValue();
+        } finally {
+            newFactory.destroy();
+        }
+    }
+
+    @Test
+    void legacyWithdrawalPreventsLateWorkerCompletion() {
+        var oldFactory = factory(OLD);
+        var newFactory = factory(SHARED);
+        try {
+            var old = new StringRedisTemplate(oldFactory);
+            var shared = new StringRedisTemplate(newFactory);
+            String user = UUID.randomUUID().toString();
+            var cache = new PreviewCache(shared, JsonMapper.builder().build(), new BusinessRedisMarkers(shared, old));
+            var pending = new PreviewCache.Entry(new Preview("id", "PENDING", "https://example.com",
+                    null, null, null, null, null, null), null, "g");
+            assertThat(cache.claim(user, pending)).isTrue();
+            old.opsForValue().set("cache:business:withdrawn:" + user, "1", Duration.ofMinutes(1));
+            cache.complete(user, pending, new PreviewCache.Entry(new Preview("id", "READY", "https://example.com",
+                    null, null, null, null, null, null), null, "g"));
+            assertThat(cache.find(user, "id").preview().status()).isEqualTo("PENDING");
         } finally {
             oldFactory.destroy();
             newFactory.destroy();

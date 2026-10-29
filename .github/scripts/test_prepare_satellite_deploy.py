@@ -341,6 +341,7 @@ class PrepareSatelliteDeployTest(unittest.TestCase):
                 self.assertNotIn(value, compose_env, "compose 보간 파일로 비밀이 샜다")
             self.assertIn("DATA_API_ENV_FILE=", compose_env)
             self.assertIn("BUSINESS_API_IMAGE=", compose_env)
+            self.assertIn("SHARED_REDIS_ACL_FILE='/var/lib/gromo/runtime/shared-redis.acl'", compose_env)
 
     def test_표준출력과_절차_파일에_시크릿_값이_나오지_않는다(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -513,7 +514,7 @@ class PrepareSatelliteDeployTest(unittest.TestCase):
             plan = (fixture.output / "deploy-plan.txt").read_text(encoding="utf-8")
             self.assertNotIn(DATA_OVERLAY.name, plan)
             self.assertIn("up -d --no-deps business-api notification", plan)
-            # GROMO-1957 — ACL 은 기동 때만 읽히므로 위성보다 먼저 business-redis 를 재생성한다.
+            # 위성 배포 계획은 기존 Business Redis를 재생성하지 않는다.
             self.assertNotIn("--force-recreate", plan)
             self.assertIn("bridge", plan)
 

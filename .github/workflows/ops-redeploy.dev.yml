@@ -77,6 +77,11 @@ jobs:
               job=$(gh run view "$run" --json jobs \
                 | jq -r --arg s "$job_suffix" '[.jobs[] | select(.conclusion == "success" and (.name | endswith($s)))][0].databaseId // empty')
               [ -n "$job" ] || continue
+              # 과거 위성 job 재실행은 옛 Compose로 휘발성 Business Redis를 다시 만들 수 있다.
+              if [[ "$SERVICE" == business-api ]] && ! gh api \
+                "repos/$GH_REPO/contents/.github/scripts/check-shared-redis.py?ref=$sha" > /dev/null 2>&1; then
+                continue
+              fi
               if [[ "$SERVICE" =~ ^(business-api|notification)$ ]] && ! deployed_in_plan "$run" "$sha"; then continue; fi
               echo "재실행: run $run · job $job · 커밋 ${sha:0:8} ($created)"
               previous_attempt=$(gh api "repos/$GH_REPO/actions/runs/$run" --jq '.run_attempt')

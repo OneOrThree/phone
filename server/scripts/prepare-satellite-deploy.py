@@ -338,7 +338,7 @@ def main() -> None:
     redis_acl = output_dir / "shared-redis.acl"
     guard_output_path(redis_acl, args.shared_env_file)
     acl_text = writer.shared_redis_acl(secret)
-    compose_values["SHARED_REDIS_ACL_FILE"] = str(redis_acl)
+    compose_values["SHARED_REDIS_ACL_FILE"] = "/var/lib/gromo/runtime/shared-redis.acl"
     compose_values["SHARED_REDIS_ACL_SHA"] = hashlib.sha256(acl_text.encode()).hexdigest()
     for service, path in written.items():
         compose_values[COMPOSE_FILE_KEYS[service]] = str(path)

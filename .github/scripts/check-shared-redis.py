@@ -19,9 +19,12 @@ def check(secret, expected, inspect, legacy_ids):
         raise ValueError("공유 Redis ACL bootstrap이 필요합니다")
     command = config.get("Cmd", [])
     for flag, value in [("--maxmemory", "384mb"), ("--maxmemory-policy", "noeviction"),
-                        ("--appendonly", "yes"), ("--appendfsync", "everysec")]:
+                        ("--appendonly", "yes"), ("--appendfsync", "everysec"),
+                        ("--aclfile", "/etc/redis/shared.acl")]:
         if flag not in command or command[command.index(flag) + 1] != value:
             raise ValueError("공유 Redis 실행 정책 bootstrap이 필요합니다")
+    if inspect.get("HostConfig", {}).get("Memory") != 576 * 1024 * 1024:
+        raise ValueError("공유 Redis 컨테이너 메모리 한도 bootstrap이 필요합니다")
     if inspect.get("State", {}).get("Health", {}).get("Status") != "healthy":
         raise ValueError("공유 Redis가 healthy 상태가 아닙니다")
     if legacy_ids and secret.get("BUSINESS_REDIS_LEGACY_HOST") != "business-redis":
