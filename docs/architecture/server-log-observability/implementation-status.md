@@ -14,11 +14,24 @@
 | [2553](https://romance.atlassian.net/browse/GROMO-2553) | Business 요청 → 조합 worker → HTTP worker → Data 요청 로그 연결 | 없음 | 8h | 피처 병합 #1380 `aa106c6d5`(main 미반영·배포 미실행) |
 | [2554](https://romance.atlassian.net/browse/GROMO-2554) | 실제 수집 경로·버전·용량·IAM·보존·업로더 조사 | 없음, 2553과 병행 | 4h | 피처 병합 #1382 `6e6b6260d`(main 미반영). dev 실측·Datadog 조회 완료, AWS·prod 미확인 → [조사표](runtime-inventory.md) |
 | [2555](https://romance.atlassian.net/browse/GROMO-2555) | 4개 JVM JSON → Fluent Bit → dev Loki 조회 | 2553·2554 | 2d | 피처 병합 #1383 `35d7446c3`(main 미반영·dev 배포 미실행) |
-| [2556](https://romance.atlassian.net/browse/GROMO-2556) | 시스템/Nginx 원본 → S3·장애 복구·컷오버 | 2555 | 2d | PR #1390 리뷰 중(피처 미병합) → [수집 런북](ingestion-runbook.md) |
+| [2556](https://romance.atlassian.net/browse/GROMO-2556) | 시스템/Nginx 원본 → S3·장애 복구·컷오버 | 2555 | 2d | 피처 병합 #1390 `052d2a056`(main 미반영·배포 미실행, 실제 S3·IAM 미검증) → [수집 런북](ingestion-runbook.md) |
 | [2557](https://romance.atlassian.net/browse/GROMO-2557) | Outbox → Kafka/HTTP 소비·재시도 원인 연결 | 2555 | 2d | 피처 병합 #1384 `08ad13781`(main 미반영·배포 미실행) |
 | [2558](https://romance.atlassian.net/browse/GROMO-2558) | 원사건 → 기기별 발송 시도 operation 연결(묶음은 2421 에서 제거) | 2557 | 1d | 피처 병합 #1385 `bb6c3c119`(main 미반영·배포 미실행) |
 | [2559](https://romance.atlassian.net/browse/GROMO-2559) | Realtime Redis 2개 채널·STOMP·구버전 호환 | 2555·2557 | 2d | 피처 병합 #1386 `151b0c35f`(main 미반영·배포 미실행) |
-| [2560](https://romance.atlassian.net/browse/GROMO-2560) | 통합 조회·Athena·APM/지표 연결·운영 검증 | 2556·2558·2559 | 2d | 구현 중(A단계 조회 대시보드·Athena, B단계 검증·전환 문서) → [아래](#2560에서-구현한-경로) |
+| [2560](https://romance.atlassian.net/browse/GROMO-2560) | 통합 조회·Athena·APM/지표 연결·운영 검증 | 2556·2558·2559 | 2d | 피처 병합 #1392 `fe6b464ce`(main 미반영·배포 미실행, 실제 Athena·dev Grafana 미검증) → [아래](#2560에서-구현한-경로) |
+
+### 후속 4건 (2026-10-29 추가, 같은 에픽)
+
+원래 8건이 피처에 모두 들어간 뒤, dev Datadog 로그 심각도 오분류 검증([보고서](datadog-log-level-verification-2026-10-29.md) — 2572 PR 에 포함)에서 나온 후속이다. 사용자 승인으로 같은 에픽·Sprint 17 에 넣었다. 모두 **Agent·앱 재시작, 배포, Datadog 실제 write 없이** 코드·로컬 fixture·읽기 전용 조회로만 진행한다.
+
+| 티켓 | 작업 단위 | 현황(조정자 갱신) |
+| --- | --- | --- |
+| [2571](https://romance.atlassian.net/browse/GROMO-2571) | dev 수집 중단(18:43 KST Agent 종료) 타임라인·복구 조건 | PR #1400 리뷰 중 — 문서 `collection-stop-2026-10-29.md` |
+| [2572](https://romance.atlassian.net/browse/GROMO-2572) | Kafka Exporter·PostgreSQL 심각도 파이프라인(명시 매핑) | 구현 중 — Datadog 원격 검증·적용 미수행 예정 |
+| [2573](https://romance.atlassian.net/browse/GROMO-2573) | Kafka 브로커·Exporter 로그 링크 분리 | PR #1399 리뷰 완료·CI 대기 — 문서 `kafka-log-links.md` |
+| [2574](https://romance.atlassian.net/browse/GROMO-2574) | Kafka 연결 실패·profiler 오류 영향 조사 | 조사 중 |
+
+후속 4건의 «피처 병합»도 main 반영·배포가 아니다. 에픽 PR(피처 → main)은 사용자 지시로 이번에 열거나 병합하지 않고 준비 상태만 보고한다.
 
 **피처 병합 ≠ main 반영 ≠ 배포.** 위 «피처 병합»은 에픽 통합 브랜치에 merge commit 으로 들어갔다는 뜻이다. main 에는 에픽 PR 하나로 들어가며, dev·prod 배포는 그 뒤다.
 
