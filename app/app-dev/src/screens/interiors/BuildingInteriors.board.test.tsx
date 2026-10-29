@@ -1420,9 +1420,12 @@ test('퀘스트 작성은 × 하나만 표시하고 수정 닫기는 상세를 �
   await fireEvent.press(screen.getByTestId('board-quest-new'));
   assert.equal(screen.queryByTestId('board-quest-back'), null);
   assert.equal(screen.queryAllByRole('button', { name: /닫/ }).length, 1);
+  await fireEvent.press(screen.getByTestId('board-quest-save'));
+  assert.ok(screen.getByText('제목과 목표 시간을 입력해주세요.'));
   await fireEvent.press(screen.getByTestId('board-panel-close'));
   assert.ok(screen.getByTestId('board-quest-new'));
   assert.equal(screen.queryByTestId('board-quest-title'), null);
+  assert.equal(screen.queryByText('제목과 목표 시간을 입력해주세요.'), null);
 
   await fireEvent.press(screen.getByTestId('board-quest-detail-0'));
   await fireEvent.press(screen.getByTestId('board-quest-edit'));
