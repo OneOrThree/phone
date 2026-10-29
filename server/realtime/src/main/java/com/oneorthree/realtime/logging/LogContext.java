@@ -41,6 +41,7 @@ public final class LogContext implements AutoCloseable {
     static final List<String> PROPAGATED = List.of(REQUEST_ID, ORIGIN_REQUEST_ID, EVENT_ID,
             ORIGIN_TRACE_ID, DELIVERY_ID, ATTEMPT, "operation_id", MESSAGE_ID, "edge_request_id");
 
+    // 들어오는 HTTP X-Request-Id 필터는 [A-Za-z0-9_-] 로 더 좁다. 서비스 간 origin 은 나가는 쪽 규칙(이 패턴)을 따른다 — 의도된 차이.
     private static final Pattern ID = Pattern.compile("[A-Za-z0-9_.:-]{1,128}");
     private static final int MAX_ATTEMPT = 1_000_000;
 
@@ -133,7 +134,7 @@ public final class LogContext implements AutoCloseable {
     }
 
     /**
-     * 내부 carrier(계약 §3, Kafka 헤더·내부 HTTP 헤더 공통 소문자 이름)를 설치한다. 버전 헤더가 있으면 {@code 1} 만 읽고, 모르는
+     * 내부 carrier(계약 §3, Kafka 헤더·내부 HTTP 헤더 공통 소문자 이름)를 설치한다. 버전 헤더가 없거나 빈 값이거나 {@code 1} 이면 읽고, 모르는
      * 버전은 통째로 무시한다.
      *
      * @param header 이름 → 값(없으면 null). HTTP 헤더 조회는 대소문자를 가리지 않는다
@@ -141,7 +142,7 @@ public final class LogContext implements AutoCloseable {
     public static LogContext openCarrier(UnaryOperator<String> header) {
         LogContext scope = open();
         String version = header.apply("x-trace-context-version");
-        if (version == null || "1".equals(version.trim())) {
+        if (version == null || version.isBlank() || "1".equals(version.strip())) {
             scope.put(ORIGIN_REQUEST_ID, header.apply("x-origin-request-id"))
                     .put(ORIGIN_TRACE_ID, header.apply("x-origin-trace-id"))
                     .put(EVENT_ID, header.apply("x-event-id"))
@@ -157,10 +158,14 @@ public final class LogContext implements AutoCloseable {
      */
     public static LogContext openInternalHttp(UnaryOperator<String> header) {
         LogContext scope = openCarrier(header);
-        if (header.apply("x-origin-request-id") == null && header.apply("x-origin-trace-id") == null) {
+        if (isBlank(header.apply("x-origin-request-id")) && isBlank(header.apply("x-origin-trace-id"))) {
             scope.put(ORIGIN_REQUEST_ID, header.apply("x-request-id"));
         }
         return scope;
+    }
+
+    private static boolean isBlank(String value) {
+        return value == null || value.isBlank();
     }
 
     /** {@code event_name} 을 이 한 줄에만 달아 INFO 로 남긴다. */

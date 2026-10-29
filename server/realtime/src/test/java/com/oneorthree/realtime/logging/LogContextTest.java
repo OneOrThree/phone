@@ -116,4 +116,17 @@ class LogContextTest {
             assertThat(MDC.get(LogContext.ORIGIN_REQUEST_ID)).as("Kafka 에는 X-Request-Id 승격이 없다").isNull();
         }
     }
+
+    @Test
+    @DisplayName("carrier — 빈 버전 헤더는 v1 로 읽고, 빈 x-origin-request-id 는 없음으로 보아 X-Request-Id 로 대체")
+    void blankVersionIsV1AndBlankOriginFallsBack() {
+        try (LogContext scope = LogContext.openCarrier(Map.of("x-trace-context-version", "  ",
+                "x-event-id", "e-9")::get)) {
+            assertThat(MDC.get(LogContext.EVENT_ID)).as("빈 버전 = v1").isEqualTo("e-9");
+        }
+        try (LogContext scope = LogContext.openInternalHttp(Map.of("x-origin-request-id", "  ",
+                "x-request-id", "biz-4")::get)) {
+            assertThat(MDC.get(LogContext.ORIGIN_REQUEST_ID)).as("빈 origin 은 없음").isEqualTo("biz-4");
+        }
+    }
 }
