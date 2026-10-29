@@ -1335,7 +1335,7 @@ Ref: user_notification_settings.user_id - users.id  // 논리 관계 — DB FK �
 // 관리자 검토·게시. 공개 앱의 개발자 소식은 게시 기간 안에서만 조회한다.
 Table content_publications {
   publication_id uuid [pk]
-  kind varchar(16) [not null]
+  kind varchar(16) [not null, note: 'NOTICE · MAGAZINE · CONSTRUCTION. 건설 정책 영수증은 전후 값과 revision을 보존한다']
   request_digest varchar(64) [not null]
   result jsonb [not null]
   actor varchar(16) [not null]

@@ -1,4 +1,4 @@
-export type ContentKind = 'fcm' | 'notice' | 'magazine';
+export type ContentKind = 'fcm' | 'notice' | 'magazine' | 'construction';
 export type ContentStatus = 'draft' | 'review' | 'approved' | 'publishing' | 'published' | 'failed' | 'uncertain';
 export interface Session { actor: string; csrfToken: string; mode: 'local' | 'connected'; environment: 'local' | 'dev' | 'prod' }
 export interface HistoryItem { id: string; kind: ContentKind; title?: string; body?: string; status?: string; publishedAt?: string; createdAt?: string; issueDate?: string; issueNo?: number; notificationKind?: string; userId?: string; deviceCount?: number; receiptCount?: number; openedCount?: number; [key: string]: unknown }

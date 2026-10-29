@@ -29,7 +29,7 @@ class ContentEnvironmentTest {
         var request = mock(HttpServletRequest.class);
         when(request.getHeader("X-Backoffice-Environment")).thenReturn("dev");
         var controller = new InternalContentAdminController(mock(DeveloperNoticeService.class), history,
-                mock(MagazineReviewService.class), environment, jdbc);
+                mock(MagazineReviewService.class), mock(com.oneorthree.phone.internal.service.ConstructionPolicyAdminService.class), environment, jdbc);
 
         assertThatThrownBy(() -> controller.noticeHistory(null, 50, request))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("요청 환경");
@@ -44,6 +44,7 @@ class ContentEnvironmentTest {
         when(jdbc.queryForList(anyString(), eq(String.class))).thenReturn(List.of("prod"));
         var notices = mock(DeveloperNoticeService.class);
         var controller = new InternalContentAdminController(notices, mock(ContentHistoryService.class), mock(MagazineReviewService.class),
+                mock(com.oneorthree.phone.internal.service.ConstructionPolicyAdminService.class),
                 environment, jdbc);
 
         assertThatThrownBy(() -> controller.publishNotice(UUID.randomUUID(), null, null))
@@ -61,10 +62,25 @@ class ContentEnvironmentTest {
         var request = mock(HttpServletRequest.class);
         when(request.getHeader("X-Backoffice-Environment")).thenReturn("prod");
         var controller = new InternalContentAdminController(notices, mock(ContentHistoryService.class), mock(MagazineReviewService.class),
+                mock(com.oneorthree.phone.internal.service.ConstructionPolicyAdminService.class),
                 environment, jdbc);
 
         assertThatThrownBy(() -> controller.publishNotice(UUID.randomUUID(), null, request))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("요청 환경");
         verifyNoInteractions(notices);
     }
+    @Test
+    void 건설_정책도_환경_불일치에서는_적용하지_않는다() {
+        var environment = new MockEnvironment();
+        environment.setActiveProfiles("dev");
+        var jdbc = mock(JdbcTemplate.class);
+        when(jdbc.queryForList(anyString(), eq(String.class))).thenReturn(List.of("prod"));
+        var policies = mock(com.oneorthree.phone.internal.service.ConstructionPolicyAdminService.class);
+        var controller = new InternalContentAdminController(mock(DeveloperNoticeService.class),
+                mock(ContentHistoryService.class), mock(MagazineReviewService.class), policies, environment, jdbc);
+        assertThatThrownBy(() -> controller.applyConstructionPolicy(UUID.randomUUID(), null, null))
+                .isInstanceOf(IllegalStateException.class).hasMessageContaining("DB 환경");
+        verifyNoInteractions(policies);
+    }
+
 }

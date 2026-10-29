@@ -4,6 +4,10 @@ import com.oneorthree.phone.content.service.DeveloperNoticeService;
 import com.oneorthree.phone.internal.dto.ContentHistoryPage;
 import com.oneorthree.phone.internal.service.ContentHistoryService;
 import com.oneorthree.phone.internal.service.MagazineReviewService;
+import com.oneorthree.phone.internal.service.ConstructionPolicyAdminService;
+import com.oneorthree.phone.internal.dto.ConstructionPolicyView;
+import com.oneorthree.phone.internal.dto.ConstructionPolicyRequest;
+import com.oneorthree.phone.internal.dto.ConstructionPolicyApplied;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.env.Environment;
@@ -29,6 +33,7 @@ public class InternalContentAdminController {
     private final DeveloperNoticeService notices;
     private final ContentHistoryService history;
     private final MagazineReviewService magazine;
+    private final ConstructionPolicyAdminService constructionPolicy;
     private final Environment environment;
     private final JdbcTemplate jdbc;
 
@@ -91,6 +96,19 @@ public class InternalContentAdminController {
             @RequestBody MagazineReviewService.PublishRequest body, HttpServletRequest request) {
         requireEnvironment(request);
         return magazine.publish(publicationId, body, actor(request));
+    }
+
+    @GetMapping("/construction-policy")
+    public ConstructionPolicyView constructionPolicy(HttpServletRequest request) {
+        requireEnvironment(request);
+        return constructionPolicy.current();
+    }
+
+    @PutMapping("/construction-policy/{publicationId}")
+    public ConstructionPolicyApplied applyConstructionPolicy(@PathVariable UUID publicationId,
+            @RequestBody ConstructionPolicyRequest body, HttpServletRequest request) {
+        requireEnvironment(request);
+        return constructionPolicy.apply(publicationId, body, actor(request));
     }
 
     private void requireEnvironment(HttpServletRequest request) {
