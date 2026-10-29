@@ -80,15 +80,60 @@
 3. 먼저 배포 중단 상태를 정리한다. nginx가 `failed`이고 앱이 내려가 있으므로 수집만 켜면 수집할 로그가 없다. 복구 경로는 `server/scripts/README.md`와 GROMO-2561(nginx 중지 시간 초과 수정)을 따른다. 이 문서는 해당 절차를 대체하지 않는다.
 4. 재개 명령은 저장소 경로만 쓴다: `.github/workflows/ops-datadog.dev.yml`(`action: up` 또는 `restart`), 앱·nginx 복구는 `ops-redeploy.dev.yml`/`data-api-cd.dev.yml`의 수동 복구 입력. 이번 조사에서는 실행하지 않았다.
 5. 공동 배포 job이 같은 시각에 돌고 있지 않은지 `gh run list`로 확인한다(경합 방지).
+6. **3~4번 실행 전에 5.1a 로 중단 구간 원본 로그를 먼저 확보한다.** 복구가 컨테이너를 교체하면 원본이 사라진다.
+
+### 5.1a 복구 전 원본 로그 확보 (재개 절차의 첫 단계)
+
+`deploy-core-dev.py` 의 복구 경로는 `up -d --no-deps --force-recreate data-api realtime`(`.github/scripts/deploy-core-dev.py:321`)으로 Data·Realtime 컨테이너를 새로 만든다. 컨테이너가 교체되면 그 컨테이너의 `json-file` 로그(`docker logs` 원본)도 함께 사라진다. 중지된 `Exited` 컨테이너가 남아 있는 지금이 중단 구간 원본을 얻을 마지막 기회다. Agent 도 `ops-datadog.dev.yml:119-120` 에서 `--force-recreate` 로 교체되므로 같다.
+
+복구 승인 전에, 복구와 다른 시각에 컨테이너별로 사본을 만든다(읽기 전용, 쓰기 위치는 VM 의 비밀 없는 임시 디렉터리):
+
+```
+sudo docker logs --timestamps --since 2026-10-29T09:30:00Z --until <확보 시각 UTC> <컨테이너> > <디렉터리>/<컨테이너>.log 2>&1
+```
+
+대상: `data-api`, `realtime`, `business-api`, `notification`, `gromo-datadog-agent`, postgres-exporter. 사본이 비어 있으면 그 사실과 `docker inspect -f '{{.LogPath}}'` 의 파일 크기를 함께 기록한다. 로테이션(아래 표)으로 이미 밀려난 구간은 사본에도 없다. 5.2 의 복구 뒤 비교는 이 사본을 «원본»으로 쓴다.
+
+### 로그 회전 설정(`json-file`)
+
+| 대상 | 설정 | 근거 |
+| --- | --- | --- |
+| 앱: data-api | `max-size 50m` × `max-file 4` | `server/scripts/docker-compose.dev.yml:13-15,22` |
+| 앱: realtime | `50m` × `4` | `docker-compose.realtime.yml:22-24,64` |
+| 앱: business-api, notification | `50m` × `4` | `docker-compose.satellites.yml:6-8,36,91` (Business 단독 overlay `docker-compose.business.yml:4-6,47`) |
+| 인프라: db, redis | `10m` × `3` | `docker-compose.dev.yml:16-18,67,99` |
+| 인프라: business-redis | `10m` × `3` | `docker-compose.satellites.yml:9-11,15` |
+| 인프라: realtime-db-init | `10m` × `3` | `docker-compose.realtime.yml:25-27,42` |
+| 인프라: kafka | `10m` × `3` | `docker-compose.kafka.yml:19-21,25` |
+| 인프라: gromo-datadog-agent | `10m` × `3` | `docker-compose.datadog.yml:13-15,19` |
+| 인프라: 관측 스택(Prometheus·Grafana 등) | `10m` × `3` | `docker-compose.observability.yml:12-14` |
+
+요약은 `server/scripts/README.md:140-141`(앱 컨테이너당 200 MB, 인프라 30 MB). postgres-exporter 는 `docker-compose.observability.yml:102-103` 에서 인프라 설정(`10m` × `3`)이다. 참고: Datadog 은 `gromo-datadog-agent`·`gromo-postgres-exporter` 등의 로그를 수집에서 제외한다(`docker-compose.datadog.yml:40` `DD_CONTAINER_EXCLUDE_LOGS`) — 두 컨테이너는 5.2 의 Datadog 비교 대상이 아니다.
 
 ### 5.2 재개 뒤 최신 로그 유입 검증
 
 «건수가 늘었다»가 아니라 «원본의 최신 시각이 Datadog에 도달했다»로 판정한다.
 
-1. 원본 최신 시각: `sudo docker logs <컨테이너> --since 10m --timestamps | tail -1`(서비스별).
-2. Datadog 최신 시각: 서비스별로 `SELECT service, max(timestamp) FROM logs GROUP BY service`(`host:gromo-dev*`, 최근 15분).
+1. 원본 최신 시각: `sudo docker logs <컨테이너> --since 10m --timestamps | tail -1`(서비스별). 결과가 비어 있으면 **판정 불가**다(아래 «유휴 서비스»). 5.1a 사본과 비교할 때는 `--since`/`--until` 로 같은 구간을 자른다.
+2. Datadog 최신 시각 — 아래 둘 중 하나(`SELECT … FROM logs GROUP BY` 는 Logs Explorer 검색창에서 실행되지 않는다).
+   - Logs Explorer UI: 검색식 `host:gromo-dev* service:<서비스>`, 시간 범위 «Past 15 minutes», 목록을 `Date` 내림차순으로 정렬해 맨 위 행의 시각을 읽는다. 건수는 같은 검색식에서 Visualize 를 «Timeseries/Table», Group by `service`(또는 `container_name`), 측정 `Count` 로 본다.
+   - Logs API: 키는 환경변수(`DD_API_KEY`, `DD_APP_KEY`, `DD_SITE`)로만 넣고 값을 출력하지 않는다. 최신 시각은 `POST https://api.${DD_SITE}/api/v2/logs/events/search`, 본문 `{"filter":{"query":"host:gromo-dev* service:<서비스>","from":"now-15m","to":"now"},"sort":"-timestamp","page":{"limit":1}}` 의 첫 이벤트 `timestamp` 다. 구간별 건수는 `POST https://api.${DD_SITE}/api/v2/logs/analytics/aggregate`, 본문 `{"filter":{"query":"host:gromo-dev*","from":"<시작>","to":"<끝>"},"compute":[{"aggregation":"count","type":"total"}],"group_by":[{"facet":"service","limit":20}]}`. 헤더는 `DD-API-KEY: $DD_API_KEY`, `DD-APPLICATION-KEY: $DD_APP_KEY`. (경로·본문은 이 환경에서 공식 문서에 접속하지 못해 기억 기준으로 적었다 — 실행 전에 Datadog API 문서의 Logs 절과 대조한다.)
+   - SQL(DDSQL)은 «Datadog MCP `analyze_datadog_logs` 로 조사할 때»에만 쓴다(예: `SELECT service, max(timestamp) FROM logs GROUP BY service`).
 3. 판정: 서비스마다 `원본 최신 - Datadog 최신 < 2분`이면 정상. 2분 이상이면 지연·누락으로 기록한다.
-4. 중단 구간(09:43:17Z~재개 시각)은 Agent가 `container_collect_all` 파일 tailer로 다시 읽을 수 있다. 다만 json-file 로테이션(`max-size 10m`, `max-file 3`)에 밀려난 로그는 복구되지 않는다. 복구 범위를 «Datadog에서 중단 구간 건수가 원본 건수와 같은가»로 별도 확인한다.
+4. 중단 구간(09:43:17Z~재개 시각)은 Agent가 `container_collect_all` 파일 tailer로 다시 읽을 수 있다. 다만 json-file 로테이션(위 표)에 밀려난 로그는 복구되지 않고, 5.1a 를 건너뛰고 컨테이너가 교체됐다면 원본 자체가 없다. 복구 범위는 «Datadog에서 중단 구간 건수가 5.1a 사본의 건수와 같은가»로 별도 확인한다.
+
+### 유휴 서비스 — 빈 결과는 수집 실패가 아니다
+
+복구 뒤 10분 이상 로그가 없는 서비스는 `docker logs --since 10m` 이 비어 «최신 원본 시각»을 못 구한다. 근거: dev 저트래픽 구간에는 앱이 idle 이고 `/health` 는 로그를 남기지 않는다(`.github/workflows/ops-datadog.dev.yml:188-190`). 요청 단위 access log 도 앱에 없다(`server/data-api/src/main/resources/logback-spring.xml:119` 가 TODO 로 남아 있음).
+
+- 원본 결과가 비어 있으면 그 서비스는 **판정 불가**로 기록한다. 통과도 실패도 아니다. `--since` 를 늘려(예: 1h) 마지막 줄이 있으면 그 시각으로 비교하고, 없으면 판정 불가 그대로 둔다.
+- 검증용 로그를 만들어야 할 때의 절차(**이번에 실행하지 않는다**, 재개 승인 뒤에만):
+  - Agent tailer 자체: `ops-datadog.dev.yml:188-200` 이 쓰는 방식 — `alpine:3.20` 프로브 컨테이너가 5초마다 `GROMO-1489 collection probe N` 을 14회 출력한다. 앱이 아니라 수집기 점검이다.
+  - 앱 서비스별로 요청 한 번에 반드시 로그를 남기는 엔드포인트: 코드로 확인한 것은 business-api 뿐이다 — 외부 요청에 `X-User-Id` 헤더가 있으면 `log.warn("외부 사용자 신원 헤더를 폐기했다")`(`server/business-api/src/main/java/com/oneorthree/business/config/RequestEnvelopeFilter.java:55-56`). 이 필터가 적용되는 경로·dev 로그 레벨은 실행 전에 확인한다.
+  - data-api: 요청마다 남는 엔드포인트 **없음**(access log 미구현, 위 TODO). 오류 처리 경로의 `log.warn`(`GlobalExceptionHandler.java:103` 등)은 오류를 일부러 만들어야 해서 검증용으로 쓰지 않는다.
+  - realtime: WebSocket 연결 시 `websocket_connection` info 한 줄(`server/realtime/src/main/java/com/oneorthree/realtime/config/WebSocketConnectionDiagnostics.java:127`). 유효한 인증 연결이 필요하다.
+  - notification: 요청 단위 로그 **없음**(발송 시에만 `DispatchService.java:737,750`).
+  - 위 방법이 없거나 위험하면 «없음»으로 두고 판정 불가로 마감한다. 2556 의 Fluent Bit canary(60초마다 `service=canary`)는 Loki·S3 경로용이라 Datadog Agent 수집 판정에는 쓸 수 없다. Datadog 쪽 저트래픽 판정 수단(합성 로그 주기 발행 등)은 아직 없다 — 후속 과제.
 
 ### 5.3 건수 판정 규칙
 
