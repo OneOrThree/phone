@@ -73,7 +73,8 @@ public class MovementRelay implements RoomRuntime.Listener {
     private final Set<UUID> needsResync = ConcurrentHashMap.newKeySet();
     private final Counter recheckDropped;
     private final Counter recheckPublish;
-    private final Set<Command> pendingRechecks = ConcurrentHashMap.newKeySet();
+    /** 잃은 RECHECK 장부 — 키는 telemetry 를 뺀 명령, 값은 처음 잃은 명령({@link #markRecheck}). */
+    private final Map<Command, Command> pendingRechecks = new ConcurrentHashMap<>();
     private final Counter noLease;
     private final Counter staleRoom;
     private final Counter staleQueue;
@@ -417,16 +418,24 @@ public class MovementRelay implements RoomRuntime.Listener {
         });
     }
 
+    /**
+     * 같은 섬·사용자·{@code cacheStale} 의 재검사는 원인(telemetry, 관측 전용)이 달라도 하나로 합친다 — 사건마다 따로 남으면 복구 뒤
+     * 같은 세션의 판정을 사건 수만큼 취소·재시작한다(GROMO-2581 r1). 합쳐지면 먼저 잃은 것을 남긴다(종전 {@code Set.add} 와 같다) —
+     * 받는 쪽 재판정은 어느 원인이든 같고, 로그는 처음 잃은 사건에 잇는다.
+     */
     private void markRecheck(Command recheck, Counter reason) {
         reason.increment();
-        pendingRechecks.add(recheck);
+        pendingRechecks.putIfAbsent(new Command(recheck.originInstanceId(), recheck.ownerInstanceId(), recheck.epoch(),
+                recheck.islandId(), recheck.type(), recheck.userId(), recheck.sessionKey(), recheck.intent(),
+                recheck.cacheStale(), recheck.sessions()), recheck);
     }
 
     /** 잃은 RECHECK 를 꺼낸다(꺼낸 것은 지운다) — {@code movement-cluster} 감시가 1초마다 다시 보낸다. */
     Set<Command> takeRechecks() {
         Set<Command> taken = new HashSet<>();
-        for (Command recheck : pendingRechecks) {
-            if (pendingRechecks.remove(recheck)) {
+        for (Command key : pendingRechecks.keySet()) {
+            Command recheck = pendingRechecks.remove(key);
+            if (recheck != null) {
                 taken.add(recheck);
             }
         }

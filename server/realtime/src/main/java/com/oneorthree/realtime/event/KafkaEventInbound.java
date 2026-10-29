@@ -2,14 +2,17 @@ package com.oneorthree.realtime.event;
 
 import com.oneorthree.realtime.logging.LogContext;
 import lombok.extern.slf4j.Slf4j;
+import org.aopalliance.intercept.MethodInterceptor;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.header.Header;
+import org.springframework.aop.framework.ProxyFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.NestedExceptionUtils;
 import org.springframework.kafka.annotation.KafkaListener;
+import org.springframework.kafka.core.KafkaOperations;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.listener.ConsumerAwareRecordRecoverer;
 import org.springframework.kafka.listener.DeadLetterPublishingRecoverer;
@@ -19,6 +22,8 @@ import org.springframework.util.backoff.FixedBackOff;
 import tools.jackson.databind.ObjectMapper;
 
 import java.nio.charset.StandardCharsets;
+import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 
 /**
  * {@code realtime-events} 소비자 — HTTP 입구와 <b>같은</b> {@link InboundEventService} 로 넘긴다 (2026-09-19 R-1).
@@ -37,7 +42,8 @@ import java.nio.charset.StandardCharsets;
  *
  * <p>재시도·DLT 로그(GROMO-2581): 리스너가 던진 뒤의 일은 리스너 scope 밖(오류 처리기)이라, 실패한 레코드의 같은 헤더로 다시 연다 —
  * {@link RetryLog} 의 시도·DLT 줄과 DLT 발행기 자신의 로그(발행 실패 등)가 같은 {@code event_id}·원인을 단다. 재시도 횟수·DLT 판정·
- * 발행 실패를 성공으로 삼키지 않는 동작은 그대로다(발행기를 감싸기만 한다).
+ * 발행 실패를 성공으로 삼키지 않는 동작은 그대로다(발행기를 감싸기만 한다). 발행이 비동기로 끝나면 발행기의 완료 콜백은 producer
+ * 스레드에서 돌므로, 발행 결과 future 를 그 레코드 문맥 안에서 완료시킨다({@link #completingInContext}).
  */
 @Slf4j
 @Configuration
@@ -67,7 +73,7 @@ class KafkaEventInbound {
     @Bean
     DefaultErrorHandler realtimeEventsErrorHandler(KafkaTemplate<Object, Object> template) {
         // Spring Kafka 4 의 기본 접미사는 -dlt 다. Data 가 만드는 .DLT 계약(OutboxRelayConfig)에 맞춘다.
-        DeadLetterPublishingRecoverer recoverer = new DeadLetterPublishingRecoverer(template,
+        DeadLetterPublishingRecoverer recoverer = new DeadLetterPublishingRecoverer(completingInContext(template),
                 (record, failure) -> new TopicPartition(record.topic() + ".DLT", record.partition()));
         recoverer.setFailIfSendResultIsError(true);
         ConsumerAwareRecordRecoverer withContext = (record, consumer, failure) -> {
@@ -83,6 +89,36 @@ class KafkaEventInbound {
 
     private static LogContext carrier(ConsumerRecord<?, ?> record) {
         return LogContext.openCarrier(name -> header(record, name));
+    }
+
+    /**
+     * 발행 결과 future 를 «보낸 스레드의 문맥을 깐 채» 완료되는 새 future 로 바꿔 돌려준다(GROMO-2581 r1). 발행기는 {@code send} 가 준
+     * future 에 완료 콜백({@code Dead-letter publication ... failed})을 거는데, 그 콜백은 future 를 완료한 스레드 — 비동기 실패면
+     * producer 스레드 — 에서 돈다. 새 future 는 원래 future 가 끝날 때 그 문맥 안에서 완료되므로 콜백도 그 안에서 돌고, 끝나면 그 스레드
+     * 값으로 되돌린다. 이미 끝난 future 면 소비자 스레드의 레코드 scope 안에서 바로 돈다. 값·예외는 그대로 넘긴다(DLT 판정·
+     * {@code failIfSendResultIsError} 대기 같음). 발행기를 하위 클래스로 만들지 않는 이유: 로거 이름이 {@code getClass()} 라 바뀐다.
+     */
+    private static KafkaOperations<?, ?> completingInContext(KafkaOperations<?, ?> template) {
+        ProxyFactory proxy = new ProxyFactory(template);
+        proxy.addAdvice((MethodInterceptor) call -> {
+            Object result = call.proceed();
+            if (!(result instanceof CompletableFuture<?> sent)) {
+                return result;
+            }
+            Map<String, String> context = LogContext.capture();
+            CompletableFuture<Object> relayed = new CompletableFuture<>();
+            sent.whenComplete((value, failure) -> {
+                try (LogContext scope = LogContext.replace(context)) {
+                    if (failure == null) {
+                        relayed.complete(value);
+                    } else {
+                        relayed.completeExceptionally(failure);
+                    }
+                }
+            });
+            return relayed;
+        });
+        return (KafkaOperations<?, ?>) proxy.getProxy();
     }
 
     /**

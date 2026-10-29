@@ -57,8 +57,11 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Date;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.LockSupport;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -553,6 +556,60 @@ class InboundEventServiceTest {
                     DeadLetterPublishingRecoverer.class.getName())
                     && line.message().startsWith("Dead-letter publication to realtime-events.DLT failed")).get(0);
             assertCarrier(publisherError, otherEventId, "req-dlt-fail");
+        } finally {
+            MDC.clear();
+        }
+    }
+
+    @Test
+    @DisplayName("DLT 발행이 비동기로 실패해도 producer 스레드의 발행기 오류 줄이 그 레코드의 event_id·원인을 달고, 콜백 뒤 그 스레드 문맥은 되돌아간다 (GROMO-2581)")
+    void asyncDeadLetterFailureLogCarriesTheRecordContext() throws Exception {
+        List<MockProducer<Object, Object>> producers = new CopyOnWriteArrayList<>();
+        Serializer<Object> bytes = (topic, data) -> data == null ? null
+                : data.toString().getBytes(StandardCharsets.UTF_8);
+        KafkaEventInbound inbound = new KafkaEventInbound(inboundEventService, objectMapper);
+        DefaultErrorHandler handler = inbound.realtimeEventsErrorHandler(new KafkaTemplate<>(
+                new MockProducerFactory<>(() -> {
+                    MockProducer<Object, Object> producer = new MockProducer<>(false, null, bytes, bytes); // 완료는 아래 스레드
+                    producers.add(producer);
+                    return producer;
+                })));
+        Consumer<?, ?> consumer = mock(Consumer.class);
+        MessageListenerContainer container = mock(MessageListenerContainer.class);
+        UUID user = UUID.randomUUID();
+        String eventId = "user.updated:" + user;
+        ConsumerRecord<String, String> undeliverable = carrying(new ConsumerRecord<>("realtime-events", 0, 12L, null,
+                withdrawn(user, 1).replace("user.withdrawn", "user.updated")), eventId, "req-dlt-async");
+        Thread consumerThread = Thread.currentThread();
+        AtomicReference<Map<String, String>> afterCallback = new AtomicReference<>();
+        Thread broker = new Thread(() -> {
+            MDC.put(LogContext.EVENT_ID, "producer-own");
+            // 발행기가 완료 콜백을 걸고 결과를 기다리기 시작한 «뒤»에 실패로 완료한다 — 콜백은 이 스레드에서 돈다.
+            long deadline = System.nanoTime() + Duration.ofSeconds(30).toNanos();
+            while ((producers.stream().allMatch(p -> p.history().isEmpty())
+                    || consumerThread.getState() != Thread.State.TIMED_WAITING) && System.nanoTime() < deadline) {
+                LockSupport.parkNanos(Duration.ofMillis(10).toNanos());
+            }
+            producers.forEach(p -> p.errorNext(new KafkaException("broker down")));
+            afterCallback.set(MDC.getCopyOfContextMap());
+        }, "dlt-producer");
+
+        MDC.put(LogContext.EVENT_ID, "outer");
+        try (CapturedLogs logs = CapturedLogs.of(DeadLetterPublishingRecoverer.class)) {
+            for (int delivery = 1; delivery <= 3; delivery++) {
+                deliverAndHandle(inbound, handler, undeliverable, consumer, container, true);
+            }
+            broker.start();
+            deliverAndHandle(inbound, handler, undeliverable, consumer, container, true); // DLT 발행 — 실패로 재시도에 남는다
+            broker.join(Duration.ofSeconds(30).toMillis());
+
+            // 완료 콜백은 보통 위 producer 스레드에서 돈다(고치기 전엔 이 줄이 producer-own 을 달았다). 기다리던 소비자 스레드가 깨어나며
+            // 남은 콜백을 가져갈 수도 있어(CompletableFuture.postComplete) 스레드 이름은 단언하지 않는다 — 그때는 레코드 scope 안이다.
+            CapturedLogs.Line publisherError = logs.lines(line -> line.message().startsWith(
+                    "Dead-letter publication to realtime-events.DLT failed")).get(0);
+            assertCarrier(publisherError, eventId, "req-dlt-async");
+            assertThat(afterCallback.get()).as("콜백 뒤 producer 스레드는 자기 값으로 돌아왔다")
+                    .isEqualTo(Map.of(LogContext.EVENT_ID, "producer-own"));
         } finally {
             MDC.clear();
         }

@@ -624,6 +624,23 @@ class MovementClusterTest {
     }
 
     @Test
+    @DisplayName("잃은 RECHECK 재송 장부는 원인(telemetry)만 다른 같은 재검사를 하나로 합치고 먼저 잃은 것을 남긴다 — 관측이 재송 수를 바꾸지 않는다 (GROMO-2581)")
+    void recheckLedgerMergesRegardlessOfTelemetry() {
+        SimpleMeterRegistry own = new SimpleMeterRegistry();
+        MovementRelay small = new MovementRelay(true, publisher, ownership, redis, json, own, 16, 1); // 아직 송신 없음
+        small.publishCommand(new Command(ownership.instanceId(), null, 0, island, Type.RECHECK, user, null, null,
+                false)); // 제어 줄(1)을 채운다
+        Command first = new Command(ownership.instanceId(), null, 0, island, Type.RECHECK, user, null, null, false,
+                null, new FanoutTelemetry(1, "req-kick-1", null, "evt-kick-1"));
+        small.publishCommand(first);
+        small.publishCommand(new Command(ownership.instanceId(), null, 0, island, Type.RECHECK, user, null, null,
+                false, null, new FanoutTelemetry(1, "req-kick-2", null, "evt-kick-2")));
+
+        assertThat(own.counter("movement.relay.recheck.retry", "reason", "dropped").count()).isEqualTo(2);
+        assertThat(small.takeRechecks()).as("사건마다 따로 남지 않는다").containsExactly(first);
+    }
+
+    @Test
     @DisplayName("종료 인계는 송신 줄을 RELEASE 전에 비운다 — 종료 직전 프레임이 stale_queue 로 버려지지 않고 실제로 나간다")
     void stopFlushesQueuedFramesBeforeRelease() throws Exception {
         BlockingQueue<Frame> frames = new LinkedBlockingQueue<>();
