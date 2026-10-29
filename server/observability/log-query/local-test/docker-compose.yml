@@ -1,0 +1,48 @@
+# GROMO-2560 로컬 조회 하네스 — Loki·Grafana(dev 와 같은 이미지·설정)와 Trino(Athena 엔진 v3 의 바탕)를 띄운다.
+# 네트워크는 internal 이라 어떤 컨테이너도 밖(AWS·인터넷)으로 나가지 못한다. 호스트 포트도 열지 않는다 —
+# 검사는 같은 네트워크의 check 컨테이너와 `docker compose exec` 로 한다. 실행은 run.sh.
+name: obs2562-query
+
+networks:
+  q:
+    internal: true
+
+services:
+  loki:
+    image: grafana/loki:3.3.2
+    command: -config.file=/etc/loki/loki-config.yml
+    volumes:
+      - ../../loki/loki-config.yml:/etc/loki/loki-config.yml:ro
+    networks: [q]
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+    volumes:
+      - ../../grafana/provisioning:/etc/grafana/provisioning:ro
+      - ../../grafana/dashboards:/var/lib/grafana/dashboards:ro
+    networks: [q]
+
+  # Athena 는 Trino 기반이다. Hive 커넥터 + 파일 메타스토어 + 로컬 파일시스템(/data = run.sh 가 만든 임시 디렉터리).
+  trino:
+    image: trinodb/trino:476
+    volumes:
+      - ./trino/hive.properties:/etc/trino/catalog/hive.properties:ro
+      - ${QUERY_DATA:?run.sh 가 채운다}:/data
+    networks: [q]
+
+  check:
+    image: python:3.12-alpine
+    profiles: [tools]
+    working_dir: /w
+    volumes:
+      - .:/w:ro
+      - ../../athena:/athena:ro
+      - ../../grafana/dashboards:/dashboards:ro
+      - ${QUERY_DATA:?run.sh 가 채운다}:/data
+    networks: [q]
