@@ -16,6 +16,7 @@ import com.oneorthree.realtime.focus.IslandFocusSessions;
 import com.oneorthree.realtime.logging.CapturedLogs;
 import com.oneorthree.realtime.logging.LogContext;
 import com.oneorthree.realtime.membership.client.GroupClient;
+import com.oneorthree.realtime.message.service.ChatUserFence;
 import com.oneorthree.realtime.message.dto.ChatMessageResponse;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
@@ -93,6 +94,13 @@ class FanoutLogContextIntegrationTest {
     /** 앱 로그 문맥 키 — 실행기 스레드에 남으면 안 된다. */
     private static final String[] APP_KEYS = {"request_id", "origin_request_id", "origin_trace_id", "user_id",
         "event_id", "delivery_id", "attempt", "message_id", "event_name"};
+    /**
+     * 모양이 깨진 관측 메타데이터 — 업무 봉투는 그대로 전달돼야 한다(계약 §0). 마지막은 v1 인데 한 필드만 틀린 것: 나머지 값도
+     * 믿지 않고 통째로 버린다.
+     */
+    private static final List<String> BROKEN_TELEMETRY = List.of("{\"v\":\"invalid\"}",
+            "{\"originRequestId\":{\"x\":1}}", "[1,2]", "7", "\"telemetry\"",
+            "{\"v\":1,\"originRequestId\":\"req-half\",\"originTraceId\":{\"x\":1}}");
 
     @LocalServerPort
     private int port;
@@ -117,6 +125,9 @@ class FanoutLogContextIntegrationTest {
 
     @Autowired
     private RealtimeEventFanoutSubscriber eventSubscriber;
+
+    @Autowired
+    private ChatUserFence chatUserFence;
 
     @Autowired
     private ApplicationContext context;
@@ -290,6 +301,58 @@ class FanoutLogContextIntegrationTest {
         assertThat(eventDelivery.mayReceive(eventId, alice)).as("메아리는 수신 집합도 다시 기록하지 않는다").isFalse();
     }
 
+    @Test
+    @DisplayName("chat:fanout — telemetry 모양이 깨져도 채팅은 로컬 구독자에게 전달되고, 메타데이터만 버려진다")
+    void brokenChatTelemetryStillDeliversTheMessage() throws Exception {
+        StompSession session = connect();
+        BlockingQueue<String> raw = subscribeRaw(session, "/topic/groups/" + island);
+        try (CapturedLogs logs = CapturedLogs.of(ChatFanoutSubscriber.class)) {
+            for (String telemetry : BROKEN_TELEMETRY) {
+                UUID messageId = UUID.randomUUID();
+                String wire = "{\"originInstanceId\":\"" + UUID.randomUUID() + "\",\"message\":" + chatJson(messageId)
+                        + ",\"telemetry\":" + telemetry + "}";
+                assertThat(objectMapper.readValue(wire, ChatFanoutEvent.class).telemetry()).as(telemetry).isNull();
+
+                JsonNode heard = publishUntilHeard(RedisKeys.FANOUT_CHANNEL, wire, raw, "messageId", messageId);
+                assertThat(keysOf(heard)).as(telemetry).isEqualTo(CHAT_KEYS);
+                CapturedLogs.Line line = logs.await(event(LogContext.FANOUT_RECEIVE, "result=delivered")
+                        .and(l -> messageId.toString().equals(l.get("message_id"))), 1, TIMEOUT_MILLIS).get(0);
+                assertThat(line.mdc()).as(telemetry).doesNotContainKeys("origin_request_id", "origin_trace_id");
+            }
+            assertThat(logs.lines(event(LogContext.FANOUT_RECEIVE, "result=invalid"))).isEmpty();
+        }
+    }
+
+    @Test
+    @DisplayName("chat:events:v1 — telemetry 모양이 깨져도 섬 사건은 로컬 전달되고 세션 폐기는 펜스에 적용된다")
+    void brokenEventTelemetryStillDeliversAndRevokes() throws Exception {
+        StompSession session = connect();
+        BlockingQueue<String> raw = subscribeRaw(session, "/topic/islands/" + island + "/emotes");
+        try (CapturedLogs logs = CapturedLogs.of(RealtimeEventFanoutSubscriber.class)) {
+            for (String telemetry : BROKEN_TELEMETRY) {
+                UUID eventId = UUID.randomUUID();
+                String islandWire = emoteWireRaw(eventId, Set.of(alice), telemetry);
+                assertThat(objectMapper.readValue(islandWire, RealtimeEventFanoutEvent.class).telemetry()).as(telemetry)
+                        .isNull();
+                JsonNode heard = publishUntilHeard(RedisKeys.EVENT_FANOUT_CHANNEL, islandWire, raw, "eventId", eventId);
+                assertThat(keysOf(heard)).as(telemetry).isEqualTo(EVENT_KEYS);
+                CapturedLogs.Line line = logs.await(event(LogContext.FANOUT_RECEIVE, "result=delivered")
+                        .and(l -> eventId.toString().equals(l.get("event_id"))), 1, TIMEOUT_MILLIS).get(0);
+                assertThat(line.mdc()).as(telemetry).doesNotContainKeys("origin_request_id", "origin_trace_id");
+
+                UUID sid = UUID.randomUUID();
+                String revokeWire = "{\"originInstanceId\":\"" + UUID.randomUUID() + "\",\"recipients\":[]"
+                        + ",\"revokedUserId\":\"" + UUID.randomUUID() + "\",\"revokedSessionId\":\"" + sid
+                        + "\",\"revokedUntil\":\"" + Instant.now().plusSeconds(3600) + "\",\"telemetry\":" + telemetry
+                        + "}";
+                eventSubscriber.onMessage(redisMessage(RedisKeys.EVENT_FANOUT_CHANNEL, revokeWire), null);
+                assertThat(chatUserFence.isRevoked(sid)).as(telemetry).isTrue();
+            }
+            assertThat(logs.lines(event(LogContext.FANOUT_RECEIVE, "result=invalid"))).isEmpty();
+            assertThat(logs.lines(event(LogContext.FANOUT_RECEIVE, "result=failed"))).isEmpty();
+        }
+    }
+
     // ── helpers ──────────────────────────────────────────────────────────
 
     private ExecutorSubscribableChannel outboundChannel() {
@@ -415,9 +478,14 @@ class FanoutLogContextIntegrationTest {
 
     /** 다른 인스턴스가 흘린 응원 — {@code origin} 이 null 이면 telemetry 키가 아예 없는 옛 발행자 원문. */
     private String emoteWire(UUID eventId, Set<UUID> recipients, String origin) {
+        return emoteWireRaw(eventId, recipients, origin == null ? null
+                : "{\"v\":1,\"originRequestId\":\"" + origin + "\",\"eventId\":\"" + eventId + "\"}");
+    }
+
+    /** {@code telemetryJson} 을 원문 그대로 싣는다 — null 이면 키가 없다. */
+    private String emoteWireRaw(UUID eventId, Set<UUID> recipients, String telemetryJson) {
         String recipientsJson = recipients.stream().map(id -> "\"" + id + "\"").collect(Collectors.joining(","));
-        String telemetry = origin == null ? ""
-                : ",\"telemetry\":{\"v\":1,\"originRequestId\":\"" + origin + "\",\"eventId\":\"" + eventId + "\"}";
+        String telemetry = telemetryJson == null ? "" : ",\"telemetry\":" + telemetryJson;
         return "{\"originInstanceId\":\"" + UUID.randomUUID() + "\",\"destination\":\"/topic/islands/" + island
                 + "/emotes\",\"event\":" + objectMapper.writeValueAsString(emote(eventId)) + ",\"recipients\":["
                 + recipientsJson + "]" + telemetry + "}";
