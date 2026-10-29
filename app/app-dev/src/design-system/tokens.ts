@@ -621,7 +621,7 @@ export const componentTokens = {
     ripple: color.sailingRipple,
   },
   // 고양이 이름표(GROMO-2475) — 모든 화면 공통. 내 이름표만 me. 피그마 확정 전 임시값
-  nameplate: { ink: '#493B39', outline: '#8B6956', me: '#B83D63', shadow: '#FFFDFA' },
+  nameplate: { ink: '#493B39', outline: '#8B6956', me: '#246A8A', shadow: '#FFFDFA' },
   // 바닥 목적지 표식과 이동 점선. 치수는 화면 pt로 줌과 무관하다.
   walkPath: {
     color: color.brown,
