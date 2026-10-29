@@ -466,7 +466,12 @@ test('잔액·합계·거래 금액은 줄높이가 글자보다 커서 고운�
 
 test.each([
   ['기본 표', 402, 874, 1, false],
+  // SE는 높이 제약으로 책 배율이 줄어 실제 종이 폭이 약 194pt가 된다.
   ['SE의 좁은 종이', 375, 667, 1, true],
+  ['중간 글자 배율', 402, 874, 1.15, true],
+  ['큰 글자 직전', 402, 874, 1.29, true],
+  ['큰 글자 경계', 402, 874, 1.3, true],
+  ['가로 기본 표', 852, 393, 1, false],
   ['큰 글자', 393, 852, 2.14, true],
   ['가로 큰 글자', 852, 393, 2.14, true],
 ] as const)(
@@ -501,7 +506,9 @@ test.each([
         assert.equal(style(row).flexDirection, stacked ? 'column' : 'row');
         assert.ok(within(row).getByText('9/20'));
       }
-      const reason = screen.getByText('집중 적립', { exact: false });
+      const reason = within(screen.getByTestId('ledger-row-large-earn')).getByText('집중 적립', {
+        exact: false,
+      });
       expect(reason).toHaveTextContent('집중 적립 · 987654321회');
       assert.equal(reason.props.numberOfLines, undefined);
       assert.ok(screen.getByText('건설 사용'));

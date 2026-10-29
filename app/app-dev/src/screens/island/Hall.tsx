@@ -804,7 +804,7 @@ export function Hall({ e }: any) {
     const contentWidth = bookW - paper.left - paper.right - LG.contentInsetX * 2;
     const stackedRows =
       (L.fontScale ?? 1) >= semanticTokens.typography.largeTextThreshold ||
-      contentWidth < LG.rowStackWidth;
+      contentWidth < LG.rowStackWidth * Math.max(1, L.fontScale ?? 1);
     // 토큰의 { 크기, 줄높이 } 로 고운돋움 글자 스타일을 만든다
     const lt = (type: { fontSize: number; lineHeight: number }, extra?: object) =>
       g(type.fontSize, type.lineHeight, extra);
