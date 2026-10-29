@@ -53,6 +53,7 @@ class NotificationEnvironmentGuard {
         String expected = dev ? "dev" : "prod";
         List<String> markers;
         List<String> projects;
+        String comment = null;
         try {
             markers = jdbc.queryForList("SELECT split_part(config, '=', 2)"
                     + " FROM pg_db_role_setting setting JOIN pg_database db ON db.oid=setting.setdatabase"
@@ -64,11 +65,18 @@ class NotificationEnvironmentGuard {
                     + " CROSS JOIN LATERAL unnest(setting.setconfig) config"
                     + " WHERE db.datname=current_database() AND setting.setrole=0"
                     + " AND config LIKE 'gromo.fcm_project_id=%'", String.class);
+            if (markers.isEmpty() && projects.isEmpty()) {
+                comment = jdbc.queryForObject("SELECT shobj_description(oid, 'pg_database')"
+                        + " FROM pg_database WHERE datname=current_database()", String.class);
+            }
         } catch (DataAccessException unavailable) {
             throw new EnvironmentMismatch("Notification DB/FCM 환경 조회에 실패했습니다.", unavailable);
         }
-        if (markers.size() != 1 || !expected.equals(markers.get(0)) || projects.size() != 1
-                || fcmProjectId == null || !fcmProjectId.equals(projects.get(0))) {
+        boolean settingsMatch = markers.size() == 1 && projects.size() == 1
+                && expected.equals(markers.get(0)) && fcmProjectId != null && fcmProjectId.equals(projects.get(0));
+        boolean commentMatches = markers.isEmpty() && projects.isEmpty() && fcmProjectId != null
+                && ("gromo.environment=" + expected + ";gromo.fcm_project_id=" + fcmProjectId).equals(comment);
+        if (!settingsMatch && !commentMatches) {
             throw new EnvironmentMismatch("Notification DB/FCM 환경을 확인할 수 없습니다.");
         }
         return Map.of("environment", expected, "fcmProjectId", fcmProjectId);
