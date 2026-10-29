@@ -87,13 +87,13 @@ dev Loki는 현재 떠 있지 않아(2554 조사표 `runtime-inventory.md`) dev 
 
 ## 2557에서 구현한 경로
 
-**Outbox 원인 문맥 저장.** Data가 Outbox 행을 쓸 때(append) origin을 캡처해 `event_outbox.origin_request_id`·`origin_trace_id` 열(Data Flyway V4, 추가 전용 nullable)에 저장한다. 이미 MDC에 origin이 있으면 그 쌍을 우선하고, 없을 때만 현재 요청 ID와 tracer API(`CorrelationIdentifier`)의 trace 원문을 쓴다. 캡처에 실패하면 origin 없이 접고 업무 쓰기는 그대로 진행한다. 재시도는 저장된 값을 읽기만 한다.
+**Outbox 원인 문맥 저장.** Data가 Outbox 행을 쓸 때(append) origin을 캡처해 `event_outbox.origin_request_id`·`origin_trace_id` 열(Data Flyway V5, 추가 전용 nullable)에 저장한다. 이미 MDC에 origin이 있으면 그 쌍을 우선하고, 없을 때만 현재 요청 ID와 tracer API(`CorrelationIdentifier`)의 trace 원문을 쓴다. 캡처에 실패하면 origin 없이 접고 업무 쓰기는 그대로 진행한다. 재시도는 저장된 값을 읽기만 한다.
 
 **Relay 전달.** relay는 전달 행마다 로그 scope(`event_id`·origin·`delivery_id`·`attempt`)를 열고 닫으며 `event_name=outbox.delivery` INFO 한 줄로 결과를 남긴다. relay 풀 스레드의 MDC는 scope 밖에서 비어 있고, 스레드 사이로 MDC를 복사하지 않는다. carrier 생성·scope 열기·결과 로그 실패는 전달·재시도·DLT 판정을 바꾸지 않는다. carrier 생성이 실패하면 origin 헤더 없이, scope만 실패하면 헤더는 유지하고 로그 문맥 없이 전달한다.
 
 **헤더 이름.** Kafka는 `x-origin-trace-id`·`x-origin-request-id` 등 소문자 `x-*`, HTTP는 `X-Origin-Trace-Id`·`X-Origin-Request-Id`·`X-Delivery-Id`·`X-Attempt`·`X-Trace-Context-Version`(상수 `1`)이다. 도메인 이벤트 봉투·Kafka key·`envelope_hash` 대상 본문·멱등 키는 바꾸지 않는다.
 
-**Notification 수신.** 수신 경로가 헤더를 검증해 scope를 열고(`event_name=consumer.accept`), 값을 `deliveries`의 origin 열(Notification V14)에 저장해 이후 발송 로그가 같은 origin을 단다. 같은 이벤트를 재전달해도 저장된 origin·본문 해시는 바뀌지 않고, DLT로 보낼 때 추적 헤더를 유지한다. 형식이 틀린 칸은 버리고 모르는 버전은 문맥 없음으로 처리하며 수신·DLT 판정은 그대로다.
+**Notification 수신.** 수신 경로가 헤더를 검증해 scope를 열고(`event_name=consumer.accept`), 값을 `deliveries`의 origin 열(Notification V15)에 저장해 이후 발송 로그가 같은 origin을 단다. 같은 이벤트를 재전달해도 저장된 origin·본문 해시는 바뀌지 않고, DLT로 보낼 때 추적 헤더를 유지한다. 형식이 틀린 칸은 버리고 모르는 버전은 문맥 없음으로 처리하며 수신·DLT 판정은 그대로다.
 
 **trace 표기(dd-trace 1.64.0).** 128-bit trace 생성·로그 출력이 기본 켜짐이라 이 서비스가 시작한 trace는 32 hex로 저장된다. 상위 64비트가 0이면 10진 표기가 되고, trace가 없으면 `"0"`을 저장하지 않는다.
 
@@ -105,7 +105,7 @@ dev Loki는 현재 떠 있지 않아(2554 조사표 `runtime-inventory.md`) dev 
 | notification 전체 | 221개 실패·오류 0 |
 | 로그 JSON | 렌더링된 JSON의 키를 단언 |
 | relay 풀 MDC | scope 밖에서 비어 있음을 단언 |
-| Data V4 롤백 | 이전 번들로 migrate·validate가 통과하는지 테스트 |
+| Data V5 롤백 | 이전 번들로 migrate·validate가 통과하는지 테스트 |
 
 **이 PR 범위 밖·후속.**
 

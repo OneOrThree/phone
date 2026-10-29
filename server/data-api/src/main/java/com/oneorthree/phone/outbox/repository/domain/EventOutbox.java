@@ -116,7 +116,7 @@ public class EventOutbox {
     private Instant createdAt;
 
     /**
-     * 최초 원인 요청의 {@code request_id}(GROMO-2557, V4). 봉투 본문이 아니라 별도 열이라 소비자·멱등 비교에 섞이지 않는다.
+     * 최초 원인 요청의 {@code request_id}(GROMO-2557, V5). 봉투 본문이 아니라 별도 열이라 소비자·멱등 비교에 섞이지 않는다.
      * append 때 한 번 적고 이후 바꾸지 않는다 — relay 재시도·재선점이 이 값을 그대로 헤더로 나른다.
      */
     @Column(name = "origin_request_id", length = 128)

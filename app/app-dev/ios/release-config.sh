@@ -8,9 +8,20 @@
 # 비어 있으면 로그인이 막히므로 운영·dev 빌드 모두 필수. 약관 문서를 실제로 개정할 때만 바꾼다.
 export EXPO_PUBLIC_TERMS_VERSION="${EXPO_PUBLIC_TERMS_VERSION:-2026-09}"
 
-# Datadog RUM 공개 설정 — 1.x 와 같은 RUM application 을 쓴다. 클라이언트 토큰은 앱 안에 들어가는 공개값이다.
-export EXPO_PUBLIC_DATADOG_APPLICATION_ID="${EXPO_PUBLIC_DATADOG_APPLICATION_ID:-44a4f021-ed4d-4134-b59d-63a40e37c2ff}"
-export EXPO_PUBLIC_DATADOG_CLIENT_TOKEN="${EXPO_PUBLIC_DATADOG_CLIENT_TOKEN:-pub851a727c3f95bc795ae8f9a15f5326d4}"
+# cattus 전용 Datadog RUM 공개 설정 — gromo 1.x와 수집 공간을 분리한다.
+# Client Token은 앱에 포함되는 공개값이며 Datadog API/App Key와 다르다.
+export EXPO_PUBLIC_DATADOG_APPLICATION_ID="${EXPO_PUBLIC_DATADOG_APPLICATION_ID:-31edaff8-b8b4-434b-9d8c-898e05a41255}"
+export EXPO_PUBLIC_DATADOG_CLIENT_TOKEN="${EXPO_PUBLIC_DATADOG_CLIENT_TOKEN:-pub087cf0808d661352a6195ccbe2352205}"
+# 셸에 남은 옛 덮어쓰기 설정으로 gromo에 다시 보내지 않게 한다.
+if [ "$EXPO_PUBLIC_DATADOG_APPLICATION_ID" = "44a4f021-ed4d-4134-b59d-63a40e37c2ff" ]; then
+  echo "cattus 빌드에는 gromo 1.x의 Datadog Application ID를 사용할 수 없습니다." >&2
+  return 1 2>/dev/null || exit 1
+fi
+
+# 집중 시작의 자리 좌표 — 비우면 실제 API 주소로 판정(운영 생략, dev 전송)한다.
+# 운영 Business·Data와 seat_x/seat_y DB 배포를 확인한 뒤 기본값을 1로 바꾼다.
+# OTA도 이 파일을 읽으므로 셸의 EXPO_PUBLIC_* 값만으로 운영 기능을 켜지 않는다.
+export EXPO_PUBLIC_FOCUS_SEAT_ENABLED="${EXPO_PUBLIC_FOCUS_SEAT_ENABLED:-}"
 
 # GROMO-2523 Firebase 프로젝트 ID — 각 환경 알림 서버의 FCM_PROJECT_ID(공개값). 빌드 단계
 # scripts/firebase-plist-xcode.sh 가 GoogleService-Info.plist 의 PROJECT_ID 와 대조한다.

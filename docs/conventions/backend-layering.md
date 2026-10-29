@@ -242,7 +242,7 @@ Controller  →  Service  →  Repository  →  Entity
 | --- | --- | --- |
 | L-1 | `outbox` | 내구 이벤트·명령 기반(GROMO-1659·1660, A21). **아무것도 참조하지 않는다** — 탈퇴·로그아웃처럼 L0 의 트랜잭션도 봉투를 적어야 해서 `user` 보다 아래다. 봉투는 도메인 타입을 하나도 모른다(`userId` 는 UUID, 나머지는 `params` JSON). 도메인이 이 층을 부르는 규약은 [`outbox-events.md`](outbox-events.md)(GROMO-1798) |
 | L0 | `user` | 계정. 다른 무엇도 전제하지 않는다 — **아무도 참조하지 않는다** |
-| L1 | `currency` | 유저에게 달린 원장·보유 |
+| L1 | `currency` · `content` | 유저에게 달린 원장·보유. `content`는 운영 공지·잡지 비공개 스냅샷·게시 영수증 원장이며 다른 도메인 타입을 참조하지 않는다. |
 | L2 | `focus` · `screentime` · `letter` | 유저가 만든 기록 — `letter` 는 `users.id` 두 개(sender·receiver)만 참조하는 1:1 편지(GROMO-1933). 친구 삭제 후 편지 정리가 «삭제»로 결정되면 `friend`(L3)가 이것을 참조해야 하므로 `friend` 보다 아래다 |
 | L3 | `friend` | 유저 사이의 관계 |
 | L4 | `stats` · `ranking` | 기록·관계를 집계한 파생. `ranking`(GROMO-1997)은 주간 섬 랭킹의 동결 분모 표와 주 경계 계산기뿐이고 도메인 타입을 하나도 참조하지 않는다 — 집중 합·주민 수·전망대를 «조합»하는 것은 L10 `internal` 이다 |

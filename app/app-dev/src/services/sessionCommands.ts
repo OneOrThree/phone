@@ -24,6 +24,7 @@ import {
 import { getTelescope as apiTelescope } from '@/services/api/telescope';
 import { intentKeyPool, RecordItem, Route, Session, sessionRoute, State } from '@/services/model';
 import { captureProductEvent } from '@/services/posthog';
+import { measureDatadogOperation } from '@/services/datadog';
 
 export type FocusApi = {
   current: typeof apiCurrent;
@@ -321,40 +322,44 @@ export const createSessionCommands = (deps: SessionCommandDeps) => {
     // seat(GROMO-2478) 는 고른 집중섬 자리 — 0~100 밖(옛 저장 좌표)·없음이면 키를 생략한다.
     // 멱등 키는 본문 JSON 기준이라 같은 의도의 재시도는 같은 seat 로 간다.
     start: (input: { subject: string; targetMinutes?: number; seat?: FocusSeat }) =>
-      call(async () => {
-        const g = generation(),
-          islandId = deps.getSnap()?.currentIslandId;
-        if (!islandId) throw new ApiError('ISLAND_NOT_CURRENT', '현재 소속된 섬이 없어요.', 403);
-        const body: FocusSessionStartInput = { islandId, subject: input.subject },
-          seat = focusSeat(input.seat);
-        if (input.targetMinutes !== undefined) body.targetMinutes = input.targetMinutes;
-        if (seat) body.seat = seat;
-        const raw = JSON.stringify(body),
-          view = await api.start(body, scoped().keys.key('start', raw));
-        alive(g);
-        deps.dispatch({ type: 'SESSION_SYNC', session: sessionFromServer(view) });
-        scoped().keys.release('start', raw);
-        captureProductEvent('focus_started');
-        return view;
-      }),
+      measureDatadogOperation('focus_start', () =>
+        call(async () => {
+          const g = generation(),
+            islandId = deps.getSnap()?.currentIslandId;
+          if (!islandId) throw new ApiError('ISLAND_NOT_CURRENT', '현재 소속된 섬이 없어요.', 403);
+          const body: FocusSessionStartInput = { islandId, subject: input.subject },
+            seat = focusSeat(input.seat);
+          if (input.targetMinutes !== undefined) body.targetMinutes = input.targetMinutes;
+          if (seat) body.seat = seat;
+          const raw = JSON.stringify(body),
+            view = await api.start(body, scoped().keys.key('start', raw));
+          alive(g);
+          deps.dispatch({ type: 'SESSION_SYNC', session: sessionFromServer(view) });
+          scoped().keys.release('start', raw);
+          captureProductEvent('focus_started');
+          return view;
+        }),
+      ),
     /**
      * 바다 항해 집중 시작(GROMO-2310). 키는 목적지당 의도 하나. 409 `SEA_DESTINATION_UNAVAILABLE` 은 망원경
      * 시간대가 바뀌어 목적지가 목록에서 빠졌을 수 있다는 뜻 — 목록을 한 번 다시 읽어 그 섬이 아직 있으면
      * 새 키로 한 번만 다시 시도하고(확정 4xx 라 서버가 만든 것이 없다), 없으면 원 오류를 던진다.
      */
     startSea: (destinationIslandId: string) =>
-      call(async () => {
-        // 전이처럼 센다 — 표류 화면의 recover() 가 출항 전에 읽은 current(null) 를 늦게 적용해 새 세션을 지우지 않게
-        // recover 의 「전환 중이면 미루고, 그사이 전환이 있었으면 옛 응답을 버린다」 보호를 탄다.
-        transitioning += 1;
-        transitionRevision += 1;
-        try {
-          return await startSeaOnce(destinationIslandId);
-        } finally {
-          transitioning -= 1;
+      measureDatadogOperation('focus_sea_start', () =>
+        call(async () => {
+          // 전이처럼 센다 — 표류 화면의 recover() 가 출항 전에 읽은 current(null) 를 늦게 적용해 새 세션을 지우지 않게
+          // recover 의 「전환 중이면 미루고, 그사이 전환이 있었으면 옛 응답을 버린다」 보호를 탄다.
+          transitioning += 1;
           transitionRevision += 1;
-        }
-      }),
+          try {
+            return await startSeaOnce(destinationIslandId);
+          } finally {
+            transitioning -= 1;
+            transitionRevision += 1;
+          }
+        }),
+      ),
     pause: () =>
       call(async () => {
         const view = await transition('pause', api.pause);
@@ -369,16 +374,18 @@ export const createSessionCommands = (deps: SessionCommandDeps) => {
       }),
     // 종료 — 응답은 정산 뷰다. 기록·결과창 반영은 SESSION_RESULT 가 한다(물고기는 서버가 이미 적립).
     finish: (target?: { id: string; version?: number }) =>
-      call(async () => {
-        const fromRest = deps.getSession()?.status === 'paused',
-          result = await transition('finish', api.finish, target);
-        deps.dispatch({ type: 'SESSION_RESULT', record: recordFromFinish(result), fromRest });
-        captureProductEvent('focus_completed', {
-          duration_seconds: result.activeSeconds,
-          earned_fish: result.earnedFish,
-        });
-        return result;
-      }),
+      measureDatadogOperation('focus_finish', () =>
+        call(async () => {
+          const fromRest = deps.getSession()?.status === 'paused',
+            result = await transition('finish', api.finish, target);
+          deps.dispatch({ type: 'SESSION_RESULT', record: recordFromFinish(result), fromRest });
+          captureProductEvent('focus_completed', {
+            duration_seconds: result.activeSeconds,
+            earned_fish: result.earnedFish,
+          });
+          return result;
+        }),
+      ),
     // 결과 1회 표시의 확인 — 서버가 조건부 UPDATE 라 재시도·중복 호출이 무해하다.
     acknowledge: (sessionId: string) =>
       call(async () => {

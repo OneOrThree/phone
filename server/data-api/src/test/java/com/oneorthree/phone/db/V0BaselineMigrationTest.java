@@ -40,9 +40,9 @@ class V0BaselineMigrationTest {
         migrate("classpath:db/v0");
         // V0 체인만 적용한다. 과거 V1~V138 은 섞이지 않는다.
         assertThat(jdbc.queryForList("SELECT version FROM flyway_schema_history", String.class))
-                .containsExactly("0", "1", "2", "3", "4");
+                .containsExactly("0", "1", "2", "3", "4", "5");
         assertThat(jdbc.queryForObject("SELECT count(*) FROM pg_tables WHERE schemaname='public' "
-                + "AND tablename<>'flyway_schema_history'", Integer.class)).isEqualTo(79);
+                + "AND tablename<>'flyway_schema_history'", Integer.class)).isEqualTo(82);
         assertThat(jdbc.queryForObject("SELECT to_regclass('public.islands') IS NOT NULL", Boolean.class)).isTrue();
         assertThat(jdbc.queryForObject("SELECT to_regclass('public.groups') IS NULL", Boolean.class)).isTrue();
         assertThat(jdbc.queryForObject("SELECT count(*) FROM users", Integer.class)).isZero();

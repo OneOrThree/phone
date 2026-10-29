@@ -33,18 +33,26 @@ class FcmTransport implements PushTransport {
     private final RestClient client;
     private final String project;
     private final Counter senderMismatch;
+    private final NotificationEnvironmentGuard environmentGuard;
 
     @Autowired
     public FcmTransport(@Value("${fcm.project-id:}") String project,
-            @Value("${fcm.service-account-json:}") String encoded, MeterRegistry registry) {
-        this(project, credentials(project, encoded), "https://fcm.googleapis.com", registry);
+            @Value("${fcm.service-account-json:}") String encoded, MeterRegistry registry,
+            NotificationEnvironmentGuard environmentGuard) {
+        this(project, credentials(project, encoded), "https://fcm.googleapis.com", registry, environmentGuard);
     }
 
     FcmTransport(String project, GoogleCredentials credentials, String baseUrl, MeterRegistry registry) {
+        this(project, credentials, baseUrl, registry, null);
+    }
+
+    FcmTransport(String project, GoogleCredentials credentials, String baseUrl, MeterRegistry registry,
+            NotificationEnvironmentGuard environmentGuard) {
         this.project = project;
         this.credentials = credentials;
         this.client = client(baseUrl);
         this.senderMismatch = registry.counter("notification.fcm.sender_mismatch");
+        this.environmentGuard = environmentGuard;
     }
 
     private static GoogleCredentials credentials(String project, String encoded) {
@@ -67,6 +75,9 @@ class FcmTransport implements PushTransport {
 
     @Override
     public Result send(String token, RenderedPush push, boolean sound, String eventId) {
+        if (environmentGuard != null) {
+            environmentGuard.assertDispatchReady();
+        }
         // Dispatch는 이 검사를 임대·외부 호출 전에 한다. 다른 직접 호출도 크기 초과를 전송하지 않는다.
         Map<String, Object> payload = payload(token, push, sound, eventId);
         try {

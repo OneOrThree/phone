@@ -1505,6 +1505,15 @@ test('앱 설정은 권한 관련 진입을 앱 권한 관리 한 줄로 합친�
   assert.equal(s.queryByText('측정 앱'), null);
 });
 
+test('설정 소식에서 개발자 공지 목록으로 이동한다', async () => {
+  let exposed: any;
+  const screen = await render(
+    <Harness route="settings" full expose={(value: any) => (exposed = value)} />,
+  );
+  await fireEvent.press(screen.getByText('개발자 공지'));
+  assert.equal(exposed.go.mock.calls[0][0], 'developerNotices');
+});
+
 test('목업 앱 설정에서는 실제 안전 API 진입로를 숨긴다', async () => {
   const s = await render(<Harness route="settings" full />);
 
