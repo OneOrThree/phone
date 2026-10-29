@@ -451,6 +451,16 @@ class PartialApplyTest(unittest.TestCase):
                     api.call("GET", manage.PIPELINES)
                 self.assertFalse(r.exception.unknown)
 
+    def test_http_5xx_on_write_is_unknown_but_4xx_and_get_are_not(self):
+        with mock.patch.dict(os.environ, {"DD_API_KEY": "k", "DD_APP_KEY": "a"}):
+            api = manage.Api()
+        for method, code, unknown in (("POST", 503, True), ("PUT", 502, True), ("POST", 400, False), ("GET", 503, False)):
+            err = urllib.error.HTTPError("https://x", code, "e", {}, io.BytesIO(b"x"))
+            with self.subTest(method=method, code=code), mock.patch("urllib.request.urlopen", side_effect=err):
+                with self.assertRaises(manage.ApiError) as w:
+                    api.call(method, manage.PIPELINES, {})
+                self.assertEqual((w.exception.status, w.exception.unknown), (code, unknown))
+
     def test_rerun_after_unknown_create_is_update_not_duplicate(self):
         defs = manage.load_definitions()
         state = {"pipelines": [{"id": "X", "name": defs[0]["name"]}], "order": ["X"], "origin": "t"}

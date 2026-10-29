@@ -129,7 +129,7 @@ class Api:
             with urllib.request.urlopen(req, timeout=30) as resp:
                 raw = resp.read()
         except urllib.error.HTTPError as e:  # URLError·OSError 의 하위 클래스라 먼저 잡는다
-            raise ApiError(f"{method} {path} → HTTP {e.code}: {e.read()[:500].decode(errors='replace')}", status=e.code)
+            raise ApiError(f"{method} {path} → HTTP {e.code}: {e.read()[:500].decode(errors='replace')}", status=e.code, unknown=method != "GET" and e.code >= 500)  # 쓰기의 게이트웨이 5xx 는 서버가 이미 처리했을 수 있다
         except OSError as e:  # URLError·타임아웃·연결 끊김. 쓰기면 서버가 이미 처리했을 수 있다
             raise ApiError(f"{method} {path} → 응답 없음({type(e).__name__}: {e})", unknown=method != "GET")
         return json.loads(raw) if raw.strip() else None
