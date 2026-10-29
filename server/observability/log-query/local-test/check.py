@@ -358,6 +358,15 @@ def check_sql(expected, partitions):
         check(rows["n"] == 3 and rows["ok"] == 2, "깨진 JSON 줄이 든 객체 조회 — 실패하지 않고 정상 2줄 + 전부 NULL 1행", str(rows))
     except RuntimeError as error:
         check(False, "깨진 JSON 줄이 든 객체 조회", str(error))
+    # 파티션 범위 주석(첫 줄)의 date·hour 목록이 WHERE 의 archive_date·archive_hour 값과 같은지 — 0행일 때 «어디까지 봤나»를 믿을 수 있는지.
+    for margin in ([], ["--margin-hours", "0"]):
+        sql = render.build([f"{ATHENA}/by-request.sql"] + expected["sql_window"] + ["--request-id", "req-r1"] + margin)
+        head, _, body = sql.partition("\n")
+        want = [(d, tuple(h.split(","))) for d, h in re.findall(r"date=(\S+) hour=([\d,]+)", head)]
+        got = [(d, tuple(re.findall(r"'(\d\d)'", hs)))
+               for d, hs in re.findall(r"\(archive_date = '([\d-]+)' AND archive_hour IN \(([^)]*)\)\)", body)]
+        check(head.startswith("-- render.py 파티션 범위") and want and want == got,
+              f"render.py 파티션 범위 주석 = WHERE ({' '.join(margin) or '기본 여유'})", f"header={want} where={got}")
     for case in expected["sql"]:
         sql = render.build([f"{ATHENA}/{case['template']}"] + expected["sql_window"] + case["args"])
         try:

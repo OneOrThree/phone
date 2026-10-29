@@ -91,7 +91,8 @@ raw 줄(`parse_error=true`)에는 `timestamp`가 없다. 질의는 `observed_at`
 시계 차이 판정의 한계:
 
 - `outbox.delivery`는 브로커 ack 뒤에 남는다. 소비 쪽 줄이 ack 지연만큼 앞설 수 있다. 허용 오차 안쪽 음수(로컬 fixture f04는 −20ms)는 정상이다.
-- 생산 쪽 줄이 결과 안에 있을 때만 계산한다. `--request-id`만 주거나 `--services`에서 data-api를 뺐으면 `unknown`이 나온다. `--event-id`를 주거나 서비스를 넓혀 다시 조회한다.
+- 생산 쪽 줄이 결과 안에 있을 때만 계산한다. `--request-id`만 주거나 `--services`에서 data-api를 뺐으면 `unknown`이 나온다. 생산자 `outbox.delivery`가 조회 구간(`--from`) 밖에 있어도 `unknown`이다. `--event-id`를 주거나 서비스·구간을 넓혀 다시 조회한다.
+- 시계 차이로 거를 때는 `clock_skew_suspect = false`가 아니라 `skew_status`로 건다. NULL은 3값 논리라 `clock_skew_suspect = false`는 `unknown` 행을 조용히 뺀다.
 - 채팅(`message_id`)에는 생산 기준 줄이 없어 계산하지 않는다.
 
 ## 4. 로컬 검증 방법
@@ -138,7 +139,7 @@ raw 줄(`parse_error=true`)에는 `timestamp`가 없다. 질의는 `observed_at`
 | 파티션 | `system.register_partition`으로 있는 객체 디렉터리만 등록. 위치는 DDL의 `storage.location.template`으로 만들고 값이 투영 enum 안인지 확인 | partition projection(enum·date 범위·템플릿) | 투영의 날짜 범위(`start_date,NOW`)와 `archive_date IN … AND (… OR …)` 조건의 가지치기는 실행하지 않았다 |
 | 저장소·카탈로그 | 로컬 파일시스템(`local://`), 파일 메타스토어 | S3, Glue Data Catalog | `"$path"` 값의 접두가 다르다(`local:///…` / `s3://…`) |
 | 엔진 | Trino 476 | Athena 엔진 v3(Trino 기반, AWS 버전) | 쓴 함수: `from_iso8601_timestamp`, `try`, `coalesce`, `row_number`·`count`·`min`·`sum` 윈도, `date_diff`, `format_datetime`, `AT TIME ZONE`, `IS NOT DISTINCT FROM`, 상관 `EXISTS`, `IN (subquery)`, `"$path"`. Athena에서 같은 결과인지는 실행하지 않았다 |
-| JSON SerDe | Trino의 OpenX JSON 구현. `create-table.sql`의 `SERDEPROPERTIES`는 Trino `extra_properties`로 옮겨 같은 옵션(`ignore.malformed.json`)을 읽게 했다 | OpenX JSON SerDe | 반영됨: 깨진 JSON 줄이 든 객체를 조회해도 실패하지 않고 그 줄은 전부 NULL인 행이 된다(옵션 없이는 질의가 실패함을 탐침으로 확인). 차이: Trino가 옵션을 읽는 경로가 Athena의 SerDe와 같은지는 모른다. 타입이 다른 값(예: `attempt`가 문자열)의 동작은 시험하지 않았다. 실제 Athena에서 조용히 NULL이 될 수 있어 첫 실조회 때 NULL 비율을 본다([전환 절차 §4](rollout.md#4-전환-판정-지표와-확인-쿼리)) |
+| JSON SerDe | Trino의 OpenX JSON 구현. `create-table.sql`의 `SERDEPROPERTIES`는 Trino `extra_properties`로 옮겨 같은 옵션(`ignore.malformed.json`)을 읽게 했다 | OpenX JSON SerDe | 반영됨: 깨진 JSON 줄이 든 객체를 조회해도 실패하지 않고 그 줄은 전부 NULL인 행이 된다(옵션 없이는 질의가 실패함을 탐침으로 확인). 차이: Trino가 옵션을 읽는 경로가 Athena의 SerDe와 같은지는 모른다. 타입이 다른 값(예: `attempt`가 문자열)의 동작은 시험하지 않았다. 깨지거나 잘린 gzip은 이 옵션과 무관하게 객체 단위로 실패할 수 있다. `extra_properties`가 Athena SerDe와 같은 키 이름을 읽는다는 가정은 탐침으로만 확인했다. 이 옵션으로 생긴 전부 NULL 행은 템플릿의 `event_time` 필터에서 조용히 빠지므로, 결과만 봐서는 «건너뛴 줄이 있었다»를 알 수 없다. 실제 Athena에서 조용히 NULL이 될 수 있어 첫 실조회 때 NULL 비율을 본다([전환 절차 §4](rollout.md#4-전환-판정-지표와-확인-쿼리)) |
 | Loki 적재 | API push. 줄 모양은 Fluent Bit Loki 출력을 흉내 냈다. Loki 시각 = 레코드 `timestamp`(raw는 `observed_at`) | Fluent Bit이 Docker 시각으로 적재 | 실제 수집 경로는 2555·2556 하네스가 검증한다 |
 
 ## 7. 실행하지 않은 것
