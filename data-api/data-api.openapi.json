@@ -456,6 +456,24 @@
             }
           },
           {
+            "name": "X-Session-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "X-Auth-Generation",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
             "name": "Idempotency-Key",
             "in": "header",
             "required": true,
@@ -1833,98 +1851,6 @@
         }
       }
     },
-    "/internal/users/{userId}/challenge-results/{sessionId}/claim": {
-      "post": {
-        "tags": [
-          "internal-challenge-result-controller"
-        ],
-        "operationId": "claimDisplay",
-        "parameters": [
-          {
-            "name": "userId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          },
-          {
-            "name": "sessionId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ChallengeResultClaimRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "*/*": {
-                "schema": {
-                  "$ref": "#/components/schemas/ChallengeResultClaimResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/internal/users/{userId}/challenge-results/{sessionId}/ack": {
-      "post": {
-        "tags": [
-          "internal-challenge-result-controller"
-        ],
-        "operationId": "acknowledge_1",
-        "parameters": [
-          {
-            "name": "userId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          },
-          {
-            "name": "sessionId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/InternalResultAckRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        }
-      }
-    },
     "/internal/users/{userId}/blocks": {
       "get": {
         "tags": [
@@ -2050,60 +1976,6 @@
                 }
               }
             }
-          }
-        }
-      }
-    },
-    "/internal/migrations/{migrationId}/invite-link-clicks/freeze": {
-      "post": {
-        "tags": [
-          "internal-migration-controller"
-        ],
-        "operationId": "freeze",
-        "parameters": [
-          {
-            "name": "migrationId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "*/*": {
-                "schema": {
-                  "type": "object",
-                  "additionalProperties": {}
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/internal/migrations/{migrationId}/invite-link-clicks/close-import": {
-      "post": {
-        "tags": [
-          "internal-migration-controller"
-        ],
-        "operationId": "closeImport",
-        "parameters": [
-          {
-            "name": "migrationId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
           }
         }
       }
@@ -2857,6 +2729,24 @@
             }
           },
           {
+            "name": "X-Session-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "X-Auth-Generation",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
             "name": "Idempotency-Key",
             "in": "header",
             "required": true,
@@ -2883,257 +2773,6 @@
               "*/*": {
                 "schema": {
                   "$ref": "#/components/schemas/ConstructionStartedView"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/internal/invite-links/claim-intents": {
-      "get": {
-        "tags": [
-          "internal-invite-link-controller"
-        ],
-        "operationId": "listClaimIntents",
-        "parameters": [
-          {
-            "name": "cursor",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "format": "int32"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "*/*": {
-                "schema": {
-                  "$ref": "#/components/schemas/ClaimIntentPageResponse"
-                }
-              }
-            }
-          }
-        }
-      },
-      "post": {
-        "tags": [
-          "internal-invite-link-controller"
-        ],
-        "operationId": "enqueueClaimIntent",
-        "parameters": [
-          {
-            "name": "X-User-Id",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          },
-          {
-            "name": "Idempotency-Key",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ClaimIntentRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "*/*": {
-                "schema": {
-                  "$ref": "#/components/schemas/ClaimIntentAckResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/internal/invite-links/claim-intents/{commandId}/lease": {
-      "post": {
-        "tags": [
-          "internal-invite-link-controller"
-        ],
-        "operationId": "leaseClaimIntent",
-        "parameters": [
-          {
-            "name": "commandId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ClaimIntentLeaseRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "*/*": {
-                "schema": {
-                  "$ref": "#/components/schemas/ClaimIntentLeaseResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/internal/invite-links/claim-intents/{commandId}/completed": {
-      "post": {
-        "tags": [
-          "internal-invite-link-controller"
-        ],
-        "operationId": "completeClaimIntent",
-        "parameters": [
-          {
-            "name": "commandId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ClaimIntentCompletionRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        }
-      }
-    },
-    "/internal/invite-links/claim-intents/{commandId}/abandoned": {
-      "post": {
-        "tags": [
-          "internal-invite-link-controller"
-        ],
-        "operationId": "abandonClaimIntent",
-        "parameters": [
-          {
-            "name": "commandId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          },
-          {
-            "name": "X-User-Id",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ClaimIntentAbandonRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        }
-      }
-    },
-    "/internal/invite-links/claim-confirmations": {
-      "post": {
-        "tags": [
-          "internal-invite-link-controller"
-        ],
-        "operationId": "confirmClaim",
-        "parameters": [
-          {
-            "name": "X-User-Id",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          },
-          {
-            "name": "Idempotency-Key",
-            "in": "header",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ClaimConfirmationRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "*/*": {
-                "schema": {
-                  "$ref": "#/components/schemas/DurableCommandAckResponse"
                 }
               }
             }
@@ -3432,6 +3071,37 @@
         "responses": {
           "204": {
             "description": "No Content"
+          }
+        }
+      }
+    },
+    "/internal/admin/island-focus-averages/snapshots": {
+      "post": {
+        "tags": [
+          "internal-island-focus-average-controller"
+        ],
+        "operationId": "snapshot",
+        "parameters": [
+          {
+            "name": "date",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/IslandFocusAverageSnapshotView"
+                }
+              }
+            }
           }
         }
       }
@@ -4371,12 +4041,12 @@
         }
       }
     },
-    "/internal/users/{userId}/result-ack": {
+    "/internal/users/{userId}/member-appearances": {
       "get": {
         "tags": [
-          "internal-notification-controller"
+          "internal-appearance-controller"
         ],
-        "operationId": "readResultAck",
+        "operationId": "memberAppearances",
         "parameters": [
           {
             "name": "userId",
@@ -4388,21 +4058,15 @@
             }
           },
           {
-            "name": "sessionId",
+            "name": "userIds",
             "in": "query",
             "required": true,
             "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          },
-          {
-            "name": "ackDeadlineAt",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "date-time"
+              "type": "array",
+              "items": {
+                "type": "string",
+                "format": "uuid"
+              }
             }
           }
         ],
@@ -4412,7 +4076,7 @@
             "content": {
               "*/*": {
                 "schema": {
-                  "$ref": "#/components/schemas/ResultAckStateResponse"
+                  "$ref": "#/components/schemas/Result"
                 }
               }
             }
@@ -5455,179 +5119,6 @@
         }
       }
     },
-    "/internal/migrations/{migrationId}/invite-links": {
-      "get": {
-        "tags": [
-          "internal-migration-link-controller"
-        ],
-        "operationId": "exportLinks",
-        "parameters": [
-          {
-            "name": "migrationId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "cursor",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "format": "int32"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "*/*": {
-                "schema": {
-                  "$ref": "#/components/schemas/FrozenPageResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/internal/migrations/{migrationId}/invite-link-clicks/manifest": {
-      "get": {
-        "tags": [
-          "internal-migration-controller"
-        ],
-        "operationId": "manifest",
-        "parameters": [
-          {
-            "name": "migrationId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "*/*": {
-                "schema": {
-                  "$ref": "#/components/schemas/MigrationManifestResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/internal/migrations/{migrationId}/invite-link-clicks/clicks": {
-      "get": {
-        "tags": [
-          "internal-migration-controller"
-        ],
-        "operationId": "exportClicks",
-        "parameters": [
-          {
-            "name": "migrationId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "cursor",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "format": "int32"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "*/*": {
-                "schema": {
-                  "$ref": "#/components/schemas/FrozenPageResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/internal/migrations/{migrationId}/invite-link-clicks/candidates": {
-      "get": {
-        "tags": [
-          "internal-migration-controller"
-        ],
-        "operationId": "exportCandidates",
-        "parameters": [
-          {
-            "name": "migrationId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "ipHash",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "os",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "*/*": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/FrozenClickCandidateResponse"
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/internal/islands/{islandId}/statistics/screen-time": {
       "get": {
         "tags": [
@@ -6586,6 +6077,24 @@
               "type": "string",
               "format": "uuid"
             }
+          },
+          {
+            "name": "X-Session-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "X-Auth-Generation",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
           }
         ],
         "responses": {
@@ -6595,46 +6104,6 @@
               "*/*": {
                 "schema": {
                   "$ref": "#/components/schemas/ConstructionOptionsView"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/internal/groups/{groupId}/invite-issue-context": {
-      "get": {
-        "tags": [
-          "internal-invite-link-controller"
-        ],
-        "operationId": "issueContext",
-        "parameters": [
-          {
-            "name": "groupId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          },
-          {
-            "name": "X-User-Id",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "*/*": {
-                "schema": {
-                  "$ref": "#/components/schemas/InviteIssueContextResponse"
                 }
               }
             }
@@ -8273,6 +7742,19 @@
           }
         }
       },
+      "FocusSeat": {
+        "type": "object",
+        "properties": {
+          "x": {
+            "type": "number",
+            "format": "double"
+          },
+          "y": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
       "FocusSessionStartCommandRequest": {
         "type": "object",
         "properties": {
@@ -8286,6 +7768,9 @@
           "targetMinutes": {
             "type": "integer",
             "format": "int32"
+          },
+          "seat": {
+            "$ref": "#/components/schemas/FocusSeat"
           }
         }
       },
@@ -8516,40 +8001,6 @@
             "format": "uuid"
           }
         }
-      },
-      "ChallengeResultClaimRequest": {
-        "type": "object",
-        "properties": {
-          "claimToken": {
-            "type": "string",
-            "format": "uuid"
-          }
-        }
-      },
-      "ChallengeResultClaimResponse": {
-        "type": "object",
-        "properties": {
-          "claimToken": {
-            "type": "string",
-            "format": "uuid"
-          }
-        }
-      },
-      "InternalResultAckRequest": {
-        "type": "object",
-        "properties": {
-          "claimToken": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "ackDeadlineAt": {
-            "type": "string",
-            "format": "date-time"
-          }
-        },
-        "required": [
-          "ackDeadlineAt"
-        ]
       },
       "UserBlockCreateRequest": {
         "type": "object",
@@ -8957,114 +8408,6 @@
           }
         }
       },
-      "ClaimIntentRequest": {
-        "type": "object",
-        "properties": {
-          "slug": {
-            "type": "string",
-            "maxLength": 12,
-            "minLength": 0
-          }
-        },
-        "required": [
-          "slug"
-        ]
-      },
-      "ClaimIntentAckResponse": {
-        "type": "object",
-        "properties": {
-          "commandId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "eventId": {
-            "type": "string"
-          },
-          "version": {
-            "type": "integer",
-            "format": "int64"
-          },
-          "completed": {
-            "type": "boolean"
-          },
-          "terminalCode": {
-            "type": "string"
-          }
-        }
-      },
-      "ClaimIntentLeaseRequest": {
-        "type": "object",
-        "properties": {
-          "leaseSeconds": {
-            "type": "integer",
-            "format": "int32",
-            "maximum": 3600,
-            "minimum": 1
-          }
-        }
-      },
-      "ClaimIntentLeaseResponse": {
-        "type": "object",
-        "properties": {
-          "leased": {
-            "type": "boolean"
-          },
-          "leaseToken": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "leaseExpiresAt": {
-            "type": "string",
-            "format": "date-time"
-          }
-        }
-      },
-      "ClaimIntentCompletionRequest": {
-        "type": "object",
-        "properties": {
-          "leaseToken": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "terminalCode": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "leaseToken"
-        ]
-      },
-      "ClaimIntentAbandonRequest": {
-        "type": "object",
-        "properties": {
-          "terminalCode": {
-            "type": "string"
-          }
-        }
-      },
-      "ClaimConfirmationRequest": {
-        "type": "object",
-        "properties": {
-          "claimId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "slug": {
-            "type": "string",
-            "maxLength": 12,
-            "minLength": 0
-          },
-          "capability": {
-            "type": "string",
-            "minLength": 1
-          }
-        },
-        "required": [
-          "capability",
-          "claimId",
-          "slug"
-        ]
-      },
       "SessionVerifyRequest": {
         "type": "object",
         "properties": {
@@ -9335,6 +8678,19 @@
           "approvedAt": {
             "type": "string",
             "format": "date-time"
+          }
+        }
+      },
+      "IslandFocusAverageSnapshotView": {
+        "type": "object",
+        "properties": {
+          "snapshotDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "inserted": {
+            "type": "integer",
+            "format": "int32"
           }
         }
       },
@@ -9952,15 +9308,18 @@
           }
         }
       },
-      "ResultAckStateResponse": {
+      "Member": {
         "type": "object",
         "properties": {
-          "acknowledged": {
-            "type": "boolean"
-          },
-          "acknowledgedAt": {
+          "userId": {
             "type": "string",
-            "format": "date-time"
+            "format": "uuid"
+          },
+          "catColor": {
+            "type": "string"
+          },
+          "appearance": {
+            "$ref": "#/components/schemas/PersonalAppearanceView"
           }
         }
       },
@@ -10570,13 +9929,6 @@
           "nickname": {
             "type": "string"
           },
-          "tierLevel": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "occupation": {
-            "type": "string"
-          },
           "focusTimeMinutes": {
             "type": "integer",
             "format": "int32"
@@ -10592,12 +9944,6 @@
             "type": "string"
           },
           "focusing": {
-            "type": "boolean"
-          },
-          "pinned": {
-            "type": "boolean"
-          },
-          "isPinned": {
             "type": "boolean"
           },
           "isFocusing": {
@@ -10627,13 +9973,6 @@
           "nickname": {
             "type": "string"
           },
-          "tierLevel": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "occupation": {
-            "type": "string"
-          },
           "relation": {
             "type": "string",
             "enum": [
@@ -10657,10 +9996,6 @@
           },
           "nickname": {
             "type": "string"
-          },
-          "tierLevel": {
-            "type": "integer",
-            "format": "int32"
           },
           "createdAt": {
             "type": "string",
@@ -10760,9 +10095,6 @@
           "locale": {
             "type": "string"
           },
-          "hasDeviceToken": {
-            "type": "boolean"
-          },
           "settingsPresent": {
             "type": "boolean"
           },
@@ -10802,57 +10134,6 @@
           },
           "nextCursor": {
             "type": "string"
-          }
-        }
-      },
-      "FrozenClickCandidateResponse": {
-        "type": "object",
-        "properties": {
-          "source": {
-            "type": "object",
-            "additionalProperties": {}
-          },
-          "sourceChecksum": {
-            "type": "string"
-          }
-        }
-      },
-      "FrozenPageResponse": {
-        "type": "object",
-        "properties": {
-          "items": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/FrozenClickCandidateResponse"
-            }
-          },
-          "nextCursor": {
-            "type": "string"
-          }
-        }
-      },
-      "MigrationManifestResponse": {
-        "type": "object",
-        "properties": {
-          "migrationId": {
-            "type": "string"
-          },
-          "expectedClicks": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "sourceChecksum": {
-            "type": "string"
-          },
-          "expectedLinks": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "linkChecksum": {
-            "type": "string"
-          },
-          "importClosed": {
-            "type": "boolean"
           }
         }
       },
@@ -11125,22 +10406,6 @@
             "items": {
               "$ref": "#/components/schemas/Member"
             }
-          }
-        }
-      },
-      "Member": {
-        "type": "object",
-        "properties": {
-          "userId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "name": {
-            "type": "string"
-          },
-          "earnedFish": {
-            "type": "integer",
-            "format": "int64"
           }
         }
       },
@@ -11791,92 +11056,6 @@
           "remaining": {
             "type": "integer",
             "format": "int32"
-          }
-        }
-      },
-      "ClaimIntentItemResponse": {
-        "type": "object",
-        "properties": {
-          "commandId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "userId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "slug": {
-            "type": "string"
-          },
-          "idempotencyKey": {
-            "type": "string"
-          },
-          "attempts": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "leaseExpiresAt": {
-            "type": "string",
-            "format": "date-time"
-          }
-        }
-      },
-      "ClaimIntentPageResponse": {
-        "type": "object",
-        "properties": {
-          "items": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ClaimIntentItemResponse"
-            }
-          },
-          "nextCursor": {
-            "type": "string"
-          },
-          "pendingTotal": {
-            "type": "integer",
-            "format": "int64"
-          }
-        }
-      },
-      "InviteIssueContextResponse": {
-        "type": "object",
-        "properties": {
-          "groupActive": {
-            "type": "boolean"
-          },
-          "inviterActiveMember": {
-            "type": "boolean"
-          },
-          "membershipEpoch": {
-            "type": "integer",
-            "format": "int64"
-          },
-          "linkVersion": {
-            "type": "integer",
-            "format": "int64"
-          },
-          "transitionSeq": {
-            "type": "integer",
-            "format": "int64"
-          },
-          "snapshotVersion": {
-            "type": "integer",
-            "format": "int64"
-          },
-          "groupName": {
-            "type": "string"
-          },
-          "inviterDisplayName": {
-            "type": "string"
-          },
-          "groupId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "inviterId": {
-            "type": "string",
-            "format": "uuid"
           }
         }
       },
