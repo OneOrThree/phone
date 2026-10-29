@@ -111,7 +111,7 @@ export DD_SITE=us5.datadoghq.com   # 공식 사이트 목록(datadoghq.com·us3/
 python3 manage.py backup --out /안전한/경로/dd-pipelines-backup-$(date +%Y%m%dT%H%M%S).json
 # 2) 계획 (읽기, 네트워크 없음)
 python3 manage.py plan --backup-file <백업>
-# 3) 리뷰: 동작이 create 2건인지, 겹침이 '없음'인지, 정의 diff·이 문서 §4 표를 확인
+# 3) 리뷰: 동작이 create 2건인지, 겹침이 '없음'인지, 정의 diff·이 문서 §4 표를 확인. 첫 --execute 전 plan 이 update 로 낸 항목은 실제 응답과 로컬 정의의 차이 키를 확인해, 목록 밖 기본값이면 SERVER_DEFAULTS 에 더한다
 # 4) 적용 (쓰기 — 이중 확인). GROMO_DD_PIPELINE_APPLY=yes 는 export 하지 말고 이 명령 앞에 한 번만 붙인다
 GROMO_DD_PIPELINE_APPLY=yes python3 manage.py apply --execute --record-out /안전한/경로/dd-apply-record.json
 ```
@@ -148,7 +148,7 @@ GROMO_DD_PIPELINE_APPLY=yes python3 manage.py rollback --record … --execute --
 
 | 항목 | 결과 |
 | --- | --- |
-| 로컬 근사 검증 `python3 -m unittest discover -s server/observability/datadog/pipelines -p 'test_*.py'` | **통과** 45 tests(중단 기록 rollback·aborted 경계·서버 기본값 비교 포함, 동명 중복 중단·겹침 경고 쓰기 5xx 결과 불명·부분 적용 기록·응답 없음 `unknown`·POST 응답 유실 pending 회수(이름 1개/2개/정의 불일치/0개)·갱신 PUT 응답 유실 뒤 `previous` 복원·롤백 재실행/404/이름 불일치·`DD_SITE` 거절 포함). fixture 28줄(실로그 7, 합성 21) 전부 기대 status 와 일치 |
+| 로컬 근사 검증 `python3 -m unittest discover -s server/observability/datadog/pipelines -p 'test_*.py'` | **통과** 46 tests(중단 기록 rollback·aborted 경계·서버 기본값 비교 포함, 동명 중복 중단·겹침 경고 쓰기 5xx 결과 불명·부분 적용 기록·응답 없음 `unknown`·POST 응답 유실 pending 회수(이름 1개/2개/정의 불일치/0개)·갱신 PUT 응답 유실 뒤 `previous` 복원·롤백 재실행/404/이름 불일치·`DD_SITE` 거절 포함). fixture 28줄(실로그 7, 합성 21) 전부 기대 status 와 일치 |
 | 근사 변환기 자체 점검 | 문서의 glog 예(`W0424 … authorization.go:47] …`)를 같은 결과로 해석한다. 모르는 matcher·filter 는 실패한다 |
 | 고장 주입 | 원문 레벨 직결, `default_lookup: info`, `FATAL` 원문 매핑, 모르는 matcher 각각에서 테스트 실패를 확인했다 |
 | `manage.py` | 증거의 `pipelines-result.json`·`pipeline-order-result.json` 으로 `plan`·`apply` dry-run·`rollback` dry-run 을 오프라인 실행했다. create 2건, 겹침 없음, 롤백 DELETE 2건, 순서 PUT 없음 |

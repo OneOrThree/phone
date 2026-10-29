@@ -761,6 +761,10 @@ class CreateLostResponseTest(unittest.TestCase):
         self.assertEqual(json.loads(self.record.read_text())["created"], [])
 
 
+class _RollbackEntered(Exception):
+    """롤백 경로(_state)에 들어왔음을 알리는 테스트 전용 예외."""
+
+
 class AbortedRecordRollbackTest(unittest.TestCase):
     """쓰기 전 중단된 기록(동명 중복 등)으로 rollback 해도 KeyError 없이 «되돌릴 것 없음»으로 끝난다."""
 
@@ -780,15 +784,27 @@ class AbortedRecordRollbackTest(unittest.TestCase):
         called = []
         def fake_state(args, execute=False):
             called.append(1)
-            raise SystemExit("롤백 경로 진입")
+            raise _RollbackEntered()
         with mock.patch.object(manage, "_state", fake_state), contextlib.redirect_stdout(io.StringIO()):
-            with self.assertRaises(SystemExit):
+            with self.assertRaises(_RollbackEntered):
                 manage.main(["rollback", "--record", str(rec)])
         return called
 
     def test_aborted_key_with_created_or_updated_still_rolls_back(self):
         self.assertTrue(self._rollback_with_record({"aborted": "x", "created": [{"name": "A", "id": "1"}], "updated": []}))
         self.assertTrue(self._rollback_with_record({"aborted": "x", "created": [], "updated": [{"id": "1", "name": "A", "previous": {}}]}))
+
+    def test_aborted_record_with_created_runs_rollback_to_the_end_and_deletes(self):
+        tmp = Path(tempfile.mkdtemp())
+        rec = tmp / "rec.json"
+        rec.write_text(json.dumps({"dry_run": False, "aborted": "x", "partial": False, "order_before": ["K"],
+                                   "updated": [], "created": [{"name": "A", "id": "N1"}]}))
+        api = RollbackExecuteApi({"K": "k", "N1": "A"})
+        with mock.patch.dict(os.environ, {manage.CONFIRM_ENV: "yes"}), mock.patch.object(manage, "Api", lambda: api), \
+                contextlib.redirect_stdout(io.StringIO()):
+            manage.main(["rollback", "--record", str(rec), "--execute"])
+        self.assertIn(("DELETE", f"{manage.PIPELINES}/N1"), api.calls)
+        self.assertEqual(api.pipelines, {"K": "k"})
 
     def test_partial_record_without_aborted_still_rolls_back(self):
         self.assertTrue(self._rollback_with_record({"partial": True, "created": [{"name": "A", "id": "1"}], "updated": []}))
