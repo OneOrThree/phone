@@ -2059,12 +2059,21 @@ export function RedesignScreens({ e }: any) {
     );
   }
   if (route === 'guide') {
-    const lines = [
-      t('onboarding.guide.line1'),
-      t('onboarding.guide.line2'),
-      t('onboarding.guide.line3'),
-      t('onboarding.guide.line4'),
-    ];
+    // 도착 섬에 다른 주민이 없으면(나뿐) 되살리기 서사, 있으면 환영 서사로 몽돌 인사를 가른다.
+    // members 는 서버 모드에서 항상 빈 배열이라(주민 수는 serverMemberCount) residentCount 로 전체 주민을 센다
+    const guideEmpty = residentCount(island) <= 1;
+    const lines = guideEmpty
+      ? [
+          t('onboarding.guide.empty.line1'),
+          t('onboarding.guide.empty.line2'),
+          t('onboarding.guide.empty.line3'),
+          t('onboarding.guide.empty.line4'),
+        ]
+      : [
+          t('onboarding.guide.joined.line1'),
+          t('onboarding.guide.joined.line2'),
+          t('onboarding.guide.joined.line3'),
+        ];
     const step = Math.min(guideStep, lines.length - 1),
       last = step === lines.length - 1,
       w = layout.compact ? Math.min(layout.floatingWidth, 414) : layout.floatingWidth;
