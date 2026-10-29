@@ -52,3 +52,6 @@ google-services-*.json
 
 # 같은 CI 실행에서 검증한 이미지 조립용 JAR
 server/*/ci-artifact/
+
+# 이미지 CDN 로컬 빌드 산출물
+/dist/assets-cdn/
