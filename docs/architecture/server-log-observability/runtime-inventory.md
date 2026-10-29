@@ -142,7 +142,7 @@ sum:datadog.estimated_usage.logs.ingested_events{*} by {service,env}.as_count()
 
 ## 4. prod 저장소 설정(설정상 값)
 
-**먼저 알아둘 점.** `server/scripts/docker-compose.prod.yml`은 단일 앱(`gromo-app`, `DD_SERVICE=gromo-back-prod`) 구성이다. 문서 `docs/prd/fishcat/server-separation/deployment.md:78`은 Catus 2.0 운영 실행 구성·nginx·SSM 배포 문서가 별도 Infra 저장소(`prod/catus/runtime`)에서 관리된다고 한다. 따라서 아래 값이 현재 Catus 운영 컨테이너 설정과 같은지는 **확인되지 않았다**(§3의 Datadog 서비스명 `catus-*-prod`가 이를 뒷받침한다). prod에 1.x compose의 `gromo-nginx-prod`와 env 없는 `nginx`가 함께 관측되는 점(§3.1)도 같은 방향의 단서다. 아래 표는 «출처» 열로 근거를 나눈다. **1.x compose** 행은 Gromo 1.x 구성의 설정상 값이라 Catus 적용 여부가 미확인이다. **Catus 워크플로**·**Catus Dockerfile** 행은 Catus 2.0 쪽 저장소 사실이고, **호스트 업로더 기록** 행은 `server/scripts/README.md`의 기록이다. 어느 행도 실제 기동 상태의 실측은 아니다.
+**먼저 알아둘 점.** `server/scripts/docker-compose.prod.yml`은 단일 앱(`gromo-app`, `DD_SERVICE=gromo-back-prod`) 구성이다. 문서 `docs/prd/fishcat/server-separation/deployment.md:78`은 Catus 2.0 운영 실행 구성·nginx·SSM 배포 문서가 별도 Infra 저장소(`prod/catus/runtime`)에서 관리된다고 한다. 따라서 아래 값이 현재 Catus 운영 컨테이너 설정과 같은지는 **확인되지 않았다**(§3의 Datadog 서비스명 `catus-*-prod`가 이를 뒷받침하고, `deployment.md:93`도 prod 컨테이너를 9개로 적어 단일 앱 1.x compose와 구성이 다르다). prod에 1.x compose의 `gromo-nginx-prod`와 env 없는 `nginx`가 함께 관측되는 점(§3.1)도 같은 방향의 단서다. 아래 표는 «출처» 열로 근거를 나눈다. **1.x compose** 행은 Gromo 1.x 구성의 설정상 값이라 Catus 적용 여부가 미확인이다. **Catus 워크플로**·**Catus Dockerfile** 행은 Catus 2.0 쪽 저장소 사실이고, **호스트 업로더 기록** 행은 `server/scripts/README.md`의 기록이다. 어느 행도 실제 기동 상태의 실측은 아니다.
 
 | 항목 | 출처 | 설정상 값 | 근거 |
 | --- | --- | --- | --- |
@@ -160,7 +160,7 @@ sum:datadog.estimated_usage.logs.ingested_events{*} by {service,env}.as_count()
 | S3 업로더 | 호스트 업로더 기록 | 호스트 systemd 타이머, 매시간, 티켓 590. `user-activity/` 접두는 Fluent Bit 전환 예정(790, 미완) | `server/scripts/README.md:250-254` |
 | 업로더 중복 | 호스트 업로더 기록 | 2288(새 prod·호스트 업로더)과 위 590 타이머의 공존 여부 미확인 | `implementation-status.md` 2288 기재 |
 | lifecycle 규칙(기록) | 호스트 업로더 기록 | `system_log/`·`user_log/`·`user-activity/` 각 90일, 불완전 multipart 1일 | `server/scripts/s3-log-archive-lifecycle.json:1-24` |
-| 컷오버 | Catus 워크플로(`deployment.md`) | 2026-10-14 Catus 전환 완료, 로그 아카이브 확인 문구가 있으나 세부는 Infra 문서에 있음 | `deployment.md:93` |
+| 컷오버 | Catus 문서(`deployment.md`) | 2026-10-14 Catus 전환 완료, 로그 아카이브 확인 문구가 있으나 세부는 Infra 문서에 있음 | `deployment.md:93` |
 
 저장소에 적힌 «적용 완료 2026-09-19»와 «Terraform 원본과 어긋남(GROMO-1948)»(`server/scripts/README.md:258-260`)은 **과거 기록**이다. 구현 계획 P0 5번대로 실측을 대신하지 않는다. 버킷 이름은 12자리 계정 ID를 포함하므로 이 문서에서는 `gromo-prod-logs-<ACCOUNT_ID>`로 쓴다(실제 이름은 운영 문서에 있다).
 
@@ -304,36 +304,47 @@ aws --profile gromo iam get-policy-version --policy-arn "$P" --version-id "$V"
 aws --profile gromo iam get-role-policy --role-name "$R" --policy-name <POLICY_NAME>
 
 # 판정: 정책 본문을 눈으로 읽지 않고 결합 평가(권한 경계 포함)를 시뮬레이션한다.
+# 먼저 이 역할 정책이 참조하는 조건 키를 읽어 --context-entries 에 채울 값을 정한다(읽기 전용).
+aws --profile gromo iam get-context-keys-for-principal-policy --policy-source-arn "$(aws --profile gromo iam get-role --role-name "$R" --query Role.Arn --output text)"
 # --action-names 와 --resource-arns 는 모든 조합으로 평가되므로, 리소스 유형(객체/버킷)이 맞는 묶음끼리 따로 호출한다.
 ARN=$(aws --profile gromo iam get-role --role-name "$R" --query Role.Arn --output text)
 RP=$(aws --profile gromo s3api get-bucket-policy --bucket "$B" --query Policy --output text)   # 정책이 없으면 --resource-policy 와 함께 뺀다
 OBJ="arn:aws:s3:::$B/system_log/v2"
-# (1) 객체 ARN 호출: 허용 env 접두 안 / 다른 env= / user_log/ 세 곳 모두에 Put 과 Delete* 를 넣는다
+# (1) 객체 ARN 호출: 허용 env 접두 안 / 다른 env= / 이웃 접두 여섯 곳 모두에 Put 과 Delete* 를 넣는다
+#   env=<허용 env 를 접두로 포함하는 값>: 허용 env 가 prod 면 env=prod2 (정책이 env=prod* 로 쓰인 경우만 잡힌다)
+#   system_log/app-1 (590 업로더 경로), system_log/v2 (env 없이), user-activity/dt=2026-01-01
+# --resource-policy 가 여러 객체 ARN 에서 오류를 내면 ARN 마다 나눠 호출한다.
 aws --profile gromo iam simulate-principal-policy --policy-source-arn "$ARN" \
   --action-names s3:PutObject s3:DeleteObject s3:DeleteObjectVersion \
-  --resource-arns "$OBJ/env=<허용 env>/x" "$OBJ/env=<다른 env>/x" "arn:aws:s3:::$B/user_log/x" \
+  --resource-arns "$OBJ/env=<허용 env>/x" "$OBJ/env=<다른 env>/x" "$OBJ/env=<허용 env를 접두로 포함하는 값>/x" \
+    "$OBJ/x" "arn:aws:s3:::$B/system_log/app-1/x" "arn:aws:s3:::$B/user-activity/dt=2026-01-01/x" "arn:aws:s3:::$B/user_log/x" \
   --resource-policy "$RP" \
   --context-entries "ContextKeyName=aws:SecureTransport,ContextKeyValues=true,ContextKeyType=boolean" \
     "ContextKeyName=aws:RequestedRegion,ContextKeyValues=<버킷 리전>,ContextKeyType=string" \
     "ContextKeyName=s3:x-amz-server-side-encryption,ContextKeyValues=<정책이 요구하는 값>,ContextKeyType=string"
 # (2) 버킷 ARN 호출: 버킷 수준 액션은 버킷 ARN 으로만
 aws --profile gromo iam simulate-principal-policy --policy-source-arn "$ARN" \
-  --action-names s3:PutLifecycleConfiguration \
+  --action-names s3:PutLifecycleConfiguration s3:PutBucketPolicy s3:PutBucketVersioning s3:PutEncryptionConfiguration s3:DeleteBucket \
   --resource-arns "arn:aws:s3:::$B" --resource-policy "$RP"
 # (3) SSE-KMS 버킷이면 키 ARN 과 다른 키 ARN 에 각각 넣는다
 aws --profile gromo iam simulate-principal-policy --policy-source-arn "$ARN" \
-  --action-names kms:GenerateDataKey kms:Decrypt --resource-arns "<버킷 키 ARN>" "<다른 키 ARN>"
+  --action-names kms:GenerateDataKey kms:Decrypt --resource-arns "<버킷 키 ARN>" "<다른 키 ARN>" \
+  --context-entries "ContextKeyName=kms:ViaService,ContextKeyValues=s3.<버킷 리전>.amazonaws.com,ContextKeyType=string"
+# (4) 키 정책·grant 는 시뮬레이터 밖이므로 대상 키마다 직접 읽는다(읽기 전용)
+aws --profile gromo kms get-key-policy --key-id "<키 ARN>" --policy-name default
+aws --profile gromo kms list-grants --key-id "<키 ARN>"
 ```
 
-**결과 기록.** `EvaluationResults[]` 의 (액션, 리소스) 쌍마다 `EvalDecision`(`allowed`/`implicitDeny`/`explicitDeny`)을 한 줄씩 적는다. 출력의 `MissingContextValues` 도 같이 적는다. 정책에 `aws:SecureTransport`·`s3:x-amz-server-side-encryption`·`aws:RequestedRegion` 같은 Condition 이 있으면 `--context-entries` 로 채우지 않은 값은 «불일치»로 평가되어 허용이 `implicitDeny` 로, 조건부 Deny 가 적용되지 않은 채로 나올 수 있다. `MissingContextValues` 가 남아 있으면 값을 채워 다시 실행한다.
+**결과 기록.** `EvaluationResults[]` 의 (액션, 리소스) 쌍마다 `EvalDecision`(`allowed`/`implicitDeny`/`explicitDeny`)을 한 줄씩 적는다. 출력의 `MissingContextValues` 도 같이 적는다. 정책에 `aws:SecureTransport`·`s3:x-amz-server-side-encryption`·`aws:RequestedRegion` 같은 Condition 이 있으면 `--context-entries` 로 채우지 않은 값은 «불일치»로 평가되어 허용이 `implicitDeny` 로, 조건부 Deny 가 적용되지 않은 채로 나올 수 있다. `MissingContextValues` 가 남아 있으면 값을 채워 다시 실행한다. 어떤 키를 채울지는 위 `get-context-keys-for-principal-policy` 결과로 정한다.
 
-버킷 정책이 없으면(`NoSuchBucketPolicy`) `--resource-policy`는 뺀다. 합격 방향은 항목마다 반대다. 쓰기 범위는 `allowed` 가 합격이고, 삭제·수명주기·타 환경 항목은 `allowed` 가 나오면 불합격이다.
+버킷 정책이 없으면(`NoSuchBucketPolicy`) `--resource-policy`는 뺀다. 합격 방향은 항목마다 반대다. 쓰기 범위는 `allowed` 가 합격이고, 삭제·버킷 변경·타 환경 항목은 `allowed` 가 나오면 불합격이다.
 
 | 판정 항목 | 합격 기준 |
 | --- | --- |
 | 쓰기 범위 | `s3:PutObject`가 `arn:aws:s3:::<bucket>/system_log/v2/env=<env>/*`에서 `allowed`(합격), 다른 접두에서는 아래 행 |
-| 삭제·수명주기 권한 부재 | `s3:DeleteObject`, `s3:DeleteObjectVersion`은 객체 ARN 세 곳(허용 env 안·다른 `env=`·`user_log/`) 모두, `s3:PutLifecycleConfiguration`은 버킷 ARN 에서 `implicitDeny` 또는 `explicitDeny`. 한 곳이라도 `allowed` 면 불합격 |
-| 타 환경 쓰기 차단 | 다른 `env=` 접두 및 `system_log/v2/` 밖에 대한 `s3:PutObject`가 `implicitDeny` 또는 `explicitDeny`. `allowed` 면 불합격 |
+| 삭제·수명주기·버킷 변경 권한 부재 | `s3:DeleteObject`, `s3:DeleteObjectVersion`은 (1)의 객체 ARN 전부(허용 env 안 포함), `s3:PutLifecycleConfiguration`·`s3:PutBucketPolicy`·`s3:PutBucketVersioning`·`s3:PutEncryptionConfiguration`·`s3:DeleteBucket`은 버킷 ARN 에서 `implicitDeny` 또는 `explicitDeny`. 한 곳이라도 `allowed` 면 불합격 |
+| 타 환경 쓰기 차단 | 다른 `env=` 접두(허용 env 를 접두로 포함하는 값 포함)와 `system_log/v2/` 밖(`system_log/app-1/`·env 없는 `system_log/v2/`·`user-activity/`·`user_log/`)에 대한 `s3:PutObject`가 `implicitDeny` 또는 `explicitDeny`. `allowed` 면 불합격 |
+| 판정 불가 | `implicitDeny` 라도 `MissingContextValues` 가 비어 있지 않으면 합격으로 기록하지 않는다. 값을 채워 다시 실행한다 |
 
 **허용 예외(삭제 권한 부재 판정과 혼동하지 않는다).** Fluent Bit S3 플러그인은 multipart 업로드를 쓰므로 `s3:PutObject`만으로는 실패할 수 있다. 아래는 허용되어도 합격이다.
 
@@ -341,7 +352,7 @@ aws --profile gromo iam simulate-principal-policy --policy-source-arn "$ARN" \
 - `s3:ListBucketMultipartUploads`: 필요한 경우에 한해 버킷 단위로만.
 - 버킷이 SSE-KMS(`get-bucket-encryption` 결과)이면 multipart 업로드에는 `kms:GenerateDataKey` 와 `kms:Decrypt` 가 둘 다 필요한 것으로 알려져 있다(AWS 문서 확인 필요). 두 액션은 해당 키 ARN 에 한해서만 허용돼야 하며, 위 (3) 호출에서 버킷 키는 `allowed`, 다른 키는 `implicitDeny` 또는 `explicitDeny` 인지 확인한다.
 
-**시뮬레이션의 한계.** 시뮬레이터는 `NotAction`/`NotResource` 를 정상 반영한다. 실제 한계는 SCP(조직 정책)가 평가에 포함되지 않는 점, 세션 정책, 그리고 실제 호출 시점의 컨텍스트와 입력한 컨텍스트의 차이다. 삭제·타 환경 항목에서 `allowed` 가 나오면 불합격이고 부여 경로를 추가 조사한다. 반대로 `implicitDeny` 가 나와도 SCP·세션 정책·컨텍스트 차이는 남으므로 실제 호출 시험은 별도다. dev 호스트의 사용자·그룹 경로 자격(`list-attached-user-policies` 등)은 dev -> S3 자격 방식 결정 뒤로 미룬다.
+**시뮬레이션의 한계.** KMS 는 키 정책이 같은 계정의 역할을 직접 허용할 수 있어 역할 쪽 `implicitDeny` 만으로 «다른 키 차단»을 확정할 수 없고, 시뮬레이터는 키 정책을 평가하지 않는 것으로 알려져 있다(확인 필요). 그래서 (4)로 대상 키의 키 정책과 grant 를 직접 읽는다. 시뮬레이터는 `NotAction`/`NotResource` 를 정상 반영한다. 실제 한계는 SCP(조직 정책)가 평가에 포함되지 않는 점, 세션 정책, 그리고 실제 호출 시점의 컨텍스트와 입력한 컨텍스트의 차이다. 삭제·타 환경 항목에서 `allowed` 가 나오면 불합격이고 부여 경로를 추가 조사한다. 반대로 `implicitDeny` 가 나와도 SCP·세션 정책·컨텍스트 차이는 남으므로 실제 호출 시험은 별도다. dev 호스트의 사용자·그룹 경로 자격(`list-attached-user-policies` 등)은 dev -> S3 자격 방식 결정 뒤로 미룬다.
 
 결과를 문서에 남길 때 계정 ID, 키, 정책 본문의 시크릿 값은 가린다(정책 본문은 Action·Resource 구조만 옮기고 계정 ID는 `<ACCOUNT_ID>`로 바꾼다). `list-objects-v2` 결과를 옮길 때는 객체 키에 사용자 값이 섞이지 않았는지 확인한다.
 
