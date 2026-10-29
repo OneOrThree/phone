@@ -2684,7 +2684,7 @@ describe('en', () => {
 
     assert.ok(
       s.getByText(
-        "Hey! You're a new face.\nI'm Mongdol. I've lived on this island for a long time.",
+        "Hey! You're the first visitor to this island.\nI'm Mongdol — I've lived here alone for a long time.",
       ),
     );
     assert.ok(s.getByText('Next'));

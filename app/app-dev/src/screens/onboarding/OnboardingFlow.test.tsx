@@ -128,7 +128,7 @@ test('선택한 색과 이름을 함께 저장하고 건너뛰면 망원경 체�
   expect(current.name).toBe('하루');
   expect(current.color).toBe('calico');
   expect(current.onboardingStory).toBe('scope');
-  expect(screen.getByTestId('onboarding-scopeIntro')).toBeTruthy();
+  expect(screen.getByTestId('onboarding-scope')).toBeTruthy();
 });
 
 test('프로필 저장 실패는 이름 입력을 유지하고 같은 의도 키로 재시도한다', async () => {
@@ -190,8 +190,7 @@ test('기존 공백 닉네임은 입력을 바꾸지 않으면 저장 요청과 
 test('망원경 재진입은 안내부터 시작하며 실제 세션 시작 성공 뒤에만 완료한다', async () => {
   startSea.mockResolvedValue({ id: 's1', kind: 'sea', islandId: 'island-1' });
   const screen = await render(<Harness checkpoint="scope" savedName="하루" />);
-  expect(screen.getByTestId('onboarding-scopeIntro')).toBeTruthy();
-  await pressContinue(screen);
+  expect(screen.getByTestId('onboarding-scope')).toBeTruthy();
   await fireEvent.press(screen.getByTestId('onboarding-island-island-1'));
   expect(current.onboardingStory).toBe('scope');
   await pressContinue(screen);
@@ -207,7 +206,6 @@ test('망원경 재진입은 안내부터 시작하며 실제 세션 시작 성�
 test('출발 실패 시 완료하지 않고 목적지를 유지한다', async () => {
   startSea.mockRejectedValue(new Error('offline'));
   const screen = await render(<Harness checkpoint="scope" />);
-  await pressContinue(screen);
   await fireEvent.press(screen.getByTestId('onboarding-island-island-1'));
   await pressContinue(screen);
   expect(current.onboardingStory).toBe('scope');
@@ -224,7 +222,6 @@ test('계정 세대가 바뀐 뒤 도착한 출항 응답은 진행도와 화면
       }),
   );
   const screen = await render(<Harness checkpoint="scope" />);
-  await pressContinue(screen);
   await fireEvent.press(screen.getByTestId('onboarding-island-island-1'));
   const pressing = pressContinue(screen);
   await new Promise((r) => setTimeout(r, 0));
@@ -249,7 +246,6 @@ test.each(['focus', 'rest', 'sea'])(
     startSea.mockRejectedValue({ code: 'STATE_CONFLICT' });
     recover.mockResolvedValue(route);
     const screen = await render(<Harness checkpoint="scope" />);
-    await pressContinue(screen);
     await fireEvent.press(screen.getByTestId('onboarding-island-island-1'));
     await pressContinue(screen);
     expect(reset).toHaveBeenCalledWith(route);
@@ -276,7 +272,6 @@ test.each([false, true])(
       reload: jest.fn(),
     });
     const screen = await render(<Harness checkpoint="scope" />);
-    await pressContinue(screen);
     expect(screen.queryByTestId('onboarding-island-island-1')).toBeNull();
     expect(screen.getByLabelText('무인도까지 15분')).toBeTruthy();
     expect(screen.getByTestId('onboarding-island-art-reserved-island').props.source).toEqual(
@@ -310,7 +305,6 @@ test.each([
     reload: jest.fn(),
   });
   const screen = await render(<Harness checkpoint="scope" />);
-  await pressContinue(screen);
   expect(screen.getByTestId('onboarding-island-island-1')).toBeTruthy();
   expect(screen.queryByTestId('onboarding-island-reserved-island')).toBeNull();
 });

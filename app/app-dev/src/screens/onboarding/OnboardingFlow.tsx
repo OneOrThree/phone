@@ -70,7 +70,11 @@ export function OnboardingFlow({ e, previewItems }: { e: any; previewItems?: Tel
   const selected =
     step === 'depart' ? departing : items.find((item) => item.islandId === selectedId);
   const lineKey =
-    step === 'scope' && items.length === 1 && items[0].memberCount === 0 ? 'uninhabited' : step;
+    step === 'ready'
+      ? selected && selected.memberCount === 0
+        ? 'readyEmpty'
+        : 'readyJoined'
+      : step;
   const line = storyHasLine(step) ? t(`onboardingStory.${lineKey}`, { name }) : '';
   const typing = useStoryLine(step, line);
   const scroll = useRef<ScrollView>(null);
@@ -84,7 +88,7 @@ export function OnboardingFlow({ e, previewItems }: { e: any; previewItems?: Tel
   const nameStep = step === 'name';
   const scopeStep = step === 'scope' || step === 'ready';
   const pose = storyPose(step, typing.complete);
-  const hasCta = ['name', 'invite', 'scopeIntro', 'ready', 'depart'].includes(step);
+  const hasCta = ['name', 'invite', 'ready', 'depart'].includes(step);
   const canAdvance = !hasCta && !['choose', 'arrival', 'scope'].includes(step);
   const move = (next: StoryStep) => {
     setError('');
@@ -124,7 +128,7 @@ export function OnboardingFlow({ e, previewItems }: { e: any; previewItems?: Tel
   };
   const scope = () => {
     checkpoint('scope');
-    move('scopeIntro');
+    move('scope');
   };
   const skip = () => {
     if (pending) return;
@@ -230,9 +234,9 @@ export function OnboardingFlow({ e, previewItems }: { e: any; previewItems?: Tel
       return true;
     }
     if (step === 'choose') return false;
-    if (step === 'scopeIntro') return true; // 체크포인트 이전으로 되돌려 프로필을 재저장하지 않는다
-    if (step === 'scope' || step === 'ready') {
-      move(step === 'ready' ? 'scope' : 'scopeIntro');
+    if (step === 'scope') return true; // 체크포인트 이전으로 되돌려 프로필을 재저장하지 않는다
+    if (step === 'ready') {
+      move('scope');
       return true;
     }
     move(storySteps[Math.max(0, storySteps.indexOf(step) - 1)]);
@@ -261,7 +265,6 @@ export function OnboardingFlow({ e, previewItems }: { e: any; previewItems?: Tel
   const cta = () => {
     if (nameStep) return saveName();
     if (step === 'invite') return scope();
-    if (step === 'scopeIntro') return move('scope');
     if (step === 'ready') return start();
     if (step === 'depart') return enterSea();
   };
@@ -270,14 +273,12 @@ export function OnboardingFlow({ e, previewItems }: { e: any; previewItems?: Tel
       ? 'saving'
       : 'nameCta'
     : step === 'invite'
-      ? 'join'
-      : step === 'scopeIntro'
-        ? 'scopeCta'
-        : step === 'ready'
-          ? pending
-            ? 'startPending'
-            : 'start'
-          : 'enterSea';
+      ? 'scopeCta'
+      : step === 'ready'
+        ? pending
+          ? 'startPending'
+          : 'start'
+        : 'enterSea';
 
   if (step === 'choose')
     return (
@@ -402,7 +403,7 @@ export function OnboardingFlow({ e, previewItems }: { e: any; previewItems?: Tel
               {!scopeStep && <View style={styles.tail} />}
             </Pressable>
           )}
-          {!['arrival', 'name', 'scopeIntro', 'scope', 'ready', 'depart'].includes(step) && (
+          {!['arrival', 'name', 'scope', 'ready', 'depart'].includes(step) && (
             <View style={{ position: 'absolute', top, right: space[4] }}>
               <Btn
                 id="onboarding-skip"
