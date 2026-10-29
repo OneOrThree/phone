@@ -103,9 +103,13 @@ end
 -- 바이트 표로 거꾸로 센다: «[...]*$» Lua 패턴은 긴 단어 뒤에 구분자가 오면 O(n²) 이다.
 local TOKEN_BYTE = {}
 for c in ("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._%+@-"):gmatch(".") do TOKEN_BYTE[c:byte()] = true end
+-- 버리는 길이는 254 바이트까지(Java MAX_CUT_TOKEN): 이메일은 254자 이하, 휴대폰·주민번호는 14자 이하라 잘린 조각이 마스킹 대상이었다면
+-- '@' 나 숫자 시작이 끝 254자 안에 있다. 구분자 없는 긴 덩어리는 끝 254자만 빠지고 앞은 남는다.
+local MAX_CUT_TOKEN = 254
 local function drop_cut_token(text)
   local cut = #text
-  while cut > 0 and TOKEN_BYTE[text:byte(cut)] do cut = cut - 1 end
+  local floor = math.max(0, cut - MAX_CUT_TOKEN)
+  while cut > floor and TOKEN_BYTE[text:byte(cut)] do cut = cut - 1 end
   return text:sub(1, cut)
 end
 

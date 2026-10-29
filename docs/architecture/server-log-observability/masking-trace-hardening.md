@@ -12,7 +12,7 @@ provider 는 message·exception 원본이 한도(16 KiB·32 KiB)의 2배를 넘�
 | business-api·notification·realtime | `LogMasking.dropCutToken` ← `ObservationJsonProvider.putLimited` |
 | Fluent Bit | `logs.lua` `drop_cut_token` ← `raw_record`(JSON 이 아닌 앱 줄) |
 
-토큰 구간이 사전 자르기 지점까지 수십 KiB 이어지면(구분자 없는 덩어리) 그 구간이 통째로 빠진다. 출력이 짧아질 뿐 원문 조각은 남지 않는다. `truncated`·`original_size_bytes`(원본 바이트)는 그대로 붙는다.
+버리는 길이는 **최대 254자**다(네 서비스 `MAX_CUT_TOKEN`, `logs.lua` `MAX_CUT_TOKEN`). 근거: 이메일은 전체가 254자 이하(RFC 5321)이고 휴대폰 11자·주민번호 14자라, 잘린 조각이 마스킹 대상이었다면 `@`·숫자 시작은 끝 254자 안에 있다. 그보다 앞은 이메일·휴대폰이 될 수 없는 꼴이라 남긴다. 결과: 구분자 없는 긴 덩어리는 이전에 통째로 빠져 `message` 가 0바이트가 됐지만 이제 끝 254자만 빠지고 앞이 남는다(입력표 `cut` 300자 줄 → 46자). 남은 한계: 254자를 넘는 덩어리의 앞부분은 마스킹 대상이 아니다. `truncated`·`original_size_bytes`(원본 바이트)는 그대로 붙는다.
 
 **범위 밖**: `logs.lua` 의 Nginx 경로(`nginx_finalize` 의 사전 자르기, `nginx_error` 의 `truncate(mask(truncate(rest, MESSAGE_LIMIT * 2)), …)`)는 같은 꼬리 문제가 있지만 GROMO-2585 담당 함수라 고치지 않았다. 고칠 때는 사전 자르기 결과에 `drop_cut_token` 을 같은 방식으로 적용한다.
 

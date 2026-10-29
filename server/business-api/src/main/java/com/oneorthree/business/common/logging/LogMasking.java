@@ -47,14 +47,21 @@ final class LogMasking {
         return SSN.matcher(result).replaceAll(m -> m.group(1) + "-" + m.group(2) + "******");
     }
 
+    /** 사전 자르기 꼬리에서 버리는 토큰 문자 최대 길이. logs.lua MAX_CUT_TOKEN 과 같다. */
+    static final int MAX_CUT_TOKEN = 254;
+
     /**
      * 사전 자르기로 끝에 걸린 토큰 문자({@code [A-Za-z0-9._%+@-]}) 연속 구간을 버린다. 잘린 이메일·휴대폰·주민번호 조각은
      * 마스킹 패턴에 안 걸려 원문이 그대로 남기 때문이다. logs.lua 의 {@code drop_cut_token} 과 같은 규칙이다.
-     * ponytail: 사전 자르기 지점까지 이어진 긴 덩어리(구분자 없는 수십 KiB)는 통째로 빠진다 — 출력이 짧아질 뿐 원문 조각은 안 남는다.
+     * 버리는 길이는 {@link #MAX_CUT_TOKEN}(254) 자까지다: 이메일은 전체가 254자 이하(RFC 5321)이고 휴대폰·주민번호는 14자 이하라,
+     * 잘린 조각이 마스킹 패턴에 걸릴 수 있었던 토큰이면 '@' 나 숫자 시작이 반드시 끝 254자 안에 있다. 그보다 앞은 이메일·휴대폰이 될 수 없는
+     * 꼴이라 남겨도 안전하다. 구분자 없는 긴 덩어리는 끝 254자만 빠지고 앞은 남는다.
+     * ponytail: 254자를 넘는 덩어리의 앞부분(이메일 로컬 파트일 수 있는 문자열)은 남는다 — 유효 이메일이 아니라 마스킹 대상 밖으로 둔다.
      */
     static String dropCutToken(String head) {
         int end = head.length();
-        while (end > 0 && isTokenChar(head.charAt(end - 1))) {
+        int floor = Math.max(0, end - MAX_CUT_TOKEN);
+        while (end > floor && isTokenChar(head.charAt(end - 1))) {
             end--;
         }
         return head.substring(0, end);
