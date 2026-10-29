@@ -11,8 +11,10 @@ final class LogMasking {
     private static final Pattern SENSITIVE_KV = Pattern.compile(
             "(?i)((?:password|accessToken|access_token|mobile|email|cardNumber|card_number|cvv|secret)"
                     + "(?:\\s*=\\s*|\\s*\"\\s*:\\s*\"\\s*|\\s*:\\s*))[^&\"\\s,}]+");
+    // 선형 시간: 로컬 파트 시작을 «앞이 로컬 문자가 아닌 곳 또는 직전 매치 끝(\G)»으로 묶고 나머지는 possessive 로 받는다.
     private static final Pattern EMAIL = Pattern.compile(
-            "([a-zA-Z0-9._%+\\-]{1,3})[a-zA-Z0-9._%+\\-]*@([a-zA-Z0-9.\\-]+)\\.([a-zA-Z]{2,})");
+            "(?:(?<![a-zA-Z0-9._%+\\-])|\\G)([a-zA-Z0-9._%+\\-]{1,3}+)"
+                    + "[a-zA-Z0-9._%+\\-]*+@([a-zA-Z0-9.\\-]+)\\.([a-zA-Z]{2,})");
     private static final Pattern PHONE = Pattern.compile("(01[016789])[\\-.]?(\\d{3,4})[\\-.]?(\\d{4})");
     private static final Pattern SSN = Pattern.compile("(\\d{6})[\\-](\\d)(\\d{6})");
 

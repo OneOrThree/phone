@@ -76,11 +76,11 @@ public final class ObservationJsonProvider implements StructuredLogFormatter<ILo
         boolean access = event.getMarkerList() != null && event.getMarkerList().contains(ACCESS);
         Map<String, Object> out = header(event, access);
         long original = putLimited(out, "message",
-                LogMasking.mask(Objects.toString(event.getFormattedMessage(), "")), MESSAGE_LIMIT_BYTES);
+                Objects.toString(event.getFormattedMessage(), ""), MESSAGE_LIMIT_BYTES);
         IThrowableProxy throwable = event.getThrowableProxy();
         if (throwable != null) {
             original += putLimited(out, "exception",
-                    LogMasking.mask(ThrowableProxyUtil.asString(throwable)), EXCEPTION_LIMIT_BYTES);
+                    ThrowableProxyUtil.asString(throwable), EXCEPTION_LIMIT_BYTES);
         }
         if (original > 0) {
             out.put("truncated", true);
@@ -115,23 +115,30 @@ public final class ObservationJsonProvider implements StructuredLogFormatter<ILo
         return out;
     }
 
-    /** UTF-8 상한을 넘으면 문자 경계에서 자르고 원래 바이트 수를, 아니면 0 을 돌려준다. */
-    private static long putLimited(Map<String, Object> out, String field, String value, int limit) {
-        if (value.length() * 3L <= limit) {
-            out.put(field, value);
-            return 0;
+    /**
+     * 원본이 한도의 2배를 넘으면 마스킹 전에 UTF-8 문자 경계에서 먼저 자르고(마스킹 비용을 출력 상한에 묶는다),
+     * 마스킹 뒤 다시 한도로 자른다. 잘렸으면 원래 바이트 수를, 아니면 0 을 돌려준다.
+     */
+    private static long putLimited(Map<String, Object> out, String field, String raw, int limit) {
+        byte[] rawBytes = raw.getBytes(StandardCharsets.UTF_8);
+        boolean preCut = rawBytes.length > limit * 2L;
+        String masked = LogMasking.mask(preCut ? cutUtf8(rawBytes, limit * 2) : raw);
+        byte[] bytes = masked.getBytes(StandardCharsets.UTF_8);
+        boolean cut = bytes.length > limit;
+        out.put(field, cut ? cutUtf8(bytes, limit) : masked);
+        if (preCut) {
+            return rawBytes.length;
         }
-        byte[] bytes = value.getBytes(StandardCharsets.UTF_8);
-        if (bytes.length <= limit) {
-            out.put(field, value);
-            return 0;
-        }
+        return cut ? bytes.length : 0;
+    }
+
+    /** {@code bytes.length > limit} 인 UTF-8 바이트열을 문자 경계에서 limit 이하로 잘라 문자열로 돌려준다. */
+    private static String cutUtf8(byte[] bytes, int limit) {
         int end = limit;
-        while ((bytes[end] & 0xC0) == 0x80) {
+        while (end > 0 && (bytes[end] & 0xC0) == 0x80) {
             end--;
         }
-        out.put(field, new String(bytes, 0, end, StandardCharsets.UTF_8));
-        return bytes.length;
+        return new String(bytes, 0, end, StandardCharsets.UTF_8);
     }
 
     private static void putTrace(Map<String, Object> out, Map<String, String> mdc) {
