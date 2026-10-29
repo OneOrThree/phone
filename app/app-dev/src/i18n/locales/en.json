@@ -921,7 +921,13 @@
     "pinned": "Added to your telescope — see it in your raft's telescope",
     "pinnedEvicted": "{{name}} was removed from your telescope",
     "pinForbidden": "You can't add this island",
-    "pinAlreadyMember": "This is already one of your islands"
+    "pinAlreadyMember": "This is already one of your islands",
+    "title": "Observatory",
+    "average": "Average {{time}}",
+    "loading": "Loading rankings…",
+    "empty": "No ranked islands yet",
+    "failed": "Couldn’t load rankings.",
+    "rankLabel": "Rank {{rank}} {{name}}, average {{time}}"
   },
   "mailbox": {
     "systemSender": "Island notice"
