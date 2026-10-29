@@ -13,6 +13,8 @@ import java.util.regex.Pattern;
  * 다른 사건의 로그로 잘못 묶이지 않게 한다. {@link #close()} 는 이 scope 가 처음 건드린 키의 이전 값만 되돌린다
  * (없었으면 지운다). 전체 {@code MDC.clear()} 는 하지 않으며 tracer 소유 {@code dd.*} 는 건드리지 않는다.
  *
+ * <p>notification {@code InboundTrace.Scope} 와 같은 규칙의 복사본이다(서비스 간 공유 코드 없음) — 규칙을 바꾸면 양쪽을 함께 고친다.
+ *
  * <p>설치한 스레드에서 닫아야 한다 — try-with-resources 로만 쓴다.
  */
 public final class LogScope implements AutoCloseable {
