@@ -39,7 +39,7 @@ def instant(text: str) -> datetime:
     return value.astimezone(timezone.utc)
 
 
-def partitions(start: datetime, end: datetime, margin_hours: int) -> str:
+def partitions(start: datetime, end: datetime, margin_hours: int) -> tuple[str, dict[str, list[str]]]:
     """[start, end) 를 덮는 시간 파티션 ± margin. 날짜별로 묶어 (date AND hour IN …) OR … 로 낸다."""
     first = start.replace(minute=0, second=0, microsecond=0) - timedelta(hours=margin_hours)
     last = (end - timedelta(microseconds=1)).replace(minute=0, second=0, microsecond=0) + timedelta(hours=margin_hours)
@@ -51,7 +51,7 @@ def partitions(start: datetime, end: datetime, margin_hours: int) -> str:
     dates = ", ".join(f"'{d}'" for d in days)
     groups = " OR ".join(f"(archive_date = '{d}' AND archive_hour IN ({', '.join(repr(h) for h in hs)}))"
                          for d, hs in days.items())
-    return f"archive_date IN ({dates}) AND ({groups})"
+    return f"archive_date IN ({dates}) AND ({groups})", days
 
 
 def render(template: str, values: dict[str, str]) -> str:
@@ -83,7 +83,11 @@ def values_from(args: argparse.Namespace, template: str) -> dict[str, str]:
             raise ValueError("--to 가 --from 보다 뒤여야 한다")
         if not 0 <= args.margin_hours <= 24 * 90:
             raise ValueError("--margin-hours 는 0..2160")
-        out["partitions"] = partitions(start, end, args.margin_hours)
+        out["partitions"], days = partitions(start, end, args.margin_hours)
+        # 실제로 쓴 파티션 범위를 SQL 첫 주석으로 남긴다 — 0행일 때 «어디까지 봤는지» 확인용.
+        out["_header"] = (f"-- render.py 파티션 범위: env={args.env} service={args.services} "
+                          + "; ".join(f"date={d} hour={','.join(hs)}" for d, hs in days.items())
+                          + f" (여유 ±{args.margin_hours}시간. 0행이면 --margin-hours 를 늘려 다시)\n")
         out["from"] = "'" + start.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z'"
         out["to"] = "'" + end.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z'"
     for key in KEYS + ("operation_id",):
@@ -112,7 +116,10 @@ def build(argv: list[str]) -> str:
     p.add_argument("--from", dest="start")
     p.add_argument("--to", dest="end")
     p.add_argument("--services", default=DEFAULT_SERVICES)
-    p.add_argument("--margin-hours", type=int, default=1, help="객체 시간 파티션 앞뒤 여유(기본 1)")
+    # 기본 1 의 근거: 정상 수집에서는 객체 첫 레코드와 나머지의 차이가 수 분이라 1시간이면 충분하다. 값을 키우면 읽는 바이트(비용)가 비례해
+    # 늘어서 기본은 작게 둔다. 수집기 재시작·S3 장애 뒤 복구 파일은 키의 hour 가 «복구 시각»이고 안의 레코드는 장애 이전 시각이므로
+    # 기본값으로는 놓칠 수 있다 → 장애 길이 이상으로 올리거나, 0행이면 올려서 다시 조회한다(query-guide §3.2).
+    p.add_argument("--margin-hours", type=int, default=1, help="객체 시간 파티션 앞뒤 여유(기본 1). 수집기 재시작·S3 장애 구간이면 장애 길이 이상")
     p.add_argument("--request-id")
     p.add_argument("--trace")
     p.add_argument("--event-id")
@@ -128,7 +135,8 @@ def build(argv: list[str]) -> str:
     if not path.exists():
         path = Path(__file__).with_name(args.template)
     template = path.read_text(encoding="utf-8")
-    return render(template, values_from(args, template))
+    values = values_from(args, template)
+    return values.pop("_header", "") + render(template, values)
 
 
 def main(argv: list[str]) -> int:

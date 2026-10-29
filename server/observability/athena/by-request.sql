@@ -70,10 +70,16 @@ SELECT event_time,
        (format_datetime(event_time AT TIME ZONE 'UTC', 'yyyy-MM-dd') <> archive_date
         OR format_datetime(event_time AT TIME ZONE 'UTC', 'HH') <> archive_hour) AS other_hour_object,
        -- 시계 차이: 서비스 간 시각 순서를 믿으면 안 된다. 단계 순서(outbox.delivery → consumer.accept → ...)로 읽는다.
+       -- skew_status: NULL = 판정 대상 아님(event_id 없음·data-api 줄), 'unknown' = 대상인데 결과에 생산자 outbox.delivery 줄이 없어
+       -- 판정 불가(«의심 없음»이 아니다 — 서비스·키를 넓혀 다시 조회), 'ok'/'suspect' = 비교함. clock_skew_suspect 는 unknown 이면 NULL.
        CASE WHEN event_id IS NOT NULL AND service <> 'data-api' AND producer_time IS NOT NULL
             THEN date_diff('millisecond', producer_time, event_time) END AS skew_ms,
-       coalesce(event_id IS NOT NULL AND service <> 'data-api'
-                AND date_diff('millisecond', producer_time, event_time) < -{{skew_ms}}, false) AS clock_skew_suspect,
+       CASE WHEN event_id IS NULL OR service = 'data-api' THEN NULL
+            WHEN producer_time IS NULL THEN 'unknown'
+            WHEN date_diff('millisecond', producer_time, event_time) < -{{skew_ms}} THEN 'suspect'
+            ELSE 'ok' END AS skew_status,
+       CASE WHEN event_id IS NULL OR service = 'data-api' OR producer_time IS NULL THEN NULL
+            ELSE date_diff('millisecond', producer_time, event_time) < -{{skew_ms}} END AS clock_skew_suspect,
        log_id, copies, instance_id, thread, logger, message, observed_at, object_key
 FROM marked
 ORDER BY event_time, service, coalesce(log_id, ''), message

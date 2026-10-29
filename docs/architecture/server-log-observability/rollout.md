@@ -53,6 +53,7 @@ dev D2~D7 이 끝나고 §4 기준이 기록된 뒤에만 시작한다. prod 는
 | 메타데이터 일치 | Loki | `count_over_time({env="dev", service=~"data-api\|business-api\|notification\|realtime"} \| json \| version="" [5m])` | 0 이 아님 → `OBS_*` 누락 |
 | trace ID 형식 | Loki | `{service="data-api"} \| json \| dd_trace_id != "" \| dd_trace_id !~ "[0-9a-f]{32}"` | 대부분의 줄에서 나옴 → 128-bit 로그가 꺼진 것 |
 | 원인 키 조회 | Grafana `log-investigation` | 요청·이벤트 하나를 [조회 안내 §1](query-guide.md) 순서로 ②~④ | 표가 비거나 `log_id` 사본 폭증 |
+| Athena 첫 실조회(사람이, 배포 뒤) | Athena 콘솔 | `create-table.sql` 실행 뒤 `SELECT count(*), count(log_id), count("timestamp"), count(request_id), count(attempt) FROM ops_logs WHERE env='dev' AND service='data-api' AND archive_date='<오늘>' AND archive_hour='<시>'` 로 주요 열 NULL 비율을 본다. 타입이 안 맞는 값(예: `attempt` 가 문자열)은 오류 없이 조용히 NULL 이 된다. 깨진 JSON 줄도 `ignore.malformed.json` 때문에 오류 없이 NULL 행이 된다 — `count(*)` 와 `count(log_id)` 의 차이가 크면 의심 | `log_id`·`timestamp` NULL 비율이 raw 줄(`parse_error`) 비율을 넘음. 이 문서는 실행하지 않았다(AWS 요청 금지) |
 | 서비스 영향 | Grafana `gromo-overview`·`gromo-components` | 배포 전후 같은 창의 요청 p95/p99, 서비스·컨테이너 CPU, 메모리 working set, 호스트 디스크 I/O([검증 결과 §5](verification-results.md#5-요청-p95p99-전후-비교-배포-뒤-저장-지표로-미실행)) | 새 부하를 만들지 않고 저장된 지표만 읽는다 |
 
 ## 5. 롤백

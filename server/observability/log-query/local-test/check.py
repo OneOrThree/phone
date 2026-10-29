@@ -326,11 +326,15 @@ def trino_table(ddl, partitions):
     prop = lambda key: re.search(rf"'{re.escape(key)}' = '([^']*)'", ddl).group(1)
     location = re.search(r"LOCATION 's3://[^/]+(/[^']*)'", ddl).group(1).rstrip("/")
     template = re.sub(r"^s3://[^/]+", "", prop("storage.location.template")).rstrip("/")
+    # SERDEPROPERTIES 는 Trino 의 extra_properties(= 메타스토어 serde 파라미터)로 옮긴다 — 로컬 OPENX_JSON 이 같은 옵션을 읽는다(탐침으로 확인).
+    serde = dict(re.findall(r"'([^']+)'\s*=\s*'([^']*)'", (re.search(r"WITH SERDEPROPERTIES \((.*?)\)\n", ddl, re.S) or [None, ""])[1]))
+    extra = f", extra_properties = MAP(ARRAY[{', '.join(repr(k) for k in serde)}], ARRAY[{', '.join(repr(v) for v in serde.values())}])" if serde else ""
+    assert serde.get("ignore.malformed.json") == "true", "create-table.sql 에 ignore.malformed.json 이 없다"
     trino("CREATE SCHEMA IF NOT EXISTS hive.logs WITH (location = 'local:///warehouse/logs')")
     trino(f"DROP TABLE IF EXISTS {name}")
     columns = ", ".join(f'"{n}" {trino_type(t)}' for n, t in data_cols + part_cols)
     trino(f"CREATE TABLE {name} ({columns}) WITH (format = 'OPENX_JSON', external_location = 'local://{location}', "
-          f"partitioned_by = ARRAY[{', '.join(repr(n) for n, _ in part_cols)}])")
+          f"partitioned_by = ARRAY[{', '.join(repr(n) for n, _ in part_cols)}]{extra})")
     # partition projection 대신: 존재하는 객체 디렉터리만, 투영 값 집합 안인지 확인하고 템플릿으로 위치를 만들어 등록한다.
     enum = {c: prop(f"projection.{c}.values").split(",") for c in ("env", "service", "archive_hour")}
     names = [n for n, _ in part_cols]
@@ -348,6 +352,12 @@ def check_sql(expected, partitions):
     name, ncols = trino_table(ddl, partitions)
     n = trino(f"SELECT count(*) AS n FROM {name}")[0]["n"]
     print(f"Trino 테이블 {name}: 데이터 열 {ncols}, 파티션 {len(partitions)}, 행 {n}")
+    # ignore.malformed.json: 깨진 JSON 줄이 든 객체(canary 파티션)가 있어도 질의가 실패하지 않고 나머지 줄을 읽는다(깨진 줄은 전부 NULL 행).
+    try:
+        rows = trino("SELECT count(*) AS n, count(log_id) AS ok FROM ops_logs WHERE service = 'canary'")[0]
+        check(rows["n"] == 3 and rows["ok"] == 2, "깨진 JSON 줄이 든 객체 조회 — 실패하지 않고 정상 2줄 + 전부 NULL 1행", str(rows))
+    except RuntimeError as error:
+        check(False, "깨진 JSON 줄이 든 객체 조회", str(error))
     for case in expected["sql"]:
         sql = render.build([f"{ATHENA}/{case['template']}"] + expected["sql_window"] + case["args"])
         try:
@@ -368,6 +378,11 @@ def main():
     dash = load_dashboard()
     rows = fixture_rows()
     partitions = write_objects(rows)
+    bad = f"{DATA}/system_log/v2/env=dev/service=canary/date=2026-10-29/hour=13"
+    os.makedirs(bad, exist_ok=True)
+    with gzip.open(f"{bad}/fixture-malformed-00000000.json.gz", "wt", encoding="utf-8") as f:
+        f.write('{"log_id": "canary-1", "service": "canary"}\n{"log_id": "canary-2" BROKEN\n{"log_id": "canary-3"}\n')
+    partitions.append(("dev", "canary", "2026-10-29", "13"))
     print(f"fixture: {len(rows)}행, S3 객체 파티션 {partitions}")
 
     wait("Loki", lambda: urllib.request.urlopen(f"{LOKI}/ready", timeout=3).status == 200)

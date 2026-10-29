@@ -19,7 +19,7 @@
 | ① | 일반 로그 | 서비스·시간·level로 거른 로그. 옆 패널은 범위 안 줄 수다 |
 | ② | 원인 키로 찾은 로그(표) | `request_id`는 `request_id`와 `origin_request_id`를, `origin`은 `origin_trace_id`·`dd_trace_id`·`trace_id`를 찾는다. `event_id`와 `message_id`는 같은 이름의 필드를 찾는다. 결과는 시간순 표로 보인다 |
 | ③ | operation 목록(표) | ②의 원인 키로 걸러진 `operation.link`에서 `operation_id`·Notification `delivery_id`를 뽑는다. 행의 `operation_id`를 누르면 ④의 변수가 채워진다 |
-| ④ | operation 결과(표) | 같은 `operation_id`의 모든 구성원 연결 로그, `transport.result`, FCM 오류 로그에 클릭한 `(delivery_id, attempt)`의 `dispatch.settle`을 더한다. Notification 코드는 `dispatch.settle`에 `operation_id`를 남기지 않아서 `delivery_id`로 찾는다. 재시도는 `delivery_id`를 유지하고 `attempt`·`operation_id`만 바뀌므로, `attempt`로 좁히지 않으면 실패한 시도를 눌러도 뒤 성공 결과가 함께 보인다 |
+| ④ | operation 결과(표) | 같은 `operation_id`의 모든 구성원(다른 원인의 구성원 포함, 아래 참고) 연결 로그, `transport.result`, FCM 오류 로그에 클릭한 `(delivery_id, attempt)`의 `dispatch.settle`을 더한다. Notification 코드는 `dispatch.settle`에 `operation_id`를 남기지 않아서 `delivery_id`로 찾는다. 재시도는 `delivery_id`를 유지하고 `attempt`·`operation_id`만 바뀌므로, `attempt`로 좁히지 않으면 실패한 시도를 눌러도 뒤 성공 결과가 함께 보인다 |
 | ⑤ | 상한 안내·서비스별 분할 | 아래 2절 |
 
 ②·④ 표의 열 링크:
@@ -30,11 +30,18 @@
 
 Loki는 같은 `log_id`의 수집 사본을 지우지 않는다. 표에 같은 `log_id`가 두 줄 보이면 재전송 사본이다. 같은 `event_id`의 다른 단계·재시도는 `log_id`가 서로 다른 별개 로그다.
 
-같은 operation에 다른 원인의 구성원이 있으면 ④에 그 구성원의 `operation.link`도 보인다. 각 줄의 `origin_request_id`가 원래 원인이다. 결과 전체를 한 원요청의 사건으로 읽지 않는다. 묶음 발송은 티켓 2421로 제거돼 지금 main 경로의 구성원은 1개다. 대시보드와 SQL은 구성원 N개를 가정한다.
+같은 operation에 다른 원인의 구성원이 있으면 ④에 그 구성원의 `operation.link`도 보인다. ④에는 SQL의 `relation`·`shared_member` 같은 구분 표시가 없다. 각 줄의 `origin_request_id`가 원래 원인이다. 결과 전체를 한 원요청의 사건으로 읽지 않는다. `dispatch.settle`은 `operation_id`가 없어 `(delivery_id, attempt)` 단위로만 고른다. 같은 attempt를 쓰는 다른 operation(다중 기기)의 settle과는 구분되지 않는다. 묶음 발송은 티켓 2421로 제거돼 지금 main 경로의 구성원은 1개다. 대시보드와 SQL은 구성원 N개를 가정한다.
 
 ## 2. 결과가 일부일 때(조회 상한)
 
 로그 패널의 줄 상한은 1000줄이다(target `maxLines`). 각 표 옆의 줄 수 패널이 같은 필터로 `count_over_time`을 센다. 1000 이상이면 빨강이고, 이때 표는 결과 일부다.
+
+빨강이 아니라고 결과가 완전한 것은 아니다. 줄 수 패널은 패널 상한(1000)과만 비교한다. 다음은 표시 없이 일부만 나올 수 있다(로컬 fixture로는 확인하지 못했다).
+
+- Loki 서버의 `max_entries_limit`이 패널 상한보다 낮게 걸린 경우
+- 같은 시각의 줄이 조회 방향(forward/backward)에 따라 잘려 나가는 경우
+
+의심스러우면 시간 범위를 좁히거나 Athena로 같은 키를 조회해 줄 수를 맞춰 본다.
 
 1. 시간 범위를 좁힌다.
 2. 1초 안쪽으로 좁혀도 빨강이면 같은 timestamp에 상한보다 많은 줄이 몰린 것이다. 시간으로는 더 나눌 수 없다. Loki API로 페이지를 넘길 때도 마지막 시각에서 다시 시작하므로 같은 자리에 머문다. ⑤의 «② 서비스별 분할» 패널은 `service` 변수로 반복되고, 서비스마다 상한이 따로다.
@@ -58,7 +65,9 @@ python3 render.py by-window.sql --env prod --from ... --to ... --services data-a
 
 Athena는 읽은 바이트만큼 비용을 받는다. 파티션 조건이 없으면 보관된 객체 전체를 읽는다. 그래서 모든 템플릿이 가장 안쪽 스캔에서 `env`·`service`·`archive_date`·`archive_hour`를 먼저 제한한다. 그 뒤에 본문 시각으로 최종 필터링한다.
 
-객체 시간 파티션은 레코드 발생 시각이 아니다. **객체 첫 레코드의 event time(UTC)**이다. 수집기가 밀린 로그를 한꺼번에 읽으면 한 객체에 다른 시각 레코드가 섞인다. 레코드는 앞 시간 객체에도 뒤 시간 객체에도 들어갈 수 있다(2556 시험 k: 3시간 전 레코드가 첫 레코드인 객체에 5분 전 레코드가 함께 들어가 `hour=03`). 그래서 `render.py`는 조회 범위 앞뒤로 `--margin-hours`(기본 1)만큼 시간 파티션을 넓힌다. 수집 장애가 1시간보다 길었으면 장애 시간만큼 늘린다. 지연 상한을 모르면 보관 기간 전체로 넓혀야 빠짐이 없다. 로컬 fixture에서 여유를 0으로 두면 R1의 12개 결과 행 중 7개(12시·14시 객체에 든 줄)를 놓쳤다(5절).
+객체 시간 파티션은 레코드 발생 시각이 아니다. **객체 첫 레코드의 event time(UTC)**이다. 수집기가 밀린 로그를 한꺼번에 읽으면 한 객체에 다른 시각 레코드가 섞인다. 레코드는 앞 시간 객체에도 뒤 시간 객체에도 들어갈 수 있다(2556 시험 k: 3시간 전 레코드가 첫 레코드인 객체에 5분 전 레코드가 함께 들어가 `hour=03`). 그래서 `render.py`는 조회 범위 앞뒤로 `--margin-hours`(기본 1)만큼 시간 파티션을 넓힌다. 기본값을 1로 둔 이유는 비용이다. 여유가 한 시간 늘 때마다 읽는 바이트가 그만큼 는다.
+
+**수집기 재시작·S3 장애가 있던 구간이면 `--margin-hours`를 장애 길이 이상으로 올린다.** 재시작 뒤 복구 파일은 키의 hour가 복구 시각이고, 안의 레코드는 장애 이전 시각이다. 기본 여유 1시간으로는 놓칠 수 있고, 놓치면 조용히 빈 결과가 나온다. 결과가 0행이면 «없다»로 읽지 말고 여유를 넓혀 다시 조회한다. 지연 상한을 모르면 보관 기간 전체로 넓혀야 빠짐이 없다. `render.py`는 실제로 쓴 파티션 범위(env·service·date·hour)를 출력 SQL의 첫 주석 줄에 적는다. 결과가 이상하면 그 줄로 어디까지 봤는지 먼저 확인한다. 로컬 fixture에서 여유를 0으로 두면 R1의 15개 결과 행 중 10개(12시·14시 객체에 든 줄)를 놓쳤다(5절).
 
 raw 줄(`parse_error=true`)에는 `timestamp`가 없다. 질의는 `observed_at`으로 시각을 대신한다.
 
@@ -75,14 +84,14 @@ raw 줄(`parse_error=true`)에는 `timestamp`가 없다. 질의는 `observed_at`
 | `relation` | `direct` = 원인 키로 직접 찾은 줄. `operation` = 직접 찾은 `operation.link`의 `operation_id`로 한 번 더 찾은 줄(semijoin. 행끼리 곱하지 않는다) |
 | `shared_member` | `operation`으로만 들어온 `operation.link`. 같은 발송을 함께 쓴 **다른 원인의 구성원**이다. 그 줄의 `origin_request_id`가 그 구성원의 원인이다 |
 | `operation_members` | 결과 안에서 그 operation의 `operation.link` 수. 2 이상이면 공유 발송이다 |
-| `arrival_lag_s`, `late_arrival` | `observed_at − timestamp`(초)와 그 값이 `--late-seconds`(기본 300)를 넘는지. **늦은 도착**은 발생 시각이 맞다. 시간순 정렬을 그대로 믿고, 다른 시간 객체에 들어 있을 수 있다는 뜻으로 읽는다. `observed_at`은 초 단위라 1초 안쪽 차이는 의미가 없다 |
+| `arrival_lag_s`, `late_arrival` | `observed_at − timestamp`(초)와 그 값이 `--late-seconds`(기본 300, **경험적 기본값이며 근거 측정은 없다**)를 넘는지. **늦은 도착**은 발생 시각이 맞다. 시간순 정렬을 그대로 믿고, 다른 시간 객체에 들어 있을 수 있다는 뜻으로 읽는다. `observed_at`은 초 단위라 1초 안쪽 차이는 의미가 없다 |
 | `other_hour_object` | 줄이 자기 발생 시각과 다른 시간 파티션 객체에 들어 있었는지. 여유 파티션 덕에 찾은 줄이다 |
-| `skew_ms`, `clock_skew_suspect` | 같은 `event_id`의 data-api `outbox.delivery` 중 가장 이른 줄과 비교한 data-api 밖 줄의 시각 차이다. `--skew-ms`(기본 1000)보다 더 앞서면 **시계 차이 의심**이다. 이 줄은 서비스 간 시각 순서를 믿지 말고 단계 순서(`outbox.delivery` → `consumer.accept` → `operation.link` → `transport.result` → `dispatch.settle`)로 읽는다 |
+| `skew_ms`, `skew_status`, `clock_skew_suspect` | 같은 `event_id`의 data-api `outbox.delivery` 중 가장 이른 줄과 비교한 data-api 밖 줄의 시각 차이다. `--skew-ms`(기본 1000, **경험적 기본값이며 근거 측정은 없다**)보다 더 앞서면 **시계 차이 의심**(`skew_status=suspect`)이다. 비교했고 허용 안이면 `ok`다. **결과에 `outbox.delivery` 줄이 없으면 `unknown`(판정 불가)이고 `skew_ms`·`clock_skew_suspect`는 NULL이다. «의심 없음»이 아니다.** `event_id`가 없거나 data-api 줄이면 모두 NULL(대상 아님)이다. 이 줄은 서비스 간 시각 순서를 믿지 말고 단계 순서(`outbox.delivery` → `consumer.accept` → `operation.link` → `transport.result` → `dispatch.settle`)로 읽는다 |
 
 시계 차이 판정의 한계:
 
 - `outbox.delivery`는 브로커 ack 뒤에 남는다. 소비 쪽 줄이 ack 지연만큼 앞설 수 있다. 허용 오차 안쪽 음수(로컬 fixture f04는 −20ms)는 정상이다.
-- 생산 쪽 줄이 결과 안에 있을 때만 계산한다.
+- 생산 쪽 줄이 결과 안에 있을 때만 계산한다. `--request-id`만 주거나 `--services`에서 data-api를 뺐으면 `unknown`이 나온다. `--event-id`를 주거나 서비스를 넓혀 다시 조회한다.
 - 채팅(`message_id`)에는 생산 기준 줄이 없어 계산하지 않는다.
 
 ## 4. 로컬 검증 방법
@@ -101,8 +110,8 @@ raw 줄(`parse_error=true`)에는 `timestamp`가 없다. 질의는 `observed_at`
 
 | 시험 | 기대 = 실제 |
 | --- | --- |
-| Loki ② `request_id=req-r1` | 10줄(f03 사본 2·f10 2벌 포함). 줄 수 패널 10 |
-| Loki ② `req-r2` / `origin=T1` / `event_id=evt-e1` / `message_id=msg-m1` | 6 / 8 / 5 / 2줄. 각 줄 수 패널 값과 같음 |
+| Loki ② `request_id=req-r1` | 12줄(f03 사본 2·f10 2벌 포함). 줄 수 패널 12 |
+| Loki ② `req-r2` / `origin=T1` / `event_id=evt-e1` / `message_id=msg-m1` | 6 / 10 / 7 / 2줄. 각 줄 수 패널 값과 같음 |
 | Loki ② 원인 키 없음 | 0줄 |
 | Loki ① `service=data-api` / `level=ERROR` | 612줄(bulk 600 포함) / 1줄 |
 | Loki ③ `req-r1` / `req-r2` / `evt-e3` | `(op-1, nt-del-1)` / `(op-1, nt-del-2)` / `(op-2, nt-del-3)` |
@@ -110,11 +119,12 @@ raw 줄(`parse_error=true`)에는 `timestamp`가 없다. 질의는 `observed_at`
 | Loki ④ `op-3` + `nt-del-1` + `attempt 2` (같은 delivery 재시도) | 3줄(연결·transport.result·attempt 2 의 settle). attempt 1 의 settle 은 섞이지 않는다. `attempt` 를 비우면 settle 은 나오지 않는다 |
 | 상한: 같은 시각 1200줄 | 표 1000줄, 줄 수 패널 1200(빨강 기준 1000). 1ms 창으로 좁혀도 1000줄. 서비스별 분할 data-api 600·notification 600 |
 | Grafana | 대시보드 4개 로드. `/api/ds/query` ② R1 10줄. 프레임 필드 `labels, Time, Line, tsNs, labelTypes, id` |
-| Trino 테이블 | 데이터 열 37, 파티션 6, 행 1230 |
-| SQL `by-request req-r1` | 12행: f03 1벌(`copies=2`), f10 2벌(`log_id` null), g05 `shared_member=true`, `operation_members=2`, f09 `late_arrival`·`other_hour_object`, f04 `skew_ms=-20`·의심 아님 |
-| SQL `by-request req-r1 --margin-hours 0` | 5행(12시·14시 객체의 7행 누락) |
-| SQL `by-request req-r2` | 9행: g04·g04b `skew_ms` −5000·−4900 `clock_skew_suspect=true`, f05 `shared_member=true` |
-| SQL `trace=T1` / `evt-e1` / `msg-m1` / `req-bulk` | 10 / 7 / 2 / 1200행 |
+| Trino 테이블 | 데이터 열 37, 파티션 7, 행 1236(깨진 JSON 줄 시험용 canary 객체 포함) |
+| SQL `by-request req-r1` | 15행: f03 1벌(`copies=2`), f10 2벌(`log_id` null), g05 `shared_member=true`, `operation_members=2`, f09 `late_arrival`·`other_hour_object`, f04 `skew_ms=-20`·`skew_status=ok` |
+| SQL `by-request req-r1 --margin-hours 0` | 5행(12시·14시 객체의 10행 누락) |
+| SQL `by-request req-r2` | 9행: g04·g04b `skew_ms` −5000·−4900 `skew_status=suspect`·`clock_skew_suspect=true`, f05 `shared_member=true` |
+| SQL `by-request event_id=evt-e1 --services notification` | 9행. 결과에 `outbox.delivery`가 없어 f04·g05는 `skew_status=unknown`, `clock_skew_suspect`는 NULL |
+| SQL `trace=T1` / `evt-e1` / `msg-m1` / `req-bulk` | 13 / 10 / 2 / 1200행 |
 | SQL `by-operation op-1` | 6행(구성원 연결 2·transport.result·FCM 오류·settle 2) |
 | SQL `by-window data-api` / `--levels ERROR` | 610행(f03 1벌·x01 2벌·bulk 600) / 1행 |
 
@@ -128,7 +138,7 @@ raw 줄(`parse_error=true`)에는 `timestamp`가 없다. 질의는 `observed_at`
 | 파티션 | `system.register_partition`으로 있는 객체 디렉터리만 등록. 위치는 DDL의 `storage.location.template`으로 만들고 값이 투영 enum 안인지 확인 | partition projection(enum·date 범위·템플릿) | 투영의 날짜 범위(`start_date,NOW`)와 `archive_date IN … AND (… OR …)` 조건의 가지치기는 실행하지 않았다 |
 | 저장소·카탈로그 | 로컬 파일시스템(`local://`), 파일 메타스토어 | S3, Glue Data Catalog | `"$path"` 값의 접두가 다르다(`local:///…` / `s3://…`) |
 | 엔진 | Trino 476 | Athena 엔진 v3(Trino 기반, AWS 버전) | 쓴 함수: `from_iso8601_timestamp`, `try`, `coalesce`, `row_number`·`count`·`min`·`sum` 윈도, `date_diff`, `format_datetime`, `AT TIME ZONE`, `IS NOT DISTINCT FROM`, 상관 `EXISTS`, `IN (subquery)`, `"$path"`. Athena에서 같은 결과인지는 실행하지 않았다 |
-| JSON SerDe | Trino의 OpenX JSON 구현 | OpenX JSON SerDe | fixture는 모두 올바른 JSON이다. 깨진 줄·타입이 다른 값(예: `attempt`가 문자열)의 동작은 시험하지 않았다 |
+| JSON SerDe | Trino의 OpenX JSON 구현. `create-table.sql`의 `SERDEPROPERTIES`는 Trino `extra_properties`로 옮겨 같은 옵션(`ignore.malformed.json`)을 읽게 했다 | OpenX JSON SerDe | 반영됨: 깨진 JSON 줄이 든 객체를 조회해도 실패하지 않고 그 줄은 전부 NULL인 행이 된다(옵션 없이는 질의가 실패함을 탐침으로 확인). 차이: Trino가 옵션을 읽는 경로가 Athena의 SerDe와 같은지는 모른다. 타입이 다른 값(예: `attempt`가 문자열)의 동작은 시험하지 않았다. 실제 Athena에서 조용히 NULL이 될 수 있어 첫 실조회 때 NULL 비율을 본다([전환 절차 §4](rollout.md#4-전환-판정-지표와-확인-쿼리)) |
 | Loki 적재 | API push. 줄 모양은 Fluent Bit Loki 출력을 흉내 냈다. Loki 시각 = 레코드 `timestamp`(raw는 `observed_at`) | Fluent Bit이 Docker 시각으로 적재 | 실제 수집 경로는 2555·2556 하네스가 검증한다 |
 
 ## 7. 실행하지 않은 것

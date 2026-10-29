@@ -46,6 +46,9 @@ CREATE EXTERNAL TABLE IF NOT EXISTS ops_logs (
 )
 PARTITIONED BY (`env` string, `service` string, `archive_date` string, `archive_hour` string)
 ROW FORMAT SERDE 'org.openx.data.jsonserde.JsonSerDe'
+-- 깨진 JSON 한 줄이 있으면 OpenX 는 기본으로 그 객체를 읽는 질의 전체를 실패시킨다. 수집기는 raw 줄도 JSON 으로 감싸 보관하지만(2556)
+-- 그 전제가 깨진 객체(손상·잘림)가 있어도 나머지 줄은 조회되게 건너뛴다. 건너뛴 줄 수는 알 수 없다 — 그 줄은 Loki·원 컨테이너 로그로 본다.
+WITH SERDEPROPERTIES ('ignore.malformed.json' = 'true')
 LOCATION 's3://{{bucket}}/system_log/v2/'
 TBLPROPERTIES (
   'projection.enabled' = 'true',

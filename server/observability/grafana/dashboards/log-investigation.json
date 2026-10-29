@@ -737,7 +737,7 @@
       "id": 6,
       "type": "table",
       "title": "④ $operation_id 의 결과",
-      "description": "operation_id 가 같은 줄(모든 구성원의 operation.link·transport.result·FCM 오류) + 클릭한 (delivery_id, attempt) 의 dispatch.settle. settle 에는 operation_id 가 없어 delivery_id 로 찾고, 같은 delivery 의 재시도 settle 이 섞이지 않게 attempt 로 좁힌다.",
+      "description": "operation_id 가 같은 줄(모든 구성원의 operation.link·transport.result·FCM 오류) + 클릭한 (delivery_id, attempt) 의 dispatch.settle. settle 에는 operation_id 가 없어 delivery_id 로 찾고, 같은 delivery 의 재시도 settle 이 섞이지 않게 attempt 로 좁힌다. 주의: 같은 operation 을 쓴 «다른 원인» 구성원의 operation.link 도 함께 나온다(SQL 의 relation/shared_member 와 같은 구분이 여기엔 없다 — 줄의 origin_request_id 로 읽는다). settle 은 (delivery_id, attempt) 단위라 같은 attempt 를 쓰는 다른 operation(다중 기기)의 settle 과 구분되지 않는다.",
       "datasource": {
         "type": "loki",
         "uid": "loki"
