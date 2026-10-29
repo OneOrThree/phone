@@ -133,6 +133,19 @@ DEFAULT_VARS = {"env": "dev", "service": ".+", "level": ".*", "request_id": "", 
                 "operation_id": "", "delivery_id": "", "attempt": "", "dd_site": "us5.datadoghq.com"}
 
 
+def var_names(dash):
+    return {v["name"] for v in dash["templating"]["list"]}
+
+
+def check_variables(dash):
+    """패널 쿼리·링크의 $name·${name}·var-name 이 templating.list 최상위 변수여야 한다(내장 __* 제외). 하네스 기본값도 정의된 변수만."""
+    defined = var_names(dash)
+    text = json.dumps(dash, ensure_ascii=False)
+    used = {n for n in re.findall(r"\$\{?(\w+)|var-(\w+)=", text) for n in n if n and not n.startswith("__")}
+    check(not used - defined, "대시보드가 쓰는 변수 전부가 templating.list 최상위에 정의됨", f"미정의={sorted(used - defined)}")
+    check(not set(DEFAULT_VARS) - defined, "하네스 DEFAULT_VARS 가 정의된 변수만 담음", f"미정의={sorted(set(DEFAULT_VARS) - defined)}")
+
+
 def interpolate(expr, values, range_s):
     """Grafana 처럼 $name·${name} 을 치환한다. All 은 대시보드의 allValue(.+ / .*). 정의 안 된 변수면 KeyError = 실패."""
     v = dict(DEFAULT_VARS, **values, __range=f"{range_s}s")
@@ -254,6 +267,9 @@ def check_grafana(dash, expected, loki):
         try:
             got = grafana(f"/api/dashboards/uid/{uid}")["dashboard"]
             check(got["uid"] == uid, f"Grafana 대시보드 로드 {uid} (패널 {len(got.get('panels', []))})")
+            if uid == dash["uid"]:
+                check(var_names(dash) <= var_names(got) and "attempt" in var_names(got), "Grafana API 응답 templating.list 에 attempt 등 전체 변수 등록",
+                      f"got={sorted(var_names(got))}")
         except urllib.error.HTTPError as error:
             check(False, f"Grafana 대시보드 로드 {uid}", f"HTTP {error.code}")
     panels = panels_by_id(dash)
@@ -360,6 +376,7 @@ def main():
     push_loki(rows, shift)
     loki = Loki(FIXTURE_BASE + shift - timedelta(minutes=50), now + timedelta(minutes=1))
     wait("Loki 적재", lambda: loki.count('sum(count_over_time({env="dev"} [3h]))') == len(rows), 60)
+    check_variables(dash)
     check_loki(dash, expected, loki)
     check_links(dash)
 

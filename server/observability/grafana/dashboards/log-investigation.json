@@ -215,6 +215,14 @@
         },
         "options": [
           {
+            "selected": true,
+            "text": "",
+            "value": ""
+          }
+        ],
+        "hide": 0
+      },
+      {
         "type": "textbox",
         "name": "attempt",
         "label": "④ notification attempt (③ 표에서 클릭)",
@@ -225,14 +233,6 @@
         },
         "options": [
           {
-            "selected": true,
-            "text": "",
-            "value": ""
-          }
-        ],
-        "hide": 0
-      },
-      {
             "selected": true,
             "text": "",
             "value": ""
