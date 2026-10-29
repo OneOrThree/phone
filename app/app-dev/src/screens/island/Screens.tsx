@@ -1,3 +1,10 @@
+import { ObservatoryPodium } from '@/screens/island/ObservatoryPodium';
+import {
+  ObservatoryLedger,
+  ObservatoryHeading,
+  ObservatoryRow,
+} from '@/screens/island/ObservatoryLayout';
+import { customizationTitle } from '@/i18n/customization';
 import * as Application from 'expo-application';
 import appManifest from '../../../package.json';
 import { ScreenTimeSharingSettings } from '@/screens/island/ScreenTimeSharingSettings';
@@ -181,8 +188,6 @@ const buildingArt: Record<string, string> = {
   mail: 'mailbox',
   shop: 'shop',
 };
-// 전망대 순위 행의 «소속됨» 배지 — Badge 는 기본이 왼쪽 위 정렬(DESIGN §7.5)이라 행 안 세로 가운데에 둔다
-const rankJoinedBadge = { alignSelf: 'center' } as const;
 // 날짜 "M/D"와 시각 "HH:MM"(Asia/Seoul)
 const md = kstMonthDay;
 const hm = kstHourMinute;
@@ -2604,107 +2609,126 @@ export function RedesignScreens({ e }: any) {
   if (route === 'tower') {
     // 섬 간 랭킹만 보여 준다(우리 섬 주민 순위 없음). 주민 평균 집중(이번 주) 순서, 매주 일요일 00시 초기화
     if (server) {
-      // 서버 주간 랭킹이 정본(GROMO-2018) — rank(동점 공동)·myRank(전체 모집단 기준)는
-      // 서버 값 그대로고, 앱이 순번을 다시 매기거나 0위를 지어내지 않는다.
+      // 서버 주간 랭킹이 정본(GROMO-2018) — rank(동점 공동)를 그대로 쓰고
+      // 앱이 순번을 다시 매기거나 0위를 지어내지 않는다.
       const rk = islandRankings,
         myIslandId = snap?.currentIslandId,
         // 소속 섬은 뗏목으로 바로 간다 — 망원경에 넣을 일이 없어 행을 누를 수 없다(GROMO-2269)
-        joinedIds = new Set((snap?.memberships ?? []).map((m) => m.id)),
-        // 큰 글자(망원경과 같은 판정)에서는 «소속됨» 배지를 이름 아래 줄로 내린다 — 고정 폭 순위·썸네일 옆에 두면 배지가 행 폭을 다 차지해 이름·평균 칸이 0 으로 준다
-        largeText = (layout.fontScale ?? 1) >= semanticTokens.typography.largeTextThreshold;
+        joinedIds = new Set((snap?.memberships ?? []).map((m) => m.id));
       return (
-        <IslandSheet
-          bg="tower"
-          sign="bld/observatory"
-          title="전망대"
-          tight
-          action="섬 찾기"
-          actionPress={() => go('explore')}
-          onClose={home}
-        >
-          <Txt kind="meta" style={st.meta}>
-            주민 평균 집중 시간 · 매주 일요일 00시에 새로 시작해요
-          </Txt>
-          {rk.status === 'loading' && (
-            <Txt
-              kind="meta"
-              testID="rankings-loading"
-              style={[st.meta, { textAlign: 'center', paddingVertical: 24 }]}
-            >
-              순위를 불러오는 중이에요
-            </Txt>
-          )}
-          {rk.status === 'error' && (
-            <View style={{ alignItems: 'center', paddingVertical: 20, gap: 10 }}>
-              <Txt kind="meta" style={[st.meta, { textAlign: 'center' }]}>
-                {rk.error?.message ?? '순위를 불러오지 못했어요.'}
-              </Txt>
-              <Btn small kind="sec" testID="rankings-retry" title="다시 시도" onPress={rk.retry} />
-            </View>
-          )}
-          {rk.status === 'ready' && rk.data && !rk.data.items.length && (
-            <Txt kind="meta" style={[st.meta, { textAlign: 'center', paddingVertical: 24 }]}>
-              아직 순위에 오른 섬이 없어요
-            </Txt>
-          )}
-          {rk.status === 'ready' && rk.data && rk.data.items.length > 0 && (
+        <ObservatorySearch
+          e={e}
+          pinController={telescopePin}
+          ranking={
             <>
-              <SheetGroup>
-                {rk.data.items.map((item) => {
-                  const joined = joinedIds.has(item.islandId);
-                  const label = `${item.rank}위 ${item.name}, 평균 ${hoursMinutes(item.averageFocusSeconds)}`;
-                  const joinedBadge = joined && (
-                    <Badge soft style={largeText ? undefined : rankJoinedBadge}>
-                      {t('observatory.joined')}
-                    </Badge>
-                  );
-                  return (
-                    <SheetRow
-                      key={item.islandId}
-                      title={item.name}
-                      sub={`평균 ${hoursMinutes(item.averageFocusSeconds)}`}
-                      label={joined ? `${label}, ${t('observatory.joined')}` : label}
-                      tone={item.islandId === myIslandId ? 'butter' : undefined}
-                      lead={
-                        <Txt
-                          style={{
-                            width: 26,
-                            fontSize: 18,
-                            lineHeight: 26.1,
-                            fontWeight: '800',
-                            textAlign: 'center',
-                          }}
-                        >
-                          {item.rank}
-                        </Txt>
-                      }
-                      below={largeText ? joinedBadge : undefined}
-                      tail={
-                        <>
-                          {!largeText && joinedBadge}
-                          <IslandThumb />
-                        </>
-                      }
-                      chevron={!joined}
-                      disabled={telescopePin.busy}
-                      // 소속이 아닌 섬은 확인창 → 망원경에 넣기(방문 화면으로 보내지 않는다)
-                      onPress={
-                        joined
+              {rk.status === 'ready' && rk.data && (
+                <ObservatoryPodium
+                  items={rk.data.items
+                    .filter((item) => item.rank <= 3)
+                    .map((item) => {
+                      const joined = joinedIds.has(item.islandId);
+                      const label = t('observatory.rankLabel', {
+                        rank: item.rank,
+                        name: item.name,
+                        time: hoursMinutes(item.averageFocusSeconds),
+                      });
+                      return {
+                        id: item.islandId,
+                        name: item.name,
+                        rank: item.rank,
+                        average: t('observatory.average', {
+                          time: hoursMinutes(item.averageFocusSeconds),
+                        }),
+                        joined,
+                        label: joined ? `${label}, ${t('observatory.joined')}` : label,
+                        disabled: telescopePin.busy,
+                        onPress: joined
                           ? undefined
-                          : () => telescopePin.ask({ id: item.islandId, name: item.name })
-                      }
-                    />
-                  );
-                })}
-              </SheetGroup>
-              {rk.data.myRank !== null && (
-                <Txt kind="meta" style={[st.meta, { textAlign: 'center', paddingTop: 10 }]}>
-                  우리 섬 이번 주 {rk.data.myRank}위
-                </Txt>
+                          : () => telescopePin.ask({ id: item.islandId, name: item.name }),
+                      };
+                    })}
+                />
               )}
+              <ObservatoryLedger
+                visible={
+                  rk.status !== 'ready' ||
+                  !rk.data?.items.length ||
+                  rk.data.items.some((item) => item.rank > 3)
+                }
+              >
+                {rk.status === 'loading' && (
+                  <Txt
+                    kind="meta"
+                    testID="rankings-loading"
+                    style={[st.meta, { textAlign: 'center', paddingVertical: 24 }]}
+                  >
+                    {t('observatory.loading')}
+                  </Txt>
+                )}
+                {rk.status === 'error' && (
+                  <View style={{ alignItems: 'center', paddingVertical: 20, gap: 10 }}>
+                    <Txt kind="meta" style={[st.meta, { textAlign: 'center' }]}>
+                      {serverErrorText(rk.error) || t('observatory.failed')}
+                    </Txt>
+                    <Btn
+                      small
+                      kind="sec"
+                      testID="rankings-retry"
+                      title={t('common.retry')}
+                      onPress={rk.retry}
+                    />
+                  </View>
+                )}
+                {rk.status === 'ready' && rk.data && !rk.data.items.length && (
+                  <Txt kind="meta" style={[st.meta, { textAlign: 'center', paddingVertical: 24 }]}>
+                    {t('observatory.empty')}
+                  </Txt>
+                )}
+                {rk.status === 'ready' &&
+                  rk.data &&
+                  rk.data.items.some((item) => item.rank > 3) && (
+                    <>
+                      <View>
+                        {rk.data.items
+                          .filter((item) => item.rank > 3)
+                          .map((item) => {
+                            const joined = joinedIds.has(item.islandId);
+                            const label = t('observatory.rankLabel', {
+                              rank: item.rank,
+                              name: item.name,
+                              time: hoursMinutes(item.averageFocusSeconds),
+                            });
+                            const joinedBadge = joined && (
+                              <Badge soft>{t('observatory.joined')}</Badge>
+                            );
+                            return (
+                              <ObservatoryRow
+                                key={item.islandId}
+                                title={item.name}
+                                average={t('observatory.average', {
+                                  time: hoursMinutes(item.averageFocusSeconds),
+                                })}
+                                label={joined ? `${label}, ${t('observatory.joined')}` : label}
+                                current={item.islandId === myIslandId}
+                                rank={item.rank}
+                                below={joinedBadge}
+                                disabled={telescopePin.busy}
+                                // 소속이 아닌 섬은 확인창 → 망원경에 넣기(방문 화면으로 보내지 않는다)
+                                onPress={
+                                  joined
+                                    ? undefined
+                                    : () => telescopePin.ask({ id: item.islandId, name: item.name })
+                                }
+                              />
+                            );
+                          })}
+                      </View>
+                    </>
+                  )}
+              </ObservatoryLedger>
             </>
-          )}
-        </IslandSheet>
+          }
+        />
       );
     }
     const islands = state.islands
@@ -2719,58 +2743,103 @@ export function RedesignScreens({ e }: any) {
       .map((i) => ({ i, avg: islandWeeklyAverage(state, i, now) }))
       .sort((a, b) => b.avg - a.avg);
     return (
-      <IslandSheet
-        bg="tower"
-        sign="bld/observatory"
-        title="전망대"
-        tight
-        action="섬 찾기"
-        actionPress={() => go('explore')}
-        onClose={home}
-      >
-        <Txt kind="meta" style={st.meta}>
-          주민 평균 집중 시간 · 매주 일요일 00시에 새로 시작해요
-        </Txt>
-        {!islands.length && (
-          <Txt kind="meta" style={[st.meta, { textAlign: 'center', paddingVertical: 24 }]}>
-            아직 순위에 오른 섬이 없어요
-          </Txt>
-        )}
-        <SheetGroup>
-          {islands.map(({ i, avg }, n) => (
-            <SheetRow
-              key={i.id}
-              title={i.name}
-              sub={`평균 ${hoursMinutes(avg)} · 주민 ${residentCount(i)}`}
-              label={`${n + 1}위 ${i.name}, 평균 ${hoursMinutes(avg)}, 주민 ${residentCount(i)}명`}
-              tone={n === 0 ? 'butter' : undefined}
-              lead={
-                <Txt
-                  style={{
-                    width: 26,
-                    fontSize: 18,
-                    lineHeight: 26.1,
-                    fontWeight: '800',
-                    textAlign: 'center',
-                  }}
-                >
-                  {n + 1}
-                </Txt>
-              }
-              tail={<IslandThumb warm={i.id === 'strawberry'} />}
-              chevron={i.id !== island.id}
-              onPress={
-                i.id === island.id
-                  ? undefined
-                  : () => {
-                      setVisited(i.id);
-                      go('visit', i.id);
+      <ObservatorySearch
+        e={e}
+        localResults={(query) => {
+          const matches = state.islands.filter(
+            (i) =>
+              !i.closed &&
+              !i.kicked &&
+              i.visibility !== 'private' &&
+              i.name.includes(query) &&
+              (i.joined || !isFull(i)),
+          );
+          return (
+            <ObservatoryLedger>
+              <ObservatoryHeading />
+              {matches.length ? (
+                matches.map((i) => (
+                  <ObservatoryRow
+                    key={i.id}
+                    title={i.name}
+                    sub={[
+                      i.intro,
+                      t('telescope.residents', { count: residentCount(i), max: capacityOf(i) }),
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')}
+                    memberCount={residentCount(i)}
+                    label={i.name}
+                    below={i.joined && <Badge soft>{t('observatory.joined')}</Badge>}
+                    onPress={
+                      i.joined
+                        ? undefined
+                        : () => {
+                            setVisited(i.id);
+                            go('visit', i.id);
+                          }
                     }
-              }
+                  />
+                ))
+              ) : (
+                <Txt kind="meta">{t('observatory.searchEmpty')}</Txt>
+              )}
+            </ObservatoryLedger>
+          );
+        }}
+        ranking={
+          <>
+            <ObservatoryPodium
+              items={islands.slice(0, 3).map(({ i, avg }, n) => ({
+                id: i.id,
+                name: i.name,
+                rank: n + 1,
+                memberCount: residentCount(i),
+                average: t('observatory.average', { time: hoursMinutes(avg) }),
+                label: `${n + 1}위 ${i.name}, 평균 ${hoursMinutes(avg)}`,
+                joined: i.joined,
+                onPress:
+                  i.id === island.id
+                    ? undefined
+                    : () => {
+                        setVisited(i.id);
+                        go('visit', i.id);
+                      },
+              }))}
             />
-          ))}
-        </SheetGroup>
-      </IslandSheet>
+            <ObservatoryLedger visible={islands.length === 0 || islands.length > 3}>
+              {!islands.length && (
+                <Txt kind="meta" style={[st.meta, { textAlign: 'center', paddingVertical: 24 }]}>
+                  {t('observatory.empty')}
+                </Txt>
+              )}
+              {islands.length > 3 && (
+                <View>
+                  {islands.slice(3).map(({ i, avg }, n) => (
+                    <ObservatoryRow
+                      key={i.id}
+                      title={i.name}
+                      average={t('observatory.average', { time: hoursMinutes(avg) })}
+                      label={`${n + 4}위 ${i.name}, 평균 ${hoursMinutes(avg)}, 주민 ${residentCount(i)}명`}
+                      current={i.id === island.id}
+                      rank={n + 4}
+                      memberCount={residentCount(i)}
+                      onPress={
+                        i.id === island.id
+                          ? undefined
+                          : () => {
+                              setVisited(i.id);
+                              go('visit', i.id);
+                            }
+                      }
+                    />
+                  ))}
+                </View>
+              )}
+            </ObservatoryLedger>
+          </>
+        }
+      />
     );
   }
   if (route === 'explore') {
@@ -3830,7 +3899,7 @@ export function RedesignScreens({ e }: any) {
                     slot,
                     id,
                     server
-                      ? (catalog[id]?.title ?? productTitle(id))
+                      ? customizationTitle(id, catalog[id]?.title ?? productTitle(id))
                       : products.find((p) => p.id === id)?.title || id,
                     picture(slot, id),
                   ),

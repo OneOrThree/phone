@@ -1,0 +1,694 @@
+{
+  "scope": "2026-10-29 continuation batch (400 synthetic users)",
+  "applied": {
+    "at": 1793244944.4326794,
+    "mode": "APPLY",
+    "guard": {
+      "stats": 60,
+      "seconds": 1426,
+      "sessions": 129,
+      "users": 400,
+      "focus": 747,
+      "leases": 0
+    },
+    "protectedIslands": 5,
+    "foreignRows": 5,
+    "counts": {
+      "DATA": [
+        {
+          "tab": "island_weekly_focus",
+          "n": 6
+        },
+        {
+          "tab": "focus_live_activities",
+          "n": 0
+        },
+        {
+          "tab": "groups",
+          "n": 35
+        },
+        {
+          "tab": "daily_focus_stats",
+          "n": 60
+        },
+        {
+          "tab": "focus_session_pomodoros",
+          "n": 0
+        },
+        {
+          "tab": "focus_reward_accruals",
+          "n": 0
+        },
+        {
+          "tab": "island_layouts",
+          "n": 40
+        },
+        {
+          "tab": "user_island_contexts",
+          "n": 400
+        },
+        {
+          "tab": "aggregate_versions",
+          "n": 1000
+        },
+        {
+          "tab": "auth_sessions",
+          "n": 400
+        },
+        {
+          "tab": "users",
+          "n": 400
+        },
+        {
+          "tab": "group_members",
+          "n": 400
+        },
+        {
+          "tab": "focus_settlements",
+          "n": 747
+        },
+        {
+          "tab": "focus_session_details",
+          "n": 747
+        },
+        {
+          "tab": "focus_session_intervals",
+          "n": 2224
+        },
+        {
+          "tab": "focus_sessions",
+          "n": 747
+        },
+        {
+          "tab": "event_outbox",
+          "n": 8862
+        },
+        {
+          "tab": "event_outbox_deliveries",
+          "n": 10062
+        }
+      ],
+      "CHAT": [
+        {
+          "tab": "chat_messages",
+          "n": 100199
+        },
+        {
+          "tab": "chat_read_cursors",
+          "n": 0
+        },
+        {
+          "tab": "inbound_events",
+          "n": 6822
+        },
+        {
+          "tab": "user_tombstones",
+          "n": 0
+        }
+      ],
+      "NOTI": [
+        {
+          "tab": "delivery_devices",
+          "n": 0
+        },
+        {
+          "tab": "deliveries",
+          "n": 0
+        },
+        {
+          "tab": "device_tokens",
+          "n": 0
+        },
+        {
+          "tab": "projections",
+          "n": 0
+        },
+        {
+          "tab": "settings",
+          "n": 0
+        },
+        {
+          "tab": "result_ack",
+          "n": 0
+        },
+        {
+          "tab": "result_bundle_manifests",
+          "n": 0
+        },
+        {
+          "tab": "session_fences",
+          "n": 0
+        },
+        {
+          "tab": "legacy_session_fences",
+          "n": 400
+        },
+        {
+          "tab": "user_fences",
+          "n": 400
+        },
+        {
+          "tab": "inbound_events",
+          "n": 1200
+        },
+        {
+          "tab": "commands",
+          "n": 0
+        }
+      ]
+    },
+    "otherAnonymized": [
+      {
+        "tab": "daily_screen_time_stats",
+        "n": 0
+      },
+      {
+        "tab": "group_announcements",
+        "n": 0
+      },
+      {
+        "tab": "group_invite_links",
+        "n": 0
+      },
+      {
+        "tab": "invite_link_clicks",
+        "n": 0
+      },
+      {
+        "tab": "island_quest_claims",
+        "n": 0
+      },
+      {
+        "tab": "island_quests",
+        "n": 0
+      }
+    ],
+    "individualStatsMatched": 60,
+    "manifestSha256": "4bacf05c63bb192d9161387202a541635aaf8773f8ffff8191290549d270854e",
+    "DATADeleted": [
+      {
+        "table": "focus_settlements",
+        "deleted": 747
+      },
+      {
+        "table": "focus_live_activities",
+        "deleted": 0
+      },
+      {
+        "table": "focus_reward_accruals",
+        "deleted": 0
+      },
+      {
+        "table": "focus_session_intervals",
+        "deleted": 2224
+      },
+      {
+        "table": "focus_session_details",
+        "deleted": 747
+      },
+      {
+        "table": "focus_session_pomodoros",
+        "deleted": 0
+      },
+      {
+        "table": "focus_sessions",
+        "deleted": 747
+      },
+      {
+        "table": "daily_focus_stats",
+        "deleted": 60
+      },
+      {
+        "table": "event_outbox_deliveries",
+        "deleted": 10062
+      },
+      {
+        "table": "aggregate_versions",
+        "deleted": 1000
+      },
+      {
+        "table": "event_outbox",
+        "deleted": 8862
+      },
+      {
+        "table": "group_members",
+        "deleted": 400
+      },
+      {
+        "table": "island_layouts",
+        "deleted": 40
+      },
+      {
+        "table": "island_weekly_focus",
+        "deleted": 6
+      },
+      {
+        "table": "user_island_contexts",
+        "deleted": 400
+      },
+      {
+        "table": "auth_sessions",
+        "deleted": 400
+      },
+      {
+        "table": "users",
+        "deleted": 400
+      },
+      {
+        "table": "groups",
+        "deleted": 35
+      }
+    ],
+    "CHATDeleted": [
+      {
+        "table": "chat_messages",
+        "deleted": 100199
+      },
+      {
+        "table": "chat_read_cursors",
+        "deleted": 0
+      },
+      {
+        "table": "inbound_events",
+        "deleted": 6822
+      },
+      {
+        "table": "user_tombstones",
+        "deleted": 0
+      }
+    ],
+    "NOTIDeleted": [
+      {
+        "table": "delivery_devices",
+        "deleted": 0
+      },
+      {
+        "table": "deliveries",
+        "deleted": 0
+      },
+      {
+        "table": "device_tokens",
+        "deleted": 0
+      },
+      {
+        "table": "projections",
+        "deleted": 0
+      },
+      {
+        "table": "settings",
+        "deleted": 0
+      },
+      {
+        "table": "result_ack",
+        "deleted": 0
+      },
+      {
+        "table": "result_bundle_manifests",
+        "deleted": 0
+      },
+      {
+        "table": "session_fences",
+        "deleted": 0
+      },
+      {
+        "table": "legacy_session_fences",
+        "deleted": 400
+      },
+      {
+        "table": "user_fences",
+        "deleted": 400
+      },
+      {
+        "table": "inbound_events",
+        "deleted": 1200
+      },
+      {
+        "table": "commands",
+        "deleted": 0
+      }
+    ],
+    "foreignRowsUnchanged": true,
+    "afterCounts": {
+      "DATA": [
+        {
+          "tab": "island_weekly_focus",
+          "n": 0
+        },
+        {
+          "tab": "focus_live_activities",
+          "n": 0
+        },
+        {
+          "tab": "groups",
+          "n": 0
+        },
+        {
+          "tab": "daily_focus_stats",
+          "n": 0
+        },
+        {
+          "tab": "focus_session_pomodoros",
+          "n": 0
+        },
+        {
+          "tab": "focus_reward_accruals",
+          "n": 0
+        },
+        {
+          "tab": "island_layouts",
+          "n": 0
+        },
+        {
+          "tab": "user_island_contexts",
+          "n": 0
+        },
+        {
+          "tab": "aggregate_versions",
+          "n": 0
+        },
+        {
+          "tab": "auth_sessions",
+          "n": 0
+        },
+        {
+          "tab": "users",
+          "n": 0
+        },
+        {
+          "tab": "group_members",
+          "n": 0
+        },
+        {
+          "tab": "focus_settlements",
+          "n": 0
+        },
+        {
+          "tab": "focus_session_details",
+          "n": 0
+        },
+        {
+          "tab": "focus_session_intervals",
+          "n": 0
+        },
+        {
+          "tab": "focus_sessions",
+          "n": 0
+        },
+        {
+          "tab": "event_outbox",
+          "n": 0
+        },
+        {
+          "tab": "event_outbox_deliveries",
+          "n": 0
+        }
+      ],
+      "CHAT": [
+        {
+          "tab": "chat_messages",
+          "n": 0
+        },
+        {
+          "tab": "chat_read_cursors",
+          "n": 0
+        },
+        {
+          "tab": "inbound_events",
+          "n": 0
+        },
+        {
+          "tab": "user_tombstones",
+          "n": 0
+        }
+      ],
+      "NOTI": [
+        {
+          "tab": "delivery_devices",
+          "n": 0
+        },
+        {
+          "tab": "deliveries",
+          "n": 0
+        },
+        {
+          "tab": "device_tokens",
+          "n": 0
+        },
+        {
+          "tab": "projections",
+          "n": 0
+        },
+        {
+          "tab": "settings",
+          "n": 0
+        },
+        {
+          "tab": "result_ack",
+          "n": 0
+        },
+        {
+          "tab": "result_bundle_manifests",
+          "n": 0
+        },
+        {
+          "tab": "session_fences",
+          "n": 0
+        },
+        {
+          "tab": "legacy_session_fences",
+          "n": 0
+        },
+        {
+          "tab": "user_fences",
+          "n": 0
+        },
+        {
+          "tab": "inbound_events",
+          "n": 0
+        },
+        {
+          "tab": "commands",
+          "n": 0
+        }
+      ]
+    },
+    "finishedAt": 1793244951.5917892
+  },
+  "delayedVerification": {
+    "at": 1793245073.927594,
+    "counts": {
+      "DATA": [
+        {
+          "tab": "island_weekly_focus",
+          "n": 0
+        },
+        {
+          "tab": "focus_live_activities",
+          "n": 0
+        },
+        {
+          "tab": "groups",
+          "n": 0
+        },
+        {
+          "tab": "daily_focus_stats",
+          "n": 0
+        },
+        {
+          "tab": "focus_session_pomodoros",
+          "n": 0
+        },
+        {
+          "tab": "focus_reward_accruals",
+          "n": 0
+        },
+        {
+          "tab": "aggregate_versions",
+          "n": 0
+        },
+        {
+          "tab": "island_layouts",
+          "n": 0
+        },
+        {
+          "tab": "user_island_contexts",
+          "n": 0
+        },
+        {
+          "tab": "auth_sessions",
+          "n": 0
+        },
+        {
+          "tab": "users",
+          "n": 0
+        },
+        {
+          "tab": "group_members",
+          "n": 0
+        },
+        {
+          "tab": "focus_settlements",
+          "n": 0
+        },
+        {
+          "tab": "focus_session_details",
+          "n": 0
+        },
+        {
+          "tab": "focus_session_intervals",
+          "n": 0
+        },
+        {
+          "tab": "focus_sessions",
+          "n": 0
+        },
+        {
+          "tab": "event_outbox",
+          "n": 0
+        },
+        {
+          "tab": "event_outbox_deliveries",
+          "n": 0
+        }
+      ],
+      "CHAT": [
+        {
+          "tab": "chat_messages",
+          "n": 0
+        },
+        {
+          "tab": "chat_read_cursors",
+          "n": 0
+        },
+        {
+          "tab": "inbound_events",
+          "n": 0
+        },
+        {
+          "tab": "user_tombstones",
+          "n": 0
+        }
+      ],
+      "NOTI": [
+        {
+          "tab": "delivery_devices",
+          "n": 0
+        },
+        {
+          "tab": "deliveries",
+          "n": 0
+        },
+        {
+          "tab": "device_tokens",
+          "n": 0
+        },
+        {
+          "tab": "projections",
+          "n": 0
+        },
+        {
+          "tab": "settings",
+          "n": 0
+        },
+        {
+          "tab": "result_ack",
+          "n": 0
+        },
+        {
+          "tab": "result_bundle_manifests",
+          "n": 0
+        },
+        {
+          "tab": "session_fences",
+          "n": 0
+        },
+        {
+          "tab": "legacy_session_fences",
+          "n": 0
+        },
+        {
+          "tab": "user_fences",
+          "n": 0
+        },
+        {
+          "tab": "inbound_events",
+          "n": 0
+        },
+        {
+          "tab": "commands",
+          "n": 0
+        }
+      ]
+    },
+    "normalSeaCount": 5,
+    "normalSeaUnchanged": true,
+    "remainingGroups": {
+      "total": 5,
+      "closed": 5,
+      "active": 0
+    },
+    "finishedAt": 1793245076.1453056
+  },
+  "redis": {
+    "at": 1793244989.432228,
+    "results": [
+      {
+        "redis": "catus-redis-1",
+        "code": 0,
+        "error": "",
+        "totalKeys": 0,
+        "deleted": 0,
+        "remaining": 0,
+        "prefixes": {}
+      },
+      {
+        "redis": "catus-business-redis-1",
+        "code": 0,
+        "error": "",
+        "totalKeys": 10,
+        "deleted": 10,
+        "remaining": 0,
+        "prefixes": {
+          "cache:business": 10
+        }
+      }
+    ]
+  },
+  "broadDataUuidAudit": {
+    "at": 1793245000.8512552,
+    "exitCode": 0,
+    "rows": [
+      [
+        {
+          "tab": "focus_session_details",
+          "n": 5
+        },
+        {
+          "tab": "groups",
+          "n": 5
+        }
+      ]
+    ]
+  },
+  "broadDataUuidAuditScope": {
+    "schema": "public",
+    "tables": 99,
+    "uuidColumns": 219,
+    "textIdentifierColumns": 8,
+    "matching": "exact UUID/text equality",
+    "excluded": [
+      "JSON or array contents",
+      "substring matching"
+    ]
+  },
+  "redisOwnershipVerification": {
+    "source": "fixture-identities.json frozen list (400 exact user IDs)",
+    "matching": "last colon-delimited key segment must equal one of the fixture user IDs",
+    "deletedByExactPrefix": {
+      "cache:business:withdrawn": 10
+    },
+    "matchedKeys": 10,
+    "unmatchedDeletedKeys": 0,
+    "identifiersPublished": false
+  }
+}

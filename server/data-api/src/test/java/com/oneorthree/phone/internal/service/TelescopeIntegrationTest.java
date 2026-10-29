@@ -416,9 +416,9 @@ class TelescopeIntegrationTest {
                 + "where user_id = ?", String.class, viewer.getId())).isEqualTo("0:false");
 
         island("늦게생긴섬", 10);
-        // 가입 가능한 일반 섬이 생기면 첫 정착 보장은 풀리고 독립 20% 추첨만 남을 수 있다.
+        // 일반 목록은 빈 스냅샷을 유지하고, 무인도는 현재 100% 확률에 따라 계속 표시한다.
         assertThat(telescope.list(viewer.getId()).items()).extracting(TelescopeItemView::slot)
-                .allMatch("uninhabited"::equals);
+                .containsExactly("uninhabited");
         assertThat(jdbc.queryForObject("select count(*) from telescope_buckets where user_id = ?", Long.class,
                 viewer.getId())).isEqualTo(1L);
     }
