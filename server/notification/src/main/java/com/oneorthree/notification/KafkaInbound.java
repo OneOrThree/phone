@@ -1,5 +1,6 @@
 package com.oneorthree.notification;
 
+import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.common.TopicPartition;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
@@ -24,9 +25,13 @@ class KafkaInbound {
         this.inbound = inbound;
     }
 
+    /**
+     * 본문 처리는 그대로이고, 레코드 헤더의 원인 문맥(GROMO-2557)을 이 처리 동안만 MDC 에 설치한다. 헤더가 없거나 형식이
+     * 어긋나도 수신은 같다. DLT 로 갈 때는 recoverer 기본 동작이 원본 헤더를 그대로 옮긴다.
+     */
     @KafkaListener(topics = "notification-events", groupId = "notification-v1")
-    public void receive(String value) {
-        inbound.accept(Json.map(value));
+    public void receive(ConsumerRecord<String, String> record) {
+        InboundTrace.fromKafka(record.headers()).accept(inbound, Json.map(record.value()), "kafka");
     }
 
     @Bean

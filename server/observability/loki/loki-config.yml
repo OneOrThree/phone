@@ -38,6 +38,8 @@ limits_config:
   retention_period: 168h            # 7일
   reject_old_samples: false
   allow_structured_metadata: true
+  # Loki 3 은 service 라벨이 있으면 service_name 라벨을 자동으로 더 만든다. 라벨은 env·service·log_kind 셋뿐이어야 한다(GROMO-2555).
+  discover_service_name: []
 
 query_range:
   results_cache:

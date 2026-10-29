@@ -57,6 +57,7 @@ public class TraceIdFilter extends OncePerRequestFilter {
             if (!candidate.isEmpty() && !SAFE_ID.matcher(candidate).matches()) {
                 // trace_id 쪽과 같은 정책 — 외부 입력 원문은 싣지 않고 헤더명·길이만 남긴다.
                 log.debug("상관 ID 헤더를 버리고 새로 만든다 header={} length={}", REQUEST_ID_HEADER, candidate.length());
+                // request_id 폴백은 Business 가 만드는 ID 와 같은 하이픈 포함 UUID, trace_id 폴백(아래)은 하이픈 없는 32자.
                 requestId = UUID.randomUUID().toString();
             }
             MDC.put(MDC_REQUEST_ID, requestId);
