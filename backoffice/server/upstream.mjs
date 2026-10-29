@@ -160,6 +160,17 @@ export class Upstream {
     return this.request(this.dataUrl, "/internal/admin/policies/focus", actor,
       operator.dataToken, undefined, "GET");
   }
+  async approveFocusPolicy(request, actor, operator) {
+    if (this.mode === "local") return { ...request, approvedBy: actor,
+      approvedAt: new Date().toISOString(), local: true };
+    await this.verifyEnvironment(this.environment, actor, operator);
+    return this.request(this.dataUrl,
+      `/internal/admin/policies/focus/approvals/${request.approvalId}`,
+      actor, operator.dataToken, {
+        expectedRevision: request.expectedRevision, policy: request.policy,
+        approvedDigest: request.approvedDigest,
+      }, "POST", request.approvalId);
+  }
   async publishFocusPolicy(item, actor, operator) {
     if (this.mode === "local") return {
       publicationId: item.publicationId, revision: item.expectedRevision + 1,
@@ -169,10 +180,10 @@ export class Upstream {
     return this.request(this.dataUrl,
       `/internal/admin/policies/focus/publications/${item.publicationId}`,
       actor, operator.dataToken, {
+        approvalId: item.approvalId,
         expectedRevision: item.expectedRevision,
         policy: item.approvedPolicy,
         approvedDigest: item.approvedDigest,
-        approvedBy: item.approvedBy,
       }, "PUT", `${item.id}:${item.revision}`);
   }
   async publish(item, actor, operator) {

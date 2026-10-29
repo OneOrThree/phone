@@ -11,6 +11,11 @@ import { createApp } from "../server/app.mjs";
 
 const policy = { secondsPerFish: 60, dailyCapFish: 480, personalSharePercent: 0,
   goldenFishReward: 50, goldenMaxMembers: 5, goldenChancePpm: [4000, 12000, 24000, 40000] };
+function approve(store, item, actor) {
+  const request = store.approvalRequest(item.id, item.revision);
+  return store.transition(item.id, item.revision, actor, "approve",
+    { ...request, approvedBy: actor, approvedAt: new Date().toISOString() });
+}
 
 test("정책 digest는 고정 필드 순서의 공백 없는 JSON SHA256이다", () => {
   const shuffled = { goldenChancePpm: policy.goldenChancePpm, goldenMaxMembers: 5,
@@ -25,8 +30,12 @@ test("정책 변경은 승인 snapshot만 적용하며 수정 시 재승인하�
   let item = store.create({ policy, expectedRevision: 1 }, "member-1");
   assert.throws(() => store.transition(item.id, item.revision, "member-2", "publish"), /승인된/);
   item = store.transition(item.id, item.revision, "member-1", "review");
-  item = store.transition(item.id, item.revision, "member-1", "approve");
+  const request = store.approvalRequest(item.id, item.revision);
+  assert.throws(() => store.transition(item.id, item.revision, "member-1", "approve",
+    { ...request, approvedBy: "member-2" }), /Data 승인 기록/);
+  item = approve(store, item, "member-1");
   assert.equal(item.approvedDigest, focusDigest(policy));
+  assert.equal(item.approvalId, request.approvalId);
   assert.throws(() => store.transition(item.id, item.revision, "member-1", "publish"), /다른 운영자/);
   const approved = item;
   item = store.edit(item.id, { revision: item.revision, expectedRevision: 1,
@@ -35,10 +44,14 @@ test("정책 변경은 승인 snapshot만 적용하며 수정 시 재승인하�
   assert.equal(item.approvedDigest, undefined);
   assert.deepEqual(store.versions(item.id).map(version => version.revision), [2, 1]);
   assert.equal(store.versions(item.id)[1].digest, approved.approvedDigest);
+  assert.throws(() => db.db.prepare("UPDATE focus_policy_snapshots SET digest='x' WHERE draft_id=? AND revision=1")
+    .run(item.id), /immutable/);
+  assert.throws(() => db.db.prepare("DELETE FROM focus_policy_snapshots WHERE draft_id=? AND revision=1")
+    .run(item.id), /immutable/);
   assert.throws(() => store.transition(item.id, approved.revision, "member-2", "publish"), /다른 변경/);
   assert.throws(() => store.transition(item.id, item.revision, "member-2", "publish"), /승인된/);
   item = store.transition(item.id, item.revision, "member-1", "review");
-  item = store.transition(item.id, item.revision, "member-2", "approve");
+  item = approve(store, item, "member-2");
   item = store.transition(item.id, item.revision, "member-3", "publish");
   assert.equal(item.publicationId.length, 36);
   item = store.finish(item.id, { revision: 2 });
@@ -58,6 +71,16 @@ test("확률표 범위와 인원별 길이를 검증한다", () => {
   db.close();
 });
 
+test("저장된 검토 수정본과 다른 문서는 승인할 수 없다", () => {
+  const db = new Store(":memory:");
+  const store = new FocusPolicyStore(db);
+  let item = store.create({ policy, expectedRevision: 1 }, "member-1");
+  item = store.transition(item.id, item.revision, "member-1", "review");
+  store.save({ ...item, policy: { ...policy, goldenFishReward: 999 } });
+  assert.throws(() => approve(store, item, "member-2"), /수정본이 다릅니다/);
+  db.close();
+});
+
 test("응답 유실과 재시작은 같은 publicationId를 유지하고 최초 적용자만 재시도한다", () => {
   const dir = mkdtempSync(join(tmpdir(), "backoffice-policy-"));
   const path = join(dir, "test.sqlite");
@@ -65,7 +88,7 @@ test("응답 유실과 재시작은 같은 publicationId를 유지하고 최초 
   let store = new FocusPolicyStore(db);
   let item = store.create({ policy, expectedRevision: 1 }, "member-1");
   item = store.transition(item.id, item.revision, "member-1", "review");
-  item = store.transition(item.id, item.revision, "member-1", "approve");
+  item = approve(store, item, "member-1");
   item = store.transition(item.id, item.revision, "member-2", "publish");
   const id = item.publicationId;
   db.close();
@@ -90,20 +113,53 @@ test("상류 정책 조회·발행은 환경 확인과 승인 payload, 운영자
       calls.push({ path: url.pathname, method: options.method, headers: options.headers, body: options.body });
       if (url.pathname.endsWith("/environment")) return new Response(JSON.stringify({ environment: "dev", fcmProjectId: "gromo-dev" }));
       if (options.method === "GET") return new Response(JSON.stringify({ current: { revision: 1, policy }, history: [] }));
+      if (url.pathname.includes("/approvals/")) return new Response(JSON.stringify({ approvalId: "approval-id", expectedRevision: 1,
+        policy, approvedDigest: focusDigest(policy), approvedBy: "member-1", approvedAt: new Date().toISOString() }));
       return new Response(JSON.stringify({ publicationId: "id", revision: 2, policy }));
     } });
   const operator = { dataToken: "data-secret", notificationToken: "noti-secret" };
   const current = await upstream.focusPolicy("member-1", operator);
   assert.equal(current.current.revision, 1);
+  await upstream.approveFocusPolicy({ approvalId: "approval-id", expectedRevision: 1,
+    policy, approvedDigest: focusDigest(policy) }, "member-1", operator);
   await upstream.publishFocusPolicy({ id: "draft", revision: 2, publicationId: "publication-id", expectedRevision: 1,
-    approvedPolicy: policy, approvedDigest: focusDigest(policy), approvedBy: "member-1" }, "member-2", operator);
+    approvalId: "approval-id", approvedPolicy: policy, approvedDigest: focusDigest(policy), approvedBy: "member-1" }, "member-2", operator);
+  const approval = calls.find(call => call.path === "/internal/admin/policies/focus/approvals/approval-id");
+  assert.equal(approval.headers.Authorization, "Bearer data-secret");
+  assert.equal(approval.headers["X-Console-Actor"], "member-1");
+  assert.deepEqual(JSON.parse(approval.body), { expectedRevision: 1, policy, approvedDigest: focusDigest(policy) });
   const put = calls.find(call => call.method === "PUT");
   assert.equal(put.path, "/internal/admin/policies/focus/publications/publication-id");
   assert.equal(put.headers.Authorization, "Bearer data-secret");
   assert.equal(put.headers["X-Console-Actor"], "member-2");
   assert.equal(put.headers["Idempotency-Key"], "draft:2");
-  assert.deepEqual(JSON.parse(put.body), { expectedRevision: 1, policy, approvedDigest: focusDigest(policy), approvedBy: "member-1" });
-  assert.equal(calls.filter(call => call.path.endsWith("/environment")).length, 4);
+  assert.deepEqual(JSON.parse(put.body), { approvalId: "approval-id", expectedRevision: 1, policy, approvedDigest: focusDigest(policy) });
+  assert.equal(calls.filter(call => call.path.endsWith("/environment")).length, 6);
+});
+
+test("Data revision 충돌은 확정 실패로 분류해 새 수정본·재승인이 가능하다", async () => {
+  const db = new Store(":memory:");
+  const store = new FocusPolicyStore(db);
+  let item = store.create({ policy, expectedRevision: 1 }, "member-1");
+  item = store.transition(item.id, item.revision, "member-1", "review");
+  item = approve(store, item, "member-1");
+  item = store.transition(item.id, item.revision, "member-2", "publish");
+  const upstream = new Upstream({ mode: "connected", environment: "dev", expectedFcmProjectId: "gromo-dev",
+    dataUrl: "http://data.internal", notificationUrl: "http://notification.internal",
+    fetchImpl: async (url) => url.pathname.endsWith("/environment")
+      ? new Response(JSON.stringify({ environment: "dev", fcmProjectId: "gromo-dev" }))
+      : new Response(JSON.stringify({ error: "REVISION_CONFLICT" }), { status: 409 }) });
+  let error;
+  try { await upstream.publishFocusPolicy(item, "member-2", { dataToken: "data", notificationToken: "noti" }); }
+  catch (cause) { error = cause; }
+  assert.equal(error.status, 409);
+  assert.equal(error.definite, true);
+  item = store.finish(item.id, null, error);
+  assert.equal(item.status, "failed");
+  item = store.edit(item.id, { revision: item.revision, expectedRevision: 2, policy }, "member-1");
+  assert.equal(item.status, "draft");
+  assert.equal(item.expectedRevision, 2);
+  db.close();
 });
 
 test("정책 HTTP 흐름은 로그인·CSRF와 승인자/적용자 분리를 지킨다", async t => {
@@ -114,6 +170,7 @@ test("정책 HTTP 흐름은 로그인·CSRF와 승인자/적용자 분리를 지
     [actor, { passwordHash: `${salt}:${scryptSync(actor, salt, 64).toString("hex")}` }]));
   const app = createApp({ store: db, upstream: {
     focusPolicy: async () => ({ current: { revision: 1, policy, publishedAt: null }, history: [] }),
+    approveFocusPolicy: async (request, actor) => ({ ...request, approvedBy: actor, approvedAt: new Date().toISOString() }),
     publishFocusPolicy: async item => ({ publicationId: item.publicationId, revision: 2, policy: item.approvedPolicy, local: true }),
   }, operators, origin, mode: "connected", environment: "dev" });
   await new Promise(resolve => app.listen(0, "127.0.0.1", resolve));

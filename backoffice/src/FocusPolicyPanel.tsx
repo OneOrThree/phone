@@ -45,7 +45,7 @@ function PolicyValues({ policy }: { policy: Policy }) {
     <div><dt>황금 물고기 당첨 확률</dt><dd>{policy.goldenChancePpm.map((ppm, index) => `${index + 2}명 ${ppm.toLocaleString('ko-KR')} ppm (${(ppm / 10000).toLocaleString('ko-KR')}%)`).join(' · ')}</dd></div>
   </dl>;
 }
-export function FocusPolicyPanel({ session }: { session: Session }) {
+export function FocusPolicyPanel({ session, onDirtyChange }: { session: Session; onDirtyChange: (dirty: boolean) => void }) {
   const [catalog, setCatalog] = useState<Catalog | null>(null);
   const [items, setItems] = useState<Draft[]>([]);
   const [selected, setSelected] = useState<Draft | null>(null);
@@ -55,6 +55,7 @@ export function FocusPolicyPanel({ session }: { session: Session }) {
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   const [dirty, setDirty] = useState(false);
+  useEffect(() => { onDirtyChange(dirty); }, [dirty, onDirtyChange]);
   async function refresh() {
     const [current, drafts] = await Promise.all([
       request<Catalog>('/api/policies/focus'),
@@ -146,6 +147,7 @@ export function FocusPolicyPanel({ session }: { session: Session }) {
           <label className="field"><span className="field-label">현재 정책 revision</span><input type="number" min="1" step="1" value={expectedRevision}
             onChange={event => { setExpectedRevision(Number(event.target.value)); setDirty(true); }} />
             <span className="field-hint">그 사이 다른 변경이 적용되면 서버가 충돌로 거부합니다.</span></label>
+          {catalog && expectedRevision !== catalog.current.revision && <button type="button" className="button secondary" onClick={() => { setExpectedRevision(catalog.current.revision); setDirty(true); }}>현재 revision {catalog.current.revision}으로 바꾸기</button>}
         </fieldset></form><div className="action-buttons">
           {editable && <button className="button secondary" type="submit" form="policy-form" disabled={!!busy || (!!selected && !dirty && selected.status !== 'failed')}>변경안 저장</button>}
           {selected?.status === 'draft' && <button className="button primary" disabled={!!busy || dirty} onClick={() => void transition('review')}>검토 요청</button>}
@@ -157,6 +159,6 @@ export function FocusPolicyPanel({ session }: { session: Session }) {
         {selected?.receipt && <p className="callout">{selected.receipt.local ? '로컬 모의 적용' : '적용 완료'} · revision {selected.receipt.revision}</p>}
         {selected && <><h3>수정본 이력</h3><ol className="history-list">{versions.map(version => <li key={version.revision}><details><summary>수정본 {version.revision} · digest {version.digest.slice(0, 12)}…</summary><PolicyValues policy={version.policy} /></details></li>)}</ol>
           <h3>검토·승인 기록</h3><ol className="audit-list">{selected.audit.map((event, index) => <li key={`${event.at}-${index}`}>{event.actor} · {event.action} · 수정본 {event.revision} · {date(event.at)}</li>)}</ol></>}</> : <p>현재값을 불러온 뒤 변경안을 작성하세요.</p>}</section></div>
-    <section className="policy-card"><h2>실제 발행 이력</h2>{catalog?.history?.length ? <ol className="history-list">{catalog.history.map(entry => <li key={entry.publicationId ?? `legacy-${entry.revision}`}><details><summary>revision {entry.revision} · {date(entry.publishedAt)} · {entry.actor ? `승인 ${entry.approvedBy} / 적용 ${entry.actor}` : '기존 정책 · 발행 원장 도입 전'}</summary><PolicyValues policy={entry.policy} />{entry.approvedDigest && <p>승인 digest {entry.approvedDigest}</p>}</details></li>)}</ol> : <p>표시할 발행 이력이 없습니다.</p>}</section>
+    <section className="policy-card"><h2>{catalog?.local ? '로컬 모의 발행 이력' : '실제 발행 이력'}</h2>{catalog?.history?.length ? <ol className="history-list">{catalog.history.map(entry => <li key={entry.publicationId ?? `legacy-${entry.revision}`}><details><summary>revision {entry.revision} · {date(entry.publishedAt)} · {entry.actor ? `승인 ${entry.approvedBy} / 적용 ${entry.actor}` : '기존 정책 · 발행 원장 도입 전'}</summary><PolicyValues policy={entry.policy} />{entry.approvedDigest && <p>승인 digest {entry.approvedDigest}</p>}</details></li>)}</ol> : <p>표시할 발행 이력이 없습니다.</p>}</section>
   </div>;
 }

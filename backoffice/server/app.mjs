@@ -251,7 +251,11 @@ export function createApp({
           return;
         }
         if (req.method === "POST" && ["review", "approve", "publish"].includes(action)) {
-          let item = policies.transition(id, (await bodyOf(req)).revision, auth.actor, action);
+          const revision = (await bodyOf(req)).revision;
+          const approval = action === "approve"
+            ? await upstream.approveFocusPolicy(policies.approvalRequest(id, revision), auth.actor, operator)
+            : undefined;
+          let item = policies.transition(id, revision, auth.actor, action, approval);
           if (action === "publish") {
             try {
               if (mode === "local") {
