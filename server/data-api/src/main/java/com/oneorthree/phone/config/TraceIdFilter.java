@@ -18,10 +18,10 @@ import jakarta.servlet.http.HttpServletResponse;
  * 요청 단위 로그 상관관계 키를 MDC 에 싣는 필터 — {@link FilterConfig} 가 {@code /internal/*} 에
  * order 2 로 등록한다. {@link InternalAuthFilter}(1) 뒤라야 인증이 심어 둔 userId 를 볼 수 있다.
  *
- * <p>상관 ID 는 {@code X-Trace-Id} 헤더를 먼저 보고, 비어 있으면 {@code X-Request-Id} 를 이어받는다.
- * business-api·realtime 이 내부 호출마다 {@code X-Request-Id} 를 실어 보내므로, 이를 trace_id 로
- * 이어받아야 한 요청이 호출한 쪽과 이쪽 로그에서 같은 값으로 꿰인다. 둘 다 없거나 아래 검사에
- * 걸리면 하이픈 없는 UUID 를 새로 만든다. userId 는 인증된 요청에서만 붙으므로 화이트리스트
+ * <p>서비스 간 연결 키는 {@code request_id} 다. business-api·realtime 이 내부 호출마다 실어 보내는
+ * {@code X-Request-Id} 가 그대로 {@code request_id} 가 된다. 레거시 {@code trace_id} 는
+ * {@code X-Trace-Id} 를 먼저 보고, 비어 있으면 호환을 위해 {@code X-Request-Id} 를 이어받는다. 둘 다 없거나
+ * 아래 검사에 걸리면 하이픈 없는 UUID 를 새로 만든다. userId 는 인증된 요청에서만 붙으므로 화이트리스트
  * 경로의 로그에는 {@code user_id} 가 없다.
  *
  * <p>헤더 값은 호출자가 정하는 외부 입력이라 로그 패턴에 그대로 실린다. 줄바꿈·구분자 같은 문자로
@@ -53,8 +53,12 @@ public class TraceIdFilter extends OncePerRequestFilter {
             String traceId = resolveTraceId(request);
             MDC.put(MDC_TRACE_ID, traceId);
             String candidate = trim(request.getHeader(REQUEST_ID_HEADER));
-            String requestId = candidate.isEmpty() ? traceId
-                    : SAFE_ID.matcher(candidate).matches() ? candidate : UUID.randomUUID().toString();
+            String requestId = candidate.isEmpty() ? traceId : candidate;
+            if (!candidate.isEmpty() && !SAFE_ID.matcher(candidate).matches()) {
+                // trace_id 쪽과 같은 정책 — 외부 입력 원문은 싣지 않고 헤더명·길이만 남긴다.
+                log.debug("상관 ID 헤더를 버리고 새로 만든다 header={} length={}", REQUEST_ID_HEADER, candidate.length());
+                requestId = UUID.randomUUID().toString();
+            }
             MDC.put(MDC_REQUEST_ID, requestId);
             MDC.remove(MDC_USER_ID);
 

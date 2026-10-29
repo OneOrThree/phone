@@ -37,7 +37,7 @@
 | 보존 | dev Loki 7일·시스템 로그 S3 90일은 기존 정책 유지. prod Loki 신규 도입의 7일 제안은 정책 정본 반영 후 적용 |
 | 제외 | 사용자 행동 분석 통합, 실시간 스트림 JOIN 엔진, Elasticsearch·Tempo 신규 도입, Logback의 직접 S3 업로드 |
 
-로그를 물리적으로 한 레코드로 합치지 않는다. 공통 스키마로 수집한 **이벤트들의 합집합**에서 `trace_id` 등을 필터해 한 화면에 보여준다. 서비스별 로그 테이블을 서로 SQL JOIN하면 여러 줄 사이의 조합이 늘어나 중복이 생길 수 있다. 서비스 간 시계 오차도 있으므로 타임스탬프 정렬만으로 인과관계를 단정하지 않는다.
+로그를 물리적으로 한 레코드로 합치지 않는다. 공통 스키마로 수집한 **이벤트들의 합집합**에서 `trace_id` 등을 필터해 한 화면에 보여준다. `trace_id`로 APM과 요청 로그를 잇는 것은 목표 상태(JSON 로그 티켓 이후 실제 tracer ID)이며, 현재(2553 시점) 서비스 간 연결 키는 `request_id`다. 서비스별 로그 테이블을 서로 SQL JOIN하면 여러 줄 사이의 조합이 늘어나 중복이 생길 수 있다. 서비스 간 시계 오차도 있으므로 타임스탬프 정렬만으로 인과관계를 단정하지 않는다.
 
 수집기는 기존 Fluent Bit 전환 구상과 S3 출력 지원을 활용한다. Promtail은 2026-03-02 지원이 종료됐다([공식 안내](https://grafana.com/docs/loki/latest/send-data/promtail/)). 기존 Datadog tracer를 먼저 활용하며 같은 JVM에 OTel Java agent를 추가로 설치하지 않는다. 실제 사용 라이브러리의 자동 계측 지원은 P0/P1에서 확인한다.
 
@@ -282,7 +282,9 @@ flowchart TD
     B -->|최근 보존 범위 밖| S[S3 기간별 원본 조회]
 ```
 
-초기 LogQL 예시(목표 스키마 기준, 아직 배포되지 않은 쿼리):
+위 흐름도의 `trace_id` 분기는 목표 상태(JSON 로그 티켓 이후 실제 tracer ID)다. 현재 서비스 간 연결 키는 `request_id`다.
+
+초기 LogQL 예시(목표 스키마 기준, 아직 배포되지 않은 쿼리. `trace_id` 쿼리는 실제 tracer ID가 실린 뒤에만 유효하다):
 
 ```logql
 {env="prod", service=~"business-api|data-api"} | json | request_id="REQUEST_ID"

@@ -4,6 +4,8 @@ import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.AppenderBase;
 import com.oneorthree.business.common.api.ApiResponses;
+import com.oneorthree.business.common.exception.UpstreamTimeoutException;
+import com.oneorthree.business.common.exception.UpstreamUnavailableException;
 import com.oneorthree.business.config.RequestEnvelopeFilter;
 import com.sun.net.httpserver.HttpServer;
 import jakarta.servlet.ServletException;
@@ -25,9 +27,13 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -164,6 +170,93 @@ class RequestLogPropagationTest {
     void declaredHeadersCannotReplaceRequestId(String name) {
         assertThatThrownBy(() -> InternalCall.to(HttpMethod.GET, "/probe").header(name, "untrusted").build())
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void failedSendLeavesNoRequestIdOnTheHttpWorker() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        AtomicInteger hits = new AtomicInteger();
+        // 응답 없이 연결을 끊어 실제 전송 실패를 만든다.
+        server.createContext("/drop", exchange -> {
+            hits.incrementAndGet();
+            exchange.close();
+        });
+        server.start();
+        try (InternalHttpClient client = singleWorkerClient(server)) {
+            UpstreamRequestContext failing = context("failed-request");
+            assertThatThrownBy(() -> client.exchange(InternalCall.to(HttpMethod.GET, "/drop").build(), failing, TYPE))
+                    .isInstanceOf(UpstreamUnavailableException.class);
+            assertThat(hits.get()).isEqualTo(1);
+            // 풀은 worker 1개뿐이라 같은 스레드가 다음 작업을 실행한다.
+            Map<String, String> next = workerOf(client).submit(() -> Map.of("thread", Thread.currentThread().getName(),
+                    "id", String.valueOf(MDC.get("request_id")))).get(5, TimeUnit.SECONDS);
+            assertThat(next.get("thread")).startsWith("internal-http-");
+            assertThat(next.get("id")).isEqualTo("null");
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void jobCancelledWhileQueuedIsRemovedAndNeverInstallsItsRequestId() throws Exception {
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.setExecutor(Executors.newCachedThreadPool());
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        AtomicInteger queuedHits = new AtomicInteger();
+        server.createContext("/blocked", exchange -> {
+            entered.countDown();
+            try {
+                release.await(10, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            byte[] body = "{\"value\":\"ok\"}".getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, body.length);
+            exchange.getResponseBody().write(body);
+            exchange.close();
+        });
+        server.createContext("/queued", exchange -> {
+            queuedHits.incrementAndGet();
+            exchange.close();
+        });
+        server.start();
+        try (InternalHttpClient client = singleWorkerClient(server)) {
+            ThreadPoolExecutor pool = workerOf(client);
+            // worker 1개를 /blocked 로 점유한 것을 래치로 확인한다.
+            CompletableFuture<Reply> running = CompletableFuture.supplyAsync(() -> client.exchange(
+                    InternalCall.to(HttpMethod.GET, "/blocked").build(), context("running-request"), TYPE));
+            assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
+            UpstreamRequestContext queued = new UpstreamRequestContext("queued-request", null,
+                    Deadline.startingNow(Duration.ofMillis(200)));
+            assertThatThrownBy(() -> client.exchange(InternalCall.to(HttpMethod.GET, "/queued").build(), queued, TYPE))
+                    .isInstanceOf(UpstreamTimeoutException.class);
+            // 큐에서 대기하다 취소된 작업은 큐에서도 빠져 worker 가 집어 들 수 없다.
+            assertThat(pool.getQueue()).isEmpty();
+            release.countDown();
+            assertThat(running.get(5, TimeUnit.SECONDS)).isEqualTo(new Reply("ok"));
+            Map<String, String> next = pool.submit(() -> Map.of("id", String.valueOf(MDC.get("request_id"))))
+                    .get(5, TimeUnit.SECONDS);
+            assertThat(next.get("id")).isEqualTo("null");
+            assertThat(queuedHits.get()).isZero();
+        } finally {
+            release.countDown();
+            server.stop(0);
+        }
+    }
+
+    private static InternalHttpClient singleWorkerClient(HttpServer server) {
+        return new InternalHttpClient(UpstreamTarget.DATA, new UpstreamProperties(
+                "http://127.0.0.1:" + server.getAddress().getPort(), "synthetic-token",
+                Duration.ofSeconds(1), Duration.ofSeconds(5), 10, Duration.ofSeconds(1),
+                1, Duration.ZERO, 1, 1), new ObjectMapper());
+    }
+
+    /** 실제 풀을 그대로 꺼내 같은 worker 스레드의 MDC 를 관찰한다. */
+    private static ThreadPoolExecutor workerOf(InternalHttpClient client) throws ReflectiveOperationException {
+        var field = InternalHttpClient.class.getDeclaredField("workers");
+        field.setAccessible(true);
+        return (ThreadPoolExecutor) field.get(client);
     }
 
     private static UpstreamRequestContext context(String id) {

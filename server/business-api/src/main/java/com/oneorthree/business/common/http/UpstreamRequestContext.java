@@ -36,7 +36,7 @@ public final class UpstreamRequestContext {
     private UpstreamRequestContext(String requestId, UUID subject, Deadline deadline,
             Cancellation cancellation, boolean readOnly, boolean strictErrorContract,
             ConcurrentMap<Object, Object> memo) {
-        if (requestId == null || !requestId.matches("[A-Za-z0-9_-]{1,128}")) {
+        if (requestId == null || !RequestLogContext.SAFE_ID.matcher(requestId).matches()) {
             throw new IllegalArgumentException("서버 requestId 형식이 올바르지 않습니다.");
         }
         this.requestId = requestId;
