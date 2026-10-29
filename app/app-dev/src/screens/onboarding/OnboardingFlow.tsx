@@ -55,6 +55,7 @@ export function OnboardingFlow({ e, previewItems }: { e: any; previewItems?: Tel
   const [departing, setDeparting] = useState<TelescopeItem | null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
+  const [bubbleH, setBubbleH] = useState(0);
   const skipAfterName = useRef(false);
   const profileSaved = useRef(false);
   const requestLock = useRef(false);
@@ -385,6 +386,7 @@ export function OnboardingFlow({ e, previewItems }: { e: any; previewItems?: Tel
               accessibilityLabel={line}
               accessibilityHint={t('onboardingStory.next')}
               onPress={advance}
+              onLayout={(e) => setBubbleH(e.nativeEvent.layout.height)}
               style={[
                 styles.bubble,
                 {
@@ -425,7 +427,15 @@ export function OnboardingFlow({ e, previewItems }: { e: any; previewItems?: Tel
             <StoryRaft color={color} pose={pose} width={width * (nameStep ? 0.55 : ui.raftWidth)} />
           </View>
           {scopeStep && (
-            <View style={{ position: 'absolute', top: position(0.32), left: 0, right: 0 }}>
+            <View
+              style={{
+                position: 'absolute',
+                // 길어진 망원경 대사가 섬 목록·터치영역을 덮지 않도록 말풍선 높이만큼 아래로 민다
+                top: Math.max(position(0.32), position(0.16) + bubbleH + space[4]),
+                left: 0,
+                right: 0,
+              }}
+            >
               {!previewItems && list.status === 'loading' ? (
                 <Txt style={[styles.center, font]}>{t('onboardingStory.loading')}</Txt>
               ) : !previewItems && list.status === 'error' ? (
