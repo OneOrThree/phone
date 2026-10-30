@@ -3106,6 +3106,37 @@
         }
       }
     },
+    "/internal/admin/content/notices/{publicationId}/withdraw": {
+      "post": {
+        "tags": [
+          "internal-content-admin-controller"
+        ],
+        "operationId": "withdrawNotice",
+        "parameters": [
+          {
+            "name": "publicationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/Withdrawal"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/internal/admin/content/magazine/publications/{publicationId}": {
       "post": {
         "tags": [
@@ -8691,6 +8722,22 @@
           "inserted": {
             "type": "integer",
             "format": "int32"
+          }
+        }
+      },
+      "Withdrawal": {
+        "type": "object",
+        "properties": {
+          "publicationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "withdrawnAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "withdrawnBy": {
+            "type": "string"
           }
         }
       },
