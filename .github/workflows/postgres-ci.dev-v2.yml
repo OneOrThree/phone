@@ -35,7 +35,7 @@ jobs:
           python3 -m unittest discover -s .github/scripts/v2/dev -p test_dev_runtime_V2.py -v
   publish:
     needs: validate
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment: dev-v2
     permissions:

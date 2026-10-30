@@ -1,0 +1,48 @@
+name: Auto CD (dev)-v2
+on:
+  workflow_run:
+    workflows:
+      - Data API CI (dev)-v2
+      - Satellite CI (dev)-v2
+      - Kafka CI (dev)-v2
+      - Redis CI (dev)-v2
+      - PostgreSQL CI (dev)-v2
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: catus-dev-v2-deploy
+  cancel-in-progress: false
+jobs:
+  deploy:
+    if: >-
+      github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.head_repository.id == github.event.repository.id))
+    runs-on: ubuntu-latest
+    environment: dev-v2
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      actions: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_DEV_V2_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEV_V2_DEPLOY_SA }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEV_V2_ROLE_ARN }}
+          aws-region: ap-northeast-2
+      - name: 변경된 런타임과 앱을 순서대로 배포
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .github/scripts/v2/dev/dev-auto-cd-V2.py
