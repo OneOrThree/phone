@@ -17,7 +17,7 @@ REGION='ap-northeast-2'
 BUCKET='catus-prod-deploy-artifacts-808715036056-v2'
 ROLES=('app','kafka','redis','backoffice')
 PREFIX={'app':'catus','kafka':'kafka','redis':'redis','backoffice':'backoffice'}
-ROOT=Path(__file__).resolve().parents[2]
+ROOT=Path(__file__).resolve().parents[4]
 
 
 def run(args,**kwargs):
@@ -54,7 +54,7 @@ def previous(role):
 def planner(role,prior=None,pr_base=None):
     revision=run(['git','rev-parse','HEAD']).strip()
     if role=='app':
-        spec=importlib.util.spec_from_file_location('catus_plan',Path(__file__).with_name('catus-plan.py'))
+        spec=importlib.util.spec_from_file_location('catus_plan',Path(__file__).parents[2]/'catus-plan.py')
         module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
         files=run(['git','ls-files','-z']).split('\0')
         source,migration=module.fingerprints(ROOT,[x for x in files if x])
@@ -65,7 +65,7 @@ def planner(role,prior=None,pr_base=None):
         source={'backoffice':hashlib.sha256(b''.join(str(p.relative_to(ROOT)).encode()+p.read_bytes() for p in files)).hexdigest()}
         migration={};build={'backoffice'} if not prior or prior.get('source_fingerprints')!=source else set()
     else:
-        files=sorted((ROOT/'server/scripts/runtime-V2').glob('*-V2.*'))
+        files=sorted((ROOT/'server/scripts/v2/prod').glob('*-V2.*'))
         source={role:hashlib.sha256(b''.join(p.name.encode()+p.read_bytes() for p in files if role in p.name)).hexdigest()}
         migration={};build=set()
     if role=='app' and pr_base:
@@ -108,8 +108,8 @@ def immutable_put(path,key):
 
 def related_prs(plan,prior):
     repo=os.environ.get('GITHUB_REPOSITORY','OneOrThree/phone')
-    paths=['.github/scripts/catus-runtime-V2.py']
-    paths += ['backoffice'] if plan['role']=='backoffice' else ['server/scripts/runtime-V2'] if plan['role'] in ['kafka','redis'] else ['server/'+service for service in plan['build_services']]
+    paths=['.github/scripts/v2/prod/catus-runtime-V2.py']
+    paths += ['backoffice'] if plan['role']=='backoffice' else ['server/scripts/v2/prod'] if plan['role'] in ['kafka','redis'] else ['server/'+service for service in plan['build_services']]
     if prior:
         revisions=run(['git','rev-list',prior['source_revision']+'..'+plan['source_revision'],'--',*paths]).splitlines()
     else:
@@ -165,7 +165,7 @@ def publish(args):
     with tempfile.TemporaryDirectory() as d:
         temp=Path(d);bundle=read_configuration(temp,args.infra_revision)
         if args.role in ['kafka','redis']:
-            for file in (ROOT/'server/scripts/runtime-V2').glob(args.role+'*-V2.*'):(bundle/file.name).write_bytes(file.read_bytes())
+            for file in (ROOT/'server/scripts/v2/prod').glob(args.role+'*-V2.*'):(bundle/file.name).write_bytes(file.read_bytes())
         files={p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in bundle.iterdir()}
         manifest={**plan,'stack':'V2','version':tag,'infra_revision':args.infra_revision,'release_id':release_id,'images':images,'service_revisions':revisions,'service_versions':service_versions,'files':files,'related_prs':args.prs or related_prs(plan,prior)}
         (bundle/'manifest-V2.json').write_text(json.dumps(manifest,sort_keys=True))

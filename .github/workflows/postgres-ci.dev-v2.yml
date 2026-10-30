@@ -1,0 +1,52 @@
+name: PostgreSQL CI (dev)-v2
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'server/scripts/v2/dev/postgres/**'
+      - 'server/scripts/v2/dev/common/**'
+      - '.github/scripts/v2/dev/test_dev_runtime_V2.py'
+      - '.github/scripts/v2/dev/dev-publish-runtime-V2.py'
+      - '.github/workflows/postgres-ci.dev-v2.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'server/scripts/v2/dev/postgres/**'
+      - 'server/scripts/v2/dev/common/**'
+      - '.github/scripts/v2/dev/test_dev_runtime_V2.py'
+      - '.github/scripts/v2/dev/dev-publish-runtime-V2.py'
+      - '.github/workflows/postgres-ci.dev-v2.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: PostgreSQL 구성 검사
+        env:
+          HOST_PRIVATE_IP: 10.30.0.9
+          POSTGRES_ENV_FILE: /dev/null
+        run: |
+          docker compose -f server/scripts/v2/dev/postgres/compose.yml config --quiet
+          bash -n server/scripts/v2/dev/common/verify-data-mount.sh
+          bash -n server/scripts/v2/dev/common/apply.sh
+          python3 -m unittest discover -s .github/scripts/v2/dev -p test_dev_runtime_V2.py -v
+  publish:
+    needs: validate
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: dev-v2
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_DEV_V2_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEV_V2_DEPLOY_SA }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: dev V2 불변 구성 발행
+        run: python3 .github/scripts/v2/dev/dev-publish-runtime-V2.py postgres
