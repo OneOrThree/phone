@@ -1,11 +1,20 @@
 import importlib.util
 from pathlib import Path
 import unittest
+from unittest import mock
 
 spec=importlib.util.spec_from_file_location('dev_deploy',Path(__file__).with_name('dev-deploy-runtime-V2.py'))
 m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
 
 class DeployTest(unittest.TestCase):
+    def test_first_ssh_key_output_is_not_mixed_into_result(self):
+        outputs=[b'Generating public/private rsa key pair.\n',b'redis:7.4.11-alpine\n',b'second\n']
+        m.ssh_key_ready=False
+        with mock.patch.object(m,'command',side_effect=outputs) as run:
+            self.assertEqual(m.ssh('vm','probe'),b'redis:7.4.11-alpine\n')
+            self.assertEqual(m.ssh('vm','next'),b'second\n')
+        self.assertEqual([call.args[0][-1] for call in run.call_args_list],['true','probe','next'])
+
     def test_redis_first_deployment_requires_both(self):
         self.assertEqual(m.redis_changes(None, {}), {'shared','business'})
 
