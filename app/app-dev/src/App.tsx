@@ -431,6 +431,7 @@ function Gromo() {
     // 기존 계정 충돌(409 SOCIAL_ACCOUNT_ALREADY_LINKED) 확인창 — 승인·취소는 switchResolve 가 돌려준다.
     [switchAsk, setSwitchAsk] = useState(false),
     // 화면 안쪽 안내(홈의 회관·펠리컨 안내, 바다의 펠리컨 배달)가 떠 있는 동안 — 편지 조회 게이트(GROMO-2615)
+    // 홈과 바다가 불리언 하나를 공유한다: 두 신호원은 경로로 배타적이다. 신호원이 늘면 카운터로 바꾼다.
     [sceneGuideOpen, setSceneGuideOpen] = useState(false),
     [visited, setVisited] = useState('strawberry'),
     [previewAudio, setPreviewAudio] = useState(false),
@@ -1778,6 +1779,7 @@ function Gromo() {
       switchAsk,
       appContentHidden,
       walkRequest: !!walkRequest,
+      storageOwnerReady,
       sceneGuide: sceneGuideOpen,
       keyboardHeight,
       incomingAppLink: !!incomingAppLink,
@@ -2507,6 +2509,8 @@ function Gromo() {
     focusBlockingPermissionBusy,
     state.visitingIslandId,
     island.id,
+    // RN 은 나중에 등록한 리스너를 먼저 부른다 — 편지가 뜰 때 재등록돼야 SeaScreen·CatInfoPopup·Hall 등 다른 리스너보다 앞선다
+    letterVisible,
   ]);
   const islandAudioOnRef = useRef(islandAudioOn);
   islandAudioOnRef.current = islandAudioOn;

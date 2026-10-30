@@ -187,3 +187,28 @@ test('이미 뜬 편지는 안내 신호가 켜져도 내려가지 않는다', a
   await act(async () => captured.setSceneGuideOpen(true));
   assert.ok(screen.queryByTestId('developer-letter'));
 });
+
+test('편지가 뜨기 전에 등록된 다른 뒤로 가기 리스너보다 편지가 먼저 받는다(App 재등록)', async () => {
+  let resolve!: (v: unknown) => void;
+  list.mockImplementation(() => new Promise((r) => (resolve = r)));
+  const screen = await boot();
+  await waitFor(() => expect(list).toHaveBeenCalled());
+  // 편지 전에 뜬 화면(SeaScreen·CatInfoPopup 등)의 리스너 — App 의 기존 등록보다 나중이다
+  const other = jest.fn(() => true);
+  BackHandler.addEventListener('hardwareBackPress', other);
+  await act(async () => resolve({ items: [notice] }));
+  await waitFor(() => assert.ok(screen.queryByTestId('developer-letter')));
+  // RN 은 나중에 등록한 것부터 부른다 — 편지가 뜰 때 App 이 재등록해 other 보다 뒤여야 한다
+  let handled = false;
+  await act(async () => {
+    for (const h of [...backHandlers].reverse()) {
+      if (h()) {
+        handled = true;
+        break;
+      }
+    }
+  });
+  assert.equal(handled, true);
+  expect(other).not.toHaveBeenCalled();
+  assert.equal(screen.queryByTestId('developer-letter'), null);
+});

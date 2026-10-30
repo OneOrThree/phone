@@ -192,6 +192,36 @@ test('그만두기는 확인창을 한 번 거쳐 finish 하고, 멀어지는 �
   expect(e.replace).not.toHaveBeenCalled();
 });
 
+test('출항·포기 연출 동안 setSceneGuideOpen(true), 끝나면 false(GROMO-2615)', async () => {
+  const setSceneGuideOpen = jest.fn();
+  const e = env({ setSceneGuideOpen });
+  e.focus.finish.mockResolvedValue({ recordId: 'sea-1', arrived: false, activeSeconds: 1700 });
+  const screen = await render(<SeaVoyageHost e={e} />);
+  expect(setSceneGuideOpen).not.toHaveBeenCalledWith(true);
+  await fireEvent.press(screen.getByLabelText('집중 마치기'));
+  await fireEvent.press(screen.getByLabelText('집중 마치기'));
+  await act(async () => {});
+  expect(setSceneGuideOpen).toHaveBeenLastCalledWith(true);
+  await screen.rerender(<SeaVoyageHost e={{ ...e, state: { ...e.state, session: null } }} />);
+  await fireEvent.press(screen.getByTestId('abandon-cutscene'));
+  expect(setSceneGuideOpen).toHaveBeenLastCalledWith(false);
+});
+
+test('항해 결과창이 떠 있는 동안 setSceneGuideOpen(true), 떠나면 false(GROMO-2615)', async () => {
+  const setSceneGuideOpen = jest.fn();
+  const finish = { recordId: 'sea-1', islandId: 'dest', arrived: true, activeSeconds: 1800 };
+  const e = env({
+    route: 'seaArrival',
+    detail: JSON.stringify({ finish, destinationName: '별고래섬' }),
+    state: { name: '나냥', color: 'black', session: null },
+    setSceneGuideOpen,
+  });
+  const screen = await render(<SeaVoyageHost e={e} />);
+  expect(setSceneGuideOpen).toHaveBeenLastCalledWith(true);
+  await screen.unmount();
+  expect(setSceneGuideOpen).toHaveBeenLastCalledWith(false);
+});
+
 test('권한 미리보기의 로컬 항해도 서버 연결 없이 종료하고 표류 화면으로 돌아온다', async () => {
   const dispatch = jest.fn();
   const e = env({ focus: undefined, focusBlockingIntroPreview: true, dispatch });

@@ -132,3 +132,37 @@ it('첫 실행: 조회 대기 중 게이트가 닫히면 키를 저장하지 않
   expect(list).toHaveBeenCalledTimes(2);
   expect(latest.notice).toBeNull();
 });
+
+it('조회가 한 번 실패한 뒤 ready 가 거짓→참이 되면 background 없이도 재조회한다', async () => {
+  await AsyncStorage.setItem(letterSeenKey('u1'), '1');
+  list.mockRejectedValueOnce(new Error('x'));
+  list.mockResolvedValue({ items: [notice('a', '2026-10-01T00:00:00Z')] });
+  const r = await render(<Probe ready userId="u1" />);
+  await waitFor(() => expect(list).toHaveBeenCalledTimes(1));
+  await act(async () => {});
+  expect(latest.notice).toBeNull();
+  await r.rerender(<Probe ready={false} userId="u1" />);
+  await r.rerender(<Probe ready userId="u1" />);
+  await waitFor(() => expect(latest.notice?.publicationId).toBe('a'));
+  expect(list).toHaveBeenCalledTimes(2);
+});
+
+it('편지가 뜬 채 background 를 다녀온 뒤 닫아도 재조회하지 않는다', async () => {
+  let handler: (s: string) => void = () => {};
+  jest.spyOn(AppState, 'addEventListener').mockImplementation(((
+    _: string,
+    h: (s: string) => void,
+  ) => {
+    handler = h;
+    return { remove: jest.fn() };
+  }) as never);
+  await AsyncStorage.setItem(letterSeenKey('u1'), '1');
+  list.mockResolvedValue({ items: [notice('a', '2026-10-01T00:00:00Z')] });
+  await render(<Probe ready userId="u1" />);
+  await waitFor(() => expect(latest.notice?.publicationId).toBe('a'));
+  await act(async () => handler('background'));
+  await act(async () => latest.dismiss());
+  await act(async () => {});
+  expect(latest.notice).toBeNull();
+  expect(list).toHaveBeenCalledTimes(1);
+});
