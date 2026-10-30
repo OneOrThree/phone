@@ -17,6 +17,7 @@ import { assets } from '@/constants/assets';
 import { t } from '@/i18n';
 import { formatDate } from '@/i18n/format';
 import { useGowun } from '@/screens/island/sceneKit';
+import { useScreenReaderEnabled } from '@/screens/island/NpcGuide';
 import { useAppLayout } from '@/utils/layout';
 
 const D = componentTokens.developerLetter;
@@ -43,7 +44,10 @@ export function DeveloperLetter({
   buttonTitle?: string;
 }) {
   const layout = useAppLayout();
-  const reduce = useContext(MotionContext);
+  // 동작 줄이기와 스크린 리더는 비행·흔들림을 건너뛴다(탭으로 여는 단계는 유지)
+  const screenReader = useScreenReaderEnabled();
+  const reduce = useContext(MotionContext) || screenReader;
+  const bigText = layout.fontScale >= semanticTokens.typography.largeTextThreshold;
   const gowun = useGowun();
   const [waited, setWaited] = useState(false);
   const [open, setOpen] = useState(false);
@@ -59,10 +63,12 @@ export function DeveloperLetter({
     return () => clearTimeout(id);
   }, []);
   useEffect(() => {
-    if (!staged) return;
     // 봉투가 처음 나타날 때 한 번 알린다(iOS 는 직접 읽고, 안드로이드는 봉투의 live region)
-    if (Platform.OS === 'ios')
+    if (staged && Platform.OS === 'ios')
       AccessibilityInfo.announceForAccessibility(t('developerLetter.envelopeLabel'));
+  }, [staged]);
+  useEffect(() => {
+    if (!staged) return;
     if (reduce) {
       fly.setValue(1);
       return;
@@ -96,6 +102,10 @@ export function DeveloperLetter({
     animation.start(() => setOpened(true));
     return () => animation.stop();
   }, [open, reduce, unfold]);
+  useEffect(() => {
+    if (opened && Platform.OS === 'ios') AccessibilityInfo.announceForAccessibility(title);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 열린 순간 한 번
+  }, [opened]);
   useEffect(() => {
     if (!opened) return;
     if (reduce) {
@@ -179,6 +189,7 @@ export function DeveloperLetter({
       )}
       {opened && (
         <Animated.View
+          accessibilityLiveRegion="polite"
           style={{
             alignItems: 'center',
             gap: D.gap,
@@ -202,55 +213,123 @@ export function DeveloperLetter({
               backgroundColor: semanticTokens.color.canvas,
             }}
           >
-            <Txt tabletScale={1} style={muted}>
-              {t('developerLetter.from')}
-            </Txt>
-            <Txt
-              tabletScale={1}
-              accessibilityRole="header"
-              style={{
-                ...text,
-                fontSize: D.titleSize,
-                fontWeight: '700',
-                textAlign: 'center',
-                marginTop: D.titleGapTop,
-              }}
-            >
-              {title}
-            </Txt>
-            <Txt
-              tabletScale={1}
-              style={{ ...muted, marginTop: D.dateGapTop, marginBottom: D.dateGapBottom }}
-            >
-              {formatDate(date, { month: 'long', day: 'numeric' })}
-            </Txt>
-            {/* 버튼은 편지 바깥이라 긴 본문만 이 안에서 스크롤한다 */}
-            <ScrollView
-              testID="developer-letter-body"
-              style={{ flexGrow: 0, flexShrink: 1 }}
-              showsVerticalScrollIndicator
-            >
-              <Txt
-                tabletScale={1}
-                style={{ ...text, fontSize: D.bodySize, lineHeight: D.bodyLineHeight }}
+            {/* 큰 글자에서는 고정 영역이 높이 상한을 채워 본문이 0 이 되지 않도록 전체를 한 스크롤에 넣는다 */}
+            {bigText ? (
+              <ScrollView
+                testID="developer-letter-body"
+                style={{ flexGrow: 0, flexShrink: 1 }}
+                showsVerticalScrollIndicator
               >
-                {body}
-              </Txt>
-            </ScrollView>
-            <View style={{ marginTop: D.signGapTop }}>
-              <View style={{ flexDirection: 'row', justifyContent: 'flex-end' }}>
-                {CATS.map((color, i) => (
-                  <Image
-                    key={color}
-                    source={assets[`characters/cat/${color}/idle.png`]}
-                    style={{ width: D.cat, height: D.cat, marginLeft: i ? -D.catOverlap : 0 }}
-                  />
-                ))}
-              </View>
-              <Txt tabletScale={1} style={{ ...text, fontSize: D.signSize, textAlign: 'right' }}>
-                {t('developerLetter.signature')}
-              </Txt>
-            </View>
+                <Txt tabletScale={1} style={muted}>
+                  {t('developerLetter.from')}
+                </Txt>
+                <Txt
+                  tabletScale={1}
+                  accessibilityRole="header"
+                  style={{
+                    ...text,
+                    fontSize: D.titleSize,
+                    fontWeight: '700',
+                    textAlign: 'center',
+                    marginTop: D.titleGapTop,
+                  }}
+                >
+                  {title}
+                </Txt>
+                <Txt
+                  tabletScale={1}
+                  style={{ ...muted, marginTop: D.dateGapTop, marginBottom: D.dateGapBottom }}
+                >
+                  {formatDate(date, { month: 'long', day: 'numeric' })}
+                </Txt>
+                <Txt
+                  tabletScale={1}
+                  style={{ ...text, fontSize: D.bodySize, lineHeight: D.bodyLineHeight }}
+                >
+                  {body}
+                </Txt>
+                <View style={{ marginTop: D.signGapTop }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'flex-end' }}>
+                    {CATS.map((color, i) => (
+                      <Image
+                        testID="developer-letter-cat"
+                        accessible={false}
+                        accessibilityElementsHidden
+                        importantForAccessibility="no"
+                        key={color}
+                        source={assets[`characters/cat/${color}/idle.png`]}
+                        style={{ width: D.cat, height: D.cat, marginLeft: i ? -D.catOverlap : 0 }}
+                      />
+                    ))}
+                  </View>
+                  <Txt
+                    tabletScale={1}
+                    style={{ ...text, fontSize: D.signSize, textAlign: 'right' }}
+                  >
+                    {t('developerLetter.signature')}
+                  </Txt>
+                </View>
+              </ScrollView>
+            ) : (
+              <>
+                <Txt tabletScale={1} style={muted}>
+                  {t('developerLetter.from')}
+                </Txt>
+                <Txt
+                  tabletScale={1}
+                  accessibilityRole="header"
+                  style={{
+                    ...text,
+                    fontSize: D.titleSize,
+                    fontWeight: '700',
+                    textAlign: 'center',
+                    marginTop: D.titleGapTop,
+                  }}
+                >
+                  {title}
+                </Txt>
+                <Txt
+                  tabletScale={1}
+                  style={{ ...muted, marginTop: D.dateGapTop, marginBottom: D.dateGapBottom }}
+                >
+                  {formatDate(date, { month: 'long', day: 'numeric' })}
+                </Txt>
+                {/* 버튼은 편지 바깥이라 긴 본문만 이 안에서 스크롤한다 */}
+                <ScrollView
+                  testID="developer-letter-body"
+                  style={{ flexGrow: 0, flexShrink: 1 }}
+                  showsVerticalScrollIndicator
+                >
+                  <Txt
+                    tabletScale={1}
+                    style={{ ...text, fontSize: D.bodySize, lineHeight: D.bodyLineHeight }}
+                  >
+                    {body}
+                  </Txt>
+                </ScrollView>
+                <View style={{ marginTop: D.signGapTop }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'flex-end' }}>
+                    {CATS.map((color, i) => (
+                      <Image
+                        testID="developer-letter-cat"
+                        accessible={false}
+                        accessibilityElementsHidden
+                        importantForAccessibility="no"
+                        key={color}
+                        source={assets[`characters/cat/${color}/idle.png`]}
+                        style={{ width: D.cat, height: D.cat, marginLeft: i ? -D.catOverlap : 0 }}
+                      />
+                    ))}
+                  </View>
+                  <Txt
+                    tabletScale={1}
+                    style={{ ...text, fontSize: D.signSize, textAlign: 'right' }}
+                  >
+                    {t('developerLetter.signature')}
+                  </Txt>
+                </View>
+              </>
+            )}
           </View>
           <Btn
             id="developer-letter-confirm"
