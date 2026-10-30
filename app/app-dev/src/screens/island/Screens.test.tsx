@@ -38,6 +38,7 @@ import {
 import { discoverIslands, searchIslands, type IslandSummary } from '@/services/api/islands';
 import { pinToTelescope } from '@/services/api/telescope';
 import { applyLocalePref } from '@/i18n';
+import { FEEDBACK_KAKAO_URL } from '@/services/api/safety';
 
 const mockRankings = jest.fn();
 jest.mock('@/screens/island/useIslandRankings', () => ({
@@ -3129,12 +3130,12 @@ test('메일 앱 열기에 실패하면 수신 주소가 있는 안내를 보여
   open.mockRestore();
 });
 
-test('문의하기는 신고센터 아래 행에서 메일을 열고, 실패하면 수신 주소 안내만 보여준다', async () => {
+test('문의하기는 신고센터 아래 행에서 한국어면 오픈채팅을 열고, 실패하면 수신 주소 안내만 보여준다', async () => {
   const open = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined);
   let exposed: any;
   const ui = await render(<Harness route="settings" full expose={(e: any) => (exposed = e)} />);
   await fireEvent.press(ui.getByText('문의하기'));
-  assert.ok(decodeURIComponent(open.mock.calls[0][0]).includes('subject=[집중할고양 문의]'));
+  assert.equal(open.mock.calls[0][0], FEEDBACK_KAKAO_URL);
   open.mockRejectedValue(new Error('no mail'));
   await fireEvent.press(ui.getByText('문의하기'));
   await waitFor(() => expect(exposed.confirm).toHaveBeenCalled());

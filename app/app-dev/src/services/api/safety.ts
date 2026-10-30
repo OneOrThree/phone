@@ -1,6 +1,6 @@
 import { request } from './client';
 import { Linking, Platform } from 'react-native';
-import { t } from '@/i18n';
+import { getLocale, t } from '@/i18n';
 
 export type BlockedUser = { id: string; name: string };
 
@@ -15,6 +15,7 @@ export type ReportReason =
   | 'OTHER';
 
 export const REPORT_EMAIL_RECIPIENT = 'nappaegonoljima@gmail.com';
+export const FEEDBACK_KAKAO_URL = 'https://open.kakao.com/o/ssOnMPUi';
 
 export function getBlockedUsers(): Promise<BlockedUser[]> {
   return request<BlockedUser[]>('/blocks');
@@ -43,7 +44,7 @@ export function openReportCenter(): Promise<void> {
   return Linking.openURL(reportEmailUrl());
 }
 
-/** 설정의 문의 메일 — 앱 오류 제보·기능 제안. 신고와 같은 주소이고 제목 말머리로 구분한다. */
+/** 영어 사용자용 문의 메일 — 앱 오류 제보·기능 제안. 신고와 같은 주소이고 제목 말머리로 구분한다. */
 export function feedbackEmailUrl(appVersion: string): string {
   const body = t('settings.feedback.body', {
     version: appVersion,
@@ -59,6 +60,7 @@ export function feedbackEmailUrl(appVersion: string): string {
   return `mailto:${REPORT_EMAIL_RECIPIENT}?subject=${encodeURIComponent(t('settings.feedback.subject', { brand: t('onboardingStory.brand') }))}&body=${encodeURIComponent(body)}`;
 }
 
-export function openFeedbackMail(appVersion: string): Promise<void> {
-  return Linking.openURL(feedbackEmailUrl(appVersion));
+export function openFeedback(appVersion: string): Promise<void> {
+  // 카카오톡은 국내 사용자용이라 한국어만 오픈채팅으로 보내고, 그 외 언어는 메일을 연다.
+  return Linking.openURL(getLocale() === 'ko' ? FEEDBACK_KAKAO_URL : feedbackEmailUrl(appVersion));
 }
