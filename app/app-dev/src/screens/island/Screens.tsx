@@ -2206,7 +2206,8 @@ export function RedesignScreens({ e }: any) {
             guideStep === 4 ||
             !!state.session ||
             !!state.visitingIslandId ||
-            !!e.routeTransitionShielded
+            !!e.routeTransitionShielded ||
+            !!e.letterOpen
           }
           go={go}
           onPromptChange={setMagazinePrompt}

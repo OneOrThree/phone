@@ -481,7 +481,8 @@ export function SeaVoyageHost({ e }: { e: any }) {
         drifting && issue
           ? {
               issueNo: issue.issueNo,
-              delivery: delivering === issue.issueId,
+              // 운영진의 편지가 떠 있는 동안은 배달을 시작하지 않는다(받음 처리도 미룬다)
+              delivery: delivering === issue.issueId && !e.letterOpen,
               received: !!today?.receipt,
               unread: magazineUnread(today),
               onShown: deliveryShown,

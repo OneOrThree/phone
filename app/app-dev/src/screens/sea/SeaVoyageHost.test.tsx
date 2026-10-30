@@ -816,6 +816,16 @@ describe('바다 고양이 잡지(GROMO-2314) — 펠리컨 배달 B1 · 뗏목 
   });
   afterEach(() => expect(getIssues).not.toHaveBeenCalled());
 
+  test('운영진의 편지(e.letterOpen)가 떠 있는 동안은 배달도 받음 기록도 없고, 닫히면 뜬다(GROMO-2615)', async () => {
+    const today = { issue, receipt: null };
+    const screen = await render(<SeaVoyageHost e={drift(today, { letterOpen: true })} />);
+    expect(screen.queryByTestId('sea-magazine-delivery')).toBeNull();
+    expect(putReceipt).not.toHaveBeenCalled();
+    await screen.rerender(<SeaVoyageHost e={drift(today, { letterOpen: false })} />);
+    expect(screen.getByTestId('sea-magazine-delivery')).toBeTruthy();
+    expect(putReceipt).toHaveBeenCalledWith('iss-20', { place: 'SEA' });
+  });
+
   test('표류 중 아직 받지 않은 오늘 호면 펠리컨이 화면 전체로 뜨고, 띄우는 순간 받음(SEA)을 한 번 보내고 스크린리더에 알린다', async () => {
     const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility');
     const screen = await render(<SeaVoyageHost e={drift({ issue, receipt: null })} />);

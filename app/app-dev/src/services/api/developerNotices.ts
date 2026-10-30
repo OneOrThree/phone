@@ -8,6 +8,8 @@ export type DeveloperNotice = {
   startsAt: string;
   endsAt: string | null;
   publishedAt: string;
+  // 서버 GROMO-2616 이 내려 준다. 없으면(아직 안 나감) 일반 패치노트다
+  forcesUpdate?: boolean;
 };
 
 export function listDeveloperNotices(): Promise<{ items: DeveloperNotice[] }> {
