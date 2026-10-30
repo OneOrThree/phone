@@ -2571,6 +2571,7 @@ function Gromo() {
         e={{
           state,
           route,
+          fromSea: history.length ? seaRouteHeld(history[0].route) : !state.onboarded,
           termsVersion: TERMS_VERSION,
           routeTransitionShielded,
           accountDataReady: storageOwnerReady,
