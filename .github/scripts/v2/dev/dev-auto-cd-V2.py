@@ -6,13 +6,16 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import sys
 
 ROOT = Path(__file__).resolve().parents[4]
 HERE = Path(__file__).parent
 REPO = 'OneOrThree/phone'
 BUCKET = 'gs://catus-dev-v2-deploy-263851348176'
-# 앱 배포 전에 모두 끝나야 한다. 서로는 독립.
+# 앱 배포 전에 모두 끝나야 한다.
 RUNTIMES = ('redis', 'kafka', 'postgres')
+# 같은 VM은 apply.sh 호스트 잠금이 대기 없이 실패. 병렬은 VM 단위.
+RUNTIME_HOST = {'redis': 'redis', 'kafka': 'data', 'postgres': 'data'}
 CORE_CI, SATELLITE_CI = 'data-api-ci.dev-v2.yml', 'satellite-ci.dev-v2.yml'
 SERVICE_CI = {'data-api': CORE_CI, 'realtime': CORE_CI, 'business-api': SATELLITE_CI, 'notification': SATELLITE_CI}
 
@@ -119,6 +122,20 @@ def plan_runtimes(state, revision):
     return targets, ready
 
 
+def host_groups(targets):
+    groups = {}
+    for target in targets:
+        groups.setdefault(RUNTIME_HOST[target['role']], []).append(target)
+    return [{'host': host, 'targets': items} for host, items in groups.items()]
+
+
+def deploy_group(targets):
+    # 배포 결과 JSON을 실행 로그에 남긴다.
+    for target in targets:
+        subprocess.run([sys.executable, str(HERE/'dev-deploy-runtime-V2.py'), '--role', target['role'],
+                        '--manifest-uri', target['uri']], cwd=ROOT, check=True)
+
+
 def plan_app(state, revision):
     """앱 배포 인자. 대상 없음·이미지 대기면 None."""
     published = manifests(listing(f'{BUCKET}/infra/*/manifest.json'),
@@ -162,7 +179,9 @@ def main():
     app = plan_app(state, revision) if ready else None
     if not ready: note('런타임 발행 대기. CI 완료 시 다시 실행')
     note('런타임 배포 대상: ' + (','.join(target['role'] for target in targets) or '없음'))
-    emit(runtimes=json.dumps(targets, separators=(',', ':')), **(app or {}))
+    emit(runtimes=json.dumps(host_groups(targets), separators=(',', ':')), **(app or {}))
 
 
-if __name__ == '__main__': main()
+if __name__ == '__main__':
+    if len(sys.argv) > 1: deploy_group(json.loads(sys.argv[1]))
+    else: main()

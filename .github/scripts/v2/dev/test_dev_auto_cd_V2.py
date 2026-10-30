@@ -70,6 +70,16 @@ class AutoCdTest(unittest.TestCase):
         self.assertTrue(ready)
         self.assertEqual(targets, [{'role': role, 'uri': 'gs://uri'} for role in m.RUNTIMES])
 
+    def test_same_host_runtimes_stay_in_one_sequential_group(self):
+        targets = [{'role': role, 'uri': role} for role in m.RUNTIMES]
+        self.assertEqual(m.host_groups(targets), [{'host': 'redis', 'targets': targets[:1]},
+                                                  {'host': 'data', 'targets': targets[1:]}])
+        self.assertEqual(m.host_groups(targets[2:]), [{'host': 'data', 'targets': targets[2:]}])
+        self.assertEqual(m.host_groups([]), [])
+        with mock.patch.object(m.subprocess, 'run') as run:
+            m.deploy_group(targets[1:])
+        self.assertEqual([call.args[0][3] for call in run.call_args_list], ['kafka', 'postgres'])
+
     def test_emit_writes_step_outputs(self):
         with tempfile.NamedTemporaryFile('r') as stream, mock.patch.dict(m.os.environ, {'GITHUB_OUTPUT': stream.name}):
             m.emit(runtimes='[]', infra='gs://x')

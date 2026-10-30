@@ -52,7 +52,7 @@ jobs:
   runtime:
     needs: plan
     if: needs.plan.outputs.runtimes != '[]'
-    name: runtime (${{ matrix.target.role }})
+    name: runtime (${{ matrix.group.host }})
     runs-on: ubuntu-latest
     environment: dev-v2
     timeout-minutes: 30
@@ -62,7 +62,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: ${{ fromJSON(needs.plan.outputs.runtimes) }}
+        group: ${{ fromJSON(needs.plan.outputs.runtimes) }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -78,9 +78,8 @@ jobs:
           aws-region: ap-northeast-2
       - name: 런타임 적용과 검증
         env:
-          ROLE: ${{ matrix.target.role }}
-          MANIFEST_URI: ${{ matrix.target.uri }}
-        run: python3 .github/scripts/v2/dev/dev-deploy-runtime-V2.py --role "$ROLE" --manifest-uri "$MANIFEST_URI"
+          TARGETS: ${{ toJSON(matrix.group.targets) }}
+        run: python3 .github/scripts/v2/dev/dev-auto-cd-V2.py "$TARGETS"
   app:
     needs: [plan, runtime]
     # 런타임 대상이 없으면 runtime은 skipped. 실패·취소 시에만 중단.
