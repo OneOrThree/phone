@@ -14,6 +14,8 @@ class DeployTest(unittest.TestCase):
             self.assertEqual(m.ssh('vm','probe'),b'redis:7.4.11-alpine\n')
             self.assertEqual(m.ssh('vm','next'),b'second\n')
         self.assertEqual([call.args[0][-1] for call in run.call_args_list],['true','probe','next'])
+        # 러너마다 새 키. 만료 없으면 OS Login 프로필에 누적.
+        self.assertTrue(all('--ssh-key-expire-after=1h' in call.args[0] for call in run.call_args_list))
 
     def test_redis_first_deployment_requires_both(self):
         self.assertEqual(m.redis_changes(None, {}), {'shared','business'})
