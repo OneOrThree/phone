@@ -84,9 +84,8 @@ services:
       DD_ENV: dev
       DD_SERVICE: data-api
       DD_VERSION: ${IMAGE_VERSION:?실제 앱 이미지 revision 미설정}
-      # dd-java-agent 가 dd.trace_id/dd.span_id 를 MDC 에 주입. 단 CONSOLE appender 는 텍스트 패턴이고
-      # app 자체 trace_id 키를 찍으므로, 완전한 로그↔트레이스 상관은 아직 미완 — JSON 콘솔(별도 datadog
-      # 프로파일) 또는 Datadog Grok 로그 파이프라인 필요(Phase 3). 지금은 MDC 주입만 준비해 둔다.
+      # dd-java-agent 가 dd.trace_id/dd.span_id 를 MDC 에 주입하고, dev 프로필의 JSON 콘솔
+      # (ObservationJsonProvider)이 이 값을 로그에 남겨 로그↔트레이스 상관이 된다.
       DD_LOGS_INJECTION: "true"
       DD_TRACE_SAMPLE_RATE: "1.0" # dev 요청은 전량 보존 — 장애 재현 시 희소 트레이스가 생기지 않게 한다
       DD_RUNTIME_METRICS_ENABLED: "true" # JVM 런타임 메트릭 — prod와 통일
