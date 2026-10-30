@@ -74,7 +74,7 @@ JSON 로그(`schema_version 1`)의 `service` 필드는 `OBS_SERVICE` 값이고, 
 
 네 값(`OBS_SERVICE`·`DD_SERVICE`·라벨 `tags.service`·라벨 `ad.logs` 의 `service`)을 반드시 같게 둔다.
 `OBS_SERVICE` 형식이 맞지 않으면 JSON 필드가 생략되고 로그 service 는 라벨 값으로 떨어진다.
-`docker-compose.satellites.data.yml` 에는 라벨이 없다. 이 파일은 옛 prod 경로용이고 Catus V2 는 Infra compose 를 쓴다.
+`docker-compose.satellites.data.yml` 은 이 저장소의 prod compose 경로용이고 라벨이 없어 base prod compose 라벨과 갈린다. Catus V2 운영은 Infra 저장소 compose 를 쓰므로 이 파일의 `DD_SERVICE` 는 운영에 적용되지 않는다.
 `server/data-api/Dockerfile` 의 `ad.logs` 라벨에는 service 키가 없으므로, compose 에서 같은 라벨 키로 덮어써 고정한다
 (dev: `docker-compose.datadog.yml` data-api).
 
