@@ -67,6 +67,17 @@ const notice = (
     },
   }) as unknown as Notification;
 
+// expo-notifications Android 직수신·백그라운드 탭의 실제 직렬화 모양: FCM data 는 content.data 에 있다.
+const androidNotice = (data: Record<string, unknown>) =>
+  ({
+    date: 0,
+    request: {
+      identifier: 'android-n-1',
+      content: { title: '알림', body: '본문', data },
+      trigger: { type: 'push', remoteMessage: {} },
+    },
+  }) as unknown as Notification;
+
 const responseOf = (notification: Notification, actionIdentifier = DEFAULT_ACTION) =>
   ({ notification, actionIdentifier }) as NotificationResponse;
 
@@ -74,6 +85,7 @@ const bridgeError = (code: string) => Object.assign(new Error(code), { code });
 
 function setup({
   os = 'ios',
+  androidVersion = 33,
   bridge = true,
   stored,
   current = sessionOf(),
@@ -84,6 +96,7 @@ function setup({
   cold = null,
 }: {
   os?: string;
+  androidVersion?: number;
   bridge?: boolean;
   stored?: Device;
   current?: FakeSession | null;
@@ -109,6 +122,13 @@ function setup({
       store.set(key, value);
     }),
   };
+  const localStore = new Map<string, string>();
+  const asyncStorage = {
+    getItem: jest.fn(async (key: string) => localStore.get(key) ?? null),
+    setItem: jest.fn(async (key: string, value: string) => {
+      localStore.set(key, value);
+    }),
+  };
   const fcm = {
     getToken: jest.fn(async (_hex: string) => FCM),
     deleteToken: jest.fn(async () => undefined),
@@ -126,17 +146,24 @@ function setup({
   const permissionSnapshot = () => ({
     status: status === 'granted' || status === 'denied' ? status : 'undetermined',
     granted: status === 'granted',
+    canAskAgain: true,
     ios: { status: { undetermined: 0, denied: 1, granted: 2, provisional: 3 }[status] },
   });
   const notifications = {
     DEFAULT_ACTION_IDENTIFIER: DEFAULT_ACTION,
     IosAuthorizationStatus: { PROVISIONAL: 3 },
+    AndroidImportance: { HIGH: 4 },
+    setNotificationChannelAsync: jest.fn(async () => undefined),
     getPermissionsAsync: jest.fn(async () => permissionSnapshot()),
     requestPermissionsAsync: jest.fn(async (_request: object) => {
       status = answer;
       return permissionSnapshot();
     }),
-    getDevicePushTokenAsync: jest.fn(async () => ({ type: 'ios', data: APNS })),
+    getDevicePushTokenAsync: jest.fn(async () => ({
+      type: os,
+      data: os === 'android' ? FCM : APNS,
+    })),
+    unregisterForNotificationsAsync: jest.fn(async () => undefined),
     dismissAllNotificationsAsync: jest.fn(async () => undefined),
     setNotificationHandler: jest.fn((next: typeof handler | null) => {
       handler = next ?? undefined;
@@ -172,7 +199,7 @@ function setup({
     return value;
   });
   jest.doMock('react-native', () => ({
-    Platform: { OS: os },
+    Platform: { OS: os, Version: os === 'android' ? androidVersion : undefined },
     NativeModules: bridge ? { FCMTokenModule: fcm } : {},
     NativeEventEmitter: jest.fn(() => ({
       addListener: jest.fn((_name: string, listener: typeof onFcmToken) => {
@@ -190,6 +217,10 @@ function setup({
   }));
   jest.doMock('expo-notifications', loadNotifications);
   jest.doMock('expo-secure-store', () => secureStore);
+  jest.doMock('@react-native-async-storage/async-storage', () => asyncStorage);
+  jest.doMock('./ScreenTimeModule', () => ({
+    screenTimeNative: os === 'android' && bridge ? { supportsGeneralPush: true } : undefined,
+  }));
   jest.doMock('./api/deviceToken', () => ({ registerDevice, deleteDevice }));
   jest.doMock('./api/auth', () => ({ takeDeviceBootstrap }));
   jest.doMock('./appDeepLink', () => ({ openAppLink }));
@@ -216,6 +247,7 @@ function setup({
     deleteDevice,
     openAppLink,
     secureStore,
+    asyncStorage,
     switchOn,
     stored: (): Device | null => JSON.parse(store.get('gromo.pushDevice') ?? 'null'),
     apiError: (code: string, httpStatus: number, retryAfterMs?: number) =>
@@ -258,6 +290,107 @@ test('첫 등록은 그 세션의 bootstrap 을 싣고, 응답을 userId·토큰
   expect(writes.filter((write) => 'ownershipToken' in write)).toStrictEqual([REGISTERED]);
   expect(t.stored()).toStrictEqual(REGISTERED);
   expect(t.fcm.deleteToken).not.toHaveBeenCalled();
+  t.stop();
+});
+
+test('Android 2.0.1은 기존 로그인 세션을 부팅 직후 등록하고, 같은 FCM 토큰 이벤트로 무한 재등록하지 않는다', async () => {
+  const t = setup({ os: 'android', bootstrap: 'boot-android' });
+  await settle();
+  expect(t.notifications.setNotificationChannelAsync).toHaveBeenCalledWith('default', {
+    name: 'Cattus',
+    importance: 4,
+  });
+  expect(t.notifications.getDevicePushTokenAsync).toHaveBeenCalledTimes(1);
+  expect(t.registerDevice).toHaveBeenCalledWith(
+    { deviceToken: FCM, deviceBootstrap: 'boot-android' },
+    expect.stringMatching(KEY),
+  );
+  t.apnsChanged(FCM);
+  await settle();
+  expect(t.registerDevice).toHaveBeenCalledTimes(1);
+  t.stop();
+});
+
+test('Android 13은 홈에서 한 번 권한을 묻고, 거부 뒤 앱 재진입에는 다시 묻지 않는다', async () => {
+  const t = setup({ os: 'android', permission: 'denied', answer: 'denied' });
+  await settle();
+  expect(await t.push.pushPermissionStatus()).toBe('undetermined');
+  expect(await t.push.requestPushPermission()).toBe('denied');
+  expect(t.notifications.requestPermissionsAsync).toHaveBeenCalledTimes(1);
+  expect(await t.push.pushPermissionStatus()).toBe('denied');
+  expect(await t.push.requestPushPermission()).toBe('denied');
+  expect(t.notifications.requestPermissionsAsync).toHaveBeenCalledTimes(1);
+  expect(t.registerDevice).not.toHaveBeenCalled();
+  t.stop();
+});
+
+test('Android 12에서는 허용된 알림 권한으로 바로 토큰을 등록하고 권한 팝업을 열지 않는다', async () => {
+  const t = setup({ os: 'android', androidVersion: 32 });
+  await settle();
+  expect(await t.push.pushPermissionStatus()).toBe('granted');
+  expect(await t.push.requestPushPermission()).toBe('granted');
+  expect(t.notifications.requestPermissionsAsync).not.toHaveBeenCalled();
+  expect(t.registerDevice).toHaveBeenCalledTimes(1);
+  t.stop();
+});
+
+test('Android에서 나중에 OS 설정으로 알림을 켜면 앱 복귀에 등록하고, 끄면 FCM 토큰을 폐기한다', async () => {
+  const t = setup({ os: 'android', permission: 'denied' });
+  await settle();
+  expect(t.registerDevice).not.toHaveBeenCalled();
+  t.setPermission('granted');
+  t.foreground();
+  await settle();
+  expect(t.registerDevice).toHaveBeenCalledTimes(1);
+  t.switchOn.value = false;
+  t.push.refreshPush();
+  await settle();
+  expect(t.notifications.unregisterForNotificationsAsync).toHaveBeenCalledTimes(1);
+  expect(t.stored()?.fcmToken).toBeUndefined();
+  t.stop();
+});
+
+test('1.x 토큰과 소유권이 충돌하면 Android FCM 토큰을 회전해 새 토큰으로 등록한다', async () => {
+  const t = setup({ os: 'android' });
+  t.notifications.getDevicePushTokenAsync
+    .mockResolvedValueOnce({ type: 'android', data: FCM })
+    .mockResolvedValue({ type: 'android', data: FCM_2 });
+  t.registerDevice.mockRejectedValueOnce(t.apiError('DEVICE_OWNERSHIP_CONFLICT', 409));
+  await settle();
+  expect(t.notifications.unregisterForNotificationsAsync).toHaveBeenCalledTimes(1);
+  expect(t.registerDevice).toHaveBeenLastCalledWith(
+    { deviceToken: FCM_2 },
+    expect.stringMatching(KEY),
+  );
+  expect(t.stored()?.registeredToken).toBe(FCM_2);
+  t.stop();
+});
+
+test('Android 토큰 갱신 이벤트와 알림 탭은 등록·라우팅에 반영된다', async () => {
+  const t = setup({ os: 'android' });
+  await settle();
+  t.notifications.getDevicePushTokenAsync.mockResolvedValue({ type: 'android', data: FCM_2 });
+  t.apnsChanged(FCM_2);
+  await settle();
+  expect(t.registerDevice).toHaveBeenLastCalledWith(
+    { deviceToken: FCM_2, ownershipToken: OWN },
+    expect.stringMatching(KEY),
+  );
+  expect(await t.show(androidNotice({ deliveryTag: TAG, link: 'gromo://island' }))).toMatchObject({
+    shouldShowBanner: true,
+  });
+  expect(await t.show(androidNotice({ deliveryTag: 'old-tag' }))).toMatchObject({
+    shouldShowBanner: false,
+  });
+  t.tap(responseOf(androidNotice({ deliveryTag: TAG, link: 'gromo://island' })));
+  expect(t.openAppLink).toHaveBeenCalledWith('gromo://island');
+  t.stop();
+});
+
+test('Android 옛 바이너리는 새 JS를 받아도 expo-notifications를 불러오지 않는다', async () => {
+  const t = setup({ os: 'android', bridge: false });
+  expect(t.loadNotifications).not.toHaveBeenCalled();
+  expect(await t.push.pushPermissionStatus()).toBe('unavailable');
   t.stop();
 });
 
@@ -363,8 +496,8 @@ test('알림을 다시 켠 등록(CAS)의 응답을 잃고 앱이 다시 시작�
   t.stop();
 });
 
-test('Android·브리지 없는 바이너리에서는 expo-notifications 를 불러오지 않고 브리지·저장소·서버도 부르지 않는다', async () => {
-  for (const options of [{ os: 'android' }, { bridge: false }]) {
+test('옛 Android·브리지 없는 iOS 바이너리는 expo-notifications 를 불러오지 않고 브리지·저장소·서버도 부르지 않는다', async () => {
+  for (const options of [{ os: 'android', bridge: false }, { bridge: false }]) {
     const t = setup({ ...options, stored: REGISTERED });
     await settle();
     t.push.refreshPush();
@@ -1628,8 +1761,8 @@ test('같은 계정이 등록 응답을 기다리는 사이 다시 로그인하�
 
 // ── 알림 권한 조회·요청(GROMO-2526) ──
 
-test('브리지 없는 바이너리(Android·브리지 없는 iOS)에서는 권한 조회·요청이 unavailable 이고 expo-notifications 를 불러오지 않는다', async () => {
-  for (const options of [{ os: 'android' }, { bridge: false }]) {
+test('옛 Android·브리지 없는 iOS 바이너리는 권한 조회·요청이 unavailable 이고 expo-notifications 를 불러오지 않는다', async () => {
+  for (const options of [{ os: 'android', bridge: false }, { bridge: false }]) {
     const t = setup(options);
     await settle();
 
