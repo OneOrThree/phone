@@ -114,27 +114,45 @@ function HistoryPanel({ kind }: { kind: ContentKind }) {
 }
 function FcmCatalogPanel() {
   const [items, setItems] = useState<FcmTemplate[]>([]);
-  const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  async function load(cursor = '') {
+  async function load() {
     setLoading(true); setError('');
     try {
-      const page = await request<FcmCatalogPage>(`/api/fcm/catalog${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`);
-      setItems(previous => cursor ? [...previous, ...page.items.filter(item => !previous.some(loaded => loaded.id === item.id))] : page.items);
-      setNextCursor(page.nextCursor ?? null);
+      const all: FcmTemplate[] = [];
+      const seenItems = new Set<string>();
+      const seenCursors = new Set<string>();
+      let cursor = '';
+      do {
+        const page = await request<FcmCatalogPage>(`/api/fcm/catalog${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`);
+        for (const item of page.items) {
+          if (seenItems.has(item.id)) continue;
+          seenItems.add(item.id);
+          all.push(item);
+        }
+        const next = page.nextCursor ?? '';
+        if (!next) break;
+        if (seenCursors.has(next)) throw new Error('FCM 알림 설정의 페이지를 끝까지 불러오지 못했습니다.');
+        seenCursors.add(next);
+        cursor = next;
+      } while (true);
+      setItems(all);
     } catch (cause) {
+      setItems([]);
       setError(cause instanceof Error ? cause.message : 'FCM 알림 설정을 불러오지 못했습니다.');
     } finally { setLoading(false); }
   }
   useEffect(() => { void load(); }, []);
+  const active = items.filter(item => item.enabled);
+  const inactive = items.filter(item => !item.enabled);
+  const templateRows = (templates: FcmTemplate[]) => <ol className="history-list">{templates.map(item => <li key={item.id}><details><summary><strong>{item.title || item.kind}</strong><span>{item.enabled ? '사용 중' : '사용 안 함'}</span><span>{item.locale} · v{item.version}</span></summary><div className="history-details"><dl className="snapshot-fields"><div><dt>알림 종류</dt><dd>{item.kind}</dd></div><div><dt>제목</dt><dd>{item.title || '없음'}</dd></div><div><dt>본문</dt><dd className="prewrap">{item.body}</dd></div></dl></div></details></li>)}</ol>;
   return <section className="history-panel" aria-label="FCM 알림 설정">
     <div className="section-heading"><div><h2>FCM 알림 설정</h2><p className="field-hint">Notification 서비스에 등록된 발송 문구입니다. 작성·검토 초안 및 실제 발송 이력과는 별개입니다.</p></div><button className="button secondary" disabled={loading} onClick={() => void load()}>새로고침</button></div>
     {error && <p role="alert" className="error-message">{error}</p>}
-    <p className="list-caption">{items.length}개 알림 문구</p>
-    {items.length ? <ol className="history-list">{items.map(item => <li key={item.id}><details><summary><strong>{item.title || item.kind}</strong><span>{item.enabled ? '사용 중' : '사용 안 함'}</span><span>{item.locale} · v{item.version}</span></summary><div className="history-details"><dl className="snapshot-fields"><div><dt>알림 종류</dt><dd>{item.kind}</dd></div><div><dt>제목</dt><dd>{item.title || '없음'}</dd></div><div><dt>본문</dt><dd className="prewrap">{item.body}</dd></div></dl></div></details></li>)}</ol> : !loading && !error && <p className="list-empty">등록된 FCM 알림 문구가 없습니다.</p>}
+    <p className="list-caption">사용 중 {active.length}개 · 사용 안 함 {inactive.length}개</p>
+    {active.length ? templateRows(active) : !loading && !error && <p className="list-empty">{items.length ? '사용 중인 FCM 알림 문구가 없습니다.' : '등록된 FCM 알림 문구가 없습니다.'}</p>}
+    {inactive.length > 0 && <details className="inactive-catalog"><summary>사용 안 하는 알림 문구 {inactive.length}개 보기</summary>{templateRows(inactive)}</details>}
     {loading && <p role="status" className="list-loading">FCM 알림 설정을 불러오는 중…</p>}
-    {nextCursor && <button className="button secondary" disabled={loading} onClick={() => void load(nextCursor)}>알림 문구 더 보기</button>}
   </section>;
 }
 function IslandSummary({ card }: { card: MagazineCard }) {
