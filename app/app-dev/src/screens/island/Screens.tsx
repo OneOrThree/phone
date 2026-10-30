@@ -1043,6 +1043,16 @@ export function RedesignScreens({ e }: any) {
     if (!island.buildings.includes('hall')) setHallGuideOpen(true);
     dispatch({ type: 'HALL_GUIDE_DONE' });
   }, [route, state.hallGuide]);
+  // 운영진의 편지(GROMO-2615) — 회관 안내·펠리컨 잡지 안내가 떠 있는 동안은 편지가 조회·표시되지 않게 App 에 알린다.
+  // 홈을 떠나거나 안내가 끝나면(정리 함수) 반드시 false 로 돌려 편지가 영영 막히지 않게 한다
+  const homeGuideOpen =
+    route === 'home' && ((hallGuideOpen && !island.buildings.includes('hall')) || magazinePrompt);
+  const setSceneGuideOpen = e.setSceneGuideOpen;
+  useEffect(() => {
+    if (!homeGuideOpen) return;
+    setSceneGuideOpen?.(true);
+    return () => setSceneGuideOpen?.(false);
+  }, [homeGuideOpen, setSceneGuideOpen]);
   const act = (type: string, p: any = {}) => dispatch({ type, ...p });
   const host = !island.members.some((m) => m.role === 'host');
   // 이름으로 지금 방장인지(공지 작성자·공동 구매자 표시)

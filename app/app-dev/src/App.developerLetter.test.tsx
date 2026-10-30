@@ -164,3 +164,26 @@ test('바깥(배경) 누르기로는 닫히지 않는다', async () => {
   await fireEvent.press(screen.getByTestId('developer-letter'));
   assert.ok(screen.queryByTestId('developer-letter'));
 });
+
+test('화면 안쪽 안내(sceneGuide)가 떠 있으면 조회도 표시도 없고, 끝나면 뜬다', async () => {
+  list.mockResolvedValue({ items: [notice] });
+  const screen = await render(<App />);
+  await waitFor(() => assert.ok(captured));
+  await act(async () => captured.setSceneGuideOpen(true));
+  await act(async () => captured.reset('sea'));
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, 200));
+  });
+  assert.equal(screen.queryByTestId('developer-letter'), null);
+  expect(list).not.toHaveBeenCalled();
+  await act(async () => captured.setSceneGuideOpen(false));
+  await waitFor(() => assert.ok(screen.queryByTestId('developer-letter')));
+});
+
+test('이미 뜬 편지는 안내 신호가 켜져도 내려가지 않는다', async () => {
+  list.mockResolvedValue({ items: [notice] });
+  const screen = await boot();
+  await waitFor(() => assert.ok(screen.queryByTestId('developer-letter')));
+  await act(async () => captured.setSceneGuideOpen(true));
+  assert.ok(screen.queryByTestId('developer-letter'));
+});

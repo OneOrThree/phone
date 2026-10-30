@@ -429,6 +429,8 @@ function Gromo() {
     } | null>(null),
     // 기존 계정 충돌(409 SOCIAL_ACCOUNT_ALREADY_LINKED) 확인창 — 승인·취소는 switchResolve 가 돌려준다.
     [switchAsk, setSwitchAsk] = useState(false),
+    // 화면 안쪽 안내(홈의 회관·펠리컨 안내, 바다의 펠리컨 배달)가 떠 있는 동안 — 편지 조회 게이트(GROMO-2615)
+    [sceneGuideOpen, setSceneGuideOpen] = useState(false),
     [visited, setVisited] = useState('strawberry'),
     [previewAudio, setPreviewAudio] = useState(false),
     [failNext, setFailNext] = useState(false),
@@ -1768,6 +1770,7 @@ function Gromo() {
     switchAsk,
     appContentHidden,
     walkRequest: !!walkRequest,
+    sceneGuide: sceneGuideOpen,
     keyboardHeight,
     incomingAppLink: !!incomingAppLink,
     openingInvitation,
@@ -2672,6 +2675,7 @@ function Gromo() {
           termsVersion: TERMS_VERSION,
           routeTransitionShielded,
           letterOpen: letterVisible,
+          setSceneGuideOpen,
           accountDataReady: storageOwnerReady,
           dispatch,
           go,

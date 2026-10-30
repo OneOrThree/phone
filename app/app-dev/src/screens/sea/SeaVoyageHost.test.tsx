@@ -826,6 +826,24 @@ describe('바다 고양이 잡지(GROMO-2314) — 펠리컨 배달 B1 · 뗏목 
     expect(putReceipt).toHaveBeenCalledWith('iss-20', { place: 'SEA' });
   });
 
+  test('배달이 진행 중인 동안만 setSceneGuideOpen(true), 편지가 떠 있거나 끝나면 false 로 돌린다(GROMO-2615)', async () => {
+    const setSceneGuideOpen = jest.fn();
+    const today = { issue, receipt: null };
+    const screen = await render(<SeaVoyageHost e={drift(today, { setSceneGuideOpen })} />);
+    expect(setSceneGuideOpen).toHaveBeenLastCalledWith(true);
+    // 편지가 뜨면 배달이 보류라 신호도 내린다 — 편지와 서로 기다리는 교착이 없다
+    await screen.rerender(
+      <SeaVoyageHost e={drift(today, { setSceneGuideOpen, letterOpen: true })} />,
+    );
+    expect(setSceneGuideOpen).toHaveBeenLastCalledWith(false);
+    await screen.rerender(
+      <SeaVoyageHost e={drift(today, { setSceneGuideOpen, letterOpen: false })} />,
+    );
+    expect(setSceneGuideOpen).toHaveBeenLastCalledWith(true);
+    await screen.unmount();
+    expect(setSceneGuideOpen).toHaveBeenLastCalledWith(false);
+  });
+
   test('표류 중 아직 받지 않은 오늘 호면 펠리컨이 화면 전체로 뜨고, 띄우는 순간 받음(SEA)을 한 번 보내고 스크린리더에 알린다', async () => {
     const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility');
     const screen = await render(<SeaVoyageHost e={drift({ issue, receipt: null })} />);

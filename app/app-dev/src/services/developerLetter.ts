@@ -59,6 +59,7 @@ export function isLetterReady(g: {
   switchAsk: boolean;
   appContentHidden: boolean;
   walkRequest: boolean;
+  sceneGuide: boolean;
   keyboardHeight: number;
   incomingAppLink: boolean;
   openingInvitation: boolean;
@@ -81,6 +82,7 @@ export function isLetterReady(g: {
     !g.switchAsk &&
     !g.appContentHidden &&
     !g.walkRequest &&
+    !g.sceneGuide &&
     g.keyboardHeight === 0 &&
     !g.incomingAppLink &&
     !g.openingInvitation
