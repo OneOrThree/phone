@@ -62,7 +62,10 @@ def generate(secret, config, images):
                   REALTIME_BASE_URL='http://realtime:8081', REALTIME_AUTHORIZATION_DATA_URL='http://app:8080',
                   KAFKA_BOOTSTRAP_SERVERS=f'{data_host}:9092', REDIS_HOST=redis_host, REDIS_PORT='6379')
     if values.get('BUSINESS_REDIS_LEGACY_HOST'):
-        values.update(BUSINESS_REDIS_LEGACY_HOST=redis_host, BUSINESS_REDIS_LEGACY_PORT='6379')
+        # 레거시는 전용 Business Redis(6380). 자격도 그 ACL 기준.
+        values.update(BUSINESS_REDIS_LEGACY_HOST=redis_host, BUSINESS_REDIS_LEGACY_PORT='6380',
+                      BUSINESS_REDIS_LEGACY_USERNAME='business',
+                      BUSINESS_REDIS_LEGACY_PASSWORD=secret['BUSINESS_REDIS_PASSWORD'])
     result = {}
     for service in ('data-api', 'business-api', 'notification'):
         rendered = w.render_service(values, images[service], service, 'transition', 'dev')
