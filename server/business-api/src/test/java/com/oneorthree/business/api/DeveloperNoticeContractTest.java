@@ -4,11 +4,14 @@ import com.oneorthree.business.support.MockUpstream;
 import com.oneorthree.business.support.Tokens;
 import com.oneorthree.business.support.UpstreamTestBase;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -89,11 +92,9 @@ class DeveloperNoticeContractTest extends UpstreamTestBase {
 
     @Test
     void appRequirementsExemptionIsGetOnly() throws Exception {
-        for (var builder : new org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder[]{
-                org.springframework.test.web.servlet.request.MockMvcRequestBuilders
-                        .post("/auth/sessions/app-requirements?platform=ios"),
-                org.springframework.test.web.servlet.request.MockMvcRequestBuilders
-                        .delete("/auth/sessions/app-requirements?platform=ios")}) {
+        for (var builder : new MockHttpServletRequestBuilder[]{
+                post("/auth/sessions/app-requirements?platform=ios"),
+                delete("/auth/sessions/app-requirements?platform=ios")}) {
             mockMvc.perform(builder).andExpect(status().isUnauthorized());
         }
         assertThat(DATA.receivedFor(REQ)).isEmpty();

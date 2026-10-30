@@ -64,14 +64,15 @@ public class AccessTokenFilter extends OncePerRequestFilter {
     private static final String HEADER_AUTHORIZATION = "Authorization";
     private static final String BEARER_PREFIX = "Bearer ";
 
+    /** 최소 버전 조회 경로. PUBLIC_PATHS 가 아니라 GET 일 때만 {@link #shouldNotFilter} 에서 연다. */
+    private static final String APP_REQUIREMENTS_PATH = "/auth/sessions/app-requirements";
+
     /**
      * 인증 없이 지나갈 수 있는 경로 — <b>이 목록에 없는 모든 요청은 401</b>이다.
      *
      * <p>비교는 {@code getRequestURI()} 의 정확 일치다. 접두어·정규화된 경로로 비교하면 인코딩·matrix
      * parameter 변형이 우회로가 된다.
      */
-    private static final String APP_REQUIREMENTS_PATH = "/auth/sessions/app-requirements";
-
     private static final Set<String> PUBLIC_PATHS = Set.of(
             // compose 헬스체크. 관리 포트 9091 은 호스트에 publish 하지 않으므로 서비스 포트에 둔다.
             "/health",
