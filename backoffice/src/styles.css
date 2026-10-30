@@ -78,6 +78,8 @@ code { overflow-wrap: anywhere; }
 .view-switch button.active { background: var(--color-ink); color: var(--color-paper); }
 .history-panel { padding: var(--space-xl); border: var(--rule-width) solid var(--color-rule); background: var(--color-paper); }
 .history-panel .section-heading { align-items: flex-start; }
+.inactive-catalog > summary { padding: var(--space-md); border-top: var(--rule-width) solid var(--color-rule); color: var(--color-muted); font-size: var(--text-sm); cursor: pointer; }
+.inactive-catalog > .history-list { margin-top: 0; }
 .history-list { list-style: none; margin: var(--space-lg) 0; padding: 0; border-top: var(--rule-width) solid var(--color-rule); }
 .history-list li { border-bottom: var(--rule-width) solid var(--color-rule); }
 .history-list summary { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: var(--space-lg); align-items: center; padding: var(--space-md); cursor: pointer; }
