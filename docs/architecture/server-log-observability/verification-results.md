@@ -151,9 +151,9 @@ V14 의 본래 의미인 «같은 부하 조건에서 요청 p95/p99 전후 비�
 
 | 사유 | 해당 |
 | --- | --- |
-| 배포 게이트(dev·prod 미배포, main 미반영) | 실배포 JSON·OBS 값·APM 링크(V20), 혼합 배포(V15), 요청 p95/p99(V14), 실제 span·sampling(V01·V03·V05·V13·V23) |
+| 배포 게이트(2026-10-30: main 반영·prod `catus-v3.0.0` 실행, 아래 현장 확인은 미실행) | 실배포 JSON·OBS 값·APM 링크(V20), 혼합 배포(V15), 요청 p95/p99(V14), 실제 span·sampling(V01·V03·V05·V13·V23) |
 | AWS 요청 금지(사용자 지시 2026-10-29) | 실제 S3·IAM·lifecycle·Athena(V12), S3 쪽 실제 도착(V09~V11 의 AWS 판) |
-| Infra 소유(`OneOrThree/Infra`) | prod Nginx `log_format`·Fluent Bit 서비스·IAM(V19, V12) |
+| Infra 소유(`OneOrThree/cattus-infra`(옛 이름 `OneOrThree/Infra`)) | prod Nginx `log_format`·Fluent Bit 서비스·IAM(V19, V12) |
 | Datadog agent 가 로컬에 없음 | trace 연결·sampling·보존(V01·V03·V05·V13·V23) |
 | 구조상 지금 도달 불가 | 묶음 병합 푸시(V16, 티켓 2421) |
 | 후속 구현 대기 | 멱등 재요청 origin·`/internal/*` 채택(V18), 단절 로그(V17), 인증 이전 요청 ID(V02) |

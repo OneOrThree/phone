@@ -30,7 +30,7 @@ P1 종료 시 첫 가치를 확인할 수 있다. 최초 S3 포함 배포 단위
 | 발송 시도·인스턴스 간 연결 | Notification `DispatchService`, Realtime `ChatFanoutEvent`·`RealtimeEventFanoutEvent`·subscriber·`RedisConfig` | 복수 원인→operation 연결, Redis carrier·message ID·구버전 wire 호환 |
 | 수집 | `server/observability/fluent-bit/` 신규, `server/scripts/docker-compose.*.yml` | source·parser·routing·영속 볼륨·자원 제한·두 출력 |
 | 조회 | `server/observability/loki/`, `grafana/`, `prometheus/` | labels·retention·대시보드·경보·APM 링크 |
-| 인프라 | 별도 `OneOrThree/Infra` 저장소의 `terraform/`·`prod/catus/runtime` 및 S3 설정 기록 | IAM·버킷·lifecycle·실제 배치. 2288의 정본 확인에 따라 구 OneOrThree/terraform은 신규 수정 대상으로 사용하지 않음 |
+| 인프라 | 별도 `OneOrThree/cattus-infra`(옛 이름 `OneOrThree/Infra`) 저장소의 `terraform/`·`prod/catus-v2/`(구 `prod/catus/runtime`) 및 S3 설정 기록 | IAM·버킷·lifecycle·실제 배치. 2288의 정본 확인에 따라 구 OneOrThree/terraform은 신규 수정 대상으로 사용하지 않음 |
 | 문서 | `docs/architecture/decisions.md`, `system-architecture.md`, 계정 정책, observability/scripts README | 채택 결정·구성도·보존·운영 절차를 실제 구현과 맞춤 |
 
 ## 3. P0에서 반드시 확인할 항목

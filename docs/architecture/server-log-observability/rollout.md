@@ -1,14 +1,14 @@
 # 로그 통합 전환·롤백 절차 (GROMO-2560)
 
-> 2026-10-29. **절차 문서이며 아무 단계도 실행하지 않았다.** 2553~2559 는 피처 브랜치 `feat/GROMO-2562-log-observability` 에 병합됐을 뿐 main 에 반영되지도, dev·prod 에 배포되지도 않았다. 2556 은 PR #1390 리뷰 중이다. 아래 «확인» 열은 배포 뒤 사람이 할 일이고, 결과는 [검증 결과](verification-results.md)의 «현장» 항목으로 옮긴다.
+> 2026-10-29 작성, 2026-10-30 현행화. 에픽 PR #1407 은 main 에 머지됐고(`ec7d74695`) `release` 에 포함돼 prod 는 커밋 `340d81567`(태그 `catus-v3.0.0`)을 실행한다. 그 안에서 prod 에 반영된 것은 앱 JSON 로그와 Datadog 수집이고, `OBS_*`·Fluent Bit·Loki·Grafana·S3·Nginx JSON 은 에픽 2619 로 아직 적용 전이다. dev 단계(§2)의 실행 여부는 2026-10-30 재확인 필요하다. 아래 «확인» 열은 사람이 할 일이고, 결과는 [검증 결과](verification-results.md)의 «현장» 항목으로 옮긴다.
 > AWS 에 요청을 보내는 부하·시험은 하지 않는다(사용자 지시 2026-10-29). 아래의 읽기 전용 확인도 dev·prod 에 부하를 가하지 않는 범위로 한정한다.
 
 관련: [구현 계획 §7](implementation-plan.md) · [수집 런북](ingestion-runbook.md)(S3·Nginx·기존 업로더 중단) · [조회 안내](query-guide.md) · [구현 현황](implementation-status.md)
 
 ## 1. 순서 원칙
 
-1. **dev 에서 먼저, prod 는 dev 확인 뒤.** dev 는 Data·Realtime 공동 배포(`data-api-ci.dev.yml` → `data-api-cd.dev.yml`), 위성 배포(`satellite-cd.dev.yml`), 관측 스택(`ops-monitor.dev.yml`)으로 나뉜다. prod 는 `prod-ci.yml`(release 이미지 발행)과 승인 후 수동 `prod-cd.yml`(SSM 배포·버전 지정 롤백)이며, prod 실행 구성은 Infra 저장소(`OneOrThree/Infra`)가 소유한다. 이 저장소 변경만으로는 prod 에 적용되지 않는다.
-2. **스키마는 먼저, 모두 additive.** Data Flyway `V7`(`event_outbox` 의 `origin_request_id`·`origin_trace_id`·`trace_context_version`)와 Notification `V16`(`deliveries` 의 `origin_*`)는 nullable 열 추가뿐이다. 앱 이미지와 함께 적용되며 prod 의 DB 적용 절차는 `server/data-api/docs/db/README.md` 를 따른다(이 문서는 그 절차를 바꾸지 않는다). 2026-10-29 12:1xZ 읽기 조회로 dev data-api DB 는 V3 까지(main 의 V4 도 미적용, 18:43 KST 공동 배포 실패), notification 은 V14 까지라 에픽 마이그레이션은 어디에도 적용된 적이 없다.
+1. **dev 에서 먼저, prod 는 dev 확인 뒤.** dev 는 Data·Realtime 공동 배포(`data-api-ci.dev.yml` → `data-api-cd.dev.yml`), 위성 배포(`satellite-cd.dev.yml`), 관측 스택(`ops-monitor.dev.yml`)으로 나뉜다. prod 는 `prod-ci-V2.yml`(release 이미지 발행)과 승인 후 수동 `prod-cd-V2.yml`(SSM 배포·버전 지정 롤백)이며(`prod-ci.yml`·`prod-cd.yml` 은 V1), prod 실행 구성은 Infra 저장소(`OneOrThree/cattus-infra`, `prod/catus-v2/`)가 소유한다. 이 저장소 변경만으로는 prod 에 적용되지 않는다.
+2. **스키마는 먼저, 모두 additive.** Data Flyway `V7`(`event_outbox` 의 `origin_request_id`·`origin_trace_id`·`trace_context_version`)와 Notification `V16`(`deliveries` 의 `origin_*`)는 nullable 열 추가뿐이다. 앱 이미지와 함께 적용되며 prod 의 DB 적용 절차는 `server/data-api/docs/db/README.md` 를 따른다(이 문서는 그 절차를 바꾸지 않는다). 2026-10-29 12:1xZ 읽기 조회로 dev data-api DB 는 V3 까지(main 의 V4 도 미적용, 18:43 KST 공동 배포 실패), notification 은 V14 까지라 에픽 마이그레이션은 그 시점에 어디에도 적용되지 않았다(2026-10-30: prod 는 V2 배포로 적용됐을 가능성이 있으나 DB 를 보지 않아 미확인, dev 는 재확인 필요).
 3. **혼합 배포에 순서 제약이 없는 것**: Outbox carrier 헤더(Kafka·내부 HTTP)와 Realtime Redis wire. 구버전은 모르는 헤더·`telemetry` 키를 무시하고 새 버전은 없는 값을 «문맥 없음»으로 읽는다(`KafkaInboundTest`, Realtime `InboundEventServiceTest` 가 양방향 확인). 실제 롤링 배포에서의 확인은 미실행.
 4. **수집기는 앱 JSON 이 나온 뒤에.** Fluent Bit 은 JSON 이 아닌 줄도 `log_kind=raw`·`parse_error=true` 로 보관하므로 순서를 어겨도 줄을 잃지는 않지만, 구조화 필드는 앱 JSON 이 먼저 있어야 조회된다.
 5. **한 번에 하나**: 앱 JSON → 수집기 → S3 출력 → Nginx 입력 순으로 하나씩 켜고, 각 단계의 판정 지표(§4)를 보고 다음으로 간다. 판정 기준값은 dev 관찰 뒤에 정한다 — **현재 정해진 수치 기준은 없다**.
@@ -17,7 +17,7 @@
 
 | 단계 | 작업 | 확인 | 상태 |
 | --- | --- | --- | --- |
-| D0 | 피처 PR 들이 main 에 반영됨(사람이 머지). dev VM(`gromo-dev-app`)의 Loki 는 현재 가동하지 않는다(2554 조사) — 관측 스택을 올리는 D4 가 선행돼야 조회가 된다 | main 의 해당 SHA | 미실행 |
+| D0 | 피처 PR 들이 main 에 반영됨(사람이 머지). dev VM(`gromo-dev-app`)의 Loki 는 2554 조사 당시 가동하지 않았다 — 관측 스택을 올리는 D4 가 선행돼야 조회가 된다 | main 의 해당 SHA | **완료**(main `ec7d74695`). dev 반영은 2026-10-30 재확인 필요(dev CD 다수 `disabled_manually`) |
 | D1 | 배포 전 검사: `deploy-core-dev.py`·`prepare-satellite-deploy.py` 가 렌더된 `OBS_SERVICE`(서비스 이름)·`OBS_ENV`(`dev`)·`OBS_VERSION`(배포 커밋)이 비었거나 다르면 배포를 멈춘다. `OBS_*` 는 비밀이 아니라 compose `environment:` 로 넣고 Secrets Manager 를 쓰지 않는다 | CD 로그의 검사 통과 | 미실행 |
 | D2 | dev CD 로 네 서비스 배포. dev 프로필 콘솔이 JSON 한 줄(`schema_version` 1)로 바뀐다. 텍스트 `app.log`·`logging.file.name` 파일은 그대로(컷오버 전) | `docker logs` 한 줄이 JSON, `service`·`env`·`version`·`instance_id` 가 컨테이너 env 와 일치(V20), 헬스 통과 | 미실행 |
 | D3 | `DD_TRACE_128_BIT_TRACEID_LOGGING_ENABLED=true` 가 네 서비스 compose 에 있다. agent 1.64.0 기본이 켜져 있어 출력 변화를 기대하지 않는다 | 컨테이너 env 에 값 존재, 요청 하나의 `dd.trace_id` 가 32자리 hex 이고 canonical `trace_id` 와 같음. 10진이 보이면 상위 64비트가 0인 경우 외에는 원인을 조사 | 미실행 |
@@ -29,16 +29,57 @@
 
 ## 3. prod 전환 순서
 
-dev D2~D7 이 끝나고 §4 기준이 기록된 뒤에만 시작한다. prod 는 **Infra 변경 요청이 선행**이다.
+dev 관찰(D2~D7)이 끝나고 §4 기준이 기록되기 전에는 ②(Fluent Bit·Loki 켜기)를 시작하지 않는다. prod 실행 구성은 Infra 저장소 `OneOrThree/cattus-infra` 의 `prod/catus-v2/` 이고, 아래 코드 변경은 에픽 2619(하위 2620~2627·2630)가 만든다. 이 절은 절차이며 에픽 2619 항목은 아직 실행하지 않았다.
 
-| 단계 | 작업 | 확인 | 소유·상태 |
+### 3.1 사람이 하는 4단계
+
+| 순서 | 작업 | 확인 |
+| --- | --- | --- |
+| 1 | `terraform apply`: 로그 버킷 수명 규칙(`system_log/` 90일)과 IAM(쓰기 접두 `system_log/v2/env=prod/*`) 적용 | 적용 결과의 변경 목록 |
+| 2 | Infra `main` 에 머지된 커밋 SHA 로 phone 저장소 Actions 변수 `CATUS_PROD_INFRA_REVISION_V2` 를 변경. 변수만 바꿔서는 아무것도 실행되지 않는다 | 40자리 SHA, 그 SHA 의 Infra `catus-config.prod-V2` 발행 성공 |
+| 3 | `prod-ci-V2` 실행(`release` 브랜치). 새 고정값으로 릴리스를 만든다 | 이미지 발행·구성 SHA 검증 통과 |
+| 4 | `prod-cd-V2` 실행(승인 후 수동, SSM 배포) | 앱 4종 헬스 통과 |
+
+`infra_revision` 이 바뀌면 앱 4종이 재시작된다(V1 과 같은 규칙). 3단계 전에 phone `main` → `release` 승격(`AGENTS.md` 「main → release 운영 승격」)이 끝나 있어야 한다.
+
+### 3.2 켜는 순서 (Infra 기능 스위치)
+
+스위치는 `prod/catus-v2/runtime/env-V2.py` 의 `OBSERVABILITY = {'fluent_bit', 'loki', 'grafana', 's3'}` 이고 기본값은 모두 False 다. 하나를 켤 때마다 §3.1 의 2~4단계(Infra 커밋 → `CATUS_PROD_INFRA_REVISION_V2` 변경 → `prod-ci-V2` → `prod-cd-V2`)를 한 번 돈다.
+
+| 단계 | 켜는 것 | 확인 | 상태 |
 | --- | --- | --- | --- |
-| P0 | Infra 요청(PR #1390 본문 「Infra 요청 항목」, [런북 §9](ingestion-runbook.md)): ① 환경별 prefix 쓰기 권한이 있는 Fluent Bit 호스트 역할, `system_log/v2/` PutObject, 타 환경 prefix 거부, lifecycle(`system_log/` 90일·미완료 multipart 1일) 실제 적용 확인. ② Catus 런타임에 Fluent Bit 4.2.8 서비스(`/var/lib/docker/containers` 읽기 전용, 상태 볼륨, `FLB_COMPOSE_PROJECT`·`FLB_ENV=prod`, `OBS_LOG_S3=on`, 버킷·리전·`store_dir` 한도), Nginx 컨테이너의 `gromo_json` `log_format` 과 `access_log /dev/stdout gromo_json;`. ③ `OBS_LOG_NGINX_HOST`·`OBS_LOG_S3*` 변수를 넘기는 경로. ④ Datadog 컨테이너 로그 수집 제외 목록의 `gromo-promtail` → `gromo-fluent-bit` | Infra 저장소의 변경 이력 | **미실행 — Infra 소유** |
-| P1 | prod 실행 구성에 `OBS_SERVICE`·`OBS_ENV`·`OBS_VERSION`·`DD_TRACE_128_BIT_TRACEID_LOGGING_ENABLED` 를 넣는다(Infra). 없으면 JSON 에서 해당 필드가 생략된다 | 컨테이너 env 와 로그의 일치 | **미실행 — Infra 소유** |
-| P2 | main → release 승격 PR(`AGENTS.md` 「main → release 운영 승격」). `prod-ci.yml` 이 이미지를 발행하고 `prod-cd.yml` 을 승인 후 수동 실행한다. 한 서비스·한 인스턴스부터 적용 가능한지는 `prod-cd.yml` 입력에 따른다(**미확인**). Data·Realtime 은 같은 SHA 로 함께 빌드된다 | §4 지표 | 미실행 |
-| P3 | Fluent Bit 기동(Infra) 뒤 canary 가 Loki 에 도착. 이어 S3 출력을 켜고 canary 가 **S3 객체에도** 도착하는지 따로 본다([런북 §6](ingestion-runbook.md)) | canary 두 sink | 미실행 |
-| P4 | 기존 업로더(티켓 590 타이머·2288)와 `system_log/v2/` 를 일정 기간 병행하고 로그량·마스킹을 대조한 뒤 APP 업로더만 중단([런북 §5](ingestion-runbook.md)). 두 업로더가 같은 호스트에서 같은 prefix 로 중복 쓰는지는 미확인 | 런북 §5 점검표 | 미실행 |
-| P5 | Grafana 접근 인증과 수집기 IAM 확인, 경보 연결 | — | 미실행 |
+| ① | 스위치 전부 꺼진 채로 배포. `OBS_*`·Datadog 서비스 이름(`data-api`·`business-api`·`realtime`·`notification`)·Nginx JSON 접근 로그가 반영되고 새 서비스는 뜨지 않는다 | 컨테이너 env 의 `OBS_SERVICE`·`OBS_ENV`·`OBS_VERSION`, 앱 로그 한 줄의 `service`·`env`·`version`, Nginx 로그가 JSON 한 줄, 서비스 목록이 이전과 같음 | 미실행 |
+| ② | `fluent_bit` + `loki`. dev 관찰이 끝난 뒤에만 | canary 가 Loki 에 도착, `dropped_records`, 호스트 디스크·메모리 여유(Loki 7일 보존) | 미실행 |
+| ③ | `s3` | `system_log/v2/env=prod/` 객체 도착, canary 가 S3 에도 도착, Athena 조회 | 미실행 |
+| ④ | Cloudflare 설정(§3.3)을 마친 뒤 `grafana` | 미인증 요청이 Access 로그인으로 이동, 원본 직접 요청은 401 | 미실행 |
+
+각 단계의 판정은 §4 지표로 하고, 앞 단계를 통과해야 다음으로 간다. 관측 서비스(Fluent Bit·Loki·Grafana) 기동은 앱 검증이 끝난 뒤 별도 단계이며 실패해도 앱 롤백을 일으키지 않게 설계한다(에픽 2619 계약, 구현은 하위 티켓).
+
+### 3.3 Cloudflare 수동 단계 (④ 전)
+
+1. DNS 에 Grafana 호스트를 만든다(호스트 이름은 미정 — 값은 `env-V2.py` 의 `GRAFANA_HOST`).
+2. Cloudflare Access 앱을 만든다.
+3. Access 앱의 `aud` 태그와 팀 도메인(`<team>.cloudflareaccess.com`)을 확인한다.
+4. 원본 서버 인증서가 새 호스트를 포함하는지 확인한다(미확인).
+5. `env-V2.py` 의 `GRAFANA_HOST`·`GRAFANA_ACCESS_TEAM`·`GRAFANA_ACCESS_AUD` 를 채운다. 스위치가 True 인데 값이 비어 있으면 `generate` 가 실패한다.
+6. Secrets Manager `catus/prod/env` 에 `GRAFANA_ADMIN_PASSWORD` 를 추가한다. 시크릿 버전이 바뀌므로 다음 배포에서 앱 4종이 재시작된다.
+
+Grafana 는 Access 가 붙인 JWT(`Cf-Access-Jwt-Assertion`)를 JWKS 로 직접 검증하고 `aud` 를 확인하며 로그인 폼은 끈다. Host 헤더 우회로 Access 를 건너뛰어도 원본에서 막기 위해서다.
+
+### 3.4 되돌리기
+
+해당 스위치를 False 로 하는 Infra 커밋 → `CATUS_PROD_INFRA_REVISION_V2` 를 그 커밋으로 → `prod-ci-V2` → `prod-cd-V2`. 꺼진 스위치의 서비스는 배포가 내린다. 앱 롤백 때는 관측 단계를 건너뛴다. 데이터 볼륨(`loki_data`·`fluent_bit_state`)은 지우지 않는다.
+
+### 3.5 이전 P0~P5 항목의 현재 상태
+
+| 이전 항목 | 현재 |
+| --- | --- |
+| P0 Infra 요청(IAM·lifecycle·Fluent Bit 서비스·Nginx `gromo_json`·Datadog 제외 목록) | 에픽 2619 하위 2623~2627·2630 이 코드로 만든다. 머지·`terraform apply` 전 |
+| P1 `OBS_SERVICE`·`OBS_ENV`·`OBS_VERSION`·`DD_TRACE_128_BIT_TRACEID_LOGGING_ENABLED` | 2623 이 만든다. 2026-10-30 재확인 필요 — 이 환경 변수가 prod 실행 구성에 이미 있는지 확인하지 않았다 |
+| P2 main → release 승격 | **실행 완료.** 에픽 PR #1407(`ec7d74695`)이 `release` 에 포함돼 prod 가 커밋 `340d81567`(태그 `catus-v3.0.0`)을 실행한다. 한 서비스·한 인스턴스부터 적용 가능한지는 `prod-cd-V2.yml` 입력에 따른다(미확인) |
+| P3 Fluent Bit 기동·canary | §3.2 ②. 미실행 |
+| P4 기존 업로더(590·2288)와 `system_log/v2/` 병행 후 APP 업로더 중단([런북 §5](ingestion-runbook.md)) | 미실행. 두 업로더가 같은 호스트에서 같은 prefix 로 중복 쓰는지는 미확인 |
+| P5 Grafana 접근 인증·수집기 IAM·경보 | 인증은 §3.2 ④, 경보는 미정 |
 
 ## 4. 전환 판정 지표와 확인 쿼리
 
@@ -62,7 +103,7 @@ dev D2~D7 이 끝나고 §4 기준이 기록된 뒤에만 시작한다. prod 는
 
 | 대상 | 롤백 | 남는 것·주의 |
 | --- | --- | --- |
-| 앱 JSON 출력 | 이전 이미지로 되돌린다(dev: 이전 SHA 재배포, prod: `prod-cd.yml` 의 버전 지정 롤백). JSON 은 프로필(`logback-spring.xml`·`application-{dev,prod}.yml`)에 고정돼 있어 런타임 스위치가 없다 | 되돌린 뒤 stdout 은 텍스트라 Fluent Bit 이 `raw` 로 보관하고 구조화 필드(`request_id` 등)는 조회되지 않는다. JSON 기간의 줄은 남는다 |
+| 앱 JSON 출력 | 이전 이미지로 되돌린다(dev: 이전 SHA 재배포, prod: `prod-cd-V2.yml` 의 버전 지정 롤백). JSON 은 프로필(`logback-spring.xml`·`application-{dev,prod}.yml`)에 고정돼 있어 런타임 스위치가 없다 | 되돌린 뒤 stdout 은 텍스트라 Fluent Bit 이 `raw` 로 보관하고 구조화 필드(`request_id` 등)는 조회되지 않는다. JSON 기간의 줄은 남는다 |
 | `OBS_*` | 이전 커밋을 재배포한다. 값을 지우면 배포 전 검사가 dev 배포를 멈춘다 | prod 는 Infra 가 값을 되돌린다 |
 | `DD_TRACE_128_BIT_TRACEID_LOGGING_ENABLED` | compose 에서 제거 | agent 1.64.0 기본이 켜져 있어 출력이 달라지지 않는다(2557 조사) |
 | Flyway V7(data)·V16(notification) | **되돌리지 않는다.** nullable 열이 남는다 | Data V7 은 이전 번들로 migrate·validate 가 통과하는 것을 테스트한다(`OutboxOriginV7MigrationTest`) |
@@ -77,9 +118,9 @@ dev D2~D7 이 끝나고 §4 기준이 기록된 뒤에만 시작한다. prod 는
 
 ## 6. 이 문서가 확인하지 않은 것
 
-- 모든 단계의 실제 실행(전부 미실행).
-- `prod-cd.yml` 의 서비스 단위 적용 가능 여부, prod 의 Nginx compose 서비스명, 실제 S3 리전(`ap-northeast-2` 는 가정), 두 업로더의 공존.
+- 단계의 실제 실행(P2 의 prod 반영만 실행됨 — §3.5. 나머지는 미실행).
+- `prod-cd-V2.yml` 의 서비스 단위 적용 가능 여부, prod 의 Nginx compose 서비스명, 실제 S3 리전(`ap-northeast-2` 는 가정), 두 업로더의 공존.
 - Promtail 복귀 절차의 실제 동작.
 - 알려진 수집 결함: 16 KiB 넘는 줄의 Docker 조각이 json-file 회전 경계에 걸리면 그 줄이 Loki·S3 에서 빠진다(로컬 재현, [런북 §7 해석과 한계](ingestion-runbook.md#해석과-한계)). dev 전환 판정에서 큰 예외 줄 누락을 이 경우와 구분한다.
 - §4 LogQL 의 실제 실행 결과.
-- Catus V2 운영 경로에는 수집기가 없어 JSON 로그가 컨테이너 stdout 에만 남는다 — 운영 수집 도입은 Infra 결정(범위 밖).
+- Catus V2 운영 경로에는 수집기·S3 업로더·버킷 수명 규칙·Datadog Agent 수집 제외 목록이 없다(2026-10-30 조사). 도입은 에픽 2619 의 Infra 변경이며 §3 의 순서를 따른다.

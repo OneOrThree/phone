@@ -1,9 +1,20 @@
 # 로그 통합 티켓과 구현 현황
 
-작성: 2026-10-29. 구현 기준: 피처 브랜치 `feat/GROMO-2562-log-observability`(origin/main 을 `700d06419`·`66ddbb60f`·`15e7c1b9d` 에서 병합, 2026-10-30 기준 main 과 동기).
-작업 브랜치: 티켓별 `b*/GROMO-####-*` 를 피처에 병합했고, 에픽 PR #1407 이 리뷰 중이다.
+작성: 2026-10-29, 2026-10-30 현행화. 구현 기준: 에픽 PR #1407 이 main 에 머지됐다(`ec7d74695`). 피처 브랜치 `feat/GROMO-2562-log-observability` 는 그 전까지 쓴 통합 브랜치다.
+작업 브랜치: 티켓별 `b*/GROMO-####-*` 를 피처에 병합했고, 피처가 에픽 PR #1407 로 main 에 들어갔다.
 
-기존 작업 폴더의 변경과 분리한 worktree에서 작업한다. 아래 **로컬 구현·검증**은 배포·S3 적재·Datadog 실측 완료를 뜻하지 않는다. 2553의 구현은 `epic-batch` 인계 커밋으로 보존한다. 티켓별 PR 생성·리뷰와 나머지 구현은 에픽 배치에서 이어간다.
+## 현재 상태 요약 (2026-10-30)
+
+- **main**: 에픽 PR #1407 이 머지됐고(`ec7d74695`) `release` 에 포함됐다.
+- **prod 실행**: Datadog 2026-10-30 조회 기준 prod 컨테이너 태그 version 은 `340d81567f3ee11400f53e9d0525b3b0eed9ca54` 이고, 이 커밋의 태그는 `catus-v3.0.0` 이다. prod 워크플로는 `prod-ci-V2.yml`·`prod-cd-V2.yml` 이며 V2 태그 규칙은 `catus-vX.Y.Z-V2` 라 이 값은 «커밋 `340d81567`(태그 `catus-v3.0.0`)» 로만 적는다. 앱 JSON 로그와 Datadog 수집은 prod 에 적용됐다.
+- **아직 prod 에 없다**: `OBS_*` 환경 변수, Fluent Bit, Loki·Grafana, S3 `system_log/v2/`, Nginx JSON 접근 로그, Datadog 서비스 이름 통일(`data-api` 등). 에픽 [GROMO-2619](https://romance.atlassian.net/browse/GROMO-2619)(하위 2620~2627·2630)가 맡는다. V2 에는 수집기·S3 업로더·버킷 수명 규칙·Datadog Agent 수집 제외 목록이 없다(2026-10-30 조사).
+- **dev**: dev CI·CD 워크플로 다수가 `disabled_manually` 이고 Infra PR #28 이 dev V2 를 구성 중이다. dev 에 이 에픽이 배포돼 있는지·Loki 가동 여부는 **2026-10-30 재확인 필요**.
+- **미확인**: Data V7·Notification V16 의 prod DB 적용 여부(V2 prod 배포로 적용됐을 가능성은 있으나 DB 를 보지 않았다), Datadog 심각도 파이프라인·Kafka 대시보드 적용 여부.
+- Infra 저장소 이름은 `OneOrThree/cattus-infra`(옛 이름 `OneOrThree/Infra` 에서 이동)이고 운영 실행 구성은 `prod/catus-v2/` 이다.
+
+아래 표의 «피처 병합» 기록은 당시 상태를 보존하고, 열 끝의 «main 반영» 표시로 현재 상태를 고쳤다.
+
+기존 작업 폴더의 변경과 분리한 worktree에서 작업한다. 아래 **로컬 구현·검증**은 S3 적재·Datadog 실측 완료를 뜻하지 않는다. 2553의 구현은 `epic-batch` 인계 커밋으로 보존한다. 티켓별 PR 생성·리뷰와 나머지 구현은 에픽 배치에서 이어간다.
 
 ## 티켓과 선후관계
 
@@ -11,14 +22,14 @@
 
 | 티켓 | 검증 가능한 작업 단위 | 선행 | 초기 예상 | 현황 |
 | --- | --- | --- | --- | --- |
-| [2553](https://romance.atlassian.net/browse/GROMO-2553) | Business 요청 → 조합 worker → HTTP worker → Data 요청 로그 연결 | 없음 | 8h | 피처 병합 #1380 `aa106c6d5`(main 미반영·배포 미실행) |
-| [2554](https://romance.atlassian.net/browse/GROMO-2554) | 실제 수집 경로·버전·용량·IAM·보존·업로더 조사 | 없음, 2553과 병행 | 4h | 피처 병합 #1382 `6e6b6260d`(main 미반영). dev 실측·Datadog 조회 완료, AWS·prod 미확인 → [조사표](runtime-inventory.md) |
-| [2555](https://romance.atlassian.net/browse/GROMO-2555) | 4개 JVM JSON → Fluent Bit → dev Loki 조회 | 2553·2554 | 2d | 피처 병합 #1383 `35d7446c3`(main 미반영·dev 배포 미실행) |
-| [2556](https://romance.atlassian.net/browse/GROMO-2556) | 시스템/Nginx 원본 → S3·장애 복구·컷오버 | 2555 | 2d | 피처 병합 #1390 `052d2a056`(main 미반영·배포 미실행, 실제 S3·IAM 미검증) → [수집 런북](ingestion-runbook.md) |
-| [2557](https://romance.atlassian.net/browse/GROMO-2557) | Outbox → Kafka/HTTP 소비·재시도 원인 연결 | 2555 | 2d | 피처 병합 #1384 `08ad13781`(main 미반영·배포 미실행) |
-| [2558](https://romance.atlassian.net/browse/GROMO-2558) | 원사건 → 기기별 발송 시도 operation 연결(묶음은 2421 에서 제거) | 2557 | 1d | 피처 병합 #1385 `bb6c3c119`(main 미반영·배포 미실행) |
-| [2559](https://romance.atlassian.net/browse/GROMO-2559) | Realtime Redis 2개 채널·STOMP·구버전 호환 | 2555·2557 | 2d | 피처 병합 #1386 `151b0c35f`(main 미반영·배포 미실행) |
-| [2560](https://romance.atlassian.net/browse/GROMO-2560) | 통합 조회·Athena·APM/지표 연결·운영 검증 | 2556·2558·2559 | 2d | 피처 병합 #1392 `fe6b464ce`(main 미반영·배포 미실행, 실제 Athena·dev Grafana 미검증) → [아래](#2560에서-구현한-경로) |
+| [2553](https://romance.atlassian.net/browse/GROMO-2553) | Business 요청 → 조합 worker → HTTP worker → Data 요청 로그 연결 | 없음 | 8h | 피처 병합 #1380 `aa106c6d5`(main 반영·prod 실행(`catus-v3.0.0`)) |
+| [2554](https://romance.atlassian.net/browse/GROMO-2554) | 실제 수집 경로·버전·용량·IAM·보존·업로더 조사 | 없음, 2553과 병행 | 4h | 피처 병합 #1382 `6e6b6260d`(main 반영). dev 실측·Datadog 조회 완료, AWS·prod 미확인 → [조사표](runtime-inventory.md) |
+| [2555](https://romance.atlassian.net/browse/GROMO-2555) | 4개 JVM JSON → Fluent Bit → dev Loki 조회 | 2553·2554 | 2d | 피처 병합 #1383 `35d7446c3`(main 반영·prod 실행(`catus-v3.0.0`), dev 배포 2026-10-30 재확인 필요) |
+| [2556](https://romance.atlassian.net/browse/GROMO-2556) | 시스템/Nginx 원본 → S3·장애 복구·컷오버 | 2555 | 2d | 피처 병합 #1390 `052d2a056`(main 반영·prod 실행(`catus-v3.0.0`), 실제 S3·IAM 미검증) → [수집 런북](ingestion-runbook.md) |
+| [2557](https://romance.atlassian.net/browse/GROMO-2557) | Outbox → Kafka/HTTP 소비·재시도 원인 연결 | 2555 | 2d | 피처 병합 #1384 `08ad13781`(main 반영·prod 실행(`catus-v3.0.0`)) |
+| [2558](https://romance.atlassian.net/browse/GROMO-2558) | 원사건 → 기기별 발송 시도 operation 연결(묶음은 2421 에서 제거) | 2557 | 1d | 피처 병합 #1385 `bb6c3c119`(main 반영·prod 실행(`catus-v3.0.0`)) |
+| [2559](https://romance.atlassian.net/browse/GROMO-2559) | Realtime Redis 2개 채널·STOMP·구버전 호환 | 2555·2557 | 2d | 피처 병합 #1386 `151b0c35f`(main 반영·prod 실행(`catus-v3.0.0`)) |
+| [2560](https://romance.atlassian.net/browse/GROMO-2560) | 통합 조회·Athena·APM/지표 연결·운영 검증 | 2556·2558·2559 | 2d | 피처 병합 #1392 `fe6b464ce`(main 반영·prod 실행(`catus-v3.0.0`), 실제 Athena·dev Grafana 미검증) → [아래](#2560에서-구현한-경로) |
 
 ### 후속 4건 (2026-10-29 추가, 같은 에픽)
 
@@ -26,12 +37,12 @@
 
 | 티켓 | 작업 단위 | 현황(조정자 갱신) |
 | --- | --- | --- |
-| [2571](https://romance.atlassian.net/browse/GROMO-2571) | dev 수집 중단(18:43 KST Agent 종료) 타임라인·복구 조건 | 피처 병합 #1400 `4140564f1`(main 미반영) — 문서 `collection-stop-2026-10-29.md` |
-| [2572](https://romance.atlassian.net/browse/GROMO-2572) | Kafka Exporter·PostgreSQL 심각도 파이프라인(명시 매핑) | 피처 병합 #1401 `4340d08f8`(main 미반영, **Datadog 미적용** — 원격 Grok 검증·apply 미수행) — 문서 `datadog-severity-pipeline.md` |
-| [2573](https://romance.atlassian.net/browse/GROMO-2573) | Kafka 브로커·Exporter 로그 링크 분리 | 피처 병합 #1399 `dc802f084`(main 미반영, 대시보드 Datadog 반영 미수행) — 문서 `kafka-log-links.md` |
-| [2574](https://romance.atlassian.net/browse/GROMO-2574) | Kafka 연결 실패·profiler 오류 영향 조사 | 피처 병합 #1402 `f818ed27d`(main 미반영, Business compose 수정 서버 미적용) — 문서 `kafka-profiler-errors-2026-10-29.md` |
+| [2571](https://romance.atlassian.net/browse/GROMO-2571) | dev 수집 중단(18:43 KST Agent 종료) 타임라인·복구 조건 | 피처 병합 #1400 `4140564f1`(main 반영) — 문서 `collection-stop-2026-10-29.md` |
+| [2572](https://romance.atlassian.net/browse/GROMO-2572) | Kafka Exporter·PostgreSQL 심각도 파이프라인(명시 매핑) | 피처 병합 #1401 `4340d08f8`(main 반영, **Datadog 미적용** — 원격 Grok 검증·apply 미수행) — 문서 `datadog-severity-pipeline.md` |
+| [2573](https://romance.atlassian.net/browse/GROMO-2573) | Kafka 브로커·Exporter 로그 링크 분리 | 피처 병합 #1399 `dc802f084`(main 반영, 대시보드 Datadog 반영 미수행) — 문서 `kafka-log-links.md` |
+| [2574](https://romance.atlassian.net/browse/GROMO-2574) | Kafka 연결 실패·profiler 오류 영향 조사 | 피처 병합 #1402 `f818ed27d`(main 반영, Business compose 수정 서버 미적용) — 문서 `kafka-profiler-errors-2026-10-29.md` |
 
-후속 4건의 «피처 병합»도 main 반영·배포가 아니다. 에픽 PR #1407(피처 → main)은 리뷰 중이며 머지는 사람이 한다.
+후속 4건도 에픽 PR #1407 로 main 에 들어갔다. 위 «Datadog 미적용»·«서버 미적용» 표시는 작성 당시 값이며 현재 적용 여부는 2026-10-30 재확인 필요.
 
 ### 2차 후속 9건 (2026-10-29~30, 같은 에픽)
 
@@ -39,7 +50,7 @@
 
 | 티켓 | 작업 단위 | 현황(조정자 갱신) |
 | --- | --- | --- |
-| [2579](https://romance.atlassian.net/browse/GROMO-2579) | 공개 문서의 AWS 계정 ID 자리표시자 | 피처 병합 #1412 `781867c59`(main 미반영). 워크플로·`.github/scripts` 의 role ARN 등은 동작에 필요해 유지 |
+| [2579](https://romance.atlassian.net/browse/GROMO-2579) | 공개 문서의 AWS 계정 ID 자리표시자 | 피처 병합 #1412 `781867c59`(main 반영). 워크플로·`.github/scripts` 의 role ARN 등은 동작에 필요해 유지 |
 | [2580](https://romance.atlassian.net/browse/GROMO-2580) | 조사표 §6 판정 문구·다이어그램 «(목표)» 라벨 | 피처 병합 #1414 `7b972e0dc` |
 | [2581](https://romance.atlassian.net/browse/GROMO-2581) | Realtime 문맥 빈 곳(바다 방·이동 명령·STOMP 관문·내부 HTTP·Kafka 재시도/DLT) | 피처 병합 #1418 `fbac0e9a5` |
 | [2582](https://romance.atlassian.net/browse/GROMO-2582) | Data·Notification 원인 문맥 빈 곳(멱등 재요청·`/internal/*` X-Origin 채택·불량 carrier 카운터·내부 HTTP client) | 피처 병합 #1417 `f5bc9267a` |
@@ -49,9 +60,9 @@
 | [2586](https://romance.atlassian.net/browse/GROMO-2586) | Datadog 파이프라인 도구 중단 기록·기본값 비교·JMX Exporter 로그 링크 | 피처 병합 #1413 `c3a88a005`(Datadog 미적용) |
 | [2588](https://romance.atlassian.net/browse/GROMO-2588) | 로그 이중 적재·dev S3 자격 방식 | 피처 병합 #1415 `fc7e25a5b` — **제안 문서, 결정 전** `decisions-ingest-and-s3-credentials.md` |
 
-에픽 마이그레이션 번호: main 이 앞 번호를 먼저 가져가 data-api `V7__event_outbox_origin_context`·notification `V16__delivery_origin_context` 로 옮겼다(내용 불변, 어디에도 적용된 적 없음).
+에픽 마이그레이션 번호: main 이 앞 번호를 먼저 가져가 data-api `V7__event_outbox_origin_context`·notification `V16__delivery_origin_context` 로 옮겼다(내용 불변. 작성 당시 어디에도 적용되지 않았고, prod 적용 여부는 2026-10-30 현재 DB 를 보지 않아 미확인).
 
-**피처 병합 ≠ main 반영 ≠ 배포.** 위 «피처 병합»은 에픽 통합 브랜치에 merge commit 으로 들어갔다는 뜻이다. main 에는 에픽 PR 하나로 들어가며, dev·prod 배포는 그 뒤다.
+**피처 병합 ≠ 배포.** «피처 병합»은 에픽 통합 브랜치에 merge commit 으로 들어갔다는 뜻이다. 에픽 PR #1407 이 main 에 머지됐고 prod 는 `catus-v3.0.0` 커밋을 실행하지만, 위 «아직 prod 에 없다» 항목은 에픽 2619 가 맡는다.
 
 Jira에도 위 방향의 `Blocks` 링크를 등록했다. 2554는 실제 환경 접근·인프라 확인이 필요한 작업이고, 나머지는 로컬 구현·검증을 진행할 수 있다. 수집기 운영 활성화는 2554 결과를 먼저 확인한다.
 
@@ -114,7 +125,7 @@ Business의 Checkstyle Test·SpotBugs Test는 저장소 설정에 따라 비활�
 | Loki 수용창 실측 | 같은 스트림 최신 시각보다 오래된 줄을 넣어 시험 | 30분 전 줄은 수용. 3시간 전 줄은 거절되어 Fluent Bit `dropped_records` 20, Loki `too_far_behind` 25(한 chunk에 방금 줄이 섞이면 Fluent Bit 지표에는 남지 않고 Loki 지표로만 보인다) |
 | 큰 앱 JSON | 40 KiB 앱 JSON | Docker가 16 KiB+로 나눈 18줄이 한 줄로 재조립되어 JSON으로 파싱됨 |
 
-dev Loki는 현재 떠 있지 않아(2554 조사표 `runtime-inventory.md`) dev 배포 경로에서는 검증하지 않았다. agent가 실제로 넣는 MDC 형식, 실배포 JSON 출력, prod 적용은 미검증이다.
+dev Loki는 2554 조사 당시 떠 있지 않아(`runtime-inventory.md`) dev 배포 경로에서는 검증하지 않았다(2026-10-30 현재 상태는 재확인 필요). agent가 실제로 넣는 MDC 형식, 실배포 JSON 출력, prod 적용은 미검증이다.
 
 ## 2557에서 구현한 경로
 
@@ -229,7 +240,7 @@ dev Loki는 현재 떠 있지 않아(2554 조사표 `runtime-inventory.md`) dev 
 - 2553 시점의 Business access log는 미처리 예외 최종 상태를 구분하지 않았다. 2555부터 미처리 예외는 `status_code` 없이 `outcome=unhandled_exception`으로 남는다.
 - 로그 JSON·마스킹·`log_id`와 Loki 로컬 수집은 2555에서 구현하고 로컬 하네스로 검증했다. DD agent 활성 상태의 span 전파, sample 미보관 시 조회, 실배포 JSON 출력, 실제 S3 적재·보존·부하 영향은 아직 미검증이다(S3 출력과 Nginx 입력의 로컬 검증은 위 2556 절).
 - 구현 기준 main에서 Data의 `AsyncConfig`·`NotificationAsyncConfig`는 삭제됐다. 초기 계획의 레거시 GA4/push executor를 복원하지 않는다.
-- Infra 정본은 2288에서 확인한 `OneOrThree/Infra`다. 실제 수집 설정·운영 버전은 2554에서 재확인한다.
+- Infra 정본은 `OneOrThree/cattus-infra`(옛 이름 `OneOrThree/Infra`)이고 운영 실행 구성은 `prod/catus-v2/` 다. 실제 수집 설정·운영 버전은 2554 조사표와 에픽 2619 에서 다룬다.
 
 ## epic-batch 실행
 

@@ -146,9 +146,9 @@ sum:datadog.estimated_usage.logs.ingested_events{*} by {service,env}.as_count()
 
 | 항목 | 출처 | 설정상 값 | 근거 |
 | --- | --- | --- | --- |
-| 앱 이미지 | Catus 워크플로 | ECR 저장소 `catus-prod/<service>`, `linux/arm64`, 릴리스에 digest 조합 기록 | `.github/workflows/prod-ci.yml:152,171-172`, `deployment.md:100-101` |
+| 앱 이미지 | Catus 워크플로(조사 당시 V1 `prod-ci.yml`, 현행은 `prod-ci-V2.yml`. 줄 번호는 V1 기준) | ECR 저장소 `catus-prod/<service>`, `linux/arm64`, 릴리스에 digest 조합 기록 | `.github/workflows/prod-ci.yml:152,171-172`, `deployment.md:100-101` |
 | 실행 구성 고정 | Catus 워크플로 | `CATUS_PROD_INFRA_REVISION` 40자리 SHA, S3 `configurations/<SHA>/configuration.zip` 검증 | `prod-ci.yml:70,93`, `deployment.md:78` |
-| 배포 방식 | Catus 워크플로 | `prod-cd.yml`, SSM 전송 | `.github/workflows/prod-cd.yml:55-80` |
+| 배포 방식 | Catus 워크플로 | `prod-cd.yml`(현행은 `prod-cd-V2.yml`), SSM 전송 | `.github/workflows/prod-cd.yml:55-80` |
 | DD agent | 1.x compose | `gcr.io/datadoghq/agent:7`(태그 고정 아님), `DD_LOGS_CONFIG_CONTAINER_COLLECT_ALL=true`, `DD_LOGS_CONFIG_DOCKER_CONTAINER_USE_FILE=true`, APM 활성 | `docker-compose.prod.yml:88,104,108,112` |
 | 로그 오프셋 | 1.x compose | named volume `datadog_agent_run` | `docker-compose.prod.yml:121` |
 | tracer | Catus Dockerfile | dd-java-agent 1.64.0 jar를 각 Dockerfile이 포함 | `server/data-api/Dockerfile:43`, `server/business-api/Dockerfile:40`, `server/notification/Dockerfile:41`, `server/realtime/Dockerfile:41` |
