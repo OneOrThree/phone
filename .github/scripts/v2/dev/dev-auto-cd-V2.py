@@ -46,7 +46,9 @@ def ci_status(runs):
     if not runs: return 'missing', None
     latest = max(runs, key=lambda run: (run['run_number'], run.get('run_attempt', 1)))
     if latest['status'] != 'completed': return 'running', None
-    return ('success', latest['id']) if latest['conclusion'] == 'success' else ('failed', None)
+    if latest['conclusion'] == 'success': return 'success', latest['id']
+    # 취소는 코드 실패가 아니다. 새 실행으로 메운다.
+    return ('missing', None) if latest['conclusion'] == 'cancelled' else ('failed', None)
 
 
 def ci_for(workflow, revision):
@@ -60,26 +62,41 @@ def dispatch(workflow):
     output(['gh', 'workflow', 'run', workflow, '--repo', REPO, '--ref', 'main'])
 
 
-def newest_manifest(lines, pattern):
-    """`gcloud storage ls -l` 출력에서 가장 최근 manifest 주소."""
+def deploy(args):
+    # 배포 결과 JSON을 실행 로그에 남긴다.
+    subprocess.run([sys.executable, *args], cwd=ROOT, check=True)
+
+
+def note(message):
+    print(message)
+    summary = os.environ.get('GITHUB_STEP_SUMMARY')
+    if summary:
+        with open(summary, 'a') as stream: stream.write(message + '\n')
+
+
+def manifests(lines, pattern):
+    """`gcloud storage ls -l` 출력의 manifest 주소. 최신순."""
     rows = []
     for line in lines.splitlines():
         parts = line.split()
         if len(parts) == 3 and re.fullmatch(pattern, parts[2]): rows.append((parts[1], parts[2]))
-    return max(rows)[1] if rows else None
+    return [uri for _, uri in sorted(rows, reverse=True)]
 
 
 def listing(prefix):
     result = subprocess.run(['gcloud', 'storage', 'ls', '-l', prefix], capture_output=True, text=True)
-    return result.stdout if result.returncode == 0 else ''
+    if result.returncode == 0: return result.stdout
+    # 산출물 없음만 빈 목록. 조회 실패를 없음으로 보면 재발행이 반복된다.
+    if 'matched no objects' in result.stderr: return ''
+    raise RuntimeError('dev V2 산출물 목록 조회 실패')
 
 
 def runtime_manifest(role, revision):
     pattern = re.escape(BUCKET) + f'/releases/{role}/[0-9a-f]{{40}}-[0-9]+-[0-9]+/manifest\\.json'
-    uri = newest_manifest(listing(f'{BUCKET}/releases/{role}/*/manifest.json'), pattern)
-    if uri is None: return None
-    published = uri.split('/')[-2].split('-')[0]
-    return uri if is_ancestor(published, revision) and same_runtime(role, published, revision) else None
+    for uri in manifests(listing(f'{BUCKET}/releases/{role}/*/manifest.json'), pattern):
+        published = uri.split('/')[-2].split('-')[0]
+        if is_ancestor(published, revision) and same_runtime(role, published, revision): return uri
+    return None
 
 
 def deploy_runtimes(state, revision):
@@ -91,12 +108,14 @@ def deploy_runtimes(state, revision):
         if previous and same_runtime(role, previous['revision'], revision): continue
         uri = runtime_manifest(role, revision)
         if uri:
-            output([sys.executable, str(HERE/'dev-deploy-runtime-V2.py'), '--role', role, '--manifest-uri', uri])
+            deploy([str(HERE/'dev-deploy-runtime-V2.py'), '--role', role, '--manifest-uri', uri])
             continue
         ready = False
         status, _ = ci_for(f'{role}-ci.dev-v2.yml', revision)
         if status == 'failed': raise RuntimeError(role + ' CI 실패')
-        if status != 'running': dispatch(f'{role}-ci.dev-v2.yml')
+        # 성공했는데 산출물이 없으면 재실행으로 해결되지 않는다. 반복 대신 실패.
+        if status == 'success': raise RuntimeError(role + ' CI는 성공했지만 일치하는 산출물이 없습니다')
+        if status == 'missing': dispatch(f'{role}-ci.dev-v2.yml')
     state.URI = f'{BUCKET}/deployments/app/current.json'
     return ready
 
@@ -104,18 +123,25 @@ def deploy_runtimes(state, revision):
 def main():
     revision = os.environ['GITHUB_SHA']
     if os.environ.get('GITHUB_REF') != 'refs/heads/main': raise ValueError('main 배포만 허용합니다')
+    # 대기 중 main이 앞서면 낡은 실행. 최신 커밋 기준으로 다시 시작.
+    latest = output(['git', 'ls-remote', 'origin', 'refs/heads/main']).split()[0]
+    if latest != revision:
+        dispatch('cd-auto.dev-v2.yml')
+        note(f'main이 {latest}로 앞서 최신 기준으로 다시 실행')
+        return
     state = load('auto_state', 'dev-state-V2.py')
     if not deploy_runtimes(state, revision):
-        print('런타임 발행 대기. CI 완료 시 다시 실행')
+        note('런타임 발행 대기. CI 완료 시 다시 실행')
         return
-    infra = newest_manifest(listing(f'{BUCKET}/infra/*/manifest.json'),
-                            re.escape(BUCKET) + r'/infra/[0-9a-f]{40}-[0-9]+-[0-9]+/manifest\.json')
-    if infra is None: raise RuntimeError('발행된 Infra 산출물이 없습니다')
+    published = manifests(listing(f'{BUCKET}/infra/*/manifest.json'),
+                          re.escape(BUCKET) + r'/infra/[0-9a-f]{40}-[0-9]+-[0-9]+/manifest\.json')
+    if not published: raise RuntimeError('발행된 Infra 산출물이 없습니다')
+    infra = published[0]
     previous, _ = state.read()
     plan = load('auto_plan', 'dev-plan-V2.py').plan(load('auto_fp', 'dev-fingerprint-V2.py').fingerprint(revision),
                                                     previous, revision, infra.split('/')[-2].split('-')[0])
     if not plan['deploy_services']:
-        print('배포 대상 없음')
+        note('배포 대상 없음')
         return
     args = {}
     waiting = False
@@ -128,12 +154,13 @@ def main():
         waiting = True
         if status == 'missing': dispatch(workflow)
     if waiting:
-        print('이미지 CI 대기. 완료 시 다시 실행')
+        note('이미지 CI 대기. 완료 시 다시 실행')
         return
-    command = [sys.executable, str(HERE/'dev-deploy-app-V2.py'), '--infra-manifest-uri', infra]
+    command = [str(HERE/'dev-deploy-app-V2.py'), '--infra-manifest-uri', infra]
     if CORE_CI in args: command += ['--core-run', args[CORE_CI]]
     if SATELLITE_CI in args: command += ['--satellite-run', args[SATELLITE_CI]]
-    output(command)
+    deploy(command)
+    note('앱 배포 완료: ' + ','.join(plan['deploy_services']))
 
 
 if __name__ == '__main__': main()

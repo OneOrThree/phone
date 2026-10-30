@@ -13,7 +13,7 @@ COUPLED_SERVICES = {'data-api', 'realtime'}
 DATA_DEPLOY_INPUTS = ('server/data-api/docs/db/deploy-v0.py',
                       'server/data-api/docs/db/rebase-v0.py',
                       'server/data-api/docs/db/v0-rebase/')
-SHARED = ('.github/actions/ci-jar/', '.github/scripts/ci-jar.py', '.github/scripts/catus-', '.github/scripts/v2/prod/',
+SHARED = ('.github/actions/ci-jar/', '.github/scripts/ci-jar.py', '.github/scripts/catus-', '.github/scripts/v2/prod/catus-runtime-V2.py',
           '.github/workflows/prod-ci.yml', '.github/workflows/be-gradle.yml', '.dockerignore', 'server/gradle')
 IMAGE = re.compile(r'^808715036056\.dkr\.ecr\.ap-northeast-2\.amazonaws\.com/catus-prod/([^/]+)@sha256:[0-9a-f]{64}$')
 

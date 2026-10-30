@@ -14,6 +14,7 @@ on:
         options: [all, shared, business]
 permissions:
   contents: read
+  actions: write
   id-token: write
 concurrency:
   group: catus-dev-v2-deploy
@@ -42,3 +43,8 @@ jobs:
           MANIFEST_URI: ${{ inputs.manifest_uri }}
           REDIS_SELECTION: ${{ inputs.selection }}
         run: python3 .github/scripts/v2/dev/dev-deploy-runtime-V2.py --role redis --manifest-uri "$MANIFEST_URI" --selection "$REDIS_SELECTION"
+      - name: 대기 중 취소됐을 수 있는 자동 배포 재평가
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run cd-auto.dev-v2.yml --repo OneOrThree/phone --ref main
