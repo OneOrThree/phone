@@ -209,7 +209,7 @@ Gromo 1.x prod 의 텍스트 패턴 로그는 상관되지 않는다.
 |---|---|---|
 | `dashboards/gromo-dev-architecture.json` 상단 note | `service:gromo-notification-dev` | 링크를 `service:notification` 으로. JSON 을 대시보드에 다시 적용 |
 | 같은 파일 «상세 조사» note 의 APM 링크 4개 | `gromo-back-dev`·`gromo-business-dev`·`gromo-notification-dev`·`gromo-realtime-dev` | `data-api`·`business-api`·`notification`·`realtime` |
-| 같은 파일 «서버 API» 위젯 3개(요청량·오류·p95) | `service:gromo-*` | `service IN (data-api,business-api,realtime,notification)`. **적용 뒤 위젯에 데이터가 나오는지 확인**(IN 문법은 콘솔에서 미검증) |
+| 같은 파일 «서버 API» 위젯 3개(요청량·오류·p95) | `service:gromo-*` | `$env AND service IN (data-api,business-api,realtime,notification)`. 쉼표로 이으면 Datadog 이 400 으로 거부한다(`AND`·`OR` 와 `,` 혼용 불가, 2026-10-30 조회로 확인) |
 | `dashboards/gromo-backend.json` 의 `service` 템플릿 변수 | 기본값 `gromo-back-prod`(Gromo 1.x) | 변경 없음. dev 를 볼 때는 값을 `data-api` 등으로 고른다 |
 | Datadog 에만 있는 저장 뷰·모니터·SLO·로그 파이프라인·메트릭 필터 | 저장소에 없어 목록화 불가 | 콘솔에서 `gromo-back-dev`·`gromo-data-dev`·`gromo-business-dev`·`gromo-realtime-dev`·`gromo-notification-dev` 로 검색해 새 이름으로 교체 |
 
