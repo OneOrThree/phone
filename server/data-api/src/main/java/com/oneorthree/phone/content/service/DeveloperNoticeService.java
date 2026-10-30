@@ -43,9 +43,29 @@ public class DeveloperNoticeService {
         return notice;
     }
 
+    @Transactional
+    public Withdrawal withdraw(UUID id, String actor) {
+        List<Withdrawal> previous = jdbc.query("SELECT withdrawn_at,withdrawn_by FROM developer_notices"
+                        + " WHERE publication_id=? FOR UPDATE", (rs, row) -> {
+                    Timestamp at = rs.getTimestamp("withdrawn_at");
+                    return at == null ? null : new Withdrawal(id, at.toInstant(), rs.getString("withdrawn_by"));
+                }, id);
+        if (previous.isEmpty()) {
+            throw new ContentException(ContentErrorCode.NOT_FOUND);
+        }
+        if (previous.get(0) != null) {
+            return previous.get(0);
+        }
+        Instant at = clock.instant();
+        jdbc.update("UPDATE developer_notices SET withdrawn_at=?,withdrawn_by=? WHERE publication_id=?",
+                Timestamp.from(at), actor, id);
+        return new Withdrawal(id, at, actor);
+    }
+
     @Transactional(readOnly = true)
     public Page list(boolean management) {
-        String where = management ? "" : " WHERE starts_at<=? AND (ends_at IS NULL OR ends_at>?)";
+        String where = management ? "" : " WHERE withdrawn_at IS NULL AND starts_at<=?"
+                + " AND (ends_at IS NULL OR ends_at>?)";
         Object[] args = management ? new Object[0]
                 : new Object[]{Timestamp.from(clock.instant()), Timestamp.from(clock.instant())};
         List<Notice> rows = jdbc.query("SELECT publication_id,title,body,starts_at,ends_at,published_at"
@@ -62,7 +82,7 @@ public class DeveloperNoticeService {
     public Notice get(UUID id) {
         Instant now = clock.instant();
         List<Notice> rows = jdbc.query("SELECT publication_id,title,body,starts_at,ends_at,published_at"
-                        + " FROM developer_notices WHERE publication_id=? AND starts_at<=?"
+                        + " FROM developer_notices WHERE publication_id=? AND withdrawn_at IS NULL AND starts_at<=?"
                         + " AND (ends_at IS NULL OR ends_at>?)",
                 (rs, number) -> new Notice(rs.getObject(1, UUID.class), rs.getString(2), rs.getString(3),
                         rs.getTimestamp(4).toInstant(),
@@ -84,6 +104,8 @@ public class DeveloperNoticeService {
 
     public record Notice(UUID publicationId, String title, String body, Instant startsAt, Instant endsAt,
                          Instant publishedAt) { }
+
+    public record Withdrawal(UUID publicationId, Instant withdrawnAt, String withdrawnBy) { }
 
     public record Page(List<Notice> items) { }
 }

@@ -30,7 +30,7 @@ class PublicationController {
         Map<String, Object> result = new java.util.LinkedHashMap<>(guard.identity());
         result.put("contractVersion", "1");
         result.put("capabilities", java.util.List.of("notification.publication.v1",
-                "notification.history.v1", "notification.templates.v1"));
+                "notification.history.v1", "notification.templates.v1", "notification.publication.cancel.v1"));
         return Map.copyOf(result);
     }
 
@@ -48,6 +48,14 @@ class PublicationController {
             requireEnvironment(request);
         }
         return publications.publish(AdminAudit.actor(request), publicationId, body, key);
+    }
+
+    @PostMapping("/internal/admin/publications/{publicationId}/cancel")
+    Map<String, Object> cancel(@PathVariable UUID publicationId, HttpServletRequest request) {
+        if (guard.isConnectedEnvironment()) {
+            requireEnvironment(request);
+        }
+        return publications.cancel(AdminAudit.actor(request), publicationId);
     }
 
     private void requireEnvironment(HttpServletRequest request) {

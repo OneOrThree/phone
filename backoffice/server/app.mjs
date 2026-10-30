@@ -66,6 +66,13 @@ export function createApp({
     attempts = new Map();
   const policies = new FocusPolicyStore(store);
   const policyActions = new Set();
+  const itemActions = new Set();
+  async function withItemAction(id, work) {
+    requireValue(!itemActions.has(id), "다른 항목 요청이 처리 중입니다. 잠시 후 다시 시도하세요.", 409);
+    itemActions.add(id);
+    try { return await work(); }
+    finally { itemActions.delete(id); }
+  }
   async function withPolicyAction(id, work) {
     requireValue(!policyActions.has(id), "다른 정책 요청이 처리 중입니다. 잠시 후 다시 시도하세요.", 409);
     policyActions.add(id);
@@ -319,7 +326,9 @@ export function createApp({
         }
       }
       if (path === "/api/items" && req.method === "GET") {
-        send(200, { items: store.list() });
+        const archived = url.searchParams.get("archived");
+        requireValue(archived === null || archived === "true", "목록 조건이 올바르지 않습니다.");
+        send(200, { items: store.list({ archived: archived === "true" }) });
         return;
       }
       const historyKind = path.match(/^\/api\/history\/(fcm|notice|magazine)$/);
@@ -377,7 +386,7 @@ export function createApp({
         return;
       }
       const match = path.match(
-        /^\/api\/items\/([0-9a-f-]+)(?:\/(review|approve|publish))?$/,
+        /^\/api\/items\/([0-9a-f-]+)(?:\/(review|approve|publish|cancel|cancel-delivery|withdraw|archive))?$/,
       );
       if (match) {
         const [, id, action] = match;
@@ -390,23 +399,38 @@ export function createApp({
           return;
         }
         if (action && req.method === "POST") {
-          let item = store.transition(
-            id,
-            await bodyOf(req),
-            auth.actor,
-            action,
-          );
-          if (action === "publish") {
-            try {
-              const receipt = item.kind === "construction" && mode === "local"
-                ? store.applyLocalConstructionPolicy(item, auth.actor)
-                : await upstream.publish(item, auth.actor, operator);
-              item = store.finish(id, receipt);
-            } catch (error) {
-              if (item.kind === "construction" && mode === "local") error.definite = true;
-              item = store.finish(id, null, error);
+          const input = await bodyOf(req);
+          const item = await withItemAction(id, async () => {
+            if (["cancel", "cancel-delivery", "withdraw", "archive"].includes(action)) {
+              const current = store.get(id);
+              store.checkRevision(current, input);
+              if (action === "cancel" || action === "archive")
+                return store.lifecycle(id, input, auth.actor, action);
+              if (action === "cancel-delivery") {
+                requireValue(current.kind === "fcm" && current.status === "published",
+                  "발송 요청된 운영 공지만 취소할 수 있습니다.", 409);
+                const receipt = await upstream.cancelFcm(current.publicationId, auth.actor, operator);
+                return store.lifecycle(id, input, auth.actor, action, receipt);
+              }
+              requireValue(current.kind === "notice" && current.status === "published",
+                "게시된 개발자 공지만 노출 종료할 수 있습니다.", 409);
+              const receipt = await upstream.withdrawNotice(current.publicationId, auth.actor, operator);
+              return store.lifecycle(id, input, auth.actor, action, receipt);
             }
-          }
+            let current = store.transition(id, input, auth.actor, action);
+            if (action === "publish") {
+              try {
+                const receipt = current.kind === "construction" && mode === "local"
+                  ? store.applyLocalConstructionPolicy(current, auth.actor)
+                  : await upstream.publish(current, auth.actor, operator);
+                current = store.finish(id, receipt);
+              } catch (error) {
+                if (current.kind === "construction" && mode === "local") error.definite = true;
+                current = store.finish(id, null, error);
+              }
+            }
+            return current;
+          });
           send(200, item);
           return;
         }

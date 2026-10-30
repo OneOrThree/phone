@@ -64,7 +64,7 @@ class AdminApiTest {
 
     @BeforeEach
     void resetState() {
-        store.update("TRUNCATE delivery_devices,deliveries,inbound_events,commands,device_tokens,"
+        store.update("TRUNCATE delivery_devices,deliveries,publication_cancellations,inbound_events,commands,device_tokens,"
                 + "session_fences,legacy_session_fences,"
                 + "user_fences,settings,projections,templates,deeplinks,kinds,jobs,job_runs,"
                 + "admin_audit CASCADE");
@@ -378,6 +378,65 @@ class AdminApiTest {
         assertThat(captured.getValue().body()).isEqualTo("검토 완료 문구");
         org.mockito.Mockito.verify(data).eligible(any(), anyString(), any(), any());
         org.mockito.Mockito.verify(data, org.mockito.Mockito.never()).eligibleTest(any(), anyString(), any(), any(), any());
+    }
+
+    @Test
+    void cancellationSuppressesPendingDeliveryPreservesHistoryAndBlocksResend() throws Exception {
+        devices.register(USER, Map.of("deviceToken", "device", "deviceBootstrap", "b", "sessionEpoch", 1), "reg");
+        UUID publication = UUID.randomUUID();
+        String path = "/internal/admin/publications/" + publication;
+        Map<String, Object> queued = body(post(path, "publish", publication()));
+        UUID delivery = UUID.fromString(((List<?>) queued.get("deliveryIds")).get(0).toString());
+        mvc.perform(MockMvcRequestBuilders.post(path + "/cancel")
+                .header("Authorization", "Bearer test-data")).andExpect(status(403));
+        Map<String, Object> cancelled = body(post(path + "/cancel", null, Map.of()));
+        assertThat(cancelled).containsEntry("cancelledCount", 1).containsEntry("sentCount", 0)
+                .containsEntry("inFlightCount", 0);
+        assertThat(store.one("SELECT status,last_error FROM deliveries WHERE id=?", delivery))
+                .containsEntry("status", "SUPPRESSED").containsEntry("last_error", "ADMIN_CANCELLED");
+        assertThat(body(post(path + "/cancel", null, Map.of()))).containsEntry("cancelledCount", 0);
+        assertThat(code(post("/internal/admin/deliveries/" + delivery + "/resend", "resend", Map.of())))
+                .isEqualTo("PUBLICATION_CANCELLED");
+        store.update("UPDATE dispatch_control SET enabled=true,ever_opened=true");
+        dispatch.dispatch(delivery);
+        verifyNoInteractions(transport);
+        assertThat(store.one("SELECT actor,action FROM admin_audit WHERE action='publications.cancelled'"
+                + " ORDER BY id LIMIT 1")).containsEntry("actor", "member-1");
+    }
+
+    @Test
+    void cancellationReportsAnActiveLeaseUntilItsSendWindowEnds() throws Exception {
+        UUID publication = UUID.randomUUID();
+        String path = "/internal/admin/publications/" + publication;
+        Map<String, Object> queued = body(post(path, "publish", publication()));
+        UUID delivery = UUID.fromString(((List<?>) queued.get("deliveryIds")).get(0).toString());
+        store.update("UPDATE deliveries SET lease_token=?,lease_expires_at=? WHERE id=?",
+                UUID.randomUUID(), java.sql.Timestamp.from(DAY.plusSeconds(30)), delivery);
+        Map<String, Object> first = body(post(path + "/cancel", null, Map.of()));
+        assertThat(first).containsEntry("cancelledCount", 1).containsEntry("inFlightCount", 1);
+        assertThat(store.one("SELECT status,lease_expires_at FROM deliveries WHERE id=?", delivery))
+                .containsEntry("status", "SUPPRESSED");
+        assertThat(body(post(path + "/cancel", null, Map.of())))
+                .containsEntry("totalCancelledCount", 1).containsEntry("inFlightCount", 1);
+        when(clock.instant()).thenReturn(DAY.plusSeconds(31));
+        assertThat(body(post(path + "/cancel", null, Map.of()))).containsEntry("inFlightCount", 0);
+        assertThat(store.one("SELECT status FROM deliveries WHERE id=?", delivery))
+                .containsEntry("status", "SUPPRESSED");
+    }
+
+    @Test
+    void cancellationNeverRewritesAnAlreadySentDelivery() throws Exception {
+        devices.register(USER, Map.of("deviceToken", "device", "deviceBootstrap", "b", "sessionEpoch", 1), "reg");
+        UUID publication = UUID.randomUUID();
+        String path = "/internal/admin/publications/" + publication;
+        Map<String, Object> queued = body(post(path, "publish", publication()));
+        UUID delivery = UUID.fromString(((List<?>) queued.get("deliveryIds")).get(0).toString());
+        store.update("UPDATE dispatch_control SET enabled=true,ever_opened=true");
+        dispatch.dispatch(delivery);
+        assertThat(store.one("SELECT status FROM deliveries WHERE id=?", delivery)).containsEntry("status", "SENT");
+        assertThat(body(post(path + "/cancel", null, Map.of())))
+                .containsEntry("cancelledCount", 0).containsEntry("sentCount", 1);
+        assertThat(store.one("SELECT status FROM deliveries WHERE id=?", delivery)).containsEntry("status", "SENT");
     }
 
     @Test
