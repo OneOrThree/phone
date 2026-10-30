@@ -153,8 +153,8 @@ def deploy(role, uri, selection):
         if role == 'redis':
             if selection not in ('shared', 'business', 'all'): raise ValueError('Redis 대상 오류')
             for name, content in (('shared', w.shared_redis_acl(secret)), ('business', w.business_redis_acl(secret))):
-                # inode 교체를 피하고 실행 중 파일을 덮지 않는다. 릴리스별 경로를 사용한다.
-                path = f'{destination}/{name}.acl'
+                # 실행별 경로. 같은 산출물 재배포도 마운트 변경으로 컨테이너 재생성, 새 ACL 적용.
+                path = f"{destination}/{name}-{os.environ['GITHUB_RUN_ID']}-{os.environ['GITHUB_RUN_ATTEMPT']}.acl"
                 ssh(expected_name, f'sudo install -m 600 -o 999 -g 999 /dev/stdin {path}', content.encode())
                 variables[name.upper() + '_ACL_FILE'] = path
             target = 'redis-' + selection
