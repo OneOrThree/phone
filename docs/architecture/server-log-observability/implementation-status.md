@@ -6,7 +6,7 @@
 ## 현재 상태 요약 (2026-10-30)
 
 - **main**: 에픽 PR #1407 이 머지됐고(`ec7d74695`) `release` 에 포함됐다.
-- **prod 실행**: Datadog 2026-10-30 조회 기준 prod 컨테이너 태그 version 은 `340d81567f3ee11400f53e9d0525b3b0eed9ca54` 이고, 이 커밋의 태그는 `catus-v3.0.0` 이다. prod 워크플로는 `prod-ci-V2.yml`·`prod-cd-V2.yml` 이며 V2 태그 규칙은 `catus-vX.Y.Z-V2` 라 이 값은 «커밋 `340d81567`(태그 `catus-v3.0.0`)» 로만 적는다. 앱 JSON 로그와 Datadog 수집은 prod 에 적용됐다.
+- **prod 실행**: Datadog 2026-10-30 조회 기준 prod 컨테이너 태그 version 은 `340d81567f3ee11400f53e9d0525b3b0eed9ca54` 이다. 같은 커밋에 `catus-v2.0.0-V2`·`catus-v2.0.1-V2`·`catus-v3.0.0` 태그가 있고, `catus-v3.0.0` 은 V1 워크플로 태그다. prod 워크플로는 `prod-ci-V2.yml`·`prod-cd-V2.yml`(V2 태그 `catus-vX.Y.Z-V2`)이며 `prod-cd-V2` 마지막 성공은 2026-10-29T23:11Z 다. 이 값은 «커밋 `340d81567`(V2 태그 `catus-v2.0.1-V2`, 2026-10-30 기준)» 로 적는다(마지막 성공 실행이 쓴 태그는 태그와 실행 시각으로 추정한 값). V2 전환은 host `catus-prod-V2` 로그와 `prod-cd-V2` 성공으로 확인됐다. 앱 JSON 로그와 Datadog 수집은 prod 에 적용됐다.
 - **아직 prod 에 없다**: `OBS_*` 환경 변수, Fluent Bit, Loki·Grafana, S3 `system_log/v2/`, Nginx JSON 접근 로그, Datadog 서비스 이름 통일(`data-api` 등). 에픽 [GROMO-2619](https://romance.atlassian.net/browse/GROMO-2619)(하위 2620~2627·2630)가 맡는다. V2 에는 수집기·S3 업로더·버킷 수명 규칙·Datadog Agent 수집 제외 목록이 없다(2026-10-30 조사).
 - **dev**: dev CI·CD 워크플로 다수가 `disabled_manually` 이고 Infra PR #28 이 dev V2 를 구성 중이다. dev 에 이 에픽이 배포돼 있는지·Loki 가동 여부는 **2026-10-30 재확인 필요**.
 - **미확인**: Data V7·Notification V16 의 prod DB 적용 여부(V2 prod 배포로 적용됐을 가능성은 있으나 DB 를 보지 않았다), Datadog 심각도 파이프라인·Kafka 대시보드 적용 여부.
@@ -22,14 +22,14 @@
 
 | 티켓 | 검증 가능한 작업 단위 | 선행 | 초기 예상 | 현황 |
 | --- | --- | --- | --- | --- |
-| [2553](https://romance.atlassian.net/browse/GROMO-2553) | Business 요청 → 조합 worker → HTTP worker → Data 요청 로그 연결 | 없음 | 8h | 피처 병합 #1380 `aa106c6d5`(main 반영·prod 실행(`catus-v3.0.0`)) |
+| [2553](https://romance.atlassian.net/browse/GROMO-2553) | Business 요청 → 조합 worker → HTTP worker → Data 요청 로그 연결 | 없음 | 8h | 피처 병합 #1380 `aa106c6d5`(main 반영·prod 실행(커밋 `340d81567`, V2 태그 `catus-v2.0.1-V2`)) |
 | [2554](https://romance.atlassian.net/browse/GROMO-2554) | 실제 수집 경로·버전·용량·IAM·보존·업로더 조사 | 없음, 2553과 병행 | 4h | 피처 병합 #1382 `6e6b6260d`(main 반영). dev 실측·Datadog 조회 완료, AWS·prod 미확인 → [조사표](runtime-inventory.md) |
-| [2555](https://romance.atlassian.net/browse/GROMO-2555) | 4개 JVM JSON → Fluent Bit → dev Loki 조회 | 2553·2554 | 2d | 피처 병합 #1383 `35d7446c3`(main 반영·prod 실행(`catus-v3.0.0`), dev 배포 2026-10-30 재확인 필요) |
-| [2556](https://romance.atlassian.net/browse/GROMO-2556) | 시스템/Nginx 원본 → S3·장애 복구·컷오버 | 2555 | 2d | 피처 병합 #1390 `052d2a056`(main 반영·prod 실행(`catus-v3.0.0`), 실제 S3·IAM 미검증) → [수집 런북](ingestion-runbook.md) |
-| [2557](https://romance.atlassian.net/browse/GROMO-2557) | Outbox → Kafka/HTTP 소비·재시도 원인 연결 | 2555 | 2d | 피처 병합 #1384 `08ad13781`(main 반영·prod 실행(`catus-v3.0.0`)) |
-| [2558](https://romance.atlassian.net/browse/GROMO-2558) | 원사건 → 기기별 발송 시도 operation 연결(묶음은 2421 에서 제거) | 2557 | 1d | 피처 병합 #1385 `bb6c3c119`(main 반영·prod 실행(`catus-v3.0.0`)) |
-| [2559](https://romance.atlassian.net/browse/GROMO-2559) | Realtime Redis 2개 채널·STOMP·구버전 호환 | 2555·2557 | 2d | 피처 병합 #1386 `151b0c35f`(main 반영·prod 실행(`catus-v3.0.0`)) |
-| [2560](https://romance.atlassian.net/browse/GROMO-2560) | 통합 조회·Athena·APM/지표 연결·운영 검증 | 2556·2558·2559 | 2d | 피처 병합 #1392 `fe6b464ce`(main 반영·prod 실행(`catus-v3.0.0`), 실제 Athena·dev Grafana 미검증) → [아래](#2560에서-구현한-경로) |
+| [2555](https://romance.atlassian.net/browse/GROMO-2555) | 4개 JVM JSON → Fluent Bit → dev Loki 조회 | 2553·2554 | 2d | 피처 병합 #1383 `35d7446c3`(main 반영·prod 실행(커밋 `340d81567`, V2 태그 `catus-v2.0.1-V2`), dev 배포 2026-10-30 재확인 필요) |
+| [2556](https://romance.atlassian.net/browse/GROMO-2556) | 시스템/Nginx 원본 → S3·장애 복구·컷오버 | 2555 | 2d | 피처 병합 #1390 `052d2a056`(main 반영·prod 실행(커밋 `340d81567`, V2 태그 `catus-v2.0.1-V2`), 실제 S3·IAM 미검증) → [수집 런북](ingestion-runbook.md) |
+| [2557](https://romance.atlassian.net/browse/GROMO-2557) | Outbox → Kafka/HTTP 소비·재시도 원인 연결 | 2555 | 2d | 피처 병합 #1384 `08ad13781`(main 반영·prod 실행(커밋 `340d81567`, V2 태그 `catus-v2.0.1-V2`)) |
+| [2558](https://romance.atlassian.net/browse/GROMO-2558) | 원사건 → 기기별 발송 시도 operation 연결(묶음은 2421 에서 제거) | 2557 | 1d | 피처 병합 #1385 `bb6c3c119`(main 반영·prod 실행(커밋 `340d81567`, V2 태그 `catus-v2.0.1-V2`)) |
+| [2559](https://romance.atlassian.net/browse/GROMO-2559) | Realtime Redis 2개 채널·STOMP·구버전 호환 | 2555·2557 | 2d | 피처 병합 #1386 `151b0c35f`(main 반영·prod 실행(커밋 `340d81567`, V2 태그 `catus-v2.0.1-V2`)) |
+| [2560](https://romance.atlassian.net/browse/GROMO-2560) | 통합 조회·Athena·APM/지표 연결·운영 검증 | 2556·2558·2559 | 2d | 피처 병합 #1392 `fe6b464ce`(main 반영·prod 실행(커밋 `340d81567`, V2 태그 `catus-v2.0.1-V2`), 실제 Athena·dev Grafana 미검증) → [아래](#2560에서-구현한-경로) |
 
 ### 후속 4건 (2026-10-29 추가, 같은 에픽)
 
@@ -62,7 +62,7 @@
 
 에픽 마이그레이션 번호: main 이 앞 번호를 먼저 가져가 data-api `V7__event_outbox_origin_context`·notification `V16__delivery_origin_context` 로 옮겼다(내용 불변. 작성 당시 어디에도 적용되지 않았고, prod 적용 여부는 2026-10-30 현재 DB 를 보지 않아 미확인).
 
-**피처 병합 ≠ 배포.** «피처 병합»은 에픽 통합 브랜치에 merge commit 으로 들어갔다는 뜻이다. 에픽 PR #1407 이 main 에 머지됐고 prod 는 `catus-v3.0.0` 커밋을 실행하지만, 위 «아직 prod 에 없다» 항목은 에픽 2619 가 맡는다.
+**피처 병합 ≠ 배포.** «피처 병합»은 에픽 통합 브랜치에 merge commit 으로 들어갔다는 뜻이다. 에픽 PR #1407 이 main 에 머지됐고 prod 는 커밋 `340d81567`(V2 태그 `catus-v2.0.1-V2`, 2026-10-30 기준)을 실행하지만, 위 «아직 prod 에 없다» 항목은 에픽 2619 가 맡는다.
 
 Jira에도 위 방향의 `Blocks` 링크를 등록했다. 2554는 실제 환경 접근·인프라 확인이 필요한 작업이고, 나머지는 로컬 구현·검증을 진행할 수 있다. 수집기 운영 활성화는 2554 결과를 먼저 확인한다.
 

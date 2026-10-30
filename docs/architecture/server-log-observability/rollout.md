@@ -1,6 +1,6 @@
 # 로그 통합 전환·롤백 절차 (GROMO-2560)
 
-> 2026-10-29 작성, 2026-10-30 현행화. 에픽 PR #1407 은 main 에 머지됐고(`ec7d74695`) `release` 에 포함돼 prod 는 커밋 `340d81567`(태그 `catus-v3.0.0`)을 실행한다. 그 안에서 prod 에 반영된 것은 앱 JSON 로그와 Datadog 수집이고, `OBS_*`·Fluent Bit·Loki·Grafana·S3·Nginx JSON 은 에픽 2619 로 아직 적용 전이다. dev 단계(§2)의 실행 여부는 2026-10-30 재확인 필요하다. 아래 «확인» 열은 사람이 할 일이고, 결과는 [검증 결과](verification-results.md)의 «현장» 항목으로 옮긴다.
+> 2026-10-29 작성, 2026-10-30 현행화. 에픽 PR #1407 은 main 에 머지됐고(`ec7d74695`) `release` 에 포함돼 prod 는 커밋 `340d81567`(V2 태그 `catus-v2.0.1-V2`, 2026-10-30 기준)을 실행한다. 그 안에서 prod 에 반영된 것은 앱 JSON 로그와 Datadog 수집이고, `OBS_*`·Fluent Bit·Loki·Grafana·S3·Nginx JSON 은 에픽 2619 로 아직 적용 전이다. dev 단계(§2)의 실행 여부는 2026-10-30 재확인 필요하다. 아래 «확인» 열은 사람이 할 일이고, 결과는 [검증 결과](verification-results.md)의 «현장» 항목으로 옮긴다.
 > AWS 에 요청을 보내는 부하·시험은 하지 않는다(사용자 지시 2026-10-29). 아래의 읽기 전용 확인도 dev·prod 에 부하를 가하지 않는 범위로 한정한다.
 
 관련: [구현 계획 §7](implementation-plan.md) · [수집 런북](ingestion-runbook.md)(S3·Nginx·기존 업로더 중단) · [조회 안내](query-guide.md) · [구현 현황](implementation-status.md)
@@ -25,7 +25,7 @@
 | D5 | Data 마이그레이션(V7)·Notification(V16) 적용 확인 후 Outbox 경로 동작. 이벤트 하나가 `outbox.delivery` → `consumer.accept` → `operation.link` → `transport.result` → `dispatch.settle` 로 이어지고 `event_id`·origin 이 유지되는지 | [조회 안내 §1](query-guide.md) 의 ②~④ 패널 | 미실행 |
 | D6 | Realtime 두 인스턴스: A → Redis → B 의 `fanout.publish` / `fanout.receive`, 구·신 인스턴스 혼합 | `message_id`·`event_id` 조회, 자기 echo 중복 없음 | 미실행(인스턴스 2개가 dev 에 있는지 미확인) |
 | D7 | 관찰: 일정 기간(길이는 미정) canary·`dropped_records`·`parse_error` 를 보고 §4 기준을 정해 기록 | 아래 §4 | 미실행 |
-| D8 | (선택, **dev 에서는 켜지 않는다**) S3 출력 `OBS_LOG_S3=on`, Nginx 호스트 `OBS_LOG_NGINX_HOST=on`: dev 에는 S3 자격이 없다(2554 실측)고 [런북 §1](ingestion-runbook.md)이 정한다. `ops-monitor.dev.yml` 이 `OBS_LOG_*` 를 넘기는 경로도 아직 없다(후속) | — | 차단(자격 결정 대기 — [decisions-ingest-and-s3-credentials.md](decisions-ingest-and-s3-credentials.md)) |
+| D8 | (선택, **dev 에서는 켜지 않는다**) S3 출력 `OBS_LOG_S3=on`, Nginx 호스트 `OBS_LOG_NGINX_HOST=on`: dev 에는 S3 자격이 없다(2554 실측)고 [런북 §1](ingestion-runbook.md)이 정한다. `ops-monitor.dev.yml` 이 `OBS_LOG_*` 를 넘기는 경로도 아직 없다(후속) | — | **dev 미사용 결정(2026-10-30)** — [decisions-ingest-and-s3-credentials.md §5](decisions-ingest-and-s3-credentials.md). S3 실측은 prod ③에서 처음 한다 |
 
 ## 3. prod 전환 순서
 
@@ -37,10 +37,10 @@ dev 관찰(D2~D7)이 끝나고 §4 기준이 기록되기 전에는 ②(Fluent B
 | --- | --- | --- |
 | 1 | `terraform apply`: 로그 버킷 수명 규칙(`system_log/` 90일)과 IAM(쓰기 접두 `system_log/v2/env=prod/*`) 적용 | 적용 결과의 변경 목록 |
 | 2 | Infra `main` 에 머지된 커밋 SHA 로 phone 저장소 Actions 변수 `CATUS_PROD_INFRA_REVISION_V2` 를 변경. 변수만 바꿔서는 아무것도 실행되지 않는다 | 40자리 SHA, 그 SHA 의 Infra `catus-config.prod-V2` 발행 성공 |
-| 3 | `prod-ci-V2` 실행(`release` 브랜치). 새 고정값으로 릴리스를 만든다 | 이미지 발행·구성 SHA 검증 통과 |
-| 4 | `prod-cd-V2` 실행(승인 후 수동, SSM 배포) | 앱 4종 헬스 통과 |
+| 3 | `prod-ci-V2` 를 `release` 브랜치에서 `workflow_dispatch` 로 수동 실행 | 이미지 발행·구성 SHA 검증 통과, 새 태그 `catus-vX.Y.Z-V2` 생성 |
+| 4 | `prod-cd-V2` 실행(승인 후 수동, SSM 배포). 입력은 `version`(필수: 3단계에서 생긴 `catus-vX.Y.Z-V2` 태그)과 `rollback` 뿐이고 배포는 `--role app` 전체다 | 앱 4종 헬스 통과 |
 
-`infra_revision` 이 바뀌면 앱 4종이 재시작된다(V1 과 같은 규칙). 3단계 전에 phone `main` → `release` 승격(`AGENTS.md` 「main → release 운영 승격」)이 끝나 있어야 한다.
+배포 엔진은 `up -d --no-deps <앱 4종>` 을 호출하고 compose 가 설정이 바뀐 서비스만 재생성한다. 그래서 스위치만 바꾸면 앱은 재시작되지 않고, 앱의 env·이미지·라벨이 바뀐 배포에서만 재시작된다(`infra_revision` 비교로 앱을 재시작하지 않는다). 3단계 전에 phone `main` → `release` 승격(`AGENTS.md` 「main → release 운영 승격」)이 끝나 있어야 한다.
 
 ### 3.2 켜는 순서 (Infra 기능 스위치)
 
@@ -50,10 +50,10 @@ dev 관찰(D2~D7)이 끝나고 §4 기준이 기록되기 전에는 ②(Fluent B
 | --- | --- | --- | --- |
 | ① | 스위치 전부 꺼진 채로 배포. `OBS_*`·Datadog 서비스 이름(`data-api`·`business-api`·`realtime`·`notification`)·Nginx JSON 접근 로그가 반영되고 새 서비스는 뜨지 않는다 | 컨테이너 env 의 `OBS_SERVICE`·`OBS_ENV`·`OBS_VERSION`, 앱 로그 한 줄의 `service`·`env`·`version`, Nginx 로그가 JSON 한 줄, 서비스 목록이 이전과 같음 | 미실행 |
 | ② | `fluent_bit` + `loki`. dev 관찰이 끝난 뒤에만 | canary 가 Loki 에 도착, `dropped_records`, 호스트 디스크·메모리 여유(Loki 7일 보존) | 미실행 |
-| ③ | `s3` | `system_log/v2/env=prod/` 객체 도착, canary 가 S3 에도 도착, Athena 조회 | 미실행 |
+| ③ | `s3`. dev 는 S3 를 쓰지 않기로 했으므로(D8) S3 실측(IAM·업로드·수명 규칙)은 prod 가 처음이다. 실패하면 ③만 되돌린다(§3.4). 머리글의 규칙대로 dev 관찰이 끝난 뒤에만 시작한다 | `system_log/v2/env=prod/` 객체 도착, canary 가 S3 에도 도착, Athena 조회 | 미실행 |
 | ④ | Cloudflare 설정(§3.3)을 마친 뒤 `grafana` | 미인증 요청이 Access 로그인으로 이동, 원본 직접 요청은 401 | 미실행 |
 
-각 단계의 판정은 §4 지표로 하고, 앞 단계를 통과해야 다음으로 간다. 관측 서비스(Fluent Bit·Loki·Grafana) 기동은 앱 검증이 끝난 뒤 별도 단계이며 실패해도 앱 롤백을 일으키지 않게 설계한다(에픽 2619 계약, 구현은 하위 티켓).
+각 단계의 판정은 §4 지표로 하고, 앞 단계를 통과해야 다음으로 간다. 켠 뒤 디스크·메모리의 판정 기준 숫자는 §1-5 의 기존 규칙대로 dev 관찰 뒤에 정한다(지금 정해진 숫자는 없고, 이 절은 «무엇을 보는가»만 적는다). 관측 서비스(Fluent Bit·Loki·Grafana) 기동은 앱 검증이 끝난 뒤 별도 단계이며 실패해도 앱 롤백을 일으키지 않게 설계한다(에픽 2619 계약, 구현은 하위 티켓).
 
 ### 3.3 Cloudflare 수동 단계 (④ 전)
 
@@ -62,13 +62,23 @@ dev 관찰(D2~D7)이 끝나고 §4 기준이 기록되기 전에는 ②(Fluent B
 3. Access 앱의 `aud` 태그와 팀 도메인(`<team>.cloudflareaccess.com`)을 확인한다.
 4. 원본 서버 인증서가 새 호스트를 포함하는지 확인한다(미확인).
 5. `env-V2.py` 의 `GRAFANA_HOST`·`GRAFANA_ACCESS_TEAM`·`GRAFANA_ACCESS_AUD` 를 채운다. 스위치가 True 인데 값이 비어 있으면 `generate` 가 실패한다.
-6. Secrets Manager `catus/prod/env` 에 `GRAFANA_ADMIN_PASSWORD` 를 추가한다. 시크릿 버전이 바뀌므로 다음 배포에서 앱 4종이 재시작된다.
+6. Secrets Manager `catus/prod/env` 에 `GRAFANA_ADMIN_PASSWORD` 를 추가한다. 시크릿 값은 서비스 env 에 넣지 않으므로(Grafana 전용 env 파일) 그 값 때문에 앱이 재시작되지는 않는다. 다만 시크릿 버전이 바뀌므로 다음 배포에서 앱 4종이 재시작될 수 있다(기존 규칙).
 
 Grafana 는 Access 가 붙인 JWT(`Cf-Access-Jwt-Assertion`)를 JWKS 로 직접 검증하고 `aud` 를 확인하며 로그인 폼은 끈다. Host 헤더 우회로 Access 를 건너뛰어도 원본에서 막기 위해서다.
 
 ### 3.4 되돌리기
 
-해당 스위치를 False 로 하는 Infra 커밋 → `CATUS_PROD_INFRA_REVISION_V2` 를 그 커밋으로 → `prod-ci-V2` → `prod-cd-V2`. 꺼진 스위치의 서비스는 배포가 내린다. 앱 롤백 때는 관측 단계를 건너뛴다. 데이터 볼륨(`loki_data`·`fluent_bit_state`)은 지우지 않는다.
+**끄는 순서.** `grafana` → `s3` → `loki` + `fluent_bit`. `loki` 와 `fluent_bit` 은 함께 끈다. Loki 만 끄면 수집기가 재시도하며 버퍼가 쌓인다.
+
+**경로 두 가지.**
+- 스위치 끄기: 해당 스위치를 False 로 하는 Infra 커밋 → `CATUS_PROD_INFRA_REVISION_V2` 변경 → `prod-ci-V2`(새 태그) → `prod-cd-V2`(`version`=새 태그). 새 Infra 커밋과 새 태그가 생기고, 꺼진 스위치의 서비스는 배포가 내린다.
+- `prod-cd-V2` 의 `rollback`: 이전 태그의 번들을 그대로 적용하므로 스위치 상태도 그 태그 시점으로 돌아간다. 앱 자동 롤백 때 관측 단계는 건너뛴다.
+
+**되돌린 뒤 확인.** 꺼진 서비스의 컨테이너가 없음, 앱 4종 헬스 통과, Datadog 수집이 계속 동작.
+
+**되돌려도 남는 것.** S3 `system_log/v2/env=prod/` 객체, 버킷 수명 규칙·IAM, Nginx JSON 형식, `GRAFANA_ADMIN_PASSWORD`, Cloudflare DNS·Access 앱, 데이터 볼륨(`loki_data`·`fluent_bit_state`). 볼륨은 지우지 않는다.
+
+**디스크 응급 절차(미검증 — 실제로 실행해 보지 않았다).** 호스트 디스크가 차면 배포를 기다리지 않고 관리자가 SSM 세션으로 `docker stop catus-app-v2-fluent-bit-1 catus-app-v2-loki-1` 을 실행한다. 볼륨은 지우지 않는다. 그 뒤 스위치 끄기 커밋을 낸다.
 
 ### 3.5 이전 P0~P5 항목의 현재 상태
 
@@ -76,7 +86,7 @@ Grafana 는 Access 가 붙인 JWT(`Cf-Access-Jwt-Assertion`)를 JWKS 로 직접 
 | --- | --- |
 | P0 Infra 요청(IAM·lifecycle·Fluent Bit 서비스·Nginx `gromo_json`·Datadog 제외 목록) | 에픽 2619 하위 2623~2627·2630 이 코드로 만든다. 머지·`terraform apply` 전 |
 | P1 `OBS_SERVICE`·`OBS_ENV`·`OBS_VERSION`·`DD_TRACE_128_BIT_TRACEID_LOGGING_ENABLED` | 2623 이 만든다. 2026-10-30 재확인 필요 — 이 환경 변수가 prod 실행 구성에 이미 있는지 확인하지 않았다 |
-| P2 main → release 승격 | **실행 완료.** 에픽 PR #1407(`ec7d74695`)이 `release` 에 포함돼 prod 가 커밋 `340d81567`(태그 `catus-v3.0.0`)을 실행한다. 한 서비스·한 인스턴스부터 적용 가능한지는 `prod-cd-V2.yml` 입력에 따른다(미확인) |
+| P2 main → release 승격 | **실행 완료.** 에픽 PR #1407(`ec7d74695`)이 `release` 에 포함돼 prod 가 커밋 `340d81567`(V2 태그 `catus-v2.0.1-V2`, 2026-10-30 기준)을 실행한다. `prod-cd-V2.yml` 입력은 `version`(필수)과 `rollback` 뿐이고 배포는 `--role app` 전체라 서비스 단위 적용은 불가능하다. 마지막 성공 실행은 2026-10-29T23:11Z 이고 쓴 태그는 태그와 실행 시각으로 추정한 값이다(2026-10-30 기준) |
 | P3 Fluent Bit 기동·canary | §3.2 ②. 미실행 |
 | P4 기존 업로더(590·2288)와 `system_log/v2/` 병행 후 APP 업로더 중단([런북 §5](ingestion-runbook.md)) | 미실행. 두 업로더가 같은 호스트에서 같은 prefix 로 중복 쓰는지는 미확인 |
 | P5 Grafana 접근 인증·수집기 IAM·경보 | 인증은 §3.2 ④, 경보는 미정 |
@@ -119,7 +129,7 @@ Grafana 는 Access 가 붙인 JWT(`Cf-Access-Jwt-Assertion`)를 JWKS 로 직접 
 ## 6. 이 문서가 확인하지 않은 것
 
 - 단계의 실제 실행(P2 의 prod 반영만 실행됨 — §3.5. 나머지는 미실행).
-- `prod-cd-V2.yml` 의 서비스 단위 적용 가능 여부, prod 의 Nginx compose 서비스명, 실제 S3 리전(`ap-northeast-2` 는 가정), 두 업로더의 공존.
+- prod 의 Nginx compose 서비스명, 실제 S3 리전(`ap-northeast-2` 는 가정), 두 업로더의 공존.
 - Promtail 복귀 절차의 실제 동작.
 - 알려진 수집 결함: 16 KiB 넘는 줄의 Docker 조각이 json-file 회전 경계에 걸리면 그 줄이 Loki·S3 에서 빠진다(로컬 재현, [런북 §7 해석과 한계](ingestion-runbook.md#해석과-한계)). dev 전환 판정에서 큰 예외 줄 누락을 이 경우와 구분한다.
 - §4 LogQL 의 실제 실행 결과.
