@@ -7,7 +7,7 @@ const { withIosStoreVersion } = require('./iosStoreVersionConfig');
 const { withIosMeta } = require('./metaIosConfig');
 // GROMO-2215·2226 — 구글 클라이언트 id 정본은 src/config/googleClientIds.json 이다(socialLogin.ts 와 같은 파일).
 // 여기서는 expo prebuild 가 Info.plist 에 심을 URL 스킴만 dev.ios 에서 만든다(이 레포는 체크인된 ios/ 를 쓴다).
-// 체크인된 Info.plist 에는 dev·prod 스킴을 둘 다 등록한다(규칙은 src/config/googleClientIds.md).
+// 체크인된 Info.plist 에는 dev·prod 의 서로 다른 스킴을 모두 등록한다(현재는 같은 스킴 하나, 규칙은 src/config/googleClientIds.md).
 const googleIosClientId = require('./src/config/googleClientIds.json').dev.ios;
 const googleIosUrlScheme = `com.googleusercontent.apps.${googleIosClientId.replace(
   '.apps.googleusercontent.com',
