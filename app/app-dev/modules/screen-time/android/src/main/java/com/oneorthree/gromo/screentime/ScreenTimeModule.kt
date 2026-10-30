@@ -96,6 +96,8 @@ class ScreenTimeModule : Module() {
   override fun definition() = ModuleDefinition {
     Name("ScreenTimeModule")
     Constant("supportsFocusShield") { false }
+    // 2.0.1 바이너리부터 expo-notifications Android 모듈이 포함된다. 옛 APK 에 OTA 가 닿아도 JS 가 로드하지 않는다.
+    Constant("supportsGeneralPush") { true }
 
     AsyncFunction("bindMeasurementOwner") { owner: String ->
       ledger.bind(owner)

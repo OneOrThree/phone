@@ -2,7 +2,7 @@
 // 가입자는 2.0에서 새 계정이 된다 — 1.x 미이관 정책과 같은 방향으로 수용한 결정이다.
 const kakaoNativeAppKey = '1280641e9b639a279b7406f24b059703';
 const { withLegacyAndroidKakao } = require('./kakaoAndroidConfig');
-// iOS 스토어 버전(1.0.2)은 아래 version(2.0.0, Android 용)과 다르다 — 이유는 iosStoreVersionConfig.js
+// iOS 스토어 버전(1.0.2)은 아래 version(2.0.1, Android 용)과 다르다 — 이유는 iosStoreVersionConfig.js
 const { withIosStoreVersion } = require('./iosStoreVersionConfig');
 const { withIosMeta } = require('./metaIosConfig');
 // GROMO-2215·2226 — 구글 클라이언트 id 정본은 src/config/googleClientIds.json 이다(socialLogin.ts 와 같은 파일).
@@ -21,7 +21,7 @@ module.exports = {
     locales: { ko: './locales/ko.json', en: './locales/en.json' },
     slug: 'focuscat',
     owner: 'oneorthree',
-    version: '2.0.0',
+    version: '2.0.1',
     runtimeVersion: '2.0.0',
     updates: {
       url: 'https://u.expo.dev/b791fb8b-1f6c-4e6f-88f6-84ef0a99c79d',
@@ -65,10 +65,13 @@ module.exports = {
     },
     android: {
       package: 'com.oneorthree.gromo',
-      versionCode: 20,
+      versionCode: 21,
       // 집중 차단 기능이 있는 기존 Android OTA와 네이티브 구성을 분리한다.
-      runtimeVersion: '2.0.0-no-special-use-assets-v1',
-      permissions: ['android.permission.PACKAGE_USAGE_STATS'],
+      runtimeVersion: '2.0.1-android-push-assets-v1',
+      permissions: [
+        'android.permission.PACKAGE_USAGE_STATS',
+        'android.permission.POST_NOTIFICATIONS',
+      ],
       blockedPermissions: [
         'android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK',
         'android.permission.FOREGROUND_SERVICE_SPECIAL_USE',
