@@ -99,6 +99,7 @@ code { overflow-wrap: anywhere; }
 .status-review, .status-publishing { background: var(--color-warning-soft); color: var(--color-warning); }
 .status-approved, .status-published { background: var(--color-success-soft); color: var(--color-success); }
 .status-failed, .status-uncertain { background: var(--color-error-soft); color: var(--color-error); }
+.status-archived, .status-cancelled, .status-withdrawn, .status-closed { background: var(--color-paper-deep); color: var(--color-muted); }
 .list-empty { display: grid; justify-items: start; gap: var(--space-md); padding: var(--space-2xl) var(--space-xl); }
 .list-empty > svg { width: 28px; height: 28px; color: var(--color-muted); }
 .list-empty h2 { font-size: var(--text-base); }

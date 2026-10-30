@@ -41,7 +41,7 @@ public class InternalContentAdminController {
     public Map<String, Object> environment() {
         return Map.of("environment", verifiedEnvironment(), "contractVersion", "1",
                 "capabilities", java.util.List.of("content.publication.v1", "content.history.v1",
-                        "construction.policy.v1", "focus.policy.v1"));
+                        "content.notice.withdraw.v1", "construction.policy.v1", "focus.policy.v1"));
     }
 
     private String verifiedEnvironment() {
@@ -83,6 +83,13 @@ public class InternalContentAdminController {
             @RequestBody DeveloperNoticeService.Draft body, HttpServletRequest request) {
         requireEnvironment(request);
         return notices.publish(publicationId, body, actor(request));
+    }
+
+    @PostMapping("/notices/{publicationId}/withdraw")
+    public DeveloperNoticeService.Withdrawal withdrawNotice(@PathVariable UUID publicationId,
+            HttpServletRequest request) {
+        requireEnvironment(request);
+        return notices.withdraw(publicationId, actor(request));
     }
 
     @PostMapping("/magazine/previews")

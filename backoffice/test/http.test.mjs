@@ -28,7 +28,7 @@ async function setup(t) {
     store.close();
   });
   const base = `http://127.0.0.1:${app.address().port}`;
-  return { base, origin };
+  return { base, origin, store };
 }
 test("인증/Origin/CSRF 경계와 세션 종료", async (t) => {
   const { base, origin } = await setup(t);
@@ -87,6 +87,52 @@ test("인증/Origin/CSRF 경계와 세션 종료", async (t) => {
     (await fetch(base + "/api/items", { headers: { Cookie: cookie } })).status,
     401,
   );
+});
+test("운영 취소·노출 종료·보관 API는 CSRF를 검사하고 기본 목록에서 제외한다", async (t) => {
+  const { base, origin, store } = await setup(t);
+  const send = (path, method, body, headers = {}) => fetch(base + path, {
+    method, headers: { Origin: origin, "Content-Type": "application/json", ...headers },
+    body: JSON.stringify(body),
+  });
+  const login = await send("/api/login", "POST", { actor: "member-1", password });
+  const cookie = login.headers.get("set-cookie").split(";")[0];
+  const { csrfToken } = await login.json();
+  const auth = { Cookie: cookie, "X-CSRF-Token": csrfToken };
+  const draft = await (await send("/api/items", "POST", { kind: "notice", title: "공지",
+    body: "내용", startsAt: "2026-10-29T00:00:00Z" }, auth)).json();
+  assert.equal((await send(`/api/items/${draft.id}/cancel`, "POST", { revision: draft.revision },
+    { Cookie: cookie })).status, 403);
+  const cancelled = await (await send(`/api/items/${draft.id}/cancel`, "POST",
+    { revision: draft.revision }, auth)).json();
+  assert.equal(cancelled.status, "cancelled");
+  assert.equal((await (await fetch(base + "/api/items", { headers: { Cookie: cookie } })).json()).items.length, 0);
+  assert.equal((await (await fetch(base + "/api/items?archived=true",
+    { headers: { Cookie: cookie } })).json()).items.length, 1);
+
+  let notice = store.create({ kind: "notice", title: "게시 공지", body: "내용",
+    startsAt: "2026-10-29T00:00:00Z" }, "member-1");
+  notice.status = "published";
+  notice.publicationId = "11111111-1111-4111-8111-111111111111";
+  store.save(notice);
+  const withdrawn = await (await send(`/api/items/${notice.id}/withdraw`, "POST",
+    { revision: notice.revision }, auth)).json();
+  assert.equal(withdrawn.status, "withdrawn");
+  assert.equal(withdrawn.withdrawal.local, true);
+  assert.equal((await send(`/api/items/${notice.id}/withdraw`, "POST",
+    { revision: notice.revision }, auth)).status, 409);
+
+  const magazine = store.create({ kind: "magazine", title: "발행본", issueDate: "2026-10-29",
+    body: "", data: {} }, "member-1");
+  magazine.status = "published";
+  magazine.receipt = { issueId: "issue" };
+  store.save(magazine);
+  const archived = await (await send(`/api/items/${magazine.id}/archive`, "POST",
+    { revision: magazine.revision }, auth)).json();
+  assert.equal(archived.status, "published");
+  assert.ok(archived.archivedAt);
+  assert.deepEqual(archived.receipt, { issueId: "issue" });
+  assert.equal((await (await fetch(base + "/api/items?archived=true",
+    { headers: { Cookie: cookie } })).json()).items.length, 3);
 });
 test("test 계정은 로컬에서만 로그인할 수 있다", async (t) => {
   for (const mode of ["local", "connected"]) {

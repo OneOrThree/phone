@@ -26,7 +26,7 @@ export class Store {
     );
     this.db.exec("CREATE TABLE IF NOT EXISTS construction_policy_state(id INTEGER PRIMARY KEY CHECK(id=1), document TEXT NOT NULL); CREATE TABLE IF NOT EXISTS construction_policy_receipts(id TEXT PRIMARY KEY, digest TEXT NOT NULL, result TEXT NOT NULL);");
     // 전송 도중 재시작되면 성공 여부를 추측하지 않고 같은 멱등 키로만 재시도한다.
-    for (const item of this.list())
+    for (const item of this.list({ all: true }))
       if (item.status === "publishing") {
         item.status = "uncertain";
         item.error =
@@ -37,11 +37,12 @@ export class Store {
   close() {
     this.db.close();
   }
-  list() {
+  list({ archived = false, all = false } = {}) {
     return this.db
       .prepare("SELECT document FROM items ORDER BY rowid DESC")
       .all()
-      .map((row) => JSON.parse(row.document));
+      .map((row) => JSON.parse(row.document))
+      .filter((item) => all || Boolean(item.archivedAt) === archived);
   }
   get(id) {
     const row = this.db
@@ -381,6 +382,42 @@ export class Store {
         item.error = error.message;
       }
       this.event(item, item.dispatchActor, item.status);
+      return this.save(item);
+    });
+  }
+  lifecycle(id, input, actor, action, receipt) {
+    return this.transaction(() => {
+      const item = this.get(id);
+      this.checkRevision(item, input);
+      if (action === "cancel") {
+        requireValue(["draft", "review", "approved", "failed"].includes(item.status),
+          "처리 중이거나 발행된 항목은 이 방법으로 취소할 수 없습니다.", 409);
+        item.status = "cancelled";
+        item.archivedAt = now();
+      } else if (action === "withdraw") {
+        requireValue(item.kind === "notice" && item.status === "published",
+          "게시된 개발자 공지만 노출 종료할 수 있습니다.", 409);
+        item.status = "withdrawn";
+        item.withdrawal = receipt;
+        item.archivedAt = now();
+      } else if (action === "archive") {
+        requireValue(item.status === "published" && ["magazine", "construction"].includes(item.kind),
+          "게시된 잡지 또는 적용된 정책만 보관할 수 있습니다.", 409);
+        item.archivedAt = now();
+      } else if (action === "cancel-delivery") {
+        requireValue(item.kind === "fcm" && item.status === "published",
+          "발송 요청된 운영 공지만 취소할 수 있습니다.", 409);
+        requireValue(receipt && Number.isInteger(receipt.inFlightCount),
+          "발송 취소 결과를 확인할 수 없습니다.", 502);
+        item.cancellation = receipt;
+        if (receipt.inFlightCount === 0) {
+          item.status = "closed";
+          item.archivedAt = now();
+        }
+      } else {
+        throw new Failure(400, "지원하지 않는 작업입니다.");
+      }
+      this.event(item, actor, action);
       return this.save(item);
     });
   }
