@@ -17,6 +17,9 @@ name: Catus app CI V2
     - .github/workflows/be-gradle.yml
     - .dockerignore
     - server/gradle*
+    - server/observability/fluent-bit/**
+    - server/observability/loki/**
+    - server/observability/grafana/dashboards/log-investigation.json
     - .github/workflows/prod-ci-V2.yml
     - .github/scripts/test_catus_runtime_V2.py
     - .github/scripts/pr-ci-policy.py
@@ -36,6 +39,9 @@ name: Catus app CI V2
     - .github/workflows/be-gradle.yml
     - .dockerignore
     - server/gradle*
+    - server/observability/fluent-bit/**
+    - server/observability/loki/**
+    - server/observability/grafana/dashboards/log-investigation.json
     - .github/workflows/prod-ci-V2.yml
     - .github/scripts/test_catus_runtime_V2.py
     - .github/scripts/pr-ci-policy.py
