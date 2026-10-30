@@ -136,9 +136,9 @@ V13 뒤에 이 서비스를 이전 이미지로 되돌리면 Flyway 기본값(�
 
 이 상한은 기존 대기 행에도 적용됩니다. 배포 전에는 `SELECT count(*) FROM deliveries WHERE status IN ('PENDING','DEFERRED') AND attempts >= 59;`로 다음 실패에 곧바로 종결될 행 수를 확인합니다. 기기 등록이 늦어 60회 안에 수신 기기가 생기지 않는 `NO_ACTIVE_DEVICE` 알림도 자동 재시도에서 제외됩니다.
 
-### dev 발송 게이트
+### 발송 게이트
 
-dev는 2026-10-27부터 발송 게이트를 상시 열어 둡니다(티켓 2522). 운영은 바꾸지 않았습니다. 새로 만든 dev DB는 기본값(닫힘)으로 시작하므로 다음 순서로 다시 엽니다.
+dev는 2026-10-27부터, 운영은 2026-10-30부터 발송 게이트를 열어 둡니다. V17 이후 새 DB는 게이트가 열린 상태로 시작합니다. 기존 DB에서 명시적으로 닫은 게이트는 재배포나 V17 적용으로 다시 열리지 않습니다. 게이트 상태와 예약 잡·스케줄러 설정은 별개이므로 새 환경이나 의도적으로 닫은 환경은 다음 순서로 확인합니다.
 
 1. Secrets Manager `gromo/dev/env`에 `NOTIFICATION_SCHEDULING_ENABLED=true`를 두고 `ops-redeploy.dev`로 notification을 재기동합니다. 실발송에는 `FCM_PROJECT_ID`(dev는 `catus-dev`)와 FCM 서비스 계정 자격이, 사건이 들어오려면 `NOTIFICATION_KAFKA_ENABLED=true`가 있어야 합니다. 프로젝트가 앱과 어긋나면 열자마자 [FCM 프로젝트 불일치](#fcm-프로젝트-불일치sender_id_mismatch) 증상이 납니다.
 2. 열기 전 대기 발송을 `GET /internal/admin/deliveries?status=PENDING`·`status=DEFERRED`로 확인합니다. 쌓인 발송은 열자마자 한꺼번에 나갑니다.
