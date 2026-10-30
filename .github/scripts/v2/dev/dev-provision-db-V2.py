@@ -29,13 +29,13 @@ def build(secret, config):
         raise ValueError('dev V2 배포 설정이 아닙니다')
     if config['hosts']['data'].get('name') != 'catus-dev-v2-data':
         raise ValueError('DB 호스트가 dev V2가 아닙니다')
-    env.w.require(secret, ('API_DB_URL', 'NOTI_DB_URL', 'API_DB_USERNAME', 'API_DB_PASSWORD',
-                           'NOTI_DB_USERNAME', 'NOTI_DB_PASSWORD', 'POSTGRES_USER', 'POSTGRES_PASSWORD'))
+    env.w.require(secret, ('API_DB_URL', 'NOTI_DB_URL', 'CHAT_DB_URL', 'API_DB_USERNAME', 'API_DB_PASSWORD',
+                           'NOTI_DB_USERNAME', 'NOTI_DB_PASSWORD', 'CHAT_DB_USERNAME', 'POSTGRES_USER', 'POSTGRES_PASSWORD'))
     data_db = env.database_name(secret['API_DB_URL'])
     noti_db = env.database_name(secret['NOTI_DB_URL'])
     rows = [(data_db, secret['API_DB_USERNAME'], secret['API_DB_PASSWORD']),
             (noti_db, secret['NOTI_DB_USERNAME'], secret['NOTI_DB_PASSWORD']),
-            ('gromo_chat', 'catus_realtime_v2', env.realtime_db_password(secret))]
+            (env.database_name(secret['CHAT_DB_URL']), secret['CHAT_DB_USERNAME'], env.realtime_db_password(secret))]
     if len({r[0] for r in rows}) != 3 or len({r[1] for r in rows} | {secret['POSTGRES_USER']}) != 4:
         raise ValueError('DB 또는 계정이 서로 분리되지 않았습니다')
     sql = ['\\set ON_ERROR_STOP on']

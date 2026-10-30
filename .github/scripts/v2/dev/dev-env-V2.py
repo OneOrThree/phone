@@ -28,10 +28,10 @@ def database_name(value):
 
 def realtime_db_password(secret):
     # 관리자 비밀번호 재사용 금지. 유출 시 다른 DB 접근 차단.
-    w.require(secret, ('REALTIME_DB_PASSWORD',))
-    if secret['REALTIME_DB_PASSWORD'] == secret.get('POSTGRES_PASSWORD'):
+    w.require(secret, ('CHAT_DB_PASSWORD',))
+    if secret['CHAT_DB_PASSWORD'] == secret.get('POSTGRES_PASSWORD'):
         raise ValueError('Realtime DB 비밀번호는 관리자 비밀번호와 달라야 합니다')
-    return secret['REALTIME_DB_PASSWORD']
+    return secret['CHAT_DB_PASSWORD']
 
 
 def generate(secret, config, images):
@@ -51,7 +51,7 @@ def generate(secret, config, images):
     data_host, redis_host = private_ip(hosts['data']['private_ip']), private_ip(hosts['redis']['private_ip'])
     if data_host == redis_host:
         raise ValueError('Data와 Redis VM 주소가 같습니다')
-    required = ('API_DB_URL', 'NOTI_DB_URL', 'POSTGRES_USER', 'POSTGRES_PASSWORD',
+    required = ('API_DB_URL', 'NOTI_DB_URL', 'CHAT_DB_URL', 'CHAT_DB_USERNAME', 'POSTGRES_USER', 'POSTGRES_PASSWORD',
                 'REDIS_DATA_PASSWORD', 'REDIS_REALTIME_PASSWORD', 'BUSINESS_REDIS_PASSWORD',
                 'JWT_SECRET', 'SVC_TOKEN_REALTIME_TO_DATA', 'SVC_TOKEN_DATA_TO_REALTIME', 'SVC_TOKEN_BIZ_TO_REALTIME')
     w.require(secret, required)
@@ -85,8 +85,8 @@ def generate(secret, config, images):
     if 'https://oneorthree-v2.dev.mooo.com' not in origins:
         origins.append('https://oneorthree-v2.dev.mooo.com')
     rt['CHAT_WS_ALLOWED_ORIGINS'] = ','.join(origins)
-    rt.update(SPRING_PROFILES_ACTIVE='dev', CHAT_DB_URL=f'jdbc:postgresql://{data_host}:5432/gromo_chat',
-              CHAT_DB_USERNAME='catus_realtime_v2', CHAT_DB_PASSWORD=realtime_db_password(secret),
+    rt.update(SPRING_PROFILES_ACTIVE='dev', CHAT_DB_URL=f"jdbc:postgresql://{data_host}:5432/{database_name(secret['CHAT_DB_URL'])}",
+              CHAT_DB_USERNAME=secret['CHAT_DB_USERNAME'], CHAT_DB_PASSWORD=realtime_db_password(secret),
               DATA_API_BASE_URL='http://app:8080', REALTIME_AUTHORIZATION_DATA_URL='http://app:8080',
               KAFKA_BOOTSTRAP_SERVERS=f'{data_host}:9092', REDIS_HOST=redis_host, REDIS_PORT='6379',
               REDIS_USERNAME='realtime', REDIS_PASSWORD=secret['REDIS_REALTIME_PASSWORD'])
