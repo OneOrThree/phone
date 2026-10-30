@@ -1,0 +1,93 @@
+name: Data API CI (dev)-v2
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'server/data-api/**'
+      - 'server/realtime/**'
+      - '.github/workflows/data-api-ci.dev-v2.yml'
+      - '.github/workflows/realtime-ci.dev-v2.yml'
+      - '.github/workflows/be-gradle.yml'
+      - '.github/actions/ci-jar/**'
+      - '.github/actions/gar-login/**'
+      - '.github/scripts/ci-jar.py'
+      - '.dockerignore'
+  push:
+    branches: [main]
+    paths:
+      - 'server/data-api/**'
+      - '!server/data-api/**/*.md'
+      - 'server/realtime/**'
+      - '!server/realtime/**/*.md'
+      - '.github/workflows/data-api-ci.dev-v2.yml'
+      - '.github/workflows/realtime-ci.dev-v2.yml'
+      - '.github/workflows/be-gradle.yml'
+      - '.github/actions/ci-jar/**'
+      - '.github/actions/gar-login/**'
+      - '.github/scripts/ci-jar.py'
+      - '.dockerignore'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  data:
+    uses: ./.github/workflows/be-gradle.yml
+    permissions:
+      contents: read
+      actions: read
+    with:
+      service: data-api
+      publish-jar: true
+      artifact-name: data-api-v2-test-results
+      artifact-path: build/test-results/
+  realtime:
+    uses: ./.github/workflows/realtime-ci.dev-v2.yml
+    permissions:
+      contents: read
+      actions: read
+  images:
+    if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
+    needs: [data, realtime]
+    runs-on: ${{ fromJSON('["self-hosted", "ci", "spot"]') }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [data-api, realtime]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/ci-jar
+        with:
+          service: ${{ matrix.service }}
+          operation: verify
+      - uses: docker/setup-buildx-action@v3
+      - uses: ./.github/actions/gar-login
+        with:
+          registry: asia-northeast3-docker.pkg.dev
+      - uses: docker/build-push-action@v6
+        id: image
+        with:
+          context: server/${{ matrix.service }}
+          build-args: JAR_SOURCE=prebuilt
+          platforms: linux/amd64
+          push: true
+          tags: asia-northeast3-docker.pkg.dev/oneorthree2/${{ matrix.service }}/${{ matrix.service }}:dev-v2-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          labels: org.opencontainers.image.revision=${{ github.sha }}
+      - name: 이미지 정보 기록
+        env:
+          SERVICE: ${{ matrix.service }}
+          DIGEST: ${{ steps.image.outputs.digest }}
+        run: |
+          python3 - <<'PY'
+          import json,os,re
+          s=os.environ['SERVICE']; d=os.environ['DIGEST']
+          if not re.fullmatch(r'sha256:[0-9a-f]{64}', d): raise SystemExit('이미지 digest 오류')
+          image=f'asia-northeast3-docker.pkg.dev/oneorthree2/{s}/{s}@{d}'
+          open(f'{s}-dev-v2-image.json','w').write(json.dumps({'service':s,'image':image,'revision':os.environ['GITHUB_SHA']}))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.service }}-dev-v2-image
+          path: ${{ matrix.service }}-dev-v2-image.json
+          if-no-files-found: error

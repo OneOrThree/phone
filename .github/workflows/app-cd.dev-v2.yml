@@ -1,0 +1,53 @@
+name: App CD (dev)-v2
+on:
+  workflow_dispatch:
+    inputs:
+      infra_manifest_uri:
+        description: Infra main에서 발행한 v2 앱 runtime manifest URI
+        required: true
+        type: string
+      core_ci_run:
+        description: 같은 main SHA의 Data·Realtime CI run ID (필요한 경우)
+        required: false
+        type: string
+      satellite_ci_run:
+        description: 같은 main SHA의 Satellite CI run ID (필요한 경우)
+        required: false
+        type: string
+permissions:
+  contents: read
+  actions: read
+  id-token: write
+concurrency:
+  group: catus-dev-v2-deploy
+  cancel-in-progress: false
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: dev-v2
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_DEV_V2_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEV_V2_DEPLOY_SA }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEV_V2_ROLE_ARN }}
+          aws-region: ap-northeast-2
+      - name: 이미지·Infra 확인 후 dev V2 앱 배포
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INFRA_MANIFEST_URI: ${{ inputs.infra_manifest_uri }}
+          CORE_CI_RUN: ${{ inputs.core_ci_run }}
+          SATELLITE_CI_RUN: ${{ inputs.satellite_ci_run }}
+        run: >-
+          python3 .github/scripts/dev-deploy-app-V2.py
+          --infra-manifest-uri "$INFRA_MANIFEST_URI"
+          --core-run "$CORE_CI_RUN"
+          --satellite-run "$SATELLITE_CI_RUN"
