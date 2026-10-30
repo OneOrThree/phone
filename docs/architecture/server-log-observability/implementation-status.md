@@ -58,7 +58,7 @@
 | [2584](https://romance.atlassian.net/browse/GROMO-2584) | 마스킹 꼬리(마스킹 뒤 끝 254자)·ASCII 사전 검사·네 서비스 공통 입력표 | 피처 병합 #1420 `a13fb4f94` — 문서 `masking-trace-hardening.md` |
 | [2585](https://romance.atlassian.net/browse/GROMO-2585) | Nginx 정제: 인코딩 query·fragment·upstream 사용자 정보 | 피처 병합 #1416 `4195c0951` — 런북 §4.1 |
 | [2586](https://romance.atlassian.net/browse/GROMO-2586) | Datadog 파이프라인 도구 중단 기록·기본값 비교·JMX Exporter 로그 링크 | 피처 병합 #1413 `c3a88a005`(Datadog 미적용) |
-| [2588](https://romance.atlassian.net/browse/GROMO-2588) | 로그 이중 적재·dev S3 자격 방식 | 피처 병합 #1415 `fc7e25a5b` — **제안 문서, 결정 전** `decisions-ingest-and-s3-credentials.md` |
+| [2588](https://romance.atlassian.net/browse/GROMO-2588) | 로그 이중 적재·dev S3 자격 방식 | 피처 병합 #1415 `fc7e25a5b` — **2026-10-30 결정 기록** `decisions-ingest-and-s3-credentials.md` |
 
 에픽 마이그레이션 번호: main 이 앞 번호를 먼저 가져가 data-api `V7__event_outbox_origin_context`·notification `V16__delivery_origin_context` 로 옮겼다(내용 불변. 작성 당시 어디에도 적용되지 않았고, prod 적용 여부는 2026-10-30 현재 DB 를 보지 않아 미확인).
 

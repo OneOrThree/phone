@@ -118,8 +118,8 @@
 
 | 문서 | 줄 | 결정 전 상태 |
 | --- | --- | --- |
-| [rollout.md](rollout.md) | D8 | 결정 대기 표시 연결, 값 미변경 |
-| [runtime-inventory.md](runtime-inventory.md) | §2.3 이중 적재 문단, §6 «dev -> S3 자격 방식», 추가 확인 표의 이중 적재 행 | 결정 대기 표시 연결, 값 미변경 |
+| [rollout.md](rollout.md) | D8 | §5 값으로 갱신 |
+| [runtime-inventory.md](runtime-inventory.md) | §2.3 이중 적재 문단, §6 «dev -> S3 자격 방식», 추가 확인 표의 이중 적재 행 | §5 값으로 갱신 |
 | [implementation-status.md](implementation-status.md) | S3 출력 선택 모듈 문단 | 조정자 몫(후속 PR이 고치지 않음) |
 
 ## 5. 결정 기록

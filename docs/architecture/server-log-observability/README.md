@@ -9,7 +9,7 @@
 - [구현 계획·완료 조건·검증 시나리오](implementation-plan.md)
 - [V01–V23 검증 결과와 로컬 전후 측정](verification-results.md)
 - [dev 검증 → prod 전환 → 롤백 절차](rollout.md)
-- [로그 이중 적재·dev S3 자격 방식 결정 문서(제안 — 재영님 확정 전)](decisions-ingest-and-s3-credentials.md)
+- [로그 이중 적재·dev S3 자격 방식 결정 문서](decisions-ingest-and-s3-credentials.md)
 - [Logback 설정·스레드 문맥 전파·로그 JOIN 상세](implementation-details.md)
 - [마스킹 꼬리 처리·네 서비스 공통 입력표·깊은 스택 비용](masking-trace-hardening.md)
 - [공식 문서 조사와 설계 검토 근거](research.md)

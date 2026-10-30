@@ -67,7 +67,7 @@
 | `DD_TRACE_128_BIT_TRACEID_LOGGING_ENABLED` | 4개 앱 모두 **미설정**. 1.64.0 기본값은 이 조사에서 확인하지 않았다 | 미확인 |
 | 로그 제외 | 저장소 설정은 관측 스택 일부(loki, promtail 등)를 로그 수집에서 제외 | 설정상: `server/scripts/docker-compose.datadog.yml:40` |
 
-새 수집기(Fluent Bit)를 붙이면 같은 컨테이너 stdout이 Datadog Logs와 새 경로로 이중 적재된다. 유지·제외 여부는 결정 대기이며 이 문서가 정하지 않는다. **결정 대기 — [decisions-ingest-and-s3-credentials.md](decisions-ingest-and-s3-credentials.md)**
+새 수집기(Fluent Bit)를 붙이면 같은 컨테이너 stdout이 Datadog Logs와 새 경로로 이중 적재된다. 2026-10-30 «당분간 둘 다 유지»로 정했다([decisions-ingest-and-s3-credentials.md](decisions-ingest-and-s3-credentials.md) §5).
 
 ### 2.4 로그 생산량 60초 샘플
 
@@ -262,7 +262,7 @@ AWS 접근 불가로 아래는 모두 **미확인**이다. 하나라도 확인�
 | versioning | 미확인 | 켜져 있으면 비현재 버전 만료 규칙 필요 | `get-bucket-versioning` |
 | 불완전 multipart | 미확인 | 오래된 업로드 잔존 | `list-multipart-uploads` |
 | Fluent Bit 쓰기 IAM | 미확인 | `system_log/v2/` 최소 권한 + 타 환경 쓰기 차단 + 삭제 불가 확인 불가 | (A) 역할 identity policy 시뮬레이션 + (B) 버킷 정책 검토(아래, 둘을 결합하지 않는다) |
-| dev -> S3 자격 방식 | 미결정 — **결정 대기 — [decisions-ingest-and-s3-credentials.md](decisions-ingest-and-s3-credentials.md)** | dev에 AWS 자격 경로 없음(aws CLI만 설치) | 결정 필요 |
+| dev -> S3 자격 방식 | dev S3 미사용으로 결정(2026-10-30, [decisions-ingest-and-s3-credentials.md](decisions-ingest-and-s3-credentials.md) §5) | dev에 AWS 자격 경로 없음(aws CLI만 설치) | 결정 완료 |
 | 롤백 소유자 | 미확인 | S3 설정·업로더 롤백 담당 미지정 | 담당 확인 |
 | 업로더 중복(590 timer / 2288) | 미확인 | 이중 적재로 중복 | prod 호스트 `systemctl list-timers` |
 
@@ -396,7 +396,7 @@ aws --profile gromo s3api get-bucket-policy --bucket "$B" --query Policy --outpu
 
 | 질문 | dev | prod |
 | --- | --- | --- |
-| Datadog Logs와 새 수집기의 이중 적재 | 현재 Datadog 단독 수집(실측). 새 경로 추가 시 이중 → **결정 대기**([결정 문서](decisions-ingest-and-s3-credentials.md)) | 같은 구조(설정상). 결정 대기 |
+| Datadog Logs와 새 수집기의 이중 적재 | 현재 Datadog 단독 수집(실측). 새 경로 추가 시 이중 → **당분간 유지로 결정**([결정 문서](decisions-ingest-and-s3-credentials.md) §5) | 같은 구조(설정상). 같은 결정 |
 | S3 업로더(timer/cron) | **없음**(실측) | 590 매시간 타이머(설정상), 2288 범위는 미확인 |
 | Loki·Promtail 가동 | **미가동**(실측) | 해당 없음(overlay는 dev용) |
 

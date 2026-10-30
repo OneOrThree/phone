@@ -53,7 +53,7 @@ dev 관찰(D2~D7)이 끝나고 §4 기준이 기록되기 전에는 ②(Fluent B
 | ③ | `s3`. dev 는 S3 를 쓰지 않기로 했으므로(D8) S3 실측(IAM·업로드·수명 규칙)은 prod 가 처음이다. 실패하면 ③만 되돌린다(§3.4). 머리글의 규칙대로 dev 관찰이 끝난 뒤에만 시작한다 | `system_log/v2/env=prod/` 객체 도착, canary 가 S3 에도 도착, Athena 조회 | 미실행 |
 | ④ | Cloudflare 설정(§3.3)을 마친 뒤 `grafana` | 미인증 요청이 Access 로그인으로 이동, 원본 직접 요청은 401 | 미실행 |
 
-각 단계의 판정은 §4 지표로 하고, 앞 단계를 통과해야 다음으로 간다. 켠 뒤 디스크·메모리의 판정 기준 숫자는 §1-5 의 기존 규칙대로 dev 관찰 뒤에 정한다(지금 정해진 숫자는 없고, 이 절은 «무엇을 보는가»만 적는다). 관측 서비스(Fluent Bit·Loki·Grafana) 기동은 앱 검증이 끝난 뒤 별도 단계이며 실패해도 앱 롤백을 일으키지 않게 설계한다(에픽 2619 계약, 구현은 하위 티켓).
+각 단계의 판정은 §4 지표로 하고, 앞 단계를 통과해야 다음으로 간다. 켠 뒤 디스크·메모리의 판정 기준 숫자는 이 문서 §1 의 5번 규칙대로 dev 관찰 뒤에 정한다(지금 정해진 숫자는 없고, 이 절은 «무엇을 보는가»만 적는다). 관측 서비스(Fluent Bit·Loki·Grafana) 기동은 앱 검증이 끝난 뒤 별도 단계이며 실패해도 앱 롤백을 일으키지 않게 설계한다(에픽 2619 계약, 구현은 하위 티켓).
 
 ### 3.3 Cloudflare 수동 단계 (④ 전)
 
@@ -62,7 +62,7 @@ dev 관찰(D2~D7)이 끝나고 §4 기준이 기록되기 전에는 ②(Fluent B
 3. Access 앱의 `aud` 태그와 팀 도메인(`<team>.cloudflareaccess.com`)을 확인한다.
 4. 원본 서버 인증서가 새 호스트를 포함하는지 확인한다(미확인).
 5. `env-V2.py` 의 `GRAFANA_HOST`·`GRAFANA_ACCESS_TEAM`·`GRAFANA_ACCESS_AUD` 를 채운다. 스위치가 True 인데 값이 비어 있으면 `generate` 가 실패한다.
-6. Secrets Manager `catus/prod/env` 에 `GRAFANA_ADMIN_PASSWORD` 를 추가한다. 시크릿 값은 서비스 env 에 넣지 않으므로(Grafana 전용 env 파일) 그 값 때문에 앱이 재시작되지는 않는다. 다만 시크릿 버전이 바뀌므로 다음 배포에서 앱 4종이 재시작될 수 있다(기존 규칙).
+6. Secrets Manager `catus/prod/env` 에 `GRAFANA_ADMIN_PASSWORD` 를 추가한다. 이 값은 서비스 env 에 넣지 않으므로(Grafana 전용 env 파일) 앱은 재시작되지 않는다.
 
 Grafana 는 Access 가 붙인 JWT(`Cf-Access-Jwt-Assertion`)를 JWKS 로 직접 검증하고 `aud` 를 확인하며 로그인 폼은 끈다. Host 헤더 우회로 Access 를 건너뛰어도 원본에서 막기 위해서다.
 
@@ -78,7 +78,7 @@ Grafana 는 Access 가 붙인 JWT(`Cf-Access-Jwt-Assertion`)를 JWKS 로 직접 
 
 **되돌려도 남는 것.** S3 `system_log/v2/env=prod/` 객체, 버킷 수명 규칙·IAM, Nginx JSON 형식, `GRAFANA_ADMIN_PASSWORD`, Cloudflare DNS·Access 앱, 데이터 볼륨(`loki_data`·`fluent_bit_state`). 볼륨은 지우지 않는다.
 
-**디스크 응급 절차(미검증 — 실제로 실행해 보지 않았다).** 호스트 디스크가 차면 배포를 기다리지 않고 관리자가 SSM 세션으로 `docker stop catus-app-v2-fluent-bit-1 catus-app-v2-loki-1` 을 실행한다. 볼륨은 지우지 않는다. 그 뒤 스위치 끄기 커밋을 낸다.
+**디스크 응급 절차(미검증 — 실제로 실행해 보지 않았다).** 호스트 디스크가 차면 배포를 기다리지 않고 관리자가 SSM 세션에서 `docker ps --format '{{.Names}}'` 로 이름을 확인한 뒤 `docker stop catus-app-v2-fluent-bit-1 catus-app-v2-loki-1` 을 실행한다. 볼륨은 지우지 않는다. 멈춘 동안 Grafana 는 데이터 소스 없이 남고 S3 업로드도 Fluent Bit 과 함께 멈춘다. `restart: unless-stopped` 라 수동으로 멈춘 컨테이너는 Docker 나 호스트를 재시작해도 다시 뜨지 않는다. 그 뒤 스위치 끄기 커밋을 낸다.
 
 ### 3.5 이전 P0~P5 항목의 현재 상태
 

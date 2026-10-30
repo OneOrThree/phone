@@ -68,7 +68,7 @@
 
 기존 APP 파일은 컷오버 전까지 텍스트로 유지하고 Fluent Bit은 stdout만 읽는다. 파일 출력 제거와 기존 호스트 타이머의 APP 적재 중단·보존 정책은 컷오버(2556)에서 함께 정한다. user-activity 업로더까지 함께 중단하지 않는다. 향후 AsyncAppender가 필요해지면 queue·discard·종료 drain·drop 계측을 별도 설계하고 이벤트 snapshot 테스트를 통과시킨다.
 
-**실행 메타데이터.** 호스트의 compose 치환용 `DEPLOY_ENV`·`IMAGE_REVISION`은 자동으로 JVM 환경변수가 되지 않으므로 compose `environment:`에 `OBS_SERVICE`(서비스 이름 고정)·`OBS_ENV`·`OBS_VERSION`을 명시한다. provider는 이 값을 로그 패턴 치환이 아니라 Spring `Environment`에서 읽는다. **형식이 틀리면 그 필드를 조용히 생략한다**(`putRuntime`). 그래서 생략이 운영에서 드러나지 않도록 배포 전 검사(`deploy-core-dev.py`·`prepare-satellite-deploy.py`)가 렌더 결과의 OBS 값이 서비스·환경·배포 커밋과 다르거나 비면 배포를 막는다. 이 검사는 `docker compose config` 렌더 결과만 본다. **실제 컨테이너가 출력한 JSON의 service/env/version 확인은 아직 하지 않았다**(후속, 2556·2560). `DD_SERVICE`의 `gromo-back-prod` 등과 로그의 `data-api` 명칭은 별도 매핑표로 관리하고, APM 링크에 로그 service 이름을 그대로 넣지 않는다. prod(Catus) 실행 구성은 Infra 저장소 소유라 이 저장소에서 넣지 못했다.
+**실행 메타데이터.** 호스트의 compose 치환용 `DEPLOY_ENV`·`IMAGE_REVISION`은 자동으로 JVM 환경변수가 되지 않으므로 compose `environment:`에 `OBS_SERVICE`(서비스 이름 고정)·`OBS_ENV`·`OBS_VERSION`을 명시한다. provider는 이 값을 로그 패턴 치환이 아니라 Spring `Environment`에서 읽는다. **형식이 틀리면 그 필드를 조용히 생략한다**(`putRuntime`). 그래서 생략이 운영에서 드러나지 않도록 배포 전 검사(`deploy-core-dev.py`·`prepare-satellite-deploy.py`)가 렌더 결과의 OBS 값이 서비스·환경·배포 커밋과 다르거나 비면 배포를 막는다. 이 검사는 `docker compose config` 렌더 결과만 본다. **실제 컨테이너가 출력한 JSON의 service/env/version 확인은 아직 하지 않았다**(후속, 2556·2560). 앱 4종의 `DD_SERVICE`와 로그 service 는 논리 이름으로 맞춘다(`server/observability/datadog/README.md` 명칭표). prod(Catus) 실행 구성은 Infra 저장소 소유라 이 저장소에서 넣지 못하고 Infra PR 로 넣는다.
 
 ### 1.3 ObservationJsonProvider 구현 계약
 
