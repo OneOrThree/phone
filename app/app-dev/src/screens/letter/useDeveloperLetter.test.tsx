@@ -115,3 +115,20 @@ it('조회 실패는 조용히 넘기고 포그라운드 복귀 때 다시 본�
   await r.rerender(<Probe ready userId="u1" />);
   await waitFor(() => expect(latest.notice?.publicationId).toBe('a'));
 });
+
+it('첫 실행: 조회 대기 중 게이트가 닫히면 키를 저장하지 않고, 다시 참일 때 재조회해 그때 기준을 저장한다', async () => {
+  let resolve!: (v: unknown) => void;
+  list.mockImplementationOnce(() => new Promise((r) => (resolve = r)));
+  list.mockResolvedValue({ items: [notice('b', '2026-10-03T00:00:00Z')] });
+  const r = await render(<Probe ready userId="u1" />);
+  await waitFor(() => expect(list).toHaveBeenCalledTimes(1));
+  await r.rerender(<Probe ready={false} userId="u1" />);
+  await act(async () => resolve({ items: [notice('a', '2026-10-01T00:00:00Z')] }));
+  expect(await seen('u1')).toBeNull();
+  await r.rerender(<Probe ready userId="u1" />);
+  await waitFor(async () =>
+    expect(await seen('u1')).toBe(String(Date.parse('2026-10-03T00:00:00Z'))),
+  );
+  expect(list).toHaveBeenCalledTimes(2);
+  expect(latest.notice).toBeNull();
+});

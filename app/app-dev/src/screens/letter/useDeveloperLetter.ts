@@ -36,13 +36,14 @@ export function useDeveloperLetter({ ready, userId }: { ready: boolean; userId: 
       try {
         const seen = await readLetterSeen(userId);
         const { items } = await listDeveloperNotices();
-        const decision = decideLetter(items, seen);
-        if (!decision) return;
-        if ('save' in decision) return await writeLetterSeen(userId, decision.save);
+        // 응답을 기다리는 사이 게이트가 깨졌으면 저장도 표시도 하지 않고 다음 참일 때 다시 본다
         if (!latest.current.ready || latest.current.userId !== userId) {
           due.current = true;
           return;
         }
+        const decision = decideLetter(items, seen);
+        if (!decision) return;
+        if ('save' in decision) return await writeLetterSeen(userId, decision.save);
         setShown({ notice: decision.show, userId });
       } catch {}
     })();
