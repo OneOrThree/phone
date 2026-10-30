@@ -78,7 +78,7 @@ Grafana 는 Access 가 붙인 JWT(`Cf-Access-Jwt-Assertion`)를 JWKS 로 직접 
 
 **되돌려도 남는 것.** S3 `system_log/v2/env=prod/` 객체, 버킷 수명 규칙·IAM, Nginx JSON 형식, `GRAFANA_ADMIN_PASSWORD`, Cloudflare DNS·Access 앱, 데이터 볼륨(`loki_data`·`fluent_bit_state`). 볼륨은 지우지 않는다.
 
-**디스크 응급 절차(미검증 — 실제로 실행해 보지 않았다).** 호스트 디스크가 차면 배포를 기다리지 않고 관리자가 SSM 세션에서 `docker ps --format '{{.Names}}'` 로 이름을 확인한 뒤 `docker stop catus-app-v2-fluent-bit-1 catus-app-v2-loki-1` 을 실행한다. 볼륨은 지우지 않는다. 멈춘 동안 Grafana 는 데이터 소스 없이 남고 S3 업로드도 Fluent Bit 과 함께 멈춘다. `restart: unless-stopped` 라 수동으로 멈춘 컨테이너는 Docker 나 호스트를 재시작해도 다시 뜨지 않는다. 그 뒤 스위치 끄기 커밋을 낸다.
+**디스크 응급 절차(미검증 — 실제로 실행해 보지 않았다).** 호스트 디스크가 차면 배포를 기다리지 않고 관리자가 SSM 세션에서 `docker ps --format '{{.Names}}'` 로 이름을 확인한 뒤 `docker stop catus-app-v2-fluent-bit-1 catus-app-v2-loki-1` 을 실행한다. 볼륨은 지우지 않는다. 멈춘 동안 Grafana 는 데이터 소스 없이 남고 S3 업로드도 Fluent Bit 과 함께 멈춘다. `restart: unless-stopped` 라 수동으로 멈춘 컨테이너는 Docker 나 호스트를 재시작해도 다시 뜨지 않는다. 다만 스위치가 켜진 채 새 배포가 나가면 다시 기동되므로 스위치 끄기 커밋을 먼저 배포한다.
 
 ### 3.5 이전 P0~P5 항목의 현재 상태
 

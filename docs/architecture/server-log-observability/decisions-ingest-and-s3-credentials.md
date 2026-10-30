@@ -1,6 +1,6 @@
 # 로그 이중 적재·dev S3 자격 방식 결정 문서 (GROMO-2588)
 
-> 상태: **결정 완료(일부).** §5 결정 기록과 §7 에 적은 값만 결정이다. §0~§4 는 2026-10-29 작성 당시의 제안·조사이며 결정으로 읽지 않는다. 이중 적재는 «당분간 둘 다 유지, 축소는 관찰 뒤 별도 결정», dev S3 는 «미사용»으로 정했다(2026-10-30). [rollout.md](rollout.md)·[runtime-inventory.md](runtime-inventory.md)의 «결정 대기» 표시는 이 값으로 읽는다.
+> 상태: **결정 완료(일부).** §5 결정 기록과 §7 에 적은 값만 결정이다. §0~§4 는 2026-10-29 작성 당시의 제안·조사이며 결정으로 읽지 않는다. 이중 적재는 «당분간 둘 다 유지, 축소는 관찰 뒤 별도 결정», dev S3 는 «미사용»으로 정했다(2026-10-30). [rollout.md](rollout.md)·[runtime-inventory.md](runtime-inventory.md)의 «결정 대기» 표시는 이 값으로 갱신했다.
 > 작성: 2026-10-29. 조회는 모두 읽기 전용이다(Datadog MCP 읽기, 공식 가격 페이지 읽기). AWS에는 어떤 요청도 보내지 않았고 S3 비용은 계산식만 적는다.
 
 ## 0. 배경 (사실)
@@ -116,11 +116,11 @@
 
 ## 4. 결정에 따라 바뀌는 줄 (결정 대기 표시만 연결 — §5 결정으로 대체됨)
 
-| 문서 | 줄 | 결정 전 상태 |
+| 문서 | 줄 | 처리 |
 | --- | --- | --- |
 | [rollout.md](rollout.md) | D8 | §5 값으로 갱신 |
 | [runtime-inventory.md](runtime-inventory.md) | §2.3 이중 적재 문단, §6 «dev -> S3 자격 방식», 추가 확인 표의 이중 적재 행 | §5 값으로 갱신 |
-| [implementation-status.md](implementation-status.md) | S3 출력 선택 모듈 문단 | 조정자 몫(후속 PR이 고치지 않음) |
+| [implementation-status.md](implementation-status.md) | S3 출력 선택 모듈 문단 | 변경 불필요(이미 «dev 에서 켜지 않는다») |
 
 ## 5. 결정 기록
 
