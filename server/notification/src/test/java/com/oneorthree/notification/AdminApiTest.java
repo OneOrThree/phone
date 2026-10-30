@@ -410,6 +410,26 @@ class AdminApiTest {
     }
 
     @Test
+    void cancellationStillClosesPublicationAfterLastRecipientWithdraws() throws Exception {
+        UUID publication = UUID.randomUUID();
+        String path = "/internal/admin/publications/" + publication;
+        body(post(path, "publish", publication()));
+        new org.springframework.transaction.support.TransactionTemplate(transactions)
+                .executeWithoutResult(status -> devices.generation(USER, 1, true));
+        assertThat(store.one("SELECT id FROM deliveries WHERE subject_id=?", publication.toString())).isNull();
+
+        Map<String, Object> result = body(post(path + "/cancel", null, Map.of()));
+        assertThat(result).containsEntry("recipientCount", 0).containsEntry("cancelledCount", 0)
+                .containsEntry("totalCancelledCount", 0).containsEntry("sentCount", 0)
+                .containsEntry("inFlightCount", 0);
+        assertThat(body(post(path + "/cancel", null, Map.of()))).isEqualTo(result);
+        assertThat(store.one("SELECT actor FROM publication_cancellations WHERE publication_id=?", publication))
+                .containsEntry("actor", "member-1");
+        assertThat(code(post("/internal/admin/publications/" + UUID.randomUUID() + "/cancel", null, Map.of())))
+                .isEqualTo("PUBLICATION_NOT_FOUND");
+    }
+
+    @Test
     void cancellationReportsAnActiveLeaseUntilItsSendWindowEnds() throws Exception {
         UUID publication = UUID.randomUUID();
         String path = "/internal/admin/publications/" + publication;

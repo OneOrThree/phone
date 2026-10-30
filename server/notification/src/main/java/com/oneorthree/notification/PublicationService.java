@@ -46,7 +46,8 @@ class PublicationService {
         // 발송 준비가 같은 행에 임대를 쓰므로, 잠금 뒤에 집계해야 취소 직전의 임대를 놓치지 않는다.
         List<Map<String, Object>> rows = store.rows("SELECT status,last_error,lease_expires_at FROM deliveries"
                 + " WHERE kind='ADMIN_ANNOUNCEMENT' AND subject_id=? ORDER BY id FOR UPDATE", subject);
-        if (rows.isEmpty()) {
+        if (rows.isEmpty() && store.one("SELECT 1 FROM commands WHERE scope='publication' AND command_key=?",
+                subject) == null) {
             throw new NotificationFailure(404, "PUBLICATION_NOT_FOUND");
         }
         Instant at = clock.instant();
