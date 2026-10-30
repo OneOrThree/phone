@@ -88,3 +88,22 @@ export function isLetterReady(g: {
     !g.openingInvitation
   );
 }
+
+const SEMVER = /^\d{1,9}\.\d{1,9}\.\d{1,9}$/;
+
+/** 자리별 숫자 비교. 어느 쪽이든 x.y.z 가 아니면 «막지 않는다»(거짓). */
+export function isBelowMinVersion(
+  current: string | null | undefined,
+  min: string | null | undefined,
+): boolean {
+  if (!current || !min || !SEMVER.test(current) || !SEMVER.test(min)) return false;
+  const a = current.split('.').map(Number);
+  const b = min.split('.').map(Number);
+  for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i] < b[i];
+  return false;
+}
+
+export const STORE_URLS = {
+  ios: 'https://apps.apple.com/app/id6813004121',
+  android: 'https://play.google.com/store/apps/details?id=com.oneorthree.gromo',
+};

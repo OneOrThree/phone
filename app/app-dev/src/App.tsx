@@ -8,7 +8,8 @@ import { useAppLayout } from '@/utils/layout';
 import { useRouteOrientation } from '@/utils/orientation';
 import { DeveloperLetter } from '@/screens/letter/DeveloperLetter';
 import { useDeveloperLetter } from '@/screens/letter/useDeveloperLetter';
-import { isLetterReady, visibleAt } from '@/services/developerLetter';
+import { useForceUpdateLetter } from '@/screens/letter/useForceUpdateLetter';
+import { isLetterReady, STORE_URLS, visibleAt } from '@/services/developerLetter';
 import { Btn as NativeButton, Overlay, Txt as NativeText } from '@/design-system/patterns';
 import {
   CurrentScreens as RedesignScreens,
@@ -1752,34 +1753,44 @@ function Gromo() {
   }, [appActive]);
   // 운영진의 편지(GROMO-2615) — 홈(섬 홈이 그려진 뒤)·바다에서 모든 안내·세션·전환이 비었을 때만 조회·표시한다.
   // appContentHidden 은 편지를 합치기 전 값이다(순환 방지) — 스크린 리더 숨김만 appContentHidden || letterVisible.
-  const letterReady = isLetterReady({
-    loaded,
-    review: REVIEW,
-    demo: DEMO,
-    hasServerSession,
-    appActive,
-    route,
-    islandHomeShown,
-    session: !!state.session,
-    inTutorial,
-    tutorialExperience: !!state.tutorialExperience,
-    onboardingStory: state.onboardingStory,
-    visiting: !!state.visitingIslandId,
-    modal: !!modal,
-    convUi: !!convUi,
-    switchAsk,
-    appContentHidden,
-    walkRequest: !!walkRequest,
-    sceneGuide: sceneGuideOpen,
-    keyboardHeight,
-    incomingAppLink: !!incomingAppLink,
-    openingInvitation,
+  // 강제 업데이트(GROMO-2617)는 부트를 기다리지 않고 조회하되, 표시는 세션이 없고 loaded 일 때만이다. 패치노트보다 우선한다
+  const requirement = useForceUpdateLetter({
+    enabled: !REVIEW && !DEMO && Platform.OS !== 'web',
   });
+  const forced = requirement && loaded && !state.session ? requirement : null;
+  const letterReady =
+    !requirement &&
+    isLetterReady({
+      loaded,
+      review: REVIEW,
+      demo: DEMO,
+      hasServerSession,
+      appActive,
+      route,
+      islandHomeShown,
+      session: !!state.session,
+      inTutorial,
+      tutorialExperience: !!state.tutorialExperience,
+      onboardingStory: state.onboardingStory,
+      visiting: !!state.visitingIslandId,
+      modal: !!modal,
+      convUi: !!convUi,
+      switchAsk,
+      appContentHidden,
+      walkRequest: !!walkRequest,
+      sceneGuide: sceneGuideOpen,
+      keyboardHeight,
+      incomingAppLink: !!incomingAppLink,
+      openingInvitation,
+    });
   const { notice: letter, dismiss: dismissLetter } = useDeveloperLetter({
     ready: letterReady,
     userId: getSession()?.userId ?? null,
   });
-  const letterVisible = letter !== null;
+  const letterVisible = forced !== null || letter !== null;
+  useEffect(() => {
+    if (forced) Keyboard.dismiss();
+  }, [forced !== null]);
   const pushPromptReady =
     loaded &&
     !REVIEW &&
@@ -2442,7 +2453,7 @@ function Gromo() {
   hardwareBack.current = () => {
     // 운영진의 편지(GROMO-2615)는 뒤로 가기를 닫기로만 받는다 — 다른 어떤 처리보다 먼저다
     if (letterVisible) {
-      dismissLetter();
+      if (!forced) dismissLetter();
       return true;
     }
     // 열린 확인창·진행 중인 건물 전환·화면이 건 뒤로 가기(backOverride)를 방문 분기보다 먼저 본다 — back() 의 앞 세
@@ -3114,13 +3125,28 @@ function Gromo() {
             </View>
           </Modal>
         )}
-        {letter && (
+        {forced ? (
           <DeveloperLetter
-            title={letter.title}
-            body={letter.body}
-            date={new Date(visibleAt(letter))}
-            onClose={dismissLetter}
+            key="forced"
+            title={forced.title}
+            body={forced.body}
+            date={new Date(Date.parse(forced.publishedAt ?? '') || Date.now())}
+            buttonTitle={t('developerLetter.update')}
+            onClose={() => {
+              Linking.openURL(STORE_URLS[Platform.OS === 'ios' ? 'ios' : 'android']).catch(
+                () => {},
+              );
+            }}
           />
+        ) : (
+          letter && (
+            <DeveloperLetter
+              title={letter.title}
+              body={letter.body}
+              date={new Date(visibleAt(letter))}
+              onClose={dismissLetter}
+            />
+          )
         )}
       </SafeAreaView>
     </MotionContext.Provider>

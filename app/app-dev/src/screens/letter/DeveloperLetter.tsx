@@ -33,11 +33,14 @@ export function DeveloperLetter({
   body,
   date,
   onClose,
+  buttonTitle,
 }: {
   title: string;
   body: string;
   date: Date;
   onClose: () => void;
+  // 강제 업데이트 편지(GROMO-2617)는 버튼 문구만 다르다 — onClose 가 스토어 이동이 된다
+  buttonTitle?: string;
 }) {
   const layout = useAppLayout();
   const reduce = useContext(MotionContext);
@@ -251,7 +254,7 @@ export function DeveloperLetter({
           </View>
           <Btn
             id="developer-letter-confirm"
-            title={t('developerLetter.confirm')}
+            title={buttonTitle ?? t('developerLetter.confirm')}
             font={gowun}
             onPress={onClose}
             style={{ width: Math.min(D.buttonMaxWidth, layout.width - 96) }}
