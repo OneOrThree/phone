@@ -38,14 +38,18 @@ export function useDeveloperLetter({ ready, userId }: { ready: boolean; userId: 
         const { items } = await listDeveloperNotices();
         // 응답을 기다리는 사이 게이트가 깨졌으면 저장도 표시도 하지 않고 다음 참일 때 다시 본다
         if (!latest.current.ready || latest.current.userId !== userId) {
-          due.current = true;
+          // 계정이 바뀐 경우는 [userId] effect 가 이미 올렸다 — 옛 응답이 새 요청의 due 를 덮지 않는다
+          if (latest.current.userId === userId) due.current = true;
           return;
         }
         const decision = decideLetter(items, seen);
         if (!decision) return;
         if ('save' in decision) return await writeLetterSeen(userId, decision.save);
         setShown({ notice: decision.show, userId });
-      } catch {}
+      } catch {
+        // 실패는 조용히 넘기고 다음 게이트 변화(deps 가 바뀔 때만 effect 가 돈다 — 핫 루프 없음) 때 다시 본다
+        due.current = true;
+      }
     })();
   }, [ready, userId, shown]);
 
@@ -53,6 +57,8 @@ export function useDeveloperLetter({ ready, userId }: { ready: boolean; userId: 
   const dismiss = useCallback(() => {
     if (!notice || !userId) return;
     setShown(null);
+    // 편지가 떠 있는 동안 백그라운드를 다녀와 due 가 켜졌어도 내린다 — 재조회가 저장과 경합해 같은 편지가 다시 뜨지 않게
+    due.current = false;
     void writeLetterSeen(userId, visibleAt(notice));
   }, [notice, userId]);
   return { notice, dismiss };

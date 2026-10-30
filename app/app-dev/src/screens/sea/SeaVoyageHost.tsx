@@ -312,7 +312,8 @@ export function SeaVoyageHost({ e }: { e: any }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [drifting, issue?.issueId, today?.receipt]);
   // 운영진의 편지(GROMO-2615) — 배달이 실제로 진행 중인 동안만 App 에 알린다(편지가 떠 있으면 배달이 보류라 알리지 않는다)
-  const deliveryActive = !!delivering && !e.letterOpen;
+  // 출항·포기 연출(departFrom)과 항해 결과창(arrival)이 떠 있는 동안도 같은 신호다
+  const deliveryActive = (!!delivering && !e.letterOpen) || !!departFrom || !!arrival;
   const setSceneGuideOpen = e.setSceneGuideOpen;
   useEffect(() => {
     if (!deliveryActive) return;
