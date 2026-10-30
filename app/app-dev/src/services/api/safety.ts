@@ -44,7 +44,10 @@ export function openReportCenter(): Promise<void> {
   return Linking.openURL(reportEmailUrl());
 }
 
-/** 영어 사용자용 문의 메일 — 앱 오류 제보·기능 제안. 신고와 같은 주소이고 제목 말머리로 구분한다. */
+/**
+ * 영어 사용자용 문의 메일 — 앱 오류 제보·기능 제안. 신고와 같은 주소이고 제목 말머리로 구분한다.
+ * ko.json 의 subject·body 는 ko·en 키 짝 검사 때문에 남겨 둔다.
+ */
 export function feedbackEmailUrl(appVersion: string): string {
   const body = t('settings.feedback.body', {
     version: appVersion,
