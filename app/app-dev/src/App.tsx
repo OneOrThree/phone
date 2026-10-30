@@ -2509,9 +2509,16 @@ function Gromo() {
     focusBlockingPermissionBusy,
     state.visitingIslandId,
     island.id,
-    // RN 은 나중에 등록한 리스너를 먼저 부른다 — 편지가 뜰 때 재등록돼야 SeaScreen·CatInfoPopup·Hall 등 다른 리스너보다 앞선다
-    letterVisible,
   ]);
+  // 편지가 떠 있는 동안만 리스너를 하나 더 둬 맨 앞에 세운다. RN 은 나중에 등록한 리스너를 먼저 부른다.
+  // App 구독 deps 에 넣으면 닫힐 때도 재등록되어 화면 안쪽 리스너(바다 패널)보다 앞서게 된다.
+  useEffect(() => {
+    if (!letterVisible) return;
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () =>
+      hardwareBack.current(),
+    );
+    return () => subscription.remove();
+  }, [letterVisible]);
   const islandAudioOnRef = useRef(islandAudioOn);
   islandAudioOnRef.current = islandAudioOn;
   // 곡 로드는 곡·섬이 바뀔 때만 한다. 재생/정지는 아래 volume effect가 islandAudioOn으로 따로 다루므로

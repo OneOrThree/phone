@@ -48,7 +48,7 @@ export function useDeveloperLetter({ ready, userId }: { ready: boolean; userId: 
         setShown({ notice: decision.show, userId });
       } catch {
         // 실패는 조용히 넘기고 다음 게이트 변화(deps 가 바뀔 때만 effect 가 돈다 — 핫 루프 없음) 때 다시 본다
-        due.current = true;
+        if (latest.current.userId === userId) due.current = true;
       }
     })();
   }, [ready, userId, shown]);
