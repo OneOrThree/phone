@@ -37,6 +37,7 @@ public class DeveloperNoticeController {
         if (values == null || values.length != 1 || !("ios".equals(values[0]) || "android".equals(values[0]))) {
             throw new PublicApiException(ApiErrorCode.INVALID_PARAMETER, "platform");
         }
+        // ponytail: 호출마다 Data 조회 1회이고 호출 제한이 없다. 공개 호출이 부하로 보이면 유스케이스에 짧은 TTL 캐시를 둔다.
         var result = DeveloperNoticeResponses.AppRequirement.from(
                 notices.appRequirement(values[0], properties.deadline()));
         // 성공만 공용 캐시를 허용한다. 실패는 RequestEnvelopeFilter 의 no-store 가 남는다.

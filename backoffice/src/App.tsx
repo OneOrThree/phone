@@ -68,7 +68,7 @@ function buildPayload(draft: Draft) {
   };
 }
 const MIN_VERSION = /^\d{1,9}\.\d{1,9}\.\d{1,9}$/;
-const FORCE_WARNING = '이 버전보다 낮은 앱은 업데이트 전까지 쓸 수 없습니다. 스토어에 올라간 버전 이하인지 확인하세요.';
+const FORCE_WARNING = '이 버전보다 낮은 앱은 업데이트 전까지 쓸 수 없습니다. 스토어에 올라간 버전 이하인지 확인하세요. 이 공지의 제목과 본문은 로그인 없이 공개됩니다.';
 // 옛 항목은 noticeType 이 없다 — min 이 하나라도 있으면 강제 업데이트다.
 const forces = (value: { noticeType?: string; minIosVersion?: string | null; minAndroidVersion?: string | null }) => (value.noticeType ?? (value.minIosVersion || value.minAndroidVersion ? 'force' : 'patch')) === 'force';
 const minSummary = (value: { minIosVersion?: string | null; minAndroidVersion?: string | null }) => [value.minIosVersion && `iOS ${value.minIosVersion}`, value.minAndroidVersion && `Android ${value.minAndroidVersion}`].filter(Boolean).join(' · ') || '없음';
