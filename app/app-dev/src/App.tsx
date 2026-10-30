@@ -1795,8 +1795,9 @@ function Gromo() {
     if (!forced) return;
     Keyboard.dismiss();
     // App 수준 RN Modal 은 트리 내 오버레이보다 위에 그려져 업데이트 버튼을 가린다 — 처음 뜰 때 닫는다(GROMO-2617)
+    // 서버 세션 채택 복구 중이면 시트를 닫지 않는다(복구 자격을 잃는 것보다 낫다) — 편지는 시트가 끝난 뒤 보인다
     setModal(null);
-    setConvUi(null);
+    closeMemberConversion();
     settleSwitch(false);
   }, [forced !== null]);
   const pushPromptReady =

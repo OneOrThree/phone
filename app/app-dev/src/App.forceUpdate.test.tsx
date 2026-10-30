@@ -40,7 +40,8 @@ jest.mock('@/services/api/auth', () => ({
   checkSession: async () => ({ status: 'offline' }),
   logout: async () => {},
 }));
-jest.mock('@/services/islandBoot', () => ({ decideBootRoute: async () => 'login' }));
+let mockBootRoute = 'login';
+jest.mock('@/services/islandBoot', () => ({ decideBootRoute: async () => mockBootRoute }));
 jest.mock('@/services/api/session', () => {
   const actual = jest.requireActual('@/services/api/session');
   return { ...actual, restoreSession: async () => null };
@@ -65,6 +66,7 @@ const backHandlers: (() => boolean)[] = [];
 beforeEach(async () => {
   jest.clearAllMocks();
   captured = undefined;
+  mockBootRoute = 'login';
   backHandlers.length = 0;
   (AppState as any).currentState = 'active';
   jest.spyOn(BackHandler, 'addEventListener').mockImplementation(((_: string, h: () => boolean) => {
@@ -193,4 +195,22 @@ test('확인창이 먼저 떠 있어도 강제 요구가 오면 그 Modal 이 �
   await act(async () => resolve(requirement));
   await waitFor(() => assert.ok(screen.queryByTestId('developer-letter')));
   assert.equal(screen.queryByText('내용'), null);
+});
+
+test('복구된 집중 세션이 있으면 loaded 전후 어느 렌더에서도 강제 편지가 안 뜬다', async () => {
+  mockBootRoute = 'focus';
+  get.mockResolvedValue(requirement);
+  const saved = reducer(initialState(true), { type: 'START', subject: '복구', now: Date.now() });
+  await AsyncStorage.setItem('gromo-r61-user-v2', JSON.stringify(saved));
+  let seen = false;
+  const screen = await render(<App />);
+  const watch = setInterval(() => {
+    if (screen.queryByTestId('developer-letter')) seen = true;
+  }, 0);
+  await waitFor(() => assert.ok(captured?.state?.session));
+  await waitFor(() => expect(get).toHaveBeenCalled());
+  await act(async () => new Promise((r) => setTimeout(r, 50)));
+  clearInterval(watch);
+  assert.equal(seen, false);
+  assert.equal(screen.queryByTestId('developer-letter'), null);
 });

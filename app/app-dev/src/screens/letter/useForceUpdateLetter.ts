@@ -25,7 +25,8 @@ export function useForceUpdateLetter({ enabled }: { enabled: boolean }): ForceUp
           // 해제(공지 없음·충족)와 응답 이상을 가른다 — 이상한 응답은 상태를 바꾸지 않는다
           if (!res || typeof res !== 'object') return;
           const current = Application.nativeApplicationVersion;
-          if (res.minVersion === null || !isAppVersion(current)) return setRequirement(null);
+          if (res.minVersion === null) return setRequirement(null);
+          if (!isAppVersion(current)) return;
           if (!isAppVersion(res.minVersion)) return;
           if (!isBelowMinVersion(current, res.minVersion)) return setRequirement(null);
           if (typeof res.title !== 'string' || typeof res.body !== 'string') return;

@@ -5,7 +5,12 @@ import * as api from '@/services/api/developerNotices';
 import { isBelowMinVersion, STORE_URLS } from '@/services/developerLetter';
 import { useForceUpdateLetter } from './useForceUpdateLetter';
 
-jest.mock('expo-application', () => ({ nativeApplicationVersion: '1.0.2' }));
+let mockVersion: string | null = '1.0.2';
+jest.mock('expo-application', () => ({
+  get nativeApplicationVersion() {
+    return mockVersion;
+  },
+}));
 jest.mock('@/services/api/developerNotices', () => ({ getAppRequirements: jest.fn() }));
 const get = api.getAppRequirements as jest.Mock;
 const res = (over = {}) => ({
@@ -112,6 +117,22 @@ describe('useForceUpdateLetter', () => {
     await waitFor(() => expect(get).toHaveBeenCalledTimes(2));
     await act(async () => {});
     expect(latest !== null).toBe(stays);
+  });
+
+  test('앱 버전이 형식 오류면 상태를 바꾸지 않는다(막힌 채 유지)', async () => {
+    get.mockResolvedValueOnce(res());
+    await render(<Probe enabled />);
+    await waitFor(() => expect(latest).not.toBeNull());
+    mockVersion = null;
+    get.mockResolvedValueOnce(res({ minVersion: '1.0.0' }));
+    await act(async () => {
+      listener('background');
+      listener('active');
+    });
+    await waitFor(() => expect(get).toHaveBeenCalledTimes(2));
+    await act(async () => {});
+    mockVersion = '1.0.2';
+    expect(latest).not.toBeNull();
   });
 
   test('늦게 온 옛 응답은 새 응답을 덮지 않는다', async () => {
