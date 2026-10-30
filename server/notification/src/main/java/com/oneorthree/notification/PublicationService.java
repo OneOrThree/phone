@@ -5,6 +5,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.sql.Timestamp;
 import java.time.Clock;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -42,35 +43,45 @@ class PublicationService {
     public Map<String, Object> cancel(String actor, UUID publicationId) {
         store.lock("publication-cancel:" + publicationId);
         String subject = publicationId.toString();
-        Map<String, Object> counts = store.one("SELECT count(*) AS total,"
-                + " count(*) FILTER (WHERE status='SENT') AS sent,"
-                + " count(*) FILTER (WHERE status='SUPPRESSED'"
-                + " AND last_error='ADMIN_CANCELLED') AS already_cancelled,"
-                + " count(*) FILTER (WHERE (status IN ('PENDING','DEFERRED')"
-                + " OR (status='SUPPRESSED' AND last_error='ADMIN_CANCELLED'))"
-                + " AND lease_expires_at>?) AS in_flight"
-                + " FROM deliveries WHERE kind='ADMIN_ANNOUNCEMENT' AND subject_id=?",
-                Timestamp.from(clock.instant()), subject);
-        if (counts == null || ((Number) counts.get("total")).longValue() == 0) {
+        // 발송 준비가 같은 행에 임대를 쓰므로, 잠금 뒤에 집계해야 취소 직전의 임대를 놓치지 않는다.
+        List<Map<String, Object>> rows = store.rows("SELECT status,last_error,lease_expires_at FROM deliveries"
+                + " WHERE kind='ADMIN_ANNOUNCEMENT' AND subject_id=? ORDER BY id FOR UPDATE", subject);
+        if (rows.isEmpty()) {
             throw new NotificationFailure(404, "PUBLICATION_NOT_FOUND");
         }
+        Instant at = clock.instant();
+        long sent = 0;
+        long inFlight = 0;
+        long alreadyCancelled = 0;
+        for (Map<String, Object> row : rows) {
+            String status = row.get("status").toString();
+            boolean cancelled = "SUPPRESSED".equals(status) && "ADMIN_CANCELLED".equals(row.get("last_error"));
+            if ("SENT".equals(status)) {
+                sent++;
+            }
+            if (cancelled) {
+                alreadyCancelled++;
+            }
+            if (("PENDING".equals(status) || "DEFERRED".equals(status) || cancelled)
+                    && row.get("lease_expires_at") instanceof Timestamp lease
+                    && lease.toInstant().isAfter(at)) {
+                inFlight++;
+            }
+        }
         store.update("INSERT INTO publication_cancellations(publication_id,actor,cancelled_at) VALUES(?,?,?)"
-                + " ON CONFLICT(publication_id) DO NOTHING", publicationId, actor, Timestamp.from(clock.instant()));
+                + " ON CONFLICT(publication_id) DO NOTHING", publicationId, actor, Timestamp.from(at));
         int cancelled = store.update("UPDATE deliveries SET status='SUPPRESSED',last_error='ADMIN_CANCELLED',"
                 + "lease_token=CASE WHEN lease_expires_at>? THEN lease_token ELSE NULL END,"
                 + "lease_expires_at=CASE WHEN lease_expires_at>? THEN lease_expires_at ELSE NULL END"
                 + " WHERE kind='ADMIN_ANNOUNCEMENT' AND subject_id=?"
-                + " AND status IN ('PENDING','DEFERRED')", Timestamp.from(clock.instant()),
-                Timestamp.from(clock.instant()), subject);
-        long sent = ((Number) counts.get("sent")).longValue();
-        long inFlight = ((Number) counts.get("in_flight")).longValue();
-        long totalCancelled = ((Number) counts.get("already_cancelled")).longValue() + cancelled;
+                + " AND status IN ('PENDING','DEFERRED')", Timestamp.from(at), Timestamp.from(at), subject);
+        long totalCancelled = alreadyCancelled + cancelled;
         audit.record(actor, "publications.cancelled", subject,
                 Map.of("cancelledCount", cancelled, "totalCancelledCount", totalCancelled,
                         "sentCount", sent, "inFlightCount", inFlight));
         return Map.of("publicationId", subject, "cancelledCount", cancelled,
                 "totalCancelledCount", totalCancelled, "sentCount", sent, "inFlightCount", inFlight,
-                "recipientCount", ((Number) counts.get("total")).longValue());
+                "recipientCount", rows.size());
     }
 
     private Map<String, Object> enqueue(String actor, UUID publicationId, Map<String, Object> body) {

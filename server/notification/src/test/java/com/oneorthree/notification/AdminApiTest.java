@@ -25,6 +25,10 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -58,6 +62,7 @@ class AdminApiTest {
     @Autowired Store store;
     @Autowired DeviceService devices;
     @Autowired DispatchService dispatch;
+    @Autowired org.springframework.transaction.PlatformTransactionManager transactions;
     @MockitoBean PushTransport transport;
     @MockitoBean DataClient data;
     @MockitoBean Clock clock;
@@ -422,6 +427,46 @@ class AdminApiTest {
         assertThat(body(post(path + "/cancel", null, Map.of()))).containsEntry("inFlightCount", 0);
         assertThat(store.one("SELECT status FROM deliveries WHERE id=?", delivery))
                 .containsEntry("status", "SUPPRESSED");
+    }
+
+    @Test
+    void cancellationWaitsForConcurrentLeaseCommitBeforeCounting() throws Exception {
+        UUID publication = UUID.randomUUID();
+        String path = "/internal/admin/publications/" + publication;
+        Map<String, Object> queued = body(post(path, "publish", publication()));
+        UUID delivery = UUID.fromString(((List<?>) queued.get("deliveryIds")).get(0).toString());
+        CountDownLatch leased = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        var pool = Executors.newFixedThreadPool(2);
+        try {
+            var holding = pool.submit(() -> {
+                new org.springframework.transaction.support.TransactionTemplate(transactions)
+                        .executeWithoutResult(status -> {
+                            store.one("SELECT id FROM deliveries WHERE id=? FOR UPDATE", delivery);
+                            store.update("UPDATE deliveries SET lease_token=?,lease_expires_at=? WHERE id=?",
+                                    UUID.randomUUID(), java.sql.Timestamp.from(DAY.plusSeconds(30)), delivery);
+                            leased.countDown();
+                            try {
+                                if (!release.await(5, TimeUnit.SECONDS)) {
+                                    throw new IllegalStateException("임대 트랜잭션을 해제하지 못했습니다.");
+                                }
+                            } catch (InterruptedException interrupted) {
+                                Thread.currentThread().interrupt();
+                                throw new IllegalStateException(interrupted);
+                            }
+                        });
+            });
+            assertThat(leased.await(5, TimeUnit.SECONDS)).isTrue();
+            var cancelling = pool.submit(() -> body(post(path + "/cancel", null, Map.of())));
+            assertThatThrownBy(() -> cancelling.get(150, TimeUnit.MILLISECONDS))
+                    .isInstanceOf(TimeoutException.class);
+            release.countDown();
+            holding.get(5, TimeUnit.SECONDS);
+            assertThat(cancelling.get(5, TimeUnit.SECONDS)).containsEntry("inFlightCount", 1);
+        } finally {
+            release.countDown();
+            pool.shutdownNow();
+        }
     }
 
     @Test
