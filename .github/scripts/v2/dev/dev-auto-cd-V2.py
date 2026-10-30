@@ -1,18 +1,17 @@
 #!/usr/bin/env python3
-"""main 최신 커밋 기준으로 필요한 dev V2 런타임과 앱만 순서대로 자동 배포한다."""
+"""main 최신 커밋 기준으로 배포할 dev V2 런타임과 앱을 정해 워크플로 job에 넘긴다."""
 import importlib.util
 import json
 import os
 from pathlib import Path
 import re
 import subprocess
-import sys
 
 ROOT = Path(__file__).resolve().parents[4]
 HERE = Path(__file__).parent
 REPO = 'OneOrThree/phone'
 BUCKET = 'gs://catus-dev-v2-deploy-263851348176'
-# 선행 저장소 순서. 앱 배포 전에 모두 끝나야 한다.
+# 앱 배포 전에 모두 끝나야 한다. 서로는 독립.
 RUNTIMES = ('redis', 'kafka', 'postgres')
 CORE_CI, SATELLITE_CI = 'data-api-ci.dev-v2.yml', 'satellite-ci.dev-v2.yml'
 SERVICE_CI = {'data-api': CORE_CI, 'realtime': CORE_CI, 'business-api': SATELLITE_CI, 'notification': SATELLITE_CI}
@@ -58,13 +57,13 @@ def ci_for(workflow, revision):
 
 
 def dispatch(workflow):
-    # 경로 필터로 이 커밋 CI가 없을 때 실행. 완료되면 이 워크플로가 다시 시작된다.
+    # 경로 필터로 이 커밋 CI가 없을 때 실행. 토큰 실행은 workflow_run이 안 깨우므로 CI 끝 job이 다시 호출.
     output(['gh', 'workflow', 'run', workflow, '--repo', REPO, '--ref', 'main'])
 
 
-def deploy(args):
-    # 배포 결과 JSON을 실행 로그에 남긴다.
-    subprocess.run([sys.executable, *args], cwd=ROOT, check=True)
+def emit(**values):
+    with open(os.environ['GITHUB_OUTPUT'], 'a') as stream:
+        for key, value in values.items(): stream.write(f'{key}={value}\n')
 
 
 def note(message):
@@ -99,16 +98,16 @@ def runtime_manifest(role, revision):
     return None
 
 
-def deploy_runtimes(state, revision):
-    """전부 최신이면 True. 발행 대기 중이면 False."""
-    ready = True
+def plan_runtimes(state, revision):
+    """반환 (배포 대상, 전부 준비 여부). 준비 안 됐으면 앱은 이번 실행에서 제외."""
+    targets, ready = [], True
     for role in RUNTIMES:
         state.URI = f'{BUCKET}/deployments/{role}/current.json'
         previous, _ = state.read()
         if previous and same_runtime(role, previous['revision'], revision): continue
         uri = runtime_manifest(role, revision)
         if uri:
-            deploy([str(HERE/'dev-deploy-runtime-V2.py'), '--role', role, '--manifest-uri', uri])
+            targets.append({'role': role, 'uri': uri})
             continue
         ready = False
         status, _ = ci_for(f'{role}-ci.dev-v2.yml', revision)
@@ -117,7 +116,35 @@ def deploy_runtimes(state, revision):
         if status == 'success': raise RuntimeError(role + ' CI는 성공했지만 일치하는 산출물이 없습니다')
         if status == 'missing': dispatch(f'{role}-ci.dev-v2.yml')
     state.URI = f'{BUCKET}/deployments/app/current.json'
-    return ready
+    return targets, ready
+
+
+def plan_app(state, revision):
+    """앱 배포 인자. 대상 없음·이미지 대기면 None."""
+    published = manifests(listing(f'{BUCKET}/infra/*/manifest.json'),
+                          re.escape(BUCKET) + r'/infra/[0-9a-f]{40}-[0-9]+-[0-9]+/manifest\.json')
+    if not published: raise RuntimeError('발행된 Infra 산출물이 없습니다')
+    infra = published[0]
+    previous, _ = state.read()
+    plan = load('auto_plan', 'dev-plan-V2.py').plan(load('auto_fp', 'dev-fingerprint-V2.py').fingerprint(revision),
+                                                    previous, revision, infra.split('/')[-2].split('-')[0])
+    if not plan['deploy_services']:
+        note('앱 배포 대상 없음')
+        return None
+    runs, waiting = {}, False
+    for workflow in sorted({SERVICE_CI[service] for service in plan['build_services']}):
+        status, run_id = ci_for(workflow, revision)
+        if status == 'failed': raise RuntimeError(workflow + ' 실패')
+        if status == 'success':
+            runs[workflow] = str(run_id)
+            continue
+        waiting = True
+        if status == 'missing': dispatch(workflow)
+    if waiting:
+        note('이미지 CI 대기. 완료 시 다시 실행')
+        return None
+    note('앱 배포 대상: ' + ','.join(plan['deploy_services']))
+    return {'infra': infra, 'core_run': runs.get(CORE_CI, ''), 'satellite_run': runs.get(SATELLITE_CI, '')}
 
 
 def main():
@@ -128,39 +155,14 @@ def main():
     if latest != revision:
         dispatch('cd-auto.dev-v2.yml')
         note(f'main이 {latest}로 앞서 최신 기준으로 다시 실행')
+        emit(runtimes='[]')
         return
     state = load('auto_state', 'dev-state-V2.py')
-    if not deploy_runtimes(state, revision):
-        note('런타임 발행 대기. CI 완료 시 다시 실행')
-        return
-    published = manifests(listing(f'{BUCKET}/infra/*/manifest.json'),
-                          re.escape(BUCKET) + r'/infra/[0-9a-f]{40}-[0-9]+-[0-9]+/manifest\.json')
-    if not published: raise RuntimeError('발행된 Infra 산출물이 없습니다')
-    infra = published[0]
-    previous, _ = state.read()
-    plan = load('auto_plan', 'dev-plan-V2.py').plan(load('auto_fp', 'dev-fingerprint-V2.py').fingerprint(revision),
-                                                    previous, revision, infra.split('/')[-2].split('-')[0])
-    if not plan['deploy_services']:
-        note('배포 대상 없음')
-        return
-    args = {}
-    waiting = False
-    for workflow in sorted({SERVICE_CI[service] for service in plan['build_services']}):
-        status, run_id = ci_for(workflow, revision)
-        if status == 'failed': raise RuntimeError(workflow + ' 실패')
-        if status == 'success':
-            args[workflow] = str(run_id)
-            continue
-        waiting = True
-        if status == 'missing': dispatch(workflow)
-    if waiting:
-        note('이미지 CI 대기. 완료 시 다시 실행')
-        return
-    command = [str(HERE/'dev-deploy-app-V2.py'), '--infra-manifest-uri', infra]
-    if CORE_CI in args: command += ['--core-run', args[CORE_CI]]
-    if SATELLITE_CI in args: command += ['--satellite-run', args[SATELLITE_CI]]
-    deploy(command)
-    note('앱 배포 완료: ' + ','.join(plan['deploy_services']))
+    targets, ready = plan_runtimes(state, revision)
+    app = plan_app(state, revision) if ready else None
+    if not ready: note('런타임 발행 대기. CI 완료 시 다시 실행')
+    note('런타임 배포 대상: ' + (','.join(target['role'] for target in targets) or '없음'))
+    emit(runtimes=json.dumps(targets, separators=(',', ':')), **(app or {}))
 
 
 if __name__ == '__main__': main()

@@ -1,5 +1,6 @@
 import importlib.util
 from pathlib import Path
+import tempfile
 import unittest
 from unittest import mock
 
@@ -50,24 +51,35 @@ class AutoCdTest(unittest.TestCase):
         state.read.return_value = (None, '0')
         with mock.patch.object(m, 'runtime_manifest', return_value=uri), \
              mock.patch.object(m, 'ci_for', return_value=(status, None)), \
-             mock.patch.object(m, 'dispatch') as dispatch, mock.patch.object(m, 'deploy') as deploy:
-            return m.deploy_runtimes(state, 'c'*40), dispatch, deploy
+             mock.patch.object(m, 'dispatch') as dispatch:
+            return (*m.plan_runtimes(state, 'c'*40), dispatch)
 
     def test_missing_ci_dispatches_and_running_waits(self):
-        ready, dispatch, _ = self.runtimes('missing')
-        self.assertFalse(ready)
+        targets, ready, dispatch = self.runtimes('missing')
+        self.assertEqual((targets, ready), ([], False))
         self.assertEqual(dispatch.call_count, 3)
-        ready, dispatch, _ = self.runtimes('running')
-        self.assertFalse(ready)
+        targets, ready, dispatch = self.runtimes('running')
+        self.assertEqual((targets, ready), ([], False))
         dispatch.assert_not_called()
 
     def test_success_without_manifest_fails_instead_of_looping(self):
         with self.assertRaises(RuntimeError): self.runtimes('success')
 
-    def test_runtimes_deploy_in_order(self):
-        ready, _, deploy = self.runtimes('success', 'gs://uri')
+    def test_runtime_targets_are_listed_without_deploying(self):
+        targets, ready, _ = self.runtimes('success', 'gs://uri')
         self.assertTrue(ready)
-        self.assertEqual([call.args[0][2] for call in deploy.call_args_list], list(m.RUNTIMES))
+        self.assertEqual(targets, [{'role': role, 'uri': 'gs://uri'} for role in m.RUNTIMES])
+
+    def test_emit_writes_step_outputs(self):
+        with tempfile.NamedTemporaryFile('r') as stream, mock.patch.dict(m.os.environ, {'GITHUB_OUTPUT': stream.name}):
+            m.emit(runtimes='[]', infra='gs://x')
+            self.assertEqual(stream.read(), 'runtimes=[]\ninfra=gs://x\n')
+
+    def test_dispatched_ci_wakes_auto_cd(self):
+        root = Path(__file__).parents[3]/'workflows'
+        for name in ('data-api', 'satellite', 'kafka', 'redis', 'postgres'):
+            text = (root/f'{name}-ci.dev-v2.yml').read_text()
+            self.assertIn('gh workflow run cd-auto.dev-v2.yml', text)
 
 
 if __name__ == '__main__': unittest.main()

@@ -50,3 +50,14 @@ jobs:
       - uses: google-github-actions/setup-gcloud@v2
       - name: dev V2 불변 구성 발행
         run: python3 .github/scripts/v2/dev/dev-publish-runtime-V2.py postgres
+  auto-cd:
+    # Auto CD가 실행한 CI는 토큰 실행이라 workflow_run이 안 깨움. 직접 재평가.
+    needs: publish
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run cd-auto.dev-v2.yml --repo OneOrThree/phone --ref main

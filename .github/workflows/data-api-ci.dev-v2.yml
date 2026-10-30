@@ -91,3 +91,14 @@ jobs:
           name: ${{ matrix.service }}-dev-v2-image
           path: ${{ matrix.service }}-dev-v2-image.json
           if-no-files-found: error
+  auto-cd:
+    # Auto CD가 실행한 CI는 토큰 실행이라 workflow_run이 안 깨움. 직접 재평가.
+    needs: images
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run cd-auto.dev-v2.yml --repo OneOrThree/phone --ref main
