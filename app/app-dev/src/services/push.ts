@@ -79,6 +79,8 @@ let pending: { key: string; body: DeviceRegistrationBody } | undefined;
 let haltedGeneration: number | undefined;
 /** 돌고 있는 동기화를 깨운다. 기록을 읽기 전·정리 뒤에는 없다. */
 let wake: (() => void) | undefined;
+/** 두 화면에서 동시에 권한을 물어도 Android 시스템 팝업은 한 번만 연다. */
+let androidPermissionRequest: Promise<PushPermission> | undefined;
 let writes: Promise<unknown> = Promise.resolve();
 /** 이 실행에서 처리한 알림 응답 — 같은 탭이 리스너와 콜드 스타트 조회로 두 번 와도 한 번만 연다. */
 const handledResponses = new Set<string>();
@@ -132,13 +134,14 @@ function readDevice(stored: string | null): PushDevice {
 
 /**
  * FCM data(`link`·`type`·`eventId`·`deliveryTag`)는 iOS 에서 `trigger.payload`(userInfo 전체),
- * Android 에서 `content.data` 에 있다. 다른 쪽을 읽으면 전경 표시·탭 라우팅이 조용히 실패한다.
+ * Android 에서 `trigger.remoteMessage.data` 원본을 읽는다. Expo Android 는 보통 `content.data` 에도 복사하지만,
+ * data.body 가 JSON 이면 그것만 파싱한 결과로 덮으므로 원본의 태그·링크가 사라질 수 있다.
  */
 function payloadOf(notification: Notification): Record<string, unknown> {
   const trigger = notification.request.trigger;
   if (!trigger || !('type' in trigger) || trigger.type !== 'push') return {};
   return Platform.OS === 'android'
-    ? (notification.request.content.data ?? {})
+    ? (trigger.remoteMessage?.data ?? notification.request.content.data ?? {})
     : (trigger.payload ?? {});
 }
 
@@ -655,7 +658,17 @@ export async function pushPermissionStatus(): Promise<PushPermission> {
  * @param shouldAsk 상태를 읽은 직후·팝업 직전에 한 번 본다(아직 안 물음일 때만). 읽는 사이 묻고 싶던 화면을 떠났다면 false 를
  *   돌려 팝업을 막는다 — 그러면 묻지 않고 `undetermined` 를 돌려준다.
  */
-export async function requestPushPermission(shouldAsk?: () => boolean): Promise<PushPermission> {
+export function requestPushPermission(shouldAsk?: () => boolean): Promise<PushPermission> {
+  if (Platform.OS === 'android' && androidPermissionRequest) return androidPermissionRequest;
+  const work = requestPushPermissionOnce(shouldAsk);
+  if (Platform.OS !== 'android') return work;
+  androidPermissionRequest = work.finally(() => {
+    androidPermissionRequest = undefined;
+  });
+  return androidPermissionRequest;
+}
+
+async function requestPushPermissionOnce(shouldAsk?: () => boolean): Promise<PushPermission> {
   const N = bridgedNotifications();
   if (!N) return 'unavailable';
   try {
@@ -668,14 +681,13 @@ export async function requestPushPermission(shouldAsk?: () => boolean): Promise<
         name: 'Cattus',
         importance: N.AndroidImportance.HIGH,
       });
-      await AsyncStorage.setItem(ANDROID_PERMISSION_ASKED_KEY, '1');
     }
-    const answered = permissionOf(
-      N,
-      await N.requestPermissionsAsync(
-        Platform.OS === 'ios' ? { ios: { allowAlert: true, allowSound: true } } : {},
-      ),
+    const response = await N.requestPermissionsAsync(
+      Platform.OS === 'ios' ? { ios: { allowAlert: true, allowSound: true } } : {},
     );
+    // 네이티브 요청이 실패해 팝업이 뜨지 않았다면 다음 진입에 다시 물을 수 있어야 한다.
+    if (Platform.OS === 'android') await AsyncStorage.setItem(ANDROID_PERMISSION_ASKED_KEY, '1');
+    const answered = permissionOf(N, response);
     refreshPush();
     return answered;
   } catch {

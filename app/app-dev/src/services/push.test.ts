@@ -67,14 +67,14 @@ const notice = (
     },
   }) as unknown as Notification;
 
-// expo-notifications Android 직수신·백그라운드 탭의 실제 직렬화 모양: FCM data 는 content.data 에 있다.
-const androidNotice = (data: Record<string, unknown>) =>
+// expo-notifications Android 의 FCM 원본은 trigger.remoteMessage.data, 보통 content.data 에도 복사된다.
+const androidNotice = (data: Record<string, string>, contentData: object = data) =>
   ({
     date: 0,
     request: {
       identifier: 'android-n-1',
-      content: { title: '알림', body: '본문', data },
-      trigger: { type: 'push', remoteMessage: {} },
+      content: { title: '알림', body: '본문', data: contentData },
+      trigger: { type: 'push', remoteMessage: { data } },
     },
   }) as unknown as Notification;
 
@@ -324,6 +324,28 @@ test('Android 13은 홈에서 한 번 권한을 묻고, 거부 뒤 앱 재진입
   t.stop();
 });
 
+test('Android 권한 요청이 실패하면 미요청 상태를 유지하고 다음 진입에 재시도한다', async () => {
+  const t = setup({ os: 'android', permission: 'denied', answer: 'denied' });
+  await settle();
+  t.notifications.requestPermissionsAsync.mockRejectedValueOnce(new Error('native failed'));
+  expect(await t.push.requestPushPermission()).toBe('error');
+  expect(await t.push.pushPermissionStatus()).toBe('undetermined');
+  expect(await t.push.requestPushPermission()).toBe('denied');
+  expect(t.notifications.requestPermissionsAsync).toHaveBeenCalledTimes(2);
+  t.stop();
+});
+
+test('Android 권한 요청이 동시에 들어와도 시스템 팝업은 한 번만 연다', async () => {
+  const t = setup({ os: 'android', permission: 'denied', answer: 'granted' });
+  await settle();
+  const first = t.push.requestPushPermission();
+  const second = t.push.requestPushPermission();
+  expect(second).toBe(first);
+  expect(await Promise.all([first, second])).toStrictEqual(['granted', 'granted']);
+  expect(t.notifications.requestPermissionsAsync).toHaveBeenCalledTimes(1);
+  t.stop();
+});
+
 test('Android 12에서는 허용된 알림 권한으로 바로 토큰을 등록하고 권한 팝업을 열지 않는다', async () => {
   const t = setup({ os: 'android', androidVersion: 32 });
   await settle();
@@ -383,6 +405,19 @@ test('Android 토큰 갱신 이벤트와 알림 탭은 등록·라우팅에 반�
     shouldShowBanner: false,
   });
   t.tap(responseOf(androidNotice({ deliveryTag: TAG, link: 'gromo://island' })));
+  expect(t.openAppLink).toHaveBeenCalledWith('gromo://island');
+  t.stop();
+});
+
+test('Android FCM data.body가 JSON이면 Expo가 content.data를 덮어도 원본 태그·링크로 판정한다', async () => {
+  const t = setup({ os: 'android' });
+  await settle();
+  const notification = androidNotice(
+    { deliveryTag: TAG, link: 'gromo://island', body: '{"campaign":"fall"}' },
+    { campaign: 'fall' },
+  );
+  expect(await t.show(notification)).toMatchObject({ shouldShowBanner: true });
+  t.tap(responseOf(notification));
   expect(t.openAppLink).toHaveBeenCalledWith('gromo://island');
   t.stop();
 });
