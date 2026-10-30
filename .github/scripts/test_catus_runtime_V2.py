@@ -141,4 +141,11 @@ class RuntimeTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as empty:
             with self.assertRaises(FileNotFoundError):self._publish_bundle('app',Path(empty))
 
+    def test_관측_설정_원본은_prod_CI_경로_필터와_일치한다(self):
+        workflow=(runtime.ROOT/'.github/workflows/prod-ci-V2.yml').read_text(encoding='utf-8')
+        for source in runtime.OBSERVABILITY_FILES.values():
+            self.assertEqual(workflow.count(f'    - {source}\n'),2,source)  # pull_request·push 양쪽
+        listed=[line for line in workflow.splitlines() if line.startswith('    - server/observability/')]
+        self.assertEqual(len(listed),2*len(runtime.OBSERVABILITY_FILES))
+
 if __name__=='__main__':unittest.main()
