@@ -70,6 +70,8 @@ public class AccessTokenFilter extends OncePerRequestFilter {
      * <p>비교는 {@code getRequestURI()} 의 정확 일치다. 접두어·정규화된 경로로 비교하면 인코딩·matrix
      * parameter 변형이 우회로가 된다.
      */
+    private static final String APP_REQUIREMENTS_PATH = "/auth/sessions/app-requirements";
+
     private static final Set<String> PUBLIC_PATHS = Set.of(
             // compose 헬스체크. 관리 포트 9091 은 호스트에 publish 하지 않으므로 서비스 포트에 둔다.
             "/health",
@@ -77,8 +79,6 @@ public class AccessTokenFilter extends OncePerRequestFilter {
             // (GROMO-2069). prod 는 springdoc.api-docs.enabled=false 라 매핑이 없어 404 로 닫힌다.
             // 그룹 경로 «하나»만 열고 기본 /v0/api-docs 나 swagger-ui 는 열지 않는다.
             "/v0/api-docs/public",
-            // 로그인 전·만료 토큰 앱이 읽는 최소 버전(GROMO-2616). 정확 일치만 연다 — 만료 토큰이 붙어도 통과해야 한다.
-            "/auth/sessions/app-requirements",
             // 관리 엔드포인트. 실제로는 포트 9091 의 별도 컨텍스트라 이 필터가 닿지 않지만, 서비스 포트로
             // 불렸을 때 «401 이 아니라 404» 여야 한다 — 401 이면 포트 격리가 라우팅 문제를 가린다.
             "/actuator", "/actuator/health", "/actuator/health/liveness",
@@ -96,7 +96,11 @@ public class AccessTokenFilter extends OncePerRequestFilter {
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
-        return PUBLIC_PATHS.contains(request.getRequestURI());
+        // 최소 버전 조회(GROMO-2616)는 로그인 전·만료 토큰 앱도 읽어야 해서 GET 정확 일치만 연다.
+        // PUBLIC_PATHS 는 메서드를 보지 않는다 — 같은 접두사에 나중에 경로 변수 매핑이 생겨도
+        // 다른 메서드가 인증 없이 열리면 안 되므로 여기서 메서드를 함께 본다.
+        return PUBLIC_PATHS.contains(request.getRequestURI())
+                || ("GET".equals(request.getMethod()) && APP_REQUIREMENTS_PATH.equals(request.getRequestURI()));
     }
 
     @Override

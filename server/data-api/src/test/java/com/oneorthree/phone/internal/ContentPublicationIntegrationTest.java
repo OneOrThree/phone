@@ -472,6 +472,20 @@ class ContentPublicationIntegrationTest {
         assertThatThrownBy(() -> notices.appRequirement(null)).isInstanceOf(ContentException.class);
     }
 
+    @Test
+    void earlierPublishedFutureStartBeatsLaterPublishedImmediateOnceItStarts() {
+        // 어제 게시한 다음 주 시작(3.0.0)과 오늘 게시한 즉시(2.5.0).
+        when(clock.instant()).thenReturn(NOW.minusSeconds(86400));
+        notices.publish(UUID.randomUUID(), new DeveloperNoticeService.Draft("다음 주", "b", NOW.plusSeconds(7 * 86400),
+                null, "3.0.0", null), "member-1");
+        when(clock.instant()).thenReturn(NOW);
+        notices.publish(UUID.randomUUID(), new DeveloperNoticeService.Draft("즉시", "b", NOW, null, "2.5.0", null),
+                "member-1");
+        assertThat(notices.appRequirement("ios").minVersion()).isEqualTo("2.5.0");
+        when(clock.instant()).thenReturn(NOW.plusSeconds(7 * 86400));
+        assertThat(notices.appRequirement("ios").minVersion()).isEqualTo("3.0.0");
+    }
+
     private long count(String table) {
         return jdbc.queryForObject("SELECT count(*) FROM " + table, Long.class);
     }

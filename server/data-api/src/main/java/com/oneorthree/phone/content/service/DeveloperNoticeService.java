@@ -9,6 +9,8 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.Clock;
 import java.time.Instant;
@@ -111,13 +113,14 @@ public class DeveloperNoticeService {
         List<AppRequirement> rows = jdbc.query("SELECT " + column + ",title,body,publication_id,published_at"
                         + " FROM developer_notices WHERE withdrawn_at IS NULL AND starts_at<=?"
                         + " AND (ends_at IS NULL OR ends_at>?) AND " + column + " IS NOT NULL"
-                        + " ORDER BY published_at DESC,publication_id DESC LIMIT 1",
+                        + " ORDER BY GREATEST(starts_at,published_at) DESC,published_at DESC,"
+                        + "publication_id DESC LIMIT 1",
                 (rs, number) -> new AppRequirement(rs.getString(1), rs.getString(2), rs.getString(3),
                         rs.getObject(4, UUID.class), rs.getTimestamp(5).toInstant()), now, now);
         return rows.isEmpty() ? new AppRequirement(null, null, null, null, null) : rows.get(0);
     }
 
-    private static Notice notice(java.sql.ResultSet rs, int number) throws java.sql.SQLException {
+    private static Notice notice(ResultSet rs, int number) throws SQLException {
         Timestamp end = rs.getTimestamp(5);
         return new Notice(rs.getObject(1, UUID.class), rs.getString(2), rs.getString(3),
                 rs.getTimestamp(4).toInstant(), end == null ? null : end.toInstant(),

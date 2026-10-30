@@ -88,6 +88,18 @@ class DeveloperNoticeContractTest extends UpstreamTestBase {
     }
 
     @Test
+    void appRequirementsExemptionIsGetOnly() throws Exception {
+        for (var builder : new org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder[]{
+                org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .post("/auth/sessions/app-requirements?platform=ios"),
+                org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .delete("/auth/sessions/app-requirements?platform=ios")}) {
+            mockMvc.perform(builder).andExpect(status().isUnauthorized());
+        }
+        assertThat(DATA.receivedFor(REQ)).isEmpty();
+    }
+
+    @Test
     void appRequirementsWithoutNoticeKeepsEveryKeyAsNull() throws Exception {
         DATA.on(REQ, request -> new MockUpstream.Response(200, "{\"minVersion\":null,\"title\":null,"
                 + "\"body\":null,\"publicationId\":null,\"publishedAt\":null}"));
