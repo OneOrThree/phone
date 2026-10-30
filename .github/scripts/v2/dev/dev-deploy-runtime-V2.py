@@ -23,7 +23,7 @@ def command(args, *, data=None):
 
 
 def aws_secret(name):
-    if name not in ('gromo/dev/env-v2', 'gromo/dev/cicd-v2'):
+    if name not in ('catus/dev/env-v2', 'catus/dev/cicd-v2'):
         raise ValueError('허용되지 않은 시크릿')
     raw = command(['aws', '--region', 'ap-northeast-2', 'secretsmanager', 'get-secret-value',
                    '--secret-id', name, '--query', 'SecretString', '--output', 'text'])
@@ -109,7 +109,7 @@ def deploy(role, uri, selection):
         selected = {'shared','business'} if selection == 'all' else {selection}
         if not required.issubset(selected):
             raise ValueError('선택한 Redis에 누적 변경이 모두 포함되지 않습니다')
-    config = aws_secret('gromo/dev/cicd-v2')
+    config = aws_secret('catus/dev/cicd-v2')
     if config.get('environment') != 'dev-v2' or config.get('project') != 'oneorthree2' or config.get('zone') != 'asia-northeast3-a':
         raise ValueError('dev V2 설정이 아닙니다')
     host_role = 'redis' if role == 'redis' else 'data'
@@ -147,7 +147,7 @@ def deploy(role, uri, selection):
         variables['KAFKA_HEALTHCHECK_FILE'] = root + '/kafka/healthcheck.sh'
         target = 'kafka'
     else:
-        secret = aws_secret('gromo/dev/env-v2')
+        secret = aws_secret('catus/dev/env-v2')
         spec = importlib.util.spec_from_file_location('writer', ROOT/'.github/scripts/write-compose-env.py')
         w = importlib.util.module_from_spec(spec); spec.loader.exec_module(w)
         if role == 'redis':

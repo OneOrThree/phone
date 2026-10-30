@@ -119,7 +119,7 @@ def deploy(infra_uri, core_run, satellite_run, force=False):
     if not candidate['deploy_services']:
         print(json.dumps({'result':'no_change','revision':revision}))
         return
-    config = runtime.aws_secret('gromo/dev/cicd-v2')
+    config = runtime.aws_secret('catus/dev/cicd-v2')
     host = config.get('hosts', {}).get('app', {})
     if (config.get('environment') != 'dev-v2' or config.get('project') != 'oneorthree2'
         or config.get('zone') != 'asia-northeast3-a' or host.get('name') != 'catus-dev-v2-app'):
@@ -131,7 +131,7 @@ def deploy(infra_uri, core_run, satellite_run, force=False):
         or actual['networkInterfaces'][0].get('networkIP') != host.get('private_ip')):
         raise ValueError('앱 VM ID 또는 주소가 다릅니다')
     verify_runtime_prerequisites(revision, config)
-    envs = env_builder.generate(runtime.aws_secret('gromo/dev/env-v2'), config, candidate['images'])
+    envs = env_builder.generate(runtime.aws_secret('catus/dev/env-v2'), config, candidate['images'])
     template = files['nginx.conf.template']
     if template.count(b'__PUBLIC_HOST__') != 2: raise ValueError('nginx 도메인 템플릿 오류')
     nginx = template.replace(b'__PUBLIC_HOST__', b'oneorthree-v2.dev.mooo.com')
