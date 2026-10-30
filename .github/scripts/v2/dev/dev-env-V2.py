@@ -7,7 +7,7 @@ from pathlib import Path
 import re
 import sys
 
-spec = importlib.util.spec_from_file_location('compose_writer', Path(__file__).with_name('write-compose-env.py'))
+spec = importlib.util.spec_from_file_location('compose_writer', Path(__file__).parents[2]/'write-compose-env.py')
 w = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(w)
 

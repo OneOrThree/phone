@@ -34,4 +34,4 @@ jobs:
       - name: dev V2 런타임 적용과 검증
         env:
           MANIFEST_URI: ${{ inputs.manifest_uri }}
-        run: python3 .github/scripts/dev-deploy-runtime-V2.py --role postgres --manifest-uri "$MANIFEST_URI"
+        run: python3 .github/scripts/v2/dev/dev-deploy-runtime-V2.py --role postgres --manifest-uri "$MANIFEST_URI"

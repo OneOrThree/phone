@@ -4,13 +4,13 @@ from pathlib import Path
 import subprocess
 import unittest
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[4]
 
 
 def config(role):
     env = dict(os.environ, HOST_PRIVATE_IP='10.30.0.9', KAFKA_HEALTHCHECK_FILE='/tmp/kafka-health',
                SHARED_ACL_FILE='/tmp/shared.acl', BUSINESS_ACL_FILE='/tmp/business.acl', POSTGRES_ENV_FILE='/dev/null')
-    base = ROOT / 'server/scripts/runtime-dev-V2' / role
+    base = ROOT / 'server/scripts/v2/dev' / role
     files = [base / 'shared.yml', base / 'business.yml'] if role == 'redis' else [base / 'compose.yml']
     args = [arg for path in files for arg in ('-f', str(path))]
     return json.loads(subprocess.check_output(['docker', 'compose', *args, 'config', '--format', 'json'], env=env))

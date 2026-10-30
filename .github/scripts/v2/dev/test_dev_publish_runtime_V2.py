@@ -19,7 +19,7 @@ class PublishTest(unittest.TestCase):
     def test_uploads_archive_then_manifest_with_no_overwrite(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            name = 'server/scripts/runtime-dev-V2/kafka/compose.yml'
+            name = 'server/scripts/v2/dev/kafka/compose.yml'
             file = root/name; file.parent.mkdir(parents=True); file.write_text('services: {}\n')
             calls=[]
             def fake_run(args, **kwargs):

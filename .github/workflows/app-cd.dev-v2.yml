@@ -53,7 +53,7 @@ jobs:
           SATELLITE_CI_RUN: ${{ inputs.satellite_ci_run }}
           FORCE_FLAG: ${{ inputs.force_redeploy && '--force-redeploy' || '' }}
         run: >-
-          python3 .github/scripts/dev-deploy-app-V2.py
+          python3 .github/scripts/v2/dev/dev-deploy-app-V2.py
           --infra-manifest-uri "$INFRA_MANIFEST_URI"
           --core-run "$CORE_CI_RUN"
           --satellite-run "$SATELLITE_CI_RUN"

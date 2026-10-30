@@ -10,9 +10,9 @@ class DeployTest(unittest.TestCase):
         self.assertEqual(m.redis_changes(None, {}), {'shared','business'})
 
     def test_redis_individual_and_shared_changes(self):
-        shared='server/scripts/runtime-dev-V2/redis/shared.yml'
-        business='server/scripts/runtime-dev-V2/redis/business.yml'
-        common='server/scripts/runtime-dev-V2/common/apply.sh'
+        shared='server/scripts/v2/dev/redis/shared.yml'
+        business='server/scripts/v2/dev/redis/business.yml'
+        common='server/scripts/v2/dev/common/apply.sh'
         before={shared:'a',business:'b',common:'c'}
         self.assertEqual(m.redis_changes(before,{**before,shared:'x'}), {'shared'})
         self.assertEqual(m.redis_changes(before,{**before,business:'x'}), {'business'})

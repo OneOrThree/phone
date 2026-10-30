@@ -3,18 +3,18 @@ on:
   pull_request:
     branches: [main]
     paths:
-      - 'server/scripts/runtime-dev-V2/redis/**'
-      - 'server/scripts/runtime-dev-V2/common/**'
-      - '.github/scripts/test_dev_runtime_V2.py'
-      - '.github/scripts/dev-publish-runtime-V2.py'
+      - 'server/scripts/v2/dev/redis/**'
+      - 'server/scripts/v2/dev/common/**'
+      - '.github/scripts/v2/dev/test_dev_runtime_V2.py'
+      - '.github/scripts/v2/dev/dev-publish-runtime-V2.py'
       - '.github/workflows/redis-ci.dev-v2.yml'
   push:
     branches: [main]
     paths:
-      - 'server/scripts/runtime-dev-V2/redis/**'
-      - 'server/scripts/runtime-dev-V2/common/**'
-      - '.github/scripts/test_dev_runtime_V2.py'
-      - '.github/scripts/dev-publish-runtime-V2.py'
+      - 'server/scripts/v2/dev/redis/**'
+      - 'server/scripts/v2/dev/common/**'
+      - '.github/scripts/v2/dev/test_dev_runtime_V2.py'
+      - '.github/scripts/v2/dev/dev-publish-runtime-V2.py'
       - '.github/workflows/redis-ci.dev-v2.yml'
   workflow_dispatch:
 permissions:
@@ -30,10 +30,10 @@ jobs:
           SHARED_ACL_FILE: /tmp/shared.acl
           BUSINESS_ACL_FILE: /tmp/business.acl
         run: |
-          docker compose -f server/scripts/runtime-dev-V2/redis/shared.yml -f server/scripts/runtime-dev-V2/redis/business.yml config --quiet
-          bash -n server/scripts/runtime-dev-V2/common/verify-data-mount.sh
-          bash -n server/scripts/runtime-dev-V2/common/apply.sh
-          python3 -m unittest discover -s .github/scripts -p test_dev_runtime_V2.py -v
+          docker compose -f server/scripts/v2/dev/redis/shared.yml -f server/scripts/v2/dev/redis/business.yml config --quiet
+          bash -n server/scripts/v2/dev/common/verify-data-mount.sh
+          bash -n server/scripts/v2/dev/common/apply.sh
+          python3 -m unittest discover -s .github/scripts/v2/dev -p test_dev_runtime_V2.py -v
   publish:
     needs: validate
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -50,4 +50,4 @@ jobs:
           service_account: ${{ vars.GCP_DEV_V2_DEPLOY_SA }}
       - uses: google-github-actions/setup-gcloud@v2
       - name: dev V2 불변 구성 발행
-        run: python3 .github/scripts/dev-publish-runtime-V2.py redis
+        run: python3 .github/scripts/v2/dev/dev-publish-runtime-V2.py redis

@@ -9,7 +9,7 @@ import subprocess
 import tarfile
 import tempfile
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[4]
 BUCKET = 'gs://catus-dev-v2-deploy-263851348176'
 
 
@@ -21,11 +21,11 @@ def publish(role):
     if not re.fullmatch('[0-9a-f]{40}', revision) or not run.isdigit() or not attempt.isdigit():
         raise ValueError('릴리스 식별자가 올바르지 않습니다')
     files = subprocess.check_output(['git', 'ls-files', '-z', '--',
-                                     f'server/scripts/runtime-dev-V2/{role}/',
-                                     'server/scripts/runtime-dev-V2/common/',
-                                     '.github/scripts/dev-publish-runtime-V2.py'], cwd=ROOT).split(b'\0')
+                                     f'server/scripts/v2/dev/{role}/',
+                                     'server/scripts/v2/dev/common/',
+                                     '.github/scripts/v2/dev/dev-publish-runtime-V2.py'], cwd=ROOT).split(b'\0')
     names = sorted(x.decode() for x in files if x)
-    if not names or not any(n.startswith(f'server/scripts/runtime-dev-V2/{role}/') for n in names):
+    if not names or not any(n.startswith(f'server/scripts/v2/dev/{role}/') for n in names):
         raise ValueError('런타임 구성 파일이 없습니다')
     with tempfile.TemporaryDirectory(prefix='dev-v2-publish-') as directory:
         archive, manifest = Path(directory)/'runtime.tar', Path(directory)/'manifest.json'

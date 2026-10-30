@@ -11,7 +11,7 @@ import shlex
 import subprocess
 import tarfile
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[4]
 BUCKET = 'gs://catus-dev-v2-deploy-263851348176'
 
 
@@ -47,8 +47,8 @@ def validate_manifest(role, uri, manifest, archive):
     expected = manifest.get('files')
     if not isinstance(expected, dict) or not expected: raise ValueError('파일 해시가 없습니다')
     tracked = command(['git', '-C', str(ROOT), 'ls-tree', '-r', '--name-only', revision, '--',
-                       f'server/scripts/runtime-dev-V2/{role}/', 'server/scripts/runtime-dev-V2/common/',
-                       '.github/scripts/dev-publish-runtime-V2.py']).decode().splitlines()
+                       f'server/scripts/v2/dev/{role}/', 'server/scripts/v2/dev/common/',
+                       '.github/scripts/v2/dev/dev-publish-runtime-V2.py']).decode().splitlines()
     if set(tracked) != set(expected): raise ValueError('main에 포함된 런타임 파일 목록과 다릅니다')
     with tarfile.open(fileobj=io.BytesIO(archive), mode='r:') as tar:
         members = tar.getmembers()
@@ -56,7 +56,7 @@ def validate_manifest(role, uri, manifest, archive):
             raise ValueError('런타임 파일 목록이 다릅니다')
         for member in members:
             name = member.name
-            allowed = name.startswith(f'server/scripts/runtime-dev-V2/{role}/') or name.startswith('server/scripts/runtime-dev-V2/common/') or name == '.github/scripts/dev-publish-runtime-V2.py'
+            allowed = name.startswith(f'server/scripts/v2/dev/{role}/') or name.startswith('server/scripts/v2/dev/common/') or name == '.github/scripts/v2/dev/dev-publish-runtime-V2.py'
             if not allowed or not member.isfile() or '..' in Path(name).parts or name not in expected or member.size > 5_000_000:
                 raise ValueError('허용되지 않은 런타임 파일')
             data = tar.extractfile(member).read()
@@ -75,7 +75,7 @@ def redis_changes(previous_files, current_files):
     if previous_files is None: return {'shared', 'business'}
     changed = {name for name in set(previous_files) | set(current_files)
                if previous_files.get(name) != current_files.get(name)}
-    prefix = 'server/scripts/runtime-dev-V2/redis/'
+    prefix = 'server/scripts/v2/dev/redis/'
     roles = set()
     for name in changed:
         if name == prefix + 'shared.yml': roles.add('shared')
@@ -95,7 +95,7 @@ def deploy(role, uri, selection):
     archive = command(['gcloud', 'storage', 'cat', archive_uri])
     if len(archive) > 20_000_000: raise ValueError('런타임 묶음이 너무 큽니다')
     revision, release = validate_manifest(role, uri, manifest, archive)
-    state_spec = importlib.util.spec_from_file_location('dev_state_v2', ROOT/'.github/scripts/dev-state-V2.py')
+    state_spec = importlib.util.spec_from_file_location('dev_state_v2', ROOT/'.github/scripts/v2/dev/dev-state-V2.py')
     state_store = importlib.util.module_from_spec(state_spec); state_spec.loader.exec_module(state_store)
     state_store.URI = f'{BUCKET}/deployments/{role}/current.json'
     previous, generation = state_store.read()
@@ -123,10 +123,10 @@ def deploy(role, uri, selection):
     # 이미지 버전 변경은 Kafka/DB 데이터 호환성 검토 없이 수행하지 않는다.
     with tarfile.open(fileobj=io.BytesIO(archive), mode='r:') as tar:
         if role == 'redis':
-            image_files = [(name, f'server/scripts/runtime-dev-V2/redis/{name}.yml')
+            image_files = [(name, f'server/scripts/v2/dev/redis/{name}.yml')
                            for name in ('shared', 'business')]
         else:
-            image_files = [(role, f'server/scripts/runtime-dev-V2/{role}/compose.yml')]
+            image_files = [(role, f'server/scripts/v2/dev/{role}/compose.yml')]
         for name, file in image_files:
             config_text = tar.extractfile(file).read().decode()
             found = re.findall(r'(?m)^\s*image:\s*([^\s#]+)\s*$', config_text)
@@ -141,7 +141,7 @@ def deploy(role, uri, selection):
     destination = f'/opt/catus-dev-v2/releases/{role}/{release}'
     # tar는 위에서 경로·파일 타입·원본 SHA를 검증했다.
     ssh(expected_name, f'sudo install -d -m 700 {destination} && sudo tar -xf - -C {destination}', archive)
-    root = destination + '/server/scripts/runtime-dev-V2'
+    root = destination + '/server/scripts/v2/dev'
     variables = {'HOST_PRIVATE_IP':host['private_ip']}
     if role == 'kafka':
         variables['KAFKA_HEALTHCHECK_FILE'] = root + '/kafka/healthcheck.sh'

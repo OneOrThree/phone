@@ -5,8 +5,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-ROOT = Path(__file__).resolve().parents[2]
-spec = importlib.util.spec_from_file_location('app_host_v2', ROOT/'server/scripts/runtime-dev-V2/app/deploy.py')
+ROOT = Path(__file__).resolve().parents[4]
+spec = importlib.util.spec_from_file_location('app_host_v2', ROOT/'server/scripts/v2/dev/app/deploy.py')
 m = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(m)
 

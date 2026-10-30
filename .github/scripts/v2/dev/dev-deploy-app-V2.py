@@ -10,12 +10,12 @@ import re
 import subprocess
 import tarfile
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[4]
 BUCKET = 'gs://catus-dev-v2-deploy-263851348176'
 
 
 def module(name, file):
-    spec = importlib.util.spec_from_file_location(name, ROOT/'.github/scripts'/file)
+    spec = importlib.util.spec_from_file_location(name, ROOT/'.github/scripts/v2/dev'/file)
     obj = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(obj)
     return obj
@@ -82,8 +82,8 @@ def verify_runtime_prerequisites(revision, config):
             ancestor = subprocess.run(['git', '-C', str(ROOT), 'merge-base', '--is-ancestor', before, revision],
                                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             diff = subprocess.run(['git', '-C', str(ROOT), 'diff', '--quiet', before, revision, '--',
-                                   f'server/scripts/runtime-dev-V2/{role}', 'server/scripts/runtime-dev-V2/common',
-                                   '.github/scripts/dev-publish-runtime-V2.py'],
+                                   f'server/scripts/v2/dev/{role}', 'server/scripts/v2/dev/common',
+                                   '.github/scripts/v2/dev/dev-publish-runtime-V2.py'],
                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             if ancestor.returncode or diff.returncode:
                 raise ValueError(role + '의 현재 main 변경이 선행 배포되지 않았습니다')
@@ -135,7 +135,7 @@ def deploy(infra_uri, core_run, satellite_run, force=False):
     template = files['nginx.conf.template']
     if template.count(b'__PUBLIC_HOST__') != 2: raise ValueError('nginx 도메인 템플릿 오류')
     nginx = template.replace(b'__PUBLIC_HOST__', b'oneorthree-v2.dev.mooo.com')
-    host_script = runtime.command(['git','-C',str(ROOT),'show',revision + ':server/scripts/runtime-dev-V2/app/deploy.py'])
+    host_script = runtime.command(['git','-C',str(ROOT),'show',revision + ':server/scripts/v2/dev/app/deploy.py'])
     archive = package({'compose.yml': files['app-compose.yml'], 'nginx.conf':nginx, 'deploy.py':host_script})
     dest = f'/opt/catus-dev-v2/app/releases/{release_id}'
     # 같은 실행 재시도는 같은 파일만 덮는다. 파일은 신뢰된 커밋·불변 산출물에서 만들었다.

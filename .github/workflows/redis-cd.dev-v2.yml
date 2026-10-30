@@ -41,4 +41,4 @@ jobs:
         env:
           MANIFEST_URI: ${{ inputs.manifest_uri }}
           REDIS_SELECTION: ${{ inputs.selection }}
-        run: python3 .github/scripts/dev-deploy-runtime-V2.py --role redis --manifest-uri "$MANIFEST_URI" --selection "$REDIS_SELECTION"
+        run: python3 .github/scripts/v2/dev/dev-deploy-runtime-V2.py --role redis --manifest-uri "$MANIFEST_URI" --selection "$REDIS_SELECTION"
