@@ -77,7 +77,13 @@ beforeEach(async () => {
   (AppState as any).currentState = 'active';
   jest.spyOn(BackHandler, 'addEventListener').mockImplementation(((_: string, h: () => boolean) => {
     backHandlers.push(h);
-    return { remove: jest.fn() };
+    // 실제 BackHandler 처럼 remove 하면 목록에서 빠진다(재등록 순서를 보려면 필요하다)
+    return {
+      remove: () => {
+        const i = backHandlers.indexOf(h);
+        if (i >= 0) backHandlers.splice(i, 1);
+      },
+    };
   }) as never);
   await AsyncStorage.clear();
   await clearSession();
@@ -211,4 +217,9 @@ test('편지가 뜨기 전에 등록된 다른 뒤로 가기 리스너보다 편
   assert.equal(handled, true);
   expect(other).not.toHaveBeenCalled();
   assert.equal(screen.queryByTestId('developer-letter'), null);
+  // 편지를 닫은 뒤에는 다른 리스너가 App 보다 먼저 불린다(App 이 닫힐 때 재등록되지 않는다)
+  await act(async () => {
+    for (const h of [...backHandlers].reverse()) if (h()) break;
+  });
+  expect(other).toHaveBeenCalledTimes(1);
 });
