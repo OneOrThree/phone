@@ -138,6 +138,7 @@ function FcmCatalogPanel() {
       } while (true);
       setItems(all);
     } catch (cause) {
+      setItems([]);
       setError(cause instanceof Error ? cause.message : 'FCM 알림 설정을 불러오지 못했습니다.');
     } finally { setLoading(false); }
   }
@@ -149,7 +150,7 @@ function FcmCatalogPanel() {
     <div className="section-heading"><div><h2>FCM 알림 설정</h2><p className="field-hint">Notification 서비스에 등록된 발송 문구입니다. 작성·검토 초안 및 실제 발송 이력과는 별개입니다.</p></div><button className="button secondary" disabled={loading} onClick={() => void load()}>새로고침</button></div>
     {error && <p role="alert" className="error-message">{error}</p>}
     <p className="list-caption">사용 중 {active.length}개 · 사용 안 함 {inactive.length}개</p>
-    {active.length ? templateRows(active) : !loading && !error && <p className="list-empty">사용 중인 FCM 알림 문구가 없습니다.</p>}
+    {active.length ? templateRows(active) : !loading && !error && <p className="list-empty">{items.length ? '사용 중인 FCM 알림 문구가 없습니다.' : '등록된 FCM 알림 문구가 없습니다.'}</p>}
     {inactive.length > 0 && <details className="inactive-catalog"><summary>사용 안 하는 알림 문구 {inactive.length}개 보기</summary>{templateRows(inactive)}</details>}
     {loading && <p role="status" className="list-loading">FCM 알림 설정을 불러오는 중…</p>}
   </section>;
