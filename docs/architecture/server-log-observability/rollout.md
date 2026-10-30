@@ -21,7 +21,7 @@
 | D1 | 배포 전 검사: `deploy-core-dev.py`·`prepare-satellite-deploy.py` 가 렌더된 `OBS_SERVICE`(서비스 이름)·`OBS_ENV`(`dev`)·`OBS_VERSION`(배포 커밋)이 비었거나 다르면 배포를 멈춘다. `OBS_*` 는 비밀이 아니라 compose `environment:` 로 넣고 Secrets Manager 를 쓰지 않는다 | CD 로그의 검사 통과 | 미실행 |
 | D2 | dev CD 로 네 서비스 배포. dev 프로필 콘솔이 JSON 한 줄(`schema_version` 1)로 바뀐다. 텍스트 `app.log`·`logging.file.name` 파일은 그대로(컷오버 전) | `docker logs` 한 줄이 JSON, `service`·`env`·`version`·`instance_id` 가 컨테이너 env 와 일치(V20), 헬스 통과 | 미실행 |
 | D3 | `DD_TRACE_128_BIT_TRACEID_LOGGING_ENABLED=true` 가 네 서비스 compose 에 있다. agent 1.64.0 기본이 켜져 있어 출력 변화를 기대하지 않는다 | 컨테이너 env 에 값 존재, 요청 하나의 `dd.trace_id` 가 32자리 hex 이고 canonical `trace_id` 와 같음. 10진이 보이면 상위 64비트가 0인 경우 외에는 원인을 조사 | 미실행 |
-| D4 | `ops-monitor.dev.yml` `action=up`: Loki·Grafana·Fluent Bit(4.2.8) 기동. 워크플로가 5초 간격 12회(60초) 동안 Fluent Bit 이 매번 `Running=true`·`RestartCount=0` 인지 보고 한 번이라도 아니면 **Promtail 을 남기고 실패**한다. 정상이면 `gromo-promtail` 을 제거한다. 기동 직후 Promtail 과 Fluent Bit 이 겹쳐 도는 짧은 구간에는 같은 줄이 두 수집기로 들어올 수 있다 | `gromo-fluent-bit` 실행, Promtail 없음, §4 의 canary 도착, 허용 밖 label 0 | 미실행 |
+| D4 | `ops-monitor.dev.yml` `action=up`: Loki·Grafana·Fluent Bit(4.2.8) 기동. 워크플로가 5초 간격 12회(60초) 동안 Fluent Bit 이 매번 `Running=true`·`RestartCount=0` 인지 보고 한 번이라도 아니면 **Promtail 을 남기고 실패**한다. 정상이면 `gromo-promtail` 을 제거한다. 기동 직후 Promtail 과 Fluent Bit 이 겹쳐 도는 짧은 구간에는 같은 줄이 두 수집기로 들어올 수 있다 | `gromo-fluent-bit` 실행, Promtail 없음, §4 의 canary 도착, 허용 밖 label 0 | **1회 시도 실패**(2026-10-30, run 41074417140): 기존 `gromo-postgres-exporter` 컨테이너와 이름 충돌로 중단. Loki·Fluent Bit 은 뜨지 않았고 기존 서비스는 그대로다. 재시도 전 그 컨테이너 정리가 필요하다 |
 | D5 | Data 마이그레이션(V7)·Notification(V16) 적용 확인 후 Outbox 경로 동작. 이벤트 하나가 `outbox.delivery` → `consumer.accept` → `operation.link` → `transport.result` → `dispatch.settle` 로 이어지고 `event_id`·origin 이 유지되는지 | [조회 안내 §1](query-guide.md) 의 ②~④ 패널 | 미실행 |
 | D6 | Realtime 두 인스턴스: A → Redis → B 의 `fanout.publish` / `fanout.receive`, 구·신 인스턴스 혼합 | `message_id`·`event_id` 조회, 자기 echo 중복 없음 | 미실행(인스턴스 2개가 dev 에 있는지 미확인) |
 | D7 | 관찰: 일정 기간(길이는 미정) canary·`dropped_records`·`parse_error` 를 보고 §4 기준을 정해 기록 | 아래 §4 | 미실행 |
@@ -35,7 +35,7 @@ dev 관찰(D2~D7)이 끝나고 §4 기준이 기록되기 전에는 ②(Fluent B
 
 | 순서 | 작업 | 확인 |
 | --- | --- | --- |
-| 1 | `terraform apply`: 로그 버킷 수명 규칙(`system_log/` 90일)과 IAM(쓰기 접두 `system_log/v2/env=prod/*`) 적용 | 적용 결과의 변경 목록 |
+| 1 | `terraform apply`: 로그 버킷 수명 규칙(`system_log/` 90일)과 IAM(쓰기 접두 `system_log/v2/env=prod/*`) 적용. 이 리소스는 버킷의 기존 수명 규칙을 대체하므로 plan 에서 기존 규칙 유무를 먼저 본다 | 적용 결과의 변경 목록 |
 | 2 | Infra `main` 에 머지된 커밋 SHA 로 phone 저장소 Actions 변수 `CATUS_PROD_INFRA_REVISION_V2` 를 변경. 변수만 바꿔서는 아무것도 실행되지 않는다 | 40자리 SHA, 그 SHA 의 Infra `catus-config.prod-V2` 발행 성공 |
 | 3 | `prod-ci-V2` 를 `release` 브랜치에서 `workflow_dispatch` 로 수동 실행 | 이미지 발행·구성 SHA 검증 통과, 새 태그 `catus-vX.Y.Z-V2` 생성 |
 | 4 | `prod-cd-V2` 실행(승인 후 수동, SSM 배포). 입력은 `version`(필수: 3단계에서 생긴 `catus-vX.Y.Z-V2` 태그)과 `rollback` 뿐이고 배포는 `--role app` 전체다 | 앱 4종 헬스 통과 |
@@ -48,12 +48,12 @@ dev 관찰(D2~D7)이 끝나고 §4 기준이 기록되기 전에는 ②(Fluent B
 
 | 단계 | 켜는 것 | 확인 | 상태 |
 | --- | --- | --- | --- |
-| ① | 스위치 전부 꺼진 채로 배포. `OBS_*`·Datadog 서비스 이름(`data-api`·`business-api`·`realtime`·`notification`)·Nginx JSON 접근 로그가 반영되고 새 서비스는 뜨지 않는다 | 컨테이너 env 의 `OBS_SERVICE`·`OBS_ENV`·`OBS_VERSION`, 앱 로그 한 줄의 `service`·`env`·`version`, Nginx 로그가 JSON 한 줄, 서비스 목록이 이전과 같음 | 미실행 |
+| ① | 스위치 전부 꺼진 채로 배포. `OBS_*`·Datadog 서비스 이름(`data-api`·`business-api`·`realtime`·`notification`)·Nginx JSON 접근 로그가 반영되고 새 서비스는 뜨지 않는다. 앱 4종과 Datadog Agent 설정이 바뀌어 동시에 재생성되므로 트래픽이 적은 시간에 배포한다 | 컨테이너 env 의 `OBS_SERVICE`·`OBS_ENV`·`OBS_VERSION`, 앱 로그 한 줄의 `service`·`env`·`version`, Nginx 로그가 JSON 한 줄, 서비스 목록이 이전과 같음 | 미실행 |
 | ② | `fluent_bit` + `loki`. dev 관찰이 끝난 뒤에만 | canary 가 Loki 에 도착, `dropped_records`, 호스트 디스크·메모리 여유(Loki 7일 보존) | 미실행 |
 | ③ | `s3`. dev 는 S3 를 쓰지 않기로 했으므로(D8) S3 실측(IAM·업로드·수명 규칙)은 prod 가 처음이다. 실패하면 ③만 되돌린다(§3.4). 머리글의 규칙대로 dev 관찰이 끝난 뒤에만 시작한다 | `system_log/v2/env=prod/` 객체 도착, canary 가 S3 에도 도착, Athena 조회 | 미실행 |
 | ④ | Cloudflare 설정(§3.3)을 마친 뒤 `grafana` | 미인증 요청이 Access 로그인으로 이동, 원본 직접 요청은 401 | 미실행 |
 
-각 단계의 판정은 §4 지표로 하고, 앞 단계를 통과해야 다음으로 간다. 켠 뒤 디스크·메모리의 판정 기준 숫자는 이 문서 §1 의 5번 규칙대로 dev 관찰 뒤에 정한다(지금 정해진 숫자는 없고, 이 절은 «무엇을 보는가»만 적는다). 관측 서비스(Fluent Bit·Loki·Grafana) 기동은 앱 검증이 끝난 뒤 별도 단계이며 실패해도 앱 롤백을 일으키지 않게 설계한다(에픽 2619 계약, 구현은 하위 티켓).
+각 단계의 판정은 §4 지표로 하고, 앞 단계를 통과해야 다음으로 간다. 켠 뒤에는 앱 릴리스마다 마운트 경로가 바뀌어 Loki·Grafana·Fluent Bit 이 재생성된다. Loki 는 시간 기준 보존만 있으므로 ②를 켜기 전에 호스트 디스크 경보를 둔다. 켠 뒤 디스크·메모리의 판정 기준 숫자는 이 문서 §1 의 5번 규칙대로 dev 관찰 뒤에 정한다(지금 정해진 숫자는 없고, 이 절은 «무엇을 보는가»만 적는다). 관측 서비스(Fluent Bit·Loki·Grafana) 기동은 앱 검증이 끝난 뒤 별도 단계이며 실패해도 앱 롤백을 일으키지 않게 설계한다(에픽 2619 계약, 구현은 하위 티켓).
 
 ### 3.3 Cloudflare 수동 단계 (④ 전)
 
@@ -61,7 +61,7 @@ dev 관찰(D2~D7)이 끝나고 §4 기준이 기록되기 전에는 ②(Fluent B
 2. Cloudflare Access 앱을 만든다.
 3. Access 앱의 `aud` 태그와 팀 도메인(`<team>.cloudflareaccess.com`)을 확인한다.
 4. 원본 서버 인증서가 새 호스트를 포함하는지 확인한다(미확인).
-5. `env-V2.py` 의 `GRAFANA_HOST`·`GRAFANA_ACCESS_TEAM`·`GRAFANA_ACCESS_AUD` 를 채운다. 스위치가 True 인데 값이 비어 있으면 `generate` 가 실패한다.
+5. `env-V2.py` 의 `GRAFANA_HOST`·`GRAFANA_ACCESS_TEAM`·`GRAFANA_ACCESS_AUD` 를 채운다. 스위치가 True 인데 값이 비었거나 `GRAFANA_HOST` 가 호스트 이름 형식이 아니면 `generate` 가 배포 시작 전에 실패한다.
 6. Secrets Manager `catus/prod/env` 에 `GRAFANA_ADMIN_PASSWORD` 를 추가한다. 이 값은 서비스 env 에 넣지 않으므로(Grafana 전용 env 파일) 앱은 재시작되지 않는다.
 
 Grafana 는 Access 가 붙인 JWT(`Cf-Access-Jwt-Assertion`)를 JWKS 로 직접 검증하고 `aud` 를 확인하며 로그인 폼은 끈다. Host 헤더 우회로 Access 를 건너뛰어도 원본에서 막기 위해서다.
