@@ -398,7 +398,7 @@ export default function App() {
           {selected && ['magazine', 'construction'].includes(selected.kind) && selected.status === 'published' && !selected.archivedAt && <button className="button secondary" disabled={!!busy} onClick={() => { setModalError(''); setConfirmation('archive'); }}>운영 목록 보관</button>}
         </div></div>
         {selected?.error && <div className="receipt-section error-message" role="alert">{selected.error}</div>}
-        {selected?.receipt && <section className="receipt-section"><h3>{selected.kind === 'fcm' ? '발송 요청 결과' : selected.kind === 'construction' ? '정책 적용 결과' : '게시 처리 결과'}</h3>{selected.kind === 'fcm' && <p>{selected.receipt.dispatchEnabled === false ? '발송 게이트가 꺼져 있어 대기 중입니다. 실제 발송·수신은 완료되지 않았습니다.' : '발송 요청 접수 기록입니다. 기기 수신 완료를 의미하지 않습니다.'}</p>}
+        {selected?.receipt && <section className="receipt-section"><h3>{selected.kind === 'fcm' ? '발송 요청 결과' : selected.kind === 'construction' ? '정책 적용 결과' : '게시 처리 결과'}</h3>{selected.kind === 'fcm' && <p>{selected.receipt.dispatchEnabled === false ? '요청 당시 발송 게이트가 꺼져 있었습니다. 현재 발송 결과는 운영 이력에서 확인하세요.' : '발송 요청 접수 기록입니다. 기기 수신 완료를 의미하지 않습니다.'}</p>}
           {selected.receipt.local === true && <p>{selected.kind === 'construction' ? '로컬 모의 적용입니다. 서비스의 실제 건설 정책은 변경하지 않았습니다.' : '로컬 모의 처리입니다. 실제 발송·게시는 하지 않았습니다.'}</p>}
           {selected.kind === 'fcm' && typeof selected.receipt.recipientCount === 'number' && <p>요청 수신자 {selected.receipt.recipientCount}명</p>}
           <details className="technical-details"><summary>처리 기록 자세히 보기</summary><ReadableValue value={selected.receipt} /></details></section>}

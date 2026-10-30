@@ -223,6 +223,18 @@ jobs:
             echo "$v=${!v}" >> "$GITHUB_ENV"
           done
 
+      - name: dev Firebase 클라이언트 설정 준비
+        env:
+          ANDROID_FIREBASE_DEV_JSON: ${{ vars.ANDROID_FIREBASE_DEV_JSON }}
+        run: |
+          set -euo pipefail
+          [ -n "$ANDROID_FIREBASE_DEV_JSON" ] || { echo "::error::ANDROID_FIREBASE_DEV_JSON 저장소 변수가 없습니다"; exit 1; }
+          target=app/app-dev/android/credentials/dev/google-services.json
+          mkdir -p "$(dirname "$target")"
+          printf '%s' "$ANDROID_FIREBASE_DEV_JSON" > "$target"
+          jq -e '.project_info.project_id == "catus-dev" and any(.client[]; .client_info.android_client_info.package_name == "com.oneorthree.gromo")' "$target" > /dev/null
+          chmod 600 "$target"
+
       # 빌드 도구 (app-android-build.yml 과 같음)
       - name: NDK 캐시
         id: ndk-cache
