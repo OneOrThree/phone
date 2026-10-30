@@ -66,9 +66,18 @@ def validate_manifest(role, uri, manifest, archive):
     return revision, match.group(1)
 
 
+ssh_key_ready = False
+
+
 def ssh(host, remote, data=None):
-    return command(['gcloud', 'compute', 'ssh', host, '--project=oneorthree2', '--zone=asia-northeast3-a',
-                    '--tunnel-through-iap', '--quiet', '--command', remote], data=data)
+    global ssh_key_ready
+    args = ['gcloud', 'compute', 'ssh', host, '--project=oneorthree2', '--zone=asia-northeast3-a',
+            '--tunnel-through-iap', '--ssh-key-expire-after=1h', '--quiet', '--command']
+    if not ssh_key_ready:
+        # 새 러너 첫 호출은 키 생성 출력이 stdout에 섞임. 먼저 소비.
+        command(args + ['true'])
+        ssh_key_ready = True
+    return command(args + [remote], data=data)
 
 
 def redis_changes(previous_files, current_files):
