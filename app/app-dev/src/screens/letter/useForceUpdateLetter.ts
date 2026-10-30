@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { AppState, Platform } from 'react-native';
 import * as Application from 'expo-application';
 import { getAppRequirements } from '@/services/api/developerNotices';
-import { isBelowMinVersion } from '@/services/developerLetter';
+import { isAppVersion, isBelowMinVersion } from '@/services/developerLetter';
 
 export type ForceUpdate = { title: string; body: string; publishedAt: string | null };
 
@@ -22,19 +22,18 @@ export function useForceUpdateLetter({ enabled }: { enabled: boolean }): ForceUp
         .then(() => getAppRequirements(platform))
         .then((res) => {
           if (mine !== seq.current) return;
-          const below =
-            isBelowMinVersion(Application.nativeApplicationVersion, res?.minVersion) &&
-            typeof res.title === 'string' &&
-            typeof res.body === 'string';
-          setRequirement(
-            below
-              ? {
-                  title: res.title as string,
-                  body: res.body as string,
-                  publishedAt: typeof res.publishedAt === 'string' ? res.publishedAt : null,
-                }
-              : null,
-          );
+          // 해제(공지 없음·충족)와 응답 이상을 가른다 — 이상한 응답은 상태를 바꾸지 않는다
+          if (!res || typeof res !== 'object') return;
+          const current = Application.nativeApplicationVersion;
+          if (res.minVersion === null || !isAppVersion(current)) return setRequirement(null);
+          if (!isAppVersion(res.minVersion)) return;
+          if (!isBelowMinVersion(current, res.minVersion)) return setRequirement(null);
+          if (typeof res.title !== 'string' || typeof res.body !== 'string') return;
+          setRequirement({
+            title: res.title,
+            body: res.body,
+            publishedAt: typeof res.publishedAt === 'string' ? res.publishedAt : null,
+          });
         })
         .catch(() => {});
     };

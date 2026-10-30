@@ -93,12 +93,15 @@ export function isLetterReady(g: {
 
 const SEMVER = /^\d{1,9}\.\d{1,9}\.\d{1,9}$/;
 
+/** x.y.z 형식 검사 — 「해제」와 「응답 이상」을 가르는 데 쓴다. */
+export const isAppVersion = (v: unknown): v is string => typeof v === 'string' && SEMVER.test(v);
+
 /** 자리별 숫자 비교. 어느 쪽이든 x.y.z 가 아니면 «막지 않는다»(거짓). */
 export function isBelowMinVersion(
   current: string | null | undefined,
   min: string | null | undefined,
 ): boolean {
-  if (!current || !min || !SEMVER.test(current) || !SEMVER.test(min)) return false;
+  if (!isAppVersion(current) || !isAppVersion(min)) return false;
   const a = current.split('.').map(Number);
   const b = min.split('.').map(Number);
   for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i] < b[i];

@@ -1788,6 +1788,7 @@ function Gromo() {
   const { notice: letter, dismiss: dismissLetter } = useDeveloperLetter({
     ready: letterReady,
     userId: getSession()?.userId ?? null,
+    suspended: !!requirement,
   });
   const letterVisible = forced !== null || letter !== null;
   useEffect(() => {

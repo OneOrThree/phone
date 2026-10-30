@@ -94,6 +94,26 @@ describe('useForceUpdateLetter', () => {
     await waitFor(() => expect(latest).toBeNull());
   });
 
+  test.each([
+    ['title 누락', { title: undefined }, true],
+    ['minVersion 형식 오류', { minVersion: '1.0' }, true],
+    ['키 없음', { minVersion: undefined }, true],
+    ['minVersion null', { minVersion: null }, false],
+    ['낮아진 min', { minVersion: '1.0.0' }, false],
+  ])('막힌 뒤 재조회가 %s 이면 %s', async (_n, over, stays) => {
+    get.mockResolvedValueOnce(res());
+    await render(<Probe enabled />);
+    await waitFor(() => expect(latest).not.toBeNull());
+    get.mockResolvedValueOnce(res(over));
+    await act(async () => {
+      listener('background');
+      listener('active');
+    });
+    await waitFor(() => expect(get).toHaveBeenCalledTimes(2));
+    await act(async () => {});
+    expect(latest !== null).toBe(stays);
+  });
+
   test('늦게 온 옛 응답은 새 응답을 덮지 않는다', async () => {
     let slow!: (v: unknown) => void;
     get.mockReturnValueOnce(new Promise((r) => (slow = r)));

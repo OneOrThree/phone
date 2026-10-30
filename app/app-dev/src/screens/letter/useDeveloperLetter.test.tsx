@@ -17,7 +17,7 @@ const notice = (id: string, at: string) => ({
   publishedAt: at,
 });
 let latest: ReturnType<typeof useDeveloperLetter>;
-function Probe(p: { ready: boolean; userId: string | null }) {
+function Probe(p: { ready: boolean; userId: string | null; suspended?: boolean }) {
   latest = useDeveloperLetter(p);
   return null;
 }
@@ -165,4 +165,17 @@ it('편지가 뜬 채 background 를 다녀온 뒤 닫아도 재조회하지 않
   await act(async () => {});
   expect(latest.notice).toBeNull();
   expect(list).toHaveBeenCalledTimes(1);
+});
+
+it('suspended 가 되면 떠 있던 편지를 버리되 저장하지 않고, 풀린 뒤 다시 조회해 봉투부터 띄운다', async () => {
+  await AsyncStorage.setItem(letterSeenKey('u1'), String(Date.parse('2026-09-01T00:00:00Z')));
+  list.mockResolvedValue({ items: [notice('a', '2026-10-01T00:00:00Z')] });
+  const r = await render(<Probe ready userId="u1" />);
+  await waitFor(() => expect(latest.notice?.publicationId).toBe('a'));
+  await r.rerender(<Probe ready={false} userId="u1" suspended />);
+  expect(latest.notice).toBeNull();
+  expect(await seen('u1')).toBe(String(Date.parse('2026-09-01T00:00:00Z')));
+  await r.rerender(<Probe ready userId="u1" />);
+  await waitFor(() => expect(latest.notice?.publicationId).toBe('a'));
+  expect(list).toHaveBeenCalledTimes(2);
 });
