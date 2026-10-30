@@ -1791,7 +1791,12 @@ function Gromo() {
   });
   const letterVisible = forced !== null || letter !== null;
   useEffect(() => {
-    if (forced) Keyboard.dismiss();
+    if (!forced) return;
+    Keyboard.dismiss();
+    // App 수준 RN Modal 은 트리 내 오버레이보다 위에 그려져 업데이트 버튼을 가린다 — 처음 뜰 때 닫는다(GROMO-2617)
+    setModal(null);
+    setConvUi(null);
+    settleSwitch(false);
   }, [forced !== null]);
   const pushPromptReady =
     loaded &&

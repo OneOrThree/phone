@@ -182,3 +182,15 @@ test('패치노트가 떠 있는 중 강제 요구가 오면 강제 편지만 �
   await waitFor(() => assert.ok(screen.queryByText(requirement.title)));
   assert.equal(await AsyncStorage.getItem(letterSeenKey('u1')), '1');
 });
+
+test('확인창이 먼저 떠 있어도 강제 요구가 오면 그 Modal 이 닫히고 강제 편지가 보인다', async () => {
+  let resolve!: (v: unknown) => void;
+  get.mockReturnValue(new Promise((r) => (resolve = r)));
+  const screen = await render(<App />);
+  await waitFor(() => assert.ok(captured));
+  await act(async () => captured.confirm('확인창', '내용', () => {}));
+  await waitFor(() => assert.ok(screen.queryByText('내용')));
+  await act(async () => resolve(requirement));
+  await waitFor(() => assert.ok(screen.queryByTestId('developer-letter')));
+  assert.equal(screen.queryByText('내용'), null);
+});
