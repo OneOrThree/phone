@@ -31,6 +31,12 @@ class PlannerTest(unittest.TestCase):
         self.assertEqual(result['build_services'], [])
         self.assertEqual(set(result['deploy_services']), module.SERVICES)
 
+    def test_force_deploys_all_without_rebuilding(self):
+        self.assertEqual(self.run_plan()['deploy_services'], [])
+        result = module.plan(self.source, self.prior, 'd' * 40, 'b' * 40, force=True)
+        self.assertEqual(result['build_services'], [])
+        self.assertEqual(set(result['deploy_services']), module.SERVICES)
+
     def test_prod_or_other_registry_is_rejected(self):
         self.prior['images']['data-api'] = 'example.com/data-api@sha256:' + 'c' * 64
         with self.assertRaises(ValueError):

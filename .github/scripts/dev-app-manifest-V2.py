@@ -11,10 +11,10 @@ planner = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(planner)
 
 
-def candidate(source, previous, revision, infra_revision, artifacts, release_id):
+def candidate(source, previous, revision, infra_revision, artifacts, release_id, force=False):
     if not re.fullmatch(re.escape(revision) + r'-[0-9]+-[0-9]+', release_id):
         raise ValueError('릴리스 ID가 소스 SHA 및 실행 번호와 다릅니다')
-    result = planner.plan(source, previous, revision, infra_revision)
+    result = planner.plan(source, previous, revision, infra_revision, force)
     expected = set(result['build_services'])
     if set(artifacts) != expected:
         raise ValueError('빌드된 이미지 증거가 필요한 서비스 목록과 다릅니다')

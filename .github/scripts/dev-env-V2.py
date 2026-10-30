@@ -26,6 +26,14 @@ def database_name(value):
     return match.group(1)
 
 
+def realtime_db_password(secret):
+    # 관리자 비밀번호 재사용 금지. 유출 시 다른 DB 접근 차단.
+    w.require(secret, ('REALTIME_DB_PASSWORD',))
+    if secret['REALTIME_DB_PASSWORD'] == secret.get('POSTGRES_PASSWORD'):
+        raise ValueError('Realtime DB 비밀번호는 관리자 비밀번호와 달라야 합니다')
+    return secret['REALTIME_DB_PASSWORD']
+
+
 def generate(secret, config, images):
     if config.get('environment') != 'dev-v2' or config.get('project') != 'oneorthree2':
         raise ValueError('dev V2 배포 설정이 아닙니다')
@@ -75,7 +83,7 @@ def generate(secret, config, images):
         origins.append('https://oneorthree-v2.dev.mooo.com')
     rt['CHAT_WS_ALLOWED_ORIGINS'] = ','.join(origins)
     rt.update(SPRING_PROFILES_ACTIVE='dev', CHAT_DB_URL=f'jdbc:postgresql://{data_host}:5432/gromo_chat',
-              CHAT_DB_USERNAME='catus_realtime_v2', CHAT_DB_PASSWORD=secret['POSTGRES_PASSWORD'],
+              CHAT_DB_USERNAME='catus_realtime_v2', CHAT_DB_PASSWORD=realtime_db_password(secret),
               DATA_API_BASE_URL='http://app:8080', REALTIME_AUTHORIZATION_DATA_URL='http://app:8080',
               KAFKA_BOOTSTRAP_SERVERS=f'{data_host}:9092', REDIS_HOST=redis_host, REDIS_PORT='6379',
               REDIS_USERNAME='realtime', REDIS_PASSWORD=secret['REDIS_REALTIME_PASSWORD'])

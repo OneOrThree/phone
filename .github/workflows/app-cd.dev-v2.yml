@@ -14,6 +14,11 @@ on:
         description: 같은 main SHA의 Satellite CI run ID (필요한 경우)
         required: false
         type: string
+      force_redeploy:
+        description: 소스 변경 없이 네 서비스 재배포 (시크릿 변경 반영)
+        required: false
+        type: boolean
+        default: false
 permissions:
   contents: read
   actions: read
@@ -46,8 +51,10 @@ jobs:
           INFRA_MANIFEST_URI: ${{ inputs.infra_manifest_uri }}
           CORE_CI_RUN: ${{ inputs.core_ci_run }}
           SATELLITE_CI_RUN: ${{ inputs.satellite_ci_run }}
+          FORCE_FLAG: ${{ inputs.force_redeploy && '--force-redeploy' || '' }}
         run: >-
           python3 .github/scripts/dev-deploy-app-V2.py
           --infra-manifest-uri "$INFRA_MANIFEST_URI"
           --core-run "$CORE_CI_RUN"
           --satellite-run "$SATELLITE_CI_RUN"
+          $FORCE_FLAG

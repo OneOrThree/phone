@@ -91,7 +91,7 @@ def verify_runtime_prerequisites(revision, config):
         state_store.URI = saved_uri
 
 
-def deploy(infra_uri, core_run, satellite_run):
+def deploy(infra_uri, core_run, satellite_run, force=False):
     revision = os.environ.get('GITHUB_SHA', '')
     run_id = os.environ.get('GITHUB_RUN_ID', '')
     if (os.environ.get('GITHUB_REPOSITORY') != 'OneOrThree/phone'
@@ -111,11 +111,11 @@ def deploy(infra_uri, core_run, satellite_run):
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode:
             raise ValueError('이전 성공 이후의 main 커밋이 아닙니다')
     source = fingerprints.fingerprint(revision)
-    plan = planner.plan(source, previous, revision, infra_revision)
+    plan = planner.plan(source, previous, revision, infra_revision, force)
     evidence = artifacts.collect(revision, plan['build_services'], core_run, satellite_run)
     # 같은 workflow run 재시도는 같은 릴리스 ID를 사용해 응답 유실 후 재배포를 피한다.
     release_id = f'{revision}-{run_id}-1'
-    candidate = manifest_builder.candidate(source, previous, revision, infra_revision, evidence, release_id)
+    candidate = manifest_builder.candidate(source, previous, revision, infra_revision, evidence, release_id, force)
     if not candidate['deploy_services']:
         print(json.dumps({'result':'no_change','revision':revision}))
         return
@@ -160,5 +160,6 @@ if __name__ == '__main__':
     p.add_argument('--infra-manifest-uri', required=True)
     p.add_argument('--core-run')
     p.add_argument('--satellite-run')
+    p.add_argument('--force-redeploy', action='store_true')
     a = p.parse_args()
-    deploy(a.infra_manifest_uri, a.core_run, a.satellite_run)
+    deploy(a.infra_manifest_uri, a.core_run, a.satellite_run, a.force_redeploy)

@@ -12,7 +12,7 @@ class EnvTest(unittest.TestCase):
         keys = set(m.w.TRANSITION_KEYS)
         for values in m.w.SERVICE_REQUIRED_KEYS.values():
             keys.update(values)
-        keys.update(('POSTGRES_USER', 'POSTGRES_PASSWORD', 'REDIS_DATA_PASSWORD', 'REDIS_REALTIME_PASSWORD',
+        keys.update(('POSTGRES_USER', 'POSTGRES_PASSWORD', 'REALTIME_DB_PASSWORD', 'REDIS_DATA_PASSWORD', 'REDIS_REALTIME_PASSWORD',
                      'SVC_TOKEN_REALTIME_TO_DATA', 'SVC_TOKEN_DATA_TO_REALTIME', 'SVC_TOKEN_BIZ_TO_REALTIME'))
         self.secret = {k: k.lower() for k in keys}
         self.secret.update(API_DB_URL='jdbc:postgresql://old:5432/data_db',
@@ -34,6 +34,13 @@ class EnvTest(unittest.TestCase):
         self.assertIn('https://oneorthree-v2.dev.mooo.com', result['realtime'])
         self.assertNotIn('old:5432', ''.join(result.values()))
         self.assertNotIn('JWT_SECRET=', result['notification'])
+
+    def test_realtime_db_password_is_separate_from_admin(self):
+        result = m.generate(self.secret, self.config, self.images)
+        self.assertIn("CHAT_DB_PASSWORD='realtime_db_password'", result['realtime'])
+        self.assertNotIn('postgres_password', result['realtime'])
+        self.secret['REALTIME_DB_PASSWORD'] = self.secret['POSTGRES_PASSWORD']
+        with self.assertRaises(ValueError): m.generate(self.secret, self.config, self.images)
 
     def test_wrong_target_and_registry_rejected(self):
         self.config['hosts']['data']['name'] = 'gromo-dev-app'

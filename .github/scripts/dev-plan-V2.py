@@ -9,7 +9,7 @@ SHA = re.compile(r'[0-9a-f]{40}\Z')
 DIGEST = re.compile(r'asia-northeast3-docker\.pkg\.dev/oneorthree2/([^/]+)/\1@sha256:[0-9a-f]{64}\Z')
 
 
-def plan(source, previous, revision, infra_revision):
+def plan(source, previous, revision, infra_revision, force=False):
     if not SHA.fullmatch(revision) or not SHA.fullmatch(infra_revision):
         raise ValueError('소스 및 Infra SHA가 필요합니다')
     if set(source) != SERVICES or any(not re.fullmatch(r'[0-9a-f]{64}', value) for value in source.values()):
@@ -26,7 +26,8 @@ def plan(source, previous, revision, infra_revision):
     changed = {s for s in SERVICES if previous is None or previous['source_fingerprints'][s] != source[s]}
     if changed & CORE:
         changed |= CORE
-    deploy = SERVICES if previous is None or previous.get('infra_revision') != infra_revision else changed
+    # 시크릿 변경은 지문에 안 잡힘. force 로 이미지 재빌드 없이 전체 재배포.
+    deploy = SERVICES if force or previous is None or previous.get('infra_revision') != infra_revision else changed
     return {'environment': 'dev-v2', 'revision': revision, 'infra_revision': infra_revision,
             'base_release_id': previous['release_id'] if previous else None,
             'build_services': sorted(changed), 'deploy_services': sorted(deploy),
