@@ -26,7 +26,8 @@ import org.springframework.context.annotation.Configuration;
  *
  * <p>무인증으로 남는 것: {@code /health}(컨테이너 헬스체크)
  * 그 경로에 닿는 사람은 아직 우리 유저가 아니고, 인증을 붙이면 구 앱의 deferred 매치가 전멸한다) ·
- * {@code /actuator/*}(포트 9091 격리. 서비스 포트로 부르면 404 여야 한다).
+ * {@code /actuator/*}(포트 9091 격리. 서비스 포트로 부르면 404 여야 한다) ·
+ * {@code /auth/sessions/app-requirements}(로그인 전·만료 토큰 앱의 최소 버전 조회).
  */
 @Configuration
 public class FilterConfig {

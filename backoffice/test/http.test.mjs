@@ -352,3 +352,28 @@ test("건설 정책 조회·CSRF·승인 적용은 로컬 정책을 한 번만 �
   assert.equal(current.items[0].buildSeconds, 0);
   assert.equal((await post(`/api/items/${item.id}/publish`, { revision: item.revision })).status, 409);
 });
+
+test("공지 게시 PUT 본문: 패치노트는 min null, 강제 업데이트는 min 이 실린다", async () => {
+  const puts = [];
+  const upstream = new Upstream({
+    mode: "connected", environment: "dev", expectedFcmProjectId: "gromo-dev",
+    dataUrl: "http://data:8080", notificationUrl: "http://internal:8082",
+    fetchImpl: async (url, options) => {
+      if (options.method === "GET") {
+        return new Response(JSON.stringify({ ...apiContract, environment: "dev", fcmProjectId: "gromo-dev" }));
+      }
+      puts.push({ path: url.pathname, body: JSON.parse(options.body) });
+      return new Response(JSON.stringify({ publicationId: "p" }));
+    },
+  });
+  const operator = { notificationToken: "n", dataToken: "d" };
+  const base = { revision: 1, kind: "notice", title: "공지", body: "본문", startsAt: "2026-10-29T00:00:00Z" };
+  await upstream.publish({ ...base, id: "a", publicationId: "pa", noticeType: "patch" }, "member-1", operator);
+  await upstream.publish({ ...base, id: "b", publicationId: "pb", noticeType: "force",
+    minIosVersion: "2.1.0" }, "member-1", operator);
+  assert.deepEqual(puts[0].body, { title: "공지", body: "본문", startsAt: "2026-10-29T00:00:00Z",
+    endsAt: null, minIosVersion: null, minAndroidVersion: null });
+  assert.equal(puts[1].body.minIosVersion, "2.1.0");
+  assert.equal(puts[1].body.minAndroidVersion, null);
+  assert.equal("noticeType" in puts[1].body, false);
+});

@@ -412,6 +412,13 @@ public class DataIslandClient {
                 deadline, new ParameterizedTypeReference<DeveloperNotices.Page>() { });
     }
 
+    /** 사용자 없는 호출 — 로그인 전 앱도 읽는 플랫폼별 최소 버전. */
+    public DeveloperNotices.AppRequirement fetchAppRequirement(String platform, Deadline deadline) {
+        return http.exchange(InternalCall.to(HttpMethod.GET, "/internal/developer-notices/app-requirements")
+                .query("platform", platform).build(),
+                deadline, new ParameterizedTypeReference<DeveloperNotices.AppRequirement>() { });
+    }
+
     /** 기간 밖 소식의 직접 ID 조회도 Data가 거절한다. */
     public DeveloperNotices.Notice fetchDeveloperNotice(UUID userId, UUID id, Deadline deadline) {
         return http.exchange(InternalCall.to(HttpMethod.GET,

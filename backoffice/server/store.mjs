@@ -160,6 +160,23 @@ export class Store {
             Date.parse(item.endsAt) > Date.parse(item.startsAt)),
         "종료 시각은 시작 시각 이후여야 합니다.",
       );
+      // 옛 항목은 noticeType 이 없다 — 패치노트로 본다.
+      const mins = [item.minIosVersion, item.minAndroidVersion].filter(Boolean);
+      requireValue(
+        [undefined, "patch", "force"].includes(item.noticeType),
+        "공지 종류를 확인하세요.",
+      );
+      const force = item.noticeType === "force";
+      requireValue(
+        force ? mins.length > 0 : mins.length === 0,
+        force
+          ? "강제 업데이트는 최소 버전을 하나 이상 입력하세요."
+          : "패치노트에는 최소 버전을 둘 수 없습니다.",
+      );
+      requireValue(
+        mins.every((v) => typeof v === "string" && /^\d{1,9}\.\d{1,9}\.\d{1,9}$/.test(v)),
+        "최소 버전은 숫자.숫자.숫자 형식이어야 합니다.",
+      );
     }
     if (item.kind === "magazine") {
       const snapshot = item.data.snapshot;
@@ -183,7 +200,10 @@ export class Store {
   }
   fields(input) {
     const fields = Object.fromEntries(
-      ["title", "body", "targets", "data", "issueDate", "startsAt", "endsAt"]
+      [
+        "title", "body", "targets", "data", "issueDate", "startsAt", "endsAt",
+        "noticeType", "minIosVersion", "minAndroidVersion",
+      ]
         .filter((k) => Object.hasOwn(input, k))
         .map((k) => [k, input[k]]),
     );

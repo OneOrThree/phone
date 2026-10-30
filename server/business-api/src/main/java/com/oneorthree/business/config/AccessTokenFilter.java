@@ -53,7 +53,8 @@ import java.util.UUID;
  *
  * <p>무인증 공개 경로는 세 종류다 — 컨테이너 헬스체크({@code /health}), 이관 정지 창의 무인증 구 앱
  * 관리 엔드포인트(포트 9091 로 격리돼 있고 서비스 포트로 부르면 404 여야 한다).
- * RT-only 로그아웃은 별도로 정확한 DELETE 경로에서만 AT 생략을 허용하고, Data가 RT를 검증한다.
+ * 앱 최소 버전 조회({@code /auth/sessions/app-requirements})도 정확 일치로 연다 — 로그인 전·만료 토큰 앱이
+ * 읽어야 한다. RT-only 로그아웃은 별도로 정확한 DELETE 경로에서만 AT 생략을 허용하고, Data가 RT를 검증한다.
  */
 @Slf4j
 @RequiredArgsConstructor
@@ -76,6 +77,8 @@ public class AccessTokenFilter extends OncePerRequestFilter {
             // (GROMO-2069). prod 는 springdoc.api-docs.enabled=false 라 매핑이 없어 404 로 닫힌다.
             // 그룹 경로 «하나»만 열고 기본 /v0/api-docs 나 swagger-ui 는 열지 않는다.
             "/v0/api-docs/public",
+            // 로그인 전·만료 토큰 앱이 읽는 최소 버전(GROMO-2616). 정확 일치만 연다 — 만료 토큰이 붙어도 통과해야 한다.
+            "/auth/sessions/app-requirements",
             // 관리 엔드포인트. 실제로는 포트 9091 의 별도 컨텍스트라 이 필터가 닿지 않지만, 서비스 포트로
             // 불렸을 때 «401 이 아니라 404» 여야 한다 — 401 이면 포트 격리가 라우팅 문제를 가린다.
             "/actuator", "/actuator/health", "/actuator/health/liveness",

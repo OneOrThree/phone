@@ -259,6 +259,8 @@ export class Upstream {
           body: item.body,
           startsAt: item.startsAt,
           endsAt: item.endsAt || null,
+          minIosVersion: item.minIosVersion || null,
+          minAndroidVersion: item.minAndroidVersion || null,
         },
         "PUT",
       );
