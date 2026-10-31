@@ -181,7 +181,7 @@ Android release task graph는 기본 차단됩니다. Android legacy 세션의 R
 ### 집중 시작의 운영 계약 호환
 
 2026-10-29 확인한 운영 `catus-v2.1.0`은 집중 시작 본문의 `seat`를 거절합니다. 실제 API 주소가
-`https://catus-api.oneorthree.world`이면 기본적으로 자리 좌표만 생략하고 집중을 시작합니다.
+`https://catus-api-v2.oneorthree.world`이면 기본적으로 자리 좌표만 생략하고 집중을 시작합니다.
 운영 API를 쓰는 개발·TestFlight 빌드도 같은 동작이며, 이미 지원하는 dev API에는 좌표를 보냅니다.
 
 `EXPO_PUBLIC_FOCUS_SEAT_ENABLED=0`은 모든 환경에서 생략, `1`은 모든 환경에서 전송입니다.
