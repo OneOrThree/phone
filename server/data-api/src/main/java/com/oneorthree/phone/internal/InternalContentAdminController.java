@@ -11,6 +11,7 @@ import com.oneorthree.phone.internal.dto.ConstructionPolicyApplied;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.env.Environment;
+import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -52,15 +53,19 @@ public class InternalContentAdminController {
         return version == null || version.isBlank() ? "unknown" : version.strip();
     }
 
-    /** 마지막으로 성공 적용된 Flyway 버전. 이력 테이블이나 행이 없으면 unknown. */
+    /** 마지막으로 성공 적용된 Flyway 버전. 이력 테이블이나 행이 없거나 조회가 실패하면 unknown(환경 확인을 막지 않는다). */
     private String schemaVersion() {
-        if (!Boolean.TRUE.equals(jdbc.queryForObject(
-                "SELECT to_regclass('flyway_schema_history') IS NOT NULL", Boolean.class))) {
+        try {
+            if (!Boolean.TRUE.equals(jdbc.queryForObject(
+                    "SELECT to_regclass('flyway_schema_history') IS NOT NULL", Boolean.class))) {
+                return "unknown";
+            }
+            var versions = jdbc.queryForList("SELECT version FROM flyway_schema_history"
+                    + " WHERE success AND version IS NOT NULL ORDER BY installed_rank DESC LIMIT 1", String.class);
+            return versions.isEmpty() || versions.get(0) == null ? "unknown" : versions.get(0);
+        } catch (DataAccessException e) {
             return "unknown";
         }
-        var versions = jdbc.queryForList("SELECT version FROM flyway_schema_history"
-                + " WHERE success AND version IS NOT NULL ORDER BY installed_rank DESC LIMIT 1", String.class);
-        return versions.isEmpty() || versions.get(0) == null ? "unknown" : versions.get(0);
     }
 
     private String verifiedEnvironment() {

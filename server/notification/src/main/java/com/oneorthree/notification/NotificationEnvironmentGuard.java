@@ -86,13 +86,17 @@ class NotificationEnvironmentGuard {
     Map<String, String> versions() {
         String server = environment.getProperty("OBS_VERSION");
         String schema = "unknown";
-        if (Boolean.TRUE.equals(jdbc.queryForObject(
-                "SELECT to_regclass('flyway_schema_history') IS NOT NULL", Boolean.class))) {
-            var rows = jdbc.queryForList("SELECT version FROM flyway_schema_history"
-                    + " WHERE success AND version IS NOT NULL ORDER BY installed_rank DESC LIMIT 1", String.class);
-            if (!rows.isEmpty() && rows.get(0) != null) {
-                schema = rows.get(0);
+        try {
+            if (Boolean.TRUE.equals(jdbc.queryForObject(
+                    "SELECT to_regclass('flyway_schema_history') IS NOT NULL", Boolean.class))) {
+                var rows = jdbc.queryForList("SELECT version FROM flyway_schema_history"
+                        + " WHERE success AND version IS NOT NULL ORDER BY installed_rank DESC LIMIT 1", String.class);
+                if (!rows.isEmpty() && rows.get(0) != null) {
+                    schema = rows.get(0);
+                }
             }
+        } catch (DataAccessException unavailable) {
+            // 이력 조회 실패가 환경 확인 전체를 막지 않는다 — 스키마 버전만 unknown.
         }
         return Map.of("serverVersion", server == null || server.isBlank() ? "unknown" : server.strip(),
                 "schemaVersion", schema);

@@ -13,8 +13,11 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
@@ -126,13 +129,22 @@ class ContentEnvironmentTest {
 
     private org.springframework.test.web.servlet.ResultActions environmentResponse(String obsVersion,
             boolean historyTable) throws Exception {
+        return environmentResponse(obsVersion, historyTable, j -> when(j.queryForList(
+                argThat(sql -> sql != null && sql.contains("flyway_schema_history")), eq(String.class)))
+                .thenReturn(List.of("7")));
+    }
+
+    private org.springframework.test.web.servlet.ResultActions environmentResponse(String obsVersion,
+            boolean historyTable, java.util.function.Consumer<JdbcTemplate> flyway) throws Exception {
         var environment = new MockEnvironment();
         environment.setActiveProfiles("prod");
         if (obsVersion != null) {
             environment.setProperty("OBS_VERSION", obsVersion);
         }
         var jdbc = mock(JdbcTemplate.class);
-        when(jdbc.queryForList(anyString(), eq(String.class))).thenReturn(List.of("prod"));
+        when(jdbc.queryForList(argThat(sql -> sql != null && !sql.contains("flyway_schema_history")),
+                eq(String.class))).thenReturn(List.of("prod"));
+        flyway.accept(jdbc);
         when(jdbc.queryForObject(anyString(), eq(Boolean.class))).thenReturn(historyTable);
         var controller = new InternalContentAdminController(mock(DeveloperNoticeService.class),
                 mock(ContentHistoryService.class), mock(MagazineReviewService.class),
@@ -164,5 +176,39 @@ class ContentEnvironmentTest {
                 .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk())
                 .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath(
                         "$.schemaVersion").value("unknown"));
+    }
+
+    @Test
+    void Flyway_버전이_정상이면_그_값이고_비었거나_null이거나_조회가_실패하면_unknown이다() throws Exception {
+        environmentResponse(null, true).andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.schemaVersion").value("7"));
+        environmentResponse(null, true, j -> when(j.queryForList(argThat(sql -> sql != null
+                && sql.contains("flyway_schema_history")), eq(String.class))).thenReturn(List.of()))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.schemaVersion").value("unknown"));
+        environmentResponse(null, true, j -> when(j.queryForList(argThat(sql -> sql != null
+                && sql.contains("flyway_schema_history")), eq(String.class)))
+                .thenReturn(java.util.Collections.singletonList(null)))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.schemaVersion").value("unknown"));
+        environmentResponse(null, true, j -> when(j.queryForList(argThat(sql -> sql != null
+                && sql.contains("flyway_schema_history")), eq(String.class)))
+                .thenThrow(new org.springframework.dao.DataAccessResourceFailureException("x")))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.schemaVersion").value("unknown"));
+    }
+
+    @Test
+    void 환경_표식이_다르면_Flyway_이력은_조회하지_않는다() {
+        var environment = new MockEnvironment();
+        environment.setActiveProfiles("prod");
+        var jdbc = mock(JdbcTemplate.class);
+        when(jdbc.queryForList(argThat(sql -> sql != null && !sql.contains("flyway_schema_history")),
+                eq(String.class))).thenReturn(List.of("dev"));
+        var controller = new InternalContentAdminController(mock(DeveloperNoticeService.class),
+                mock(ContentHistoryService.class), mock(MagazineReviewService.class),
+                mock(com.oneorthree.phone.internal.service.ConstructionPolicyAdminService.class), environment, jdbc);
+
+        assertThatThrownBy(controller::environment).isInstanceOf(IllegalStateException.class);
+        verify(jdbc, never()).queryForList(argThat(sql -> sql != null && sql.contains("flyway_schema_history")),
+                eq(String.class));
+        verify(jdbc, never()).queryForObject(anyString(), eq(Boolean.class));
     }
 }
