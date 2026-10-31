@@ -533,9 +533,14 @@
       "loadFailed": "섬 정보를 불러오지 못했어요"
     },
     "tutorial": {
-      "focusStart": "아래의 집중 시작 버튼을 눌러 집중을 시작해 보자.",
-      "hallGuide": "제일 먼저 섬의 관리를 위한 마을회관부터 지어보자.\n물고기 {{count}}마리만 모아줘!",
-      "ok": "알겠어"
+      "focusStart": "아래의 집중 시작 버튼을 눌러 집중을 시작해 보자."
+    },
+    "naming": {
+      "title": "내 섬 이름을\n지어주세요",
+      "placeholder": "새로운 섬",
+      "save": "저장하고 입장",
+      "saving": "저장 중…",
+      "error": "이름을 저장하지 못했어요. 다시 눌러 주세요."
     },
     "lock": {
       "missing": "아직 {{building}} 없어요",

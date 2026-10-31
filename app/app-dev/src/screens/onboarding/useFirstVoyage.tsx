@@ -114,6 +114,10 @@ export function useFirstVoyage(e: any, preview = false) {
       if (!alive()) return;
       latest.current.dispatch({ type: 'ONBOARDING_STORY', checkpoint: 'done' });
       if (!member) latest.current.dispatch({ type: 'SERVER_VISITING', islandId: result.islandId });
+      // 첫 항해 체험이 무인도에 도착했으면 이번에 새 섬이 생겼다 — 홈에서 이름 짓기 모달을 띄운다(GROMO-2649).
+      // 일반 바다 항해는 finish 의 createdIsland 로 같은 모달을 띄운다(SeaVoyageHost).
+      if (member && intent.destination.slot === 'uninhabited' && result.currentIslandId)
+        latest.current.dispatch({ type: 'ISLAND_NAMING', islandId: result.currentIslandId });
       latest.current.reset(member ? 'home' : 'visitIsland', member ? undefined : result.islandId);
     } catch (thrown) {
       if (!alive()) return;

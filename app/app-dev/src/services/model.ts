@@ -383,8 +383,9 @@ export type State = {
   visitLeaveAsked?: boolean;
   // 이번 방문에서 섬장 인사말 말풍선을 이미 띄웠는지(GROMO-2263). visitLeaveAsked 와 같은 시점에 지운다
   visitGreeted?: boolean;
-  // 첫 집중 후 마을회관 안내(20b). 없으면(예전 저장본 포함) 띄우지 않는다
-  hallGuide?: 'pending' | 'done';
+  // 무인도 항해로 새로 세운 섬의 id(GROMO-2649). 그 섬 홈에 들어오면 강제 이름 짓기 모달을 띄우고,
+  // 이름을 저장하면 지운다. 없으면 모달을 띄우지 않는다.
+  pendingIslandNaming?: string | null;
   // 최초 우체통 안내를 마친 계정. 섬을 옮겨도 반복하지 않고 계정 간에는 분리한다.
   mailboxGuideSeenBy?: string[];
   // 최초 상점 안내를 마친 계정. 마지막 건물인 상점에 처음 들어갈 때 한 번만 보여 준다.
@@ -2193,9 +2194,6 @@ export function reducer(state: State, a: Action): State {
       };
       experience.fromRest = session.status === 'paused';
       experience.session = null;
-      // 집중 기록은 남기지 않지만 첫 체험 이후 회관 안내로 이어지는 기존 여정은 유지한다.
-      const buildings = serverHome(s)?.completedBuildings ?? i.buildings;
-      if (!s.records.length && !s.hallGuide && !buildings.includes('hall')) s.hallGuide = 'pending';
       break;
     }
     case 'FOCUS_SPOT':
@@ -2287,9 +2285,6 @@ export function reducer(state: State, a: Action): State {
           : undefined,
       };
       if (s.records.some((r) => r.id === record.id)) return state;
-      // 첫 집중을 마쳤는데 회관이 없으면, 홈으로 돌아왔을 때 회관 안내를 한 번 띄운다
-      if (!s.records.length && !s.hallGuide && !island.buildings.includes('hall'))
-        s.hallGuide = 'pending';
       s.records.unshift(record);
       s.lastResult = record;
       const uncredited = fish - (s.session.creditedFish ?? 0);
@@ -2336,8 +2331,6 @@ export function reducer(state: State, a: Action): State {
       else if (!prev.intervals && record.intervals) prev.intervals = record.intervals;
       s.lastResult = record;
       const owner = s.islands.find((x) => x.id === record.islandId);
-      if (!s.records.slice(1).length && !s.hallGuide && owner && !owner.buildings.includes('hall'))
-        s.hallGuide = 'pending';
       // 재생된 결과(같은 recordId)는 이미 잔액·원장에 반영됐다 — 구간만 채우고 경제 효과는 건너뛴다.
       if (!prev && owner && record.fish > 0) {
         owner.fish = balance(owner) + record.fish;
@@ -2679,8 +2672,13 @@ export function reducer(state: State, a: Action): State {
       if (typeof a.userId !== 'string' || !shouldShowShopGuide(s, a.userId)) return state;
       s.shopGuideSeenBy = [...(s.shopGuideSeenBy ?? []), a.userId];
       break;
-    case 'HALL_GUIDE_DONE':
-      s.hallGuide = 'done';
+    case 'ISLAND_NAMING':
+      // 무인도 항해로 새로 세운 섬 — 그 섬 홈에서 강제 이름 짓기 모달을 띄우게 전이 상태를 둔다(GROMO-2649)
+      if (typeof a.islandId === 'string') s.pendingIslandNaming = a.islandId;
+      break;
+    case 'ISLAND_NAMING_DONE':
+      // 이름 저장 성공 — 모달을 내린다
+      delete s.pendingIslandNaming;
       break;
     case 'ADD_MEMBER': {
       const request = joinRequests(i).find((r) => !a.id || r.id === a.id);
