@@ -2,12 +2,14 @@
 
 모델은 앱 자산으로 번들하며 사용자 프레임을 외부 서비스에 보내지 않는다. 공통 라이선스는 `LICENSE`(Apache 2.0)다.
 
-- `palm_detection_lite.tflite`: MediaPipe Palm Detection Lite. 192×192 float32 RGB, 손 존재 판정용.
+- `palm_detection_lite.tflite`: [Google MediaPipe Palm Detection Lite](https://storage.googleapis.com/mediapipe-assets/palm_detection_lite.tflite). 번들 파일은 2026-11-01 공식 배포 파일과 바이트 해시가 일치함을 확인했다. SHA-256 `e9a4aaddf90dda56a87235303cf00e4c2d3fb28725f68fd88772997dac905c18`, 1,985,440바이트. 출처 프로젝트는 [Google MediaPipe](https://github.com/google-ai-edge/mediapipe)이며 Apache 2.0을 적용한다. 입력은 `[1,192,192,3]` float32 RGB를 `0~1`로 정규화한다. 출력은 박스/키포인트 `[1,2016,18]`과 sigmoid 적용 전 손 점수 `[1,2016,1]`이다.
 - `efficientdet_lite0_int8.tflite`: [Google MediaPipe EfficientDet-Lite0 int8 v1](https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/int8/1/efficientdet_lite0.tflite). 2026-10-31 다운로드, SHA-256 `0720bf247bd76e6594ea28fa9c6f7c5242be774818997dbbeffc4da460c723bb`.
 
 물체 모델의 입력은 `[1,320,320,3]` **uint8 RGB**다. 내부 양자화 scale=0.0078125, zero_point=127은 모델에 포함돼 있으므로 앱은 RGB 바이트를 그대로 넣는다. 출력은 이미 sigmoid를 적용한 float32 확률 `[1,19206,90]`과 디코드 전 박스 `[1,19206,4]`이며, 검출 후처리의 4개 텐서 형식이 아니다. 확률에 sigmoid를 다시 적용하지 않는다.
 
 내장 `labels.txt`의 0 기반 인덱스는 laptop=72, keyboard=75, book=83이다. 빈 COCO 라벨을 빼거나 80개 연속 인덱스로 재번호를 매기지 않는다. 존재 확인용으로 해당 클래스의 앵커별 최대 확률만 사용하며 위치·손과의 관계·필기/타이핑 행동은 판정하지 않는다.
+
+아래 판정·상태·촬영 정책은 후속 분할 PR에서 연결하는 최종 기능 계약이다. 이 기반 의존성 PR만으로 촬영·분석을 시작하지 않는다.
 
 집중 판정은 **같은 프레임에서 손 점수 ≥0.5 AND (책·노트북·키보드 중 하나의 점수 ≥0.5)**를 만족하는 장수가 같은 3장 중 2장 이상인지 확인한다. 손만 또는 물체만 있으면 통과하지 않는다. 각 모델을 별도로 다수결한 뒤 결합하지 않는다. 물체별 감지 문구는 별도로 2/3장 기준을 쓴다.
 

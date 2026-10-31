@@ -1,5 +1,6 @@
 {
   "CFBundleDisplayName": "집중할고양",
   "CFBundleName": "집중할고양",
-  "NSUserTrackingUsageDescription": "광고를 통해 앱을 설치한 경로와 광고 효과를 측정하는 데 사용해요."
+  "NSUserTrackingUsageDescription": "광고를 통해 앱을 설치한 경로와 광고 효과를 측정하는 데 사용해요.",
+  "NSCameraUsageDescription": "집중 중 책상이 보이는지 기기 안에서만 확인합니다. 사진은 저장·전송되지 않습니다."
 }
