@@ -225,7 +225,8 @@ DB migration이 이미 적용됐을 수 있으므로 이전 이미지로 자동 
 - 스모크는 `ubuntu-latest`에서 공개 API를 검사하고, `dev-smoke-docker-V2.py`가 `docker` 호출만 IAP SSH로 해당 VM에 보낸다. 전체 15개 TC를 유지한다.
 - 스모크는 CD와 같은 `catus-dev-v2-deploy` 잠금 안에서 돈다. 대기 실행이 취소되지 않게 이 그룹의 워크플로는 모두 `queue: max`다.
 - `record` job이 dev 배포 배지를 직접 게시한다. 토큰으로 실행한 Auto CD는 `workflow_run`을 깨우지 않아 `ops-deployment-badges.yml`로는 받을 수 없다.
-- dev 배지는 서비스별 최신 결과를 합친다. 앱 배포 실패는 대상 서비스만, 대상을 정하기 전 실패는 네 서비스 모두 실패로 기록한다.
+- dev 배지는 서비스별 최신 결과를 합친다. 앱 배포 실패는 대상 서비스만, `plan` 실패는 네 서비스 모두 실패로 기록한다. 런타임만 바뀐 실행의 실패는 앱 배지를 바꾸지 않는다.
+- 수동으로 옛 SHA를 재배포한 뒤 도는 스모크는 대상 SHA의 후손이 아니어서 실패로 보고된다.
 
 ## 남은 일
 

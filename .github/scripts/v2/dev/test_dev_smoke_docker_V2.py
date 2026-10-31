@@ -25,6 +25,11 @@ class SmokeDockerTest(unittest.TestCase):
         for args in (['rm', '-f', 'x'], ['compose', 'down'], ['image', 'rm', 'x']):
             with self.assertRaises(ValueError): m.remote_command(args, None)
 
+    def test_exec_flags_limited(self):
+        for flags in (['--privileged'], ['-u', 'root'], ['-e', 'OTHER=1']):
+            with self.assertRaises(ValueError):
+                m.remote_command(['exec', *flags, 'catus-dev-redis-v2-shared-1', 'redis-cli'], None)
+
     def test_arguments_quoted(self):
         command = m.remote_command(['exec', 'catus-dev-postgres-v2-postgres-1', 'sh', '-c', 'printf "%s" "$POSTGRES_USER"'], None)
         self.assertIn("'printf \"%s\" \"$POSTGRES_USER\"'", command)

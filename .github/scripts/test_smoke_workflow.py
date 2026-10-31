@@ -27,10 +27,10 @@ class SmokeWorkflowTests(unittest.TestCase):
         self.assertTrue(all(step.get('with', {}).get('ref', '${{ github.sha }}') == '${{ github.sha }}'
             for job in workflow['jobs'].values() for step in job['steps'] if step.get('uses') == 'actions/checkout@v4'))
 
-    def test_badge_only_tracks_main_automatic_runs(self):
+    def test_badge_tracks_dev_v2_main_runs(self):
         for name in ('README.md', 'smoke/README.md'):
             text = (ROOT / name).read_text()
-            self.assertIn('ops-smoke.dev.yml/badge.svg?branch=main&event=push', text)
+            self.assertIn('ops-smoke.dev-v2.yml/badge.svg?branch=main', text)
 
     def test_login_diagnostics_are_uploaded_and_regressions_run_on_report_changes(self):
         workflow = yaml.load((ROOT / '.github/workflows/ops-smoke.dev.yml').read_text(), Loader=yaml.BaseLoader)

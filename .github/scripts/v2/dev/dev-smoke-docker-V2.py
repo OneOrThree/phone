@@ -23,6 +23,10 @@ def host_for(args):
 def remote_command(args, auth):
     if args[:1] != ['exec'] and args[:1] != ['inspect'] and args[:2] != ['image', 'inspect']:
         raise ValueError('허용되지 않은 docker 명령')
+    # exec 플래그는 스모크가 쓰는 것만. --privileged·-u 차단.
+    if args[0] == 'exec':
+        flags = args[1:next(i for i, arg in enumerate(args) if arg.startswith(tuple(HOSTS)))]
+        if any(flag not in ('-i', '-e', AUTH) for flag in flags): raise ValueError('허용되지 않은 docker 플래그')
     command = shlex.join(['docker', *args])
     if not auth: return 'sudo ' + command
     # 비밀번호는 argv에 두지 않는다. stdin 첫 줄만 읽고 나머지는 redis-cli 입력.

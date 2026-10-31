@@ -79,10 +79,13 @@ def auto_cd_records(env):
     services = json.loads(env.get('DEPLOY_SERVICES') or '[]')
     if app == 'success':
         result = 'success'
-    elif plan == 'failure' or runtime in {'failure', 'cancelled'} or app in {'failure', 'cancelled'}:
-        # 대상을 정하기 전 실패는 어느 서비스가 영향받았는지 모른다.
-        result, services = 'failure', services or sorted(DEV)
+    elif plan == 'failure':
+        # 대상을 정하기 전 실패. CI 실패 포함. 이전 성공을 최신 성공으로 보이지 않게 네 서비스 모두 실패.
+        result, services = 'failure', sorted(DEV)
+    elif services and (runtime in {'failure', 'cancelled'} or app in {'failure', 'cancelled'}):
+        result = 'failure'
     else:
+        # 런타임만 바뀐 실행은 앱 서비스를 건드리지 않았다.
         return []
     finished = datetime.datetime.now(datetime.timezone.utc).isoformat()
     return validate([{'environment': 'dev', 'service': service, 'result': result,

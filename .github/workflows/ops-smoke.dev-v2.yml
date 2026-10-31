@@ -59,7 +59,7 @@ jobs:
       - name: 실제 서비스 SHA·digest 기록 및 요청 대상 확인
         id: target
         env:
-          SMOKE_TARGET_PLAN: ${{ inputs.revision != '' && format('{{"revision":"{0}","services":{1}}}', inputs.revision, inputs.services) || '' }}
+          SMOKE_TARGET_PLAN: ${{ inputs.revision != '' && format('{{"revision":"{0}","services":{1}}}', inputs.revision, inputs.services || '[]') || '' }}
         run: python3 .github/scripts/smoke-target.py
       - uses: actions/setup-node@v4
         if: steps.target.outputs.state == 'matched'

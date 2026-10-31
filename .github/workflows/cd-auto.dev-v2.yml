@@ -120,6 +120,8 @@ jobs:
           ${CORE_RUN:+--core-run "$CORE_RUN"} ${SATELLITE_RUN:+--satellite-run "$SATELLITE_RUN"}
       # 실제 앱 배포 뒤에만 실행. 토큰 실행도 workflow_dispatch는 동작.
       - name: 스모크 실행 요청
+        # 요청 실패가 성공한 배포를 실패로 기록하면 안 된다.
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
           BUILD_SERVICES: ${{ needs.plan.outputs.build_services }}

@@ -687,12 +687,18 @@ class AutoCdBadgeTest(unittest.TestCase):
         self.assertEqual({(r['service'], r['result']) for r in records},
                          {('data-api', 'failure'), ('realtime', 'failure')})
 
-    def test_failure_before_target_marks_all(self):
-        for env in (self.env(plan='failure', app='skipped', services=''),
-                    self.env(runtime='failure', app='skipped', services='')):
-            records = badge.auto_cd_records(env)
-            self.assertEqual({r['service'] for r in records}, badge.DEV)
-            self.assertEqual({r['result'] for r in records}, {'failure'})
+    def test_plan_failure_marks_all(self):
+        records = badge.auto_cd_records(self.env(plan='failure', app='skipped', services=''))
+        self.assertEqual({r['service'] for r in records}, badge.DEV)
+        self.assertEqual({r['result'] for r in records}, {'failure'})
+
+    def test_runtime_failure_marks_only_planned_services(self):
+        records = badge.auto_cd_records(self.env(runtime='failure', app='skipped'))
+        self.assertEqual({(r['service'], r['result']) for r in records},
+                         {('data-api', 'failure'), ('realtime', 'failure')})
+
+    def test_runtime_only_failure_keeps_app_badge(self):
+        self.assertEqual(badge.auto_cd_records(self.env(runtime='failure', app='skipped', services='')), [])
 
 
 if __name__ == '__main__':
