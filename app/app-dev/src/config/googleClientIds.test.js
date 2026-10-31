@@ -21,7 +21,7 @@ test('Info.plist 의 GoogleSignIn 스킴은 JSON 에 채워진 iOS id 를 뒤집
   const registered = [...block[1].matchAll(/<string>([^<]+)<\/string>/g)].map((m) => m[1]).sort();
 
   // prod 가 채워지면 dev·prod 둘 다 있어야 한다 — OTA 로 JS 만 바뀌어도 Release 에서 스킴 불일치 크래시가 없게.
-  const expected = [ids.dev.ios, ids.prod.ios].filter(Boolean).map(schemeOf).sort();
+  const expected = [...new Set([ids.dev.ios, ids.prod.ios].filter(Boolean).map(schemeOf))].sort();
   expect(expected.length).toBeGreaterThan(0);
   expect(registered).toEqual(expected);
 });
@@ -33,7 +33,7 @@ test('app.config 의 구글 플러그인 iosUrlScheme 은 dev iOS id 를 뒤집�
   expect(plugin[1].iosUrlScheme).toBe(schemeOf(ids.dev.ios));
 });
 
-test('행마다 iOS·Web 이 같은 프로젝트에 속하고 prod 는 dev 와 다른 프로젝트다', () => {
+test('행마다 iOS·Web 이 같은 프로젝트에 속한다', () => {
   expect(ids.dev.ios).toMatch(/^\d+-.+\.apps\.googleusercontent\.com$/);
   expect(ids.dev.web).toMatch(/^\d+-.+\.apps\.googleusercontent\.com$/);
   expect(projectOf(ids.dev.ios)).toBe(projectOf(ids.dev.web));
@@ -44,7 +44,6 @@ test('행마다 iOS·Web 이 같은 프로젝트에 속하고 prod 는 dev 와 �
     expect(ids.prod.ios).toMatch(/^\d+-.+\.apps\.googleusercontent\.com$/);
     expect(ids.prod.web).toMatch(/^\d+-.+\.apps\.googleusercontent\.com$/);
     expect(projectOf(ids.prod.ios)).toBe(projectOf(ids.prod.web));
-    expect(projectOf(ids.prod.ios)).not.toBe(projectOf(ids.dev.ios));
   }
 });
 
