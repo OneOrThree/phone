@@ -1,0 +1,271 @@
+{
+  "dashboard_id": 2220995,
+  "dashboard_url": "https://us.posthog.com/project/669473/dashboard/2220995",
+  "added_at_kst": "2026-11-01",
+  "event": "focus_verification_state_observed",
+  "status": "published_awaiting_app_event_ingestion",
+  "note_tile_id": 14579950,
+  "insights": [
+    {
+      "id": 13520153,
+      "short_id": "CJ8K1PRL",
+      "url": "https://us.posthog.com/project/669473/insights/CJ8K1PRL",
+      "tile_id": 14579932,
+      "name": "AI 집중측정 ON·OFF 사용자 · 수집 대기",
+      "description": "최근 14개 UTC 날짜, 낚시섬 집중 중 관측된 고유 사용자입니다. 기본 OFF도 포함하며 상태를 바꾼 사용자는 ON·OFF 양쪽에 포함됩니다. 관측 사용자는 중복 없는 전체 분모입니다. 새 계측 수신 전 값은 실제 사용자가 0명이라는 뜻이 아닙니다.",
+      "query": {
+        "kind": "InsightVizNode",
+        "source": {
+          "dateRange": {
+            "date_from": "-13d",
+            "excludeIncompletePeriods": false,
+            "explicitDate": false
+          },
+          "filterTestAccounts": true,
+          "interval": "day",
+          "kind": "TrendsQuery",
+          "properties": [
+            {
+              "key": "analytics_environment",
+              "operator": "exact",
+              "type": "event",
+              "value": ["production"]
+            },
+            {
+              "key": "focus_location",
+              "operator": "exact",
+              "type": "event",
+              "value": ["fishing_island"]
+            },
+            {
+              "key": "focus_phase",
+              "operator": "exact",
+              "type": "event",
+              "value": ["focusing"]
+            }
+          ],
+          "series": [
+            {
+              "custom_name": "관측 사용자",
+              "event": "focus_verification_state_observed",
+              "kind": "EventsNode",
+              "math": "dau",
+              "properties": []
+            },
+            {
+              "custom_name": "AI 측정 ON",
+              "event": "focus_verification_state_observed",
+              "kind": "EventsNode",
+              "math": "dau",
+              "properties": [
+                {
+                  "key": "measurement_state",
+                  "operator": "exact",
+                  "type": "event",
+                  "value": ["on"]
+                }
+              ]
+            },
+            {
+              "custom_name": "AI 측정 OFF",
+              "event": "focus_verification_state_observed",
+              "kind": "EventsNode",
+              "math": "dau",
+              "properties": [
+                {
+                  "key": "measurement_state",
+                  "operator": "exact",
+                  "type": "event",
+                  "value": ["off"]
+                }
+              ]
+            }
+          ],
+          "trendsFilter": {
+            "aggregationAxisFormat": "numeric",
+            "display": "ActionsBarValue",
+            "excludeBoxPlotOutliers": true,
+            "hideWeekends": false,
+            "legendPosition": "bottom",
+            "metricColorByDirection": false,
+            "metricShowChange": true,
+            "metricSummary": "total",
+            "resultCustomizationBy": "value",
+            "showAlertThresholdLines": false,
+            "showAnnotations": true,
+            "showLegend": true,
+            "showMultipleYAxes": false,
+            "showPercentStackView": false,
+            "showValuesOnSeries": true,
+            "smoothingIntervals": 1,
+            "stackBreakdownValues": false,
+            "yAxisScaleType": "linear",
+            "yAxisStartAtZero": true
+          },
+          "version": 4
+        }
+      }
+    },
+    {
+      "id": 13520154,
+      "short_id": "jwdHMWw9",
+      "url": "https://us.posthog.com/project/669473/insights/jwdHMWw9",
+      "tile_id": 14579933,
+      "name": "AI 측정·미리보기 조합별 사용자 · 수집 대기",
+      "description": "최근 14개 UTC 날짜, 집중 중 측정 ON/OFF와 미리보기 열림/닫힘 네 조합을 경험한 고유 사용자입니다. 한 사람이 여러 조합에 포함될 수 있어 막대를 합산하지 않습니다. 표시 선택이며 영상 출력 성공·유지 시간은 뜻하지 않습니다. 새 계측 수신 대기입니다.",
+      "query": {
+        "kind": "InsightVizNode",
+        "source": {
+          "dateRange": {
+            "date_from": "-13d",
+            "excludeIncompletePeriods": false,
+            "explicitDate": false
+          },
+          "filterTestAccounts": true,
+          "interval": "day",
+          "kind": "TrendsQuery",
+          "properties": [
+            {
+              "key": "analytics_environment",
+              "operator": "exact",
+              "type": "event",
+              "value": ["production"]
+            },
+            {
+              "key": "focus_location",
+              "operator": "exact",
+              "type": "event",
+              "value": ["fishing_island"]
+            },
+            {
+              "key": "focus_phase",
+              "operator": "exact",
+              "type": "event",
+              "value": ["focusing"]
+            }
+          ],
+          "series": [
+            {
+              "custom_name": "AI ON · 미리보기 열림",
+              "event": "focus_verification_state_observed",
+              "kind": "EventsNode",
+              "math": "dau",
+              "properties": [
+                {
+                  "key": "measurement_state",
+                  "operator": "exact",
+                  "type": "event",
+                  "value": ["on"]
+                },
+                {
+                  "key": "preview_state",
+                  "operator": "exact",
+                  "type": "event",
+                  "value": ["open"]
+                }
+              ]
+            },
+            {
+              "custom_name": "AI ON · 미리보기 닫힘",
+              "event": "focus_verification_state_observed",
+              "kind": "EventsNode",
+              "math": "dau",
+              "properties": [
+                {
+                  "key": "measurement_state",
+                  "operator": "exact",
+                  "type": "event",
+                  "value": ["on"]
+                },
+                {
+                  "key": "preview_state",
+                  "operator": "exact",
+                  "type": "event",
+                  "value": ["closed"]
+                }
+              ]
+            },
+            {
+              "custom_name": "AI OFF · 미리보기 열림",
+              "event": "focus_verification_state_observed",
+              "kind": "EventsNode",
+              "math": "dau",
+              "properties": [
+                {
+                  "key": "measurement_state",
+                  "operator": "exact",
+                  "type": "event",
+                  "value": ["off"]
+                },
+                {
+                  "key": "preview_state",
+                  "operator": "exact",
+                  "type": "event",
+                  "value": ["open"]
+                }
+              ]
+            },
+            {
+              "custom_name": "AI OFF · 미리보기 닫힘",
+              "event": "focus_verification_state_observed",
+              "kind": "EventsNode",
+              "math": "dau",
+              "properties": [
+                {
+                  "key": "measurement_state",
+                  "operator": "exact",
+                  "type": "event",
+                  "value": ["off"]
+                },
+                {
+                  "key": "preview_state",
+                  "operator": "exact",
+                  "type": "event",
+                  "value": ["closed"]
+                }
+              ]
+            }
+          ],
+          "trendsFilter": {
+            "aggregationAxisFormat": "numeric",
+            "display": "ActionsBarValue",
+            "excludeBoxPlotOutliers": true,
+            "hideWeekends": false,
+            "legendPosition": "bottom",
+            "metricColorByDirection": false,
+            "metricShowChange": true,
+            "metricSummary": "total",
+            "resultCustomizationBy": "value",
+            "showAlertThresholdLines": false,
+            "showAnnotations": true,
+            "showLegend": true,
+            "showMultipleYAxes": false,
+            "showPercentStackView": false,
+            "showValuesOnSeries": true,
+            "smoothingIntervals": 1,
+            "stackBreakdownValues": false,
+            "yAxisScaleType": "linear",
+            "yAxisStartAtZero": true
+          },
+          "version": 4
+        }
+      }
+    }
+  ],
+  "validation": {
+    "native_queries_run": true,
+    "saved_dashboard_queries_run": true,
+    "existing_tiles_preserved": 13,
+    "existing_queries_layouts_filters_text_preserved": true,
+    "event_taxonomy_received": false,
+    "counts_are_not_actual_zero_users": true,
+    "app_tests": 25,
+    "typecheck_passed": true,
+    "catalog_metrics": "proposed, not approved"
+  },
+  "group": {
+    "collapsed": false,
+    "color": "blue",
+    "title": "6. AI 집중측정과 미리보기 · 수집 대기"
+  }
+}
