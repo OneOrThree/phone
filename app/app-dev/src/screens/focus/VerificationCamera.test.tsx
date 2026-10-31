@@ -479,7 +479,7 @@ test.each(['live', 'periodic'] as const)(
     }) as typeof scheduleOnRN);
     await sample(4);
     const camera = jest.mocked(useCamera).mock.calls.at(-1)![0];
-    await act(async () => camera.onInterruptionStarted!());
+    await act(async () => camera.onInterruptionStarted!('video-device-in-use-by-another-client'));
     const readyCalls = screen.onReady.mock.calls.length;
     await act(async () => pending!());
     expect(screen.onDetection).toHaveBeenLastCalledWith('checking');
@@ -499,7 +499,7 @@ test.each(['live', 'periodic'] as const)(
 test('정기 촬영이 중단돼도 5초 제한으로 카메라를 쉬고 다음 검사에서 새로 시도한다', async () => {
   const screen = await setup(false, 'periodic');
   const camera = jest.mocked(useCamera).mock.calls.at(-1)![0];
-  await act(async () => camera.onInterruptionStarted!());
+  await act(async () => camera.onInterruptionStarted!('video-device-in-use-by-another-client'));
   await act(async () => jest.advanceTimersByTime(5000));
   expect(screen.onDetection).toHaveBeenLastCalledWith('unavailable');
   expect(jest.mocked(useCamera).mock.calls.at(-1)![0].isActive).toBe(false);
