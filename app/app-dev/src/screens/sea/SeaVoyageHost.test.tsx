@@ -1,3 +1,8 @@
+import { VerificationSession } from '@/screens/focus/VerificationSession';
+import {
+  clearVerificationResult,
+  openVerificationCapture,
+} from '@/services/studyVerification/sessionResult';
 // 바다 항해 호스트(GROMO-2310) — 세션 정본 → SeaScreen 어댑터: 남은 분 → 정박 문구, 그만두기 확인 1회 → 감속·휴식 컷신 → 표류,
 // 내리기 → seaArrival 라우트 인자, 한마디 잠금·게스트. 바다 방 STOMP·연출·API 는 목이다.
 import React from 'react';
@@ -17,6 +22,14 @@ import { SeaVoyageHost } from './SeaVoyageHost';
 import { FriendActionContext } from '@/screens/island/CatInfoPopup';
 import type { FriendsScreenState } from '@/screens/island/useFriendsScreen';
 
+jest.mock('@/screens/focus/VerificationSpike', () => ({
+  ...jest.requireActual('@/screens/focus/VerificationSpike'),
+  VERIFY_SPIKE: true,
+}));
+
+jest.mock('@/screens/focus/VerificationSession', () => ({
+  VerificationSession: jest.fn(() => null),
+}));
 jest.mock('@/components/CatSprite', () => ({ CatSprite: () => null }));
 jest.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }),
@@ -92,24 +105,29 @@ const seaSession = (over: Record<string, unknown> = {}) => ({
   destinationIslandName: '별고래섬',
   ...over,
 });
-const env = (over: Record<string, unknown> = {}) => ({
-  state: { name: '나냥', color: 'black', session: seaSession() } as any,
-  route: 'sea',
-  detail: '',
-  now: Date.now(),
-  focus: { finish: jest.fn(), recover: jest.fn(async (): Promise<string | null> => null) },
-  notify: jest.fn(),
-  replace: jest.fn(),
-  go: jest.fn(),
-  home: jest.fn(),
-  backOverride: { current: null as null | (() => boolean) },
-  conversion: { offer: jest.fn(() => false) },
-  friendsScreen: { refresh: jest.fn() },
-  ...over,
-});
+const env = (over: Record<string, unknown> = {}) => {
+  const value = {
+    state: { name: '나냥', color: 'black', session: seaSession() } as any,
+    route: 'sea',
+    detail: '',
+    now: Date.now(),
+    focus: { finish: jest.fn(), recover: jest.fn(async (): Promise<string | null> => null) },
+    notify: jest.fn(),
+    replace: jest.fn(),
+    go: jest.fn(),
+    home: jest.fn(),
+    backOverride: { current: null as null | (() => boolean) },
+    conversion: { offer: jest.fn(() => false) },
+    friendsScreen: { refresh: jest.fn() },
+    ...over,
+  };
+  value.state = { settings: {}, ...value.state };
+  return value;
+};
 
 let mockAppStateChange: (next: string) => void = () => {};
 beforeEach(() => {
+  clearVerificationResult('sea-1');
   jest.clearAllMocks();
   jest.spyOn(AppState, 'addEventListener').mockImplementation(((_: string, cb: any) => {
     mockAppStateChange = cb;
@@ -1131,4 +1149,57 @@ test('한마디 저장 응답의 잠금(lockedUntil − changedAt)을 입력창 
   expect(screen.queryByLabelText('한마디 쓰기')).toBeNull();
   await screen.rerender(<SeaVoyageHost e={{ ...e, now: Date.now() + 301_000 }} />);
   expect(screen.getByLabelText('한마디 쓰기')).toBeTruthy();
+});
+
+test('이전 인증 결과와 측정 ON 설정이 있어도 바다에서는 측정·인증 결과를 사용하지 않는다', async () => {
+  const capture = openVerificationCapture('sea-1');
+  capture.observe(true, 0);
+  capture.observe(true, 1000);
+  capture.observe(true, 2000);
+  capture.close();
+  const e = env({
+    state: {
+      name: '나냥',
+      color: 'black',
+      settings: { studyVerification: true },
+      session: seaSession({ seconds: 1800 }),
+    },
+  });
+  const finish = { recordId: 'sea-1', islandId: 'dest', arrived: true, activeSeconds: 1800 };
+  e.focus.finish.mockResolvedValue(finish);
+  const screen = await render(<SeaVoyageHost e={e} />);
+  expect(screen.queryByTestId('sea-camera-toggle')).toBeNull();
+  expect(screen.queryByTestId('sea-camera-preview')).toBeNull();
+  expect(screen.queryByRole('switch', { name: '카메라 인증 사용' })).toBeNull();
+  expect(VerificationSession).not.toHaveBeenCalled();
+  await fireEvent.press(screen.getByLabelText('섬에 내리기'));
+  await act(async () => {});
+  expect(e.replace).toHaveBeenCalledWith(
+    'seaArrival',
+    JSON.stringify({ finish, destinationName: '별고래섬' }),
+  );
+  const detail = e.replace.mock.calls[0][1];
+  expect(detail).not.toMatch(/verifiedSeconds|verifiedMs/);
+  await screen.rerender(
+    <SeaVoyageHost
+      e={{ ...e, route: 'seaArrival', detail, state: { ...e.state, session: null } }}
+    />,
+  );
+  expect(screen.queryByTestId('verification-result')).toBeNull();
+  expect(screen.getByText('30분 0초')).toBeTruthy();
+  expect(VerificationSession).not.toHaveBeenCalled();
+  expect(JSON.stringify(finish)).not.toMatch(/verifiedSeconds|verifiedMs/);
+  await fireEvent.press(screen.getByText('섬 둘러보기'));
+  expect(e.home).toHaveBeenCalled();
+});
+
+test('측정 ON 설정이어도 바다 표류에서는 카메라 제어·안내·촬영을 열지 않는다', async () => {
+  const e = env({
+    state: { name: '나냥', color: 'black', settings: { studyVerification: true }, session: null },
+  });
+  const screen = await render(<SeaVoyageHost e={e} />);
+  expect(screen.queryByRole('switch', { name: '카메라 인증 사용' })).toBeNull();
+  expect(screen.queryByLabelText('카메라')).toBeNull();
+  expect(screen.queryByTestId('verification-intro')).toBeNull();
+  expect(VerificationSession).not.toHaveBeenCalled();
 });
