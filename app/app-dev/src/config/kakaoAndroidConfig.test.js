@@ -75,13 +75,15 @@ test('Android/iOS release require real terms and the production API URL', () => 
   );
   expect(gradle).toMatch(/termsVersion\s*==\s*null\s*\|\|\s*termsVersion\.trim\(\)\.isEmpty\(\)/);
   expect(gradle).toMatch(/includesReleaseArtifactTask\s*&&\s*\(termsVersion/);
-  expect(gradle).toMatch(/apiUrl\s*!=\s*"https:\/\/catus-api\.oneorthree\.world"/);
+  expect(gradle).toMatch(/apiUrl\s*!=\s*"https:\/\/catus-api-v2\.oneorthree\.world"/);
   expect(gradle).toMatch(/includesReleaseArtifactTask\s*&&\s*!devAudience\s*&&\s*apiUrl\s*!=/);
   expect(xcode).toContain('${EXPO_PUBLIC_API_URL:-}');
-  expect(xcode).toContain('https://catus-api.oneorthree.world');
-  expect(fastfile).toContain('ENV["EXPO_PUBLIC_API_URL"] == "https://catus-api.oneorthree.world"');
+  expect(xcode).toContain('https://catus-api-v2.oneorthree.world');
+  expect(fastfile).toContain(
+    'ENV["EXPO_PUBLIC_API_URL"] == "https://catus-api-v2.oneorthree.world"',
+  );
   expect(testflight).toContain('EXPO_PUBLIC_API_URL:-}');
-  expect(testflight).toContain('https://catus-api.oneorthree.world');
+  expect(testflight).toContain('https://catus-api-v2.oneorthree.world');
 });
 
 test('iOS dev TestFlight lane pins the team dev server and keeps the production gate', () => {
@@ -246,7 +248,7 @@ test('iOS release gate script allows only the matching audience/API URL pair', (
     fs.readFileSync(path.join(appDevRoot, 'ios/Cattus.xcodeproj/project.pbxproj'), 'utf8'),
     'Check iOS release Apple audience readiness',
   );
-  const prodUrl = 'https://catus-api.oneorthree.world';
+  const prodUrl = 'https://catus-api-v2.oneorthree.world';
   const devUrl = 'https://oneorthree.dev.mooo.com';
   // SRCROOT 는 .xcode.env 없는 빈 ios/ 폴더. 그 옆 src/config/googleClientIds.json 은 GROMO-2226 가드가 읽는다(기본: prod 채움).
   const run = (audience, apiUrl, { prodIds = { ios: 'p-ios', web: 'p-web' }, publicEnv } = {}) => {

@@ -17,8 +17,8 @@ else
 fi
 
 if [[ "$AUDIENCE" == "prod" ]]; then
-  if [[ "${EXPO_PUBLIC_API_URL:-}" != "https://catus-api.oneorthree.world" ]]; then
-    echo "❌ iOS release/TestFlight 차단: EXPO_PUBLIC_API_URL을 운영 주소 https://catus-api.oneorthree.world 로 설정하세요." >&2
+  if [[ "${EXPO_PUBLIC_API_URL:-}" != "https://catus-api-v2.oneorthree.world" ]]; then
+    echo "❌ iOS release/TestFlight 차단: EXPO_PUBLIC_API_URL을 운영 주소 https://catus-api-v2.oneorthree.world 로 설정하세요." >&2
     exit 1
   fi
   if [[ "${EXPO_PUBLIC_APPLE_LOGIN_ENABLED:-}" != "1" ]]; then
