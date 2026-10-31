@@ -53,6 +53,8 @@ class OnboardingIslandIntegrationTest {
     @Autowired
     IslandMembershipService islands;
     @Autowired
+    com.oneorthree.phone.internal.service.IntroVoyageService intro;
+    @Autowired
     JdbcTemplate jdbc;
     @Autowired
     IslandJoinService joins;
@@ -229,6 +231,58 @@ class OnboardingIslandIntegrationTest {
         assertThat(finished.islandId()).isEqualTo(candidate);
         assertThat(count("select count(*) from islands where id=?", candidate)).isZero();
         assertThat(count("select count(*) from group_members where user_id=?", user)).isEqualTo(3);
+    }
+
+    @Test
+    @DisplayName("첫 항해 체험은 무인도를 한 번만 만들고 집중·보상 없이 도착한다")
+    void introductoryArrivalIsAtomicAndReplayable() {
+        UUID user = user();
+        UUID candidate = telescope.list(user).items().get(0).islandId();
+        UUID key = UUID.randomUUID();
+        var arrival = intro.arrive(user, candidate, key);
+        assertThat(arrival.islandId()).isNotEqualTo(candidate);
+        assertThat(arrival.currentIslandId()).isEqualTo(arrival.islandId());
+        assertThat(arrival.membershipStatus()).isEqualTo("active");
+        assertThat(arrival.arrivedBefore()).isFalse();
+        assertThat(intro.arrive(user, candidate, key)).isEqualTo(arrival);
+        assertThat(count("select count(*) from group_members where user_id=?", user)).isEqualTo(1);
+        assertThat(count("select count(*) from focus_sessions where user_id=?", user)).isZero();
+        assertThat(count("select count(*) from island_arrivals where user_id=?", user)).isEqualTo(1);
+        assertThat(count("select count(*) from island_wallets where island_id=? and balance=0",
+                arrival.islandId())).isEqualTo(1);
+        assertThat(count("select count(*) from event_outbox where type='island.member.arrived' and user_id=?",
+                user)).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("첫 항해 체험의 기존 섬 도착은 가입을 강제하지 않고 새 키도 허용한다")
+    void introductoryArrivalVisitsAnExistingIslandWithoutJoining() {
+        UUID owner = user();
+        UUID destination = islands.create(owner, new CreateIslandCommandRequest("친구 섬", null, false, 5),
+                UUID.randomUUID()).id();
+        UUID user = user();
+        var arrival = intro.arrive(user, destination, UUID.randomUUID());
+        assertThat(arrival.islandId()).isEqualTo(destination);
+        assertThat(arrival.membershipStatus()).isEqualTo("none");
+        assertThat(arrival.currentIslandId()).isNull();
+        assertThat(intro.arrive(user, destination, UUID.randomUUID()).islandId()).isEqualTo(destination);
+        assertThat(count("select count(*) from group_members where user_id=?", user)).isZero();
+        assertThat(count("select count(*) from focus_sessions where user_id=?", user)).isZero();
+    }
+
+    @Test
+    @DisplayName("목록 밖 목적지와 진행 세션은 첫 항해 체험으로 우회하지 못한다")
+    void introductoryArrivalChecksDestinationAndLiveSession() {
+        UUID user = user();
+        assertThatThrownBy(() -> intro.arrive(user, UUID.randomUUID(), UUID.randomUUID()))
+                .hasFieldOrPropertyWithValue("errorCode",
+                        com.oneorthree.phone.focus.exception.FocusErrorCode.SEA_DESTINATION_UNAVAILABLE);
+        UUID candidate = telescope.list(user).items().get(0).islandId();
+        focus.startSea(user, new SeaFocusSessionStartCommandRequest(candidate), UUID.randomUUID());
+        assertThatThrownBy(() -> intro.arrive(user, candidate, UUID.randomUUID()))
+                .hasFieldOrPropertyWithValue("errorCode",
+                        com.oneorthree.phone.focus.exception.FocusErrorCode.SESSION_IN_PROGRESS);
+        assertThat(count("select count(*) from group_members where user_id=?", user)).isZero();
     }
 
     private UUID user() {
