@@ -33,8 +33,11 @@ export function IslandNamingModal({
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  // 저장 의도 키 — 응답 유실 재시도도 같은 키로 보낸다(PATCH 는 Idempotency-Key 필수)
-  const saveKey = useRef(uuid()).current;
+  // 저장 의도 키(PATCH 는 Idempotency-Key 필수). 같은 이름 재시도(응답 유실)는 같은 키로 보내 중복을 막고,
+  // 이름을 바꿔 재시도하면 새 키를 쓴다 — 서버 manage() 가 이름을 멱등 지문에 넣어, 같은 키로 다른 이름을
+  // 보내면 IDEMPOTENCY_KEY_CONFLICT 로 거절돼 수정한 이름으로 진행할 수 없기 때문.
+  const saveKey = useRef(uuid());
+  const keyName = useRef<string | null>(null);
   const trimmed = name.trim();
   const canSave = trimmed.length > 0 && !busy;
 
@@ -46,9 +49,14 @@ export function IslandNamingModal({
 
   const save = () => {
     if (!canSave) return;
+    // 직전 시도와 이름이 다르면 새 멱등 키를 발급한다(같은 이름 재시도는 키를 유지해 중복 저장을 막는다).
+    if (keyName.current !== trimmed) {
+      saveKey.current = uuid();
+      keyName.current = trimmed;
+    }
     setBusy(true);
     setError('');
-    manageIsland(islandId, { name: trimmed }, saveKey)
+    manageIsland(islandId, { name: trimmed }, saveKey.current)
       .then(() => onDone())
       .catch(() => {
         setBusy(false);

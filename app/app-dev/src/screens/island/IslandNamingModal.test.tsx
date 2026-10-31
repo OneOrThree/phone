@@ -53,3 +53,20 @@ test('저장에 실패하면 모달을 닫지 않고 같은 멱등 키로 다시
   await waitFor(() => expect(onDone).toHaveBeenCalledTimes(1));
   expect(mockManage.mock.calls[1][2]).toBe(firstKey);
 });
+
+test('이름을 바꿔 다시 시도하면 새 멱등 키로 보낸다(IDEMPOTENCY_KEY_CONFLICT 회피)', async () => {
+  mockManage.mockRejectedValueOnce(new Error('network'));
+  const onDone = jest.fn();
+  const screen = await render(<IslandNamingModal islandId="i-new" onDone={onDone} />);
+  await fireEvent.changeText(screen.getByTestId('island-naming-input'), '해초섬');
+  await fireEvent.press(screen.getByText('저장하고 입장'));
+  await waitFor(() =>
+    expect(screen.getByText('이름을 저장하지 못했어요. 다시 눌러 주세요.')).toBeTruthy(),
+  );
+  const firstKey = mockManage.mock.calls[0][2];
+  await fireEvent.changeText(screen.getByTestId('island-naming-input'), '파도섬');
+  await fireEvent.press(screen.getByText('저장하고 입장'));
+  await waitFor(() => expect(onDone).toHaveBeenCalledTimes(1));
+  expect(mockManage.mock.calls[1][1]).toEqual({ name: '파도섬' });
+  expect(mockManage.mock.calls[1][2]).not.toBe(firstKey);
+});

@@ -1043,9 +1043,16 @@ export function RedesignScreens({ e }: any) {
   useEffect(() => {
     if (route === 'mainIsland') setMainIslandPick(currentMainIslandId);
   }, [route, currentMainIslandId]);
-  // 운영진의 편지(GROMO-2615) — 펠리컨 잡지 안내가 떠 있는 동안은 편지가 조회·표시되지 않게 App 에 알린다.
-  // 홈을 떠나거나 안내가 끝나면(정리 함수) 반드시 false 로 돌려 편지가 영영 막히지 않게 한다
-  const homeGuideOpen = route === 'home' && magazinePrompt;
+  // 무인도 항해로 새로 세운 섬 홈에 들어왔으면 강제 이름 짓기 모달을 띄운다(GROMO-2649). island.id 는 서버
+  // 현재 섬(displayIsland) — 다른 섬을 보는 중이면 뜨지 않는다. 저장하면 전이 상태가 지워진다.
+  const naming =
+    route === 'home' &&
+    !!server &&
+    !!state.pendingIslandNaming &&
+    state.pendingIslandNaming === island.id;
+  // 운영진의 편지(GROMO-2615) — 펠리컨 잡지 안내나 강제 이름 짓기 모달(GROMO-2649)이 떠 있는 동안은 편지가
+  // 조회·표시되지 않게 App 에 알린다. 홈을 떠나거나 안내가 끝나면(정리 함수) 반드시 false 로 돌려 편지가 영영 막히지 않게 한다
+  const homeGuideOpen = route === 'home' && (!!magazinePrompt || naming);
   const setSceneGuideOpen = e.setSceneGuideOpen;
   useEffect(() => {
     if (!homeGuideOpen) return;
@@ -2142,10 +2149,7 @@ export function RedesignScreens({ e }: any) {
       </View>
     );
   if (route === 'home') {
-    // 무인도 항해로 새로 세운 섬에 도착해 그 섬 홈에 들어왔으면 강제 이름 짓기 모달을 띄운다(GROMO-2649).
-    // island.id 는 서버 현재 섬(displayIsland) — 다른 섬을 보는 중이면 뜨지 않는다. 저장하면 전이 상태가 지워진다.
-    const naming =
-      !!server && !!state.pendingIslandNaming && state.pendingIslandNaming === island.id;
+    // naming(= 이름 짓기 모달 트리거)은 위에서 구했다 — 편지 차단 신호와 같은 값을 쓴다(GROMO-2649).
     // 최근 채팅 줄(GROMO-2501) — 서버는 섬 채팅 훅, 목업은 로컬 섬 글(최신 것부터라 뒤집는다).
     // 안내창(회관·펠리컨·튜토리얼)·집중·구경·화면 전환 중에는 비킨다
     const chatLines: HomeChatLine[] = server
@@ -2231,7 +2235,11 @@ export function RedesignScreens({ e }: any) {
         <IslandNamingModal
           islandId={island.id}
           background={home}
-          onDone={() => dispatch({ type: 'ISLAND_NAMING_DONE' })}
+          onDone={() => {
+            // 전이 상태를 지워 모달을 닫고, 홈 스냅샷을 다시 받아 바뀐 이름이 바로 보이게 한다(GROMO-2649).
+            dispatch({ type: 'ISLAND_NAMING_DONE' });
+            e.retryHome?.();
+          }}
         />
       );
     return home;
