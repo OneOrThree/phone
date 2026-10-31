@@ -36,12 +36,21 @@ test('본문은 고운돋움, 굵은 글자와 직접 지정한 글꼴은 그대
       <Text testID="other" style={{ fontFamily: 'Menlo' }}>
         code
       </Text>
+      <Text testID="outer">
+        <Text testID="nested-bold" style={{ fontWeight: '700' }}>
+          이름
+        </Text>
+        : 본문
+      </Text>
     </>,
   );
   const family = (id: string) => StyleSheet.flatten(s.getByTestId(id).props.style)?.fontFamily;
   expect(family('body')).toBe('Gowun Dodum'); // 굵기 없는 본문 → 고운돋움
-  expect(family('bold')).toBeUndefined(); // 굵은 제목 → 시스템 글꼴(기본 글꼴 안 입힘)
-  expect(family('bold-num')).toBeUndefined(); // 숫자 굵기 700 도 제외
+  expect(family('bold')).toBe('System'); // 굵은 제목 → 시스템 글꼴 명시(jest Platform.OS=ios)
+  expect(family('bold-num')).toBe('System'); // 숫자 굵기 700 도 시스템
   expect(family('scene')).toBe('Gowun Dodum'); // 장면이 직접 지정한 글꼴 유지
   expect(family('other')).toBe('Menlo'); // 다른 글꼴 직접 지정도 유지
+  // RN 은 중첩 Text 가 부모 글꼴을 상속한다 — 본문 안의 굵은 글자도 시스템 글꼴을 명시해 상속을 끊는다(GROMO-2639 코덱스 회귀)
+  expect(family('outer')).toBe('Gowun Dodum');
+  expect(family('nested-bold')).toBe('System');
 });
