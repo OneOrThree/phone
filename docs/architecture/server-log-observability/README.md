@@ -9,7 +9,7 @@
 - [구현 계획·완료 조건·검증 시나리오](implementation-plan.md)
 - [V01–V23 검증 결과와 로컬 전후 측정](verification-results.md)
 - [dev 검증 → prod 전환 → 롤백 절차](rollout.md)
-- [로그 이중 적재·dev S3 자격 방식 결정 문서(제안 — 재영님 확정 전)](decisions-ingest-and-s3-credentials.md)
+- [로그 이중 적재·dev S3 자격 방식 결정 문서](decisions-ingest-and-s3-credentials.md)
 - [Logback 설정·스레드 문맥 전파·로그 JOIN 상세](implementation-details.md)
 - [마스킹 꼬리 처리·네 서비스 공통 입력표·깊은 스택 비용](masking-trace-hardening.md)
 - [공식 문서 조사와 설계 검토 근거](research.md)
@@ -144,6 +144,7 @@ flowchart LR
 | `operation_id`, `event_name` | 기기별 외부 호출 한 번의 식별자(묶음 복귀 시 여러 원사건이 공유) / `operation.link` 등 허용된 로그 사건명 |
 | `message_id`, `edge_request_id` | Realtime 채팅 식별자 / Nginx에서 시작하는 요청 식별자. 업무 event ID와 구분 |
 | `http_method`, `http_route`, `status_code`, `duration_ms` | 접근 로그의 검색 필드. route는 `/items/{id}` 템플릿. 지연은 monotonic clock으로 측정 |
+| `app_version`, `app_platform` | Business 접근 로그의 앱 식별 필드. (platform, version) 쌍으로 본다(iOS 1.0.x / Android 2.0.x 트랙). 검증 통과 시에만 존재 |
 | `user_id` | 필요하고 인증된 경우만 기록. 외부 `X-User-Id`를 신뢰하지 않음 |
 
 `trace_id`는 일반 로그의 필수값이 아니다. 기동·스케줄러·인프라 로그에는 없을 수 있다. agent가 꺼져 있으면 `request_id`로 연결하고 trace가 없다고 표시한다. 임의 UUID를 실제 APM trace처럼 넣지 않는다.

@@ -17,13 +17,14 @@ const ISLAND = '11111111-2222-4333-8444-555555555555';
 const QUEST = '66666666-7777-4888-8999-000000000000';
 const KEY = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
 
+// 서버 응답(정본은 UTC) — 10:00–13:00 UTC = 19:00–22:00 KST(저녁 집중).
 const item = (over: Record<string, unknown> = {}) => ({
   id: QUEST,
   occurrenceId: 'occ-1',
   title: '저녁 집중',
   type: 'focus',
-  windowStart: '19:00',
-  windowEnd: '22:00',
+  windowStart: '10:00',
+  windowEnd: '13:00',
   timezone: 'UTC',
   date: '2026-09-21',
   targetMinutes: 50,
@@ -76,8 +77,8 @@ test('GET /islands/{id}/quests/current — 무접두 경로·Bearer·회차 헤�
   assert.equal(calls[0].url, `${API_URL}/islands/${ISLAND}/quests/current`);
   assert.equal(calls[0].init.method, 'GET');
   assert.equal(headers().Authorization, 'Bearer AT');
-  // rate null·claimBlockedReason·version 을 합성·변형하지 않고 그대로 보존한다.
-  assert.deepEqual(current.items[0], item());
+  // rate null·claimBlockedReason·version 은 그대로 보존하고, 창만 UTC→KST 로 돌린다.
+  assert.deepEqual(current.items[0], { ...item(), windowStart: '19:00', windowEnd: '22:00' });
 });
 
 test('GET progress — occurrenceId 를 유일한 query 로 인코딩해 싣는다(cursor 없음)', async () => {
@@ -113,6 +114,9 @@ test('GET progress — occurrenceId 를 유일한 query 로 인코딩해 싣는�
     calls[0].url,
     `${API_URL}/islands/${ISLAND}/quests/${QUEST}/progress?occurrenceId=${encodeURIComponent('occ/with+symbol=')}`,
   );
+  // 회차 헤더의 창도 UTC→KST 로 돌린다(10:00–13:00 UTC → 19:00–22:00 KST).
+  assert.equal(progress.windowStart, '19:00');
+  assert.equal(progress.windowEnd, '22:00');
   assert.equal(progress.members.length, 2);
   assert.equal(progress.members[1].rate, null);
   assert.equal(progress.members[1].name, null);
@@ -131,8 +135,9 @@ test('GET progress — 서버가 발급한 다음 페이지 cursor를 occurrence
   );
 });
 
-test('POST quests — 허용 키만 싣고 Idempotency-Key, 201 의 {id,title} 를 돌려준다', async () => {
+test('POST quests — 허용 키만 싣고 KST 창을 UTC 로 바꿔 보낸다, Idempotency-Key, 201 의 {id,title}', async () => {
   stub(201, { data: { id: QUEST, title: '저녁 집중' } });
+  // 호출부는 KST 벽시계를 넘긴다 — 어댑터가 UTC(19:00→10:00, 22:00→13:00) 로 바꿔 보낸다.
   const body = {
     title: '저녁 집중',
     type: 'focus' as const,
@@ -146,9 +151,32 @@ test('POST quests — 허용 키만 싣고 Idempotency-Key, 201 의 {id,title} �
 
   assert.equal(calls[0].url, `${API_URL}/islands/${ISLAND}/quests`);
   assert.equal(calls[0].init.method, 'POST');
-  assert.deepEqual(sentBody(), body);
+  assert.deepEqual(sentBody(), { ...body, windowStart: '10:00', windowEnd: '13:00' });
   assert.equal(headers()['Idempotency-Key'], KEY);
   assert.deepEqual(created, { id: QUEST, title: '저녁 집중' });
+});
+
+test('POST quests — 24:00(KST 자정) 종료는 15:00 UTC 로 보낸다', async () => {
+  stub(201, { data: { id: QUEST, title: '늦은 집중' } });
+  await createQuest(
+    ISLAND,
+    {
+      title: '늦은 집중',
+      type: 'focus',
+      targetMinutes: 60,
+      windowStart: '21:00',
+      windowEnd: '24:00',
+    },
+    KEY,
+  );
+  // 24:00 KST = 15:00 UTC — 서버 LocalTime 한계의 23:59 로 내리지 않는다(깨끗이 변환된다).
+  assert.deepEqual(sentBody(), {
+    title: '늦은 집중',
+    type: 'focus',
+    targetMinutes: 60,
+    windowStart: '12:00',
+    windowEnd: '15:00',
+  });
 });
 
 test('POST quests — screen 은 창 필드 없이 간다(서버가 허용 키 밖을 400 으로 거절)', async () => {

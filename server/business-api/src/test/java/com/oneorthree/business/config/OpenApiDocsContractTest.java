@@ -86,7 +86,7 @@ class OpenApiDocsContractTest extends UpstreamTestBase {
             "/islands/{islandId}/shop/products|items|id title kind price currency ownerType owned available reason productVersion|id title kind price currency ownerType owned available reason productVersion",
             "/islands/{islandId}/construction-options|items|id name cost currency selectable buildable blockedReason|id name cost currency selectable buildable blockedReason",
             "/islands/{islandId}/notices|items|id title commentCount|",
-            "/me/developer-notices|items|publicationId title body startsAt endsAt publishedAt|",
+            "/me/developer-notices|items|publicationId title body startsAt endsAt publishedAt forcesUpdate|",
             "/islands/{islandId}/quests/current|items|id occurrenceId title type windowStart windowEnd timezone date targetMinutes myRate reward settlementStatus claimable claimBlockedReason claimed bonusAmount bonusGranted version|id occurrenceId title type windowStart windowEnd timezone date targetMinutes myRate reward settlementStatus claimable claimBlockedReason claimed bonusAmount bonusGranted version",
             "/islands/{islandId}/quests/{questId}/progress|members|userId name rate measurementStatus achieved claimed|userId name rate measurementStatus achieved claimed",
             "/islands/{islandId}/statistics/fish-earnings|members|userId name earnedFish|",
@@ -116,6 +116,7 @@ class OpenApiDocsContractTest extends UpstreamTestBase {
             "/auth/sessions/guest|post|201|accessToken refreshToken userId onboardingComplete|",
             "/auth/sessions/current/refresh|post|200|accessToken refreshToken|",
             "/auth/sessions/current|delete|200|revoked|",
+            "/auth/sessions/app-requirements|get|200|minVersion title body publicationId publishedAt|",
             "/me/settings|get|200|notifications|",
             "/me/settings|patch|200|notifications|",
             "/islands/{islandId}/host-transfer|post|200|hostUserId version|",
@@ -123,7 +124,8 @@ class OpenApiDocsContractTest extends UpstreamTestBase {
             "/islands/{islandId}/notices/{noticeId}|delete|200|deleted|deleted",
             // 집중 종료 응답(GROMO-2274) — seaReward 는 키가 늘 있고 값만 null 일 수 있다. 스펙은 속성으로만 싣고 required 에는 없다.
             // GROMO-2299 가 kind·arrived 를 더했다 — 둘 다 선택(구버전 Data 는 안 보내고, arrived 는 섬 세션이면 생략).
-            "/focus-sessions/{sessionId}/finish|post|200|recordId islandId subject targetMinutes activeSeconds goalAchieved earnedFish allocation completedAt questProgress activeIntervals seaReward kind arrived|recordId islandId subject activeSeconds goalAchieved earnedFish allocation completedAt"})
+            // GROMO-2650 가 createdIsland 를 더했다 — 선택(무인도 새 섬 생성 때만 true, 일반 도착은 false, 구버전 Data 는 생략).
+            "/focus-sessions/{sessionId}/finish|post|200|recordId islandId subject targetMinutes activeSeconds goalAchieved earnedFish allocation completedAt questProgress activeIntervals seaReward kind arrived createdIsland|recordId islandId subject activeSeconds goalAchieved earnedFish allocation completedAt"})
     @DisplayName("동명 Result·Deleted도 각 작업의 필드와 필수 여부를 문서화한다")
     void resultSchemasRemainSpecificToTheirOperation(String path, String method, String responseStatus,
             String fields, String requiredFields) throws Exception {

@@ -1,6 +1,6 @@
 # 로그 이중 적재·dev S3 자격 방식 결정 문서 (GROMO-2588)
 
-> 상태: **제안 — 재영님 확정 전.** 이 문서의 어떤 문장도 결정을 뜻하지 않는다. 확정되면 아래 «결정 기록» 절에 재영님이 정한 값과 날짜를 적고, 그때 [rollout.md](rollout.md)·[runtime-inventory.md](runtime-inventory.md)의 «결정 대기» 표시를 값으로 바꾼다.
+> 상태: **결정 완료(일부).** §5 결정 기록과 §7 에 적은 값만 결정이다. §0~§4 는 2026-10-29 작성 당시의 제안·조사이며 결정으로 읽지 않는다. 이중 적재는 «당분간 둘 다 유지, 축소는 관찰 뒤 별도 결정», dev S3 는 «미사용»으로 정했다(2026-10-30). [rollout.md](rollout.md)·[runtime-inventory.md](runtime-inventory.md)의 «결정 대기» 표시는 이 값으로 갱신했다.
 > 작성: 2026-10-29. 조회는 모두 읽기 전용이다(Datadog MCP 읽기, 공식 가격 페이지 읽기). AWS에는 어떤 요청도 보내지 않았고 S3 비용은 계산식만 적는다.
 
 ## 0. 배경 (사실)
@@ -12,7 +12,7 @@
 | 이중 적재 | Fluent Bit과 Datadog Agent가 같은 stdout을 읽으면 같은 로그가 두 경로로 간다 | [runtime-inventory §2.3](runtime-inventory.md) |
 | dev 서버 위치 | GCP VM `gromo-dev-app`. S3는 AWS. dev에는 AWS 자격 경로가 없다(`aws` CLI만 설치) | [runtime-inventory §6](runtime-inventory.md) |
 | 정책 문구 | AWS에서는 인스턴스 역할 우선, GCP dev→S3는 단기 자격 연동을 P0에서 결정, 새 장기 키를 기본값으로 두지 않는다 | [README](README.md) «3. 목표 아키텍처와 배치» 절 «AWS에서는 인스턴스 역할을 우선하며, GCP dev→S3는 단기 자격 연동을 P0에서 결정한다. 새 장기 액세스 키를 계획의 기본값으로 두지 않는다.» ; 같은 절 «기존 Datadog 로그 수집은 전환 검증 동안 유지할 수 있지만, 완료 후 같은 APP 로그의 상시 중복 적재 여부를 명시적으로 결정한다. 기본 목표는 Loki에 일반 로그, Datadog에는 APM·기존 필요한 메트릭이다.» |
-| Infra 소유 | IAM·버킷은 `OneOrThree/Infra` 저장소 | [implementation-plan.md](implementation-plan.md) |
+| Infra 소유 | IAM·버킷은 `OneOrThree/cattus-infra`(옛 이름 `OneOrThree/Infra`) 저장소 | [implementation-plan.md](implementation-plan.md) |
 
 ## 1. 조회 결과 (읽기 전용, 2026-10-29)
 
@@ -106,7 +106,7 @@
 
 ### Infra 요청 초안 (나안 선택 시에만 필요. 가안·다안은 아래 일부 또는 없음)
 
-`OneOrThree/Infra`에 요청할 내용(초안)이다. **아직 요청하지 않았다.** 계정 ID·키 원문은 적지 않는다.
+`OneOrThree/cattus-infra`(옛 이름 `OneOrThree/Infra`)에 요청할 내용(초안)이다. **아직 요청하지 않았다.** 계정 ID·키 원문은 적지 않는다.
 
 1. AWS IAM OIDC 공급자(Google 발급자) 추가와 역할 1개: 신뢰 조건을 dev VM 서비스 계정 1개와 audience 1개로 고정.
 2. 역할 권한: 버킷의 `system_log/v2/env=dev/*` 에 `s3:PutObject`·`s3:AbortMultipartUpload`, 필요 시 버킷 단위 `s3:ListBucketMultipartUploads`. 삭제·수명주기·버킷 정책 변경 권한은 주지 않는다. 버킷이 SSE-KMS면 해당 키 한 개의 `GenerateDataKey`·`Decrypt`만.
@@ -114,21 +114,41 @@
 4. 가안 선택 시: 같은 권한의 사용자 1개, 키 회전 주기와 폐기 절차 명시.
 5. 환경 간 쓰기 차단: `env=dev` 외 접두 쓰기가 `implicitDeny`인지 확인.
 
-## 4. 결정에 따라 바뀌는 줄 (결정 대기 표시만 연결)
+## 4. 결정에 따라 바뀌는 줄 (결정 대기 표시만 연결 — §5 결정으로 대체됨)
 
-| 문서 | 줄 | 결정 전 상태 |
+| 문서 | 줄 | 처리 |
 | --- | --- | --- |
-| [rollout.md](rollout.md) | D8 | 결정 대기 표시 연결, 값 미변경 |
-| [runtime-inventory.md](runtime-inventory.md) | §2.3 이중 적재 문단, §6 «dev -> S3 자격 방식», 추가 확인 표의 이중 적재 행 | 결정 대기 표시 연결, 값 미변경 |
-| [implementation-status.md](implementation-status.md) | S3 출력 선택 모듈 문단 | 조정자 몫(후속 PR이 고치지 않음) |
+| [rollout.md](rollout.md) | D8 | §5 값으로 갱신 |
+| [runtime-inventory.md](runtime-inventory.md) | §2.3 이중 적재 문단, §6 «dev -> S3 자격 방식», 추가 확인 표의 이중 적재 행 | §5 값으로 갱신 |
+| [implementation-status.md](implementation-status.md) | S3 출력 선택 모듈 문단 | 변경 불필요(이미 «dev 에서 켜지 않는다») |
 
-## 5. 결정 기록 (재영님 확정 후 작성)
+## 5. 결정 기록
 
 | 결정 | 선택 | 날짜 | 비고 |
 | --- | --- | --- | --- |
-| 1. 이중 적재 | (미정) | | |
-| 2. dev S3 자격 | (미정) | | |
+| 1. 이중 적재 | 당분간 둘 다 유지(Datadog Logs + Loki·S3). 축소는 관찰 뒤 별도 결정 | 2026-10-30 | 재영님 결정(에픽 2619 N4). 적용 범위: prod 를 기준으로 정한 결정이고 dev 도 같게 둔다. prod Datadog 로그 비용은 산정하지 않았다(§1.3 은 dev 규모). §2 의 A안과 같은 방향이나 «dev 한정·기간 한정» 이 아니라 기간 미정이다 |
+| 2. dev S3 자격 | dev 는 S3 미사용(다안). 자격 방식 결정은 필요 없다 | 2026-10-30 | 조정자 결정, 플랜 승인(N5). 반대하면 이 행을 고친다. S3 실측은 prod 에서 한다 |
+| 3. prod Loki·Grafana 호스트 | 앱 호스트 같은 compose, 메모리 상한 적용 | 2026-10-30 | 재영님 결정(N2). §7 |
+| 4. prod Grafana 접근 인증 | Cloudflare Access + Grafana JWT 검증 | 2026-10-30 | 재영님 결정(N3). §7 |
+| 5. prod 보존 기간 | Loki 7일, S3 90일 | 2026-10-30 | 조정자 결정, 플랜 승인(N5). 반대하면 이 행을 고친다 |
+| 6. prod S3 자격 | Fluent Bit host 네트워크, IMDS hop limit 미변경 | 2026-10-30 | 조정자 결정, 플랜 승인(N6). §7 |
 
 ## 6. 이 문서가 하지 않은 것
 
 Datadog 계약·색인 보존 확인, prod 로그 비용 판단, AWS 단가 조회, Fluent Bit 웹 ID 자격 시험, Infra 요청 제출.
+
+## 7. prod Loki·Grafana·S3 자격 결정 (2026-10-30)
+
+출처: 에픽 [GROMO-2619](https://romance.atlassian.net/browse/GROMO-2619) 결정 장부 N2~N6. 구현은 하위 티켓 2623~2627이며 이 절은 결정만 적는다. prod 에는 아직 적용되지 않았다.
+
+| 항목 | 결정 | 이유·대가 |
+| --- | --- | --- |
+| Loki·Grafana 둘 호스트 | prod 앱 호스트의 같은 compose(`catus-app-v2`). 새 서버를 만들지 않는다. `loki` `mem_limit: 512m`, `grafana` `mem_limit: 256m`, Fluent Bit `256m` | 최근 24시간 최저 여유 메모리 4.6GB, 디스크 26GB, 추가 서버 비용 없음. 대가: 수집기가 앱과 같은 호스트의 메모리·디스크를 쓴다. Loki 가 디스크를 채울 위험은 7일 보존과 켠 뒤 디스크 확인으로 막는다 |
+| 접근 인증 | Cloudflare Access 로 사용자를 막고, Grafana 가 `Cf-Access-Jwt-Assertion` JWT 를 JWKS(`https://<team>.cloudflareaccess.com/cdn-cgi/access/certs`)로 직접 검증한다. `aud` 를 확인하고 로그인 폼·익명 접근은 끈다. 자동 가입 사용자는 Viewer | Cloudflare Access 만 믿으면 Host 헤더로 우회할 수 있다. 원본에서도 JWT 로 막는다. Grafana 는 공개 포트 없이 Nginx `server` 블록으로만 연결된다 |
+| prod 보존 기간 | Loki 7일, S3 `system_log/` 90일(버킷 수명 규칙을 `terraform apply` 로 신설, 미완료 multipart 1일) | 기존 문서의 값. V2 버킷에는 수명 규칙이 없고 버전 관리가 켜져 있어 규칙을 새로 만든다 |
+| S3 자격 | Fluent Bit 컨테이너를 host 네트워크로 실행해 호스트 인스턴스 역할 자격을 쓴다. 인스턴스 메타데이터(IMDS) hop limit 은 바꾸지 않는다. 쓰기 권한은 `system_log/v2/env=prod/*` 로 줄인다 | 2026-10-31 실측 hop limit 은 이미 2 다(코드에 지정 없음, 2026-10-30 작성 때의 «올리면» 전제는 틀렸다). 결정은 유지한다: host 네트워크는 hop limit 값과 무관하게 수집기가 호스트 자격을 쓴다. hop limit 조정은 이 에픽 밖의 별도 티켓이다. Loki 는 `127.0.0.1:3100` 에만 공개한다 |
+| 켜기·되돌리기 | Infra 기능 스위치(`OBSERVABILITY`, 기본 꺼짐). 순서는 [rollout.md §3](rollout.md) | 머지해도 새 서비스는 뜨지 않는다 |
+
+2026-10-31 읽기 전용 확인: `terraform plan` 은 추가 1(수명 규칙)·변경 1(IAM 쓰기 접두 축소)·삭제 0 이다. 로그 버킷은 비어 있고 기존 수명 규칙이 없으며 암호화는 AES256 이라 KMS 권한이 필요 없다.
+
+미확인: Cloudflare 팀 도메인·Access `aud` 값·Grafana 호스트 이름(미정), 실제 S3 업로드 동작.

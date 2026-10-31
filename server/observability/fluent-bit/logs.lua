@@ -14,6 +14,8 @@
 -- 먼저 자르면 끝에 걸린 이메일·휴대폰·주민번호 조각이 패턴에 안 걸려 원문이 남으므로 마스킹한 뒤 끝 토큰을 버린다(drop_cut_token).
 
 local ALLOWED = { ["data-api"] = true, ["business-api"] = true, ["notification"] = true, ["realtime"] = true, ["nginx"] = true }
+-- prod V2 compose 서비스 이름 → 논리 이름. ALLOWED 에 넣지 않는다: service=app 이 되면 s3.conf rewrite_tag 규칙에 안 걸려 S3 에서 조용히 빠진다.
+local ALIASES = { app = "data-api" }
 local ENVS = { dev = true, staging = true, prod = true }
 -- 새 log_kind 를 추가하면 여기도 같이 고친다 — 모르는 종류는 구조가 있어도 raw 로 간다.
 local KINDS = { application = true, access = true }
@@ -35,6 +37,7 @@ local function service_of(id)
     file:close()
     local s = body:match('"com%.docker%.compose%.service"%s*:%s*"([^"]*)"')
     local p = body:match('"com%.docker%.compose%.project"%s*:%s*"([^"]*)"')
+    s = ALIASES[s] or s
     if s and ALLOWED[s] and p == PROJECT then service = s end
   end
   if cache_size >= 4096 then cache, cache_size = {}, 0 end

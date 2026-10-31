@@ -62,7 +62,7 @@ fi
 # 값을 비우지 않으면 client.ts 가 기본값인 dev 서버 주소를 쓴다.
 while IFS= read -r name; do unset "$name"; done < <(compgen -e | grep '^EXPO_PUBLIC_' || true)
 export EXPO_NO_DOTENV=1
-export EXPO_PUBLIC_API_URL="https://catus-api.oneorthree.world"
+export EXPO_PUBLIC_API_URL="https://catus-api-v2.oneorthree.world"
 export EXPO_PUBLIC_APPLE_LOGIN_ENABLED=1
 export EXPO_PUBLIC_ENV=prod
 # CDN 시범 검증 전에는 OTA도 번들 이미지를 사용합니다.

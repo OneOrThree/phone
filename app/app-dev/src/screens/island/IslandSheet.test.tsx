@@ -3,6 +3,7 @@ import { BackHandler, Pressable, StyleSheet, Text, View } from 'react-native';
 import { act, fireEvent, isHiddenFromAccessibility, render } from '@testing-library/react-native';
 import { semanticTokens } from '@/design-system/tokens';
 import { t } from '@/i18n';
+import { seaAssets } from '@/screens/sea/seaAssets';
 import {
   FIT_REVEAL_FALLBACK_MS,
   IslandPopup,
@@ -12,6 +13,7 @@ import {
 } from '@/screens/island/IslandSheet';
 
 let mockLayout = {
+  landscape: true,
   width: 874,
   height: 402,
   insets: { top: 0, bottom: 21, left: 0, right: 0 },
@@ -284,3 +286,16 @@ test('SheetGroup 은 행이 없으면 아무것도 그리지 않는다 — 빈 �
   expect(filled.getByText('1위')).toBeTruthy();
   expect(filled.getByText('2위')).toBeTruthy();
 });
+
+test.each([false, true])(
+  '바다 배경은 가로 여부(%s)와 관계없이 바다 그림을 쓴다',
+  async (landscape) => {
+    mockLayout = { ...mockLayout, landscape };
+    const screen = await render(
+      <IslandSheet bg="sea" sign="avatar/black" title="내 정보" onClose={() => {}}>
+        <Text>프로필</Text>
+      </IslandSheet>,
+    );
+    expect(screen.getByTestId('island-sheet-backdrop').props.source).toBe(seaAssets.background);
+  },
+);

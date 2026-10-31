@@ -200,7 +200,7 @@ test('퀘스트 섬에서 집중 중이면 TICK 을 건너뛰지 않아 목표�
 test('canBuild — en 로케일에서는 방장 아님 안내가 영문으로 나온다 (GROMO-2235 r6)', () => {
   const s = act(initialState(), 'JOIN', { id: 'strawberry' });
   assert.equal(isHost(currentIsland(s)), false);
-  assert.equal(canBuild(s, 'hall'), '방장만 건설할 수 있어요.');
+  assert.equal(canBuild(s, 'hall'), '섬장만 건설할 수 있어요.');
   applyLocalePref('en');
   assert.equal(canBuild(s, 'hall'), 'Only the host can build.');
   assert.equal(canBuild(s, 'hall'), t('app.build.blocked.notHost'));
@@ -1243,31 +1243,21 @@ test('섬 평균 집중: 이번 주(일요일 시작) 그 섬 집중 합계 ÷ �
   assert.equal(hoursMinutes(18000), '5시간');
 });
 
-test('카운트업 집중·첫 집중 후 회관 안내는 한 번만·예전 저장본은 표시 안 함', () => {
+test('카운트업 집중은 세션에 target 을 넣지 않고 종료하면 기록을 남긴다', () => {
   let s = initialState();
   s = act(s, 'CREATE_ISLAND', { name: '첫 섬' });
   s = act(s, 'START', { subject: '첫 집중', target: 25, now: 1000 });
   assert.ok(!('target' in s.session!));
   s = act(s, 'FINISH', { now: 601000 });
-  assert.equal(s.hallGuide, 'pending');
-  s = act(s, 'HALL_GUIDE_DONE');
-  assert.equal(s.hallGuide, 'done');
-  s = act(s, 'START', { subject: '두 번째', now: 700000 });
-  s = act(s, 'FINISH', { now: 1300000 });
-  assert.equal(s.hallGuide, 'done');
-  let built = initialState(true);
-  built = act(built, 'START', { subject: '집중', now: 1000 });
-  built = act(built, 'FINISH', { now: 601000 });
-  assert.equal(built.hallGuide, undefined);
-  // 필드 없는 예전 저장본(집중 기록 있음)은 다음 집중을 마쳐도 띄우지 않는다
-  let legacy = reducer(initialState(), {
-    type: 'LOAD',
-    state: JSON.parse(JSON.stringify(s)),
-  });
-  delete legacy.hallGuide;
-  legacy = act(legacy, 'START', { subject: '예전', now: 2000000 });
-  legacy = act(legacy, 'FINISH', { now: 2600000 });
-  assert.equal(legacy.hallGuide, undefined);
+  assert.equal(s.records.length, 1);
+});
+
+test('ISLAND_NAMING 은 새 섬 id 를 전이 상태에 두고 저장하면 지운다', () => {
+  let s = initialState();
+  s = act(s, 'ISLAND_NAMING', { islandId: 'new-island' });
+  assert.equal(s.pendingIslandNaming, 'new-island');
+  s = act(s, 'ISLAND_NAMING_DONE');
+  assert.equal(s.pendingIslandNaming, undefined);
 });
 
 test('집중 중에는 섬 잔액이 오르지 않고, 종료할 때 한 번에 적립한다', () => {

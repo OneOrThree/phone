@@ -39,5 +39,4 @@ GitHub Actions의 **Run workflow**에서 브랜치를 선택해도 된다. 정�
 - `.github/workflows/pr-ci-policy.yml`: 가벼운 정책·브랜치 경계 회귀 검사
 - Data·Realtime·Satellite·Backoffice dev CI: main 대상 필터와 수동 검사
 - `prod-ci.yml`, `prod-ci-V2.yml`: 승격 PR의 전체 Gradle·이미지 검사 생략
-- `backoffice-ci.prod-V2.yml`: 승격 PR의 중복 npm 기능 검사 생략
 - `satellite-ci.prod.yml` → `satellite-check.yml`: 승격 PR에서 공개 명령·Outbox의 Data API 통합 테스트 생략, 가벼운 격리 계약 검사 유지

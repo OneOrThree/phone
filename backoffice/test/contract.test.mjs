@@ -36,3 +36,9 @@ test('API 계약이 맞아도 DB 환경 또는 FCM 프로젝트가 다르면 거
       .verifyEnvironment('prod', 'member-1', operator));
   }
 });
+test('Data에 content.app-requirements.v1 이 없으면 연결을 거부한다', async () => {
+  await assert.rejects(upstream((name, value) => name === 'data' ? { ...value,
+    capabilities: value.capabilities.filter(item => item !== 'content.app-requirements.v1') } : value)
+    .verifyEnvironment('prod', 'member-1', operator), error => error.definite === true);
+  assert.ok(contract.data.includes('content.app-requirements.v1'));
+});

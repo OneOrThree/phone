@@ -9,6 +9,16 @@ import {
 import { CLIENT_NETWORK_ERROR } from '@/services/api/client';
 import { clearSession, saveSession } from '@/services/api/session';
 
+const mockCapture = jest.fn();
+jest.mock('@/services/posthog', () => ({
+  captureProductEvent: (...a: unknown[]) => mockCapture(...a),
+  getPostHogClient: () => null,
+  initPostHog: () => {},
+  trackPostHogScreen: () => {},
+  identifyPostHogUser: () => {},
+  resetPostHogUser: () => {},
+}));
+
 type Call = { url: string; init: RequestInit };
 const calls: Call[] = [];
 
@@ -126,6 +136,7 @@ const NOW = Date.parse('2026-09-21T00:10:00Z');
 
 beforeEach(async () => {
   calls.length = 0;
+  mockCapture.mockClear();
   await clearSession();
   await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'u1' });
 });
@@ -278,6 +289,80 @@ test('build — POST 세 필드·멱등 키, BUILDING·시각은 응답대로, �
   assert.equal(gets('/islands/srv1/construction-options').length, 4);
   assert.equal(h.result.current.started, null);
   assert.equal(h.result.current.options?.items.length, 1);
+  await h.unmount();
+});
+
+test('착공 POST 커밋 성공 시 construction_started 와 fish_spent 를 1회씩 발행한다', async () => {
+  serve({
+    ...live(),
+    'POST /islands/srv1/constructions': data(startedBody),
+  });
+  const h = await mount({ active: true, islandId: 'local1', now: NOW });
+  await flush();
+  mockCapture.mockClear(); // 부팅 조회 구간의 발행과 섞이지 않게 착공 직전에 비운다
+
+  await act(async () => {
+    await h.result.current.build('library');
+  });
+
+  // fish_spent 의 amount 는 서버 응답의 spent.amount(실제 차감액) 그대로다
+  expect(mockCapture.mock.calls).toEqual([
+    ['construction_started', { building_id: 'library' }],
+    ['fish_spent', { reason: 'construction', amount: 100 }],
+  ]);
+  await h.unmount();
+});
+
+test('착공 POST 가 409 로 실패하면 construction_started·fish_spent 를 발행하지 않는다', async () => {
+  serve({
+    ...live(),
+    'POST /islands/srv1/constructions': envelope('STATE_CONFLICT', 409),
+  });
+  const h = await mount({ active: true, islandId: 'local1', now: NOW });
+  await flush();
+  mockCapture.mockClear();
+
+  await act(async () => {
+    await h.result.current.build('library').catch(() => undefined);
+  });
+
+  expect(mockCapture.mock.calls).toEqual([]);
+  await h.unmount();
+});
+
+test('착공 성공 뒤 재조회가 재시도 가능한 실패로 끝나 재시도해도 이벤트는 멱등 키당 1회만 발행한다', async () => {
+  let optCalls = 0;
+  serve({
+    ...live(),
+    'POST /islands/srv1/constructions': data(startedBody),
+    'GET /islands/srv1/construction-options': () => {
+      optCalls++;
+      // 2번째 = 착공 커밋 직후 재조회 → 네트워크 실패로 멱등 의도를 슬롯에 남긴다.
+      if (optCalls === 2) throw new TypeError('network down');
+      return data(options([item('library'), item('mail')]));
+    },
+  });
+  const h = await mount({ active: true, islandId: 'local1', now: NOW });
+  await flush();
+  mockCapture.mockClear();
+
+  // 착공 커밋은 성공했는데 직후 정본 재조회가 네트워크로 실패한다.
+  await act(async () => {
+    await h.result.current.build('library').catch(() => undefined);
+  });
+  // 같은 의도로 재시도 — 서버는 기존 착공을 멱등 재생한다(POST 응답은 같은 startedBody).
+  await act(async () => {
+    await h.result.current.build('library');
+  });
+
+  const posts = writes('/islands/srv1/constructions', 'POST');
+  assert.equal(posts.length, 2);
+  assert.equal(idemKey(posts[0]), idemKey(posts[1])); // 같은 멱등 키 = 서버 재생
+  // 실제 착공은 1회뿐 — 이벤트도 멱등 키당 1회씩만.
+  expect(mockCapture.mock.calls).toEqual([
+    ['construction_started', { building_id: 'library' }],
+    ['fish_spent', { reason: 'construction', amount: 100 }],
+  ]);
   await h.unmount();
 });
 

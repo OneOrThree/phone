@@ -16,51 +16,51 @@
   },
   "errors": {
     "GENERIC": "연결을 확인한 뒤 다시 시도해 주세요.",
-    "INVALID_REQUEST": "요청 형식이 올바르지 않습니다.",
-    "INVALID_PARAMETER": "요청 파라미터가 올바르지 않습니다.",
-    "INVALID_IDEMPOTENCY_KEY": "명령 키가 올바르지 않습니다.",
-    "INVALID_CURSOR": "목록 커서가 올바르지 않습니다.",
-    "UNSUPPORTED_PROVIDER": "지원하지 않는 소셜 로그인 제공자입니다.",
-    "NICKNAME_INVALID": "닉네임은 공백 없이 2~10자여야 합니다.",
+    "INVALID_REQUEST": "요청 형식이 올바르지 않아요.",
+    "INVALID_PARAMETER": "요청 파라미터가 올바르지 않아요.",
+    "INVALID_IDEMPOTENCY_KEY": "명령 키가 올바르지 않아요.",
+    "INVALID_CURSOR": "목록 커서가 올바르지 않아요.",
+    "UNSUPPORTED_PROVIDER": "지원하지 않는 소셜 로그인 제공자예요.",
+    "NICKNAME_INVALID": "닉네임은 공백 없이 2~10자여야 해요.",
     "BANNED_WORD": "사용할 수 없는 표현이 포함돼 있어요.",
-    "HOST_WITHDRAW": "섬 방장을 위임한 뒤 탈퇴할 수 있습니다.",
-    "REFRESH_TOKEN": "로그인 자격이 유효하지 않습니다.",
-    "UNAUTHORIZED": "인증이 필요합니다. 다시 로그인해 주세요.",
-    "KAKAO_TOKEN": "카카오 로그인 자격이 유효하지 않습니다.",
-    "APPLE_TOKEN": "애플 로그인 자격이 유효하지 않습니다.",
-    "GOOGLE_TOKEN": "구글 로그인 자격이 유효하지 않습니다.",
-    "LINE_TOKEN": "라인 로그인 자격이 유효하지 않습니다.",
-    "INSTAGRAM_TOKEN": "인스타그램 로그인 자격이 유효하지 않습니다.",
-    "FACEBOOK_TOKEN": "페이스북 로그인 자격이 유효하지 않습니다.",
-    "FORBIDDEN": "이 작업을 수행할 권한이 없습니다.",
+    "HOST_WITHDRAW": "섬장을 위임한 뒤 탈퇴할 수 있어요.",
+    "REFRESH_TOKEN": "로그인 자격이 유효하지 않아요.",
+    "UNAUTHORIZED": "인증이 필요해요. 다시 로그인해 주세요.",
+    "KAKAO_TOKEN": "카카오 로그인 자격이 유효하지 않아요.",
+    "APPLE_TOKEN": "애플 로그인 자격이 유효하지 않아요.",
+    "GOOGLE_TOKEN": "구글 로그인 자격이 유효하지 않아요.",
+    "LINE_TOKEN": "라인 로그인 자격이 유효하지 않아요.",
+    "INSTAGRAM_TOKEN": "인스타그램 로그인 자격이 유효하지 않아요.",
+    "FACEBOOK_TOKEN": "페이스북 로그인 자격이 유효하지 않아요.",
+    "FORBIDDEN": "이 작업을 수행할 권한이 없어요.",
     "FACILITY_LOCKED": "필요한 시설을 먼저 열어 주세요.",
     "SOCIAL_LOGIN_REQUIRED": "소셜 로그인하면 이용할 수 있어요.",
-    "NOT_FOUND": "요청한 대상을 찾을 수 없습니다.",
-    "USER_NOT_FOUND": "사용자를 찾을 수 없습니다. 다시 로그인해 주세요.",
-    "GROUP_NOT_FOUND": "섬을 찾을 수 없습니다.",
-    "RESOURCE_NOT_FOUND": "요청 경로를 찾을 수 없습니다.",
-    "PRODUCT_NOT_FOUND": "상품을 찾을 수 없습니다.",
+    "NOT_FOUND": "요청한 대상을 찾을 수 없어요.",
+    "USER_NOT_FOUND": "사용자를 찾을 수 없어요. 다시 로그인해 주세요.",
+    "GROUP_NOT_FOUND": "섬을 찾을 수 없어요.",
+    "RESOURCE_NOT_FOUND": "요청 경로를 찾을 수 없어요.",
+    "PRODUCT_NOT_FOUND": "상품을 찾을 수 없어요.",
     "SLUG_NOT_FOUND": "초대 코드를 다시 확인해 주세요.",
-    "METHOD_NOT_ALLOWED": "지원하지 않는 요청 방식입니다.",
-    "VERSION_CONFLICT": "상태가 변경되었습니다. 최신 내용을 확인해 주세요.",
+    "METHOD_NOT_ALLOWED": "지원하지 않는 요청 방식이에요.",
+    "VERSION_CONFLICT": "상태가 변경됐어요. 최신 내용을 확인해 주세요.",
     "STATE_CONFLICT": "섬 정보가 바뀌었어요. 최신 상태로 다시 시도해 주세요.",
-    "INSUFFICIENT_FUNDS": "잔액이 부족합니다.",
-    "NICKNAME_DUPLICATE": "이미 사용 중인 닉네임입니다.",
-    "IDEMPOTENCY_KEY_REUSED": "다른 요청에 사용한 명령 키입니다.",
-    "SOCIAL_ACCOUNT_ALREADY_LINKED": "이미 다른 계정에 연동된 소셜 계정입니다",
+    "INSUFFICIENT_FUNDS": "잔액이 부족해요.",
+    "NICKNAME_DUPLICATE": "이미 사용 중인 닉네임이에요.",
+    "IDEMPOTENCY_KEY_REUSED": "다른 요청에 사용한 명령 키예요.",
+    "SOCIAL_ACCOUNT_ALREADY_LINKED": "이미 다른 계정에 연동된 소셜 계정이에요",
     "GUEST_ALREADY_PROMOTED": "이미 다른 계정으로 승격된 게스트예요",
     "REQUEST_IN_PROGRESS": "처리 중이에요. 잠시 뒤 다시 시도해 주세요.",
-    "CURSOR_EXPIRED": "목록 커서가 만료되었습니다. 처음부터 조회해 주세요.",
+    "CURSOR_EXPIRED": "목록 커서가 만료됐어요. 처음부터 조회해 주세요.",
     "INVITATION_EXPIRED": "만료된 초대예요. 새 초대를 받아 주세요.",
-    "REQUEST_TOO_LARGE": "요청 본문이 너무 큽니다.",
-    "UNSUPPORTED_MEDIA_TYPE": "지원하지 않는 요청 형식입니다.",
-    "OUT_OF_RANGE": "입력값이 허용 범위를 벗어났습니다.",
-    "RATE_LIMITED": "요청이 많습니다. 잠시 후 다시 시도해 주세요.",
-    "INTERNAL_ERROR": "요청을 처리할 수 없습니다.",
-    "UPSTREAM_CONTRACT_ERROR": "요청을 처리할 수 없습니다.",
-    "UPSTREAM_AUTH_FAILED": "요청을 처리할 수 없습니다.",
+    "REQUEST_TOO_LARGE": "요청 본문이 너무 커요.",
+    "UNSUPPORTED_MEDIA_TYPE": "지원하지 않는 요청 형식이에요.",
+    "OUT_OF_RANGE": "입력값이 허용 범위를 벗어났어요.",
+    "RATE_LIMITED": "요청이 많아요. 잠시 후 다시 시도해 주세요.",
+    "INTERNAL_ERROR": "요청을 처리할 수 없어요.",
+    "UPSTREAM_CONTRACT_ERROR": "요청을 처리할 수 없어요.",
+    "UPSTREAM_AUTH_FAILED": "요청을 처리할 수 없어요.",
     "SERVICE_UNAVAILABLE": "잠시 후 다시 시도해 주세요.",
-    "UPSTREAM_TIMEOUT": "응답 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요.",
+    "UPSTREAM_TIMEOUT": "응답 시간이 초과됐어요. 잠시 후 다시 시도해 주세요.",
     "CLIENT_TIMEOUT": "서버 응답이 늦어요. 잠시 후 다시 시도해 주세요.",
     "CLIENT_NETWORK_ERROR": "네트워크에 연결할 수 없어요. 연결을 확인해 주세요.",
     "ISLAND_NOT_ARRIVED": "아직 가 본 적 없는 섬이에요. 망원경에서 항해해 주세요.",
@@ -334,7 +334,7 @@
       "logoutConfirmBody": "저장된 기록은 그대로 남아요.",
       "retryDeviceCleanup": "기기 데이터 정리 다시 시도",
       "withdraw": "회원 탈퇴",
-      "mustTransferHost": "방장을 다른 주민에게 넘긴 뒤 회원 탈퇴할 수 있어요.",
+      "mustTransferHost": "섬장을 다른 주민에게 넘긴 뒤 회원 탈퇴할 수 있어요.",
       "withdrawConfirmTitle": "회원 탈퇴할까요?",
       "withdrawConfirmBody": "계정과 저장된 기록을 모두 삭제해요. 되돌릴 수 없어요.\n모은 물고기는 섬에 남아요.",
       "withdrawConfirmOk": "탈퇴"
@@ -393,7 +393,7 @@
       "capacityA11y": "정원",
       "capacityUnit": "{{count}}명",
       "approvalAfterJoin": "승인 후 가입",
-      "approvalAfterJoinSub": "방장이 확인한 뒤 주민이 돼요",
+      "approvalAfterJoinSub": "섬장이 확인한 뒤 주민이 돼요",
       "title": "새 섬 만들기",
       "submit": "섬 만들기",
       "doneTitle": "섬을 만들었어요",
@@ -420,8 +420,8 @@
       "searchingPublicIslands": "공개 섬을 찾는 중이에요…",
       "noPublicIslands": "지금 참여할 수 있는 공개 섬이 없어요.",
       "pendingWaitTitle": "가입 신청 대기 중",
-      "pendingWaitSubNamed": "「{{island}}」 방장이 확인하면 알려드릴게요",
-      "pendingWaitSubGeneric": "방장이 확인하면 알려드릴게요"
+      "pendingWaitSubNamed": "「{{island}}」 섬장이 확인하면 알려드릴게요",
+      "pendingWaitSubGeneric": "섬장이 확인하면 알려드릴게요"
     },
     "guide": {
       "empty": {
@@ -457,12 +457,12 @@
       "started": "{{building}} 공사를 시작했어요.",
       "facilityLocked": "{{building}} 건설 후 이용할 수 있어요.",
       "blocked": {
-        "notHost": "방장만 건설할 수 있어요.",
+        "notHost": "섬장만 건설할 수 있어요.",
         "underConstruction": "공사가 끝난 뒤 다음 건물을 지을 수 있어요.",
         "alreadyBuilt": "이미 완성한 시설이에요.",
         "hallRequired": "마을회관을 먼저 지어요.",
         "boardRequired": "게시판 완공 후 선택할 수 있어요.",
-        "selectNextBuilding": "회관에서 다음 건물을 먼저 선택해 주세요.",
+        "selectNextBuilding": "마을회관에서 다음 건물을 먼저 선택해 주세요.",
         "targetNotMet": "대상 주민 모두가 물고기 목표를 달성해야 해요.",
         "shopPrerequisite": "상점은 다른 모든 건물을 완공한 뒤 지을 수 있어요.",
         "insufficientBalance": "섬 물고기 잔액이 부족해요."
@@ -497,6 +497,11 @@
     "resume": "집중 이어가기",
     "finishFailed": "집중을 마치지 못했어요.",
     "resumeFailed": "집중을 이어가지 못했어요."
+  },
+  "board": {
+    "quest": {
+      "crossMidnight": "오전 9시를 넘나드는 시간대는 정할 수 없어요"
+    }
   },
   "home": {
     "hud": {
@@ -533,15 +538,20 @@
       "loadFailed": "섬 정보를 불러오지 못했어요"
     },
     "tutorial": {
-      "focusStart": "아래의 집중 시작 버튼을 눌러 집중을 시작해 보자.",
-      "hallGuide": "제일 먼저 섬의 관리를 위한 마을회관부터 지어보자.\n물고기 {{count}}마리만 모아줘!",
-      "ok": "알겠어"
+      "focusStart": "아래의 집중 시작 버튼을 눌러 집중을 시작해 보자."
+    },
+    "naming": {
+      "title": "내 섬 이름을\n지어주세요",
+      "placeholder": "새로운 섬",
+      "save": "저장하고 입장",
+      "saving": "저장 중…",
+      "error": "이름을 저장하지 못했어요. 다시 눌러 주세요."
     },
     "lock": {
       "missing": "아직 {{building}} 없어요",
       "libraryLocked": "도서관을 짓기 전에는 지난 기록을 볼 수 없어요.",
       "lockedGeneric": "완공 후 이용할 수 있어요.",
-      "viewNext": "회관에서 다음 건물 보기"
+      "viewNext": "마을회관에서 다음 건물 보기"
     },
     "construction": {
       "foundation": "기초 공사 중",
@@ -561,7 +571,7 @@
       "rankChanged": "{{label}}, 주간 순위가 바뀌었어요",
       "newQuest": "{{label}}, 새 퀘스트가 있어요",
       "newReading": "{{label}}, 새 읽을거리가 있어요",
-      "hallHint": "터치하면 마을 회관으로 들어가요",
+      "hallHint": "터치하면 마을회관으로 들어가요",
       "boardHint": "게시판을 열어 확인하세요",
       "shopHint": "상점에서 상품을 확인하세요",
       "towerHint": "전망대에서 주간 순위를 확인하세요",
@@ -573,7 +583,7 @@
       "todayFocusClock": "{{name}} 오늘 집중 {{clock}}",
       "raft": "뗏목",
       "viewFishingIsland": "낚시섬 구경하기",
-      "mailboxNewLetter": "친구에게 받은 새 편지가 있습니다",
+      "mailboxNewLetter": "친구에게 받은 새 편지가 있어요",
       "mailboxNewMagazine": "새 고양이 잡지가 왔어요"
     },
     "raft": {
@@ -787,7 +797,7 @@
       "busy": "처리 중이에요",
       "sessionActive": "집중이나 휴식을 마친 뒤 가입해 주세요.",
       "cancelled": "가입 신청을 취소했어요.",
-      "requested": "참여 신청이 완료됐어요. 방장이 확인하면 알려드릴게요.",
+      "requested": "참여 신청이 완료됐어요. 섬장이 확인하면 알려드릴게요.",
       "joined": "{{name}} 주민이 됐어요"
     },
     "title": "바다 건너 섬",
@@ -1028,7 +1038,7 @@
       "moreFailed": "더 불러오지 못했어요 · 다시",
       "prev": "앞 쪽",
       "next": "다음 쪽",
-      "ranking": "이번 주 랭킹",
+      "ranking": "이번 주 순위",
       "rankingEmpty": "이번 주 순위는 아직 없어요",
       "rankA11y": "{{rank}}위 {{name}}, {{average}}",
       "newIslands": "어제 새로 생긴 섬",
@@ -1163,7 +1173,7 @@
     "sessionRevoked": "다른 곳에서 로그아웃돼 실시간 연결이 끊겼어요."
   },
   "openSea": {
-    "abandonCutscene": "{{name}} 항해를 그만두고 바다에 머물러요. 섬이 멀어져요.",
+    "abandonCutscene": "{{name}} 항해를 그만두고 바다에 머물러요. 뗏목이 속도를 줄이고 고양이가 쉬어요.",
     "name": "먼바다",
     "skip": "건너뛰기",
     "duration": "{{minutes}}분 {{seconds}}초",
@@ -1254,6 +1264,18 @@
   "arrivalCutscene": {
     "label": "{{destination}}에 도착하고 있어요. 뗏목이 부두에 닿아요."
   },
+  "firstVoyage": {
+    "invite": "같이 가볼래?\n처음엔 가까운 섬부터 가보자.",
+    "scope": "마음에 드는 섬을 골라봐.\n이번엔 금방 도착할 거야.",
+    "depart": "좋아, 출발!",
+    "start": "이 섬으로 가기",
+    "meeting": "바다에선 처음 보는 친구들과도\n함께 집중할 수 있어.",
+    "peerName": "두부",
+    "peerMessage": "같이 집중해요!",
+    "destination": "{{name}} 항해 중",
+    "sailing": "조금만 가면 도착해.",
+    "chooseAgain": "다른 섬 고르기"
+  },
   "onboardingStory": {
     "brand": "집중할고양",
     "tagline": "오늘의 집중이 자라는 곳",
@@ -1307,6 +1329,14 @@
     "empty": "게시된 공지가 없어요.",
     "failed": "공지를 불러오지 못했어요. 다시 시도해 주세요.",
     "missing": "게시가 종료되었거나 찾을 수 없는 공지예요."
+  },
+  "developerLetter": {
+    "from": "운영진의 편지",
+    "signature": "집중할고양 운영진 올림",
+    "tapToOpen": "눌러서 열어 보기",
+    "confirm": "잘 읽었어요",
+    "update": "업데이트하러 가기",
+    "envelopeLabel": "운영진의 편지가 도착했어요. 눌러서 열어 보기"
   },
   "customization": {
     "items": {

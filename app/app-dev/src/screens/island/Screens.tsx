@@ -9,12 +9,14 @@ import * as Application from 'expo-application';
 import appManifest from '../../../package.json';
 import { ScreenTimeSharingSettings } from '@/screens/island/ScreenTimeSharingSettings';
 import { GuideBox } from '@/screens/island/NpcGuide';
+import { IslandNamingModal } from '@/screens/island/IslandNamingModal';
 import { MagazineHomeLayer } from '@/screens/magazine/MagazineDelivery';
 import { HomeChatLog, type HomeChatLine } from '@/screens/island/HomeChatLog';
 import { magazineUnread } from '@/screens/magazine/useMagazineToday';
 import { ServerVisit } from '@/screens/island/ServerVisit';
 import { ServerIslandPicker } from '@/screens/island/ServerIslandPicker';
 import { islandErrorMessage } from '@/services/islandErrors';
+import { captureProductEvent } from '@/services/posthog';
 import { OnboardingFlow } from '@/screens/onboarding/OnboardingFlow';
 import { LoginScreen } from '@/screens/LoginScreen';
 import { getSession, sessionGeneration } from '@/services/api/session';
@@ -51,7 +53,6 @@ import {
   isHost,
   canBuy,
   products,
-  costs,
   colors,
   colorName,
   residentCount,
@@ -709,10 +710,18 @@ function AvStack({ list }: { list: string[] }) {
     </View>
   );
 }
+// 몽돌 도착 안내의 각 줄 노출을 줄마다 1회 발행한다 — route 분기 안이라 훅을 못 써 컴포넌트로 둔다.
+function GuideViewed({ variant, step }: { variant: 'empty' | 'joined'; step: number }) {
+  useEffect(() => {
+    captureProductEvent('island_guide_viewed', { variant, step });
+  }, [variant, step]);
+  return null;
+}
 // 언어 화면 pick() 의 겹침 탭 가드 — route 분기 안이라 useRef 를 못 써(조건부 훅 금지) 모듈 플래그로 둔다.
 let pickingLocale = false;
 export function RedesignScreens({ e }: any) {
   const layout = useAppLayout();
+  const accountBg = e.fromSea ? 'sea' : 'dock';
   const state: State = e.state,
     island = currentIsland(state),
     route: string = e.route,
@@ -755,8 +764,6 @@ export function RedesignScreens({ e }: any) {
     [profileNameError, setProfileNameError] = useState(''),
     [profileColor, setProfileColor] = useState<Color>(state.color),
     [mainIslandPick, setMainIslandPick] = useState(state.mainIslandId ?? ''),
-    // 20b 회관 안내를 이번 홈 방문 동안만 띄우는 창 상태
-    [hallGuideOpen, setHallGuideOpen] = useState(false),
     // 홈 펠리컨 잡지 안내창이 떠 있는 동안 — 왼쪽 아래 채팅 줄이 비킨다(GROMO-2501)
     [magazinePrompt, setMagazinePrompt] = useState(false),
     [discoveryIndex] = useState(() => Math.floor(Math.random() * 10)),
@@ -794,7 +801,6 @@ export function RedesignScreens({ e }: any) {
   useEffect(() => {
     setSearch('');
     setCapacityPick(15);
-    setHallGuideOpen(false);
     setDiscoveryPick(null);
     setServerError('');
     setSoundDialog(null);
@@ -1037,12 +1043,22 @@ export function RedesignScreens({ e }: any) {
   useEffect(() => {
     if (route === 'mainIsland') setMainIslandPick(currentMainIslandId);
   }, [route, currentMainIslandId]);
-  // 20b: 첫 집중 후 홈에 오면 바로 done으로 기록하고 창만 띄운다. 알겠어를 안 누르고 홈을 떠나도 다시 뜨지 않는다
+  // 무인도 항해로 새로 세운 섬 홈에 들어왔으면 강제 이름 짓기 모달을 띄운다(GROMO-2649). island.id 는 서버
+  // 현재 섬(displayIsland) — 다른 섬을 보는 중이면 뜨지 않는다. 저장하면 전이 상태가 지워진다.
+  const naming =
+    route === 'home' &&
+    !!server &&
+    !!state.pendingIslandNaming &&
+    state.pendingIslandNaming === island.id;
+  // 운영진의 편지(GROMO-2615) — 펠리컨 잡지 안내나 강제 이름 짓기 모달(GROMO-2649)이 떠 있는 동안은 편지가
+  // 조회·표시되지 않게 App 에 알린다. 홈을 떠나거나 안내가 끝나면(정리 함수) 반드시 false 로 돌려 편지가 영영 막히지 않게 한다
+  const homeGuideOpen = route === 'home' && (!!magazinePrompt || naming);
+  const setSceneGuideOpen = e.setSceneGuideOpen;
   useEffect(() => {
-    if (route !== 'home' || state.hallGuide !== 'pending') return;
-    if (!island.buildings.includes('hall')) setHallGuideOpen(true);
-    dispatch({ type: 'HALL_GUIDE_DONE' });
-  }, [route, state.hallGuide]);
+    if (!homeGuideOpen) return;
+    setSceneGuideOpen?.(true);
+    return () => setSceneGuideOpen?.(false);
+  }, [homeGuideOpen, setSceneGuideOpen]);
   const act = (type: string, p: any = {}) => dispatch({ type, ...p });
   const host = !island.members.some((m) => m.role === 'host');
   // 이름으로 지금 방장인지(공지 작성자·공동 구매자 표시)
@@ -2080,6 +2096,7 @@ export function RedesignScreens({ e }: any) {
     return (
       <View style={{ flex: 1 }}>
         {backgroundHome}
+        <GuideViewed variant={guideEmpty ? 'empty' : 'joined'} step={step + 1} />
         <GuideBox
           text={lines[step]}
           style={{
@@ -2132,9 +2149,7 @@ export function RedesignScreens({ e }: any) {
       </View>
     );
   if (route === 'home') {
-    // 20b: 첫 집중을 마치고 돌아온 섬에 회관이 없으면 한 번만 뜨는 안내
-    const hallGuide = hallGuideOpen && !island.buildings.includes('hall'),
-      w = layout.compact ? Math.min(layout.floatingWidth, 374) : layout.floatingWidth;
+    // naming(= 이름 짓기 모달 트리거)은 위에서 구했다 — 편지 차단 신호와 같은 값을 쓴다(GROMO-2649).
     // 최근 채팅 줄(GROMO-2501) — 서버는 섬 채팅 훅, 목업은 로컬 섬 글(최신 것부터라 뒤집는다).
     // 안내창(회관·펠리컨·튜토리얼)·집중·구경·화면 전환 중에는 비킨다
     const chatLines: HomeChatLine[] = server
@@ -2151,13 +2166,13 @@ export function RedesignScreens({ e }: any) {
           at: m.at,
         }));
     const chatBlocked =
-      hallGuide ||
+      naming ||
       magazinePrompt ||
       guideStep === 4 ||
       !!state.session ||
       !!state.visitingIslandId ||
       !!e.routeTransitionShielded;
-    return (
+    const home = (
       <View style={{ flex: 1 }}>
         <FinalIsland
           state={state}
@@ -2202,35 +2217,32 @@ export function RedesignScreens({ e }: any) {
           today={e.magazineToday ?? null}
           hasMailbox={island.buildings.includes('mail')}
           blocked={
-            hallGuide ||
+            naming ||
             guideStep === 4 ||
             !!state.session ||
             !!state.visitingIslandId ||
-            !!e.routeTransitionShielded
+            !!e.routeTransitionShielded ||
+            !!e.letterOpen
           }
           go={go}
           onPromptChange={setMagazinePrompt}
         />
-        {hallGuide && (
-          <GuideBox
-            text={t('home.tutorial.hallGuide', { count: costs.hall })}
-            style={{
-              left: (layout.width - w) / 2,
-              width: w,
-              // 건설 카드·집중 시작 버튼 위
-              bottom: layout.compact ? 110 : ins.bottom + 118,
-            }}
-          >
-            <Btn
-              title={t('home.tutorial.ok')}
-              small
-              style={{ minWidth: 96 }}
-              onPress={() => setHallGuideOpen(false)}
-            />
-          </GuideBox>
-        )}
       </View>
     );
+    // 이름 짓기 모달은 살아있는 섬 홈 위에 뜬다 — 홈을 Overlay 배경으로 넘겨 스크린리더에서 가리고 터치를 막는다
+    if (naming)
+      return (
+        <IslandNamingModal
+          islandId={island.id}
+          background={home}
+          onDone={() => {
+            // 전이 상태를 지워 모달을 닫고, 홈 스냅샷을 다시 받아 바뀐 이름이 바로 보이게 한다(GROMO-2649).
+            dispatch({ type: 'ISLAND_NAMING_DONE' });
+            e.retryHome?.();
+          }}
+        />
+      );
+    return home;
   }
   if (route === 'sound') {
     const gramophone = componentTokens.gramophone;
@@ -2922,7 +2934,7 @@ export function RedesignScreens({ e }: any) {
       if (i.kicked) return notify('강퇴된 섬에는 다시 가입할 수 없어요.');
       if (isFull(i)) return notify('정원이 가득 찬 섬이에요');
       act('JOIN', { id: i.id });
-      if (i.approval) setSheetToast('참여 신청이 완료됐어요. 방장이 확인하면 알려드릴게요.');
+      if (i.approval) setSheetToast('참여 신청이 완료됐어요. 섬장이 확인하면 알려드릴게요.');
       else {
         act('TRAVEL_FROM', { name: island.name });
         setVisited(i.id);
@@ -2942,7 +2954,7 @@ export function RedesignScreens({ e }: any) {
           state.onboarded ? (
             // 소속 섬은 이동하고, 미가입 섬은 읽기 전용 관전 경로로 이동한다.
             <Cta
-              note={pending ? '참여 신청을 보냈어요. 방장이 확인하면 알려드릴게요.' : undefined}
+              note={pending ? '참여 신청을 보냈어요. 섬장이 확인하면 알려드릴게요.' : undefined}
               title={i.joined ? '이 섬으로 가기' : '섬 둘러보기'}
               onPress={sail}
             />
@@ -3458,7 +3470,7 @@ export function RedesignScreens({ e }: any) {
                 title={productTitle(o.product)}
                 sub={
                   shared
-                    ? [md(o.at), o.buyer && (isHostName(o.buyer) ? '방장' : o.buyer)]
+                    ? [md(o.at), o.buyer && (isHostName(o.buyer) ? '섬장' : o.buyer)]
                         .filter(Boolean)
                         .join(' · ')
                     : `${md(o.at)} · ${hm(o.at)}`
@@ -3539,7 +3551,13 @@ export function RedesignScreens({ e }: any) {
       </>
     );
     return (
-      <IslandSheet bg="dock" sign="boat/raft" title={t('account.boat.title')} tight onClose={home}>
+      <IslandSheet
+        bg={accountBg}
+        sign="boat/raft"
+        title={t('account.boat.title')}
+        tight
+        onClose={home}
+      >
         {canChangeMainIsland ? (
           <Pressable
             accessibilityRole="button"
@@ -3648,7 +3666,7 @@ export function RedesignScreens({ e }: any) {
       unchanged = !selectedIsland || selectedIsland.id === primaryIsland?.id;
     return (
       <IslandSheet
-        bg="dock"
+        bg={accountBg}
         sign="island/whole"
         title="내 메인 섬 변경하기"
         tall
@@ -3681,7 +3699,7 @@ export function RedesignScreens({ e }: any) {
               <Pressable
                 key={candidate.id}
                 accessibilityRole="radio"
-                accessibilityLabel={`${candidate.name}, 주민 ${residentCount(candidate)}명, ${isHost(candidate) ? '내가 방장' : '멤버'}${current ? ', 현재 메인 섬' : ''}`}
+                accessibilityLabel={`${candidate.name}, 주민 ${residentCount(candidate)}명, ${isHost(candidate) ? '내가 섬장' : '멤버'}${current ? ', 현재 메인 섬' : ''}`}
                 accessibilityState={{ selected }}
                 onPress={() => setMainIslandPick(candidate.id)}
                 style={({ pressed }) => ({
@@ -3732,7 +3750,7 @@ export function RedesignScreens({ e }: any) {
                     )}
                   </View>
                   <Txt kind="meta" style={{ fontSize: 12, lineHeight: 18, color: C.muted }}>
-                    주민 {residentCount(candidate)}명 · {isHost(candidate) ? '내가 방장' : '멤버'}
+                    주민 {residentCount(candidate)}명 · {isHost(candidate) ? '내가 섬장' : '멤버'}
                   </Txt>
                 </View>
                 <MainIslandRadio selected={selected} />
@@ -3870,7 +3888,7 @@ export function RedesignScreens({ e }: any) {
       !!shopApi.my?.clothes?.length || !['default', 'none'].includes(state.equipped.clothes);
     return (
       <IslandSheet
-        bg="dock"
+        bg={accountBg}
         sign="boat/raft"
         title={t('wardrobe.title')}
         tall
@@ -4241,7 +4259,14 @@ export function RedesignScreens({ e }: any) {
     );
     return (
       <>
-        <IslandSheet bg="dock" sign="boat/raft" title="친구 관리" tall onBack={back} onClose={home}>
+        <IslandSheet
+          bg={accountBg}
+          sign="boat/raft"
+          title="친구 관리"
+          tall
+          onBack={back}
+          onClose={home}
+        >
           <SearchField
             value={queryValue}
             onChange={serverMode ? friendsScreen.setQuery : setSearch}
@@ -4389,7 +4414,7 @@ export function RedesignScreens({ e }: any) {
     };
     return (
       <IslandSheet
-        bg="dock"
+        bg={accountBg}
         sign={'avatar/' + profileColor}
         signKind="av"
         title={t('account.profile.title')}
@@ -4553,7 +4578,7 @@ export function RedesignScreens({ e }: any) {
     // 기록 공개 토글은 없다(도서관 기록은 전체 공개 고정)
     return (
       <IslandSheet
-        bg="dock"
+        bg={accountBg}
         sign="boat/raft"
         title={t('account.boat.settingsTitle')}
         tall
@@ -4691,7 +4716,7 @@ export function RedesignScreens({ e }: any) {
     };
     return (
       <IslandSheet
-        bg="dock"
+        bg={accountBg}
         sign="boat/raft"
         title={t('settings.language.title')}
         tall

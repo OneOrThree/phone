@@ -25,10 +25,26 @@ export class Upstream {
           || notification.fcmProjectId !== this.expectedFcmProjectId) {
         throw new Failure(503, "Data·Notification DB 또는 FCM 프로젝트가 백오피스 환경과 일치하지 않습니다.");
       }
+      return { data, notification };
     } catch (error) {
       // 검증 단계에서 중단한 것이므로 발행 요청은 아직 전송되지 않았다.
       error.definite = true;
       throw error;
+    }
+  }
+  // 표시 전용. 운영자 토큰이 Apple로 나가지 않도록 request()를 쓰지 않고 실패해도 던지지 않는다.
+  async iosStoreVersion() {
+    if (this.mode === "local") return { version: null, status: "local" };
+    try {
+      const response = await this.fetchImpl("https://itunes.apple.com/lookup?id=6813004121&country=kr",
+        { redirect: "error", signal: AbortSignal.timeout(5000) });
+      if (!response.ok) return { version: null, status: "unavailable" };
+      const body = await response.json();
+      if (body?.resultCount === 0) return { version: null, status: "unpublished" };
+      const version = body?.results?.[0]?.version;
+      return typeof version === "string" ? { version, status: "ok" } : { version: null, status: "unavailable" };
+    } catch {
+      return { version: null, status: "unavailable" };
     }
   }
   async request(base, path, actor, token, body, method = "POST", key) {
@@ -259,6 +275,8 @@ export class Upstream {
           body: item.body,
           startsAt: item.startsAt,
           endsAt: item.endsAt || null,
+          minIosVersion: item.minIosVersion || null,
+          minAndroidVersion: item.minAndroidVersion || null,
         },
         "PUT",
       );

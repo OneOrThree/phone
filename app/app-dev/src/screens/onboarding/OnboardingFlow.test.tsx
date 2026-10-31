@@ -10,7 +10,14 @@ import { applyLocalePref } from '@/i18n';
 import { ISLAND_STAGE_ART } from '@/constants/magazineAssets';
 import type { TelescopeItem } from '@/services/api/telescope';
 
+const mockCapture = jest.fn();
+jest.mock('@/services/posthog', () => ({
+  captureProductEvent: (...a: unknown[]) => mockCapture(...a),
+}));
 jest.mock('@/services/api/account', () => ({ updateProfile: jest.fn() }));
+jest.mock('./useFirstVoyage', () => ({
+  useFirstVoyage: () => ({ eligible: false, pending: false, scene: null }),
+}));
 jest.mock('@/screens/island/useTelescope', () => ({ useTelescope: jest.fn() }));
 jest.mock('@/screens/island/sceneKit', () => ({ useGowun: () => 'Gowun' }));
 jest.mock('@/utils/layout', () => ({
@@ -92,6 +99,18 @@ beforeEach(() => {
 });
 const pressContinue = async (screen: Awaited<ReturnType<typeof render>>) =>
   fireEvent.press(screen.getByTestId('onboarding-continue'));
+
+test('장면 진입마다 onboarding_scene_viewed 를 storySteps 인덱스와 함께 1회 발행한다', async () => {
+  const screen = await render(<Harness />);
+  expect(mockCapture.mock.calls).toEqual([
+    ['onboarding_scene_viewed', { scene: 'choose', scene_index: 0 }],
+  ]);
+  await fireEvent.press(screen.getByTestId('onboarding-choose-next'));
+  expect(mockCapture.mock.calls).toEqual([
+    ['onboarding_scene_viewed', { scene: 'choose', scene_index: 0 }],
+    ['onboarding_scene_viewed', { scene: 'arrival', scene_index: 1 }],
+  ]);
+});
 
 test('선택한 색과 이름을 함께 저장하고 건너뛰면 망원경 체크포인트로 이동한다', async () => {
   const screen = await render(<Harness />);

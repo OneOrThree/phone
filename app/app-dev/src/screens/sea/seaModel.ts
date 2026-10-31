@@ -49,6 +49,8 @@ export type SeaArrival = {
    * 「확인 중」 문구로 인벤토리 확인을 안내한다. 복원 응답만으로 지급을 추측하지 않는다.
    */
   rewardsUnknown: boolean;
+  /** 이번 정산으로 섬이 새로 생성됐으면 true — 도착 뒤 홈에서 이름 짓기 모달을 띄운다(GROMO-2649). 구버전 서버는 없음. */
+  createdIsland?: boolean;
 };
 
 export const seaClock = (seconds: number) => {

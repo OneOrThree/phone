@@ -507,6 +507,11 @@
     "finishFailed": "Couldn't finish the focus session.",
     "resumeFailed": "Couldn't resume the focus session."
   },
+  "board": {
+    "quest": {
+      "crossMidnight": "A window can't run across 9 AM"
+    }
+  },
   "home": {
     "hud": {
       "visiting": "Visiting {{name}}",
@@ -560,9 +565,14 @@
       "loadFailed": "Couldn't load your island info."
     },
     "tutorial": {
-      "focusStart": "Tap the Start Focus button below to begin focusing.",
-      "hallGuide": "First, let's build the Town Hall to manage the island.\nJust gather {{count}} fish!",
-      "ok": "Got it"
+      "focusStart": "Tap the Start Focus button below to begin focusing."
+    },
+    "naming": {
+      "title": "Name your\nnew island",
+      "placeholder": "New Island",
+      "save": "Save and enter",
+      "saving": "Saving…",
+      "error": "Couldn't save the name. Tap to try again."
     },
     "lock": {
       "missing": "No {{building}} yet",
@@ -1193,7 +1203,7 @@
     "sessionRevoked": "Signed out elsewhere, so the live connection was closed."
   },
   "openSea": {
-    "abandonCutscene": "Giving up the voyage to {{name}}. The island drifts away.",
+    "abandonCutscene": "Giving up the voyage to {{name}}. The raft slows down and the cat rests at sea.",
     "name": "Open sea",
     "skip": "Skip",
     "duration": "{{minutes}}m {{seconds}}s",
@@ -1284,6 +1294,18 @@
   "arrivalCutscene": {
     "label": "Arriving at {{destination}}. The raft pulls in to the dock."
   },
+  "firstVoyage": {
+    "invite": "Want to come along?\nLet's try a nearby island first.",
+    "scope": "Pick an island you like.\nWe'll be there in no time.",
+    "depart": "Great, let's go!",
+    "start": "Go to this island",
+    "meeting": "Out at sea, you can focus together\nwith people you haven't met before.",
+    "peerName": "Tofu",
+    "peerMessage": "Let's focus together!",
+    "destination": "Sailing to {{name}}",
+    "sailing": "We're almost there.",
+    "chooseAgain": "Choose another island"
+  },
   "onboardingStory": {
     "brand": "Focus Cat",
     "tagline": "A place for your focus to grow",
@@ -1337,6 +1359,14 @@
     "empty": "There are no published notices.",
     "failed": "Could not load notices. Please try again.",
     "missing": "This notice has expired or is no longer available."
+  },
+  "developerLetter": {
+    "from": "A letter from the team",
+    "signature": "With love, the Focus Cat team",
+    "tapToOpen": "Tap to open",
+    "confirm": "Got it",
+    "update": "Update now",
+    "envelopeLabel": "A letter from the team has arrived. Tap to open"
   },
   "customization": {
     "items": {

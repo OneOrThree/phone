@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { errorText, t } from '@/i18n';
 import { ApiError, uuid } from '@/services/api/client';
 import { sessionGeneration, subscribeSession } from '@/services/api/session';
+import { captureProductEvent } from '@/services/posthog';
 import * as live from '@/services/api/magazine';
 import type { MagazineAssets, PromotionDraft, PromotionEditor } from '@/services/api/magazine';
 import { magazineMock } from '@/services/api/magazineMock';
@@ -173,6 +174,8 @@ export function usePromotionEditor({
         }
         const applied = await api.applyPromotion(islandId, draft, keys.key('apply', exact));
         keys.release('apply', exact);
+        // 신규 홍보 신청으로 섬 통장(물고기)에서 실제 차감된 수수료 1회 — 창 안 수정(editor.next)은 무료라 제외
+        captureProductEvent('fish_spent', { reason: 'promotion', amount: applied.feeFish });
         const phase = appliedPhase(applied.issueDate, now());
         if (phase === 'published') {
           // 이미 나온 호다 — 앞으로 실릴 칸(next)으로 넣지 않고 지난 칸(latest)으로만 둔다. 07시 다시 읽기가 먼저 받아 온

@@ -362,7 +362,7 @@ export function TutorialSpotlight({
 const buildingLines: Record<Building, string[]> = {
   hall: [
     '마을회관에서는 섬 정보와 주민, 공동 통장을 확인할 수 있어.',
-    '방장은 여기서 다음에 지을 건물을 고르고 섬을 관리할 수 있어.',
+    '섬장은 여기서 다음에 지을 건물을 고르고 섬을 관리할 수 있어.',
   ],
   board: [
     '게시판에서는 섬 공지와 퀘스트를 확인할 수 있어.',

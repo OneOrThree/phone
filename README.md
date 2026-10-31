@@ -1,11 +1,11 @@
 # GROMO
 
-[![서버 스모크 스냅샷](https://github.com/OneOrThree/phone/actions/workflows/ops-smoke.dev.yml/badge.svg?branch=main&event=push)](https://github.com/OneOrThree/phone/actions/workflows/ops-smoke.dev.yml)
+[![서버 스모크 스냅샷](https://github.com/OneOrThree/phone/actions/workflows/ops-smoke.dev-v2.yml/badge.svg?branch=main)](https://github.com/OneOrThree/phone/actions/workflows/ops-smoke.dev-v2.yml)
 [![dev 서버 배포](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FOneOrThree%2Fphone%2Fdeployment-status%2Fdev.json)](https://github.com/OneOrThree/phone/tree/deployment-status)
-[![Catus prod 배포 버전](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FOneOrThree%2Fphone%2Fdeployment-status%2Fprod.json)](https://github.com/OneOrThree/phone/actions/workflows/prod-cd.yml)
+[![Catus prod 배포 버전](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FOneOrThree%2Fphone%2Fdeployment-status%2Fprod-V2%2Fapp.json)](https://github.com/OneOrThree/phone/actions/workflows/prod-cd-V2.yml)
 
 
-dev 배지는 네 서비스의 최근 배포 결과를 합산하고, prod 배지는 마지막으로 배포에 성공한 Catus 버전을 표시합니다. 최초 게시 전에는 배지가 표시되지 않을 수 있습니다. 발행·수동 배포·롤백과 운영 선행 조건은 [Catus 운영 절차](docs/prd/fishcat/server-separation/deployment.md#catus-20-운영-발행배포)를 따릅니다.
+스모크 배지는 dev V2 배포 뒤 실행한 서버 스모크 결과, dev 배지는 dev V2 네 서비스의 최근 배포 결과 합산, prod 배지는 마지막으로 배포에 성공한 Catus V2 앱 버전을 표시합니다. 최초 게시 전에는 배지가 표시되지 않을 수 있습니다. 발행·수동 배포·롤백과 운영 선행 조건은 [Catus 운영 절차](docs/prd/fishcat/server-separation/deployment.md#catus-20-운영-발행배포)를 따릅니다.
 
 집중한 시간을 캐릭터의 성장과 섬 활동으로 이어 주는 시간 관리 앱입니다.
 React Native(Expo) 앱과 네 개의 Spring Boot 서버를 한 저장소에서 관리합니다.
@@ -105,9 +105,9 @@ API는 `http://localhost:8080`, Swagger UI는 `http://localhost:8080/swagger-ui/
 
 ## Catus V2 운영 배포
 
-기존 Catus VPC에 앱·Kafka·Redis·백오피스 호스트와 프라이빗 RDS를 분리한다. V2용 파일·태그·IAM·SSM·배포 상태는 기존 배포와 구분한다. 기존 env 자격은 재사용하고 DB·Kafka·Redis 주소는 V2 자원으로 생성한다.
+기존 Catus VPC에 앱·Kafka·Redis·백오피스 호스트를 분리한다. DB는 아직 기존 Catus 서버와 같은 `catus-prod-db`를 쓰며, 전용 `catus-prod-db-v2`는 만들어 두기만 했다. V2용 파일·태그·IAM·SSM·배포 상태는 기존 배포와 구분한다. 기존 env 자격은 재사용하고 Kafka·Redis 주소는 V2 자원으로 생성한다.
 
-main 대상 PR 검사 → main에서 release로 merge commit 승격 → release에서 단위별 V2 태그·산출물 발행 → release 전용 CD 순서다. 앱은 변경 서비스만 빌드·배포하며 현재 Data·Realtime 계약 쌍은 유지한다. Kafka·Redis 설정은 `server/scripts/runtime-V2/`가 소유한다. 운영 비밀은 Git에 보관하지 않는다.
+main 대상 PR 검사 → main에서 release로 merge commit 승격 → release에서 단위별 V2 태그·산출물 발행 → release 전용 CD 순서다. 앱은 변경 서비스만 빌드·배포하며 현재 Data·Realtime 계약 쌍은 유지한다. Kafka·Redis 설정은 `server/scripts/v2/prod/`가 소유한다. 운영 비밀은 Git에 보관하지 않는다. 절차와 복구는 [prod V2 파이프라인](docs/engineering/prod-v2-pipeline.md), dev는 [dev V2 파이프라인](docs/engineering/dev-v2-pipeline.md)을 따른다.
 
 | 단위 | CI | CD | 마지막 운영 성공 버전 |
 | --- | --- | --- | --- |
@@ -117,7 +117,7 @@ main 대상 PR 검사 → main에서 release로 merge commit 승격 → release�
 | Realtime | 서비스별 선택 빌드 | 앱 CD에서 대상 선택 | ![Realtime V2](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/OneOrThree/phone/deployment-status/prod-V2/realtime.json) |
 | Notification | 서비스별 선택 빌드 | 앱 CD에서 대상 선택 | ![Notification V2](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/OneOrThree/phone/deployment-status/prod-V2/notification.json) |
 | Kafka | kafka-ci.prod-V2.yml | kafka-cd.prod-V2.yml | ![Kafka V2](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/OneOrThree/phone/deployment-status/prod-V2/kafka.json) |
+| 백오피스 | backoffice-ci.yml(PR) | backoffice-cd.prod-V2.yml | ![백오피스 V2](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/OneOrThree/phone/deployment-status/prod-V2/backoffice.json) |
 | Redis | redis-ci.prod-V2.yml | redis-cd.prod-V2.yml | ![Redis V2](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/OneOrThree/phone/deployment-status/prod-V2/redis.json) |
-| 백오피스 | backoffice-ci.prod-V2.yml | backoffice-cd.prod-V2.yml | ![백오피스 V2](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/OneOrThree/phone/deployment-status/prod-V2/backoffice.json) |
 
 버전 태그는 `catus-vX.Y.Z-V2`, `kafka-vX.Y.Z-V2`, `redis-vX.Y.Z-V2`, `backoffice-vX.Y.Z-V2`다. 배지는 마지막 검증 성공 버전이며 실시간 가용성 감시는 아니다. 최초 성공 기록 전에는 운영 미확인 상태다. 실패·부분 적용·롤백 결과와 실행 링크는 별도 배포 결과 및 관련 PR 댓글에 남긴다. 표시 재시도는 호스트를 다시 배포하지 않는다.

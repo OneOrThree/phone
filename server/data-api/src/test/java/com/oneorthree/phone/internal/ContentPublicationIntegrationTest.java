@@ -411,12 +411,87 @@ class ContentPublicationIntegrationTest {
         assertThat(count("magazine_issues")).isZero();
     }
 
+    @Test
+    void draftWithoutMinVersionsKeepsTheLegacyDigestBytes() {
+        var open = new DeveloperNoticeService.Draft("t", "b", Instant.parse("2026-10-29T00:00:00Z"), null, null, null);
+        var closed = new DeveloperNoticeService.Draft("t", "b", Instant.parse("2026-10-29T00:00:00Z"),
+                Instant.parse("2026-10-30T00:00:00Z"), null, null);
+        assertThat(com.oneorthree.phone.content.service.ContentJson.write(open))
+                .isEqualTo("{\"title\":\"t\",\"body\":\"b\",\"startsAt\":\"2026-10-29T00:00:00Z\",\"endsAt\":null}");
+        assertThat(com.oneorthree.phone.content.service.ContentJson.write(closed))
+                .isEqualTo("{\"title\":\"t\",\"body\":\"b\",\"startsAt\":\"2026-10-29T00:00:00Z\","
+                        + "\"endsAt\":\"2026-10-30T00:00:00Z\"}");
+    }
+
+    @Test
+    void minVersionsAreStoredReplayedAndValidated() {
+        UUID id = UUID.randomUUID();
+        var forced = new DeveloperNoticeService.Draft("강제", "본문", NOW.minusSeconds(60), null, "2.1.0", null);
+        var first = notices.publish(id, forced, "member-1");
+        assertThat(notices.publish(id, forced, "member-2")).isEqualTo(first);
+        assertThat(notices.get(id).minIosVersion()).isEqualTo("2.1.0");
+        assertThat(notices.get(id).minAndroidVersion()).isNull();
+        assertThat(jdbc.queryForObject("SELECT min_ios_version FROM developer_notices WHERE publication_id=?",
+                String.class, id)).isEqualTo("2.1.0");
+        assertThat(history.notices(null, 10).items().get(0)).containsEntry("minIosVersion", "2.1.0");
+        for (String bad : new String[]{"", "2.1", "v2.1.0", "2.1.0.1", "1234567890.0.0"}) {
+            assertThatThrownBy(() -> notices.publish(UUID.randomUUID(), new DeveloperNoticeService.Draft(
+                    "강제", "본문", NOW, null, bad, null), "member-1")).as(bad).isInstanceOf(ContentException.class);
+            assertThatThrownBy(() -> notices.publish(UUID.randomUUID(), new DeveloperNoticeService.Draft(
+                    "강제", "본문", NOW, null, null, bad), "member-1")).as(bad).isInstanceOf(ContentException.class);
+        }
+    }
+
+    @Test
+    void appRequirementPicksTheLatestLiveNoticeOfThePlatform() throws Exception {
+        assertThat(notices.appRequirement("ios").minVersion()).isNull();
+        UUID old = UUID.randomUUID();
+        notices.publish(old, new DeveloperNoticeService.Draft("옛", "b", NOW.minusSeconds(60), null, "2.0.0",
+                "3.0.0"), "member-1");
+        when(clock.instant()).thenReturn(NOW.plusSeconds(10));
+        UUID latest = UUID.randomUUID();
+        notices.publish(latest, new DeveloperNoticeService.Draft("최신", "b", NOW, null, "0.0.0", null), "member-1");
+        // 다른 플랫폼 min 만 있는 더 최신 공지, 기간 전·후 공지는 빠진다.
+        when(clock.instant()).thenReturn(NOW.plusSeconds(20));
+        notices.publish(UUID.randomUUID(), new DeveloperNoticeService.Draft("안드", "b", NOW, null, null, "9.9.9"),
+                "member-1");
+        notices.publish(UUID.randomUUID(), new DeveloperNoticeService.Draft("예약", "b", NOW.plusSeconds(3600), null,
+                "8.0.0", null), "member-1");
+        notices.publish(UUID.randomUUID(), new DeveloperNoticeService.Draft("종료", "b", NOW.minusSeconds(60),
+                NOW.plusSeconds(21), "7.0.0", null), "member-1");
+        when(clock.instant()).thenReturn(NOW.plusSeconds(30));
+        var ios = notices.appRequirement("ios");
+        assertThat(ios.minVersion()).isEqualTo("0.0.0");
+        assertThat(ios.publicationId()).isEqualTo(latest);
+        assertThat(ios.title()).isEqualTo("최신");
+        assertThat(notices.appRequirement("android").minVersion()).isEqualTo("9.9.9");
+        // 최신을 철회하면 이전 공지로 돌아간다.
+        notices.withdraw(latest, "member-1");
+        assertThat(notices.appRequirement("ios").publicationId()).isEqualTo(old);
+        assertThatThrownBy(() -> notices.appRequirement("web")).isInstanceOf(ContentException.class);
+        assertThatThrownBy(() -> notices.appRequirement(null)).isInstanceOf(ContentException.class);
+    }
+
+    @Test
+    void earlierPublishedFutureStartBeatsLaterPublishedImmediateOnceItStarts() {
+        // 어제 게시한 다음 주 시작(3.0.0)과 오늘 게시한 즉시(2.5.0).
+        when(clock.instant()).thenReturn(NOW.minusSeconds(86400));
+        notices.publish(UUID.randomUUID(), new DeveloperNoticeService.Draft("다음 주", "b", NOW.plusSeconds(7 * 86400),
+                null, "3.0.0", null), "member-1");
+        when(clock.instant()).thenReturn(NOW);
+        notices.publish(UUID.randomUUID(), new DeveloperNoticeService.Draft("즉시", "b", NOW, null, "2.5.0", null),
+                "member-1");
+        assertThat(notices.appRequirement("ios").minVersion()).isEqualTo("2.5.0");
+        when(clock.instant()).thenReturn(NOW.plusSeconds(7 * 86400));
+        assertThat(notices.appRequirement("ios").minVersion()).isEqualTo("3.0.0");
+    }
+
     private long count(String table) {
         return jdbc.queryForObject("SELECT count(*) FROM " + table, Long.class);
     }
 
     private DeveloperNoticeService.Draft draft(Instant starts, Instant ends) {
-        return new DeveloperNoticeService.Draft("개발자 소식", "검토한 본문", starts, ends);
+        return new DeveloperNoticeService.Draft("개발자 소식", "검토한 본문", starts, ends, null, null);
     }
 
     private UUID promotion() {
@@ -441,6 +516,13 @@ class ContentPublicationIntegrationTest {
         // 테스트 컨테이너의 컨텍스트 전용 DB에만 표식을 설정한다.
         assertThat(database).matches("ctx_[a-f0-9]+");
         jdbc.execute("ALTER DATABASE " + database + " SET gromo.environment='prod'");
+        // 실패 행(version 999)은 success 필터가, 성공 행 '1.5'(문자열로는 최대 버전보다 작음)는
+        // installed_rank 정렬이 지켜야 한다. 기대값은 마지막 rank 의 성공 행 '1.5'.
+        int rank = jdbc.queryForObject("SELECT max(installed_rank) FROM flyway_schema_history", Integer.class);
+        String insertHistory = "INSERT INTO flyway_schema_history(installed_rank,version,description,type,script,"
+                + "installed_by,execution_time,success) VALUES(?,?,?,?,?,?,?,?)";
+        jdbc.update(insertHistory, rank + 1, "1.5", "t", "SQL", "t1.sql", "t", 1, true);
+        jdbc.update(insertHistory, rank + 2, "999", "t", "SQL", "t2.sql", "t", 1, false);
         try {
             http.perform(get(ADMIN + "/environment")).andExpect(status().isOk())
                     .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath(
@@ -448,15 +530,18 @@ class ContentPublicationIntegrationTest {
                     .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath(
                             "$.contractVersion").value("1"))
                     .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath(
+                            "$.schemaVersion").value("1.5"))
+                    .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath(
                             "$.capabilities").value(org.hamcrest.Matchers.contains("content.publication.v1",
                                     "content.history.v1", "content.notice.withdraw.v1",
+                                    "content.app-requirements.v1",
                                     "construction.policy.v1", "focus.policy.v1")));
             jdbc.execute("ALTER DATABASE " + database + " SET gromo.environment='dev'");
             assertThatThrownBy(controller::environment).isInstanceOf(IllegalStateException.class)
                     .hasMessageContaining("DB 환경");
         } finally {
+            jdbc.update("DELETE FROM flyway_schema_history WHERE installed_rank > ?", rank);
             jdbc.execute("ALTER DATABASE " + database + " RESET gromo.environment");
         }
     }
-
 }
