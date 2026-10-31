@@ -22,10 +22,11 @@ public class DeveloperNoticeController {
     private final DeveloperNoticeUseCase notices;
     private final UpstreamConfigProperties properties;
 
+    /** 최신순 목록 — {@code cursor}·{@code limit}(기본 100, 1~100) 선택. 끝이면 {@code nextCursor} 는 null 이다. */
     @GetMapping("/me/developer-notices")
     public DeveloperNoticeResponses.Page list(HttpServletRequest request) {
         var claims = sessions.requireSession(request);
-        return DeveloperNoticeResponses.Page.from(notices.list(claims.userId(), properties.deadline()));
+        return notices.list(claims.userId(), single(request, "cursor"), limit(request), properties.deadline());
     }
 
     /** 로그인 전 앱도 부른다 — 필터가 인증을 건너뛰는 정확 일치 경로이며 세션을 요구하지 않는다. */
@@ -52,4 +53,28 @@ public class DeveloperNoticeController {
                 PublicIds.uuid(publicationId, "publicationId"), properties.deadline()));
     }
 
+    /** 쿼리 파라미터 하나 — 같은 키가 여러 번 오면 400 이다. */
+    private static String single(HttpServletRequest request, String name) {
+        String[] values = request.getParameterValues(name);
+        if (values == null || values.length == 0) {
+            return null;
+        }
+        if (values.length > 1) {
+            throw new PublicApiException(ApiErrorCode.INVALID_PARAMETER, name);
+        }
+        return values[0];
+    }
+
+    /** {@code limit} — 정수가 아니면 400, 1~100 경계는 {@code CursorScope} 가 422 로 강제한다. */
+    private static int limit(HttpServletRequest request) {
+        String raw = single(request, "limit");
+        if (raw == null) {
+            return DeveloperNoticeUseCase.DEFAULT_LIMIT;
+        }
+        try {
+            return Integer.parseInt(raw);
+        } catch (NumberFormatException e) {
+            throw new PublicApiException(ApiErrorCode.INVALID_PARAMETER, "limit");
+        }
+    }
 }
