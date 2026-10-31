@@ -119,4 +119,4 @@ main 대상 PR 검사 → main에서 release로 merge commit 승격 → release�
 | Kafka | kafka-ci.prod-V2.yml | kafka-cd.prod-V2.yml | ![Kafka V2](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/OneOrThree/phone/deployment-status/prod-V2/kafka.json) |
 | Redis | redis-ci.prod-V2.yml | redis-cd.prod-V2.yml | ![Redis V2](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/OneOrThree/phone/deployment-status/prod-V2/redis.json) |
 
-버전 태그는 `catus-vX.Y.Z-V2`, `kafka-vX.Y.Z-V2`, `redis-vX.Y.Z-V2`, `backoffice-vX.Y.Z-V2`다. 배지는 마지막 검증 성공 버전이며 실시간 가용성 감시는 아니다. 최초 성공 기록 전에는 운영 미확인 상태다. 실패·부분 적용·롤백 결과와 실행 링크는 별도 배포 결과 및 관련 PR 댓글에 남긴다. 표시 재시도는 호스트를 다시 배포하지 않는다.
+버전 태그는 `catus-vX.Y.Z-V2`, `kafka-vX.Y.Z-V2`, `redis-vX.Y.Z-V2`다. 배지는 마지막 검증 성공 버전이며 실시간 가용성 감시는 아니다. 최초 성공 기록 전에는 운영 미확인 상태다. 실패·부분 적용·롤백 결과와 실행 링크는 별도 배포 결과 및 관련 PR 댓글에 남긴다. 표시 재시도는 호스트를 다시 배포하지 않는다.
