@@ -43,8 +43,8 @@ def command(args, *, data=None):
     result = subprocess.run(args, input=data, capture_output=True, check=False)
     if result.returncode:
         # 인자와 stdout에는 비밀이 섞일 수 있어 싣지 않는다. stderr 마지막 줄만, 비밀을 가려 남긴다.
-        # 255면 마지막 줄은 gcloud 래퍼 문구이고 원인 줄은 그 위에 있다. 노출 면적을 늘리지 않으려고 한 줄만 남긴다.
-        last = result.stderr.decode(errors='replace').strip().splitlines()[-1:]
+        # ssh 자체가 실패하면 gcloud가 Recommendation 안내와 래퍼 오류를 덧붙인다. 원인은 그 앞줄이다.
+        last = result.stderr.decode(errors='replace').partition('\nRecommendation:')[0].strip().splitlines()[-1:]
         detail = mask(last[0].strip(), data)[:300] if last else ''
         raise CommandError(f'dev V2 명령 실패: {args[0]} (종료 {result.returncode})' + (': ' + detail if detail else ''),
                            result.returncode)

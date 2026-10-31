@@ -68,6 +68,16 @@ class CommandFailureTest(unittest.TestCase):
         args=('gcloud','compute','ssh','--command','sudo run ARGV-ONLY-MARKER')
         self.assertEqual(self.message(b'first line\nERROR: boom \n \n\n',args=args),self.PREFIX+': ERROR: boom')
 
+    def test_ssh_failure_keeps_the_cause_above_gcloud_recommendation(self):
+        # surface/compute/ssh.py 가 ssh 실패 때 쓰는 순서 그대로다.
+        stderr=(b'kex_exchange_identification: read: Connection reset by peer\n'
+                b'Connection reset by 127.0.0.1 port 22\n'
+                b'\nRecommendation: To check for possible causes of SSH connectivity issues and get\n'
+                b'recommendations, rerun the ssh command with the --troubleshoot option.\n\n'
+                b'gcloud compute ssh vm --project=p --zone=z --troubleshoot\n\n'
+                b'ERROR: (gcloud.compute.ssh) [/usr/bin/ssh] exited with return code [255].\n')
+        self.assertEqual(self.message(stderr),self.PREFIX+': Connection reset by 127.0.0.1 port 22')
+
     def test_error_is_a_runtime_error_carrying_the_exit_code(self):
         with processes(proc(7,stderr=b'x')),self.assertRaises(RuntimeError) as caught: m.command(['gcloud'])
         self.assertIsInstance(caught.exception,m.CommandError)
