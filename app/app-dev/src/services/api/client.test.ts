@@ -25,8 +25,10 @@ import {
 } from '@/services/api/session';
 
 let mockVersion: string | null = '1.0.2';
+let mockThrowOnAccess = false;
 jest.mock('expo-application', () => ({
   get nativeApplicationVersion() {
+    if (mockThrowOnAccess) throw new Error('Cannot find native module');
     return mockVersion;
   },
 }));
@@ -700,6 +702,7 @@ describe('앱 버전·플랫폼 헤더 (GROMO-2642)', () => {
   const os = (v: string) => jest.replaceProperty(Platform, 'OS', v as any);
   afterEach(() => {
     mockVersion = '1.0.2';
+    mockThrowOnAccess = false;
     jest.restoreAllMocks();
   });
 
@@ -753,6 +756,16 @@ describe('앱 버전·플랫폼 헤더 (GROMO-2642)', () => {
     mockVersion = null;
     stub(200, { data: null });
     await request('/me');
+    assert.equal('X-App-Version' in hdr(0), false);
+    assert.equal('X-App-Platform' in hdr(0), false);
+  });
+
+  test('expo-application 접근이 던져도 요청은 헤더 없이 한 번 나간다', async () => {
+    os('ios');
+    mockThrowOnAccess = true;
+    stub(200, { data: { id: 'u1' } });
+    assert.deepEqual(await request('/me'), { id: 'u1' });
+    assert.equal(calls.length, 1);
     assert.equal('X-App-Version' in hdr(0), false);
     assert.equal('X-App-Platform' in hdr(0), false);
   });
