@@ -97,6 +97,6 @@ Notification의 모든 인스턴스를 새 버전으로 교체한 다음 연결 
 
 ## 독립 릴리스
 
-이 저장소의 백오피스 발행·배포 워크플로는 제거됐다. 이관 전까지 배포 경로가 없고, PR 검사 `backoffice-ci.yml`만 남아 있다.
+PR 검사는 `backoffice-ci.yml`이다. `backoffice/**`(Markdown 제외)가 main에 머지되면 `backoffice-cd.prod-V2.yml`이 테스트 후 `backoffice-production` 승인을 기다렸다가 `backoffice-vX.Y.Z-V2`를 발행하고 `catus-backoffice-prod-V2`에 배포한다. 이전 태그로 되돌릴 때는 같은 워크플로를 `version`·`rollback`과 함께 수동 실행한다. 절차는 [prod V2 파이프라인](../docs/engineering/prod-v2-pipeline.md#백오피스)을 따른다.
 
-[기존 발행·배포·재시도·롤백 절차](../docs/engineering/backoffice-independent-release.md)는 기록으로 남겨 둔다.
+[V1 태그 방식의 발행·배포·롤백 절차](../docs/engineering/backoffice-independent-release.md)는 기록으로 남겨 둔다.

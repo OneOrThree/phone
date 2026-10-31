@@ -84,6 +84,23 @@ class RuntimeTest(unittest.TestCase):
         with patch.object(runtime,'config',return_value={}),patch.dict(runtime.os.environ,{'GITHUB_REF':'refs/heads/main'}):
             with self.assertRaisesRegex(ValueError,'release'):runtime.deploy(SimpleNamespace(role='redis',version='redis-v1.0.0-V2'))
 
+    def test_백오피스는_main에서도_배포_관문을_통과하고_app은_release만_허용한다(self):
+        from types import SimpleNamespace
+        class Stop(Exception):pass
+        with patch.object(runtime,'config',return_value={}),patch.object(runtime,'aws',side_effect=Stop),patch.dict(runtime.os.environ,{'GITHUB_REF':'refs/heads/main'}):
+            with self.assertRaises(Stop):runtime.deploy(SimpleNamespace(role='backoffice',version='backoffice-v1.0.0-V2'))
+            with self.assertRaisesRegex(ValueError,'^release branch required'):runtime.deploy(SimpleNamespace(role='app',version='catus-v1.0.0-V2'))
+
+    def test_백오피스는_main_또는_release에_있으면_통과하고_app은_release만_본다(self):
+        def run(args,**kwargs):
+            if args[:2]==['git','merge-base'] and args[-1]=='origin/main':raise subprocess.CalledProcessError(1,args)
+            return ''
+        with patch.object(runtime,'run',side_effect=run) as calls:
+            runtime.on_branch('abc','backoffice')
+            runtime.on_branch('abc','app')
+        fetched=[c.args[0][3] for c in calls.call_args_list if c.args[0][:2]==['git','fetch']]
+        self.assertEqual(fetched,['main','release','release'])
+
     def test_SSM_응답_유실은_기존_명령으로_복구하고_중복_전송하지_않는다(self):
         with tempfile.TemporaryDirectory() as d:
             calls=[];lists=0

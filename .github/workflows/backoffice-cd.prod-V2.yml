@@ -1,0 +1,109 @@
+name: Catus backoffice CD V2
+'on':
+  push:
+    branches:
+    - main
+    paths:
+    - backoffice/**
+    - '!backoffice/**/*.md'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "비우면 현재 main을 발행·배포한다. 기존 backoffice-vX.Y.Z-V2 태그를 넣으면 발행 없이 그 태그를 배포한다"
+        required: false
+        type: string
+        default: ''
+      rollback:
+        description: "version이 현재 운영보다 이전 태그일 때 켠다"
+        required: false
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: catus-backoffice-deploy-V2
+  cancel-in-progress: false
+jobs:
+  verify:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+    - run: python3 -m unittest discover -s .github/scripts/v2/prod -p 'test_catus_runtime_V2.py' -v
+    - uses: actions/setup-node@v4
+      with:
+        node-version: '24'
+        cache: npm
+        cache-dependency-path: backoffice/package-lock.json
+    - run: npm ci && npm test && npm run build
+      working-directory: backoffice
+  deploy:
+    needs: verify
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 100
+    environment:
+      name: backoffice-production
+      url: https://backoffice-v2.oneorthree.world
+    permissions:
+      contents: write
+      id-token: write
+      pull-requests: read
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+    - uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: arn:aws:iam::808715036056:role/catus-backoffice-release-V2
+        aws-region: ap-northeast-2
+    - name: "V2 백오피스 발행"
+      if: ${{ !inputs.version }}
+      env:
+        GH_TOKEN: ${{ github.token }}
+        INFRA_REVISION: ${{ vars.CATUS_PROD_INFRA_REVISION_V2 }}
+      run: python3 .github/scripts/v2/prod/catus-runtime-V2.py publish --role backoffice --infra-revision "$INFRA_REVISION"
+    # 발행이 길면 첫 세션(1시간)이 배포 도중 끝나므로 배포 전에 다시 받는다.
+    - uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: arn:aws:iam::808715036056:role/catus-backoffice-release-V2
+        aws-region: ap-northeast-2
+    - name: "V2 SSM 적용 및 결과 확인"
+      env:
+        VERSION: ${{ inputs.version }}
+        ROLLBACK: ${{ inputs.rollback }}
+        RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      run: |
+        if [ -z "$VERSION" ]; then VERSION=$(python3 -c 'import json; print(json.load(open("release-V2.json"))["version"])'); fi
+        flags=()
+        if [ "$ROLLBACK" = true ]; then flags+=(--rollback); fi
+        python3 .github/scripts/v2/prod/catus-runtime-V2.py deploy --role backoffice --version "$VERSION" "${flags[@]}"
+    - uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: catus-backoffice-deployment-V2
+        path: deployment-V2.json*
+        if-no-files-found: warn
+        overwrite: true
+  record:
+    needs: deploy
+    if: always() && needs.deploy.result != 'skipped'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: read
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/download-artifact@v4
+      with:
+        name: catus-backoffice-deployment-V2
+    - name: "배지 및 관련 PR 기록"
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: python3 .github/scripts/v2/prod/catus-runtime-V2.py record --input deployment-V2.json

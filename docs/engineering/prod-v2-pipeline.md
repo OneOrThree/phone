@@ -6,7 +6,7 @@ AWS EC2 4대로 나눈 Catus V2 운영의 CI/CD 현행 정리다. 2026-10-31 코
 - 관측 스택을 켜는 절차는 [서버 로그 관측 rollout](../architecture/server-log-observability/rollout.md)을 따른다.
 - dev는 [dev V2 파이프라인](dev-v2-pipeline.md)을 본다.
 
-기존 워크플로 `prod-ci.yml`, `prod-cd.yml`은 `disabled_manually`다. 백오피스 발행·배포 워크플로는 저장소에서 제거했다.
+기존 워크플로 `prod-ci.yml`, `prod-cd.yml`은 `disabled_manually`다. 백오피스는 `backoffice-cd.prod-V2.yml`이 main 머지로 발행·배포한다(아래 「백오피스」).
 
 꺼진 것은 배포 워크플로뿐이다. 2026-10-31 기준 기존 EC2 `catus-prod`, `catus-backoffice-prod`는 켜져 있다. 운영 DB `catus-prod-db`와 앱 시크릿 원본도 기존 서버와 V2가 함께 쓴다. 기존 서버 종료 일정은 정해지지 않았다.
 
@@ -90,7 +90,7 @@ PR에서는 base와 head의 변경으로 검사 대상을 고른다. release 발
 | `catus-plan.py`의 `SHARED` 경로(`ci-jar`, `be-gradle.yml`, `.dockerignore`, `server/gradle*` 등) | 네 서비스 |
 | Markdown, `/docs/` 아래 일반 문서 | 없음. Data의 DB 전환 도구는 예외 |
 | Kafka·Redis | 없음. 각자의 CI가 담당 |
-| 백오피스 | 없음. 발행 경로가 없다 |
+| 백오피스 | 없음. 서버 빌드와 별개로 `backoffice-cd.prod-V2.yml`이 발행한다 |
 
 새 공통 모듈을 추가하면 `SHARED`도 갱신한다.
 
@@ -131,9 +131,11 @@ CI는 코드와 빌드를 검사하지만 운영의 자격 증명, 네트워크,
 
 ## 백오피스
 
-- 백오피스 발행·배포 워크플로는 이 저장소에서 제거했다. 다른 담당자가 관리할 영역이며, 이관 대상은 정해지지 않았다.
-- `catus-backoffice-prod-V2`는 계속 실행되지만 이 저장소로는 배포할 수 없다.
-- 남은 것은 PR 검사 `backoffice-ci.yml`뿐이다.
+- 경로(GROMO-2666): `backoffice/**`(Markdown 제외)를 main에 머지 → `backoffice-cd.prod-V2.yml`이 테스트·빌드 → 환경 `backoffice-production` 승인 1회 → `backoffice-vX.Y.Z-V2`(patch +1) 발행 → SSM으로 `catus-backoffice-prod-V2`에 배포 → 관련 PR 댓글·배지 기록. 앱·Kafka·Redis는 그대로 release 전용이다.
+- 수동 실행: 입력을 비우면 현재 main을 발행·배포한다. `version`에 기존 태그를 넣으면 발행 없이 그 태그를 배포한다. 발행 뒤 배포만 실패한 태그는 그대로 다시 넣는다. 현재 운영보다 이전 태그로 되돌릴 때만 `rollback`을 켠다.
+- 선행 조건: Infra가 AWS 역할 `catus-backoffice-release-V2`(신뢰 대상 `repo:OneOrThree/phone:environment:backoffice-production`)를 먼저 적용해야 한다.
+- 백오피스가 서버 변경보다 먼저 운영에 나갈 수 있다(서버는 release 경유). 의존 계약이 없어 백오피스가 시작을 거부하면 SSM 배포가 실패하고, 호스트가 직전 버전으로 되돌린다.
+- PR 검사는 `backoffice-ci.yml`이다.
 - 앱 배포는 백오피스 운영자 시크릿을 계속 읽는다.
 
 ## 복구

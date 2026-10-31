@@ -124,7 +124,7 @@ PR checks live in the dev CI file. Shared steps go in a reusable file without an
 (`satellite-check.yml`, `be-gradle.yml`). App workflows are not renamed yet.
 
 **V2 is the live server pipeline.** dev: `*.dev-v2.yml` on GCP VMs `catus-dev-v2-{app,data,redis}` —
-[docs/engineering/dev-v2-pipeline.md](docs/engineering/dev-v2-pipeline.md). prod: `*-V2.yml` on EC2 hosts (백오피스 발행·배포 워크플로는 제거됨) —
+[docs/engineering/dev-v2-pipeline.md](docs/engineering/dev-v2-pipeline.md). prod: `*-V2.yml` on EC2 hosts —
 [docs/engineering/prod-v2-pipeline.md](docs/engineering/prod-v2-pipeline.md). 기존 파일(`data-api-ci·cd.dev`,
 `realtime-ci.dev`, `satellite-ci·cd.dev`, `ops-smoke.dev`, `prod-ci`, `prod-cd`)은 2026-10-31 기준 `disabled_manually`다. 아래 서버 항목에서 이 파일들을 설명하는 부분은 기존 경로 기록이다. 앱 워크플로 항목은 해당하지 않는다.
 
@@ -209,6 +209,7 @@ PR checks live in the dev CI file. Shared steps go in a reusable file without an
 - **Dev ops (manual dispatch, `ops-*`)**: `ops-datadog.dev.yml` (Datadog APM toggle),
   `ops-monitor.dev.yml` (Prometheus/Grafana/Loki stack), `ops-kafka.dev.yml` (single-node Kafka broker
   up/status/down only — does not enable the outbox relay).
+- **Backoffice**: `backoffice-ci.yml` runs PR checks; `backoffice-cd.prod-V2.yml` runs on `backoffice/**` (non-md) merges to `main` — tests, one `backoffice-production` environment approval, publish `backoffice-vX.Y.Z-V2`, SSM deploy to `catus-backoffice-prod-V2` (manual `version` redeploys an existing tag, plus `rollback` for an older one; needs Infra role `catus-backoffice-release-V2`).
 - **Load test**: `loadtest.yml` — manual dispatch with profile/scenario inputs.
 - `claude-review.yml` — Claude PR review, triggered by an `@claude` comment.
 

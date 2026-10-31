@@ -17,6 +17,8 @@ REGION='ap-northeast-2'
 BUCKET='catus-prod-deploy-artifacts-808715036056-v2'
 ROLES=('app','kafka','redis','backoffice')
 PREFIX={'app':'catus','kafka':'kafka','redis':'redis','backoffice':'backoffice'}
+# 역할별 운영 발행·배포 브랜치. 백오피스는 main 머지로 배포하고(GROMO-2666), 롤백할 이전 태그는 release 에서 발행됐다.
+BRANCHES={'backoffice':('main','release')}
 ROOT=Path(__file__).resolve().parents[4]
 # 앱 릴리스 번들에 평면 이름으로 넣는 관측 설정(번들 이름 → 저장소 원본). Infra 배포 엔진과의 계약(GROMO-2619 §2)이다.
 OBSERVABILITY_FILES={
@@ -131,11 +133,18 @@ def related_prs(plan,prior):
     return sorted(numbers)
 
 
+def on_branch(source,role):
+    """source 가 역할의 배포 브랜치 중 하나에 들어 있어야 한다. 없으면 마지막 git 오류를 올린다."""
+    for name in BRANCHES.get(role,('release',)):
+        run(['git','fetch','origin',name,'--tags'])
+        try:run(['git','merge-base','--is-ancestor',source,'origin/'+name]);return
+        except subprocess.CalledProcessError as error:last=error
+    raise last
+
 def publish(args):
     info=config();prior=previous(args.role);plan=planner(args.role,prior)
     source=plan['source_revision']
-    run(['git','fetch','origin','release'])
-    run(['git','merge-base','--is-ancestor',source,'origin/release'])
+    on_branch(source,args.role)
     tags=run(['git','tag','--list',PREFIX[args.role]+'-v*-V2']).splitlines()
     reserved=aws('s3api','list-objects-v2','--bucket',BUCKET,'--prefix','versions/').get('Contents',[])
     for item in reserved:
@@ -249,14 +258,14 @@ def deploy(args):
         if getattr(args,'rollback',False):raise ValueError('allow_migration cannot be combined with rollback')
         if args.role!='app':raise ValueError('allow_migration is only for the app role')
     info=config();version(args.version,args.role)
-    if os.environ.get('GITHUB_REF') and os.environ['GITHUB_REF']!='refs/heads/release':raise ValueError('release branch required')
+    names=BRANCHES.get(args.role,('release',))
+    if os.environ.get('GITHUB_REF') and os.environ['GITHUB_REF'] not in ['refs/heads/'+n for n in names]:raise ValueError('/'.join(names)+' branch required')
     with tempfile.TemporaryDirectory() as d:
         path=Path(d)/'release.json';aws('s3api','get-object','--bucket',BUCKET,'--key',f'versions/{args.version}.json',str(path))
         envelope=json.loads(path.read_text())
     if envelope.get('stack')!='V2' or envelope.get('role')!=args.role or envelope.get('version')!=args.version:raise ValueError('Release mismatch')
-    run(['git','fetch','origin','release','--tags'])
+    on_branch(envelope['source_revision'],args.role)
     if run(['git','rev-parse',args.version+'^{commit}']).strip()!=envelope['source_revision']:raise ValueError('Moved release tag')
-    run(['git','merge-base','--is-ancestor',envelope['source_revision'],'origin/release'])
     if args.role=='redis':
         target=info['INSTANCE_IDS']['app']
         projection_marker='catus-V2:redis-projection:'+os.environ.get('GITHUB_RUN_ID',envelope['release_id'])
