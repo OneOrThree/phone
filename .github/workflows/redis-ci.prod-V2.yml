@@ -5,19 +5,19 @@ name: Catus redis CI V2
     - main
     - release
     paths:
-    - server/scripts/runtime-V2/redis*
-    - .github/scripts/catus-runtime-V2.py
-    - .github/scripts/test_catus_runtime_V2.py
-    - .github/scripts/test_redis_runtime_V2.py
+    - server/scripts/v2/prod/redis*
+    - .github/scripts/v2/prod/catus-runtime-V2.py
+    - .github/scripts/v2/prod/test_catus_runtime_V2.py
+    - .github/scripts/v2/prod/test_redis_runtime_V2.py
     - .github/workflows/redis-ci.prod-V2.yml
   push:
     branches:
     - release
     paths:
-    - server/scripts/runtime-V2/redis*
-    - .github/scripts/catus-runtime-V2.py
-    - .github/scripts/test_catus_runtime_V2.py
-    - .github/scripts/test_redis_runtime_V2.py
+    - server/scripts/v2/prod/redis*
+    - .github/scripts/v2/prod/catus-runtime-V2.py
+    - .github/scripts/v2/prod/test_catus_runtime_V2.py
+    - .github/scripts/v2/prod/test_redis_runtime_V2.py
     - .github/workflows/redis-ci.prod-V2.yml
   workflow_dispatch: {}
 permissions:
@@ -38,9 +38,9 @@ jobs:
     - uses: actions/setup-python@v5
       with:
         python-version: '3.12'
-    - run: python3 -m unittest discover -s .github/scripts -p 'test_catus_runtime_V2.py' -v
-    - run: python3 -m unittest discover -s .github/scripts -p 'test_redis_runtime_V2.py' -v
-    - run: python3 .github/scripts/catus-runtime-V2.py plan --role redis
+    - run: python3 -m unittest discover -s .github/scripts/v2/prod -p 'test_catus_runtime_V2.py' -v
+    - run: python3 -m unittest discover -s .github/scripts/v2/prod -p 'test_redis_runtime_V2.py' -v
+    - run: python3 .github/scripts/v2/prod/catus-runtime-V2.py plan --role redis
   publish:
     needs:
     - verify
@@ -66,7 +66,7 @@ jobs:
       env:
         GH_TOKEN: ${{ github.token }}
         INFRA_REVISION: ${{ vars.CATUS_PROD_INFRA_REVISION_V2 }}
-      run: python3 .github/scripts/catus-runtime-V2.py publish --role redis --infra-revision "$INFRA_REVISION"
+      run: python3 .github/scripts/v2/prod/catus-runtime-V2.py publish --role redis --infra-revision "$INFRA_REVISION"
     - uses: actions/upload-artifact@v4
       with:
         name: catus-redis-release-V2
