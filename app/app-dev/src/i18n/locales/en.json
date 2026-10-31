@@ -1193,6 +1193,7 @@
     "sessionRevoked": "Signed out elsewhere, so the live connection was closed."
   },
   "openSea": {
+    "abandonCutscene": "Giving up the voyage to {{name}}. The raft slows down and the cat rests at sea.",
     "name": "Open sea",
     "skip": "Skip",
     "duration": "{{minutes}}m {{seconds}}s",

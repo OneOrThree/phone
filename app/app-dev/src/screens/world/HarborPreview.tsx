@@ -29,7 +29,7 @@ const SCENES: readonly PreviewKind[] = [
 const SCENE_NAMES: Record<PreviewKind, string> = {
   departure: '출항',
   arrival: '도착',
-  abandon: '항해 중단(시안)',
+  abandon: '항해 중단',
   'pelican-mail': '펠리컨 배달',
   'golden-fish': '황금 물고기(원본)',
 };
@@ -41,7 +41,7 @@ const FORMATS = {
 type Format = keyof typeof FORMATS;
 const label = (direction: PreviewKind) =>
   direction === 'abandon'
-    ? '항해 중단 시안이에요. 뗏목이 속도를 줄이고 고양이가 바다에서 쉬어요.'
+    ? t('openSea.abandonCutscene', { name: '별빛섬' })
     : direction === 'pelican-mail'
       ? t('magazine.delivery.seaCutscene')
       : direction === 'golden-fish'
@@ -161,9 +161,6 @@ function Comparison({
       <ScrollView style={styles.page} contentContainerStyle={styles.content}>
         <Txt kind="h">컷신 비교</Txt>
         <Txt>같은 화면 비율에서 기존 영상의 액션·카메라 움직임과 새 장면을 비교해 보세요.</Txt>
-        {direction === 'abandon' && (
-          <Txt>검토용으로 보관한 항해 중단 시안이에요. 실제 앱은 종료 후 바로 표류해요.</Txt>
-        )}
         <View style={styles.controls}>
           {SCENES.map((value) => (
             <Btn

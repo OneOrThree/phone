@@ -46,7 +46,7 @@ async function loadImages(screen: Awaited<ReturnType<typeof render>>, ids = base
   for (const id of ids) await fireEvent(screen.getByTestId(id), 'load');
 }
 
-test('웹 보관용 항해 중단 시안은 섬 없이 내 고양이가 쉬는 3초 장면이다', async () => {
+test('항해 중단은 섬 없이 내 고양이가 쉬는 3초 장면이다', async () => {
   const done = jest.fn();
   const screen = await render(<HarborCutscene {...props} direction="abandon" onFinish={done} />);
   expect(screen.queryByTestId('harbor-island')).toBeNull();

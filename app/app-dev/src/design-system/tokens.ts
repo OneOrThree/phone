@@ -727,7 +727,6 @@ export const componentTokens = {
     raftAnchorY: 0.67,
     catFootY: 464 / 512,
     wakeWidth: 1.5,
-    // 앱 항해 종료에는 연결하지 않는 웹 검토용 시안이다.
     abandon: {
       duration: 3000,
       maxZoom: 2.2,

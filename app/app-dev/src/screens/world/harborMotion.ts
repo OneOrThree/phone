@@ -1,6 +1,5 @@
 import { componentTokens } from '@/design-system/tokens';
 
-/** abandon은 웹 미리보기에 보관한 시안이며 앱 항해 종료에서는 사용하지 않는다. */
 export type HarborDirection = 'departure' | 'arrival' | 'abandon' | 'pelican-mail';
 const D = componentTokens.harborCutscene;
 const clamp = (n: number) => Math.max(0, Math.min(1, n));
