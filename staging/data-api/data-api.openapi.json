@@ -8054,6 +8054,9 @@
           },
           "arrived": {
             "type": "boolean"
+          },
+          "createdIsland": {
+            "type": "boolean"
           }
         }
       },
