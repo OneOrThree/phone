@@ -42,6 +42,8 @@ CREATE EXTERNAL TABLE IF NOT EXISTS ops_logs (
   `http_path` string,
   `status_code` int,
   `duration_ms` bigint,
+  `app_version` string,
+  `app_platform` string,
   `outcome` string
 )
 PARTITIONED BY (`env` string, `service` string, `archive_date` string, `archive_hour` string)

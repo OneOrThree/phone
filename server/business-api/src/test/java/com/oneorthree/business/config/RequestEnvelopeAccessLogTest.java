@@ -66,6 +66,44 @@ class RequestEnvelopeAccessLogTest {
     }
 
     @Test
+    void validAppHeadersAreLogged() throws Exception {
+        mockMvc.perform(get("/probe/1").header("X-App-Version", "1.0.2").header("X-App-Platform", "ios"))
+                .andExpect(status().isOk());
+
+        assertThat(accessJson()).containsEntry("app_version", "1.0.2").containsEntry("app_platform", "ios");
+    }
+
+    @Test
+    void paddedVersionIsStrippedAndAccepted() throws Exception {
+        mockMvc.perform(get("/probe/1").header("X-App-Version", "2.0.1 ").header("X-App-Platform", "android"))
+                .andExpect(status().isOk());
+
+        assertThat(accessJson()).containsEntry("app_version", "2.0.1").containsEntry("app_platform", "android");
+    }
+
+    @Test
+    void missingAppHeadersOmitKeys() throws Exception {
+        mockMvc.perform(get("/probe/1")).andExpect(status().isOk());
+
+        assertThat(accessJson()).doesNotContainKeys("app_version", "app_platform");
+    }
+
+    @Test
+    void invalidAppHeadersAreDroppedWithoutRejectingRequest() throws Exception {
+        for (String version : new String[] {"1.0", "v1.0.2", "1.0.2\nforged=1", "1.0.2.3", "1234567890.0.0",
+                "9".repeat(5000)}) {
+            for (String platform : new String[] {"IOS", "web", "ios\nforged=1", "a".repeat(5000)}) {
+                appender.list.clear();
+                mockMvc.perform(get("/probe/1").header("X-App-Version", version).header("X-App-Platform", platform))
+                        .andExpect(status().isOk());
+
+                assertThat(accessJson()).containsEntry("status_code", 200)
+                        .doesNotContainKeys("app_version", "app_platform");
+            }
+        }
+    }
+
+    @Test
     void unhandledExceptionOmitsUndecidedStatus() {
         assertThatThrownBy(() -> mockMvc.perform(get("/boom"))).hasRootCauseMessage("boom");
 

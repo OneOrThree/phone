@@ -42,6 +42,8 @@ public final class ObservationJsonProvider implements StructuredLogFormatter<ILo
     private static final Pattern ID = Pattern.compile("[A-Za-z0-9_.:-]{1,128}");
     private static final Pattern ATTEMPT = Pattern.compile("[0-9]{1,7}");
     private static final Pattern HTTP_METHOD = Pattern.compile("[A-Z]{1,16}");
+    /** 앱이 보내는 semver(X.Y.Z). 클라이언트 값이라 형식이 맞을 때만 싣는다. */
+    private static final Pattern APP_VERSION = Pattern.compile("[0-9]{1,9}\\.[0-9]{1,9}\\.[0-9]{1,9}");
     private static final Pattern HTTP_ROUTE = Pattern.compile("[!-~]{1,256}");
     private static final List<String> ID_KEYS = List.of("request_id", "origin_request_id", "origin_trace_id",
             "user_id", "event_id", "delivery_id", "operation_id", "message_id", "edge_request_id");
@@ -189,6 +191,9 @@ public final class ObservationJsonProvider implements StructuredLogFormatter<ILo
             case "status_code" -> value instanceof Integer status && status >= 100 && status <= 599 ? status : null;
             case "duration_ms" -> value instanceof Long millis && millis >= 0 ? millis : null;
             case "outcome" -> value instanceof String outcome && OUTCOMES.contains(outcome) ? outcome : null;
+            case "app_version" -> value instanceof String version && APP_VERSION.matcher(version).matches()
+                    ? version : null;
+            case "app_platform" -> "ios".equals(value) || "android".equals(value) ? value : null;
             default -> null;
         };
     }
