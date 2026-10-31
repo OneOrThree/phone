@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 import { t } from '@/i18n';
-import { VideoCutscene } from '@/components/VideoCutscene';
 import type { FocusFinishView } from '@/services/api/focusSessions';
 import { ApiError, uuid } from '@/services/api/client';
 import { getMyInventory } from '@/services/api/shop';
@@ -35,8 +34,6 @@ import {
 } from './seaModel';
 import { saveSeaRemark, seaRemarkCooldownSeconds } from './seaRemark';
 
-/** 항해를 그만두면 섬이 멀어지는 영상(3초). */
-const ABANDON = require('@/assets/ota/cutscenes/abandon.mp4');
 /** 도착 뒤 인벤토리 재조회를 기다리는 최대 시간. */
 const INVENTORY_WAIT_MS = 3000;
 /** 이모트 표시 수명 — 섬 응원과 같은 3초. */
@@ -81,7 +78,7 @@ const arrivalFrom = (detail: unknown): SeaArrival | null => {
  * - 남은 분·정박은 앱 파생이다: 서버가 준 activeSeconds 를 «받은 시각»부터 기기 시계로 이어 센다(기기·서버 시계 차이를 타지
  *   않아 시계가 빠른 기기가 정박 전에 [섬에 내리기]를 띄워 도착을 잃지 않는다). 정박 = activeSeconds ≥ targetMinutes×60.
  * - 그만두기와 내리기는 같은 `finish` 다. 서버가 `arrived=true` 면(오래된 화면에서 그만두기를 눌렀어도) 결과창으로, 아니면
- *   멀어지는 연출 뒤 같은 화면의 표류 상태(`voyage=null`)로 남는다.
+ *   별도 연출 없이 같은 화면의 표류 상태(`voyage=null`)로 남는다.
  * - 라우트 인자(`e.detail`)는 `sea` 에서는 망원경이 넘긴 목적지 이름, `seaArrival` 에서는 `SeaArrivalParam` JSON 이다.
  * - 오늘 고양이 잡지(GROMO-2314, `e.magazineToday`): 표류 중 아직 받지 않은 오늘 호면 펠리컨이 한 번 알리고(띄우는 순간 받음 SEA),
  *   받은 호(바다·섬 어디서든)는 내 뗏목 옆 물건으로 둔다. 둘 다 `seaMagazine`(인자 = 호 id)으로 펼친다. 꽂이는 바다에 없다.
@@ -102,7 +99,6 @@ export function SeaVoyageHost({ e }: { e: any }) {
   } | null>(null);
   const remarkRef = useRef(remark);
   remarkRef.current = remark;
-  const [departFrom, setDepartFrom] = useState<string | null>(null);
   // 목록에서 찾은 목적지 이름 — 어느 세션·목적지의 이름인지 같이 들고, 바뀌면 버린다
   const [fetchedName, setFetchedName] = useState<{
     sessionId: string;
@@ -142,7 +138,7 @@ export function SeaVoyageHost({ e }: { e: any }) {
     if (finished.arrived) {
       const param: SeaArrivalParam = { finish: finished, destinationName: name };
       eRef.current.replace('seaArrival', JSON.stringify(param));
-    } else setDepartFrom(name);
+    }
   };
   const retryFinish = async () => {
     const pending = pendingFinish.current;
@@ -299,7 +295,7 @@ export function SeaVoyageHost({ e }: { e: any }) {
   // 다른 곳에서 받았으면 띄울 차례를 거둔다
   const today: MagazineToday | null = e.magazineToday ?? null;
   const issue = today?.issue?.current ? today.issue : null;
-  const drifting = e.route === 'sea' && !session && !departFrom;
+  const drifting = e.route === 'sea' && !session;
   // 첫 섬 대기·튜토리얼 진행·완료 이력 복원 중에는 잡지로 첫 흐름을 가로막지 않는다.
   const magazineReady = drifting && (!!s.focusGuideDone || (s.tutorial?.step ?? 0) >= 22);
   const [delivering, setDelivering] = useState<string | null>(null);
@@ -314,8 +310,8 @@ export function SeaVoyageHost({ e }: { e: any }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [magazineReady, issue?.issueId, today?.receipt]);
   // 운영진의 편지(GROMO-2615) — 배달이 실제로 진행 중인 동안만 App 에 알린다(편지가 떠 있으면 배달이 보류라 알리지 않는다)
-  // 출항·포기 연출(departFrom)과 항해 결과창(arrival)이 떠 있는 동안도 같은 신호다
-  const deliveryActive = (!!delivering && !e.letterOpen) || !!departFrom || !!arrival;
+  // 항해 결과창(arrival)이 떠 있는 동안도 같은 신호다
+  const deliveryActive = (!!delivering && !e.letterOpen) || !!arrival;
   const setSceneGuideOpen = e.setSceneGuideOpen;
   useEffect(() => {
     if (!deliveryActive) return;
@@ -338,7 +334,6 @@ export function SeaVoyageHost({ e }: { e: any }) {
   // 나머지는 불리지 않아 이중 처리가 없다. 항해 확인 패널은 2303 공개 props 로 열 수 없어 안내만 하고 삼킨다.
   const onBack = useRef<() => boolean>(() => false);
   onBack.current = () => {
-    if (departFrom) return true; // 멀어지는 연출 중
     if (session && !arrival) {
       e.notify(t('openSea.backBlocked'));
       return true;
@@ -377,16 +372,6 @@ export function SeaVoyageHost({ e }: { e: any }) {
     };
   }
 
-  if (departFrom)
-    return (
-      <VideoCutscene
-        source={ABANDON}
-        accessibilityLabel={t('openSea.abandonCutscene', { name: departFrom })}
-        testID="abandon-cutscene"
-        onFinish={() => setDepartFrom(null)}
-      />
-    );
-
   const withEmote = (p: SeaParticipant): SeaParticipant =>
     emotes[p.userId] ? { ...p, emote: emotes[p.userId] } : p;
   const mine = members.find((m) => m.userId === selfId);
@@ -418,7 +403,6 @@ export function SeaVoyageHost({ e }: { e: any }) {
         if (!session || session.id !== sessionId) throw new Error('stale voyage');
         if (e.focusBlockingIntroPreview && !e.focus) {
           e.dispatch({ type: 'SESSION_SYNC', session: null });
-          setDepartFrom(destinationName);
           return;
         }
         if (!e.focus) throw new Error('stale voyage');

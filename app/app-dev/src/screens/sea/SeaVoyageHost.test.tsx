@@ -1,4 +1,4 @@
-// 바다 항해 호스트(GROMO-2310) — 세션 정본 → SeaScreen 어댑터: 남은 분 → 정박 문구, 그만두기 확인 1회 → 멀어지는 연출 → 표류,
+// 바다 항해 호스트(GROMO-2310) — 세션 정본 → SeaScreen 어댑터: 남은 분 → 정박 문구, 그만두기 확인 1회 → 즉시 표류,
 // 내리기 → seaArrival 라우트 인자, 한마디 잠금·게스트. 바다 방 STOMP·연출·API 는 목이다.
 import React from 'react';
 import { act, fireEvent, render } from '@testing-library/react-native';
@@ -66,8 +66,8 @@ jest.mock('@/services/seaRealtime', () => ({
     return mockRoom;
   }),
 }));
-jest.mock('@/components/VideoCutscene', () => ({
-  VideoCutscene: ({ accessibilityLabel, testID, onFinish }: any) => {
+jest.mock('@/screens/world/HarborCutscene', () => ({
+  HarborCutscene: ({ accessibilityLabel, testID, onFinish }: any) => {
     const { Pressable, Text } = require('react-native');
     return (
       <Pressable testID={testID} onPress={onFinish}>
@@ -169,7 +169,7 @@ test('남은 분이 줄다가 목표 시간에 닿으면 「○○ 앞 정박 �
   expect(screen.getByLabelText('섬에 내리기')).toBeTruthy();
 });
 
-test('그만두기는 확인창을 한 번 거쳐 finish 하고, 멀어지는 연출 뒤 표류(망원경 버튼)로 남는다', async () => {
+test('그만두기는 확인창을 한 번 거쳐 finish 하고, 컷신 없이 즉시 표류(망원경 버튼)로 남는다', async () => {
   const e = env();
   e.focus.finish.mockResolvedValue({ recordId: 'sea-1', arrived: false, activeSeconds: 1700 });
   const screen = await render(<SeaVoyageHost e={e} />);
@@ -180,19 +180,16 @@ test('그만두기는 확인창을 한 번 거쳐 finish 하고, 멀어지는 �
   await fireEvent.press(screen.getByLabelText('집중 마치기'));
   await act(async () => {});
   expect(e.focus.finish).toHaveBeenCalledTimes(1);
-  expect(screen.getByTestId('abandon-cutscene-label').props.children).toContain('별고래섬');
-  // 연출 중 뒤로가기는 삼킨다
-  expect(e.backOverride.current?.()).toBe(true);
   // 실제 앱에서는 finish 가 세션을 닫는다
   const ended = { ...e, state: { ...e.state, session: null } };
   await screen.rerender(<SeaVoyageHost e={ended} />);
-  await fireEvent.press(screen.getByTestId('abandon-cutscene'));
+  expect(screen.queryByTestId('abandon-cutscene')).toBeNull();
   await fireEvent.press(screen.getByLabelText('망원경'));
   expect(e.go).toHaveBeenCalledWith('telescope');
   expect(e.replace).not.toHaveBeenCalled();
 });
 
-test('출항·포기 연출 동안 setSceneGuideOpen(true), 끝나면 false(GROMO-2615)', async () => {
+test('항해 중단 후에는 컷신 없이 표류하고 장면 점유 신호도 보내지 않는다(GROMO-2615)', async () => {
   const setSceneGuideOpen = jest.fn();
   const e = env({ setSceneGuideOpen });
   e.focus.finish.mockResolvedValue({ recordId: 'sea-1', arrived: false, activeSeconds: 1700 });
@@ -201,10 +198,9 @@ test('출항·포기 연출 동안 setSceneGuideOpen(true), 끝나면 false(GROM
   await fireEvent.press(screen.getByLabelText('집중 마치기'));
   await fireEvent.press(screen.getByLabelText('집중 마치기'));
   await act(async () => {});
-  expect(setSceneGuideOpen).toHaveBeenLastCalledWith(true);
   await screen.rerender(<SeaVoyageHost e={{ ...e, state: { ...e.state, session: null } }} />);
-  await fireEvent.press(screen.getByTestId('abandon-cutscene'));
-  expect(setSceneGuideOpen).toHaveBeenLastCalledWith(false);
+  expect(screen.getByLabelText('망원경')).toBeTruthy();
+  expect(setSceneGuideOpen).not.toHaveBeenCalledWith(true);
 });
 
 test('항해 결과창이 떠 있는 동안 setSceneGuideOpen(true), 떠나면 false(GROMO-2615)', async () => {
@@ -231,7 +227,7 @@ test('권한 미리보기의 로컬 항해도 서버 연결 없이 종료하고 
   expect(dispatch).toHaveBeenCalledWith({ type: 'SESSION_SYNC', session: null });
   expect(openSeaRoom).not.toHaveBeenCalled();
   await screen.rerender(<SeaVoyageHost e={{ ...e, state: { ...e.state, session: null } }} />);
-  await fireEvent.press(screen.getByTestId('abandon-cutscene'));
+  expect(screen.queryByTestId('abandon-cutscene')).toBeNull();
   expect(screen.getByLabelText('망원경')).toBeTruthy();
 });
 
@@ -1074,7 +1070,7 @@ describe('바다 고양이 잡지(GROMO-2314) — 펠리컨 배달 B1 · 뗏목 
     expect(announce).toHaveBeenCalledTimes(1);
   });
 
-  test('항해를 그만두고 멀어지는 연출이 끝나 표류가 되면 그때 펠리컨이 뜬다', async () => {
+  test('항해를 그만두고 표류가 되면 중단 컷신 대기 없이 펠리컨이 뜬다', async () => {
     const e = env({ magazineToday: { issue, receipt: null } });
     e.state.focusGuideDone = true;
     e.focus.finish.mockResolvedValue({ recordId: 'sea-1', arrived: false, activeSeconds: 1700 });
@@ -1084,10 +1080,7 @@ describe('바다 고양이 잡지(GROMO-2314) — 펠리컨 배달 B1 · 뗏목 
     await act(async () => {});
     const ended = { ...e, state: { ...e.state, session: null } };
     await screen.rerender(<SeaVoyageHost e={ended} />);
-    // 멀어지는 연출 중에는 아직이다
-    expect(screen.getByTestId('abandon-cutscene')).toBeTruthy();
-    expect(putReceipt).not.toHaveBeenCalled();
-    await fireEvent.press(screen.getByTestId('abandon-cutscene'));
+    expect(screen.queryByTestId('abandon-cutscene')).toBeNull();
     expect(screen.getByTestId('sea-magazine-delivery')).toBeTruthy();
     expect(putReceipt).toHaveBeenCalledTimes(1);
     expect(putReceipt).toHaveBeenCalledWith('iss-20', { place: 'SEA' });

@@ -235,7 +235,7 @@ export function SeaPreview() {
               pointerEvents={preparing ? 'none' : 'auto'}
             >
               {departing ? (
-                <SeaDeparture onComplete={() => setDeparting(false)} />
+                <SeaDeparture color={people[0].color} onComplete={() => setDeparting(false)} />
               ) : visited ? (
                 <View style={styles.visited}>
                   <Txt kind="h">별고래섬 방문 연결 지점</Txt>

@@ -1163,7 +1163,6 @@
     "sessionRevoked": "다른 곳에서 로그아웃돼 실시간 연결이 끊겼어요."
   },
   "openSea": {
-    "abandonCutscene": "{{name}} 항해를 그만두고 바다에 머물러요. 섬이 멀어져요.",
     "name": "먼바다",
     "skip": "건너뛰기",
     "duration": "{{minutes}}분 {{seconds}}초",
