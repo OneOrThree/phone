@@ -27,6 +27,7 @@ import { stripNicknameWhitespace } from '@/utils/nickname';
 import type { TelescopeItem } from '@/services/api/telescope';
 import { colorName, colors, sessionRoute, type Color, type State } from '@/services/model';
 import { errorTextOr, t } from '@/i18n';
+import { captureProductEvent } from '@/services/posthog';
 import {
   firstStoryStep,
   nextStoryStep,
@@ -38,6 +39,7 @@ import {
 import { StoryRaft, storyCats } from './StoryRaft';
 import { ISLAND_STAGE_ART, islandStage } from '@/constants/magazineAssets';
 import { useStoryLine } from './useStoryLine';
+import { useFirstVoyage } from './useFirstVoyage';
 
 const ui = componentTokens.onboarding;
 const { space } = primitiveTokens;
@@ -46,6 +48,7 @@ const c = semanticTokens.color;
 /** character 라우트의 신규 계정 흐름. profile 완료와 story 완료를 별도로 보관한다. */
 export function OnboardingFlow({ e, previewItems }: { e: any; previewItems?: TelescopeItem[] }) {
   const state: State = e.state;
+  const firstVoyage = useFirstVoyage(e, !!previewItems);
   const layout = useAppLayout();
   const fontFamily = useGowun();
   const [step, setStep] = useState<StoryStep>(() => firstStoryStep(state.onboardingStory));
@@ -76,7 +79,10 @@ export function OnboardingFlow({ e, previewItems }: { e: any; previewItems?: Tel
         ? 'readyEmpty'
         : 'readyJoined'
       : step;
-  const line = storyHasLine(step) ? t(`onboardingStory.${lineKey}`, { name }) : '';
+  const firstLine = firstVoyage.eligible && ['invite', 'scope', 'depart'].includes(lineKey);
+  const line = storyHasLine(step)
+    ? t(firstLine ? `firstVoyage.${lineKey}` : `onboardingStory.${lineKey}`, { name })
+    : '';
   const typing = useStoryLine(step, line);
   const scroll = useRef<ScrollView>(null);
   const width = Math.min(layout.width, ui.maxWidth);
@@ -105,6 +111,13 @@ export function OnboardingFlow({ e, previewItems }: { e: any; previewItems?: Tel
       mounted.current = false;
     };
   }, []);
+  // 장면 진입마다 1회 — 이탈 장면 파악용
+  useEffect(() => {
+    captureProductEvent('onboarding_scene_viewed', {
+      scene: step,
+      scene_index: storySteps.indexOf(step),
+    });
+  }, [step]);
   useEffect(() => {
     if (step !== 'arrival') return;
     const timer = setTimeout(() => setStep('silence'), ui.introDelay);
@@ -181,6 +194,7 @@ export function OnboardingFlow({ e, previewItems }: { e: any; previewItems?: Tel
   };
   const start = async () => {
     if (!selected || requestLock.current) return;
+    if (firstVoyage.eligible) return firstVoyage.start(selected);
     requestLock.current = true;
     setPending(true);
     setError('');
@@ -229,6 +243,7 @@ export function OnboardingFlow({ e, previewItems }: { e: any; previewItems?: Tel
   };
   const back = useRef<() => boolean>(() => false);
   back.current = () => {
+    if (firstVoyage.scene) return true;
     if (pending) return true;
     if (step === 'depart') {
       enterSea();
@@ -280,6 +295,8 @@ export function OnboardingFlow({ e, previewItems }: { e: any; previewItems?: Tel
           ? 'startPending'
           : 'start'
         : 'enterSea';
+
+  if (firstVoyage.scene) return firstVoyage.scene;
 
   if (step === 'choose')
     return (
@@ -459,10 +476,14 @@ export function OnboardingFlow({ e, previewItems }: { e: any; previewItems?: Tel
                       key={item.islandId}
                       testID={`onboarding-island-${item.islandId}`}
                       accessibilityRole="button"
-                      accessibilityLabel={t('onboardingStory.destination', {
-                        name: item.name,
-                        minutes: item.sailingMinutes,
-                      })}
+                      accessibilityLabel={
+                        firstVoyage.eligible !== false
+                          ? item.name
+                          : t('onboardingStory.destination', {
+                              name: item.name,
+                              minutes: item.sailingMinutes,
+                            })
+                      }
                       accessibilityState={{
                         selected: selectedId === item.islandId,
                         disabled: pending,
@@ -487,10 +508,12 @@ export function OnboardingFlow({ e, previewItems }: { e: any; previewItems?: Tel
                           selectedId === item.islandId && styles.selected,
                         ]}
                       >
-                        {t('onboardingStory.islandLabel', {
-                          name: item.name,
-                          minutes: item.sailingMinutes,
-                        })}
+                        {firstVoyage.eligible !== false
+                          ? item.name
+                          : t('onboardingStory.islandLabel', {
+                              name: item.name,
+                              minutes: item.sailingMinutes,
+                            })}
                       </Txt>
                     </Pressable>
                   ))}
@@ -499,10 +522,12 @@ export function OnboardingFlow({ e, previewItems }: { e: any; previewItems?: Tel
               {step === 'ready' && selected && (
                 <View style={styles.destination}>
                   <Txt style={[styles.center, font]}>
-                    {t('onboardingStory.destination', {
-                      name: selected.name,
-                      minutes: selected.sailingMinutes,
-                    })}
+                    {firstVoyage.eligible !== false
+                      ? selected.name
+                      : t('onboardingStory.destination', {
+                          name: selected.name,
+                          minutes: selected.sailingMinutes,
+                        })}
                   </Txt>
                 </View>
               )}
@@ -566,8 +591,17 @@ export function OnboardingFlow({ e, previewItems }: { e: any; previewItems?: Tel
               <Btn
                 id="onboarding-continue"
                 dynamicHeight
-                title={t(`onboardingStory.${ctaText}`)}
-                disabled={pending || (nameStep && !name) || (step === 'ready' && !selected)}
+                title={t(
+                  firstVoyage.eligible && step === 'ready'
+                    ? 'firstVoyage.start'
+                    : `onboardingStory.${ctaText}`,
+                )}
+                disabled={
+                  pending ||
+                  firstVoyage.pending ||
+                  (nameStep && !name) ||
+                  (step === 'ready' && (!selected || firstVoyage.eligible === null))
+                }
                 onPress={cta}
               />
             </View>

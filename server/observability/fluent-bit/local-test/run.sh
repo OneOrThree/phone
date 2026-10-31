@@ -5,7 +5,7 @@ set -uo pipefail
 cd "$(dirname "$0")"
 C="docker compose -p obs2562-collector -f docker-compose.yml"
 ok=0; fail() { echo "FAIL: $*"; ok=1; }
-clean() { docker rm -f gen_a gen_b gen_c gen_f gen_g gen_h gen_r decoy-other-project >/dev/null 2>&1; $C --profile gen down -v --remove-orphans >/dev/null 2>&1; }
+clean() { docker rm -f gen_a gen_b gen_c gen_f gen_g gen_h gen_p gen_r decoy-other-project >/dev/null 2>&1; $C --profile gen down -v --remove-orphans >/dev/null 2>&1; }
 trap clean EXIT
 clean
 WAIT=${WAIT:-90}   # 폴링 상한(초)
@@ -24,6 +24,11 @@ docker run -d --name decoy-other-project --label com.docker.compose.project=othe
   --label com.docker.compose.service=data-api alpine sh -c 'for i in $(seq 50); do echo "{\"schema_version\":1,\"log_kind\":\"application\",\"log_id\":\"decoy-$i\"}"; done' >/dev/null
 gen a 500 5 extras
 python3 check.py --wait $WAIT a:500 || fail "(a) 누락·중복"
+
+echo "== (p) prod V2 compose 서비스 이름 app 은 data-api 로 식별된다(별칭). 수집 안 되면 누락, service=app 이 새면 (d) 가 잡는다"
+docker run -d --name gen_p --label com.docker.compose.project=obs2562-collector --label com.docker.compose.service=app \
+  --network none -v "$PWD/gen.py:/gen.py:ro" --entrypoint python python:3.12-alpine -u /gen.py p 50 5 >/dev/null
+python3 check.py --wait $WAIT p:50 || fail "(p) app 별칭 누락·중복"
 
 echo "== (b) 전송 중 Fluent Bit docker restart"
 gen b 500 40

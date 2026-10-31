@@ -1,0 +1,44 @@
+name: Kafka CD (dev)-v2
+on:
+  workflow_dispatch:
+    inputs:
+      manifest_uri:
+        description: 검증된 dev V2 manifest GCS URI
+        required: true
+        type: string
+permissions:
+  contents: read
+  actions: write
+  id-token: write
+concurrency:
+  group: catus-dev-v2-deploy
+  cancel-in-progress: false
+  queue: max
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: dev-v2
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_DEV_V2_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEV_V2_DEPLOY_SA }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEV_V2_ROLE_ARN }}
+          aws-region: ap-northeast-2
+      - name: dev V2 런타임 적용과 검증
+        env:
+          MANIFEST_URI: ${{ inputs.manifest_uri }}
+        run: python3 .github/scripts/v2/dev/dev-deploy-runtime-V2.py --role kafka --manifest-uri "$MANIFEST_URI"
+      - name: 대기 중 취소됐을 수 있는 자동 배포 재평가
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run cd-auto.dev-v2.yml --repo OneOrThree/phone --ref main

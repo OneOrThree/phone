@@ -60,7 +60,7 @@ test.each([
 });
 
 test.each([
-  ['ko', '참여 신청이 완료됐어요. 방장이 확인하면 알려드릴게요.'],
+  ['ko', '참여 신청이 완료됐어요. 섬장이 확인하면 알려드릴게요.'],
   ['en', "Request sent. We'll let you know once the host responds."],
 ] as const)('%s — 승인제 가입은 신청 완료만 알리고 구경을 이어 간다', async (locale, text) => {
   applyLocalePref(locale);

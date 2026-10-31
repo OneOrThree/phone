@@ -67,7 +67,7 @@
 | `DD_TRACE_128_BIT_TRACEID_LOGGING_ENABLED` | 4개 앱 모두 **미설정**. 1.64.0 기본값은 이 조사에서 확인하지 않았다 | 미확인 |
 | 로그 제외 | 저장소 설정은 관측 스택 일부(loki, promtail 등)를 로그 수집에서 제외 | 설정상: `server/scripts/docker-compose.datadog.yml:40` |
 
-새 수집기(Fluent Bit)를 붙이면 같은 컨테이너 stdout이 Datadog Logs와 새 경로로 이중 적재된다. 유지·제외 여부는 결정 대기이며 이 문서가 정하지 않는다. **결정 대기 — [decisions-ingest-and-s3-credentials.md](decisions-ingest-and-s3-credentials.md)**
+새 수집기(Fluent Bit)를 붙이면 같은 컨테이너 stdout이 Datadog Logs와 새 경로로 이중 적재된다. 2026-10-30 «당분간 둘 다 유지»로 정했다([decisions-ingest-and-s3-credentials.md](decisions-ingest-and-s3-credentials.md) §5).
 
 ### 2.4 로그 생산량 60초 샘플
 
@@ -146,9 +146,9 @@ sum:datadog.estimated_usage.logs.ingested_events{*} by {service,env}.as_count()
 
 | 항목 | 출처 | 설정상 값 | 근거 |
 | --- | --- | --- | --- |
-| 앱 이미지 | Catus 워크플로 | ECR 저장소 `catus-prod/<service>`, `linux/arm64`, 릴리스에 digest 조합 기록 | `.github/workflows/prod-ci.yml:152,171-172`, `deployment.md:100-101` |
+| 앱 이미지 | Catus 워크플로(조사 당시 V1 `prod-ci.yml`, 현행은 `prod-ci-V2.yml`. 줄 번호는 V1 기준) | ECR 저장소 `catus-prod/<service>`, `linux/arm64`, 릴리스에 digest 조합 기록 | `.github/workflows/prod-ci.yml:152,171-172`, `deployment.md:100-101` |
 | 실행 구성 고정 | Catus 워크플로 | `CATUS_PROD_INFRA_REVISION` 40자리 SHA, S3 `configurations/<SHA>/configuration.zip` 검증 | `prod-ci.yml:70,93`, `deployment.md:78` |
-| 배포 방식 | Catus 워크플로 | `prod-cd.yml`, SSM 전송 | `.github/workflows/prod-cd.yml:55-80` |
+| 배포 방식 | Catus 워크플로 | `prod-cd.yml`(현행은 `prod-cd-V2.yml`), SSM 전송 | `.github/workflows/prod-cd.yml:55-80` |
 | DD agent | 1.x compose | `gcr.io/datadoghq/agent:7`(태그 고정 아님), `DD_LOGS_CONFIG_CONTAINER_COLLECT_ALL=true`, `DD_LOGS_CONFIG_DOCKER_CONTAINER_USE_FILE=true`, APM 활성 | `docker-compose.prod.yml:88,104,108,112` |
 | 로그 오프셋 | 1.x compose | named volume `datadog_agent_run` | `docker-compose.prod.yml:121` |
 | tracer | Catus Dockerfile | dd-java-agent 1.64.0 jar를 각 Dockerfile이 포함 | `server/data-api/Dockerfile:43`, `server/business-api/Dockerfile:40`, `server/notification/Dockerfile:41`, `server/realtime/Dockerfile:41` |
@@ -262,7 +262,7 @@ AWS 접근 불가로 아래는 모두 **미확인**이다. 하나라도 확인�
 | versioning | 미확인 | 켜져 있으면 비현재 버전 만료 규칙 필요 | `get-bucket-versioning` |
 | 불완전 multipart | 미확인 | 오래된 업로드 잔존 | `list-multipart-uploads` |
 | Fluent Bit 쓰기 IAM | 미확인 | `system_log/v2/` 최소 권한 + 타 환경 쓰기 차단 + 삭제 불가 확인 불가 | (A) 역할 identity policy 시뮬레이션 + (B) 버킷 정책 검토(아래, 둘을 결합하지 않는다) |
-| dev -> S3 자격 방식 | 미결정 — **결정 대기 — [decisions-ingest-and-s3-credentials.md](decisions-ingest-and-s3-credentials.md)** | dev에 AWS 자격 경로 없음(aws CLI만 설치) | 결정 필요 |
+| dev -> S3 자격 방식 | dev S3 미사용으로 결정(2026-10-30, [decisions-ingest-and-s3-credentials.md](decisions-ingest-and-s3-credentials.md) §5) | dev에 AWS 자격 경로 없음(aws CLI만 설치) | 결정 완료 |
 | 롤백 소유자 | 미확인 | S3 설정·업로더 롤백 담당 미지정 | 담당 확인 |
 | 업로더 중복(590 timer / 2288) | 미확인 | 이중 적재로 중복 | prod 호스트 `systemctl list-timers` |
 
@@ -396,7 +396,7 @@ aws --profile gromo s3api get-bucket-policy --bucket "$B" --query Policy --outpu
 
 | 질문 | dev | prod |
 | --- | --- | --- |
-| Datadog Logs와 새 수집기의 이중 적재 | 현재 Datadog 단독 수집(실측). 새 경로 추가 시 이중 → **결정 대기**([결정 문서](decisions-ingest-and-s3-credentials.md)) | 같은 구조(설정상). 결정 대기 |
+| Datadog Logs와 새 수집기의 이중 적재 | 현재 Datadog 단독 수집(실측). 새 경로 추가 시 이중 → **당분간 유지로 결정**([결정 문서](decisions-ingest-and-s3-credentials.md) §5) | 같은 구조(설정상). 같은 결정 |
 | S3 업로더(timer/cron) | **없음**(실측) | 590 매시간 타이머(설정상), 2288 범위는 미확인 |
 | Loki·Promtail 가동 | **미가동**(실측) | 해당 없음(overlay는 dev용) |
 

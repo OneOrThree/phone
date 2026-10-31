@@ -22,10 +22,23 @@ public final class DeveloperNoticeResponses {
 
     @Schema(name = "DeveloperNoticeView")
     public record Notice(UUID publicationId, String title, String body, Instant startsAt,
-                         @JsonInclude(JsonInclude.Include.ALWAYS) Instant endsAt, Instant publishedAt) {
+                         @JsonInclude(JsonInclude.Include.ALWAYS) Instant endsAt, Instant publishedAt,
+                         boolean forcesUpdate) {
         public static Notice from(DeveloperNotices.Notice value) {
             return new Notice(value.publicationId(), value.title(), value.body(), value.startsAt(),
-                    value.endsAt(), value.publishedAt());
+                    value.endsAt(), value.publishedAt(),
+                    value.minIosVersion() != null || value.minAndroidVersion() != null);
+        }
+    }
+
+    /** 로그인 전 앱이 읽는 최소 버전. 공지가 없으면 키는 있고 값만 전부 null. */
+    @Schema(name = "AppRequirement")
+    @JsonInclude(JsonInclude.Include.ALWAYS)
+    public record AppRequirement(String minVersion, String title, String body, UUID publicationId,
+                                 Instant publishedAt) {
+        public static AppRequirement from(DeveloperNotices.AppRequirement value) {
+            return new AppRequirement(value.minVersion(), value.title(), value.body(), value.publicationId(),
+                    value.publishedAt());
         }
     }
 }

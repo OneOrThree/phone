@@ -39,6 +39,7 @@ location = /ws/realtime {
 
 # 신규 앱 API: 정확한 루트와 / 하위만 연결한다. URI·쿼리·본문을 재작성하지 않는다.
 # /auth/sessions의 선택 AT/RT 등 인증 예외는 Business의 개별 계약이 결정한다.
+# 로그인 전 공개 조회 GET /auth/sessions/app-requirements 도 아래 auth/sessions 분기가 전달한다.
 # POST /islands/{islandId}/host-transfer도 아래 islands 분기가 전달한다.
 # 집중 세션 수명주기(GROMO-1764)도 마찬가지로 아래 두 분기가 그대로 전달한다 — 새 location 이
 # 필요하지 않다. focus-sessions 분기: POST /focus-sessions · GET /focus-sessions/current ·
@@ -113,6 +114,7 @@ location = /ws/realtime {
 # GET /me/join-requests (단건 GET·DELETE /me/join-requests/{requestId} 는 1760 에서 이미 열렸다).
 # 섬 오가기 도착(GROMO-2260)도 islands 분기가 그대로 전달한다 — 새 location 이 필요하지 않다.
 # POST /islands/{islandId}/arrivals. 나가기·강퇴의 ?include=nextLocation, 편지의 ?kind=system 은 기존 경로의 쿼리다.
+# POST /islands/{islandId}/intro-arrivals — 첫 항해 화면 체험 후 실제 섬 도착(기존 /islands/ 라우팅 사용).
 # 섬장 인사말·방명록(GROMO-2262)도 islands 분기가 그대로 전달한다 — 새 location 이 필요하지 않다.
 # GET·POST /islands/{islandId}/guestbook · DELETE /islands/{islandId}/guestbook/{entryId}. 인사말은 기존 PATCH /islands/{islandId} 의 필드다.
 # 망원경 목록(GROMO-2265)도 me 분기가 그대로 전달한다 — 새 location 이 필요하지 않다.

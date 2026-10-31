@@ -1,17 +1,15 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { VideoCutscene } from '@/components/VideoCutscene';
+import { HarborCutscene } from '@/screens/world/HarborCutscene';
 import { t } from '@/i18n';
 import { sessionGeneration } from '@/services/api/session';
 import { islandErrorMessage } from '@/services/islandErrors';
 import { canSwitchIsland, type State } from '@/services/model';
 
-const ARRIVAL = require('@/assets/ota/cutscenes/arrival.mp4');
-
 /** 연출이 끝나면 할 화면 전환. 서버 요청이 끝난 뒤에 정해진다. */
 type Landing = () => void;
 
 /**
- * 섬 사이 항해(GROMO-2261 뗏목 행선지 · GROMO-2266 망원경) — 서버 요청 → 4초 도착 영상 → 도착 처리.
+ * 섬 사이 항해(GROMO-2261 뗏목 행선지 · GROMO-2266 망원경) — 서버 요청 → 4초 접안 장면 → 도착 처리.
  * 뗏목 행선지와 망원경이 같이 쓴다. 요청을 연출보다 먼저 끝내므로 실패는 연출 없이 바로 알리고,
  * 연출이 끝나면 화면 전환만 한다.
  *
@@ -86,12 +84,14 @@ export function useIslandSailing(e: any) {
   };
 
   const sailing = voyage ? (
-    <VideoCutscene
-      source={ARRIVAL}
+    <HarborCutscene
+      direction="arrival"
+      color={s.color}
+      outfit={s.equipped}
       accessibilityLabel={t('arrivalCutscene.label', { destination: voyage.to })}
       testID="arrival-cutscene"
-      // 영상 4초 사이 로그아웃·계정 전환이 생기면 이전 세션의 도착 처리를 새 세션 위에서 하지 않고,
-      // 영상 오버레이·뒤로가기 삼킴(busy)만 거둔다.
+      // 연출 4초 사이 로그아웃·계정 전환이 생기면 이전 세션의 도착 처리를 새 세션 위에서 하지 않고,
+      // 접안 장면·뒤로가기 삼킴(busy)만 거둔다.
       onFinish={() => {
         if (sessionGeneration() === voyage.gen) voyage.land();
         else setVoyage(null);

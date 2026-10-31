@@ -23,6 +23,10 @@ public class DeveloperNoticeUseCase {
         return required(data.fetchDeveloperNotice(userId, publicationId, deadline));
     }
 
+    public DeveloperNotices.AppRequirement appRequirement(String platform, Deadline deadline) {
+        return required(data.fetchAppRequirement(platform, deadline));
+    }
+
     private static <T> T required(T value) {
         if (value == null) {
             throw new UpstreamContractMismatchException("개발자 소식 응답이 없습니다");

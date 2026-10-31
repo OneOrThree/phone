@@ -34,6 +34,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ApiError, CLIENT_STALE_SESSION } from '@/services/api/client';
 import { getSession, sessionGeneration } from '@/services/api/session';
+import { captureProductEvent } from '@/services/posthog';
 import {
   closeLetter as delLetter,
   getLetter,
@@ -363,6 +364,8 @@ export function useMailbox({ active, scopeKey }: { active: boolean; scopeKey: st
       set({ sending: true });
       try {
         const created = await postLetter({ receiverId, content });
+        // POST 201 = 발송 확정 1회(sending 플래그로 중복 탭 차단) — 우체통 핵심 행동
+        captureProductEvent('feature_used', { building: 'mail', action: 'send' });
         await refreshLetters(e, generation).catch(() => {});
         return created;
       } finally {

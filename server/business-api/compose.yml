@@ -41,7 +41,7 @@ services:
     - ${BUSINESS_API_ENV_FILE:?Business 전용 env 파일 필요}
     environment:
       SERVER_PORT: '8080'
-      DD_SERVICE: gromo-business-${DEPLOY_ENV:-dev}
+      DD_SERVICE: business-api
       OBS_SERVICE: business-api
       OBS_ENV: ${DEPLOY_ENV:-dev}
       OBS_VERSION: ${IMAGE_REVISION:-unknown}

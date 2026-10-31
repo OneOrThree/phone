@@ -43,6 +43,16 @@ jest.mock('@/services/api/quests', () => ({
   claimQuest: jest.fn(),
 }));
 
+const mockCapture = jest.fn();
+jest.mock('@/services/posthog', () => ({
+  captureProductEvent: (...a: unknown[]) => mockCapture(...a),
+  getPostHogClient: () => null,
+  initPostHog: () => {},
+  trackPostHogScreen: () => {},
+  identifyPostHogUser: () => {},
+  resetPostHogUser: () => {},
+}));
+
 const board = (
   items: { id: string; title: string }[],
   nextCursor: string | null = null,
@@ -526,6 +536,80 @@ test('성공 뒤의 다음 의도는 새 key 를 쓴다 — 바뀐 페이로드�
   });
   const [k1, k2] = [postNoticeMock.mock.calls[0][2], postNoticeMock.mock.calls[1][2]];
   assert.notEqual(k1, k2);
+  await hook.unmount();
+});
+
+test('글 작성 POST 커밋 성공 시 feature_used(board/write) 를 1회 발행한다', async () => {
+  const hook = await mountActive();
+  postNoticeMock.mockResolvedValue({ id: 'n9', title: 't', body: 'b' });
+  mockCapture.mockClear();
+
+  await act(async () => {
+    await hook.result.current.createNotice({ title: 't', body: 'b' });
+  });
+
+  expect(mockCapture.mock.calls).toEqual([
+    ['feature_used', { building: 'board', action: 'write' }],
+  ]);
+  await hook.unmount();
+});
+
+test('글 작성 POST 가 실패하면 feature_used 를 발행하지 않는다', async () => {
+  const hook = await mountActive();
+  postNoticeMock.mockRejectedValueOnce(
+    new ApiError('CLIENT_NETWORK_ERROR', '네트워크에 연결할 수 없어요.', 0),
+  );
+  mockCapture.mockClear();
+
+  await settle(hook.result.current.createNotice({ title: 't', body: 'b' }));
+
+  expect(mockCapture.mock.calls).toEqual([]);
+  await hook.unmount();
+});
+
+test('같은 글의 중복 탭은 단일 flight 로 합류해 feature_used 를 1회만 발행한다', async () => {
+  const hook = await mountActive();
+  const pending = deferred<{ id: string; title: string; body: string }>();
+  postNoticeMock.mockReturnValue(pending.promise);
+  mockCapture.mockClear();
+
+  await act(async () => {
+    const p1 = hook.result.current.createNotice({ title: 't', body: 'b' });
+    const p2 = hook.result.current.createNotice({ title: 't', body: 'b' });
+    pending.resolve({ id: 'n9', title: 't', body: 'b' });
+    await Promise.all([p1, p2]);
+  });
+
+  assert.equal(postNoticeMock.mock.calls.length, 1);
+  expect(mockCapture.mock.calls).toEqual([
+    ['feature_used', { building: 'board', action: 'write' }],
+  ]);
+  await hook.unmount();
+});
+
+test('재조회(refreshList) 실패 후 재시도해도 글 작성 이벤트는 1회만 발행한다', async () => {
+  const hook = await mountActive();
+  postNoticeMock.mockResolvedValue({ id: 'n9', title: 't', body: 'b' });
+  mockCapture.mockClear();
+
+  // 글 작성(POST)은 성공했는데 직후 목록 재조회가 1회 실패 → 멱등 키가 슬롯에 남는다.
+  getBoardMock.mockRejectedValueOnce(new ApiError('TEMPORARY', '다시 시도', 503));
+  getBoardMock.mockResolvedValue(board([{ id: 'n9', title: 't' }]));
+  await act(async () => {
+    await settle(hook.result.current.createNotice({ title: 't', body: 'b' }));
+  });
+  // 같은 의도로 재시도 — 서버는 기존 글을 멱등 재생하고 postNotice 는 다시 resolve 한다.
+  await act(async () => {
+    await hook.result.current.createNotice({ title: 't', body: 'b' });
+  });
+
+  // postNotice 는 커밋/재생으로 2회(같은 키) 호출됐지만 이벤트는 멱등 키당 1회만.
+  const keys = postNoticeMock.mock.calls.map((c) => c[2]);
+  assert.equal(keys.length, 2);
+  assert.equal(keys[0], keys[1]);
+  expect(mockCapture.mock.calls).toEqual([
+    ['feature_used', { building: 'board', action: 'write' }],
+  ]);
   await hook.unmount();
 });
 

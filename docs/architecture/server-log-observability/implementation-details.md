@@ -68,7 +68,7 @@
 
 기존 APP 파일은 컷오버 전까지 텍스트로 유지하고 Fluent Bit은 stdout만 읽는다. 파일 출력 제거와 기존 호스트 타이머의 APP 적재 중단·보존 정책은 컷오버(2556)에서 함께 정한다. user-activity 업로더까지 함께 중단하지 않는다. 향후 AsyncAppender가 필요해지면 queue·discard·종료 drain·drop 계측을 별도 설계하고 이벤트 snapshot 테스트를 통과시킨다.
 
-**실행 메타데이터.** 호스트의 compose 치환용 `DEPLOY_ENV`·`IMAGE_REVISION`은 자동으로 JVM 환경변수가 되지 않으므로 compose `environment:`에 `OBS_SERVICE`(서비스 이름 고정)·`OBS_ENV`·`OBS_VERSION`을 명시한다. provider는 이 값을 로그 패턴 치환이 아니라 Spring `Environment`에서 읽는다. **형식이 틀리면 그 필드를 조용히 생략한다**(`putRuntime`). 그래서 생략이 운영에서 드러나지 않도록 배포 전 검사(`deploy-core-dev.py`·`prepare-satellite-deploy.py`)가 렌더 결과의 OBS 값이 서비스·환경·배포 커밋과 다르거나 비면 배포를 막는다. 이 검사는 `docker compose config` 렌더 결과만 본다. **실제 컨테이너가 출력한 JSON의 service/env/version 확인은 아직 하지 않았다**(후속, 2556·2560). `DD_SERVICE`의 `gromo-back-prod` 등과 로그의 `data-api` 명칭은 별도 매핑표로 관리하고, APM 링크에 로그 service 이름을 그대로 넣지 않는다. prod(Catus) 실행 구성은 Infra 저장소 소유라 이 저장소에서 넣지 못했다.
+**실행 메타데이터.** 호스트의 compose 치환용 `DEPLOY_ENV`·`IMAGE_REVISION`은 자동으로 JVM 환경변수가 되지 않으므로 compose `environment:`에 `OBS_SERVICE`(서비스 이름 고정)·`OBS_ENV`·`OBS_VERSION`을 명시한다. provider는 이 값을 로그 패턴 치환이 아니라 Spring `Environment`에서 읽는다. **형식이 틀리면 그 필드를 조용히 생략한다**(`putRuntime`). 그래서 생략이 운영에서 드러나지 않도록 배포 전 검사(`deploy-core-dev.py`·`prepare-satellite-deploy.py`)가 렌더 결과의 OBS 값이 서비스·환경·배포 커밋과 다르거나 비면 배포를 막는다. 이 검사는 `docker compose config` 렌더 결과만 본다. **실제 컨테이너가 출력한 JSON의 service/env/version 확인은 아직 하지 않았다**(후속, 2556·2560). 앱 4종의 `DD_SERVICE`와 로그 service 는 논리 이름으로 맞춘다(`server/observability/datadog/README.md` 명칭표). prod(Catus) 실행 구성은 Infra 저장소 소유라 이 저장소에서 넣지 못하고 Infra PR 로 넣는다.
 
 ### 1.3 ObservationJsonProvider 구현 계약
 
@@ -77,7 +77,7 @@ provider가 출력하는 필드는 `log_id`, `log_kind`, `message`, `exception`,
 1. `ILoggingEvent.getMDCPropertyMap()`에서 **이벤트의 문맥**을 읽는다. provider 실행 스레드의 `MDC.get()` 또는 `CorrelationIdentifier.getTraceId()`로 현재 값을 읽지 않는다.
 2. `dd.trace_id`·`dd.span_id` 원문을 문자열로 유지하고 동일 ID의 canonical `trace_id`·`span_id`를 출력한다. canonical은 `TraceIds`가 한 곳에서 만든다. 기존 앱 UUID `trace_id`는 정규화 입력으로 사용하지 않는다(`legacy_trace_id`로 낸다). 실제 ID를 해석할 수 없으면 DD 원문만 보존하고 canonical 필드를 생략한다. **해석 실패의 «오류 계측»은 구현하지 않았다**(후속).
 3. 앱 MDC는 위 출력 책임 표의 ID allowlist만 허용한다. `attempt`, `status_code`, `duration_ms`는 검증 후 JSON 숫자로 출력한다. `event_name`은 `operation.link` 등 사전 정의 값만 구조화 필드로 허용한다. 임의 MDC 전체와 임의 structured argument를 덤프하지 않는다.
-4. `log_kind`는 허용된 접근 로그 이벤트면 `access`, 나머지는 `application`. 접근 로그의 method/route/status/duration은 검증된 구조화 필드로 전달한다. `ThreadLocal` 숫자를 message 정규식에서 추출하지 않는다.
+4. `log_kind`는 허용된 접근 로그 이벤트면 `access`, 나머지는 `application`. 접근 로그의 method/route/status/duration은 검증된 구조화 필드로 전달한다. business-api 접근 로그만 클라이언트 헤더 `X-App-Version`(`X.Y.Z`)·`X-App-Platform`(`ios`|`android`)을 검증해 `app_version`·`app_platform`으로 싣고, 형식이 어긋나면 키를 생략한다(서버 배포 버전 `version`과 별개). `ThreadLocal` 숫자를 message 정규식에서 추출하지 않는다.
 5. 로그 한 건마다 UUID `log_id`를 생성한다. 실제 수집되는 APP encoder는 하나로 유지해 Loki·S3에는 같은 ID가 전달된다. 로그 재수집 시 Fluent Bit이 새 ID를 만들지 않는다. **JSON이 아니어서 `parse_error=true`로 보관되는 raw 줄에는 `log_id`가 없다.** 이 줄은 Loki의 «같은 시각·같은 줄» 중복 제거와 `observed_at`에 기대며, 재읽기로 중복이 생길 수 있다는 한계가 있다. 향후 여러 직접 출력으로 분기하면 encoder마다 UUID를 만들지 말고 분기 전 이벤트에 한 번만 부여한다.
 6. `event.getFormattedMessage()`와 exception proxy에서 message/stack을 얻어 마스킹·크기 제한 후 출력한다. 원본이 한도의 2배를 넘으면 마스킹 전에 문자 경계에서 먼저 잘라 마스킹 비용을 출력 상한에 묶고, 마스킹 뒤 다시 한도로 자른다. 마스킹 정규식은 입력 길이에 선형이어야 한다(긴 영숫자 줄에서 동기 콘솔 로깅을 막지 않게). 제한 시 `truncated=true`, `original_size_bytes`를 추가한다. stack의 줄바꿈은 JSON 안에 escape한다. 기존 `%mask` 패턴 변환기를 JSON 전환 후 자동으로 적용된다고 가정하지 않는다.
 7. agent 미활성·기동 로그는 trace 없이도 정상 출력한다. provider 오류·드롭 계측에서 같은 logger를 재귀 호출하지 않는다.

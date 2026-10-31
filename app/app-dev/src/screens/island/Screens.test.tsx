@@ -16,7 +16,7 @@ import {
   View,
   type AppStateStatus,
 } from 'react-native';
-import { telescopeSea } from '@/screens/sea/seaAssets';
+import { seaAssets, telescopeSea } from '@/screens/sea/seaAssets';
 import { act, cleanup, fireEvent, render, waitFor, within } from '@testing-library/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
@@ -40,6 +40,10 @@ import { pinToTelescope } from '@/services/api/telescope';
 import { applyLocalePref } from '@/i18n';
 import { FEEDBACK_KAKAO_URL } from '@/services/api/safety';
 
+const mockCapture = jest.fn();
+jest.mock('@/services/posthog', () => ({
+  captureProductEvent: (...a: unknown[]) => mockCapture(...a),
+}));
 const mockRankings = jest.fn();
 jest.mock('@/screens/island/useIslandRankings', () => ({
   useIslandRankings: (...args: unknown[]) => mockRankings(...args),
@@ -212,6 +216,7 @@ function Harness({
   soundPlayer,
   onPreviewAudio,
   localePref = 'system',
+  fromSea = false,
 }: any) {
   const [activeRoute, setActiveRoute] = useState(route);
   const [shielded, setShielded] = useState(false);
@@ -273,6 +278,7 @@ function Harness({
       e={{
         state,
         route: flow ? activeRoute : route,
+        fromSea,
         dispatch,
         go,
         replace: jest.fn(),
@@ -2691,6 +2697,15 @@ describe('en', () => {
     assert.ok(s.getByText('Next'));
   });
 
+  test('몽돌 가이드는 줄 노출마다 island_guide_viewed 를 1회 발행한다', async () => {
+    mockCapture.mockClear();
+    await render(<Harness route="guide" />);
+
+    expect(mockCapture.mock.calls).toEqual([
+      ['island_guide_viewed', { variant: 'empty', step: 1 }],
+    ]);
+  });
+
   test('en 로케일 — 섬 찾기(서버)는 영문 제목과 가입 신청 버튼을 보여준다', async () => {
     mockLocales.mockReturnValue([{ languageCode: 'en', languageTag: 'en-US' }]);
     applyLocalePref('system');
@@ -3692,3 +3707,19 @@ describe('설정 「알림」 토글', () => {
     expect(toggle().props.accessibilityState.checked).toBe(true);
   });
 });
+
+test.each(['wardrobe', 'profile', 'settings'])(
+  '소속 섬이 있어도 바다에서 연 %s 시트는 바다 배경을 유지한다',
+  async (route) => {
+    const screen = await render(<Harness route={route} full fromSea />);
+    expect(screen.getByTestId('island-sheet-backdrop').props.source).toBe(seaAssets.background);
+  },
+);
+
+test.each(['wardrobe', 'profile', 'settings'])(
+  '섬에서 연 %s 시트는 기존 부두 배경을 유지한다',
+  async (route) => {
+    const screen = await render(<Harness route={route} full />);
+    expect(screen.getByTestId('island-sheet-backdrop').props.source).toBe(art['bldbg/dock']);
+  },
+);

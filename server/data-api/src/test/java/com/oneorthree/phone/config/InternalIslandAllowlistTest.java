@@ -48,8 +48,9 @@ class InternalIslandAllowlistTest {
 
         // GROMO-2260 이 섬 도착(POST …/islands/{islandId}/arrivals), GROMO-2265 가 망원경(GET …/telescope),
         // GROMO-2268 이 망원경 핀 넣기·빼기(POST …/telescope/pins · DELETE …/telescope/pins/{islandId})를 더해 10종이다.
-        assertThat(routes).as("10종이 모두 잡혔는지 — 매핑이 늘면 허용목록도 함께 늘어야 한다")
-                .hasSize(10);
+        // 첫 항해 체험의 도착(POST …/islands/{islandId}/intro-arrivals)을 포함해 11종이다.
+        assertThat(routes).as("11종이 모두 잡혔는지 — 매핑이 늘면 허용목록도 함께 늘어야 한다")
+                .hasSize(11);
         assertThat(routes).allSatisfy(route ->
                 assertThat(allows(allow, route)).as("허용목록에 없는 내부 경로: " + route).isTrue());
     }
