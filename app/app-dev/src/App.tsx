@@ -162,6 +162,7 @@ import { adoptSignedInAccount, createMemberConversion } from '@/services/memberC
 import { trackDatadogView } from '@/services/datadog';
 import { PostHogAnalyticsProvider } from '@/services/PostHogAnalyticsProvider';
 import { startSocialAnalytics } from '@/services/socialAnalytics';
+import { markActivationStage, markLoginViewed } from '@/services/activationJourney';
 import { startMetaTracking } from '@/services/metaSdk';
 import {
   refreshPush,
@@ -517,6 +518,18 @@ function Gromo() {
   const pendingBootOwnerTransfer = useRef<(() => Promise<void>) | null>(null);
 
   useEffect(() => trackDatadogView(route, titles[route]), [route]);
+  // 첫 섬 여정(GROMO-2540) — 로그인 화면 노출(익명, 실행당 1회). 로그인하면 posthog 가 사용자와 잇는다.
+  useEffect(() => {
+    if (route === 'login') markLoginViewed();
+  }, [route]);
+  // 첫 섬 도착 — 현재 섬이 처음 생기면 발행. 바다 항해로 섬을 얻는 동선은 ISLAND_SYNC 로 섬이 들어온다.
+  // 계정 저장소에 login_completed 가 있는(추적된 최초 여정) 계정만, 한 번만 발행한다.
+  useEffect(() => {
+    const islandId = state.serverIslands?.currentIslandId;
+    const userId = getSession()?.userId;
+    if (islandId && userId)
+      void markActivationStage(userId, 'island_arrived', { prerequisite: 'login_completed' });
+  }, [state.serverIslands?.currentIslandId]);
   const transition = useRef(new Animated.Value(1)).current,
     boatTravel = useRef(new Animated.Value(-180)).current,
     toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null),
@@ -1494,7 +1507,13 @@ function Gromo() {
     try {
       const result = await guestLogin();
       // 채택 도중 세션이 바뀌어 중단됐으면(null) 완료 이벤트를 남기지 않는다.
-      if (await adoptSession(result, previousUserId)) captureProductEvent('guest_login_completed');
+      const account = await adoptSession(result, previousUserId);
+      if (account) {
+        captureProductEvent('guest_login_completed');
+        // 온보딩 미완료 = 신규 계정의 최초 여정 시작. 기존 계정 재로그인은 발행하지 않는다.
+        if (!account.onboardingComplete)
+          void markActivationStage(account.id, 'login_completed', { extra: { provider: 'guest' } });
+      }
     } catch (error) {
       setGuestError(errorTextOr(error, 'login.error.guestFailed'));
     } finally {
@@ -1556,8 +1575,13 @@ function Gromo() {
         attemptId: attempt.attemptId,
       });
       socialLoginAttempt.current = null;
-      if (await adoptSession(result, previousUserId))
+      const account = await adoptSession(result, previousUserId);
+      if (account) {
         captureProductEvent('social_login_completed', { provider });
+        // 온보딩 미완료 = 신규 계정의 최초 여정 시작. 기존 계정 재로그인은 발행하지 않는다.
+        if (!account.onboardingComplete)
+          void markActivationStage(account.id, 'login_completed', { extra: { provider } });
+      }
     } catch (thrown) {
       const retryableTransportFailure =
         thrown instanceof ApiError &&

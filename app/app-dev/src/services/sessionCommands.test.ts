@@ -23,7 +23,7 @@ import {
 import { ApiError } from '@/services/api/client';
 import type { FocusFinishView, FocusSessionView } from '@/services/api/focusSessions';
 
-jest.mock('@/services/api/session', () => ({ sessionGeneration: () => 0 }));
+jest.mock('@/services/api/session', () => ({ sessionGeneration: () => 0, getSession: () => null }));
 
 const view = (over: Partial<FocusSessionView> = {}): FocusSessionView => ({
   id: 'sess-1',

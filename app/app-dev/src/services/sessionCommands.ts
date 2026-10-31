@@ -3,7 +3,7 @@
 // 후속 API·dispatch·반환 전에 세대 fence, 409·404 계열은 current 재조회로 정본을 맞춘 뒤
 // 원 오류를 다시 던진다. 멱등 키는 세대 격리 ref에만 두고 State/AsyncStorage에 저장하지 않는다.
 import { ApiError, CLIENT_STALE_SESSION, uuid } from '@/services/api/client';
-import { sessionGeneration } from '@/services/api/session';
+import { getSession, sessionGeneration } from '@/services/api/session';
 import {
   acknowledgeFocusResult as apiAcknowledge,
   claimTutorialReward as apiTutorialReward,
@@ -24,6 +24,7 @@ import {
 import { getTelescope as apiTelescope } from '@/services/api/telescope';
 import { intentKeyPool, RecordItem, Route, Session, sessionRoute, State } from '@/services/model';
 import { captureProductEvent } from '@/services/posthog';
+import { markActivationStage } from '@/services/activationJourney';
 import { measureDatadogOperation } from '@/services/datadog';
 
 export type FocusApi = {
@@ -252,6 +253,9 @@ export const createSessionCommands = (deps: SessionCommandDeps) => {
     deps.dispatch({ type: 'SESSION_SYNC', session: latest ? sessionFromServer(latest) : null });
     scoped().keys.release(slot, destinationIslandId);
     captureProductEvent('focus_started');
+    void markActivationStage(getSession()?.userId, 'first_focus_started', {
+      prerequisite: 'island_arrived',
+    });
     // 확정된 최신 세션 — 호출부가 이것의 종류로 화면을 고른다(null = 그사이 끝나 진행 세션이 없다)
     return latest;
   };
@@ -337,6 +341,9 @@ export const createSessionCommands = (deps: SessionCommandDeps) => {
           deps.dispatch({ type: 'SESSION_SYNC', session: sessionFromServer(view) });
           scoped().keys.release('start', raw);
           captureProductEvent('focus_started');
+          void markActivationStage(getSession()?.userId, 'first_focus_started', {
+            prerequisite: 'island_arrived',
+          });
           return view;
         }),
       ),
@@ -382,6 +389,10 @@ export const createSessionCommands = (deps: SessionCommandDeps) => {
           captureProductEvent('focus_completed', {
             duration_seconds: result.activeSeconds,
             earned_fish: result.earnedFish,
+          });
+          void markActivationStage(getSession()?.userId, 'first_focus_completed', {
+            prerequisite: 'first_focus_started',
+            extra: { duration_seconds: result.activeSeconds },
           });
           return result;
         }),
