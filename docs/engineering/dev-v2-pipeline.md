@@ -172,18 +172,9 @@ Redis는 실행마다 ACL 파일 경로가 달라, 같은 산출물을 다시 �
 
 ## 시크릿
 
-AWS Secrets Manager(`ap-northeast-2`)에 있다. 2026-10-31 키 이름과 코드 사용처를 대조했다. 값은 문서에 적지 않는다.
+시크릿 표는 Infra `dev/runtime-v2/README.md`가 정본이다. 시크릿은 Infra가 소유한다.
 
-| 시크릿 | 저장 내용 | 읽는 곳 | 바꿀 때 |
-| --- | --- | --- | --- |
-| `catus/dev/env-v2` | 앱 시크릿, 서비스 토큰, DB 접속 정보(`API_DB_*`, `NOTI_DB_*`, `CHAT_DB_*`), `POSTGRES_*`, Redis 비밀번호 | Auto CD, App CD, PostgreSQL·Redis CD | 앱 값이면 앱 재배포, Redis 값이면 Redis CD 후 앱 재배포 |
-| `catus/dev/cicd-v2` | `environment`, `project`, `zone`, `hosts`(VM 이름·ID·사설 IP), `disks`, `deploy_bucket`, `runtime_secret` | 모든 dev V2 CD | VM이 바뀔 때만 갱신 |
-
-- DB 주소, 내부 서비스 주소, Kafka·Redis 주소는 `dev-env-V2.py`가 VM 사설 IP로 덮어쓴다. 시크릿의 해당 값을 고쳐도 반영되지 않는다.
-- 서비스별로 나갈 키는 `.github/scripts/write-compose-env.py`의 허용목록이 정한다. 새 키는 시크릿과 허용목록에 함께 추가한다.
-- Realtime 키 목록은 `dev-env-V2.py`의 `rtkeys`가 따로 정한다.
-
-기존 dev의 `gromo/dev/env`는 꺼진 V1 배포용이다. `gromo/dev/app-server`, `gromo/dev/ci-runner`는 VM의 Actions 러너 등록 자격이다.
+서비스별로 나갈 키는 `.github/scripts/write-compose-env.py`의 허용목록이 정한다. Realtime 키는 `dev-env-V2.py`의 `rtkeys`가 따로 정한다. 새 키는 시크릿과 코드에 함께 추가한다.
 
 ## 수동 작업
 
