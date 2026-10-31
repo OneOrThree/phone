@@ -5,7 +5,7 @@
 // 옛 번역 안 된 `Screens.tsx` 분기는 GROMO-2254 에서 지웠다 — 이 가로채기가 지워지면 그 라우트가
 // `RedesignScreens` 의 기본 화면으로 떨어지므로 여기서 고정한다(GROMO-2252).
 import React from 'react';
-import { fireEvent, render } from '@testing-library/react-native';
+import { fireEvent, render, within } from '@testing-library/react-native';
 import { CurrentScreens } from '@/screens/island/CurrentScreens';
 import { RedesignScreens } from '@/screens/island/Screens';
 import { initialState, reducer, type Route, type State } from '@/services/model';
@@ -565,3 +565,13 @@ test.each(['magazine', 'seaMagazine'] as const)(
     await screen.unmount();
   },
 );
+
+test('실제 집중 경로의 과목·시간은 섬 자식 HUD로 표시한다', async () => {
+  const state = serverFocusState();
+  const screen = await mount('focus', state);
+  const world = within(screen.getByTestId('focus-world'));
+  const hud = world.getByTestId('fishing-focus-hud');
+  expect(within(hud).getByText(state.session!.subject)).toBeTruthy();
+  const timer = within(hud).getAllByText(/\d{2}:\d{2}:\d{2}/)[0];
+  expect(timer).toBeTruthy();
+});

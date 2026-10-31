@@ -1,3 +1,4 @@
+import { FishingFocusHud } from '@/screens/focus/FishingFocusHud';
 import { DeveloperNoticesScreen } from '@/screens/island/DeveloperNoticesScreen';
 import { useAccountGuides } from '@/screens/island/useAccountGuides';
 import { useConstructionAnnouncements } from '@/screens/island/useConstructionAnnouncements';
@@ -4069,6 +4070,15 @@ function FocusFlow({ e: environment }: any) {
             });
             return (
               <>
+                {focusing && (
+                  <FishingFocusHud
+                    subject={s.session!.subject}
+                    seconds={sessionSeconds(s.session, e.now)}
+                    size={size}
+                    sizeY={sizeY}
+                    textStyle={hudText}
+                  />
+                )}
                 {peers.map((actor) => {
                   const outfit = lookOf(
                     live.looks,
@@ -4218,39 +4228,6 @@ function FocusFlow({ e: environment }: any) {
         )}
         {focusing && (
           <>
-            <View
-              pointerEvents="none"
-              {...a11yHidden(!!dialog || !!goldenCutscene || !!catInfo)}
-              style={{
-                position: 'absolute',
-                zIndex: 5,
-                top: wide ? Math.max(14, safe.top + 14) : Math.max(100, safe.top + 48),
-                left: Math.max(18, safe.left),
-                right: Math.max(18, safe.right),
-                alignItems: 'center',
-              }}
-            >
-              <Text
-                numberOfLines={1}
-                style={[hudText, { fontSize: 16, lineHeight: 25.6, fontWeight: '900' }]}
-              >
-                {s.session!.subject}
-              </Text>
-              <Text
-                style={[
-                  hudText,
-                  {
-                    fontSize: wide ? 32 : 42,
-                    lineHeight: (wide ? 32 : 42) * 1.15,
-                    fontWeight: '900',
-                    letterSpacing: -1.5,
-                    fontVariant: ['tabular-nums'],
-                  },
-                ]}
-              >
-                {hms(sessionSeconds(s.session, e.now))}
-              </Text>
-            </View>
             <View
               {...a11yHidden(!!dialog || !!goldenCutscene || !!catInfo)}
               style={{
