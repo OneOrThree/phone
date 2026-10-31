@@ -172,6 +172,6 @@ class V0DefaultSeedTest {
     /** 기본데이터 콜백은 V0 체인에 버전 행을 남기지 않는다. */
     private void assertVersionZero() {
         assertThat(jdbc.queryForList("SELECT version FROM flyway_schema_history", String.class))
-                .containsExactly("0", "1", "2", "3", "4", "5", "6", "7", "8");
+                .containsExactly("0", "1", "2", "3", "4", "5", "6", "7", "8", "9");
     }
 }

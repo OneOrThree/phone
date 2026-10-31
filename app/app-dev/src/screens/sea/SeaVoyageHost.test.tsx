@@ -192,6 +192,36 @@ test('그만두기는 확인창을 한 번 거쳐 finish 하고, 멀어지는 �
   expect(e.replace).not.toHaveBeenCalled();
 });
 
+test('출항·포기 연출 동안 setSceneGuideOpen(true), 끝나면 false(GROMO-2615)', async () => {
+  const setSceneGuideOpen = jest.fn();
+  const e = env({ setSceneGuideOpen });
+  e.focus.finish.mockResolvedValue({ recordId: 'sea-1', arrived: false, activeSeconds: 1700 });
+  const screen = await render(<SeaVoyageHost e={e} />);
+  expect(setSceneGuideOpen).not.toHaveBeenCalledWith(true);
+  await fireEvent.press(screen.getByLabelText('집중 마치기'));
+  await fireEvent.press(screen.getByLabelText('집중 마치기'));
+  await act(async () => {});
+  expect(setSceneGuideOpen).toHaveBeenLastCalledWith(true);
+  await screen.rerender(<SeaVoyageHost e={{ ...e, state: { ...e.state, session: null } }} />);
+  await fireEvent.press(screen.getByTestId('abandon-cutscene'));
+  expect(setSceneGuideOpen).toHaveBeenLastCalledWith(false);
+});
+
+test('항해 결과창이 떠 있는 동안 setSceneGuideOpen(true), 떠나면 false(GROMO-2615)', async () => {
+  const setSceneGuideOpen = jest.fn();
+  const finish = { recordId: 'sea-1', islandId: 'dest', arrived: true, activeSeconds: 1800 };
+  const e = env({
+    route: 'seaArrival',
+    detail: JSON.stringify({ finish, destinationName: '별고래섬' }),
+    state: { name: '나냥', color: 'black', session: null },
+    setSceneGuideOpen,
+  });
+  const screen = await render(<SeaVoyageHost e={e} />);
+  expect(setSceneGuideOpen).toHaveBeenLastCalledWith(true);
+  await screen.unmount();
+  expect(setSceneGuideOpen).toHaveBeenLastCalledWith(false);
+});
+
 test('권한 미리보기의 로컬 항해도 서버 연결 없이 종료하고 표류 화면으로 돌아온다', async () => {
   const dispatch = jest.fn();
   const e = env({ focus: undefined, focusBlockingIntroPreview: true, dispatch });
@@ -819,6 +849,34 @@ describe('바다 고양이 잡지(GROMO-2314) — 펠리컨 배달 B1 · 뗏목 
     putReceipt.mockResolvedValue(receipt());
   });
   afterEach(() => expect(getIssues).not.toHaveBeenCalled());
+
+  test('운영진의 편지(e.letterOpen)가 떠 있는 동안은 배달도 받음 기록도 없고, 닫히면 뜬다(GROMO-2615)', async () => {
+    const today = { issue, receipt: null };
+    const screen = await render(<SeaVoyageHost e={drift(today, { letterOpen: true })} />);
+    expect(screen.queryByTestId('sea-magazine-delivery')).toBeNull();
+    expect(putReceipt).not.toHaveBeenCalled();
+    await screen.rerender(<SeaVoyageHost e={drift(today, { letterOpen: false })} />);
+    expect(screen.getByTestId('sea-magazine-delivery')).toBeTruthy();
+    expect(putReceipt).toHaveBeenCalledWith('iss-20', { place: 'SEA' });
+  });
+
+  test('배달이 진행 중인 동안만 setSceneGuideOpen(true), 편지가 떠 있거나 끝나면 false 로 돌린다(GROMO-2615)', async () => {
+    const setSceneGuideOpen = jest.fn();
+    const today = { issue, receipt: null };
+    const screen = await render(<SeaVoyageHost e={drift(today, { setSceneGuideOpen })} />);
+    expect(setSceneGuideOpen).toHaveBeenLastCalledWith(true);
+    // 편지가 뜨면 배달이 보류라 신호도 내린다 — 편지와 서로 기다리는 교착이 없다
+    await screen.rerender(
+      <SeaVoyageHost e={drift(today, { setSceneGuideOpen, letterOpen: true })} />,
+    );
+    expect(setSceneGuideOpen).toHaveBeenLastCalledWith(false);
+    await screen.rerender(
+      <SeaVoyageHost e={drift(today, { setSceneGuideOpen, letterOpen: false })} />,
+    );
+    expect(setSceneGuideOpen).toHaveBeenLastCalledWith(true);
+    await screen.unmount();
+    expect(setSceneGuideOpen).toHaveBeenLastCalledWith(false);
+  });
 
   test.each([
     ['완료 이력 복원 전', {}],

@@ -97,6 +97,7 @@ internal:
         allow:
           - 'GET /internal/users/*/developer-notices'
           - 'GET /internal/users/*/developer-notices/*'
+          - 'GET /internal/developer-notices/app-requirements'
           - 'GET /internal/users/*/activation'
           - 'POST /internal/auth/device-sessions/verify'
           - 'POST /internal/auth/sessions/verify'

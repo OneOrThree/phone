@@ -6,6 +6,10 @@ import { shouldReportShieldFailure, syncFocusShield } from '@/services/focusShie
 import { Text } from '@/design-system/typography';
 import { useAppLayout } from '@/utils/layout';
 import { useRouteOrientation } from '@/utils/orientation';
+import { DeveloperLetter } from '@/screens/letter/DeveloperLetter';
+import { useDeveloperLetter } from '@/screens/letter/useDeveloperLetter';
+import { useForceUpdateLetter } from '@/screens/letter/useForceUpdateLetter';
+import { isLetterReady, STORE_URLS, visibleAt } from '@/services/developerLetter';
 import { Btn as NativeButton, Overlay, Txt as NativeText } from '@/design-system/patterns';
 import {
   CurrentScreens as RedesignScreens,
@@ -426,6 +430,9 @@ function Gromo() {
     } | null>(null),
     // 기존 계정 충돌(409 SOCIAL_ACCOUNT_ALREADY_LINKED) 확인창 — 승인·취소는 switchResolve 가 돌려준다.
     [switchAsk, setSwitchAsk] = useState(false),
+    // 화면 안쪽 안내(홈의 회관·펠리컨 안내, 바다의 펠리컨 배달)가 떠 있는 동안 — 편지 조회 게이트(GROMO-2615)
+    // 홈과 바다가 불리언 하나를 공유한다: 두 신호원은 경로로 배타적이다. 신호원이 늘면 카운터로 바꾼다.
+    [sceneGuideOpen, setSceneGuideOpen] = useState(false),
     [visited, setVisited] = useState('strawberry'),
     [previewAudio, setPreviewAudio] = useState(false),
     [failNext, setFailNext] = useState(false),
@@ -1745,6 +1752,55 @@ function Gromo() {
         ?.onForeground()
         .catch(() => {});
   }, [appActive]);
+  // 운영진의 편지(GROMO-2615) — 홈(섬 홈이 그려진 뒤)·바다에서 모든 안내·세션·전환이 비었을 때만 조회·표시한다.
+  // appContentHidden 은 편지를 합치기 전 값이다(순환 방지) — 스크린 리더 숨김만 appContentHidden || letterVisible.
+  // 강제 업데이트(GROMO-2617)는 부트를 기다리지 않고 조회하되, 표시는 세션이 없고 loaded 일 때만이다. 패치노트보다 우선한다
+  const requirement = useForceUpdateLetter({
+    enabled: !REVIEW && !DEMO && Platform.OS !== 'web',
+  });
+  const forced = requirement && loaded && !state.session ? requirement : null;
+  const letterReady =
+    !requirement &&
+    isLetterReady({
+      loaded,
+      review: REVIEW,
+      demo: DEMO,
+      hasServerSession,
+      appActive,
+      route,
+      islandHomeShown,
+      session: !!state.session,
+      inTutorial,
+      tutorialExperience: !!state.tutorialExperience,
+      onboardingStory: state.onboardingStory,
+      visiting: !!state.visitingIslandId,
+      modal: !!modal,
+      convUi: !!convUi,
+      switchAsk,
+      appContentHidden,
+      walkRequest: !!walkRequest,
+      storageOwnerReady,
+      sceneGuide: sceneGuideOpen,
+      keyboardHeight,
+      incomingAppLink: !!incomingAppLink,
+      openingInvitation,
+    });
+  const { notice: letter, dismiss: dismissLetter } = useDeveloperLetter({
+    ready: letterReady,
+    userId: getSession()?.userId ?? null,
+    suspended: !!requirement,
+  });
+  const letterVisible = forced !== null || letter !== null;
+  useEffect(() => {
+    if (!forced) return;
+    Keyboard.dismiss();
+    // App 수준 RN Modal 은 트리 내 오버레이보다 위에 그려져 업데이트 버튼을 가린다 — 처음 뜰 때 닫는다(GROMO-2617)
+    // 서버 세션 채택 복구 중이면 시트를 닫지 않는다(복구 자격을 잃는 것보다 낫다) — 편지는 시트가 끝난 뒤 보인다
+    setModal(null);
+    // 로그인 진행 중(busy)이면 시트의 기존 규칙대로 닫지 않는다 — 닫으면 runConversion 이 이어지는 동안 conversionLoginAttempt 가 사라진다
+    if (!convUi?.busy) closeMemberConversion();
+    settleSwitch(false);
+  }, [forced !== null]);
   const pushPromptReady =
     loaded &&
     !REVIEW &&
@@ -1755,6 +1811,7 @@ function Gromo() {
     islandHomeShown &&
     !appContentHidden &&
     appActive &&
+    !letterVisible &&
     state.settings.notifications !== false;
   const pushPromptReadyRef = useRef(pushPromptReady);
   pushPromptReadyRef.current = pushPromptReady;
@@ -2404,6 +2461,11 @@ function Gromo() {
   // (GROMO-2366). 리스너는 지금처럼 화면이 바뀔 때마다 다시 걸어 다른 화면의 리스너와의 순서를 그대로 둔다.
   const hardwareBack = useRef<() => boolean>(() => false);
   hardwareBack.current = () => {
+    // 운영진의 편지(GROMO-2615)는 뒤로 가기를 닫기로만 받는다 — 다른 어떤 처리보다 먼저다
+    if (letterVisible) {
+      if (!forced) dismissLetter();
+      return true;
+    }
     // 열린 확인창·진행 중인 건물 전환·화면이 건 뒤로 가기(backOverride)를 방문 분기보다 먼저 본다 — back() 의 앞 세
     // 검사와 같은 순서다. 그래서 방문 화면에서도 확인창이나 팝업이 END_VISIT 보다 먼저 닫히고, 집중→휴식 전환 취소처럼
     // override 보다 전환 취소가 앞서던 기존 순서도 그대로다(back() 는 그대로 둔다).
@@ -2456,6 +2518,15 @@ function Gromo() {
     state.visitingIslandId,
     island.id,
   ]);
+  // 편지가 떠 있는 동안만 리스너를 하나 더 둬 맨 앞에 세운다. RN 은 나중에 등록한 리스너를 먼저 부른다.
+  // App 구독 deps 에 넣으면 닫힐 때도 재등록되어 화면 안쪽 리스너(바다 패널)보다 앞서게 된다.
+  useEffect(() => {
+    if (!letterVisible) return;
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () =>
+      hardwareBack.current(),
+    );
+    return () => subscription.remove();
+  }, [letterVisible]);
   const islandAudioOnRef = useRef(islandAudioOn);
   islandAudioOnRef.current = islandAudioOn;
   // 곡 로드는 곡·섬이 바뀔 때만 한다. 재생/정지는 아래 volume effect가 islandAudioOn으로 따로 다루므로
@@ -2495,7 +2566,7 @@ function Gromo() {
     if (route !== 'product' || !islandAudioOn) setPreviewAudio(false);
   }, [route, islandAudioOn]);
   // GROMO-1839 시작·가입 화면만 세로로 고정하고 나머지는 기기 방향을 따른다
-  useRouteOrientation(route);
+  useRouteOrientation(route, letterVisible && !layout.tablet);
   useEffect(() => {
     try {
       player.volume = state.settings.sound ? (state.settings.volume ?? 0.55) : 0;
@@ -2634,6 +2705,8 @@ function Gromo() {
           fromSea: history.length ? seaRouteHeld(history[0].route) : !state.onboarded,
           termsVersion: TERMS_VERSION,
           routeTransitionShielded,
+          letterOpen: letterVisible,
+          setSceneGuideOpen,
           accountDataReady: storageOwnerReady,
           dispatch,
           go,
@@ -2742,9 +2815,11 @@ function Gromo() {
           <Animated.View
             key={reviewEpoch}
             testID="app-content"
-            accessibilityElementsHidden={appContentHidden}
-            importantForAccessibility={appContentHidden ? 'no-hide-descendants' : 'auto'}
-            aria-hidden={appContentHidden}
+            accessibilityElementsHidden={appContentHidden || letterVisible}
+            importantForAccessibility={
+              appContentHidden || letterVisible ? 'no-hide-descendants' : 'auto'
+            }
+            aria-hidden={appContentHidden || letterVisible}
             style={{
               flex: 1,
               opacity: transition,
@@ -3069,6 +3144,29 @@ function Gromo() {
               </Overlay>
             </View>
           </Modal>
+        )}
+        {forced ? (
+          <DeveloperLetter
+            key="forced"
+            title={forced.title}
+            body={forced.body}
+            date={new Date(Date.parse(forced.publishedAt ?? '') || Date.now())}
+            buttonTitle={t('developerLetter.update')}
+            onClose={() => {
+              Linking.openURL(STORE_URLS[Platform.OS === 'ios' ? 'ios' : 'android']).catch(
+                () => {},
+              );
+            }}
+          />
+        ) : (
+          letter && (
+            <DeveloperLetter
+              title={letter.title}
+              body={letter.body}
+              date={new Date(visibleAt(letter))}
+              onClose={dismissLetter}
+            />
+          )
         )}
       </SafeAreaView>
     </MotionContext.Provider>

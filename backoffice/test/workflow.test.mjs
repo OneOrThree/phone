@@ -267,3 +267,26 @@ test("FCM 발송 중 건은 대기 취소 후에도 완료로 단정하지 않�
   assert.equal(store.list({ archived: true }).length, 1);
   store.close();
 });
+
+test("공지 종류와 최소 버전: patch 는 min 거절, force 는 min 필수·형식 검사", () => {
+  const store = new Store(":memory:");
+  const review = (input) => {
+    const item = store.create({ ...notice, ...input }, "member-1");
+    return () => store.transition(item.id, item, "member-1", "review");
+  };
+  // 옛 항목(noticeType 없음)과 min 없는 patch 는 통과한다.
+  assert.equal(review({})().status, "review");
+  assert.equal(review({ noticeType: "patch", minIosVersion: null, minAndroidVersion: "" })().status, "review");
+  assert.throws(review({ noticeType: "patch", minIosVersion: "2.1.0" }), /패치노트/);
+  assert.throws(review({ noticeType: "force" }), /최소 버전/);
+  assert.throws(review({ noticeType: "force", minIosVersion: "2.1" }), /형식/);
+  assert.throws(review({ noticeType: "force", minAndroidVersion: "v2.1.0" }), /형식/);
+  assert.throws(review({ noticeType: "other" }), /종류/);
+  assert.equal(review({ noticeType: "force", minAndroidVersion: "0.0.0" })().status, "review");
+  // force -> patch 로 바꾸며 min 을 null 로 보내면 지워진다.
+  const forced = store.create({ ...notice, noticeType: "force", minIosVersion: "2.1.0" }, "member-1");
+  const patched = store.edit(forced.id, { revision: forced.revision, noticeType: "patch",
+    minIosVersion: null, minAndroidVersion: null }, "member-1");
+  assert.equal(patched.minIosVersion, null);
+  assert.equal(store.transition(patched.id, patched, "member-1", "review").status, "review");
+});
