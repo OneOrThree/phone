@@ -12,7 +12,8 @@ repo-wide concerns.
 Users run focus sessions, track screen time, and customize a 2D character with
 shop items. Company `oneorthree`. The frozen 1.x app uses iOS bundle id
 `com.oneorthree.gromo`; the active 2.0 app uses `com.oneorthree.focuscat` on iOS and
-`com.oneorthree.gromo` on Android (see `app/app-dev/app.config.js`).
+`com.oneorthree.gromo` on Android. The Android id is the current Play package, not a 1.x
+leftover (see `app/app-dev/app.config.js`).
 
 ## Monorepo layout
 
