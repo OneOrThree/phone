@@ -141,6 +141,15 @@ def on_branch(source,role):
         except subprocess.CalledProcessError as error:last=error
     raise last
 
+def after_latest(previous_source,source,role):
+    """새 발행은 직전 태그 이후여야 한다. 백오피스의 release 시절 태그(v1.0.4 까지)는 main 이력에 없어 비교에서 뺀다."""
+    try:run(['git','merge-base','--is-ancestor',previous_source,source])
+    except subprocess.CalledProcessError:
+        if role not in BRANCHES:raise
+        try:run(['git','merge-base','--is-ancestor',previous_source,'origin/'+BRANCHES[role][0]])
+        except subprocess.CalledProcessError:return
+        raise
+
 def publish(args):
     info=config();prior=previous(args.role);plan=planner(args.role,prior)
     source=plan['source_revision']
@@ -165,7 +174,7 @@ def publish(args):
             history=Path(history_dir)/'latest.json'
             aws('s3api','get-object','--bucket',BUCKET,'--key',f'versions/{latest_tag}.json',str(history))
             latest=json.loads(history.read_text())
-            run(['git','merge-base','--is-ancestor',latest['source_revision'],source])
+            after_latest(latest['source_revision'],source,args.role)
     images=dict(prior.get('images',{})) if prior else {}
     revisions=dict(prior.get('service_revisions',{})) if prior else {}
     service_versions=dict(prior.get('service_versions',{})) if prior else {}

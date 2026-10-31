@@ -101,6 +101,18 @@ class RuntimeTest(unittest.TestCase):
         fetched=[c.args[0][3] for c in calls.call_args_list if c.args[0][:2]==['git','fetch']]
         self.assertEqual(fetched,['main','release','release'])
 
+    def test_백오피스_release_시절_태그는_순서_비교에서_빼고_main_태그는_지킨다(self):
+        def git(on_main):
+            def run(args,**kwargs):
+                if args[:3]==['git','merge-base','--is-ancestor'] and (args[4]=='new' or not on_main):raise subprocess.CalledProcessError(1,args)
+                return ''
+            return run
+        with patch.object(runtime,'run',side_effect=git(False)):runtime.after_latest('old','new','backoffice')
+        with patch.object(runtime,'run',side_effect=git(True)):
+            with self.assertRaises(subprocess.CalledProcessError):runtime.after_latest('old','new','backoffice')
+        with patch.object(runtime,'run',side_effect=git(False)):
+            with self.assertRaises(subprocess.CalledProcessError):runtime.after_latest('old','new','app')
+
     def test_SSM_응답_유실은_기존_명령으로_복구하고_중복_전송하지_않는다(self):
         with tempfile.TemporaryDirectory() as d:
             calls=[];lists=0
