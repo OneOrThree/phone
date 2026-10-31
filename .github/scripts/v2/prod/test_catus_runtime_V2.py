@@ -13,6 +13,19 @@ runtime=importlib.util.module_from_spec(spec);spec.loader.exec_module(runtime)
 
 
 class RuntimeTest(unittest.TestCase):
+    def test_SSM_파라미터는_승인한_DB_전환_배포에만_AllowMigration을_싣는다(self):
+        envelope={'key':'releases/catus-v2.1.0-V2/bundle.zip','object_version':'v1','sha256':'a'*64}
+        self.assertNotIn('AllowMigration',runtime.ssm_params(envelope,False,False))
+        self.assertNotIn('AllowMigration',runtime.ssm_params(envelope,True,False))
+        self.assertEqual(runtime.ssm_params(envelope,False,True)['AllowMigration'],['true'])
+
+    def test_DB_전환_승인은_롤백이나_app_외_역할과_함께면_조회_전에_거부한다(self):
+        for role,rollback,message in [('app',True,'rollback'),('redis',False,'app role')]:
+            args=runtime.argparse.Namespace(role=role,version='catus-v2.1.0-V2',output='out',rollback=rollback,allow_migration=True)
+            with patch.object(runtime,'config') as config,patch.object(runtime,'aws') as aws:
+                with self.assertRaisesRegex(ValueError,message):runtime.deploy(args)
+                config.assert_not_called();aws.assert_not_called()
+
     def test_최초_발행도_각_서비스_소스의_최근_PR을_연결한다(self):
         paths=[]
         def run(args,**kwargs):

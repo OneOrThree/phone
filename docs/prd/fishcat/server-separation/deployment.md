@@ -142,6 +142,30 @@ DB 기록과 백업은 호스트에 보존하며 S3 자동 업로드는 없다. 
 
 Infra PR #11의 배포 역할에 `ssm:ListCommands` 권한을 적용한 뒤 승인 CD를 실행한다. CD의 `catus-deploy.py`는 자격·릴리스 메타데이터·사전 명령 조회를 검증한 뒤 `catus-ssm-send-intent` Actions 산출물을 보관하고 명령을 전송한다. 이 준비 단계에서 실패하면 전송 의도가 없으므로 재실행에서 새 명령을 보낼 수 있다. 전송 의도가 있으면 요청이 같은지 검증하고 `catus:<저장소 ID>:<Actions 실행 ID>` Comment로 기존 명령의 결과 대기만 재개한다. AWS CLI의 자동 재전송은 끈다. 전송 응답 유실이나 전송 의도 기록 직후 중단으로 기존 명령이 확인되지 않으면 운영자가 SSM 접수 여부를 확인한 뒤 필요하면 새 workflow_dispatch 실행을 만든다. 사전·결과 조회 시간 초과도 재시도하며 성공이 확인된 경우에만 배포 배지를 기록한다. 이전 SSM 명령이 실패로 종료된 것을 확인한 뒤 같은 릴리스를 재배포하려면 새 `prod-cd.yml` 수동 실행을 만들어 승인한다. 기존 Actions 실행의 재실행은 같은 SSM 명령의 결과 조회를 재개하므로 DB 작업을 새로 전송하는 절차와 구분한다.
 
+### DB 전환이 든 V2 배포
+
+release에 각 서비스의 `src/main/resources/db/{migration,v0,seed}` SQL이나 Data 전환 도구(`docs/db/deploy-v0.py`·`rebase-v0.py`·`v0-rebase/`)의 변경이 있으면 V2 릴리스의 `migration_fingerprints`가 직전 성공 기록과 달라진다(`.github/scripts/catus-plan.py`의 `fingerprints()`). 이때 `prod-cd-V2`를 평소처럼 실행하면 Infra `deploy-V2.py`가 `Schema compatibility requires explicit migration plan`으로 컨테이너를 건드리기 전에 멈춘다. 아래 절차를 거친 정방향 앱 배포만 `allow_migration`으로 통과시킨다.
+
+선행 조건(발행 전): Infra의 SSM 문서에 `AllowMigration` 파라미터가 적용돼 있고(`terraform apply`), `CATUS_PROD_INFRA_REVISION_V2`가 `--allow-migration`을 아는 `deploy-V2.py`를 담은 Infra 커밋을 가리킨다. 이 변수는 발행 때 릴리스에 고정되므로 3번 전에 갱신한다. `terraform apply` 전에 `allow_migration`을 켜면 SSM이 알 수 없는 파라미터라며 전송을 거부하고 운영은 바뀌지 않는다.
+
+1. **호환 검토(승격 PR 머지 전).** 승격으로 들어갈 마이그레이션을 확인한다. `git diff --name-only --diff-filter=AM origin/release origin/main -- 'server/*/src/main/resources/db/*'`. 이미 승격했다면 직전 V2 태그와 비교한다: `git diff --name-only --diff-filter=AM <직전 catus-vX.Y.Z-V2> origin/release -- 'server/*/src/main/resources/db/*'`. 각 파일이 이전 코드가 무시할 수 있는 변경(nullable 열 추가, 새 테이블, 기본값 변경)인지 파일 하나하나 본다. 열 삭제·이름 변경·NOT NULL 추가처럼 이전 이미지를 깨는 변경이면 자동 복구가 동작하지 않으므로 이 절차로 배포하지 않는다.
+2. **발행.** `prod-ci-V2`로 새 `catus-vX.Y.Z-V2` 태그를 만든다. 발행은 DB를 건드리지 않는다.
+3. **백업(배포 직전).** RDS 수동 스냅샷을 만들고 `available`을 확인한다. 자동 백업(보존 7일, 시점 복구)과 별개로 둔다. 스냅샷 식별자는 영문·숫자·하이픈만 쓰므로 태그의 점을 하이픈으로 바꾼다(예: `catus-prod-before-catus-v2-1-0-v2-20261031-1700`). 운영자 자격(`rds:CreateDBSnapshot`·`rds:DescribeDBSnapshots`)으로 실행한다.
+   ```bash
+   aws rds create-db-snapshot --region ap-northeast-2 --db-instance-identifier catus-prod-db \
+     --db-snapshot-identifier catus-prod-before-<태그의 점을 하이픈으로>-<YYYYMMDD-HHMM>
+   aws rds wait db-snapshot-available --region ap-northeast-2 \
+     --db-snapshot-identifier catus-prod-before-<태그의 점을 하이픈으로>-<YYYYMMDD-HHMM>
+   ```
+   `wait`가 기본 대기 시간(약 30분)을 넘겨 실패하면 `aws rds describe-db-snapshots`로 상태를 보고 다시 `wait`한다.
+4. **배포.** `prod-cd-V2`를 `version`=새 태그, `allow_migration`=true, `rollback`=false로 실행한다. phone은 `allow_migration`을 `rollback`과 함께 주거나 `app` 외 역할에 주면 조회·전송 전에 거부한다.
+5. **확인.** SSM 출력의 `Schema change approved` 한 줄, 앱 4종 health, 각 DB `flyway_schema_history`의 최신 버전(읽기 전용 조회)을 확인하고 실행 번호·스냅샷 ID·적용 버전을 지라에 남긴다.
+
+실패 시:
+- **앱 health 실패.** 배포기가 직전 릴리스를 자동 복구한다. 이전 이미지는 DB에 이미 적용된 새 마이그레이션을 Flyway 기본값(`ignoreMigrationPatterns=*:future`)에 따라 건너뛰고 기동하므로, 1번 검토를 통과한 변경이어야 이 복구가 동작한다.
+- **마이그레이션 실패.** PostgreSQL은 마이그레이션 한 건을 한 트랜잭션으로 실행해 실패한 버전만 되돌리고 이력도 남기지 않는다(`CREATE INDEX CONCURRENTLY` 같은 비트랜잭션 구문은 예외). 한 릴리스에 여러 건이 있으면 앞선 버전은 이미 커밋된 채 직전 릴리스로 복구될 수 있으므로, 1번 호환 검토는 파일 하나하나에 대해 한다. 원인을 고친 새 마이그레이션으로 정방향 해결한다.
+- **스키마를 되돌려야 할 때.** 가능하면 스냅샷 복원 대신 스키마를 되돌리는 마이그레이션을 담은 새 정방향 릴리스로 해결한다. CD에는 복원한 DB에 맞춰 직전 릴리스로 되돌리는 자동 경로가 없다. Infra는 지문이 다른 `rollback`을 승인 여부와 상관없이 거부하고, 직전 태그의 일반 배포는 배포 기록 기준이 맞지 않아(`Stale deployment base`) 거부한다. 그래도 복원해야 하면 V1 데이터까지 바꾸는 파괴적 작업이므로 운영 책임자가 결정하고, Infra 배포 기록(`current-app-V2.json`)을 다루는 복구 계획을 함께 세운다. `catus-prod-db`는 V1과 V2가 함께 쓰는 인스턴스라 **복원 기준 시각 이후의 V1·V2 쓰기가 모두 사라진다.** 기준은 3번 스냅샷(배포 직전)이다. 스냅샷이 없거나 스냅샷 이후 마이그레이션 직전까지의 쓰기를 살려야 하면, 배포 SSM 출력에서 마이그레이션 적용 직전 시각을 찾아 자동 백업의 시점 복구(`restore-db-instance-to-point-in-time`, 2026-10-31 기준 보존 7일)로 그 시각을 지정한다. 그보다 늦은 시각은 새 스키마가 그대로 돌아오므로 쓰지 않는다. 절차: V1·V2 쓰기를 멈춘다 → **새 인스턴스**로 복원하고 서브넷 그룹·VPC 보안 그룹·파라미터 그룹을 원본과 같게 지정한다 → 새 인스턴스에서 각 DB의 `flyway_schema_history`와 주요 테이블을 읽기 전용으로 확인한다 → 접속 정보(V2 `catus/prod/database-V2`, V1 `catus/prod/database`의 DB 주소)를 새 인스턴스로 바꾼다. 원본 `catus-prod-db`는 전환이 끝날 때까지 지우지 않아 문제가 생기면 되돌아갈 수 있게 둔다.
+
 ### 배포 상태 배지
 
 `ops-deployment-badges.yml`은 신뢰한 원본 워크플로의 결과 산출물을 검증해 `deployment-status` 브랜치에 JSON을 게시한다. dev는 Data·Realtime·Business·Notification의 최근 결과를 합산한다. prod는 마지막 성공 버전을 유지하므로 실패·취소 후에도 이전 성공 버전이 표시된다. 최신 실행 성공 여부는 Actions에서 별도로 확인한다.
