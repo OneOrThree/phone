@@ -4786,9 +4786,11 @@ export function Board({
       if (!e) return render({ view: 'write', questForm: null, editing: false, error: '' });
       e.go('questEdit');
       e.setBody('focus');
-      e.setWindowStart('');
-      e.setWindowEnd('');
-      setUi((prev) => ({ ...prev, target: '' }));
+      // 드럼 피커는 빈 값을 00:00 으로 보이기만 하고 폼엔 안 쓴다 — 보이는 값이 곧 폼 값이도록
+      // 렌더-스테이트 기본(19:00–22:00·50분)과 똑같이 실제 기본 시각으로 초기화한다(GROMO-2672, 코드리뷰 반영).
+      e.setWindowStart('19:00');
+      e.setWindowEnd('22:00');
+      setUi((prev) => ({ ...prev, target: '50' }));
     },
     // 방장만: 기존 값을 채운 만들기 종이를 연다. 저장하면 상세로 돌아온다
     editQuest: (quest: QuestView) => {

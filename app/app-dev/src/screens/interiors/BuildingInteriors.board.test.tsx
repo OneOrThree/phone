@@ -2468,6 +2468,23 @@ test('퀘스트 만들기 — 하루 폰 사용 상한 1440분(24:00)을 고를 
   await screen.unmount();
 });
 
+test('퀘스트 만들기 — + 만들기는 창을 빈 값이 아니라 기본 시각(19:00–22:00)으로 초기화한다', async () => {
+  // 드럼 피커는 빈 값을 00:00 으로 보이기만 하고 폼엔 안 쓴다 — newQuest 가 창을 빈 값으로 두면
+  // 보이는 00:00 을 저장하려 해도 start 가 비어 막힌다. 보이는 값이 곧 폼 값이도록 초기화한다
+  // (GROMO-2672, 코드리뷰 반영). 폼은 e.windowStart/End 에서 오므로 거기로 확인한다.
+  getBoardMock.mockResolvedValue(page([], null, 'host', []));
+  const e = makeE({ route: 'quest', detail: HOME_QUEST_LIST_DETAIL, tab: '퀘스트' });
+  const screen = await renderBoard(e);
+
+  await waitFor(() => assert.ok(screen.getByTestId('board-quest-new')));
+  await act(async () => {
+    await fireEvent.press(screen.getByTestId('board-quest-new'));
+  });
+  assert.equal(e.windowStart, '19:00');
+  assert.equal(e.windowEnd, '22:00');
+  await screen.unmount();
+});
+
 test('퀘스트 만들기 — 서버 실패 시 초안·문구를 보존하고 뒤로 가지 않는다', async () => {
   getBoardMock.mockResolvedValue(page([], null, 'host', []));
   postQuestMock.mockRejectedValue(new ApiError('FORBIDDEN', '권한이 없습니다.', 403));
