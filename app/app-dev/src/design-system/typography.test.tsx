@@ -42,6 +42,11 @@ test('본문은 고운돋움, 굵은 글자와 직접 지정한 글꼴은 그대
         </Text>
         : 본문
       </Text>
+      <Text testID="scene-outer" style={{ fontFamily: 'Gowun Dodum' }}>
+        <Text testID="scene-nested-bold" style={{ fontWeight: '900' }}>
+          99
+        </Text>
+      </Text>
     </>,
   );
   const family = (id: string) => StyleSheet.flatten(s.getByTestId(id).props.style)?.fontFamily;
@@ -50,7 +55,11 @@ test('본문은 고운돋움, 굵은 글자와 직접 지정한 글꼴은 그대
   expect(family('bold-num')).toBe('System'); // 숫자 굵기 700 도 시스템
   expect(family('scene')).toBe('Gowun Dodum'); // 장면이 직접 지정한 글꼴 유지
   expect(family('other')).toBe('Menlo'); // 다른 글꼴 직접 지정도 유지
-  // RN 은 중첩 Text 가 부모 글꼴을 상속한다 — 본문 안의 굵은 글자도 시스템 글꼴을 명시해 상속을 끊는다(GROMO-2639 코덱스 회귀)
+  // RN 은 중첩 Text 가 부모 글꼴을 상속한다 — 두 중첩이 반대로 올바르게 풀려야 한다(GROMO-2639 코덱스 회귀):
+  // (1) 기본 본문 안의 굵은 글자는 시스템 글꼴을 명시해 상속을 끊는다
   expect(family('outer')).toBe('Gowun Dodum');
   expect(family('nested-bold')).toBe('System');
+  // (2) 장면(고운돋움 명시) 안의 굵은 글자는 그 고운돋움을 그대로 잇는다
+  expect(family('scene-outer')).toBe('Gowun Dodum');
+  expect(family('scene-nested-bold')).toBe('Gowun Dodum');
 });

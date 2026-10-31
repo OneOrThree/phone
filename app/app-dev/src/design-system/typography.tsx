@@ -1,4 +1,4 @@
-import React, { forwardRef } from 'react';
+import React, { forwardRef, useContext } from 'react';
 import {
   Platform,
   Text as NativeText,
@@ -31,13 +31,18 @@ function isBoldWeight(weight: TextStyle['fontWeight']): boolean {
   const n = typeof weight === 'number' ? weight : Number(weight);
   return Number.isFinite(n) && n >= 700;
 }
-// 글자마다 제 굵기에 맞는 글꼴을 "명시"한다. RN 은 중첩 Text 가 부모 fontFamily 를 상속하므로, 굵은 글자에
-// 아무것도 안 주면(undefined) 고운돋움 본문 안의 굵은 글자가 부모의 고운돋움을 물려받아 시스템 굵게가
-// 안 된다(예: HomeChatLog 본문 안의 이름). 그래서 굵은 글자엔 시스템 글꼴을 직접 박아 상속을 끊는다.
-// 호출부가 fontFamily 를 직접 준 글자(그림 장면의 고운돋움 지정 등)는 그대로 둔다.
-function bodyFontBase(flat: TextStyle): TextStyle | undefined {
-  if (flat.fontFamily) return undefined;
-  return { fontFamily: isBoldWeight(flat.fontWeight) ? SYSTEM_FONT : BODY_FONT };
+
+// RN 은 중첩 Text 가 부모 fontFamily 를 상속한다. 리프에서는 부모 글꼴을 알 수 없어, 호출부가 글꼴을
+// 직접 지정한 Text(그림 장면의 고운돋움 등)는 그 글꼴을 Context 로 자손에게 전해 "명시 글꼴 맥락"을 만든다.
+// - 명시 맥락 안: 굵은 글자까지 그 글꼴을 그대로 잇는다(장면은 굵어도 고운돋움, DESIGN §5.1).
+// - 명시 맥락 밖(기본 본문): 굵은 글자는 시스템 글꼴로 OS 가 굵게, 그 밖은 고운돋움.
+// 이렇게 해야 본문 고운돋움 안의 굵은 글자(HomeChatLog 이름)는 시스템으로, 장면 고운돋움 안의 굵은
+// 숫자(마을회관 배지)는 고운돋움으로 — 두 중첩이 서로 반대로 올바르게 풀린다(GROMO-2639).
+const FontFamilyContext = React.createContext<string | undefined>(undefined);
+function resolveFamily(flat: TextStyle, inherited: string | undefined): string {
+  if (flat.fontFamily) return String(flat.fontFamily); // 호출부가 직접 지정(장면 등)
+  if (inherited) return inherited; // 명시 글꼴 조상 아래 — 굵어도 그 글꼴 유지
+  return isBoldWeight(flat.fontWeight) ? SYSTEM_FONT : BODY_FONT;
 }
 
 // Keep device typography separate from OS accessibility font scaling.
@@ -55,25 +60,35 @@ function useTypeStyle(flat: TextStyle, tabletScale?: number) {
 // iOS 는 한국어를 글자 단위로 줄바꿈해 「시/작해」처럼 단어 중간에서 꺾는다 — 단어 단위를 기본값으로 두고 호출부가 주면 그 값을 쓴다
 export const Text = forwardRef<NativeText, TextProps & { tabletScale?: number }>(
   ({ style, tabletScale, ...props }, ref) => {
+    const inherited = useContext(FontFamilyContext);
     const flat = (StyleSheet.flatten(style) || {}) as TextStyle;
-    return (
+    const family = resolveFamily(flat, inherited);
+    const node = (
       <NativeText
         ref={ref}
         lineBreakStrategyIOS="hangul-word"
         {...props}
-        style={[bodyFontBase(flat), style, useTypeStyle(flat, tabletScale)]}
+        style={[{ fontFamily: family }, style, useTypeStyle(flat, tabletScale)]}
       />
+    );
+    // 호출부가 글꼴을 직접 지정한 Text 만 자손에게 그 글꼴을 물려준다(명시 맥락). 기본 본문 맥락은 바꾸지 않는다.
+    return flat.fontFamily ? (
+      <FontFamilyContext.Provider value={family}>{node}</FontFamilyContext.Provider>
+    ) : (
+      node
     );
   },
 );
 export const TextInput = forwardRef<NativeTextInput, TextInputProps & { tabletScale?: number }>(
   ({ style, tabletScale, ...props }, ref) => {
+    const inherited = useContext(FontFamilyContext);
     const flat = (StyleSheet.flatten(style as StyleProp<TextStyle>) || {}) as TextStyle;
+    const family = resolveFamily(flat, inherited);
     return (
       <NativeTextInput
         ref={ref}
         {...props}
-        style={[bodyFontBase(flat), style, useTypeStyle(flat, tabletScale)]}
+        style={[{ fontFamily: family }, style, useTypeStyle(flat, tabletScale)]}
       />
     );
   },
