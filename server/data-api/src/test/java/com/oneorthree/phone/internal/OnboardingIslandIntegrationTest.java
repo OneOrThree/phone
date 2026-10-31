@@ -139,6 +139,8 @@ class OnboardingIslandIntegrationTest {
         var started = focus.startSea(user, new SeaFocusSessionStartCommandRequest(island), UUID.randomUUID());
         var finished = focus.finish(user, started.id(), new FocusVersionedCommandRequest(1L), UUID.randomUUID());
         assertThat(finished.arrived()).isFalse();
+        // 도착하지 못했으면 섬을 만들지 않으므로 플래그는 거짓이다(GROMO-2650).
+        assertThat(finished.createdIsland()).isFalse();
         assertThatThrownBy(() -> islands.arrive(user, island, UUID.randomUUID())).isInstanceOf(GroupException.class);
         assertThat(count("select count(*) from group_members where user_id=?", user)).isZero();
         assertThat(count("select count(*) from islands where id=?", island)).isZero();
@@ -157,10 +159,20 @@ class OnboardingIslandIntegrationTest {
         jdbc.update("update focus_session_intervals set started_at=? where session_id=? and ordinal=1", at, started.id());
         var finished = focus.finish(user, started.id(), new FocusVersionedCommandRequest(1L), UUID.randomUUID());
         assertThat(finished.arrived()).isTrue();
+        // 무인도 항해 성공으로 섬이 새로 생겼으므로 앱에 이름 짓기 팝업 플래그가 참이다(GROMO-2650).
+        assertThat(finished.createdIsland()).isTrue();
         UUID created = finished.islandId();
         assertThat(created).isNotEqualTo(island);
         assertThat(count("select count(*) from islands where id=?", island)).isZero();
         assertThat(count("select count(*) from group_members where user_id=? and group_id=?", user, created)).isEqualTo(1);
+        // 마을회관은 완공 상태로 함께 생기되(GROMO-2650), 완공 안내가 뜨지 않도록 recipient 행은 만들지 않는다.
+        assertThat(count("select count(*) from island_facilities where island_id=? and building_id='hall'"
+                + " and status='COMPLETED'", created)).isEqualTo(1);
+        assertThat(count("select count(*) from island_facilities where island_id=?", created)).isEqualTo(1);
+        assertThat(count("select count(*) from construction_guide_recipients where island_id=?", created)).isZero();
+        // 완공 회관은 공동 외양 맵에도 등록돼야 테마 PATCH 가 422 로 거절되지 않는다(GROMO-2650 코드리뷰).
+        assertThat(jdbc.queryForObject("select jsonb_exists(building_themes, 'hall') from island_appearances"
+                + " where island_id=?", Boolean.class, created)).isTrue();
         UUID key = UUID.randomUUID();
         var arrival = islands.arrive(user, created, key);
         assertThat(arrival.membershipStatus()).isEqualTo("active");

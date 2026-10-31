@@ -24,6 +24,8 @@ import java.util.UUID;
  *                       요청·{@code pending-result}(휴식 자동 종료)가 같은 값이다. 15분 미만이면 빈 목록이다
  * @param kind           {@code "island"} 또는 {@code "sea"}(GROMO-2299)
  * @param arrived        바다 세션의 도착 여부({@code activeSeconds >= 항해 분*60}). 섬 세션은 null
+ * @param createdIsland  이번 정산이 무인도 항해 성공으로 새 섬(방장=본인)을 만들었는가(GROMO-2650). 일반 섬 도착·
+ *                       섬 세션은 {@code false} 다. 앱은 이 값이 참일 때만 섬 이름 짓기 팝업을 띄운다 — 앱과의 계약명이다
  */
 public record FocusFinishView(
         UUID recordId,
@@ -39,7 +41,8 @@ public record FocusFinishView(
         List<ActiveInterval> activeIntervals,
         SeaReward seaReward,
         String kind,
-        Boolean arrived) {
+        Boolean arrived,
+        boolean createdIsland) {
 
     /** @param personalFishAdded 개인 지갑 반영 @param constructionFishAdded 섬 통장(섬 물고기) 반영 — 이름은 LLD 계약 그대로 */
     public record Allocation(int personalFishAdded, int constructionFishAdded) {

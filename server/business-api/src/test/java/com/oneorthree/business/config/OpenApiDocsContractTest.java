@@ -124,7 +124,8 @@ class OpenApiDocsContractTest extends UpstreamTestBase {
             "/islands/{islandId}/notices/{noticeId}|delete|200|deleted|deleted",
             // 집중 종료 응답(GROMO-2274) — seaReward 는 키가 늘 있고 값만 null 일 수 있다. 스펙은 속성으로만 싣고 required 에는 없다.
             // GROMO-2299 가 kind·arrived 를 더했다 — 둘 다 선택(구버전 Data 는 안 보내고, arrived 는 섬 세션이면 생략).
-            "/focus-sessions/{sessionId}/finish|post|200|recordId islandId subject targetMinutes activeSeconds goalAchieved earnedFish allocation completedAt questProgress activeIntervals seaReward kind arrived|recordId islandId subject activeSeconds goalAchieved earnedFish allocation completedAt"})
+            // GROMO-2650 가 createdIsland 를 더했다 — 선택(무인도 새 섬 생성 때만 true, 일반 도착은 false, 구버전 Data 는 생략).
+            "/focus-sessions/{sessionId}/finish|post|200|recordId islandId subject targetMinutes activeSeconds goalAchieved earnedFish allocation completedAt questProgress activeIntervals seaReward kind arrived createdIsland|recordId islandId subject activeSeconds goalAchieved earnedFish allocation completedAt"})
     @DisplayName("동명 Result·Deleted도 각 작업의 필드와 필수 여부를 문서화한다")
     void resultSchemasRemainSpecificToTheirOperation(String path, String method, String responseStatus,
             String fields, String requiredFields) throws Exception {

@@ -16,6 +16,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -34,6 +35,7 @@ public class IntroVoyageService {
     private final IslandMembershipService islands;
     private final IslandStateEvents stateEvents;
     private final IslandMembershipEvents membershipEvents;
+    private final Clock clock;
 
     /** 같은 키 재시도는 실제 생성된 섬 ID까지 재생한다. 재설치 후 새 키 사용은 제한하지 않는다. */
     @Transactional
@@ -53,7 +55,8 @@ public class IntroVoyageService {
                     UUID islandId = destinationId;
                     List<EventEnvelope> events = new ArrayList<>();
                     if (TelescopeService.SLOT_UNINHABITED.equals(destination.slot())) {
-                        islandId = onboarding.materializeAtFinish(user, context).getId();
+                        // 무인도 첫 항해 체험 도착도 실제 섬을 만들며, 마을회관을 완공 상태로 함께 받는다(GROMO-2650).
+                        islandId = onboarding.materializeAtFinish(user, context, clock.instant()).getId();
                         events.add(stateEvents.created(islandId, userId));
                         events.add(membershipEvents.changed(islandId, userId, "MEMBER_ADDED", userId));
                     }

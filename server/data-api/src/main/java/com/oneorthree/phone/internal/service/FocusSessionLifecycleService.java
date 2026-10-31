@@ -514,7 +514,7 @@ public class FocusSessionLifecycleService {
                                 focusSessionIntervalRepository.findBySessionIdOrderByOrdinalAsc(sessionId),
                                 settled.getCompletedAt());
                         return new PublicCommandResult(200,
-                                tree(finishView(detail, settled, activeIntervals)), tree(List.of()));
+                                tree(finishView(detail, settled, activeIntervals, false)), tree(List.of()));
                     }
                     requireProgressing(detail);
                     requireVersion(detail, expectedVersion);
@@ -616,7 +616,8 @@ public class FocusSessionLifecycleService {
                     List<ActiveInterval> activeIntervals = FocusIntervalMath.activeIntervalsAsOf(
                             focusSessionIntervalRepository.findBySessionIdOrderByOrdinalAsc(settlement.getSessionId()),
                             settlement.getCompletedAt());
-                    return finishView(detail, settlement, activeIntervals);
+                    // pending-result 는 이미 끝난 세션의 재조회라 이번 호출이 섬을 만들지 않는다 — 늘 false.
+                    return finishView(detail, settlement, activeIntervals, false);
                 })
                 .orElse(null);
     }
@@ -703,7 +704,7 @@ public class FocusSessionLifecycleService {
                     detail.markArrived(false);
                 } else {
                     UserIslandContext context = userIslandContextLockService.lock(user);
-                    Group created = onboardingIslands.materializeAtFinish(user, context);
+                    Group created = onboardingIslands.materializeAtFinish(user, context, t);
                     detail.materializeDestination(created.getId());
                     islandId = created.getId();
                     createdNewIsland = true;
@@ -760,7 +761,8 @@ public class FocusSessionLifecycleService {
         }
         // 위에서 열린 구간을 이미 닫아 뒀다 — 같은 intervals·anchor 를 재사용해 별도 쿼리를 내지 않는다.
         List<ActiveInterval> activeIntervals = FocusIntervalMath.activeIntervalsAsOf(intervals, t);
-        return new PublicCommandResult(200, tree(finishView(detail, settlement, activeIntervals)), tree(events));
+        return new PublicCommandResult(200, tree(finishView(detail, settlement, activeIntervals, createdNewIsland)),
+                tree(events));
     }
 
     /**
@@ -800,7 +802,7 @@ public class FocusSessionLifecycleService {
      * 가졌을 때만 같은 id 를 담는다(결과창 NEW!).
      */
     private static FocusFinishView finishView(FocusSessionDetail detail, FocusSettlement settlement,
-                                              List<ActiveInterval> activeIntervals) {
+                                              List<ActiveInterval> activeIntervals, boolean createdIsland) {
         String rewardProductId = settlement.getCustomizationRewardProductId();
         List<String> granted = rewardProductId == null ? List.of() : List.of(rewardProductId);
         FocusFinishView.SeaReward seaReward = new FocusFinishView.SeaReward(granted, null,
@@ -812,7 +814,7 @@ public class FocusSessionLifecycleService {
                 new FocusFinishView.Allocation(settlement.getPersonalFishAdded(),
                         settlement.getConstructionFishAdded()),
                 settlement.getCompletedAt(), List.of(), activeIntervals, seaReward, kindName(detail),
-                detail.getArrived());
+                detail.getArrived(), createdIsland);
     }
 
     private static String kindName(FocusSessionDetail detail) {
