@@ -1,0 +1,265 @@
+// 정산 저널 (GROMO-1600 — PRD §4.1-②·§4.3 「시작은 원자적이어야 한다」).
+//
+// 역할 분담: **저널 = 부팅 복구의 원장, 내구 큐(pendingFocusUploads) = 네트워크 재시도.**
+// 겹치지 않는다 — settle intent는 업로드가 큐로 인계되는 순간(saved/alreadyEnded/queued)
+// 소멸하고, 큐 저장까지 실패(failed)했을 때만 남아 다음 부팅의 복구가 재업로드한다.
+// 그래서 이 파일은 pendingFocusUploads의 「직렬화 락」만 차용하고 3상 flush는 만들지 않는다.
+//
+// 원자적 시작(§4.3-ⓐ): `starting`→`active` 전이는 같은 저널 레코드의 setItem 원자 갱신 —
+// 중간 상태가 없다. 복구(§4.3-ⓑ)는 미완 `starting`을 만나면 **v1 커밋 흔적을 먼저 확인**해,
+// 있으면 실드를 풀지 않고 저널을 소급 완결하고, 없으면 실드 해제 + 저널 소거한다(실드만
+// 남는 크래시 창 회수). 재생 중복은 서버가 (user, startedAt, endedAt, COMPLETED)로 걸러낸다
+// (uploadFocusBlock 헤더 계약).
+
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { STORAGE_KEYS } from '@/types/storage';
+import type { FocusSessionRequest } from '@/types/dto/focus';
+
+export interface JournalSession {
+  sessionKey: string;
+  state: 'starting' | 'active';
+  /** 실드 적용을 요청했는가 — write-ahead(실드 **전에** 기록)라 복구의 해제 판단 근거 */
+  shieldRequested: boolean;
+  serverSessionId: string | null;
+  /**
+   * 위 마커가 **어느 블록**의 것인가(그 블록의 startedAt).
+   *
+   * 뽀모도로는 블록마다 마커가 회전하므로 `serverSessionId`만으로는 소유 블록을 알 수 없다.
+   * 이게 없으면 부팅 복구가 옛 블록의 intent에 **현재 블록의 마커**를 실어, 살아 있는 새
+   * 블록의 마커를 종료·취소해 버린다(codex 리뷰 #694).
+   */
+  markerBlockStartedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SettleIntent {
+  intentId: string; // 멱등 키 — 재생이 겹쳐도 서버 dedupe + 제거 멱등으로 안전
+  sessionKey: string;
+  serverSessionId: string | null;
+  body: FocusSessionRequest; // 태그 해석까지 끝난 완성 바디 — 재생은 그대로 업로드만 한다
+  userId: string | null;
+  createdAt: string;
+}
+
+interface FocusSessionJournal {
+  version: 1;
+  session: JournalSession | null;
+  settles: SettleIntent[];
+}
+
+// intent 폭주 방어 — 정상 흐름에선 0~1개다(업로드 완료 즉시 소멸).
+//
+// ⚠️ **상한을 넘기면 가장 오래된 intent가 사라진다.** intent는 업로드와 내구 큐 저장이
+// **둘 다** 실패했을 때만 남는 마지막 기록이라, 버리는 순간 로컬 적립만 되고 서버엔 없는
+// 영구 불일치가 된다 — 이 PR이 고치려던 D1 결함이 상한 경계에서 재현되는 셈이다.
+// 상한은 내구 큐(pendingFocusUploads, 50)와 맞춰 두되, 잔여 위험을 여기 남긴다:
+// 이 지점에 닿으려면 **저장소 쓰기가 깨진 채 50블록**이 쌓여야 한다(POST 실패 + 큐 저장
+// 실패가 연속). 그 상태면 저널 쓰기도 함께 실패할 가능성이 커서 실질 도달 확률은 낮다.
+// 더 줄이려면 폐기를 계측해 가시화해야 하는데, 그건 이 티켓 범위 밖이다(GROMO-1616 후속).
+const MAX_SETTLES = 50;
+
+const EMPTY: FocusSessionJournal = { version: 1, session: null, settles: [] };
+
+// 저장소 읽기-수정-쓰기 직렬화 — pendingFocusUploads.ts와 같은 패턴(락 밖 네트워크 없음).
+// 소거 세대 — clearJournal이 올린다. 세션은 **시작한 세대**를 기억하고, 그 세대가 지난 뒤의
+// 쓰기는 거부된다.
+//
+// 「소거 후 새 시작 전까지 막는다」로는 부족하다: 로그아웃 직후 새 계정이 집중을 시작하면
+// 봉인이 전역으로 풀려, 그때 도착한 **이전 계정** 체인의 쓰기가 다시 허용된다. 그 intent는
+// 업로드에서 계정 불일치로 큐에 갔다가 현재 계정의 flush에 폐기돼 영구 유실된다
+// (codex 리뷰 #694 9차). 세대로 묶으면 새 시작이 옛 세션까지 되살리지 않는다.
+let generation = 0;
+
+// sessionKey → 그 세션이 시작한 세대. 소거 시 통째로 비운다(그 이전 세션은 모두 무효).
+// 같은 세대 안에서는 이전 세션의 늦은 쓰기도 정상이다 — finish 직후 새 세션을 시작해도
+// 앞 세션의 완성 intent는 남아야 한다(그게 유실 대비 안전망이다).
+const sessionGenerations = new Map<string, number>();
+const MAX_TRACKED_SESSIONS = 8;
+
+/**
+ * 소거 이전 세대의 세션인가 — 그렇다면 이 쓰기는 거부한다.
+ *
+ * ⚠️ **모르는 세션은 막지 않는다.** 부팅 복구는 이전 프로세스가 시작한 세션을 이어서 쓰는데,
+ * 그 세션은 이 맵에 없다(맵은 프로세스 메모리다). 「등록되지 않았으면 거부」로 만들면 복구가
+ * 저널을 완결하지 못한다. 막아야 할 건 **이 프로세스에서 시작했고 그 뒤 소거가 난** 세션의
+ * 늦은 쓰기뿐이다.
+ */
+function isStaleGeneration(sessionKey: string): boolean {
+  const gen = sessionGenerations.get(sessionKey);
+  return gen != null && gen !== generation;
+}
+
+let chain: Promise<unknown> = Promise.resolve();
+function serialize<T>(task: () => Promise<T>): Promise<T> {
+  const next = chain.then(task, task);
+  chain = next.catch(() => {});
+  return next;
+}
+
+async function read(): Promise<FocusSessionJournal> {
+  const raw = await AsyncStorage.getItem(STORAGE_KEYS.focusJournalV1);
+  if (!raw) return { ...EMPTY, settles: [] };
+  try {
+    const j = JSON.parse(raw) as FocusSessionJournal;
+    if (j.version !== 1) return { ...EMPTY, settles: [] };
+    return { version: 1, session: j.session ?? null, settles: j.settles ?? [] };
+  } catch {
+    return { ...EMPTY, settles: [] };
+  }
+}
+
+async function write(j: FocusSessionJournal): Promise<void> {
+  await AsyncStorage.setItem(STORAGE_KEYS.focusJournalV1, JSON.stringify(j));
+}
+
+/**
+ * **쓰기 성공 여부를 돌려준다.** 삼키면 호출부가 write-ahead가 없는데도 실드를 걸고,
+ * intent가 영속되지 않았는데 업로드를 시작한다 — 둘 다 크래시 시 복구 근거가 사라진다.
+ * (조건 불일치로 쓰기를 건너뛴 경우도 true — 실패가 아니라 「할 일이 없었다」는 뜻이다.)
+ */
+function mutate(fn: (j: FocusSessionJournal) => FocusSessionJournal | null): Promise<boolean> {
+  return serialize(async () => {
+    // ⚠️ 소거 이후의 쓰기는 **락 안에서** 막는다. 로그아웃·계정 전환이 저널을 지운 뒤에도
+    // 이전 계정의 정산 체인(livePromise 대기 중)이 살아 있어, 그 완성 intent가 뒤늦게 도착하면
+    // 지운 저널을 되살린다. 그 레코드는 다음 계정에서 소유자 불일치로 재생되지 않아, 이전
+    // 계정의 통계·코인이 복귀 전까지 유실된다(codex 리뷰 #694 8차).
+    const j = await read();
+    const next = fn(j);
+    if (next != null) await write(next);
+    return true;
+  }).catch(() => false);
+}
+
+/** ⓪ write-ahead — 실드 적용 **전에** 시작 의도를 기록한다. 실패하면 조용히 계속(현행 UX 우선). */
+export function journalStartIntent(sessionKey: string): Promise<boolean> {
+  const now = new Date().toISOString();
+  // 이 세션은 지금 세대에 속한다. 이후 소거가 나면 세대가 올라가 이 세션의 쓰기는 거부된다.
+  if (sessionGenerations.size >= MAX_TRACKED_SESSIONS) {
+    const oldest = sessionGenerations.keys().next().value;
+    if (oldest != null) sessionGenerations.delete(oldest);
+  }
+  sessionGenerations.set(sessionKey, generation);
+  return mutate((j) => ({
+    ...j,
+    // ⚠️ 교체 **전에** 이전 세션의 마커를 대응 intent에 인계한다. 예비 intent(마커 미정)만
+    // 남기고 죽은 뒤 유예(60초)가 끝나기 전에 사용자가 새 집중을 시작하면, 이 대입이 마커를
+    // 가진 유일한 기록인 이전 session 항목을 통째로 덮는다. 그러면 예약된 재생이 마커를
+    // 보완하지 못해 시간만 POST되고 이전 마커는 서버 스윕까지 열린 채 남는다
+    // (codex 리뷰 #694 8차).
+    settles:
+      j.session?.serverSessionId != null
+        ? j.settles.map((it) =>
+            it.sessionKey === j.session?.sessionKey &&
+            it.serverSessionId == null &&
+            it.body.startedAt === j.session?.markerBlockStartedAt
+              ? { ...it, serverSessionId: j.session.serverSessionId }
+              : it,
+          )
+        : j.settles,
+    session: {
+      sessionKey,
+      state: 'starting',
+      shieldRequested: true,
+      serverSessionId: null,
+      markerBlockStartedAt: null,
+      createdAt: now,
+      updatedAt: now,
+    },
+  }));
+}
+
+/** ②의 짝 — 같은 레코드의 원자 갱신으로 starting→active 전이(중간 상태 없음, §4.3-ⓐ) */
+export function journalActivateSession(sessionKey: string): Promise<boolean> {
+  if (isStaleGeneration(sessionKey)) return Promise.resolve(false);
+  return mutate((j) => {
+    if (j.session?.sessionKey !== sessionKey) return null;
+    return {
+      ...j,
+      session: { ...j.session, state: 'active', updatedAt: new Date().toISOString() },
+    };
+  });
+}
+
+export function journalSetServerSessionId(
+  sessionKey: string,
+  id: string | null,
+  blockStartedAt: string | null,
+): Promise<boolean> {
+  if (isStaleGeneration(sessionKey)) return Promise.resolve(false);
+  return mutate((j) => {
+    if (j.session?.sessionKey !== sessionKey) return null;
+    return {
+      ...j,
+      session: {
+        ...j.session,
+        serverSessionId: id,
+        markerBlockStartedAt: blockStartedAt,
+        updatedAt: new Date().toISOString(),
+      },
+    };
+  });
+}
+
+/**
+ * finish·실패 복구 — 세션 항목만 소거(잔여 settle intent는 그대로 재생 대상).
+ *
+ * `sessionKey`를 주면 **그 세션일 때만** 지운다. 이전 화면의 시작 정리가 뒤늦게 도착하는
+ * 사이에 새 세션이 이미 `starting`을 기록했을 수 있는데, 무조건 지우면 새 시작의 저널이
+ * 사라져 실드 적용 직후 크래시를 복구할 근거가 없어진다(직렬화 체인에서 순서가 뒤집힌다).
+ */
+export function journalClearSession(sessionKey?: string): Promise<boolean> {
+  return mutate((j) => {
+    if (sessionKey != null && j.session?.sessionKey !== sessionKey) return null;
+    return { ...j, session: null };
+  });
+}
+
+/**
+ * 정산 의도 기록(D1) — settleFocusBlock이 업로드 **착수 전에** await로 남긴다.
+ * 결과가 saved/alreadyEnded/queued면 resolveSettleIntent로 소멸, failed(큐 저장까지
+ * 실패)면 보존 → 다음 부팅 recover가 같은 바디로 재업로드한다. 이것이 「업로드 failed에도
+ * 화면이 레코드를 이미 지워 블록이 영구 유실」되던 공백(특성화 :839)의 수리다.
+ */
+export function recordSettleIntent(intent: SettleIntent): Promise<boolean> {
+  // 소거 이전 세대의 세션이 뒤늦게 도착한 것 — 거부한다(위 generation 주석).
+  if (isStaleGeneration(intent.sessionKey)) return Promise.resolve(false);
+  return mutate((j) => ({
+    ...j,
+    // 같은 intentId면 **교체**한다 — 정산은 네트워크 대기 전에 먼저 기록하고(그 사이에
+    // 죽으면 바디가 어디에도 없다), 태그·마커가 풀린 뒤 완성본으로 다시 부른다.
+    settles: [...j.settles.filter((it) => it.intentId !== intent.intentId), intent].slice(
+      -MAX_SETTLES,
+    ),
+  }));
+}
+
+export function resolveSettleIntent(intentId: string): Promise<boolean> {
+  return mutate((j) => ({
+    ...j,
+    settles: j.settles.filter((it) => it.intentId !== intentId),
+  }));
+}
+
+/** 복구 입력 — recoverFocusEngine(부팅 배선)이 읽는다. */
+export function readJournal(): Promise<FocusSessionJournal> {
+  return serialize(read);
+}
+
+/**
+ * 로그아웃·계정 전환의 저널 소거.
+ *
+ * 소거 후에는 **새 세션이 시작될 때까지** 모든 쓰기를 막는다(`sealed`). 이전 계정의 정산
+ * 체인이 livePromise를 기다리는 사이 소거가 끝나면, 그 완성 intent가 뒤늦게 도착해 지운
+ * 저널을 되살린다 — 그 레코드는 다음 계정에서 소유자 불일치로 재생되지 않아 이전 계정의
+ * 통계·코인이 복귀 전까지 유실된다(codex 리뷰 #694 8차). 새 시작(journalStartIntent)이
+ * 봉인을 푼다.
+ */
+export function clearJournal(): Promise<void> {
+  // ⚠️ 맵을 비우지 않는다 — 비우면 이전 세션이 「모르는 세션」이 돼 다시 허용된다.
+  // 세대만 올려 두면 그 세션들의 쓰기가 stale로 걸린다.
+  generation += 1;
+  return serialize(async () => {
+    await AsyncStorage.removeItem(STORAGE_KEYS.focusJournalV1);
+  }).catch(() => {});
+}
