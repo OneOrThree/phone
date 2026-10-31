@@ -330,6 +330,8 @@ export type State = {
     screenTimeMeasurementDay?: string;
     screenTimeHistoryReady?: boolean;
     screenTimeHistoryDay?: string;
+    studyVerification?: boolean; // 집중 인증(카메라 손 판정) 개인 토글 — 스파이크
+    studyVerificationCamera?: 'front' | 'back'; // 미리보기에서 확인한 카메라를 판정에도 사용한다.
   };
   islands: Island[];
   session: Session | null;
