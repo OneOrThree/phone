@@ -44,6 +44,7 @@ CREATE EXTERNAL TABLE IF NOT EXISTS ops_logs (
   `duration_ms` bigint,
   `app_version` string,
   `app_platform` string,
+  `app_update_id` string,
   `outcome` string
 )
 PARTITIONED BY (`env` string, `service` string, `archive_date` string, `archive_hour` string)
