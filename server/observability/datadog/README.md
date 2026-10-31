@@ -207,7 +207,7 @@ Gromo 1.x prod 의 텍스트 패턴 로그는 상관되지 않는다.
 
 ## service 이름 변경을 참조하는 Datadog 자원 (사람이 Datadog 에 반영)
 
-저장소 JSON·compose 는 새 이름으로 고쳤다. 실제 Datadog 반영은 **재영님이 콘솔에서** 한다(이 저장소의 어떤 도구도 쓰기를 하지 않는다).
+저장소 JSON·compose 는 새 이름으로 고쳤다. 실제 Datadog 반영은 **담당자가 콘솔에서** 한다(이 저장소의 어떤 도구도 쓰기를 하지 않는다).
 
 | 자원 | 참조하던 이름 | 반영할 것 |
 |---|---|---|
@@ -215,7 +215,8 @@ Gromo 1.x prod 의 텍스트 패턴 로그는 상관되지 않는다.
 | 같은 파일 «상세 조사» note 의 APM 링크 4개 | `gromo-back-dev`·`gromo-business-dev`·`gromo-notification-dev`·`gromo-realtime-dev` | `data-api`·`business-api`·`notification`·`realtime` |
 | 같은 파일 «서버 API» 위젯 3개(요청량·오류·p95) | `service:gromo-*` | `$env AND service IN (data-api,business-api,realtime,notification)`. 쉼표로 이으면 Datadog 이 400 으로 거부한다(`AND`·`OR` 와 `,` 혼용 불가, 2026-10-30 조회로 확인) |
 | `dashboards/gromo-backend.json` 의 `service` 템플릿 변수 | 기본값 `gromo-back-prod`(Gromo 1.x) | 변경 없음. dev 를 볼 때는 값을 `data-api` 등으로 고른다 |
-| Datadog 에만 있는 저장 뷰·모니터·SLO·로그 파이프라인·메트릭 필터 | 저장소에 없어 목록화 불가 | 콘솔에서 `gromo-back-dev`·`gromo-data-dev`·`gromo-business-dev`·`gromo-realtime-dev`·`gromo-notification-dev` 로 검색해 새 이름으로 교체 |
+| 대시보드 `CATUS · DEV 통합 관측`(`hav-c4v-rkm`, Datadog 에만 있음) | `service:gromo-*`·`gromo-business-dev`·`gromo-data-dev` | 위젯 쿼리를 새 이름으로 교체 |
+| Datadog 에만 있는 저장 뷰·로그 파이프라인·메트릭 필터 | 저장소에 없어 목록화 불가. 모니터·SLO 는 2026-10-31 기준 0건, prod 이름을 쓰는 대시보드도 0건 | 콘솔에서 `gromo-back-dev`·`gromo-data-dev`·`gromo-business-dev`·`gromo-realtime-dev`·`gromo-notification-dev` 로 검색해 새 이름으로 교체 |
 
 절차: (1) dev 배포로 새 `DD_SERVICE`·라벨이 반영된 뒤 (2) 위 대시보드 JSON 을 적용하고 (3) 콘솔 검색으로 옛 service 참조를 정리한다.
 배포 직후 약 1시간은 옛·새 service 가 한 시계열에 섞여 보일 수 있다. 과거 데이터는 옛 이름으로만 조회된다.
