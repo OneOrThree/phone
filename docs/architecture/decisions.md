@@ -229,3 +229,7 @@
 앱→Business API 원칙의 예외로 **공개 정적 이미지/팩 manifest에 한해 앱→CloudFront→비공개 S3** 경로를 제안한다. 새 업무 서비스/DB/Redis 저장소는 추가하지 않으며 사용자 권한·장착 데이터는 기존 API 소유다. 새 저장소의 쓰기는 콘텐츠 CI, 읽기는 OAC와 공개 CDN, 기기 파일 관리는 앱 AssetRepository가 담당한다.
 
 [구현 PRD와 설계](../prd/fishcat/image-cdn/README.md)를 따른다. 이 항목은 인프라 적용이나 기존 A 결정의 운영 전환 완료 선언이 아니다. 인프라/앱 적용 PR에서 service-architecture의 허용 경로, system-architecture의 노출면·저장소·그림을 함께 갱신하고 실제 검증 근거와 함께 정식 결정 번호를 부여한다.
+
+## 공유 Redis 운영 구체화 (2026-10-30, 티켓 2589)
+
+A19의 서비스별 ACL을 유지하면서 Business·Data·Realtime을 한 Redis로 통합한다. `noeviction`·AOF와 미리보기 64개×항목 1MiB 제한을 사용하고, 세션·탈퇴 차단 표지는 축출하지 않는다. 이전 Business 전용 Redis의 재생성 절차는 폐기하며 bridge 기간 뒤 제거한다. 상세 정책·최초 적용·복구·HA 유보 조건은 [공유 Redis 운영](shared-redis.md)을 따른다. 구현·로컬 검증과 운영 적용은 별도다.

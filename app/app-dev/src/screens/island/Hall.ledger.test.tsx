@@ -16,6 +16,7 @@ jest.mock('@/services/api/townHall', () => ({
 const DESIGN_LAYOUT = {
   width: 402,
   height: 874,
+  fontScale: 1,
   insets: { top: 52, bottom: 32, left: 0, right: 0 },
   landscape: false,
 };
@@ -462,6 +463,60 @@ test('잔액·합계·거래 금액은 줄높이가 글자보다 커서 고운�
   roomy('ledger-total');
   roomy('ledger-amount-e1');
 });
+
+test.each([
+  ['기본 표', 402, 874, 1, false],
+  // SE는 높이 제약으로 책 배율이 줄어 실제 종이 폭이 약 194pt가 된다.
+  ['SE의 좁은 종이', 375, 667, 1, true],
+  ['중간 글자 배율', 402, 874, 1.15, true],
+  ['큰 글자 직전', 402, 874, 1.29, true],
+  ['큰 글자 경계', 402, 874, 1.3, true],
+  ['가로 기본 표', 852, 393, 1, false],
+  ['큰 글자', 393, 852, 2.14, true],
+  ['가로 큰 글자', 852, 393, 2.14, true],
+] as const)(
+  '%s에서도 긴 거래 금액·날짜·묶음 내역을 모두 읽을 수 있다',
+  async (_name, width, height, fontScale, stacked) => {
+    Object.assign(mockLayout, { width, height, fontScale, landscape: width > height });
+    townHallMock.mockResolvedValue(
+      screenBody({
+        items: [
+          entry('large-earn', { amount: 987654321, entryCount: 987654321 }),
+          entry('large-spend', {
+            direction: 'spend',
+            reason: 'construction_debit',
+            amount: 987654321,
+          }),
+        ],
+      }),
+    );
+    try {
+      const screen = await render(<Hall e={e()} />);
+      await waitFor(() => assert.ok(screen.getByTestId('ledger-amount-large-earn')));
+      for (const [id, sign] of [
+        ['large-earn', '+'],
+        ['large-spend', '−'],
+      ] as const) {
+        const row = screen.getByTestId(`ledger-row-${id}`);
+        const amount = within(row).getByTestId(`ledger-amount-${id}`);
+        expect(amount).toHaveTextContent(`${sign}987,654,321`);
+        assert.equal(amount.props.numberOfLines, 1);
+        assert.equal(amount.props.adjustsFontSizeToFit, true);
+        assert.equal(style(amount).maxWidth, stacked ? '100%' : '50%');
+        assert.equal(style(row).flexDirection, stacked ? 'column' : 'row');
+        assert.ok(within(row).getByText('9/20'));
+      }
+      const reason = within(screen.getByTestId('ledger-row-large-earn')).getByText('집중 적립', {
+        exact: false,
+      });
+      expect(reason).toHaveTextContent('집중 적립 · 987654321회');
+      assert.equal(reason.props.numberOfLines, undefined);
+      assert.ok(screen.getByText('건설 사용'));
+    } finally {
+      Object.assign(mockLayout, DESIGN_LAYOUT);
+    }
+  },
+);
 
 test('spend 는 양수 amount 를 −로, earn 은 +로 그리고 reason 라벨·묶음 표시를 단다', async () => {
   ledgerMock.mockResolvedValue(

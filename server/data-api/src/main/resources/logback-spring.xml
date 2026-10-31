@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
   GROMO-384 로그 스트림 분리.
-  - APP: 시스템 로그 (텍스트, 콘솔 + 롤링 파일)
+  - APP: 시스템 로그 (local/ci 콘솔은 텍스트, dev/staging/prod 콘솔은 관측 JSON + 텍스트 롤링 파일)
   - USER-ACTIVITY: 유저 행동 이벤트 로그 (구조화 JSON, 별도 파일, additivity=false)
 -->
 <configuration>
@@ -12,12 +12,20 @@
 
     <!-- APP 텍스트 패턴 (MDC trace_id/user_id + 마스킹된 메시지) -->
     <property name="APP_PATTERN"
-              value="[%d{yyyy-MM-dd HH:mm:ss.SSS}] [%thread] %-5level %logger{36} [%X{trace_id}] [%X{user_id}] - %mask%n"/>
+              value="[%d{yyyy-MM-dd HH:mm:ss.SSS}] [%thread] %-5level %logger{36} [%X{trace_id}] [%X{user_id}] [request_id=%X{request_id}] - %mask%n"/>
 
     <!-- ===================== APP (시스템 로그, 텍스트) ===================== -->
     <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
         <encoder>
             <pattern>${APP_PATTERN}</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+
+    <!-- 관측 JSON(schema_version 1) 콘솔. 수집기는 stdout 만 읽는다. 형식·마스킹·allowlist 는 ObservationJsonProvider -->
+    <appender name="CONSOLE_JSON" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder class="org.springframework.boot.logging.logback.StructuredLogEncoder">
+            <format>com.oneorthree.phone.common.logging.ObservationJsonProvider</format>
             <charset>UTF-8</charset>
         </encoder>
     </appender>
@@ -92,8 +100,9 @@
         </root>
     </springProfile>
     <springProfile name="dev | staging | prod">
+        <!-- APP_FILE(텍스트)은 컷오버 전까지 유지 — 호스트 타이머 적재가 이 파일을 읽는다 -->
         <root level="INFO">
-            <appender-ref ref="CONSOLE"/>
+            <appender-ref ref="CONSOLE_JSON"/>
             <appender-ref ref="APP_FILE"/>
         </root>
     </springProfile>

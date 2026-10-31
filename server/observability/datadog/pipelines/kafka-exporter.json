@@ -1,0 +1,48 @@
+{
+  "name": "GROMO Kafka Exporter severity",
+  "is_enabled": true,
+  "filter": {
+    "query": "source:kafka-exporter"
+  },
+  "description": "GROMO-2572. kafka-exporter glog 레벨 글자(I/W/E/F)를 info/warning/error/critical 로 명시 매핑해 status 로 쓴다. glog 형식이 아닌 줄(연속 줄, goroutine 덤프, 미인식 레벨)은 속성이 생기지 않아 수집 시 status(stderr=error)를 유지한다. 정본: server/observability/datadog/pipelines/kafka-exporter.json",
+  "processors": [
+    {
+      "type": "grok-parser",
+      "name": "Parse glog header: level, MMdd, time, thread, file:line",
+      "is_enabled": true,
+      "source": "message",
+      "samples": [
+        "I1029 08:59:57.086769       1 kafka_exporter.go:678] [kafka:9092]",
+        "E1029 00:51:27.177953       1 kafka_exporter.go:431] Cannot get current offset of topic realtime-events.DLT partition 0: kafka: client has run out of available brokers to talk to: 2 errors occurred:",
+        "F1029 03:53:59.557708       1 kafka_exporter.go:924] Error Init Kafka Client: kafka: client has run out of available brokers to talk to: dial tcp 172.18.0.10:9092: connect: connection refused",
+        "W1029 10:00:00.000001       1 kafka_exporter.go:100] synthetic warning sample for GROMO-2572",
+        "\t* dial tcp 172.18.0.6:9092: connect: connection refused"
+      ],
+      "grok": {
+        "support_rules": "",
+        "match_rules": "glog_line %{regex(\"[IWEF]\"):glog.level}%{regex(\"[0-9][0-9][0-9][0-9]\"):glog.date} %{regex(\"[0-9][0-9]:[0-9][0-9]:[0-9][0-9][.][0-9]+\"):glog.time}\\s+%{integer:glog.thread_id} %{notSpace:glog.file}:%{integer:glog.line}\\] %{data:glog.message}"
+      }
+    },
+    {
+      "type": "lookup-processor",
+      "name": "Map glog level letter to an explicit status word",
+      "is_enabled": true,
+      "source": "glog.level",
+      "target": "glog.severity",
+      "lookup_table": [
+        "I,info",
+        "W,warning",
+        "E,error",
+        "F,critical"
+      ]
+    },
+    {
+      "type": "status-remapper",
+      "name": "Define glog.severity as the official status of the log",
+      "is_enabled": true,
+      "sources": [
+        "glog.severity"
+      ]
+    }
+  ]
+}

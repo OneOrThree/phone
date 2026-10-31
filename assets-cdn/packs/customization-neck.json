@@ -1,0 +1,16 @@
+{
+  "packId": "customization-neck",
+  "files": {
+    "bell-c1750340": "server/static/customization/neck/bell.c1750340.png",
+    "bow-8c5f07d1": "server/static/customization/neck/bow.8c5f07d1.png",
+    "common-band-1acc2be4": "server/static/customization/neck/common-band.1acc2be4.png",
+    "flower-635585e2": "server/static/customization/neck/flower.635585e2.png",
+    "leaf-7966b991": "server/static/customization/neck/leaf.7966b991.png",
+    "picnic-e166cc07": "server/static/customization/neck/picnic.e166cc07.png",
+    "pompom-bd4868f4": "server/static/customization/neck/pompom.bd4868f4.png",
+    "sailor-a162b6ca": "server/static/customization/neck/sailor.a162b6ca.png",
+    "shell-60401083": "server/static/customization/neck/shell.60401083.png",
+    "star-bec824f1": "server/static/customization/neck/star.bec824f1.png",
+    "strawberry-6dfc56d8": "server/static/customization/neck/strawberry.6dfc56d8.png"
+  }
+}

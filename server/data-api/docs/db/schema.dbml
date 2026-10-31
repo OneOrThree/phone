@@ -435,6 +435,35 @@ Table focus_reward_policies [note: 'GROMO-1924: 집중 보상 산식 revision(FR
   published_at            timestamptz [not null, default: `now()`]
 }
 
+Table focus_reward_policy_approvals [note: 'V6: 승인자 서비스 토큰으로 남긴 정책 스냅샷 영수증. 변경안 수정 시 행을 지우지 않고 취소 주체·시각을 기록한다'] {
+  approval_id uuid [pk]
+  expected_revision integer [not null]
+  policy_snapshot jsonb [not null]
+  policy_digest char(64) [not null]
+  request_digest char(64) [not null]
+  approved_by varchar(30) [not null]
+  approved_at timestamptz [not null, default: `now()`]
+  revoked_at timestamptz
+  revoked_by varchar(30)
+}
+
+Table focus_reward_policy_publications [note: 'V6: 새 revision 발행의 전후값·승인자·발행자 영구 감사 원장. approval_id는 한 번만 사용한다'] {
+  publication_id uuid [pk]
+  approval_id uuid [not null, unique]
+  revision integer [not null, unique]
+  previous_revision integer [not null]
+  before_policy jsonb [not null]
+  after_policy jsonb [not null]
+  request_digest char(64) [not null]
+  approved_digest char(64) [not null]
+  approved_by varchar(30) [not null]
+  actor varchar(30) [not null]
+  published_at timestamptz [not null, default: `now()`]
+}
+
+Ref: focus_reward_policy_publications.approval_id > focus_reward_policy_approvals.approval_id
+Ref: focus_reward_policy_publications.revision > focus_reward_policies.revision
+
 Table user_fish_wallets [note: 'GROMO-1924: 개인 물고기 지갑(통화 fish, 2026-09-18 결정 D1, migration V67). 코인(user_wallets)과 별개 — D11 로 코인 잔액을 옮기지 않는다'] {
   user_id     uuid    [pk, note: 'FK → users.id ON DELETE CASCADE']
   balance     integer [not null, default: 0, note: 'CHECK >= 0']
@@ -1136,6 +1165,9 @@ Table event_outbox [note: '내구 이벤트 봉투 (V51, A21) — 명령 트랜�
   version        bigint       [not null, note: 'aggregate 행 잠금 아래 발급된 단조 증가 값 (A22 ㊸). 시퀀스 금지 — 할당 순서 ≠ 커밋 순서라 나중에 커밋된 최신 상태가 폐기된다']
   params         jsonb        [not null, note: '사건별 발송 입력. 소비자는 모르는 필드를 무시한다']
   created_at     timestamptz  [not null]
+  origin_request_id     varchar(128) [note: 'V7, GROMO-2557 — 최초 원인 요청의 request_id(이미 있던 origin 우선). 봉투 본문 밖 열이라 소비자·멱등 비교에 섞이지 않는다. append 때 한 번 적고 바꾸지 않는다. 문맥 없는 append·V7 이전 행은 null']
+  origin_trace_id       varchar(64)  [note: 'V7 — append 순간 활성 tracer 의 trace id 원문(dd-trace-api CorrelationIdentifier). 10진·32자리 hex 를 정규화하지 않고 저장. agent 없음·"0" 은 null']
+  trace_context_version smallint     [note: 'V7 — 위 두 값의 형식 버전. 하나라도 있으면 1, 둘 다 없으면 null']
 
   indexes {
     event_id [unique, name: 'uq_event_outbox_event_id']
@@ -1331,3 +1363,31 @@ Ref: user_island_contexts.user_id - users.id [delete: cascade]
 Ref: user_main_islands.island_id > islands.id [delete: cascade]
 Ref: user_main_islands.user_id - users.id [delete: cascade]
 Ref: user_notification_settings.user_id - users.id  // 논리 관계 — DB FK 제약 없음
+
+// 관리자 검토·게시. 공개 앱의 개발자 소식은 게시 기간 안에서만 조회한다.
+Table content_publications {
+  publication_id uuid [pk]
+  kind varchar(16) [not null, note: 'NOTICE · MAGAZINE · CONSTRUCTION. 건설 정책 영수증은 전후 값과 revision을 보존한다']
+  request_digest varchar(64) [not null]
+  result jsonb [not null]
+  actor varchar(16) [not null]
+  created_at timestamptz [not null]
+}
+Table developer_notices {
+  publication_id uuid [pk]
+  title varchar(120) [not null]
+  body text [not null]
+  starts_at timestamptz [not null]
+  ends_at timestamptz
+  published_at timestamptz [not null]
+  withdrawn_at timestamptz
+  withdrawn_by varchar(16)
+}
+Ref: developer_notices.publication_id > content_publications.publication_id [delete: no action]
+Table magazine_review_snapshots {
+  snapshot_id uuid [pk]
+  digest varchar(64) [not null]
+  content jsonb [not null]
+  actor varchar(16) [not null]
+  created_at timestamptz [not null]
+}

@@ -1,3 +1,4 @@
+import { getAssetRepository } from '@/services/assets/repository';
 import { syncAndroidMeasurement, syncAndroidFocus } from '@/services/androidScreenTime';
 import { startLiveActivityPushSync } from '@/services/liveActivityPush';
 import { updateIOSHomeWidget } from '@/services/iosHomeWidget';
@@ -141,6 +142,7 @@ import { createSessionCommands } from '@/services/sessionCommands';
 import { decideBootRoute } from '@/services/islandBoot';
 import { createShieldedRouteTransition } from '@/services/routeTransition';
 import { parseAppDeepLink, subscribeToAppLinks } from '@/services/appDeepLink';
+import { islandErrorMessage } from '@/services/islandErrors';
 import {
   BUILDING_TRANSITION_DURATION_MS,
   BUILDING_TRANSITION_RETURN_TARGET,
@@ -256,6 +258,8 @@ const titles: Record<Route, string> = {
   settings: '앱 설정',
   language: '언어',
   blockedUsers: '차단한 사용자',
+  developerNotices: '개발자 공지',
+  developerNotice: '개발자 공지 상세',
   wardrobe: '내 꾸미기',
   sound: '꽃나팔 방송기',
   library: '도서관',
@@ -330,6 +334,8 @@ const SEA_HUD_ROUTES: Route[] = [
   'friends',
   'friendSearch',
   'blockedUsers',
+  'developerNotices',
+  'developerNotice',
   'settings',
   'mainIsland',
   'profile',
@@ -364,6 +370,7 @@ function Gromo() {
     [hasServerSession, setHasServerSession] = useState(
       () => !REVIEW && !DEMO && getSession() !== null,
     ),
+    [authGeneration, setAuthGeneration] = useState(sessionGeneration),
     [route, setRoute] = useState<Route>(
       FOCUS_BLOCKING_PREVIEW ? 'telescope' : DEMO ? 'home' : 'login',
     ),
@@ -484,6 +491,7 @@ function Gromo() {
     setStorageOwnerReady(ready);
   };
   const [incomingAppLink, setIncomingAppLink] = useState<string | null>(null);
+  const [openingInvitation, setOpeningInvitation] = useState(false);
   const socialLoginAttempt = useRef<{
     provider: Provider;
     credential: string;
@@ -840,6 +848,62 @@ function Gromo() {
       setIncomingAppLink(null);
       return;
     }
+    if (target.kind === 'invitation') {
+      // 초대는 첫 섬 선택을 대신한다. 계정 준비와 진행 중 집중만 끝나기를 기다린다.
+      if (
+        !hasServerSession ||
+        !islandsSynced ||
+        fireTransition.phase !== 'idle' ||
+        ['login', 'character', 'guide'].includes(route) ||
+        (route === 'home' && !!state.tutorial && state.tutorial.step <= 3) ||
+        state.session ||
+        openingInvitation
+      )
+        return;
+      setIncomingAppLink(null);
+      setOpeningInvitation(true);
+      const gen = sessionGeneration();
+      const seq = ++linkSeq.current;
+      const nav = navKeyRef.current;
+      const latest = () =>
+        gen === sessionGeneration() && seq === linkSeq.current && nav === navKeyRef.current;
+      void (async () => {
+        try {
+          const commands = islandCmds.current!.commands;
+          const island = await commands.resolveInvite(target.code, { arrive: true });
+          if (!latest()) return;
+          // 초대 해석 직후의 서버 상태를 쓴다. 로컬 소속·현재 섬은 다른 기기의 변경보다 늦을 수 있다.
+          if (island.membershipStatus === 'active') {
+            await commands.switchCurrent(island.id);
+          } else {
+            const result = await commands.join(island.id, { showApproval: false });
+            if (!latest()) {
+              if (gen === sessionGeneration())
+                notifyRef.current(
+                  result.status === 'pending'
+                    ? '초대받은 섬에 가입을 신청했어요.'
+                    : '초대받은 섬에 합류했어요.',
+                );
+              return;
+            }
+            if (result.status === 'pending') {
+              if (stateRef.current.visitingIslandId) dispatch({ type: 'END_VISIT' });
+              resetRef.current('approval', island.id);
+              return;
+            }
+          }
+          if (latest()) {
+            if (stateRef.current.visitingIslandId) dispatch({ type: 'END_VISIT' });
+            resetRef.current('home');
+          }
+        } catch (error) {
+          if (latest()) notifyRef.current(islandErrorMessage(error));
+        } finally {
+          setOpeningInvitation(false);
+        }
+      })();
+      return;
+    }
     // 앱 부팅 전이나 로그인 중 받은 링크는 보관했다가 세션이 준비된 뒤에만 연다.
     // 딥링크가 로그인 화면을 우회해 회원 전용 화면을 노출하지 않게 한다.
     // 로그인 응답으로 session store만 먼저 바뀌는 틈이 있다. 채택 완료로 login route가
@@ -959,6 +1023,8 @@ function Gromo() {
     state.tutorial,
     route,
     fireTransition.phase,
+    openingInvitation,
+    state.session,
   ]);
   const islandCmds = useRef<ReturnType<typeof createIslandCommands> | null>(null);
   islandCmds.current ??= createIslandCommands({
@@ -1583,6 +1649,7 @@ function Gromo() {
     }
     return subscribeSession((session) => {
       const generation = sessionGeneration();
+      setAuthGeneration(generation);
       if (generation !== socialAttemptGeneration.current) {
         const transition = conversionSessionTransition.current;
         const expectedConversionTransition =
@@ -1672,6 +1739,12 @@ function Gromo() {
     );
     return () => subscription.remove();
   }, []);
+  useEffect(() => {
+    if (appActive)
+      void getAssetRepository()
+        ?.onForeground()
+        .catch(() => {});
+  }, [appActive]);
   const pushPromptReady =
     loaded &&
     !REVIEW &&
@@ -2164,31 +2237,80 @@ function Gromo() {
       subscription.remove();
     };
   }, [loaded, hasServerSession, storageOwnerReady]);
+  const focusShieldOwner = getSession()?.userId;
   useEffect(() => {
     if (!loaded || !storageOwnerReady || (Platform.OS !== 'ios' && Platform.OS !== 'android'))
       return;
-    const sync = () => {
-      const session = hasServerSession ? stateRef.current.session : null;
-      void (
-        Platform.OS === 'android'
-          ? syncAndroidFocus(session, stateRef.current.color, true)
-          : syncFocusShield(session, stateRef.current.color, true)
-      )
-        .then(async (applied) => {
-          if (!applied && session?.status === 'active' && (await shouldReportShieldFailure()))
-            notify('앱 차단을 적용하지 못했어요. 스크린타임 권한을 확인해 주세요.');
-        })
-        .catch(() => notify('앱 차단 상태를 변경하지 못했어요. 다시 확인해 주세요.'));
+    let active = true;
+    let foreground = AppState.currentState === 'active';
+    let request = 0;
+    let retryDelay = 2000;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    // 같은 사용자 ID의 회원 전환도 이전 재시도를 정리하고 새 인증 세대로 동기화한다.
+    const generation = authGeneration;
+    const current = () =>
+      active && generation === sessionGeneration() && focusShieldOwner === getSession()?.userId;
+    const clearRetry = () => {
+      clearTimeout(retryTimer);
+      retryTimer = undefined;
     };
-    sync();
+    const retry = () => {
+      if (!current() || !foreground || !hasServerSession || Platform.OS !== 'ios') return;
+      clearRetry();
+      retryTimer = setTimeout(() => {
+        retryTimer = undefined;
+        void sync(false);
+      }, retryDelay);
+      retryDelay = Math.min(retryDelay * 2, 30000);
+    };
+    const sync = async (reportFailure = true) => {
+      if (!current()) return;
+      const sequence = ++request;
+      const latest = () => current() && sequence === request;
+      clearRetry();
+      const session = hasServerSession ? stateRef.current.session : null;
+      try {
+        const applied = await (Platform.OS === 'android'
+          ? syncAndroidFocus(session, stateRef.current.color, true)
+          : syncFocusShield(session, stateRef.current.color, true, latest));
+        if (!latest()) return;
+        if (applied) {
+          retryDelay = 2000;
+          return;
+        }
+        if (
+          reportFailure &&
+          session?.status === 'active' &&
+          (await shouldReportShieldFailure()) &&
+          latest()
+        )
+          notify('앱 차단을 적용하지 못했어요. 스크린타임 권한을 확인해 주세요.');
+        if (latest()) retry();
+      } catch {
+        if (!latest()) return;
+        if (reportFailure && (await shouldReportShieldFailure()) && latest())
+          notify('앱 차단 상태를 변경하지 못했어요. 다시 확인해 주세요.');
+        if (latest()) retry();
+      }
+    };
+    void sync();
     const subscription = AppState.addEventListener('change', (next) => {
-      if (next === 'active') sync();
+      foreground = next === 'active';
+      if (foreground) void sync();
+      else clearRetry();
     });
-    return () => subscription.remove();
+    return () => {
+      active = false;
+      clearRetry();
+      subscription.remove();
+    };
   }, [
     loaded,
     storageOwnerReady,
     hasServerSession,
+    authGeneration,
+    focusShieldOwner,
+    state.settings.permission,
     state.session?.id,
     state.session?.version,
     state.session?.status,
@@ -2509,6 +2631,7 @@ function Gromo() {
         e={{
           state,
           route,
+          fromSea: history.length ? seaRouteHeld(history[0].route) : !state.onboarded,
           termsVersion: TERMS_VERSION,
           routeTransitionShielded,
           accountDataReady: storageOwnerReady,

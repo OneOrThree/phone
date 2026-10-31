@@ -1,6 +1,7 @@
 package com.oneorthree.phone.outbox.service;
 
 import com.oneorthree.phone.config.OutboxRelayProperties;
+import com.oneorthree.phone.outbox.client.OutboxCarrier;
 import com.oneorthree.phone.outbox.client.OutboxTransport;
 import com.oneorthree.phone.outbox.client.OutboxTransportResult;
 import com.oneorthree.phone.outbox.dto.AggregateRef;
@@ -8,6 +9,7 @@ import com.oneorthree.phone.outbox.dto.OutboxAppendCommand;
 import com.oneorthree.phone.outbox.dto.OutboxDeliveryRequest;
 import com.oneorthree.phone.outbox.repository.EventOutboxDeliveryRepository;
 import com.oneorthree.phone.outbox.repository.EventOutboxRepository;
+import com.oneorthree.phone.outbox.repository.domain.EventOutbox;
 import com.oneorthree.phone.outbox.repository.domain.EventOutboxDelivery;
 import com.oneorthree.phone.outbox.repository.domain.OutboxTarget;
 import com.oneorthree.phone.outbox.support.OutboxTestPostgres;
@@ -241,6 +243,49 @@ class OutboxRelayRunIntegrationTest {
         assertThat(kafka.sent).isEmpty();
     }
 
+    @Test
+    void aCarrierThatCannotBeBuiltDoesNotStopTheAxis() {
+        UUID user = UUID.randomUUID();
+        for (int i = 0; i < 3; i++) {
+            append(user);
+        }
+        // 첫 행의 봉투만 origin 을 읽다 던진다 — OutboxCarrier.of 가 try 밖에서 던지던 경로(축이 멈추고 나머지가 리스에 남음).
+        EventOutboxRepository faulty = mock(EventOutboxRepository.class);
+        when(faulty.findAllById(org.mockito.ArgumentMatchers.<Iterable<UUID>>any())).thenAnswer(invocation -> {
+            List<EventOutbox> real = outbox.findAllById(invocation.<Iterable<UUID>>getArgument(0));
+            UUID first = deliveries.findAll().stream()
+                    .filter(row -> row.getAggregateVersion() == 1).findFirst().orElseThrow().getOutboxId();
+            return real.stream().map(e -> first.equals(e.getId()) ? throwingOrigin(e) : e).toList();
+        });
+        List<OutboxCarrier> carriers = new CopyOnWriteArrayList<>();
+        OutboxTransport transport = new OutboxTransport() {
+            @Override
+            public OutboxTarget target() {
+                return OutboxTarget.KAFKA;
+            }
+
+            @Override
+            public OutboxTransportResult send(EventOutboxDelivery delivery, UUID userId, OutboxCarrier carrier) {
+                carriers.add(carrier);
+                return OutboxTransportResult.success();
+            }
+        };
+        OutboxRelayService relay = new OutboxRelayService(store, faulty, PROPERTIES, CLOCK, List.of(transport),
+                new SimpleMeterRegistry(), Runnable::run);
+
+        assertThat(relay.relayTarget(OutboxTarget.KAFKA)).as("세 행 모두 전달").isEqualTo(3);
+        assertThat(carriers).hasSize(3);
+        assertThat(carriers.get(0)).as("첫 행은 문맥 없는 carrier").isSameAs(OutboxCarrier.NONE);
+        assertThat(carriers.get(1).eventId()).isNotNull();
+        assertThat(org.slf4j.MDC.get("event_id")).as("scope 가 남지 않는다").isNull();
+    }
+
+    private static EventOutbox throwingOrigin(EventOutbox real) {
+        EventOutbox spy = org.mockito.Mockito.spy(real);
+        org.mockito.Mockito.doThrow(new IllegalStateException("origin 읽기 실패")).when(spy).getOriginRequestId();
+        return spy;
+    }
+
     private OutboxRelayService relay(OutboxTransport transport, Executor executor) {
         return new OutboxRelayService(store, outbox, PROPERTIES, CLOCK, List.of(transport), new SimpleMeterRegistry(),
                 executor);
@@ -347,7 +392,7 @@ class OutboxRelayRunIntegrationTest {
         }
 
         @Override
-        public OutboxTransportResult send(EventOutboxDelivery delivery, UUID user) {
+        public OutboxTransportResult send(EventOutboxDelivery delivery, UUID user, OutboxCarrier carrier) {
             sent.add(delivery.getId());
             return behaviour.apply(delivery);
         }

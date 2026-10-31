@@ -26,6 +26,38 @@ def secret(**overrides: object) -> dict[str, object]:
 
 
 class WriteComposeEnvTest(unittest.TestCase):
+    def test_data_console_tokens_are_optional_and_isolated(self) -> None:
+        keys = tuple(f"SVC_TOKEN_CONSOLE_MEMBER_{number}_TO_DATA" for number in range(1, 4))
+        base = {key: f"value-{key}" for key in
+                MODULE.SERVICE_REQUIRED_KEYS["data-api"] + MODULE.TRANSITION_KEYS}
+        supplied = {key: f"console-token-{number}" for number, key in enumerate(keys, 1)}
+        for phase in ("transition", "final"):
+            with_tokens = MODULE.render({**base, **supplied}, "example/data:1", "data-api", phase=phase)
+            without_tokens = MODULE.render(base, "example/data:1", "data-api", phase=phase)
+            for key in keys:
+                self.assertIn(f"{key}='{supplied[key]}'", with_tokens)
+                self.assertNotIn(f"{key}=", without_tokens)
+        for service in ("business-api", "notification", "legacy"):
+            self.assertTrue(set(keys).isdisjoint(MODULE.allowed_keys(service)))
+
+
+    def test_Business_bridge_비밀번호는_전환시에만_필수이며_다른_서비스에_노출되지_않는다(self) -> None:
+        baseline = {key: f"fixture-{key}" for keys in MODULE.SERVICE_REQUIRED_KEYS.values() for key in keys}
+        baseline.update({key: f"fixture-{key}" for key in MODULE.TRANSITION_KEYS})
+        baseline["SVC_TOKEN_CONSOLE_TO_NOTI"] = "member-1:console"
+        for environment in ("dev", "prod"):
+            for invalid in (None, "", "  "):
+                with self.subTest(environment=environment, password=invalid):
+                    with self.assertRaisesRegex(ValueError, "BUSINESS_REDIS_LEGACY_PASSWORD"):
+                        MODULE.render({**baseline, "LINK_PROXY_SECRET": "fixture-proxy",
+                                       "BUSINESS_REDIS_LEGACY_HOST": "business-redis",
+                                       "BUSINESS_REDIS_LEGACY_PASSWORD": invalid},
+                                      "example/business:1", "business-api", "final", environment)
+        baseline.update(BUSINESS_REDIS_LEGACY_HOST="business-redis", BUSINESS_REDIS_LEGACY_PASSWORD="old-password")
+        for service in ("data-api", "business-api", "notification"):
+            rendered = MODULE.render(baseline, f"example/{service}:1", service)
+            self.assertEqual("BUSINESS_REDIS_LEGACY_PASSWORD='old-password'" in rendered, service == "business-api")
+
     def test_live_activity_키는_compose와_data_api에_전달되고_다른_서비스에는_없다(self) -> None:
         keys = ("FOCUS_LIVE_ACTIVITY_APNS_TEAM_ID", "FOCUS_LIVE_ACTIVITY_APNS_KEY_ID",
                 "FOCUS_LIVE_ACTIVITY_APNS_KEY_BASE64")
@@ -246,8 +278,10 @@ class WriteComposeEnvTest(unittest.TestCase):
                 f"NOTIFICATION_ENV_FILE={paths['notification']}\n"
                 f"BUSINESS_REDIS_ACL_FILE={root / 'business.acl'}\n",
             )
+            shared = root / "shared.yml"
+            shared.write_text("services:\n  redis:\n    image: redis:7.4.11-alpine\n    networks: [app-network]\n")
             result = subprocess.run(
-                ["docker", "compose", "--env-file", str(interpolation), "-f", str(compose),
+                ["docker", "compose", "--env-file", str(interpolation), "-f", str(shared), "-f", str(compose),
                  "config", "--format", "json"], check=True, capture_output=True, text=True,
             )
             services = json.loads(result.stdout)["services"]
@@ -266,8 +300,9 @@ class WriteComposeEnvTest(unittest.TestCase):
             self.assertEqual(biz["SVC_TOKEN_BIZ_TO_REALTIME"], "biz-realtime")
             self.assertEqual(biz["REALTIME_BASE_URL"], "http://realtime:8081")
             self.assertNotIn("SVC_TOKEN_BIZ_TO_REALTIME", noti)
-            self.assertEqual(set(services["business-redis"]["networks"]), {"business-cache"})
-            self.assertNotIn("environment", services["business-redis"])
+            self.assertNotIn("business-redis", services)
+            self.assertEqual(biz["BUSINESS_REDIS_HOST"], "redis")
+            self.assertIn("redis", services["business-api"]["depends_on"])
             self.assertEqual(noti["NOTI_DB_PASSWORD"], "noti-only")
             self.assertEqual(noti["NOTIFICATION_GENERATION_REQUIRED"], "true")
             self.assertEqual(noti["NOTIFICATION_LEGACY_DEVICE_REGISTRATION"], "false")
@@ -469,6 +504,7 @@ class WriteComposeEnvTest(unittest.TestCase):
         # 기본값(옛 ci-cache :latest) 제거 회귀 방지 — 비면 옛 이미지·VM 캐시로 조용히 떴음
         scripts = Path(__file__).resolve().parents[2] / "server" / "scripts"
         base = {k: v for k, v in os.environ.items() if k not in ("APP_IMAGE", "REALTIME_IMAGE")}
+        base.update(REDIS_DATA_PASSWORD="test-data", REDIS_REALTIME_PASSWORD="test-realtime")
         cases = (("APP_IMAGE", "", ["docker-compose.dev.yml"]),
                  ("REALTIME_IMAGE", "APP_IMAGE=example/app@sha256:abc\n"
                   "SVC_TOKEN_REALTIME_TO_DATA=synthetic-realtime-data-token\n",

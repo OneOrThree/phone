@@ -183,6 +183,9 @@ jobs:
       GROMO_ANDROID_AUDIENCE: dev
       EXPO_PUBLIC_API_URL: https://oneorthree.dev.mooo.com
       EXPO_PUBLIC_ENV: dev
+      EXPO_PUBLIC_IMAGE_ASSETS_ENABLED: ${{ vars.IMAGE_ASSETS_DEV_ENABLED || 'false' }}
+      EXPO_PUBLIC_IMAGE_ASSETS_URL: ${{ vars.IMAGE_ASSETS_DEV_URL || '' }}
+      EXPO_PUBLIC_IMAGE_ASSETS_ENV: dev
       # iOS dev TestFlight와 동일하게 빈 토큰을 인라인해 SDK 초기화를 막는다. PR 빌드에도 적용한다.
       EXPO_PUBLIC_POSTHOG_PROJECT_TOKEN: ""
       # 앱에 포함되는 공개 SDK 토큰. API·서명 키와 달리 AWS 권한 없는 빌드 잡에서 사용한다.
@@ -219,6 +222,18 @@ jobs:
             [ -n "${!v:-}" ] || { echo "::error::release-config.sh 에 $v 가 없다"; exit 1; }
             echo "$v=${!v}" >> "$GITHUB_ENV"
           done
+
+      - name: dev Firebase 클라이언트 설정 준비
+        env:
+          ANDROID_FIREBASE_DEV_JSON: ${{ vars.ANDROID_FIREBASE_DEV_JSON }}
+        run: |
+          set -euo pipefail
+          [ -n "$ANDROID_FIREBASE_DEV_JSON" ] || { echo "::error::ANDROID_FIREBASE_DEV_JSON 저장소 변수가 없습니다"; exit 1; }
+          target=app/app-dev/android/credentials/dev/google-services.json
+          mkdir -p "$(dirname "$target")"
+          printf '%s' "$ANDROID_FIREBASE_DEV_JSON" > "$target"
+          jq -e '.project_info.project_id == "catus-dev" and any(.client[]; .client_info.android_client_info.package_name == "com.oneorthree.gromo")' "$target" > /dev/null
+          chmod 600 "$target"
 
       # 빌드 도구 (app-android-build.yml 과 같음)
       - name: NDK 캐시

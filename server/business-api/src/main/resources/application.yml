@@ -6,8 +6,8 @@
 #
 # ⚠️ 이 서비스에 datasource·flyway 설정이 «없는 것»은 계약이다 — 도메인 DB·트랜잭션·크론·브로커를
 #    갖지 않는다(목표 아키텍처 §2 「안 하는 일」). 아래 Redis 는 그 예외가 아니라 «사본»이다:
-#    A19 네임스페이스 표의 cache:business:* 소유자로서 자기 미리보기 캐시만 담고, 비워도 다음 요청이
-#    다시 만든다. 어떤 도메인 판정도 여기에 의존하지 않는다.
+#    A19의 cache:business:*에 제한된 미리보기와 세션·탈퇴 차단 표지를 저장한다.
+#    차단 표지는 임의로 비우지 않는다. 공유 Redis 전환 절차는 docs/architecture/shared-redis.md를 따른다.
 spring:
   application:
     name: business-api
@@ -71,6 +71,11 @@ springdoc:
     path: /v0/api-docs
 
 business:
+  redis:
+    legacy-host: ${BUSINESS_REDIS_LEGACY_HOST:}
+    legacy-port: ${BUSINESS_REDIS_LEGACY_PORT:6379}
+    legacy-username: ${BUSINESS_REDIS_LEGACY_USERNAME:business}
+    legacy-password: ${BUSINESS_REDIS_LEGACY_PASSWORD:}
   upstream:
     data:
       connect-timeout: 500ms
@@ -136,6 +141,8 @@ apple:
     base-url: https://appleid.apple.com
 
 logging:
+  pattern:
+    level: "%5p [request_id=%X{request_id}]"
   level:
     com.oneorthree.business: INFO
     org.apache.hc.client5.http: WARN

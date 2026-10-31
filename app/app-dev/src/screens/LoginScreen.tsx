@@ -290,7 +290,6 @@ export function LoginScreen({
           {t('login.termsAgreeText')}
         </Txt>
       </Pressable>
-      <PolicyLinks textStyle={{ fontSize: 13, color: semanticTokens.color.text }} />
       <View
         style={{
           width: '100%',
@@ -331,6 +330,8 @@ export function LoginScreen({
           {guestError}
         </Txt>
       )}
+      {/* 약관·개인정보 보기 링크는 로그인 버튼 아래에 둔다(동의 체크박스는 버튼 위 게이트로 유지) */}
+      <PolicyLinks textStyle={{ fontSize: 13, color: semanticTokens.color.text }} />
     </View>
   );
 

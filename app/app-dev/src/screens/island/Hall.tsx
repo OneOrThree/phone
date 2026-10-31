@@ -1,14 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import {
-  BackHandler,
-  Image,
-  Platform,
-  Pressable,
-  ScrollView,
-  Share,
-  TextInput,
-  View,
-} from 'react-native';
+import { BackHandler, Image, Platform, Pressable, ScrollView, TextInput, View } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import { isMockMode } from '@/services/demoMode';
 import { art, CharCount, NavBtn, Wheel } from '@/design-system/patterns';
@@ -55,6 +46,7 @@ import {
 import { getSession, sessionGeneration } from '@/services/api/session';
 import { t } from '@/i18n';
 import { useVisitorJoin } from '@/screens/island/useVisitorJoin';
+import { useInviteShare } from '@/screens/island/useInviteShare';
 import { useIslandNews } from '@/screens/magazine/useIslandNews';
 import {
   ISLAND_GREETING_MAX,
@@ -400,6 +392,7 @@ export function Hall({ e }: any) {
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(() => setToast(''), 2400);
   };
+  const inviteShare = useInviteShare(liveIslandId ?? '', management.detail?.name ?? i.name, notify);
   const {
     join,
     disabled: joinDisabled,
@@ -776,6 +769,35 @@ export function Hall({ e }: any) {
     const numberText = (n: number, sign: '+' | '−') =>
       `${sign}${Math.abs(n).toLocaleString('ko-KR')}`;
     const LG = componentTokens.ledger;
+    // 세 장짜리 책: 장부 그림 한 장을 비율 그대로 깔고(세로는 폭은 좌우 여백 안, 높이는 위~아래 여백 안 — 작은 쪽에 맞춰
+    // 가운데) 그림 속 종이 영역 비율로 글을 둔다
+    const A = LG.art;
+    const bookLeft = land ? side : LG.side;
+    const room = W - bookLeft - (land ? LG.landRight : LG.side);
+    // 세로: 874 화면은 시안 높이 635.3 그대로, 낮은 화면은 뒤로 버튼·명판 아래에서 시작
+    const bookTop = land
+      ? LG.landTop
+      : Math.max(L.insets.top + LG.topBelowInset, H - LG.bottom - LG.maxHeight);
+    const visibleH = H - bookTop - (land ? LG.landBottom : LG.bottom);
+    // 가로는 높이에 맞춰 줄이지 않는다 — 세로 폰과 비슷한 폭으로 크게 두고 아래쪽을 화면 밖으로 잘라 낸다(2026-10-27 오스카)
+    const sc = land
+      ? Math.min(room, LG.landscapeBookWidth) / A.width
+      : Math.min(room / A.width, visibleH / A.height);
+    const artH = A.height * sc;
+    const bookW = A.width * sc;
+    // 보이는 책 몸통 높이 — 세로는 그림 높이 그대로, 가로는 화면 아래 여백에서 잘린다
+    const bodyH = Math.min(artH, visibleH);
+    const paper = {
+      left: A.paperLeft * sc,
+      top: A.paperTop * sc,
+      right: (A.width - A.paperRight) * sc,
+      bottom: (A.height - A.paperBottom) * sc,
+    };
+    // 큰 글자·좁은 종이는 날짜·내용 아래에 금액을 따로 놓아 어느 열도 밀려 사라지지 않게 한다.
+    const contentWidth = bookW - paper.left - paper.right - LG.contentInsetX * 2;
+    const stackedRows =
+      (L.fontScale ?? 1) >= semanticTokens.typography.largeTextThreshold ||
+      contentWidth < LG.rowStackWidth * Math.max(1, L.fontScale ?? 1);
     // 토큰의 { 크기, 줄높이 } 로 고운돋움 글자 스타일을 만든다
     const lt = (type: { fontSize: number; lineHeight: number }, extra?: object) =>
       g(type.fontSize, type.lineHeight, extra);
@@ -788,8 +810,9 @@ export function Hall({ e }: any) {
       return (
         <View
           key={l.id}
+          testID={`ledger-row-${l.id}`}
           style={{
-            flexDirection: 'row',
+            flexDirection: stackedRows ? 'column' : 'row',
             alignItems: 'center',
             gap: LG.columnGap,
             paddingVertical: LG.rowPaddingVertical,
@@ -799,23 +822,39 @@ export function Hall({ e }: any) {
             borderBottomColor: LG.dash,
           }}
         >
-          <T style={lt(LG.date, { minWidth: LG.dateWidth, color: LG.faint, ...tnum })}>
-            {kstMonthDay(Date.parse(l.createdAt))}
-          </T>
-          {/* 모크 모드의 reason 자리에는 로컬 제목이 실려 있다 — 그대로 보여 준다 */}
-          <T style={lt(LG.reason, { flex: 1, minWidth: 0 })}>
-            {mockLedger ? l.reason : (REASON[l.reason] ?? '기타')}
-            {l.entryCount > 1 ? (
-              <T
-                style={{ fontSize: LG.countFontSize, color: LG.faint }}
-              >{` · ${l.entryCount}회`}</T>
-            ) : null}
-          </T>
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: LG.columnGap,
+              flex: stackedRows ? undefined : 1,
+              alignSelf: stackedRows ? 'stretch' : undefined,
+              minWidth: 0,
+            }}
+          >
+            <T style={lt(LG.date, { minWidth: LG.dateWidth, color: LG.faint, ...tnum })}>
+              {kstMonthDay(Date.parse(l.createdAt))}
+            </T>
+            {/* 모크 모드의 reason 자리에는 로컬 제목이 실려 있다 — 그대로 보여 준다 */}
+            <T style={lt(LG.reason, { flex: 1, minWidth: 0 })}>
+              {mockLedger ? l.reason : (REASON[l.reason] ?? '기타')}
+              {l.entryCount > 1 ? (
+                <T
+                  style={{ fontSize: LG.countFontSize, color: LG.faint }}
+                >{` · ${l.entryCount}회`}</T>
+              ) : null}
+            </T>
+          </View>
           {/* 서버 amount 는 항상 양수 — 부호는 direction 이 정한다 */}
           <T
             testID={`ledger-amount-${l.id}`}
+            numberOfLines={1}
+            adjustsFontSizeToFit
             style={lt(LG.amount, {
-              minWidth: LG.amountMinWidth,
+              minWidth: stackedRows ? 0 : LG.amountMinWidth,
+              maxWidth: stackedRows ? '100%' : '50%',
+              alignSelf: stackedRows ? 'stretch' : undefined,
+              flexShrink: 1,
               textAlign: 'right',
               fontWeight: '700',
               color: spend ? LG.spend : LG.earn,
@@ -1041,31 +1080,7 @@ export function Hall({ e }: any) {
         </Pressable>
       );
     };
-    // 세 장짜리 책: 장부 그림 한 장을 비율 그대로 깔고(세로는 폭은 좌우 여백 안, 높이는 위~아래 여백 안 — 작은 쪽에 맞춰
-    // 가운데) 그림 속 종이 영역 비율로 글을 둔다
-    const A = LG.art;
-    const bookLeft = land ? side : LG.side;
-    const room = W - bookLeft - (land ? LG.landRight : LG.side);
-    // 세로: 874 화면은 시안 높이 635.3 그대로, 낮은 화면은 뒤로 버튼·명판 아래에서 시작
-    const bookTop = land
-      ? LG.landTop
-      : Math.max(L.insets.top + LG.topBelowInset, H - LG.bottom - LG.maxHeight);
-    const visibleH = H - bookTop - (land ? LG.landBottom : LG.bottom);
-    // 가로는 높이에 맞춰 줄이지 않는다 — 세로 폰과 비슷한 폭으로 크게 두고 아래쪽을 화면 밖으로 잘라 낸다(2026-10-27 오스카)
-    const sc = land
-      ? Math.min(room, LG.landscapeBookWidth) / A.width
-      : Math.min(room / A.width, visibleH / A.height);
-    const artH = A.height * sc;
-    // 보이는 책 몸통 높이 — 세로는 그림 높이 그대로, 가로는 화면 아래 여백에서 잘린다
-    const bodyH = Math.min(artH, visibleH);
-    const paper = {
-      left: A.paperLeft * sc,
-      top: A.paperTop * sc,
-      right: (A.width - A.paperRight) * sc,
-      bottom: (A.height - A.paperBottom) * sc,
-    };
     const labels = ['잔액', '적립', '지출'] as const;
-    const bookW = A.width * sc;
     const tabLeft = (n: number) => paper.left + LG.tabLeft + n * (LG.tabSize + LG.tabGap);
     // 포스트잇은 책 위로(좁은 화면은 오른쪽으로도) 나온다. 안드로이드는 부모 상자 밖 터치를 자르므로 바깥 상자를
     // 누르는 자리(hitSlop 포함)까지 위·오른쪽으로 늘리고, 책은 그 안에서 rise 만큼 내려 화면상 자리는 그대로 둔다.
@@ -3001,11 +3016,9 @@ export function Hall({ e }: any) {
               testID="hall-invite"
               accessibilityRole="button"
               accessibilityLabel="섬에 친구 초대하기"
-              onPress={() =>
-                Share.share({
-                  message: `${i.name}에서 같이 집중해요! 초대 코드: ${inviteCodeOf(i)}`,
-                }).catch(() => notify(`초대 코드 ${inviteCodeOf(i)}를 친구에게 알려 주세요.`))
-              }
+              disabled={inviteShare.busy}
+              accessibilityState={{ disabled: inviteShare.busy, busy: inviteShare.busy }}
+              onPress={inviteShare.share}
               style={{
                 width: 44,
                 height: 44,

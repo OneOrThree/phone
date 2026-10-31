@@ -20,6 +20,8 @@ class InboundService {
      * 원문을 지운 뒤에도 이 값만으로 중복과 {@code EVENT_ID_CONFLICT} 를 가른다.
      */
     static final String ENVELOPE_HASH = "encode(sha256(convert_to((?::jsonb)::text,'UTF8')),'hex')";
+    /** 수신 응답 본문 — 새 반영이든 같은 봉투의 재전달이든 같다. */
+    static final Map<String, Object> ACCEPTED = Map.of("accepted", true);
     private final Store store;
     private final DeviceService devices;
     private final SettingsService settings;
@@ -32,6 +34,20 @@ class InboundService {
 
     @Transactional
     public Map<String, Object> accept(Map<String, Object> body) {
+        receive(body, InboundTrace.NONE);
+        return ACCEPTED;
+    }
+
+    /**
+     * {@link #accept} 와 같은 처리에 수신 원인 문맥을 더한다(GROMO-2557). 문맥은 발송 작업 행의 별도 열에만 남고
+     * {@code envelope_hash} 대상 본문·멱등 판정은 그대로다.
+     *
+     * @param body  봉투
+     * @param trace 헤더에서 읽은 원인 문맥 — 없으면 {@link InboundTrace#NONE}
+     * @return 새로 반영했으면 {@code true}, 같은 봉투의 재전달이면 {@code false}
+     */
+    @Transactional
+    public boolean receive(Map<String, Object> body, InboundTrace trace) {
         Envelope event = Envelope.read(body);
         String envelope = Json.write(body);
         store.lock("inbound:" + event.eventId());
@@ -41,9 +57,10 @@ class InboundService {
             if (!Boolean.TRUE.equals(existing.get("same"))) {
                 throw new NotificationFailure(409, "EVENT_ID_CONFLICT");
             }
-            return Map.of("accepted", true);
+            // 재전달은 기존 행(발송 작업의 origin 포함)을 건드리지 않는다 — 다른 헤더로 와도 최초 문맥이 남는다.
+            return false;
         }
-        apply(event);
+        apply(event, trace);
         // 탈퇴 TX 와 같은 user-state 잠금 아래서 fence 를 읽는다. 잠금 없이 여기까지 오는 경로(deleteLocked 의
         // 조기 소비)도 탈퇴가 먼저 커밋됐으면 원문 없이 적고, 나중이면 탈퇴가 대기 뒤 이 행의 원문을 지운다.
         // device-ownership 은 더 잡지 않는다 — 잡으면 SettingsService.live 경로와 잠금 순서가 뒤집힌다.
@@ -52,10 +69,18 @@ class InboundService {
         boolean withdrawn = fence != null && Boolean.TRUE.equals(fence.get("withdrawn"));
         store.update("INSERT INTO inbound_events(event_id,user_id,envelope_hash,envelope) VALUES(?,?,"
                 + ENVELOPE_HASH + ",?::jsonb)", event.eventId(), event.userId(), envelope, withdrawn ? null : envelope);
-        return Map.of("accepted", true);
+        return true;
     }
 
-    private void apply(Envelope event) {
+    /**
+     * 같은 봉투의 재전달 로그용 — 처음 수신 때 발송 작업 행에 적은 origin. 행이 없으면(발송 요청이 아닌 이벤트) {@code null}.
+     * 값은 {@link InboundTrace#safeId} 를 다시 거친다.
+     */
+    Map<String, Object> firstOrigin(String eventId) {
+        return store.one("SELECT origin_request_id,origin_trace_id FROM deliveries WHERE event_id=?", eventId);
+    }
+
+    private void apply(Envelope event, InboundTrace trace) {
         Map<String, Object> params = event.params();
         switch (event.type()) {
             case "notification.deviceToken.deleted" -> devices.deleteLocked(event.userId(),
@@ -68,7 +93,7 @@ class InboundService {
                     Json.number(params, "authGeneration"), false);
             case "user.withdrawn" -> devices.generation(event.userId(),
                     Json.number(params, "authGeneration"), true);
-            case "notification.requested" -> enqueue(event);
+            case "notification.requested" -> enqueue(event, trace);
             default -> {
                 if (!PROJECTIONS.contains(event.type())) {
                     throw new NotificationFailure(422, "UNSUPPORTED_EVENT_TYPE");
@@ -102,7 +127,7 @@ class InboundService {
         return value == null ? null : String.valueOf(value);
     }
 
-    void enqueue(Envelope event) {
+    void enqueue(Envelope event, InboundTrace trace) {
         store.lock("device-ownership");
         String kind = Json.text(event.params(), "kind");
         Map<String, Object> catalog = store.one("SELECT id FROM kinds WHERE id=?", kind);
@@ -116,13 +141,16 @@ class InboundService {
         }
         String group = Json.nullableText(event.params(), "groupId");
         String slot = Json.nullableText(event.params(), "slotAt");
+        // 원인 문맥(V16)은 발송 작업 행에 한 번 적는다. 충돌이면 DO NOTHING 이라 기존 행의 origin 을 덮지 않는다.
         store.update("INSERT INTO deliveries(id,event_id,user_id,kind,subject_id,group_id,slot_at,payload,locale,"
-                + "status,next_attempt_at) VALUES(?,?,?,?,?,?,?,?::jsonb,?,?,COALESCE(?,now())) ON CONFLICT DO NOTHING",
+                + "status,next_attempt_at,origin_request_id,origin_trace_id)"
+                + " VALUES(?,?,?,?,?,?,?,?::jsonb,?,?,COALESCE(?,now()),?,?) ON CONFLICT DO NOTHING",
                 UUID.randomUUID(), event.eventId(), event.userId(), kind, event.subjectId(),
                 group == null ? null : UUID.fromString(group),
                 slot == null ? null : Timestamp.from(java.time.Instant.parse(slot)), Json.write(event.params()),
                 event.locale(), "PENDING",
-                event.scheduledAt() == null ? null : Timestamp.from(event.scheduledAt()));
+                event.scheduledAt() == null ? null : Timestamp.from(event.scheduledAt()),
+                trace.originRequestId(), trace.originTraceId());
     }
 
     private void project(Envelope event) {

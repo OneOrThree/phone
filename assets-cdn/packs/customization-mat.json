@@ -1,0 +1,25 @@
+{
+  "packId": "customization-mat",
+  "files": {
+    "mat-basket-side-7e0eb186": "server/static/customization/decor/mat-basket-side.7e0eb186.png",
+    "mat-basket-17892624": "server/static/customization/decor/mat-basket.17892624.png",
+    "mat-cloud-side-ec2e9c6d": "server/static/customization/decor/mat-cloud-side.ec2e9c6d.png",
+    "mat-cloud-c452d50f": "server/static/customization/decor/mat-cloud.c452d50f.png",
+    "mat-fish-side-df35cf64": "server/static/customization/decor/mat-fish-side.df35cf64.png",
+    "mat-fish-775247a6": "server/static/customization/decor/mat-fish.775247a6.png",
+    "mat-flower-side-a6f7fd22": "server/static/customization/decor/mat-flower-side.a6f7fd22.png",
+    "mat-flower-370654e2": "server/static/customization/decor/mat-flower.370654e2.png",
+    "mat-leaf-side-779ade05": "server/static/customization/decor/mat-leaf-side.779ade05.png",
+    "mat-leaf-2eb9af26": "server/static/customization/decor/mat-leaf.2eb9af26.png",
+    "mat-moon-side-10cdb474": "server/static/customization/decor/mat-moon-side.10cdb474.png",
+    "mat-moon-4041c02b": "server/static/customization/decor/mat-moon.4041c02b.png",
+    "mat-picnic-side-92eb3374": "server/static/customization/decor/mat-picnic-side.92eb3374.png",
+    "mat-picnic-f8bd2e63": "server/static/customization/decor/mat-picnic.f8bd2e63.png",
+    "mat-shell-side-0da6af24": "server/static/customization/decor/mat-shell-side.0da6af24.png",
+    "mat-shell-9adef6e0": "server/static/customization/decor/mat-shell.9adef6e0.png",
+    "mat-strawberry-side-affc01dc": "server/static/customization/decor/mat-strawberry-side.affc01dc.png",
+    "mat-strawberry-69318f55": "server/static/customization/decor/mat-strawberry.69318f55.png",
+    "mat-toast-side-e05f49f8": "server/static/customization/decor/mat-toast-side.e05f49f8.png",
+    "mat-toast-c389d34a": "server/static/customization/decor/mat-toast.c389d34a.png"
+  }
+}

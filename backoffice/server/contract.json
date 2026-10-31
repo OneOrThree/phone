@@ -1,0 +1,16 @@
+{
+  "contractVersion": "1",
+  "data": [
+    "content.publication.v1",
+    "content.history.v1",
+    "content.notice.withdraw.v1",
+    "construction.policy.v1",
+    "focus.policy.v1"
+  ],
+  "notification": [
+    "notification.publication.v1",
+    "notification.history.v1",
+    "notification.publication.cancel.v1",
+    "notification.templates.v1"
+  ]
+}

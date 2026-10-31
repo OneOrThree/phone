@@ -136,7 +136,11 @@ import {
   constructionPhase,
   normalizedConstructionProgress,
 } from '@/screens/island/constructionProgress';
-import { runBuildingEntryWalk, type BuildingTransitionTarget } from '@/services/buildingTransition';
+import {
+  isBuildingTransitionActive,
+  runBuildingEntryWalk,
+  type BuildingTransitionTarget,
+} from '@/services/buildingTransition';
 import { VillageHallMotion } from '@/components/village-motion/VillageHallMotion';
 import { VillageBoardIndicator } from '@/components/village-motion/VillageBoardIndicator';
 import {
@@ -1856,7 +1860,11 @@ function FinalIslandScene({
   };
   // 바닥 탭 → 걷기. 자동 걷기(GROMO-2250)도 이 함수로 걷는다.
   const tapWalk = (p: Point) => {
-    if (!buildingEntryPending.current) walk(p);
+    if (isBuildingTransitionActive()) return;
+    // 바닥 탭은 건물 진입 예약을 취소하고 새 목적지로 걷는다.
+    buildingEntryPending.current = false;
+    walkDone.current = undefined;
+    walk(p);
   };
   // 자동 걷기 한 걸음(개발 전용) — 지금 자리와 같은 연결 영역의 무작위 통행 셀(측정 스크립트와 같은 부하 모양).
   // 렌더마다 최신 클로저로 갈아 끼운다(sync 와 같은 방식). 20회 안에 못 찾으면 이번 턴은 건너뛴다.
@@ -2228,7 +2236,7 @@ function FinalIslandScene({
   }, [request]);
 
   // 홈 섬 다른 주민(GROMO-2476) — 서버 홈은 facts.members, 목업 섬은 i.members 순서 그대로. 털색을 고른 주민만
-  // (catColor null 은 임의 색으로 채우지 않는다). 동기화 위치가 있으면 RemoteResident, 없으면 이 순서의 고정 자리(spot)다.
+  // (catColor null 은 임의 색으로 채우지 않는다). 서버 홈은 접속 목록에 있는 주민만 표시한다.
   // name 은 홈 섬 이름표(GROMO-2475)에 쓴다.
   // 차단한 상대(GROMO-2470)는 그리지 않는다. 고정 자리는 거르기 전 명단 순서로 먼저 정한다 — 차단 상대·털색 미선택
   // (서버는 내가 차단한 주민의 catColor 를 null 로 가린다)을 빼도 다른 주민 자리가 당겨지지 않게.
@@ -2272,8 +2280,13 @@ function FinalIslandScene({
           }));
     return others
       .map((m, n) => ({ ...m, spot: residentSpot(grid, n) }))
-      .filter((m) => m.drawn && !blockedIds.has(m.id));
-  }, [i.members, facts, looks, grid, blockedIds, residentLooks]);
+      .filter(
+        (m) =>
+          m.drawn &&
+          !blockedIds.has(m.id) &&
+          (!facts || !!remoteActors?.some((actor) => actor.userId === m.id)),
+      );
+  }, [i.members, facts, looks, grid, blockedIds, residentLooks, remoteActors]);
   // Child positions scale with the camera, rather than being pasted onto a cropped image.
   const actors = (s: number, project: (point: Point) => Point, baseScale: number) => {
     scaleRef.current = s;
@@ -2609,9 +2622,8 @@ function FinalIslandScene({
     paddingHorizontal: semanticTokens.spacing.control,
     gap: primitiveTokens.space[2],
   } as const;
-  // 서버 모드 첫 건물(회관·게시판)은 방장만 홈에서 서버 건설로 짓는다(GROMO-2139). 로컬 비용·BUILD 카드는 목업에서만
-  const serverBuildCard =
-    !visiting && facts && next && facts.home.island.role === 'host' && onServerBuilt;
+  // 첫 건물(회관·게시판)의 목표·공사 상태는 모든 주민에게 보인다. 착공 권한은 서버 옵션으로 판단한다.
+  const serverBuildCard = !visiting && facts && next && onServerBuilt;
   const mockBuildCard = !visiting && !facts && (i.construction || next);
   const today = facts ? facts.home.focusSummary.totalSeconds : todayFocusSeconds(state, i.id),
     todayClock = [Math.floor(today / 3600), Math.floor(today / 60) % 60, Math.floor(today) % 60]
@@ -2656,6 +2668,7 @@ function FinalIslandScene({
             target={focusTarget.rect}
             text={focusTutorial.text}
             action={{ title: t('focus.start'), onPress: departFocus }}
+            radius={999}
           />
         ) : (
           catInfo && (
@@ -2799,7 +2812,7 @@ function FinalIslandScene({
       )}
       {showActions && (
         <>
-          {/* 서버 모드 첫 건물(회관·게시판)은 방장만 홈에서 서버 건설로 짓는다(GROMO-2139) */}
+          {/* 첫 건물(회관·게시판) 카드는 주민 모두에게 표시하고 채팅 줄은 카드 위에 둔다. */}
           {serverBuildCard && (
             <ServerBuildCard
               key={`${facts.islandId}:${next}`}
@@ -2972,7 +2985,12 @@ function FinalIslandScene({
                 }}
               />
             ) : (
-              <View ref={focusTarget.ref} collapsable={false} onLayout={focusTarget.measure}>
+              <View
+                ref={focusTarget.ref}
+                collapsable={false}
+                onLayout={focusTarget.measure}
+                style={{ alignSelf: 'flex-start' }}
+              >
                 <Btn round title={t('focus.start')} id="depart-focus" onPress={departFocus} />
               </View>
             )}

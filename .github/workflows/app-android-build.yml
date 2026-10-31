@@ -218,5 +218,5 @@ jobs:
       # 대신 "NDK not configured" 로 즉시 실패해 **무엇이 없는지가 로그에 남는다.**
       - name: 네이티브 컴파일 · 리소스 · 매니페스트 검증
         if: steps.sdk.outputs.present == 'true'
-        run: ./gradlew :app:compileDebugJavaWithJavac -Pandroid.builder.sdkDownload=false --no-daemon
+        run: ./gradlew :app:compileDebugJavaWithJavac :catus-asset-cache:testDebugUnitTest -Pandroid.builder.sdkDownload=false --no-daemon
         working-directory: app/app-dev/android

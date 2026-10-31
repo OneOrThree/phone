@@ -16,6 +16,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -31,6 +32,7 @@ assert WRITER_SPEC and WRITER_SPEC.loader
 WRITER = importlib.util.module_from_spec(WRITER_SPEC)
 WRITER_SPEC.loader.exec_module(WRITER)
 
+REVISION = "a" * 40
 DIGEST = "sha256:" + "ab12cd34" * 8
 IMAGES = {
     "--business-image": f"example.registry.test/gromo/business@{DIGEST}",
@@ -63,6 +65,9 @@ class Fixture:
         self.base.write_text(
             "name: phone\n"
             "services:\n"
+            "  redis:\n"
+            "    image: redis:7.4.11-alpine\n"
+            "    networks: [app-network]\n"
             "  app:\n"
             "    image: ${APP_IMAGE:-registry.test/back:latest}\n"
             "    environment:\n"
@@ -75,7 +80,8 @@ class Fixture:
 
 
 def run(fixture: Fixture, *extra: str, payload: dict | None = None,
-        with_data: bool = True, environment: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+        with_data: bool = True, environment: dict[str, str] | None = None,
+        default_revision: bool = True) -> subprocess.CompletedProcess[str]:
     command = [sys.executable, str(SCRIPT), "--environment", "dev",
                "--output-dir", str(fixture.output), "--base-compose", str(fixture.base),
                "--shared-env-file", str(fixture.shared),
@@ -84,11 +90,50 @@ def run(fixture: Fixture, *extra: str, payload: dict | None = None,
     if with_data:
         command += ["--data-image", IMAGES["--data-image"]]
     command += list(extra)
+    # 배포 전 로그 메타데이터 검사(GROMO-2555)가 배포 커밋을 요구한다. environment 가 없으면 합성 커밋을 준다.
+    environment = dict(os.environ if environment is None else environment)
+    if default_revision:
+        environment.setdefault("IMAGE_REVISION", REVISION)
     return subprocess.run(command, input=json.dumps(secret() if payload is None else payload),
                           text=True, capture_output=True, env=environment)
 
 
 class PrepareSatelliteDeployTest(unittest.TestCase):
+
+    def test_log_metadata_needs_deploy_commit_before_any_file_is_written(self) -> None:
+        for label, revision in (("missing", None), ("unknown", "unknown"), ("empty", "")):
+            with self.subTest(revision=label), tempfile.TemporaryDirectory() as directory:
+                fixture = Fixture(directory)
+                env = {key: value for key, value in os.environ.items() if key != "IMAGE_REVISION"}
+                if revision is not None:
+                    env["IMAGE_REVISION"] = revision
+                result = run(fixture, environment=env, default_revision=False)
+                self.assertEqual(result.returncode, 1)
+                self.assertIn("IMAGE_REVISION", result.stderr)
+                self.assertFalse((fixture.output / "business-api.env").exists())
+
+    def test_rendered_log_metadata_must_match_service_environment_and_commit(self) -> None:
+        spec = importlib.util.spec_from_file_location("prepare_satellite_deploy", SCRIPT)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+
+        def check(service: str, **override: str) -> None:
+            obs = {"OBS_SERVICE": service, "OBS_ENV": "dev", "OBS_VERSION": REVISION, **override}
+            body = "".join(f"      {key}: '{value}'\n" for key, value in obs.items())
+            with tempfile.TemporaryDirectory() as directory:
+                compose = Path(directory) / "compose.yml"
+                compose.write_text(f"services:\n  {service}:\n    image: scratch\n    environment:\n{body}")
+                shared = Path(directory) / ".env"
+                shared.write_text("", encoding="utf-8")
+                with unittest.mock.patch.dict(os.environ, {"IMAGE_REVISION": REVISION}):
+                    module.check_obs_metadata([compose], shared, {}, "dev", "obs-check", {service: service},
+                                              WRITER.dotenv_quote)
+
+        check("notification")
+        for override in ({"OBS_SERVICE": "business-api"}, {"OBS_ENV": "prod"},
+                         {"OBS_VERSION": "unknown"}, {"OBS_VERSION": "b" * 40}):
+            with self.subTest(override=override), self.assertRaises(module.PrepareError):
+                check("notification", **override)
 
     def test_dev_db_name_can_match_public_deploy_environment(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -269,6 +314,7 @@ class PrepareSatelliteDeployTest(unittest.TestCase):
                 fixture.base.write_text((ROOT / "server/scripts" /
                                          f"docker-compose.{environment}.yml").read_text())
                 fixture.shared.write_text(
+                    "REDIS_DATA_PASSWORD=synthetic-data\nREDIS_REALTIME_PASSWORD=synthetic-realtime\n"
                     "POSTGRES_DB=gromo\nPOSTGRES_USER=legacy-admin\nPOSTGRES_PASSWORD=legacy-password\n"
                     "ECR_REPO=registry.test/legacy\nIMAGE_TAG=old\nAPP_IMAGE=registry.test/legacy:old\n"
                     "DD_API_KEY=old-dd-secret\nJWT_SECRET=old-jwt\nGOOGLE_CLIENT_ID=old-google\n"
@@ -337,6 +383,7 @@ class PrepareSatelliteDeployTest(unittest.TestCase):
                 self.assertNotIn(value, compose_env, "compose 보간 파일로 비밀이 샜다")
             self.assertIn("DATA_API_ENV_FILE=", compose_env)
             self.assertIn("BUSINESS_API_IMAGE=", compose_env)
+            self.assertIn("SHARED_REDIS_ACL_FILE='/var/lib/gromo/runtime/shared-redis.acl'", compose_env)
 
     def test_표준출력과_절차_파일에_시크릿_값이_나오지_않는다(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -508,10 +555,10 @@ class PrepareSatelliteDeployTest(unittest.TestCase):
             self.assertFalse((fixture.output / "data-api.env").exists())
             plan = (fixture.output / "deploy-plan.txt").read_text(encoding="utf-8")
             self.assertNotIn(DATA_OVERLAY.name, plan)
-            self.assertIn("up -d business-api notification", plan)
-            # GROMO-1957 — ACL 은 기동 때만 읽히므로 위성보다 먼저 business-redis 를 재생성한다.
-            self.assertLess(plan.index("up -d --force-recreate business-redis"),
-                            plan.index("up -d business-api notification"))
+            self.assertIn("up -d --no-deps business-api notification", plan)
+            # 위성 배포 계획은 기존 Business Redis를 재생성하지 않는다.
+            self.assertNotIn("--force-recreate", plan)
+            self.assertIn("bridge", plan)
 
 
 class SatelliteRoutingExampleTest(unittest.TestCase):

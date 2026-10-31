@@ -14,3 +14,13 @@
 ## 재검토 결과
 
 같은 문서 세트 재검토에서 남은 설계 확정 차단 사유 없음. 4개 지적 해소. 이 결론은 설계·티켓 확정에 한정하며 네이티브 구현·실기기 성능·실제 배포 승인을 뜻하지 않는다.
+
+## 시범 구현 검증 (2026-10-29)
+
+- 발행기: 해시 경로·정규 JSON·S3 조건부 쓰기·CDN GET 무결성·롤백 구현. 숫자형 키 정렬과 상속 속성 이름을 처리하고 현재 이미지 빌드가 롤백을 막지 않게 보완했다. 로컬 Node 테스트 10개 통과.
+- 인프라: 전용 환경별 S3/CloudFront OAC/OIDC와 독립 state 구성. Terraform mock 3개 및 모듈/dev/prod validate 통과. 실제 AWS plan/apply는 미실행.
+- 네이티브: Android Expo wrapper 컴파일과 JUnit 8개, iOS simulator pod target 빌드와 Swift core 54개, optional wrapper Jest 3개 통과. 새 runtimeVersion으로 기존 바이너리와 구분한다.
+- 앱 캐시: 최신 snapshot 손상·최대 seq·직전 정상 팩 fallback·용량 예약·7/30일·lease와 GC 경합·동일 버전 재확인·화면 오류와 복귀 경합을 검증한다. 기존 회관 원본 번들 fallback을 유지한다.
+- 실제 TLS CDN, JS stall 중 취소, 기기 강제 종료/OS 캐시 회수, 설치 크기 비교는 미실행이다. 시범 팩 기기 검증 이후에만 꾸미기 rig 확대와 번들 제거 티켓을 진행한다.
+
+독립 Spec 검토에서 실제 PNG 헤더의 사전 검사를 보완했다. Android/Swift `inspectPng`는 처음 33바이트만 읽어 signature·IHDR·실제 해상도를 검사하고, 앱은 manifest 해상도까지 일치해야 디코더를 호출한다. malformed/과대/치수 불일치 시 디코더 호출 0회를 확인했다. Standards/Spec 최종 검토는 추가 발견 사항 없이 통과했으며 자동 companion 재검토 1회는 모델 용량 부족으로 실패했음을 별도 기록했다.

@@ -9,6 +9,10 @@ on:
         description: 서비스 전체 검사·JAR 생성. release PR에서는 prod-ci가 담당한다.
         type: boolean
         default: true
+      run-functional-tests:
+        description: 공개 명령·Outbox의 Data API 통합 테스트. main 승격 PR에서는 생략한다.
+        type: boolean
+        default: true
     outputs:
       services:
         description: 서비스별 전체 검사·이미지 대상 여부 JSON
@@ -58,11 +62,15 @@ jobs:
       - name: 테스트 의존성
         run: python3 -m pip install --quiet 'pyyaml==6.0.2'
       - name: 합성 SecretString의 compose 전달과 실제 Postgres 권한 확인
-        run: python3 -m unittest discover -s .github/scripts -p 'test_*.py' -v
+        run: |
+          python3 -m unittest discover -s .github/scripts -p 'test_*.py' -v
+          python3 -m unittest discover -s .github/scripts/v2/dev -p 'test_*.py' -v
+          python3 -m unittest discover -s .github/scripts/v2/prod -p 'test_*.py' -v
       - name: A22 위성 경계 · producer와 template 계약 검사
         run: python3 .github/scripts/check-satellite-contracts.py
 
   public-command-contracts:
+    if: inputs.run-functional-tests
     name: 공개 명령 원자성 · 계약
     runs-on: ubuntu-latest
     timeout-minutes: 15

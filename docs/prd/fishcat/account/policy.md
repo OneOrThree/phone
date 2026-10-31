@@ -35,6 +35,8 @@ GROMO-1756 · 2026-09-12 · [색인](README.md) · [상세 계약](low-level-des
 
 A06/A08/A09 및 A11/A21의 추가 파기·검증은 목표 계약이다. 기존 기기 DELETE의 키 생략 호환은 유지하되 새 앱 삭제 흐름에는 고정 키가 필수다. main은 Data에서 JWT를 발급하고 `users.refreshTokenHash` 하나를 보관한다. 미통합 1659에는 세션 확인·bootstrap·outbox 기반이 있으나 세션별 RT 정본 전환이나 전체 Business 로그인 이관이 끝난 것은 아니다.
 
+**2026-10-30 LOGIN-D03 갱신(조재영):** 운영 TestFlight 검수를 위해 `dev`와 `prod`의 Google iOS·Web 클라이언트 ID를 모두 프로젝트 `263851348176`의 동일한 값으로 설정한다. 위 LOGIN-D03의 «환경별로 다른 프로젝트를 발급한다», «prod는 미발급», «운영 배포 뒤 이 프로젝트 ID를 제거한다»는 이전 계획이며 현재 설정에는 적용하지 않는다. iOS URL 스킴도 두 행에서 같으므로 한 번만 등록한다. 운영 서버 `GOOGLE_CLIENT_ID` 허용 목록에 Web ID가 있는지 배포 전에 확인한다.
+
 ## 로그·분석 보존 기간
 
 A22의 보존 기간 정본이다. 탈퇴자 자료는 이 기간이 지나면 저장소 만료로 파기된다. 값을 바꾸면 구현 위치의 설정을 같은 변경에서 맞춘다.
@@ -43,7 +45,7 @@ A22의 보존 기간 정본이다. 탈퇴자 자료는 이 기간이 지나면 �
 | --- | --- | --- | --- | --- |
 | L01 | APP 시스템 로그 파일(`logs/app.log`·일별 회전본, 운영 호스트 `/var/log/springboot`) | **7일** | `logback-spring.xml` `APP_FILE_RAW` `maxHistory=7` | 적용 |
 | L02 | user-activity 로그 파일(`logs/user-activity.log`·일별 회전본, 같은 호스트 경로) | **30일** | `logback-spring.xml` `UA_FILE_RAW` `maxHistory=30` | 적용 |
-| L03 | S3 적재본 `system_log/` 접두(`system_log/app-N/`, `app.log` 매시간 업로드 — 티켓 590) | **90일** | 버킷 `gromo-prod-logs-808715036056` 수명 주기 규칙 `expire-system-logs`(기록: `server/scripts/s3-log-archive-lifecycle.json`) | 적용 2026-09-19 |
+| L03 | S3 적재본 `system_log/` 접두(`system_log/app-N/`, `app.log` 매시간 업로드 — 티켓 590) | **90일** | 버킷 `gromo-prod-logs-<account-id>` 수명 주기 규칙 `expire-system-logs`(기록: `server/scripts/s3-log-archive-lifecycle.json`) | 적용 2026-09-19 |
 | L04 | S3 적재본 `user_log/` 접두(`user_log/app-N/`, `user-activity.log` 매시간 업로드 — 티켓 590) | **90일** | 같은 버킷 규칙 `expire-user-logs` | 적용 2026-09-19. 티켓 590의 「만료 없음」을 재영님이 90일로 변경(2026-09-19) |
 | L10 | S3 적재본 `user-activity/` 접두(`user-activity/dt=YYYY-MM-DD/`, Fluent Bit 전환 예정 — 티켓 790) | **90일** | 같은 버킷 규칙 `expire-user-activity` | 적용 2026-09-19(적재는 790 완료 뒤 시작) |
 | L05 | GA4 속성 이벤트 데이터(Firebase Analytics 앱스트림·서버 MP 포함) | **2개월**(권장값) | GA4 관리 > 데이터 설정 > 데이터 보존 | **GA4 관리 화면에서 재영님이 설정 — 설정값 확인 필요** |
@@ -54,7 +56,7 @@ A22의 보존 기간 정본이다. 탈퇴자 자료는 이 기간이 지나면 �
 
 - 로컬 파일(L01·L02)과 S3 적재본(L03·L04·L10)은 **보존 기간이 다르다**. 로컬은 APP 7일·user-activity 30일, S3는 세 접두 모두 90일이다. 탈퇴자 로그의 최종 파기 시점은 더 긴 S3 기간이 정한다.
 - S3 만료는 객체 생성(업로드) 시각 기준이고 하루 단위로 처리되므로 실제 삭제는 기록 시각 기준 기간보다 하루 남짓 늦을 수 있다. 버킷은 버전 관리를 쓰지 않아 비현행 버전 규칙이 없다.
-- S3 적재 파이프라인(운영 compose 주석의 590·790)과 버킷의 Terraform 원본은 이 저장소가 아니라 `OneOrThree/terraform` 레포의 `aws-prod-server/s3.tf`(티켓 590)에 있다. 수명 주기 규칙은 2026-09-19 CLI로 버킷에 직접 적용했고, 그 Terraform은 2026-09-21 기준 아직 버킷 전체 단일 규칙(`expire-90d`, 90일)이라 동기화가 남아 있다(GROMO-1948). 표의 기간 값 자체는 어느 쪽이든 90일로 같다. 업로더는 위 세 접두 아래에만 쓴다. 다른 접두로 올리면 만료 규칙이 닿지 않는다.
+- S3 적재 파이프라인(운영 compose 주석의 590·790)과 버킷의 Terraform 원본은 이 저장소가 아니라 `OneOrThree/terraform` 레포의 `aws-prod-server/s3.tf`(티켓 590)에 있다(현행 인프라 정본은 `OneOrThree/Infra`). 수명 주기 규칙은 2026-09-19 CLI로 버킷에 직접 적용했고, 그 Terraform은 2026-09-21 기준 아직 버킷 전체 단일 규칙(`expire-90d`, 90일)이라 동기화가 남아 있다(GROMO-1948). 표의 기간 값 자체는 어느 쪽이든 90일로 같다. 업로더는 위 세 접두 아래에만 쓴다. 다른 접두로 올리면 만료 규칙이 닿지 않는다.
 - GA4 이벤트 데이터 보존은 2개월과 14개월만 고를 수 있어 최솟값 2개월을 권장한다. 같은 화면의 「새 활동 시 사용자 데이터 재설정」은 꺼서 새 이벤트가 만료를 늦추지 않게 한다. BigQuery 내보내기가 연결돼 있으면 내보낸 자료에는 이 보존 기간이 적용되지 않으므로 연결 여부도 함께 확인한다.
 - L07·L08이 정해지기 전, L09는 크기 보정이 끝나기 전에는 해당 저장소의 탈퇴 파기 완료를 주장하지 않는다.
 

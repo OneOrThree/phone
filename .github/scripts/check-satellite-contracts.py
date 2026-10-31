@@ -43,10 +43,11 @@ seed = '\n'.join(path.read_text() for path in sorted(
         key=lambda path: int(path.name.split('__', 1)[0][1:])))
 consumers = set(re.findall(r"INSERT INTO kinds\([^\n]+VALUES\('([^']+)'", seed))
 require(producer == {'FRIEND_REQUEST', 'FRIEND_ACCEPTED', 'MAIN_ISLAND_TRANSFERRED',
-                      'MAGAZINE_PUBLISHED', 'ISLAND_KICKED'},
+                      'MAGAZINE_PUBLISHED', 'ISLAND_KICKED', 'ADMIN_ANNOUNCEMENT'},
         f'현재 제품 알림 종류 불일치: {producer}')
 require(producer <= consumers, f'현재 알림 카탈로그 수신 누락: {producer-consumers}')
-for kind in producer:
+# 운영 공지는 검토한 문구를 직접 고정하므로 템플릿을 사용하지 않는다.
+for kind in producer - {'ADMIN_ANNOUNCEMENT'}:
     for locale in ['ko', 'en', 'ja', 'zh-Hant']:
         require(f"'{kind}.{locale}','{kind}','{locale}'" in seed,
                 f'{kind}/{locale}: 템플릿 시드 없음')
@@ -75,8 +76,9 @@ compose = source('server/scripts/docker-compose.satellites.yml')
 require('business_redis_acl' in writer and '~cache:business:*' in writer
         and 'user default off' in writer and 'BUSINESS_REDIS_PASSWORD' in writer,
         'A22 ㋺: Business 전용 캐시 ACL 또는 시크릿 공급 누락')
-require('networks: [business-cache]' in compose and 'internal: true' in compose,
-        'A22 ㋺: Redis 캐시 전용 내부 네트워크 누락')
+require('BUSINESS_REDIS_HOST: redis' in compose and 'shared_redis_acl' in writer
+        and '(%R~presence:* +get +exists)' in writer,
+        '공유 Redis 주소 또는 서비스별 읽기 전용 ACL 누락')
 
 auth_service = source('server/data-api/src/main/java/com/oneorthree/phone/auth/service/AuthService.java')
 refresh_entry = auth_service.split('public TokenRefreshResponse refreshSessionAccessToken(String refreshToken)', 1)[1]
@@ -182,4 +184,4 @@ require(not list((ROOT / 'server/data-api/src/main/java/com/oneorthree/phone/not
 if errors:
     print('\n'.join(errors), file=sys.stderr)
     raise SystemExit(1)
-print(f'A22 위성 계약 검사 통과: producer {len(producer)}종 · template {len(producer)*4}개')
+print(f'A22 위성 계약 검사 통과: producer {len(producer)}종 · template {(len(producer)-1)*4}개')

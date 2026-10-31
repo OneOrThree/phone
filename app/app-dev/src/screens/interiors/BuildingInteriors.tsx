@@ -1,3 +1,4 @@
+import { useAssetPack } from '@/hooks/useAssetPack';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { isMockMode } from '@/services/demoMode';
 import {
@@ -527,7 +528,10 @@ export const textShadow = (x: number, y: number, color: string): any =>
     ? { textShadow: `${x}px ${y}px ${color}` }
     : { textShadowColor: color, textShadowOffset: { width: x, height: y }, textShadowRadius: 0 };
 // 웹에서 원본 CSS와 같은 방식으로 그림을 깔 때 쓰는 주소
-export const assetUri = (source: ImageSourcePropType) => Asset.fromModule(source as number).uri;
+export const assetUri = (source: ImageSourcePropType) =>
+  typeof source === 'object' && !Array.isArray(source) && source.uri
+    ? source.uri
+    : Asset.fromModule(source as number).uri;
 // 원본 크롬은 줄 높이를 1/64px 단위로 내려 잡는다. 같은 높이로 맞춰야 회전한 요소 가장자리가 어긋나지 않는다
 export const lh = (px: number) => Math.floor(px * 64) / 64;
 
@@ -744,7 +748,7 @@ export function InteriorScreen({
   reduceMotion?: boolean;
   hideArtifact?: boolean;
   e?: any;
-  insets?: { top: number; left: number };
+  insets?: { top: number; left: number; right?: number };
   sceneHeight?: number;
   higherModalOpen?: boolean;
 }) {
@@ -790,6 +794,11 @@ export function InteriorScreen({
           ],
         };
   const isHall = building.id === 'hall';
+  const hallPack = useAssetPack(isHall ? 'interior-hall' : null);
+  const sceneBackground =
+    isHall && hallPack.lease?.assets.background
+      ? { uri: hallPack.lease.assets.background.uri }
+      : building.background;
   // 핫스폿은 시안 구경용이라 앱 화면에서는 끈다
   const hotspot = e || building.id === 'board' ? undefined : hotspotAt[concept.kind];
   const Artifact = artifacts[concept.kind];
@@ -849,7 +858,7 @@ export function InteriorScreen({
             ? showBoardReviewBackground
               ? `${screenGradient},url("${assetUri(interiorArt.boardBackground)}")`
               : screenGradient
-            : `${screenGradient},url("${assetUri(building.background)}")`,
+            : `${screenGradient},url("${assetUri(sceneBackground)}")`,
           ...(fullBoardScene ? { backgroundRepeat: 'no-repeat' } : null),
           // 키보드로 높이가 줄면 창 높이로 계산한 위치에 그대로 둔다
           backgroundSize:
@@ -874,7 +883,8 @@ export function InteriorScreen({
         <>
           <Image
             testID="interior-background-image"
-            source={showBoardReviewBackground ? interiorArt.boardBackground : building.background}
+            source={showBoardReviewBackground ? interiorArt.boardBackground : sceneBackground}
+            onError={isHall ? hallPack.onError : undefined}
             resizeMode="stretch"
             style={{ position: 'absolute', ...bg, top: bg.top - boardScrollOffset }}
           />
@@ -912,20 +922,31 @@ export function InteriorScreen({
       )}
       <NavBtn
         testID="scene-back"
+        // 게시판은 바탕(종이)이 복잡해 뒤로 원이 잘 안 보여서, X를 반투명 원 위에 올리고 오른쪽 위에 둔다.
+        // 다른 건물은 그대로 왼쪽 위의 불투명 원·뒤로 화살표.
+        close={fullBoardScene}
+        scrim={fullBoardScene}
         ref={sceneBackRef as any}
         disabled={sceneBackBlocked}
         accessibilityElementsHidden={sceneBackBlocked}
         {...(sceneBackBlocked ? webOnly({ 'aria-hidden': true } as any) : null)}
         label="섬으로 돌아가기"
         onPress={() => (e ? e.home() : showToast('섬으로 돌아가는 전환이 이어집니다'))}
-        // 원(34)이 예전 자리(왼쪽 14 · 위 36)에 오게 누르는 상자(44)를 5 당긴다. 자리는 화면 좌표로 정해
-        // 장면을 키워 그리는 우체통(navScale = 1/k)도 왼쪽 위 모서리 기준으로 줄여 다른 건물과 같은 화면 자리에 둔다
+        // 원(34)이 예전 자리(좌/우 14 · 위 36)에 오게 누르는 상자(44)를 5 당긴다. 자리는 화면 좌표로 정해
+        // 장면을 키워 그리는 우체통(navScale = 1/k)도 모서리 기준으로 줄여 다른 건물과 같은 화면 자리에 둔다
         style={{
           position: 'absolute',
           zIndex: 12,
-          left: navScale * (9 + Math.max(0, (insets?.left ?? 0) / navScale - 52)),
+          ...(fullBoardScene
+            ? {
+                right: navScale * (9 + Math.max(0, (insets?.right ?? 0) / navScale - 52)),
+                transformOrigin: 'right top',
+              }
+            : {
+                left: navScale * (9 + Math.max(0, (insets?.left ?? 0) / navScale - 52)),
+                transformOrigin: 'left top',
+              }),
           top: navScale * (31 + Math.max(0, (insets?.top ?? 0) / navScale - 52)),
-          transformOrigin: 'left top',
           transform: [{ scale: navScale }],
         }}
       />
@@ -1128,7 +1149,11 @@ export function InteriorRoute({
               height={height / k}
               reduceMotion={e.state.settings.reduceMotion}
               e={e}
-              insets={{ top: layout.insets.top / k, left: layout.insets.left / k }}
+              insets={{
+                top: layout.insets.top / k,
+                left: layout.insets.left / k,
+                right: layout.insets.right / k,
+              }}
               sceneHeight={Math.max(height, layout.height) / k}
               higherModalOpen={modalAboveBoard}
             />
@@ -4698,7 +4723,12 @@ export function Board({
     backToQuests: () =>
       e
         ? e.back()
-        : render({ view: s.editing ? 'detail' : 'list', questForm: null, editing: false }),
+        : render({
+            view: s.editing ? 'detail' : 'list',
+            questForm: null,
+            editing: false,
+            error: '',
+          }),
     newQuest: () => {
       if (!owner) return;
       if (!e) return render({ view: 'write', questForm: null, editing: false, error: '' });
@@ -4925,21 +4955,20 @@ export function Board({
   const formError = s.error !== '' && (
     <Text style={boardFont(13, 1.45, '400', '#a35952')}>{s.error}</Text>
   );
-  // 종이 안 한 단계 뒤로(‹ 동그라미). 원 왼쪽 끝을 종이 글자 줄에 맞추게 누르는 상자 여백(5)만큼 당긴다
-  const detailHead = (back: React.ReactNode) => (
+  // 종이 오른쪽 위 × 하나로 현재 단계를 닫고 이전 단계로 돌아간다.
+  const detailHead = (close: React.ReactNode) => (
     <View
       style={{
         minHeight: 44,
-        marginLeft: -5,
+        marginRight: -5,
         marginBottom: 8,
-        paddingRight: 30,
         flexDirection: 'row',
         alignItems: 'center',
-        justifyContent: 'space-between',
+        justifyContent: 'flex-end',
         gap: 8,
       }}
     >
-      {back}
+      {close}
     </View>
   );
 
@@ -5054,8 +5083,10 @@ export function Board({
         <View>
           {detailHead(
             <NavBtn
-              testID="board-notice-back"
-              label="공지 목록으로 돌아가기"
+              testID="board-notice-close"
+              close
+              boardPaper
+              label="공지 닫고 목록으로 돌아가기"
               onPress={nav.backToNotices}
             />,
           )}
@@ -5074,8 +5105,10 @@ export function Board({
         <View>
           {detailHead(
             <NavBtn
-              testID="board-notice-back"
-              label="공지 목록으로 돌아가기"
+              testID="board-notice-close"
+              close
+              boardPaper
+              label="공지 닫고 목록으로 돌아가기"
               onPress={nav.backToNotices}
             />,
           )}
@@ -5093,8 +5126,10 @@ export function Board({
       <View>
         {detailHead(
           <NavBtn
-            testID="board-notice-back"
-            label="공지 목록으로 돌아가기"
+            testID="board-notice-close"
+            close
+            boardPaper
+            label="공지 닫고 목록으로 돌아가기"
             onPress={nav.backToNotices}
           />,
         )}
@@ -5274,7 +5309,9 @@ export function Board({
         {detailHead(
           <NavBtn
             testID="board-notice-cancel"
-            label={s.editing ? '공지로 돌아가기' : '공지 목록으로 돌아가기'}
+            close
+            boardPaper
+            label={s.editing ? '수정 닫고 공지로 돌아가기' : '작성 닫고 공지 목록으로 돌아가기'}
             onPress={nav.cancelEditor}
           />,
         )}
@@ -5355,14 +5392,6 @@ export function Board({
     }
   };
 
-  const questBack = detailHead(
-    <NavBtn
-      testID="board-quest-back"
-      label={s.editing ? '퀘스트로 돌아가기' : '퀘스트 목록으로 돌아가기'}
-      onPress={nav.backToQuests}
-    />,
-  );
-
   // 서버가 내려주는 수령 불가 사유 — 값을 만들지 않고 알려진 코드만 번역한다.
   const questBlockedText = (reason: string | null | undefined) =>
     reason === 'NOT_ACHIEVED'
@@ -5387,8 +5416,10 @@ export function Board({
         <>
           {detailHead(
             <NavBtn
-              testID="board-quest-back"
-              label="퀘스트 목록으로 돌아가기"
+              testID="board-quest-close"
+              close
+              boardPaper
+              label="퀘스트 닫고 목록으로 돌아가기"
               onPress={nav.backToQuests}
             />,
           )}
@@ -5510,7 +5541,6 @@ export function Board({
       const serverEdit = serverBoard && s.editing;
       return (
         <>
-          {questBack}
           <Text style={[h4, { marginTop: 4, marginRight: 34, marginBottom: 12 }]}>
             {s.editing ? '퀘스트 수정' : '퀘스트 만들기'}
           </Text>
@@ -6214,6 +6244,7 @@ export function Board({
   const dismissNoticeOverlay = () =>
     e ? e.back() : render({ view: noticeEditorOpen && s.editing ? 'detail' : 'list', error: '' });
   const questDetailOpen = s.panel === 'quest' && s.view === 'detail';
+  const questEditorOpen = s.panel === 'quest' && s.view === 'write';
   const dismissQuestDetail = () => (e ? e.back() : render({ view: 'list', error: '' }));
   const paperSource =
     s.panel === 'quest' ? interiorArt.boardPaper.quest : interiorArt.boardPaper.notice;
@@ -6580,11 +6611,24 @@ export function Board({
               marginBottom: 8,
             }}
           >
-            <NavBtn close testID="board-panel-close" label="게시판 닫기" onPress={nav.closePanel} />
+            <NavBtn
+              boardPaper
+              close
+              testID="board-panel-close"
+              label={
+                questEditorOpen
+                  ? s.editing
+                    ? '수정 닫고 퀘스트로 돌아가기'
+                    : '작성 닫고 퀘스트 목록으로 돌아가기'
+                  : '게시판 닫기'
+              }
+              onPress={questEditorOpen ? nav.backToQuests : nav.closePanel}
+            />
           </View>
         )}
         {s.panel === 'blueprint' && (
           <NavBtn
+            boardPaper
             close
             testID="board-drawer-close"
             label="내용 닫기"

@@ -827,7 +827,7 @@ Docker 컨테이너 로그·Datadog·dev Loki에 복사된다.
 시점은 「그 사용자의 마지막 기록 + 그 저장소의 보존 기간」이다.
 
 보존 기간의 정본은 [policy.md 로그·분석 보존 기간](policy.md#로그분석-보존-기간) 표다. 로컬 logback `maxHistory`(APP 7일·user-activity
-30일)와 S3 적재본 수명 주기 규칙(버킷 `gromo-prod-logs-808715036056`의 `system_log/`·`user_log/`·`user-activity/` 접두
+30일)와 S3 적재본 수명 주기 규칙(버킷 `gromo-prod-logs-<account-id>`의 `system_log/`·`user_log/`·`user-activity/` 접두
 모두 90일, 기록은 `server/scripts/s3-log-archive-lifecycle.json`)은 **값이 서로 다르며 각각 그 표의 자기 행을 구현하는
 설정**이고 스스로 보존 근거가 되지 않는다. 설정 값을 바꾸면 policy.md 표의 해당 행을 같은 변경에서 맞춘다.
 표에 기간이 없거나 설정이 미확인인 저장소(Datadog Logs·APM trace, Docker 컨테이너 로그 등)는 파기 완료를 주장하지 않고

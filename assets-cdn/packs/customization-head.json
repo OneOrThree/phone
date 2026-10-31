@@ -1,0 +1,15 @@
+{
+  "packId": "customization-head",
+  "files": {
+    "bear-5e0ad5da": "server/static/customization/head/bear.5e0ad5da.png",
+    "bun-318b6c24": "server/static/customization/head/bun.318b6c24.png",
+    "bunny-094e8219": "server/static/customization/head/bunny.094e8219.png",
+    "chick-60d5184a": "server/static/customization/head/chick.60d5184a.png",
+    "duck-9572baaf": "server/static/customization/head/duck.9572baaf.png",
+    "frog-dcb0455f": "server/static/customization/head/frog.dcb0455f.png",
+    "mandarin-cfb06049": "server/static/customization/head/mandarin.cfb06049.png",
+    "peach-b8a41040": "server/static/customization/head/peach.b8a41040.png",
+    "riceball-63291aee": "server/static/customization/head/riceball.63291aee.png",
+    "seal-7896b8c5": "server/static/customization/head/seal.7896b8c5.png"
+  }
+}

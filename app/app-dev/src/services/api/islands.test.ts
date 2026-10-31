@@ -4,6 +4,7 @@ import {
   createIsland,
   discoverIslands,
   explore,
+  issueInvitation,
   joinIsland,
   joinRequest,
   myIslands,
@@ -59,6 +60,16 @@ beforeEach(async () => {
   calls.length = 0;
   await clearSession();
   await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'u1' });
+});
+
+test('초대 발급은 멱등 키를 보내고 서버 URL을 반환한다', async () => {
+  const invitation = { code: 'ABC123', url: 'https://link.example/l/ABC123?g=i1', expiresAt: null };
+  stub([{ status: 200, body: { data: invitation } }]);
+  const result = await issueInvitation('i1', 'invite-key');
+  assert.equal(path(calls[0]), '/islands/i1/invitations');
+  assert.equal(calls[0].init.method, 'POST');
+  assert.equal(header(calls[0], 'Idempotency-Key'), 'invite-key');
+  assert.deepEqual(result, invitation);
 });
 
 test('createIsland — POST /islands 에 멱등 키와 허용된 body 만 보낸다', async () => {
@@ -445,4 +456,10 @@ test('응답이 돌아올 때 세션 세대가 바뀌었으면 CLIENT_STALE_SESS
 
   const error = await myIslands().catch((e) => e);
   assert.equal(error.code, CLIENT_STALE_SESSION);
+});
+
+test('초대 링크 진입은 arrive=true로 도착 이력을 기록한다', async () => {
+  stub([{ status: 200, body: { data: { island: summary('i1'), invitationToken: 'abcdefgh' } } }]);
+  await resolveInvitation('abcdefgh', { arrive: true });
+  assert.deepEqual(body(calls[0]), { code: 'abcdefgh', arrive: true });
 });

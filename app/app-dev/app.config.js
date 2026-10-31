@@ -2,12 +2,12 @@
 // 가입자는 2.0에서 새 계정이 된다 — 1.x 미이관 정책과 같은 방향으로 수용한 결정이다.
 const kakaoNativeAppKey = '1280641e9b639a279b7406f24b059703';
 const { withLegacyAndroidKakao } = require('./kakaoAndroidConfig');
-// iOS 스토어 버전(1.0.2)은 아래 version(2.0.0, Android 용)과 다르다 — 이유는 iosStoreVersionConfig.js
+// iOS 스토어 버전(1.0.2)은 아래 version(2.0.1, Android 용)과 다르다 — 이유는 iosStoreVersionConfig.js
 const { withIosStoreVersion } = require('./iosStoreVersionConfig');
 const { withIosMeta } = require('./metaIosConfig');
 // GROMO-2215·2226 — 구글 클라이언트 id 정본은 src/config/googleClientIds.json 이다(socialLogin.ts 와 같은 파일).
 // 여기서는 expo prebuild 가 Info.plist 에 심을 URL 스킴만 dev.ios 에서 만든다(이 레포는 체크인된 ios/ 를 쓴다).
-// 체크인된 Info.plist 에는 dev·prod 스킴을 둘 다 등록한다(규칙은 src/config/googleClientIds.md).
+// 체크인된 Info.plist 에는 dev·prod 의 서로 다른 스킴을 모두 등록한다(현재는 같은 스킴 하나, 규칙은 src/config/googleClientIds.md).
 const googleIosClientId = require('./src/config/googleClientIds.json').dev.ios;
 const googleIosUrlScheme = `com.googleusercontent.apps.${googleIosClientId.replace(
   '.apps.googleusercontent.com',
@@ -21,7 +21,7 @@ module.exports = {
     locales: { ko: './locales/ko.json', en: './locales/en.json' },
     slug: 'focuscat',
     owner: 'oneorthree',
-    version: '2.0.0',
+    version: '2.0.1',
     runtimeVersion: '2.0.0',
     updates: {
       url: 'https://u.expo.dev/b791fb8b-1f6c-4e6f-88f6-84ef0a99c79d',
@@ -50,9 +50,10 @@ module.exports = {
       // 시작·가입 화면의 세로 고정을 위해 전체 화면을 요구한다. iPadOS 26은 Expo 패치로 대응한다
       requireFullScreen: true,
       bundleIdentifier: 'com.oneorthree.focuscat',
+      associatedDomains: ['applinks:link.oneorthree.world', 'applinks:oneorthree.dev.mooo.com'],
       // GROMO-2523·2544 푸시·Meta SDK가 든 바이너리만 새 JS OTA를 받게 iOS 런타임을 분리한다.
       // 체크인된 ios/Cattus/Supporting/Expo.plist 의 EXUpdatesRuntimeVersion 과 같은 값이어야 한다.
-      runtimeVersion: '2.0.0-push-meta',
+      runtimeVersion: '2.0.0-push-meta-assets-v1',
       infoPlist: {
         CFBundleLocalizations: ['ko', 'en'],
         NSSupportsLiveActivities: true,
@@ -64,14 +65,23 @@ module.exports = {
     },
     android: {
       package: 'com.oneorthree.gromo',
-      versionCode: 20,
+      versionCode: 21,
       // 집중 차단 기능이 있는 기존 Android OTA와 네이티브 구성을 분리한다.
-      runtimeVersion: '2.0.0-no-special-use',
-      permissions: ['android.permission.PACKAGE_USAGE_STATS'],
+      runtimeVersion: '2.0.1-android-push-assets-v1',
+      permissions: [
+        'android.permission.PACKAGE_USAGE_STATS',
+        'android.permission.POST_NOTIFICATIONS',
+      ],
       blockedPermissions: [
         'android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK',
         'android.permission.FOREGROUND_SERVICE_SPECIAL_USE',
       ],
+      intentFilters: ['link.oneorthree.world', 'oneorthree.dev.mooo.com'].map((host) => ({
+        action: 'VIEW',
+        autoVerify: true,
+        category: ['BROWSABLE', 'DEFAULT'],
+        data: [{ scheme: 'https', host, pathPrefix: '/l/' }],
+      })),
       adaptiveIcon: {
         image: './src/assets/icon.png',
         backgroundColor: '#FDEFD5',

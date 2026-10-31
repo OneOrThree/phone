@@ -43,7 +43,7 @@ class AccountContractTest extends UpstreamTestBase {
     private static final String DATA_PATCH = "PATCH " + ROUTE;
     private static final String DATA_DELETE = "DELETE " + ROUTE;
 
-    private static final String PREVIEW = "cache:business:preview:" + USER + ":";
+    @Autowired com.oneorthree.business.linkpreview.repository.PreviewCache previews;
     private static final String RATE = "cache:business:rate:" + USER;
     private static final String WITHDRAWN = "cache:business:withdrawn:" + USER;
 
@@ -209,7 +209,7 @@ class AccountContractTest extends UpstreamTestBase {
     @Test
     void withdrawsWithExactConfirmation() throws Exception {
         DATA.on(DATA_DELETE, request -> ok("{\"deleted\":true}"));
-        String other = "cache:business:preview:" + UUID.randomUUID() + ":a";
+        String other = UUID.randomUUID().toString();
         seedPreviewCopies(other);
 
         mockMvc.perform(withdraw("{\"confirmation\":\"DELETE\"}"))
@@ -221,10 +221,11 @@ class AccountContractTest extends UpstreamTestBase {
         assertThat(sent.header("X-Session-Id")).isEqualTo(SESSION.toString());
         assertThat(sent.header("X-Auth-Generation")).isEqualTo("3");
         // 탈퇴가 확정되면 그 사용자의 미리보기·레이트 키가 지워지고 차단 표지가 남는다(GROMO-1943).
-        assertThat(redis.keys(PREVIEW + "*")).isEmpty();
+        assertThat(previews.find(USER.toString(), "a")).isNull();
+        assertThat(previews.find(USER.toString(), "b")).isNull();
         assertThat(redis.hasKey(RATE)).isFalse();
         assertThat(redis.hasKey(WITHDRAWN)).isTrue();
-        assertThat(redis.hasKey(other)).isTrue();
+        assertThat(previews.find(other, "a")).isNotNull();
     }
 
     @ParameterizedTest
@@ -361,17 +362,23 @@ class AccountContractTest extends UpstreamTestBase {
     }
 
     private void seedPreviewCopies(String... others) {
-        redis.delete(List.of(WITHDRAWN, RATE, PREVIEW + "a", PREVIEW + "b"));
-        redis.opsForValue().set(PREVIEW + "a", "{}");
-        redis.opsForValue().set(PREVIEW + "b", "{}");
+        previews.eraseUser(USER.toString());
+        redis.delete(List.of(WITHDRAWN, RATE));
+        seedPreview(USER.toString(), "a");
+        seedPreview(USER.toString(), "b");
         redis.opsForValue().set(RATE, "3");
-        for (String key : others) {
-            redis.opsForValue().set(key, "{}");
-        }
+        for (String user : others) seedPreview(user, "a");
+    }
+
+    private void seedPreview(String user, String id) {
+        var preview = new com.oneorthree.business.linkpreview.dto.Preview(id, "PENDING", "https://example.com",
+                null, null, null, null, null, null);
+        previews.claim(user, new com.oneorthree.business.linkpreview.repository.PreviewCache.Entry(preview, null, "g"));
     }
 
     private void assertCopiesUntouched() {
-        assertThat(redis.keys(PREVIEW + "*")).hasSize(2);
+        assertThat(previews.find(USER.toString(), "a")).isNotNull();
+        assertThat(previews.find(USER.toString(), "b")).isNotNull();
         assertThat(redis.hasKey(RATE)).isTrue();
         assertThat(redis.hasKey(WITHDRAWN)).isFalse();
     }

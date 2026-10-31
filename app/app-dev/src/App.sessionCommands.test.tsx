@@ -58,6 +58,7 @@ const mockPrepareLogout = jest.fn();
 const mockLogout = jest.fn(async (_prepared?: Promise<void>) => {});
 const mockClearStudyWidget = jest.fn(async () => false);
 let mockEmitAppLink: ((url: string) => void) | undefined;
+let mockInvitationCommands: Record<string, jest.Mock> | undefined;
 let mockRememberOverride: ((...args: any[]) => Promise<boolean>) | undefined;
 let mockAppDispatch: ((action: any) => void) | undefined;
 const mockAdoptSignedInAccount = jest.fn(
@@ -167,6 +168,7 @@ jest.mock('@/services/islandCommands', () => {
           ...created.commands,
           sync: (...syncArgs: unknown[]) => mockSyncIslands(...syncArgs),
           switchCurrent: (...switchArgs: unknown[]) => mockSwitchCurrent(...switchArgs),
+          ...mockInvitationCommands,
         },
       };
     },
@@ -202,6 +204,7 @@ jest.mock('react-native-safe-area-context', () => ({
 }));
 
 beforeEach(async () => {
+  mockInvitationCommands = undefined;
   process.env.EXPO_PUBLIC_TERMS_VERSION = 'test-terms-v1';
   captured = undefined;
   mockLoadHomeSnapshot = undefined;
@@ -2865,7 +2868,15 @@ test('소속 섬이 없는 계정이 바다에서 연 친구·설정·꾸미기�
     captured.dispatch(islandSync(null, null));
     captured.reset('sea');
   });
-  for (const route of ['friends', 'settings', 'wardrobe', 'profile', 'blockedUsers']) {
+  for (const route of [
+    'friends',
+    'settings',
+    'wardrobe',
+    'profile',
+    'blockedUsers',
+    'developerNotices',
+    'developerNotice',
+  ]) {
     await act(async () => {
       captured.go(route);
       await new Promise((done) => setTimeout(done, 50));
@@ -2895,12 +2906,14 @@ test('소속 섬이 있어도 바다에서 연 설정의 닫기는 바다로, �
     await tick();
   });
   expect(captured.route).toBe('settings');
+  expect(captured.fromSea).toBe(true);
   // 설정에서 이어 연 메인 섬 변경도 닫기는 바다로
   await act(async () => {
     captured.go('mainIsland');
     await tick();
   });
   expect(captured.route).toBe('mainIsland');
+  expect(captured.fromSea).toBe(true);
   await act(async () => {
     captured.home();
     await tick();
@@ -2912,6 +2925,7 @@ test('소속 섬이 있어도 바다에서 연 설정의 닫기는 바다로, �
     captured.go('settings');
     await tick();
   });
+  expect(captured.fromSea).toBe(false);
   await act(async () => {
     captured.home();
     await tick();
@@ -3400,5 +3414,132 @@ test.each(['granted', 'denied'] as const)(
     await afterShield();
     expect(mockRequestPushPermission).toHaveBeenCalledTimes(1);
     await app.unmount();
+  },
+);
+
+test.each(['active', 'pending', 'joined'] as const)(
+  '초대 링크는 캐릭터 설정 뒤 첫 섬 선택을 건너뛰고 %s 상태로 진입한다',
+  async (status) => {
+    const memberships = (id: string | null) => ({
+      items: id ? [{ id, name: '초대 섬', membershipStatus: 'active' }] : [],
+      nextCursor: null,
+      currentIslandId: id,
+      lossReason: null,
+    });
+    mockInvitationCommands = {
+      resolveInvite: jest.fn(async () => ({
+        id: 'invited',
+        name: '초대 섬',
+        membershipStatus: status === 'joined' ? 'active' : 'none',
+      })),
+      join: jest.fn(async () => {
+        if (status === 'active')
+          mockAppDispatch!({ type: 'ISLAND_SYNC', memberships: memberships('invited') });
+        return { status, islandId: 'invited' };
+      }),
+      switchCurrent: jest.fn(async () => {
+        mockAppDispatch!({ type: 'ISLAND_SYNC', memberships: memberships('invited') });
+      }),
+    };
+    const commands = mockInvitationCommands;
+    await act(async () => {
+      render(<App />);
+      for (let n = 0; n < 10; n += 1) await Promise.resolve();
+    });
+    await waitFor(() => assert.ok(mockEmitAppLink));
+    await act(async () => mockEmitAppLink!('https://link.oneorthree.world/l/abcdefgh?g=untrusted'));
+    expect(commands.resolveInvite).not.toHaveBeenCalled();
+    await act(async () => {
+      await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'u1' });
+      mockAppDispatch!({
+        type: 'ISLAND_SYNC',
+        memberships:
+          status === 'joined'
+            ? { ...memberships('invited'), currentIslandId: 'other' }
+            : status === 'pending'
+              ? { ...memberships('invited'), currentIslandId: null }
+              : memberships(null),
+      });
+      captured.reset('character');
+    });
+    expect(commands.resolveInvite).not.toHaveBeenCalled();
+    if (status === 'pending') {
+      await act(async () =>
+        mockAppDispatch!({
+          type: 'LOAD',
+          state: { ...captured.state, visitingIslandId: 'visiting-other' },
+          now: Date.now(),
+        }),
+      );
+    }
+    await act(async () => captured.reset('chooseIsland'));
+    await waitFor(() =>
+      expect(commands.resolveInvite).toHaveBeenCalledWith('abcdefgh', { arrive: true }),
+    );
+    if (status === 'joined') {
+      await waitFor(() => expect(commands.switchCurrent).toHaveBeenCalledWith('invited'));
+      expect(commands.join).not.toHaveBeenCalled();
+      await waitFor(() => assert.equal(captured.route, 'home'));
+    } else {
+      await waitFor(() =>
+        expect(commands.join).toHaveBeenCalledWith('invited', { showApproval: false }),
+      );
+      await waitFor(() =>
+        assert.equal(captured.route, status === 'pending' ? 'approval' : 'guide'),
+      );
+      if (status === 'pending') assert.ok(!captured.state.visitingIslandId);
+    }
+  },
+);
+
+test.each(['이동', '세션 변경', '가입 실패'] as const)(
+  '초대 가입 응답 중 %s가 발생하면 현재 화면과 계정을 보존한다',
+  async (mode) => {
+    let finish!: (value: unknown) => void;
+    let fail!: (error: unknown) => void;
+    const join = jest.fn(
+      () =>
+        new Promise((resolve, reject) => {
+          finish = resolve;
+          fail = reject;
+        }),
+    );
+    mockInvitationCommands = {
+      resolveInvite: jest.fn(async () => ({ id: 'invited', name: '초대 섬' })),
+      join,
+    };
+    await act(async () => {
+      render(<App />);
+      for (let n = 0; n < 10; n += 1) await Promise.resolve();
+    });
+    await waitFor(() => assert.ok(mockEmitAppLink));
+    await act(async () => {
+      await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'u1' });
+      mockAppDispatch!({
+        type: 'ISLAND_SYNC',
+        memberships: {
+          items: [{ id: 'other', name: '현재 섬', membershipStatus: 'active' }],
+          nextCursor: null,
+          currentIslandId: 'other',
+          lossReason: null,
+        },
+      });
+      captured.reset('home');
+    });
+    await act(async () => mockEmitAppLink!('gromo://join?s=abcdefgh'));
+    await waitFor(() => expect(join).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      captured.reset('settings');
+      if (mode === '세션 변경') await clearSession();
+    });
+    await act(async () => {
+      if (mode === '가입 실패') fail(new ApiError('GROUP_FULL', '정원이 찼어요.', 409));
+      else finish({ status: 'active', islandId: 'invited' });
+    });
+    if (mode !== '세션 변경') assert.equal(captured.route, 'settings');
+    else assert.notEqual(captured.route, 'home');
+    if (mode === '이동')
+      await waitFor(() => assert.ok(screen.getByText('초대받은 섬에 합류했어요.')));
+    if (mode === '세션 변경') assert.equal(screen.queryByText('초대받은 섬에 합류했어요.'), null);
   },
 );

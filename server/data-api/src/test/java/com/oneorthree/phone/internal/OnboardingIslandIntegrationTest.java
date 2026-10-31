@@ -101,15 +101,17 @@ class OnboardingIslandIntegrationTest {
     }
 
     @Test
-    @DisplayName("일반 목록과 무인도 추첨은 독립이며 가입 가능한 섬이 없으면 무인도는 확정이다")
-    void onlyWhenNeeded() {
+    @DisplayName("일반 목록의 가입 가능 여부와 무관하게 무소속·기존 주민 모두 무인도를 본다")
+    void alwaysShownAlongsideNormalIslands() {
         UUID owner = user();
         UUID island = islands.create(owner, new CreateIslandCommandRequest("열린 섬", null, false, 2),
                 UUID.randomUUID()).id();
         UUID visitor = user();
         assertThat(telescope.list(visitor).items()).extracting(item -> item.islandId()).contains(island);
+        assertThat(telescope.list(visitor).items()).extracting(item -> item.slot()).contains("uninhabited");
         assertThat(count("select count(*) from onboarding_islands where user_id=?", visitor)).isZero();
         assertThat(telescope.list(owner).items()).extracting(item -> item.islandId()).contains(island);
+        assertThat(telescope.list(owner).items()).extracting(item -> item.slot()).contains("uninhabited");
         jdbc.update("update islands set max_members=1 where id=?", island);
         assertThat(telescope.list(visitor).items()).anySatisfy(item -> {
             assertThat(item.slot()).isEqualTo("uninhabited");

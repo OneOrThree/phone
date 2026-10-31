@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import React, { useState } from 'react';
+import { StyleSheet, View } from 'react-native';
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react-native';
 import { ServerBuildCard, COMPLETION_POLL_MS } from '@/screens/island/ServerBuildCard';
 import { FinalIsland } from '@/screens/island/WorldMap';
@@ -156,18 +157,137 @@ test('회관을 지은 뒤에는 게시판을 짓는 카드가 뜬다', async ()
   expect(screen.getByText('게시판 짓기')).toBeTruthy();
 });
 
-test('주민(member)에게는 서버 건설 카드가 렌더링되지 않는다', async () => {
-  const screen = await render(
-    <FinalIsland
-      state={serverState('member')}
-      go={jest.fn()}
-      build={jest.fn()}
-      onServerBuilt={jest.fn()}
-    />,
-  );
-  expect(screen.queryByTestId('server-build-card')).toBeNull();
-  expect(screen.queryByText('건설하기')).toBeNull();
-});
+const firstBuildings = [
+  { building: 'hall', name: '마을회관', completed: [] },
+  { building: 'board', name: '게시판', completed: ['hall'] },
+];
+
+test.each(firstBuildings)(
+  '주민도 $name 건설 목표와 모인 물고기를 보지만 착공할 수는 없다',
+  async ({ building, name, completed }) => {
+    mine.myIslands.mockResolvedValue({
+      items: [{ id: 'srv1' }],
+      currentIslandId: 'srv1',
+    } as any);
+    api.getConstructionOptions.mockResolvedValue({
+      ...hallOptions,
+      villagePoints: 20,
+      items: [
+        {
+          ...hallOptions.items[0],
+          id: building,
+          name,
+          selectable: false,
+          buildable: false,
+          blockedReason: 'FORBIDDEN',
+        },
+      ],
+    });
+    const screen = await render(
+      <FinalIsland
+        state={serverState('member', completed)}
+        go={jest.fn()}
+        build={jest.fn()}
+        onServerBuilt={jest.fn()}
+      />,
+    );
+
+    expect(screen.getByText(`${name} 짓기`)).toBeTruthy();
+    expect(await screen.findByText('20/60 마리')).toBeTruthy();
+    expect(screen.getByText('방장이 건설을 시작해요')).toBeTruthy();
+    expect(screen.queryByTestId('server-build-start')).toBeNull();
+    expect(api.startConstruction).not.toHaveBeenCalled();
+  },
+);
+
+test.each(firstBuildings)(
+  '주민도 다른 기기에서 시작한 $name 공사의 남은 시간을 본다',
+  async ({ building, name, completed }) => {
+    mine.myIslands.mockResolvedValue({
+      items: [{ id: 'srv1' }],
+      currentIslandId: 'srv1',
+    } as any);
+    api.getConstructionOptions.mockResolvedValue({
+      ...hallOptions,
+      activeConstruction: {
+        buildingId: building,
+        startedAt: '2026-09-29T00:00:00Z',
+        completesAt: '2026-09-29T00:10:00Z',
+      },
+      items: [
+        {
+          ...hallOptions.items[0],
+          id: building,
+          name,
+          selectable: false,
+          buildable: false,
+          blockedReason: 'FORBIDDEN',
+        },
+      ],
+    });
+    const screen = await render(
+      <FinalIsland
+        state={serverState('member', completed)}
+        go={jest.fn()}
+        build={jest.fn()}
+        onServerBuilt={jest.fn()}
+      />,
+    );
+
+    expect(await screen.findByText(`${name} 공사 중`)).toBeTruthy();
+    expect(screen.getByText('9분 남음')).toBeTruthy();
+    expect(screen.queryByTestId('server-build-start')).toBeNull();
+    expect(screen.queryByText('방장이 건설을 시작해요')).toBeNull();
+  },
+);
+
+test.each(
+  (['host', 'member'] as const).flatMap((role) =>
+    firstBuildings.map((building) => ({ role, ...building })),
+  ),
+)(
+  '$role 홈 채팅은 $name 카드의 높이가 바뀌어도 위에 있고, 두 건물이 완공되면 내려온다',
+  async ({ role, building, name, completed }) => {
+    mine.myIslands.mockResolvedValue({
+      items: [{ id: 'srv1' }],
+      currentIslandId: 'srv1',
+    } as any);
+    api.getConstructionOptions.mockResolvedValue({
+      ...hallOptions,
+      items: [
+        {
+          ...hallOptions.items[0],
+          id: building,
+          name,
+          selectable: role === 'host',
+          buildable: role === 'host',
+          blockedReason: role === 'host' ? null : 'FORBIDDEN',
+        },
+      ],
+    });
+    const props = {
+      go: jest.fn(),
+      build: jest.fn(),
+      onServerBuilt: jest.fn(),
+      homeChat: <View testID="chat-content" />,
+    };
+    const screen = await render(<FinalIsland {...props} state={serverState(role, completed)} />);
+    const card = screen.getByTestId('server-build-card');
+    const cardBottom = StyleSheet.flatten(card.props.style).bottom;
+    const chatStyle = () => StyleSheet.flatten(screen.getByTestId('home-chat-slot').props.style);
+    for (const height of [90, 164, 110]) {
+      await fireEvent(card, 'layout', {
+        nativeEvent: { layout: { x: 0, y: 0, width: 209, height } },
+      });
+      // 카드 상단보다 채팅 하단이 8pt 높아 글 줄·채팅 버튼이 카드를 덮지 않는다.
+      expect(chatStyle().bottom).toBe(Number(cardBottom) + height + 8);
+    }
+
+    await screen.rerender(<FinalIsland {...props} state={serverState(role, ['hall', 'board'])} />);
+    expect(screen.queryByTestId('server-build-card')).toBeNull();
+    expect(chatStyle().bottom).toBe(44);
+  },
+);
 
 // SERVER_CONSTRUCTION_STARTED 를 실제 리듀서처럼 state.serverIslands.clientConstruction 에
 // 반영해 재렌더한다 — receipt 확보 뒤 재조회가 실패해도 카드가 「공사 중」을 유지하는지 본다.

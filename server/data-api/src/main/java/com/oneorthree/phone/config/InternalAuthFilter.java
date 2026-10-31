@@ -72,6 +72,8 @@ public class InternalAuthFilter extends OncePerRequestFilter {
 
     private final boolean enabled;
 
+    private final Map<String, String> consoleActors;
+
     /** 토큰 → caller 이름. 값이 아니라 «키»가 자격이라 이 맵을 로그에 찍지 않는다. */
     private final Map<String, String> callerByToken;
 
@@ -83,6 +85,7 @@ public class InternalAuthFilter extends OncePerRequestFilter {
      */
     public InternalAuthFilter(InternalApiProperties properties) {
         Map<String, String> tokens = new LinkedHashMap<>();
+        Map<String, String> actors = new LinkedHashMap<>();
         Map<String, List<AllowedCall>> allow = new LinkedHashMap<>();
         properties.getCallers().forEach((name, caller) -> {
             if (!caller.hasToken()) {
@@ -91,6 +94,9 @@ public class InternalAuthFilter extends OncePerRequestFilter {
                 return;
             }
             tokens.put(caller.getToken(), name);
+            if (caller.getConsoleActor() != null) {
+                actors.put(name, caller.getConsoleActor());
+            }
             List<AllowedCall> parsed = new ArrayList<>();
             caller.getAllow().forEach(entry -> {
                 String[] parts = entry.trim().split("\\s+");
@@ -99,6 +105,7 @@ public class InternalAuthFilter extends OncePerRequestFilter {
             allow.put(name, List.copyOf(parsed));
         });
         // 등록된 토큰이 하나도 없으면 «없는» 표면이다 — 토큰이 빈 선택 caller 만 배선돼 있어도 401 이 아니라 404 로 답한다.
+        this.consoleActors = Map.copyOf(actors);
         this.enabled = !tokens.isEmpty();
         this.callerByToken = Map.copyOf(tokens);
         this.allowByCaller = Map.copyOf(allow);
@@ -138,6 +145,21 @@ public class InternalAuthFilter extends OncePerRequestFilter {
             // 넓은 패턴으로 이 리터럴을 함께 매칭해도 여기서 다시 막는다(GROMO-1906).
             log.warn("내부 호출 거부 — caller={} notification 전용 스냅샷 {}", caller, path);
             deny(response, HttpServletResponse.SC_FORBIDDEN, "notification snapshot is notification-only");
+            return;
+        }
+
+        if (path.startsWith("/internal/admin/content/")
+                || path.equals("/internal/admin/policies/focus")
+                || path.startsWith("/internal/admin/policies/focus/")) {
+            String actor = consoleActors.get(caller);
+            String claimed = request.getHeader("X-Console-Actor");
+            if (actor == null || (claimed != null && !claimed.equals(actor))) {
+                deny(response, HttpServletResponse.SC_FORBIDDEN, "console actor rejected");
+                return;
+            }
+            request.setAttribute("content.actor", actor);
+        } else if (consoleActors.containsKey(caller)) {
+            deny(response, HttpServletResponse.SC_FORBIDDEN, "console route rejected");
             return;
         }
 

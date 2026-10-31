@@ -1,18 +1,21 @@
 package com.oneorthree.realtime.message;
 
 import com.oneorthree.realtime.auth.LoginUser;
+import com.oneorthree.realtime.logging.LogContext;
 import com.oneorthree.realtime.message.dto.ChatHistoryResponse;
 import com.oneorthree.realtime.message.dto.MailboxStoreResult;
 import com.oneorthree.realtime.message.dto.SendMessageRequest;
 import com.oneorthree.realtime.message.service.ChatMessageService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -57,13 +60,20 @@ public class InternalMailboxController {
     /**
      * 저장 — 재전송이면 처음 저장된 그 메시지를 «같은 201»로 돌려준다(LLD §4-6 「HTTP 는 원 결과 201」).
      * 같은 키에 다른 본문이면 409 {@code IDEMPOTENCY_KEY_REUSED} 다.
+     *
+     * <p>Business 의 {@code X-Request-Id}(또는 원인 문맥 헤더)를 원인 요청 번호로 둔다 — 처음 저장이면 이 문맥으로 채팅 팬아웃을
+     * 발행해 다른 인스턴스의 수신 로그가 Business 요청에 이어진다(GROMO-2559).
      */
     @PostMapping
     public ResponseEntity<MailboxStoreResult> store(
             @PathVariable UUID islandId,
             @Valid @RequestBody SendMessageRequest request,
-            @LoginUser UUID userId) {
-        return ResponseEntity.status(HttpStatus.CREATED)
-                .body(chatMessageService.storeFromMailbox(islandId, userId, request));
+            @LoginUser UUID userId,
+            @RequestHeader HttpHeaders headers) {
+        try (LogContext scope = LogContext.openInternalHttp(headers::getFirst)) {
+            scope.put(LogContext.USER_ID, userId.toString());
+            return ResponseEntity.status(HttpStatus.CREATED)
+                    .body(chatMessageService.storeFromMailbox(islandId, userId, request));
+        }
     }
 }

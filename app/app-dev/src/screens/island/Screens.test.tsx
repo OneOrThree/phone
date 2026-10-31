@@ -6,6 +6,7 @@
 import assert from 'node:assert/strict';
 import React, { useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import {
+  AccessibilityInfo,
   AppState,
   BackHandler,
   Keyboard,
@@ -15,7 +16,7 @@ import {
   View,
   type AppStateStatus,
 } from 'react-native';
-import { telescopeSea } from '@/screens/sea/seaAssets';
+import { seaAssets, telescopeSea } from '@/screens/sea/seaAssets';
 import { act, cleanup, fireEvent, render, waitFor, within } from '@testing-library/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
@@ -37,6 +38,7 @@ import {
 import { discoverIslands, searchIslands, type IslandSummary } from '@/services/api/islands';
 import { pinToTelescope } from '@/services/api/telescope';
 import { applyLocalePref } from '@/i18n';
+import { FEEDBACK_KAKAO_URL } from '@/services/api/safety';
 
 const mockRankings = jest.fn();
 jest.mock('@/screens/island/useIslandRankings', () => ({
@@ -210,6 +212,7 @@ function Harness({
   soundPlayer,
   onPreviewAudio,
   localePref = 'system',
+  fromSea = false,
 }: any) {
   const [activeRoute, setActiveRoute] = useState(route);
   const [shielded, setShielded] = useState(false);
@@ -271,6 +274,7 @@ function Harness({
       e={{
         state,
         route: flow ? activeRoute : route,
+        fromSea,
         dispatch,
         go,
         replace: jest.fn(),
@@ -1505,6 +1509,15 @@ test('앱 설정은 권한 관련 진입을 앱 권한 관리 한 줄로 합친�
   assert.equal(s.queryByText('측정 앱'), null);
 });
 
+test('설정 소식에서 개발자 공지 목록으로 이동한다', async () => {
+  let exposed: any;
+  const screen = await render(
+    <Harness route="settings" full expose={(value: any) => (exposed = value)} />,
+  );
+  await fireEvent.press(screen.getByText('개발자 공지'));
+  assert.equal(exposed.go.mock.calls[0][0], 'developerNotices');
+});
+
 test('목업 앱 설정에서는 실제 안전 API 진입로를 숨긴다', async () => {
   const s = await render(<Harness route="settings" full />);
 
@@ -2674,7 +2687,7 @@ describe('en', () => {
 
     assert.ok(
       s.getByText(
-        "Hey! You're a new face.\nI'm Mongdol. I've lived on this island for a long time.",
+        "Hey! You're the first visitor to this island.\nI'm Mongdol — I've lived here alone for a long time.",
       ),
     );
     assert.ok(s.getByText('Next'));
@@ -2822,6 +2835,79 @@ test('전망대 순위의 섬 행은 방문 화면 대신 [망원경에 넣기] 
   expect(mockSearch).not.toHaveBeenCalled();
 });
 
+test('전망대 시상대는 서버 공동 1위·빈 2위·3위를 보존하고 4위는 아래 목록에 둔다', async () => {
+  const mine = islandSummary({ id: 'mine', name: '우리 섬', membershipStatus: 'active' });
+  const firstA = islandSummary({ id: 'first-a', name: '공동 하나' });
+  const firstB = islandSummary({ id: 'first-b', name: '공동 둘' });
+  const third = islandSummary({ id: 'third', name: '셋째 섬' });
+  const fourth = islandSummary({ id: 'fourth', name: '넷째 섬' });
+  mockRankings.mockReturnValue({
+    status: 'ready',
+    data: {
+      items: [ranked(firstA, 1), ranked(firstB, 1), ranked(third, 3), ranked(fourth, 4)],
+      myRank: null,
+    },
+  });
+  const screen = await render(
+    <Harness route="tower" initial={toweredState(mine)} api={() => ({})} />,
+  );
+  const podium = within(screen.getByTestId('observatory-podium'));
+  const first = within(screen.getByTestId('observatory-podium-1'));
+  expect(first.getByText('공동 하나')).toBeTruthy();
+  expect(first.getByText('공동 둘')).toBeTruthy();
+  expect(
+    within(screen.getByTestId('observatory-podium-2')).queryAllByLabelText(/위 /),
+  ).toHaveLength(0);
+  expect(within(screen.getByTestId('observatory-podium-3')).getByText('셋째 섬')).toBeTruthy();
+  expect(podium.queryByText('넷째 섬')).toBeNull();
+  expect(screen.getByLabelText('4위 넷째 섬, 평균 1시간')).toBeTruthy();
+});
+
+test('전망대는 화면 읽기가 켜지면 공동 순위를 유지한 오름차순 목록으로 탐색한다', async () => {
+  const reader = jest.spyOn(AccessibilityInfo, 'isScreenReaderEnabled');
+  const originalReader = reader.getMockImplementation();
+  reader.mockResolvedValue(true);
+  try {
+    const mine = islandSummary({ id: 'mine', name: '우리 섬', membershipStatus: 'active' });
+    const firstA = islandSummary({ id: 'first-a', name: '공동 하나' });
+    const firstB = islandSummary({ id: 'first-b', name: '공동 둘' });
+    mockRankings.mockReturnValue({
+      status: 'ready',
+      data: { items: [ranked(mine, 3), ranked(firstA, 1), ranked(firstB, 1)], myRank: 3 },
+    });
+    const screen = await render(
+      <Harness route="tower" initial={toweredState(mine)} api={() => ({})} />,
+    );
+    await waitFor(() => expect(screen.queryByTestId('observatory-podium-1')).toBeNull());
+    const podium = within(screen.getByTestId('observatory-podium'));
+    expect(podium.getAllByLabelText(/^\d위 /).map((row) => row.props.accessibilityLabel)).toEqual([
+      '1위 공동 하나, 평균 1시간',
+      '1위 공동 둘, 평균 1시간',
+      '3위 우리 섬, 평균 1시간, 소속됨',
+    ]);
+    expect(podium.queryByRole('button', { name: /^3위 / })).toBeNull();
+  } finally {
+    reader.mockImplementation(originalReader!);
+  }
+});
+
+test.each([57, null])(
+  '전망대는 내 섬 순위(%s)와 주간 제목·안내 요약을 표시하지 않는다',
+  async (myRank) => {
+    const mine = islandSummary({ id: 'mine', name: '우리 섬', membershipStatus: 'active' });
+    const other = islandSummary({ id: 'other', name: '다른 섬' });
+    mockRankings.mockReturnValue({ status: 'ready', data: { items: [ranked(other, 1)], myRank } });
+    const screen = await render(
+      <Harness route="tower" initial={toweredState(mine)} api={() => ({})} />,
+    );
+    expect(screen.queryByLabelText(/^우리 섬 이번 주/)).toBeNull();
+    expect(screen.queryByText('우리 섬 순위')).toBeNull();
+    expect(screen.queryByText('이번 주 섬 랭킹')).toBeNull();
+    expect(screen.queryByText(/일요일마다 새로 시작/)).toBeNull();
+    expect(screen.getByText('다른 섬')).toBeTruthy();
+  },
+);
+
 test('전망대 순위는 소속 섬이 여럿이어도(현재 섬이 아니어도) 모두 «소속됨» 으로 막는다', async () => {
   const current = islandSummary({ id: 'cur', name: '지금 섬', membershipStatus: 'active' });
   const second = islandSummary({ id: 'second', name: '두번째 섬', membershipStatus: 'active' });
@@ -2853,12 +2939,12 @@ test('전망대 순위는 소속 섬이 여럿이어도(현재 섬이 아니어�
 });
 
 test.each([
-  [1, false],
-  [semanticTokens.typography.largeTextThreshold - 0.01, false],
+  [1, true],
+  [semanticTokens.typography.largeTextThreshold - 0.01, true],
   [semanticTokens.typography.largeTextThreshold, true],
   [3, true],
 ])(
-  '전망대 순위 «소속됨» 배지 — 글자 배율 %s 에서 이름 아래 줄로 내려가는가: %s',
+  '전망대 순위 «소속됨» 배지 — 글자 배율 %s 에서 이름 아래 줄에 유지되는가: %s',
   async (scale, stacked) => {
     mockFontScale = scale;
     const mine = islandSummary({ id: 'mine', name: '우리 섬', membershipStatus: 'active' });
@@ -2869,18 +2955,21 @@ test.each([
     const screen = await render(
       <Harness route="tower" initial={toweredState(mine)} api={() => ({})} />,
     );
-    // 이름 글자의 부모가 본문(이름·평균) 칸이다. 고정 폭 순위·썸네일 옆 오른쪽에 배지를 두면 큰 글자에서 배지가
-    // 행 폭을 다 차지해 이 칸이 0 으로 줄어든다 — 큰 글자에서는 배지가 이 칸 안으로 내려온다.
+    // 이름 글자의 부모가 본문(이름·평균) 칸이다. 왼쪽 원형 섬 프로필 옆에서 본문 폭을 확보하고, 배지는 항상 본문 안에 둔다.
     const body = screen.getByText('우리 섬').parent!;
-    expect(StyleSheet.flatten(body.props.style)).toMatchObject({ flex: 1, minWidth: 0 });
+    expect(StyleSheet.flatten(body.props.style)).toMatchObject(
+      scale >= semanticTokens.typography.largeTextThreshold
+        ? { flex: 1, minWidth: 0 }
+        : { minWidth: 0, maxWidth: '100%' },
+    );
     screen.getByText('평균 1시간'); // 평균 집중 줄은 어느 쪽이든 같은 칸에 있다
     expect(within(body).queryByText('소속됨') !== null).toBe(stacked);
-    // 보통 글자에서는 지금 자리 그대로 — 같은 행의 오른쪽 끝(본문 칸 밖)
+    // 행 전체에도 상태 라벨이 유지된다.
     within(body.parent!).getByText('소속됨');
   },
 );
 
-test('전망대의 «섬 찾기» 는 explore 로 가고, 전망대가 서버 모드에서 부르는 API 는 랭킹뿐이다', async () => {
+test('전망대는 처음부터 검색창을 보여 주되 검색어가 없으면 랭킹만 읽는다', async () => {
   const mine = islandSummary({ id: 'mine', name: '우리 섬', membershipStatus: 'active' });
   mockRankings.mockReturnValue({ status: 'ready', data: { items: [], myRank: null } });
   let exposed: any;
@@ -2892,11 +2981,59 @@ test('전망대의 «섬 찾기» 는 explore 로 가고, 전망대가 서버 �
       expose={(v: any) => (exposed = v)}
     />,
   );
-  await fireEvent.press(screen.getByLabelText('섬 찾기'));
-  expect(exposed.go).toHaveBeenCalledWith('explore');
+  expect(screen.getByLabelText('섬 이름')).toBeTruthy();
+  expect(exposed.go).not.toHaveBeenCalled();
   expect(mockSearch).not.toHaveBeenCalled();
   expect(mockDiscover).not.toHaveBeenCalled();
   expect(mockPin).not.toHaveBeenCalled();
+});
+
+test('랭킹과 인라인 검색을 오가도 망원경 넣기 요청 중에는 양쪽 행이 함께 잠긴다', async () => {
+  jest.useFakeTimers();
+  let finish: ((value: any) => void) | undefined;
+  try {
+    const mine = islandSummary({ id: 'mine', name: '우리 섬', membershipStatus: 'active' });
+    const other = islandSummary({ id: 'ranked', name: '랭킹 섬' });
+    mockRankings.mockReturnValue({
+      status: 'ready',
+      data: { items: [ranked(other, 1)], myRank: null },
+    });
+    mockSearch.mockResolvedValue({
+      items: [islandSummary({ id: 'search-result', name: '검색 섬' })],
+      nextCursor: null,
+    });
+    mockPin.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const screen = await render(
+      <Harness route="tower" initial={toweredState(mine)} api={() => ({})} />,
+    );
+    await fireEvent.press(screen.getByText('랭킹 섬'));
+    expect(mockPin).toHaveBeenCalledTimes(1);
+    await fireEvent.changeText(screen.getByLabelText('섬 이름'), '검색');
+    await act(async () => {
+      jest.advanceTimersByTime(300);
+    });
+    const result = await screen.findByRole('button', { name: /^검색 섬,/ });
+    expect(result.props.accessibilityState.disabled).toBe(true);
+    await fireEvent.press(result);
+    expect(mockPin).toHaveBeenCalledTimes(1);
+    await fireEvent.changeText(screen.getByLabelText('섬 이름'), '');
+    expect(
+      screen.getByRole('button', { name: /^1위 랭킹 섬/ }).props.accessibilityState.disabled,
+    ).toBe(true);
+    await act(async () => {
+      finish?.({ item: { islandId: other.id, slot: 'pinned' } });
+    });
+    expect(
+      screen.getByRole('button', { name: /^1위 랭킹 섬/ }).props.accessibilityState.disabled,
+    ).toBe(false);
+  } finally {
+    jest.useRealTimers();
+  }
 });
 
 test('서버 모드 explore 는 로컬 목업 섬이 아니라 서버 이름 검색 결과를 그리고, discover 는 부르지 않는다', async () => {
@@ -2995,12 +3132,12 @@ test('메일 앱 열기에 실패하면 수신 주소가 있는 안내를 보여
   open.mockRestore();
 });
 
-test('문의하기는 신고센터 아래 행에서 메일을 열고, 실패하면 수신 주소 안내만 보여준다', async () => {
+test('문의하기는 신고센터 아래 행에서 한국어면 오픈채팅을 열고, 실패하면 수신 주소 안내만 보여준다', async () => {
   const open = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined);
   let exposed: any;
   const ui = await render(<Harness route="settings" full expose={(e: any) => (exposed = e)} />);
   await fireEvent.press(ui.getByText('문의하기'));
-  assert.ok(decodeURIComponent(open.mock.calls[0][0]).includes('subject=[집중할고양 문의]'));
+  assert.equal(open.mock.calls[0][0], FEEDBACK_KAKAO_URL);
   open.mockRejectedValue(new Error('no mail'));
   await fireEvent.press(ui.getByText('문의하기'));
   await waitFor(() => expect(exposed.confirm).toHaveBeenCalled());
@@ -3557,3 +3694,19 @@ describe('설정 「알림」 토글', () => {
     expect(toggle().props.accessibilityState.checked).toBe(true);
   });
 });
+
+test.each(['wardrobe', 'profile', 'settings'])(
+  '소속 섬이 있어도 바다에서 연 %s 시트는 바다 배경을 유지한다',
+  async (route) => {
+    const screen = await render(<Harness route={route} full fromSea />);
+    expect(screen.getByTestId('island-sheet-backdrop').props.source).toBe(seaAssets.background);
+  },
+);
+
+test.each(['wardrobe', 'profile', 'settings'])(
+  '섬에서 연 %s 시트는 기존 부두 배경을 유지한다',
+  async (route) => {
+    const screen = await render(<Harness route={route} full />);
+    expect(screen.getByTestId('island-sheet-backdrop').props.source).toBe(art['bldbg/dock']);
+  },
+);

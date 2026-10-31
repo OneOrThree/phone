@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
 """전환 도구의 잘못된 대상·이력 거부 계약. DB 통합 검증은 README.md를 따른다."""
 import importlib.util
+import copy
+import io
+import sys
 import hashlib
 import json
 import os
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch, Mock
 
 spec = importlib.util.spec_from_file_location('rebase_v0', Path(__file__).with_name('rebase-v0.py'))
 rebase = importlib.util.module_from_spec(spec)
@@ -33,6 +36,84 @@ class RebaseGuardTest(unittest.TestCase):
         for value in cases:
             with self.subTest(value=value), self.assertRaises(ValueError):
                 rebase.assert_history(value, self.known)
+
+    def test_백오피스_profile은_정확한_확장과_canonical_체크섬을_고정한다(self):
+        original = rebase.load_manifest()
+        extended = rebase.extension_profile(original)
+        self.assertEqual(126, len(original['source_history']))
+        self.assertEqual(127, len(extended['source_history']))
+        self.assertEqual(['1','2','3','4','5','6'], [item['version'] for item in extended['bridge_history']])
+        self.assertEqual(5, len(set(extended['source_tables']) - set(original['source_tables'])))
+        self.assertEqual('backoffice-137.1', rebase.profile_for_history(original, [rebase.extension_entry()])['profile'])
+        self.assertIs(original, rebase.profile_for_history(original, original['source_history']))
+
+    def test_백오피스_SQL_원문_변조는_허용하지_않는다(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / rebase.EXTENSION_SCRIPT
+            path.write_text('CREATE TABLE arbitrary(id integer);')
+            with self.assertRaisesRegex(ValueError, '승인된 백오피스'):
+                rebase.extension_entry(Path(directory))
+
+    def test_백오피스_bridge는_실행과_이력을_같은_transaction에서_확정한다(self):
+        manifest = rebase.extension_profile(rebase.load_manifest())
+        sql = rebase.apply_sql(manifest, manifest['v0_checksum'])
+        self.assertIn('ADD COLUMN seat_x', sql)
+        self.assertIn('CREATE TABLE construction_buildings', sql)
+        self.assertNotIn('CREATE TABLE content_publications', sql)
+        self.assertNotIn('CREATE TABLE focus_reward_policy_approvals', sql)
+        self.assertLess(sql.index('백오피스 bridge 결과'), sql.rindex('COMMIT;'))
+
+    def test_읽기전용계획과_실행영수증은_실제_BASELINE_이력과_확장근거를_보존한다(self):
+        manifest = rebase.extension_profile(rebase.load_manifest())
+        history = copy.deepcopy(manifest['source_history'])
+        history[0].update(type='BASELINE', checksum=None, script='<< baseline >>', password='do-not-copy')
+        info = {'database':'audit','user':'audit','server_version':'160014','other_connections':0}
+        for apply in (False, True):
+            with self.subTest(apply=apply), tempfile.TemporaryDirectory() as directory:
+                backup = Path(directory)/'before.dump'
+                sidecar = Path(str(backup)+'.plan.json')
+                database = Mock()
+                database.env = {'PGHOST':'127.0.0.1','PGPORT':'5432','PGDATABASE':'audit',
+                                'PGUSER':'audit','PGPASSWORD':'do-not-copy'}
+                database.data.side_effect = [info, history, {}]
+                database.fingerprint.return_value = manifest['source_schemas'][0]
+                def sql(statement):
+                    if statement.startswith('\nBEGIN;'):
+                        self.assertTrue(sidecar.exists())
+                        self.assertEqual(sidecar.stat().st_mode & 0o777, 0o600)
+                    return '0'
+                database.sql.side_effect = sql
+                database.backup.side_effect = lambda path: path.write_bytes(b'fixture-backup')
+                argv = ['rebase','--environment','dev']
+                if apply:
+                    argv += ['--apply','--writers-stopped','--confirm','dev:audit','--backup',str(backup)]
+                with patch.object(sys,'argv',argv), patch.object(rebase,'Database',return_value=database), \
+                     patch.object(rebase,'check_bot_references'), patch('sys.stdout',new_callable=io.StringIO) as stdout:
+                    rebase.main()
+                plan = json.JSONDecoder().raw_decode(stdout.getvalue())[0]
+                self.assertEqual(plan['source_history'][0], {key: history[0][key]
+                    for key in ('version','type','script','checksum','success')})
+                self.assertEqual(plan['extension']['sha256'], rebase.EXTENSION_SHA256)
+                self.assertEqual(plan['extension']['checksum'], manifest['extension_history']['checksum'])
+                self.assertNotIn('do-not-copy',json.dumps(plan))
+                self.assertEqual(sidecar.exists(), apply)
+                if apply:
+                    self.assertEqual(json.loads(sidecar.read_text()),plan)
+                    database.backup.assert_called_once_with(backup)
+                else:
+                    database.backup.assert_not_called()
+                    self.assertFalse(any(call.args[0].startswith('\nBEGIN;') for call in database.sql.call_args_list))
+
+    def test_원본계획은_확장으로_오인하지_않고_기존영수증을_덮어쓰지_않는다(self):
+        manifest=rebase.load_manifest()
+        plan=rebase.transition_evidence(manifest,manifest['source_history'],manifest['source_schemas'][0])
+        self.assertIsNone(plan['extension'])
+        self.assertEqual(plan['source_profile'],'original')
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)/'plan.json'
+            rebase.write_plan(path,plan)
+            with self.assertRaises(FileExistsError): rebase.write_plan(path,{'replacement':True})
+            self.assertEqual(json.loads(path.read_text()),plan)
 
     def test_연결_대상이_없으면_기본_DB로_접속하지_않는다(self):
         for missing in ('PGHOST', 'PGDATABASE', 'PGUSER'):

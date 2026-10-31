@@ -17,7 +17,7 @@ let presenceActive: boolean | undefined;
 let mockPresenceFocus: any[] = [];
 let mockRealPeerActors = false;
 let mockRealSelfFishingActor = false;
-let mockResultBoard: { loading: boolean; error: unknown; quests: any[] } = {
+let mockResultBoard: { loading: boolean; error: unknown; quests: any[]; claimQuest?: jest.Mock } = {
   loading: false,
   error: null,
   quests: [],
@@ -1612,6 +1612,165 @@ test('결과창은 서버에서 달성 또는 수령한 퀘스트만 보여준�
   expect(screen.getByTestId('focus-result-quests')).toContainElement(screen.getByText('집중 25분'));
   expect(screen.getByTestId('focus-result-quests')).toContainElement(screen.getByText('아침 집중'));
   expect(screen.queryByText('미달성 퀘스트')).toBeNull();
+  await screen.unmount();
+});
+
+const finishedState = () => {
+  const state = focusedState();
+  state.session = null;
+  state.rewards = [];
+  state.lastResult = {
+    id: 's-me',
+    ackId: 's-me',
+    islandId: 'soda',
+    subject: '독서',
+    seconds: 1500,
+    fish: 3,
+    at: Date.now(),
+    contributed: true,
+  };
+  return state;
+};
+
+test.each([false, true])(
+  '다시 집중하기는 과목을 채운 준비 화면만 연다 (휴식 종료=%s)',
+  async (fromRest) => {
+    const state = finishedState();
+    state.resultFromRest = fromRest;
+    let subject = '다른 입력';
+    const reset = jest.fn(() => {
+      subject = '';
+    });
+    const setText = jest.fn((text: string) => {
+      subject = text;
+    });
+    const start = jest.fn(),
+      home = jest.fn(),
+      dispatch = jest.fn();
+    const acknowledge = jest.fn().mockResolvedValue(null);
+    const screen = await render(
+      screenElement(state, 'focusResult', undefined, undefined, home, dispatch, {
+        reset,
+        setText,
+        focus: { start, acknowledge },
+      }),
+    );
+    expect(screen.getByTestId('result-done')).toBeTruthy();
+    await fireEvent.press(screen.getByTestId('result-restart'));
+    expect(acknowledge).toHaveBeenCalledWith('s-me');
+    expect(reset).toHaveBeenCalledWith('focusSetup');
+    expect(subject).toBe('독서');
+    expect(dispatch).toHaveBeenCalledWith({ type: 'FOCUS_SPOT', spot: state.focusSpot });
+    expect(start).not.toHaveBeenCalled();
+    expect(home).not.toHaveBeenCalled();
+    await screen.unmount();
+  },
+);
+
+test('재집중 선택 뒤 서버 퀘스트 조회가 끝나도 준비 화면 목적지를 유지한다', async () => {
+  mockResultBoard = { loading: true, error: null, quests: [] };
+  const state = finishedState();
+  state.serverIslands = { currentIslandId: 'soda' } as any;
+  const reset = jest.fn();
+  const props = { islands: {}, reset };
+  const view = () =>
+    screenElement(state, 'focusResult', undefined, undefined, undefined, undefined, props);
+  const screen = await render(view());
+  await fireEvent.press(screen.getByTestId('result-restart'));
+  expect(reset).not.toHaveBeenCalled();
+  mockResultBoard = { loading: false, error: null, quests: [] };
+  await screen.rerender(view());
+  expect(reset).toHaveBeenCalledWith('focusSetup');
+  await screen.unmount();
+});
+
+test('재집중 전 보상 수령에 실패하면 모달에 남고 재시도 성공 뒤 준비 화면을 연다', async () => {
+  const claimQuest = jest
+    .fn()
+    .mockRejectedValueOnce(new Error('network'))
+    .mockResolvedValue({ bonusAdded: 0 });
+  mockResultBoard = {
+    loading: false,
+    error: null,
+    quests: [
+      { id: 'q1', occurrenceId: 'occ1', title: '독서', claimable: true, reward: { amount: 10 } },
+    ],
+    claimQuest,
+  };
+  const state = finishedState();
+  state.serverIslands = { currentIslandId: 'soda' } as any;
+  const reset = jest.fn();
+  const screen = await render(
+    screenElement(state, 'focusResult', undefined, undefined, undefined, undefined, {
+      islands: {},
+      reset,
+    }),
+  );
+  await fireEvent.press(screen.getByTestId('result-restart'));
+  expect(reset).not.toHaveBeenCalled();
+  await fireEvent.press(screen.getByTestId('claim-server-reward'));
+  expect(screen.getByText('받지 못했어요. 다시 시도해 주세요.')).toBeTruthy();
+  expect(reset).not.toHaveBeenCalled();
+  await fireEvent.press(screen.getByTestId('claim-server-reward'));
+  expect(reset).toHaveBeenCalledWith('focusSetup');
+  await screen.unmount();
+});
+
+test('로컬 보상을 확인한 뒤에도 재집중 준비로 이동한다', async () => {
+  const state = finishedState();
+  state.rewards = [
+    {
+      id: 'reward1',
+      islandId: 'soda',
+      questId: 'q1',
+      day: '2026-10-30',
+      amount: 10,
+      kind: 'personal',
+      acknowledged: false,
+    },
+  ];
+  const reset = jest.fn(),
+    dispatch = jest.fn();
+  const screen = await render(
+    screenElement(state, 'focusResult', undefined, undefined, undefined, dispatch, { reset }),
+  );
+  await fireEvent.press(screen.getByTestId('result-restart'));
+  expect(reset).not.toHaveBeenCalled();
+  await fireEvent.press(screen.getByTestId('claim-reward'));
+  expect(dispatch).toHaveBeenCalledWith({ type: 'CLAIM', id: 'reward1' });
+  expect(reset).toHaveBeenCalledWith('focusSetup');
+  await screen.unmount();
+});
+
+test('재집중 버튼이 있어도 기존 휴식 결과 귀환은 홈으로 간다', async () => {
+  const state = finishedState();
+  state.resultFromRest = true;
+  const home = jest.fn(),
+    reset = jest.fn();
+  const screen = await render(
+    screenElement(state, 'focusResult', undefined, undefined, home, undefined, { reset }),
+  );
+  await fireEvent.press(screen.getByTestId('result-done'));
+  expect(home).toHaveBeenCalledTimes(1);
+  expect(reset).not.toHaveBeenCalled();
+  await screen.unmount();
+});
+
+test('튜토리얼 결과에는 재집중을 노출하지 않고 기존 다음 안내로 이어간다', async () => {
+  const state = finishedState();
+  state.resultFromRest = true;
+  const setGuideStep = jest.fn(),
+    home = jest.fn();
+  const screen = await render(
+    screenElement(state, 'focusResult', undefined, undefined, home, undefined, {
+      guideStep: 21,
+      setGuideStep,
+    }),
+  );
+  expect(screen.queryByTestId('result-restart', { includeHiddenElements: true })).toBeNull();
+  await fireEvent.press(screen.getByTestId('result-done', { includeHiddenElements: true }));
+  expect(setGuideStep).toHaveBeenCalledWith(22);
+  expect(home).toHaveBeenCalled();
   await screen.unmount();
 });
 

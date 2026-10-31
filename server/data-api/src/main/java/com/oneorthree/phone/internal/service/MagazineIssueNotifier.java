@@ -2,6 +2,7 @@ package com.oneorthree.phone.internal.service;
 
 import com.oneorthree.phone.magazine.repository.MagazineIssueRepository;
 import com.oneorthree.phone.magazine.repository.domain.MagazineIssue;
+import com.oneorthree.phone.magazine.support.MagazineCalendar;
 import com.oneorthree.phone.notification.producer.NotificationKind;
 import com.oneorthree.phone.notification.producer.NotificationOutboxProducer;
 import com.oneorthree.phone.notification.producer.NotificationRequest;
@@ -38,6 +39,14 @@ public class MagazineIssueNotifier {
 
     /** 한 쪽 크기 — 테스트가 쪽 경계를 만들려고 줄인다. */
     int pageSize = 200;
+
+    /** 자정을 넘겨도 아직 유효한 미완료 호를 다시 찾는다. 완료 표시가 내구 재시도 기준이다. */
+    public List<LocalDate> pendingIssueDates(Instant now) {
+        return issues.findTop7ByOrderByIssueNoDesc().stream()
+                .filter(issue -> issue.getNotifiedAt() == null && !issue.getPublishedAt().isAfter(now)
+                        && now.isBefore(MagazineCalendar.currentUntil(issue.getIssueDate())))
+                .map(MagazineIssue::getIssueDate).toList();
+    }
 
     /** 수신자마다 독립 트랜잭션으로 적고, 전부 완료한 뒤 호에 완료 시각을 표시한다. */
     public Result notifyIfPending(LocalDate issueDate, Instant now) {

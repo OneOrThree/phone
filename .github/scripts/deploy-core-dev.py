@@ -100,8 +100,22 @@ def selected_containers(containers):
     return result
 
 
-def validate_contract(config, data_image, realtime_image):
+def validate_obs_metadata(services, revision=None):
+    """서비스 로그의 service/env/version 라벨(GROMO-2555). 값은 공개 식별자라 불일치 값을 말해도 된다."""
+    for name in CORE:
+        env = services[name].get('environment') or {}
+        if env.get('OBS_SERVICE') != name:
+            raise DeployError(f'{name}: OBS_SERVICE가 서비스 이름과 다릅니다.')
+        if env.get('OBS_ENV') != 'dev':
+            raise DeployError(f'{name}: OBS_ENV가 dev가 아닙니다.')
+        version = env.get('OBS_VERSION')
+        if not version or version == 'unknown' or (revision and version != revision):
+            raise DeployError(f'{name}: OBS_VERSION이 비었거나 unknown이거나 배포 커밋과 다릅니다.')
+
+
+def validate_contract(config, data_image, realtime_image, revision=None):
     services = config['services']
+    validate_obs_metadata(services, revision)
     data, realtime = (services[name] for name in CORE)
     if data['image'] != data_image or realtime['image'] != realtime_image:
         raise DeployError('Compose 이미지와 CI digest가 다릅니다.')
@@ -199,7 +213,7 @@ class Deployment:
         self.compose += ['-f', ROOT / 'server/scripts/docker-compose.realtime.yml',
                          '-f', ROOT / 'server/scripts/docker-compose.satellites.data.dev.yml']
         config = json.loads(self.run(self.compose + ['config', '--format', 'json'], env=self.env).stdout)
-        self.network = validate_contract(config, args.data_image, args.realtime_image)
+        self.network = validate_contract(config, args.data_image, args.realtime_image, args.revision)
         self.run(['docker', 'network', 'inspect', self.network])
         for name in ('phone-db', 'phone-redis'):
             entry = next((c for c in containers if c['Name'].lstrip('/') == name), None)
