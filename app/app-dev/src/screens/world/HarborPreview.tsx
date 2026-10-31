@@ -127,6 +127,12 @@ function Comparison({
     player.pause();
     player.currentTime = 0;
     setVideoDone(false);
+    // 원본 전용 모드는 새 장면의 준비 신호가 없으므로 직접 재생한다.
+    if (originalOnly) {
+      together.current = false;
+      player.play();
+      return;
+    }
     together.current = true;
     resetNew(true);
   };
