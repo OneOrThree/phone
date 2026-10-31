@@ -160,7 +160,26 @@ class PublicationEnvironmentTest {
                         "$.capabilities").value(org.hamcrest.Matchers.contains("notification.publication.v1",
                                 "notification.history.v1", "notification.templates.v1",
                                 "notification.publication.cancel.v1")));
+        http.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get(
+                        "/internal/admin/publications/environment"))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath(
+                        "$.serverVersion").value("unknown"))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath(
+                        "$.schemaVersion").value("unknown"));
         assertThat(guard.identity()).containsExactlyInAnyOrderEntriesOf(
                 Map.of("environment", "prod", "fcmProjectId", "catus-prod"));
+    }
+
+    @Test
+    void 서버_버전은_OBS_VERSION이고_Flyway_이력이_있으면_마지막_성공_버전을_반환한다() {
+        var environment = new MockEnvironment();
+        environment.setProperty("OBS_VERSION", " abc123 ");
+        var jdbc = mock(JdbcTemplate.class);
+        when(jdbc.queryForObject(anyString(), eq(Boolean.class))).thenReturn(true);
+        when(jdbc.queryForList(argThat(sql -> sql.contains("flyway_schema_history")), eq(String.class)))
+                .thenReturn(List.of("7"));
+
+        assertThat(new NotificationEnvironmentGuard(environment, jdbc, "x").versions())
+                .containsExactlyInAnyOrderEntriesOf(Map.of("serverVersion", "abc123", "schemaVersion", "7"));
     }
 }

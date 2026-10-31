@@ -81,4 +81,20 @@ class NotificationEnvironmentGuard {
         }
         return Map.of("environment", expected, "fcmProjectId", fcmProjectId);
     }
+
+    /** 배포 커밋 SHA(OBS_VERSION)와 마지막 성공 Flyway 버전. 알 수 없으면 unknown. */
+    Map<String, String> versions() {
+        String server = environment.getProperty("OBS_VERSION");
+        String schema = "unknown";
+        if (Boolean.TRUE.equals(jdbc.queryForObject(
+                "SELECT to_regclass('flyway_schema_history') IS NOT NULL", Boolean.class))) {
+            var rows = jdbc.queryForList("SELECT version FROM flyway_schema_history"
+                    + " WHERE success AND version IS NOT NULL ORDER BY installed_rank DESC LIMIT 1", String.class);
+            if (!rows.isEmpty() && rows.get(0) != null) {
+                schema = rows.get(0);
+            }
+        }
+        return Map.of("serverVersion", server == null || server.isBlank() ? "unknown" : server.strip(),
+                "schemaVersion", schema);
+    }
 }

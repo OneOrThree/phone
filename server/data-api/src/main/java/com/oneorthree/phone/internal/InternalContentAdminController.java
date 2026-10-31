@@ -40,9 +40,27 @@ public class InternalContentAdminController {
     @GetMapping("/environment")
     public Map<String, Object> environment() {
         return Map.of("environment", verifiedEnvironment(), "contractVersion", "1",
+                "serverVersion", serverVersion(), "schemaVersion", schemaVersion(),
                 "capabilities", java.util.List.of("content.publication.v1", "content.history.v1",
                         "content.notice.withdraw.v1", "content.app-requirements.v1",
                         "construction.policy.v1", "focus.policy.v1"));
+    }
+
+    /** 배포 커밋 SHA(OBS_VERSION). 없으면 unknown. */
+    private String serverVersion() {
+        String version = environment.getProperty("OBS_VERSION");
+        return version == null || version.isBlank() ? "unknown" : version.strip();
+    }
+
+    /** 마지막으로 성공 적용된 Flyway 버전. 이력 테이블이나 행이 없으면 unknown. */
+    private String schemaVersion() {
+        if (!Boolean.TRUE.equals(jdbc.queryForObject(
+                "SELECT to_regclass('flyway_schema_history') IS NOT NULL", Boolean.class))) {
+            return "unknown";
+        }
+        var versions = jdbc.queryForList("SELECT version FROM flyway_schema_history"
+                + " WHERE success AND version IS NOT NULL ORDER BY installed_rank DESC LIMIT 1", String.class);
+        return versions.isEmpty() || versions.get(0) == null ? "unknown" : versions.get(0);
     }
 
     private String verifiedEnvironment() {

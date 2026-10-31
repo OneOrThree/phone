@@ -60,6 +60,7 @@ class AdminApiTest {
 
     @Autowired MockMvc mvc;
     @Autowired Store store;
+    @Autowired NotificationEnvironmentGuard guard;
     @Autowired DeviceService devices;
     @Autowired DispatchService dispatch;
     @Autowired org.springframework.transaction.PlatformTransactionManager transactions;
@@ -84,6 +85,18 @@ class AdminApiTest {
         when(data.eligible(any(), anyString(), any(), any())).thenReturn(true);
         when(data.eligibleTest(any(), anyString(), any(), any(), any())).thenReturn(true);
         when(transport.send(anyString(), any(), anyBoolean(), anyString())).thenReturn(PushTransport.Result.SENT);
+    }
+
+    /** 실제 Flyway 를 거친 DB 의 스키마 버전은 db/migration 의 가장 큰 V 번호와 같다. */
+    @Test
+    void schemaVersionIsTheLatestFlywayMigration() throws Exception {
+        var resources = new org.springframework.core.io.support.PathMatchingResourcePatternResolver()
+                .getResources("classpath:db/migration/V*__*.sql");
+        int latest = java.util.Arrays.stream(resources)
+                .mapToInt(r -> Integer.parseInt(r.getFilename().substring(1, r.getFilename().indexOf("__"))))
+                .max().orElseThrow();
+        assertThat(guard.versions()).containsEntry("schemaVersion", String.valueOf(latest))
+                .containsEntry("serverVersion", "unknown");
     }
 
     /**

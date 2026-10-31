@@ -523,6 +523,8 @@ class ContentPublicationIntegrationTest {
                     .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath(
                             "$.contractVersion").value("1"))
                     .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath(
+                            "$.schemaVersion").value(latestFlywayVersion()))
+                    .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath(
                             "$.capabilities").value(org.hamcrest.Matchers.contains("content.publication.v1",
                                     "content.history.v1", "content.notice.withdraw.v1",
                                     "content.app-requirements.v1",
@@ -535,4 +537,12 @@ class ContentPublicationIntegrationTest {
         }
     }
 
+    /** 클래스패스 db/v0 의 V<n>__*.sql 중 가장 큰 n. 마이그레이션이 늘어도 기대값이 따라간다. */
+    private static String latestFlywayVersion() throws java.io.IOException {
+        var resources = new org.springframework.core.io.support.PathMatchingResourcePatternResolver()
+                .getResources("classpath:db/v0/V*__*.sql");
+        return String.valueOf(java.util.Arrays.stream(resources)
+                .mapToInt(r -> Integer.parseInt(r.getFilename().substring(1, r.getFilename().indexOf("__"))))
+                .max().orElseThrow());
+    }
 }

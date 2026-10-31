@@ -123,4 +123,46 @@ class ContentEnvironmentTest {
                                     "content.app-requirements.v1",
                                 "construction.policy.v1", "focus.policy.v1")));
     }
+
+    private org.springframework.test.web.servlet.ResultActions environmentResponse(String obsVersion,
+            boolean historyTable) throws Exception {
+        var environment = new MockEnvironment();
+        environment.setActiveProfiles("prod");
+        if (obsVersion != null) {
+            environment.setProperty("OBS_VERSION", obsVersion);
+        }
+        var jdbc = mock(JdbcTemplate.class);
+        when(jdbc.queryForList(anyString(), eq(String.class))).thenReturn(List.of("prod"));
+        when(jdbc.queryForObject(anyString(), eq(Boolean.class))).thenReturn(historyTable);
+        var controller = new InternalContentAdminController(mock(DeveloperNoticeService.class),
+                mock(ContentHistoryService.class), mock(MagazineReviewService.class),
+                mock(com.oneorthree.phone.internal.service.ConstructionPolicyAdminService.class), environment, jdbc);
+        return org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(controller).build()
+                .perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get(
+                        "/internal/admin/content/environment"));
+    }
+
+    @Test
+    void OBS_VERSION이_있으면_서버_버전으로_반환한다() throws Exception {
+        environmentResponse(" abc123 ", true)
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath(
+                        "$.serverVersion").value("abc123"));
+    }
+
+    @Test
+    void OBS_VERSION이_없거나_비어_있으면_unknown이다() throws Exception {
+        environmentResponse(null, true).andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers
+                .jsonPath("$.serverVersion").value("unknown"));
+        environmentResponse("  ", true).andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers
+                .jsonPath("$.serverVersion").value("unknown"));
+    }
+
+    @Test
+    void Flyway_이력_테이블이_없어도_200이고_스키마_버전은_unknown이다() throws Exception {
+        environmentResponse(null, false)
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath(
+                        "$.schemaVersion").value("unknown"));
+    }
 }
