@@ -60,8 +60,8 @@ dev 관찰(D2~D7)이 끝나고 §4 기준이 기록되기 전에는 ②(Fluent B
 Datadog 기동 소음과 일회성 컨테이너 필터는 콘솔 파이프라인이 아니라 Agent 설정에 있다(티켓 2630, `OneOrThree/cattus-infra` #32). 2026-10-30 조사 뒤에 추가했고 2026-10-31 배포로 prod 에 적용했다.
 
 - `prod/catus-v2/runtime/compose-V2.yml` 의 앱 4종 `com.datadoghq.ad.logs` 라벨 `log_processing_rules` 가 `Picked up JAVA_TOOL_OPTIONS`·`DATADOG TRACER CONFIGURATION` 줄을 Datadog 전송에서 뺀다. 이 줄은 Fluent Bit 경로에는 남는다.
-- `prod/catus-v2/runtime/env-V2.py` 의 `DD_CONTAINER_EXCLUDE_LOGS` 가 `catus-db-*`·`catus-noti-restore-check-*` 컨테이너와 postgres 이미지를 뺀다. 이 컨테이너는 Fluent Bit 허용 목록(`server/observability/fluent-bit/logs.lua` 의 `ALLOWED`)에도 없어 어느 경로로도 수집되지 않는다.
-- 임의 이름의 `notification-v2` 일회성 컨테이너는 상시 서비스와 이미지가 같아 거르지 못한다.
+- `prod/catus-v2/runtime/env-V2.py` 의 `DD_CONTAINER_EXCLUDE_LOGS` 가 `catus-db-*`·`catus-noti-restore-check-*` 컨테이너와 postgres 이미지를 Datadog 수집에서 뺀다. Fluent Bit 은 이름이 아니라 compose 서비스 라벨로 거른다(`server/observability/fluent-bit/logs.lua` 의 `ALLOWED`). compose 라벨이 없는 일회성 컨테이너는 Fluent Bit 도 수집하지 않는다.
+- 임의 이름의 `notification-v2` 일회성 컨테이너는 상시 서비스와 이미지가 같아 Datadog 필터로 거르지 못한다.
 
 ### 3.3 Cloudflare 수동 단계 (④ 전)
 
