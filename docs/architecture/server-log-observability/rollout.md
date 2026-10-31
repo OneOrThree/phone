@@ -57,7 +57,11 @@ dev 관찰(D2~D7)이 끝나고 §4 기준이 기록되기 전에는 ②(Fluent B
 
 각 단계의 판정은 §4 지표로 하고, 앞 단계를 통과해야 다음으로 간다. 켠 뒤에는 앱 릴리스마다 마운트 경로가 바뀌어 Loki·Grafana·Fluent Bit 이 재생성된다. Loki 는 시간 기준 보존만 있으므로 ②를 켜기 전에 호스트 디스크 경보를 둔다. 켠 뒤 디스크·메모리의 판정 기준 숫자는 이 문서 §1 의 5번 규칙대로 dev 관찰 뒤에 정한다(지금 정해진 숫자는 없고, 이 절은 «무엇을 보는가»만 적는다). 관측 서비스(Fluent Bit·Loki·Grafana) 기동은 앱 검증이 끝난 뒤 별도 단계이며 실패해도 앱 롤백을 일으키지 않게 설계한다(에픽 2619 계약, 구현은 하위 티켓).
 
-Datadog 기동 소음과 일회성 컨테이너 필터는 콘솔 파이프라인이 아니라 Agent 설정에 있다(티켓 2630, `OneOrThree/cattus-infra` #32). `prod/catus-v2/runtime/compose-V2.yml` 의 앱 4종 `com.datadoghq.ad.logs` 라벨 `log_processing_rules` 가 `Picked up JAVA_TOOL_OPTIONS`·`DATADOG TRACER CONFIGURATION` 줄을 거르고, `prod/catus-v2/runtime/env-V2.py` 의 `DD_CONTAINER_EXCLUDE_LOGS` 가 `catus-db-*`·`catus-noti-restore-check-*` 컨테이너와 postgres 이미지를 뺀다. 이 필터는 Datadog 전송에서만 빼고 Fluent Bit 경로에는 남긴다. 임의 이름의 `notification-v2` 일회성 컨테이너는 상시 서비스와 이미지가 같아 거르지 못한다.
+Datadog 기동 소음과 일회성 컨테이너 필터는 콘솔 파이프라인이 아니라 Agent 설정에 있다(티켓 2630, `OneOrThree/cattus-infra` #32). 2026-10-30 조사 뒤에 추가했고 2026-10-31 배포로 prod 에 적용했다.
+
+- `prod/catus-v2/runtime/compose-V2.yml` 의 앱 4종 `com.datadoghq.ad.logs` 라벨 `log_processing_rules` 가 `Picked up JAVA_TOOL_OPTIONS`·`DATADOG TRACER CONFIGURATION` 줄을 Datadog 전송에서 뺀다. 이 줄은 Fluent Bit 경로에는 남는다.
+- `prod/catus-v2/runtime/env-V2.py` 의 `DD_CONTAINER_EXCLUDE_LOGS` 가 `catus-db-*`·`catus-noti-restore-check-*` 컨테이너와 postgres 이미지를 뺀다. 이 컨테이너는 Fluent Bit 허용 목록(`server/observability/fluent-bit/logs.lua` 의 `ALLOWED`)에도 없어 어느 경로로도 수집되지 않는다.
+- 임의 이름의 `notification-v2` 일회성 컨테이너는 상시 서비스와 이미지가 같아 거르지 못한다.
 
 ### 3.3 Cloudflare 수동 단계 (④ 전)
 
