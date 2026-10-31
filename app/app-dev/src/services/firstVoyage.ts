@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { request, uuid } from '@/services/api/client';
+import { sessionGeneration } from '@/services/api/session';
 import type { Arrival, TelescopeItem } from '@/services/api/telescope';
 
 /** 설치 단위로만 보관한다. 계정 서버 이력·키체인에 남기지 않아 재설치하면 다시 체험할 수 있다. */
@@ -41,9 +42,13 @@ export function clearFirstVoyageIntent(owner: string) {
 }
 
 /** 실제 집중을 생성하지 않는다. 서버 receipt가 무인도 생성·도착의 응답 유실 재시도를 처리한다. */
-export function arriveFirstVoyage(intent: FirstVoyageIntent): Promise<Arrival> {
+export function arriveFirstVoyage(
+  intent: FirstVoyageIntent,
+  generation = sessionGeneration(),
+): Promise<Arrival> {
   return request(`/islands/${encodeURIComponent(intent.destination.islandId)}/intro-arrivals`, {
     method: 'POST',
     idempotencyKey: intent.key,
+    generation,
   });
 }

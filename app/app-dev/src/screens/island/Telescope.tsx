@@ -280,10 +280,10 @@ function IslandCell({
       accessibilityRole="button"
       // 소속 섬이 아니면 알약처럼 항해 시간도 읽는다
       accessibilityLabel={
-        hideTime
-          ? item.name
-          : joined
-            ? t('telescope.joinedIslandA11y', { name: item.name })
+        joined
+          ? t('telescope.joinedIslandA11y', { name: item.name })
+          : hideTime
+            ? item.name
             : t('telescope.islandTimeA11y', {
                 label: magazine ? t('telescope.pinnedIslandA11y', { name: item.name }) : item.name,
                 time,

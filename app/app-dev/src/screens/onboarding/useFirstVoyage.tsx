@@ -1,5 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { getSession, sessionGeneration } from '@/services/api/session';
+import { ApiError } from '@/services/api/client';
+import { unknownOutcome } from '@/services/islandCommands';
 import { errorTextOr } from '@/i18n';
 import type { TelescopeItem } from '@/services/api/telescope';
 import {
@@ -21,7 +23,7 @@ export function useFirstVoyage(e: any, preview = false) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
   const [unavailable, setUnavailable] = useState(false);
-  const lock = useRef(false);
+  const lock = useRef<number | null>(null);
   const mounted = useRef(false);
   const latest = useRef(e);
   latest.current = e;
@@ -33,6 +35,7 @@ export function useFirstVoyage(e: any, preview = false) {
     setPending(false);
     setError('');
     setUnavailable(false);
+    lock.current = null;
     if (e.focusBlockingIntroPreview) setEligible(false);
     else if (preview) setEligible(true);
     else
@@ -44,6 +47,7 @@ export function useFirstVoyage(e: any, preview = false) {
           }
         })
         .catch(() => {
+          // 저장소를 읽지 못하면 최초 여부를 단정하지 않고 일반 항해를 유지한다.
           if (live) setEligible(false);
         });
     return () => {
@@ -61,8 +65,8 @@ export function useFirstVoyage(e: any, preview = false) {
   }, [intent, e.backOverride]);
   const alive = () => mounted.current && sessionGeneration() === generation;
   const start = async (destination: TelescopeItem) => {
-    if (lock.current || !eligible) return;
-    lock.current = true;
+    if (lock.current === generation || !eligible) return;
+    lock.current = generation;
     setPending(true);
     try {
       const next = preview
@@ -75,13 +79,13 @@ export function useFirstVoyage(e: any, preview = false) {
     } catch (thrown) {
       if (alive()) latest.current.notify?.(errorTextOr(thrown, 'errors.GENERIC'));
     } finally {
-      lock.current = false;
+      if (lock.current === generation) lock.current = null;
       if (alive()) setPending(false);
     }
   };
   const arrive = async () => {
-    if (!intent || lock.current || !alive()) return;
-    lock.current = true;
+    if (!intent || lock.current === generation || !alive()) return;
+    lock.current = generation;
     setPending(true);
     setError('');
     try {
@@ -90,7 +94,7 @@ export function useFirstVoyage(e: any, preview = false) {
         if (!latest.current.onFirstVoyageArrival) latest.current.reset('sea');
         return;
       }
-      const result = await arriveFirstVoyage(intent);
+      const result = await arriveFirstVoyage(intent, generation);
       if (!alive()) return;
       const member = result.membershipStatus === 'active';
       if (member) {
@@ -114,7 +118,14 @@ export function useFirstVoyage(e: any, preview = false) {
     } catch (thrown) {
       if (!alive()) return;
       const code = (thrown as { code?: string }).code;
-      setUnavailable(code === 'SEA_DESTINATION_UNAVAILABLE' || code === 'GROUP_NOT_FOUND');
+      // 결과 불명인 HTTP 400도 있으므로 retryable 하나로 의도를 버리면 무인도를 중복 생성할 수 있다.
+      setUnavailable(
+        thrown instanceof ApiError &&
+          thrown.status >= 400 &&
+          thrown.status < 500 &&
+          !thrown.retryable &&
+          !unknownOutcome(thrown),
+      );
       if (code === 'STATE_CONFLICT') {
         const route = await latest.current.focus?.recover().catch(() => null);
         if (alive() && route) {
@@ -124,7 +135,7 @@ export function useFirstVoyage(e: any, preview = false) {
       }
       setError(errorTextOr(thrown, 'openSea.retry'));
     } finally {
-      lock.current = false;
+      if (lock.current === generation) lock.current = null;
       if (alive()) setPending(false);
     }
   };
@@ -138,7 +149,7 @@ export function useFirstVoyage(e: any, preview = false) {
   };
   const scene = intent ? (
     <FirstVoyageScene
-      key={intent.key}
+      key={`${generation}:${intent.key}`}
       self={{
         userId: owner,
         name: e.state.name,

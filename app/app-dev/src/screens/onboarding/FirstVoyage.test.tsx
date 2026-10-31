@@ -2,7 +2,7 @@ import React, { useReducer } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { act, fireEvent, render } from '@testing-library/react-native';
 import { initialState, reducer } from '@/services/model';
-import { request } from '@/services/api/client';
+import { ApiError, request } from '@/services/api/client';
 import { FIRST_VOYAGE_DONE, prepareFirstVoyage, readFirstVoyage } from '@/services/firstVoyage';
 import { useTelescope } from '@/screens/island/useTelescope';
 import type { TelescopeItem } from '@/services/api/telescope';
@@ -183,3 +183,35 @@ test('일반 망원경의 첫 이동도 섬 아래 시간을 숨기고 체험으
   await fireEvent.press(screen.getByText('이 섬으로 가기'));
   expect(screen.getByTestId('first-voyage')).toBeTruthy();
 });
+
+test.each([
+  ['FACILITY_LOCKED', 403],
+  ['ISLAND_LIMIT_EXCEEDED', 409],
+  ['RESOURCE_NOT_FOUND', 404],
+] as const)('%s 확정 거절은 완료하지 않고 목적지를 다시 선택할 수 있다', async (code, status) => {
+  (request as jest.Mock).mockRejectedValueOnce(new ApiError(code, '이동할 수 없어요', status));
+  const screen = await render(<Harness />);
+  await fireEvent.press(screen.getByTestId('onboarding-island-candidate'));
+  await fireEvent.press(screen.getByTestId('onboarding-continue'));
+  await elapse(5000);
+  expect(await AsyncStorage.getItem(FIRST_VOYAGE_DONE)).toBeNull();
+  await fireEvent.press(screen.getByText('다른 섬 고르기'));
+  expect(screen.queryByTestId('first-voyage')).toBeNull();
+  expect((await readFirstVoyage('first-user')).pending).toBeNull();
+});
+
+test.each(['SERVICE_UNAVAILABLE', 'UPSTREAM_TIMEOUT'])(
+  '%s 결과 불명은 HTTP 400이어도 같은 키를 보존한다',
+  async (code) => {
+    (request as jest.Mock).mockRejectedValueOnce(new ApiError(code, '연결 확인 중', 400));
+    const screen = await render(<Harness />);
+    await fireEvent.press(screen.getByTestId('onboarding-island-candidate'));
+    await fireEvent.press(screen.getByTestId('onboarding-continue'));
+    await elapse(5000);
+    expect(screen.queryByText('다른 섬 고르기')).toBeNull();
+    const saved = (await readFirstVoyage('first-user')).pending;
+    expect(saved?.key).toBe((request as jest.Mock).mock.calls[0][1].idempotencyKey);
+    await fireEvent.press(screen.getByTestId('first-voyage-retry'));
+    expect((request as jest.Mock).mock.calls[0]).toEqual((request as jest.Mock).mock.calls[1]);
+  },
+);

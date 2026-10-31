@@ -36,6 +36,7 @@ export function FirstVoyageScene({
   const [ready, setReady] = useState(false);
   const [footer, setFooter] = useState(0);
   const arrival = useRef(onArrive);
+  const autoArrived = useRef(false);
   arrival.current = onArrive;
   useEffect(() => {
     let remaining = FIRST_VOYAGE_MS;
@@ -61,8 +62,11 @@ export function FirstVoyageScene({
     };
   }, []);
   useEffect(() => {
-    if (ready && !screenReader) arrival.current();
-  }, [ready, screenReader]);
+    if (ready && !screenReader && !error && !autoArrived.current) {
+      autoArrived.current = true;
+      arrival.current();
+    }
+  }, [ready, screenReader, error]);
   const peer: SeaParticipant = {
     userId: 'first-voyage-example',
     name: t('firstVoyage.peerName'),

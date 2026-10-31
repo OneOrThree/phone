@@ -32,10 +32,11 @@ test('응답 유실·재시작은 같은 목적지와 키로 재시도하고 계
   expect(retry).toEqual(first);
   const other = await prepareFirstVoyage('b', destination);
   expect(other.key).not.toBe(first.key);
-  await arriveFirstVoyage(retry);
+  await arriveFirstVoyage(retry, 7);
   expect(request).toHaveBeenCalledWith('/islands/candidate/intro-arrivals', {
     method: 'POST',
     idempotencyKey: first.key,
+    generation: 7,
   });
   expect((await readFirstVoyage('a')).eligible).toBe(true);
 });
