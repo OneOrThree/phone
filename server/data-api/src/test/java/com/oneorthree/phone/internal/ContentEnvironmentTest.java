@@ -1,16 +1,25 @@
 package com.oneorthree.phone.internal;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.oneorthree.phone.content.service.DeveloperNoticeService;
 import com.oneorthree.phone.internal.service.ContentHistoryService;
 import com.oneorthree.phone.internal.service.MagazineReviewService;
 import jakarta.servlet.http.HttpServletRequest;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.env.MockEnvironment;
 
 import java.util.List;
 import java.util.UUID;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
@@ -22,6 +31,21 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class ContentEnvironmentTest {
+    private final Logger controllerLog = (Logger) LoggerFactory.getLogger(InternalContentAdminController.class);
+    private final ListAppender<ILoggingEvent> logs = new ListAppender<>();
+
+    @BeforeEach
+    void captureLogs() {
+        logs.start();
+        controllerLog.addAppender(logs);
+    }
+
+    @AfterEach
+    void releaseLogs() {
+        controllerLog.detachAppender(logs);
+        logs.stop();
+    }
+
     @Test
     void RDS에서_데이터베이스_설명_표식을_검증한다() {
         var environment = new MockEnvironment();
@@ -136,6 +160,15 @@ class ContentEnvironmentTest {
 
     private org.springframework.test.web.servlet.ResultActions environmentResponse(String obsVersion,
             boolean historyTable, java.util.function.Consumer<JdbcTemplate> flyway) throws Exception {
+        return org.springframework.test.web.servlet.setup.MockMvcBuilders
+                .standaloneSetup(controller(obsVersion, historyTable, flyway)).build()
+                .perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get(
+                        "/internal/admin/content/environment"));
+    }
+
+    /** 호출마다 새로 만든다 — 같은 인스턴스를 여러 번 부르는 테스트는 이 결과를 변수에 담아 쓴다. */
+    private InternalContentAdminController controller(String obsVersion, boolean historyTable,
+            java.util.function.Consumer<JdbcTemplate> flyway) {
         var environment = new MockEnvironment();
         environment.setActiveProfiles("prod");
         if (obsVersion != null) {
@@ -146,12 +179,9 @@ class ContentEnvironmentTest {
                 eq(String.class))).thenReturn(List.of("prod"));
         flyway.accept(jdbc);
         when(jdbc.queryForObject(anyString(), eq(Boolean.class))).thenReturn(historyTable);
-        var controller = new InternalContentAdminController(mock(DeveloperNoticeService.class),
+        return new InternalContentAdminController(mock(DeveloperNoticeService.class),
                 mock(ContentHistoryService.class), mock(MagazineReviewService.class),
                 mock(com.oneorthree.phone.internal.service.ConstructionPolicyAdminService.class), environment, jdbc);
-        return org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(controller).build()
-                .perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get(
-                        "/internal/admin/content/environment"));
     }
 
     @Test
@@ -193,6 +223,32 @@ class ContentEnvironmentTest {
                 .thenThrow(new org.springframework.dao.DataAccessResourceFailureException("x")))
                 .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk())
                 .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.schemaVersion").value("unknown"));
+    }
+
+    @Test
+    void Flyway_이력_조회가_반복해서_실패해도_WARN은_프로세스당_한_번이다() {
+        var controller = controller(null, true, j -> when(j.queryForList(argThat(sql -> sql != null
+                && sql.contains("flyway_schema_history")), eq(String.class)))
+                .thenThrow(new DataAccessResourceFailureException("x")));
+
+        for (int i = 0; i < 3; i++) {
+            assertThat(controller.environment()).containsEntry("schemaVersion", "unknown");
+        }
+
+        assertThat(logs.list).filteredOn(event -> event.getLevel() == Level.WARN).singleElement()
+                .satisfies(event -> assertThat(event.getThrowableProxy().getClassName())
+                        .isEqualTo(DataAccessResourceFailureException.class.getName()));
+    }
+
+    @Test
+    void Flyway_이력_조회가_실패하지_않으면_WARN이_없다() {
+        var applied = controller(null, true, j -> when(j.queryForList(argThat(sql -> sql != null
+                && sql.contains("flyway_schema_history")), eq(String.class))).thenReturn(List.of("7")));
+        var noTable = controller(null, false, j -> { });
+
+        assertThat(applied.environment()).containsEntry("schemaVersion", "7");
+        assertThat(noTable.environment()).containsEntry("schemaVersion", "unknown");
+        assertThat(logs.list).noneMatch(event -> event.getLevel() == Level.WARN);
     }
 
     @Test

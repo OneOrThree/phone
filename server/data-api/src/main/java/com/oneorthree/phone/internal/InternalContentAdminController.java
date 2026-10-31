@@ -10,6 +10,7 @@ import com.oneorthree.phone.internal.dto.ConstructionPolicyRequest;
 import com.oneorthree.phone.internal.dto.ConstructionPolicyApplied;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.env.Environment;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -25,8 +26,10 @@ import org.springframework.web.bind.annotation.RequestParam;
 import java.util.UUID;
 import java.util.Map;
 import java.util.Arrays;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /** 관리 전용 서비스 자격은 InternalAuthFilter에서 행위자와 경로를 함께 제한한다. */
+@Slf4j
 @RestController
 @RequiredArgsConstructor
 @RequestMapping("/internal/admin/content")
@@ -37,6 +40,8 @@ public class InternalContentAdminController {
     private final ConstructionPolicyAdminService constructionPolicy;
     private final Environment environment;
     private final JdbcTemplate jdbc;
+    /** Flyway 이력 조회 실패 WARN 을 프로세스당 한 번만 남기는 표식 — 환경 확인이 반복돼도 로그가 쌓이지 않게 한다. */
+    private final AtomicBoolean schemaVersionFailureLogged = new AtomicBoolean();
 
     @GetMapping("/environment")
     public Map<String, Object> environment() {
@@ -53,7 +58,10 @@ public class InternalContentAdminController {
         return version == null || version.isBlank() ? "unknown" : version.strip();
     }
 
-    /** 마지막으로 성공 적용된 Flyway 버전. 이력 테이블이나 행이 없거나 조회가 실패하면 unknown(환경 확인을 막지 않는다). */
+    /**
+     * 마지막으로 성공 적용된 Flyway 버전. 이력 테이블이나 행이 없거나 조회가 실패하면 unknown(환경 확인을 막지 않는다).
+     * 조회 실패는 프로세스당 WARN 한 번만 남긴다.
+     */
     private String schemaVersion() {
         try {
             if (!Boolean.TRUE.equals(jdbc.queryForObject(
@@ -64,6 +72,9 @@ public class InternalContentAdminController {
                     + " WHERE success AND version IS NOT NULL ORDER BY installed_rank DESC LIMIT 1", String.class);
             return versions.isEmpty() || versions.get(0) == null ? "unknown" : versions.get(0);
         } catch (DataAccessException e) {
+            if (schemaVersionFailureLogged.compareAndSet(false, true)) {
+                log.warn("Flyway 이력 조회 실패 — schemaVersion 을 unknown 으로 응답한다(이후 실패는 로그하지 않는다)", e);
+            }
             return "unknown";
         }
     }

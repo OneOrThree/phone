@@ -1,9 +1,13 @@
 package com.oneorthree.business.config;
 
 import com.oneorthree.business.support.UpstreamTestBase;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -24,6 +28,9 @@ class FilterChainBoundaryTest extends UpstreamTestBase {
 
     /** 256KiB 상한을 넘기는 본문. 상한은 선언된 Content-Length 에서 먼저 걸린다. */
     private static final String OVERSIZE_BODY = "x".repeat(300_000);
+
+    @Autowired
+    private MeterRegistry metrics;
 
     @Test
     @DisplayName("/health 는 무인증으로 도달한다 — 막히면 컨테이너가 영영 unhealthy 다")
@@ -50,6 +57,17 @@ class FilterChainBoundaryTest extends UpstreamTestBase {
     }
 
     @Test
+    @DisplayName("앱 헤더 형식 불량은 컨텍스트의 MeterRegistry 에 센다 — 필터가 다른 레지스트리를 쥐면 카운터가 어디에도 안 나온다")
+    void 앱헤더불량은컨텍스트레지스트리에센다() throws Exception {
+        double before = invalidAppVersionCount();
+
+        mockMvc.perform(get("/health").header("X-App-Version", "v1.0"))
+                .andExpect(status().isOk());
+
+        assertThat(invalidAppVersionCount()).isEqualTo(before + 1);
+    }
+
+    @Test
     @DisplayName("인증 경로의 거절에도 봉투가 붙는다 — 401 도 추적 가능해야 한다")
     void 거절응답에도봉투가붙는다() throws Exception {
         mockMvc.perform(get("/api/v1/users/me/notification-settings"))
@@ -63,5 +81,11 @@ class FilterChainBoundaryTest extends UpstreamTestBase {
     void 열거되지않은경로는막힌다() throws Exception {
         mockMvc.perform(get("/l/anything-else"))
                 .andExpect(status().isUnauthorized());
+    }
+
+    private double invalidAppVersionCount() {
+        Counter counter = metrics.find(RequestEnvelopeFilter.APP_HEADER_INVALID).tag("header", "X-App-Version")
+                .counter();
+        return counter == null ? 0 : counter.count();
     }
 }

@@ -4,6 +4,7 @@ import com.oneorthree.business.common.api.ApiErrorCode;
 import com.oneorthree.business.common.api.ApiResponses;
 import com.oneorthree.business.common.api.PublicApiRoutes;
 import com.oneorthree.business.common.api.RequestBodyTooLargeException;
+import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ReadListener;
 import jakarta.servlet.ServletException;
@@ -28,6 +29,7 @@ import java.util.Collections;
 import java.util.Enumeration;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Predicate;
 import java.util.regex.Pattern;
 
 /** 인증 앞에서 서버 추적 ID, 캐시 금지, 256KiB 실제 본문 제한과 외부 사용자 헤더 폐기를 적용한다. */
@@ -38,11 +40,19 @@ public class RequestEnvelopeFilter extends OncePerRequestFilter {
     public static final String REQUEST_ID = "requestId";
     public static final String STRICT_ERROR_CONTRACT = "business.strictErrorContract";
 
+    /** 형식이 어긋난 X-App-Version·X-App-Platform 요청 수 — 태그 {@code header} 는 헤더 이름 둘 중 하나뿐이다. */
+    static final String APP_HEADER_INVALID = "business.request.app_header.invalid";
+
     static final int MAX_BODY = 256 * 1024;
 
+    /**
+     * 앱 semver(X.Y.Z). {@code ObservationJsonProvider.APP_VERSION} 과 같은 정규식이다 — 필터가 거르고 provider 가
+     * 한 번 더 거르므로, 한쪽만 바꾸면 통과한 값이 다른 쪽에서 조용히 사라진다. 바꿀 때는 둘을 함께 바꾼다.
+     */
     private static final Pattern APP_VERSION = Pattern.compile("[0-9]{1,9}\\.[0-9]{1,9}\\.[0-9]{1,9}");
     private static final String HEADER_USER_ID = "X-User-Id";
     private final ApiResponses responses;
+    private final MeterRegistry metrics;
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
@@ -79,7 +89,7 @@ public class RequestEnvelopeFilter extends OncePerRequestFilter {
     }
 
     /** 요청 완료 접근 로그. request_id 는 MDC 로 실리고, 구조화 필드는 ACCESS marker 의 key/value 로만 넘긴다. */
-    private static void logAccess(HttpServletRequest request, HttpServletResponse response, long started,
+    private void logAccess(HttpServletRequest request, HttpServletResponse response, long started,
             boolean completed) {
         long durationMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started);
         Object route = request.getAttribute(HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE);
@@ -89,13 +99,12 @@ public class RequestEnvelopeFilter extends OncePerRequestFilter {
                 .addKeyValue("duration_ms", durationMs)
                 .addKeyValue("outcome", completed ? "completed" : "unhandled_exception");
         // 클라이언트 헤더라 검증을 통과한 값만 싣고, 어긋나면 키를 생략한다(요청은 거절하지 않는다).
-        String version = request.getHeader("X-App-Version");
-        String strippedVersion = version == null ? null : version.strip();
-        if (strippedVersion != null && APP_VERSION.matcher(strippedVersion).matches()) {
-            access = access.addKeyValue("app_version", strippedVersion);
+        String version = validAppHeader(request, "X-App-Version", v -> APP_VERSION.matcher(v).matches());
+        if (version != null) {
+            access = access.addKeyValue("app_version", version);
         }
-        String platform = request.getHeader("X-App-Platform");
-        if ("ios".equals(platform) || "android".equals(platform)) {
+        String platform = validAppHeader(request, "X-App-Platform", p -> "ios".equals(p) || "android".equals(p));
+        if (platform != null) {
             access = access.addKeyValue("app_platform", platform);
         }
         if (completed) {
@@ -104,6 +113,23 @@ public class RequestEnvelopeFilter extends OncePerRequestFilter {
         }
         access.log("business_request method={} status={} duration_ms={}", request.getMethod(),
                 completed ? response.getStatus() : "unhandled_exception", durationMs);
+    }
+
+    /**
+     * 앱 헤더를 앞뒤 공백을 걷어 읽는다(두 헤더가 같은 규칙). 없거나 비어 있으면 «없음»이라 null 이고 세지 않는다 —
+     * 헬스체크·웹 요청은 정상적으로 안 보낸다. 형식이 어긋나면 헤더 이름만 세고 null 이다. 원본 값은 태그에도 싣지 않는다.
+     */
+    private String validAppHeader(HttpServletRequest request, String name, Predicate<String> valid) {
+        String raw = request.getHeader(name);
+        String value = raw == null ? "" : raw.strip();
+        if (value.isEmpty()) {
+            return null;
+        }
+        if (valid.test(value)) {
+            return value;
+        }
+        metrics.counter(APP_HEADER_INVALID, "header", name).increment();
+        return null;
     }
 
     private void reject(HttpServletRequest request, HttpServletResponse response) throws IOException {

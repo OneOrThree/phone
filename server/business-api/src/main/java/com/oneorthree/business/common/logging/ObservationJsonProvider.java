@@ -42,7 +42,10 @@ public final class ObservationJsonProvider implements StructuredLogFormatter<ILo
     private static final Pattern ID = Pattern.compile("[A-Za-z0-9_.:-]{1,128}");
     private static final Pattern ATTEMPT = Pattern.compile("[0-9]{1,7}");
     private static final Pattern HTTP_METHOD = Pattern.compile("[A-Z]{1,16}");
-    /** 앱이 보내는 semver(X.Y.Z). 클라이언트 값이라 형식이 맞을 때만 싣는다. */
+    /**
+     * 앱이 보내는 semver(X.Y.Z). 클라이언트 값이라 형식이 맞을 때만 싣는다. {@code RequestEnvelopeFilter.APP_VERSION} 과
+     * 같은 정규식이다 — 필터가 먼저 거르고 여기서 한 번 더 거르므로, 한쪽만 바꾸면 통과한 값이 다른 쪽에서 조용히 사라진다.
+     */
     private static final Pattern APP_VERSION = Pattern.compile("[0-9]{1,9}\\.[0-9]{1,9}\\.[0-9]{1,9}");
     private static final Pattern HTTP_ROUTE = Pattern.compile("[!-~]{1,256}");
     private static final List<String> ID_KEYS = List.of("request_id", "origin_request_id", "origin_trace_id",
