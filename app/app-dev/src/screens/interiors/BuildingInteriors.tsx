@@ -3565,7 +3565,7 @@ function HourMinuteWheels({
   onPick: (hh: string, mm: string) => void;
 }) {
   return (
-    <View testID={testID} style={{ flexDirection: 'row', gap: 8 }}>
+    <View testID={testID} style={{ flexDirection: 'row', gap: semanticTokens.spacing.control }}>
       <Wheel
         label=""
         a11yLabel={`${label} 시`}
@@ -5637,8 +5637,10 @@ export function Board({
             ) : (
               form.type === 'focus' && (
                 <BoardField label="진행 시간">
-                  <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8 }}>
-                    <View style={{ flex: 1, gap: 4 }}>
+                  {/* 좁은 화면(320pt 이하)에서도 각 휠의 터치 폭 44pt 를 지키려고 시작·종료를 세로로
+                      쌓는다 — 한 줄에 휠 두 개만 두면 종이 폭을 반씩 나눠 넉넉하다(AGENTS 44pt). */}
+                  <View style={{ gap: semanticTokens.spacing.control }}>
+                    <View style={{ gap: 4 }}>
                       <Text style={boardFont(12, 1.4, '400', '#786151', GOWUN)}>시작</Text>
                       <QuestTimeInput
                         testID="board-quest-start"
@@ -5647,12 +5649,7 @@ export function Board({
                         onChange={(startTime) => setForm({ startTime })}
                       />
                     </View>
-                    <Text
-                      style={[boardFont(16, 1.4, '400', '#786151', GOWUN), { paddingBottom: 10 }]}
-                    >
-                      →
-                    </Text>
-                    <View style={{ flex: 1, gap: 4 }}>
+                    <View style={{ gap: 4 }}>
                       <Text style={boardFont(12, 1.4, '400', '#786151', GOWUN)}>종료</Text>
                       {/* 종료는 24:00(하루 끝)까지 드럼으로 고른다 — 별도 「자정까지」 토글은 없다. */}
                       <QuestTimeInput
