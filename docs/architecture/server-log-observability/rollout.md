@@ -40,9 +40,9 @@ dev 관찰(D2~D7)이 끝나고 §4 기준이 기록되기 전에는 ②(Fluent B
 | 3 | `prod-ci-V2` 를 `release` 브랜치에서 `workflow_dispatch` 로 수동 실행 | 이미지 발행·구성 SHA 검증 통과, 새 태그 `catus-vX.Y.Z-V2` 생성 |
 | 4 | `prod-cd-V2` 실행(승인 후 수동, SSM 배포). 입력은 `version`(필수: 3단계에서 생긴 `catus-vX.Y.Z-V2` 태그)과 `rollback` 뿐이고 배포는 `--role app` 전체다 | 앱 4종 헬스 통과 |
 
-배포 엔진은 `up -d --no-deps <앱 4종>` 을 호출하고 compose 가 설정이 바뀐 서비스만 재생성한다. 그래서 스위치만 바꾸면 앱은 재시작되지 않고, 앱의 env·이미지·라벨이 바뀐 배포에서만 재시작된다(`infra_revision` 비교로 앱을 재시작하지 않는다). 3단계 전에 phone `main` → `release` 승격(`AGENTS.md` 「main → release 운영 승격」)이 끝나 있어야 한다.
+배포 엔진은 `up -d --no-deps <앱 4종>` 을 호출하고 compose 가 설정이 바뀐 서비스만 재생성한다. 그래서 스위치만 바꾸면 앱은 재시작되지 않고, 앱의 env·이미지·라벨이 바뀐 배포에서만 재시작된다(`infra_revision` 비교로 앱을 재시작하지 않는다). ①은 phone 승격 없이 Infra 만으로 배포할 수 있다(번들에 관측 파일이 없으면 배포 엔진이 관측 단계를 건너뛴다). ②부터는 phone 번들이 필요해 `main` → `release` 승격(`AGENTS.md` 「main → release 운영 승격」)이 먼저다.
 
-첫 배포는 로그 변경만 나가지 않는다. 2026-10-31 기준 prod 가 실제로 쓰는 Infra 는 `5555c345a` 이고(변수 값 `c2a0314` 는 배포된 적이 없다), 앱은 `340d81567` 이다. 그래서 Infra PR #25·#26·#27·#29 와 그 뒤 `main` 의 서버 변경, DB 전환 3건(Data `V8`, Notification `V17`·`V18`)이 함께 나간다. `V17` 은 발송 자료가 없고 한 번도 열지 않은 저장소만 게이트를 연다. 승격 전에 이 목록을 다시 확인한다.
+**승격은 지금 막혀 있다.** `deploy-V2.py` 는 `migration_fingerprints` 가 직전 성공 기록과 다르면 배포를 중단하고, 이를 넘기는 절차가 없다(티켓 2634). 2026-10-31 기준 `main` 에는 `release` 에 없는 Data `V8`, Notification `V17`·`V18`, `v0-rebase/backoffice-profile.json` 이 있다. `V17` 은 발송 자료가 없고 한 번도 열지 않은 저장소만 게이트를 연다. 2026-10-31 기준 prod 는 `catus-v2.0.2-V2`(소스 `6a8e678a9`, Infra `c2a0314`, 앱 이미지 `340d81567`)다.
 
 ### 3.2 켜는 순서 (Infra 기능 스위치)
 
@@ -88,7 +88,7 @@ Grafana 는 Access 가 붙인 JWT(`Cf-Access-Jwt-Assertion`)를 JWKS 로 직접 
 | --- | --- |
 | P0 Infra 요청(IAM·lifecycle·Fluent Bit 서비스·Nginx `gromo_json`·Datadog 제외 목록) | 에픽 2619 하위 2623~2627·2630 이 코드로 만든다. 머지·`terraform apply` 전 |
 | P1 `OBS_SERVICE`·`OBS_ENV`·`OBS_VERSION`·`DD_TRACE_128_BIT_TRACEID_LOGGING_ENABLED` | 2623 이 만든다. 2026-10-30 재확인 필요 — 이 환경 변수가 prod 실행 구성에 이미 있는지 확인하지 않았다 |
-| P2 main → release 승격 | **실행 완료.** 에픽 PR #1407(`ec7d74695`)이 `release` 에 포함돼 prod 가 커밋 `340d81567`(V2 태그 `catus-v2.0.1-V2`, 2026-10-30 기준)을 실행한다. `prod-cd-V2.yml` 입력은 `version`(필수)과 `rollback` 뿐이고 배포는 `--role app` 전체라 서비스 단위 적용은 불가능하다. 마지막 성공 실행은 2026-10-29T23:11Z 이고 `deployments/app/current-V2.json` 으로 태그를 확인했다(2026-10-31 기준) |
+| P2 main → release 승격 | **실행 완료.** 에픽 PR #1407(`ec7d74695`)이 `release` 에 포함돼 prod 가 커밋 `340d81567`(V2 태그 `catus-v2.0.1-V2`, 2026-10-30 기준)을 실행한다. `prod-cd-V2.yml` 입력은 `version`(필수)과 `rollback` 뿐이고 배포는 `--role app` 전체라 서비스 단위 적용은 불가능하다. 마지막 성공 실행은 2026-10-31T02:55Z 의 `catus-v2.0.2-V2` 이고 앱 이미지는 `340d81567` 그대로다(`deployments/app/current-V2.json` 확인) |
 | P3 Fluent Bit 기동·canary | §3.2 ②. 미실행 |
 | P4 기존 업로더(590·2288)와 `system_log/v2/` 병행 후 APP 업로더 중단([런북 §5](ingestion-runbook.md)) | 미실행. 두 업로더가 같은 호스트에서 같은 prefix 로 중복 쓰는지는 미확인 |
 | P5 Grafana 접근 인증·수집기 IAM·경보 | 인증은 §3.2 ④, 경보는 미정 |
