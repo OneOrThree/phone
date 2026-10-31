@@ -70,6 +70,7 @@ public class UserIslandContext {
     private Long contextVersion = 0L;
 
     @CreationTimestamp
+    @Column(name = "created_at", updatable = false)
     private Instant createdAt;
 
     @UpdateTimestamp
