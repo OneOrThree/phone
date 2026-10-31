@@ -3984,6 +3984,7 @@ function FocusFlow({ e: environment }: any) {
           gram={i.buildings.includes('gram')}
           onGram={musicRoute ? () => setDialog('music') : undefined}
           seated={seated}
+          focusHud={focusing}
           inert={!!dialog || r === 'focusResult' || !!goldenCutscene || !!catInfo}
           overlayBlocksMap={r === 'focusSetup'}
           overlay={

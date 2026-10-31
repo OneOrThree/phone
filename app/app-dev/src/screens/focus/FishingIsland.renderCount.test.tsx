@@ -8,10 +8,12 @@ import { Animated, PanResponder, StyleSheet } from 'react-native';
 import { act, render, within } from '@testing-library/react-native';
 
 let mockFontScale = 1;
+let mockWidth = 402;
+let mockHeight = 874;
 jest.mock('@/utils/layout', () => ({
   useAppLayout: () => ({
-    width: 402,
-    height: 874,
+    width: mockWidth,
+    height: mockHeight,
     fontScale: mockFontScale,
     compact: false,
     landscape: false,
@@ -36,7 +38,11 @@ jest.mock('@/screens/island/IslandOcean', () => {
 const { FishingActor, FishingIsland, fishingCamera } =
   require('./FishingIsland') as typeof import('./FishingIsland');
 
-afterEach(() => jest.restoreAllMocks());
+afterEach(() => {
+  jest.restoreAllMocks();
+  mockWidth = 402;
+  mockHeight = 874;
+});
 
 const touch = (...points: [number, number][]) =>
   ({ nativeEvent: { touches: points.map(([pageX, pageY]) => ({ pageX, pageY })) } }) as any;
@@ -265,3 +271,55 @@ test('세로 화면에서도 섬을 아래로 끌어 위쪽 바다를 보고 과
   expect(Math.max(...boxes.map((box) => box.top + box.height))).toBeGreaterThanOrEqual(874);
   await screen.unmount();
 });
+
+test.each(
+  [
+    [402, 874],
+    [874, 402],
+    [1024, 768],
+  ].flatMap(([width, height]) =>
+    [0.8, 1, 1.8].map((zoom) => ({ width: width!, height: height!, zoom })),
+  ),
+)(
+  '실제 집중 지도 $width×$height의 $zoom배에서도 과목·시간이 자동 구도 안에 보인다',
+  async ({ width, height, zoom }) => {
+    mockWidth = width;
+    mockHeight = height;
+    const createPan = jest.spyOn(PanResponder, 'create');
+    const screen = await render(
+      <FishingIsland focus={{ x: 34.1, y: 55.9 }} focusHud seated spots={[]} onRaft={jest.fn()}>
+        {(size, sizeY) => (
+          <FishingFocusHud subject="영어 공부" seconds={123} size={size} sizeY={sizeY} />
+        )}
+      </FishingIsland>,
+    );
+    const originalSubject = StyleSheet.flatten(screen.getByText('영어 공부').props.style).fontSize;
+    const originalTime = StyleSheet.flatten(screen.getByText('00:02:03').props.style).fontSize;
+    const pan = createPan.mock.calls[0][0];
+    if (zoom !== 1) {
+      await act(async () => pan.onPanResponderGrant!(touch([100, 200], [300, 200]), {} as any));
+      for (let i = 0; i < 2; i++)
+        await act(async () =>
+          pan.onPanResponderMove!(touch([100, 200], [300, 200]), { dx: 0, dy: 0 } as any),
+        );
+      await act(async () =>
+        pan.onPanResponderMove!(touch([200 - 100 * zoom, 200], [200 + 100 * zoom, 200]), {
+          dx: 0,
+          dy: 0,
+        } as any),
+      );
+      await act(async () => pan.onPanResponderRelease!(touch(), {} as any));
+    }
+    const map = StyleSheet.flatten(screen.getByTestId('fishing-map').props.style);
+    const hud = StyleSheet.flatten(screen.getByTestId('fishing-focus-hud').props.style);
+    const subject = StyleSheet.flatten(screen.getByText('영어 공부').props.style);
+    const time = StyleSheet.flatten(screen.getByText('00:02:03').props.style);
+    expect(map.top + hud.top).toBeGreaterThanOrEqual(52);
+    expect(map.top + hud.top + subject.lineHeight + time.lineHeight).toBeLessThan(height);
+    expect(map.left + hud.left).toBeGreaterThanOrEqual(-1);
+    expect(map.left + hud.left + hud.width).toBeLessThanOrEqual(width + 1);
+    expect(subject.fontSize).toBe(originalSubject);
+    expect(time.fontSize).toBe(originalTime);
+    await screen.unmount();
+  },
+);
