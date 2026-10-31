@@ -1,5 +1,5 @@
 // 망원경 화면(GROMO-2266 · 2273) — 파노라마·말풍선·버튼 상태·가입·항해·돌아가기·카운트다운·핀 표시(찜 리본·잡지 칸 미리보기·빼기).
-// API(getTelescope·arriveAtIsland)와 도착 영상(VideoCutscene)은 목이다. 빼기는 실제 unpinFromTelescope 를 거치고 서버 요청(request)만 목이다 —
+// API(getTelescope·arriveAtIsland)와 도착 장면(HarborCutscene)은 목이다. 빼기는 실제 unpinFromTelescope 를 거치고 서버 요청(request)만 목이다 —
 // 성공하면 실제처럼 onTelescopeChanged 구독자에게 알려, 화면이 따로 부르지 않아도 열린 목록이 구독으로 다시 읽는다(useTelescope 는 실제).
 import React from 'react';
 import { AccessibilityInfo, Animated, Platform, StyleSheet } from 'react-native';
@@ -41,8 +41,8 @@ jest.mock('@/screens/island/useTelescope', () => {
     },
   };
 });
-jest.mock('@/components/VideoCutscene', () => ({
-  VideoCutscene: ({ accessibilityLabel, onFinish }: any) => {
+jest.mock('@/screens/world/HarborCutscene', () => ({
+  HarborCutscene: ({ accessibilityLabel, onFinish }: any) => {
     const { Pressable, Text } = require('react-native');
     return (
       <Pressable testID="sailing" onPress={onFinish}>

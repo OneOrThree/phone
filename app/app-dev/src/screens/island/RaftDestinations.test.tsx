@@ -31,8 +31,8 @@ beforeEach(() => {
   mockGeneration = 0;
 });
 
-jest.mock('@/components/VideoCutscene', () => ({
-  VideoCutscene: ({ accessibilityLabel, onFinish }: any) => {
+jest.mock('@/screens/world/HarborCutscene', () => ({
+  HarborCutscene: ({ accessibilityLabel, onFinish }: any) => {
     const { Pressable, Text } = require('react-native');
     return (
       <Pressable testID="sailing" onPress={onFinish}>
