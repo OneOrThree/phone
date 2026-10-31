@@ -87,3 +87,15 @@ test("문자열이 아닌 버전 값은 null 로 버린다", async t => {
   assert.equal(code, 200);
   assert.deepEqual(body.data, { serverVersion: null, schemaVersion: "9" });
 });
+test("iosStoreNotice decides which iOS store notice to show", async () => {
+  const { iosStoreNotice } = await import("../src/versions.ts");
+  const ok = { version: "1.0.2", status: "ok" };
+  assert.equal(iosStoreNotice("1.0.3", ok), "exceeds");
+  assert.equal(iosStoreNotice("1.0.2", ok), null);
+  assert.equal(iosStoreNotice("2.0.0", { version: null, status: "unpublished" }), "unpublished");
+  assert.equal(iosStoreNotice("2.0.0", { version: null, status: "unavailable" }), "unavailable");
+  assert.equal(iosStoreNotice("2.0.0", { version: null, status: "local" }), null);
+  assert.equal(iosStoreNotice("  ", { version: null, status: "unpublished" }), null);
+  assert.equal(iosStoreNotice("", ok), null);
+  assert.equal(iosStoreNotice("2.0.0", null), null);
+});

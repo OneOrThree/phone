@@ -20,3 +20,12 @@ export function exceedsStoreVersion(min: string | null | undefined, store: strin
   return false;
 }
 export const storeWarning = (store: string) => `iOS 최소 버전이 App Store 공개 버전(${store})보다 높아 모든 iOS 사용자가 업데이트할 수 없게 막힙니다.`;
+export const unpublishedWarning = 'iOS 앱이 아직 App Store에 공개되지 않았습니다. iOS 최소 버전을 게시하면 iOS 사용자가 업데이트할 곳이 없어 막힙니다. 공개 뒤에 게시하세요.';
+export const unavailableNotice = 'App Store 공개 버전을 확인하지 못했습니다. 게시 전에 스토어 버전을 직접 확인하세요.';
+// iOS 최소 버전이 비어 있지 않을 때 보여 줄 안내 종류. 게시를 막지는 않는다.
+export function iosStoreNotice(min: string | null | undefined, store: SystemVersions['iosStore'] | null | undefined): 'exceeds' | 'unpublished' | 'unavailable' | null {
+  if (!min?.trim() || !store) return null;
+  if (store.status === 'unpublished') return 'unpublished';
+  if (store.status === 'unavailable') return 'unavailable';
+  return store.status === 'ok' && exceedsStoreVersion(min, store.version) ? 'exceeds' : null;
+}

@@ -8,9 +8,9 @@
 
 - Data `/internal/admin/content/environment`: `environment`, `contractVersion: "1"`, `capabilities`.
 - Notification `/internal/admin/publications/environment`: 위 필드와 `fcmProjectId`.
-- 두 환경 응답의 선택 필드 `serverVersion`(배포 커밋)·`schemaVersion`(DB 마이그레이션 번호). 화면 표시 전용이며 필수 계약이 아니다. 없는 구버전 서버는 「-」로 표시한다.
+- 두 환경 응답의 선택 필드 `serverVersion`(배포 커밋)·`schemaVersion`(DB 마이그레이션 번호). `schemaVersion`은 서비스별 자체 마이그레이션 번호(Data `db/v0`, Notification `db/migration`)라 서비스 간에 비교할 수 없고, `serverVersion`은 이미지별 태그가 아니라 릴리스 배포 커밋이다. 화면 표시 전용이며 필수 계약이 아니다. 없는 구버전 서버는 「-」로 표시한다.
 - Data 필수 capability: `content.publication.v1`, `content.history.v1`, `content.notice.withdraw.v1`, `content.app-requirements.v1`, `construction.policy.v1`, `focus.policy.v1`.
-- Notification 필수 capability: `notification.publication.v1`, `notification.history.v1`, `notification.templates.v1`.
+- Notification 필수 capability: `notification.publication.v1`, `notification.history.v1`, `notification.publication.cancel.v1`, `notification.templates.v1`.
 
 응답에 추가 필드나 capability가 있어도 허용한다. 필수 capability 누락·계약 버전 불일치·DB 환경 불일치·FCM 프로젝트 불일치는 기동과 상류 작업을 차단한다. 실제 필드 의미·상태 전이·멱등 처리의 호환성을 계약 테스트로 유지하며 capability 이름만 선언하고 구현을 바꾸면 안 된다. 비호환 변경에는 새 계약 버전을 추가하고 구계약을 병행 제공한다.
 
