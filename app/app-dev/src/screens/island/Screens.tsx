@@ -2943,7 +2943,7 @@ export function RedesignScreens({ e }: any) {
       if (i.kicked) return notify('강퇴된 섬에는 다시 가입할 수 없어요.');
       if (isFull(i)) return notify('정원이 가득 찬 섬이에요');
       act('JOIN', { id: i.id });
-      if (i.approval) setSheetToast('참여 신청이 완료됐어요. 방장이 확인하면 알려드릴게요.');
+      if (i.approval) setSheetToast('참여 신청이 완료됐어요. 섬장이 확인하면 알려드릴게요.');
       else {
         act('TRAVEL_FROM', { name: island.name });
         setVisited(i.id);
@@ -2963,7 +2963,7 @@ export function RedesignScreens({ e }: any) {
           state.onboarded ? (
             // 소속 섬은 이동하고, 미가입 섬은 읽기 전용 관전 경로로 이동한다.
             <Cta
-              note={pending ? '참여 신청을 보냈어요. 방장이 확인하면 알려드릴게요.' : undefined}
+              note={pending ? '참여 신청을 보냈어요. 섬장이 확인하면 알려드릴게요.' : undefined}
               title={i.joined ? '이 섬으로 가기' : '섬 둘러보기'}
               onPress={sail}
             />
@@ -3479,7 +3479,7 @@ export function RedesignScreens({ e }: any) {
                 title={productTitle(o.product)}
                 sub={
                   shared
-                    ? [md(o.at), o.buyer && (isHostName(o.buyer) ? '방장' : o.buyer)]
+                    ? [md(o.at), o.buyer && (isHostName(o.buyer) ? '섬장' : o.buyer)]
                         .filter(Boolean)
                         .join(' · ')
                     : `${md(o.at)} · ${hm(o.at)}`
@@ -3708,7 +3708,7 @@ export function RedesignScreens({ e }: any) {
               <Pressable
                 key={candidate.id}
                 accessibilityRole="radio"
-                accessibilityLabel={`${candidate.name}, 주민 ${residentCount(candidate)}명, ${isHost(candidate) ? '내가 방장' : '멤버'}${current ? ', 현재 메인 섬' : ''}`}
+                accessibilityLabel={`${candidate.name}, 주민 ${residentCount(candidate)}명, ${isHost(candidate) ? '내가 섬장' : '멤버'}${current ? ', 현재 메인 섬' : ''}`}
                 accessibilityState={{ selected }}
                 onPress={() => setMainIslandPick(candidate.id)}
                 style={({ pressed }) => ({
@@ -3759,7 +3759,7 @@ export function RedesignScreens({ e }: any) {
                     )}
                   </View>
                   <Txt kind="meta" style={{ fontSize: 12, lineHeight: 18, color: C.muted }}>
-                    주민 {residentCount(candidate)}명 · {isHost(candidate) ? '내가 방장' : '멤버'}
+                    주민 {residentCount(candidate)}명 · {isHost(candidate) ? '내가 섬장' : '멤버'}
                   </Txt>
                 </View>
                 <MainIslandRadio selected={selected} />
