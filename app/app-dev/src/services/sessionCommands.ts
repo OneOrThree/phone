@@ -33,15 +33,22 @@ import { measureDatadogOperation } from '@/services/datadog';
  */
 function captureFocusLocationSummary(view: FocusFinishView): void {
   const seconds = view.activeSeconds;
-  captureProductEvent('focus_location_summary', {
-    record_id: view.recordId,
-    duration_seconds: seconds,
-    island_seconds: view.kind === 'island' ? seconds : 0,
-    sea_seconds: view.kind === 'sea' ? seconds : 0,
-    unknown_seconds: view.kind === undefined ? seconds : 0,
-    metrics_schema_version: 1,
-    analytics_excluded: 0,
-  });
+  // 자동 종료 세션을 다음 날 복구해 발행해도, 대시보드가 수집 시각이 아닌 서버 완료 시각(completedAt)으로
+  // 집계·완료일 귀속을 하도록 이벤트 시각을 완료 시각으로 덮어쓴다. 파싱 실패 시에만 수집 시각으로 둔다.
+  const completedAt = new Date(view.completedAt);
+  captureProductEvent(
+    'focus_location_summary',
+    {
+      record_id: view.recordId,
+      duration_seconds: seconds,
+      island_seconds: view.kind === 'island' ? seconds : 0,
+      sea_seconds: view.kind === 'sea' ? seconds : 0,
+      unknown_seconds: view.kind === undefined ? seconds : 0,
+      metrics_schema_version: 1,
+      analytics_excluded: 0,
+    },
+    Number.isNaN(completedAt.getTime()) ? undefined : { timestamp: completedAt },
+  );
 }
 
 export type FocusApi = {

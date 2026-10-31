@@ -287,6 +287,8 @@ test('finish — 섬/바다 집중 장소 요약(focus_location_summary)을 발�
     metrics_schema_version: 1,
     analytics_excluded: 0,
   });
+  // 복구일이 아닌 서버 완료 시각으로 집계되도록 이벤트 시각을 completedAt 으로 넘긴다
+  assert.deepEqual(summary[2], { timestamp: new Date('2026-09-22T01:00:00Z') });
 });
 
 test('멱등 재시도 — 응답 유실·retryable 실패는 같은 키·같은 body 로 다시 보낸다', async () => {
