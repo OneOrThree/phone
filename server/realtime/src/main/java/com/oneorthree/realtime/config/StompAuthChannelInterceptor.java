@@ -9,6 +9,7 @@ import com.oneorthree.realtime.common.exception.DomainException;
 import com.oneorthree.realtime.common.exception.UpstreamUnavailableException;
 import com.oneorthree.realtime.common.redis.RedisKeys;
 import com.oneorthree.realtime.focus.IslandFocusSessions;
+import com.oneorthree.realtime.logging.LogContext;
 import com.oneorthree.realtime.membership.MembershipService;
 import com.oneorthree.realtime.message.exception.ChatErrorCode;
 import com.oneorthree.realtime.message.exception.ChatException;
@@ -185,7 +186,7 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
         return message;
     }
 
-    /** CONNECT — 토큰을 검증해 세션에 주체를 묶는다. 집중 판정은 채팅 목적지에서 한다. */
+    /** CONNECT — 토큰을 검증해 세션에 주체를 묶는다(끝나면 접속 로그 한 줄). 집중 판정은 채팅 목적지에서 한다. */
     private void authenticate(StompHeaderAccessor accessor) {
         String authorization = accessor.getFirstNativeHeader("Authorization");
         String token = (authorization != null && authorization.startsWith("Bearer "))
@@ -209,6 +210,21 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
         if (sid != null && chatUserFence.isRevokedDurable(sid)) {
             sessions.closed(accessor.getSessionId()); // 등록을 되돌린다 — 수립 실패 정리(WebSocketConfig)와 같은 길
             throw new StompAuthException(CommonErrorCode.UNAUTHORIZED);
+        }
+        logConnect(accessor);
+    }
+
+    /**
+     * 접속 로그 한 줄(INFO, GROMO-2655) — 인증이 끝난 CONNECT 만, 앱 버전·플랫폼을 <b>이 줄에만</b> 단다. 헤더는 클라이언트 값이라
+     * {@link LogContext#valid} 의 좁은 형식을 통과한 것만 실리고, 없거나 어긋나면 그 키만 빠진다 — 헤더가 없는 구버전 앱의 접속을
+     * 막지 않는다. 사용자·토큰·원본 값은 싣지 않는다(재접속이 몰려도 줄이 커지지 않는다). 문맥은 이 줄을 내고 바로 되돌려, 같은
+     * 스레드가 이어서 처리하는 다음 프레임의 로그에 새지 않는다. STOMP 헤더 이름은 대소문자를 가리므로 앱이 싣는 표기 그대로 읽는다.
+     */
+    private void logConnect(StompHeaderAccessor accessor) {
+        try (LogContext line = LogContext.open()
+                .put(LogContext.APP_VERSION, accessor.getFirstNativeHeader("X-App-Version"))
+                .put(LogContext.APP_PLATFORM, accessor.getFirstNativeHeader("X-App-Platform"))) {
+            log.info("stomp_connect");
         }
     }
 
