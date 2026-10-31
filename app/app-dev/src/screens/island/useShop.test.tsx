@@ -299,6 +299,46 @@ test('구매 실패는 호출부에 던지고, 같은 의도의 재시도는 같
   assert.equal(keys[0], keys[1]); // 응답 유실 재시도 = 같은 Idempotency-Key
 });
 
+test('재조회(refreshAll) 실패 후 재시도해도 구매 이벤트는 1회만 발행한다', async () => {
+  (purchaseProduct as jest.Mock).mockResolvedValue({
+    id: 'o1',
+    productId: 'scarf',
+    spent: 20,
+    currency: 'village_points',
+    ownerType: 'user',
+    owned: true,
+    walletVersion: 8,
+  });
+  const { result } = await renderHook((p: Parameters<typeof useShop>[0]) => useShop(p), {
+    initialProps: params(),
+  });
+  await waitFor(() => assert.equal(result.current.loading, false));
+  mockCapture.mockClear();
+
+  // 구매(POST)는 성공했는데 직후 정본 재조회가 1회 실패 → 멱등 키가 슬롯에 남는다.
+  (getShopWallets as jest.Mock).mockRejectedValueOnce(
+    new ApiError('CLIENT_TIMEOUT', 'timeout', 0, { retryable: true }),
+  );
+  await act(async () => {
+    await result.current.buy({ id: 'scarf', productVersion: 3 }).catch(() => undefined);
+    // refreshAll 의 병렬 job 중 먼저 reject 되지 않은 재조회의 늦은 setState 를 act 안에서 흘려보낸다.
+    await new Promise((r) => setTimeout(r, 0));
+  });
+  // 같은 의도로 재시도 — 서버는 기존 주문을 멱등 재생하고 purchaseProduct 는 다시 resolve 한다.
+  await act(async () => {
+    await result.current.buy({ id: 'scarf', productVersion: 3 });
+  });
+
+  // purchaseProduct 는 커밋/재생으로 2회(같은 키) 호출됐지만 이벤트는 멱등 키당 1회씩만.
+  const idemKeys = (purchaseProduct as jest.Mock).mock.calls.map((c) => c[2]);
+  assert.equal(idemKeys.length, 2);
+  assert.equal(idemKeys[0], idemKeys[1]);
+  expect(mockCapture.mock.calls).toEqual([
+    ['feature_used', { building: 'shop', action: 'purchase' }],
+    ['fish_spent', { reason: 'shop', amount: 20 }],
+  ]);
+});
+
 test('같은 상품의 중복 탭은 진행 중인 promise 를 공유해 요청 1건만 나간다', async () => {
   let release: (v: unknown) => void;
   (purchaseProduct as jest.Mock).mockImplementation(() => new Promise((r) => (release = r)));
@@ -418,6 +458,40 @@ test('개인 외양 PATCH 가 실패하면 feature_used 를 발행하지 않는�
   });
 
   expect(mockCapture.mock.calls).toEqual([]);
+});
+
+test('재조회(getMyInventory) 실패 후 재시도해도 꾸미기 이벤트는 1회만 발행한다', async () => {
+  (patchMyAppearance as jest.Mock).mockResolvedValue({
+    clothes: 'jacket',
+    decor: null,
+    hull: 'raft',
+    position: 'front',
+    version: 3,
+  });
+  const { result } = await renderHook((p: Parameters<typeof useShop>[0]) => useShop(p), {
+    initialProps: params({ route: 'wardrobe' }),
+  });
+  await waitFor(() => assert.equal((getMyInventory as jest.Mock).mock.calls.length, 1));
+  mockCapture.mockClear();
+
+  // PATCH 는 성공했는데 직후 인벤토리 재조회가 1회 실패 → 멱등 키가 슬롯에 남는다.
+  (getMyInventory as jest.Mock).mockRejectedValueOnce(
+    new ApiError('CLIENT_TIMEOUT', 'timeout', 0, { retryable: true }),
+  );
+  await act(async () => {
+    await result.current.equip({ clothes: 'jacket' }).catch(() => undefined);
+  });
+  // 같은 의도로 재시도 — 서버는 기존 외양을 멱등 재생하고 patchMyAppearance 는 다시 resolve 한다.
+  await act(async () => {
+    await result.current.equip({ clothes: 'jacket' });
+  });
+
+  const idemKeys = (patchMyAppearance as jest.Mock).mock.calls.map((c) => c[1]);
+  assert.equal(idemKeys.length, 2);
+  assert.equal(idemKeys[0], idemKeys[1]);
+  expect(mockCapture.mock.calls).toEqual([
+    ['feature_used', { building: 'wardrobe', action: 'equip' }],
+  ]);
 });
 
 test('공동 외양 PATCH — inventory 의 appearance.version 을 expectedVersion 으로 싣는다', async () => {

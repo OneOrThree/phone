@@ -330,6 +330,42 @@ test('착공 POST 가 409 로 실패하면 construction_started·fish_spent 를 
   await h.unmount();
 });
 
+test('착공 성공 뒤 재조회가 재시도 가능한 실패로 끝나 재시도해도 이벤트는 멱등 키당 1회만 발행한다', async () => {
+  let optCalls = 0;
+  serve({
+    ...live(),
+    'POST /islands/srv1/constructions': data(startedBody),
+    'GET /islands/srv1/construction-options': () => {
+      optCalls++;
+      // 2번째 = 착공 커밋 직후 재조회 → 네트워크 실패로 멱등 의도를 슬롯에 남긴다.
+      if (optCalls === 2) throw new TypeError('network down');
+      return data(options([item('library'), item('mail')]));
+    },
+  });
+  const h = await mount({ active: true, islandId: 'local1', now: NOW });
+  await flush();
+  mockCapture.mockClear();
+
+  // 착공 커밋은 성공했는데 직후 정본 재조회가 네트워크로 실패한다.
+  await act(async () => {
+    await h.result.current.build('library').catch(() => undefined);
+  });
+  // 같은 의도로 재시도 — 서버는 기존 착공을 멱등 재생한다(POST 응답은 같은 startedBody).
+  await act(async () => {
+    await h.result.current.build('library');
+  });
+
+  const posts = writes('/islands/srv1/constructions', 'POST');
+  assert.equal(posts.length, 2);
+  assert.equal(idemKey(posts[0]), idemKey(posts[1])); // 같은 멱등 키 = 서버 재생
+  // 실제 착공은 1회뿐 — 이벤트도 멱등 키당 1회씩만.
+  expect(mockCapture.mock.calls).toEqual([
+    ['construction_started', { building_id: 'library' }],
+    ['fish_spent', { reason: 'construction', amount: 100 }],
+  ]);
+  await h.unmount();
+});
+
 test('착공 POST 성공 뒤 재조회가 실패해도 receipt은 클라이언트 홈 상태로 넘긴다', async () => {
   let optionCalls = 0;
   const onStarted = jest.fn();

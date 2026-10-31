@@ -587,6 +587,32 @@ test('같은 글의 중복 탭은 단일 flight 로 합류해 feature_used 를 1
   await hook.unmount();
 });
 
+test('재조회(refreshList) 실패 후 재시도해도 글 작성 이벤트는 1회만 발행한다', async () => {
+  const hook = await mountActive();
+  postNoticeMock.mockResolvedValue({ id: 'n9', title: 't', body: 'b' });
+  mockCapture.mockClear();
+
+  // 글 작성(POST)은 성공했는데 직후 목록 재조회가 1회 실패 → 멱등 키가 슬롯에 남는다.
+  getBoardMock.mockRejectedValueOnce(new ApiError('TEMPORARY', '다시 시도', 503));
+  getBoardMock.mockResolvedValue(board([{ id: 'n9', title: 't' }]));
+  await act(async () => {
+    await settle(hook.result.current.createNotice({ title: 't', body: 'b' }));
+  });
+  // 같은 의도로 재시도 — 서버는 기존 글을 멱등 재생하고 postNotice 는 다시 resolve 한다.
+  await act(async () => {
+    await hook.result.current.createNotice({ title: 't', body: 'b' });
+  });
+
+  // postNotice 는 커밋/재생으로 2회(같은 키) 호출됐지만 이벤트는 멱등 키당 1회만.
+  const keys = postNoticeMock.mock.calls.map((c) => c[2]);
+  assert.equal(keys.length, 2);
+  assert.equal(keys[0], keys[1]);
+  expect(mockCapture.mock.calls).toEqual([
+    ['feature_used', { building: 'board', action: 'write' }],
+  ]);
+  await hook.unmount();
+});
+
 test('쓰기 성공 뒤 목록은 서버 첫 페이지로 갱신된다(create → getBoard 재요청)', async () => {
   const hook = await mountActive();
   postNoticeMock.mockResolvedValue({ id: 'n9', title: 't', body: 'b' });
