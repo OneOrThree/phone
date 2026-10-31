@@ -13,6 +13,13 @@ runtime=importlib.util.module_from_spec(spec);spec.loader.exec_module(runtime)
 
 
 class RuntimeTest(unittest.TestCase):
+    def test_SSM_파라미터는_승인한_DB_전환_배포에만_AllowMigration을_싣는다(self):
+        envelope={'key':'releases/catus-v2.1.0-V2/bundle.zip','object_version':'v1','sha256':'a'*64}
+        self.assertNotIn('AllowMigration',runtime.ssm_params(envelope,False,False))
+        self.assertNotIn('AllowMigration',runtime.ssm_params(envelope,True,False))
+        self.assertEqual(runtime.ssm_params(envelope,False,True)['AllowMigration'],['true'])
+        with self.assertRaisesRegex(ValueError,'rollback'):runtime.ssm_params(envelope,True,True)
+
     def test_최초_발행도_각_서비스_소스의_최근_PR을_연결한다(self):
         paths=[]
         def run(args,**kwargs):

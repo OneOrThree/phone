@@ -236,6 +236,14 @@ def submit_ssm(identifier,document,params,marker,output):
     return command_id
 
 
+def ssm_params(envelope,rollback,allow_migration):
+    """SSM 배포 파라미터. AllowMigration 은 승인한 DB 전환 배포에만 실어 Infra 문서 기본값(false)을 그대로 쓰게 한다."""
+    if allow_migration and rollback:raise ValueError('allow_migration cannot be combined with rollback')
+    params={'ReleaseKey':[envelope['key']],'ObjectVersion':[envelope['object_version']],'BundleSha256':[envelope['sha256']],'Rollback':['true' if rollback else 'false']}
+    if allow_migration:params['AllowMigration']=['true']
+    return params
+
+
 def deploy(args):
     info=config();version(args.version,args.role)
     if os.environ.get('GITHUB_REF') and os.environ['GITHUB_REF']!='refs/heads/release':raise ValueError('release branch required')
@@ -261,7 +269,7 @@ def deploy(args):
             time.sleep(3)
         else:raise TimeoutError('Redis credentials projection timeout')
     identifier=info['INSTANCE_IDS'][args.role];document=info['SSM_DOCUMENTS'][args.role]
-    params={'ReleaseKey':[envelope['key']],'ObjectVersion':[envelope['object_version']],'BundleSha256':[envelope['sha256']],'Rollback':['true' if args.rollback else 'false']}
+    params=ssm_params(envelope,args.rollback,args.allow_migration)
     marker='catus-V2:'+args.role+':'+os.environ.get('GITHUB_RUN_ID',envelope['release_id'])
     command_id=submit_ssm(identifier,document,params,marker,args.output)
     print('SSM '+command_id,flush=True)
@@ -337,7 +345,7 @@ def main():
     p=argparse.ArgumentParser();sub=p.add_subparsers(dest='command',required=True)
     plan=sub.add_parser('plan');plan.add_argument('--role',choices=ROLES,required=True);plan.add_argument('--output',default='plan-V2.json');plan.add_argument('--production',action='store_true');plan.add_argument('--pr-base')
     pub=sub.add_parser('publish');pub.add_argument('--role',choices=ROLES,required=True);pub.add_argument('--version');pub.add_argument('--infra-revision',required=True);pub.add_argument('--output',default='release-V2.json');pub.add_argument('--prs',nargs='*',type=int)
-    dep=sub.add_parser('deploy');dep.add_argument('--role',choices=ROLES,required=True);dep.add_argument('--version',required=True);dep.add_argument('--output',default='deployment-V2.json');dep.add_argument('--rollback',action='store_true')
+    dep=sub.add_parser('deploy');dep.add_argument('--role',choices=ROLES,required=True);dep.add_argument('--version',required=True);dep.add_argument('--output',default='deployment-V2.json');dep.add_argument('--rollback',action='store_true');dep.add_argument('--allow-migration',action='store_true')
     rec=sub.add_parser('record');rec.add_argument('--input',required=True)
     args=p.parse_args()
     if args.command=='plan':
