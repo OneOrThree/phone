@@ -351,7 +351,7 @@ test('이미 설명을 본 기여자는 완공 안내만 받고 이후 홈에서
   expect(screen.queryByTestId('building-completion-guide')).toBeNull();
 });
 
-test('완공 안내가 뜨면 construction_completed 를 building_id 와 함께 완공 1회당 1회 발행한다', async () => {
+test('construction_completed 는 완공 안내를 확인(ack)할 때만 building_id 와 함께 1회 발행한다 — 안내가 뜨기만 한 상태(확인 전)에서는 발행하지 않아 재시작 중복을 막는다', async () => {
   await signInGuideUser();
   await saveAccountGuides('guide-user', { buildings: ['mail'] });
   jest
@@ -361,14 +361,12 @@ test('완공 안내가 뜨면 construction_completed 를 building_id 와 함께 
   mockCapture.mockClear();
   const screen = await render(<CurrentScreens e={e} />);
   await waitFor(() => expect(screen.getByText(/우체통 공사가 끝났어/)).toBeTruthy());
-  // 안내가 뜨는 순간 1회
-  await waitFor(() =>
-    expect(mockCapture.mock.calls).toEqual([['construction_completed', { building_id: 'mail' }]]),
-  );
-  // 같은 완공이 유지되는 재렌더에서는 다시 발행하지 않는다
+  // 안내가 뜨기만 한 상태(확인 전)에서는 발행하지 않는다 — 확인 전 강제 종료 후 재실행해도 중복 없음
+  expect(mockCapture.mock.calls).toEqual([]);
+  // 같은 완공이 유지되는 재렌더에서도 아직 발행하지 않는다
   await screen.rerender(<CurrentScreens e={e} />);
-  expect(mockCapture.mock.calls).toEqual([['construction_completed', { building_id: 'mail' }]]);
-  // 확인(소비) 뒤에도 늘지 않는다
+  expect(mockCapture.mock.calls).toEqual([]);
+  // 확인(ack)하는 순간 정확히 1회 발행하고, 안내는 닫힌다
   await fireEvent.press(screen.getByText('확인'));
   await waitFor(() => expect(screen.queryByTestId('building-completion-guide')).toBeNull());
   expect(mockCapture.mock.calls).toEqual([['construction_completed', { building_id: 'mail' }]]);

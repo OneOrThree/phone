@@ -335,15 +335,10 @@ export function CurrentScreens({ e }: any) {
   const completion =
     guides.data &&
     announcements.find((b) => !guides.data!.completions.includes(`${islandId}:${b}`));
-  // 서버 완공이 확정돼 완공 안내가 처음 뜨는 순간 1회 — 착공 타이머 추정이 아님
+  // construction_completed 는 완공 안내를 "확인(ack)"하는 순간에만 발행한다(아래 onDone).
+  // 안내가 뜨는 시점이 아니라 영속 저장(guides.done)되는 ack 시점에 쏴야, 확인 전 강제 종료 후
+  // 재실행해도 같은 완공이 중복 발행되지 않는다. Set 은 같은 세션 안 재시도의 이중 발행만 막는다.
   const announcedCompletions = useRef<Set<string>>(new Set());
-  useEffect(() => {
-    if (!completion) return;
-    const key = `${islandId}:${completion}`;
-    if (announcedCompletions.current.has(key)) return;
-    announcedCompletions.current.add(key);
-    captureProductEvent('construction_completed', { building_id: completion });
-  }, [completion, islandId]);
   const routeBuildings: Partial<Record<Route, Building>> = {
     hall: 'hall',
     board: 'board',
@@ -456,7 +451,15 @@ export function CurrentScreens({ e }: any) {
           blocked={e.routeTransitionShielded}
           saving={guides.saving}
           error={guides.error}
-          onDone={() => void guides.done({ completions: [`${islandId}:${completion}`] })}
+          onDone={() => {
+            const key = `${islandId}:${completion}`;
+            // 확인(ack)으로 완공 이력을 영속 저장하는 순간 1회 — 재시작 후에도 중복 없음
+            if (!announcedCompletions.current.has(key)) {
+              announcedCompletions.current.add(key);
+              captureProductEvent('construction_completed', { building_id: completion });
+            }
+            void guides.done({ completions: [key] });
+          }}
         />
       )}
       {pending &&
