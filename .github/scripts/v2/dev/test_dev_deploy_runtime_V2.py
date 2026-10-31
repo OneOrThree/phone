@@ -96,6 +96,14 @@ class CommandFailureTest(unittest.TestCase):
             m.aws_secret('catus/dev/env-v2'); m.aws_secret('catus/dev/cicd-v2')
         self.assertEqual(self.message(b'denied on jwt-s3cret-value in oneorthree2\n'),self.PREFIX+': denied on *** in ***')
 
+    def test_each_line_of_a_multiline_secret_is_masked(self):
+        env={'APPLE_PRIVATE_KEY':'-----BEGIN KEY-----\nMIGTAgEAMBMG\n-----END KEY-----'}
+        with processes(proc(0,json.dumps(env).encode())): m.aws_secret('catus/dev/env-v2')
+        self.assertEqual(self.message(b'bad key line MIGTAgEAMBMG'),self.PREFIX+': bad key line ***')
+        m.secret_values.clear()
+        m.remember_env_secrets({'business-api':"APPLE_PRIVATE_KEY='-----BEGIN KEY-----\nMIGTAgEAMBMG\n-----END KEY-----'\n"})
+        self.assertEqual(self.message(b'bad key line MIGTAgEAMBMG'),self.PREFIX+': bad key line ***')
+
     def test_generated_env_values_are_masked(self):
         m.remember_env_secrets({'data-api':"DB_URL='jdbc:postgresql://u:derived-pw@db/x'\nA=1\n"})
         self.assertEqual(self.message(b'bad url jdbc:postgresql://u:derived-pw@db/x with A=1'),self.PREFIX+': bad url *** with A=1')

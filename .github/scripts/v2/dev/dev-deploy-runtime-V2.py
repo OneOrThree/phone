@@ -24,19 +24,27 @@ class CommandError(RuntimeError):
         self.returncode = returncode
 
 
-# aws_secret()이 돌려준 값. 실패 메시지에서 가린다.
+# aws_secret()이 돌려준 값과 생성한 env 값. 실패 메시지에서 가린다.
 secret_values = set()
 
 
+def secret_parts(text):
+    """여러 줄 값은 stderr에 줄 조각으로 나온다. 줄 전체, KEY=VALUE의 값, 따옴표를 벗긴 값을 모두 후보로 삼는다."""
+    parts = set()
+    for line in text.splitlines():
+        value = line.strip().partition('=')[2]
+        parts |= {line.strip(), value, value.strip('\'"')}
+    return parts
+
+
 def remember_env_secrets(envs):
-    """생성한 env 파일의 값도 가린다. 앱 payload는 JSON 한 줄이라 stdin 가리기가 값 단위로 닿지 않는다."""
-    secret_values.update(line.partition('=')[2].strip('\'"') for text in envs.values() for line in text.splitlines())
+    """앱 payload는 JSON 한 줄이라 stdin 가리기가 값 단위로 닿지 않는다. 생성한 env 값을 미리 등록한다."""
+    for text in envs.values(): secret_values.update(secret_parts(text))
 
 
 def mask(text, data):
-    """실패 메시지에서 시크릿 값과 이 호출의 stdin(줄, KEY=VALUE의 값)을 가린다."""
-    lines = [line.strip() for line in (data or b'').decode(errors='replace').splitlines()]
-    candidates = secret_values | set(lines) | {line.partition('=')[2] for line in lines}
+    """실패 메시지에서 시크릿 값과 이 호출의 stdin을 가린다."""
+    candidates = secret_values | secret_parts((data or b'').decode(errors='replace'))
     # 긴 값부터 가려야 일부만 남지 않는다. 4자 미만은 흔한 토큰이라 가리면 오탐이 더 크다.
     # 인코딩·이스케이프로 바뀐 값은 못 가린다.
     for value in sorted(candidates, key=len, reverse=True):
@@ -63,7 +71,8 @@ def aws_secret(name):
                    '--secret-id', name, '--query', 'SecretString', '--output', 'text'])
     result = json.loads(raw)
     if not isinstance(result, dict): raise ValueError('시크릿이 JSON 객체가 아닙니다')
-    secret_values.update(v for v in result.values() if isinstance(v, str))
+    for value in result.values():
+        if isinstance(value, str): secret_values.update(secret_parts(value))
     return result
 
 
