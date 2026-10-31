@@ -134,6 +134,8 @@ function LiveVerificationCamera({
   const scoreIdx = tflite ? scoreTensorIndex(tflite.outputs) : -1;
   const resizer = resize.resizer;
   const samples = useMemo(() => createSynchronizable<Samples>(emptySamples()), []);
+  const captureEpoch = useMemo(() => createSynchronizable(0), []);
+  const interrupted = useMemo(() => createSynchronizable(false), []);
   const mounted = useRef(true);
   const lastResult = useRef(0);
   const lastDetection = useRef<VerificationDetection>('checking');
@@ -151,6 +153,7 @@ function LiveVerificationCamera({
   const samplingRef = useRef(true);
   const wakeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
+    captureEpoch.setBlocking(captureEpoch.getBlocking() + 1);
     samples.setBlocking(emptySamples());
     samplingRef.current = true;
     setSampling(true);
@@ -160,7 +163,7 @@ function LiveVerificationCamera({
     return () => {
       if (wakeTimer.current) clearTimeout(wakeTimer.current);
     };
-  }, [periodic, samples, onDetection, reportObjects]);
+  }, [periodic, samples, captureEpoch, onDetection, reportObjects]);
 
   useEffect(() => {
     mounted.current = true;
@@ -205,12 +208,19 @@ function LiveVerificationCamera({
 
   const receiveScores = useCallback(
     (
+      epoch: number,
       scores: number[] | null,
       error = '',
       startedAt = Date.now(),
       objects: (StudyObjectScores | null)[] = [],
     ) => {
-      if (!mounted.current || (periodic && !samplingRef.current)) return;
+      if (
+        !mounted.current ||
+        epoch !== captureEpoch.getBlocking() ||
+        (interrupted.getBlocking() && scores !== null) ||
+        (periodic && !samplingRef.current)
+      )
+        return;
       if (scores && !frameReady.current) {
         frameReady.current = true;
         onReady();
@@ -241,6 +251,8 @@ function LiveVerificationCamera({
         if (wakeTimer.current) clearTimeout(wakeTimer.current);
         wakeTimer.current = setTimeout(
           () => {
+            captureEpoch.setBlocking(captureEpoch.getBlocking() + 1);
+            interrupted.setBlocking(false);
             samples.setBlocking(emptySamples());
             samplingRef.current = true;
             setSampling(true);
@@ -249,13 +261,15 @@ function LiveVerificationCamera({
         );
       }
     },
-    [onDetection, reportObjects, onReady, periodic, samples],
+    [onDetection, reportObjects, onReady, periodic, samples, captureEpoch, interrupted],
   );
 
   const onFrame = useCallback(
     (frame: Frame) => {
       'worklet';
+      const epoch = captureEpoch.getBlocking();
       try {
+        if (interrupted.getBlocking()) return;
         if (!tflite || !resizer || scoreIdx < 0) return;
         const previous = samples.getBlocking();
         const now = Date.now();
@@ -294,12 +308,15 @@ function LiveVerificationCamera({
         const objects = [...(recent.length ? previous.objects : []), objectScore].slice(
           -MEASUREMENT_BATCH_SIZE,
         );
+        if (epoch !== captureEpoch.getBlocking() || interrupted.getBlocking()) return;
         samples.setBlocking({ lastAt: now, scores, objects, startedAt, complete });
         // 주기 검사는 세 장이 모일 때만 결과를 갱신한다. 중간 두 장은 이전 판정을 지우지 않는다.
-        if (!periodic || complete) scheduleOnRN(receiveScores, scores, '', startedAt, objects);
+        if (!periodic || complete)
+          scheduleOnRN(receiveScores, epoch, scores, '', startedAt, objects);
       } catch (error) {
+        if (epoch !== captureEpoch.getBlocking() || interrupted.getBlocking()) return;
         samples.setBlocking({ ...emptySamples(), lastAt: Date.now(), complete: periodic });
-        scheduleOnRN(receiveScores, null, String(error));
+        scheduleOnRN(receiveScores, epoch, null, String(error));
       } finally {
         frame.dispose();
       }
@@ -309,6 +326,8 @@ function LiveVerificationCamera({
       resizer,
       scoreIdx,
       samples,
+      captureEpoch,
+      interrupted,
       receiveScores,
       periodic,
       objectTflite,
@@ -337,6 +356,7 @@ function LiveVerificationCamera({
     },
     onStopped: () => {
       if (!mounted.current) return;
+      captureEpoch.setBlocking(captureEpoch.getBlocking() + 1);
       frameReady.current = false;
       if (__DEV__)
         console.log(
@@ -347,6 +367,8 @@ function LiveVerificationCamera({
     },
     onInterruptionStarted: () => {
       if (!mounted.current) return;
+      captureEpoch.setBlocking(captureEpoch.getBlocking() + 1);
+      interrupted.setBlocking(true);
       frameReady.current = false;
       lastResult.current = 0;
       samples.setBlocking(emptySamples());
@@ -354,17 +376,23 @@ function LiveVerificationCamera({
       reportObjects(null);
       onPaused();
     },
+    onInterruptionEnded: () => {
+      if (!mounted.current) return;
+      captureEpoch.setBlocking(captureEpoch.getBlocking() + 1);
+      samples.setBlocking(emptySamples());
+      interrupted.setBlocking(false);
+    },
     onError,
   });
   useEffect(() => {
     if (!periodic || !sampling) return;
     // 프레임이 오지 않아도 카메라가 계속 켜져 있지 않게 검사 시간을 제한한다.
     const timeout = setTimeout(
-      () => receiveScores(null, 'measurement frames timed out'),
+      () => receiveScores(captureEpoch.getBlocking(), null, 'measurement frames timed out'),
       MEASUREMENT_CAPTURE_TIMEOUT_MS,
     );
     return () => clearTimeout(timeout);
-  }, [periodic, sampling, receiveScores]);
+  }, [periodic, sampling, receiveScores, captureEpoch]);
   useEffect(() => {
     if (__DEV__) console.log('[verification-camera] preview visible', previewVisible);
   }, [previewVisible]);

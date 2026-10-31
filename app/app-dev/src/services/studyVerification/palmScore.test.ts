@@ -16,7 +16,7 @@ describe('palmScore', () => {
   test('maxSigmoid squashes the best anchor', () => {
     expect(maxSigmoid(new Float32Array([-5, 0, 2]))).toBeCloseTo(0.8808, 3);
     expect(maxSigmoid(new Float32Array([200]))).toBeCloseTo(1, 6); // 클램프
-    expect(maxSigmoid(new Float32Array([]))).toBe(0);
+    expect(maxSigmoid(new Float32Array([]))).toBeNaN();
   });
 
   test('majorityPass needs 2 of 3 by default', () => {
@@ -25,3 +25,11 @@ describe('palmScore', () => {
     expect(majorityPass([0.5, 0.5, 0.0])).toBe(true); // 경계 0.5 포함
   });
 });
+
+test.each([Infinity, -Infinity, NaN])(
+  '비유한 모델 출력 %s는 정상 확률이나 다수결 성공으로 바꾸지 않는다',
+  (score) => {
+    expect(maxSigmoid(new Float32Array([2, score]))).toBeNaN();
+    expect(majorityPass([score, score, 0])).toBe(false);
+  },
+);
