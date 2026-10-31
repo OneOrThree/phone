@@ -1,6 +1,6 @@
 [
-  "env:dev service:gromo-back-dev",
-  "env:dev service:gromo-business-dev",
-  "env:dev service:gromo-notification-dev",
-  "env:dev service:gromo-realtime-dev"
+  "env:dev service:business-api",
+  "env:dev service:data-api",
+  "env:dev service:notification",
+  "env:dev service:realtime"
 ]
