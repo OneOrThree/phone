@@ -44,6 +44,7 @@ import {
   useIslandManagement,
 } from '@/screens/interiors/useIslandManagement';
 import { getSession, sessionGeneration } from '@/services/api/session';
+import { captureProductEvent } from '@/services/posthog';
 import { t } from '@/i18n';
 import { useVisitorJoin } from '@/screens/island/useVisitorJoin';
 import { useInviteShare } from '@/screens/island/useInviteShare';
@@ -1110,7 +1111,13 @@ export function Hall({ e }: any) {
           accessibilityLabel={label}
           accessibilityState={{ selected: on }}
           hitSlop={LG.tabHitSlop}
-          onPress={() => ledger.setTab(TAB_KEY[label])}
+          onPress={() => {
+            const next = TAB_KEY[label];
+            // 거래내역(적립·지출) 장을 실제로 펼치는 순간 1회 — 기본 잔액 요약·같은 장 재탭은 제외
+            if (next !== ledger.tab && next !== 'balance')
+              captureProductEvent('feature_used', { building: 'ledger', action: 'open' });
+            ledger.setTab(next);
+          }}
           style={{
             position: 'absolute',
             zIndex: on ? LG.tabOpenZ : LG.tabZ,

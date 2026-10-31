@@ -292,7 +292,7 @@ test('build — POST 세 필드·멱등 키, BUILDING·시각은 응답대로, �
   await h.unmount();
 });
 
-test('착공 POST 커밋 성공 시 construction_started 를 building_id 와 함께 1회 발행한다', async () => {
+test('착공 POST 커밋 성공 시 construction_started 와 fish_spent 를 1회씩 발행한다', async () => {
   serve({
     ...live(),
     'POST /islands/srv1/constructions': data(startedBody),
@@ -305,11 +305,15 @@ test('착공 POST 커밋 성공 시 construction_started 를 building_id 와 함
     await h.result.current.build('library');
   });
 
-  expect(mockCapture.mock.calls).toEqual([['construction_started', { building_id: 'library' }]]);
+  // fish_spent 의 amount 는 서버 응답의 spent.amount(실제 차감액) 그대로다
+  expect(mockCapture.mock.calls).toEqual([
+    ['construction_started', { building_id: 'library' }],
+    ['fish_spent', { reason: 'construction', amount: 100 }],
+  ]);
   await h.unmount();
 });
 
-test('착공 POST 가 409 로 실패하면 construction_started 를 발행하지 않는다', async () => {
+test('착공 POST 가 409 로 실패하면 construction_started·fish_spent 를 발행하지 않는다', async () => {
   serve({
     ...live(),
     'POST /islands/srv1/constructions': envelope('STATE_CONFLICT', 409),

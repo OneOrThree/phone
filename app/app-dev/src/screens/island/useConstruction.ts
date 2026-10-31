@@ -476,9 +476,15 @@ export function useConstruction({
           ),
         (result) => setStarted(result as ConstructionStarted),
         (result) => {
+          const started = result as ConstructionStarted;
           // 서버 착공(POST 커밋) 성공 시 1회 — 완공 추정이 아닌 착공 확정 공통 지점
           captureProductEvent('construction_started', { building_id: buildingId });
-          onStarted?.(result as ConstructionStarted, target);
+          // 착공으로 섬 통장(물고기)에서 실제 차감된 금액 — 서버가 확정한 spent.amount
+          captureProductEvent('fish_spent', {
+            reason: 'construction',
+            amount: started.spent.amount,
+          });
+          onStarted?.(started, target);
         },
       );
     },

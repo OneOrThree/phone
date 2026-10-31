@@ -23,6 +23,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { subscribeScreenTimeObservations } from '@/services/screenTimeEvents';
 import { ApiError, CLIENT_STALE_SESSION, uuid } from '@/services/api/client';
 import { sessionGeneration } from '@/services/api/session';
+import { captureProductEvent } from '@/services/posthog';
 import {
   createNotice as postNotice,
   createNoticeComment as postComment,
@@ -436,7 +437,11 @@ export function useBoardNotices({ active, scopeKey }: { active: boolean; scopeKe
         `create:${islandId}`,
         JSON.stringify(body),
         (key) => postNotice(islandId, body, key),
-        () => refreshList(e, generation),
+        () => {
+          // 글 작성 POST 커밋 성공 1회(중복 탭은 단일 flight 로 합류) — 게시판 핵심 행동
+          captureProductEvent('feature_used', { building: 'board', action: 'write' });
+          return refreshList(e, generation);
+        },
       );
     },
     [writable, runWrite, refreshList],

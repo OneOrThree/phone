@@ -12,6 +12,15 @@ jest.mock('@/services/api/townHall', () => ({
   getTownHall: jest.fn(),
   getLedger: jest.fn(),
 }));
+const mockCapture = jest.fn();
+jest.mock('@/services/posthog', () => ({
+  captureProductEvent: (...a: unknown[]) => mockCapture(...a),
+  getPostHogClient: () => null,
+  initPostHog: () => {},
+  trackPostHogScreen: () => {},
+  identifyPostHogUser: () => {},
+  resetPostHogUser: () => {},
+}));
 // 기본은 402×874 시안 화면. 화면 크기별 단언은 테스트 안에서 잠시 바꾸고 되돌린다
 const DESIGN_LAYOUT = {
   width: 402,
@@ -430,6 +439,58 @@ test('포스트잇을 누르면 그 장이 펼쳐진다 — 잔액 → 적립 �
   assert.equal(style(screen.getByTestId('ledger-total')).color, '#994C3E');
   assert.equal(screen.queryByText('퀘스트 보상'), null);
   assert.equal(screen.queryByTestId('ledger-amount-e1'), null);
+});
+
+test('거래내역 장(적립·지출)을 펼치면 feature_used(ledger/open) 를 열람당 1회 발행한다 — 잔액·같은 장 재탭 제외', async () => {
+  townHallMock.mockResolvedValue(
+    screenBody(
+      {
+        earnedTotal: 125,
+        spentTotal: 60,
+        items: [
+          entry('e1', { amount: 34 }),
+          entry('s1', { direction: 'spend', reason: 'construction_debit', amount: 60 }),
+        ],
+      },
+      1240,
+    ),
+  );
+  ledgerMock.mockImplementation((_island: string, { direction }: { direction?: string }) =>
+    Promise.resolve(
+      page({
+        earnedTotal: 125,
+        spentTotal: 60,
+        items:
+          direction === 'earn'
+            ? [entry('e1', { amount: 34 })]
+            : [entry('s1', { direction: 'spend', reason: 'construction_debit', amount: 60 })],
+      }),
+    ),
+  );
+  const screen = await render(<Hall e={e()} />);
+  await waitFor(() => assert.ok(screen.getByTestId('ledger-balance')));
+  mockCapture.mockClear();
+
+  // 적립 장을 펼치면 1회
+  await fireEvent.press(screen.getByTestId('ledger-tab-적립'));
+  await waitFor(() => assert.ok(screen.getByTestId('ledger-total')));
+  expect(mockCapture.mock.calls).toEqual([['feature_used', { building: 'ledger', action: 'open' }]]);
+
+  // 같은 적립 장을 다시 눌러도 늘지 않는다
+  await fireEvent.press(screen.getByTestId('ledger-tab-적립'));
+  expect(mockCapture.mock.calls).toEqual([['feature_used', { building: 'ledger', action: 'open' }]]);
+
+  // 지출 장은 다른 열람이라 1회 더
+  await fireEvent.press(screen.getByTestId('ledger-tab-지출'));
+  await waitFor(() => assert.ok(screen.getByText('건설 사용')));
+  expect(mockCapture.mock.calls).toEqual([
+    ['feature_used', { building: 'ledger', action: 'open' }],
+    ['feature_used', { building: 'ledger', action: 'open' }],
+  ]);
+
+  // 잔액(요약)으로 돌아가는 건 거래내역 열람이 아니라 발행하지 않는다
+  await fireEvent.press(screen.getByTestId('ledger-tab-잔액'));
+  assert.equal(mockCapture.mock.calls.length, 2);
 });
 
 test('잔액·합계·거래 금액은 줄높이가 글자보다 커서 고운돋움 숫자 윗부분이 잘리지 않는다(GROMO-2487)', async () => {
