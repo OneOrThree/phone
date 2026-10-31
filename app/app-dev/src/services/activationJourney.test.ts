@@ -55,3 +55,17 @@ test('userId 가 없으면 발행하지 않는다', async () => {
   await markActivationStage(undefined, 'login_completed');
   expect(capture.mock.calls).toHaveLength(0);
 });
+
+test('timestamp 를 주면 captureProductEvent 에 이벤트 시각으로 전달한다', async () => {
+  const when = new Date('2026-09-22T01:00:00Z');
+  await markActivationStage('u3', 'login_completed');
+  await markActivationStage('u3', 'first_focus_started', { prerequisite: 'login_completed' });
+  await markActivationStage('u3', 'first_focus_completed', {
+    prerequisite: 'first_focus_started',
+    extra: { duration_seconds: 900 },
+    timestamp: when,
+  });
+  const completed = steps('first_focus_completed');
+  expect(completed).toHaveLength(1);
+  expect(completed[0][2]).toEqual({ timestamp: when });
+});

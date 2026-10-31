@@ -68,13 +68,17 @@ function addStage(userId: string, stage: string): Promise<string[]> {
   return write;
 }
 
-function emit(stage: string, extra?: Record<string, string | number>): void {
-  captureProductEvent('activation_step', {
-    activation_schema_version: 1,
-    journey: JOURNEY,
-    stage,
-    ...extra,
-  });
+function emit(stage: string, extra?: Record<string, string | number>, timestamp?: Date): void {
+  captureProductEvent(
+    'activation_step',
+    {
+      activation_schema_version: 1,
+      journey: JOURNEY,
+      stage,
+      ...extra,
+    },
+    timestamp ? { timestamp } : undefined,
+  );
 }
 
 let loginViewedEmitted = false;
@@ -99,13 +103,18 @@ export function markLoginViewed(): void {
 export async function markActivationStage(
   userId: string | undefined,
   stage: ActivationStage,
-  opts: { prerequisite?: ActivationStage; extra?: Record<string, string | number> } = {},
+  opts: {
+    prerequisite?: ActivationStage;
+    extra?: Record<string, string | number>;
+    // 서버 확정 시각으로 이벤트 시각을 덮어쓴다(예: 자동 종료 뒤 늦게 복구된 완료). 미지정이면 수집 시각.
+    timestamp?: Date;
+  } = {},
 ): Promise<void> {
   if (!userId) return;
   const stages = await readStages(userId);
   if (stages.includes(stage)) return;
   if (opts.prerequisite && !stages.includes(opts.prerequisite)) return;
-  emit(stage, opts.extra);
+  emit(stage, opts.extra, opts.timestamp);
   await addStage(userId, stage);
 }
 

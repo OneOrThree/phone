@@ -314,11 +314,14 @@ export const createSessionCommands = (deps: SessionCommandDeps) => {
         // 자동 종료된 미확인 결과도 장소 요약과 최초 완료를 남긴다 — finish 경로만으로는 돌아오지 않는
         // 세션이 빠지고, 최초 완료가 나중 수동 종료일로 잘못 기록된다. duration>0 인 유효 완료만 소비한다.
         captureFocusLocationSummary(pending);
-        if (pending.activeSeconds > 0)
+        if (pending.activeSeconds > 0) {
+          const completedAt = new Date(pending.completedAt);
           void markActivationStage(getSession()?.userId, 'first_focus_completed', {
             prerequisite: 'first_focus_started',
             extra: { duration_seconds: pending.activeSeconds },
+            ...(Number.isNaN(completedAt.getTime()) ? {} : { timestamp: completedAt }),
           });
+        }
         return 'focusResult';
       }
       return null;
@@ -426,11 +429,14 @@ export const createSessionCommands = (deps: SessionCommandDeps) => {
           captureFocusLocationSummary(result);
           // duration_seconds>0 인 실제 완료만 최초 완료로 소비한다 — 0초 완료를 소비하면 대시보드가
           // 인정하지 않는데도 중복 방지 때문에 이후 실제 완료가 퍼널·리텐션에서 영구 누락된다.
-          if (result.activeSeconds > 0)
+          if (result.activeSeconds > 0) {
+            const completedAt = new Date(result.completedAt);
             void markActivationStage(getSession()?.userId, 'first_focus_completed', {
               prerequisite: 'first_focus_started',
               extra: { duration_seconds: result.activeSeconds },
+              ...(Number.isNaN(completedAt.getTime()) ? {} : { timestamp: completedAt }),
             });
+          }
           return result;
         }),
       ),
