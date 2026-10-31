@@ -16,7 +16,7 @@ import {
   View,
   type AppStateStatus,
 } from 'react-native';
-import { telescopeSea } from '@/screens/sea/seaAssets';
+import { seaAssets, telescopeSea } from '@/screens/sea/seaAssets';
 import { act, cleanup, fireEvent, render, waitFor, within } from '@testing-library/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
@@ -212,6 +212,7 @@ function Harness({
   soundPlayer,
   onPreviewAudio,
   localePref = 'system',
+  fromSea = false,
 }: any) {
   const [activeRoute, setActiveRoute] = useState(route);
   const [shielded, setShielded] = useState(false);
@@ -273,6 +274,7 @@ function Harness({
       e={{
         state,
         route: flow ? activeRoute : route,
+        fromSea,
         dispatch,
         go,
         replace: jest.fn(),
@@ -3692,3 +3694,19 @@ describe('설정 「알림」 토글', () => {
     expect(toggle().props.accessibilityState.checked).toBe(true);
   });
 });
+
+test.each(['wardrobe', 'profile', 'settings'])(
+  '소속 섬이 있어도 바다에서 연 %s 시트는 바다 배경을 유지한다',
+  async (route) => {
+    const screen = await render(<Harness route={route} full fromSea />);
+    expect(screen.getByTestId('island-sheet-backdrop').props.source).toBe(seaAssets.background);
+  },
+);
+
+test.each(['wardrobe', 'profile', 'settings'])(
+  '섬에서 연 %s 시트는 기존 부두 배경을 유지한다',
+  async (route) => {
+    const screen = await render(<Harness route={route} full />);
+    expect(screen.getByTestId('island-sheet-backdrop').props.source).toBe(art['bldbg/dock']);
+  },
+);

@@ -157,7 +157,7 @@ npm run review:v2-journeys
 
 iOS 스토어 버전은 `1.0.2`(App Store Connect 에 새로 만든 Cattus 앱의 첫 버전과 맞춤), Android 는 동결된 1.x 패키지를 잇는 `2.0.1` 입니다. expo-updates `runtimeVersion` 은 플랫폼마다 따로 둡니다 — iOS `2.0.0-push-meta-assets-v1`(GROMO-2523 푸시·GROMO-2544 Meta 네이티브, 체크인 `ios/Cattus/Supporting/Expo.plist` 도 같은 값), Android `2.0.1-android-push-assets-v1`(GROMO-2611). 런타임을 가르면 이전 런타임(iOS `2.0.0`) 바이너리는 새 OTA 를 받지 않고, 그 사용자는 새 바이너리로 업데이트해야 이후 수정을 받습니다. `scripts/ota-update.sh` 는 기본적으로 현재 커밋의 iOS·Android 런타임에 함께 발행하며 `--platform ios|android|all`로 한 플랫폼만 고를 수 있습니다. 이전 iOS 런타임 전용 핫픽스는 그 바이너리의 커밋에서 브랜치를 만든 뒤 새 `ota-update.sh`를 해당 브랜치에 커밋으로 들여오고 `./scripts/ota-update.sh --platform ios "수정 내용 한 줄"`로 발행하세요. 옛 커밋에서 두 플랫폼을 함께 발행하면 Android 에 옛 JS 가 나가고, `eas update` 를 직접 부르면 이 스크립트의 운영값 주입·사전 검사를 건너뛰어 dev 설정이 운영 번들에 박힐 수 있습니다. `app.config.js` 의 `version` 은 Android 용 `2.0.1` 이고, iOS 값은 `iosStoreVersionConfig.js` 의 `IOS_STORE_VERSION` 이 정본입니다 — prebuild 가 Info.plist 와 pbxproj 를 다시 써도 이 플러그인이 `MARKETING_VERSION` 과 `CFBundleShortVersionString` 을 `1.0.2` 로 되돌립니다. iOS 스토어 버전을 올릴 때는 pbxproj·Info.plist 와 이 상수를 함께 바꾸세요. iOS 식별자는 `com.oneorthree.focuscat`, Android 식별자는 `com.oneorthree.gromo`입니다. Xcode 프로젝트·워크스페이스·스킴·메인 타깃 이름은 `Cattus`(`ios/Cattus.xcworkspace`)이고, 홈 화면 앱 이름은 한국어 기기 `집중할고양`·그 외 `cattus` 입니다(`ios/Cattus/Supporting/*.lproj/InfoPlist.strings`·`locales/*.json`·Android `values-ko`). 번들 ID·URL 스킴 `gromo`·저장 키는 배포된 사용자 데이터와 묶여 있어 바꾸지 않습니다.
 Kakao는 2.0 전용 Kakao 앱의 native key `1280641e9b639a279b7406f24b059703`을 iOS·Android 공통으로 씁니다. Kakao provider ID는 Kakao 앱마다 따로 발급되므로, 1.x 앱(native key `af3ff0c5…`)으로 가입한 카카오 사용자는 2.0에서 다른 계정으로 로그인됩니다(팀 결정, 2026-09-29). Kakao Developers 콘솔의 이 Kakao 앱에 iOS bundle ID `com.oneorthree.focuscat`, Android package `com.oneorthree.gromo`와 배포 서명 키 해시를 등록해야 합니다. 두 플랫폼 모두 OAuth callback scheme은 `kakao<key>`이고, iOS `Info.plist`와 Android manifest에 `kakao1280641e9b639a279b7406f24b059703` scheme이 들어 있어야 합니다.
-Android release task graph는 기본 차단됩니다. Android legacy 세션의 RT를 잃지 않는 서버 멱등 승격 계약이 준비되고 검증된 뒤에만 `GROMO_LEGACY_SESSION_MIGRATION_READY=1`을 지정해 release 빌드를 실행하세요. release에는 실제 약관 문서 버전 `EXPO_PUBLIC_TERMS_VERSION`과 운영 API URL `EXPO_PUBLIC_API_URL=https://catus-api.oneorthree.world`이 모두 필요합니다. URL이 빠졌거나 dev/다른 주소이면 release artifact를 만들지 않습니다. 예를 들어 `GROMO_LEGACY_SESSION_MIGRATION_READY=1 EXPO_PUBLIC_TERMS_VERSION=2026-09 EXPO_PUBLIC_API_URL=https://catus-api.oneorthree.world ./gradlew :app:assembleRelease`입니다. 조건은 release artifact 작업에만 적용되며, debug 빌드와 `check`에는 영향을 주지 않습니다. release에는 기존 Play 업로드 키도 `android/credentials/prod/`에 필요하며, 새 업로드 키를 발급하지 않습니다.
+Android release task graph는 기본 차단됩니다. Android legacy 세션의 RT를 잃지 않는 서버 멱등 승격 계약이 준비되고 검증된 뒤에만 `GROMO_LEGACY_SESSION_MIGRATION_READY=1`을 지정해 release 빌드를 실행하세요. release에는 실제 약관 문서 버전 `EXPO_PUBLIC_TERMS_VERSION`과 운영 API URL `EXPO_PUBLIC_API_URL=https://catus-api-v2.oneorthree.world`이 모두 필요합니다. URL이 빠졌거나 dev/다른 주소이면 release artifact를 만들지 않습니다. 예를 들어 `GROMO_LEGACY_SESSION_MIGRATION_READY=1 EXPO_PUBLIC_TERMS_VERSION=2026-09 EXPO_PUBLIC_API_URL=https://catus-api-v2.oneorthree.world ./gradlew :app:assembleRelease`입니다. 조건은 release artifact 작업에만 적용되며, debug 빌드와 `check`에는 영향을 주지 않습니다. release에는 기존 Play 업로드 키도 `android/credentials/prod/`에 필요하며, 새 업로드 키를 발급하지 않습니다.
 
 ### 서버 API 기반 (`src/services/api/`, GROMO-2004)
 
@@ -181,7 +181,7 @@ Android release task graph는 기본 차단됩니다. Android legacy 세션의 R
 ### 집중 시작의 운영 계약 호환
 
 2026-10-29 확인한 운영 `catus-v2.1.0`은 집중 시작 본문의 `seat`를 거절합니다. 실제 API 주소가
-`https://catus-api.oneorthree.world`이면 기본적으로 자리 좌표만 생략하고 집중을 시작합니다.
+`https://catus-api-v2.oneorthree.world`이면 기본적으로 자리 좌표만 생략하고 집중을 시작합니다.
 운영 API를 쓰는 개발·TestFlight 빌드도 같은 동작이며, 이미 지원하는 dev API에는 좌표를 보냅니다.
 
 `EXPO_PUBLIC_FOCUS_SEAT_ENABLED=0`은 모든 환경에서 생략, `1`은 모든 환경에서 전송입니다.
@@ -194,11 +194,11 @@ OTA 스크립트는 셸의 `EXPO_PUBLIC_*`를 비우고 이 정본을 읽습니�
 
 Catus 테스트 빌드를 TestFlight에 올립니다. 공개 릴리스 설정(약관 버전·Datadog RUM)은 `ios/release-config.sh`, App Store Connect API 키는 `ios/fastlane/.env`(gitignore, 양식은 `.env.example`)에 둡니다.
 
-서버의 dual-audience 지원(`gromo`와 `focuscat`)이 배포되고 기존 Apple 로그인 계정으로 검증되기 전까지는 iOS archive와 TestFlight 업로드가 차단됩니다. 릴리스에는 실제 배포 약관 문서 버전 `EXPO_PUBLIC_TERMS_VERSION`과 운영 API URL `EXPO_PUBLIC_API_URL=https://catus-api.oneorthree.world`이 필요하며, 빠졌거나 다른 주소이면 `ios/testflight.sh`, Fastlane `beta`, Xcode Release gate가 차단합니다. `ios/testflight.sh`와 Fastlane `beta` lane이 같은 `EXPO_PUBLIC_APPLE_LOGIN_ENABLED=1` readiness flag를 확인하므로 직접 Fastlane을 실행해도 우회할 수 없습니다. 이 Apple 플래그는 로그인 화면의 Apple 버튼에도 쓰이며, 설정하지 않은 debug/dev 빌드에는 출시 gate가 적용되지 않습니다.
+서버의 dual-audience 지원(`gromo`와 `focuscat`)이 배포되고 기존 Apple 로그인 계정으로 검증되기 전까지는 iOS archive와 TestFlight 업로드가 차단됩니다. 릴리스에는 실제 배포 약관 문서 버전 `EXPO_PUBLIC_TERMS_VERSION`과 운영 API URL `EXPO_PUBLIC_API_URL=https://catus-api-v2.oneorthree.world`이 필요하며, 빠졌거나 다른 주소이면 `ios/testflight.sh`, Fastlane `beta`, Xcode Release gate가 차단합니다. `ios/testflight.sh`와 Fastlane `beta` lane이 같은 `EXPO_PUBLIC_APPLE_LOGIN_ENABLED=1` readiness flag를 확인하므로 직접 Fastlane을 실행해도 우회할 수 없습니다. 이 Apple 플래그는 로그인 화면의 Apple 버튼에도 쓰이며, 설정하지 않은 debug/dev 빌드에는 출시 gate가 적용되지 않습니다.
 
 ```sh
 cd ios
-EXPO_PUBLIC_API_URL=https://catus-api.oneorthree.world EXPO_PUBLIC_APPLE_LOGIN_ENABLED=1 ./testflight.sh
+EXPO_PUBLIC_API_URL=https://catus-api-v2.oneorthree.world EXPO_PUBLIC_APPLE_LOGIN_ENABLED=1 ./testflight.sh
 ```
 
 스크립트는 Pods와 Fastlane 의존성을 확인하고, App Store Connect의 현재 `MARKETING_VERSION`(`1.0.2`) 최신 빌드번호 다음 번호로 archive·업로드합니다.

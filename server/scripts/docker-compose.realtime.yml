@@ -75,7 +75,7 @@ services:
       JAVA_OPTS: "-Djava.security.egd=file:/dev/./urandom -javaagent:/opt/dd-java-agent.jar"
       DD_AGENT_HOST: datadog-agent
       DD_ENV: dev
-      DD_SERVICE: gromo-realtime-dev
+      DD_SERVICE: realtime
       DD_VERSION: ${IMAGE_REVISION:-unknown}
       DD_TRACE_SAMPLE_RATE: ${DD_TRACE_SAMPLE_RATE:-1.0}
       DD_LOGS_INJECTION: "true"
@@ -154,10 +154,10 @@ services:
     restart: unless-stopped
     labels:
       com.datadoghq.tags.env: dev
-      com.datadoghq.tags.service: gromo-realtime-dev
+      com.datadoghq.tags.service: realtime
       com.datadoghq.tags.version: ${IMAGE_REVISION:-unknown}
       com.datadoghq.ad.logs: >-
-        [{"source":"java","service":"gromo-realtime-dev"}]
+        [{"source":"java","service":"realtime"}]
       com.datadoghq.ad.checks: >-
         {"openmetrics":{"init_config":{},"instances":[{"openmetrics_endpoint":"http://%%host%%:9091/actuator/prometheus","namespace":"gromo_realtime","metrics":[".*"],"health_service_check":true,"send_distribution_buckets":true,"collect_counters_with_distributions":true}]}}
     healthcheck:

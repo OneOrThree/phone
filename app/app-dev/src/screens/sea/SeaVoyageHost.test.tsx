@@ -838,7 +838,11 @@ describe('바다 고양이 잡지(GROMO-2314) — 펠리컨 배달 B1 · 뗏목 
   });
   // 표류(세션 없음) 중인 바다 — 오늘 호 상태는 CurrentScreens 가 e.magazineToday 로 넘긴다
   const drift = (today: MagazineToday | null, over: Record<string, unknown> = {}) =>
-    env({ state: { name: '나냥', color: 'black', session: null }, magazineToday: today, ...over });
+    env({
+      state: { name: '나냥', color: 'black', session: null, focusGuideDone: true },
+      magazineToday: today,
+      ...over,
+    });
 
   beforeEach(() => {
     resetMagazineToday();
@@ -872,6 +876,68 @@ describe('바다 고양이 잡지(GROMO-2314) — 펠리컨 배달 B1 · 뗏목 
     expect(setSceneGuideOpen).toHaveBeenLastCalledWith(true);
     await screen.unmount();
     expect(setSceneGuideOpen).toHaveBeenLastCalledWith(false);
+  });
+
+  test.each([
+    ['완료 이력 복원 전', {}],
+    ['첫 섬 대기', { tutorialEnrollment: 'awaiting-first-island' }],
+    ['기존 소속만 확인된 상태', { tutorialEnrollment: 'existing' }],
+    ['튜토리얼 시작', { tutorial: { step: 0 } }],
+    ['튜토리얼 마지막 안내', { tutorial: { step: 21 } }],
+  ])('%s에는 배달과 잡지 물건을 숨기고 수령을 소비하지 않는다', async (_, progress) => {
+    const state = { name: '나냥', color: 'black', session: null, ...progress };
+    const e = drift({ issue, receipt: null }, { state });
+    const screen = await render(<SeaVoyageHost e={e} />);
+    expect(screen.queryByTestId('sea-magazine-delivery')).toBeNull();
+    expect(putReceipt).not.toHaveBeenCalled();
+    await screen.rerender(
+      <SeaVoyageHost e={{ ...e, magazineToday: { issue, receipt: receipt() } }} />,
+    );
+    expect(screen.queryByTestId('sea-magazine-object')).toBeNull();
+    expect(putReceipt).not.toHaveBeenCalled();
+  });
+
+  test.each([
+    ['정상 완료', { tutorial: { step: 22 } }],
+    ['건너뛰기', { tutorial: { step: 99 } }],
+    ['완료 이력 복원', { focusGuideDone: true }],
+  ])('%s 후에는 보류한 오늘 호를 배달하고 재진입해도 한 번만 수령한다', async (_, progress) => {
+    const e = drift(
+      { issue, receipt: null },
+      { state: { name: '나냥', color: 'black', session: null, tutorial: { step: 21 } } },
+    );
+    const screen = await render(<SeaVoyageHost e={e} />);
+    expect(screen.queryByTestId('sea-magazine-delivery')).toBeNull();
+    expect(putReceipt).not.toHaveBeenCalled();
+    const completed = { ...e, state: { ...e.state, ...progress } };
+    await screen.rerender(<SeaVoyageHost e={completed} />);
+    expect(screen.getByTestId('sea-magazine-delivery')).toBeTruthy();
+    expect(putReceipt).toHaveBeenCalledTimes(1);
+    expect(putReceipt).toHaveBeenCalledWith('iss-20', { place: 'SEA' });
+    await screen.unmount();
+    const again = await render(<SeaVoyageHost e={completed} />);
+    expect(again.queryByTestId('sea-magazine-delivery')).toBeNull();
+    expect(putReceipt).toHaveBeenCalledTimes(1);
+  });
+
+  test('다른 창 뒤에서 기다리던 배달도 튜토리얼 미완료로 바뀌면 수령 없이 거둔다', async () => {
+    const e = drift(null);
+    const screen = await render(<SeaVoyageHost e={e} />);
+    await fireEvent.press(screen.getByLabelText('내 뗏목'));
+    await screen.rerender(<SeaVoyageHost e={{ ...e, magazineToday: { issue, receipt: null } }} />);
+    expect(putReceipt).not.toHaveBeenCalled();
+    await screen.rerender(
+      <SeaVoyageHost
+        e={{
+          ...e,
+          state: { ...e.state, focusGuideDone: false, tutorial: { step: 0 } },
+          magazineToday: { issue, receipt: null },
+        }}
+      />,
+    );
+    await fireEvent.press(screen.getByLabelText('닫기'));
+    expect(screen.queryByTestId('sea-magazine-delivery')).toBeNull();
+    expect(putReceipt).not.toHaveBeenCalled();
   });
 
   test('표류 중 아직 받지 않은 오늘 호면 펠리컨이 화면 전체로 뜨고, 띄우는 순간 받음(SEA)을 한 번 보내고 스크린리더에 알린다', async () => {
@@ -1010,6 +1076,7 @@ describe('바다 고양이 잡지(GROMO-2314) — 펠리컨 배달 B1 · 뗏목 
 
   test('항해를 그만두고 멀어지는 연출이 끝나 표류가 되면 그때 펠리컨이 뜬다', async () => {
     const e = env({ magazineToday: { issue, receipt: null } });
+    e.state.focusGuideDone = true;
     e.focus.finish.mockResolvedValue({ recordId: 'sea-1', arrived: false, activeSeconds: 1700 });
     const screen = await render(<SeaVoyageHost e={e} />);
     await fireEvent.press(screen.getByLabelText('집중 마치기'));

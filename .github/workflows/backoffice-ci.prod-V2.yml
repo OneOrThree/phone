@@ -7,8 +7,8 @@ name: Catus backoffice CI V2
     - release
     paths:
     - backoffice/**
-    - .github/scripts/catus-runtime-V2.py
-    - .github/scripts/test_catus_runtime_V2.py
+    - .github/scripts/v2/prod/catus-runtime-V2.py
+    - .github/scripts/v2/prod/test_catus_runtime_V2.py
     - .github/scripts/pr-ci-policy.py
     - .github/scripts/test_pr_ci_policy.py
     - .github/workflows/backoffice-ci.prod-V2.yml
@@ -17,8 +17,8 @@ name: Catus backoffice CI V2
     - release
     paths:
     - backoffice/**
-    - .github/scripts/catus-runtime-V2.py
-    - .github/scripts/test_catus_runtime_V2.py
+    - .github/scripts/v2/prod/catus-runtime-V2.py
+    - .github/scripts/v2/prod/test_catus_runtime_V2.py
     - .github/scripts/pr-ci-policy.py
     - .github/scripts/test_pr_ci_policy.py
     - .github/workflows/backoffice-ci.prod-V2.yml
@@ -41,7 +41,7 @@ jobs:
     - uses: actions/setup-python@v5
       with:
         python-version: '3.12'
-    - run: python3 -m unittest discover -s .github/scripts -p 'test_catus_runtime_V2.py' -v
+    - run: python3 -m unittest discover -s .github/scripts/v2/prod -p 'test_catus_runtime_V2.py' -v
     - id: policy
       run: python3 .github/scripts/pr-ci-policy.py
     - uses: actions/setup-node@v4
@@ -78,7 +78,7 @@ jobs:
       env:
         GH_TOKEN: ${{ github.token }}
         INFRA_REVISION: ${{ vars.CATUS_PROD_INFRA_REVISION_V2 }}
-      run: python3 .github/scripts/catus-runtime-V2.py publish --role backoffice --infra-revision "$INFRA_REVISION"
+      run: python3 .github/scripts/v2/prod/catus-runtime-V2.py publish --role backoffice --infra-revision "$INFRA_REVISION"
     - uses: actions/upload-artifact@v4
       with:
         name: catus-backoffice-release-V2
