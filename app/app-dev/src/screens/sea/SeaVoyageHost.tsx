@@ -66,6 +66,7 @@ const arrivalFrom = (detail: unknown): SeaArrival | null => {
       newRewards: p.finish.seaReward?.newProductIds ?? [],
       minutesToNextTier: p.finish.seaReward?.minutesToNextTier ?? null,
       rewardsUnknown: !p.finish.seaReward,
+      createdIsland: p.finish.createdIsland,
     };
   } catch {
     return null;
@@ -470,6 +471,9 @@ export function SeaVoyageHost({ e }: { e: any }) {
         if (stale()) return;
         // await 뒤에는 최신 e 로 부른다(App 의 e 와 그 함수들은 렌더마다 새로 만든다)
         if (member) {
+          // 이번 정산으로 새로 세운 무인도면 홈에서 이름 짓기 모달을 띄우도록 전이 상태를 둔다(GROMO-2649).
+          // createdIsland 가 없으면(구버전 서버) 아무 일도 하지 않는다.
+          if (result.createdIsland) eRef.current.dispatch({ type: 'ISLAND_NAMING', islandId: id });
           // 현 가입 이후 첫 도착이면 환영을 한 번 — 서버가 arrivedBefore=false 로 알려 준다
           if (!arrivedBefore)
             eRef.current.notify(

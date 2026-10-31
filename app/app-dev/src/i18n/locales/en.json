@@ -560,9 +560,14 @@
       "loadFailed": "Couldn't load your island info."
     },
     "tutorial": {
-      "focusStart": "Tap the Start Focus button below to begin focusing.",
-      "hallGuide": "First, let's build the Town Hall to manage the island.\nJust gather {{count}} fish!",
-      "ok": "Got it"
+      "focusStart": "Tap the Start Focus button below to begin focusing."
+    },
+    "naming": {
+      "title": "Name your\nnew island",
+      "placeholder": "New Island",
+      "save": "Save and enter",
+      "saving": "Saving…",
+      "error": "Couldn't save the name. Tap to try again."
     },
     "lock": {
       "missing": "No {{building}} yet",

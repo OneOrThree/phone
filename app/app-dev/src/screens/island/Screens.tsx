@@ -9,6 +9,7 @@ import * as Application from 'expo-application';
 import appManifest from '../../../package.json';
 import { ScreenTimeSharingSettings } from '@/screens/island/ScreenTimeSharingSettings';
 import { GuideBox } from '@/screens/island/NpcGuide';
+import { IslandNamingModal } from '@/screens/island/IslandNamingModal';
 import { MagazineHomeLayer } from '@/screens/magazine/MagazineDelivery';
 import { HomeChatLog, type HomeChatLine } from '@/screens/island/HomeChatLog';
 import { magazineUnread } from '@/screens/magazine/useMagazineToday';
@@ -52,7 +53,6 @@ import {
   isHost,
   canBuy,
   products,
-  costs,
   colors,
   colorName,
   residentCount,
@@ -764,8 +764,6 @@ export function RedesignScreens({ e }: any) {
     [profileNameError, setProfileNameError] = useState(''),
     [profileColor, setProfileColor] = useState<Color>(state.color),
     [mainIslandPick, setMainIslandPick] = useState(state.mainIslandId ?? ''),
-    // 20b 회관 안내를 이번 홈 방문 동안만 띄우는 창 상태
-    [hallGuideOpen, setHallGuideOpen] = useState(false),
     // 홈 펠리컨 잡지 안내창이 떠 있는 동안 — 왼쪽 아래 채팅 줄이 비킨다(GROMO-2501)
     [magazinePrompt, setMagazinePrompt] = useState(false),
     [discoveryIndex] = useState(() => Math.floor(Math.random() * 10)),
@@ -803,7 +801,6 @@ export function RedesignScreens({ e }: any) {
   useEffect(() => {
     setSearch('');
     setCapacityPick(15);
-    setHallGuideOpen(false);
     setDiscoveryPick(null);
     setServerError('');
     setSoundDialog(null);
@@ -1046,16 +1043,9 @@ export function RedesignScreens({ e }: any) {
   useEffect(() => {
     if (route === 'mainIsland') setMainIslandPick(currentMainIslandId);
   }, [route, currentMainIslandId]);
-  // 20b: 첫 집중 후 홈에 오면 바로 done으로 기록하고 창만 띄운다. 알겠어를 안 누르고 홈을 떠나도 다시 뜨지 않는다
-  useEffect(() => {
-    if (route !== 'home' || state.hallGuide !== 'pending') return;
-    if (!island.buildings.includes('hall')) setHallGuideOpen(true);
-    dispatch({ type: 'HALL_GUIDE_DONE' });
-  }, [route, state.hallGuide]);
-  // 운영진의 편지(GROMO-2615) — 회관 안내·펠리컨 잡지 안내가 떠 있는 동안은 편지가 조회·표시되지 않게 App 에 알린다.
+  // 운영진의 편지(GROMO-2615) — 펠리컨 잡지 안내가 떠 있는 동안은 편지가 조회·표시되지 않게 App 에 알린다.
   // 홈을 떠나거나 안내가 끝나면(정리 함수) 반드시 false 로 돌려 편지가 영영 막히지 않게 한다
-  const homeGuideOpen =
-    route === 'home' && ((hallGuideOpen && !island.buildings.includes('hall')) || magazinePrompt);
+  const homeGuideOpen = route === 'home' && magazinePrompt;
   const setSceneGuideOpen = e.setSceneGuideOpen;
   useEffect(() => {
     if (!homeGuideOpen) return;
@@ -2152,9 +2142,10 @@ export function RedesignScreens({ e }: any) {
       </View>
     );
   if (route === 'home') {
-    // 20b: 첫 집중을 마치고 돌아온 섬에 회관이 없으면 한 번만 뜨는 안내
-    const hallGuide = hallGuideOpen && !island.buildings.includes('hall'),
-      w = layout.compact ? Math.min(layout.floatingWidth, 374) : layout.floatingWidth;
+    // 무인도 항해로 새로 세운 섬에 도착해 그 섬 홈에 들어왔으면 강제 이름 짓기 모달을 띄운다(GROMO-2649).
+    // island.id 는 서버 현재 섬(displayIsland) — 다른 섬을 보는 중이면 뜨지 않는다. 저장하면 전이 상태가 지워진다.
+    const naming =
+      !!server && !!state.pendingIslandNaming && state.pendingIslandNaming === island.id;
     // 최근 채팅 줄(GROMO-2501) — 서버는 섬 채팅 훅, 목업은 로컬 섬 글(최신 것부터라 뒤집는다).
     // 안내창(회관·펠리컨·튜토리얼)·집중·구경·화면 전환 중에는 비킨다
     const chatLines: HomeChatLine[] = server
@@ -2171,13 +2162,13 @@ export function RedesignScreens({ e }: any) {
           at: m.at,
         }));
     const chatBlocked =
-      hallGuide ||
+      naming ||
       magazinePrompt ||
       guideStep === 4 ||
       !!state.session ||
       !!state.visitingIslandId ||
       !!e.routeTransitionShielded;
-    return (
+    const home = (
       <View style={{ flex: 1 }}>
         <FinalIsland
           state={state}
@@ -2222,7 +2213,7 @@ export function RedesignScreens({ e }: any) {
           today={e.magazineToday ?? null}
           hasMailbox={island.buildings.includes('mail')}
           blocked={
-            hallGuide ||
+            naming ||
             guideStep === 4 ||
             !!state.session ||
             !!state.visitingIslandId ||
@@ -2232,26 +2223,18 @@ export function RedesignScreens({ e }: any) {
           go={go}
           onPromptChange={setMagazinePrompt}
         />
-        {hallGuide && (
-          <GuideBox
-            text={t('home.tutorial.hallGuide', { count: costs.hall })}
-            style={{
-              left: (layout.width - w) / 2,
-              width: w,
-              // 건설 카드·집중 시작 버튼 위
-              bottom: layout.compact ? 110 : ins.bottom + 118,
-            }}
-          >
-            <Btn
-              title={t('home.tutorial.ok')}
-              small
-              style={{ minWidth: 96 }}
-              onPress={() => setHallGuideOpen(false)}
-            />
-          </GuideBox>
-        )}
       </View>
     );
+    // 이름 짓기 모달은 살아있는 섬 홈 위에 뜬다 — 홈을 Overlay 배경으로 넘겨 스크린리더에서 가리고 터치를 막는다
+    if (naming)
+      return (
+        <IslandNamingModal
+          islandId={island.id}
+          background={home}
+          onDone={() => dispatch({ type: 'ISLAND_NAMING_DONE' })}
+        />
+      );
+    return home;
   }
   if (route === 'sound') {
     const gramophone = componentTokens.gramophone;
