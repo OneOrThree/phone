@@ -24,7 +24,7 @@ import { ApiError } from '@/services/api/client';
 import type { FocusFinishView, FocusSessionView } from '@/services/api/focusSessions';
 import { captureProductEvent } from '@/services/posthog';
 
-jest.mock('@/services/api/session', () => ({ sessionGeneration: () => 0 }));
+jest.mock('@/services/api/session', () => ({ sessionGeneration: () => 0, getSession: () => null }));
 jest.mock('@/services/posthog', () => ({
   captureProductEvent: jest.fn(),
   getPostHogClient: () => null,
