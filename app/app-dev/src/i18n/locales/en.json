@@ -1465,5 +1465,68 @@
         "canopy-moon": "Moonlight Parasol"
       }
     }
+  },
+  "verification": {
+    "button": "Camera verification",
+    "switch": "Camera verification",
+    "on": "On",
+    "off": "Off",
+    "intro": {
+      "title": "On Fishing Island,\ncheck your focus time\nwith the camera",
+      "privacy": "Checked only on your device. Video is never saved, shared, or sent.",
+      "try": "Try the camera",
+      "later": "Not now",
+      "preview": "Tracking stays on while enabled,\neven without the preview.",
+      "precheckHint": "Before starting, use the preview to check whether your focus is recognized.",
+      "measurementHint": "On · Off",
+      "previewLabel": "Preview",
+      "previewHint": "See your camera view."
+    },
+    "result": {
+      "title": "Verified time / Total focus time",
+      "accessibility": "Verified time {{verified}}, total focus time {{total}}"
+    },
+    "session": {
+      "cameraError": "Camera unavailable.",
+      "measurementActive": "Measuring",
+      "measurementPreparing": "Preparing measurement",
+      "measurementActiveA11y": "AI focus measurement using the camera is active",
+      "retryCamera": "Retry camera",
+      "enable": "Turn on",
+      "turnOff": "Turn off AI focus tracking and keep focusing",
+      "turnOn": "Turn on AI focus tracking independently of the preview",
+      "verified": "Verified {{time}}"
+    },
+    "setup": {
+      "body": "Your camera checks your desk every 20 seconds.\nPhotos never leave your phone.",
+      "hint": "Keep your hands in view",
+      "enable": "Start",
+      "disable": "Turn off",
+      "flip": "Switch camera",
+      "denied": "Allow camera access in Settings",
+      "openSettings": "Open Settings",
+      "requesting": "Checking camera permission",
+      "noCamera": "No camera is available",
+      "permissionError": "Could not check camera permission. Please open this again.",
+      "cameraError": "Could not start the camera. Please reopen or switch cameras.",
+      "settingsError": "Could not open Settings. Allow camera access in your device settings.",
+      "openHint": "Check whether focus is detected in the camera preview",
+      "enableMeasurement": "Please turn on AI focus tracking",
+      "detection": {
+        "checking": "Checking focus…",
+        "focused": "Focus confirmed",
+        "missingHand": "Your hands aren’t visible.",
+        "missingObject": "A laptop or book isn’t visible.",
+        "unavailable": "Could not check focus detection"
+      },
+      "detectedHint": "You can start focusing like this",
+      "objects": {
+        "detected": "Detected: {{objects}}",
+        "book": "Book",
+        "laptop": "Laptop",
+        "keyboard": "Keyboard"
+      }
+    },
+    "switchLabel": "AI Focus Tracking"
   }
 }
