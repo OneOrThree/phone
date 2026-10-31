@@ -431,7 +431,7 @@
                       "data_source": "rum",
                       "name": "a",
                       "search": {
-                        "query": "@type:resource (@resource.url_host:catus-api.oneorthree.world OR @resource.url_host:oneorthree.dev.mooo.com) @application.id:31edaff8-b8b4-434b-9d8c-898e05a41255 service:cattus-app $env $version $os"
+                        "query": "@type:resource (@resource.url_host:catus-api.oneorthree.world OR @resource.url_host:catus-api-v2.oneorthree.world OR @resource.url_host:oneorthree.dev.mooo.com) @application.id:31edaff8-b8b4-434b-9d8c-898e05a41255 service:cattus-app $env $version $os"
                       },
                       "compute": {
                         "aggregation": "pc95",
@@ -471,7 +471,7 @@
                       "data_source": "rum",
                       "name": "a",
                       "search": {
-                        "query": "@type:resource (@resource.url_host:catus-api.oneorthree.world OR @resource.url_host:oneorthree.dev.mooo.com) @application.id:31edaff8-b8b4-434b-9d8c-898e05a41255 service:cattus-app $env $version $os"
+                        "query": "@type:resource (@resource.url_host:catus-api.oneorthree.world OR @resource.url_host:catus-api-v2.oneorthree.world OR @resource.url_host:oneorthree.dev.mooo.com) @application.id:31edaff8-b8b4-434b-9d8c-898e05a41255 service:cattus-app $env $version $os"
                       },
                       "compute": {
                         "aggregation": "count"
@@ -510,7 +510,7 @@
                       "data_source": "rum",
                       "name": "all",
                       "search": {
-                        "query": "@type:resource (@resource.url_host:catus-api.oneorthree.world OR @resource.url_host:oneorthree.dev.mooo.com) @application.id:31edaff8-b8b4-434b-9d8c-898e05a41255 service:cattus-app $env $version $os"
+                        "query": "@type:resource (@resource.url_host:catus-api.oneorthree.world OR @resource.url_host:catus-api-v2.oneorthree.world OR @resource.url_host:oneorthree.dev.mooo.com) @application.id:31edaff8-b8b4-434b-9d8c-898e05a41255 service:cattus-app $env $version $os"
                       },
                       "compute": {
                         "aggregation": "count"
@@ -521,7 +521,7 @@
                       "data_source": "rum",
                       "name": "errors",
                       "search": {
-                        "query": "@type:resource (@resource.url_host:catus-api.oneorthree.world OR @resource.url_host:oneorthree.dev.mooo.com) @resource.status_code:[400 TO 499] @application.id:31edaff8-b8b4-434b-9d8c-898e05a41255 service:cattus-app $env $version $os"
+                        "query": "@type:resource (@resource.url_host:catus-api.oneorthree.world OR @resource.url_host:catus-api-v2.oneorthree.world OR @resource.url_host:oneorthree.dev.mooo.com) @resource.status_code:[400 TO 499] @application.id:31edaff8-b8b4-434b-9d8c-898e05a41255 service:cattus-app $env $version $os"
                       },
                       "compute": {
                         "aggregation": "count"
@@ -551,7 +551,7 @@
                       "data_source": "rum",
                       "name": "all",
                       "search": {
-                        "query": "@type:resource (@resource.url_host:catus-api.oneorthree.world OR @resource.url_host:oneorthree.dev.mooo.com) @application.id:31edaff8-b8b4-434b-9d8c-898e05a41255 service:cattus-app $env $version $os"
+                        "query": "@type:resource (@resource.url_host:catus-api.oneorthree.world OR @resource.url_host:catus-api-v2.oneorthree.world OR @resource.url_host:oneorthree.dev.mooo.com) @application.id:31edaff8-b8b4-434b-9d8c-898e05a41255 service:cattus-app $env $version $os"
                       },
                       "compute": {
                         "aggregation": "count"
@@ -562,7 +562,7 @@
                       "data_source": "rum",
                       "name": "errors",
                       "search": {
-                        "query": "@type:resource (@resource.url_host:catus-api.oneorthree.world OR @resource.url_host:oneorthree.dev.mooo.com) @resource.status_code:[500 TO 599] @application.id:31edaff8-b8b4-434b-9d8c-898e05a41255 service:cattus-app $env $version $os"
+                        "query": "@type:resource (@resource.url_host:catus-api.oneorthree.world OR @resource.url_host:catus-api-v2.oneorthree.world OR @resource.url_host:oneorthree.dev.mooo.com) @resource.status_code:[500 TO 599] @application.id:31edaff8-b8b4-434b-9d8c-898e05a41255 service:cattus-app $env $version $os"
                       },
                       "compute": {
                         "aggregation": "count"
@@ -592,7 +592,7 @@
                       "data_source": "rum",
                       "name": "a",
                       "search": {
-                        "query": "@type:resource (@resource.url_host:catus-api.oneorthree.world OR @resource.url_host:oneorthree.dev.mooo.com) @resource.status_code:[500 TO 599] @application.id:31edaff8-b8b4-434b-9d8c-898e05a41255 service:cattus-app $env $version $os"
+                        "query": "@type:resource (@resource.url_host:catus-api.oneorthree.world OR @resource.url_host:catus-api-v2.oneorthree.world OR @resource.url_host:oneorthree.dev.mooo.com) @resource.status_code:[500 TO 599] @application.id:31edaff8-b8b4-434b-9d8c-898e05a41255 service:cattus-app $env $version $os"
                       },
                       "compute": {
                         "aggregation": "count"
