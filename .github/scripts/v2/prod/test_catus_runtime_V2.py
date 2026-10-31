@@ -18,7 +18,12 @@ class RuntimeTest(unittest.TestCase):
         self.assertNotIn('AllowMigration',runtime.ssm_params(envelope,False,False))
         self.assertNotIn('AllowMigration',runtime.ssm_params(envelope,True,False))
         self.assertEqual(runtime.ssm_params(envelope,False,True)['AllowMigration'],['true'])
-        with self.assertRaisesRegex(ValueError,'rollback'):runtime.ssm_params(envelope,True,True)
+
+    def test_DB_전환_승인과_롤백을_함께_주면_조회_전에_거부한다(self):
+        args=runtime.argparse.Namespace(role='app',version='catus-v2.1.0-V2',output='out',rollback=True,allow_migration=True)
+        with patch.object(runtime,'config') as config,patch.object(runtime,'aws') as aws:
+            with self.assertRaisesRegex(ValueError,'rollback'):runtime.deploy(args)
+            config.assert_not_called();aws.assert_not_called()
 
     def test_최초_발행도_각_서비스_소스의_최근_PR을_연결한다(self):
         paths=[]

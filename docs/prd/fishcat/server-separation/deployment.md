@@ -146,7 +146,7 @@ Infra PR #11의 배포 역할에 `ssm:ListCommands` 권한을 적용한 뒤 승�
 
 release에 Data `db/v0`·`db/seed`, Notification·Realtime `db/migration`, DB 전환 도구(`deploy-v0.py`·`rebase-v0.py`·`v0-rebase/`)의 변경이 있으면 V2 릴리스의 `migration_fingerprints`가 직전 성공 기록과 달라진다(`.github/scripts/catus-plan.py`의 `fingerprints()`). 이때 `prod-cd-V2`를 평소처럼 실행하면 Infra `deploy-V2.py`가 `Schema compatibility requires explicit migration plan`으로 컨테이너를 건드리기 전에 멈춘다. 아래 절차를 거친 정방향 배포만 `allow_migration`으로 통과시킨다.
 
-선행 조건: Infra의 SSM 문서에 `AllowMigration` 파라미터가 적용돼 있고(`terraform apply`), `CATUS_PROD_INFRA_REVISION_V2`가 `--allow-migration`을 아는 `deploy-V2.py`를 담은 Infra 커밋을 가리킨다.
+선행 조건: Infra의 SSM 문서에 `AllowMigration` 파라미터가 적용돼 있고(`terraform apply`), `CATUS_PROD_INFRA_REVISION_V2`가 `--allow-migration`을 아는 `deploy-V2.py`를 담은 Infra 커밋을 가리킨다. `terraform apply` 전에 `allow_migration`을 켜면 SSM이 알 수 없는 파라미터라며 전송을 거부한다. 이때 운영은 바뀌지 않는다.
 
 1. **호환 검토.** 승격으로 들어갈 마이그레이션을 확인한다. `git diff --name-only --diff-filter=AM origin/release origin/main -- 'server/*/src/main/resources/db/*'`. 각 파일이 이전 코드가 무시할 수 있는 변경(nullable 열 추가, 새 테이블, 기본값 변경)인지 본다. 열 삭제·이름 변경·NOT NULL 추가처럼 이전 이미지를 깨는 변경이면 자동 복구가 동작하지 않으므로 이 절차로 배포하지 않는다.
 2. **백업.** 배포 직전에 RDS 수동 스냅샷을 만들고 `available`을 확인한다. 자동 백업(보존 7일, 시점 복구)과 별개로 둔다.
@@ -156,13 +156,13 @@ release에 Data `db/v0`·`db/seed`, Notification·Realtime `db/migration`, DB �
    aws rds wait db-snapshot-available --db-snapshot-identifier catus-prod-before-<V2 태그>-<YYYYMMDD-HHMM>
    ```
 3. **발행.** `prod-ci-V2`로 새 `catus-vX.Y.Z-V2` 태그를 만든다.
-4. **배포.** `prod-cd-V2`를 `version`=새 태그, `allow_migration`=true, `rollback`=false로 실행한다. `allow_migration`과 `rollback`은 함께 쓸 수 없다.
+4. **배포.** `prod-cd-V2`를 `version`=새 태그, `allow_migration`=true, `rollback`=false로 실행한다. phone은 `allow_migration`과 `rollback`을 함께 주면 조회·전송 전에 거부한다.
 5. **확인.** SSM 출력의 `Schema change approved` 한 줄, 앱 4종 health, 각 DB `flyway_schema_history`의 최신 버전(읽기 전용 조회)을 확인하고 실행 번호·스냅샷 ID·적용 버전을 지라에 남긴다.
 
 실패 시:
 - **앱 health 실패.** 배포기가 직전 릴리스를 자동 복구한다. 이전 이미지는 DB에 이미 적용된 새 마이그레이션을 Flyway 기본값(`ignoreMigrationPatterns=*:future`)에 따라 건너뛰고 기동하므로, 1번 검토를 통과한 변경이어야 이 복구가 동작한다.
-- **마이그레이션 실패.** PostgreSQL은 마이그레이션을 트랜잭션으로 실행해 실패한 버전을 되돌리고 이력도 남기지 않는다(`CREATE INDEX CONCURRENTLY` 같은 비트랜잭션 구문은 예외). 원인을 고친 새 마이그레이션으로 정방향 해결한다.
-- **스키마를 되돌려야 할 때.** 지문이 다른 릴리스로의 `rollback`은 `allow_migration`을 켜도 거부한다. 2번 스냅샷을 새 인스턴스로 복원(`aws rds restore-db-instance-from-db-snapshot`)해 검증한 뒤 접속 정보를 전환하는 수동 절차로만 되돌린다.
+- **마이그레이션 실패.** PostgreSQL은 마이그레이션 한 건을 한 트랜잭션으로 실행해 실패한 버전만 되돌리고 이력도 남기지 않는다(`CREATE INDEX CONCURRENTLY` 같은 비트랜잭션 구문은 예외). 한 릴리스에 여러 건이 있으면 앞선 버전은 이미 커밋된 채 직전 릴리스로 복구될 수 있으므로, 1번 호환 검토는 파일 하나하나에 대해 한다. 원인을 고친 새 마이그레이션으로 정방향 해결한다.
+- **스키마를 되돌려야 할 때.** Infra는 지문이 다른 릴리스로의 `rollback`을 승인 여부와 상관없이 거부한다. 2번 스냅샷을 새 인스턴스로 복원(`aws rds restore-db-instance-from-db-snapshot`)해 검증한 뒤 접속 정보를 전환하는 수동 절차로만 되돌린다.
 
 ### 배포 상태 배지
 

@@ -238,13 +238,14 @@ def submit_ssm(identifier,document,params,marker,output):
 
 def ssm_params(envelope,rollback,allow_migration):
     """SSM 배포 파라미터. AllowMigration 은 승인한 DB 전환 배포에만 실어 Infra 문서 기본값(false)을 그대로 쓰게 한다."""
-    if allow_migration and rollback:raise ValueError('allow_migration cannot be combined with rollback')
     params={'ReleaseKey':[envelope['key']],'ObjectVersion':[envelope['object_version']],'BundleSha256':[envelope['sha256']],'Rollback':['true' if rollback else 'false']}
     if allow_migration:params['AllowMigration']=['true']
     return params
 
 
 def deploy(args):
+    # 승인은 정방향 DB 전환에만 쓴다. 조회·전송 전에 거부해 아무것도 건드리지 않는다.
+    if getattr(args,'allow_migration',False) and getattr(args,'rollback',False):raise ValueError('allow_migration cannot be combined with rollback')
     info=config();version(args.version,args.role)
     if os.environ.get('GITHUB_REF') and os.environ['GITHUB_REF']!='refs/heads/release':raise ValueError('release branch required')
     with tempfile.TemporaryDirectory() as d:
