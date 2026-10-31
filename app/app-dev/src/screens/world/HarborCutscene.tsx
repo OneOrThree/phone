@@ -24,6 +24,7 @@ import {
   type HarborDirection,
 } from './harborMotion';
 import { PelicanDeliveryArt } from './PelicanDeliveryArt';
+import { seaLoaf } from '@/screens/sea/seaAssets';
 
 const OCEAN = require('@/assets/ota/harbor/ocean-camera.jpg');
 const HARBOR = require('@/assets/ota/harbor/island-dock.png');
@@ -117,7 +118,9 @@ function Playing({
           'book',
           'book-depth',
         ]
-      : REQUIRED_IMAGES;
+      : direction === 'abandon'
+        ? [...REQUIRED_IMAGES.filter((name) => name !== 'harbor'), 'cat-rest']
+        : REQUIRED_IMAGES;
   const ready = required.every((name) => loaded.has(name));
   const readyCallback = useRef(onReady);
   readyCallback.current = onReady;
@@ -199,6 +202,11 @@ function Playing({
       ],
       shadowOpacity: at('shadowOpacity'),
       wakeOpacity: at('wakeOpacity'),
+      awake:
+        direction === 'abandon'
+          ? progress.interpolate({ inputRange: [0, 0.5, 0.78, 1], outputRange: [1, 1, 0, 0] })
+          : 1,
+      resting: progress.interpolate({ inputRange: [0, 0.5, 0.78, 1], outputRange: [0, 0, 1, 1] }),
     };
   }, [progress, box.width, box.height, direction]);
   const raftBox = {
@@ -348,7 +356,7 @@ function Playing({
                 transform: motion.body,
               }}
             >
-              <View style={StyleSheet.absoluteFill}>
+              <Animated.View style={[StyleSheet.absoluteFill, { opacity: motion.awake }]}>
                 <Image
                   source={cat(look.color, 'idle')}
                   testID="harbor-cat"
@@ -363,7 +371,25 @@ function Playing({
                     pose={{ color: look.color, still: 'idle', size: frame.catSize }}
                   />
                 )}
-              </View>
+              </Animated.View>
+              {direction === 'abandon' && (
+                <Animated.View style={[StyleSheet.absoluteFill, { opacity: motion.resting }]}>
+                  <Image
+                    source={seaLoaf[look.color]}
+                    testID="harbor-cat-rest"
+                    accessible={false}
+                    onLoad={loadedImage('cat-rest')}
+                    onError={onFinish}
+                    style={{ width: frame.catSize, height: frame.catSize }}
+                  />
+                  {look.outfit && (
+                    <CatOutfitLayers
+                      outfit={look.outfit}
+                      pose={{ color: look.color, still: 'loaf', size: frame.catSize }}
+                    />
+                  )}
+                </Animated.View>
+              )}
             </Animated.View>
           </Animated.View>
           {direction === 'pelican-mail' && (

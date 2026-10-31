@@ -694,6 +694,7 @@ export const componentTokens = {
         times: [0, 0.25, 0.55, 0.78, 1],
         zooms: [0.72, 0.85, 1.6, 2.35, 2.05],
       },
+      abandon: { times: [0, 0.4, 0.65, 1], zooms: [1.8, 2.2, 2.15, 1.65] },
       'pelican-mail': { times: [0, 0.25, 0.55, 0.78, 1], zooms: [1.15, 1.55, 2, 1.95, 1.65] },
       wideTargetY: 0.47,
       closeTargetY: 0.58,
@@ -726,6 +727,18 @@ export const componentTokens = {
     raftAnchorY: 0.67,
     catFootY: 464 / 512,
     wakeWidth: 1.5,
+    // 앱 항해 종료에는 연결하지 않는 웹 검토용 시안이다.
+    abandon: {
+      duration: 3000,
+      maxZoom: 2.2,
+      maxRaftWidth: 0.92,
+      driftX: 0.18,
+      driftY: -0.1,
+      slowEnd: 0.65,
+      raftSize: 0.56,
+      catSize: 0.22,
+      targetY: 0.56,
+    },
     pelican: {
       duration: 5000,
       raftSize: 0.62,

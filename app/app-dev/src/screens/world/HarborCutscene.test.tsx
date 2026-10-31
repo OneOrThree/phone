@@ -46,6 +46,20 @@ async function loadImages(screen: Awaited<ReturnType<typeof render>>, ids = base
   for (const id of ids) await fireEvent(screen.getByTestId(id), 'load');
 }
 
+test('웹 보관용 항해 중단 시안은 섬 없이 내 고양이가 쉬는 3초 장면이다', async () => {
+  const done = jest.fn();
+  const screen = await render(<HarborCutscene {...props} direction="abandon" onFinish={done} />);
+  expect(screen.queryByTestId('harbor-island')).toBeNull();
+  await loadImages(screen, [
+    ...baseImages.filter((id) => id !== 'harbor-island'),
+    'harbor-cat-rest',
+  ]);
+  expect(runs).toHaveLength(1);
+  expect(runs[0].duration).toBe(3000);
+  await act(async () => runs[0].complete({ finished: true }));
+  expect(done).toHaveBeenCalledTimes(1);
+});
+
 test('펠리컨 배달은 필수 원화가 준비된 뒤 5초 재생하고 한 번만 완료한다', async () => {
   const done = jest.fn();
   const screen = await render(

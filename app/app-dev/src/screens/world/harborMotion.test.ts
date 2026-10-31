@@ -32,7 +32,7 @@ test.each([
   [1366, 1024],
   [249, 541],
 ])('%s×%s 바다 컷신은 확대 중에도 배경을 채우고 뗏목을 화면에 둔다', (width, height) => {
-  for (const kind of ['pelican-mail'] as const) {
+  for (const kind of ['abandon', 'pelican-mail'] as const) {
     const frame = harborFrame(width, height, kind);
     const bounds = harborOceanBounds(frame, kind);
     for (let step = 0; step <= 80; step++) {

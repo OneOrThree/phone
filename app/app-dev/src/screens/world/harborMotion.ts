@@ -1,6 +1,7 @@
 import { componentTokens } from '@/design-system/tokens';
 
-export type HarborDirection = 'departure' | 'arrival' | 'pelican-mail';
+/** abandon은 웹 미리보기에 보관한 시안이며 앱 항해 종료에서는 사용하지 않는다. */
+export type HarborDirection = 'departure' | 'arrival' | 'abandon' | 'pelican-mail';
 const D = componentTokens.harborCutscene;
 const clamp = (n: number) => Math.max(0, Math.min(1, n));
 const smooth = (n: number) => {
@@ -17,7 +18,7 @@ export function harborFrame(
 ) {
   // 최대 줌에서도 섬 원화가 기존 표시 상한을 넘지 않도록 기본 장면을 작게 잡는다.
   const pelican = direction === 'pelican-mail';
-  const seaShot = pelican ? D.pelican : null;
+  const seaShot = pelican ? D.pelican : direction === 'abandon' ? D.abandon : null;
   const maxZoom = seaShot?.maxZoom ?? D.camera.maxZoom;
   const size = Math.min(
     width * D.sceneWidth,
@@ -33,8 +34,8 @@ export function harborFrame(
     size,
     left,
     top,
-    catSize: size * D.catSize,
-    raftSize: size * (pelican ? D.pelican.raftSize : D.raftSize),
+    catSize: size * (direction === 'abandon' ? D.abandon.catSize : D.catSize),
+    raftSize: size * (seaShot?.raftSize ?? D.raftSize),
   };
 }
 
@@ -90,7 +91,11 @@ export function harborPose(frame: ReturnType<typeof harborFrame>, progress: numb
 export const HARBOR_STEPS = Array.from({ length: 161 }, (_, i) => i / 160);
 
 export const harborDuration = (kind: HarborDirection) =>
-  kind === 'pelican-mail' ? D.pelican.duration : D.duration;
+  kind === 'abandon'
+    ? D.abandon.duration
+    : kind === 'pelican-mail'
+      ? D.pelican.duration
+      : D.duration;
 
 /** 배달 장면도 배·고양이·카메라를 하나의 시간축으로 움직인다. */
 export function harborScenePose(
@@ -100,6 +105,28 @@ export function harborScenePose(
 ) {
   if (kind === 'arrival') return harborPose(frame, 1 - time);
   if (kind === 'departure') return harborPose(frame, time);
+  if (kind === 'abandon') {
+    const base = harborPose(frame, 0);
+    const stopped = smooth(time / D.abandon.slowEnd);
+    const drift = 1 - Math.pow(1 - clamp(time / D.abandon.slowEnd), 3);
+    const bob = Math.sin(time * Math.PI * 4) * frame.size * D.bob * mix(1, 0.5, stopped);
+    const raftX = frame.width / 2 + frame.size * D.abandon.driftX * drift;
+    const raftY = frame.height * 0.64 + frame.size * D.abandon.driftY * drift + bob;
+    return {
+      ...base,
+      raftX,
+      raftY,
+      raftRoll: Math.sin(time * Math.PI * 4) * D.raftRoll * mix(1.5, 0.45, stopped),
+      catX: raftX,
+      catY: raftY,
+      shadowY: raftY,
+      shadowOpacity: 0.18,
+      shadowScale: 1,
+      wakeOpacity: mix(0.6, 0.06, stopped),
+      catScaleX: 1 + 0.015 * Math.sin(time * Math.PI * 4),
+      catScaleY: 1 - 0.015 * Math.sin(time * Math.PI * 4),
+    };
+  }
   const base = harborPose(frame, 0);
   const raftX = frame.width / 2;
   const raftY = frame.height * 0.64 + Math.sin(time * Math.PI * 6) * frame.size * D.bob;
@@ -188,9 +215,9 @@ export function harborCamera(
   const focusX = mix(wideX, pose.catX, close);
   const focusY = mix(wideY, pose.catY - frame.catSize * 0.5, close);
   const targetY = frame.height * mix(D.camera.wideTargetY, D.camera.closeTargetY, close);
-  const seaScene = direction === 'pelican-mail';
+  const seaScene = direction === 'abandon' || direction === 'pelican-mail';
   const followY = seaScene
-    ? frame.height * D.pelican.targetY -
+    ? frame.height * (direction === 'abandon' ? D.abandon.targetY : D.pelican.targetY) -
       frame.height / 2 -
       (pose.raftY - frame.catSize * 0.3 - frame.height / 2) * zoom
     : targetY - frame.height / 2 - (focusY - frame.height / 2) * zoom;

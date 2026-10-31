@@ -14,14 +14,22 @@ import type { HarborDirection } from './harborMotion';
 const ORIGINALS = {
   departure: require('@/assets/ota/cutscenes/departure.mp4'),
   arrival: require('@/assets/ota/cutscenes/arrival.mp4'),
+  abandon: require('@/assets/ota/cutscenes/abandon.mp4'),
   'pelican-mail': require('@/assets/ota/cutscenes/pelican-mail.mp4'),
   'golden-fish': require('@/assets/ota/cutscenes/golden-fish.mp4'),
 };
 type PreviewKind = HarborDirection | 'golden-fish';
-const SCENES: readonly PreviewKind[] = ['departure', 'arrival', 'pelican-mail', 'golden-fish'];
+const SCENES: readonly PreviewKind[] = [
+  'departure',
+  'arrival',
+  'abandon',
+  'pelican-mail',
+  'golden-fish',
+];
 const SCENE_NAMES: Record<PreviewKind, string> = {
   departure: '출항',
   arrival: '도착',
+  abandon: '항해 중단(시안)',
   'pelican-mail': '펠리컨 배달',
   'golden-fish': '황금 물고기(원본)',
 };
@@ -32,13 +40,15 @@ const FORMATS = {
 };
 type Format = keyof typeof FORMATS;
 const label = (direction: PreviewKind) =>
-  direction === 'pelican-mail'
-    ? t('magazine.delivery.seaCutscene')
-    : direction === 'golden-fish'
-      ? '여러 고양이가 힘을 모아 황금 물고기를 낚아 올렸어요'
-      : direction === 'arrival'
-        ? t('arrivalCutscene.label', { destination: '별빛섬' })
-        : t('departureStory.label', { destination: '먼바다' });
+  direction === 'abandon'
+    ? '항해 중단 시안이에요. 뗏목이 속도를 줄이고 고양이가 바다에서 쉬어요.'
+    : direction === 'pelican-mail'
+      ? t('magazine.delivery.seaCutscene')
+      : direction === 'golden-fish'
+        ? '여러 고양이가 힘을 모아 황금 물고기를 낚아 올렸어요'
+        : direction === 'arrival'
+          ? t('arrivalCutscene.label', { destination: '별빛섬' })
+          : t('departureStory.label', { destination: '먼바다' });
 
 /** 원본 MP4와 실제 RN 분리 장면 비교. canvas 인자는 종전 전체 화면 검토를 유지한다. */
 export function HarborPreview() {
@@ -151,6 +161,9 @@ function Comparison({
       <ScrollView style={styles.page} contentContainerStyle={styles.content}>
         <Txt kind="h">컷신 비교</Txt>
         <Txt>같은 화면 비율에서 기존 영상의 액션·카메라 움직임과 새 장면을 비교해 보세요.</Txt>
+        {direction === 'abandon' && (
+          <Txt>검토용으로 보관한 항해 중단 시안이에요. 실제 앱은 종료 후 바로 표류해요.</Txt>
+        )}
         <View style={styles.controls}>
           {SCENES.map((value) => (
             <Btn
