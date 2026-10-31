@@ -18,3 +18,7 @@
 [공식 모델 안내](https://developers.google.com/edge/mediapipe/solutions/vision/object_detector). 파일 크기와 실행 중 메모리 사용량은 다르며 폰에서 성능/전력을 별도로 측정해야 한다.
 
 시작 전 실패 안내는 손 우선이다. 손이 2장 미만에서 보이면 `missingHand`(「손이 보이지 않아요.」), 손은 2장 이상 확인됐지만 결합 성공이 부족하면 `missingObject`(「노트북/책이 보이지 않아요.」)를 하나만 표시한다. 추론 오류 `unavailable`과는 구분한다.
+
+## Android 지원 범위
+
+GPU 프레임 리사이저의 AHardwareBuffer 요구에 맞춰 앱 최소 지원은 Android 8.0(API 26)이다. Android 7(API 24~25) 기기에는 이 변경 이후 앱 업데이트가 제공되지 않는다. `android/gradle.properties`의 `android.minSdkVersion`이 네이티브 빌드 기준이다.
