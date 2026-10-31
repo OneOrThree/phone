@@ -57,6 +57,8 @@ module.exports = {
       infoPlist: {
         CFBundleLocalizations: ['ko', 'en'],
         NSSupportsLiveActivities: true,
+        NSCameraUsageDescription:
+          '집중 중 책상이 보이는지 기기 안에서만 확인합니다. 사진은 저장·전송되지 않습니다.',
       },
       entitlements: {
         'com.apple.developer.family-controls': true,
@@ -71,6 +73,7 @@ module.exports = {
       permissions: [
         'android.permission.PACKAGE_USAGE_STATS',
         'android.permission.POST_NOTIFICATIONS',
+        'android.permission.CAMERA',
       ],
       blockedPermissions: [
         'android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK',
