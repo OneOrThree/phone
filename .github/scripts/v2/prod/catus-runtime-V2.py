@@ -244,8 +244,10 @@ def ssm_params(envelope,rollback,allow_migration):
 
 
 def deploy(args):
-    # 승인은 정방향 DB 전환에만 쓴다. 조회·전송 전에 거부해 아무것도 건드리지 않는다.
-    if getattr(args,'allow_migration',False) and getattr(args,'rollback',False):raise ValueError('allow_migration cannot be combined with rollback')
+    # 승인은 앱 역할의 정방향 DB 전환에만 쓴다. 조회·전송 전에 거부해 아무것도 건드리지 않는다.
+    if getattr(args,'allow_migration',False):
+        if getattr(args,'rollback',False):raise ValueError('allow_migration cannot be combined with rollback')
+        if args.role!='app':raise ValueError('allow_migration is only for the app role')
     info=config();version(args.version,args.role)
     if os.environ.get('GITHUB_REF') and os.environ['GITHUB_REF']!='refs/heads/release':raise ValueError('release branch required')
     with tempfile.TemporaryDirectory() as d:
