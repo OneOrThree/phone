@@ -605,3 +605,19 @@ test('먼바다 장면·집중 HUD·버튼·한마디 입력 글자는 고운돋
   const drift = await render(<SeaScreen {...props()} hud={{ requests: 2, go: jest.fn() }} />);
   expect(font(drift.getByText('2'))).toBe(GOWUN);
 });
+
+test('바다 결과에는 일반 항해 시간만 표시한다', async () => {
+  const result: SeaArrival = {
+    recordId: 'sea-result',
+    rewardsUnknown: false,
+    destinationId: 'dest',
+    destinationName: '별고래섬',
+    activeSeconds: 1800,
+    rewards: [],
+    minutesToNextTier: null,
+  };
+  const screen = await render(<SeaScreen {...props()} result={result} />);
+  expect(screen.getByText('항해한 시간')).toBeTruthy();
+  expect(screen.getByText('30분 0초')).toBeTruthy();
+  expect(screen.queryByTestId('verification-result')).toBeNull();
+});
