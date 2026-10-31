@@ -9,8 +9,13 @@ public final class DeveloperNotices {
     private DeveloperNotices() { }
 
 
+    // min 은 옛 Data 응답에는 없다 — null 이면 패치노트로 본다.
     public record Notice(UUID publicationId, String title, String body, Instant startsAt, Instant endsAt,
-                         Instant publishedAt) { }
+                         Instant publishedAt, String minIosVersion, String minAndroidVersion) { }
+
+    /** 플랫폼의 현재 최소 버전 공지. 해당 공지가 없으면 전부 null. */
+    public record AppRequirement(String minVersion, String title, String body, UUID publicationId,
+                                 Instant publishedAt) { }
 
     public record Page(List<Notice> items) { }
 }
