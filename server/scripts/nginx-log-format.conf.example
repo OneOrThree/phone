@@ -24,5 +24,5 @@ log_format gromo_json escape=json
 #   access_log /var/log/nginx/access.log;                         # 기존 줄 유지
 #   access_log /var/log/nginx/access.json.log gromo_json;         # server 블록(또는 http 수준)에 추가
 # prod 컨테이너 Nginx(공식 이미지: access.log → stdout, error.log → stderr 심볼릭 링크라 Docker 로그로 수집된다):
-#   access_log /dev/stdout gromo_json;
+#   access_log /dev/stdout gromo_json;   # server 블록 안에 둔다. conf.d 의 http 수준에 두면 이미지 기본 access_log 와 겹쳐 요청마다 두 줄이 찍힌다
 #   error_log  /dev/stderr warn;

@@ -18,6 +18,14 @@ name: Catus app CI V2
     - .github/workflows/be-gradle.yml
     - .dockerignore
     - server/gradle*
+    - server/observability/fluent-bit/fluent-bit.conf
+    - server/observability/fluent-bit/parsers.conf
+    - server/observability/fluent-bit/logs.lua
+    - server/observability/fluent-bit/modules/s3-on/s3.conf
+    - server/observability/fluent-bit/modules/s3/off.conf
+    - server/observability/fluent-bit/modules/nginx-host/off.conf
+    - server/observability/loki/loki-config.yml
+    - server/observability/grafana/dashboards/log-investigation.json
     - .github/workflows/prod-ci-V2.yml
     - .github/scripts/v2/prod/test_catus_runtime_V2.py
     - .github/scripts/pr-ci-policy.py
@@ -38,6 +46,14 @@ name: Catus app CI V2
     - .github/workflows/be-gradle.yml
     - .dockerignore
     - server/gradle*
+    - server/observability/fluent-bit/fluent-bit.conf
+    - server/observability/fluent-bit/parsers.conf
+    - server/observability/fluent-bit/logs.lua
+    - server/observability/fluent-bit/modules/s3-on/s3.conf
+    - server/observability/fluent-bit/modules/s3/off.conf
+    - server/observability/fluent-bit/modules/nginx-host/off.conf
+    - server/observability/loki/loki-config.yml
+    - server/observability/grafana/dashboards/log-investigation.json
     - .github/workflows/prod-ci-V2.yml
     - .github/scripts/v2/prod/test_catus_runtime_V2.py
     - .github/scripts/pr-ci-policy.py

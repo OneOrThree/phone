@@ -49,11 +49,11 @@ system_log/v2/env=<env>/service=<service>/date=YYYY-MM-DD/hour=HH/<수집기 HOS
 | 단계 | 작업 | 확인 | 상태 |
 | --- | --- | --- | --- |
 | 1 | 2555 의 Fluent Bit→Loki 가 dev 에 올라가 있고 Promtail 제거는 2555 에서 끝난 상태 | `docker ps` 에 `gromo-fluent-bit`, Promtail 없음 | 2555 소관 |
-| 2 | **S3 자격 결정**(2554 결정 대기): GCP dev→S3 단기 자격 연동 또는 dev 용 별도 버킷. 결정 전에는 `OBS_LOG_S3` 를 켜지 않는다 | 자격 체인으로 대상 prefix PutObject 성공, 타 환경 prefix 쓰기 거부 | **미실행 — 배포 게이트** |
-| 3 | dev candidate: `OBS_LOG_S3=on`, `OBS_LOG_S3_BUCKET=<dev 버킷>` 으로 ops-monitor 재배포. 기존 업로더는 그대로 둔다 | §6 canary 가 Loki·S3 양쪽에 도착, `s3.0` 지표 `errors`·`dropped_records` 0 | **미실행 — 배포 게이트** |
-| 4 | 비교: 같은 시간대에 `system_log/` 기존 업로더 객체와 `system_log/v2/` 객체의 로그 수·마스킹·시간 범위를 대조(기존 업로더는 `app.log` 텍스트, v2 는 stdout JSON 이라 필드가 다르다 — 수량은 이벤트 수가 아니라 «시간대별 줄 수 추세» 로 본다) | 로그량·canary·마스킹 원문 부재 | **미실행** |
-| 5 | **기존 업로더 중단**(§5)과 전환 기준 시각·source 파일 위치 기록 | §5 점검표 | **미실행** |
-| 6 | prod(Catus): Infra `prod/catus/runtime` 변경으로 Fluent Bit·모듈·IAM 을 적용(§9). 이 저장소로는 못 한다 | — | **Infra 소유** |
+| 2 | **S3 자격 결정**: dev S3 미사용으로 결정(2026-10-30). dev 에서는 `OBS_LOG_S3` 를 켜지 않는다 | 해당 없음(미사용 결정) | **dev 해당 없음** |
+| 3 | dev candidate: `OBS_LOG_S3=on`, `OBS_LOG_S3_BUCKET=<dev 버킷>` 으로 ops-monitor 재배포. 기존 업로더는 그대로 둔다 | §6 canary 가 Loki·S3 양쪽에 도착, `s3.0` 지표 `errors`·`dropped_records` 0 | **dev 에서는 실행하지 않음** — 같은 확인을 prod ③에서 처음 한다([rollout §3.2](rollout.md)) |
+| 4 | 비교: 같은 시간대에 `system_log/` 기존 업로더 객체와 `system_log/v2/` 객체의 로그 수·마스킹·시간 범위를 대조(기존 업로더는 `app.log` 텍스트, v2 는 stdout JSON 이라 필드가 다르다 — 수량은 이벤트 수가 아니라 «시간대별 줄 수 추세» 로 본다) | 로그량·canary·마스킹 원문 부재 | **dev 에서는 실행하지 않음** — 기존 업로더가 도는 호스트에서만 해당 |
+| 5 | **기존 업로더 중단**(§5)과 전환 기준 시각·source 파일 위치 기록 | §5 점검표 | **dev 에서는 실행하지 않음** |
+| 6 | prod(Catus V2): Infra `prod/catus-v2/` 변경으로 Fluent Bit·모듈·IAM 을 적용(§9, [rollout §3](rollout.md)). 이 저장소로는 못 한다 | — | **Infra PR 진행** |
 
 ## 4. Nginx 입력
 
@@ -212,7 +212,7 @@ S3 지연은 `upload_timeout` 20s + 업로드 타이머 주기가 지배한다. 
 | 항목 | 상태 |
 | --- | --- |
 | 실제 S3 업로드·IAM·버킷 정책·lifecycle 적용 | **미실행 — 배포 게이트**(AWS 요청 금지) |
-| dev→S3 자격 방식(2554 결정 대기) | 차단: 결정 전 dev 에서 `OBS_LOG_S3` 금지 |
+| dev→S3 자격 방식 | dev S3 미사용 결정(2026-10-30): dev 에서 `OBS_LOG_S3` 금지 |
 | AWS 에서의 `endpoint` 없는 설정 동작, 리전 값(`ap-northeast-2` 는 가정) | 미확인 |
 | prod Nginx 의 compose 서비스명·`log_format` 적용 | Infra 소유, 미확인 |
 | dev 호스트 `nginx.conf` 수정·새 `access.json.log` 의 logrotate 회전 | 미실행(저장소 밖) |

@@ -101,4 +101,51 @@ class RuntimeTest(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError,'Unconfirmed'):runtime.submit_ssm('i-v2','document',{},'marker',str(Path(d)/'out'))
             self.assertFalse(any(call[:2]==('ssm','send-command') for call in calls))
 
+    def _publish_bundle(self,role,root=None):
+        """publish 를 가짜 외부 호출로 돌려 번들 zip 의 파일 이름→내용을 돌려준다."""
+        import zipfile
+        from types import SimpleNamespace
+        with tempfile.TemporaryDirectory() as d:
+            captured={}
+            def configuration(temp,revision):
+                target=temp/'bundle';target.mkdir();(target/'infra-V2.txt').write_text('infra');return target
+            def put(path,key):
+                if key.startswith('releases/'):
+                    with zipfile.ZipFile(path) as z:captured.update({n:z.read(n) for n in z.namelist()})
+                return {'VersionId':'v'}
+            plan={'role':role,'source_revision':'a'*40,'build_services':[]}
+            args=SimpleNamespace(role=role,version=None,infra_revision='b'*40,prs=[1],output=str(Path(d)/'release.json'))
+            patches=[patch.object(runtime,'config',return_value={}),patch.object(runtime,'previous',return_value=None),patch.object(runtime,'planner',return_value=plan),
+                     patch.object(runtime,'run',return_value=''),patch.object(runtime,'aws',return_value={}),patch.object(runtime,'read_configuration',side_effect=configuration),
+                     patch.object(runtime,'immutable_put',side_effect=put)]
+            if root:patches.append(patch.object(runtime,'ROOT',root))
+            for p in patches:p.start()
+            try:runtime.publish(args)
+            finally:
+                for p in reversed(patches):p.stop()
+            return captured
+
+    def test_app_번들에는_관측_설정_8개가_정확한_이름과_내용으로_들어간다(self):
+        bundle=self._publish_bundle('app')
+        self.assertEqual(len(runtime.OBSERVABILITY_FILES),8)
+        for name,source in runtime.OBSERVABILITY_FILES.items():
+            self.assertEqual(Path(name).name,name)  # 평면 이름만 허용
+            self.assertEqual(bundle[name],(runtime.ROOT/source).read_bytes())
+        self.assertIn('infra-V2.txt',bundle)
+
+    def test_kafka_번들에는_관측_설정이_들어가지_않는다(self):
+        bundle=self._publish_bundle('kafka')
+        self.assertFalse(set(runtime.OBSERVABILITY_FILES)&set(bundle))
+
+    def test_관측_설정_원본이_없으면_조용히_건너뛰지_않고_실패한다(self):
+        with tempfile.TemporaryDirectory() as empty:
+            with self.assertRaises(FileNotFoundError):self._publish_bundle('app',Path(empty))
+
+    def test_관측_설정_원본은_prod_CI_경로_필터와_일치한다(self):
+        workflow=(runtime.ROOT/'.github/workflows/prod-ci-V2.yml').read_text(encoding='utf-8')
+        for source in runtime.OBSERVABILITY_FILES.values():
+            self.assertEqual(workflow.count(f'    - {source}\n'),2,source)  # pull_request·push 양쪽
+        listed=[line for line in workflow.splitlines() if line.startswith('    - server/observability/')]
+        self.assertEqual(len(listed),2*len(runtime.OBSERVABILITY_FILES))
+
 if __name__=='__main__':unittest.main()

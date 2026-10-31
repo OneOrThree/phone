@@ -18,6 +18,16 @@ BUCKET='catus-prod-deploy-artifacts-808715036056-v2'
 ROLES=('app','kafka','redis','backoffice')
 PREFIX={'app':'catus','kafka':'kafka','redis':'redis','backoffice':'backoffice'}
 ROOT=Path(__file__).resolve().parents[4]
+# 앱 릴리스 번들에 평면 이름으로 넣는 관측 설정(번들 이름 → 저장소 원본). Infra 배포 엔진과의 계약(GROMO-2619 §2)이다.
+OBSERVABILITY_FILES={
+    'fluent-bit-V2.conf':'server/observability/fluent-bit/fluent-bit.conf',
+    'fluent-bit-parsers-V2.conf':'server/observability/fluent-bit/parsers.conf',
+    'fluent-bit-logs-V2.lua':'server/observability/fluent-bit/logs.lua',
+    'fluent-bit-s3-on-V2.conf':'server/observability/fluent-bit/modules/s3-on/s3.conf',
+    'fluent-bit-s3-off-V2.conf':'server/observability/fluent-bit/modules/s3/off.conf',
+    'fluent-bit-nginx-off-V2.conf':'server/observability/fluent-bit/modules/nginx-host/off.conf',
+    'loki-V2.yml':'server/observability/loki/loki-config.yml',
+    'grafana-log-investigation-V2.json':'server/observability/grafana/dashboards/log-investigation.json'}
 
 
 def run(args,**kwargs):
@@ -166,6 +176,8 @@ def publish(args):
         temp=Path(d);bundle=read_configuration(temp,args.infra_revision)
         if args.role in ['kafka','redis']:
             for file in (ROOT/'server/scripts/v2/prod').glob(args.role+'*-V2.*'):(bundle/file.name).write_bytes(file.read_bytes())
+        if args.role=='app':
+            for name,source_path in OBSERVABILITY_FILES.items():(bundle/name).write_bytes((ROOT/source_path).read_bytes())  # 원본이 없으면 FileNotFoundError 로 실패
         files={p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in bundle.iterdir()}
         manifest={**plan,'stack':'V2','version':tag,'infra_revision':args.infra_revision,'release_id':release_id,'images':images,'service_revisions':revisions,'service_versions':service_versions,'files':files,'related_prs':args.prs or related_prs(plan,prior)}
         (bundle/'manifest-V2.json').write_text(json.dumps(manifest,sort_keys=True))
