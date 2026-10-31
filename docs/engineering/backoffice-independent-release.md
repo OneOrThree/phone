@@ -1,5 +1,7 @@
 # 백오피스 독립 릴리스
 
+> **이 저장소의 백오피스 발행·배포 워크플로는 제거됐다.** 아래 절차의 `Backoffice Release`, `Backoffice Production Deploy`는 실행할 수 없다. 이관 전까지 배포 경로가 없다.
+
 서버는 기존 `release`와 `prod-cd`를 사용한다. 백오피스는 `main`의 조상 커밋에 붙인 `backoffice-vX.Y.Z` 태그로 `backoffice/`만 빌드하고 별도 승인·배포 이력을 남긴다. 서버와 백오피스의 커밋 SHA를 일치시키지 않는다.
 
 ## API 호환 경계
