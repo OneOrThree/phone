@@ -116,6 +116,11 @@ class CommandFailureTest(unittest.TestCase):
                                 (b'unchanged A=1','unchanged A=1')]:
             with self.subTest(stderr=stderr): self.assertEqual(self.message(stderr,data=data),self.PREFIX+': '+expected)
 
+    def test_tar_archive_on_stdin_does_not_hide_paths(self):
+        archive=b'compose.yml\0\0\0\nDIR=/opt/catus-dev-v2/app\n\0\0'
+        self.assertEqual(self.message(b'tar: /opt/catus-dev-v2/app: Cannot open',data=archive),
+                         self.PREFIX+': tar: /opt/catus-dev-v2/app: Cannot open')
+
     def test_remote_failure_does_not_echo_the_password_sent_on_stdin(self):
         with processes(proc(1,stderr=b'AUTH failed for hunter2-redis\n')),self.assertRaises(m.CommandError) as caught:
             m.ssh('vm','sudo verify.sh shared',b'hunter2-redis\n')

@@ -44,7 +44,9 @@ def remember_env_secrets(envs):
 
 def mask(text, data):
     """실패 메시지에서 시크릿 값과 이 호출의 stdin을 가린다."""
-    candidates = secret_values | secret_parts((data or b'').decode(errors='replace'))
+    # tar 묶음에는 시크릿이 없다. 줄을 후보로 삼으면 원격 오류의 경로까지 가려진다.
+    stdin = b'' if not data or b'\0' in data else data
+    candidates = secret_values | secret_parts(stdin.decode(errors='replace'))
     # 긴 값부터 가려야 일부만 남지 않는다. 4자 미만은 흔한 토큰이라 가리면 오탐이 더 크다.
     # 인코딩·이스케이프로 바뀐 값은 못 가린다.
     for value in sorted(candidates, key=len, reverse=True):
