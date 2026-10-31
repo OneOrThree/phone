@@ -1,6 +1,7 @@
 import { ConstructionEditor, ConstructionReview, proposalFrom, type PolicySnapshot } from './ConstructionPolicy';
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { iosStoreNotice, storeWarning, unavailableNotice, unpublishedWarning, type SystemVersions } from './versions';
+import { iosStoreNotice, storeWarning, unpublishedWarning, type SystemVersions } from './versions';
+import { confirmNotices, FORCE_WARNING, forces, type ConfirmNotice } from './confirmNotices';
 import { ApiError, request } from './api';
 import type { ContentItem, ContentKind, ContentStatus, Draft, FcmCatalogPage, FcmTemplate, HistoryItem, HistoryPage, MagazineCard, MagazineSnapshot, Session } from './types';
 import { FocusPolicyPanel } from './FocusPolicyPanel';
@@ -69,9 +70,6 @@ function buildPayload(draft: Draft) {
   };
 }
 const MIN_VERSION = /^\d{1,9}\.\d{1,9}\.\d{1,9}$/;
-const FORCE_WARNING = '이 버전보다 낮은 앱은 업데이트 전까지 쓸 수 없습니다. 스토어에 올라간 버전 이하인지 확인하세요. 이 공지의 제목과 본문은 로그인 없이 공개됩니다.';
-// 옛 항목은 noticeType 이 없다 — min 이 하나라도 있으면 강제 업데이트다.
-const forces = (value: { noticeType?: string; minIosVersion?: string | null; minAndroidVersion?: string | null }) => (value.noticeType ?? (value.minIosVersion || value.minAndroidVersion ? 'force' : 'patch')) === 'force';
 const minSummary = (value: { minIosVersion?: string | null; minAndroidVersion?: string | null }) => [value.minIosVersion && `iOS ${value.minIosVersion}`, value.minAndroidVersion && `Android ${value.minAndroidVersion}`].filter(Boolean).join(' · ') || '없음';
 function Icon({ name }: { name: string }) {
   const paths: Record<string, ReactNode> = {
@@ -223,10 +221,11 @@ function VersionInfo({ versions }: { versions: SystemVersions | null }) {
 }
 function ConfirmDialog({ item, action, busy, error, mode, iosStore, onClose, onConfirm }: { iosStore: SystemVersions['iosStore'] | null; item: ContentItem; action: string; busy: boolean; error: string; mode: Session['mode']; onClose: () => void; onConfirm: () => void }) {
   const ref = useRef<HTMLDialogElement>(null);
-  const storeNotice = item.kind === 'notice' && forces(item) && ['review', 'approve', 'publish'].includes(action) ? iosStoreNotice(item.minIosVersion, iosStore) : null;
+  const { before, after } = confirmNotices(item, action, iosStore);
+  const renderNotices = (list: ConfirmNotice[]) => list.map(({ text, className, role }) => <p key={text} className={className} role={role}>{text}</p>);
   useEffect(() => { ref.current?.showModal(); return () => ref.current?.close(); }, []);
   const verb = action === 'review' ? '검토 요청' : action === 'approve' ? '승인' : action === 'cancel' ? '발행 전 취소' : action === 'cancel-delivery' ? '남은 발송 취소' : action === 'withdraw' ? '노출 종료' : action === 'archive' ? '운영 목록 보관' : item.kind === 'fcm' ? '발송 요청' : item.kind === 'construction' ? '정책 적용' : '게시';
-  return <dialog ref={ref} className="confirm-dialog" aria-labelledby="confirm-title" onCancel={event => { event.preventDefault(); if (!busy) onClose(); }} onClick={event => { if (event.target === ref.current && !busy) onClose(); }}>
+  return <dialog ref={ref} className="confirm-dialog" aria-labelledby="confirm-title" aria-describedby="confirm-uncertain confirm-notices" onCancel={event => { event.preventDefault(); if (!busy) onClose(); }} onClick={event => { if (event.target === ref.current && !busy) onClose(); }}>
     <div className="dialog-content"><span className="dialog-channel">{CHANNELS.find(channel => channel.kind === item.kind)?.name} · 수정본 {item.revision}</span><h2 id="confirm-title">이 내용으로 {verb}할까요?</h2>
       <p className="dialog-title">{item.title}</p><p className="prewrap dialog-body">{item.body || '본문 없음'}</p>
       <dl className="confirmation-facts"><div><dt>대상</dt><dd>{item.kind === 'fcm' ? `명시한 수신자 ${item.targets.length}명` : item.kind === 'magazine' ? `${item.issueDate} 잡지` : item.kind === 'construction' ? '전체 건물의 새 착공' : '앱 개발자 공지'}</dd></div>
@@ -235,18 +234,9 @@ function ConfirmDialog({ item, action, busy, error, mode, iosStore, onClose, onC
         {item.approvedBy && <div><dt>승인자</dt><dd>{item.approvedBy}</dd></div>}<div><dt>연결 모드</dt><dd>{mode === 'local' ? '로컬 · 외부 발송/게시 없음' : '서비스 연결'}</dd></div></dl>
       {item.kind === 'fcm' && <details className="technical-details"><summary>수신자 {item.targets.length}명 확인</summary><ul className="recipient-list">{item.targets.map(id => <li key={id}><code>{id}</code></li>)}</ul></details>}
       {item.kind === 'fcm' && <details className="technical-details"><summary>알림 데이터 확인</summary><pre className="json-view">{JSON.stringify(item.data, null, 2)}</pre></details>}
-      {item.status === 'uncertain' && <p className="callout">최초 발송과 같은 요청 번호로 재시도합니다. 새로운 발송 요청을 만들지 않습니다.</p>}
+      <div id="confirm-uncertain">{renderNotices(before)}</div>
       {(item.kind === 'magazine' || item.kind === 'construction') && <ContentPreview draft={draftFrom(item)} />}
-      {action === 'publish' && <p className="callout">{item.kind === 'fcm' ? '발송 요청이 접수되어도 실제 기기 수신을 의미하지 않습니다. 발송 게이트가 꺼져 있으면 대기합니다.' : item.kind === 'construction' ? '승인된 비용과 공사 시간을 새 착공에 적용합니다. 이미 시작한 공사는 유지되며, 기준 정책이 바뀌었다면 다시 검토해야 합니다.' : '현재 승인된 수정본을 게시합니다. 게시 이후 내용은 이 초안에서 수정할 수 없습니다.'}</p>}
-      {item.kind === 'notice' && forces(item) && ['review', 'approve', 'publish'].includes(action) && <p className="callout" role="alert">{FORCE_WARNING}</p>}
-      {storeNotice === 'exceeds' && <p className="callout" role="status">{storeWarning(iosStore?.version ?? '')}</p>}
-      {storeNotice === 'unpublished' && <p className="callout" role="status">{unpublishedWarning}</p>}
-      {storeNotice === 'unavailable' && <p className="callout">{unavailableNotice}</p>}
-      {action === 'cancel' && <p className="callout">발행 전 작업을 취소하고 보관 목록으로 옮깁니다. 내용과 변경 이력은 남습니다.</p>}
-      {action === 'cancel-delivery' && <p className="callout">대기·재시도 중인 발송을 취소합니다. 이미 발송했거나 FCM 호출 중인 알림은 회수할 수 없습니다. 처리 후 수치를 확인하세요.</p>}
-      {action === 'withdraw' && <p className="callout">앱의 개발자 공지 노출을 즉시 종료합니다. 게시 이력은 남습니다.</p>}
-      {action === 'archive' && <p className="callout">운영 작업 목록에서 보관합니다. {item.kind === 'magazine' ? '발행된 잡지 호는 앱에서 유지됩니다.' : '적용된 건설 정책은 유지됩니다.'}</p>}
-      {action === 'approve' && <p className="field-hint">승인 후 내용이 바뀌면 다시 검토·승인이 필요합니다.</p>}
+      <div id="confirm-notices">{renderNotices(after)}</div>
       {error && <p role="alert" className="error-message">{error}</p>}
       <div className="dialog-actions"><button className="button secondary" onClick={onClose} disabled={busy}>돌아가기</button><button className="button primary" onClick={onConfirm} disabled={busy}>{busy ? '처리 중…' : `${verb} 확인`}</button></div>
     </div>
