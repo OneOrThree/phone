@@ -26,6 +26,24 @@ import { intentKeyPool, RecordItem, Route, Session, sessionRoute, State } from '
 import { captureProductEvent } from '@/services/posthog';
 import { measureDatadogOperation } from '@/services/datadog';
 
+/**
+ * 집중 완료 기록의 섬/바다 집중시간 요약(GROMO-2540). PostHog 대시보드의 「섬과 바다 중 어디서 집중」·
+ * 「장소별 하루 집중시간」을 채운다. 한 세션은 섬 또는 바다 하나이므로 activeSeconds 를 그 장소에 싣고,
+ * kind 가 없으면(구버전 서버) 경과시간으로 장소를 추측하지 않고 미상으로 둔다.
+ */
+function captureFocusLocationSummary(view: FocusFinishView): void {
+  const seconds = view.activeSeconds;
+  captureProductEvent('focus_location_summary', {
+    record_id: view.recordId,
+    duration_seconds: seconds,
+    island_seconds: view.kind === 'island' ? seconds : 0,
+    sea_seconds: view.kind === 'sea' ? seconds : 0,
+    unknown_seconds: view.kind === undefined ? seconds : 0,
+    metrics_schema_version: 1,
+    analytics_excluded: 0,
+  });
+}
+
 export type FocusApi = {
   current: typeof apiCurrent;
   pendingResult: typeof apiPendingResult;
@@ -282,6 +300,8 @@ export const createSessionCommands = (deps: SessionCommandDeps) => {
           record: recordFromFinish(pending, pending.recordId),
           fromRest: true,
         });
+        // 자동 종료된 미확인 결과도 장소 요약을 남긴다(finish 경로만으로는 돌아오지 않는 세션이 빠진다).
+        captureFocusLocationSummary(pending);
         return 'focusResult';
       }
       return null;
@@ -383,6 +403,7 @@ export const createSessionCommands = (deps: SessionCommandDeps) => {
             duration_seconds: result.activeSeconds,
             earned_fish: result.earnedFish,
           });
+          captureFocusLocationSummary(result);
           return result;
         }),
       ),
