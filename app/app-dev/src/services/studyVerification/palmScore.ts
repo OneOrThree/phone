@@ -31,9 +31,13 @@ export function scoreTensorIndex(outputs: readonly { shape: number[] }[]): numbe
 /** 앵커별 날 점수 중 최대값에 sigmoid(±100 클램프) — MediaPipe 그래프와 같은 식. */
 export function maxSigmoid(raw: Float32Array): number {
   'worklet';
+  if (!raw.length) return NaN;
   let m = -Infinity;
-  for (let i = 0; i < raw.length; i++) if (raw[i]! > m) m = raw[i]!;
-  if (m === -Infinity) return 0;
+  for (let i = 0; i < raw.length; i++) {
+    const score = raw[i]!;
+    if (!Number.isFinite(score)) return NaN;
+    if (score > m) m = score;
+  }
   const x = Math.max(-100, Math.min(100, m));
   return 1 / (1 + Math.exp(-x));
 }
@@ -42,6 +46,6 @@ export function maxSigmoid(raw: Float32Array): number {
 export function majorityPass(scores: readonly number[], threshold = HAND_SCORE, need = 2): boolean {
   'worklet';
   let hit = 0;
-  for (const s of scores) if (s >= threshold) hit++;
+  for (const s of scores) if (Number.isFinite(s) && s >= threshold) hit++;
   return hit >= need;
 }

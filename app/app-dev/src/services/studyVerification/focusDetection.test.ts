@@ -1,3 +1,4 @@
+import { maxSigmoid } from './palmScore';
 import { focusDetection } from './focusDetection';
 const no = { book: 0, laptop: 0, keyboard: 0 };
 const book = { ...no, book: 0.5 };
@@ -32,3 +33,12 @@ test('둘 다 부족하면 손 안내 하나를 먼저 보내고 손이 충족�
   expect(focusDetection([0.9, 0.9, 0], [no, no, no])).toBe('missingObject');
   expect(focusDetection([0.9, 0.9, 0], [book, book, no])).toBe('focused');
 });
+
+test.each([Infinity, -Infinity, NaN])(
+  '비정상 손 출력 %s와 공부 도구 두 장으로 인증하지 않는다',
+  (raw) => {
+    const hand = maxSigmoid(new Float32Array([raw]));
+    const book = { book: 0.9, laptop: 0, keyboard: 0 };
+    expect(focusDetection([hand, hand, 0], [book, book, null])).toBe('unavailable');
+  },
+);
