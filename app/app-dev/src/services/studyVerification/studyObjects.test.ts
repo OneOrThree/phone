@@ -27,14 +27,21 @@ test('빈 COCO 라벨을 포함한 인덱스로 추출하고 확률에 sigmoid�
   expect(studyObjectScores(new Float32Array(90))).toEqual(scores(0));
 });
 
-test('잘못된 출력은 감지로 쓰지 않고 비정상 확률도 제외한다', () => {
+test('형식이 잘못된 출력은 거부한다', () => {
   expect(() => studyObjectScores(new Float32Array(89))).toThrow('Invalid');
-  const raw = new Float32Array(90);
-  raw[72] = NaN;
-  raw[75] = Infinity;
-  raw[83] = 3;
-  expect(studyObjectScores(raw)).toEqual(scores(0));
 });
+
+test.each([NaN, Infinity, -Infinity, -0.1, 1.1])(
+  '비정상 객체 확률 %s는 정상 앵커가 함께 있어도 오류로 보존한다',
+  (invalid) => {
+    for (const index of [0, 72, 75, 83]) {
+      const raw = new Float32Array(90 * 2);
+      raw[90 + 83] = 0.9;
+      raw[index] = invalid;
+      expect(() => studyObjectScores(raw)).toThrow('Invalid object score probability');
+    }
+  },
+);
 
 test('물체마다 같은 3장 중 2장 기준이며 한 장의 오탐으로 감지하지 않는다', () => {
   expect(studyObjectPresence([scores(1)])).toBeNull();
