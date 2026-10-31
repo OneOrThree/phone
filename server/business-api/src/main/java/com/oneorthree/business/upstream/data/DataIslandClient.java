@@ -348,6 +348,20 @@ public class DataIslandClient {
                 new ParameterizedTypeReference<IslandArrival>() { });
     }
 
+    /** 첫 항해 체험 도착 — 명령 키는 Data가 무인도 중복 생성까지 막는 데 사용한다. */
+    public IslandArrival introArriveAtIsland(UUID userId, UUID islandId, UUID key, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.POST,
+                                userPath(PATH_ISLAND_ARRIVALS, userId).replace("{islandId}", islandId.toString())
+                                        .replace("/arrivals", "/intro-arrivals"))
+                        .onBehalfOf(userId)
+                        .idempotencyKey(key.toString())
+                        .idempotentCommand()
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<IslandArrival>() { });
+    }
+
     /**
      * 잡지 홍보 신청 (GROMO-2267) — 섬 통장에서 홍보비를 뺀다. 앱 키를 그대로 전달해 응답 유실 복구는 Data 의 receipt
      * 재생이다. 본문은 한 줄 글과 꾸미기 {@code layout}(GROMO-2289)이고, layout 판정은 Data 가 한다.

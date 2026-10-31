@@ -69,7 +69,7 @@ public class OnboardingIslandService {
                 TelescopeService.NEARBY_SAILING_MINUTES, null, false, false, null, null, null, 0));
     }
 
-    /** 종료 마커가 닫힌 뒤 같은 트랜잭션에서 호출한다. 실패·재시도는 전부 롤백 또는 완료 세션 재생으로 처리된다. */
+    /** 완료 항해 또는 첫 항해 체험의 도착 TX에서 생성한다. 호출자가 이동 가드와 멱등 재생을 보장한다. */
     public Group materializeAtFinish(User user, UserIslandContext context) {
         guards.requireJoinedIslandLimit(user);
         Group island = groups.save(Group.builder().name("새로운 섬").description("")
@@ -77,7 +77,7 @@ public class OnboardingIslandService {
         wallets.save(IslandWallet.empty(island.getId()));
         construction.save(IslandConstructionState.empty(island.getId()));
         members.save(GroupMember.builder().user(user).group(island).role(GroupMemberRole.OWNER).build());
-        // 이미 완료한 15분 항해가 이동 경로다. 일반 즉시 전환의 출발 섬 전망대 조건은 적용하지 않는다.
+        // 실제 항해는 완료 검증을, 첫 항해 체험은 호출부의 출발 가드를 이미 거쳤다.
         context.moveTo(island.getId());
         return island;
     }
