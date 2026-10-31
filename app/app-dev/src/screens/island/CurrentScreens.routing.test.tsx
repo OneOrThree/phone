@@ -1,5 +1,8 @@
 import { useCameraPermissions } from 'expo-camera';
-import { clearVerificationResult } from '@/services/studyVerification/sessionResult';
+import {
+  clearVerificationResult,
+  openVerificationCapture,
+} from '@/services/studyVerification/sessionResult';
 // `CurrentScreensContent`(CurrentScreens.tsx)는 'arrival'·'travel'·'focusTravel'·'fishingArrival'·
 // 'focusSetup'·'focus'·'rest'·'focusResult'·'returnTravel' 9개 라우트를 Screens.tsx 의
 // `RedesignScreens`에 닿기 전에 `Travel`·`FocusFlow`로 먼저 가로채고, 'manage'·'members' 는 `Hall` 로 보낸다.
@@ -598,6 +601,36 @@ test('집중 중 카메라 끄기는 설정만 바꾸고 세션과 타이머를 
   expect(next.session).toEqual(state.session);
   await screen.rerender(screenOf('focus', next, { dispatch, now }));
   expect(screen.getByText('00:02:03')).toBeTruthy();
+});
+
+test('카메라를 끄고 종료해도 사용한 세션의 결과에 누적 시간을 전달하고 기록에는 넣지 않는다', async () => {
+  const state = serverFocusState();
+  state.settings.studyVerification = false;
+  const capture = openVerificationCapture('s-me');
+  capture.observe(true, 0);
+  capture.observe(true, 1000);
+  capture.observe(true, 2000);
+  capture.close();
+  const record = {
+    id: 's-me',
+    islandId: 'soda',
+    subject: '수학',
+    seconds: 30,
+    at: Date.now(),
+    fish: 0,
+    contributed: true,
+  };
+  state.lastResult = record;
+  state.records = [record];
+  state.session = null;
+  const screen = await mount('focusResult', state);
+  expect(screen.getByTestId('verification-result-duration')).toHaveTextContent('00:00:02');
+  expect(screen.getByTestId('focus-result-duration')).toHaveTextContent('00:00:30');
+  expect(JSON.stringify(state)).not.toMatch(/verifiedSeconds|verifiedMs/);
+  await screen.unmount();
+  clearVerificationResult('s-me');
+  const ordinary = await mount('focusResult', state);
+  expect(ordinary.queryByTestId('verification-result')).toBeNull();
 });
 
 test('카메라 기능 안내는 튜토리얼 도착에서는 숨기고 체험 완료 후 다음 도착에 표시한다', async () => {

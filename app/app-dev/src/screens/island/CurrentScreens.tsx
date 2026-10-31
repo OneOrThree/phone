@@ -1,5 +1,8 @@
 import { FishingFocusHud } from '@/screens/focus/FishingFocusHud';
-import { clearVerificationResult } from '@/services/studyVerification/sessionResult';
+import {
+  clearVerificationResult,
+  verificationResult,
+} from '@/services/studyVerification/sessionResult';
 import { DeveloperNoticesScreen } from '@/screens/island/DeveloperNoticesScreen';
 import { useAccountGuides } from '@/screens/island/useAccountGuides';
 import { useConstructionAnnouncements } from '@/screens/island/useConstructionAnnouncements';
@@ -3633,6 +3636,9 @@ function FocusFlow({ e: environment }: any) {
       <FocusResultSummary
         subject={result?.subject ?? t('focusFlow.result.defaultSubject')}
         seconds={result?.seconds ?? 0}
+        verifiedSeconds={
+          VERIFY_SPIKE ? verificationResult(result?.id, result?.seconds ?? 0) : undefined
+        }
         fish={result?.fish ?? 0}
         questTitles={achievedQuestTitles}
         recordId={result?.id}
