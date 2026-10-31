@@ -53,7 +53,8 @@ import java.util.UUID;
  *
  * <p>무인증 공개 경로는 세 종류다 — 컨테이너 헬스체크({@code /health}), 이관 정지 창의 무인증 구 앱
  * 관리 엔드포인트(포트 9091 로 격리돼 있고 서비스 포트로 부르면 404 여야 한다).
- * RT-only 로그아웃은 별도로 정확한 DELETE 경로에서만 AT 생략을 허용하고, Data가 RT를 검증한다.
+ * 앱 최소 버전 조회({@code /auth/sessions/app-requirements})도 정확 일치로 연다 — 로그인 전·만료 토큰 앱이
+ * 읽어야 한다. RT-only 로그아웃은 별도로 정확한 DELETE 경로에서만 AT 생략을 허용하고, Data가 RT를 검증한다.
  */
 @Slf4j
 @RequiredArgsConstructor
@@ -62,6 +63,9 @@ public class AccessTokenFilter extends OncePerRequestFilter {
     private static final String HEADER_USER_ID = "X-User-Id";
     private static final String HEADER_AUTHORIZATION = "Authorization";
     private static final String BEARER_PREFIX = "Bearer ";
+
+    /** 최소 버전 조회 경로. PUBLIC_PATHS 가 아니라 GET 일 때만 {@link #shouldNotFilter} 에서 연다. */
+    private static final String APP_REQUIREMENTS_PATH = "/auth/sessions/app-requirements";
 
     /**
      * 인증 없이 지나갈 수 있는 경로 — <b>이 목록에 없는 모든 요청은 401</b>이다.
@@ -93,7 +97,11 @@ public class AccessTokenFilter extends OncePerRequestFilter {
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
-        return PUBLIC_PATHS.contains(request.getRequestURI());
+        // 최소 버전 조회(GROMO-2616)는 로그인 전·만료 토큰 앱도 읽어야 해서 GET 정확 일치만 연다.
+        // PUBLIC_PATHS 는 메서드를 보지 않는다 — 같은 접두사에 나중에 경로 변수 매핑이 생겨도
+        // 다른 메서드가 인증 없이 열리면 안 되므로 여기서 메서드를 함께 본다.
+        return PUBLIC_PATHS.contains(request.getRequestURI())
+                || ("GET".equals(request.getMethod()) && APP_REQUIREMENTS_PATH.equals(request.getRequestURI()));
     }
 
     @Override

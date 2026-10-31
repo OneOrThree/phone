@@ -49,7 +49,7 @@ class OutboxOriginV7MigrationTest {
                 UUID.randomUUID(), outboxId, userId.toString());
         Map<String, Object> before = jdbc.queryForMap("SELECT * FROM event_outbox WHERE id = ?", outboxId);
 
-        migrate(MigrationVersion.LATEST);
+        migrate(MigrationVersion.fromVersion("7"));
 
         Map<String, Object> after = jdbc.queryForMap("SELECT * FROM event_outbox WHERE id = ?", outboxId);
         assertThat(after).containsAllEntriesOf(before)
@@ -88,7 +88,7 @@ class OutboxOriginV7MigrationTest {
     @Test
     @DisplayName("V7 까지 적용된 DB 를 V7 없는 번들(V0~V6)로 migrate·validate 해도 통과한다")
     void rollbackBundleWithoutV7StillValidatesAppliedV7(@TempDir Path previousImage) throws IOException {
-        migrate(MigrationVersion.LATEST);
+        migrate(MigrationVersion.fromVersion("7"));
         for (String name : List.of("V0__baseline.sql", "V1__focus_session_details_seat.sql",
                 "V2__construction_buildings.sql", "V3__deferred_uninhabited_island.sql",
                 "V4__content_review_publications.sql", "V5__construction_policy_publications.sql",

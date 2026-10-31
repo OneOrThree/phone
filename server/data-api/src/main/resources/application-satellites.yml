@@ -51,6 +51,7 @@ internal:
           - 'GET /internal/admin/content/construction-policy'
           - 'PUT /internal/admin/content/construction-policy/*'
           - 'PUT /internal/admin/content/notices/*'
+          - 'POST /internal/admin/content/notices/*/withdraw'
           - 'POST /internal/admin/content/magazine/previews'
           - 'POST /internal/admin/content/magazine/publications/*'
       console-member-2:
@@ -69,6 +70,7 @@ internal:
           - 'GET /internal/admin/content/construction-policy'
           - 'PUT /internal/admin/content/construction-policy/*'
           - 'PUT /internal/admin/content/notices/*'
+          - 'POST /internal/admin/content/notices/*/withdraw'
           - 'POST /internal/admin/content/magazine/previews'
           - 'POST /internal/admin/content/magazine/publications/*'
       console-member-3:
@@ -87,6 +89,7 @@ internal:
           - 'GET /internal/admin/content/construction-policy'
           - 'PUT /internal/admin/content/construction-policy/*'
           - 'PUT /internal/admin/content/notices/*'
+          - 'POST /internal/admin/content/notices/*/withdraw'
           - 'POST /internal/admin/content/magazine/previews'
           - 'POST /internal/admin/content/magazine/publications/*'
       business:
@@ -94,6 +97,7 @@ internal:
         allow:
           - 'GET /internal/users/*/developer-notices'
           - 'GET /internal/users/*/developer-notices/*'
+          - 'GET /internal/developer-notices/app-requirements'
           - 'GET /internal/users/*/activation'
           - 'POST /internal/auth/device-sessions/verify'
           - 'POST /internal/auth/sessions/verify'

@@ -119,6 +119,8 @@ class ContentEnvironmentTest {
                         "$.contractVersion").value("1"))
                 .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath(
                         "$.capabilities").value(org.hamcrest.Matchers.contains("content.publication.v1",
-                                "content.history.v1", "construction.policy.v1", "focus.policy.v1")));
+                                "content.history.v1", "content.notice.withdraw.v1",
+                                    "content.app-requirements.v1",
+                                "construction.policy.v1", "focus.policy.v1")));
     }
 }

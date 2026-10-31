@@ -17,7 +17,17 @@ REGION='ap-northeast-2'
 BUCKET='catus-prod-deploy-artifacts-808715036056-v2'
 ROLES=('app','kafka','redis','backoffice')
 PREFIX={'app':'catus','kafka':'kafka','redis':'redis','backoffice':'backoffice'}
-ROOT=Path(__file__).resolve().parents[2]
+ROOT=Path(__file__).resolve().parents[4]
+# 앱 릴리스 번들에 평면 이름으로 넣는 관측 설정(번들 이름 → 저장소 원본). Infra 배포 엔진과의 계약(GROMO-2619 §2)이다.
+OBSERVABILITY_FILES={
+    'fluent-bit-V2.conf':'server/observability/fluent-bit/fluent-bit.conf',
+    'fluent-bit-parsers-V2.conf':'server/observability/fluent-bit/parsers.conf',
+    'fluent-bit-logs-V2.lua':'server/observability/fluent-bit/logs.lua',
+    'fluent-bit-s3-on-V2.conf':'server/observability/fluent-bit/modules/s3-on/s3.conf',
+    'fluent-bit-s3-off-V2.conf':'server/observability/fluent-bit/modules/s3/off.conf',
+    'fluent-bit-nginx-off-V2.conf':'server/observability/fluent-bit/modules/nginx-host/off.conf',
+    'loki-V2.yml':'server/observability/loki/loki-config.yml',
+    'grafana-log-investigation-V2.json':'server/observability/grafana/dashboards/log-investigation.json'}
 
 
 def run(args,**kwargs):
@@ -54,7 +64,7 @@ def previous(role):
 def planner(role,prior=None,pr_base=None):
     revision=run(['git','rev-parse','HEAD']).strip()
     if role=='app':
-        spec=importlib.util.spec_from_file_location('catus_plan',Path(__file__).with_name('catus-plan.py'))
+        spec=importlib.util.spec_from_file_location('catus_plan',Path(__file__).parents[2]/'catus-plan.py')
         module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
         files=run(['git','ls-files','-z']).split('\0')
         source,migration=module.fingerprints(ROOT,[x for x in files if x])
@@ -65,7 +75,7 @@ def planner(role,prior=None,pr_base=None):
         source={'backoffice':hashlib.sha256(b''.join(str(p.relative_to(ROOT)).encode()+p.read_bytes() for p in files)).hexdigest()}
         migration={};build={'backoffice'} if not prior or prior.get('source_fingerprints')!=source else set()
     else:
-        files=sorted((ROOT/'server/scripts/runtime-V2').glob('*-V2.*'))
+        files=sorted((ROOT/'server/scripts/v2/prod').glob('*-V2.*'))
         source={role:hashlib.sha256(b''.join(p.name.encode()+p.read_bytes() for p in files if role in p.name)).hexdigest()}
         migration={};build=set()
     if role=='app' and pr_base:
@@ -108,8 +118,8 @@ def immutable_put(path,key):
 
 def related_prs(plan,prior):
     repo=os.environ.get('GITHUB_REPOSITORY','OneOrThree/phone')
-    paths=['.github/scripts/catus-runtime-V2.py']
-    paths += ['backoffice'] if plan['role']=='backoffice' else ['server/scripts/runtime-V2'] if plan['role'] in ['kafka','redis'] else ['server/'+service for service in plan['build_services']]
+    paths=['.github/scripts/v2/prod/catus-runtime-V2.py']
+    paths += ['backoffice'] if plan['role']=='backoffice' else ['server/scripts/v2/prod'] if plan['role'] in ['kafka','redis'] else ['server/'+service for service in plan['build_services']]
     if prior:
         revisions=run(['git','rev-list',prior['source_revision']+'..'+plan['source_revision'],'--',*paths]).splitlines()
     else:
@@ -165,7 +175,9 @@ def publish(args):
     with tempfile.TemporaryDirectory() as d:
         temp=Path(d);bundle=read_configuration(temp,args.infra_revision)
         if args.role in ['kafka','redis']:
-            for file in (ROOT/'server/scripts/runtime-V2').glob(args.role+'*-V2.*'):(bundle/file.name).write_bytes(file.read_bytes())
+            for file in (ROOT/'server/scripts/v2/prod').glob(args.role+'*-V2.*'):(bundle/file.name).write_bytes(file.read_bytes())
+        if args.role=='app':
+            for name,source_path in OBSERVABILITY_FILES.items():(bundle/name).write_bytes((ROOT/source_path).read_bytes())  # 원본이 없으면 FileNotFoundError 로 실패
         files={p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in bundle.iterdir()}
         manifest={**plan,'stack':'V2','version':tag,'infra_revision':args.infra_revision,'release_id':release_id,'images':images,'service_revisions':revisions,'service_versions':service_versions,'files':files,'related_prs':args.prs or related_prs(plan,prior)}
         (bundle/'manifest-V2.json').write_text(json.dumps(manifest,sort_keys=True))
@@ -224,7 +236,18 @@ def submit_ssm(identifier,document,params,marker,output):
     return command_id
 
 
+def ssm_params(envelope,rollback,allow_migration):
+    """SSM 배포 파라미터. AllowMigration 은 승인한 DB 전환 배포에만 실어 Infra 문서 기본값(false)을 그대로 쓰게 한다."""
+    params={'ReleaseKey':[envelope['key']],'ObjectVersion':[envelope['object_version']],'BundleSha256':[envelope['sha256']],'Rollback':['true' if rollback else 'false']}
+    if allow_migration:params['AllowMigration']=['true']
+    return params
+
+
 def deploy(args):
+    # 승인은 앱 역할의 정방향 DB 전환에만 쓴다. 조회·전송 전에 거부해 아무것도 건드리지 않는다.
+    if getattr(args,'allow_migration',False):
+        if getattr(args,'rollback',False):raise ValueError('allow_migration cannot be combined with rollback')
+        if args.role!='app':raise ValueError('allow_migration is only for the app role')
     info=config();version(args.version,args.role)
     if os.environ.get('GITHUB_REF') and os.environ['GITHUB_REF']!='refs/heads/release':raise ValueError('release branch required')
     with tempfile.TemporaryDirectory() as d:
@@ -249,7 +272,7 @@ def deploy(args):
             time.sleep(3)
         else:raise TimeoutError('Redis credentials projection timeout')
     identifier=info['INSTANCE_IDS'][args.role];document=info['SSM_DOCUMENTS'][args.role]
-    params={'ReleaseKey':[envelope['key']],'ObjectVersion':[envelope['object_version']],'BundleSha256':[envelope['sha256']],'Rollback':['true' if args.rollback else 'false']}
+    params=ssm_params(envelope,args.rollback,args.allow_migration)
     marker='catus-V2:'+args.role+':'+os.environ.get('GITHUB_RUN_ID',envelope['release_id'])
     command_id=submit_ssm(identifier,document,params,marker,args.output)
     print('SSM '+command_id,flush=True)
@@ -325,7 +348,7 @@ def main():
     p=argparse.ArgumentParser();sub=p.add_subparsers(dest='command',required=True)
     plan=sub.add_parser('plan');plan.add_argument('--role',choices=ROLES,required=True);plan.add_argument('--output',default='plan-V2.json');plan.add_argument('--production',action='store_true');plan.add_argument('--pr-base')
     pub=sub.add_parser('publish');pub.add_argument('--role',choices=ROLES,required=True);pub.add_argument('--version');pub.add_argument('--infra-revision',required=True);pub.add_argument('--output',default='release-V2.json');pub.add_argument('--prs',nargs='*',type=int)
-    dep=sub.add_parser('deploy');dep.add_argument('--role',choices=ROLES,required=True);dep.add_argument('--version',required=True);dep.add_argument('--output',default='deployment-V2.json');dep.add_argument('--rollback',action='store_true')
+    dep=sub.add_parser('deploy');dep.add_argument('--role',choices=ROLES,required=True);dep.add_argument('--version',required=True);dep.add_argument('--output',default='deployment-V2.json');dep.add_argument('--rollback',action='store_true');dep.add_argument('--allow-migration',action='store_true')
     rec=sub.add_parser('record');rec.add_argument('--input',required=True)
     args=p.parse_args()
     if args.command=='plan':

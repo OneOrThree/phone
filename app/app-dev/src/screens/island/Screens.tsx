@@ -152,7 +152,7 @@ import {
   rejectFriendRequest,
   sendFriendRequest,
 } from '@/services/api/friends';
-import { openFeedbackMail, openReportCenter, REPORT_EMAIL_RECIPIENT } from '@/services/api/safety';
+import { openFeedback, openReportCenter, REPORT_EMAIL_RECIPIENT } from '@/services/api/safety';
 import { UserSafetySheet } from '@/components/UserSafetySheet';
 import { PolicyLinks } from '@/components/PolicyLink';
 import { PRIVACY_URL, TERMS_URL, openPolicy } from '@/constants/legal';
@@ -713,6 +713,7 @@ function AvStack({ list }: { list: string[] }) {
 let pickingLocale = false;
 export function RedesignScreens({ e }: any) {
   const layout = useAppLayout();
+  const accountBg = e.fromSea ? 'sea' : 'dock';
   const state: State = e.state,
     island = currentIsland(state),
     route: string = e.route,
@@ -1043,6 +1044,16 @@ export function RedesignScreens({ e }: any) {
     if (!island.buildings.includes('hall')) setHallGuideOpen(true);
     dispatch({ type: 'HALL_GUIDE_DONE' });
   }, [route, state.hallGuide]);
+  // 운영진의 편지(GROMO-2615) — 회관 안내·펠리컨 잡지 안내가 떠 있는 동안은 편지가 조회·표시되지 않게 App 에 알린다.
+  // 홈을 떠나거나 안내가 끝나면(정리 함수) 반드시 false 로 돌려 편지가 영영 막히지 않게 한다
+  const homeGuideOpen =
+    route === 'home' && ((hallGuideOpen && !island.buildings.includes('hall')) || magazinePrompt);
+  const setSceneGuideOpen = e.setSceneGuideOpen;
+  useEffect(() => {
+    if (!homeGuideOpen) return;
+    setSceneGuideOpen?.(true);
+    return () => setSceneGuideOpen?.(false);
+  }, [homeGuideOpen, setSceneGuideOpen]);
   const act = (type: string, p: any = {}) => dispatch({ type, ...p });
   const host = !island.members.some((m) => m.role === 'host');
   // 이름으로 지금 방장인지(공지 작성자·공동 구매자 표시)
@@ -2206,7 +2217,8 @@ export function RedesignScreens({ e }: any) {
             guideStep === 4 ||
             !!state.session ||
             !!state.visitingIslandId ||
-            !!e.routeTransitionShielded
+            !!e.routeTransitionShielded ||
+            !!e.letterOpen
           }
           go={go}
           onPromptChange={setMagazinePrompt}
@@ -3539,7 +3551,13 @@ export function RedesignScreens({ e }: any) {
       </>
     );
     return (
-      <IslandSheet bg="dock" sign="boat/raft" title={t('account.boat.title')} tight onClose={home}>
+      <IslandSheet
+        bg={accountBg}
+        sign="boat/raft"
+        title={t('account.boat.title')}
+        tight
+        onClose={home}
+      >
         {canChangeMainIsland ? (
           <Pressable
             accessibilityRole="button"
@@ -3648,7 +3666,7 @@ export function RedesignScreens({ e }: any) {
       unchanged = !selectedIsland || selectedIsland.id === primaryIsland?.id;
     return (
       <IslandSheet
-        bg="dock"
+        bg={accountBg}
         sign="island/whole"
         title="내 메인 섬 변경하기"
         tall
@@ -3870,7 +3888,7 @@ export function RedesignScreens({ e }: any) {
       !!shopApi.my?.clothes?.length || !['default', 'none'].includes(state.equipped.clothes);
     return (
       <IslandSheet
-        bg="dock"
+        bg={accountBg}
         sign="boat/raft"
         title={t('wardrobe.title')}
         tall
@@ -4241,7 +4259,14 @@ export function RedesignScreens({ e }: any) {
     );
     return (
       <>
-        <IslandSheet bg="dock" sign="boat/raft" title="친구 관리" tall onBack={back} onClose={home}>
+        <IslandSheet
+          bg={accountBg}
+          sign="boat/raft"
+          title="친구 관리"
+          tall
+          onBack={back}
+          onClose={home}
+        >
           <SearchField
             value={queryValue}
             onChange={serverMode ? friendsScreen.setQuery : setSearch}
@@ -4389,7 +4414,7 @@ export function RedesignScreens({ e }: any) {
     };
     return (
       <IslandSheet
-        bg="dock"
+        bg={accountBg}
         sign={'avatar/' + profileColor}
         signKind="av"
         title={t('account.profile.title')}
@@ -4553,7 +4578,7 @@ export function RedesignScreens({ e }: any) {
     // 기록 공개 토글은 없다(도서관 기록은 전체 공개 고정)
     return (
       <IslandSheet
-        bg="dock"
+        bg={accountBg}
         sign="boat/raft"
         title={t('account.boat.settingsTitle')}
         tall
@@ -4638,13 +4663,12 @@ export function RedesignScreens({ e }: any) {
             sub={t('settings.feedback.sub')}
             chevron
             onPress={() => {
-              openFeedbackMail(Application.nativeApplicationVersion ?? appManifest.version).catch(
-                () =>
-                  confirm(
-                    t('settings.feedback.title'),
-                    t('settings.feedback.openFailed', { email: REPORT_EMAIL_RECIPIENT }),
-                    () => {},
-                  ),
+              openFeedback(Application.nativeApplicationVersion ?? appManifest.version).catch(() =>
+                confirm(
+                  t('settings.feedback.title'),
+                  t('settings.feedback.openFailed', { email: REPORT_EMAIL_RECIPIENT }),
+                  () => {},
+                ),
               );
             }}
           />
@@ -4692,7 +4716,7 @@ export function RedesignScreens({ e }: any) {
     };
     return (
       <IslandSheet
-        bg="dock"
+        bg={accountBg}
         sign="boat/raft"
         title={t('settings.language.title')}
         tall

@@ -12,7 +12,7 @@ import uuid
 
 class RedisTest(unittest.TestCase):
     def test_캐시와_차단_표지가_재시작_후_남고_다른_역할의_키를_거부한다(self):
-        spec=importlib.util.spec_from_file_location('writer',Path(__file__).with_name('write-compose-env.py'))
+        spec=importlib.util.spec_from_file_location('writer',Path(__file__).parents[2]/'write-compose-env.py')
         writer=importlib.util.module_from_spec(spec);spec.loader.exec_module(writer)
         name='catus-business-probe-v2-'+uuid.uuid4().hex[:12]
         volume=name+'-data';password='isolated-test-only-password'
@@ -22,7 +22,7 @@ class RedisTest(unittest.TestCase):
             acl=Path(d)/'users.acl';acl.write_text(writer.business_redis_acl({'BUSINESS_REDIS_PASSWORD':password}));acl.chmod(0o644)
             compose_env=Path(d)/'compose.env'
             compose_env.write_text(f'HOST_PRIVATE_IP=127.0.0.1\nSHARED_ACL_FILE={acl}\nBUSINESS_ACL_FILE={acl}\n')
-            source=Path(__file__).resolve().parents[2]/'server/scripts/runtime-V2/redis-V2.yml'
+            source=Path(__file__).resolve().parents[4]/'server/scripts/v2/prod/redis-V2.yml'
             service=json.loads(run('compose','--env-file',str(compose_env),'-f',str(source),'config','--format','json'))['services']['business']
             env={**os.environ,'REDISCLI_AUTH':password}
             def redis(*args):return run('exec','-e','REDISCLI_AUTH',name,'redis-cli','-e','--user','business',*args,env=env).strip()

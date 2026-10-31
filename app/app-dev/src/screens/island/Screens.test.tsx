@@ -16,7 +16,7 @@ import {
   View,
   type AppStateStatus,
 } from 'react-native';
-import { telescopeSea } from '@/screens/sea/seaAssets';
+import { seaAssets, telescopeSea } from '@/screens/sea/seaAssets';
 import { act, cleanup, fireEvent, render, waitFor, within } from '@testing-library/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
@@ -38,6 +38,7 @@ import {
 import { discoverIslands, searchIslands, type IslandSummary } from '@/services/api/islands';
 import { pinToTelescope } from '@/services/api/telescope';
 import { applyLocalePref } from '@/i18n';
+import { FEEDBACK_KAKAO_URL } from '@/services/api/safety';
 
 const mockRankings = jest.fn();
 jest.mock('@/screens/island/useIslandRankings', () => ({
@@ -211,6 +212,7 @@ function Harness({
   soundPlayer,
   onPreviewAudio,
   localePref = 'system',
+  fromSea = false,
 }: any) {
   const [activeRoute, setActiveRoute] = useState(route);
   const [shielded, setShielded] = useState(false);
@@ -272,6 +274,7 @@ function Harness({
       e={{
         state,
         route: flow ? activeRoute : route,
+        fromSea,
         dispatch,
         go,
         replace: jest.fn(),
@@ -3129,12 +3132,12 @@ test('메일 앱 열기에 실패하면 수신 주소가 있는 안내를 보여
   open.mockRestore();
 });
 
-test('문의하기는 신고센터 아래 행에서 메일을 열고, 실패하면 수신 주소 안내만 보여준다', async () => {
+test('문의하기는 신고센터 아래 행에서 한국어면 오픈채팅을 열고, 실패하면 수신 주소 안내만 보여준다', async () => {
   const open = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined);
   let exposed: any;
   const ui = await render(<Harness route="settings" full expose={(e: any) => (exposed = e)} />);
   await fireEvent.press(ui.getByText('문의하기'));
-  assert.ok(decodeURIComponent(open.mock.calls[0][0]).includes('subject=[집중할고양 문의]'));
+  assert.equal(open.mock.calls[0][0], FEEDBACK_KAKAO_URL);
   open.mockRejectedValue(new Error('no mail'));
   await fireEvent.press(ui.getByText('문의하기'));
   await waitFor(() => expect(exposed.confirm).toHaveBeenCalled());
@@ -3691,3 +3694,19 @@ describe('설정 「알림」 토글', () => {
     expect(toggle().props.accessibilityState.checked).toBe(true);
   });
 });
+
+test.each(['wardrobe', 'profile', 'settings'])(
+  '소속 섬이 있어도 바다에서 연 %s 시트는 바다 배경을 유지한다',
+  async (route) => {
+    const screen = await render(<Harness route={route} full fromSea />);
+    expect(screen.getByTestId('island-sheet-backdrop').props.source).toBe(seaAssets.background);
+  },
+);
+
+test.each(['wardrobe', 'profile', 'settings'])(
+  '섬에서 연 %s 시트는 기존 부두 배경을 유지한다',
+  async (route) => {
+    const screen = await render(<Harness route={route} full />);
+    expect(screen.getByTestId('island-sheet-backdrop').props.source).toBe(art['bldbg/dock']);
+  },
+);

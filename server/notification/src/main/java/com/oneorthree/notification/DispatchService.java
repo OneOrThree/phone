@@ -183,6 +183,9 @@ class DispatchService {
                     failed |= expiredNow.size() < attempt.deliveries().size();
                     continue;
                 }
+                if (cancelledNow(attempt)) {
+                    continue;
+                }
                 if (!Boolean.TRUE.equals(recording.execute(status -> stillOurs(attempt)))) {
                     // 같은 사용자 기기의 정상 토큰 회전이면 새 토큰에 다시 보내야 한다.
                     // 다른 계정으로 이전되거나 삭제된 기기는 더 이상 이 사용자의 수신 대상이 아니다.
@@ -657,6 +660,16 @@ class DispatchService {
         return store.one("SELECT 1 FROM device_tokens WHERE device_token=? AND device_key=? AND user_id=?"
                 + " AND ownership_version=? AND active AND NOT transport_invalid FOR UPDATE",
                 attempt.token(), attempt.device(), attempt.user(), attempt.ownership()) != null;
+    }
+
+    private boolean cancelledNow(Attempt attempt) {
+        for (UUID delivery : attempt.deliveries()) {
+            if (store.one("SELECT 1 FROM deliveries WHERE id=? AND status='SUPPRESSED'"
+                    + " AND last_error='ADMIN_CANCELLED'", delivery) != null) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** 기기 한 대로 나갈 외부 호출 하나 — 펜싱의 최소 단위다. 소유권 세대를 함께 들고 다닌다. */

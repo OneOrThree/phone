@@ -1,0 +1,22 @@
+name: catus-dev-postgres-v2
+services:
+  postgres:
+    image: postgres:16.14-alpine
+    env_file:
+      - ${POSTGRES_ENV_FILE:?PostgreSQL 전용 env 파일이 필요합니다}
+    ports:
+      - ${HOST_PRIVATE_IP:?dev V2 private IP가 필요합니다}:5432:5432
+    volumes:
+      - /var/lib/catus-dev-v2/postgres:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'

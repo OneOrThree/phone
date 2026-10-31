@@ -259,6 +259,8 @@ export class Upstream {
           body: item.body,
           startsAt: item.startsAt,
           endsAt: item.endsAt || null,
+          minIosVersion: item.minIosVersion || null,
+          minAndroidVersion: item.minAndroidVersion || null,
         },
         "PUT",
       );
@@ -272,5 +274,20 @@ export class Upstream {
         digest: item.data.snapshot.digest,
       },
     );
+  }
+  async cancelFcm(publicationId, actor, operator) {
+    if (this.mode === "local") return { publicationId, cancelledCount: 0, totalCancelledCount: 0,
+      sentCount: 0, inFlightCount: 0, local: true };
+    await this.verifyEnvironment(this.environment, actor, operator);
+    return this.request(this.notificationUrl,
+      `/internal/admin/publications/${publicationId}/cancel`, actor,
+      operator.notificationToken, {}, "POST");
+  }
+  async withdrawNotice(publicationId, actor, operator) {
+    if (this.mode === "local") return { publicationId, withdrawnAt: new Date().toISOString(), local: true };
+    await this.verifyEnvironment(this.environment, actor, operator);
+    return this.request(this.dataUrl,
+      `/internal/admin/content/notices/${publicationId}/withdraw`, actor,
+      operator.dataToken, {}, "POST");
   }
 }

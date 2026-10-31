@@ -214,3 +214,79 @@ test("서비스 공지 외 사건 알림은 검토·발송할 수 없다", () =>
   assert.equal(approve(store, fixed).status, "approved");
   store.close();
 });
+
+test("발행 전 취소는 이력을 남기고 기본 목록에서 보관하며 재발행을 막는다", () => {
+  const store = new Store(":memory:");
+  const draft = store.create(notice, "member-1");
+  const cancelled = store.lifecycle(draft.id, draft, "member-2", "cancel");
+  assert.equal(cancelled.status, "cancelled");
+  assert.equal(store.list().length, 0);
+  assert.equal(store.list({ archived: true })[0].id, draft.id);
+  assert.equal(cancelled.audit.at(-1).actor, "member-2");
+  assert.throws(() => store.transition(draft.id, draft, "member-1", "review"), /작성 중/);
+  assert.throws(() => store.lifecycle(draft.id, draft, "member-2", "cancel"), /취소할 수/);
+  store.close();
+});
+
+test("게시된 공지 노출 종료와 잡지 보관은 게시 영수증을 보존한다", () => {
+  const store = new Store(":memory:");
+  let noticeItem = approve(store, store.create(notice, "member-1"));
+  noticeItem = store.transition(noticeItem.id, noticeItem, "member-1", "publish");
+  noticeItem = store.finish(noticeItem.id, { publicationId: noticeItem.publicationId });
+  const withdrawn = store.lifecycle(noticeItem.id, noticeItem, "member-2", "withdraw",
+    { publicationId: noticeItem.publicationId, withdrawnAt: "2026-10-30T00:00:00Z" });
+  assert.equal(withdrawn.status, "withdrawn");
+  assert.deepEqual(withdrawn.receipt, noticeItem.receipt);
+  assert.equal(store.list().length, 0);
+  const magazine = store.create({ kind: "magazine", title: "발행본", issueDate: "2026-10-29", body: "", data: {} }, "member-1");
+  magazine.status = "published";
+  magazine.receipt = { issueId: "issue-1" };
+  store.save(magazine);
+  const archived = store.lifecycle(magazine.id, magazine, "member-2", "archive");
+  assert.equal(archived.status, "published");
+  assert.deepEqual(archived.receipt, { issueId: "issue-1" });
+  assert.equal(store.list({ archived: true }).length, 2);
+  store.close();
+});
+
+test("FCM 발송 중 건은 대기 취소 후에도 완료로 단정하지 않고 재확인한다", () => {
+  const store = new Store(":memory:");
+  const item = store.create({ kind: "fcm", title: "공지", body: "안내",
+    targets: ["11111111-1111-4111-8111-111111111111"],
+    data: { fcm: { kind: "ADMIN_ANNOUNCEMENT", locale: "ko", silent: false } } }, "member-1");
+  item.status = "published";
+  item.publicationId = "22222222-2222-4222-8222-222222222222";
+  store.save(item);
+  const pending = store.lifecycle(item.id, item, "member-2", "cancel-delivery",
+    { cancelledCount: 1, sentCount: 0, inFlightCount: 1 });
+  assert.equal(pending.status, "published");
+  assert.equal(store.list().length, 1);
+  const done = store.lifecycle(item.id, pending, "member-2", "cancel-delivery",
+    { cancelledCount: 0, sentCount: 0, inFlightCount: 0 });
+  assert.equal(done.status, "closed");
+  assert.equal(store.list({ archived: true }).length, 1);
+  store.close();
+});
+
+test("공지 종류와 최소 버전: patch 는 min 거절, force 는 min 필수·형식 검사", () => {
+  const store = new Store(":memory:");
+  const review = (input) => {
+    const item = store.create({ ...notice, ...input }, "member-1");
+    return () => store.transition(item.id, item, "member-1", "review");
+  };
+  // 옛 항목(noticeType 없음)과 min 없는 patch 는 통과한다.
+  assert.equal(review({})().status, "review");
+  assert.equal(review({ noticeType: "patch", minIosVersion: null, minAndroidVersion: "" })().status, "review");
+  assert.throws(review({ noticeType: "patch", minIosVersion: "2.1.0" }), /패치노트/);
+  assert.throws(review({ noticeType: "force" }), /최소 버전/);
+  assert.throws(review({ noticeType: "force", minIosVersion: "2.1" }), /형식/);
+  assert.throws(review({ noticeType: "force", minAndroidVersion: "v2.1.0" }), /형식/);
+  assert.throws(review({ noticeType: "other" }), /종류/);
+  assert.equal(review({ noticeType: "force", minAndroidVersion: "0.0.0" })().status, "review");
+  // force -> patch 로 바꾸며 min 을 null 로 보내면 지워진다.
+  const forced = store.create({ ...notice, noticeType: "force", minIosVersion: "2.1.0" }, "member-1");
+  const patched = store.edit(forced.id, { revision: forced.revision, noticeType: "patch",
+    minIosVersion: null, minAndroidVersion: null }, "member-1");
+  assert.equal(patched.minIosVersion, null);
+  assert.equal(store.transition(patched.id, patched, "member-1", "review").status, "review");
+});

@@ -192,6 +192,36 @@ test('그만두기는 확인창을 한 번 거쳐 finish 하고, 멀어지는 �
   expect(e.replace).not.toHaveBeenCalled();
 });
 
+test('출항·포기 연출 동안 setSceneGuideOpen(true), 끝나면 false(GROMO-2615)', async () => {
+  const setSceneGuideOpen = jest.fn();
+  const e = env({ setSceneGuideOpen });
+  e.focus.finish.mockResolvedValue({ recordId: 'sea-1', arrived: false, activeSeconds: 1700 });
+  const screen = await render(<SeaVoyageHost e={e} />);
+  expect(setSceneGuideOpen).not.toHaveBeenCalledWith(true);
+  await fireEvent.press(screen.getByLabelText('집중 마치기'));
+  await fireEvent.press(screen.getByLabelText('집중 마치기'));
+  await act(async () => {});
+  expect(setSceneGuideOpen).toHaveBeenLastCalledWith(true);
+  await screen.rerender(<SeaVoyageHost e={{ ...e, state: { ...e.state, session: null } }} />);
+  await fireEvent.press(screen.getByTestId('abandon-cutscene'));
+  expect(setSceneGuideOpen).toHaveBeenLastCalledWith(false);
+});
+
+test('항해 결과창이 떠 있는 동안 setSceneGuideOpen(true), 떠나면 false(GROMO-2615)', async () => {
+  const setSceneGuideOpen = jest.fn();
+  const finish = { recordId: 'sea-1', islandId: 'dest', arrived: true, activeSeconds: 1800 };
+  const e = env({
+    route: 'seaArrival',
+    detail: JSON.stringify({ finish, destinationName: '별고래섬' }),
+    state: { name: '나냥', color: 'black', session: null },
+    setSceneGuideOpen,
+  });
+  const screen = await render(<SeaVoyageHost e={e} />);
+  expect(setSceneGuideOpen).toHaveBeenLastCalledWith(true);
+  await screen.unmount();
+  expect(setSceneGuideOpen).toHaveBeenLastCalledWith(false);
+});
+
 test('권한 미리보기의 로컬 항해도 서버 연결 없이 종료하고 표류 화면으로 돌아온다', async () => {
   const dispatch = jest.fn();
   const e = env({ focus: undefined, focusBlockingIntroPreview: true, dispatch });
@@ -808,13 +838,107 @@ describe('바다 고양이 잡지(GROMO-2314) — 펠리컨 배달 B1 · 뗏목 
   });
   // 표류(세션 없음) 중인 바다 — 오늘 호 상태는 CurrentScreens 가 e.magazineToday 로 넘긴다
   const drift = (today: MagazineToday | null, over: Record<string, unknown> = {}) =>
-    env({ state: { name: '나냥', color: 'black', session: null }, magazineToday: today, ...over });
+    env({
+      state: { name: '나냥', color: 'black', session: null, focusGuideDone: true },
+      magazineToday: today,
+      ...over,
+    });
 
   beforeEach(() => {
     resetMagazineToday();
     putReceipt.mockResolvedValue(receipt());
   });
   afterEach(() => expect(getIssues).not.toHaveBeenCalled());
+
+  test('운영진의 편지(e.letterOpen)가 떠 있는 동안은 배달도 받음 기록도 없고, 닫히면 뜬다(GROMO-2615)', async () => {
+    const today = { issue, receipt: null };
+    const screen = await render(<SeaVoyageHost e={drift(today, { letterOpen: true })} />);
+    expect(screen.queryByTestId('sea-magazine-delivery')).toBeNull();
+    expect(putReceipt).not.toHaveBeenCalled();
+    await screen.rerender(<SeaVoyageHost e={drift(today, { letterOpen: false })} />);
+    expect(screen.getByTestId('sea-magazine-delivery')).toBeTruthy();
+    expect(putReceipt).toHaveBeenCalledWith('iss-20', { place: 'SEA' });
+  });
+
+  test('배달이 진행 중인 동안만 setSceneGuideOpen(true), 편지가 떠 있거나 끝나면 false 로 돌린다(GROMO-2615)', async () => {
+    const setSceneGuideOpen = jest.fn();
+    const today = { issue, receipt: null };
+    const screen = await render(<SeaVoyageHost e={drift(today, { setSceneGuideOpen })} />);
+    expect(setSceneGuideOpen).toHaveBeenLastCalledWith(true);
+    // 편지가 뜨면 배달이 보류라 신호도 내린다 — 편지와 서로 기다리는 교착이 없다
+    await screen.rerender(
+      <SeaVoyageHost e={drift(today, { setSceneGuideOpen, letterOpen: true })} />,
+    );
+    expect(setSceneGuideOpen).toHaveBeenLastCalledWith(false);
+    await screen.rerender(
+      <SeaVoyageHost e={drift(today, { setSceneGuideOpen, letterOpen: false })} />,
+    );
+    expect(setSceneGuideOpen).toHaveBeenLastCalledWith(true);
+    await screen.unmount();
+    expect(setSceneGuideOpen).toHaveBeenLastCalledWith(false);
+  });
+
+  test.each([
+    ['완료 이력 복원 전', {}],
+    ['첫 섬 대기', { tutorialEnrollment: 'awaiting-first-island' }],
+    ['기존 소속만 확인된 상태', { tutorialEnrollment: 'existing' }],
+    ['튜토리얼 시작', { tutorial: { step: 0 } }],
+    ['튜토리얼 마지막 안내', { tutorial: { step: 21 } }],
+  ])('%s에는 배달과 잡지 물건을 숨기고 수령을 소비하지 않는다', async (_, progress) => {
+    const state = { name: '나냥', color: 'black', session: null, ...progress };
+    const e = drift({ issue, receipt: null }, { state });
+    const screen = await render(<SeaVoyageHost e={e} />);
+    expect(screen.queryByTestId('sea-magazine-delivery')).toBeNull();
+    expect(putReceipt).not.toHaveBeenCalled();
+    await screen.rerender(
+      <SeaVoyageHost e={{ ...e, magazineToday: { issue, receipt: receipt() } }} />,
+    );
+    expect(screen.queryByTestId('sea-magazine-object')).toBeNull();
+    expect(putReceipt).not.toHaveBeenCalled();
+  });
+
+  test.each([
+    ['정상 완료', { tutorial: { step: 22 } }],
+    ['건너뛰기', { tutorial: { step: 99 } }],
+    ['완료 이력 복원', { focusGuideDone: true }],
+  ])('%s 후에는 보류한 오늘 호를 배달하고 재진입해도 한 번만 수령한다', async (_, progress) => {
+    const e = drift(
+      { issue, receipt: null },
+      { state: { name: '나냥', color: 'black', session: null, tutorial: { step: 21 } } },
+    );
+    const screen = await render(<SeaVoyageHost e={e} />);
+    expect(screen.queryByTestId('sea-magazine-delivery')).toBeNull();
+    expect(putReceipt).not.toHaveBeenCalled();
+    const completed = { ...e, state: { ...e.state, ...progress } };
+    await screen.rerender(<SeaVoyageHost e={completed} />);
+    expect(screen.getByTestId('sea-magazine-delivery')).toBeTruthy();
+    expect(putReceipt).toHaveBeenCalledTimes(1);
+    expect(putReceipt).toHaveBeenCalledWith('iss-20', { place: 'SEA' });
+    await screen.unmount();
+    const again = await render(<SeaVoyageHost e={completed} />);
+    expect(again.queryByTestId('sea-magazine-delivery')).toBeNull();
+    expect(putReceipt).toHaveBeenCalledTimes(1);
+  });
+
+  test('다른 창 뒤에서 기다리던 배달도 튜토리얼 미완료로 바뀌면 수령 없이 거둔다', async () => {
+    const e = drift(null);
+    const screen = await render(<SeaVoyageHost e={e} />);
+    await fireEvent.press(screen.getByLabelText('내 뗏목'));
+    await screen.rerender(<SeaVoyageHost e={{ ...e, magazineToday: { issue, receipt: null } }} />);
+    expect(putReceipt).not.toHaveBeenCalled();
+    await screen.rerender(
+      <SeaVoyageHost
+        e={{
+          ...e,
+          state: { ...e.state, focusGuideDone: false, tutorial: { step: 0 } },
+          magazineToday: { issue, receipt: null },
+        }}
+      />,
+    );
+    await fireEvent.press(screen.getByLabelText('닫기'));
+    expect(screen.queryByTestId('sea-magazine-delivery')).toBeNull();
+    expect(putReceipt).not.toHaveBeenCalled();
+  });
 
   test('표류 중 아직 받지 않은 오늘 호면 펠리컨이 화면 전체로 뜨고, 띄우는 순간 받음(SEA)을 한 번 보내고 스크린리더에 알린다', async () => {
     const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility');
@@ -952,6 +1076,7 @@ describe('바다 고양이 잡지(GROMO-2314) — 펠리컨 배달 B1 · 뗏목 
 
   test('항해를 그만두고 멀어지는 연출이 끝나 표류가 되면 그때 펠리컨이 뜬다', async () => {
     const e = env({ magazineToday: { issue, receipt: null } });
+    e.state.focusGuideDone = true;
     e.focus.finish.mockResolvedValue({ recordId: 'sea-1', arrived: false, activeSeconds: 1700 });
     const screen = await render(<SeaVoyageHost e={e} />);
     await fireEvent.press(screen.getByLabelText('집중 마치기'));

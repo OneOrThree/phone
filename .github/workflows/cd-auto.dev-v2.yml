@@ -1,0 +1,117 @@
+name: Auto CD (dev)-v2
+on:
+  workflow_run:
+    workflows:
+      - Data API CI (dev)-v2
+      - Satellite CI (dev)-v2
+      - Kafka CI (dev)-v2
+      - Redis CI (dev)-v2
+      - PostgreSQL CI (dev)-v2
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: catus-dev-v2-deploy
+  cancel-in-progress: false
+jobs:
+  plan:
+    if: >-
+      github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      (github.event.workflow_run.event == 'push' || github.event.workflow_run.event == 'workflow_dispatch') &&
+      github.event.workflow_run.head_repository.id == github.event.repository.id))
+    runs-on: ubuntu-latest
+    environment: dev-v2
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: write
+      id-token: write
+    outputs:
+      runtimes: ${{ steps.plan.outputs.runtimes }}
+      infra: ${{ steps.plan.outputs.infra }}
+      core_run: ${{ steps.plan.outputs.core_run }}
+      satellite_run: ${{ steps.plan.outputs.satellite_run }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_DEV_V2_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEV_V2_DEPLOY_SA }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: 배포 대상 판정
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 .github/scripts/v2/dev/dev-auto-cd-V2.py
+  runtime:
+    needs: plan
+    if: needs.plan.outputs.runtimes != '[]'
+    name: runtime (${{ matrix.group.host }})
+    runs-on: ubuntu-latest
+    environment: dev-v2
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        group: ${{ fromJSON(needs.plan.outputs.runtimes) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_DEV_V2_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEV_V2_DEPLOY_SA }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEV_V2_ROLE_ARN }}
+          aws-region: ap-northeast-2
+      - name: 런타임 적용과 검증
+        env:
+          TARGETS: ${{ toJSON(matrix.group.targets) }}
+        run: python3 .github/scripts/v2/dev/dev-auto-cd-V2.py "$TARGETS"
+  app:
+    needs: [plan, runtime]
+    # 런타임 대상이 없으면 runtime은 skipped. 실패·취소 시에만 중단.
+    if: >-
+      !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.infra != '' &&
+      (needs.runtime.result == 'success' || needs.runtime.result == 'skipped')
+    runs-on: ubuntu-latest
+    environment: dev-v2
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_DEV_V2_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEV_V2_DEPLOY_SA }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEV_V2_ROLE_ARN }}
+          aws-region: ap-northeast-2
+      - name: 앱 배포
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INFRA: ${{ needs.plan.outputs.infra }}
+          CORE_RUN: ${{ needs.plan.outputs.core_run }}
+          SATELLITE_RUN: ${{ needs.plan.outputs.satellite_run }}
+        run: >-
+          python3 .github/scripts/v2/dev/dev-deploy-app-V2.py --infra-manifest-uri "$INFRA"
+          ${CORE_RUN:+--core-run "$CORE_RUN"} ${SATELLITE_RUN:+--satellite-run "$SATELLITE_RUN"}

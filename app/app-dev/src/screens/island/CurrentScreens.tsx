@@ -1307,7 +1307,10 @@ function AppPermissionManager({ e }: any) {
     if (current !== 'granted' && current !== 'denied') return;
     pushOpenedAtSeq.current = pushReadSeq.current;
     pushSettingsOpened.current = true;
-    await openSystemSettings();
+    // 알림은 Android 의 사용 정보 접근 설정과 별개다. 앱 알림 권한 화면으로 연다.
+    await Linking.openSettings().catch(() =>
+      e.notify(t('settings.permissions.errors.settingsOpen')),
+    );
   };
 
   const openMeasuredApps = async () => {

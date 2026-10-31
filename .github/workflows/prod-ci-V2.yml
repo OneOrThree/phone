@@ -13,12 +13,21 @@ name: Catus app CI V2
     - .github/actions/ci-jar/**
     - .github/scripts/ci-jar.py
     - .github/scripts/catus-*
+    - .github/scripts/v2/prod/**
     - .github/workflows/prod-ci.yml
     - .github/workflows/be-gradle.yml
     - .dockerignore
     - server/gradle*
+    - server/observability/fluent-bit/fluent-bit.conf
+    - server/observability/fluent-bit/parsers.conf
+    - server/observability/fluent-bit/logs.lua
+    - server/observability/fluent-bit/modules/s3-on/s3.conf
+    - server/observability/fluent-bit/modules/s3/off.conf
+    - server/observability/fluent-bit/modules/nginx-host/off.conf
+    - server/observability/loki/loki-config.yml
+    - server/observability/grafana/dashboards/log-investigation.json
     - .github/workflows/prod-ci-V2.yml
-    - .github/scripts/test_catus_runtime_V2.py
+    - .github/scripts/v2/prod/test_catus_runtime_V2.py
     - .github/scripts/pr-ci-policy.py
     - .github/scripts/test_pr_ci_policy.py
   push:
@@ -32,12 +41,21 @@ name: Catus app CI V2
     - .github/actions/ci-jar/**
     - .github/scripts/ci-jar.py
     - .github/scripts/catus-*
+    - .github/scripts/v2/prod/**
     - .github/workflows/prod-ci.yml
     - .github/workflows/be-gradle.yml
     - .dockerignore
     - server/gradle*
+    - server/observability/fluent-bit/fluent-bit.conf
+    - server/observability/fluent-bit/parsers.conf
+    - server/observability/fluent-bit/logs.lua
+    - server/observability/fluent-bit/modules/s3-on/s3.conf
+    - server/observability/fluent-bit/modules/s3/off.conf
+    - server/observability/fluent-bit/modules/nginx-host/off.conf
+    - server/observability/loki/loki-config.yml
+    - server/observability/grafana/dashboards/log-investigation.json
     - .github/workflows/prod-ci-V2.yml
-    - .github/scripts/test_catus_runtime_V2.py
+    - .github/scripts/v2/prod/test_catus_runtime_V2.py
     - .github/scripts/pr-ci-policy.py
     - .github/scripts/test_pr_ci_policy.py
   workflow_dispatch: {}
@@ -61,7 +79,7 @@ jobs:
         python-version: '3.12'
     - id: policy
       run: python3 .github/scripts/pr-ci-policy.py
-    - run: python3 -m unittest discover -s .github/scripts -p 'test_catus_runtime_V2.py' -v
+    - run: python3 -m unittest discover -s .github/scripts/v2/prod -p 'test_catus_runtime_V2.py' -v
     - uses: aws-actions/configure-aws-credentials@v4
       if: github.event_name != 'pull_request' && github.ref == 'refs/heads/release'
       with:
@@ -74,7 +92,7 @@ jobs:
 
         if [ -n "$PR_BASE" ]; then args+=(--pr-base "$PR_BASE"); else args+=(--production); fi
 
-        python3 .github/scripts/catus-runtime-V2.py plan "${args[@]}"'
+        python3 .github/scripts/v2/prod/catus-runtime-V2.py plan "${args[@]}"'
       shell: bash
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
@@ -118,7 +136,7 @@ jobs:
       env:
         GH_TOKEN: ${{ github.token }}
         INFRA_REVISION: ${{ vars.CATUS_PROD_INFRA_REVISION_V2 }}
-      run: python3 .github/scripts/catus-runtime-V2.py publish --role app --infra-revision "$INFRA_REVISION"
+      run: python3 .github/scripts/v2/prod/catus-runtime-V2.py publish --role app --infra-revision "$INFRA_REVISION"
     - uses: actions/upload-artifact@v4
       with:
         name: catus-app-release-V2

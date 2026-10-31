@@ -39,6 +39,7 @@ location = /ws/realtime {
 
 # 신규 앱 API: 정확한 루트와 / 하위만 연결한다. URI·쿼리·본문을 재작성하지 않는다.
 # /auth/sessions의 선택 AT/RT 등 인증 예외는 Business의 개별 계약이 결정한다.
+# 로그인 전 공개 조회 GET /auth/sessions/app-requirements 도 아래 auth/sessions 분기가 전달한다.
 # POST /islands/{islandId}/host-transfer도 아래 islands 분기가 전달한다.
 # 집중 세션 수명주기(GROMO-1764)도 마찬가지로 아래 두 분기가 그대로 전달한다 — 새 location 이
 # 필요하지 않다. focus-sessions 분기: POST /focus-sessions · GET /focus-sessions/current ·

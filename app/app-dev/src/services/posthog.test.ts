@@ -49,7 +49,8 @@ beforeEach(async () => {
   delete process.env.EXPO_PUBLIC_POSTHOG_HOST;
   delete process.env.EXPO_PUBLIC_POSTHOG_DEV_ENABLED;
   delete process.env.EXPO_PUBLIC_DEMO;
-  delete process.env.EXPO_PUBLIC_ENV;
+  // 기본 fixture = 운영 release 빌드(EXPO_PUBLIC_ENV 명시). gradle/fastlane 게이트가 release 에 env 를 강제한다.
+  process.env.EXPO_PUBLIC_ENV = 'prod';
 });
 
 afterEach(() => {
@@ -74,7 +75,7 @@ test('새 계정으로 기존 행동 이벤트와 사용자 식별을 같은 클
     'phc_wbezwMeaU3VKvPxdbdd6QD7GTBqD7rbmAzUgazz6epRc',
     expect.objectContaining({
       host: 'https://us.i.posthog.com',
-      enableSessionReplay: true,
+      enableSessionReplay: false,
       sessionReplayConfig: expect.objectContaining({
         maskAllTextInputs: true,
         maskAllImages: true,
@@ -127,6 +128,16 @@ test('초기화 대기 중 로그인한 새 계정을 지우지 않는다', asyn
 
 test.each(['dev', 'staging', 'test'])('%s 서버 빌드는 운영 대시보드에서 제외한다', (env) => {
   process.env.EXPO_PUBLIC_ENV = env;
+  loadAnalytics();
+  analytics.captureProductEvent('app_active');
+  expect(mockClient.capture).toHaveBeenCalledWith('app_active', {
+    analytics_environment: 'development',
+  });
+});
+
+test('EXPO_PUBLIC_ENV 가 비어 있으면 운영으로 오분류하지 않고 개발로 본다', () => {
+  // release 빌드가 환경을 안 박아도 안전쪽(development)으로 — 운영 지표 오염을 막는다.
+  process.env.EXPO_PUBLIC_ENV = '';
   loadAnalytics();
   analytics.captureProductEvent('app_active');
   expect(mockClient.capture).toHaveBeenCalledWith('app_active', {
