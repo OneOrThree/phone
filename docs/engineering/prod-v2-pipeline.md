@@ -16,7 +16,8 @@ V1 워크플로 `prod-ci.yml`, `prod-cd.yml`, `backoffice-prod-cd.yml`, `backoff
 | `catus-kafka-prod-V2` | m6g.medium | 부팅 20 GiB + 데이터 30 GiB | Kafka 3.8.1 |
 | `catus-redis-prod-V2` | m6g.medium | 부팅 20 GiB + 데이터 20 GiB | Redis 7.4.11 두 개 |
 | `catus-backoffice-prod-V2` | t4g.small | 부팅 20 GiB + 데이터 10 GiB | 백오피스 |
-| RDS | db.t4g.small | 20 GiB, 최대 50 GiB | 프라이빗 PostgreSQL |
+| RDS `catus-prod-db` | db.t4g.small | 20 GiB | 운영 DB. V1과 공유 |
+| RDS `catus-prod-db-v2` | db.t4g.small | 20 GiB, 최대 50 GiB | 전용 DB로 만들어 뒀지만 아직 쓰지 않음 |
 
 공개 주소는 `catus-api-v2.oneorthree.world`, `backoffice-v2.oneorthree.world`다.
 
@@ -137,7 +138,8 @@ CI는 코드와 빌드를 검사하지만 운영의 자격 증명, 네트워크,
 
 - 앱·백오피스 적용이 실패하면 Infra `deploy-V2.py`가 직전 릴리스로 자동 복구를 시도한다. Kafka·Redis는 자동 복구하지 않는다.
 - CD의 `rollback` 입력은 지정한 이전 태그로 복구한다. 첫 배포에는 복구할 V2 버전이 없다.
-- 앱 롤백은 자동이든 수동이든 마이그레이션 지문이 다르면 거부된다. `allow_migration` 배포가 실패하면 자동 복구도 막히므로 직접 대응한다. 스키마를 자동으로 되돌리지 않는다.
+- 수동 `rollback`은 현재 성공 기록과 마이그레이션 지문이 다르면 거부된다. `allow_migration` 승인이 있어도 같다.
+- 자동 복구는 `allow_migration` 배포가 실패해도 동작한다. 실패한 배포는 성공 기록을 바꾸지 않아 복구 대상과 지문이 같기 때문이다. 이미 적용된 스키마는 되돌리지 않으므로 이전 이미지가 새 스키마와 호환돼야 한다. 절차는 [DB 전환이 든 V2 배포](../prd/fishcat/server-separation/deployment.md#db-전환이-든-v2-배포)를 따른다.
 - 실패나 부분 적용은 `failed_or_partial`로 남기고 성공 상태로 기록하지 않는다.
 - SSM 응답이 유실되면 S3의 전송 의도를 조회해 재사용한다. 확인되지 않은 명령을 자동으로 다시 보내지 않는다.
 - 배포는 성공했는데 기록 job만 실패했다면 운영을 재배포하지 말고 `record` job만 다시 실행한다.
@@ -184,7 +186,7 @@ EC2별 CI/CD 설계안과 비교했다.
 | 앱 EC2 | 8 GiB 메모리 유지 | m6g.large. 같다 |
 | 앱 CD 대상 | `deploy_services`만 pull·교체 | 네 서비스를 넘기고 Compose가 변경분만 재생성 |
 | DB 변경 | 호환 마이그레이션 적용 | 기본 중단, `allow_migration` 승인 시 통과 |
-| 일부 서비스 실패 | 호환되는 이전 조합 복구 | 같다. 단 마이그레이션 지문이 다르면 복구 거부 |
+| 일부 서비스 실패 | 호환되는 이전 조합 복구 | 같다. 호환 여부는 사람이 승격 전에 검토한다 |
 
 `docs/conventions/git-pr-conventions.md`는 release PR의 `release:*` 라벨로 버전을 올린다고 적지만, V2 발행은 이 라벨을 읽지 않는다.
 

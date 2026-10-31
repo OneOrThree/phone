@@ -31,8 +31,8 @@ flowchart LR
         Shared["Shared Redis :6379"]
         BizRedis["Business Redis :6380"]
     end
-    APP -->|사설 IP 10.30.0.0/24| DATA
-    APP -->|사설 IP 10.30.0.0/24| REDIS
+    APP -->|사설 IP| DATA
+    APP -->|사설 IP| REDIS
 ```
 
 | VM | 사양 | 디스크 | 실행 대상 |
@@ -108,7 +108,7 @@ flowchart LR
 정확한 경로는 각 워크플로가 정본이다.
 
 - 이미지 태그는 `dev-v2-<SHA>-<run>-<attempt>`이고, 배포는 digest로 한다.
-- 런타임 산출물은 GCS 버킷 `catus-dev-v2-deploy-263851348176`에 `--if-generation-match=0`으로 올린다. 같은 경로를 덮어쓰지 못한다.
+- 런타임 산출물은 dev V2 배포 버킷에 `--if-generation-match=0`으로 올린다. 같은 경로를 덮어쓰지 못한다.
 - Infra `main`의 `dev/runtime-v2/**`가 바뀌면 Infra의 `App runtime publish (dev)-v2`가 `infra/<릴리스>/manifest.json`을 발행한다.
 
 ## Auto CD
@@ -131,7 +131,7 @@ flowchart LR
 
 ### runtime
 
-런타임을 VM별로 묶어 matrix로 돌린다. Redis VM과 data VM은 병렬이고, data VM 안의 Kafka와 PostgreSQL은 순서대로 적용한다.
+런타임을 VM별로 묶어 matrix로 돌린다. Redis VM과 data VM은 병렬이고, data VM 안에서는 Kafka, PostgreSQL 순서로 적용한다.
 
 `dev-deploy-runtime-V2.py`의 적용 순서는 다음과 같다.
 

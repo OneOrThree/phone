@@ -127,7 +127,7 @@ PR checks live in the dev CI file. Shared steps go in a reusable file without an
 [docs/engineering/dev-v2-pipeline.md](docs/engineering/dev-v2-pipeline.md). prod: `*-V2.yml` on four EC2 hosts —
 [docs/engineering/prod-v2-pipeline.md](docs/engineering/prod-v2-pipeline.md). V1 파일(`data-api-ci·cd.dev`,
 `realtime-ci.dev`, `satellite-ci·cd.dev`, `ops-smoke.dev`, `prod-ci`, `prod-cd`, `backoffice-prod-cd`,
-`backoffice-release`)은 2026-10-31 기준 `disabled_manually`다. 아래 이 파일들에 대한 설명은 기존 경로 기록이다.
+`backoffice-release`)은 2026-10-31 기준 `disabled_manually`다. 아래 서버 항목에서 이 파일들을 설명하는 부분은 V1 기록이다. 앱 워크플로 항목은 해당하지 않는다.
 
 - **App**: `app-lint.yml` — ESLint + Prettier + tsc + jest on `app/app-dev/**` (plus
   `server/business-api/**/ApiErrorCode.java`, which the app's error-code parity test reads — GROMO-2253);
@@ -165,7 +165,7 @@ PR checks live in the dev CI file. Shared steps go in a reusable file without an
   배포 흐름·실패 복구·영구 상태 경로는 `server/scripts/README.md`와
   `server/data-api/docs/db/README.md`를 따른다. dev VM은 `gromo-dev-app`이고 AWS는
   OIDC → Secrets Manager 조회에 사용한다.
-- **dev runtime secrets / deploy result (GROMO-2224, V1)**: dev V2 uses `catus/dev/env-v2` instead. The filter below still applies to V2. For V1, the single source is Secrets Manager `gromo/dev/env`
+- **dev runtime secrets / deploy result (GROMO-2224, V1)**: dev V2 uses `catus/dev/env-v2` instead. `write-compose-env.py` filter·forbidden keys and `test_config_contract.py` also apply to V2. `dev-env.sh`, `secrets-check`, `ops-*.dev`, `wait-healthy.sh`, `mark-deploy.sh` below are V1 only. For V1, the single source is Secrets Manager `gromo/dev/env`
   (read via `.github/scripts/dev-env.sh secrets`). Each container gets only its own keys because
   `write-compose-env.py` filters by a per-service allowlist and fails on missing/blank required keys — **the
   filter, not the secret layout, is the per-service boundary**. The filter also carries per-service
