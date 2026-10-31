@@ -10,6 +10,7 @@
  * 400 `INVALID_REQUEST` 다. 낙관 잠금(version precondition)은 서버 계약이 생길 때까지 없다.
  */
 import { request } from './client';
+import { utcWindowToKst } from '@/utils/questWindowTz';
 
 /** 공지 목록 한 페이지 — 목록 항목에는 createdAt 이 없다(정렬 키는 서명 커서 안). */
 export type NoticePage = {
@@ -86,8 +87,10 @@ const query = (name: string, value: string | undefined) =>
   value === undefined ? '' : `?${name}=${enc(value)}`;
 
 /** 게시판 화면 — 현재 섬 문맥·퀘스트·공지 첫 페이지·지갑. 게시판 미완공은 화면 전체 403 이다. */
-export function getBoard(): Promise<BoardScreen> {
-  return request<BoardScreen>('/screens/board');
+export async function getBoard(): Promise<BoardScreen> {
+  const board = await request<BoardScreen>('/screens/board');
+  // 퀘스트 창은 서버가 UTC 로 준다(결정 Q-6) — 경계에서 KST 로 돌려 표시·폼은 벽시계만 본다(GROMO-2672).
+  return { ...board, quests: { items: board.quests.items.map(utcWindowToKst) } };
 }
 
 export function listNotices(islandId: string, cursor?: string): Promise<NoticePage> {

@@ -498,6 +498,11 @@
     "finishFailed": "집중을 마치지 못했어요.",
     "resumeFailed": "집중을 이어가지 못했어요."
   },
+  "board": {
+    "quest": {
+      "crossMidnight": "오전 9시를 넘나드는 시간대는 정할 수 없어요"
+    }
+  },
   "home": {
     "hud": {
       "visiting": "{{name}} 구경 중",
