@@ -3697,6 +3697,26 @@
         }
       }
     },
+    "/auth/sessions/app-requirements": {
+      "get": {
+        "tags": [
+          "developer-notice-controller"
+        ],
+        "operationId": "appRequirements",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppRequirement"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/link-previews/{id}/thumbnail": {
       "get": {
         "tags": [
@@ -6265,6 +6285,9 @@
           "publishedAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "forcesUpdate": {
+            "type": "boolean"
           }
         }
       },
@@ -7793,6 +7816,28 @@
           "id",
           "name"
         ]
+      },
+      "AppRequirement": {
+        "type": "object",
+        "properties": {
+          "minVersion": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "publicationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "publishedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
       },
       "NotificationSettingsResponse": {
         "type": "object",
