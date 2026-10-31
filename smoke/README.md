@@ -1,6 +1,6 @@
 # FocusCat 스모크 테스트
 
-[![서버 스모크 스냅샷](https://github.com/OneOrThree/phone/actions/workflows/ops-smoke.dev.yml/badge.svg?branch=main&event=push)](https://github.com/OneOrThree/phone/actions/workflows/ops-smoke.dev.yml)
+[![서버 스모크 스냅샷](https://github.com/OneOrThree/phone/actions/workflows/ops-smoke.dev-v2.yml/badge.svg?branch=main)](https://github.com/OneOrThree/phone/actions/workflows/ops-smoke.dev-v2.yml)
 
 [GROMO-2285](https://romance.atlassian.net/browse/GROMO-2285) · Plannotator에서 합의한 서버 스모크 계획과 실행 방법
 
@@ -56,7 +56,17 @@ flowchart TD
 
 ### 1-2. 환경
 
-아래 dev는 기존 dev 서버다. `ops-smoke.dev.yml`은 꺼져 있고, dev V2용 자동 스모크는 아직 없다.
+현행은 dev V2다. `ops-smoke.dev-v2.yml`이 호스티드 러너에서 공개 API를 검사하고, `docker` 호출(health·Redis·DB 준비)만 `SMOKE_DOCKER`로 IAP SSH를 거쳐 VM에 보낸다. 기존 `ops-smoke.dev.yml`은 꺼져 있고, 이 문서의 나머지 dev 설명은 기존 경로 기록이다.
+
+| 항목 | 기존 dev | dev V2 |
+|---|---|---|
+| BASE_URL | `oneorthree.dev.mooo.com` | `oneorthree-v2.dev.mooo.com` |
+| 실행 위치 | `[self-hosted, dev]` | `ubuntu-latest` + IAP SSH |
+| 시작 | main push 후 배포 대기 | Auto CD가 실제 앱 배포 후 호출 |
+| 잠금 | `dev-vm-deploy` | `catus-dev-v2-deploy` |
+| 게스트 제한 창 대기 | 실행 간 3,601초 | 없음 (러너 IP가 고정이 아님. 실행당 10회 상한은 유지) |
+| 공유 Redis 임시 키 | `smoke:redis:<uuid>` | `presence:smoke:<uuid>` (`data` 계정 ACL이 `presence:*`만 허용) |
+
 
 | 환경 | BASE_URL | 공개 표면 | 내부 검사 |
 |---|---|---|---|

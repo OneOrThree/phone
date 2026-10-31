@@ -161,7 +161,9 @@ def plan_app(state, revision):
         note('이미지 CI 대기. 완료 시 다시 실행')
         return None
     note('앱 배포 대상: ' + ','.join(plan['deploy_services']))
-    return {'infra': infra, 'core_run': runs.get(CORE_CI, ''), 'satellite_run': runs.get(SATELLITE_CI, '')}
+    return {'infra': infra, 'core_run': runs.get(CORE_CI, ''), 'satellite_run': runs.get(SATELLITE_CI, ''),
+            'deploy_services': json.dumps(plan['deploy_services'], separators=(',', ':')),
+            'build_services': json.dumps(plan['build_services'], separators=(',', ':'))}
 
 
 def main():

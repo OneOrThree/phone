@@ -219,12 +219,18 @@ DB migration이 이미 적용됐을 수 있으므로 이전 이미지로 자동 
 
 검토안의 판단 기준은 유지한다. dev는 부하 대응보다 비용이 우선이다. 기동 실패나 메모리 부족이 확인되면 해당 VM만 올린다. swap 크기는 이 저장소에서 알 수 없으므로 VM에서 `swapon --show`로 확인한다.
 
+## 스모크·배지
+
+- `app` job이 실제 배포를 마치면 `ops-smoke.dev-v2.yml`을 호출한다. 대기만 하고 끝난 실행과 런타임만 바뀐 배포는 호출하지 않는다.
+- 스모크는 `ubuntu-latest`에서 공개 API를 검사하고, `dev-smoke-docker-V2.py`가 `docker` 호출만 IAP SSH로 해당 VM에 보낸다. 전체 15개 TC를 유지한다.
+- 스모크는 CD와 같은 `catus-dev-v2-deploy` 잠금 안에서 돈다. 대기 실행이 취소되지 않게 이 그룹의 워크플로는 모두 `queue: max`다.
+- `record` job이 dev 배포 배지를 직접 게시한다. 토큰으로 실행한 Auto CD는 `workflow_run`을 깨우지 않아 `ops-deployment-badges.yml`로는 받을 수 없다.
+- dev 배지는 서비스별 최신 결과를 합친다. 앱 배포 실패는 대상 서비스만, 대상을 정하기 전 실패는 네 서비스 모두 실패로 기록한다.
+
 ## 남은 일
 
 - **데이터 이전**: 기존 dev 데이터를 복사할지, 새 DB를 유지할지 정해지지 않았다.
-- **앱 dev 빌드 주소**: Android CI, iOS 스크립트, `.env.example`, `smoke/` 문서는 아직 `oneorthree.dev.mooo.com`을 가리킨다.
-- **스모크**: dev V2용 자동 스모크가 없다. 배포 검증은 컨테이너 health와 HTTPS `/health`까지다.
-- **배지**: README의 dev 배지 2개는 기존 dev 기준이다.
+- **앱 dev 빌드 주소**: Android CI, iOS 스크립트, `.env.example`은 아직 `oneorthree.dev.mooo.com`을 가리킨다.
 - **관측**: dev V2 호스트는 Datadog에 보고하지 않는다.
 - **nginx 차이**: Infra 템플릿의 `/ws/realtime`에는 기존 dev와 달리 `proxy_send_timeout`이 없어 기본 60초다. 추가가 필요하다.
 - **외부 IP**: data·redis VM은 이미지와 GCS 접근용 외부 IP를 아직 쓴다.

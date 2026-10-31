@@ -1,0 +1,144 @@
+name: 서버 스모크 스냅샷 (dev)-v2
+
+# Auto CD가 실제 배포한 뒤 호출. 입력 없는 수동 실행은 현재 배포된 서버를 검사한다.
+on:
+  workflow_dispatch:
+    inputs:
+      revision:
+        description: 배포 SHA (Auto CD가 지정)
+        required: false
+      services:
+        description: 새 이미지 서비스 JSON 목록 (Auto CD가 지정)
+        required: false
+
+permissions:
+  contents: read
+
+env:
+  BASE_URL: https://oneorthree-v2.dev.mooo.com
+
+jobs:
+  execute:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: dev-v2
+    timeout-minutes: 30
+    outputs:
+      target-state: ${{ steps.target.outputs.state }}
+    permissions:
+      contents: read
+      id-token: write
+    # 같은 잠금으로 보호된 dev V2 CD가 끝난 뒤 전체 15개를 검사한다.
+    concurrency:
+      group: catus-dev-v2-deploy
+      cancel-in-progress: false
+      queue: max
+    env:
+      SMOKE_DOCKER: ${{ github.workspace }}/.github/scripts/v2/dev/dev-smoke-docker-V2.py
+      SMOKE_SERVICE_CONTAINERS: >-
+        {"data-api":"catus-dev-app-v2-app-1","realtime":"catus-dev-app-v2-realtime-1",
+        "business-api":"catus-dev-app-v2-business-api-1","notification":"catus-dev-app-v2-notification-1"}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_DEV_V2_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEV_V2_DEPLOY_SA }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: VM SSH 키 준비
+        # 새 러너 첫 호출은 키 생성 출력이 stdout에 섞임. 먼저 소비.
+        run: |
+          set -euo pipefail
+          for host in app data redis; do
+            gcloud compute ssh "catus-dev-v2-$host" --project=oneorthree2 --zone=asia-northeast3-a \
+              --tunnel-through-iap --ssh-key-expire-after=1h --quiet --command true > /dev/null
+          done
+      - name: 실제 서비스 SHA·digest 기록 및 요청 대상 확인
+        id: target
+        env:
+          SMOKE_TARGET_PLAN: ${{ inputs.revision != '' && format('{{"revision":"{0}","services":{1}}}', inputs.revision, inputs.services) || '' }}
+        run: python3 .github/scripts/smoke-target.py
+      - uses: actions/setup-node@v4
+        if: steps.target.outputs.state == 'matched'
+        with:
+          node-version: '22'
+      - name: dev V2 서비스 준비 확인 후 5분 안정화 대기
+        if: steps.target.outputs.state == 'matched'
+        run: |
+          set -euo pipefail
+          for service in app realtime business-api notification; do
+            container="catus-dev-app-v2-$service-1"
+            state=$("$SMOKE_DOCKER" inspect -f '{{.State.Running}} {{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$container")
+            if [ "$state" != 'true healthy' ]; then
+              echo "::error::$container 준비 안 됨 ($state)"
+              exit 1
+            fi
+          done
+          echo 'dev V2 서비스 healthy 확인 — 스모크 전 300초 대기'
+          sleep 300
+      - name: 공개 API·실시간·핵심 게스트 흐름·인프라 15개 검사
+        id: smoke
+        if: steps.target.outputs.state == 'matched'
+        env:
+          SMOKE_CORE_ENABLED: '1'
+          SMOKE_BASIC_ONLY: '0'
+          TMPDIR: ${{ runner.temp }}
+          SMOKE_AUTH_DIAGNOSTICS_FILE: ${{ runner.temp }}/smoke-results/api/auth-attempts.jsonl
+          SMOKE_DB_CONTAINER: catus-dev-postgres-v2-postgres-1
+          SMOKE_CONTAINER_NAMES: >-
+            catus-dev-app-v2-app-1 catus-dev-app-v2-realtime-1 catus-dev-app-v2-business-api-1
+            catus-dev-app-v2-notification-1 catus-dev-kafka-v2-kafka-1
+          SMOKE_REDIS_CONTAINER: catus-dev-redis-v2-shared-1
+          SMOKE_REDIS_ENV_CONTAINER: catus-dev-app-v2-app-1
+          SMOKE_REDIS_KEY_PREFIX: 'presence:smoke:'
+          SMOKE_BUSINESS_REDIS_CONTAINER: catus-dev-redis-v2-business-1
+          SMOKE_BUSINESS_REDIS_ENV_CONTAINER: catus-dev-app-v2-business-api-1
+        run: |
+          set -uo pipefail
+          mkdir -p "$RUNNER_TEMP/smoke-results"
+          SMOKE_DB_USER=$("$SMOKE_DOCKER" exec "$SMOKE_DB_CONTAINER" sh -c 'printf "%s" "$POSTGRES_USER"') || exit 1
+          SMOKE_DB_NAME=$("$SMOKE_DOCKER" exec "$SMOKE_DB_CONTAINER" sh -c 'printf "%s" "$POSTGRES_DB"') || exit 1
+          export SMOKE_DB_USER SMOKE_DB_NAME
+          RESULTS_FILE="$RUNNER_TEMP/smoke-results/internal/results.tsv" smoke/server/internal.sh
+          internal_rc=$?
+          RESULTS_FILE="$RUNNER_TEMP/smoke-results/api/results.tsv" smoke/server/run.sh
+          api_rc=$?
+          exit $((internal_rc || api_rc))
+      - name: 검사 중 버전 유지 확인
+        if: success() && steps.smoke.outcome == 'success'
+        run: python3 .github/scripts/smoke-target.py verify
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: smoke-results
+          path: ${{ runner.temp }}/smoke-results/
+          retention-days: 7
+          overwrite: true
+
+  report:
+    if: always()
+    needs: execute
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: smoke-results
+          path: smoke-results
+      - name: TC별 결과 요약·배지 판정
+        env:
+          # Auto CD 호출은 기존 자동 실행과 같은 판정. 후속 SHA 대체는 미실행으로 보고.
+          SMOKE_EVENT_NAME: ${{ inputs.revision != '' && 'push' || 'workflow_dispatch' }}
+          DEPLOY_WAIT_RESULT: ${{ inputs.revision != '' && 'success' || 'skipped' }}
+          SMOKE_NEEDED: 'true'
+          SMOKE_TARGET_STATE: ${{ needs.execute.outputs.target-state }}
+          SMOKE_RUN_RESULT: ${{ needs.execute.result }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: python3 .github/scripts/report-smoke.py smoke-results

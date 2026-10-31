@@ -13,6 +13,7 @@ import zipfile
 from pathlib import Path
 
 DEV = {'data-api', 'realtime', 'business-api', 'notification'}
+AUTO_CD = '.github/workflows/cd-auto.dev-v2.yml'
 RULES = {
     '.github/workflows/data-api-ci.dev.yml': ('push', 'main', {'data-api', 'realtime'}, 'dev'),
     '.github/workflows/data-api-cd.dev.yml': ('workflow_dispatch', 'main', {'data-api', 'realtime'}, 'dev'),
@@ -20,6 +21,7 @@ RULES = {
     '.github/workflows/satellite-ci.dev.yml': ('push', 'main', {'business-api', 'notification'}, 'dev'),
     '.github/workflows/satellite-cd.dev.yml': ('workflow_run', 'main', {'business-api', 'notification'}, 'dev'),
     '.github/workflows/prod-cd.yml': ('workflow_dispatch', 'release', {'catus'}, 'prod'),
+    AUTO_CD: ('workflow_dispatch', 'main', DEV, 'dev'),
 }
 BRANCH = 'deployment-status'
 
@@ -69,6 +71,23 @@ def missing_result(run, rule):
     return validate([{'environment': 'dev', 'service': service, 'result': 'failure',
                       'revision': run['head_sha'], 'finished_at': run['updated_at'].replace('Z', '+00:00')}
                      for service in sorted(rule[2])], rule)
+
+
+def auto_cd_records(env):
+    """Auto CD job 결과를 서비스별 기록으로 바꾼다. 배포 없이 끝난 실행은 기록 없음."""
+    plan, runtime, app = env['PLAN_RESULT'], env['RUNTIME_RESULT'], env['APP_RESULT']
+    services = json.loads(env.get('DEPLOY_SERVICES') or '[]')
+    if app == 'success':
+        result = 'success'
+    elif plan == 'failure' or runtime in {'failure', 'cancelled'} or app in {'failure', 'cancelled'}:
+        # 대상을 정하기 전 실패는 어느 서비스가 영향받았는지 모른다.
+        result, services = 'failure', services or sorted(DEV)
+    else:
+        return []
+    finished = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    return validate([{'environment': 'dev', 'service': service, 'result': result,
+                      'revision': env['GITHUB_SHA'], 'finished_at': finished} for service in services],
+                    RULES[AUTO_CD])
 
 
 def merge(state, records):
@@ -196,6 +215,12 @@ def cancelled_before_execution(api, run):
 def main():
     event = json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text())
     api = GitHub()
+    # 토큰으로 실행한 Auto CD는 workflow_run을 안 깨운다. Auto CD job이 직접 게시.
+    if 'PLAN_RESULT' in os.environ:
+        records = auto_cd_records(os.environ)
+        if records:
+            publish(api, records)
+        return
     if os.environ['GITHUB_EVENT_NAME'] == 'workflow_dispatch':
         publish(api, [])
         return

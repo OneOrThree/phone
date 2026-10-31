@@ -10,7 +10,7 @@ SMOKE_FIXTURE_MODE=${SMOKE_FIXTURE_MODE:-core}
 [[ "$SMOKE_FIXTURE_MODE" == core || "$SMOKE_FIXTURE_MODE" == statistics ]] || { echo 'fixture 모드 오류' >&2; exit 1; }
 args=(-X -q -t -A -v ON_ERROR_STOP=1 -v "fixture_mode=$SMOKE_FIXTURE_MODE" -v "user_id=$SMOKE_CORE_USER_ID" -v "island_id=$SMOKE_CORE_ISLAND_ID" -v "session_id=$SMOKE_CORE_SESSION_ID" -v "fixture_name=$SMOKE_CORE_FIXTURE_NAME")
 if [[ -n "${SMOKE_DB_CONTAINER:-}" ]]; then
-  docker exec -i "$SMOKE_DB_CONTAINER" psql -U "${SMOKE_DB_USER:-postgres}" -d "${SMOKE_DB_NAME:-phone}" "${args[@]}" < "$SCRIPT_DIR/seed-core-flow.sql"
+  "${SMOKE_DOCKER:-docker}" exec -i "$SMOKE_DB_CONTAINER" psql -U "${SMOKE_DB_USER:-postgres}" -d "${SMOKE_DB_NAME:-phone}" "${args[@]}" < "$SCRIPT_DIR/seed-core-flow.sql"
 elif [[ -n "${SMOKE_DATABASE_URL:-}" ]]; then
   # libpq reads credentials from environment, never argv.
   PGDATABASE="$SMOKE_DATABASE_URL" psql "${args[@]}" < "$SCRIPT_DIR/seed-core-flow.sql"
