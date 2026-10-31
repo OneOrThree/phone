@@ -352,14 +352,19 @@ export const createIslandCommands = (deps: IslandCommandDeps) => {
         return screen;
       }),
     // 초대 코드 해석 — token은 state에 넣지 않고 세대 격리 ref에 보관해 join이 그대로 쓴다
-    resolveInvite: (code: string) =>
+    resolveInvite: (code: string, options?: { arrive?: boolean }) =>
       call(async () => {
         const g = generation(),
-          resolved = await api.resolveInvite(code);
+          resolved = await api.resolveInvite(code, options);
         alive(g);
         scoped().tokens[resolved.island.id] = resolved.invitationToken;
+        // 도착 해석은 즉시 가입할 수 있으므로 소속 정본도 갱신한다.
+        if (options?.arrive) {
+          await syncIslands();
+          alive(g);
+        }
         return resolved.island;
-      }),
+      }, !!options?.arrive),
     // 가입·가입 신청. pending이면 requestId를 스냅샷에 남기고 승인 화면으로,
     // active면 /me/islands 재조회로 current를 확정한다(arrival/home은 CurrentScreens 차단이
     // 풀리기 전까지 열지 않는다). 응답이 확정되면 의도 키를 해제한다 — 취소·거절 뒤 같은 섬

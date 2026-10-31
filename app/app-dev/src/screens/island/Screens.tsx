@@ -152,7 +152,7 @@ import {
   rejectFriendRequest,
   sendFriendRequest,
 } from '@/services/api/friends';
-import { openFeedbackMail, openReportCenter, REPORT_EMAIL_RECIPIENT } from '@/services/api/safety';
+import { openFeedback, openReportCenter, REPORT_EMAIL_RECIPIENT } from '@/services/api/safety';
 import { UserSafetySheet } from '@/components/UserSafetySheet';
 import { PolicyLinks } from '@/components/PolicyLink';
 import { PRIVACY_URL, TERMS_URL, openPolicy } from '@/constants/legal';
@@ -713,6 +713,7 @@ function AvStack({ list }: { list: string[] }) {
 let pickingLocale = false;
 export function RedesignScreens({ e }: any) {
   const layout = useAppLayout();
+  const accountBg = e.fromSea ? 'sea' : 'dock';
   const state: State = e.state,
     island = currentIsland(state),
     route: string = e.route,
@@ -3539,7 +3540,13 @@ export function RedesignScreens({ e }: any) {
       </>
     );
     return (
-      <IslandSheet bg="dock" sign="boat/raft" title={t('account.boat.title')} tight onClose={home}>
+      <IslandSheet
+        bg={accountBg}
+        sign="boat/raft"
+        title={t('account.boat.title')}
+        tight
+        onClose={home}
+      >
         {canChangeMainIsland ? (
           <Pressable
             accessibilityRole="button"
@@ -3648,7 +3655,7 @@ export function RedesignScreens({ e }: any) {
       unchanged = !selectedIsland || selectedIsland.id === primaryIsland?.id;
     return (
       <IslandSheet
-        bg="dock"
+        bg={accountBg}
         sign="island/whole"
         title="내 메인 섬 변경하기"
         tall
@@ -3870,7 +3877,7 @@ export function RedesignScreens({ e }: any) {
       !!shopApi.my?.clothes?.length || !['default', 'none'].includes(state.equipped.clothes);
     return (
       <IslandSheet
-        bg="dock"
+        bg={accountBg}
         sign="boat/raft"
         title={t('wardrobe.title')}
         tall
@@ -4241,7 +4248,14 @@ export function RedesignScreens({ e }: any) {
     );
     return (
       <>
-        <IslandSheet bg="dock" sign="boat/raft" title="친구 관리" tall onBack={back} onClose={home}>
+        <IslandSheet
+          bg={accountBg}
+          sign="boat/raft"
+          title="친구 관리"
+          tall
+          onBack={back}
+          onClose={home}
+        >
           <SearchField
             value={queryValue}
             onChange={serverMode ? friendsScreen.setQuery : setSearch}
@@ -4389,7 +4403,7 @@ export function RedesignScreens({ e }: any) {
     };
     return (
       <IslandSheet
-        bg="dock"
+        bg={accountBg}
         sign={'avatar/' + profileColor}
         signKind="av"
         title={t('account.profile.title')}
@@ -4553,7 +4567,7 @@ export function RedesignScreens({ e }: any) {
     // 기록 공개 토글은 없다(도서관 기록은 전체 공개 고정)
     return (
       <IslandSheet
-        bg="dock"
+        bg={accountBg}
         sign="boat/raft"
         title={t('account.boat.settingsTitle')}
         tall
@@ -4638,13 +4652,12 @@ export function RedesignScreens({ e }: any) {
             sub={t('settings.feedback.sub')}
             chevron
             onPress={() => {
-              openFeedbackMail(Application.nativeApplicationVersion ?? appManifest.version).catch(
-                () =>
-                  confirm(
-                    t('settings.feedback.title'),
-                    t('settings.feedback.openFailed', { email: REPORT_EMAIL_RECIPIENT }),
-                    () => {},
-                  ),
+              openFeedback(Application.nativeApplicationVersion ?? appManifest.version).catch(() =>
+                confirm(
+                  t('settings.feedback.title'),
+                  t('settings.feedback.openFailed', { email: REPORT_EMAIL_RECIPIENT }),
+                  () => {},
+                ),
               );
             }}
           />
@@ -4692,7 +4705,7 @@ export function RedesignScreens({ e }: any) {
     };
     return (
       <IslandSheet
-        bg="dock"
+        bg={accountBg}
         sign="boat/raft"
         title={t('settings.language.title')}
         tall

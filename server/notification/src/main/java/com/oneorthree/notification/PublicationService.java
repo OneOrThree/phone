@@ -5,6 +5,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.sql.Timestamp;
 import java.time.Clock;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -35,6 +36,53 @@ class PublicationService {
         return store.command("publication-request:" + publicationId, key, body,
                 () -> store.command("publication", publicationId.toString(), body,
                         () -> enqueue(actor, publicationId, body)));
+    }
+
+    /** 대기·재시도 분을 종결한다. 이미 FCM 호출 중인 건은 별도 수치로 알려 단정하지 않는다. */
+    @Transactional
+    public Map<String, Object> cancel(String actor, UUID publicationId) {
+        store.lock("publication-cancel:" + publicationId);
+        String subject = publicationId.toString();
+        // 발송 준비가 같은 행에 임대를 쓰므로, 잠금 뒤에 집계해야 취소 직전의 임대를 놓치지 않는다.
+        List<Map<String, Object>> rows = store.rows("SELECT status,last_error,lease_expires_at FROM deliveries"
+                + " WHERE kind='ADMIN_ANNOUNCEMENT' AND subject_id=? ORDER BY id FOR UPDATE", subject);
+        if (rows.isEmpty() && store.one("SELECT 1 FROM commands WHERE scope='publication' AND command_key=?",
+                subject) == null) {
+            throw new NotificationFailure(404, "PUBLICATION_NOT_FOUND");
+        }
+        Instant at = clock.instant();
+        long sent = 0;
+        long inFlight = 0;
+        long alreadyCancelled = 0;
+        for (Map<String, Object> row : rows) {
+            String status = row.get("status").toString();
+            boolean cancelled = "SUPPRESSED".equals(status) && "ADMIN_CANCELLED".equals(row.get("last_error"));
+            if ("SENT".equals(status)) {
+                sent++;
+            }
+            if (cancelled) {
+                alreadyCancelled++;
+            }
+            if (("PENDING".equals(status) || "DEFERRED".equals(status) || cancelled)
+                    && row.get("lease_expires_at") instanceof Timestamp lease
+                    && lease.toInstant().isAfter(at)) {
+                inFlight++;
+            }
+        }
+        store.update("INSERT INTO publication_cancellations(publication_id,actor,cancelled_at) VALUES(?,?,?)"
+                + " ON CONFLICT(publication_id) DO NOTHING", publicationId, actor, Timestamp.from(at));
+        int cancelled = store.update("UPDATE deliveries SET status='SUPPRESSED',last_error='ADMIN_CANCELLED',"
+                + "lease_token=CASE WHEN lease_expires_at>? THEN lease_token ELSE NULL END,"
+                + "lease_expires_at=CASE WHEN lease_expires_at>? THEN lease_expires_at ELSE NULL END"
+                + " WHERE kind='ADMIN_ANNOUNCEMENT' AND subject_id=?"
+                + " AND status IN ('PENDING','DEFERRED')", Timestamp.from(at), Timestamp.from(at), subject);
+        long totalCancelled = alreadyCancelled + cancelled;
+        audit.record(actor, "publications.cancelled", subject,
+                Map.of("cancelledCount", cancelled, "totalCancelledCount", totalCancelled,
+                        "sentCount", sent, "inFlightCount", inFlight));
+        return Map.of("publicationId", subject, "cancelledCount", cancelled,
+                "totalCancelledCount", totalCancelled, "sentCount", sent, "inFlightCount", inFlight,
+                "recipientCount", rows.size());
     }
 
     private Map<String, Object> enqueue(String actor, UUID publicationId, Map<String, Object> body) {

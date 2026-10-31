@@ -96,6 +96,7 @@ class AdminService {
             if (origin == null) {
                 throw new NotificationFailure(404, "UNKNOWN_DELIVERY");
             }
+            requirePublicationActive(origin);
             UUID user = (UUID) origin.get("user_id");
             Map<String, Object> params = new LinkedHashMap<>(Json.map(origin.get("payload").toString()));
             params.put("adminActor", actor);
@@ -111,7 +112,24 @@ class AdminService {
             audit.record(actor, "deliveries.resend.enqueued", id.toString(),
                     Map.of("replayOf", deliveryId.toString(), "kind", origin.get("kind").toString()));
             return queued(id, deliveryId);
+        }, false, () -> {
+            Map<String, Object> origin = store.one("SELECT kind,subject_id,reviewed_push FROM deliveries WHERE id=?",
+                    deliveryId);
+            if (origin != null) {
+                requirePublicationActive(origin);
+            }
         });
+    }
+
+    private void requirePublicationActive(Map<String, Object> origin) {
+        if ("ADMIN_ANNOUNCEMENT".equals(origin.get("kind")) && origin.get("reviewed_push") != null) {
+            String publicationId = (String) origin.get("subject_id");
+            store.lock("publication-cancel:" + publicationId);
+            if (store.one("SELECT 1 FROM publication_cancellations WHERE publication_id=?::uuid",
+                    publicationId) != null) {
+                throw new NotificationFailure(409, "PUBLICATION_CANCELLED");
+            }
+        }
     }
 
     /** 멱등 키 원문을 사건 키에 그대로 넣지 않는다 — 길이 제한·콘솔 내부 값 노출을 함께 피한다. */

@@ -25,8 +25,13 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -57,13 +62,14 @@ class AdminApiTest {
     @Autowired Store store;
     @Autowired DeviceService devices;
     @Autowired DispatchService dispatch;
+    @Autowired org.springframework.transaction.PlatformTransactionManager transactions;
     @MockitoBean PushTransport transport;
     @MockitoBean DataClient data;
     @MockitoBean Clock clock;
 
     @BeforeEach
     void resetState() {
-        store.update("TRUNCATE delivery_devices,deliveries,inbound_events,commands,device_tokens,"
+        store.update("TRUNCATE delivery_devices,deliveries,publication_cancellations,inbound_events,commands,device_tokens,"
                 + "session_fences,legacy_session_fences,"
                 + "user_fences,settings,projections,templates,deeplinks,kinds,jobs,job_runs,"
                 + "admin_audit CASCADE");
@@ -380,6 +386,125 @@ class AdminApiTest {
     }
 
     @Test
+    void cancellationSuppressesPendingDeliveryPreservesHistoryAndBlocksResend() throws Exception {
+        devices.register(USER, Map.of("deviceToken", "device", "deviceBootstrap", "b", "sessionEpoch", 1), "reg");
+        UUID publication = UUID.randomUUID();
+        String path = "/internal/admin/publications/" + publication;
+        Map<String, Object> queued = body(post(path, "publish", publication()));
+        UUID delivery = UUID.fromString(((List<?>) queued.get("deliveryIds")).get(0).toString());
+        mvc.perform(MockMvcRequestBuilders.post(path + "/cancel")
+                .header("Authorization", "Bearer test-data")).andExpect(status(403));
+        Map<String, Object> cancelled = body(post(path + "/cancel", null, Map.of()));
+        assertThat(cancelled).containsEntry("cancelledCount", 1).containsEntry("sentCount", 0)
+                .containsEntry("inFlightCount", 0);
+        assertThat(store.one("SELECT status,last_error FROM deliveries WHERE id=?", delivery))
+                .containsEntry("status", "SUPPRESSED").containsEntry("last_error", "ADMIN_CANCELLED");
+        assertThat(body(post(path + "/cancel", null, Map.of()))).containsEntry("cancelledCount", 0);
+        assertThat(code(post("/internal/admin/deliveries/" + delivery + "/resend", "resend", Map.of())))
+                .isEqualTo("PUBLICATION_CANCELLED");
+        store.update("UPDATE dispatch_control SET enabled=true,ever_opened=true");
+        dispatch.dispatch(delivery);
+        verifyNoInteractions(transport);
+        assertThat(store.one("SELECT actor,action FROM admin_audit WHERE action='publications.cancelled'"
+                + " ORDER BY id LIMIT 1")).containsEntry("actor", "member-1");
+    }
+
+    @Test
+    void cancellationStillClosesPublicationAfterLastRecipientWithdraws() throws Exception {
+        UUID publication = UUID.randomUUID();
+        String path = "/internal/admin/publications/" + publication;
+        body(post(path, "publish", publication()));
+        new org.springframework.transaction.support.TransactionTemplate(transactions)
+                .executeWithoutResult(status -> devices.generation(USER, 1, true));
+        assertThat(store.one("SELECT id FROM deliveries WHERE subject_id=?", publication.toString())).isNull();
+
+        Map<String, Object> result = body(post(path + "/cancel", null, Map.of()));
+        assertThat(result).containsEntry("recipientCount", 0).containsEntry("cancelledCount", 0)
+                .containsEntry("totalCancelledCount", 0).containsEntry("sentCount", 0)
+                .containsEntry("inFlightCount", 0);
+        assertThat(body(post(path + "/cancel", null, Map.of()))).isEqualTo(result);
+        assertThat(store.one("SELECT actor FROM publication_cancellations WHERE publication_id=?", publication))
+                .containsEntry("actor", "member-1");
+        assertThat(code(post("/internal/admin/publications/" + UUID.randomUUID() + "/cancel", null, Map.of())))
+                .isEqualTo("PUBLICATION_NOT_FOUND");
+    }
+
+    @Test
+    void cancellationReportsAnActiveLeaseUntilItsSendWindowEnds() throws Exception {
+        UUID publication = UUID.randomUUID();
+        String path = "/internal/admin/publications/" + publication;
+        Map<String, Object> queued = body(post(path, "publish", publication()));
+        UUID delivery = UUID.fromString(((List<?>) queued.get("deliveryIds")).get(0).toString());
+        store.update("UPDATE deliveries SET lease_token=?,lease_expires_at=? WHERE id=?",
+                UUID.randomUUID(), java.sql.Timestamp.from(DAY.plusSeconds(30)), delivery);
+        Map<String, Object> first = body(post(path + "/cancel", null, Map.of()));
+        assertThat(first).containsEntry("cancelledCount", 1).containsEntry("inFlightCount", 1);
+        assertThat(store.one("SELECT status,lease_expires_at FROM deliveries WHERE id=?", delivery))
+                .containsEntry("status", "SUPPRESSED");
+        assertThat(body(post(path + "/cancel", null, Map.of())))
+                .containsEntry("totalCancelledCount", 1).containsEntry("inFlightCount", 1);
+        when(clock.instant()).thenReturn(DAY.plusSeconds(31));
+        assertThat(body(post(path + "/cancel", null, Map.of()))).containsEntry("inFlightCount", 0);
+        assertThat(store.one("SELECT status FROM deliveries WHERE id=?", delivery))
+                .containsEntry("status", "SUPPRESSED");
+    }
+
+    @Test
+    void cancellationWaitsForConcurrentLeaseCommitBeforeCounting() throws Exception {
+        UUID publication = UUID.randomUUID();
+        String path = "/internal/admin/publications/" + publication;
+        Map<String, Object> queued = body(post(path, "publish", publication()));
+        UUID delivery = UUID.fromString(((List<?>) queued.get("deliveryIds")).get(0).toString());
+        CountDownLatch leased = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        var pool = Executors.newFixedThreadPool(2);
+        try {
+            var holding = pool.submit(() -> {
+                new org.springframework.transaction.support.TransactionTemplate(transactions)
+                        .executeWithoutResult(status -> {
+                            store.one("SELECT id FROM deliveries WHERE id=? FOR UPDATE", delivery);
+                            store.update("UPDATE deliveries SET lease_token=?,lease_expires_at=? WHERE id=?",
+                                    UUID.randomUUID(), java.sql.Timestamp.from(DAY.plusSeconds(30)), delivery);
+                            leased.countDown();
+                            try {
+                                if (!release.await(5, TimeUnit.SECONDS)) {
+                                    throw new IllegalStateException("임대 트랜잭션을 해제하지 못했습니다.");
+                                }
+                            } catch (InterruptedException interrupted) {
+                                Thread.currentThread().interrupt();
+                                throw new IllegalStateException(interrupted);
+                            }
+                        });
+            });
+            assertThat(leased.await(5, TimeUnit.SECONDS)).isTrue();
+            var cancelling = pool.submit(() -> body(post(path + "/cancel", null, Map.of())));
+            assertThatThrownBy(() -> cancelling.get(150, TimeUnit.MILLISECONDS))
+                    .isInstanceOf(TimeoutException.class);
+            release.countDown();
+            holding.get(5, TimeUnit.SECONDS);
+            assertThat(cancelling.get(5, TimeUnit.SECONDS)).containsEntry("inFlightCount", 1);
+        } finally {
+            release.countDown();
+            pool.shutdownNow();
+        }
+    }
+
+    @Test
+    void cancellationNeverRewritesAnAlreadySentDelivery() throws Exception {
+        devices.register(USER, Map.of("deviceToken", "device", "deviceBootstrap", "b", "sessionEpoch", 1), "reg");
+        UUID publication = UUID.randomUUID();
+        String path = "/internal/admin/publications/" + publication;
+        Map<String, Object> queued = body(post(path, "publish", publication()));
+        UUID delivery = UUID.fromString(((List<?>) queued.get("deliveryIds")).get(0).toString());
+        store.update("UPDATE dispatch_control SET enabled=true,ever_opened=true");
+        dispatch.dispatch(delivery);
+        assertThat(store.one("SELECT status FROM deliveries WHERE id=?", delivery)).containsEntry("status", "SENT");
+        assertThat(body(post(path + "/cancel", null, Map.of())))
+                .containsEntry("cancelledCount", 0).containsEntry("sentCount", 1);
+        assertThat(store.one("SELECT status FROM deliveries WHERE id=?", delivery)).containsEntry("status", "SENT");
+    }
+
+    @Test
     void publicationRejectsWithdrawnRecipientsAndHonorsOptOutAtDispatch() throws Exception {
         store.update("INSERT INTO user_fences(user_id,withdrawn) VALUES(?,true)", USER);
         assertThat(code(post("/internal/admin/publications/" + UUID.randomUUID(), "p1", publication())))
@@ -515,4 +640,36 @@ class AdminApiTest {
     private static String code(org.springframework.test.web.servlet.ResultActions actions) throws Exception {
         return code(actions.andReturn());
     }
+
+    @Test
+    void environmentMismatchReleasesLeaseWithoutConsumingAttempts() throws Exception {
+        devices.register(USER, Map.of("deviceToken", "device", "deviceBootstrap", "b", "sessionEpoch", 1), "reg");
+        var queued = body(post("/internal/admin/publications/" + UUID.randomUUID(), "publish", publication()));
+        UUID id = UUID.fromString(((List<?>) queued.get("deliveryIds")).get(0).toString());
+        store.update("UPDATE dispatch_control SET enabled=true,ever_opened=true");
+        when(transport.send(anyString(), any(), anyBoolean(), anyString()))
+                .thenThrow(new NotificationEnvironmentGuard.EnvironmentMismatch("환경 불일치"));
+        assertThatThrownBy(() -> dispatch.dispatch(id))
+                .isInstanceOf(DispatchService.LeasedFailure.class)
+                .hasCauseInstanceOf(NotificationEnvironmentGuard.EnvironmentMismatch.class);
+        assertThat(store.one("SELECT attempts,last_error,lease_token,status FROM deliveries WHERE id=?", id))
+                .containsEntry("attempts", 0).containsEntry("last_error", "ENVIRONMENT_MISMATCH")
+                .containsEntry("lease_token", null).containsEntry("status", "PENDING");
+        when(clock.instant()).thenReturn(DAY.plusSeconds(61));
+        org.mockito.Mockito.doReturn(PushTransport.Result.SENT).when(transport)
+                .send(anyString(), any(), anyBoolean(), anyString());
+        dispatch.dispatch(id);
+        assertThat(store.one("SELECT status FROM deliveries WHERE id=?", id)).containsEntry("status", "SENT");
+    }
+
+    @Test
+    void resendPreservesReviewedCopy() throws Exception {
+        var queued = body(post("/internal/admin/publications/" + UUID.randomUUID(), "publish", publication()));
+        UUID id = UUID.fromString(((List<?>) queued.get("deliveryIds")).get(0).toString());
+        var response = post("/internal/admin/deliveries/" + id + "/resend", "resend", Map.of());
+        assertThat(response.getResponse().getStatus()).isEqualTo(200);
+        assertThat(store.one("SELECT reviewed_push::text AS copy FROM deliveries WHERE replay_of=?", id)
+                .get("copy").toString()).contains("검토 완료 문구");
+    }
+
 }

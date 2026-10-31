@@ -174,3 +174,18 @@ test('OS·SDK 중복 링크는 한 번만 이동하고 이후 다시 탭한 링�
   stop();
   now.mockRestore();
 });
+
+test.each([
+  ['https://link.oneorthree.world/l/abcdefgh?g=ignored', 'abcdefgh'],
+  ['https://oneorthree.dev.mooo.com/l/abcdefgh', 'abcdefgh'],
+  ['gromo://join?g=ignored&s=abcdefgh', 'abcdefgh'],
+])('초대 링크 %s는 서버 확인용 코드만 반환한다', (url, code) => {
+  expect(parseAppDeepLink(url)).toEqual({ kind: 'invitation', code });
+});
+test.each([
+  'https://link.oneorthree.world.evil.com/l/abcdefgh',
+  'https://link.oneorthree.world/l/abcdefgh/extra',
+  'https://link.oneorthree.world/l/invalid',
+])('잘못된 초대 URL %s는 무시한다', (url) => {
+  expect(parseAppDeepLink(url)).toBeNull();
+});

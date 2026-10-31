@@ -334,4 +334,38 @@ class InternalAuthFilterTest {
 
         assertThat(response.getStatus()).isEqualTo(HttpServletResponse.SC_FORBIDDEN);
     }
+
+    @Test
+    void consoleCredentialsCannotUseBusinessRoutes() throws Exception {
+        InternalApiProperties properties = new InternalApiProperties();
+        var console = new InternalApiProperties.Caller();
+        console.setToken("console-token");
+        console.setConsoleActor("member-1");
+        console.setAllow(List.of("GET /internal/admin/content/environment", "GET /internal/users/*/activation"));
+        properties.getCallers().put("console", console);
+        UUID userId = UUID.randomUUID();
+        var outside = request("GET", "/internal/users/" + userId + "/activation");
+        outside.addHeader("Authorization", "Bearer console-token");
+        outside.addHeader("X-User-Id", userId.toString());
+        var outsideChain = new MockFilterChain();
+        assertThat(run(properties, outside, outsideChain).getStatus()).isEqualTo(403);
+        assertThat(outsideChain.getRequest()).isNull();
+    }
+
+    @Test
+    void optionalBlankConsoleDoesNotRegisterAnEmptyBearerCredential() throws Exception {
+        InternalApiProperties properties = new InternalApiProperties();
+        var console = new InternalApiProperties.Caller();
+        console.setOptional(true);
+        console.setToken("");
+        console.setConsoleActor("member-1");
+        console.setAllow(List.of("GET /internal/admin/content/environment"));
+        properties.getCallers().put("console", console);
+        var request = request("GET", "/internal/admin/content/environment");
+        request.addHeader("Authorization", "Bearer ");
+        var chain = new MockFilterChain();
+        assertThat(run(properties, request, chain).getStatus()).isEqualTo(404);
+        assertThat(chain.getRequest()).isNull();
+    }
+
 }

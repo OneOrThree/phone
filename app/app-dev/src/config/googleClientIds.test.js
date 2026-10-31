@@ -20,7 +20,7 @@ test('Info.plist 의 GoogleSignIn 스킴은 JSON 에 채워진 iOS id 를 뒤집
   expect(block).not.toBeNull();
   const registered = [...block[1].matchAll(/<string>([^<]+)<\/string>/g)].map((m) => m[1]).sort();
 
-  // prod 가 채워지면 dev·prod 둘 다 있어야 한다 — OTA 로 JS 만 바뀌어도 Release 에서 스킴 불일치 크래시가 없게.
+  // OTA 로 JS 만 바뀌어도 Release 에서 스킴 불일치 크래시가 없도록 서로 다른 스킴을 모두 등록한다.
   const expected = [...new Set([ids.dev.ios, ids.prod.ios].filter(Boolean).map(schemeOf))].sort();
   expect(expected.length).toBeGreaterThan(0);
   expect(registered).toEqual(expected);

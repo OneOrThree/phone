@@ -4,6 +4,7 @@ export type AppDeepLinkRoute = 'home' | 'focusSetup' | 'friends';
 
 export type AppDeepLinkTarget =
   | { kind: 'route'; route: AppDeepLinkRoute }
+  | { kind: 'invitation'; code: string }
   | { kind: 'island'; islandId: string }
   | { kind: 'magazine'; issueId: string }
   | { kind: 'unsupported'; legacyPath: 'join' | 'group' | 'league' }
@@ -28,6 +29,18 @@ function queryUuid(query: string, key: 'g' | 'issue'): string | null {
  * 분류한다. 2.0에 없는 화면은 안전한 fallback 대상(unsupported)으로 둔다.
  */
 export function parseAppDeepLink(rawUrl: string): AppDeepLinkTarget {
+  // 섬 ID 쿼리는 신뢰하지 않는다. 서버가 초대 코드를 해석한 섬만 연다.
+  const invitation =
+    /^(?:https:\/\/(?:link\.oneorthree\.world|oneorthree\.dev\.mooo\.com)\/l\/)([23456789abcdefghjkmnpqrstuvwxyz]{8})(?:[?#].*)?$/i.exec(
+      rawUrl.trim(),
+    );
+  if (invitation) return { kind: 'invitation', code: invitation[1].toLowerCase() };
+  const schemeInvite = /^gromo:\/\/+join\/?\?([^#]*)/i.exec(rawUrl.trim());
+  if (schemeInvite) {
+    const codes = new URLSearchParams(schemeInvite[1]).getAll('s');
+    if (codes.length === 1 && /^[23456789abcdefghjkmnpqrstuvwxyz]{8}$/i.test(codes[0]))
+      return { kind: 'invitation', code: codes[0].toLowerCase() };
+  }
   const match = /^gromo:\/\/+([^?#]*)(?:\?([^#]*))?(?:#.*)?$/i.exec(rawUrl.trim());
   if (!match) return null;
 

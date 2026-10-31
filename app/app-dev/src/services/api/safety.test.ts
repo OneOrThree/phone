@@ -7,7 +7,8 @@ import {
   blockUser,
   getBlockedUsers,
   feedbackEmailUrl,
-  openFeedbackMail,
+  openFeedback,
+  FEEDBACK_KAKAO_URL,
   reportEmailUrl,
   openReportCenter,
   REPORT_EMAIL_RECIPIENT,
@@ -75,9 +76,19 @@ test('문의 메일은 신고와 같은 주소에 문의 말머리·앱 버전·
   assert.ok(decoded.includes('subject=[집중할고양 문의] 오류 제보·기능 제안'));
   assert.ok(decoded.includes('앱 버전: 2.0.1'));
   assert.match(decoded, /기기: (ios|android) \S+/);
+  applyLocalePref('system');
+});
+
+test('문의하기는 ko 면 오픈채팅 URL, en 이면 mailto 를 연다', async () => {
   const open = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined);
-  await openFeedbackMail('2.0.1');
-  assert.equal(open.mock.calls[0][0], url);
+  applyLocalePref('ko');
+  await openFeedback('2.0.1');
+  assert.equal(open.mock.calls[0][0], FEEDBACK_KAKAO_URL);
+  applyLocalePref('en');
+  await openFeedback('2.0.1');
+  assert.equal(open.mock.calls[1][0], feedbackEmailUrl('2.0.1'));
+  assert.ok(open.mock.calls[1][0].startsWith(`mailto:${REPORT_EMAIL_RECIPIENT}?`));
+  assert.ok(decodeURIComponent(open.mock.calls[1][0]).includes('App version: 2.0.1'));
   assert.equal(calls.length, 0);
   open.mockRestore();
   applyLocalePref('system');

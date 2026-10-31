@@ -158,7 +158,8 @@ class PublicationEnvironmentTest {
                         "$.contractVersion").value("1"))
                 .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath(
                         "$.capabilities").value(org.hamcrest.Matchers.contains("notification.publication.v1",
-                                "notification.history.v1", "notification.templates.v1")));
+                                "notification.history.v1", "notification.templates.v1",
+                                "notification.publication.cancel.v1")));
         assertThat(guard.identity()).containsExactlyInAnyOrderEntriesOf(
                 Map.of("environment", "prod", "fcmProjectId", "catus-prod"));
     }

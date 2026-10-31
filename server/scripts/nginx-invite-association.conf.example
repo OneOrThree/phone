@@ -1,0 +1,17 @@
+# link.oneorthree.world 및 oneorthree.dev.mooo.com의 HTTPS server 블록에 포함한다.
+# 현재 운영 AASA는 구 앱만 등록돼 있다. 2.0 Focuscat과 기존 앱을 함께 허용한다.
+# 새 앱의 associated-domains / Android intent-filter가 포함된 네이티브 빌드가 필요하다.
+location = /.well-known/apple-app-site-association {
+    default_type application/json;
+    return 200 '{"applinks":{"apps":[],"details":[{"appIDs":["P6Z68QUK9M.com.oneorthree.focuscat","P6Z68QUK9M.com.oneorthree.gromo"],"components":[{"/":"/l/*"}]}]}}';
+}
+
+# 저장소 루트에서 연결 파일을 설치한 뒤 이 설정을 HTTPS server 블록에 포함한다.
+# install -d -m 755 /etc/nginx/invite-links
+# install -m 644 server/scripts/invite-links/assetlinks.json /etc/nginx/invite-links/assetlinks.json
+# 적용 전 nginx -t로 검사한다. HTTPS 200, application/json, 리다이렉트 없음이 필요하다.
+# 지문은 사용자가 제공한 Play 앱 서명 키이며 패키지는 현재 Android applicationId다.
+location = /.well-known/assetlinks.json {
+    default_type application/json;
+    alias /etc/nginx/invite-links/assetlinks.json;
+}

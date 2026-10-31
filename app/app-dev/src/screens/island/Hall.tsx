@@ -1,14 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import {
-  BackHandler,
-  Image,
-  Platform,
-  Pressable,
-  ScrollView,
-  Share,
-  TextInput,
-  View,
-} from 'react-native';
+import { BackHandler, Image, Platform, Pressable, ScrollView, TextInput, View } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import { isMockMode } from '@/services/demoMode';
 import { art, CharCount, NavBtn, Wheel } from '@/design-system/patterns';
@@ -55,6 +46,7 @@ import {
 import { getSession, sessionGeneration } from '@/services/api/session';
 import { t } from '@/i18n';
 import { useVisitorJoin } from '@/screens/island/useVisitorJoin';
+import { useInviteShare } from '@/screens/island/useInviteShare';
 import { useIslandNews } from '@/screens/magazine/useIslandNews';
 import {
   ISLAND_GREETING_MAX,
@@ -400,6 +392,7 @@ export function Hall({ e }: any) {
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(() => setToast(''), 2400);
   };
+  const inviteShare = useInviteShare(liveIslandId ?? '', management.detail?.name ?? i.name, notify);
   const {
     join,
     disabled: joinDisabled,
@@ -3023,11 +3016,9 @@ export function Hall({ e }: any) {
               testID="hall-invite"
               accessibilityRole="button"
               accessibilityLabel="섬에 친구 초대하기"
-              onPress={() =>
-                Share.share({
-                  message: `${i.name}에서 같이 집중해요! 초대 코드: ${inviteCodeOf(i)}`,
-                }).catch(() => notify(`초대 코드 ${inviteCodeOf(i)}를 친구에게 알려 주세요.`))
-              }
+              disabled={inviteShare.busy}
+              accessibilityState={{ disabled: inviteShare.busy, busy: inviteShare.busy }}
+              onPress={inviteShare.share}
               style={{
                 width: 44,
                 height: 44,

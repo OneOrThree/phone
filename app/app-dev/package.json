@@ -102,14 +102,5 @@
     "playwright": "1.63.0",
     "prettier": "^3.8.3",
     "typescript": "~6.0.3"
-  },
-  "expo": {
-    "autolinking": {
-      "android": {
-        "exclude": [
-          "expo-notifications"
-        ]
-      }
-    }
   }
 }

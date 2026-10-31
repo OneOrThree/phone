@@ -23,7 +23,8 @@ let identityRevision = 0;
 
 function analyticsEnvironment(): 'production' | 'development' {
   const environment = process.env.EXPO_PUBLIC_ENV?.trim().toLowerCase();
-  return !__DEV__ && (!environment || environment === 'prod' || environment === 'production')
+  // 운영은 EXPO_PUBLIC_ENV 를 prod 로 명시한 release 빌드만. 값이 비면 운영으로 오분류하지 않고 개발로 본다.
+  return !__DEV__ && (environment === 'prod' || environment === 'production')
     ? 'production'
     : 'development';
 }
@@ -58,7 +59,7 @@ export function initPostHog(): void {
         setItem: (key, value) => AsyncStorage.setItem(`posthog:${projectToken}:${key}`, value),
       },
       captureAppLifecycleEvents: true,
-      enableSessionReplay: native,
+      enableSessionReplay: false,
       errorTracking: {
         autocapture: {
           uncaughtExceptions: true,

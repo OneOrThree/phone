@@ -300,23 +300,26 @@ export function SeaVoyageHost({ e }: { e: any }) {
   const today: MagazineToday | null = e.magazineToday ?? null;
   const issue = today?.issue?.current ? today.issue : null;
   const drifting = e.route === 'sea' && !session && !departFrom;
+  // 첫 섬 대기·튜토리얼 진행·완료 이력 복원 중에는 잡지로 첫 흐름을 가로막지 않는다.
+  const magazineReady = drifting && (!!s.focusGuideDone || (s.tutorial?.step ?? 0) >= 22);
   const [delivering, setDelivering] = useState<string | null>(null);
   useEffect(() => {
     // 표류가 끝나면(다른 기기의 출항 포함) 이미 뜬 배달도 거둔다 — 다시 표류해도 같은 호는 다시 띄우지 않는다
-    if (!drifting || !issue) {
+    if (!magazineReady || !issue) {
       setDelivering(null);
       return;
     }
     if (wasDelivered(issue.issueId)) return;
     setDelivering(today?.receipt ? null : issue.issueId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [drifting, issue?.issueId, today?.receipt]);
+  }, [magazineReady, issue?.issueId, today?.receipt]);
   const deliveryShown = () => {
-    if (!delivering || wasDelivered(delivering)) return;
+    if (!magazineReady || !delivering || wasDelivered(delivering)) return;
     markDelivered(delivering);
     sendReceipt(delivering, { place: 'SEA' }).catch(() => {});
   };
   const readLater = () => {
+    if (!magazineReady) return;
     setDelivering(null);
     if (delivering) sendReceipt(delivering, { place: 'SEA', deferred: true }).catch(() => {});
   };
@@ -332,7 +335,7 @@ export function SeaVoyageHost({ e }: { e: any }) {
       return true;
     }
     // 떠 있는 펠리컨 배달 — SeaScreen 보다 App 의 뒤로가기가 먼저 불려도 「나중에 읽기」와 같게
-    if (drifting && delivering && wasDelivered(delivering)) {
+    if (magazineReady && delivering && wasDelivered(delivering)) {
       readLater();
       return true;
     }
@@ -478,7 +481,7 @@ export function SeaVoyageHost({ e }: { e: any }) {
         if (mounted.current && sessionGeneration() === generation) eRef.current.go('telescope');
       }}
       magazine={
-        drifting && issue
+        magazineReady && issue
           ? {
               issueNo: issue.issueNo,
               delivery: delivering === issue.issueId,

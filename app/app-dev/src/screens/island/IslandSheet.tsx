@@ -36,6 +36,7 @@ import { CatAvatar } from '@/components/CatAvatar';
 import type { Outfit } from '@/components/CatOutfitLayers';
 import { useAppLayout } from '@/utils/layout';
 import { t } from '@/i18n';
+import { seaAssets } from '@/screens/sea/seaAssets';
 
 // 꽉 채우는 그림. 웹(react-native-web)은 absoluteFill만 주면 원본 픽셀 크기로 그려서 폭·높이를 같이 준다
 const fill: ImageStyle = { position: 'absolute', left: 0, top: 0, width: '100%', height: '100%' };
@@ -45,7 +46,7 @@ const ISLAND_SHEET_BORDER_WIDTH = 2;
 const ISLAND_SHEET_CONTENT_RADIUS = ISLAND_SHEET_RADIUS - ISLAND_SHEET_BORDER_WIDTH;
 
 export type IslandBgKey =
-  'hall' | 'board' | 'tower' | 'mail' | 'shop' | 'dock' | 'gram' | 'fire' | 'library';
+  'hall' | 'board' | 'tower' | 'mail' | 'shop' | 'dock' | 'gram' | 'fire' | 'library' | 'sea';
 
 // 건물로 다가간 섬 배경(가로 화면이면 가로용) + 옅은 스크림. 스크림을 누르면 닫힌다
 function Backdrop({ bg, onClose }: { bg?: IslandBgKey; onClose: () => void }) {
@@ -54,7 +55,10 @@ function Backdrop({ bg, onClose }: { bg?: IslandBgKey; onClose: () => void }) {
     <>
       {bg && (
         <Image
-          source={art[(landscape ? 'L/bldbg/' : 'bldbg/') + bg]}
+          testID="island-sheet-backdrop"
+          source={
+            bg === 'sea' ? seaAssets.background : art[(landscape ? 'L/bldbg/' : 'bldbg/') + bg]
+          }
           resizeMode="cover"
           style={fill}
         />

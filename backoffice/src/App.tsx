@@ -12,8 +12,8 @@ const CHANNELS: { kind: ContentKind; name: string; description: string; icon: st
   { kind: 'construction', name: '건설 정책', description: '건물별 물고기 비용과 공사 시간을 검토하고 적용합니다.', icon: 'notice' },
   { kind: 'magazine', name: '잡지', description: '발행일의 콘텐츠를 검토하고 게시합니다.', icon: 'book' },
 ];
-const STATUS: Record<ContentStatus, string> = { draft: '작성 중', review: '검토 대기', approved: '승인됨', publishing: '처리 중', published: '게시됨', failed: '처리 실패', uncertain: '결과 확인 필요' };
-const ACTIONS: Record<string, string> = { create: '초안 생성', update: '내용 수정', edit: '내용 수정', review: '검토 요청', approve: '승인', publish: '발송·게시 요청', published: '요청 완료', failed: '처리 실패' };
+const STATUS: Record<ContentStatus, string> = { draft: '작성 중', review: '검토 대기', approved: '승인됨', publishing: '처리 중', published: '게시됨', failed: '처리 실패', uncertain: '결과 확인 필요', cancelled: '취소됨', withdrawn: '노출 종료', closed: '발송 종료' };
+const ACTIONS: Record<string, string> = { create: '초안 생성', update: '내용 수정', edit: '내용 수정', review: '검토 요청', approve: '승인', publish: '발송·게시 요청', published: '요청 완료', failed: '처리 실패', cancel: '발행 전 취소·보관', 'cancel-delivery': '남은 알림 발송 취소', withdraw: '공지 노출 종료', archive: '운영 목록 보관' };
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const readableDate = (value?: string) => value ? new Date(value).toLocaleString('ko-KR', { dateStyle: 'medium', timeStyle: 'short' }) : '—';
 const localDate = (value?: string | null) => {
@@ -71,7 +71,7 @@ function Icon({ name }: { name: string }) {
   };
   return <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name] ?? paths.notice}</svg>;
 }
-function Badge({ item }: { item: ContentItem }) { return <span className={`badge status-${item.status}`}>{item.status === 'published' && item.kind === 'fcm' ? '발송 요청됨' : item.status === 'published' && item.kind === 'construction' ? '적용됨' : STATUS[item.status]}</span>; }
+function Badge({ item }: { item: ContentItem }) { return <span className={`badge status-${item.archivedAt && item.status === 'published' ? 'archived' : item.status}`}>{item.archivedAt && item.status === 'published' ? '보관됨' : item.status === 'published' && item.kind === 'fcm' ? '발송 요청됨' : item.status === 'published' && item.kind === 'construction' ? '적용됨' : STATUS[item.status]}</span>; }
 function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
   return <label className="field"><span className="field-label">{label}</span>{children}{hint && <span className="field-hint">{hint}</span>}</label>;
 }
@@ -114,27 +114,45 @@ function HistoryPanel({ kind }: { kind: ContentKind }) {
 }
 function FcmCatalogPanel() {
   const [items, setItems] = useState<FcmTemplate[]>([]);
-  const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  async function load(cursor = '') {
+  async function load() {
     setLoading(true); setError('');
     try {
-      const page = await request<FcmCatalogPage>(`/api/fcm/catalog${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`);
-      setItems(previous => cursor ? [...previous, ...page.items.filter(item => !previous.some(loaded => loaded.id === item.id))] : page.items);
-      setNextCursor(page.nextCursor ?? null);
+      const all: FcmTemplate[] = [];
+      const seenItems = new Set<string>();
+      const seenCursors = new Set<string>();
+      let cursor = '';
+      do {
+        const page = await request<FcmCatalogPage>(`/api/fcm/catalog${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`);
+        for (const item of page.items) {
+          if (seenItems.has(item.id)) continue;
+          seenItems.add(item.id);
+          all.push(item);
+        }
+        const next = page.nextCursor ?? '';
+        if (!next) break;
+        if (seenCursors.has(next)) throw new Error('FCM 알림 설정의 페이지를 끝까지 불러오지 못했습니다.');
+        seenCursors.add(next);
+        cursor = next;
+      } while (true);
+      setItems(all);
     } catch (cause) {
+      setItems([]);
       setError(cause instanceof Error ? cause.message : 'FCM 알림 설정을 불러오지 못했습니다.');
     } finally { setLoading(false); }
   }
   useEffect(() => { void load(); }, []);
+  const active = items.filter(item => item.enabled);
+  const inactive = items.filter(item => !item.enabled);
+  const templateRows = (templates: FcmTemplate[]) => <ol className="history-list">{templates.map(item => <li key={item.id}><details><summary><strong>{item.title || item.kind}</strong><span>{item.enabled ? '사용 중' : '사용 안 함'}</span><span>{item.locale} · v{item.version}</span></summary><div className="history-details"><dl className="snapshot-fields"><div><dt>알림 종류</dt><dd>{item.kind}</dd></div><div><dt>제목</dt><dd>{item.title || '없음'}</dd></div><div><dt>본문</dt><dd className="prewrap">{item.body}</dd></div></dl></div></details></li>)}</ol>;
   return <section className="history-panel" aria-label="FCM 알림 설정">
     <div className="section-heading"><div><h2>FCM 알림 설정</h2><p className="field-hint">Notification 서비스에 등록된 발송 문구입니다. 작성·검토 초안 및 실제 발송 이력과는 별개입니다.</p></div><button className="button secondary" disabled={loading} onClick={() => void load()}>새로고침</button></div>
     {error && <p role="alert" className="error-message">{error}</p>}
-    <p className="list-caption">{items.length}개 알림 문구</p>
-    {items.length ? <ol className="history-list">{items.map(item => <li key={item.id}><details><summary><strong>{item.title || item.kind}</strong><span>{item.enabled ? '사용 중' : '사용 안 함'}</span><span>{item.locale} · v{item.version}</span></summary><div className="history-details"><dl className="snapshot-fields"><div><dt>알림 종류</dt><dd>{item.kind}</dd></div><div><dt>제목</dt><dd>{item.title || '없음'}</dd></div><div><dt>본문</dt><dd className="prewrap">{item.body}</dd></div></dl></div></details></li>)}</ol> : !loading && !error && <p className="list-empty">등록된 FCM 알림 문구가 없습니다.</p>}
+    <p className="list-caption">사용 중 {active.length}개 · 사용 안 함 {inactive.length}개</p>
+    {active.length ? templateRows(active) : !loading && !error && <p className="list-empty">{items.length ? '사용 중인 FCM 알림 문구가 없습니다.' : '등록된 FCM 알림 문구가 없습니다.'}</p>}
+    {inactive.length > 0 && <details className="inactive-catalog"><summary>사용 안 하는 알림 문구 {inactive.length}개 보기</summary>{templateRows(inactive)}</details>}
     {loading && <p role="status" className="list-loading">FCM 알림 설정을 불러오는 중…</p>}
-    {nextCursor && <button className="button secondary" disabled={loading} onClick={() => void load(nextCursor)}>알림 문구 더 보기</button>}
   </section>;
 }
 function IslandSummary({ card }: { card: MagazineCard }) {
@@ -182,7 +200,7 @@ function ContentPreview({ draft }: { draft: Draft }) {
 function ConfirmDialog({ item, action, busy, error, mode, onClose, onConfirm }: { item: ContentItem; action: string; busy: boolean; error: string; mode: Session['mode']; onClose: () => void; onConfirm: () => void }) {
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => { ref.current?.showModal(); return () => ref.current?.close(); }, []);
-  const verb = action === 'review' ? '검토 요청' : action === 'approve' ? '승인' : item.kind === 'fcm' ? '발송 요청' : item.kind === 'construction' ? '정책 적용' : '게시';
+  const verb = action === 'review' ? '검토 요청' : action === 'approve' ? '승인' : action === 'cancel' ? '발행 전 취소' : action === 'cancel-delivery' ? '남은 발송 취소' : action === 'withdraw' ? '노출 종료' : action === 'archive' ? '운영 목록 보관' : item.kind === 'fcm' ? '발송 요청' : item.kind === 'construction' ? '정책 적용' : '게시';
   return <dialog ref={ref} className="confirm-dialog" aria-labelledby="confirm-title" onCancel={event => { event.preventDefault(); if (!busy) onClose(); }} onClick={event => { if (event.target === ref.current && !busy) onClose(); }}>
     <div className="dialog-content"><span className="dialog-channel">{CHANNELS.find(channel => channel.kind === item.kind)?.name} · 수정본 {item.revision}</span><h2 id="confirm-title">이 내용으로 {verb}할까요?</h2>
       <p className="dialog-title">{item.title}</p><p className="prewrap dialog-body">{item.body || '본문 없음'}</p>
@@ -194,6 +212,10 @@ function ConfirmDialog({ item, action, busy, error, mode, onClose, onConfirm }: 
       {item.status === 'uncertain' && <p className="callout">최초 발송과 같은 요청 번호로 재시도합니다. 새로운 발송 요청을 만들지 않습니다.</p>}
       {(item.kind === 'magazine' || item.kind === 'construction') && <ContentPreview draft={draftFrom(item)} />}
       {action === 'publish' && <p className="callout">{item.kind === 'fcm' ? '발송 요청이 접수되어도 실제 기기 수신을 의미하지 않습니다. 발송 게이트가 꺼져 있으면 대기합니다.' : item.kind === 'construction' ? '승인된 비용과 공사 시간을 새 착공에 적용합니다. 이미 시작한 공사는 유지되며, 기준 정책이 바뀌었다면 다시 검토해야 합니다.' : '현재 승인된 수정본을 게시합니다. 게시 이후 내용은 이 초안에서 수정할 수 없습니다.'}</p>}
+      {action === 'cancel' && <p className="callout">발행 전 작업을 취소하고 보관 목록으로 옮깁니다. 내용과 변경 이력은 남습니다.</p>}
+      {action === 'cancel-delivery' && <p className="callout">대기·재시도 중인 발송을 취소합니다. 이미 발송했거나 FCM 호출 중인 알림은 회수할 수 없습니다. 처리 후 수치를 확인하세요.</p>}
+      {action === 'withdraw' && <p className="callout">앱의 개발자 공지 노출을 즉시 종료합니다. 게시 이력은 남습니다.</p>}
+      {action === 'archive' && <p className="callout">운영 작업 목록에서 보관합니다. {item.kind === 'magazine' ? '발행된 잡지 호는 앱에서 유지됩니다.' : '적용된 건설 정책은 유지됩니다.'}</p>}
       {action === 'approve' && <p className="field-hint">승인 후 내용이 바뀌면 다시 검토·승인이 필요합니다.</p>}
       {error && <p role="alert" className="error-message">{error}</p>}
       <div className="dialog-actions"><button className="button secondary" onClick={onClose} disabled={busy}>돌아가기</button><button className="button primary" onClick={onConfirm} disabled={busy}>{busy ? '처리 중…' : `${verb} 확인`}</button></div>
@@ -209,6 +231,7 @@ export default function App() {
   const [policyDirty, setPolicyDirty] = useState(false);
   const [view, setView] = useState<'workflow' | 'history' | 'catalog'>('catalog');
   const [items, setItems] = useState<ContentItem[]>([]);
+  const [archivedView, setArchivedView] = useState(false);
   const [selected, setSelected] = useState<ContentItem | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [baseline, setBaseline] = useState('');
@@ -245,9 +268,9 @@ export default function App() {
     if (!session) return;
     const controller = new AbortController();
     setListLoading(true);
-    request<{ items: ContentItem[] }>('/api/items', { signal: controller.signal }).then(value => setItems(value.items)).catch(cause => { if (cause.name !== 'AbortError') handleError(cause); }).finally(() => { if (!controller.signal.aborted) setListLoading(false); });
+    request<{ items: ContentItem[] }>(`/api/items${archivedView ? '?archived=true' : ''}`, { signal: controller.signal }).then(value => setItems(value.items)).catch(cause => { if (cause.name !== 'AbortError') handleError(cause); }).finally(() => { if (!controller.signal.aborted) setListLoading(false); });
     return () => controller.abort();
-  }, [session]);
+  }, [session, archivedView]);
   useEffect(() => {
     if (!dirty) return;
     const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ''; };
@@ -256,7 +279,7 @@ export default function App() {
   }, [dirty]);
   function showItem(item: ContentItem) {
     setSelected(item); const next = draftFrom(item); setDraft(next); setBaseline(JSON.stringify(next));
-    setItems(previous => [item, ...previous.filter(value => value.id !== item.id)].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)));
+    setItems(previous => [item, ...previous.filter(value => value.id !== item.id)].filter(value => Boolean(value.archivedAt) === archivedView).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)));
   }
   async function perform(name: string, work: () => Promise<void>) {
     if (actionLock.current) return;
@@ -269,11 +292,12 @@ export default function App() {
   function changeChannel(next: ContentKind) {
     if (busy || !mayLeave()) return;
     setChannel(next); setView(next === 'fcm' ? 'catalog' : 'workflow');
-    setPolicyOpen(false); setPolicyDirty(false); setSelected(null); setDraft(null); setSearch(''); setFilter('all'); setError('');
+    setPolicyOpen(false); setPolicyDirty(false); setSelected(null); setDraft(null); setSearch(''); setFilter('all'); setError(''); setArchivedView(false);
   }
   function createDraft() {
     if (!mayLeave()) return;
     setView('workflow');
+    setArchivedView(false);
     const next = emptyDraft(channel); setSelected(null); setDraft(next); setBaseline(JSON.stringify(next)); setError('');
   }
   function updateDraft(field: keyof Draft, value: string) {
@@ -315,10 +339,11 @@ export default function App() {
     });
   }
   async function transition() {
-    if (!selected || !confirmation || !session || actionLock.current || unsupportedFcm) return;
+    if (!selected || !confirmation || !session || actionLock.current || (unsupportedFcm && confirmation !== 'cancel')) return;
     actionLock.current = true; setBusy('transition'); setModalError('');
     try {
       const item = await request<ContentItem>(`/api/items/${encodeURIComponent(selected.id)}/${confirmation}`, { method: 'POST', csrfToken: session.csrfToken, body: { revision: selected.revision } });
+      if (item.archivedAt) setArchivedView(true);
       showItem(item); setConfirmation(null);
     } catch (cause) {
       setModalError(cause instanceof Error ? cause.message : '요청을 처리하지 못했습니다.');
@@ -346,7 +371,7 @@ export default function App() {
       {channel !== 'construction' && <div className="view-switch" role="group" aria-label="작업과 운영 이력">{channel === 'fcm' && <button className={view === 'catalog' ? 'active' : ''} aria-pressed={view === 'catalog'} onClick={() => { if (mayLeave()) setView('catalog'); }}>알림 설정</button>}<button className={view === 'workflow' ? 'active' : ''} aria-pressed={view === 'workflow'} onClick={() => { if (mayLeave()) setView('workflow'); }}>작성·검토</button><button className={view === 'history' ? 'active' : ''} aria-pressed={view === 'history'} onClick={() => { if (mayLeave()) setView('history'); }}>운영 이력</button></div>}
       {view === 'catalog' && channel === 'fcm' ? <FcmCatalogPanel /> : view === 'history' && channel !== 'construction' ? <HistoryPanel key={channel} kind={channel} /> : <div className="workspace-grid"><section className="item-panel" aria-label={`${currentChannel.name} 목록`}>
         <div className="list-toolbar"><label className="search-label"><span className="sr-only">콘텐츠 검색</span><input type="search" placeholder="제목·본문 검색" value={search} onChange={event => setSearch(event.target.value)} /></label><label><span className="sr-only">상태 필터</span><select value={filter} onChange={event => setFilter(event.target.value)}><option value="all">모든 상태</option>{Object.entries(STATUS).map(([key, label]) => <option value={key} key={key}>{key === 'published' && channel === 'fcm' ? '발송 요청됨' : key === 'published' && channel === 'construction' ? '적용됨' : label}</option>)}</select></label></div>
-        <div className="list-caption"><span>{filtered.length}개의 콘텐츠</span><button className="text-button" disabled={!!busy || listLoading} onClick={() => void perform('refresh', async () => { setItems((await request<{ items: ContentItem[] }>('/api/items')).items); })}>새로고침</button></div>
+        <div className="list-caption"><span>{filtered.length}개의 콘텐츠</span><div><button className="text-button" aria-pressed={archivedView} disabled={!!busy || listLoading} onClick={() => { if (mayLeave()) { setArchivedView(value => !value); setSelected(null); setDraft(null); setFilter('all'); } }}>{archivedView ? '작업 목록' : '보관 목록'}</button><button className="text-button" disabled={!!busy || listLoading} onClick={() => void perform('refresh', async () => { setItems((await request<{ items: ContentItem[] }>(`/api/items${archivedView ? '?archived=true' : ''}`)).items); })}>새로고침</button></div></div>
         {listLoading ? <div className="list-loading" role="status" aria-busy="true"><span>목록을 불러오는 중…</span>{[1, 2, 3].map(index => <div className="skeleton-row" key={index} />)}</div> : filtered.length ? <ul className="item-list">{filtered.map(item => <li key={item.id}><button className={`item-row ${selected?.id === item.id ? 'selected' : ''}`} aria-current={selected?.id === item.id ? 'true' : undefined} disabled={!!busy} onClick={() => { if (mayLeave()) void perform('select', async () => showItem(await request<ContentItem>(`/api/items/${encodeURIComponent(item.id)}`))); }}><div className="item-row-top"><Badge item={item} /><span>v{item.revision}</span></div><strong>{item.title}</strong><p>{item.body || (item.kind === 'magazine' ? `${item.issueDate} 발행` : '본문 없음')}</p><time dateTime={item.updatedAt}>{readableDate(item.updatedAt)}</time></button></li>)}</ul> : <div className="list-empty"><Icon name={currentChannel.icon} /><h2>{search || filter !== 'all' ? '조건에 맞는 콘텐츠가 없어요' : '아직 작성한 콘텐츠가 없어요'}</h2><p>{search || filter !== 'all' ? '검색어나 상태 필터를 바꿔보세요.' : '새 초안을 작성하고 검토를 시작하세요.'}</p>{!search && filter === 'all' && <button className="button secondary" onClick={createDraft} disabled={!!busy}>초안 작성</button>}</div>}
       </section>
       <section className="editor-panel" aria-label="콘텐츠 편집 및 검토" aria-busy={busy === 'select'}>{draft ? <>
@@ -367,12 +392,18 @@ export default function App() {
           {!unsupportedFcm && selected?.status === 'review' && <button className="button primary" disabled={!!busy || dirty} onClick={() => { setModalError(''); setConfirmation('approve'); }}>승인하기</button>}
           {!unsupportedFcm && selected?.status === 'uncertain' && (!selected.dispatchActor || selected.dispatchActor === session.actor) && <button className="button primary" disabled={!!busy} onClick={() => { setModalError(''); setConfirmation('publish'); }}>같은 요청 재시도</button>}
           {!unsupportedFcm && selected?.status === 'approved' && <button className="button primary" disabled={!!busy || dirty} onClick={() => { setModalError(''); setConfirmation('publish'); }}>{selected.kind === 'fcm' ? '발송 요청' : selected.kind === 'construction' ? '정책 적용하기' : '게시하기'}<Icon name="arrow" /></button>}
+          {!selected?.archivedAt && selected && ['draft', 'review', 'approved', 'failed'].includes(selected.status) && <button className="button secondary" disabled={!!busy || dirty} onClick={() => { setModalError(''); setConfirmation('cancel'); }}>취소·보관</button>}
+          {!unsupportedFcm && selected?.kind === 'fcm' && selected.status === 'published' && <button className="button secondary" disabled={!!busy} onClick={() => { setModalError(''); setConfirmation('cancel-delivery'); }}>남은 발송 취소</button>}
+          {selected?.kind === 'notice' && selected.status === 'published' && <button className="button secondary" disabled={!!busy} onClick={() => { setModalError(''); setConfirmation('withdraw'); }}>즉시 노출 종료</button>}
+          {selected && ['magazine', 'construction'].includes(selected.kind) && selected.status === 'published' && !selected.archivedAt && <button className="button secondary" disabled={!!busy} onClick={() => { setModalError(''); setConfirmation('archive'); }}>운영 목록 보관</button>}
         </div></div>
         {selected?.error && <div className="receipt-section error-message" role="alert">{selected.error}</div>}
-        {selected?.receipt && <section className="receipt-section"><h3>{selected.kind === 'fcm' ? '발송 요청 결과' : selected.kind === 'construction' ? '정책 적용 결과' : '게시 처리 결과'}</h3>{selected.kind === 'fcm' && <p>{selected.receipt.dispatchEnabled === false ? '발송 게이트가 꺼져 있어 대기 중입니다. 실제 발송·수신은 완료되지 않았습니다.' : '발송 요청 접수 기록입니다. 기기 수신 완료를 의미하지 않습니다.'}</p>}
+        {selected?.receipt && <section className="receipt-section"><h3>{selected.kind === 'fcm' ? '발송 요청 결과' : selected.kind === 'construction' ? '정책 적용 결과' : '게시 처리 결과'}</h3>{selected.kind === 'fcm' && <p>{selected.receipt.dispatchEnabled === false ? '요청 당시 발송 게이트가 꺼져 있었습니다. 현재 발송 결과는 운영 이력에서 확인하세요.' : '발송 요청 접수 기록입니다. 기기 수신 완료를 의미하지 않습니다.'}</p>}
           {selected.receipt.local === true && <p>{selected.kind === 'construction' ? '로컬 모의 적용입니다. 서비스의 실제 건설 정책은 변경하지 않았습니다.' : '로컬 모의 처리입니다. 실제 발송·게시는 하지 않았습니다.'}</p>}
           {selected.kind === 'fcm' && typeof selected.receipt.recipientCount === 'number' && <p>요청 수신자 {selected.receipt.recipientCount}명</p>}
           <details className="technical-details"><summary>처리 기록 자세히 보기</summary><ReadableValue value={selected.receipt} /></details></section>}
+        {selected?.cancellation && <section className="receipt-section"><h3>알림 취소 결과</h3><p>취소된 대기 건 누계 {selected.cancellation.totalCancelledCount}건 · 이미 발송 처리된 건 {selected.cancellation.sentCount}건 · 취소 당시 발송 중이던 건 {selected.cancellation.inFlightCount}건</p>{selected.cancellation.inFlightCount > 0 && <p className="callout">발송 중이던 건은 수신 가능성이 있습니다. 잠시 후 같은 항목에서 다시 확인하세요.</p>}</section>}
+        {selected?.withdrawal && <section className="receipt-section"><h3>공지 노출 종료</h3><p>{readableDate(selected.withdrawal.withdrawnAt)}부터 앱에서 표시하지 않습니다. 게시 이력은 유지됩니다.</p></section>}
         {selected?.status === 'uncertain' && <p className="receipt-section callout">처리 결과가 확정되지 않았습니다. 최초 요청자는 같은 요청으로 결과를 다시 확인할 수 있습니다. 새 초안을 만들어 중복 발송하지 마세요.</p>}
         {selected && <section className="audit-section"><div className="section-heading"><h3>변경 이력</h3><span className="muted">{selected.audit?.length ?? 0}건</span></div>{selected.audit?.length ? <ol className="audit-list">{[...selected.audit].reverse().map((entry, index) => <li key={`${entry.at}-${index}`}><span className="audit-dot" aria-hidden="true" /><div><strong>{selected.kind === 'construction' && entry.action === 'publish' ? '정책 적용 요청' : ACTIONS[entry.action] ?? entry.action}</strong><span>{entry.actor} · 수정본 {entry.revision}</span></div><time dateTime={entry.at}>{readableDate(entry.at)}</time></li>)}</ol> : <p className="muted">기록된 변경 이력이 없습니다.</p>}</section>}
       </> : <div className="editor-empty"><div className="empty-symbol"><Icon name={currentChannel.icon} /></div><h2>보낼 내용을 함께 확인하세요</h2><p>목록에서 콘텐츠를 선택하거나<br />새 초안을 작성해 주세요.</p><div className="empty-flow"><span>작성</span><span aria-hidden="true">→</span><span>검토</span><span aria-hidden="true">→</span><span>승인</span><span aria-hidden="true">→</span><span>{channel === 'fcm' ? '발송 요청' : channel === 'construction' ? '정책 적용' : '게시'}</span></div></div>}</section></div>}</>}
