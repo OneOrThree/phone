@@ -7,7 +7,7 @@
 //  - Android: app/modules/screen-time (Expo 모듈, GROMO-994) — M1 범위(권한·오늘/어제 조회·
 //    목표 저장)만 구현. 나머지 함수는 기존 기본값 가드를 유지한다(M2~M4에서 확장).
 
-import { NativeModules, Platform } from 'react-native';
+import { NativeModules, PermissionsAndroid, Platform } from 'react-native';
 import { requireOptionalNativeModule } from 'expo';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { STORAGE_KEYS } from '@/types/storage';
@@ -97,7 +97,58 @@ export interface FocusActivityState {
   isPaused: boolean;
   elapsedSeconds: number;
   remainingSeconds: number | null;
+  /**
+   * **세션 전체**가 끝나기까지 남은 초(안드로이드 전용). 끝이 없으면 null(카운트업).
+   *
+   * 현재 구간이 아니라 **남은 모든 구간의 합**이다 — 뽀모도로면 지금 페이즈의 잔여 +
+   * 이후 휴식·집중 전부. 안드로이드 서비스는 백그라운드에서 이 시각이 지나면 실드를 내리고
+   * 서비스를 끝낸다.
+   *
+   * ⚠️ 구간 단위로 보내면 안 된다(코드리뷰 10차에서 그렇게 짰다가 잡혔다). 백그라운드에서는
+   *    JS 가 멈춰 다음 페이즈를 알려줄 수 없으므로, 서비스가 중간 경계에서 멈추거나(차단이
+   *    다음 세트에 안 돌아옴) 세션이 끝나도 계속 덮는다(앱을 다시 열 때까지).
+   *    **세션의 끝 하나만** 알면 두 문제가 같이 사라진다.
+   *
+   * iOS 는 쓰지 않는다 — Live Activity 는 실드와 별개로 돈다.
+   */
+  sessionRemainingSeconds: number | null;
+  /**
+   * 알림 타이머가 **세션 전체 잔여**를 세야 하는가(안드로이드 전용, 결정 D7).
+   *
+   * `sessionRemainingSeconds` 는 서비스 **만료 판정**용이라 언제나 세션 전체다. 이 값은
+   * 그와 별개로 **무엇을 보여줄지**만 가른다.
+   *
+   * - 포그라운드(`false`) — 구간 잔여를 센다. JS 가 살아 있어 경계마다 갱신을 밀어 주므로
+   *   정확하고, 화면 타이머와 같은 숫자를 말한다.
+   * - 백그라운드(`true`) — 세션 전체 잔여를 센다. JS 가 멈춰 구간 경계를 못 알려주므로,
+   *   구간을 세면 첫 구간이 끝난 뒤 `00:00` 을 지나 계속 흐른다(Chronometer 는 시스템이
+   *   돌려서 우리가 못 멈춘다).
+   *
+   * 전환은 백그라운드로 내려가는 **그 순간 한 번 더 밀어** 이뤄진다(엔진 `onAppStateChange`).
+   */
+  timerShowsSession: boolean;
   revision: number;
+}
+
+/**
+ * 안드로이드 13+ 알림 권한을 런타임에 요청한다(GROMO-1604 코드리뷰).
+ *
+ * `POST_NOTIFICATIONS` 는 라이브러리 매니페스트에서 병합돼 들어오지만, **선언만으로는
+ * 부여되지 않는다.** 저장소 전체에서 권한을 묻는 곳은 온보딩의 `messaging().requestPermission()`
+ * 뿐인데 그건 FCM 용이라 안드로이드 13 런타임 요청을 대신하지 못한다. 그대로 두면 신규 설치
+ * 사용자에게 **실드의 상시 알림과 잠금화면 타이머가 아예 안 보인다** — 지금 집중 중인지,
+ * 얼마나 남았는지 확인할 방법이 없다.
+ *
+ * 거부해도 실드 자체는 돈다(포그라운드 서비스는 뜨고 차단도 걸린다) — 알림만 안 보인다.
+ * 그래서 결과와 무관하게 시작을 이어간다.
+ */
+async function ensureNotificationPermission(): Promise<void> {
+  if (Platform.OS !== 'android' || Number(Platform.Version) < 33) return;
+  try {
+    await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS);
+  } catch {
+    // 요청 자체가 실패해도 시작을 막지 않는다 — 위 주석 참고.
+  }
 }
 
 const NativeScreenTimeModule = NativeModules.ScreenTimeModule as NativeScreenTime;
@@ -124,10 +175,47 @@ interface AndroidNativeScreenTime {
   getInstalledApps?(): Promise<InstalledApp[]>;
   getSelectionPackages?(): Promise<string[]>;
   setSelectionPackages?(packages: string[]): Promise<void>;
-  // 집중 중 허용앱 — 저장은 피커가 하고, 읽는 쪽(실드)은 후속 티켓에서 붙는다.
+  // 집중 중 허용앱 — 피커가 저장하고, 실드가 예외 목록으로 읽는다.
   getAllowedPackages(): Promise<string[]>;
   setAllowedPackages(packages: string[]): Promise<void>;
+  // 집중 실드(GROMO-1604) — 폴링 + 가림막. iOS의 OS 위임과 달리 우리가 직접 돌린다.
+  // ⚠️ 아래 실드 메서드들은 **전부 옵셔널이다.** 구 안드로이드 바이너리에도 ScreenTimeModule
+  //    자체는 있어서 AndroidScreenTime 은 null 이 아닌데, 이 메서드들은 1604 빌드부터 생긴다.
+  //    존재 여부로 게이팅하지 않으면 'undefined is not a function' 이 난다(코드리뷰 반영).
+  canDrawOverlay?(): Promise<boolean>;
+  requestOverlayPermission?(): Promise<void>;
+  startFocusShield?(subjectName: string): Promise<boolean>;
+  startFocusActivity?(
+    subjectName: string,
+    otherSubjectsJson: string,
+    stateJson: string,
+  ): Promise<boolean>;
+  updateFocusActivity?(stateJson: string): Promise<boolean>;
+  stopFocusShield?(): Promise<void>;
+  /** 동기 — 호출부가 이탈 판정 도중 즉시 읽는다. 네이티브는 Expo Function(동기). */
+  isFocusShieldAlive?(): boolean;
+  didFocusShieldComplete?(): boolean;
+  // 상시 알림(iOS Live Activity 대응) — 캐릭터 스냅샷 + 과목·다른 과목 누적.
+  saveCharacterSnapshot(base64: string): Promise<boolean>;
+  endFocusActivity(): Promise<void>;
 }
+
+/**
+ * 상태를 안 받았을 때 쓰는 기본값 — '카운트업·집중·정지 아님'.
+ *
+ * 모르는 상태를 카운트다운으로 그리는 것보다 안전하다. 경과 시간은 최소한 startedAt 기준으로
+ * 맞고, 그건 예전(상태를 아예 안 넘기던 시절)과 같은 동작이다.
+ */
+const androidFallbackState: FocusActivityState = {
+  mode: 'countup',
+  phase: 'focus',
+  isPaused: false,
+  elapsedSeconds: 0,
+  remainingSeconds: null,
+  sessionRemainingSeconds: null,
+  timerShowsSession: false,
+  revision: 0,
+};
 
 /** 측정 대상 피커에 뿌릴 설치 앱 1건(안드로이드 전용). 아이콘은 getAppIcon으로 따로 받는다. */
 export interface InstalledApp {
@@ -413,6 +501,24 @@ const ScreenTimeModule = {
     return AndroidScreenTime.setAllowedPackages(packages);
   },
 
+  // ── 가림막 권한 · 안드로이드 (GROMO-1604) ──
+  // '다른 앱 위에 표시'는 시스템 팝업이 없는 특수 권한이라, iOS의 권한 요청 팝업과 달리
+  // 설정 화면으로 보내고 돌아왔을 때 다시 확인하는 흐름이 된다(Usage Access와 같은 모양).
+
+  /** 가림막을 띄울 수 있는가. iOS는 실드에 별도 권한이 없어 항상 true. */
+  canDrawOverlay: async (): Promise<boolean> => {
+    if (AndroidScreenTime?.canDrawOverlay) return AndroidScreenTime.canDrawOverlay();
+    // 안드로이드 구 바이너리는 가림막 자체가 없다 — '띄울 수 있다'고 답하면 그 위의
+    // 모든 안내가 거짓이 된다.
+    return Platform.OS === 'ios';
+  },
+
+  /** '다른 앱 위에 표시' 설정 화면 열기(안드로이드 전용). */
+  requestOverlayPermission: async (): Promise<void> => {
+    if (!AndroidScreenTime?.requestOverlayPermission) return;
+    return AndroidScreenTime.requestOverlayPermission();
+  },
+
   // 날짜 키('YYYY-MM-DD')의 threshold 발화 타임라인(N1) — 창 사용분 계산(A4)의 소스. 2일 보존.
   // 오래된 순 [{bucket, firedAt}] — bucket은 하루 누적 환산분(단조 증가). iOS 외·구 바이너리는 빈 배열.
   getUsageBucketEvents: async (dayKey: string): Promise<UsageBucketEvent[]> => {
@@ -457,18 +563,65 @@ const ScreenTimeModule = {
 
   // 저장된 허용앱 선택 개수. 미설정이면 null.
   getAllowedSelectionCounts: async (): Promise<AppSelectionCounts | null> => {
+    // 안드로이드는 패키지 목록을 그대로 알 수 있어 개수를 직접 센다
+    // (categories·webDomains는 안드로이드에 없는 개념이라 0 — 계약 형태만 맞춘다).
+    if (AndroidScreenTime) {
+      const packages = await AndroidScreenTime.getAllowedPackages();
+      return { applications: packages.length, categories: 0, webDomains: 0 };
+    }
     if (Platform.OS !== 'ios') return null;
     return NativeScreenTimeModule.getAllowedSelectionCounts();
   },
 
   // 집중 세션 실드 켜기 — 허용앱 외 전부 차단. 반환값: 적용 여부(권한 없으면 false).
   startFocusShield: async (subjectName: string): Promise<boolean> => {
+    // 구 바이너리는 메서드가 없다 — false 가 정직한 답이다(차단이 안 걸리는 게 사실이므로
+    // 호출부의 이탈 정책도 느슨해지지 않는다).
+    if (AndroidScreenTime) {
+      if (!AndroidScreenTime.startFocusShield) return false;
+      await ensureNotificationPermission();
+      return AndroidScreenTime.startFocusShield(subjectName);
+    }
     if (Platform.OS !== 'ios') return false;
     return NativeScreenTimeModule.startFocusShield(subjectName);
   },
 
+  /**
+   * 실드가 **아직 살아 있는가**(안드로이드 전용, GROMO-1604 코드리뷰 반영).
+   *
+   * startFocusShield 가 true 를 준 뒤에도 제조사 배터리 최적화가 백그라운드에서 서비스를
+   * 죽일 수 있다. 그러면 화면은 여전히 '차단 중'이라 믿어 차단 없이 쓴 시간을 집중으로
+   * 적립한다. 포그라운드 복귀마다 이 값으로 다시 확인한다.
+   *
+   * 구 바이너리는 메서드가 없으니 false — 애초에 실드가 걸리지 않았다.
+   *
+   * **동기 함수다.** 호출부가 이탈 크레딧을 계산하는 도중 즉시 읽어야 해서, 그 판정에
+   * await 를 끼우지 않으려고 네이티브도 Expo Function(동기)으로 뒀다.
+   */
+  /**
+   * 실드가 **정상 만료로 끝났는가**(안드로이드 전용, 동기).
+   *
+   * `isFocusShieldAlive()` 가 false 인 이유가 장애인지 정상 종료인지 가른다 — 앞은 비실드
+   * 정책으로 되돌려야 하고, 뒤는 완료를 그대로 리플레이해야 한다.
+   * iOS·구 바이너리는 false(그쪽은 만료를 네이티브가 끝내지 않는다).
+   */
+  didFocusShieldComplete: (): boolean => AndroidScreenTime?.didFocusShieldComplete?.() ?? false,
+
+  isFocusShieldAlive: (): boolean => {
+    if (AndroidScreenTime) {
+      if (!AndroidScreenTime.isFocusShieldAlive) return false;
+      return AndroidScreenTime.isFocusShieldAlive();
+    }
+    // iOS 는 ManagedSettingsStore 가 OS 쪽에 남아 앱이 죽어도 유지된다 — 앱 생존과 무관하다.
+    return Platform.OS === 'ios';
+  },
+
   // 집중 세션 실드 끄기 — 세션 정지·고아 세션 정리 시 호출(멱등).
   stopFocusShield: async (): Promise<void> => {
+    if (AndroidScreenTime) {
+      if (!AndroidScreenTime.stopFocusShield) return;
+      return AndroidScreenTime.stopFocusShield();
+    }
     if (Platform.OS !== 'ios') return;
     return NativeScreenTimeModule.stopFocusShield();
   },
@@ -487,6 +640,7 @@ const ScreenTimeModule = {
 
   // 캐릭터 스냅샷(base64 PNG)을 App Group에 저장 — Live Activity·가림막이 읽어 표시.
   saveCharacterSnapshot: async (base64: string): Promise<boolean> => {
+    if (AndroidScreenTime) return AndroidScreenTime.saveCharacterSnapshot(base64);
     if (Platform.OS !== 'ios') return false;
     return NativeScreenTimeModule.saveCharacterSnapshot(base64);
   },
@@ -499,31 +653,40 @@ const ScreenTimeModule = {
     otherSubjects: { name: string; seconds: number; color: string }[] = [],
     state?: FocusActivityState,
   ): Promise<boolean> => {
+    // 안드로이드는 Live Activity가 없어 실드 서비스의 상시 알림이 그 자리를 대신한다(GROMO-1604).
+    if (AndroidScreenTime) {
+      if (!AndroidScreenTime.startFocusActivity) return false;
+      // 상태를 함께 넘긴다(코드리뷰 반영) — 안 넘기면 잠금화면 타이머가 늘 카운트업이라
+      // 일시정지 중에도 시간이 늘고 카운트다운 페이즈에 엉뚱한 값이 찍힌다.
+      return AndroidScreenTime.startFocusActivity(
+        subjectName,
+        JSON.stringify(otherSubjects),
+        JSON.stringify(state ?? androidFallbackState),
+      );
+    }
     if (Platform.OS !== 'ios') return false;
-    const fallback: FocusActivityState = {
-      mode: 'countup',
-      phase: 'focus',
-      isPaused: false,
-      elapsedSeconds: 0,
-      remainingSeconds: null,
-      revision: 0,
-    };
     return NativeScreenTimeModule.startFocusActivity(
       subjectName,
       JSON.stringify(otherSubjects),
-      JSON.stringify(state ?? fallback),
+      JSON.stringify(state ?? androidFallbackState),
     );
   },
 
   // 집중 Live Activity 상태 갱신(GROMO-1597) — 정지/재개·뽀모도로 페이즈 전환 시 호출.
   // 활성 액티비티가 없으면 네이티브가 no-op(false) — 멱등이라 아무 때나 불러도 안전.
   updateFocusActivity: async (state: FocusActivityState): Promise<boolean> => {
+    if (AndroidScreenTime) {
+      // 구 바이너리엔 없다 — 상태 갱신이 no-op 이어도 타이머는 카운트업으로 계속 돈다.
+      if (!AndroidScreenTime.updateFocusActivity) return false;
+      return AndroidScreenTime.updateFocusActivity(JSON.stringify(state));
+    }
     if (Platform.OS !== 'ios') return false;
     return NativeScreenTimeModule.updateFocusActivity(JSON.stringify(state));
   },
 
   // 집중 Live Activity 종료(멱등).
   endFocusActivity: async (): Promise<void> => {
+    if (AndroidScreenTime) return AndroidScreenTime.endFocusActivity();
     if (Platform.OS !== 'ios') return;
     return NativeScreenTimeModule.endFocusActivity();
   },

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 과목 색 점(8dp) — iOS의 Circle().fill(과목색). 색은 런타임에 setColorFilter로 입힌다. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="oval">
+  <solid android:color="#FFFFFFFF" />
+</shape>

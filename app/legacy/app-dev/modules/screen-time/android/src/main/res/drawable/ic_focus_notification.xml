@@ -1,0 +1,20 @@
+<!--
+  집중 실드 알림의 상태바 아이콘.
+
+  ⚠️ 안드로이드 상태바 아이콘은 **알파 채널만** 쓴다 — 색은 시스템이 칠한다. 런처 아이콘
+  (applicationInfo.icon)을 그대로 넘기면 색이 다 날아가 흰 원/뭉개진 덩어리로 보인다
+  (실제로 그렇게 보였다). 그래서 실루엣 전용 벡터를 따로 둔다.
+
+  모양은 gromo 마스코트(별사탕)를 따 별 하나. iOS Live Activity가 캐릭터를 보여주는 자리와
+  같은 역할이다.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24"
+    android:tint="#FFFFFF">
+  <path
+      android:fillColor="#FFFFFF"
+      android:pathData="M12,2.5L14.9,8.4L21.5,9.3L16.7,13.9L17.9,20.4L12,17.3L6.1,20.4L7.3,13.9L2.5,9.3L9.1,8.4Z"/>
+</vector>

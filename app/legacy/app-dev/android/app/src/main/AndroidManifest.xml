@@ -13,9 +13,21 @@
       <category android:name="android.intent.category.BROWSABLE"/>
       <data android:scheme="https"/>
     </intent>
+    <!-- 측정 대상 앱 피커(GROMO-995)·앱별 사용시간(GROMO-1608) — 런처에 뜨는 앱만 조회한다.
+         Android 11+ 패키지 가시성 때문에 이 선언이 없으면 두 목록이 통째로 빈다.
+         QUERY_ALL_PACKAGES 는 Play 정책상 별도 소명이 필요한 제한 권한이라 쓰지 않는다. -->
     <intent>
       <action android:name="android.intent.action.MAIN"/>
       <category android:name="android.intent.category.LAUNCHER"/>
+    </intent>
+    <!-- 차단 예외 판별용(GROMO-1604) — 이 선언이 없으면 queryIntentActivities 가 서드파티
+         시계·런처를 못 찾아, 알람 수신 화면이나 홈 화면을 가림막이 덮는다. -->
+    <intent>
+      <action android:name="android.intent.action.SHOW_ALARMS"/>
+    </intent>
+    <intent>
+      <action android:name="android.intent.action.MAIN"/>
+      <category android:name="android.intent.category.HOME"/>
     </intent>
   </queries>
   <application android:name=".MainApplication" android:label="@string/app_name" android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher_round" android:allowBackup="true" android:theme="@style/AppTheme" android:supportsRtl="true" android:enableOnBackInvokedCallback="false">
