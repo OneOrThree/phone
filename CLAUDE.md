@@ -11,7 +11,9 @@ repo-wide concerns.
 **gromo** — a focus-time management + character-customization mobile app.
 Users run focus sessions, track screen time, and customize a 2D character with
 shop items. Company `oneorthree`. The frozen 1.x app uses iOS bundle id
-`com.oneorthree.gromo`; the active 2.0 app uses `com.oneorthree.focuscat` on iOS and Android.
+`com.oneorthree.gromo`; the active 2.0 app uses `com.oneorthree.focuscat` on iOS and
+`com.oneorthree.gromo` on Android. The Android id is the current Play package, not a 1.x
+leftover (see `app/app-dev/app.config.js`).
 
 ## Monorepo layout
 
@@ -78,7 +80,7 @@ rejects a `gh pr create` that breaks them (reason goes back to you, no user prom
   **never `--draft`**, `--fill` or `--web` (codex auto-review attaches to ready PRs only; the
   gate needs an explicit title and body). Exactly one existing label matching the TYPE:
   FEAT→`enhancement`, FIX→`bug`, REFACTOR→`refactoring`, CHORE→by content (`documentation`
-  docs-only, `workflow` CI/scripts/hooks, `test` tests-only, else no label). `release` 대상 릴리스 PR에서만 버전 라벨 `release:major|minor|patch` 하나를 추가 허용, 그 외 `release:*` 금지,
+  docs-only, `workflow` CI/scripts/hooks, `test` tests-only, else no label). `release` 대상 릴리스 PR에서만 버전 라벨 `release:major|minor|patch` 하나를 추가 허용(`prod-ci-V2.yml`은 이 라벨을 읽지 않아 V2 태그는 patch만 오른다), 그 외 `release:*` 금지,
   never create labels, no `--reviewer`. For same-repository `main` → `release` promotion,
   follow `AGENTS.md` §「main → release 운영 승격」 and skip code-review requests.
   For other PRs, in the same turn post an `@claude`
