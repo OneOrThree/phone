@@ -39,13 +39,15 @@ Infra 저장소가 소유하며 이 폴더의 overlay 를 쓰지 않는다(이�
 | PostgreSQL | `phone-db` | `postgres` | `gromo-db-dev`(컨테이너 라벨), 일부 로그 `postgres` |
 | Redis | `phone-redis` | `redis` | `gromo-redis-dev` |
 
+dev V2(GCP 분리 VM)는 Datadog 에 보고하는 호스트가 없어 이 표의 대상이 아니다(2026-10-31 호스트 목록 기준). 앱 compose 에 Agent·Datadog 라벨도 없다.
+
 ### prod V2 (host `catus-prod-V2`, `env:prod`)
 
 | 대상 | container_name | source | service 적용 전(현재) | service 적용 후 |
 |---|---|---|---|---|
 | Data API | `catus-app-v2-app-1` | `java` | `catus-app-prod-V2` | `data-api` |
 | Business API | (Infra compose) | `java` | `catus-business-api-prod-V2` | `business-api` |
-| Realtime | (Infra compose) | `realtime-v2` | `catus-realtime-prod-V2` | `realtime` |
+| Realtime | (Infra compose) | 현재 `realtime-v2`, 적용 후 `java` | `catus-realtime-prod-V2` | `realtime` |
 | Notification | (Infra compose) | `java` | `catus-notification-prod-V2` | `notification` |
 | nginx · postgres · agent | — | `nginx` · `postgres` · `agent` | 그대로 | 그대로 |
 

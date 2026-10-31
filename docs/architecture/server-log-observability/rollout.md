@@ -29,7 +29,7 @@
 
 ## 3. prod 전환 순서
 
-dev 관찰(D2~D7)이 끝나고 §4 기준이 기록되기 전에는 ②(Fluent Bit·Loki 켜기)를 시작하지 않는다. prod 실행 구성은 Infra 저장소 `OneOrThree/cattus-infra` 의 `prod/catus-v2/` 이고, 아래 코드 변경은 에픽 2619(하위 2620~2627·2630)가 만든다. 이 절은 절차이며 에픽 2619 항목은 아직 실행하지 않았다.
+dev 관찰(D2~D7)이 끝나고 §4 기준이 기록되기 전에는 ②(Fluent Bit·Loki 켜기)와 ③(S3 켜기)을 시작하지 않는다. dev 관찰 대상은 기존 dev VM 이다. GCP dev V2 에는 Fluent Bit·Loki·Datadog 구성이 없다. prod 실행 구성은 Infra 저장소 `OneOrThree/cattus-infra` 의 `prod/catus-v2/` 이고, 아래 코드 변경은 에픽 2619(하위 2620~2627·2630)가 만든다. 이 절은 절차이며 에픽 2619 항목은 아직 실행하지 않았다.
 
 ### 3.1 사람이 하는 4단계
 
