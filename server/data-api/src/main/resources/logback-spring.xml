@@ -8,47 +8,52 @@
 
     <!-- PII 마스킹: %mask 컨버전 워드 등록 -->
     <conversionRule conversionWord="mask"
-                    converterClass="com.oneorthree.phone.common.logging.MaskingConverter"/>
+                    class="com.oneorthree.phone.common.logging.MaskingConverter"/>
 
     <!-- APP 텍스트 패턴 (MDC trace_id/user_id + 마스킹된 메시지) -->
     <property name="APP_PATTERN"
               value="[%d{yyyy-MM-dd HH:mm:ss.SSS}] [%thread] %-5level %logger{36} [%X{trace_id}] [%X{user_id}] [request_id=%X{request_id}] - %mask%n"/>
 
     <!-- ===================== APP (시스템 로그, 텍스트) ===================== -->
-    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
-        <encoder>
-            <pattern>${APP_PATTERN}</pattern>
-            <charset>UTF-8</charset>
-        </encoder>
-    </appender>
+    <!-- 어느 프로필에서도 참조되지 않는 appender 는 logback 이 stderr 로 경고한다. 쓰는 프로필 안에만 둔다 (GROMO-2631) -->
+    <springProfile name="local | default | ci">
+        <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+            <encoder>
+                <pattern>${APP_PATTERN}</pattern>
+                <charset>UTF-8</charset>
+            </encoder>
+        </appender>
+    </springProfile>
 
-    <!-- 관측 JSON(schema_version 1) 콘솔. 수집기는 stdout 만 읽는다. 형식·마스킹·allowlist 는 ObservationJsonProvider -->
-    <appender name="CONSOLE_JSON" class="ch.qos.logback.core.ConsoleAppender">
-        <encoder class="org.springframework.boot.logging.logback.StructuredLogEncoder">
-            <format>com.oneorthree.phone.common.logging.ObservationJsonProvider</format>
-            <charset>UTF-8</charset>
-        </encoder>
-    </appender>
+    <springProfile name="dev | staging | prod">
+        <!-- 관측 JSON(schema_version 1) 콘솔. 수집기는 stdout 만 읽는다. 형식·마스킹·allowlist 는 ObservationJsonProvider -->
+        <appender name="CONSOLE_JSON" class="ch.qos.logback.core.ConsoleAppender">
+            <encoder class="org.springframework.boot.logging.logback.StructuredLogEncoder">
+                <format>com.oneorthree.phone.common.logging.ObservationJsonProvider</format>
+                <charset>UTF-8</charset>
+            </encoder>
+        </appender>
 
-    <appender name="APP_FILE_RAW" class="ch.qos.logback.core.rolling.RollingFileAppender">
-        <file>logs/app.log</file>
-        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
-            <fileNamePattern>logs/app.%d{yyyy-MM-dd}.log</fileNamePattern>
-            <!-- 로컬 보존 7일 = policy.md L01. 탈퇴자 로그는 보존 만료로 파기(GROMO-1942). S3 system_log/ 적재본은 별도 90일(L03) -->
-            <maxHistory>7</maxHistory>
-            <totalSizeCap>1GB</totalSizeCap>
-        </rollingPolicy>
-        <encoder>
-            <pattern>${APP_PATTERN}</pattern>
-            <charset>UTF-8</charset>
-        </encoder>
-    </appender>
-    <appender name="APP_FILE" class="ch.qos.logback.classic.AsyncAppender">
-        <appender-ref ref="APP_FILE_RAW"/>
-        <queueSize>512</queueSize>
-        <discardingThreshold>0</discardingThreshold>
-        <neverBlock>true</neverBlock>
-    </appender>
+        <appender name="APP_FILE_RAW" class="ch.qos.logback.core.rolling.RollingFileAppender">
+            <file>logs/app.log</file>
+            <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+                <fileNamePattern>logs/app.%d{yyyy-MM-dd}.log</fileNamePattern>
+                <!-- 로컬 보존 7일 = policy.md L01. 탈퇴자 로그는 보존 만료로 파기(GROMO-1942). S3 system_log/ 적재본은 별도 90일(L03) -->
+                <maxHistory>7</maxHistory>
+                <totalSizeCap>1GB</totalSizeCap>
+            </rollingPolicy>
+            <encoder>
+                <pattern>${APP_PATTERN}</pattern>
+                <charset>UTF-8</charset>
+            </encoder>
+        </appender>
+        <appender name="APP_FILE" class="ch.qos.logback.classic.AsyncAppender">
+            <appender-ref ref="APP_FILE_RAW"/>
+            <queueSize>512</queueSize>
+            <discardingThreshold>0</discardingThreshold>
+            <neverBlock>true</neverBlock>
+        </appender>
+    </springProfile>
 
     <!-- ===================== USER-ACTIVITY (유저 행동 이벤트, JSON) ===================== -->
     <appender name="UA_FILE_RAW" class="ch.qos.logback.core.rolling.RollingFileAppender">
@@ -88,9 +93,6 @@
     <!-- user-activity 전용 로거: APP에 섞이지 않게 additivity=false -->
     <logger name="user-activity" level="INFO" additivity="false">
         <appender-ref ref="UA_FILE"/>
-        <springProfile name="local | default | ci">
-            <appender-ref ref="CONSOLE"/>
-        </springProfile>
     </logger>
 
     <!-- ===================== 프로파일별 root ===================== -->
@@ -98,6 +100,10 @@
         <root level="INFO">
             <appender-ref ref="CONSOLE"/>
         </root>
+        <!-- 로컬에서는 user-activity 도 콘솔로 본다. 레벨·additivity 는 위 정의를 그대로 쓴다 -->
+        <logger name="user-activity">
+            <appender-ref ref="CONSOLE"/>
+        </logger>
     </springProfile>
     <springProfile name="dev | staging | prod">
         <!-- APP_FILE(텍스트)은 컷오버 전까지 유지 — 호스트 타이머 적재가 이 파일을 읽는다 -->

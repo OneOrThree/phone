@@ -70,6 +70,17 @@ class ObservationJsonProfileTest {
 
         assertThat(lines).anyMatch(line -> line.contains("probe-line")).anyMatch(line -> line.contains("ua-probe"))
                 .noneMatch(line -> line.startsWith("{"));
+        assertThat(Files.readString(workDir.resolve("logs/user-activity.log"))).contains("ua-probe");
+    }
+
+    // logback 경고는 stderr 로 나가 Datadog 에서 error 로 잡힌다(GROMO-2631).
+    @ParameterizedTest
+    @ValueSource(strings = {"ci", "prod"})
+    void logbackConfigurationStartsWithoutWarnings(String profile) throws Exception {
+        List<String> lines = run(profile);
+
+        assertThat(lines).noneMatch(line -> line.contains("|-WARN"));
+        assertThat(Files.readString(workDir.resolve("stderr.txt"))).doesNotContain("|-WARN");
     }
 
     private List<String> run(String profile) throws Exception {
