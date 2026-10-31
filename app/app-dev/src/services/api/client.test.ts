@@ -11,9 +11,11 @@ import {
   PRODUCTION_API_URL,
   REQUEST_TIMEOUT_MS,
   request,
+  resetVersionHeaderMissingForTest,
   resolveApiUrl,
   uuid,
 } from '@/services/api/client';
+import { captureProductEvent } from '@/services/posthog';
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 import {
@@ -32,6 +34,22 @@ jest.mock('expo-application', () => ({
     return mockVersion;
   },
 }));
+
+const OTA_ID = '0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d';
+let mockUpdateId: string | null = OTA_ID;
+let mockEmbeddedLaunch = false;
+let mockUpdatesThrowOnAccess = false;
+jest.mock('expo-updates', () => ({
+  get updateId() {
+    if (mockUpdatesThrowOnAccess) throw new Error('Cannot find native module');
+    return mockUpdateId;
+  },
+  get isEmbeddedLaunch() {
+    return mockEmbeddedLaunch;
+  },
+}));
+
+jest.mock('@/services/posthog', () => ({ captureProductEvent: jest.fn() }));
 
 type Call = { url: string; init: RequestInit };
 
@@ -769,4 +787,164 @@ describe('앱 버전·플랫폼 헤더 (GROMO-2642)', () => {
     assert.equal('X-App-Version' in hdr(0), false);
     assert.equal('X-App-Platform' in hdr(0), false);
   });
+});
+
+describe('앱 업데이트 ID 헤더·버전 헤더 누락 신호 (GROMO-2653)', () => {
+  const hdr = (i: number) => calls[i].init.headers as Record<string, string>;
+  const os = (v: string) => jest.replaceProperty(Platform, 'OS', v as any);
+  const capture = captureProductEvent as jest.Mock;
+  const missing = () =>
+    capture.mock.calls.filter(([event]) => event === 'app_version_header_missing');
+  beforeEach(() => {
+    resetVersionHeaderMissingForTest();
+    capture.mockReset();
+  });
+  afterEach(() => {
+    mockVersion = '1.0.2';
+    mockThrowOnAccess = false;
+    mockUpdateId = OTA_ID;
+    mockEmbeddedLaunch = false;
+    mockUpdatesThrowOnAccess = false;
+    jest.restoreAllMocks();
+  });
+
+  test('OTA 로 실행 중이면 일반 요청에 X-App-Update-Id 가 실린다', async () => {
+    os('ios');
+    stub(200, { data: null });
+    await request('/me');
+    assert.equal(hdr(0)['X-App-Update-Id'], OTA_ID);
+  });
+
+  test('401 → 갱신 → 재시도 모두에 실린다 — refresh 요청도 같은 헤더를 보낸다', async () => {
+    os('android');
+    await saveSession({ accessToken: 'OLD_AT', refreshToken: 'RT', userId: 'u1' });
+    const responses = [
+      jsonResponse(401, { error: { code: 'UNAUTHORIZED', message: 'expired' } }),
+      jsonResponse(200, { data: { accessToken: 'NEW_AT', refreshToken: null } }),
+      jsonResponse(200, { data: { ok: true } }),
+    ];
+    (global as any).fetch = jest.fn(async (url: string, init: RequestInit) => {
+      calls.push({ url, init });
+      return responses.shift()!;
+    });
+    await request('/me');
+    assert.equal(calls.length, 3);
+    assert.equal(calls[1].url, `${API_URL}/auth/sessions/current/refresh`);
+    for (const i of [0, 1, 2]) assert.equal(hdr(i)['X-App-Update-Id'], OTA_ID);
+  });
+
+  test('내장 번들로 실행 중이면 ID 가 유효해도 생략하고 요청은 나간다', async () => {
+    os('ios');
+    mockEmbeddedLaunch = true;
+    stub(200, { data: { id: 'u1' } });
+    assert.deepEqual(await request('/me'), { id: 'u1' });
+    assert.equal(calls.length, 1);
+    assert.equal('X-App-Update-Id' in hdr(0), false);
+  });
+
+  // 헤더 값이 틀리면 fetch 가 던져 전 요청이 막힌다 — 소문자 UUID 만 싣는 것이 안전장치다.
+  test.each([
+    ['null', null],
+    ['UUID 가 아닌 값', 'mock'],
+    ['빈 문자열', ''],
+    ['대문자 UUID', OTA_ID.toUpperCase()],
+    ['끝에 줄바꿈이 붙은 값', `${OTA_ID}\n`],
+  ])('ID 가 %s 이면 생략하고 요청은 나간다', async (_label, value) => {
+    os('ios');
+    mockUpdateId = value;
+    stub(200, { data: null });
+    await request('/me');
+    assert.equal(calls.length, 1);
+    assert.equal('X-App-Update-Id' in hdr(0), false);
+  });
+
+  test('웹은 생략한다', async () => {
+    os('web');
+    stub(200, { data: null });
+    await request('/me');
+    assert.equal('X-App-Update-Id' in hdr(0), false);
+  });
+
+  test('expo-updates 접근이 던져도 요청은 헤더 없이 한 번 나간다', async () => {
+    os('ios');
+    mockUpdatesThrowOnAccess = true;
+    stub(200, { data: { id: 'u1' } });
+    assert.deepEqual(await request('/me'), { id: 'u1' });
+    assert.equal(calls.length, 1);
+    assert.equal('X-App-Update-Id' in hdr(0), false);
+    assert.equal(hdr(0)['X-App-Version'], '1.0.2');
+  });
+
+  test('버전 헤더와 서로 독립이다 — 버전을 못 읽어도 업데이트 ID 는 실린다', async () => {
+    os('ios');
+    mockVersion = null;
+    stub(200, { data: null });
+    await request('/me');
+    assert.equal(hdr(0)['X-App-Update-Id'], OTA_ID);
+    assert.equal('X-App-Version' in hdr(0), false);
+  });
+
+  test('iOS 에서 버전 값이 없으면 reason=unavailable 로 앱 실행당 한 번만 보낸다', async () => {
+    os('ios');
+    mockVersion = null;
+    stub(200, { data: null });
+    await request('/me');
+    await request('/me');
+    mockThrowOnAccess = true; // 원인이 바뀌어도 같은 실행에서는 다시 보내지 않는다
+    await request('/me');
+    assert.equal(calls.length, 3);
+    assert.equal(missing().length, 1);
+    assert.deepEqual(missing()[0][1], {
+      app_version_header_schema_version: 1,
+      reason: 'unavailable',
+    });
+  });
+
+  test('Android 에서 expo-application 접근이 던지면 reason=error 로 보내고 요청은 나간다', async () => {
+    os('android');
+    mockThrowOnAccess = true;
+    stub(200, { data: { id: 'u1' } });
+    assert.deepEqual(await request('/me'), { id: 'u1' });
+    assert.equal(missing().length, 1);
+    assert.deepEqual(missing()[0][1], { app_version_header_schema_version: 1, reason: 'error' });
+  });
+
+  test('웹은 버전 헤더를 보내지 않는 것이 정상이라 신호도 보내지 않는다', async () => {
+    os('web');
+    mockVersion = null;
+    stub(200, { data: null });
+    await request('/me');
+    mockThrowOnAccess = true;
+    await request('/me');
+    assert.equal(missing().length, 0);
+  });
+
+  test('버전을 읽으면 보내지 않는다', async () => {
+    os('ios');
+    stub(200, { data: null });
+    await request('/me');
+    assert.equal(missing().length, 0);
+  });
+
+  // reason=error 쪽은 호출이 catch 블록 안이라 전송 예외를 자체 try/catch 가 삼키지 않으면 요청까지 던진다.
+  test.each([
+    ['unavailable', null, false],
+    ['error', '1.0.2', true],
+  ])(
+    '이벤트 전송이 던져도(reason=%s) 요청은 헤더 없이 한 번 나가고 다시 시도하지 않는다',
+    async (_reason, version, throwOnAccess) => {
+      os('ios');
+      mockVersion = version;
+      mockThrowOnAccess = throwOnAccess;
+      capture.mockImplementationOnce(() => {
+        throw new Error('posthog down');
+      });
+      stub(200, { data: { id: 'u1' } });
+      assert.deepEqual(await request('/me'), { id: 'u1' });
+      assert.equal(calls.length, 1);
+      assert.equal('X-App-Version' in hdr(0), false);
+      await request('/me');
+      assert.equal(missing().length, 1);
+    },
+  );
 });
