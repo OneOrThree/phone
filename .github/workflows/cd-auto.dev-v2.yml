@@ -15,6 +15,7 @@ permissions:
 concurrency:
   group: catus-dev-v2-deploy
   cancel-in-progress: false
+  queue: max
 jobs:
   plan:
     if: >-
@@ -35,6 +36,8 @@ jobs:
       infra: ${{ steps.plan.outputs.infra }}
       core_run: ${{ steps.plan.outputs.core_run }}
       satellite_run: ${{ steps.plan.outputs.satellite_run }}
+      deploy_services: ${{ steps.plan.outputs.deploy_services }}
+      build_services: ${{ steps.plan.outputs.build_services }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -115,3 +118,35 @@ jobs:
         run: >-
           python3 .github/scripts/v2/dev/dev-deploy-app-V2.py --infra-manifest-uri "$INFRA"
           ${CORE_RUN:+--core-run "$CORE_RUN"} ${SATELLITE_RUN:+--satellite-run "$SATELLITE_RUN"}
+  record:
+    needs: [plan, runtime, app]
+    if: always() && needs.plan.result != 'skipped' && needs.plan.result != 'cancelled'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      actions: write
+    steps:
+      - uses: actions/checkout@v4
+      # 앱·런타임 어느 쪽이든 실제 배포 뒤 실행. 토큰 실행도 workflow_dispatch는 동작.
+      - name: 스모크 실행 요청
+        if: >-
+          needs.app.result == 'success' ||
+          (needs.app.result == 'skipped' && needs.runtime.result == 'success')
+        # 요청 실패가 배지 게시를 막으면 안 된다.
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD_SERVICES: ${{ needs.plan.outputs.build_services || '[]' }}
+        run: >-
+          gh workflow run ops-smoke.dev-v2.yml --ref main
+          -f revision="$GITHUB_SHA" -f services="$BUILD_SERVICES"
+      - name: 배포 배지 게시
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PLAN_RESULT: ${{ needs.plan.result }}
+          RUNTIME_RESULT: ${{ needs.runtime.result }}
+          APP_RESULT: ${{ needs.app.result }}
+          DEPLOY_SERVICES: ${{ needs.plan.outputs.deploy_services }}
+        run: python3 .github/scripts/deployment-badges.py
