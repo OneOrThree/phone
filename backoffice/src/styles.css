@@ -179,7 +179,8 @@ code { overflow-wrap: anywhere; }
 .confirmation-facts > div { display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: var(--space-md); }
 .confirmation-facts dt { color: var(--color-muted); }
 .confirmation-facts dd { margin: 0; overflow-wrap: anywhere; }
-.dialog-content > .callout, .dialog-content > .error-message { margin-top: var(--space-lg); }
+/* .callout 은 aria-describedby 래퍼 div 안에 있다. `>` 로 좁히면 margin-top 이 빠진다. */
+.dialog-content .callout, .dialog-content > .error-message { margin-top: var(--space-lg); }
 .dialog-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--space-sm); padding-top: var(--space-xl); }
 .recipient-list { padding-left: var(--space-lg); max-height: 160px; overflow: auto; }
 .session-state { display: grid; place-content: center; justify-items: center; gap: var(--space-xl); min-height: 100vh; color: var(--color-muted); }
