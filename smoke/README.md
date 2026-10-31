@@ -56,6 +56,8 @@ flowchart TD
 
 ### 1-2. 환경
 
+아래 dev는 기존 dev 서버다. `ops-smoke.dev.yml`은 꺼져 있고, dev V2용 자동 스모크는 아직 없다.
+
 | 환경 | BASE_URL | 공개 표면 | 내부 검사 |
 |---|---|---|---|
 | dev | `https://oneorthree.dev.mooo.com` | Nginx가 business-api(8083) 무접두 경로·`/ws/realtime`(8081)·`/health`(business)만 통과. data-api `/api/v1`·`/actuator`·notification은 외부 404 | `[self-hosted, dev]` 러너에서 `docker inspect` |

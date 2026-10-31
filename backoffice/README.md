@@ -95,4 +95,6 @@ Notification의 모든 인스턴스를 새 버전으로 교체한 다음 연결 
 
 ## 독립 릴리스
 
-서버 `release`와 별도로 `backoffice-vX.Y.Z` 태그에서 이미지를 발행하고 `backoffice-production` 승인 후 배포한다. 서버와 Git SHA를 맞추지 않고 필수 API 계약과 환경을 확인한다. [발행·배포·재시도·롤백 절차](../docs/engineering/backoffice-independent-release.md)를 따른다.
+이 저장소의 백오피스 발행·배포 워크플로는 제거됐다. 이관 전까지 배포 경로가 없고, PR 검사 `backoffice-ci.yml`만 남아 있다.
+
+[기존 발행·배포·재시도·롤백 절차](../docs/engineering/backoffice-independent-release.md)는 기록으로 남겨 둔다.

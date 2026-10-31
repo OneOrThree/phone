@@ -153,10 +153,11 @@ whitelist (GROMO-735).
 
 ## Deploy
 
-- **Dev**: `main` push에서 `data-api-ci.dev.yml`이 GAR 이미지를 발행하고
-  `data-api-cd.dev.yml`이 digest를 받아 배포한다. 실행 대상·서비스별 환경변수·health
-  판정은 루트 `CLAUDE.md`의 CI/CD 안내와 해당 워크플로를 기준으로 확인한다.
-- **Prod**: Catus 2.0은 루트의 `prod-ci.yml`로 변경 서비스 이미지를 발행하고,
+- **Dev**: `main` push에서 `data-api-ci.dev-v2.yml`이 GAR 이미지를 발행하고
+  `cd-auto.dev-v2.yml`이 배포한다. 절차는 `docs/engineering/dev-v2-pipeline.md`를 따른다.
+- **Prod**: 현행은 `prod-ci-V2.yml`·`prod-cd-V2.yml`이며 절차는
+  `docs/engineering/prod-v2-pipeline.md`를 따른다. 꺼진 기존 경로는 다음과 같다.
+  Catus 2.0은 루트의 `prod-ci.yml`로 변경 서비스 이미지를 발행하고,
   `prod-cd.yml`로 수동 SSM 배포·버전 지정 롤백을 수행한다. 실행 구성은 Infra의
   `prod/catus/runtime` 소유이며 기존 Gromo 1.x 운영과 분리한다. 선행 조건과 실행 절차는
   `docs/prd/fishcat/server-separation/deployment.md`의 「Catus 2.0 운영 발행·배포」를 따른다.
