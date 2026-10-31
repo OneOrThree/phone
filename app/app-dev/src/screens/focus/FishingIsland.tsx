@@ -461,22 +461,45 @@ export function fishingCamera(
   zoom: number,
   focus: Point & { upperOcean?: boolean },
   ratio = 0.5,
+  hudTopInset?: number,
 ) {
   const size = (w >= 600 ? w : 640) * zoom,
     sizeY = (size * 1024) / 1536,
-    offTop = Math.max(0, (h - sizeY) / 2),
+    hud = componentTokens.focusIslandHud,
+    offTop = Math.max(
+      0,
+      (h - sizeY) / 2,
+      hudTopInset == null ? 0 : hudTopInset - sizeY * hud.anchorY,
+    ),
     minSy = -h * componentTokens.fishingViewport.upperOceanPanRatio,
-    maxSy = Math.max(0, sizeY - h),
+    maxSy = Math.max(0, offTop + sizeY - h),
     // 스크롤 위치는 브라우저처럼 정수 픽셀(지도 크기·위치도 정수로 반올림해 계산)
     // 0.8배로 줄여 지도가 화면보다 좁으면(가로·태블릿) 가로 가운데에 둔다
-    sx =
+    requestedSx =
       size < w
         ? Math.round((size - w) / 2)
         : Math.round(Math.max(0, Math.min(size - w, (Math.round(size) * focus.x) / 100 - w / 2))),
+    hudHalfWidth = ((w >= 600 ? w : 640) * hud.widthRatio) / 2,
+    // 자동 구도에서는 고정 크기 HUD도 창 안에 둔다. 직접 끌 때는 섬과 함께 자유롭게 이동한다.
+    sx =
+      hudTopInset == null || focus.upperOcean
+        ? requestedSx
+        : Math.round(
+            Math.max(
+              size * hud.anchorX - w + hudHalfWidth,
+              Math.min(size * hud.anchorX - hudHalfWidth, requestedSx),
+            ),
+          ),
     sy = Math.round(
       Math.max(
         focus.upperOcean ? minSy : 0,
-        Math.min(maxSy, Math.round(offTop) + (Math.round(sizeY) * focus.y) / 100 - h * ratio),
+        Math.min(
+          maxSy,
+          hudTopInset == null || focus.upperOcean
+            ? Infinity
+            : offTop + sizeY * hud.anchorY - hudTopInset,
+          Math.round(offTop) + (Math.round(sizeY) * focus.y) / 100 - h * ratio,
+        ),
       ),
     );
   return { size, sizeY, offTop, sx, sy, minSy, maxSy, left: -sx, top: offTop - sy };
@@ -521,6 +544,7 @@ export function FishingIsland({
   gram = false,
   onGram,
   seated = false,
+  focusHud = false,
   inert = false,
   children,
   overlay,
@@ -542,6 +566,8 @@ export function FishingIsland({
   inert?: boolean;
   // 내 자리가 있으면 1.4배 이상 확대할 때 내 자리를 가운데로
   seated?: boolean;
+  /** 집중 중 섬 상단 HUD가 잘리지 않도록 자동 카메라 구도에 여백을 둔다. */
+  focusHud?: boolean;
   children: (size: number, sizeY: number, zoom: number) => React.ReactNode;
   overlay?: (toScreen: (p: Point) => Point, size: number) => React.ReactNode;
   /** 단순 안내 오버레이는 지도 이동과 접근성을 막지 않는다. */
@@ -555,11 +581,14 @@ export function FishingIsland({
   // 상태가 바뀌면(도착·준비·집중·결과) 다시 내 자리를 보여 준다. 확대 배율은 유지.
   useEffect(
     () => setCam((c) => ({ ...c, x: focus.x, y: focus.y, upperOcean: false })),
-    [focus.x, focus.y, ratio],
+    [focus.x, focus.y, ratio, focusHud],
   );
-  const view = fishingCamera(L.width, L.height, cam.zoom, cam, ratio);
-  const live = useRef({ cam, L, ratio, focus, seated, overlay, overlayBlocksMap });
-  live.current = { cam, L, ratio, focus, seated, overlay, overlayBlocksMap };
+  const hudTopInset = focusHud
+    ? L.insets.top + componentTokens.focusIslandHud.viewportInset
+    : undefined;
+  const view = fishingCamera(L.width, L.height, cam.zoom, cam, ratio, hudTopInset);
+  const live = useRef({ cam, L, ratio, focus, seated, overlay, overlayBlocksMap, hudTopInset });
+  live.current = { cam, L, ratio, focus, seated, overlay, overlayBlocksMap, hudTopInset };
   const gesture = useMapGesture(cam);
   const hudTransform = useMemo(
     () => ({ inverseScale: gesture.inverseScale, zoom: cam.zoom }),
@@ -577,9 +606,9 @@ export function FishingIsland({
   };
   // 끄는 동안(GROMO-2373): state 는 그대로 두고 커밋된 지도를 c 카메라 자리로 옮겨 보이기만 한다.
   const show = (c: typeof cam) => {
-    const { cam: committed, L: l, ratio: r } = live.current,
-      from = fishingCamera(l.width, l.height, committed.zoom, committed, r),
-      to = fishingCamera(l.width, l.height, c.zoom, c, r);
+    const { cam: committed, L: l, ratio: r, hudTopInset: inset } = live.current,
+      from = fishingCamera(l.width, l.height, committed.zoom, committed, r, inset),
+      to = fishingCamera(l.width, l.height, c.zoom, c, r, inset);
     gesture.show(
       c,
       viewportShift(
@@ -611,8 +640,8 @@ export function FishingIsland({
           t = e.nativeEvent.touches ?? [],
           s = start.current,
           c = gesture.visible(),
-          { L: l, ratio: r } = live.current,
-          v = fishingCamera(l.width, l.height, c.zoom, c, r);
+          { L: l, ratio: r, hudTopInset: inset } = live.current,
+          v = fishingCamera(l.width, l.height, c.zoom, c, r, inset);
         if (n !== s.n) {
           start.current = { zoom: c.zoom, x: v.sx, y: v.sy, dist: 0, n, dx: g.dx, dy: g.dy };
           return;
@@ -624,7 +653,7 @@ export function FishingIsland({
           return;
         }
         // 끌어서 둘러보기: 스크롤 위치를 제한한 뒤 보는 곳으로 되돌려 저장한다(끝에 걸린 채 더 끌어도 밀리지 않게).
-        // 가로는 지도 폭으로 제한하고, 세로는 지도 위 바다까지 화면 반 높이만큼 더 이동한다.
+        // 가로는 지도 폭으로 제한하고, 세로는 지도 위 바다까지 화면 1/3 높이만큼 더 이동한다.
         const sx = Math.max(0, Math.min(v.size - l.width, s.x - (g.dx - s.dx))),
           sy = Math.max(v.minSy, Math.min(v.maxSy, s.y - (g.dy - s.dy)));
         show({
@@ -657,7 +686,7 @@ export function FishingIsland({
     return () => el?.removeEventListener?.('wheel', wheel);
   }, []);
   // 상단 바다로 더 이동하는 거리까지 미리 깐다. 끄는 동안 바깥 변환만 움직여도 빈 영역이 생기지 않는다.
-  const minView = fishingCamera(L.width, L.height, 0.8, cam, ratio),
+  const minView = fishingCamera(L.width, L.height, 0.8, cam, ratio, hudTopInset),
     minScale = minView.size / 1536,
     reachX = L.width / 2 / minScale,
     reachY = L.height / 2 / minScale,

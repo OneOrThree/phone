@@ -274,6 +274,7 @@ export const componentTokens = {
   },
   fishingViewport: { upperOceanPanRatio: 1 / 3 },
   focusIslandHud: {
+    viewportInset: space[4],
     anchorX: 0.5,
     anchorY: -0.18,
     widthRatio: 0.4,
