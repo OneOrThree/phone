@@ -463,3 +463,49 @@ test('물체 추론이 한 장 실패해도 나머지 두 장이 같은 프레�
   expect(screen.onDetection).toHaveBeenLastCalledWith('focused');
   expect(objectDispose).toHaveBeenCalledTimes(3);
 });
+
+test.each(['live', 'periodic'] as const)(
+  '%s 촬영 중단 전에 예약된 추론은 버리고 재개 후 새 세 장으로 확인한다',
+  async (cadence) => {
+    const screen = await setup(false, cadence);
+    await sample(4);
+    await sample(4);
+    let pending: (() => void) | undefined;
+    jest.mocked(scheduleOnRN).mockImplementationOnce(((
+      fn: (...args: unknown[]) => void,
+      ...args: unknown[]
+    ) => {
+      pending = () => fn(...args);
+    }) as typeof scheduleOnRN);
+    await sample(4);
+    const camera = jest.mocked(useCamera).mock.calls.at(-1)![0];
+    await act(async () => camera.onInterruptionStarted!('video-device-in-use-by-another-client'));
+    const readyCalls = screen.onReady.mock.calls.length;
+    await act(async () => pending!());
+    expect(screen.onDetection).toHaveBeenLastCalledWith('checking');
+    expect(screen.onReady).toHaveBeenCalledTimes(readyCalls);
+    expect(screen.onStudyObjects).toHaveBeenLastCalledWith(null);
+    await sample(4);
+    expect(screen.onReady).toHaveBeenCalledTimes(readyCalls);
+    await act(async () => camera.onInterruptionEnded!());
+    await sample(4);
+    await sample(4);
+    await sample(4);
+    expect(screen.onDetection).toHaveBeenLastCalledWith('focused');
+    expect(screen.onReady).toHaveBeenCalledTimes(readyCalls + 1);
+  },
+);
+
+test('정기 촬영이 중단돼도 5초 제한으로 카메라를 쉬고 다음 검사에서 새로 시도한다', async () => {
+  const screen = await setup(false, 'periodic');
+  const camera = jest.mocked(useCamera).mock.calls.at(-1)![0];
+  await act(async () => camera.onInterruptionStarted!('video-device-in-use-by-another-client'));
+  await act(async () => jest.advanceTimersByTime(5000));
+  expect(screen.onDetection).toHaveBeenLastCalledWith('unavailable');
+  expect(jest.mocked(useCamera).mock.calls.at(-1)![0].isActive).toBe(false);
+  await act(async () => jest.advanceTimersByTime(MEASUREMENT_INTERVAL_MS));
+  await sample(4);
+  await sample(4);
+  await sample(4);
+  expect(screen.onDetection).toHaveBeenLastCalledWith('focused');
+});
