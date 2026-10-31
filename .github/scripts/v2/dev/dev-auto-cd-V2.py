@@ -73,7 +73,8 @@ def note(message):
     print(message)
     summary = os.environ.get('GITHUB_STEP_SUMMARY')
     if summary:
-        with open(summary, 'a') as stream: stream.write(message + '\n')
+        # 요약은 마크다운이다. 목록으로 써야 줄마다 따로 보인다.
+        with open(summary, 'a') as stream: stream.write('- ' + message + '\n')
 
 
 def manifests(lines, pattern):
@@ -107,17 +108,21 @@ def plan_runtimes(state, revision):
     for role in RUNTIMES:
         state.URI = f'{BUCKET}/deployments/{role}/current.json'
         previous, _ = state.read()
-        if previous and same_runtime(role, previous['revision'], revision): continue
+        if previous and same_runtime(role, previous['revision'], revision):
+            note(f'{role} 런타임 변경 없음')
+            continue
         uri = runtime_manifest(role, revision)
         if uri:
             targets.append({'role': role, 'uri': uri})
             continue
         ready = False
-        status, _ = ci_for(f'{role}-ci.dev-v2.yml', revision)
+        workflow = f'{role}-ci.dev-v2.yml'
+        status, _ = ci_for(workflow, revision)
         if status == 'failed': raise RuntimeError(role + ' CI 실패')
         # 성공했는데 산출물이 없으면 재실행으로 해결되지 않는다. 반복 대신 실패.
         if status == 'success': raise RuntimeError(role + ' CI는 성공했지만 일치하는 산출물이 없습니다')
-        if status == 'missing': dispatch(f'{role}-ci.dev-v2.yml')
+        if status == 'missing': dispatch(workflow)
+        note(f'{role} 런타임 산출물 대기: {workflow} ' + ('실행 요청' if status == 'missing' else '진행 중'))
     state.URI = f'{BUCKET}/deployments/app/current.json'
     return targets, ready
 
@@ -157,6 +162,7 @@ def plan_app(state, revision):
             continue
         waiting = True
         if status == 'missing': dispatch(workflow)
+        note(f'앱 이미지 대기: {workflow} ' + ('실행 요청' if status == 'missing' else '진행 중'))
     if waiting:
         note('이미지 CI 대기. 완료 시 다시 실행')
         return None
