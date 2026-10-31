@@ -83,6 +83,21 @@ public class IslandFacility {
                 .build();
     }
 
+    /**
+     * 섬 생성과 함께 넣는 완공 시설 — 건설 비용 없이 바로 COMPLETED 다(GROMO-2650).
+     * 무인도 항해 정산이 새 섬을 만들 때 마을회관을 이 경로로 함께 심는다.
+     */
+    public static IslandFacility completedSeed(UUID islandId, String buildingId, Instant completedAt) {
+        return IslandFacility.builder()
+                .islandId(islandId)
+                .buildingId(buildingId)
+                .status(FacilityStatus.COMPLETED)
+                .cost(0)
+                .costRevision(0)
+                .completedAt(completedAt)
+                .build();
+    }
+
     /** 공사 완료 — 스케줄러가 completes_at 경과를 확인한 뒤 부른다. */
     public void complete(Instant completedAt) {
         this.status = FacilityStatus.COMPLETED;
