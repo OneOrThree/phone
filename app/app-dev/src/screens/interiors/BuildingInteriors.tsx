@@ -3625,15 +3625,18 @@ function QuestTargetInput({
   value: string;
   onChange: (value: string) => void;
 }) {
-  const total = Math.max(0, Math.min(23 * 60 + 59, Number(value) || 0));
+  // 서버 상한은 1440분(=24:00) 이다 — 하루 폰 사용 상한의 하루 전체(1440)를 고를 수 있어야 한다(GROMO-2672).
+  const total = Math.max(0, Math.min(24 * 60, Number(value) || 0));
+  const hh = pad2(Math.min(24, Math.floor(total / 60)));
+  const mm = hh === '24' ? '00' : pad2(total % 60);
   return (
     <HourMinuteWheels
       testID={testID}
       label={label}
-      hours={HOUR_ITEMS}
-      hh={pad2(Math.floor(total / 60))}
-      mm={pad2(total % 60)}
-      onPick={(h, m) => onChange(String(Number(h) * 60 + Number(m)))}
+      hours={HOUR_ITEMS_WITH_MIDNIGHT}
+      hh={hh}
+      mm={mm}
+      onPick={(h, m) => onChange(String(Number(h) * 60 + (h === '24' ? 0 : Number(m))))}
     />
   );
 }
@@ -3840,7 +3843,11 @@ const dayLabel = (at: number | undefined, now: number) => {
   return `${month}월 ${date}일`;
 };
 // 퀘스트 만들기 입력 검사 (목업·앱 공통)
-const questError = (form: QuestForm) => {
+// serverEdit 면 서버 PATCH 는 title/targetMinutes 만 보내고 창은 읽기 전용이다 — 창 검증을 건너뛴다.
+// (목표 ≤ 창 길이는 서버 update() 가 저장된 UTC 창으로 재검증한다 — IslandQuestService.requireTargetFits.)
+// 안 그러면 KST 자정을 넘는 기존 창(예: 23:00–02:00 KST = 14:00–17:00 UTC) 수정 시 end<=start 로 막혀
+// 제목·목표도 못 고친다(GROMO-2672).
+const questError = (form: QuestForm, serverEdit = false) => {
   const target = Number(form.target);
   if (
     !form.title.trim() ||
@@ -3849,7 +3856,7 @@ const questError = (form: QuestForm) => {
     (form.type === 'focus' && target === 0)
   )
     return '제목과 목표 시간을 입력해주세요.';
-  if (form.type === 'phone') return '';
+  if (form.type === 'phone' || serverEdit) return '';
   const start = clockMinutes(form.startTime),
     end = clockMinutes(form.endTime);
   if (start === null || end === null) return '시작·종료 시간을 입력해주세요.';
@@ -4824,11 +4831,17 @@ export function Board({
     },
     submitQuest: (form: QuestForm) => {
       if (!owner) return;
-      const error = questError(form);
+      // serverEdit: 서버 PATCH 는 창을 안 받고 UI 도 읽기 전용이라 창 검증을 건너뛴다(GROMO-2672).
+      const serverEdit = Boolean(serverBoard && s.editing);
+      const error = questError(form, serverEdit);
       if (error) return e ? setError(error) : render({ view: 'write', questForm: form, error });
       // UTC 자정을 가로지르는 창은 서버가 거절한다(결정 Q-6) — 입력칸 아래 안내가 이유를 보이므로
       // 제출만 조용히 막는다. 변환 자체는 서버 어댑터(quests.ts createQuest)가 한다(GROMO-2672).
-      if (form.type === 'focus' && kstWindowCrossesUtcMidnight(form.startTime, form.endTime))
+      if (
+        !serverEdit &&
+        form.type === 'focus' &&
+        kstWindowCrossesUtcMidnight(form.startTime, form.endTime)
+      )
         return;
       const title = form.title.trim(),
         target = Number(form.target);

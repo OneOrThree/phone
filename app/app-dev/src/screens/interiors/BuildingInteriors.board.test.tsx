@@ -2419,6 +2419,55 @@ test('퀘스트 수정 — PATCH 에 title/targetMinutes 만 싣는다(창·종�
   await screen.unmount();
 });
 
+test('퀘스트 수정 — KST 자정을 넘는 기존 창(23:00–02:00)도 제목·목표를 고칠 수 있다', async () => {
+  // 14:00–17:00 UTC(서버 유효) 는 getBoard 가 23:00–02:00 KST 로 돌려준다 — 창이 end<=start 로
+  // 보여도 읽기 전용 PATCH 라 제목·목표 수정이 막히면 안 된다(GROMO-2672, 코드리뷰 반영).
+  const crossing = { windowStart: '23:00', windowEnd: '02:00' };
+  getBoardMock.mockResolvedValue(page([], null, 'host', [questItem(crossing)]));
+  getQuestProgressMock.mockResolvedValue(questProgress(crossing));
+  patchQuestMock.mockResolvedValue({ id: 'q1', title: '밤 집중', targetMinutes: 60 });
+  const e = makeE({ route: 'quest', detail: 'occ-1', tab: '퀘스트' });
+  const screen = await renderBoard(e);
+
+  await waitFor(() => assert.ok(screen.getByTestId('board-quest-edit')));
+  await act(async () => {
+    await fireEvent.press(screen.getByTestId('board-quest-edit'));
+  });
+  // 창은 읽기 전용으로 23:00–02:00 그대로 보인다.
+  await waitFor(() => assert.ok(screen.getByText('23:00–02:00')));
+
+  await fireEvent.changeText(screen.getByTestId('board-quest-title'), '밤 집중');
+  await setTargetMinutes(screen, '목표 집중 시간', 60);
+  await fireEvent.press(screen.getByTestId('board-quest-save'));
+
+  await waitFor(() => assert.equal(patchQuestMock.mock.calls.length, 1));
+  assert.deepEqual([...patchQuestMock.mock.calls[0]].slice(0, 3), [
+    ISLAND,
+    'q1',
+    { title: '밤 집중', targetMinutes: 60 },
+  ]);
+  await screen.unmount();
+});
+
+test('퀘스트 만들기 — 하루 폰 사용 상한 1440분(24:00)을 고를 수 있다', async () => {
+  // 서버 상한이 1440분이므로 하루 전체(24:00)를 피커로 고를 수 있어야 한다(GROMO-2672, 코드리뷰 반영).
+  getBoardMock.mockResolvedValue(page([], null, 'host', []));
+  postQuestMock.mockResolvedValue({ id: 'qmax', title: '폰 상한' });
+  const e = makeE({ route: 'questEdit', tab: '퀘스트', body: 'screen', text: '폰 상한' });
+  const screen = await renderBoard(e);
+  await waitFor(() => assert.ok(screen.getByTestId('board-quest-target')));
+  await setTargetMinutes(screen, '하루 폰 사용 상한', 1440);
+  await fireEvent.press(screen.getByTestId('board-quest-save'));
+
+  await waitFor(() => assert.equal(postQuestMock.mock.calls.length, 1));
+  assert.deepEqual(postQuestMock.mock.calls[0][1], {
+    title: '폰 상한',
+    type: 'screen',
+    targetMinutes: 1440,
+  });
+  await screen.unmount();
+});
+
 test('퀘스트 만들기 — 서버 실패 시 초안·문구를 보존하고 뒤로 가지 않는다', async () => {
   getBoardMock.mockResolvedValue(page([], null, 'host', []));
   postQuestMock.mockRejectedValue(new ApiError('FORBIDDEN', '권한이 없습니다.', 403));
