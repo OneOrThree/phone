@@ -246,3 +246,6 @@ code { overflow-wrap: anywhere; }
 .policy-table small { display: block; margin-top: 5px; color: var(--text-muted, #666); font-weight: normal; }
 .policy-changed { background: #f0f6ef; }
 .construction-editor { margin: 16px 0; }
+.version-info { font-size: var(--text-xs); color: var(--color-muted); line-height: 1.65; }
+.version-info ul { margin: 0; padding: 0; list-style: none; }
+@media (max-width: 900px) { .version-info { display: none; } }

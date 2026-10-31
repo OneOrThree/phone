@@ -4,10 +4,11 @@
 
 ## API 호환 경계
 
-백오피스 BFF는 Data·Notification HTTP API만 호출한다. 서비스 DB에는 직접 접속하지 않는다. `backoffice/server/contract.json`이 이 버전의 필수 계약이다.
+백오피스 BFF는 Data·Notification HTTP API만 호출한다. 단, 화면 표시용으로 `itunes.apple.com` 조회 한 건을 더 보낸다(운영자 토큰 없음, 실패해도 작업은 막지 않는다). 서비스 DB에는 직접 접속하지 않는다. `backoffice/server/contract.json`이 이 버전의 필수 계약이다.
 
 - Data `/internal/admin/content/environment`: `environment`, `contractVersion: "1"`, `capabilities`.
 - Notification `/internal/admin/publications/environment`: 위 필드와 `fcmProjectId`.
+- 두 환경 응답의 선택 필드 `serverVersion`(배포 커밋)·`schemaVersion`(DB 마이그레이션 번호). 화면 표시 전용이며 필수 계약이 아니다. 없는 구버전 서버는 「-」로 표시한다.
 - Data 필수 capability: `content.publication.v1`, `content.history.v1`, `content.notice.withdraw.v1`, `content.app-requirements.v1`, `construction.policy.v1`, `focus.policy.v1`.
 - Notification 필수 capability: `notification.publication.v1`, `notification.history.v1`, `notification.templates.v1`.
 

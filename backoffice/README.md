@@ -59,6 +59,8 @@ ALTER DATABASE <NOTIFICATION_DB명> SET gromo.fcm_project_id TO '<dev 앱의 FCM
 
 HTTPS 역방향 프록시 뒤에 단일 인스턴스로 운영한다. 인터넷에 내부 `/internal/**` 경로를 개방하지 않는다. 백오피스 서버만 서비스망에 접속한다. SQLite 폴더는 전용 영구 볼륨으로 두고 일관된 SQLite 백업 방식으로 보존한다. 디스크·백업에는 검토 원문과 사용자 UUID가 있으므로 운영자만 접근할 수 있어야 한다. 로컬/연결 모드는 DB 파일이 분리되어 모의 게시를 운영 게시로 오해하지 않는다.
 
+백오피스 서버는 화면 표시를 위해 `itunes.apple.com` 조회(App Store 공개 버전)도 한다. 운영자 토큰과 내부 헤더는 보내지 않는다. 조회가 실패하면 화면에 「확인 불가」만 표시하고 작업은 막지 않는다. 사이드바 「시스템 버전」은 Data·Notification의 `serverVersion`·`schemaVersion`과 이 값을 보여 준다.
+
 세션은 HttpOnly·SameSite=Strict·연결 모드 Secure 쿠키, 8시간 수명이다. 모든 변경 요청은 정확한 Origin과 CSRF 값을 확인한다. 서버 재시작은 세션을 종료하며, 진행 중인 발송은 결과 확인 필요 상태로 바꾼다. 같은 최초 발송자가 재시도하면 동일 publication UUID가 사용된다. 멀티 인스턴스 배포는 지원하지 않는다.
 
 ## 운영 절차
