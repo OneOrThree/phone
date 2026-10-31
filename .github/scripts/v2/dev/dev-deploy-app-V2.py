@@ -132,6 +132,7 @@ def deploy(infra_uri, core_run, satellite_run, force=False):
         raise ValueError('앱 VM ID 또는 주소가 다릅니다')
     verify_runtime_prerequisites(revision, config)
     envs = env_builder.generate(runtime.aws_secret('catus/dev/env-v2'), config, candidate['images'])
+    runtime.remember_env_secrets(envs)
     template = files['nginx.conf.template']
     if template.count(b'__PUBLIC_HOST__') != 2: raise ValueError('nginx 도메인 템플릿 오류')
     nginx = template.replace(b'__PUBLIC_HOST__', b'oneorthree-v2.dev.mooo.com')

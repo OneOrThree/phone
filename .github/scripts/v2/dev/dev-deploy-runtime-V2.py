@@ -28,6 +28,11 @@ class CommandError(RuntimeError):
 secret_values = set()
 
 
+def remember_env_secrets(envs):
+    """생성한 env 파일의 값도 가린다. 앱 payload는 JSON 한 줄이라 stdin 가리기가 값 단위로 닿지 않는다."""
+    secret_values.update(line.partition('=')[2].strip('\'"') for text in envs.values() for line in text.splitlines())
+
+
 def mask(text, data):
     """실패 메시지에서 시크릿 값과 이 호출의 stdin(줄, KEY=VALUE의 값)을 가린다."""
     lines = [line.strip() for line in (data or b'').decode(errors='replace').splitlines()]

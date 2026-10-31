@@ -96,6 +96,10 @@ class CommandFailureTest(unittest.TestCase):
             m.aws_secret('catus/dev/env-v2'); m.aws_secret('catus/dev/cicd-v2')
         self.assertEqual(self.message(b'denied on jwt-s3cret-value in oneorthree2\n'),self.PREFIX+': denied on *** in ***')
 
+    def test_generated_env_values_are_masked(self):
+        m.remember_env_secrets({'data-api':"DB_URL='jdbc:postgresql://u:derived-pw@db/x'\nA=1\n"})
+        self.assertEqual(self.message(b'bad url jdbc:postgresql://u:derived-pw@db/x with A=1'),self.PREFIX+': bad url *** with A=1')
+
     def test_stdin_lines_and_key_values_are_masked(self):
         data=b"user app on >pw-line-1 ~*\nPOSTGRES_PASSWORD='quoted-pw-2'\nTOKEN=tok-12345\nA=1\n"
         for stderr,expected in [(b'bad ACL: user app on >pw-line-1 ~*','bad ACL: ***'),
