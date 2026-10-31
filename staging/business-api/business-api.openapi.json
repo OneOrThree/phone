@@ -6291,6 +6291,9 @@
             "items": {
               "$ref": "#/components/schemas/DeveloperNoticeView"
             }
+          },
+          "nextCursor": {
+            "type": "string"
           }
         }
       },

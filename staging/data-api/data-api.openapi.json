@@ -5072,6 +5072,34 @@
               "type": "string",
               "format": "uuid"
             }
+          },
+          {
+            "name": "afterPublishedAt",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "afterId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 100
+            }
           }
         ],
         "responses": {
@@ -10193,6 +10221,9 @@
             "items": {
               "$ref": "#/components/schemas/Notice"
             }
+          },
+          "hasMore": {
+            "type": "boolean"
           }
         }
       },
