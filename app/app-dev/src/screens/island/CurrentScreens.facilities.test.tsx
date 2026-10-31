@@ -70,6 +70,15 @@ jest.mock('@/services/api/safety', () => ({
   ...jest.requireActual('@/services/api/safety'),
   getBlockedUsers: jest.fn(async () => []),
 }));
+const mockCapture = jest.fn();
+jest.mock('@/services/posthog', () => ({
+  captureProductEvent: (...a: unknown[]) => mockCapture(...a),
+  getPostHogClient: () => null,
+  initPostHog: () => {},
+  trackPostHogScreen: () => {},
+  identifyPostHogUser: () => {},
+  resetPostHogUser: () => {},
+}));
 const state = () =>
   reducer(initialState(true), {
     type: 'ISLAND_SYNC',
@@ -340,6 +349,29 @@ test('이미 설명을 본 기여자는 완공 안내만 받고 이후 홈에서
   expect(screen.queryByTestId('building-guide')).toBeNull();
   await screen.rerender(<CurrentScreens e={e} />);
   expect(screen.queryByTestId('building-completion-guide')).toBeNull();
+});
+
+test('완공 안내가 뜨면 construction_completed 를 building_id 와 함께 완공 1회당 1회 발행한다', async () => {
+  await signInGuideUser();
+  await saveAccountGuides('guide-user', { buildings: ['mail'] });
+  jest
+    .spyOn(homeApi, 'getConstructionOptions')
+    .mockResolvedValue({ contributedCompletions: ['mail'] } as any);
+  const e = env(withBuildings(['hall', 'mail']), 'home');
+  mockCapture.mockClear();
+  const screen = await render(<CurrentScreens e={e} />);
+  await waitFor(() => expect(screen.getByText(/우체통 공사가 끝났어/)).toBeTruthy());
+  // 안내가 뜨는 순간 1회
+  await waitFor(() =>
+    expect(mockCapture.mock.calls).toEqual([['construction_completed', { building_id: 'mail' }]]),
+  );
+  // 같은 완공이 유지되는 재렌더에서는 다시 발행하지 않는다
+  await screen.rerender(<CurrentScreens e={e} />);
+  expect(mockCapture.mock.calls).toEqual([['construction_completed', { building_id: 'mail' }]]);
+  // 확인(소비) 뒤에도 늘지 않는다
+  await fireEvent.press(screen.getByText('확인'));
+  await waitFor(() => expect(screen.queryByTestId('building-completion-guide')).toBeNull());
+  expect(mockCapture.mock.calls).toEqual([['construction_completed', { building_id: 'mail' }]]);
 });
 
 function NavigationHarness({ s, go }: { s: ReturnType<typeof state>; go: jest.Mock }) {

@@ -9,6 +9,16 @@ import {
 import { CLIENT_NETWORK_ERROR } from '@/services/api/client';
 import { clearSession, saveSession } from '@/services/api/session';
 
+const mockCapture = jest.fn();
+jest.mock('@/services/posthog', () => ({
+  captureProductEvent: (...a: unknown[]) => mockCapture(...a),
+  getPostHogClient: () => null,
+  initPostHog: () => {},
+  trackPostHogScreen: () => {},
+  identifyPostHogUser: () => {},
+  resetPostHogUser: () => {},
+}));
+
 type Call = { url: string; init: RequestInit };
 const calls: Call[] = [];
 
@@ -126,6 +136,7 @@ const NOW = Date.parse('2026-09-21T00:10:00Z');
 
 beforeEach(async () => {
   calls.length = 0;
+  mockCapture.mockClear();
   await clearSession();
   await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'u1' });
 });
@@ -278,6 +289,40 @@ test('build — POST 세 필드·멱등 키, BUILDING·시각은 응답대로, �
   assert.equal(gets('/islands/srv1/construction-options').length, 4);
   assert.equal(h.result.current.started, null);
   assert.equal(h.result.current.options?.items.length, 1);
+  await h.unmount();
+});
+
+test('착공 POST 커밋 성공 시 construction_started 를 building_id 와 함께 1회 발행한다', async () => {
+  serve({
+    ...live(),
+    'POST /islands/srv1/constructions': data(startedBody),
+  });
+  const h = await mount({ active: true, islandId: 'local1', now: NOW });
+  await flush();
+  mockCapture.mockClear(); // 부팅 조회 구간의 발행과 섞이지 않게 착공 직전에 비운다
+
+  await act(async () => {
+    await h.result.current.build('library');
+  });
+
+  expect(mockCapture.mock.calls).toEqual([['construction_started', { building_id: 'library' }]]);
+  await h.unmount();
+});
+
+test('착공 POST 가 409 로 실패하면 construction_started 를 발행하지 않는다', async () => {
+  serve({
+    ...live(),
+    'POST /islands/srv1/constructions': envelope('STATE_CONFLICT', 409),
+  });
+  const h = await mount({ active: true, islandId: 'local1', now: NOW });
+  await flush();
+  mockCapture.mockClear();
+
+  await act(async () => {
+    await h.result.current.build('library').catch(() => undefined);
+  });
+
+  expect(mockCapture.mock.calls).toEqual([]);
   await h.unmount();
 });
 

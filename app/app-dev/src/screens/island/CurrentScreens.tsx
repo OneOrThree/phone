@@ -24,6 +24,7 @@ import {
 } from '@/services/tutorialExperience';
 import { syncAndroidScreenTime } from '@/services/screentimeSync';
 import { pushPermissionStatus, requestPushPermission, type PushPermission } from '@/services/push';
+import { captureProductEvent } from '@/services/posthog';
 import { Ticking } from '@/hooks/useNow';
 import React, { useEffect, useRef, useState } from 'react';
 import {
@@ -334,6 +335,15 @@ export function CurrentScreens({ e }: any) {
   const completion =
     guides.data &&
     announcements.find((b) => !guides.data!.completions.includes(`${islandId}:${b}`));
+  // 서버 완공이 확정돼 완공 안내가 처음 뜨는 순간 1회 — 착공 타이머 추정이 아님
+  const announcedCompletions = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!completion) return;
+    const key = `${islandId}:${completion}`;
+    if (announcedCompletions.current.has(key)) return;
+    announcedCompletions.current.add(key);
+    captureProductEvent('construction_completed', { building_id: completion });
+  }, [completion, islandId]);
   const routeBuildings: Partial<Record<Route, Building>> = {
     hall: 'hall',
     board: 'board',
