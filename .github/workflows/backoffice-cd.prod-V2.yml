@@ -28,6 +28,10 @@ jobs:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
+    # 승인 전에 거른다. version 없이 rollback 을 켜면 새로 발행한 태그를 롤백으로 배포하게 된다.
+    - name: "입력 확인"
+      if: inputs.rollback && !inputs.version
+      run: echo "rollback 은 version(기존 태그)과 함께만 쓴다" && exit 1
     - uses: actions/checkout@v4
     - uses: actions/setup-python@v5
       with:
@@ -100,10 +104,13 @@ jobs:
       actions: read
     steps:
     - uses: actions/checkout@v4
+    # SSM 전송 전에 실패하면 결과 파일이 없다. 그때는 deploy 실패만 남기고 기록을 건너뛴다.
     - uses: actions/download-artifact@v4
+      continue-on-error: true
       with:
         name: catus-backoffice-deployment-V2
     - name: "배지 및 관련 PR 기록"
+      if: hashFiles('deployment-V2.json') != ''
       env:
         GH_TOKEN: ${{ github.token }}
       run: python3 .github/scripts/v2/prod/catus-runtime-V2.py record --input deployment-V2.json

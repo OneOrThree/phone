@@ -132,7 +132,10 @@ CI는 코드와 빌드를 검사하지만 운영의 자격 증명, 네트워크,
 ## 백오피스
 
 - 경로(GROMO-2666): `backoffice/**`(Markdown 제외)를 main에 머지 → `backoffice-cd.prod-V2.yml`이 테스트·빌드 → 환경 `backoffice-production` 승인 1회 → `backoffice-vX.Y.Z-V2`(patch +1) 발행 → SSM으로 `catus-backoffice-prod-V2`에 배포 → 관련 PR 댓글·배지 기록. 앱·Kafka·Redis는 그대로 release 전용이다.
-- 수동 실행: 입력을 비우면 현재 main을 발행·배포한다. `version`에 기존 태그를 넣으면 발행 없이 그 태그를 배포한다. 발행 뒤 배포만 실패한 태그는 그대로 다시 넣는다. 현재 운영보다 이전 태그로 되돌릴 때만 `rollback`을 켠다.
+- 수동 실행: 입력을 비우면 현재 main을 발행·배포한다. `version`에 기존 태그를 넣으면 발행 없이 그 태그를 배포한다. 발행 뒤 배포만 실패한 태그는 그대로 다시 넣는다. 현재 운영보다 이전 태그로 되돌릴 때만 `rollback`을 켠다. `rollback`은 `version`과 함께만 쓴다. 수동 실행은 main에서 한다. 다른 ref에서는 job이 조용히 건너뛰어진다.
+- 입력이 비어 있으면 코드가 그대로여도 새 patch 태그를 발행한다. 이미지는 직전 것을 다시 쓴다.
+- 승인을 기다리는 실행이 동시 실행 그룹을 잡는다. 승인을 미루면 뒤의 머지가 대기열에 쌓인다(대기는 최신 1건만 남는다). 배포하지 않을 실행은 취소한다.
+- `release` 허용은 이력 확인용이다. `backoffice-v1.0.4-V2` 이전 태그는 release에서 발행됐으므로, 롤백할 때 그 커밋이 release 조상인지 확인한다. 실행 ref는 environment가 main으로 제한한다.
 - 선행 조건: Infra가 AWS 역할 `catus-backoffice-release-V2`(신뢰 대상 `repo:OneOrThree/phone:environment:backoffice-production`)를 먼저 적용해야 한다.
 - 백오피스가 서버 변경보다 먼저 운영에 나갈 수 있다(서버는 release 경유). 의존 계약이 없어 백오피스가 시작을 거부하면 SSM 배포가 실패하고, 호스트가 직전 버전으로 되돌린다.
 - PR 검사는 `backoffice-ci.yml`이다.
