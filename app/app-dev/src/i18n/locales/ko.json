@@ -1254,6 +1254,18 @@
   "arrivalCutscene": {
     "label": "{{destination}}에 도착하고 있어요. 뗏목이 부두에 닿아요."
   },
+  "firstVoyage": {
+    "invite": "같이 가볼래?\n처음엔 가까운 섬부터 가보자.",
+    "scope": "마음에 드는 섬을 골라봐.\n이번엔 금방 도착할 거야.",
+    "depart": "좋아, 출발!",
+    "start": "이 섬으로 가기",
+    "meeting": "바다에선 처음 보는 친구들과도\n함께 집중할 수 있어.",
+    "peerName": "두부",
+    "peerMessage": "같이 집중해요!",
+    "destination": "{{name}} 항해 중",
+    "sailing": "조금만 가면 도착해.",
+    "chooseAgain": "다른 섬 고르기"
+  },
   "onboardingStory": {
     "brand": "집중할고양",
     "tagline": "오늘의 집중이 자라는 곳",

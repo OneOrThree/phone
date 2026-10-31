@@ -13,6 +13,10 @@ import { ApiError, request } from '@/services/api/client';
 import { arriveAtIsland, getTelescope, type TelescopeItem } from '@/services/api/telescope';
 import { initialState, reducer } from '@/services/model';
 
+jest.mock('@/screens/onboarding/useFirstVoyage', () => ({
+  useFirstVoyage: () => ({ eligible: false, pending: false, scene: null }),
+}));
+
 jest.mock('@/services/api/client', () => ({
   ...jest.requireActual('@/services/api/client'),
   request: jest.fn(),
