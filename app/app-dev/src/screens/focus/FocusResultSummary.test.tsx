@@ -92,3 +92,30 @@ test('영어 결과창은 꾸미기 이름과 스크린리더 설명을 함께 �
   expect(screen.queryByText('귤 한 알')).toBeNull();
   expect(mockAddUnseen).toHaveBeenCalledWith('rec-1', ['cust.head.mandarin']);
 });
+
+test('일반 집중은 기존 결과만, 인증을 사용한 집중은 확인된 시간을 별도 설명 없이 표시한다', async () => {
+  const screen = await render(summary());
+  expect(screen.queryByTestId('verification-result')).toBeNull();
+  await screen.rerender(
+    <FocusResultSummary
+      subject="수학"
+      seconds={1800}
+      fish={3}
+      questTitles={[]}
+      verifiedSeconds={915}
+    />,
+  );
+  expect(screen.getByText('인증 시간 / 총 집중 시간')).toBeTruthy();
+  expect(screen.getByTestId('verification-result-duration')).toHaveTextContent('00:15:15');
+  expect(screen.queryByText('전체 집중 00:30:00 중 카메라로 확인됐어요')).toBeNull();
+  await screen.rerender(
+    <FocusResultSummary
+      subject="수학"
+      seconds={1800}
+      fish={3}
+      questTitles={[]}
+      verifiedSeconds={0}
+    />,
+  );
+  expect(screen.getByTestId('verification-result-duration')).toHaveTextContent('00:00:00');
+});

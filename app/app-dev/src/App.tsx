@@ -1401,7 +1401,7 @@ function Gromo() {
           // /me 응답을 기다리는 사이 세션이 바뀌었으면 이전 사용자의 저장본도 지우지 않는다.
           ensureCurrent();
           // 사용자 귀속 blob 전체를 지우고 빈 상태로 — 이전 계정의 섬·친구·진행이 섞이지 않는다.
-          // settings 만 기기 귀속(정책 A15)이라 보존한다.
+          // 기기 설정(정책 A15)은 보존하되 카메라 측정 ON은 다른 계정에 넘기지 않는다.
           // 이미 시작된 A 저장도 먼저 끝낸 다음 지워야 late write가 삭제 뒤에 A blob을 부활시키지 않는다.
           setStorageOwnerGate(false);
           await userStorageWriteQueue.current;
@@ -1419,7 +1419,7 @@ function Gromo() {
             type: 'LOAD',
             state: {
               ...(DEMO ? demoState() : initialState()),
-              settings: stateRef.current.settings,
+              settings: { ...stateRef.current.settings, studyVerification: false },
             },
             now: Date.now(),
           });
@@ -2003,7 +2003,11 @@ function Gromo() {
                 type: 'LOAD',
                 state: {
                   ...initialState(DEMO),
-                  settings: loadable?.settings ?? stateRef.current.settings,
+                  // 전환 도중 종료된 부팅 복구도 이전 계정의 카메라 측정 ON을 넘기지 않는다.
+                  settings: {
+                    ...(loadable?.settings ?? stateRef.current.settings),
+                    studyVerification: false,
+                  },
                 },
                 now: Date.now(),
               });

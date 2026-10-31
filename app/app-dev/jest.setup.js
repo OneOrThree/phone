@@ -57,3 +57,56 @@ jest.mock('expo-localization', () => ({
     { languageCode: 'ko', languageTag: 'ko-KR', regionCode: 'KR', languageScriptCode: null },
   ]),
 }));
+
+// 집중 인증 스파이크의 카메라·TFLite 네이티브 모듈. 테스트는 스파이크 줄을 그리지 않으므로 import 만 통과시킨다.
+jest.mock('react-native-vision-camera', () => ({
+  Camera: 'Camera',
+  useCamera: jest.fn(),
+  useCameraDevice: jest.fn(() => undefined),
+  useCameraPermission: jest.fn(() => ({
+    status: 'not-determined',
+    hasPermission: false,
+    canRequestPermission: true,
+    requestPermission: jest.fn(async () => false),
+  })),
+  useFrameOutput: jest.fn(() => ({})),
+}));
+jest.mock('react-native-vision-camera-resizer', () => ({
+  useResizer: jest.fn(() => ({ state: 'loading', resizer: undefined, error: undefined })),
+}));
+jest.mock('react-native-vision-camera-worklets', () => ({}));
+// react-native-worklets 는 jest 에서 네이티브 언패커를 찾다 죽는다. 스파이크가 쓰는 두 함수만 흉내 낸다.
+jest.mock('react-native-worklets', () => ({
+  createSynchronizable: jest.fn((value) => {
+    let current = value;
+    return {
+      getBlocking: () => current,
+      getDirty: () => current,
+      setBlocking: (next) => {
+        current = typeof next === 'function' ? next(current) : next;
+      },
+      lock: jest.fn(),
+      unlock: jest.fn(),
+    };
+  }),
+  scheduleOnRN: jest.fn((fn, ...args) => fn(...args)),
+}));
+jest.mock('react-native-fast-tflite', () => ({
+  loadTensorflowModel: jest.fn(),
+  useTensorflowModel: jest.fn(() => ({ state: 'loading', model: undefined })),
+}));
+jest.mock('expo-keep-awake', () => ({
+  useKeepAwake: jest.fn(),
+  activateKeepAwakeAsync: jest.fn(),
+  deactivateKeepAwake: jest.fn(),
+}));
+
+// 각도 확인용 Expo 카메라 프리뷰는 실제 기기 대신 호스트 뷰로 검사한다.
+jest.mock('expo-camera', () => ({
+  CameraView: 'CameraView',
+  useCameraPermissions: jest.fn(() => [
+    { granted: false, canAskAgain: false },
+    jest.fn(),
+    jest.fn(),
+  ]),
+}));

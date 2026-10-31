@@ -1690,3 +1690,12 @@ describe('낚아올리기 연출: 재발생·내 고양이 전용·중단 뒤 �
     await screen.unmount();
   });
 });
+
+test('집중섬 상단 바다를 화면 1/3 높이까지 더 볼 수 있고 이동 한계를 넘지 않는다', () => {
+  const initial = fishingCamera(402, 874, 1, { x: 50, y: 50 });
+  const upper = fishingCamera(402, 874, 1, { x: 50, y: -100, upperOcean: true });
+  assert.equal(upper.sy, Math.round(upper.minSy));
+  assert.equal(upper.top - initial.top, Math.round(874 / 3));
+  const below = fishingCamera(402, 874, 1, { x: 50, y: 200 });
+  assert.equal(below.sy, below.maxSy);
+});

@@ -53,10 +53,12 @@ module.exports = {
       associatedDomains: ['applinks:link.oneorthree.world', 'applinks:oneorthree.dev.mooo.com'],
       // GROMO-2523·2544 푸시·Meta SDK가 든 바이너리만 새 JS OTA를 받게 iOS 런타임을 분리한다.
       // 체크인된 ios/Cattus/Supporting/Expo.plist 의 EXUpdatesRuntimeVersion 과 같은 값이어야 한다.
-      runtimeVersion: '2.0.0-push-meta-assets-v1',
+      runtimeVersion: '2.0.0-push-meta-assets-ai-focus-v1',
       infoPlist: {
         CFBundleLocalizations: ['ko', 'en'],
         NSSupportsLiveActivities: true,
+        NSCameraUsageDescription:
+          '집중 중 책상이 보이는지 기기 안에서만 확인합니다. 사진은 저장·전송되지 않습니다.',
       },
       entitlements: {
         'com.apple.developer.family-controls': true,
@@ -67,12 +69,14 @@ module.exports = {
       package: 'com.oneorthree.gromo',
       versionCode: 21,
       // 집중 차단 기능이 있는 기존 Android OTA와 네이티브 구성을 분리한다.
-      runtimeVersion: '2.0.1-android-push-assets-v1',
+      runtimeVersion: '2.0.1-android-push-assets-ai-focus-v1',
       permissions: [
         'android.permission.PACKAGE_USAGE_STATS',
         'android.permission.POST_NOTIFICATIONS',
+        'android.permission.CAMERA',
       ],
       blockedPermissions: [
+        'android.permission.RECORD_AUDIO',
         'android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK',
         'android.permission.FOREGROUND_SERVICE_SPECIAL_USE',
       ],
@@ -92,6 +96,7 @@ module.exports = {
       favicon: './src/assets/reference-v2/avatar-black.png',
     },
     plugins: [
+      ['expo-camera', { microphonePermission: false, recordAudioAndroid: false }],
       [withIosMeta],
       // 현재 음원은 앱 안에서만 재생하므로 미디어 포그라운드 서비스를 추가하지 않는다.
       [
