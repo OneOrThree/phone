@@ -112,6 +112,9 @@ class RuntimeTest(unittest.TestCase):
             with self.assertRaises(subprocess.CalledProcessError):runtime.after_latest('old','new','backoffice')
         with patch.object(runtime,'run',side_effect=git(False)):
             with self.assertRaises(subprocess.CalledProcessError):runtime.after_latest('old','new','app')
+        # 객체 없음(128)은 「main 이력에 없음」으로 보지 않고 실패시킨다.
+        with patch.object(runtime,'run',side_effect=subprocess.CalledProcessError(128,['git'])):
+            with self.assertRaises(subprocess.CalledProcessError):runtime.after_latest('old','new','backoffice')
 
     def test_SSM_응답_유실은_기존_명령으로_복구하고_중복_전송하지_않는다(self):
         with tempfile.TemporaryDirectory() as d:

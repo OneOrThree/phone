@@ -17,7 +17,7 @@ REGION='ap-northeast-2'
 BUCKET='catus-prod-deploy-artifacts-808715036056-v2'
 ROLES=('app','kafka','redis','backoffice')
 PREFIX={'app':'catus','kafka':'kafka','redis':'redis','backoffice':'backoffice'}
-# 역할별 운영 발행·배포 브랜치. 백오피스는 main 머지로 배포하고(GROMO-2666), 롤백할 이전 태그는 release 에서 발행됐다.
+# 역할별 운영 발행·배포 브랜치. 첫 항목이 발행 브랜치다. 백오피스는 main 머지로 배포하고(GROMO-2666), 롤백할 이전 태그는 release 에서 발행됐다.
 BRANCHES={'backoffice':('main','release')}
 ROOT=Path(__file__).resolve().parents[4]
 # 앱 릴리스 번들에 평면 이름으로 넣는 관측 설정(번들 이름 → 저장소 원본). Infra 배포 엔진과의 계약(GROMO-2619 §2)이다.
@@ -142,13 +142,16 @@ def on_branch(source,role):
     raise last
 
 def after_latest(previous_source,source,role):
-    """새 발행은 직전 태그 이후여야 한다. 백오피스의 release 시절 태그(v1.0.4 까지)는 main 이력에 없어 비교에서 뺀다."""
+    """새 발행은 직전 태그 이후여야 한다. 백오피스의 release 시절 태그(v1.0.4 까지)는 main 이력에 없어 비교에서 뺀다.
+    「조상 아님」(종료 코드 1)만 판정에 쓰고, 객체 없음 같은 git 오류(128)는 그대로 올린다."""
     try:run(['git','merge-base','--is-ancestor',previous_source,source])
-    except subprocess.CalledProcessError:
-        if role not in BRANCHES:raise
+    except subprocess.CalledProcessError as error:
+        if role not in BRANCHES or error.returncode!=1:raise
         try:run(['git','merge-base','--is-ancestor',previous_source,'origin/'+BRANCHES[role][0]])
-        except subprocess.CalledProcessError:return
-        raise
+        except subprocess.CalledProcessError as missing:
+            if missing.returncode!=1:raise
+            return
+        raise error
 
 def publish(args):
     info=config();prior=previous(args.role);plan=planner(args.role,prior)
