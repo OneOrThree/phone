@@ -1289,6 +1289,18 @@
   "arrivalCutscene": {
     "label": "Arriving at {{destination}}. The raft pulls in to the dock."
   },
+  "firstVoyage": {
+    "invite": "Want to come along?\nLet's try a nearby island first.",
+    "scope": "Pick an island you like.\nWe'll be there in no time.",
+    "depart": "Great, let's go!",
+    "start": "Go to this island",
+    "meeting": "Out at sea, you can focus together\nwith people you haven't met before.",
+    "peerName": "Tofu",
+    "peerMessage": "Let's focus together!",
+    "destination": "Sailing to {{name}}",
+    "sailing": "We're almost there.",
+    "chooseAgain": "Choose another island"
+  },
   "onboardingStory": {
     "brand": "Focus Cat",
     "tagline": "A place for your focus to grow",

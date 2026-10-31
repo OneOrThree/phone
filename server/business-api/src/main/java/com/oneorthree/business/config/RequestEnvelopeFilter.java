@@ -28,6 +28,7 @@ import java.util.Collections;
 import java.util.Enumeration;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Pattern;
 
 /** 인증 앞에서 서버 추적 ID, 캐시 금지, 256KiB 실제 본문 제한과 외부 사용자 헤더 폐기를 적용한다. */
 @Slf4j
@@ -39,6 +40,7 @@ public class RequestEnvelopeFilter extends OncePerRequestFilter {
 
     static final int MAX_BODY = 256 * 1024;
 
+    private static final Pattern APP_VERSION = Pattern.compile("[0-9]{1,9}\\.[0-9]{1,9}\\.[0-9]{1,9}");
     private static final String HEADER_USER_ID = "X-User-Id";
     private final ApiResponses responses;
 
@@ -86,6 +88,16 @@ public class RequestEnvelopeFilter extends OncePerRequestFilter {
                 .addKeyValue("http_route", route instanceof String pattern ? pattern : "unmatched")
                 .addKeyValue("duration_ms", durationMs)
                 .addKeyValue("outcome", completed ? "completed" : "unhandled_exception");
+        // 클라이언트 헤더라 검증을 통과한 값만 싣고, 어긋나면 키를 생략한다(요청은 거절하지 않는다).
+        String version = request.getHeader("X-App-Version");
+        String strippedVersion = version == null ? null : version.strip();
+        if (strippedVersion != null && APP_VERSION.matcher(strippedVersion).matches()) {
+            access = access.addKeyValue("app_version", strippedVersion);
+        }
+        String platform = request.getHeader("X-App-Platform");
+        if ("ios".equals(platform) || "android".equals(platform)) {
+            access = access.addKeyValue("app_platform", platform);
+        }
         if (completed) {
             // 예외가 빠져나가면 최종 상태는 컨테이너가 정하므로 싣지 않는다.
             access = access.addKeyValue("status_code", response.getStatus());

@@ -11,6 +11,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
+import org.slf4j.event.KeyValuePair;
 import org.springframework.mock.env.MockEnvironment;
 import tools.jackson.databind.ObjectMapper;
 
@@ -107,6 +108,22 @@ class ObservationJsonProviderTest {
                 .doesNotContainKeys("request_id", "trace_id", "legacy_trace_id", "private", "dd.service", "dd");
         assertThat(format(event("m", null, Map.of("attempt", "0", "event_name", "custom.thing"))))
                 .doesNotContainKeys("attempt", "event_name");
+    }
+
+    @Test
+    void accessEventEmitsOnlyValidatedAppFields() throws Exception {
+        LoggingEvent ok = (LoggingEvent) event("m", null, Map.of());
+        ok.addMarker(ObservationJsonProvider.ACCESS);
+        ok.addKeyValuePair(new KeyValuePair("app_version", "1.0.2"));
+        ok.addKeyValuePair(new KeyValuePair("app_platform", "ios"));
+        assertThat(format(ok)).containsEntry("log_kind", "access").containsEntry("app_version", "1.0.2")
+                .containsEntry("app_platform", "ios").containsEntry("version", "abc123");
+
+        LoggingEvent bad = (LoggingEvent) event("m", null, Map.of());
+        bad.addMarker(ObservationJsonProvider.ACCESS);
+        bad.addKeyValuePair(new KeyValuePair("app_version", "1.0\nx"));
+        bad.addKeyValuePair(new KeyValuePair("app_platform", "web"));
+        assertThat(format(bad)).doesNotContainKeys("app_version", "app_platform");
     }
 
     @Test

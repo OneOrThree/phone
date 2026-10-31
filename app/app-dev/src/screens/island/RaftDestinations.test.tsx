@@ -299,7 +299,7 @@ test('승인제 섬이면 가입 버튼 글자는 「가입 신청」이고 신�
   expect(opts.cancel).toBe('가입 신청');
   await act(async () => opts.onCancel());
   expect(e.islands.join).toHaveBeenCalledTimes(1);
-  expect(e.notify).toHaveBeenCalledWith('참여 신청이 완료됐어요. 방장이 확인하면 알려드릴게요.');
+  expect(e.notify).toHaveBeenCalledWith('참여 신청이 완료됐어요. 섬장이 확인하면 알려드릴게요.');
   expect(e.reset).not.toHaveBeenCalled();
   expect(e.islands.switchCurrent).not.toHaveBeenCalled();
 });

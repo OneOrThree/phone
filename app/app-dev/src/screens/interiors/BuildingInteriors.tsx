@@ -277,7 +277,7 @@ export const buildings: BuildingData[] = [
         position: 'scene',
         items: [
           ['섬 관리', '소다 섬 관리', '섬 이름·소개 · 가입 방식 · 주민 8/15'],
-          ['건물 선택', '다음 건물 고르기', '방장이 목표를 정하고 게시판에서 진행해요'],
+          ['건물 선택', '다음 건물 고르기', '섬장이 목표를 정하고 게시판에서 진행해요'],
           ['공동 가계부', '공동 물고기 1,240마리', '적립과 건설·공동 구매 내역'],
         ],
       },
@@ -340,18 +340,18 @@ export const buildings: BuildingData[] = [
     background: require('@/assets/interiors/board-three-papers-v5.png'),
     concepts: [
       board('게시판 기본 화면', '', 'owner', 'list'),
-      board('공지 목록 · 방장', 'notice', 'owner', 'list'),
+      board('공지 목록 · 섬장', 'notice', 'owner', 'list'),
       board('공지 목록 · 주민', 'notice', 'resident', 'list'),
       board('공지 목록 · 빈 상태', 'notice', 'resident', 'empty'),
-      board('공지 상세 · 방장', 'notice', 'owner', 'detail'),
+      board('공지 상세 · 섬장', 'notice', 'owner', 'detail'),
       board('공지 상세 · 주민', 'notice', 'resident', 'detail'),
       board('댓글 작성 · 주민', 'notice', 'resident', 'comment'),
       board('댓글 작성 · 주민 · 입력 중', 'notice', 'resident', 'comment-input'),
-      board('공지 작성 · 방장', 'notice', 'owner', 'write'),
-      board('공지 작성 · 방장 · 입력 중', 'notice', 'owner', 'write-input'),
-      board('공지 수정 · 방장', 'notice', 'owner', 'edit'),
-      board('공지 저장 실패 · 방장', 'notice', 'owner', 'write-failed'),
-      board('퀘스트 목록 · 방장', 'quest', 'owner', 'list'),
+      board('공지 작성 · 섬장', 'notice', 'owner', 'write'),
+      board('공지 작성 · 섬장 · 입력 중', 'notice', 'owner', 'write-input'),
+      board('공지 수정 · 섬장', 'notice', 'owner', 'edit'),
+      board('공지 저장 실패 · 섬장', 'notice', 'owner', 'write-failed'),
+      board('퀘스트 목록 · 섬장', 'quest', 'owner', 'list'),
       board('퀘스트 목록 · 주민', 'quest', 'resident', 'list'),
       board('퀘스트 목록 · 빈 상태', 'quest', 'resident', 'empty'),
       board('퀘스트 상세 · 시간대 집중', 'quest', 'resident', 'detail-focus'),
@@ -362,7 +362,7 @@ export const buildings: BuildingData[] = [
       board('퀘스트 만들기 · 스크린타임', 'quest', 'owner', 'write-phone'),
       board('퀘스트 만들기 · 스크린타임 · 입력 중', 'quest', 'owner', 'write-phone-input'),
       board('청사진 · 준비 중', 'blueprint', 'owner', 'waiting'),
-      board('청사진 · 방장 건설 가능', 'blueprint', 'owner', 'ready'),
+      board('청사진 · 섬장 건설 가능', 'blueprint', 'owner', 'ready'),
       board('청사진 · 주민 대기', 'blueprint', 'resident', 'ready'),
       board('청사진 · 공사 중', 'blueprint', 'owner', 'building'),
       board('청사진 · 완공', 'blueprint', 'owner', 'complete'),
@@ -1867,7 +1867,7 @@ function IslandManagement({
   const fr = (width - 58 - 10) / 3.2;
 
   const leave = () =>
-    setConfirm(['소다 섬에서 나갈까요?', '방장은 다른 주민에게 먼저 방장을 위임해야 해요.']);
+    setConfirm(['소다 섬에서 나갈까요?', '섬장은 다른 주민에게 먼저 섬장을 위임해야 해요.']);
 
   return (
     <Animated.View
@@ -1916,7 +1916,7 @@ function IslandManagement({
               webOnly({ verticalAlign: '3px' }),
             ]}
           >
-            <Text style={hallFont(11, 13.2, '400', '#44643d', GOWUN)}>방장</Text>
+            <Text style={hallFont(11, 13.2, '400', '#44643d', GOWUN)}>섬장</Text>
           </View>
         </Text>
         <Pressable
@@ -1994,7 +1994,7 @@ function IslandManagement({
               <View style={{ rowGap: 1 }}>
                 <Text style={hallFont(13, 20.8, '700', PAPER_INK)}>가입 승인</Text>
                 <Text style={hallFont(12, 16.8, '400', MUTED)}>
-                  {approval ? '방장 승인 후 가입해요' : '승인 없이 바로 가입해요'}
+                  {approval ? '섬장 승인 후 가입해요' : '승인 없이 바로 가입해요'}
                 </Text>
               </View>
               <Pressable
@@ -2060,10 +2060,10 @@ function IslandManagement({
                         testID={`resident-${i}`}
                         onPress={() =>
                           i === 0
-                            ? showToast('현재 소다 섬의 방장이에요')
+                            ? showToast('현재 소다 섬의 섬장이에요')
                             : setConfirm([
-                                `${resident}에게 방장 위임`,
-                                '방장 권한을 넘기고 나는 주민으로 남아요.',
+                                `${resident}에게 섬장 위임`,
+                                '섬장 권한을 넘기고 나는 주민으로 남아요.',
                               ])
                         }
                         style={{
@@ -2083,7 +2083,7 @@ function IslandManagement({
                         <View style={{ rowGap: 2 }}>
                           <Text style={hallFont(14, 22.4, '700', PAPER_INK)}>{resident}</Text>
                           <Text style={hallFont(12, 15.6, '400', MUTED)}>
-                            {i === 0 ? '방장' : '주민'}
+                            {i === 0 ? '섬장' : '주민'}
                           </Text>
                         </View>
                         <Text style={[hallFont(15, 24, '400', '#8c765e'), { marginLeft: 'auto' }]}>
@@ -2095,7 +2095,7 @@ function IslandManagement({
                 </View>
               ))}
             </View>
-            <Text style={note}>주민을 눌러 방장 위임·주민 관리를 할 수 있어요.</Text>
+            <Text style={note}>주민을 눌러 섬장 위임·주민 관리를 할 수 있어요.</Text>
           </View>
         )}
 
@@ -2181,11 +2181,11 @@ function IslandManagement({
           testID="management-delegate"
           onPress={() => {
             setTab('residents');
-            showToast('방장을 맡길 주민을 골라주세요');
+            showToast('섬장을 맡길 주민을 골라주세요');
           }}
           style={[tabBase, { backgroundColor: BG }]}
         >
-          <Text style={hallFont(12, 14.4, '800')}>방장 위임</Text>
+          <Text style={hallFont(12, 14.4, '800')}>섬장 위임</Text>
         </Pressable>
         <Pressable
           testID="management-leave"
@@ -5743,7 +5743,7 @@ export function Board({
                 진행 중인 퀘스트가 없어요
               </Text>
               <Text style={muted({ textAlign: 'center' })}>
-                방장이 일일 퀘스트를 만들면 여기에 붙어요.
+                섬장이 일일 퀘스트를 만들면 여기에 붙어요.
               </Text>
             </View>
           )}
@@ -5777,7 +5777,9 @@ export function Board({
         <Text
           style={[boardFont(14, 1.6, '700', '#f7fcff'), { paddingTop: 32, textAlign: 'center' }]}
         >
-          {allBuildingsComplete ? '모든 건물을 완공했어요.' : '회관에서 다음 건물을 골라 주세요.'}
+          {allBuildingsComplete
+            ? '모든 건물을 완공했어요.'
+            : '마을회관에서 다음 건물을 골라 주세요.'}
         </Text>
       );
     const light = '#f7fcff';
@@ -6045,7 +6047,7 @@ export function Board({
                 { paddingTop: 3, textAlign: 'center' },
               ]}
             >
-              방장이 건설할 수 있어요
+              섬장이 건설할 수 있어요
             </Text>
           )
         ) : serverBoard ? (
@@ -6053,7 +6055,7 @@ export function Board({
             {fishRow('섬 잔액 / 공사 가격', `${bp.balance} / ${bp.cost}마리`)}
             <Text style={boardFont(12, 1.45, '400', '#e8faff')}>
               {selectedOption?.blockedReason === 'FORBIDDEN'
-                ? '방장이 건설을 진행할 수 있어요.'
+                ? '섬장이 건설을 진행할 수 있어요.'
                 : selectedOption?.blockedReason === 'FACILITY_LOCKED'
                   ? '먼저 필요한 시설을 완공해 주세요.'
                   : '필요한 물고기와 주민별 기여 조건을 채우면 건설할 수 있어요.'}

@@ -64,7 +64,7 @@ const MANAGEMENT_MESSAGES: Record<string, string> = {
   ROOM_FULL: '정원이 가득 찼어요.\n정원을 늘린 뒤 승인해 주세요.',
   MAX_MEMBERS_TOO_SMALL: '정원은 현재 주민 수보다 작게 줄일 수 없어요.',
   ISLAND_MANAGEMENT_NOT_READY: '섬 관리 기능을 아직 사용할 수 없어요.\n잠시 후 다시 시도해 주세요.',
-  HOST_WITHDRAW: '방장은 바로 섬을 나갈 수 없어요.\n방장을 위임한 뒤 나가주세요.',
+  HOST_WITHDRAW: '섬장은 바로 섬을 나갈 수 없어요.\n섬장을 위임한 뒤 나가주세요.',
   SESSION_IN_PROGRESS: '집중 중에는 섬을 떠날 수 없어요.\n집중을 마친 뒤 다시 시도해 주세요.',
   [CLIENT_NETWORK_ERROR]: '연결이 불안정해요.\n잠시 후 다시 시도해 주세요.',
   [CLIENT_TIMEOUT]: '응답이 늦어지고 있어요.\n잠시 후 다시 시도해 주세요.',
@@ -117,7 +117,7 @@ type WriteIntent = { key: string; payload: string; scope: Scope };
 const staleError = () =>
   new ApiError(CLIENT_STALE_SESSION, '로그인 정보가 바뀌었어요. 다시 시도해 주세요.', 0);
 const inactiveError = () => new ApiError(CLIENT_INACTIVE, '화면이 닫혔어요.', 0);
-const forbiddenError = () => new ApiError(CLIENT_FORBIDDEN, '방장만 실행할 수 있어요.', 0);
+const forbiddenError = () => new ApiError(CLIENT_FORBIDDEN, '섬장만 실행할 수 있어요.', 0);
 const inFlightError = () => new ApiError(CLIENT_IN_FLIGHT, '다른 명령이 처리 중이에요.', 0);
 const brokenPage = () =>
   new ApiError(CLIENT_BROKEN_PAGE, '목록이 갱신 중 섞였어요. 다시 시도해 주세요.', 0);

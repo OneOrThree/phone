@@ -15,6 +15,9 @@ jest.mock('@/services/posthog', () => ({
   captureProductEvent: (...a: unknown[]) => mockCapture(...a),
 }));
 jest.mock('@/services/api/account', () => ({ updateProfile: jest.fn() }));
+jest.mock('./useFirstVoyage', () => ({
+  useFirstVoyage: () => ({ eligible: false, pending: false, scene: null }),
+}));
 jest.mock('@/screens/island/useTelescope', () => ({ useTelescope: jest.fn() }));
 jest.mock('@/screens/island/sceneKit', () => ({ useGowun: () => 'Gowun' }));
 jest.mock('@/utils/layout', () => ({

@@ -99,7 +99,7 @@ const cardDesc: Record<string, string> = {
   hall: '주민이 모이는 곳',
   board: '섬 공지와 퀘스트',
   library: '집중과 스크린타임',
-  tower: '섬 랭킹과 탐색',
+  tower: '섬 순위와 탐색',
   mail: '주민·친구 편지',
   gram: '공동 음원 재생',
   shop: '의상·섬 테마 구매',
@@ -128,7 +128,7 @@ const walletTotal = (b: string) => b === 'hall' || b === 'board';
 // blockedReason 은 서버 evaluator 의 UI 사유다 — 앱이 권한·선행을 다시 추론하지 않는다.
 const blockedText = (reason: string | null) =>
   reason === 'FORBIDDEN'
-    ? '방장이 목표를 정해요'
+    ? '섬장이 목표를 정해요'
     : reason === 'FACILITY_LOCKED'
       ? '먼저 지어야 할 건물이 있어요'
       : reason === 'REQUIRES_TOWER_AND_MAIL'
@@ -140,7 +140,7 @@ const blockedText = (reason: string | null) =>
             : '지금은 선택할 수 없어요';
 export const buildBlockedText = (reason: string | null) =>
   reason === 'FORBIDDEN'
-    ? '방장이 건설을 시작해요'
+    ? '섬장이 건설을 시작해요'
     : reason === 'INSUFFICIENT_FUNDS'
       ? '물고기가 모이면 건설할 수 있어요'
       : reason === 'IN_PROGRESS'
@@ -1949,8 +1949,8 @@ export function Hall({ e }: any) {
                           })
                         : select(),
                     )
-                  : // 주민은 방장 안내, 방장은 게시판 완공 전·공사 중 같은 이유 안내
-                    note(host ? reason! : '방장이 목표를 정해요'))}
+                  : // 주민은 섬장 안내, 섬장은 게시판 완공 전·공사 중 같은 이유 안내
+                    note(host ? reason! : '섬장이 목표를 정해요'))}
             </>
           )}
         </View>
@@ -2077,7 +2077,7 @@ export function Hall({ e }: any) {
       (liveManagement ? managementHost : host) &&
       (liveManagement ? (management.members?.length ?? 0) > 1 : i.members.length > 0)
     ) {
-      notify('방장은 바로 섬을 나갈 수 없어요.\n방장을 위임한 뒤 나가주세요.');
+      notify('섬장은 바로 섬을 나갈 수 없어요.\n섬장을 위임한 뒤 나가주세요.');
       setPanel('transfer');
       return;
     }
@@ -2130,7 +2130,7 @@ export function Hall({ e }: any) {
       key={m.id}
       // 방장 칸은 보조기기가 이름 뒤에 '방장'까지 읽는다
       accessible={opts.crown || undefined}
-      accessibilityLabel={opts.crown ? `${m.id === 'me' ? '나' : m.name}, 방장` : undefined}
+      accessibilityLabel={opts.crown ? `${m.id === 'me' ? '나' : m.name}, 섬장` : undefined}
       style={[
         {
           minWidth: 0,
@@ -2156,7 +2156,7 @@ export function Hall({ e }: any) {
           n={n}
           size={opts.av ?? (land ? 31 : 38)}
         />
-        {/* 방장 왕관: 아바타 지름의 절반 크기로 테두리 1시 방향에 걸치고 시계 방향으로 18° 기울인다.
+        {/* 섬장 왕관: 아바타 지름의 절반 크기로 테두리 1시 방향에 걸치고 시계 방향으로 18° 기울인다.
             Avatar는 원 밖을 잘라 내므로(overflow hidden) 바깥 형제로 겹친다 */}
         {opts.crown && (
           <Image
@@ -2264,20 +2264,20 @@ export function Hall({ e }: any) {
         ];
   const hostId = residents.find((m) => m.isHost)?.id;
   const transferDialog = (m: { id: string; name: string }) => ({
-    title: '방장 위임',
-    text: `${m.name}에게 방장을 위임하시겠습니까?`,
+    title: '섬장 위임',
+    text: `${m.name}에게 섬장을 위임하시겠습니까?`,
     ok: '위임하기',
     onOk: () => {
       if (liveManagement) {
         void runManagement(
           () => management.transferHost(m.id),
-          `${m.name}에게 방장을 위임했어요.`,
+          `${m.name}에게 섬장을 위임했어요.`,
           () => setPanel(''),
         );
       } else {
         e.dispatch({ type: 'TRANSFER', id: m.id });
         setPanel('');
-        notify(`${m.name}에게 방장을 위임했어요.`);
+        notify(`${m.name}에게 섬장을 위임했어요.`);
       }
     },
   });
@@ -2309,7 +2309,7 @@ export function Hall({ e }: any) {
       text: '',
       body: (
         <View style={{ gap: 8 }}>
-          {option('방장 위임', 'hall-member-transfer', () => setDialog(transferDialog(m)))}
+          {option('섬장 위임', 'hall-member-transfer', () => setDialog(transferDialog(m)))}
           {option(
             '섬에서 내보내기',
             'hall-member-kick',
@@ -2357,9 +2357,9 @@ export function Hall({ e }: any) {
             }}
           >
             <View>
-              <T style={g(22, 35.2, { color: CARD_INK, fontWeight: '600' })}>방장 위임</T>
+              <T style={g(22, 35.2, { color: CARD_INK, fontWeight: '600' })}>섬장 위임</T>
               <T style={g(14, 22.4, { color: '#6d5b4a', marginTop: 4 })}>
-                방장을 위임할 주민을 골라요.
+                섬장을 위임할 주민을 골라요.
               </T>
             </View>
             {close(() => setPanel('edit'), { marginTop: -9, marginRight: -8 })}
@@ -2370,7 +2370,7 @@ export function Hall({ e }: any) {
                 key={m.id}
                 testID={`hall-transfer-${m.id}`}
                 accessibilityRole="button"
-                accessibilityLabel={`${m.name}에게 방장 위임`}
+                accessibilityLabel={`${m.name}에게 섬장 위임`}
                 onPress={() => setDialog(transferDialog({ id: m.id, name: m.name }))}
                 // 가로 2열: 목록 폭 = 화면 − 왼쪽 side − 오른쪽 16 − 테두리 4 − 안쪽 여백 32
                 style={{ width: land ? (W - side - 52 - 10) / 2 : '100%' }}
@@ -2500,7 +2500,7 @@ export function Hall({ e }: any) {
     );
     const approval = setting(
       '가입 승인',
-      '방장이 확인한 후 주민이 돼요.',
+      '섬장이 확인한 후 주민이 돼요.',
       <View
         style={{
           width: 50,
@@ -2570,8 +2570,8 @@ export function Hall({ e }: any) {
       },
     );
     const transfer = setting(
-      '방장 위임',
-      transferCandidates.length ? '다른 주민에게 방장을 넘겨요.' : '위임할 주민이 없어요.',
+      '섬장 위임',
+      transferCandidates.length ? '다른 주민에게 섬장을 넘겨요.' : '위임할 주민이 없어요.',
       <View style={{ width: 28, height: 44, alignItems: 'center', justifyContent: 'center' }}>
         <Icon d={CHEV} size={18} />
       </View>,

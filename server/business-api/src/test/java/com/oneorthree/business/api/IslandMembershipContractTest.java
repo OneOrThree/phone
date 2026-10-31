@@ -67,6 +67,20 @@ class IslandMembershipContractTest extends UpstreamTestBase {
     // ---------------------------------------------------------------- 주체
 
     @Test
+    @DisplayName("첫 항해 도착은 명령 키를 전달하고 무인도의 실제 섬 ID를 허용한다")
+    void introductoryArrivalForwardsKeyAndAllowsMaterializedIsland() throws Exception {
+        String path = "POST " + INTERNAL + "/islands/" + ISLAND + "/intro-arrivals";
+        DATA.on(path, request -> ok("{\"islandId\":\"" + OTHER + "\",\"arrivedBefore\":false,"
+                + "\"membershipStatus\":\"active\",\"currentIslandId\":\"" + OTHER + "\"}"));
+        mockMvc.perform(write(post("/islands/" + ISLAND + "/intro-arrivals"), ""))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.islandId").value(OTHER.toString()));
+        var forwarded = DATA.receivedFor(path).get(0);
+        assertThat(forwarded.header("Idempotency-Key")).isEqualTo(KEY);
+        assertThat(forwarded.header("X-User-Id")).isEqualTo(USER.toString());
+    }
+
+    @Test
     @DisplayName("주체는 서명된 세션에서만 오고 공격자가 넣은 X-User-Id 는 버려진다")
     void forwardsOnlyTheSignedSubjectAndNeverTheAttackerHeader() throws Exception {
         DATA.on(DATA_CREATE, request -> ok(CREATED));

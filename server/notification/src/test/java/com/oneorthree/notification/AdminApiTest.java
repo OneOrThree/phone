@@ -60,6 +60,7 @@ class AdminApiTest {
 
     @Autowired MockMvc mvc;
     @Autowired Store store;
+    @Autowired NotificationEnvironmentGuard guard;
     @Autowired DeviceService devices;
     @Autowired DispatchService dispatch;
     @Autowired org.springframework.transaction.PlatformTransactionManager transactions;
@@ -84,6 +85,27 @@ class AdminApiTest {
         when(data.eligible(any(), anyString(), any(), any())).thenReturn(true);
         when(data.eligibleTest(any(), anyString(), any(), any(), any())).thenReturn(true);
         when(transport.send(anyString(), any(), anyBoolean(), anyString())).thenReturn(PushTransport.Result.SENT);
+    }
+
+    /**
+     * 마지막 성공 행(installed_rank 최대)의 version 을 돌려준다. 문자열 정렬(ORDER BY version)이나
+     * success 필터 누락을 잡으려고, 실제 최대(숫자 9 이상)보다 문자열로 작은 성공 행 '1.5' 를 가장 뒤 rank 로,
+     * 그 뒤에 실패 행 '999' 를 넣는다. 기대값은 '1.5'.
+     */
+    @Test
+    void schemaVersionIsTheLastSuccessfulRankNotTheLargestVersionString() {
+        int rank = ((Number) store.one("SELECT max(installed_rank) AS m FROM flyway_schema_history").get("m")).intValue();
+        String insert = "INSERT INTO flyway_schema_history(installed_rank,version,description,type,script,"
+                + "installed_by,execution_time,success) VALUES(?,?,?,?,?,?,?,?)";
+        try {
+            store.update(insert, rank + 1, "1.5", "t", "SQL", "t.sql", "t", 1, true);
+            store.update(insert, rank + 2, "999", "t", "SQL", "t2.sql", "t", 1, false);
+            assertThat(guard.versions()).containsEntry("schemaVersion", "1.5")
+                    .containsEntry("serverVersion", "unknown");
+        } finally {
+            store.update("DELETE FROM flyway_schema_history WHERE installed_rank > ?", rank);
+        }
+        assertThat(guard.versions().get("schemaVersion")).isNotEqualTo("unknown").isNotEqualTo("1.5");
     }
 
     /**

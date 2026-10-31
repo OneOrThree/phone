@@ -24,6 +24,7 @@ import { useTelescope } from '@/screens/island/useTelescope';
 import { visibleTelescopeItems } from '@/screens/island/telescopeDestinations';
 import { ApiError, CLIENT_STALE_SESSION, uuid } from '@/services/api/client';
 import { getSession, sessionGeneration } from '@/services/api/session';
+import { useFirstVoyage } from '@/screens/onboarding/useFirstVoyage';
 import type { MagazineCell } from '@/services/api/magazine';
 import { arriveAtIsland, unpinFromTelescope, type TelescopeItem } from '@/services/api/telescope';
 import { unknownOutcome } from '@/services/islandCommands';
@@ -259,6 +260,7 @@ function IslandCell({
   largeText,
   disabled,
   onPress,
+  hideTime = false,
 }: {
   item: TelescopeItem;
   index: number;
@@ -267,6 +269,7 @@ function IslandCell({
   /** 항해·이동 요청 중에는 눌리지 않는다 — 말풍선을 열었다 닫으며 뒤로가기 삼킴을 흩트리지 않게. */
   disabled: boolean;
   onPress: () => void;
+  hideTime?: boolean;
 }) {
   const joined = isJoined(item);
   const magazine = isMagazinePin(item);
@@ -279,10 +282,12 @@ function IslandCell({
       accessibilityLabel={
         joined
           ? t('telescope.joinedIslandA11y', { name: item.name })
-          : t('telescope.islandTimeA11y', {
-              label: magazine ? t('telescope.pinnedIslandA11y', { name: item.name }) : item.name,
-              time,
-            })
+          : hideTime
+            ? item.name
+            : t('telescope.islandTimeA11y', {
+                label: magazine ? t('telescope.pinnedIslandA11y', { name: item.name }) : item.name,
+                time,
+              })
       }
       accessibilityHint={t('telescope.islandHint')}
       disabled={disabled}
@@ -327,7 +332,7 @@ function IslandCell({
       </View>
       {/* 긴 이름은 가운데를 줄여 끝의 「 · 항해 시간」을 남긴다(안드로이드 두 줄은 끝 말줄임만 된다) */}
       <Badge soft numberOfLines={largeText ? 2 : 1} ellipsizeMode="middle" style={styles.pill}>
-        {joined ? item.name : t('telescope.islandLabel', { name: item.name, time })}
+        {joined || hideTime ? item.name : t('telescope.islandLabel', { name: item.name, time })}
       </Badge>
     </Pressable>
   );
@@ -383,6 +388,7 @@ function IslandBubble({
   onReturn,
   onJoin,
   onUnpin,
+  firstVoyage = false,
 }: {
   item: TelescopeItem;
   /** 요청 중(항해·이동, 어느 섬의 가입·빼기든) — 모든 버튼을 막아 항해·가입·빼기가 겹쳐 나가지 않게 한다. */
@@ -396,6 +402,7 @@ function IslandBubble({
   onReturn: () => void;
   onJoin: () => void;
   onUnpin: () => void;
+  firstVoyage?: boolean;
 }) {
   const pending = item.membershipStatus === 'pending';
   const joinLabel = joining
@@ -422,7 +429,9 @@ function IslandBubble({
           title={t('telescope.residents', { count: item.memberCount, max: item.maxMembers })}
         />
         <SheetRow title={averageText(item.averageFocusMinutesPerDay)} />
-        <SheetRow title={t('telescope.sailing', { minutes: item.sailingMinutes })} />
+        {!firstVoyage && (
+          <SheetRow title={t('telescope.sailing', { minutes: item.sailingMinutes })} />
+        )}
       </SheetGroup>
       {isJoined(item) ? (
         item.arrivedBefore ? (
@@ -433,11 +442,21 @@ function IslandBubble({
             onPress={onReturn}
           />
         ) : (
-          <Btn dynamicHeight title={t('telescope.sail')} disabled={locked} onPress={onSail} />
+          <Btn
+            dynamicHeight
+            title={t(firstVoyage ? 'firstVoyage.start' : 'telescope.sail')}
+            disabled={locked}
+            onPress={onSail}
+          />
         )
       ) : (
         <>
-          <Btn dynamicHeight title={t('telescope.sail')} disabled={locked} onPress={onSail} />
+          <Btn
+            dynamicHeight
+            title={t(firstVoyage ? 'firstVoyage.start' : 'telescope.sail')}
+            disabled={locked}
+            onPress={onSail}
+          />
           {item.memberCount > 0 && (
             <Btn
               dynamicHeight
@@ -481,6 +500,7 @@ function IslandBubble({
  */
 export function Telescope({ e, previewItems }: { e: any; previewItems?: TelescopeItem[] }) {
   const s: State = e.state;
+  const firstVoyage = useFirstVoyage(e, !!previewItems);
   const L = useAppLayout();
   // 시스템 글자가 크면 이름 알약은 두 줄까지, 작은 버튼은 높이를 콘텐츠에 맞춘다(보통 크기의 38pt 모양은 그대로)
   const largeText = (L.fontScale ?? 1) >= semanticTokens.typography.largeTextThreshold;
@@ -589,6 +609,10 @@ export function Telescope({ e, previewItems }: { e: any; previewItems?: Telescop
     // 집중·휴식 중에는 새 항해를 시작할 수 없다 — ServerVisit 의 [섬 둘러보기]와 같은 안내.
     if (s.session) return e.notify(t('islandVisit.sessionBlocksBrowse'));
     setSelectedId(null);
+    if (firstVoyage.eligible) {
+      void firstVoyage.start(item);
+      return;
+    }
     const prepare = () => {
       setStartError(undefined);
       setPreparing(item);
@@ -752,6 +776,7 @@ export function Telescope({ e, previewItems }: { e: any; previewItems?: Telescop
     unpin(item, false);
   };
 
+  if (firstVoyage.scene) return firstVoyage.scene;
   if (sail.sailing) return sail.sailing;
 
   return (
@@ -900,7 +925,8 @@ export function Telescope({ e, previewItems }: { e: any; previewItems?: Telescop
                     item={item}
                     index={index}
                     largeText={largeText}
-                    disabled={sail.busy}
+                    disabled={sail.busy || firstVoyage.pending || firstVoyage.eligible === null}
+                    hideTime={firstVoyage.eligible !== false}
                     onPress={() => setSelectedId(item.islandId)}
                   />
                 ))}
@@ -912,12 +938,15 @@ export function Telescope({ e, previewItems }: { e: any; previewItems?: Telescop
       {selected && (
         <IslandBubble
           item={selected}
+          firstVoyage={firstVoyage.eligible === true}
           // 서버 세션이 없는 목업(EXPO_PUBLIC_MAGAZINE_MOCK=telescope)은 보기만 — 행동 버튼은 실제 API 를 부르므로 막는다
           locked={
             (!e.islands && !previewItems && !e.focusBlockingIntroPreview) ||
             sail.pending ||
             joiningId !== null ||
-            unpinning
+            unpinning ||
+            firstVoyage.pending ||
+            firstVoyage.eligible === null
           }
           joining={joiningId === selected.islandId}
           voyaging={selected.islandId === voyagingId}

@@ -516,12 +516,21 @@ class ContentPublicationIntegrationTest {
         // 테스트 컨테이너의 컨텍스트 전용 DB에만 표식을 설정한다.
         assertThat(database).matches("ctx_[a-f0-9]+");
         jdbc.execute("ALTER DATABASE " + database + " SET gromo.environment='prod'");
+        // 실패 행(version 999)은 success 필터가, 성공 행 '1.5'(문자열로는 최대 버전보다 작음)는
+        // installed_rank 정렬이 지켜야 한다. 기대값은 마지막 rank 의 성공 행 '1.5'.
+        int rank = jdbc.queryForObject("SELECT max(installed_rank) FROM flyway_schema_history", Integer.class);
+        String insertHistory = "INSERT INTO flyway_schema_history(installed_rank,version,description,type,script,"
+                + "installed_by,execution_time,success) VALUES(?,?,?,?,?,?,?,?)";
+        jdbc.update(insertHistory, rank + 1, "1.5", "t", "SQL", "t1.sql", "t", 1, true);
+        jdbc.update(insertHistory, rank + 2, "999", "t", "SQL", "t2.sql", "t", 1, false);
         try {
             http.perform(get(ADMIN + "/environment")).andExpect(status().isOk())
                     .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath(
                             "$.environment").value("prod"))
                     .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath(
                             "$.contractVersion").value("1"))
+                    .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath(
+                            "$.schemaVersion").value("1.5"))
                     .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath(
                             "$.capabilities").value(org.hamcrest.Matchers.contains("content.publication.v1",
                                     "content.history.v1", "content.notice.withdraw.v1",
@@ -531,8 +540,8 @@ class ContentPublicationIntegrationTest {
             assertThatThrownBy(controller::environment).isInstanceOf(IllegalStateException.class)
                     .hasMessageContaining("DB 환경");
         } finally {
+            jdbc.update("DELETE FROM flyway_schema_history WHERE installed_rank > ?", rank);
             jdbc.execute("ALTER DATABASE " + database + " RESET gromo.environment");
         }
     }
-
 }

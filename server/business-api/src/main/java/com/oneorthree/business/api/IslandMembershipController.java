@@ -266,6 +266,14 @@ public class IslandMembershipController {
         return islands.arrive(claims, PublicIds.uuid(islandId, "islandId"), key, properties.deadline());
     }
 
+    /** 첫 항해 화면 체험의 도착. 최초 여부는 앱 로컬 정책이고 서버는 사용 횟수를 제한하지 않는다. */
+    @PostMapping("/islands/{islandId}/intro-arrivals")
+    public IslandArrivalView introArrive(@PathVariable String islandId, HttpServletRequest request) {
+        AccessTokenClaims claims = sessions.requireSession(request);
+        UUID key = CommandKeys.required(request);
+        return islands.introArrive(claims, PublicIds.uuid(islandId, "islandId"), key, properties.deadline());
+    }
+
     /**
      * 내 가입 신청 목록 (GROMO-2047, LLD §3.12) — explore 화면의 「신청 중」 조각이다.
      *

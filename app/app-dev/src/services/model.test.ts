@@ -200,7 +200,7 @@ test('퀘스트 섬에서 집중 중이면 TICK 을 건너뛰지 않아 목표�
 test('canBuild — en 로케일에서는 방장 아님 안내가 영문으로 나온다 (GROMO-2235 r6)', () => {
   const s = act(initialState(), 'JOIN', { id: 'strawberry' });
   assert.equal(isHost(currentIsland(s)), false);
-  assert.equal(canBuild(s, 'hall'), '방장만 건설할 수 있어요.');
+  assert.equal(canBuild(s, 'hall'), '섬장만 건설할 수 있어요.');
   applyLocalePref('en');
   assert.equal(canBuild(s, 'hall'), 'Only the host can build.');
   assert.equal(canBuild(s, 'hall'), t('app.build.blocked.notHost'));
