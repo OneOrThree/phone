@@ -1,5 +1,6 @@
 import { ConstructionEditor, ConstructionReview, proposalFrom, type PolicySnapshot } from './ConstructionPolicy';
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { iosStoreNotice, storeWarning, unavailableNotice, unpublishedWarning, type SystemVersions } from './versions';
 import { ApiError, request } from './api';
 import type { ContentItem, ContentKind, ContentStatus, Draft, FcmCatalogPage, FcmTemplate, HistoryItem, HistoryPage, MagazineCard, MagazineSnapshot, Session } from './types';
 import { FocusPolicyPanel } from './FocusPolicyPanel';
@@ -209,8 +210,20 @@ function ContentPreview({ draft }: { draft: Draft }) {
     {draft.kind === 'magazine' && snapshot && <details className="technical-details"><summary>스냅샷 원본 보기</summary><pre className="json-view">{JSON.stringify(snapshot, null, 2)}</pre></details>}
   </section>;
 }
-function ConfirmDialog({ item, action, busy, error, mode, onClose, onConfirm }: { item: ContentItem; action: string; busy: boolean; error: string; mode: Session['mode']; onClose: () => void; onConfirm: () => void }) {
+const SERVICE_LABEL = { data: 'Data', notification: 'Notification' } as const;
+const STORE_LABEL = { unpublished: '미공개', unavailable: '확인 불가', local: '로컬 모드' } as const;
+function VersionInfo({ versions }: { versions: SystemVersions | null }) {
+  const service = (key: 'data' | 'notification') => {
+    const value = versions?.[key];
+    const commit = value?.serverVersion;
+    return <li key={key}>{SERVICE_LABEL[key]} <span title={commit ?? undefined}>{commit ? commit.slice(0, 7) : '-'}</span> · DB {value?.schemaVersion ? `V${value.schemaVersion}` : '-'}</li>;
+  };
+  const store = versions ? (versions.iosStore.status === 'ok' ? versions.iosStore.version : STORE_LABEL[versions.iosStore.status]) : '확인 불가';
+  return <div className="version-info"><strong>시스템 버전</strong><ul>{versions?.local ? null : <>{service('data')}{service('notification')}</>}{versions?.local ? <li>로컬 모드 · 버전 조회 안 함</li> : <li>iOS App Store {store}</li>}</ul></div>;
+}
+function ConfirmDialog({ item, action, busy, error, mode, iosStore, onClose, onConfirm }: { iosStore: SystemVersions['iosStore'] | null; item: ContentItem; action: string; busy: boolean; error: string; mode: Session['mode']; onClose: () => void; onConfirm: () => void }) {
   const ref = useRef<HTMLDialogElement>(null);
+  const storeNotice = item.kind === 'notice' && forces(item) && ['review', 'approve', 'publish'].includes(action) ? iosStoreNotice(item.minIosVersion, iosStore) : null;
   useEffect(() => { ref.current?.showModal(); return () => ref.current?.close(); }, []);
   const verb = action === 'review' ? '검토 요청' : action === 'approve' ? '승인' : action === 'cancel' ? '발행 전 취소' : action === 'cancel-delivery' ? '남은 발송 취소' : action === 'withdraw' ? '노출 종료' : action === 'archive' ? '운영 목록 보관' : item.kind === 'fcm' ? '발송 요청' : item.kind === 'construction' ? '정책 적용' : '게시';
   return <dialog ref={ref} className="confirm-dialog" aria-labelledby="confirm-title" onCancel={event => { event.preventDefault(); if (!busy) onClose(); }} onClick={event => { if (event.target === ref.current && !busy) onClose(); }}>
@@ -226,6 +239,9 @@ function ConfirmDialog({ item, action, busy, error, mode, onClose, onConfirm }: 
       {(item.kind === 'magazine' || item.kind === 'construction') && <ContentPreview draft={draftFrom(item)} />}
       {action === 'publish' && <p className="callout">{item.kind === 'fcm' ? '발송 요청이 접수되어도 실제 기기 수신을 의미하지 않습니다. 발송 게이트가 꺼져 있으면 대기합니다.' : item.kind === 'construction' ? '승인된 비용과 공사 시간을 새 착공에 적용합니다. 이미 시작한 공사는 유지되며, 기준 정책이 바뀌었다면 다시 검토해야 합니다.' : '현재 승인된 수정본을 게시합니다. 게시 이후 내용은 이 초안에서 수정할 수 없습니다.'}</p>}
       {item.kind === 'notice' && forces(item) && ['review', 'approve', 'publish'].includes(action) && <p className="callout" role="alert">{FORCE_WARNING}</p>}
+      {storeNotice === 'exceeds' && <p className="callout" role="status">{storeWarning(iosStore?.version ?? '')}</p>}
+      {storeNotice === 'unpublished' && <p className="callout" role="status">{unpublishedWarning}</p>}
+      {storeNotice === 'unavailable' && <p className="callout">{unavailableNotice}</p>}
       {action === 'cancel' && <p className="callout">발행 전 작업을 취소하고 보관 목록으로 옮깁니다. 내용과 변경 이력은 남습니다.</p>}
       {action === 'cancel-delivery' && <p className="callout">대기·재시도 중인 발송을 취소합니다. 이미 발송했거나 FCM 호출 중인 알림은 회수할 수 없습니다. 처리 후 수치를 확인하세요.</p>}
       {action === 'withdraw' && <p className="callout">앱의 개발자 공지 노출을 즉시 종료합니다. 게시 이력은 남습니다.</p>}
@@ -239,6 +255,7 @@ function ConfirmDialog({ item, action, busy, error, mode, onClose, onConfirm }: 
 
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
+  const [versions, setVersions] = useState<SystemVersions | null>(null);
   const [sessionLoading, setSessionLoading] = useState(true);
   const [channel, setChannel] = useState<ContentKind>('fcm');
   const [policyOpen, setPolicyOpen] = useState(false);
@@ -281,6 +298,13 @@ export default function App() {
   useEffect(() => {
     if (!session) return;
     const controller = new AbortController();
+    // 표시 전용. 실패해도 작업을 막지 않고 「확인 불가」로 보인다.
+    request<SystemVersions>('/api/system/versions', { signal: controller.signal }).then(setVersions).catch(() => { if (!controller.signal.aborted) setVersions(null); });
+    return () => controller.abort();
+  }, [session]);
+  useEffect(() => {
+    if (!session) return;
+    const controller = new AbortController();
     setListLoading(true);
     request<{ items: ContentItem[] }>(`/api/items${archivedView ? '?archived=true' : ''}`, { signal: controller.signal }).then(value => setItems(value.items)).catch(cause => { if (cause.name !== 'AbortError') handleError(cause); }).finally(() => { if (!controller.signal.aborted) setListLoading(false); });
     return () => controller.abort();
@@ -301,6 +325,8 @@ export default function App() {
     try { await work(); } catch (cause) { handleError(cause); }
     finally { actionLock.current = false; setBusy(''); }
   }
+  const storeVersion = versions?.iosStore.status === 'ok' ? versions.iosStore.version : null;
+  const editorNotice = iosStoreNotice(draft?.minIosVersion, versions?.iosStore);
   function mayLeave() { return confirmEditorLeave(dirty, policyDirty,
     () => window.confirm('저장하지 않은 변경 내용이 있습니다. 변경을 버리고 이동할까요?')); }
   function changeChannel(next: ContentKind) {
@@ -377,7 +403,7 @@ export default function App() {
     <a className="skip-link" href="#workspace">본문으로 이동</a>
     <aside className="sidebar"><a className="brand" href="/" onClick={event => { event.preventDefault(); if (!busy && mayLeave()) { setPolicyOpen(false); setPolicyDirty(false); setDraft(null); setSelected(null); } }}><span className="brand-mark">c</span><span>콘텐츠<br />운영실</span></a><div className={`mode-badge ${session.mode}`}><span aria-hidden="true" />{session.mode === 'local' ? '로컬 모드' : '서비스 연결'}</div>
       <nav aria-label="운영 메뉴">{CHANNELS.map(value => <button key={value.kind} className={`nav-item ${!policyOpen && channel === value.kind ? 'active' : ''}`} aria-current={!policyOpen && channel === value.kind ? 'page' : undefined} disabled={!!busy} onClick={() => changeChannel(value.kind)}><Icon name={value.icon} /><span>{value.name}</span><span className="nav-count">{items.filter(item => item.kind === value.kind && item.status === 'review').length || ''}</span></button>)}<button className={`nav-item ${policyOpen ? 'active' : ''}`} aria-current={policyOpen ? 'page' : undefined} disabled={!!busy} onClick={() => { if (!policyOpen && mayLeave()) { setPolicyDirty(false); setPolicyOpen(true); setDraft(null); setSelected(null); setError(''); } }}><Icon name="settings" /><span>집중 보상 정책</span></button></nav>
-      <div className="sidebar-bottom"><p>{session.mode === 'local' ? '외부 발송·게시 없이 검토 흐름을 확인합니다.' : '승인한 내용만 서비스에 발송·게시합니다.'}</p><div className="actor-row"><span className="avatar" aria-hidden="true">{session.actor.slice(0, 1).toUpperCase()}</span><span>{session.actor}</span></div><button className="logout" disabled={!!busy} onClick={() => { if (mayLeave()) void perform('logout', async () => { await request('/api/logout', { method: 'POST', csrfToken: session.csrfToken }); setSession(null); setItems([]); setPolicyOpen(false); setPolicyDirty(false); setDraft(null); setSelected(null); }); }}>로그아웃</button></div>
+      <div className="sidebar-bottom"><VersionInfo versions={versions} /><p>{session.mode === 'local' ? '외부 발송·게시 없이 검토 흐름을 확인합니다.' : '승인한 내용만 서비스에 발송·게시합니다.'}</p><div className="actor-row"><span className="avatar" aria-hidden="true">{session.actor.slice(0, 1).toUpperCase()}</span><span>{session.actor}</span></div><button className="logout" disabled={!!busy} onClick={() => { if (mayLeave()) void perform('logout', async () => { await request('/api/logout', { method: 'POST', csrfToken: session.csrfToken }); setSession(null); setItems([]); setPolicyOpen(false); setPolicyDirty(false); setDraft(null); setSelected(null); }); }}>로그아웃</button></div>
     </aside>
     <main className="workspace" id="workspace">{policyOpen ? <FocusPolicyPanel session={session} onDirtyChange={setPolicyDirty} onUnauthorized={() => handleError(new ApiError('로그인이 필요합니다.', 401))} /> : <><header className="workspace-header"><div><h1>{currentChannel.name}</h1><p>{currentChannel.description}</p></div><button className="button primary" onClick={createDraft} disabled={!!busy}><Icon name="plus" />새 초안</button></header>
       <div className="local-banner"><strong>{session.environment === 'local' ? '로컬 작업 공간' : session.environment === 'dev' ? '개발 환경 · dev' : '운영 환경 · prod'}</strong><span>{session.environment === 'local' ? '발송·게시는 로컬 기록으로만 처리됩니다.' : '검토와 발행은 이 환경의 Data·Notification에서만 처리됩니다.'}</span></div>
@@ -398,7 +424,7 @@ export default function App() {
           {draft.kind === 'fcm' && <><Field label="수신자 UUID" hint="한 줄에 한 명 또는 쉼표로 구분합니다. 1~100명, 중복 불가."><textarea className="mono-input" rows={4} value={draft.targetsText} onChange={event => updateDraft('targetsText', event.target.value)} placeholder="00000000-0000-0000-0000-000000000000" spellCheck={false} required /></Field><p className="field-hint">운영 공지 알림으로 발송합니다. 한국어 표시 알림만 지원하며, 다른 서비스 알림의 종류·매개변수는 사용하지 않습니다.</p></>}
           {draft.kind === 'notice' && <div className="date-fields"><Field label="게시 시작" hint="현재 브라우저의 현지 시각 기준"><input type="datetime-local" value={draft.startsAt} onChange={event => updateDraft('startsAt', event.target.value)} required /></Field><Field label="게시 종료" hint="비워두면 종료일 없이 게시"><input type="datetime-local" value={draft.endsAt} onChange={event => updateDraft('endsAt', event.target.value)} /></Field></div>}
           {draft.kind === 'notice' && <><Field label="공지 종류"><select value={draft.noticeType} onChange={event => updateDraft('noticeType', event.target.value)}><option value="patch">패치노트</option><option value="force">강제 업데이트</option></select></Field>
-            {draft.noticeType === 'force' && <><div className="date-fields"><Field label="iOS 최소 버전" hint="예: 2.1.0 · 비우면 iOS는 대상 아님"><input value={draft.minIosVersion} onChange={event => updateDraft('minIosVersion', event.target.value)} inputMode="decimal" spellCheck={false} placeholder="2.1.0" /></Field><Field label="Android 최소 버전" hint="예: 2.1.0 · 비우면 Android는 대상 아님"><input value={draft.minAndroidVersion} onChange={event => updateDraft('minAndroidVersion', event.target.value)} spellCheck={false} placeholder="2.1.0" /></Field></div><p className="field-hint">{FORCE_WARNING}</p></>}</>}
+            {draft.noticeType === 'force' && <><div className="date-fields"><Field label="iOS 최소 버전" hint={`예: 2.1.0 · 비우면 iOS는 대상 아님${storeVersion ? ` · App Store 공개 버전 ${storeVersion}` : ''}`}><input value={draft.minIosVersion} onChange={event => updateDraft('minIosVersion', event.target.value)} inputMode="decimal" spellCheck={false} placeholder={storeVersion ?? '2.1.0'} /></Field><Field label="Android 최소 버전" hint="예: 2.1.0 · 비우면 Android는 대상 아님"><input value={draft.minAndroidVersion} onChange={event => updateDraft('minAndroidVersion', event.target.value)} spellCheck={false} placeholder="2.1.0" /></Field></div><p className="field-hint">{FORCE_WARNING}</p>{editorNotice === 'exceeds' && storeVersion && <p className="callout" role="status">{storeWarning(storeVersion)}</p>}{editorNotice === 'unpublished' && <p className="field-hint">{unpublishedWarning}</p>}</>}</>}
           {draft.kind === 'magazine' && <><Field label="발행일" hint="미래 날짜도 초안으로 미리 저장할 수 있습니다."><input type="date" value={draft.issueDate} onChange={event => updateDraft('issueDate', event.target.value)} required /></Field><button type="button" className="button secondary preview-button" onClick={() => void previewMagazine()} disabled={!!busy}>{busy === 'preview' ? '게시 내용 불러오는 중…' : '게시 내용 불러오기'}<Icon name="arrow" /></button><p className="field-hint">최종 게시 내용은 발행일 당일 오전 7시(KST) 이후에 불러올 수 있습니다. 내용을 확인하고 저장한 뒤 검토·승인해 주세요.</p></>}
           {draft.kind !== 'magazine' && draft.kind !== 'construction' && <details className="advanced-fields"><summary>추가 데이터 설정</summary><Field label={draft.kind === 'fcm' ? 'FCM 추가 데이터 (JSON)' : '추가 데이터 (JSON)'} hint={draft.kind === 'fcm' ? '앱에 전달할 추가 데이터만 입력합니다. 모든 값은 문자열이어야 합니다. 필요하지 않으면 {}로 두세요.' : undefined}><textarea className="mono-input" rows={8} value={draft.dataText} onChange={event => updateDraft('dataText', event.target.value)} spellCheck={false} /></Field></details>}
         </fieldset></form><div className="preview-column"><ContentPreview draft={draft} /></div></div>
@@ -424,6 +450,6 @@ export default function App() {
         {selected && <section className="audit-section"><div className="section-heading"><h3>변경 이력</h3><span className="muted">{selected.audit?.length ?? 0}건</span></div>{selected.audit?.length ? <ol className="audit-list">{[...selected.audit].reverse().map((entry, index) => <li key={`${entry.at}-${index}`}><span className="audit-dot" aria-hidden="true" /><div><strong>{selected.kind === 'construction' && entry.action === 'publish' ? '정책 적용 요청' : ACTIONS[entry.action] ?? entry.action}</strong><span>{entry.actor} · 수정본 {entry.revision}</span></div><time dateTime={entry.at}>{readableDate(entry.at)}</time></li>)}</ol> : <p className="muted">기록된 변경 이력이 없습니다.</p>}</section>}
       </> : <div className="editor-empty"><div className="empty-symbol"><Icon name={currentChannel.icon} /></div><h2>보낼 내용을 함께 확인하세요</h2><p>목록에서 콘텐츠를 선택하거나<br />새 초안을 작성해 주세요.</p><div className="empty-flow"><span>작성</span><span aria-hidden="true">→</span><span>검토</span><span aria-hidden="true">→</span><span>승인</span><span aria-hidden="true">→</span><span>{channel === 'fcm' ? '발송 요청' : channel === 'construction' ? '정책 적용' : '게시'}</span></div></div>}</section></div>}</>}
     </main>
-    {confirmation && selected && <ConfirmDialog item={selected} action={confirmation} busy={!!busy} error={modalError} mode={session.mode} onClose={() => setConfirmation(null)} onConfirm={() => void transition()} />}
+    {confirmation && selected && <ConfirmDialog item={selected} action={confirmation} busy={!!busy} error={modalError} mode={session.mode} iosStore={versions?.iosStore ?? null} onClose={() => setConfirmation(null)} onConfirm={() => void transition()} />}
   </div>;
 }
