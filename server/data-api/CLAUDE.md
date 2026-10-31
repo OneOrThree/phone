@@ -86,6 +86,7 @@ Enforced by `config/checkstyle/checkstyle.xml` (Google Java Style, modified):
 
 - `./gradlew build` — full build.
 - `./gradlew test` — JUnit 5 + Testcontainers (PostgreSQL).
+- `./gradlew test -PtestMaxParallelForks=N` — N parallel test JVMs (env `TEST_MAX_PARALLEL_FORKS`; default 1). Each fork starts its own Testcontainers containers and a 2g heap — check memory and Docker disk first.
 - `./gradlew checkstyleMain checkstyleTest` — style checks.
 - `./gradlew spotbugsMain` — static analysis.
 - `./gradlew jacocoTestReport` — coverage report.
