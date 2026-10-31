@@ -73,7 +73,7 @@ flowchart LR
 
 Redis → Kafka → 새 DB 준비와 앱 → 백오피스 순서로 배포한다.
 
-Redis CD는 먼저 앱 호스트에서 비밀번호를 파생 시크릿 `catus/prod/redis/env-V2`로 옮긴 뒤 Redis 호스트에 적용한다. 앱은 원본과 파생 자격이 다르면 Redis 선행 배포를 요구한다.
+Redis CD는 먼저 앱 호스트에서 비밀번호를 파생 Redis 시크릿으로 옮긴 뒤 Redis 호스트에 적용한다. 앱은 원본과 파생 자격이 다르면 Redis 선행 배포를 요구한다.
 
 ## 앱
 
