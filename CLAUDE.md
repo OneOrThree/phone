@@ -165,7 +165,7 @@ PR checks live in the dev CI file. Shared steps go in a reusable file without an
   배포 흐름·실패 복구·영구 상태 경로는 `server/scripts/README.md`와
   `server/data-api/docs/db/README.md`를 따른다. dev VM은 `gromo-dev-app`이고 AWS는
   OIDC → Secrets Manager 조회에 사용한다.
-- **dev runtime secrets / deploy result (GROMO-2224, V1)**: dev V2 uses `catus/dev/env-v2` instead. `write-compose-env.py` filter·forbidden keys and `test_config_contract.py` also apply to V2. `dev-env.sh`, `secrets-check`, `ops-*.dev`, `wait-healthy.sh`, `mark-deploy.sh` below are V1 only. For V1, the single source is Secrets Manager `gromo/dev/env`
+- **dev runtime secrets / deploy result (GROMO-2224, V1)**: dev V2 uses `catus/dev/env-v2` instead. `write-compose-env.py` filter·forbidden keys and `test_config_contract.py` also apply to V2. `dev-env.sh`, `secrets-check`, `wait-healthy.sh`, `mark-deploy.sh` below are V1 only. `ops-*.dev` stay enabled except `ops-smoke.dev`, but they target the old dev VM, not dev V2. For V1, the single source is Secrets Manager `gromo/dev/env`
   (read via `.github/scripts/dev-env.sh secrets`). Each container gets only its own keys because
   `write-compose-env.py` filters by a per-service allowlist and fails on missing/blank required keys — **the
   filter, not the secret layout, is the per-service boundary**. The filter also carries per-service

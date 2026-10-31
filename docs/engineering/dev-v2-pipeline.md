@@ -181,8 +181,8 @@ Redis는 실행마다 ACL 파일 경로가 달라, 같은 산출물을 다시 �
 | 상황 | 할 일 |
 | --- | --- |
 | Infra 앱 구성만 바뀜 | Infra 발행 성공 후 Auto CD를 main에서 수동 실행한다. Infra 발행은 Auto CD를 부르지 않는다 |
-| 앱 시크릿 변경 | `App CD (dev)-v2`를 최신 Infra manifest URI와 `force_redeploy`로 실행한다 |
-| Redis 비밀번호·ACL 변경 | `Redis CD (dev)-v2`를 실행한 뒤 앱을 `force_redeploy`로 재배포한다 |
+| 앱 시크릿 변경 | `App CD (dev)-v2`를 최신 Infra manifest URI와 `force_redeploy`로 실행한다. CI run ID 입력은 선택이다 |
+| Redis 비밀번호·ACL 변경 | `Redis CD (dev)-v2`를 manifest URI와 `selection`(`all`, `shared`, `business`)으로 실행한 뒤 앱을 `force_redeploy`로 재배포한다 |
 | DB 비밀번호 변경 | 파이프라인 밖에서 `ALTER ROLE`을 실행한 뒤 앱을 재배포한다 |
 | 런타임 단독 재시도 | `kafka·postgres·redis-cd.dev-v2.yml`에 manifest URI를 넣어 실행한다 |
 
