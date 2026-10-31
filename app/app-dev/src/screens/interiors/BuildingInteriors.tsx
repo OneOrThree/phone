@@ -5668,7 +5668,7 @@ export function Board({
                   {kstWindowCrossesUtcMidnight(form.startTime, form.endTime) && (
                     <Text
                       testID="board-quest-window-error"
-                      style={boardFont(13, 1.45, '400', '#a35952')}
+                      style={boardFont(13, 1.45, '400', semanticTokens.color.danger)}
                     >
                       {t('board.quest.crossMidnight')}
                     </Text>
