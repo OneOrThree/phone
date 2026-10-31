@@ -4220,30 +4220,33 @@ function FocusFlow({ e: environment }: any) {
             )}
           </View>
         )}
-        {VERIFY_SPIKE && r === 'fishingArrival' && !(tutorialStep >= 5 && tutorialStep <= 21) && (
-          <View
-            pointerEvents="box-none"
-            {...a11yHidden(!!catInfo || !!dialog)}
-            style={{
-              position: 'absolute',
-              top:
-                safe.top +
-                semanticTokens.spacing.control * 2 +
-                componentTokens.verificationSetup.buttonSize,
-              left: safe.left + semanticTokens.spacing.page,
-            }}
-          >
-            <VerificationSpike
-              enabled={s.settings.studyVerification === true}
-              previewVisible={verificationPreviewOpen}
-              onCameraPositionChange={(position) =>
-                e.dispatch({ type: 'SETTING', key: 'studyVerificationCamera', value: position })
-              }
-              cameraPosition={s.settings.studyVerificationCamera}
-              textStyle={hudText}
-            />
-          </View>
-        )}
+        {VERIFY_SPIKE &&
+          !experience &&
+          r === 'fishingArrival' &&
+          !(tutorialStep >= 5 && tutorialStep <= 21) && (
+            <View
+              pointerEvents="box-none"
+              {...a11yHidden(!!catInfo || !!dialog)}
+              style={{
+                position: 'absolute',
+                top:
+                  safe.top +
+                  semanticTokens.spacing.control * 2 +
+                  componentTokens.verificationSetup.buttonSize,
+                left: safe.left + semanticTokens.spacing.page,
+              }}
+            >
+              <VerificationSpike
+                enabled={s.settings.studyVerification === true}
+                previewVisible={verificationPreviewOpen}
+                onCameraPositionChange={(position) =>
+                  e.dispatch({ type: 'SETTING', key: 'studyVerificationCamera', value: position })
+                }
+                cameraPosition={s.settings.studyVerificationCamera}
+                textStyle={hudText}
+              />
+            </View>
+          )}
         {liveIslandId && live.status === 'error' && (
           <View
             {...a11yHidden(!!catInfo)}
@@ -4278,7 +4281,7 @@ function FocusFlow({ e: environment }: any) {
         )}
         {focusing && (
           <>
-            {VERIFY_SPIKE && (
+            {VERIFY_SPIKE && !experience && !(tutorialStep >= 5 && tutorialStep <= 21) && (
               <View
                 pointerEvents="box-none"
                 {...a11yHidden(!!dialog || !!goldenCutscene || !!catInfo)}
@@ -4302,7 +4305,7 @@ function FocusFlow({ e: environment }: any) {
                 />
               </View>
             )}
-            {VERIFY_SPIKE && !(tutorialStep >= 5 && tutorialStep <= 21) && (
+            {VERIFY_SPIKE && !experience && !(tutorialStep >= 5 && tutorialStep <= 21) && (
               <View
                 testID="focus-camera-toggle"
                 {...a11yHidden(!!dialog || !!goldenCutscene || !!catInfo)}

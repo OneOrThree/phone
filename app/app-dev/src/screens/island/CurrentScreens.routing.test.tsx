@@ -21,7 +21,9 @@ jest.mock('@/screens/focus/VerificationSpike', () => ({
   ...jest.requireActual('@/screens/focus/VerificationSpike'),
   VERIFY_SPIKE: true,
 }));
-jest.mock('@/screens/focus/VerificationSession', () => ({ VerificationSession: () => null }));
+jest.mock('@/screens/focus/VerificationSession', () => ({
+  VerificationSession: jest.fn(() => null),
+}));
 
 jest.mock('@/screens/world/DepartureStory', () => ({
   DepartureStory: ({ destination, onComplete }: any) => {
@@ -691,3 +693,17 @@ test('실제 집중 경로의 과목·시간은 섬 자식 HUD로 표시한다',
   const timer = within(hud).getAllByText(/\d{2}:\d{2}:\d{2}/)[0];
   expect(timer).toBeTruthy();
 });
+
+test.each([5, 16, 21])(
+  '측정 ON이 남아 있어도 튜토리얼 %s단계의 촬영 컴포넌트는 마운트하지 않는다',
+  async (guideStep) => {
+    const state = serverFocusState();
+    state.settings.studyVerification = true;
+    state.focusGuideDone = false;
+    const camera = jest.requireMock('@/screens/focus/VerificationSession').VerificationSession;
+    const screen = await mount('focus', state, { guideStep });
+    expect(camera).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('focus-camera-toggle')).toBeNull();
+    await screen.unmount();
+  },
+);
