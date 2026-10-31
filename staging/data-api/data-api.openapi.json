@@ -6142,6 +6142,36 @@
         }
       }
     },
+    "/internal/developer-notices/app-requirements": {
+      "get": {
+        "tags": [
+          "internal-developer-notice-controller"
+        ],
+        "operationId": "appRequirements",
+        "parameters": [
+          {
+            "name": "platform",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppRequirement"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/internal/customization/catalog": {
       "get": {
         "tags": [
@@ -7104,6 +7134,12 @@
           "endsAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "minIosVersion": {
+            "type": "string"
+          },
+          "minAndroidVersion": {
+            "type": "string"
           }
         }
       },
@@ -7131,6 +7167,12 @@
           "publishedAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "minIosVersion": {
+            "type": "string"
+          },
+          "minAndroidVersion": {
+            "type": "string"
           }
         }
       },
@@ -11103,6 +11145,28 @@
           "remaining": {
             "type": "integer",
             "format": "int32"
+          }
+        }
+      },
+      "AppRequirement": {
+        "type": "object",
+        "properties": {
+          "minVersion": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "publicationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "publishedAt": {
+            "type": "string",
+            "format": "date-time"
           }
         }
       },
