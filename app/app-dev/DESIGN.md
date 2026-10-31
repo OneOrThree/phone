@@ -228,13 +228,17 @@ Primitive → Semantic → Component → Screen composition
 
 ### 5.1 글꼴
 
+본문 기본 글꼴은 **고운돋움**(`src/assets/fonts/gowun-dodum.ttf`)이다. 공용 `Text`·`TextInput`(`design-system/typography`)이 `fontFamily`가 없고 `fontWeight`가 700 미만인 글자에 기본으로 입힌다(GROMO-2639). 영문·숫자도 고운돋움 자체 글리프로 그린다 — 별도 display font나 영문·숫자 전용 글꼴을 만들지 않는다.
+
 ```text
--apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif
+Gowun Dodum   (웹 대체 스택: Gowun, 'Apple SD Gothic Neo', sans-serif)
 ```
 
-별도 display font나 number font를 만들지 않는다. 숫자는 같은 글꼴에 `tabular-nums`를 적용한다.
+고운돋움은 Regular(400) 한 두께뿐이다. 그래서 굵기로 위계를 주는 **제목·버튼(`fontWeight` ≥ 700)은 시스템 글꼴로 둔다** — 고운돋움을 입히지 않고 OS가 굵게 그리게 해 §5.2의 400–800 굵기 위계를 유지한다. 웹 대체 스택의 뒤쪽은 고운돋움에 없는 특수기호를 시안과 같은 글꼴로 메우기 위한 것이다. 숫자도 같은 규칙을 따른다 — 굵은 숫자(§5.2 Number 800)는 시스템 글꼴이라 `tabular-nums`가 그대로 듣고, 그 밖의 본문 숫자는 고운돋움이다.
 
-예외: 그림 장면 위에 놓이는 화면(도서관·마을회관 장면, 건물 안, 항해·휴식, 고양이 잡지)은 고운돋움(`src/assets/fonts/gowun-dodum.ttf`, `screens/island/sceneKit` 의 `useGowun`) 하나만 쓴다. 장면 화면 안에서 다른 손글씨·명조 글꼴을 섞지 않는다.
+네이티브는 `app.config.js`의 expo-font 플러그인으로 글꼴을 앱에 넣고, 웹은 `App`의 `useGowunFont()`로 전역 로드한다.
+
+예외: 그림 장면 위에 놓이는 화면(도서관·마을회관 장면, 건물 안, 항해·휴식, 고양이 잡지)은 굵은 글자까지 포함해 고운돋움(`screens/island/sceneKit`의 `useGowun`) 하나만 쓴다 — `fontFamily`를 직접 지정하므로 위 굵기 예외를 적용받지 않는다. 장면 화면 안에서 다른 손글씨·명조 글꼴을 섞지 않는다.
 
 ### 5.2 크기 토큰
 
