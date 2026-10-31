@@ -65,12 +65,17 @@ const reset = jest.fn(),
   startSea = jest.fn(),
   sync = jest.fn(),
   visit = jest.fn();
+let dispatched: any[] = [];
 function Harness({ telescope = false }: { telescope?: boolean }) {
-  const [state, dispatch] = useReducer(reducer, {
+  const [state, baseDispatch] = useReducer(reducer, {
     ...initialState(),
     name: '하루',
     onboardingStory: 'scope' as const,
   });
+  const dispatch = (a: any) => {
+    dispatched.push(a);
+    baseDispatch(a);
+  };
   const e = {
     state,
     dispatch,
@@ -90,6 +95,7 @@ beforeEach(async () => {
   jest.useFakeTimers();
   jest.clearAllMocks();
   mockGeneration = 1;
+  dispatched = [];
   await AsyncStorage.clear();
   (useTelescope as jest.Mock).mockReturnValue({
     items: [destination],
@@ -130,6 +136,16 @@ test('첫 선택은 시간을 숨기고 한 명을 보여 준 뒤 5초 후 실�
   expect(startSea).not.toHaveBeenCalled();
   expect(reset).toHaveBeenCalledWith('home', undefined);
   expect(await AsyncStorage.getItem(FIRST_VOYAGE_DONE)).toBe('1');
+});
+
+test('무인도 첫 도착이면 홈 이름 짓기 모달 트리거(ISLAND_NAMING)를 띄운다', async () => {
+  const screen = await render(<Harness />);
+  await fireEvent.press(screen.getByTestId('onboarding-island-candidate'));
+  await fireEvent.press(screen.getByTestId('onboarding-continue'));
+  await elapse(5000);
+  // 생성된 실제 섬 id 로 이름 짓기 전이 상태를 둔다 — 일반 바다 항해의 createdIsland 경로와 같은 모달.
+  expect(dispatched).toContainEqual({ type: 'ISLAND_NAMING', islandId: 'real-island' });
+  expect(reset).toHaveBeenCalledWith('home', undefined);
 });
 
 test('실패 재시도는 같은 키를 사용하고 성공 전에는 완료하지 않는다', async () => {
