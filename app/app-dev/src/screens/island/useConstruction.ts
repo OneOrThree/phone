@@ -42,6 +42,7 @@ import { constructionPhase, normalizedConstructionProgress } from './constructio
 import { myIslands } from '@/services/api/islands';
 import { sessionGeneration } from '@/services/api/session';
 import { collectPages } from '@/screens/interiors/useIslandManagement';
+import { captureProductEvent } from '@/services/posthog';
 
 /** 화면이 닫혀 있을 때 캡처된 쓰기 콜백이 나가지 않게 하는 앱 측 code. */
 export const CLIENT_INACTIVE = 'CLIENT_INACTIVE';
@@ -474,7 +475,11 @@ export function useConstruction({
             key,
           ),
         (result) => setStarted(result as ConstructionStarted),
-        (result) => onStarted?.(result as ConstructionStarted, target),
+        (result) => {
+          // 서버 착공(POST 커밋) 성공 시 1회 — 완공 추정이 아닌 착공 확정 공통 지점
+          captureProductEvent('construction_started', { building_id: buildingId });
+          onStarted?.(result as ConstructionStarted, target);
+        },
       );
     },
     [callScope, confirmedItem, onStarted, runWrite],

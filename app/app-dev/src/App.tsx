@@ -2250,6 +2250,9 @@ function Gromo() {
           if (active && current === request && generation === sessionGeneration()) {
             dispatch({ type: 'SCREEN_TIME_SNAPSHOT', snapshot, now: Date.now() });
             dispatch({ type: 'SETTING', key: 'screenTimeSyncError', value: snapshot.reportFailed });
+            // 하루 스크린타임 스냅샷 확정 — 측정값이 있을 때 스냅샷 dispatch당 1회
+            if (snapshot.minutes !== null)
+              captureProductEvent('screen_time_daily', { minutes: snapshot.minutes });
           }
         } catch {
           const status = await screenTime.getAuthorizationStatus().catch(() => 'unavailable');
@@ -2287,6 +2290,9 @@ function Gromo() {
         if (!isCurrent()) return;
         dispatch({ type: 'SCREEN_TIME_SNAPSHOT', snapshot: result.snapshot, now: Date.now() });
         measured = true;
+        // 하루 스크린타임 스냅샷 확정 — 측정값이 있을 때 스냅샷 dispatch당 1회
+        if (result.snapshot.minutes !== null)
+          captureProductEvent('screen_time_daily', { minutes: result.snapshot.minutes });
         await reportScreenTime(result.authorization, result.timeline, generation);
         if (isCurrent()) dispatch({ type: 'SETTING', key: 'screenTimeSyncError', value: false });
       } catch {
