@@ -13,10 +13,11 @@ public final class DeveloperNoticeResponses {
     private DeveloperNoticeResponses() {
     }
 
+    /** 최신순 한 쪽 — {@code nextCursor} 는 더 없으면 null 이고 키는 항상 실린다. */
     @Schema(name = "DeveloperNoticePage")
-    public record Page(List<Notice> items) {
-        public static Page from(DeveloperNotices.Page value) {
-            return new Page(value.items().stream().map(Notice::from).toList());
+    public record Page(List<Notice> items, @JsonInclude(JsonInclude.Include.ALWAYS) String nextCursor) {
+        public static Page from(DeveloperNotices.Page value, String nextCursor) {
+            return new Page(value.items().stream().map(Notice::from).toList(), nextCursor);
         }
     }
 

@@ -1,5 +1,6 @@
 package com.oneorthree.phone.internal;
 
+import com.jayway.jsonpath.JsonPath;
 import com.oneorthree.phone.common.util.ZonePolicy;
 import com.oneorthree.phone.content.exception.ContentException;
 import com.oneorthree.phone.content.service.DeveloperNoticeService;
@@ -29,13 +30,16 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.util.AopTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
 import java.sql.Timestamp;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -50,6 +54,7 @@ import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /** 실제 V0+후속 PostgreSQL에서 공개 여부·원자성·경합·관리 자격 경계를 검증한다. */
@@ -60,6 +65,7 @@ class ContentPublicationIntegrationTest {
     private static final Instant NOW = Instant.parse("2034-05-10T01:00:00Z");
     private static final LocalDate DATE = LocalDate.of(2034, 5, 10);
     private static final String ADMIN = "/internal/admin/content";
+    private static final String NOTICES = "/internal/users/%s/developer-notices";
     private static final String LAYOUT = "{\"v\":1,\"frameId\":\"mag.frame-scallop\",\"stickers\":[],\"tape\":null}";
 
     @DynamicPropertySource
@@ -74,6 +80,8 @@ class ContentPublicationIntegrationTest {
         registry.add("internal.api.callers.business.token", () -> "content-test-business");
         // 실수로 넓은 허용목록을 등록해도 관리 경로는 전용 자격만 통과해야 한다.
         registry.add("internal.api.callers.business.allow[0]", () -> "GET /internal/admin/content/notices");
+        // 운영 application-satellites.yml 이 Business 에 여는 공개 소식 목록 — 이어 읽기를 실제 경로로 본다.
+        registry.add("internal.api.callers.business.allow[1]", () -> "GET /internal/users/*/developer-notices");
     }
 
     @Autowired DeveloperNoticeService notices;
@@ -115,6 +123,88 @@ class ContentPublicationIntegrationTest {
                 .isInstanceOf(ContentException.class).hasMessageContaining("다른 내용");
         assertThat(jdbc.queryForObject("SELECT actor FROM content_publications WHERE publication_id=?",
                 String.class, id)).isEqualTo("member-1");
+    }
+
+    @Test
+    void publicListReadsEveryActiveNoticeOnceInOrderAcrossPages() throws Exception {
+        // 7건씩 같은 published_at(마이크로초 포함). 같은 시각에 미시작·만료·철회 행을 섞어 id 가 가르는 구간을 만든다.
+        Map<UUID, Instant> active = new HashMap<>();
+        for (int i = 0; i < 105; i++) {
+            Instant at = NOW.minusSeconds(60L * (i / 7)).plusNanos(123_456_000L);
+            active.put(publishAt(at, draft(NOW.minusSeconds(3600), null)), at);
+            if (i % 6 == 0) {
+                publishAt(at, draft(NOW.plusSeconds(60), null));
+                publishAt(at, draft(NOW.minusSeconds(7200), NOW));
+                notices.withdraw(publishAt(at, draft(NOW.minusSeconds(3600), null)), "member-1");
+            }
+        }
+        when(clock.instant()).thenReturn(NOW);
+        // 기대 순서는 Java UUID.compareTo 가 아니라 소문자 문자열 비교로 만든다 — PostgreSQL uuid 는 바이트 순서다.
+        List<String> expected = active.entrySet().stream()
+                .sorted(Map.Entry.<UUID, Instant>comparingByValue()
+                        .thenComparing(entry -> entry.getKey().toString()).reversed())
+                .map(entry -> entry.getKey().toString()).toList();
+        UUID reader = users.save(User.builder().nickname("공지 독자-" + UUID.randomUUID()).build()).getId();
+
+        for (int limit : new int[]{100, 35, 7}) {
+            Walk walk = walk(reader, limit);
+            assertThat(walk.ids()).as("limit %d", limit).containsExactlyElementsOf(expected);
+            List<Integer> sizes = new ArrayList<>();
+            for (int left = expected.size(); left > 0; left -= limit) {
+                sizes.add(Math.min(left, limit));
+            }
+            assertThat(walk.sizes()).as("limit %d 쪽 크기", limit).containsExactlyElementsOf(sizes);
+        }
+        String first = mvc.perform(noticesRequest(reader)).andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString();
+        assertThat(JsonPath.<List<String>>read(first, "$.items[*].publicationId"))
+                .as("파라미터 없는 호출은 예전처럼 첫 100건").containsExactlyElementsOf(expected.subList(0, 100));
+        assertThat(JsonPath.<Boolean>read(first, "$.hasMore")).isTrue();
+        assertThat(notices.list(false).items()).extracting(notice -> notice.publicationId().toString())
+                .containsExactlyElementsOf(expected.subList(0, 100));
+        // 관리 목록은 활성 여부와 무관하게 지금처럼 100건에서 멈춘다.
+        assertThat(notices.list(true).items()).hasSize(100);
+        assertThat(notices.list(true).hasMore()).isTrue();
+    }
+
+    @Test
+    void exactlyOneHundredActiveNoticesEndWithoutAnotherPage() throws Exception {
+        List<UUID> ids = new ArrayList<>();
+        for (int i = 0; i < 101; i++) {
+            ids.add(publishAt(NOW.minusSeconds(i), draft(NOW.minusSeconds(3600), null)));
+        }
+        when(clock.instant()).thenReturn(NOW);
+        UUID reader = users.save(User.builder().nickname("공지 독자-" + UUID.randomUUID()).build()).getId();
+        assertThat(walk(reader, 100).sizes()).containsExactly(100, 1);
+
+        // 가장 오래된 1건을 내리면 정확히 100건 — 다음 쪽이 없다.
+        notices.withdraw(ids.get(100), "member-1");
+        assertThat(walk(reader, 100).sizes()).containsExactly(100);
+        assertThat(notices.list(null, null, 100).hasMore()).isFalse();
+    }
+
+    @Test
+    void publicListRejectsAHalfAnchorAndAnOutOfRangeLimit() throws Exception {
+        UUID reader = users.save(User.builder().nickname("공지 독자-" + UUID.randomUUID()).build()).getId();
+        for (Map<String, String> query : List.of(Map.of("afterPublishedAt", NOW.toString()),
+                Map.of("afterId", UUID.randomUUID().toString()), Map.of("limit", "0"), Map.of("limit", "101"),
+                Map.of("limit", "-1"))) {
+            var request = noticesRequest(reader);
+            query.forEach(request::param);
+            mvc.perform(request).andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+        }
+        // 형식이 틀린 값은 서비스까지 오기 전에 전역 변환 오류로 거절된다.
+        for (Map<String, String> query : List.of(
+                Map.of("afterPublishedAt", "어제", "afterId", UUID.randomUUID().toString()),
+                Map.of("afterPublishedAt", NOW.toString(), "afterId", "not-a-uuid"), Map.of("limit", "many"))) {
+            var request = noticesRequest(reader);
+            query.forEach(request::param);
+            mvc.perform(request).andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("INVALID_PARAMETER"));
+        }
+        assertThatThrownBy(() -> notices.list(NOW, null, 10)).isInstanceOf(ContentException.class);
+        assertThatThrownBy(() -> notices.list(null, UUID.randomUUID(), 10)).isInstanceOf(ContentException.class);
     }
 
     @Test
@@ -492,6 +582,48 @@ class ContentPublicationIntegrationTest {
 
     private DeveloperNoticeService.Draft draft(Instant starts, Instant ends) {
         return new DeveloperNoticeService.Draft("개발자 소식", "검토한 본문", starts, ends, null, null);
+    }
+
+    /** published_at 은 게시 시각이라 시계를 그 시각으로 옮겨 게시한다. */
+    private UUID publishAt(Instant at, DeveloperNoticeService.Draft draft) {
+        UUID id = UUID.randomUUID();
+        when(clock.instant()).thenReturn(at);
+        notices.publish(id, draft, "member-1");
+        return id;
+    }
+
+    private MockHttpServletRequestBuilder noticesRequest(UUID reader) {
+        return get(NOTICES.formatted(reader)).header("Authorization", "Bearer content-test-business")
+                .header("X-User-Id", reader.toString());
+    }
+
+    private record Walk(List<String> ids, List<Integer> sizes) { }
+
+    /** 공개 경로를 앵커 없이 시작해 hasMore 가 꺼질 때까지 읽는다 — Business 처럼 마지막 행의 두 값을 되돌려 보낸다. */
+    private Walk walk(UUID reader, int limit) throws Exception {
+        Walk walk = new Walk(new ArrayList<>(), new ArrayList<>());
+        String afterPublishedAt = null;
+        String afterId = null;
+        boolean more = true;
+        while (more) {
+            assertThat(walk.sizes()).as("끝나지 않는 이어 읽기").hasSizeLessThan(200);
+            var request = noticesRequest(reader).param("limit", Integer.toString(limit));
+            if (afterId != null) {
+                request.param("afterPublishedAt", afterPublishedAt).param("afterId", afterId);
+            }
+            String body = mvc.perform(request).andExpect(status().isOk())
+                    .andReturn().getResponse().getContentAsString();
+            List<String> ids = JsonPath.read(body, "$.items[*].publicationId");
+            List<String> published = JsonPath.read(body, "$.items[*].publishedAt");
+            walk.ids().addAll(ids);
+            walk.sizes().add(ids.size());
+            more = JsonPath.<Boolean>read(body, "$.hasMore");
+            if (more) {
+                afterPublishedAt = published.get(published.size() - 1);
+                afterId = ids.get(ids.size() - 1);
+            }
+        }
+        return walk;
     }
 
     private UUID promotion() {

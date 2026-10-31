@@ -421,10 +421,17 @@ public class DataIslandClient {
                 new ParameterizedTypeReference<IslandPromotions.Assets>() { });
     }
 
-    /** 현재 게시 중인 개발자 소식 목록. */
-    public DeveloperNotices.Page fetchDeveloperNotices(UUID userId, Deadline deadline) {
+    /**
+     * 현재 게시 중인 개발자 소식 한 쪽. anchor 두 값은 서명 커서를 푼 이전 쪽의 마지막 행이다 — 첫 쪽은 싣지 않는다.
+     * 멱등 GET 이라 재시도한다.
+     */
+    public DeveloperNotices.Page fetchDeveloperNotices(UUID userId, Instant afterPublishedAt, UUID afterId,
+            int limit, Deadline deadline) {
         return http.exchange(InternalCall.to(HttpMethod.GET,
-                "/internal/users/" + userId + "/developer-notices").onBehalfOf(userId).build(),
+                "/internal/users/" + userId + "/developer-notices").onBehalfOf(userId)
+                .query("afterPublishedAt", afterPublishedAt == null ? null : afterPublishedAt.toString())
+                .query("afterId", afterId == null ? null : afterId.toString())
+                .query("limit", Integer.toString(limit)).build(),
                 deadline, new ParameterizedTypeReference<DeveloperNotices.Page>() { });
     }
 
