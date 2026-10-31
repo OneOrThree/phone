@@ -53,6 +53,11 @@ test("연결 모드는 두 서비스 버전을 주고 구버전 서버는 null",
   assert.equal(apple[0].url, APPLE);
   assert.deepEqual(apple[0].headers, {});
 });
+test("서버가 unknown 을 돌려주면 null 로 정규화한다", async t => {
+  const run = async data => (await (await serve(t, "connected", connected(ok, { data }).upstream))())[1];
+  assert.equal((await run({ serverVersion: "unknown", schemaVersion: "unknown" })).data, null);
+  assert.deepEqual((await run({ serverVersion: " Unknown ", schemaVersion: "9" })).data, { serverVersion: null, schemaVersion: "9" });
+});
 test("iOS 스토어 조회 결과 분류, 실패해도 라우트는 성공", async t => {
   const cases = [
     [() => Response.json({ resultCount: 0, results: [] }), "unpublished"],

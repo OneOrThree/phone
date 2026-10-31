@@ -245,7 +245,7 @@ export function createApp({
         const [identity, iosStore] = await Promise.all([
           upstream.verifyEnvironment(environment, auth.actor, operator), upstream.iosStoreVersion()]);
         // 표시 전용 값이라 문자열이 아니면 버린다(앱 화면이 slice 로 죽지 않게).
-        const str = v => typeof v === "string" ? v : null;
+        const str = v => { const t = typeof v === "string" ? v.trim() : ""; return t && t.toLowerCase() !== "unknown" ? t : null; };
         const pick = value => str(value?.serverVersion) || str(value?.schemaVersion)
           ? { serverVersion: str(value.serverVersion), schemaVersion: str(value.schemaVersion) } : null;
         send(200, { local: false, data: pick(identity.data), notification: pick(identity.notification), iosStore });

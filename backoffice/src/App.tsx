@@ -239,8 +239,8 @@ function ConfirmDialog({ item, action, busy, error, mode, iosStore, onClose, onC
       {(item.kind === 'magazine' || item.kind === 'construction') && <ContentPreview draft={draftFrom(item)} />}
       {action === 'publish' && <p className="callout">{item.kind === 'fcm' ? '발송 요청이 접수되어도 실제 기기 수신을 의미하지 않습니다. 발송 게이트가 꺼져 있으면 대기합니다.' : item.kind === 'construction' ? '승인된 비용과 공사 시간을 새 착공에 적용합니다. 이미 시작한 공사는 유지되며, 기준 정책이 바뀌었다면 다시 검토해야 합니다.' : '현재 승인된 수정본을 게시합니다. 게시 이후 내용은 이 초안에서 수정할 수 없습니다.'}</p>}
       {item.kind === 'notice' && forces(item) && ['review', 'approve', 'publish'].includes(action) && <p className="callout" role="alert">{FORCE_WARNING}</p>}
-      {storeNotice === 'exceeds' && <p className="callout" role="alert">{storeWarning(iosStore?.version ?? '')}</p>}
-      {storeNotice === 'unpublished' && <p className="callout" role="alert">{unpublishedWarning}</p>}
+      {storeNotice === 'exceeds' && <p className="callout" role="status">{storeWarning(iosStore?.version ?? '')}</p>}
+      {storeNotice === 'unpublished' && <p className="callout" role="status">{unpublishedWarning}</p>}
       {storeNotice === 'unavailable' && <p className="callout">{unavailableNotice}</p>}
       {action === 'cancel' && <p className="callout">발행 전 작업을 취소하고 보관 목록으로 옮깁니다. 내용과 변경 이력은 남습니다.</p>}
       {action === 'cancel-delivery' && <p className="callout">대기·재시도 중인 발송을 취소합니다. 이미 발송했거나 FCM 호출 중인 알림은 회수할 수 없습니다. 처리 후 수치를 확인하세요.</p>}
