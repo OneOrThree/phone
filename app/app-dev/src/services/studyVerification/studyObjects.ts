@@ -39,12 +39,17 @@ export function studyObjectScores(raw: Float32Array): StudyObjectScores {
   'worklet';
   if (!raw.length || raw.length % OBJECT_CLASSES !== 0)
     throw new Error('Invalid object score tensor');
+  // 비정상 확률을 정상 미검출이나 다른 앵커의 성공으로 바꾸지 않는다. 호출부는 오류를 null로 보존한다.
+  for (let i = 0; i < raw.length; i++) {
+    const score = raw[i]!;
+    if (!Number.isFinite(score) || score < 0 || score > 1)
+      throw new Error('Invalid object score probability');
+  }
   const result: StudyObjectScores = { laptop: 0, keyboard: 0, book: 0 };
   for (let offset = 0; offset < raw.length; offset += OBJECT_CLASSES) {
     for (const key of ['laptop', 'keyboard', 'book'] as const) {
       const score = raw[offset + LABELS[key]]!;
-      if (Number.isFinite(score) && score >= 0 && score <= 1 && score > result[key])
-        result[key] = score;
+      if (score > result[key]) result[key] = score;
     }
   }
   return result;
