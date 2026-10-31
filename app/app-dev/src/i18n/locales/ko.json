@@ -1435,5 +1435,68 @@
         "canopy-moon": "달빛 파라솔"
       }
     }
+  },
+  "verification": {
+    "button": "카메라 인증",
+    "switch": "카메라 인증 사용",
+    "on": "켜짐",
+    "off": "꺼짐",
+    "intro": {
+      "title": "낚시섬에서는\n카메라로 집중 시간을\n확인해요",
+      "privacy": "영상 저장·공유·전송 없이 기기 안에서만 확인해요.",
+      "try": "카메라 켜보기",
+      "later": "나중에",
+      "preview": "미리보기를 꺼도,\n측정이 켜져 있으면 계속 측정해요.",
+      "precheckHint": "집중 시작 전에 미리보기로 인정 여부를 확인할 수 있어요.",
+      "measurementHint": "켜기 · 끄기",
+      "previewLabel": "미리보기",
+      "previewHint": "내 화면을 볼 수 있어요."
+    },
+    "result": {
+      "title": "인증 시간 / 총 집중 시간",
+      "accessibility": "인증 시간 {{verified}}, 총 집중 시간 {{total}}"
+    },
+    "session": {
+      "cameraError": "카메라를 사용할 수 없어요.",
+      "measurementActive": "측정 중",
+      "measurementPreparing": "측정 준비 중",
+      "measurementActiveA11y": "카메라로 AI 집중 측정 중",
+      "retryCamera": "카메라 다시 시도",
+      "enable": "켜기",
+      "turnOff": "AI 집중 측정만 끄고 집중은 계속해요",
+      "turnOn": "미리보기 표시와 관계없이 AI 집중 측정을 켜요",
+      "verified": "인증 {{time}}"
+    },
+    "setup": {
+      "body": "집중 중 20초마다 책상을 봐요.\n사진은 폰 밖으로 나가지 않아요.",
+      "hint": "손이 화면에 보이도록 놓아 주세요",
+      "enable": "시작하기",
+      "disable": "끄기",
+      "flip": "카메라 전환",
+      "denied": "설정에서 카메라를 허용해 주세요",
+      "openSettings": "설정 열기",
+      "requesting": "카메라 권한 확인 중",
+      "noCamera": "사용할 수 있는 카메라가 없어요",
+      "permissionError": "카메라 권한을 확인하지 못했어요. 다시 열어 주세요.",
+      "cameraError": "카메라를 켜지 못했어요. 다시 열거나 전환해 주세요.",
+      "settingsError": "설정을 열지 못했어요. 기기 설정에서 카메라를 허용해 주세요.",
+      "openHint": "카메라 미리보기에서 집중이 확인되는지 살펴봐요",
+      "enableMeasurement": "측정을 켜주세요",
+      "detection": {
+        "checking": "집중 확인 중…",
+        "focused": "집중 확인 완료",
+        "missingHand": "손이 보이지 않아요.",
+        "missingObject": "노트북/책이 보이지 않아요.",
+        "unavailable": "집중 인식을 확인하지 못했어요"
+      },
+      "detectedHint": "이 상태로 집중을 시작할 수 있어요",
+      "objects": {
+        "detected": "{{objects}} 감지",
+        "book": "책",
+        "laptop": "노트북",
+        "keyboard": "키보드"
+      }
+    },
+    "switchLabel": "AI집중측정"
   }
 }
