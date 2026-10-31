@@ -1,5 +1,6 @@
 package com.oneorthree.notification;
 
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.env.Environment;
 import org.springframework.dao.DataAccessException;
@@ -9,8 +10,10 @@ import org.springframework.stereotype.Component;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /** 실제 알림 DB와 FCM 프로젝트를 발송 직전까지 확인한다. */
+@Slf4j
 @Component
 class NotificationEnvironmentGuard {
     static final class EnvironmentMismatch extends IllegalStateException {
@@ -26,6 +29,8 @@ class NotificationEnvironmentGuard {
     private final Environment environment;
     private final JdbcTemplate jdbc;
     private final String fcmProjectId;
+    /** Flyway 이력 조회 실패 WARN 을 프로세스당 한 번만 남기는 표식 — 환경 확인이 반복돼도 로그가 쌓이지 않게 한다. */
+    private final AtomicBoolean schemaVersionFailureLogged = new AtomicBoolean();
 
     NotificationEnvironmentGuard(Environment environment, JdbcTemplate jdbc,
             @Value("${fcm.project-id:}") String fcmProjectId) {
@@ -82,7 +87,7 @@ class NotificationEnvironmentGuard {
         return Map.of("environment", expected, "fcmProjectId", fcmProjectId);
     }
 
-    /** 배포 커밋 SHA(OBS_VERSION)와 마지막 성공 Flyway 버전. 알 수 없으면 unknown. */
+    /** 배포 커밋 SHA(OBS_VERSION)와 마지막 성공 Flyway 버전. 알 수 없으면 unknown. 이력 조회 실패는 프로세스당 WARN 한 번. */
     Map<String, String> versions() {
         String server = environment.getProperty("OBS_VERSION");
         String schema = "unknown";
@@ -97,6 +102,10 @@ class NotificationEnvironmentGuard {
             }
         } catch (DataAccessException unavailable) {
             // 이력 조회 실패가 환경 확인 전체를 막지 않는다 — 스키마 버전만 unknown.
+            if (schemaVersionFailureLogged.compareAndSet(false, true)) {
+                log.warn("Flyway 이력 조회 실패 — schemaVersion 을 unknown 으로 응답한다(이후 실패는 로그하지 않는다)",
+                        unavailable);
+            }
         }
         return Map.of("serverVersion", server == null || server.isBlank() ? "unknown" : server.strip(),
                 "schemaVersion", schema);

@@ -1,7 +1,14 @@
 package com.oneorthree.notification;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import jakarta.servlet.http.HttpServletRequest;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.env.MockEnvironment;
@@ -22,6 +29,21 @@ import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.verify;
 
 class PublicationEnvironmentTest {
+    private final Logger guardLog = (Logger) LoggerFactory.getLogger(NotificationEnvironmentGuard.class);
+    private final ListAppender<ILoggingEvent> logs = new ListAppender<>();
+
+    @BeforeEach
+    void captureLogs() {
+        logs.start();
+        guardLog.addAppender(logs);
+    }
+
+    @AfterEach
+    void releaseLogs() {
+        guardLog.detachAppender(logs);
+        logs.stop();
+    }
+
     @Test
     void RDS_설명_표식이_프로파일과_FCM에_일치할_때만_발송_준비가_된다() {
         var environment = new MockEnvironment();
@@ -200,6 +222,35 @@ class PublicationEnvironmentTest {
         assertThat(versionsWith(j -> when(j.queryForList(argThat(sql -> sql.contains("flyway_schema_history")),
                 eq(String.class))).thenThrow(new DataAccessResourceFailureException("x"))))
                 .containsEntry("schemaVersion", "unknown");
+    }
+
+    @Test
+    void Flyway_이력_조회가_반복해서_실패해도_WARN은_프로세스당_한_번이다() {
+        var jdbc = mock(JdbcTemplate.class);
+        when(jdbc.queryForObject(anyString(), eq(Boolean.class))).thenReturn(true);
+        when(jdbc.queryForList(argThat(sql -> sql != null && sql.contains("flyway_schema_history")),
+                eq(String.class))).thenThrow(new DataAccessResourceFailureException("x"));
+        var guard = new NotificationEnvironmentGuard(new MockEnvironment(), jdbc, "x");
+
+        for (int i = 0; i < 3; i++) {
+            assertThat(guard.versions()).containsEntry("schemaVersion", "unknown");
+        }
+
+        assertThat(logs.list).filteredOn(event -> event.getLevel() == Level.WARN).singleElement()
+                .satisfies(event -> assertThat(event.getThrowableProxy().getClassName())
+                        .isEqualTo(DataAccessResourceFailureException.class.getName()));
+    }
+
+    @Test
+    void Flyway_이력_조회가_실패하지_않으면_WARN이_없다() {
+        assertThat(versionsWith(j -> when(j.queryForList(argThat(sql -> sql.contains("flyway_schema_history")),
+                eq(String.class))).thenReturn(List.of("7")))).containsEntry("schemaVersion", "7");
+        var noTable = mock(JdbcTemplate.class);
+        when(noTable.queryForObject(anyString(), eq(Boolean.class))).thenReturn(false);
+        assertThat(new NotificationEnvironmentGuard(new MockEnvironment(), noTable, "x").versions())
+                .containsEntry("schemaVersion", "unknown");
+
+        assertThat(logs.list).noneMatch(event -> event.getLevel() == Level.WARN);
     }
 
     @Test

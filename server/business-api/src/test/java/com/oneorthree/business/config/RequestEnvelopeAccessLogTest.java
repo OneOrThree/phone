@@ -5,6 +5,8 @@ import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import com.oneorthree.business.common.api.ApiResponses;
 import com.oneorthree.business.common.logging.ObservationJsonProvider;
+import io.micrometer.core.instrument.Tag;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -25,6 +27,7 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -35,7 +38,9 @@ class RequestEnvelopeAccessLogTest {
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final ObservationJsonProvider PROVIDER = new ObservationJsonProvider(new MockEnvironment());
 
-    private final RequestEnvelopeFilter filter = new RequestEnvelopeFilter(new ApiResponses(new JsonMapper()));
+    // 필드 선언 순서가 생성 순서다 — filter 가 metrics 를 쓰므로 위에 둔다(전방 참조 금지).
+    private final SimpleMeterRegistry metrics = new SimpleMeterRegistry();
+    private final RequestEnvelopeFilter filter = new RequestEnvelopeFilter(new ApiResponses(new JsonMapper()), metrics);
     private final MockMvc mockMvc = MockMvcBuilders.standaloneSetup(new ProbeController()).addFilters(filter).build();
     private final Logger logger = (Logger) LoggerFactory.getLogger(RequestEnvelopeFilter.class);
     private final ListAppender<ILoggingEvent> appender = new ListAppender<>();
@@ -72,6 +77,7 @@ class RequestEnvelopeAccessLogTest {
                 .andExpect(status().isOk());
 
         assertThat(accessJson()).containsEntry("app_version", "1.0.2").containsEntry("app_platform", "ios");
+        assertThat(metrics.getMeters()).as("유효한 값은 세지 않는다").isEmpty();
     }
 
     @Test
@@ -135,6 +141,62 @@ class RequestEnvelopeAccessLogTest {
     }
 
     @Test
+    void paddedAppHeadersAreStrippedBeforeLoggingAndNotCounted() throws Exception {
+        mockMvc.perform(get("/probe/1").header("X-App-Version", " 2.0.1 ").header("X-App-Platform", " ios "))
+                .andExpect(status().isOk());
+
+        assertThat(accessEvent().getKeyValuePairs()).extracting(kv -> kv.key, kv -> kv.value)
+                .contains(tuple("app_version", "2.0.1"), tuple("app_platform", "ios"));
+        assertThat(accessJson()).containsEntry("app_version", "2.0.1").containsEntry("app_platform", "ios");
+        assertThat(metrics.getMeters()).as("공백을 걷어 내면 유효한 값이다").isEmpty();
+    }
+
+    @Test
+    void invalidVersionIsCountedUnderItsOwnHeader() throws Exception {
+        mockMvc.perform(get("/probe/1").header("X-App-Version", "1.0").header("X-App-Platform", "ios"))
+                .andExpect(status().isOk());
+
+        assertThat(invalid("X-App-Version")).isEqualTo(1);
+        assertThat(invalid("X-App-Platform")).isZero();
+    }
+
+    @Test
+    void invalidPlatformIsCountedUnderItsOwnHeader() throws Exception {
+        // IOS 는 대소문자까지 정확해야 하는 값이라 여전히 무효다 — 공백만 걷는다.
+        mockMvc.perform(get("/probe/1").header("X-App-Version", "1.0.2").header("X-App-Platform", "IOS"))
+                .andExpect(status().isOk());
+
+        assertThat(invalid("X-App-Platform")).isEqualTo(1);
+        assertThat(invalid("X-App-Version")).isZero();
+    }
+
+    @Test
+    void bothInvalidCountTwoAndTagsCarryOnlyTheHeaderName() throws Exception {
+        mockMvc.perform(get("/probe/1").header("X-App-Version", "v9.9").header("X-App-Platform", "web"))
+                .andExpect(status().isOk());
+
+        assertThat(invalid("X-App-Version") + invalid("X-App-Platform")).isEqualTo(2);
+        // 이름·태그 집합이 전부다 — 원본 값(v9.9·web)은 태그에 실리지 않는다.
+        assertThat(metrics.getMeters()).hasSize(2).extracting(meter -> meter.getId().getName())
+                .containsOnly("business.request.app_header.invalid");
+        assertThat(metrics.getMeters()).flatExtracting(meter -> meter.getId().getTags())
+                .extracting(Tag::getKey, Tag::getValue)
+                .containsExactlyInAnyOrder(tuple("header", "X-App-Version"), tuple("header", "X-App-Platform"));
+    }
+
+    @Test
+    void missingOrBlankAppHeadersAreAbsentNotCounted() throws Exception {
+        mockMvc.perform(get("/probe/1")).andExpect(status().isOk());
+        mockMvc.perform(get("/probe/1").header("X-App-Version", "").header("X-App-Platform", ""))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/probe/1").header("X-App-Version", "  ").header("X-App-Platform", " \t "))
+                .andExpect(status().isOk());
+
+        assertThat(metrics.getMeters()).isEmpty();
+        assertThat(keysOf(accessEvent())).doesNotContain("app_version", "app_platform");
+    }
+
+    @Test
     void unhandledExceptionOmitsUndecidedStatus() {
         assertThatThrownBy(() -> mockMvc.perform(get("/boom"))).hasRootCauseMessage("boom");
 
@@ -177,6 +239,12 @@ class RequestEnvelopeAccessLogTest {
                 .filter(candidate -> candidate.getMarkerList() != null
                         && candidate.getMarkerList().contains(ObservationJsonProvider.ACCESS))
                 .reduce((first, second) -> second).orElseThrow();
+    }
+
+    /** 헤더별 «형식 어긋남» 카운터 값 — 한 번도 안 셌으면 미터가 없으므로 0. */
+    private double invalid(String header) {
+        var counter = metrics.find(RequestEnvelopeFilter.APP_HEADER_INVALID).tag("header", header).counter();
+        return counter == null ? 0 : counter.count();
     }
 
     private static List<String> keysOf(ILoggingEvent event) {
