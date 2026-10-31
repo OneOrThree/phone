@@ -170,6 +170,9 @@ class OnboardingIslandIntegrationTest {
                 + " and status='COMPLETED'", created)).isEqualTo(1);
         assertThat(count("select count(*) from island_facilities where island_id=?", created)).isEqualTo(1);
         assertThat(count("select count(*) from construction_guide_recipients where island_id=?", created)).isZero();
+        // 완공 회관은 공동 외양 맵에도 등록돼야 테마 PATCH 가 422 로 거절되지 않는다(GROMO-2650 코드리뷰).
+        assertThat(jdbc.queryForObject("select jsonb_exists(building_themes, 'hall') from island_appearances"
+                + " where island_id=?", Boolean.class, created)).isTrue();
         UUID key = UUID.randomUUID();
         var arrival = islands.arrive(user, created, key);
         assertThat(arrival.membershipStatus()).isEqualTo("active");
