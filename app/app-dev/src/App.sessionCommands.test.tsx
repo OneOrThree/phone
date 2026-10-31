@@ -243,7 +243,12 @@ test('owner와 복구 세션이 다르면 활성 계정 동기화 뒤에만 이�
     ...initialState(true),
     name: 'A-only-private-state',
     focusBlockingIntro: 'pending',
-    settings: { ...initialState(true).settings, sound: false },
+    settings: {
+      ...initialState(true).settings,
+      sound: false,
+      studyVerification: true,
+      studyVerificationCamera: 'front',
+    },
   };
   await AsyncStorage.setItem('gromo-r61-user-v2', JSON.stringify(savedA));
   await saveSession({ accessToken: 'B_AT', refreshToken: 'B_RT', userId: 'user-b' });
@@ -295,6 +300,8 @@ test('owner와 복구 세션이 다르면 활성 계정 동기화 뒤에만 이�
   assert.notEqual(captured.state.fish, 777);
   expect(captured.state.focusBlockingIntro).toBeUndefined();
   assert.equal(captured.state.settings.sound, false);
+  assert.equal(captured.state.settings.studyVerification, false);
+  assert.equal(captured.state.settings.studyVerificationCamera, 'front');
   await waitFor(() => {
     assert.equal(captured.state.loggedIn, true);
     assert.equal(captured.state.serverIslands.currentIslandId, 'server-island-b');
@@ -304,6 +311,7 @@ test('owner와 복구 세션이 다르면 활성 계정 동기화 뒤에만 이�
   await waitFor(async () => {
     const persisted = JSON.parse((await AsyncStorage.getItem('gromo-r61-user-v2'))!);
     assert.equal(persisted.loggedIn, true);
+    assert.equal(persisted.settings.studyVerification, false);
     assert.equal(persisted.serverIslands.currentIslandId, 'server-island-b');
   }, SAVED_WRITE);
 });
@@ -531,7 +539,12 @@ test('오프라인 mismatch 뒤 같은 owner로 로그인하면 보류한 저장
     ...initialState(true),
     owned: ['a-only-item'],
     fish: 777,
-    settings: { ...initialState(true).settings, sound: false },
+    settings: {
+      ...initialState(true).settings,
+      sound: false,
+      studyVerification: true,
+      studyVerificationCamera: 'front',
+    },
   };
   const rawA = JSON.stringify(savedA);
   await AsyncStorage.setItem('gromo-r61-user-v2', rawA);
@@ -593,10 +606,12 @@ test('오프라인 mismatch 뒤 같은 owner로 로그인하면 보류한 저장
   await waitFor(async () => {
     const persisted = JSON.parse((await AsyncStorage.getItem('gromo-r61-user-v2'))!);
     assert.deepEqual(persisted.owned, ['a-only-item']);
+    assert.equal(persisted.settings.studyVerification, true);
   }, SAVED_WRITE);
 
   assert.equal(captured.state.name, 'A');
   assert.equal(captured.state.settings.sound, false);
+  assert.equal(captured.state.settings.studyVerification, true);
   assert.equal(getLastSessionUserId(), 'user-a');
 });
 

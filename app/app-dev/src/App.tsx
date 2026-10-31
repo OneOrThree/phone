@@ -2003,7 +2003,11 @@ function Gromo() {
                 type: 'LOAD',
                 state: {
                   ...initialState(DEMO),
-                  settings: loadable?.settings ?? stateRef.current.settings,
+                  // 전환 도중 종료된 부팅 복구도 이전 계정의 카메라 측정 ON을 넘기지 않는다.
+                  settings: {
+                    ...(loadable?.settings ?? stateRef.current.settings),
+                    studyVerification: false,
+                  },
                 },
                 now: Date.now(),
               });
