@@ -5,7 +5,7 @@ import FamilyControls
 
 // 리포트 수치는 확장 안에서만 표시한다. 퀘스트 판정은 Monitor 버킷을 사용한다.
 final class ScreenTimeReportUIView: UIView {
-    private let appGroupID = "group.com.oneorthree.focuscat"
+    private let appGroupID = "group.com.oneorthree.gromo"
     private var hostingController: UIHostingController<AnyView>?
     private var refreshTimer: Timer?
     private var refreshScheduled = false

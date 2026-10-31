@@ -48,12 +48,12 @@ test('Android uses the 2.0 Kakao app identity and OAuth callback scheme', () => 
   );
 });
 
-test('iOS uses the 2.0 Kakao key and callback scheme for the focuscat bundle', () => {
+test('iOS uses the 2.0 Kakao key and callback scheme for the gromo bundle', () => {
   const iosKey = '1280641e9b639a279b7406f24b059703';
   const kakaoPlugin = appConfig.plugins.find(([name]) => name === '@react-native-kakao/core');
   const plist = fs.readFileSync(path.join(appDevRoot, 'ios/Cattus/Info.plist'), 'utf8');
 
-  expect(appConfig.ios.bundleIdentifier).toBe('com.oneorthree.focuscat');
+  expect(appConfig.ios.bundleIdentifier).toBe('com.oneorthree.gromo');
   expect(kakaoPlugin[1].nativeAppKey).toBe(iosKey);
   expect(plist).toContain(`<string>kakao${iosKey}</string>`);
   expect(fs.readFileSync(path.join(appDevRoot, 'index.native.ts'), 'utf8')).toMatch(

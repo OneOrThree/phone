@@ -49,7 +49,7 @@ module.exports = {
       // GROMO-1839 iPadOS 18 이하는 멀티태스킹을 지원하면 화면 방향 잠금을 무시하므로
       // 시작·가입 화면의 세로 고정을 위해 전체 화면을 요구한다. iPadOS 26은 Expo 패치로 대응한다
       requireFullScreen: true,
-      bundleIdentifier: 'com.oneorthree.focuscat',
+      bundleIdentifier: 'com.oneorthree.gromo',
       associatedDomains: ['applinks:link.oneorthree.world', 'applinks:oneorthree.dev.mooo.com'],
       // GROMO-2523·2544 푸시·Meta SDK가 든 바이너리만 새 JS OTA를 받게 iOS 런타임을 분리한다.
       // 체크인된 ios/Cattus/Supporting/Expo.plist 의 EXUpdatesRuntimeVersion 과 같은 값이어야 한다.
@@ -62,7 +62,7 @@ module.exports = {
       },
       entitlements: {
         'com.apple.developer.family-controls': true,
-        'com.apple.security.application-groups': ['group.com.oneorthree.focuscat'],
+        'com.apple.security.application-groups': ['group.com.oneorthree.gromo'],
       },
     },
     android: {
