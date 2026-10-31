@@ -27,6 +27,7 @@ import { stripNicknameWhitespace } from '@/utils/nickname';
 import type { TelescopeItem } from '@/services/api/telescope';
 import { colorName, colors, sessionRoute, type Color, type State } from '@/services/model';
 import { errorTextOr, t } from '@/i18n';
+import { captureProductEvent } from '@/services/posthog';
 import {
   firstStoryStep,
   nextStoryStep,
@@ -105,6 +106,13 @@ export function OnboardingFlow({ e, previewItems }: { e: any; previewItems?: Tel
       mounted.current = false;
     };
   }, []);
+  // 장면 진입마다 1회 — 이탈 장면 파악용
+  useEffect(() => {
+    captureProductEvent('onboarding_scene_viewed', {
+      scene: step,
+      scene_index: storySteps.indexOf(step),
+    });
+  }, [step]);
   useEffect(() => {
     if (step !== 'arrival') return;
     const timer = setTimeout(() => setStep('silence'), ui.introDelay);

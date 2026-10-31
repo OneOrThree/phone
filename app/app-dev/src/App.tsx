@@ -1,4 +1,5 @@
 import { getAssetRepository } from '@/services/assets/repository';
+import { useFocusTutorialViewed } from '@/hooks/useFocusTutorialViewed';
 import { syncAndroidMeasurement, syncAndroidFocus } from '@/services/androidScreenTime';
 import { startLiveActivityPushSync } from '@/services/liveActivityPush';
 import { updateIOSHomeWidget } from '@/services/iosHomeWidget';
@@ -446,6 +447,7 @@ function Gromo() {
     [focusBlockingPermissionBusy, setFocusBlockingPermissionBusy] = useState(false),
     [reviewEpoch, setReviewEpoch] = useState(0);
   const guideStep = state.tutorial?.step ?? 0;
+  useFocusTutorialViewed(guideStep);
   const tutorialOwner = getSession()?.userId;
   const tutorialGeneration = sessionGeneration();
   const focusBlockingGateRef = useRef(focusBlockingGate);
