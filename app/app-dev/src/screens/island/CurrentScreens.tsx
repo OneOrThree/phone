@@ -452,13 +452,16 @@ export function CurrentScreens({ e }: any) {
           saving={guides.saving}
           error={guides.error}
           onDone={() => {
-            const key = `${islandId}:${completion}`;
-            // 확인(ack)으로 완공 이력을 영속 저장하는 순간 1회 — 재시작 후에도 중복 없음
-            if (!announcedCompletions.current.has(key)) {
-              announcedCompletions.current.add(key);
+            const completionKey = `${islandId}:${completion}`; // 영속 저장 키(계정별 guides)
+            // 확인(ack)으로 완공 이력을 영속 저장하는 순간 1회 — 재시작 후에도 중복 없음.
+            // 세션 내 중복 방지 키엔 owner 를 포함한다 — 같은 기기에서 계정이 바뀌어도(CurrentScreens 유지)
+            // 다른 계정의 정상 완공 확인을 억제하지 않게.
+            const dedupKey = `${owner}:${completionKey}`;
+            if (!announcedCompletions.current.has(dedupKey)) {
+              announcedCompletions.current.add(dedupKey);
               captureProductEvent('construction_completed', { building_id: completion });
             }
-            void guides.done({ completions: [key] });
+            void guides.done({ completions: [completionKey] });
           }}
         />
       )}
