@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { BackHandler, StyleSheet, TextInput, View } from 'react-native';
-import { Btn, CharCount, Overlay, Txt } from '@/design-system/patterns';
+import { BackHandler, StyleSheet, View } from 'react-native';
+import { Btn, Field, Overlay, Txt } from '@/design-system/patterns';
 import {
   componentTokens as c,
   primitiveTokens as p,
@@ -75,22 +75,15 @@ export function IslandNamingModal({
         <Txt accessibilityRole="header" style={[styles.title, font]}>
           {t('home.naming.title')}
         </Txt>
-        <View style={styles.fieldBox}>
-          <TextInput
-            testID="island-naming-input"
-            accessibilityLabel={t('home.naming.title')}
-            value={name}
-            onChangeText={setName}
-            maxLength={ISLAND_NAME_MAX}
-            editable={!busy}
-            placeholder={t('home.naming.placeholder')}
-            placeholderTextColor={c.input.placeholder}
-            returnKeyType="done"
-            onSubmitEditing={save}
-            style={[styles.field, font]}
-          />
-          <CharCount value={name} max={ISLAND_NAME_MAX} />
-        </View>
+        {/* 공용 Field 재사용(GROMO-2649) — minHeight·동적 글자 크기·CharCount·앱 글씨체를 다른 입력과 똑같이 따른다 */}
+        <Field
+          value={name}
+          onChange={setName}
+          placeholder={t('home.naming.placeholder')}
+          maxLength={ISLAND_NAME_MAX}
+          disabled={busy}
+          onSubmit={save}
+        />
         {!!error && (
           <Txt accessibilityRole="alert" style={[styles.error, font]}>
             {error}
@@ -118,17 +111,6 @@ const styles = StyleSheet.create({
     fontWeight: s.typography.extraBold,
     letterSpacing: -0.4,
     textAlign: 'center',
-  },
-  fieldBox: { gap: p.space[2] },
-  field: {
-    height: 50,
-    borderWidth: s.stroke.default,
-    borderColor: s.color.outline,
-    borderRadius: s.radius.control,
-    backgroundColor: s.color.surface,
-    paddingHorizontal: p.space[4],
-    fontSize: s.typography.body,
-    color: s.color.text,
   },
   error: { color: s.color.danger, textAlign: 'center' },
 });
