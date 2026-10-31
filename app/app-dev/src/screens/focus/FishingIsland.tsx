@@ -455,10 +455,18 @@ export const a11yHidden = (hidden: boolean) =>
 export const hms = (n: number) =>
   [n / 3600, (n / 60) % 60, n % 60].map((v) => String(Math.floor(v)).padStart(2, '0')).join(':');
 // 지도 창: 지도 폭은 세로 640px × 배율, 폭 600 이상(가로)은 화면 폭 × 배율. 보는 곳(focus)을 가로 가운데·세로 ratio 높이에 둔다.
-export function fishingCamera(w: number, h: number, zoom: number, focus: Point, ratio = 0.5) {
+export function fishingCamera(
+  w: number,
+  h: number,
+  zoom: number,
+  focus: Point & { upperOcean?: boolean },
+  ratio = 0.5,
+) {
   const size = (w >= 600 ? w : 640) * zoom,
     sizeY = (size * 1024) / 1536,
     offTop = Math.max(0, (h - sizeY) / 2),
+    minSy = -h * componentTokens.fishingViewport.upperOceanPanRatio,
+    maxSy = Math.max(0, sizeY - h),
     // 스크롤 위치는 브라우저처럼 정수 픽셀(지도 크기·위치도 정수로 반올림해 계산)
     // 0.8배로 줄여 지도가 화면보다 좁으면(가로·태블릿) 가로 가운데에 둔다
     sx =
@@ -467,11 +475,11 @@ export function fishingCamera(w: number, h: number, zoom: number, focus: Point, 
         : Math.round(Math.max(0, Math.min(size - w, (Math.round(size) * focus.x) / 100 - w / 2))),
     sy = Math.round(
       Math.max(
-        0,
-        Math.min(sizeY - h, Math.round(offTop) + (Math.round(sizeY) * focus.y) / 100 - h * ratio),
+        focus.upperOcean ? minSy : 0,
+        Math.min(maxSy, Math.round(offTop) + (Math.round(sizeY) * focus.y) / 100 - h * ratio),
       ),
     );
-  return { size, sizeY, offTop, sx, sy, left: -sx, top: offTop - sy };
+  return { size, sizeY, offTop, sx, sy, minSy, maxSy, left: -sx, top: offTop - sy };
 }
 // 집중 준비 카드 위치: 내 고양이(x, y 발 기준, 고양이 크기 a) 위 → 아래 → 오른쪽 → 왼쪽 중 화면(W×H) 안에 들어가는 첫 자리.
 // 좌우·위아래 여백은 안전 영역(노치·홈 인디케이터)을 지킨다. 어디에도 안 들어가면(가로 화면에 키보드가 떠 H가 작을 때)
@@ -543,13 +551,20 @@ export function FishingIsland({
 }) {
   const L = useAppLayout();
   const reduceMotion = useContext(MotionContext);
-  const [cam, setCam] = useState({ zoom: 1, x: focus.x, y: focus.y });
+  const [cam, setCam] = useState({ zoom: 1, x: focus.x, y: focus.y, upperOcean: false });
   // 상태가 바뀌면(도착·준비·집중·결과) 다시 내 자리를 보여 준다. 확대 배율은 유지.
-  useEffect(() => setCam((c) => ({ ...c, x: focus.x, y: focus.y })), [focus.x, focus.y, ratio]);
+  useEffect(
+    () => setCam((c) => ({ ...c, x: focus.x, y: focus.y, upperOcean: false })),
+    [focus.x, focus.y, ratio],
+  );
   const view = fishingCamera(L.width, L.height, cam.zoom, cam, ratio);
   const live = useRef({ cam, L, ratio, focus, seated, overlay, overlayBlocksMap });
   live.current = { cam, L, ratio, focus, seated, overlay, overlayBlocksMap };
   const gesture = useMapGesture(cam);
+  const hudTransform = useMemo(
+    () => ({ inverseScale: gesture.inverseScale, zoom: cam.zoom }),
+    [gesture, cam.zoom],
+  );
   // 끌기 기준점. 손가락 수가 바뀌면(핀치 → 한 손가락) 지금 위치에서 다시 잡아 지도가 튀지 않게 한다
   const start = useRef({ zoom: 1, x: 0, y: 0, dist: 0, n: 0, dx: 0, dy: 0 }),
     dragged = useRef(false),
@@ -558,7 +573,7 @@ export function FishingIsland({
   const zoomed = (c: typeof cam, z: number) => {
     const zoom = Math.max(0.8, Math.min(1.8, z)),
       { focus: f, seated: me } = live.current;
-    return zoom >= 1.4 && me ? { zoom, x: f.x, y: f.y } : { ...c, zoom };
+    return zoom >= 1.4 && me ? { zoom, x: f.x, y: f.y, upperOcean: false } : { ...c, zoom };
   };
   // 끄는 동안(GROMO-2373): state 는 그대로 두고 커밋된 지도를 c 카메라 자리로 옮겨 보이기만 한다.
   const show = (c: typeof cam) => {
@@ -609,13 +624,14 @@ export function FishingIsland({
           return;
         }
         // 끌어서 둘러보기: 스크롤 위치를 제한한 뒤 보는 곳으로 되돌려 저장한다(끝에 걸린 채 더 끌어도 밀리지 않게).
-        // 화면보다 좁은 방향은 가운데 고정이라 움직이지 않는다.
+        // 가로는 지도 폭으로 제한하고, 세로는 지도 위 바다까지 화면 반 높이만큼 더 이동한다.
         const sx = Math.max(0, Math.min(v.size - l.width, s.x - (g.dx - s.dx))),
-          sy = Math.max(0, Math.min(v.sizeY - l.height, s.y - (g.dy - s.dy)));
+          sy = Math.max(v.minSy, Math.min(v.maxSy, s.y - (g.dy - s.dy)));
         show({
           zoom: c.zoom,
+          upperOcean: true,
           x: v.size > l.width ? ((sx + l.width / 2) / v.size) * 100 : c.x,
-          y: v.sizeY > l.height ? ((sy - v.offTop + l.height * r) / v.sizeY) * 100 : c.y,
+          y: ((sy - v.offTop + l.height * r) / v.sizeY) * 100,
         });
       },
       onPanResponderRelease: () => {
@@ -640,12 +656,17 @@ export function FishingIsland({
     el?.addEventListener?.('wheel', wheel, { passive: false });
     return () => el?.removeEventListener?.('wheel', wheel);
   }, []);
-  // 끄는 동안에는 바다를 다시 깔지 않으므로, 최소 배율(0.8)에서 화면 반 폭·높이만큼 섬 밖까지 미리 깐다.
-  // 보는 곳(화면 가운데)은 늘 지도 안이라 어느 카메라로 가도 이 범위가 화면을 덮는다.
-  const minScale = fishingCamera(L.width, L.height, 0.8, cam, ratio).size / 1536,
+  // 상단 바다로 더 이동하는 거리까지 미리 깐다. 끄는 동안 바깥 변환만 움직여도 빈 영역이 생기지 않는다.
+  const minView = fishingCamera(L.width, L.height, 0.8, cam, ratio),
+    minScale = minView.size / 1536,
     reachX = L.width / 2 / minScale,
     reachY = L.height / 2 / minScale,
-    oceanCover = { left: -reachX, top: -reachY, right: 1536 + reachX, bottom: 1024 + reachY };
+    oceanCover = {
+      left: -reachX,
+      top: -reachY + minView.minSy / minScale,
+      right: 1536 + reachX,
+      bottom: 1024 + reachY,
+    };
   const { size, sizeY, left, top } = view,
     raftW = size * 0.12,
     gramW = (size * GRAM.w) / 100,
@@ -667,6 +688,7 @@ export function FishingIsland({
     >
       {/* 지도 손가락 변환(GROMO-2373): 끄는 동안 이 컨테이너 하나만 움직이고 쉬는 동안은 항등이다. */}
       <Animated.View
+        testID="fishing-map-transform"
         pointerEvents="box-none"
         collapsable={false}
         style={[
@@ -842,7 +864,9 @@ export function FishingIsland({
           )}
           <FishingSceneActive.Provider value={!inert}>
             <FishingVisibleX.Provider value={visibleX}>
-              {children(size, sizeY, cam.zoom)}
+              <FishingHudTransform.Provider value={hudTransform}>
+                {children(size, sizeY, cam.zoom)}
+              </FishingHudTransform.Provider>
             </FishingVisibleX.Provider>
           </FishingSceneActive.Provider>
         </View>
@@ -851,6 +875,12 @@ export function FishingIsland({
     </View>
   );
 }
+/** HUD 위치는 지도 좌표를 따르고, 글자에는 손가락 확대 배율의 역변환만 적용한다. */
+export const FishingHudTransform = React.createContext<{
+  inverseScale: Animated.AnimatedDivision<number>;
+  zoom: number;
+} | null>(null);
+
 // 지금 화면에 보이는 가로 범위(지도 px, 안전 영역 제외). 지도가 화면보다 넓어 가장자리 자리의 머리 위 말풍선·이름이
 // 잘리므로 FishingActor 가 이 범위 기준으로 민다(keepLabelInView). 제공자 밖(단독 렌더)에서는 밀지 않는다.
 // fontScale 은 글자 폭 추정용 OS 접근성 글자 배율이다.
