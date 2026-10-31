@@ -18,7 +18,6 @@
  *    두 형태를 모두 읽되 신규 형태를 먼저 본다. 잘못 읽으면 `APPLE_TOKEN`·`REFRESH_TOKEN` 같은
  *    코드가 `HTTP_401` 로 뭉개져 화면 분기가 통째로 빠진다.
  */
-import * as Application from 'expo-application';
 import { Platform } from 'react-native';
 import {
   clearRejectedSession,
@@ -70,10 +69,16 @@ export const CLIENT_STALE_SESSION = 'CLIENT_STALE_SESSION';
  * 호출 시점에 읽어 테스트가 값을 바꿀 수 있다(비용은 네이티브 상수 조회 한 번).
  */
 function appVersionHeaders(): Record<string, string> {
-  const version = Application.nativeApplicationVersion;
-  if ((Platform.OS !== 'ios' && Platform.OS !== 'android') || typeof version !== 'string')
+  if (Platform.OS !== 'ios' && Platform.OS !== 'android') return {};
+  // 기반 모듈이라 네이티브 모듈을 최상위 import 하지 않는다 — 모듈이 없는 테스트·바이너리에서도 요청은 나간다.
+  try {
+    const { nativeApplicationVersion } =
+      require('expo-application') as typeof import('expo-application');
+    if (typeof nativeApplicationVersion !== 'string') return {};
+    return { 'X-App-Version': nativeApplicationVersion, 'X-App-Platform': Platform.OS };
+  } catch {
     return {};
-  return { 'X-App-Version': version, 'X-App-Platform': Platform.OS };
+  }
 }
 
 interface RefreshResult {
