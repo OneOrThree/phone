@@ -62,7 +62,7 @@ flowchart TD
 |---|---|---|
 | BASE_URL | `oneorthree.dev.mooo.com` | `oneorthree-v2.dev.mooo.com` |
 | 실행 위치 | `[self-hosted, dev]` | `ubuntu-latest` + IAP SSH |
-| 시작 | main push 후 배포 대기 | Auto CD가 실제 앱 배포 후 호출 |
+| 시작 | main push 후 배포 대기 | Auto CD가 앱·런타임 배포 후 호출 |
 | 잠금 | `dev-vm-deploy` | `catus-dev-v2-deploy` |
 | 게스트 제한 창 대기 | 실행 간 3,601초 | 없음 (러너 IP가 고정이 아님. 실행당 10회 상한은 유지) |
 | 공유 Redis 임시 키 | `smoke:redis:<uuid>` | `presence:smoke:<uuid>` (`data` 계정 ACL이 `presence:*`만 허용) |

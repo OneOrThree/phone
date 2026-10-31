@@ -27,6 +27,13 @@ class SmokeWorkflowTests(unittest.TestCase):
         self.assertTrue(all(step.get('with', {}).get('ref', '${{ github.sha }}') == '${{ github.sha }}'
             for job in workflow['jobs'].values() for step in job['steps'] if step.get('uses') == 'actions/checkout@v4'))
 
+    def test_dev_v2_smoke_runs_after_app_or_runtime_deploy(self):
+        workflow = yaml.load((ROOT / '.github/workflows/cd-auto.dev-v2.yml').read_text(), Loader=yaml.BaseLoader)
+        step = next(s for s in workflow['jobs']['record']['steps'] if s.get('name') == '스모크 실행 요청')
+        self.assertIn("needs.app.result == 'success'", step['if'])
+        self.assertIn("needs.runtime.result == 'success'", step['if'])
+        self.assertEqual(step['continue-on-error'], 'true')
+
     def test_badge_tracks_dev_v2_main_runs(self):
         for name in ('README.md', 'smoke/README.md'):
             text = (ROOT / name).read_text()

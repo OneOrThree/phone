@@ -94,7 +94,7 @@ jobs:
     timeout-minutes: 45
     permissions:
       contents: read
-      actions: write
+      actions: read
       id-token: write
     steps:
       - uses: actions/checkout@v4
@@ -118,16 +118,6 @@ jobs:
         run: >-
           python3 .github/scripts/v2/dev/dev-deploy-app-V2.py --infra-manifest-uri "$INFRA"
           ${CORE_RUN:+--core-run "$CORE_RUN"} ${SATELLITE_RUN:+--satellite-run "$SATELLITE_RUN"}
-      # 실제 앱 배포 뒤에만 실행. 토큰 실행도 workflow_dispatch는 동작.
-      - name: 스모크 실행 요청
-        # 요청 실패가 성공한 배포를 실패로 기록하면 안 된다.
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ github.token }}
-          BUILD_SERVICES: ${{ needs.plan.outputs.build_services }}
-        run: >-
-          gh workflow run ops-smoke.dev-v2.yml --ref main
-          -f revision="$GITHUB_SHA" -f services="$BUILD_SERVICES"
   record:
     needs: [plan, runtime, app]
     if: always() && needs.plan.result != 'skipped' && needs.plan.result != 'cancelled'
@@ -135,9 +125,24 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: write
+      actions: write
     steps:
       - uses: actions/checkout@v4
+      # 앱·런타임 어느 쪽이든 실제 배포 뒤 실행. 토큰 실행도 workflow_dispatch는 동작.
+      - name: 스모크 실행 요청
+        if: >-
+          needs.app.result == 'success' ||
+          (needs.app.result == 'skipped' && needs.runtime.result == 'success')
+        # 요청 실패가 배지 게시를 막으면 안 된다.
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD_SERVICES: ${{ needs.plan.outputs.build_services || '[]' }}
+        run: >-
+          gh workflow run ops-smoke.dev-v2.yml --ref main
+          -f revision="$GITHUB_SHA" -f services="$BUILD_SERVICES"
       - name: 배포 배지 게시
+        if: always()
         env:
           GH_TOKEN: ${{ github.token }}
           PLAN_RESULT: ${{ needs.plan.result }}

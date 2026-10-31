@@ -221,7 +221,8 @@ DB migration이 이미 적용됐을 수 있으므로 이전 이미지로 자동 
 
 ## 스모크·배지
 
-- `app` job이 실제 배포를 마치면 `ops-smoke.dev-v2.yml`을 호출한다. 대기만 하고 끝난 실행과 런타임만 바뀐 배포는 호출하지 않는다.
+- 앱이나 런타임을 실제 배포하면 `record` job이 `ops-smoke.dev-v2.yml`을 호출한다. 대기만 하고 끝난 실행은 호출하지 않는다.
+- 스모크는 서비스 healthy 확인 뒤 5분을 기다렸다 검사한다.
 - 스모크는 `ubuntu-latest`에서 공개 API를 검사하고, `dev-smoke-docker-V2.py`가 `docker` 호출만 IAP SSH로 해당 VM에 보낸다. 전체 15개 TC를 유지한다.
 - 스모크는 CD와 같은 `catus-dev-v2-deploy` 잠금 안에서 돈다. 대기 실행이 취소되지 않게 이 그룹의 워크플로는 모두 `queue: max`다.
 - `record` job이 dev 배포 배지를 직접 게시한다. 토큰으로 실행한 Auto CD는 `workflow_run`을 깨우지 않아 `ops-deployment-badges.yml`로는 받을 수 없다.
