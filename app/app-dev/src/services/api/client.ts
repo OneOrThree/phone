@@ -18,6 +18,7 @@
  *    두 형태를 모두 읽되 신규 형태를 먼저 본다. 잘못 읽으면 `APPLE_TOKEN`·`REFRESH_TOKEN` 같은
  *    코드가 `HTTP_401` 로 뭉개져 화면 분기가 통째로 빠진다.
  */
+import * as Application from 'expo-application';
 import { Platform } from 'react-native';
 import {
   clearRejectedSession,
@@ -63,6 +64,18 @@ export const CLIENT_NETWORK_ERROR = 'CLIENT_NETWORK_ERROR';
 /** 응답이 도착했을 때 인증 세션이 이미 교체됐다 — 결과를 적용하면 안 된다. */
 export const CLIENT_STALE_SESSION = 'CLIENT_STALE_SESSION';
 
+/**
+ * 앱 버전·플랫폼 헤더(GROMO-2642) — 서버가 사용자별 앱 버전을 기록한다. iOS 와 Android 는 버전 트랙이
+ * 다르므로(1.0.x / 2.0.x) 두 헤더를 항상 함께 보낸다. 웹·버전 미상이면 둘 다 보내지 않는다.
+ * 호출 시점에 읽어 테스트가 값을 바꿀 수 있다(비용은 네이티브 상수 조회 한 번).
+ */
+function appVersionHeaders(): Record<string, string> {
+  const version = Application.nativeApplicationVersion;
+  if ((Platform.OS !== 'ios' && Platform.OS !== 'android') || typeof version !== 'string')
+    return {};
+  return { 'X-App-Version': version, 'X-App-Platform': Platform.OS };
+}
+
 interface RefreshResult {
   accessToken: string;
   refreshToken?: string | null;
@@ -96,7 +109,11 @@ async function refreshAccessTokenOnce(expectedGeneration: number): Promise<strin
   try {
     response = await fetch(`${API_URL}/auth/sessions/current/refresh`, {
       method: 'POST',
-      headers: { Accept: 'application/json', 'X-Refresh-Token': session.refreshToken },
+      headers: {
+        Accept: 'application/json',
+        'X-Refresh-Token': session.refreshToken,
+        ...appVersionHeaders(),
+      },
       signal: controller.signal,
     });
     text = await response.text();
@@ -272,7 +289,11 @@ async function requestAttempt<T>(
 ): Promise<T> {
   const { method = 'GET', body, headers = {}, idempotencyKey, auth = true } = options;
 
-  const sent: Record<string, string> = { Accept: 'application/json', ...headers };
+  const sent: Record<string, string> = {
+    Accept: 'application/json',
+    ...appVersionHeaders(),
+    ...headers,
+  };
   if (body !== undefined) sent['Content-Type'] = 'application/json';
   if (idempotencyKey) sent['Idempotency-Key'] = idempotencyKey;
   // 「저장된 세션의 AT 로 보냈는가」 — 401 을 세션 상실로 읽어도 되는지의 전제다.

@@ -15,6 +15,7 @@ import {
   uuid,
 } from '@/services/api/client';
 import * as SecureStore from 'expo-secure-store';
+import { Platform } from 'react-native';
 import {
   clearSession,
   getSession,
@@ -22,6 +23,13 @@ import {
   sessionGeneration,
   setSessionLostHandler,
 } from '@/services/api/session';
+
+let mockVersion: string | null = '1.0.2';
+jest.mock('expo-application', () => ({
+  get nativeApplicationVersion() {
+    return mockVersion;
+  },
+}));
 
 type Call = { url: string; init: RequestInit };
 
@@ -685,4 +693,67 @@ test('onHeaders — 401 갱신 뒤 재시도가 성공하면 재시도 응답의
   assert.equal(calls.length, 3);
   // 401 응답과 refresh 응답(내부 요청이라 호출부 콜백이 닿지 않는다)의 헤더는 건너뛴다.
   assert.deepEqual(seen, ['from-retry']);
+});
+
+describe('앱 버전·플랫폼 헤더 (GROMO-2642)', () => {
+  const hdr = (i: number) => calls[i].init.headers as Record<string, string>;
+  const os = (v: string) => jest.replaceProperty(Platform, 'OS', v as any);
+  afterEach(() => {
+    mockVersion = '1.0.2';
+    jest.restoreAllMocks();
+  });
+
+  test('iOS 일반 요청에 두 헤더가 붙는다', async () => {
+    os('ios');
+    stub(200, { data: null });
+    await request('/me');
+    assert.equal(hdr(0)['X-App-Version'], '1.0.2');
+    assert.equal(hdr(0)['X-App-Platform'], 'ios');
+  });
+
+  test('401 → 갱신 → 재시도 모두에 붙는다', async () => {
+    os('ios');
+    await saveSession({ accessToken: 'OLD_AT', refreshToken: 'RT', userId: 'u1' });
+    const responses = [
+      jsonResponse(401, { error: { code: 'UNAUTHORIZED', message: 'expired' } }),
+      jsonResponse(200, { data: { accessToken: 'NEW_AT', refreshToken: null } }),
+      jsonResponse(200, { data: { ok: true } }),
+    ];
+    (global as any).fetch = jest.fn(async (url: string, init: RequestInit) => {
+      calls.push({ url, init });
+      return responses.shift()!;
+    });
+    await request('/me');
+    assert.equal(calls.length, 3);
+    for (const i of [0, 1, 2]) {
+      assert.equal(hdr(i)['X-App-Version'], '1.0.2');
+      assert.equal(hdr(i)['X-App-Platform'], 'ios');
+    }
+  });
+
+  test('Android 는 android 와 자기 버전을 보낸다', async () => {
+    os('android');
+    mockVersion = '2.0.1';
+    stub(200, { data: null });
+    await request('/me');
+    assert.equal(hdr(0)['X-App-Version'], '2.0.1');
+    assert.equal(hdr(0)['X-App-Platform'], 'android');
+  });
+
+  test('웹은 두 헤더 모두 보내지 않는다', async () => {
+    os('web');
+    stub(200, { data: null });
+    await request('/me');
+    assert.equal('X-App-Version' in hdr(0), false);
+    assert.equal('X-App-Platform' in hdr(0), false);
+  });
+
+  test('버전이 null 이면 두 헤더 모두 보내지 않는다', async () => {
+    os('ios');
+    mockVersion = null;
+    stub(200, { data: null });
+    await request('/me');
+    assert.equal('X-App-Version' in hdr(0), false);
+    assert.equal('X-App-Platform' in hdr(0), false);
+  });
 });
