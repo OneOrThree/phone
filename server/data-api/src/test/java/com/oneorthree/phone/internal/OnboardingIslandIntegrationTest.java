@@ -250,6 +250,8 @@ class OnboardingIslandIntegrationTest {
         assertThat(count("select count(*) from island_arrivals where user_id=?", user)).isEqualTo(1);
         assertThat(count("select count(*) from island_wallets where island_id=? and balance=0",
                 arrival.islandId())).isEqualTo(1);
+        assertThat(count("select count(*) from event_outbox where type='island.member.arrived' and user_id=?",
+                user)).isEqualTo(1);
     }
 
     @Test

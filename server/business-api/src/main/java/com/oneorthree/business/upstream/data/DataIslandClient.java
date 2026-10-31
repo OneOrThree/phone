@@ -83,6 +83,8 @@ public class DataIslandClient {
     // GROMO-2260 섬 도착 기록 — 현재 섬을 옮기므로 명령 키 receipt 로 묶인다.
     private static final String PATH_ISLAND_ARRIVALS =
             "/internal/users/{userId}/islands/{islandId}/arrivals";
+    private static final String PATH_ISLAND_INTRO_ARRIVALS =
+            "/internal/users/{userId}/islands/{islandId}/intro-arrivals";
     // GROMO-2267 잡지 홍보 신청·섬 소식 — 본인 명령이라 사용자 축이다(B26).
     private static final String PATH_ISLAND_PROMOTIONS =
             "/internal/users/{userId}/islands/{islandId}/promotions";
@@ -352,8 +354,8 @@ public class DataIslandClient {
     public IslandArrival introArriveAtIsland(UUID userId, UUID islandId, UUID key, Deadline deadline) {
         return http.exchange(
                 InternalCall.to(HttpMethod.POST,
-                                userPath(PATH_ISLAND_ARRIVALS, userId).replace("{islandId}", islandId.toString())
-                                        .replace("/arrivals", "/intro-arrivals"))
+                                userPath(PATH_ISLAND_INTRO_ARRIVALS, userId)
+                                        .replace("{islandId}", islandId.toString()))
                         .onBehalfOf(userId)
                         .idempotencyKey(key.toString())
                         .idempotentCommand()
