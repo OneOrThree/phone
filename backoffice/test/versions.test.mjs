@@ -76,4 +76,14 @@ test("최소 버전 비교", () => {
   assert.equal(exceedsStoreVersion("1.0.1", "1.0.2"), false);
   assert.equal(exceedsStoreVersion("abc", "1.0.2"), false);
   assert.equal(exceedsStoreVersion("", "1.0.2"), false);
+  assert.equal(exceedsStoreVersion("2.1.0", "2.0"), true);
+  assert.equal(exceedsStoreVersion("2.0.0", "2.0"), false);
+  assert.equal(exceedsStoreVersion("1.9.9", "2"), false);
+  assert.equal(exceedsStoreVersion("1.0.0.1", "1.0.2"), false);
+});
+test("문자열이 아닌 버전 값은 null 로 버린다", async t => {
+  const { upstream } = connected(ok, { data: { serverVersion: 123, schemaVersion: "9" } });
+  const [code, body] = await (await serve(t, "connected", upstream))();
+  assert.equal(code, 200);
+  assert.deepEqual(body.data, { serverVersion: null, schemaVersion: "9" });
 });

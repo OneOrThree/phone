@@ -244,8 +244,10 @@ export function createApp({
         // 구버전 서버는 두 키가 없다 -> null. iOS 조회는 실패해도 던지지 않는다.
         const [identity, iosStore] = await Promise.all([
           upstream.verifyEnvironment(environment, auth.actor, operator), upstream.iosStoreVersion()]);
-        const pick = value => typeof value?.serverVersion === "string" || typeof value?.schemaVersion === "string"
-          ? { serverVersion: value.serverVersion ?? null, schemaVersion: value.schemaVersion ?? null } : null;
+        // 표시 전용 값이라 문자열이 아니면 버린다(앱 화면이 slice 로 죽지 않게).
+        const str = v => typeof v === "string" ? v : null;
+        const pick = value => str(value?.serverVersion) || str(value?.schemaVersion)
+          ? { serverVersion: str(value.serverVersion), schemaVersion: str(value.schemaVersion) } : null;
         send(200, { local: false, data: pick(identity.data), notification: pick(identity.notification), iosStore });
         return;
       }
