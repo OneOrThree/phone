@@ -681,3 +681,13 @@ test('과목·집중시간은 지도 안에 붙고 미리보기 토글은 지도
   expect(within(map).getByTestId('fishing-focus-hud').props.style).toEqual(position);
   expect(within(map).getByText('00:02:03')).toBeTruthy();
 });
+
+test('실제 집중 경로의 과목·시간은 섬 자식 HUD로 표시한다', async () => {
+  const state = serverFocusState();
+  const screen = await mount('focus', state);
+  const world = within(screen.getByTestId('focus-world'));
+  const hud = world.getByTestId('fishing-focus-hud');
+  expect(within(hud).getByText(state.session!.subject)).toBeTruthy();
+  const timer = within(hud).getAllByText(/\d{2}:\d{2}:\d{2}/)[0];
+  expect(timer).toBeTruthy();
+});
