@@ -52,7 +52,8 @@ import { errorTextOr, localized, t } from '@/i18n';
 import { josa } from '@/i18n/format';
 import { VillageNotificationBadge } from '@/components/village-motion/VillageNotificationBadge';
 import { componentTokens, primitiveTokens, semanticTokens } from '@/design-system/tokens';
-import { Btn, NavBtn } from '@/design-system/patterns';
+import { Btn, NavBtn, Wheel } from '@/design-system/patterns';
+import { kstWindowCrossesUtcMidnight } from '@/utils/questWindowTz';
 import { MagazineRack } from '@/screens/magazine/MagazineRack';
 import { MAGAZINE_UI } from '@/constants/magazineAssets';
 import { magazineUnread } from '@/screens/magazine/useMagazineToday';
@@ -3541,7 +3542,79 @@ const inputStyle = (): any => ({
   lineHeight: lh(14 * 1.5),
 });
 
+// 시·분 드럼 피커 — 자유 텍스트 대신 공용 Wheel 두 개를 가로로 둔다(§7.12, GROMO-2672).
+const HOUR_ITEMS = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'));
+const HOUR_ITEMS_WITH_MIDNIGHT = [...HOUR_ITEMS, '24'];
+const MINUTE_ITEMS = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0'));
+const pad2 = (n: number) => String(n).padStart(2, '0');
+
+// 시 Wheel + 분 Wheel. 24 시(하루 끝)를 고르면 분은 00 으로 고정한다.
+function HourMinuteWheels({
+  testID,
+  label,
+  hours,
+  hh,
+  mm,
+  onPick,
+}: {
+  testID: string;
+  label: string;
+  hours: string[];
+  hh: string;
+  mm: string;
+  onPick: (hh: string, mm: string) => void;
+}) {
+  return (
+    <View testID={testID} style={{ flexDirection: 'row', gap: 8 }}>
+      <Wheel
+        label=""
+        a11yLabel={`${label} 시`}
+        items={hours}
+        value={hh}
+        onChange={(h: string) => onPick(h, mm)}
+      />
+      <Wheel
+        label=""
+        a11yLabel={`${label} 분`}
+        items={hh === '24' ? ['00'] : MINUTE_ITEMS}
+        value={mm}
+        onChange={(m: string) => onPick(hh, m)}
+      />
+    </View>
+  );
+}
+
+// 시간대 집중 창의 시작·종료 시각(KST 벽시계 "HH:mm"). allowMidnight 면 종료를 24:00 까지 고른다.
 function QuestTimeInput({
+  testID,
+  label,
+  value,
+  onChange,
+  allowMidnight = false,
+}: {
+  testID: string;
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  allowMidnight?: boolean;
+}) {
+  const total = clockMinutes(value) ?? 0;
+  const hh = pad2(Math.min(allowMidnight ? 24 : 23, Math.floor(total / 60)));
+  const mm = hh === '24' ? '00' : pad2(total % 60);
+  return (
+    <HourMinuteWheels
+      testID={testID}
+      label={label}
+      hours={allowMidnight ? HOUR_ITEMS_WITH_MIDNIGHT : HOUR_ITEMS}
+      hh={hh}
+      mm={mm}
+      onPick={(h, m) => onChange(`${h}:${h === '24' ? '00' : m}`)}
+    />
+  );
+}
+
+// 목표 집중 시간 · 폰 사용 상한(분). 창과 달리 이건 duration 이라 KST/UTC 변환이 없다 — 총 분 문자열을 유지한다.
+function QuestTargetInput({
   testID,
   label,
   value,
@@ -3552,42 +3625,15 @@ function QuestTimeInput({
   value: string;
   onChange: (value: string) => void;
 }) {
-  if (Platform.OS === 'web')
-    return (
-      <input
-        data-testid={testID}
-        aria-label={label}
-        type="time"
-        // 웹 time 입력은 HH:MM만 읽는다. "9:00"으로 저장된 예전 값도 보이게 맞춰서 넘긴다
-        value={clockText(value)}
-        onChange={(event) => onChange(event.target.value)}
-        style={{
-          boxSizing: 'border-box',
-          width: '100%',
-          minWidth: 0,
-          minHeight: 44,
-          margin: 0,
-          padding: 10,
-          border: '1.5px solid #b49472',
-          borderRadius: 8,
-          background: '#fffdf5',
-          color: INK,
-          font: '14px/1.5 Gowun',
-        }}
-      />
-    );
+  const total = Math.max(0, Math.min(23 * 60 + 59, Number(value) || 0));
   return (
-    <TextInput
+    <HourMinuteWheels
       testID={testID}
-      accessibilityLabel={label}
-      value={value}
-      onChangeText={onChange}
-      onEndEditing={() => onChange(clockText(value))}
-      placeholder="00:00"
-      placeholderTextColor="#757575"
-      keyboardType="numbers-and-punctuation"
-      maxLength={5}
-      style={inputStyle()}
+      label={label}
+      hours={HOUR_ITEMS}
+      hh={pad2(Math.floor(total / 60))}
+      mm={pad2(total % 60)}
+      onPick={(h, m) => onChange(String(Number(h) * 60 + Number(m)))}
     />
   );
 }
@@ -3805,12 +3851,11 @@ const questError = (form: QuestForm) => {
     return '제목과 목표 시간을 입력해주세요.';
   if (form.type === 'phone') return '';
   const start = clockMinutes(form.startTime),
-    parsedEnd = clockMinutes(form.endTime),
-    // 서버 LocalTime은 24:00을 받지 못해 23:59로 전송한다. 검증도 같은 창을 써야
-    // UI에서는 통과하고 서버에서 QUEST_TARGET_OUT_OF_RANGE로 거절되는 차이가 없다.
-    end = parsedEnd === 24 * 60 ? 23 * 60 + 59 : parsedEnd;
+    end = clockMinutes(form.endTime);
   if (start === null || end === null) return '시작·종료 시간을 입력해주세요.';
   if (end <= start) return '종료 시간은 시작 시간보다 늦어야 해요.';
+  // 창은 KST 벽시계 그대로 검증한다 — 24:00 은 서버 어댑터가 15:00 UTC 로 깨끗이 보내므로
+  // 진짜 창 길이(end - start)로 목표를 잰다(23:59 로 깎지 않는다, GROMO-2672).
   if (target > end - start) return '목표 집중 시간은 진행 시간 안으로 정해주세요.';
   return '';
 };
@@ -4781,6 +4826,10 @@ export function Board({
       if (!owner) return;
       const error = questError(form);
       if (error) return e ? setError(error) : render({ view: 'write', questForm: form, error });
+      // UTC 자정을 가로지르는 창은 서버가 거절한다(결정 Q-6) — 입력칸 아래 안내가 이유를 보이므로
+      // 제출만 조용히 막는다. 변환 자체는 서버 어댑터(quests.ts createQuest)가 한다(GROMO-2672).
+      if (form.type === 'focus' && kstWindowCrossesUtcMidnight(form.startTime, form.endTime))
+        return;
       const title = form.title.trim(),
         target = Number(form.target);
       if (e) {
@@ -4799,7 +4848,6 @@ export function Board({
         }
         // 서버 경로: PATCH 는 title/targetMinutes 만 받는다 — 종류·창·expectedVersion 을 섞으면 400.
         // 성공(쓰기 + getBoard 재조회)해야 돌아간다 — 실패해도 초안은 그대로다.
-        const endText = clockText(form.endTime);
         const intent = `${s.editing ? e.detail : ''}${title}|${target}|${form.type}|${form.startTime}|${form.endTime}`;
         if (questInflight.current === intent) return;
         const write =
@@ -4814,9 +4862,9 @@ export function Board({
                 targetMinutes: target,
                 ...(form.type === 'focus'
                   ? {
+                      // KST 벽시계 그대로 보낸다 — UTC 변환·24:00 방어는 서버 어댑터(quests.ts createQuest)가 한다.
                       windowStart: clockText(form.startTime),
-                      // 서버 HH:mm(LocalTime)은 24:00 을 표현하지 못한다 — 자정 종료는 23:59 로 내린다.
-                      windowEnd: endText === '24:00' ? '23:59' : endText,
+                      windowEnd: clockText(form.endTime),
                       timezone: 'UTC',
                     }
                   : {}),
@@ -5590,59 +5638,26 @@ export function Board({
                       →
                     </Text>
                     <View style={{ flex: 1, gap: 4 }}>
-                      <View
-                        style={{
-                          flexDirection: 'row',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                        }}
-                      >
-                        <Text style={boardFont(12, 1.4, '400', '#786151', GOWUN)}>종료</Text>
-                        {/* 웹 시간 입력은 24:00을 받지 못해 자정까지는 따로 고른다. 라벨 줄 높이 안에 둔다 */}
-                        <Pressable
-                          testID="board-quest-midnight"
-                          accessibilityRole="checkbox"
-                          accessibilityLabel="자정(24:00)까지"
-                          aria-checked={form.endTime === '24:00'}
-                          hitSlop={14}
-                          onPress={() =>
-                            setForm({ endTime: form.endTime === '24:00' ? '' : '24:00' })
-                          }
-                        >
-                          <Text
-                            style={[
-                              boardFont(
-                                11,
-                                1.4,
-                                form.endTime === '24:00' ? '700' : '400',
-                                form.endTime === '24:00' ? INK : '#786151',
-                                GOWUN,
-                              ),
-                              { textDecorationLine: 'underline' },
-                            ]}
-                          >
-                            {form.endTime === '24:00' ? '자정까지 ✓' : '자정까지'}
-                          </Text>
-                        </Pressable>
-                      </View>
-                      {form.endTime === '24:00' ? (
-                        <View
-                          testID="board-quest-end"
-                          accessibilityLabel="종료 시간 24:00"
-                          style={[inputStyle(), { justifyContent: 'center' }]}
-                        >
-                          <Text style={boardFont(14, 1.5, '400', INK, GOWUN)}>24:00</Text>
-                        </View>
-                      ) : (
-                        <QuestTimeInput
-                          testID="board-quest-end"
-                          label="종료 시간"
-                          value={form.endTime}
-                          onChange={(endTime) => setForm({ endTime })}
-                        />
-                      )}
+                      <Text style={boardFont(12, 1.4, '400', '#786151', GOWUN)}>종료</Text>
+                      {/* 종료는 24:00(하루 끝)까지 드럼으로 고른다 — 별도 「자정까지」 토글은 없다. */}
+                      <QuestTimeInput
+                        testID="board-quest-end"
+                        label="종료 시간"
+                        value={form.endTime}
+                        onChange={(endTime) => setForm({ endTime })}
+                        allowMidnight
+                      />
                     </View>
                   </View>
+                  {/* UTC 자정을 가로지르는 창은 서버가 거절한다(결정 Q-6) — 입력칸 바로 아래에 이유를 보인다. */}
+                  {kstWindowCrossesUtcMidnight(form.startTime, form.endTime) && (
+                    <Text
+                      testID="board-quest-window-error"
+                      style={boardFont(13, 1.45, '400', '#a35952')}
+                    >
+                      {t('board.quest.crossMidnight')}
+                    </Text>
+                  )}
                 </BoardField>
               )
             )}
@@ -5651,18 +5666,12 @@ export function Board({
                 종류·진행 시간은 바꿀 수 없어요. 수정은 다음 회차부터 적용돼요.
               </Text>
             )}
-            <BoardField
-              label={form.type === 'focus' ? '목표 집중 시간 · 분' : '하루 폰 사용 상한 · 분'}
-            >
-              <TextInput
+            <BoardField label={form.type === 'focus' ? '목표 집중 시간' : '하루 폰 사용 상한'}>
+              <QuestTargetInput
                 testID="board-quest-target"
-                accessibilityLabel={
-                  form.type === 'focus' ? '목표 집중 시간(분)' : '하루 폰 사용 상한(분)'
-                }
-                keyboardType="number-pad"
+                label={form.type === 'focus' ? '목표 집중 시간' : '하루 폰 사용 상한'}
                 value={form.target}
-                onChangeText={(target) => setForm({ target })}
-                style={inputStyle()}
+                onChange={(target) => setForm({ target })}
               />
             </BoardField>
             {formError}

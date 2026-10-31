@@ -507,6 +507,11 @@
     "finishFailed": "Couldn't finish the focus session.",
     "resumeFailed": "Couldn't resume the focus session."
   },
+  "board": {
+    "quest": {
+      "crossMidnight": "A window can't run across 9 AM"
+    }
+  },
   "home": {
     "hud": {
       "visiting": "Visiting {{name}}",

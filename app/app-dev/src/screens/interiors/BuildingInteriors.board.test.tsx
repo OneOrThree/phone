@@ -149,6 +149,19 @@ const detail = (
   nextCommentsCursor,
 });
 
+type Screen = { getByLabelText: (text: string) => any };
+// 시·분 드럼 Wheel 조작 — 항목 Pressable 의 접근성 라벨(`${a11yLabel} ${값}`)을 눌러 onChange 를 부른다.
+const pickWheel = (screen: Screen, label: string, v: string) =>
+  fireEvent.press(screen.getByLabelText(`${label} ${v}`));
+// 목표/상한(분)을 시·분으로 나눠 고른다. label = 'focus'면 '목표 집중 시간', 아니면 '하루 폰 사용 상한'.
+const setTargetMinutes = async (screen: Screen, label: string, minutes: number) => {
+  await pickWheel(screen, `${label} 시`, String(Math.floor(minutes / 60)).padStart(2, '0'));
+  await pickWheel(screen, `${label} 분`, String(minutes % 60).padStart(2, '0'));
+};
+// 선택된 Wheel 값(accessibilityState.selected) 확인
+const wheelSelected = (screen: Screen, label: string, v: string) =>
+  screen.getByLabelText(`${label} ${v}`).props.accessibilityState?.selected === true;
+
 const getBoardMock = getBoard as jest.Mock;
 const listNoticesMock = listNotices as jest.Mock;
 const getNoticeMock = getNotice as jest.Mock;
@@ -2196,7 +2209,7 @@ test('퀘스트 상세 — 수령 실패(409)는 문구를 띄우고 목록을 �
   await screen.unmount();
 });
 
-test('퀘스트 만들기 — POST 에 허용 키만 싣고 24:00 은 23:59 로 내린다', async () => {
+test('퀘스트 만들기 — POST 에 허용 키만 싣고 창은 KST 벽시계 그대로 보낸다(변환은 서버 어댑터)', async () => {
   getBoardMock.mockResolvedValue(page([], null, 'host', []));
   postQuestMock.mockResolvedValue({ id: 'q9', title: '저녁 집중' });
   const e = makeE({
@@ -2210,16 +2223,17 @@ test('퀘스트 만들기 — POST 에 허용 키만 싣고 24:00 은 23:59 로 
   const screen = await renderBoard(e);
 
   await waitFor(() => assert.ok(screen.getByTestId('board-quest-title')));
-  await fireEvent.changeText(screen.getByTestId('board-quest-target'), '50');
+  await setTargetMinutes(screen, '목표 집중 시간', 50);
   await fireEvent.press(screen.getByTestId('board-quest-save'));
 
   await waitFor(() => assert.equal(postQuestMock.mock.calls.length, 1));
+  // KST 벽시계(24:00 포함) 그대로 — UTC 변환·23:59 방어는 quests.ts createQuest 가 한다(GROMO-2672).
   assert.deepEqual(postQuestMock.mock.calls[0][1], {
     title: '저녁 집중',
     type: 'focus',
     targetMinutes: 50,
     windowStart: '19:00',
-    windowEnd: '23:59',
+    windowEnd: '24:00',
     timezone: 'UTC',
   });
   await waitFor(() => assert.equal(e.back.mock.calls.length > 0, true));
@@ -2228,7 +2242,36 @@ test('퀘스트 만들기 — POST 에 허용 키만 싣고 24:00 은 23:59 로 
   await screen.unmount();
 });
 
-test('퀘스트 만들기 — 24:00은 실제 전송 시각 23:59 기준으로 목표를 검증한다', async () => {
+test('퀘스트 만들기 — 23:00–24:00 창의 꽉 찬 60분 목표를 받아들인다(24:00 을 23:59 로 깎지 않는다)', async () => {
+  getBoardMock.mockResolvedValue(page([], null, 'host', []));
+  postQuestMock.mockResolvedValue({ id: 'q9', title: '자정 집중' });
+  const e = makeE({
+    route: 'questEdit',
+    tab: '퀘스트',
+    body: 'focus',
+    text: '자정 집중',
+    windowStart: '23:00',
+    windowEnd: '24:00',
+  });
+  const screen = await renderBoard(e);
+
+  await setTargetMinutes(screen, '목표 집중 시간', 60);
+  await fireEvent.press(screen.getByTestId('board-quest-save'));
+
+  // 23:00–24:00 = 60분 창. 60분 목표가 꼭 맞으므로 통과해 KST 그대로 보낸다.
+  await waitFor(() => assert.equal(postQuestMock.mock.calls.length, 1));
+  assert.deepEqual(postQuestMock.mock.calls[0][1], {
+    title: '자정 집중',
+    type: 'focus',
+    targetMinutes: 60,
+    windowStart: '23:00',
+    windowEnd: '24:00',
+    timezone: 'UTC',
+  });
+  await screen.unmount();
+});
+
+test('퀘스트 만들기 — 창을 넘는 목표(23:00–24:00 에 61분)는 막는다', async () => {
   getBoardMock.mockResolvedValue(page([], null, 'host', []));
   const e = makeE({
     route: 'questEdit',
@@ -2240,11 +2283,32 @@ test('퀘스트 만들기 — 24:00은 실제 전송 시각 23:59 기준으로 �
   });
   const screen = await renderBoard(e);
 
-  await fireEvent.changeText(screen.getByTestId('board-quest-target'), '60');
+  await setTargetMinutes(screen, '목표 집중 시간', 61);
   await fireEvent.press(screen.getByTestId('board-quest-save'));
 
   assert.equal(postQuestMock.mock.calls.length, 0);
   assert.ok(screen.getByText('목표 집중 시간은 진행 시간 안으로 정해주세요.'));
+  await screen.unmount();
+});
+
+test('퀘스트 만들기 — UTC 자정을 가로지르는 창(08:00–10:00)은 막고 입력칸 아래 안내를 보인다', async () => {
+  getBoardMock.mockResolvedValue(page([], null, 'host', []));
+  const e = makeE({
+    route: 'questEdit',
+    tab: '퀘스트',
+    body: 'focus',
+    text: '아침 집중',
+    windowStart: '08:00',
+    windowEnd: '10:00',
+  });
+  const screen = await renderBoard(e);
+
+  // 피커 단계에서 바로 이유가 뜬다(08:00–10:00 KST = 23:00–01:00 UTC).
+  await waitFor(() => assert.ok(screen.getByTestId('board-quest-window-error')));
+  await setTargetMinutes(screen, '목표 집중 시간', 60);
+  await fireEvent.press(screen.getByTestId('board-quest-save'));
+
+  assert.equal(postQuestMock.mock.calls.length, 0);
   await screen.unmount();
 });
 
@@ -2259,7 +2323,7 @@ test('퀘스트 만들기 — screen 은 창 필드 없이 간다', async () => 
   });
   const screen = await renderBoard(e);
   await waitFor(() => assert.ok(screen.getByTestId('board-quest-target')));
-  await fireEvent.changeText(screen.getByTestId('board-quest-target'), '90');
+  await setTargetMinutes(screen, '하루 폰 사용 상한', 90);
   await fireEvent.press(screen.getByTestId('board-quest-save'));
 
   await waitFor(() => assert.equal(postQuestMock.mock.calls.length, 1));
@@ -2281,7 +2345,7 @@ test('퀘스트 만들기 — screen 목표 0분을 허용한다', async () => {
     text: '폰 안 쓰기',
   });
   const screen = await renderBoard(e);
-  await fireEvent.changeText(screen.getByTestId('board-quest-target'), '0');
+  await setTargetMinutes(screen, '하루 폰 사용 상한', 0);
   await fireEvent.press(screen.getByTestId('board-quest-save'));
 
   await waitFor(() => assert.equal(postQuestMock.mock.calls.length, 1));
@@ -2304,10 +2368,10 @@ test('퀘스트 저장 중 바꾼 초안은 이전 요청 성공 후에도 닫�
     text: '폰 줄이기',
   });
   const screen = await renderBoard(e);
-  await fireEvent.changeText(screen.getByTestId('board-quest-target'), '30');
+  await setTargetMinutes(screen, '하루 폰 사용 상한', 30);
   await fireEvent.press(screen.getByTestId('board-quest-save'));
   await fireEvent.changeText(screen.getByTestId('board-quest-title'), '수정한 초안');
-  await fireEvent.changeText(screen.getByTestId('board-quest-target'), '20');
+  await setTargetMinutes(screen, '하루 폰 사용 상한', 20);
 
   await act(async () => {
     slow.resolve({ id: 'q1', title: '폰 줄이기' });
@@ -2316,7 +2380,8 @@ test('퀘스트 저장 중 바꾼 초안은 이전 요청 성공 후에도 닫�
   await waitFor(() => assert.equal(getBoardMock.mock.calls.length >= 2, true));
   assert.equal(e.back.mock.calls.length, 0);
   assert.equal(e.text, '수정한 초안');
-  assert.equal((screen.getByTestId('board-quest-target') as any).props.value, '20');
+  assert.ok(wheelSelected(screen, '하루 폰 사용 상한 시', '00'));
+  assert.ok(wheelSelected(screen, '하루 폰 사용 상한 분', '20'));
   await screen.unmount();
 });
 
@@ -2338,10 +2403,11 @@ test('퀘스트 수정 — PATCH 에 title/targetMinutes 만 싣는다(창·종�
   );
   assert.equal(screen.queryByTestId('board-quest-type'), null);
   assert.equal(screen.queryByTestId('board-quest-start'), null);
-  // 목표 분은 서버 목록의 targetMinutes 로 미리 채워진다.
-  assert.equal((screen.getByTestId('board-quest-target') as any).props.value, '50');
+  // 목표(50분 = 0시간 50분)는 서버 목록의 targetMinutes 로 미리 채워진다.
+  assert.ok(wheelSelected(screen, '목표 집중 시간 시', '00'));
+  assert.ok(wheelSelected(screen, '목표 집중 시간 분', '50'));
 
-  await fireEvent.changeText(screen.getByTestId('board-quest-target'), '60');
+  await setTargetMinutes(screen, '목표 집중 시간', 60);
   await fireEvent.press(screen.getByTestId('board-quest-save'));
 
   await waitFor(() => assert.equal(patchQuestMock.mock.calls.length, 1));
@@ -2366,7 +2432,7 @@ test('퀘스트 만들기 — 서버 실패 시 초안·문구를 보존하고 �
   });
   const screen = await renderBoard(e);
   await waitFor(() => assert.ok(screen.getByTestId('board-quest-target')));
-  await fireEvent.changeText(screen.getByTestId('board-quest-target'), '50');
+  await setTargetMinutes(screen, '목표 집중 시간', 50);
   await fireEvent.press(screen.getByTestId('board-quest-save'));
 
   await waitFor(() => assert.ok(screen.getByText('권한이 없습니다.')));

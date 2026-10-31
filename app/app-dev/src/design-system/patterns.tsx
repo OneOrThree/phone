@@ -1099,6 +1099,7 @@ export function Wheel({
               key={i}
               accessibilityRole="button"
               accessibilityLabel={`${a11yLabel ?? label} ${x}`}
+              accessibilityState={{ selected: x === value }}
               onPress={() => {
                 onChange(x);
                 ref.current?.scrollTo({ y: i * h, animated: true });
