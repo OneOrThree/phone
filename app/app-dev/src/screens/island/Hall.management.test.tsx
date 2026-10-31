@@ -510,7 +510,7 @@ test('다른 주민이 있는 방장은 기본 섬 정보에서 탈퇴를 누르
   );
 
   await fireEvent.press(screen.getByTestId('hall-leave'));
-  await waitFor(() => assert.ok(screen.getByText('방장을 위임할 주민을 골라요.')));
+  await waitFor(() => assert.ok(screen.getByText('섬장을 위임할 주민을 골라요.')));
   assert.equal(screen.queryByTestId('hall-dialog-ok'), null);
   assert.equal(leave.mock.calls.length, 0);
 });
@@ -738,7 +738,7 @@ test('회관의 승인제 신청은 중복 탭을 막고 회관에 남는다', a
   await fireEvent.press(screen.getByTestId('hall-join'));
   expect(env.islands.join).toHaveBeenCalledTimes(1);
   await act(async () => finish({ status: 'pending' }));
-  await screen.findByText('참여 신청이 완료됐어요. 방장이 확인하면 알려드릴게요.');
+  await screen.findByText('참여 신청이 완료됐어요. 섬장이 확인하면 알려드릴게요.');
   expect(env.reset).not.toHaveBeenCalled();
   expect(env.dispatch).not.toHaveBeenCalled();
 });

@@ -649,7 +649,7 @@ test('게시판 청사진은 회관이 서버에 저장한 목표·가격·잔�
   await waitFor(() => assert.ok(screen.getByText('총 37마리')));
   assert.ok(screen.getByText('21 / 37마리'));
   assert.equal(getConstructionOptionsMock.mock.calls[0][0], ISLAND);
-  assert.equal(screen.queryByText('회관에서 다음 건물을 골라 주세요.'), null);
+  assert.equal(screen.queryByText('마을회관에서 다음 건물을 골라 주세요.'), null);
   assert.equal(screen.queryByTestId('board-build-start'), null);
   assert.equal(screen.queryByText('주민 준비량'), null);
   assert.equal(screen.queryByText('공사 15분'), null);
@@ -666,7 +666,7 @@ test.each(['host', 'member'] as const)(
     assert.equal(screen.queryByText('모든 건물을 완공했어요.'), null);
     await fireEvent.press(screen.getByTestId('board-blueprint-area'));
     await waitFor(() => assert.ok(screen.getByText('모든 건물을 완공했어요.')));
-    assert.equal(screen.queryByText('회관에서 다음 건물을 골라 주세요.'), null);
+    assert.equal(screen.queryByText('마을회관에서 다음 건물을 골라 주세요.'), null);
     assert.equal(screen.queryByTestId('board-build-start'), null);
   },
 );
@@ -676,7 +676,7 @@ test('미완공 건물이 남아 있고 목표만 없으면 다음 건물을 고
   getConstructionOptionsMock.mockResolvedValue(constructionOptions());
   const screen = await renderBoard(makeE({ route: 'quest', detail: 'building' }));
 
-  await waitFor(() => assert.ok(screen.getByText('회관에서 다음 건물을 골라 주세요.')));
+  await waitFor(() => assert.ok(screen.getByText('마을회관에서 다음 건물을 골라 주세요.')));
   assert.equal(screen.queryByText('모든 건물을 완공했어요.'), null);
 });
 
@@ -685,7 +685,7 @@ test('청사진 대신 안내 한 줄뿐이면 파란 상자를 고정 높이 �
   getConstructionOptionsMock.mockResolvedValue(constructionOptions());
   const screen = await renderBoard(makeE({ route: 'quest', detail: 'building' }));
 
-  await waitFor(() => assert.ok(screen.getByText('회관에서 다음 건물을 골라 주세요.')));
+  await waitFor(() => assert.ok(screen.getByText('마을회관에서 다음 건물을 골라 주세요.')));
   const drawer = StyleSheet.flatten(screen.getByTestId('board-drawer').props.style);
   assert.equal(drawer.height, undefined);
   assert.equal(drawer.minHeight, undefined);
@@ -732,7 +732,7 @@ test('일반 주민도 서버 목표를 보지만 게시판에서 착공할 수 
   const screen = await renderBoard(makeE({ route: 'quest', detail: 'building' }));
 
   await waitFor(() => assert.ok(screen.getByText('총 37마리')));
-  assert.ok(screen.getByText('방장이 건설을 진행할 수 있어요.'));
+  assert.ok(screen.getByText('섬장이 건설을 진행할 수 있어요.'));
   assert.equal(screen.queryByTestId('board-build-start'), null);
   assert.equal(startConstructionMock.mock.calls.length, 0);
 });
@@ -918,7 +918,7 @@ test('건설 목표 조회 실패는 목표 없음으로 숨기지 않고 재시
   getConstructionOptionsMock.mockRejectedValueOnce(new ApiError('CLIENT_NETWORK_ERROR', '오류', 0));
   const screen = await renderBoard(makeE({ route: 'quest', detail: 'building' }));
   await waitFor(() => assert.ok(screen.getByText('건설 목표를 불러오지 못했어요.')));
-  assert.equal(screen.queryByText('회관에서 다음 건물을 골라 주세요.'), null);
+  assert.equal(screen.queryByText('마을회관에서 다음 건물을 골라 주세요.'), null);
   getConstructionOptionsMock.mockResolvedValue(
     constructionOptions({ selectedBuildingId: 'library' }),
   );
@@ -2397,7 +2397,7 @@ test.each(['success', 'failure', 'stale'] as const)(
     );
     const screen = await renderBoard(e);
     await waitFor(() => assert.ok(screen.getByText('도서관을 짓고 있어요')));
-    assert.equal(screen.queryByText('회관에서 다음 건물을 골라 주세요.'), null);
+    assert.equal(screen.queryByText('마을회관에서 다음 건물을 골라 주세요.'), null);
     getConstructionOptionsMock.mockResolvedValue(
       constructionOptions({
         items: [{ ...constructionOptions().items[0], id: 'mail', name: '우체통' }],

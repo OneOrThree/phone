@@ -329,7 +329,7 @@ test('새 편지가 있으면 정적 우체통을 펠리컨으로 교체하고 �
   expect(
     screen.getByTestId('mailbox-new-indicator', { includeHiddenElements: true }).props
       .accessibilityLabel,
-  ).toBe('친구에게 받은 새 편지가 있습니다');
+  ).toBe('친구에게 받은 새 편지가 있어요');
   expect(
     screen.getByTestId('mailbox-new-indicator', { includeHiddenElements: true }).props.style,
   ).toEqual(

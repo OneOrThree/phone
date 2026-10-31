@@ -666,7 +666,7 @@ describe('가입', () => {
     await press(screen, 'r1');
     await fireEvent.press(screen.getByLabelText('가입 신청'));
     await screen.findByLabelText('가입 신청');
-    expect(e.notify).toHaveBeenCalledWith('참여 신청이 완료됐어요. 방장이 확인하면 알려드릴게요.');
+    expect(e.notify).toHaveBeenCalledWith('참여 신청이 완료됐어요. 섬장이 확인하면 알려드릴게요.');
   });
 
   test('소속 섬이 가득 찬 409 는 서버 코드의 문구로 알리고 목록은 다시 읽지 않는다', async () => {
