@@ -105,7 +105,7 @@ API는 `http://localhost:8080`, Swagger UI는 `http://localhost:8080/swagger-ui/
 
 ## Catus V2 운영 배포
 
-기존 Catus VPC에 앱·Kafka·Redis·백오피스 호스트를 분리한다. DB는 아직 V1과 같은 `catus-prod-db`를 쓰며, 전용 `catus-prod-db-v2`는 만들어 두기만 했다. V2용 파일·태그·IAM·SSM·배포 상태는 기존 배포와 구분한다. 기존 env 자격은 재사용하고 Kafka·Redis 주소는 V2 자원으로 생성한다.
+기존 Catus VPC에 앱·Kafka·Redis·백오피스 호스트를 분리한다. DB는 아직 기존 Catus 서버와 같은 `catus-prod-db`를 쓰며, 전용 `catus-prod-db-v2`는 만들어 두기만 했다. V2용 파일·태그·IAM·SSM·배포 상태는 기존 배포와 구분한다. 기존 env 자격은 재사용하고 Kafka·Redis 주소는 V2 자원으로 생성한다.
 
 main 대상 PR 검사 → main에서 release로 merge commit 승격 → release에서 단위별 V2 태그·산출물 발행 → release 전용 CD 순서다. 앱은 변경 서비스만 빌드·배포하며 현재 Data·Realtime 계약 쌍은 유지한다. Kafka·Redis 설정은 `server/scripts/v2/prod/`가 소유한다. 운영 비밀은 Git에 보관하지 않는다. 절차와 복구는 [prod V2 파이프라인](docs/engineering/prod-v2-pipeline.md), dev는 [dev V2 파이프라인](docs/engineering/dev-v2-pipeline.md)을 따른다.
 

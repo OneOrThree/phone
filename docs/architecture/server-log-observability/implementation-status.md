@@ -8,7 +8,7 @@
 - **main**: 에픽 PR #1407 이 머지됐고(`ec7d74695`) `release` 에 포함됐다.
 - **prod 실행**: Datadog 2026-10-30 조회 기준 prod 컨테이너 태그 version 은 `340d81567f3ee11400f53e9d0525b3b0eed9ca54` 이다. 같은 커밋에 `catus-v2.0.0-V2`·`catus-v2.0.1-V2`·`catus-v3.0.0` 태그가 있고, `catus-v3.0.0` 은 V1 워크플로 태그다. prod 워크플로는 `prod-ci-V2.yml`·`prod-cd-V2.yml`(V2 태그 `catus-vX.Y.Z-V2`)이며 `prod-cd-V2` 마지막 성공은 2026-10-29T23:11Z 다. 이 값은 «커밋 `340d81567`(V2 태그 `catus-v2.0.1-V2`, 2026-10-30 기준)» 로 적는다(마지막 성공 실행이 쓴 태그는 태그와 실행 시각으로 추정한 값). V2 전환은 host `catus-prod-V2` 로그와 `prod-cd-V2` 성공으로 확인됐다. 앱 JSON 로그와 Datadog 수집은 prod 에 적용됐다.
 - **아직 prod 에 없다**: `OBS_*` 환경 변수, Fluent Bit, Loki·Grafana, S3 `system_log/v2/`, Nginx JSON 접근 로그, Datadog 서비스 이름 통일(`data-api` 등). 에픽 [GROMO-2619](https://romance.atlassian.net/browse/GROMO-2619)(하위 2620~2627·2630)가 맡는다. V2 에는 수집기·S3 업로더·버킷 수명 규칙·Datadog Agent 수집 제외 목록이 없다(2026-10-30 조사).
-- **dev**: dev CI·CD 워크플로 다수가 `disabled_manually` 이고 Infra PR #28 이 dev V2 를 구성 중이다. dev 에 이 에픽이 배포돼 있는지·Loki 가동 여부는 **2026-10-30 재확인 필요**.
+- **dev**: 기존 dev CI·CD 워크플로 다수는 `disabled_manually` 이고, 2026-10-31 기준 dev V2 가 `cd-auto.dev-v2.yml` 로 자동 배포된다. 기존 dev VM 에 이 에픽이 배포돼 있는지·Loki 가동 여부는 **재확인 필요**.
 - **미확인**: Data V7·Notification V16 의 prod DB 적용 여부(V2 prod 배포로 적용됐을 가능성은 있으나 DB 를 보지 않았다), Datadog 심각도 파이프라인·Kafka 대시보드 적용 여부.
 - Infra 저장소 이름은 `OneOrThree/cattus-infra`(옛 이름 `OneOrThree/Infra` 에서 이동)이고 운영 실행 구성은 `prod/catus-v2/` 이다.
 

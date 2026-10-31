@@ -6,7 +6,9 @@ AWS EC2 4대로 나눈 Catus V2 운영의 CI/CD 현행 정리다. 2026-10-31 코
 - 관측 스택을 켜는 절차는 [서버 로그 관측 rollout](../architecture/server-log-observability/rollout.md)을 따른다.
 - dev는 [dev V2 파이프라인](dev-v2-pipeline.md)을 본다.
 
-V1 워크플로 `prod-ci.yml`, `prod-cd.yml`, `backoffice-prod-cd.yml`, `backoffice-release.yml`은 `disabled_manually`다.
+기존 워크플로 `prod-ci.yml`, `prod-cd.yml`, `backoffice-prod-cd.yml`, `backoffice-release.yml`은 `disabled_manually`다.
+
+꺼진 것은 배포 워크플로뿐이다. 2026-10-31 기준 기존 EC2 `catus-prod`, `catus-backoffice-prod`는 켜져 있다. 운영 DB `catus-prod-db`와 앱 시크릿 원본도 기존 서버와 V2가 함께 쓴다. 기존 서버 종료 일정은 정해지지 않았다.
 
 ## 구성
 
@@ -16,7 +18,7 @@ V1 워크플로 `prod-ci.yml`, `prod-cd.yml`, `backoffice-prod-cd.yml`, `backoff
 | `catus-kafka-prod-V2` | m6g.medium | 부팅 20 GiB + 데이터 30 GiB | Kafka 3.8.1 |
 | `catus-redis-prod-V2` | m6g.medium | 부팅 20 GiB + 데이터 20 GiB | Redis 7.4.11 두 개 |
 | `catus-backoffice-prod-V2` | t4g.small | 부팅 20 GiB + 데이터 10 GiB | 백오피스 |
-| RDS `catus-prod-db` | db.t4g.small | 20 GiB | 운영 DB. V1과 공유 |
+| RDS `catus-prod-db` | db.t4g.small | 20 GiB | 운영 DB. 기존 Catus 서버와 공유 |
 | RDS `catus-prod-db-v2` | db.t4g.small | 20 GiB, 최대 50 GiB | 전용 DB로 만들어 뒀지만 아직 쓰지 않음 |
 
 공개 주소는 `catus-api-v2.oneorthree.world`, `backoffice-v2.oneorthree.world`다.

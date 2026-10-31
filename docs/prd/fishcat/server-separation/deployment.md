@@ -54,7 +54,7 @@ nginx·인증서는 Infra 소유다. `nginx-satellites.include.conf.example`과 
 
 ## 개발 자동 배포
 
-> **V1 기록.** 이 절의 워크플로는 2026-10-31 기준 꺼져 있다. 현행은 [dev V2 파이프라인](../../../engineering/dev-v2-pipeline.md)을 따른다.
+> **기존 경로 기록.** 이 절의 워크플로는 2026-10-31 기준 꺼져 있다. 현행은 [dev V2 파이프라인](../../../engineering/dev-v2-pipeline.md)을 따른다.
 
 `data-api-ci.dev.yml`이 main의 Data·Realtime 배포를 함께 소유한다. 어느 한쪽 입력이 바뀌어도 같은 SHA의 두 이미지를 검사·발행한 뒤 digest를 공동 CD에 직접 넘긴다. Realtime CI는 PR 검사와 재사용 빌드만 제공하며 독립 Realtime CD는 없다.
 
@@ -77,7 +77,7 @@ Redis는 Business 전용 내부 네트워크에서 `cache:business:*`만 읽고 
 
 ## Catus 2.0 운영 발행·배포
 
-> **V1 기록.** `prod-ci.yml`·`prod-cd.yml`은 2026-10-31 기준 꺼져 있다. 현행 운영은 [prod V2 파이프라인](../../../engineering/prod-v2-pipeline.md)을 따른다. 아래 「DB 전환이 든 V2 배포」만 V2 절차다.
+> **기존 경로 기록.** `prod-ci.yml`·`prod-cd.yml`은 2026-10-31 기준 꺼져 있다. 현행 운영은 [prod V2 파이프라인](../../../engineering/prod-v2-pipeline.md)을 따른다. 아래 「DB 전환이 든 V2 배포」만 V2 절차다.
 
 위의 준비 도구·기존 prod Compose 설명과 별도로, Catus 실행 구성·nginx·SSM 배포 문서는 Infra 저장소의 `prod/catus/runtime`에서 관리한다. Phone은 네 서비스의 애플리케이션 이미지와 릴리스를 발행한다. 구성은 `CATUS_PROD_INFRA_REVISION`의 40자리 Infra 커밋 SHA로 고정하며, S3의 `configurations/<Infra SHA>/configuration.zip`·`configuration.json`을 검증한 뒤 사용한다.
 
