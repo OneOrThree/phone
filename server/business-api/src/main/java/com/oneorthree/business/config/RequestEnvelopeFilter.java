@@ -90,8 +90,9 @@ public class RequestEnvelopeFilter extends OncePerRequestFilter {
                 .addKeyValue("outcome", completed ? "completed" : "unhandled_exception");
         // 클라이언트 헤더라 검증을 통과한 값만 싣고, 어긋나면 키를 생략한다(요청은 거절하지 않는다).
         String version = request.getHeader("X-App-Version");
-        if (version != null && APP_VERSION.matcher(version.strip()).matches()) {
-            access = access.addKeyValue("app_version", version.strip());
+        String strippedVersion = version == null ? null : version.strip();
+        if (strippedVersion != null && APP_VERSION.matcher(strippedVersion).matches()) {
+            access = access.addKeyValue("app_version", strippedVersion);
         }
         String platform = request.getHeader("X-App-Platform");
         if ("ios".equals(platform) || "android".equals(platform)) {

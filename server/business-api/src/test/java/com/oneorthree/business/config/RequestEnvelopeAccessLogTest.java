@@ -20,6 +20,7 @@ import org.springframework.web.bind.annotation.RestController;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -97,10 +98,40 @@ class RequestEnvelopeAccessLogTest {
                 mockMvc.perform(get("/probe/1").header("X-App-Version", version).header("X-App-Platform", platform))
                         .andExpect(status().isOk());
 
+                // 포맷터가 아니라 이벤트 자체에서 키가 없어야 필터 쪽 검증이 증명된다.
+                assertThat(keysOf(accessEvent())).doesNotContain("app_version", "app_platform");
                 assertThat(accessJson()).containsEntry("status_code", 200)
                         .doesNotContainKeys("app_version", "app_platform");
             }
         }
+    }
+
+    @Test
+    void validAppHeadersAreKeyValuesOfTheEvent() throws Exception {
+        mockMvc.perform(get("/probe/1").header("X-App-Version", " 2.0.1 ").header("X-App-Platform", "android"))
+                .andExpect(status().isOk());
+
+        assertThat(accessEvent().getKeyValuePairs()).extracting(kv -> kv.key, kv -> kv.value)
+                .contains(org.assertj.core.groups.Tuple.tuple("app_version", "2.0.1"),
+                        org.assertj.core.groups.Tuple.tuple("app_platform", "android"));
+    }
+
+    @Test
+    void invalidVersionDoesNotDropValidPlatform() throws Exception {
+        mockMvc.perform(get("/probe/1").header("X-App-Version", "1.0").header("X-App-Platform", "ios"))
+                .andExpect(status().isOk());
+
+        assertThat(keysOf(accessEvent())).contains("app_platform").doesNotContain("app_version");
+        assertThat(accessJson()).containsEntry("app_platform", "ios").doesNotContainKey("app_version");
+    }
+
+    @Test
+    void invalidPlatformDoesNotDropValidVersion() throws Exception {
+        mockMvc.perform(get("/probe/1").header("X-App-Version", "1.0.2").header("X-App-Platform", "web"))
+                .andExpect(status().isOk());
+
+        assertThat(keysOf(accessEvent())).contains("app_version").doesNotContain("app_platform");
+        assertThat(accessJson()).containsEntry("app_version", "1.0.2").doesNotContainKey("app_platform");
     }
 
     @Test
@@ -115,11 +146,12 @@ class RequestEnvelopeAccessLogTest {
 
     @Test
     void declaredOversizeBodyIsRejectedBeforeRouting() throws Exception {
-        mockMvc.perform(post("/probe/1").content(new byte[RequestEnvelopeFilter.MAX_BODY + 1]))
-                .andExpect(status().isPayloadTooLarge());
+        mockMvc.perform(post("/probe/1").header("X-App-Version", "1.0.2").header("X-App-Platform", "ios")
+                .content(new byte[RequestEnvelopeFilter.MAX_BODY + 1])).andExpect(status().isPayloadTooLarge());
 
         assertThat(accessJson()).containsEntry("http_method", "POST").containsEntry("http_route", "unmatched")
-                .containsEntry("status_code", 413).containsEntry("outcome", "completed");
+                .containsEntry("status_code", 413).containsEntry("outcome", "completed")
+                .containsEntry("app_version", "1.0.2").containsEntry("app_platform", "ios");
     }
 
     @Test
@@ -140,13 +172,21 @@ class RequestEnvelopeAccessLogTest {
                 .containsEntry("http_route", "unmatched");
     }
 
-    @SuppressWarnings("unchecked")
-    private Map<String, Object> accessJson() {
-        ILoggingEvent event = appender.list.stream()
+    private ILoggingEvent accessEvent() {
+        return appender.list.stream()
                 .filter(candidate -> candidate.getMarkerList() != null
                         && candidate.getMarkerList().contains(ObservationJsonProvider.ACCESS))
                 .reduce((first, second) -> second).orElseThrow();
-        return JSON.readValue(PROVIDER.format(event), Map.class);
+    }
+
+    private static List<String> keysOf(ILoggingEvent event) {
+        return event.getKeyValuePairs() == null ? List.of()
+                : event.getKeyValuePairs().stream().map(kv -> kv.key).toList();
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> accessJson() {
+        return JSON.readValue(PROVIDER.format(accessEvent()), Map.class);
     }
 
     @RestController
