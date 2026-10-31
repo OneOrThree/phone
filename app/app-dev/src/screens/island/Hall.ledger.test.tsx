@@ -474,11 +474,15 @@ test('거래내역 장(적립·지출)을 펼치면 feature_used(ledger/open) �
   // 적립 장을 펼치면 1회
   await fireEvent.press(screen.getByTestId('ledger-tab-적립'));
   await waitFor(() => assert.ok(screen.getByTestId('ledger-total')));
-  expect(mockCapture.mock.calls).toEqual([['feature_used', { building: 'ledger', action: 'open' }]]);
+  expect(mockCapture.mock.calls).toEqual([
+    ['feature_used', { building: 'ledger', action: 'open' }],
+  ]);
 
   // 같은 적립 장을 다시 눌러도 늘지 않는다
   await fireEvent.press(screen.getByTestId('ledger-tab-적립'));
-  expect(mockCapture.mock.calls).toEqual([['feature_used', { building: 'ledger', action: 'open' }]]);
+  expect(mockCapture.mock.calls).toEqual([
+    ['feature_used', { building: 'ledger', action: 'open' }],
+  ]);
 
   // 지출 장은 다른 열람이라 1회 더
   await fireEvent.press(screen.getByTestId('ledger-tab-지출'));
