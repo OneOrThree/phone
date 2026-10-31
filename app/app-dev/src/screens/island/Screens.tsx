@@ -15,6 +15,7 @@ import { magazineUnread } from '@/screens/magazine/useMagazineToday';
 import { ServerVisit } from '@/screens/island/ServerVisit';
 import { ServerIslandPicker } from '@/screens/island/ServerIslandPicker';
 import { islandErrorMessage } from '@/services/islandErrors';
+import { captureProductEvent } from '@/services/posthog';
 import { OnboardingFlow } from '@/screens/onboarding/OnboardingFlow';
 import { LoginScreen } from '@/screens/LoginScreen';
 import { getSession, sessionGeneration } from '@/services/api/session';
@@ -708,6 +709,13 @@ function AvStack({ list }: { list: string[] }) {
       ))}
     </View>
   );
+}
+// 몽돌 도착 안내의 각 줄 노출을 줄마다 1회 발행한다 — route 분기 안이라 훅을 못 써 컴포넌트로 둔다.
+function GuideViewed({ variant, step }: { variant: 'empty' | 'joined'; step: number }) {
+  useEffect(() => {
+    captureProductEvent('island_guide_viewed', { variant, step });
+  }, [variant, step]);
+  return null;
 }
 // 언어 화면 pick() 의 겹침 탭 가드 — route 분기 안이라 useRef 를 못 써(조건부 훅 금지) 모듈 플래그로 둔다.
 let pickingLocale = false;
@@ -2091,6 +2099,7 @@ export function RedesignScreens({ e }: any) {
     return (
       <View style={{ flex: 1 }}>
         {backgroundHome}
+        <GuideViewed variant={guideEmpty ? 'empty' : 'joined'} step={step + 1} />
         <GuideBox
           text={lines[step]}
           style={{

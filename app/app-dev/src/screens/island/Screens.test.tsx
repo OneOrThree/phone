@@ -40,6 +40,10 @@ import { pinToTelescope } from '@/services/api/telescope';
 import { applyLocalePref } from '@/i18n';
 import { FEEDBACK_KAKAO_URL } from '@/services/api/safety';
 
+const mockCapture = jest.fn();
+jest.mock('@/services/posthog', () => ({
+  captureProductEvent: (...a: unknown[]) => mockCapture(...a),
+}));
 const mockRankings = jest.fn();
 jest.mock('@/screens/island/useIslandRankings', () => ({
   useIslandRankings: (...args: unknown[]) => mockRankings(...args),
@@ -2691,6 +2695,15 @@ describe('en', () => {
       ),
     );
     assert.ok(s.getByText('Next'));
+  });
+
+  test('몽돌 가이드는 줄 노출마다 island_guide_viewed 를 1회 발행한다', async () => {
+    mockCapture.mockClear();
+    await render(<Harness route="guide" />);
+
+    expect(mockCapture.mock.calls).toEqual([
+      ['island_guide_viewed', { variant: 'empty', step: 1 }],
+    ]);
   });
 
   test('en 로케일 — 섬 찾기(서버)는 영문 제목과 가입 신청 버튼을 보여준다', async () => {
