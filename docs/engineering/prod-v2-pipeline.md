@@ -6,7 +6,7 @@ AWS EC2 4대로 나눈 Catus V2 운영의 CI/CD 현행 정리다. 2026-10-31 코
 - 관측 스택을 켜는 절차는 [서버 로그 관측 rollout](../architecture/server-log-observability/rollout.md)을 따른다.
 - dev는 [dev V2 파이프라인](dev-v2-pipeline.md)을 본다.
 
-기존 워크플로 `prod-ci.yml`, `prod-cd.yml`, `backoffice-prod-cd.yml`, `backoffice-release.yml`은 `disabled_manually`다.
+기존 워크플로 `prod-ci.yml`, `prod-cd.yml`은 `disabled_manually`다. 백오피스 발행·배포 워크플로는 저장소에서 제거했다.
 
 꺼진 것은 배포 워크플로뿐이다. 2026-10-31 기준 기존 EC2 `catus-prod`, `catus-backoffice-prod`는 켜져 있다. 운영 DB `catus-prod-db`와 앱 시크릿 원본도 기존 서버와 V2가 함께 쓴다. 기존 서버 종료 일정은 정해지지 않았다.
 
@@ -43,7 +43,6 @@ AWS EC2 4대로 나눈 Catus V2 운영의 CI/CD 현행 정리다. 2026-10-31 코
 | 앱 4종 | `prod-ci-V2.yml` | `prod-cd-V2.yml` | `catus-vX.Y.Z-V2` |
 | Kafka | `kafka-ci.prod-V2.yml` | `kafka-cd.prod-V2.yml` | `kafka-vX.Y.Z-V2` |
 | Redis | `redis-ci.prod-V2.yml` | `redis-cd.prod-V2.yml` | `redis-vX.Y.Z-V2` |
-| 백오피스 | `backoffice-ci.prod-V2.yml` | `backoffice-cd.prod-V2.yml` | `backoffice-vX.Y.Z-V2` |
 
 공통 흐름은 다음과 같다.
 
@@ -73,7 +72,7 @@ flowchart LR
 
 ### 처음 구성할 때의 순서
 
-Redis → Kafka → 앱 → 백오피스 순서로 배포한다. 앱 배포는 V2 DB 시크릿이 없을 때만 전용 RDS를 준비한다. 지금은 공유 DB용 시크릿이 있어 이 단계가 돌지 않는다.
+Redis → Kafka → 앱 순서로 배포한다. 앱 배포는 V2 DB 시크릿이 없을 때만 전용 RDS를 준비한다. 지금은 공유 DB용 시크릿이 있어 이 단계가 돌지 않는다.
 
 Redis CD는 먼저 앱 호스트에서 비밀번호를 파생 Redis 시크릿으로 옮긴 뒤 Redis 호스트에 적용한다. 앱은 원본과 파생 자격이 다르면 Redis 선행 배포를 요구한다.
 
@@ -90,7 +89,8 @@ PR에서는 base와 head의 변경으로 검사 대상을 고른다. release 발
 | `server/data-api/**` 또는 `server/realtime/**` | Data + Realtime |
 | `catus-plan.py`의 `SHARED` 경로(`ci-jar`, `be-gradle.yml`, `.dockerignore`, `server/gradle*` 등) | 네 서비스 |
 | Markdown, `/docs/` 아래 일반 문서 | 없음. Data의 DB 전환 도구는 예외 |
-| Kafka·Redis·백오피스 | 없음. 각자의 CI가 담당 |
+| Kafka·Redis | 없음. 각자의 CI가 담당 |
+| 백오피스 | 없음. 발행 경로가 없다 |
 
 새 공통 모듈을 추가하면 `SHARED`도 갱신한다.
 
@@ -122,8 +122,6 @@ CI는 코드와 빌드를 검사하지만 운영의 자격 증명, 네트워크,
 
 앱 최소 점검은 공개 HTTPS와 60초 진단 토큰의 WSS/STOMP CONNECT·DISCONNECT, 무인증 CONNECT 거부다. 고객 DB 행을 만들거나 메시지를 발행하지 않는다. 사용자 생성, 집중 시작, 채팅 발송 같은 쓰기는 CD에서 돌리지 않는다.
 
-백오피스는 운영자의 Data·Notification 환경 조회, 무인증 차단, SQLite 백업, 공개 HTTPS를 검사한다. 웹 로그인 성공은 따로 확인한다.
-
 ## Kafka·Redis
 
 - PR과 release push에서 단위 테스트와 `plan`을 돌린다. 이미지를 빌드하지 않고 구성 산출물만 발행한다.
@@ -133,12 +131,14 @@ CI는 코드와 빌드를 검사하지만 운영의 자격 증명, 네트워크,
 
 ## 백오피스
 
-- `backoffice/**`가 바뀌면 발행한다. 자세한 분리 기준은 [백오피스 독립 릴리스](backoffice-independent-release.md)를 따른다.
-- SQLite는 별도 EBS에 두고, V2 전용 S3로 온라인 백업한다.
+- 백오피스 발행·배포 워크플로는 이 저장소에서 제거했다. 다른 담당자가 관리할 영역이며, 이관 대상은 정해지지 않았다.
+- `catus-backoffice-prod-V2`는 계속 실행되지만 이 저장소로는 배포할 수 없다.
+- 남은 것은 PR 검사 `backoffice-ci.yml`뿐이다.
+- 앱 배포는 백오피스 운영자 시크릿을 계속 읽는다.
 
 ## 복구
 
-- 앱·백오피스 적용이 실패하면 Infra `deploy-V2.py`가 직전 릴리스로 자동 복구를 시도한다. Kafka·Redis는 자동 복구하지 않는다.
+- 앱 적용이 실패하면 Infra `deploy-V2.py`가 직전 릴리스로 자동 복구를 시도한다. Kafka·Redis는 자동 복구하지 않는다.
 - CD의 `rollback` 입력은 지정한 이전 태그로 복구한다. 첫 배포에는 복구할 V2 버전이 없다.
 - 수동 `rollback`은 현재 성공 기록과 마이그레이션 지문이 다르면 거부된다. `allow_migration` 승인이 있어도 같다.
 - 자동 복구는 `allow_migration` 배포가 실패해도 동작한다. 실패한 배포는 성공 기록을 바꾸지 않아 복구 대상과 지문이 같기 때문이다. 이미 적용된 스키마는 되돌리지 않으므로 이전 이미지가 새 스키마와 호환돼야 한다. 절차는 [DB 전환이 든 V2 배포](../prd/fishcat/server-separation/deployment.md#db-전환이-든-v2-배포)를 따른다.

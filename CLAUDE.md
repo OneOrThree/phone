@@ -124,10 +124,9 @@ PR checks live in the dev CI file. Shared steps go in a reusable file without an
 (`satellite-check.yml`, `be-gradle.yml`). App workflows are not renamed yet.
 
 **V2 is the live server pipeline.** dev: `*.dev-v2.yml` on GCP VMs `catus-dev-v2-{app,data,redis}` —
-[docs/engineering/dev-v2-pipeline.md](docs/engineering/dev-v2-pipeline.md). prod: `*-V2.yml` on four EC2 hosts —
+[docs/engineering/dev-v2-pipeline.md](docs/engineering/dev-v2-pipeline.md). prod: `*-V2.yml` on EC2 hosts (백오피스 발행·배포 워크플로는 제거됨) —
 [docs/engineering/prod-v2-pipeline.md](docs/engineering/prod-v2-pipeline.md). 기존 파일(`data-api-ci·cd.dev`,
-`realtime-ci.dev`, `satellite-ci·cd.dev`, `ops-smoke.dev`, `prod-ci`, `prod-cd`, `backoffice-prod-cd`,
-`backoffice-release`)은 2026-10-31 기준 `disabled_manually`다. 아래 서버 항목에서 이 파일들을 설명하는 부분은 기존 경로 기록이다. 앱 워크플로 항목은 해당하지 않는다.
+`realtime-ci.dev`, `satellite-ci·cd.dev`, `ops-smoke.dev`, `prod-ci`, `prod-cd`)은 2026-10-31 기준 `disabled_manually`다. 아래 서버 항목에서 이 파일들을 설명하는 부분은 기존 경로 기록이다. 앱 워크플로 항목은 해당하지 않는다.
 
 - **App**: `app-lint.yml` — ESLint + Prettier + tsc + jest on `app/app-dev/**` (plus
   `server/business-api/**/ApiErrorCode.java`, which the app's error-code parity test reads — GROMO-2253);
