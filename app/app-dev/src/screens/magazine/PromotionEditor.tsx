@@ -24,6 +24,7 @@ import {
 import { managedIslandRole } from '@/screens/interiors/useIslandManagement';
 import { mockFlags } from '@/services/api/magazineMock';
 import { isMockMode } from '@/services/demoMode';
+import { captureProductEvent } from '@/services/posthog';
 import { State, capacityOf, currentIsland, isHost, serverHome } from '@/services/model';
 import { clampCodePoints } from '@/utils/codePoints';
 import { useAppLayout } from '@/utils/layout';
@@ -314,6 +315,8 @@ export function PromotionEditor({
     setProblem(null);
     const result = await submit({ body: trimmed, layout });
     if ('ok' in result) {
+      // 홍보 글 제출 성공 1회(신규 신청·창 안 수정 모두) — 마을회관 홍보 핵심 행동
+      captureProductEvent('feature_used', { building: 'hall', action: 'promote' });
       setSelection(null);
       // 싣거나(물고기를 냈으면) 고쳐 저장하면 회관으로 돌아간다(10/15) — 알림은 토스트 한 줄
       e.notify(t(result.ok === 'updated' ? 'magazine.editor.saved' : 'magazine.editor.doneTitle'));

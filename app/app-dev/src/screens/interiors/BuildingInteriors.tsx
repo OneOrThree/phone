@@ -46,6 +46,7 @@ import {
 } from '@/services/model';
 import { loadHomeSnapshot } from '@/services/homeSnapshot';
 import { getSession, sessionGeneration } from '@/services/api/session';
+import { captureProductEvent } from '@/services/posthog';
 import { ApiError, CLIENT_STALE_SESSION } from '@/services/api/client';
 import { isSystemLetter, isSystemLetterView } from '@/services/api/letters';
 import { errorTextOr, localized, t } from '@/i18n';
@@ -4452,10 +4453,13 @@ export function Board({
       if (panel) e.setTab(boardTabs[panel]);
     },
     closePanel: () => (e ? e.back() : render({ panel: '' })),
-    openNotice: (index: number) =>
-      e
+    openNotice: (index: number) => {
+      // 게시판 글 상세를 여는 사용자 행동 1회(탭당 1회) — 목록에서 글을 펼쳐 읽는 지점
+      captureProductEvent('feature_used', { building: 'board', action: 'read' });
+      return e
         ? e.go('notice', notices[index].id)
-        : render({ noticeIndex: index, view: 'detail', error: '' }),
+        : render({ noticeIndex: index, view: 'detail', error: '' });
+    },
     backToNotices: () => (e ? e.back() : render({ view: 'list', commentDraft: '', error: '' })),
     newNotice: () => {
       if (!owner) return;
@@ -8169,6 +8173,8 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
                 accessibilityRole="button"
                 accessibilityLabel={`${letter.from}의 편지 열기`}
                 onPress={() => {
+                  // 받은 편지를 여는 사용자 행동 1회(탭당 1회) — 서버가 readAt 을 찍는 상세 열람 지점
+                  captureProductEvent('feature_used', { building: 'mail', action: 'read' });
                   if (e) return e.go('mail', letter.id);
                   setSelectedLetter(letter.id);
                   setDeletedLetters((prev) => [...prev, letter.id]);

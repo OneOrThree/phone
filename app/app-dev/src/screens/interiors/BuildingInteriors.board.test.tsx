@@ -54,6 +54,15 @@ jest.mock('@/services/api/notices', () => ({
   deleteNoticeComment: jest.fn(),
   createNoticeComment: jest.fn(),
 }));
+const mockCapture = jest.fn();
+jest.mock('@/services/posthog', () => ({
+  captureProductEvent: (...a: unknown[]) => mockCapture(...a),
+  getPostHogClient: () => null,
+  initPostHog: () => {},
+  trackPostHogScreen: () => {},
+  identifyPostHogUser: () => {},
+  resetPostHogUser: () => {},
+}));
 jest.mock('@/services/api/quests', () => ({
   getCurrentQuests: jest.fn(),
   getQuestProgress: jest.fn(),
@@ -1636,6 +1645,19 @@ test('상세 — getNotice 본문·댓글을 그리고 방장에게 댓글 삭�
   assert.ok(screen.getByText('반가워요'));
   assert.ok(screen.getByText('탈퇴한 댓글'));
   assert.ok(screen.getByTestId('board-comment-delete-0'));
+  await screen.unmount();
+});
+
+test('공지를 탭해 열면 feature_used(board/read) 를 탭당 1회 발행한다', async () => {
+  getBoardMock.mockResolvedValue(page([{ id: 'n1', title: '첫 공지' }]));
+  getNoticeMock.mockResolvedValue(detail('n1', []));
+  const screen = await renderBoard(makeE());
+  await waitFor(() => assert.ok(screen.getByTestId('board-notice-item-0')));
+  mockCapture.mockClear();
+
+  await fireEvent.press(screen.getByTestId('board-notice-item-0'));
+
+  expect(mockCapture.mock.calls).toEqual([['feature_used', { building: 'board', action: 'read' }]]);
   await screen.unmount();
 });
 

@@ -24,6 +24,15 @@ jest.mock('@/services/api/magazine', () => ({
   applyPromotion: jest.fn(),
   updatePromotion: jest.fn(),
 }));
+const mockCapture = jest.fn();
+jest.mock('@/services/posthog', () => ({
+  captureProductEvent: (...a: unknown[]) => mockCapture(...a),
+  getPostHogClient: () => null,
+  initPostHog: () => {},
+  trackPostHogScreen: () => {},
+  identifyPostHogUser: () => {},
+  resetPostHogUser: () => {},
+}));
 // 글자 배율만 바꿔 끼운다(나머지는 실제 화면 치수)
 let mockFontScale = 1;
 jest.mock('@/utils/layout', () => {
@@ -559,6 +568,50 @@ describe('싣기·고치기', () => {
     } finally {
       now.mockRestore();
     }
+  });
+
+  it('새 홍보 신청 성공 시 feature_used(hall/promote)·fish_spent(promotion) 를 1회씩 발행한다', async () => {
+    const now = jest.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-10-14T05:00:00Z'));
+    try {
+      const { screen, e } = await open();
+      apply.mockResolvedValueOnce({
+        promotionId: 'p1',
+        issueDate: '2026-10-15',
+        feeFish: 60,
+        balanceAfter: 1180,
+        newsId: 'n1',
+      });
+      mockCapture.mockClear();
+
+      await submit(screen);
+
+      expect(e.back).toHaveBeenCalledTimes(1);
+      // fish_spent 의 amount 는 신청 응답의 feeFish(실제 차감 수수료). 발행 순서와 무관하게 각각 1회.
+      expect(mockCapture.mock.calls).toHaveLength(2);
+      expect(mockCapture.mock.calls).toContainEqual([
+        'feature_used',
+        { building: 'hall', action: 'promote' },
+      ]);
+      expect(mockCapture.mock.calls).toContainEqual([
+        'fish_spent',
+        { reason: 'promotion', amount: 60 },
+      ]);
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it('이미 낸 홍보를 고쳐 저장하면 feature_used(hall/promote)만 발행하고 fish_spent 는 내지 않는다(수정 무료)', async () => {
+    const next = { promotionId: 'p9', issueDate: '2026-10-15', body: '다음 호 글', layout: LAYOUT };
+    const { screen } = await open({ next: { ...next, appliedAt: 'x', editable: true } });
+    update.mockResolvedValueOnce({ ...next, updatedAt: 'y' });
+    mockCapture.mockClear();
+
+    await fireEvent.press(screen.getByText('완료'));
+
+    expect(mockCapture.mock.calls).toEqual([
+      ['feature_used', { building: 'hall', action: 'promote' }],
+    ]);
   });
 
   it('[완료]는 값을 버튼에 적지 않고, 누르면 가격 확인창 — 취소하면 보내지 않는다', async () => {
