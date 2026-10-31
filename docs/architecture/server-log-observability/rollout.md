@@ -38,7 +38,7 @@ dev 관찰(D2~D7)이 끝나고 §4 기준이 기록되기 전에는 ②(Fluent B
 | 1 | `terraform apply`: 로그 버킷 수명 규칙(`system_log/` 90일)과 IAM(쓰기 접두 `system_log/v2/env=prod/*`) 적용. 2026-10-31 plan 은 추가 1·변경 1·삭제 0 이고 버킷에 기존 수명 규칙이 없다. 적용 직전에 plan 을 다시 본다 | 적용 결과의 변경 목록 |
 | 2 | Infra `main` 에 머지된 커밋 SHA 로 phone 저장소 Actions 변수 `CATUS_PROD_INFRA_REVISION_V2` 를 변경. 변수만 바꿔서는 아무것도 실행되지 않는다 | 40자리 SHA, 그 SHA 의 Infra `catus-config.prod-V2` 발행 성공 |
 | 3 | `prod-ci-V2` 를 `release` 브랜치에서 `workflow_dispatch` 로 수동 실행 | 이미지 발행·구성 SHA 검증 통과, 새 태그 `catus-vX.Y.Z-V2` 생성 |
-| 4 | `prod-cd-V2` 실행(승인 후 수동, SSM 배포). 입력은 `version`(필수: 3단계에서 생긴 `catus-vX.Y.Z-V2` 태그)과 `rollback` 뿐이고 배포는 `--role app` 전체다 | 앱 4종 헬스 통과 |
+| 4 | `prod-cd-V2` 실행(승인 후 수동, SSM 배포). 입력은 `version`(필수: 3단계에서 생긴 `catus-vX.Y.Z-V2` 태그)·`rollback`·`allow_migration`(DB 마이그레이션이 든 릴리스만)이고 배포는 `--role app` 전체다 | 앱 4종 헬스 통과 |
 
 배포 엔진은 `up -d --no-deps <앱 4종>` 을 호출하고 compose 가 설정이 바뀐 서비스만 재생성한다. 그래서 스위치만 바꾸면 앱은 재시작되지 않고, 앱의 env·이미지·라벨이 바뀐 배포에서만 재시작된다(`infra_revision` 비교로 앱을 재시작하지 않는다). ①은 phone 승격 없이 Infra 만으로 배포할 수 있다(번들에 관측 파일이 없으면 배포 엔진이 관측 단계를 건너뛴다). ②부터는 phone 번들이 필요해 `main` → `release` 승격(`AGENTS.md` 「main → release 운영 승격」)이 먼저다.
 
@@ -46,7 +46,7 @@ dev 관찰(D2~D7)이 끝나고 §4 기준이 기록되기 전에는 ②(Fluent B
 
 ### 3.2 켜는 순서 (Infra 기능 스위치)
 
-스위치는 `prod/catus-v2/runtime/env-V2.py` 의 `OBSERVABILITY = {'fluent_bit', 'loki', 'grafana', 's3'}` 이고 기본값은 모두 False 다. 하나를 켤 때마다 §3.1 의 2~4단계(Infra 커밋 → `CATUS_PROD_INFRA_REVISION_V2` 변경 → `prod-ci-V2` → `prod-cd-V2`)를 한 번 돈다.
+스위치는 `prod/catus-v2/runtime/env-V2.py` 의 `OBSERVABILITY = {'fluent_bit', 'loki', 'grafana', 's3'}` 이고 Infra `main` 값은 `fluent_bit`·`loki`·`s3` 가 True, `grafana` 가 False 다(2026-10-31, 실제 적용은 배포 결과로 확인). 하나를 켤 때마다 §3.1 의 2~4단계(Infra 커밋 → `CATUS_PROD_INFRA_REVISION_V2` 변경 → `prod-ci-V2` → `prod-cd-V2`)를 한 번 돈다.
 
 | 단계 | 켜는 것 | 확인 | 상태 |
 | --- | --- | --- | --- |
@@ -88,7 +88,7 @@ Grafana 는 Access 가 붙인 JWT(`Cf-Access-Jwt-Assertion`)를 JWKS 로 직접 
 | --- | --- |
 | P0 Infra 요청(IAM·lifecycle·Fluent Bit 서비스·Nginx `gromo_json`·Datadog 제외 목록) | 에픽 2619 하위 2623~2627·2630 이 코드로 만든다. 머지·`terraform apply` 전 |
 | P1 `OBS_SERVICE`·`OBS_ENV`·`OBS_VERSION`·`DD_TRACE_128_BIT_TRACEID_LOGGING_ENABLED` | 2623 이 만든다. 2026-10-30 재확인 필요 — 이 환경 변수가 prod 실행 구성에 이미 있는지 확인하지 않았다 |
-| P2 main → release 승격 | **실행 완료.** 에픽 PR #1407(`ec7d74695`)이 `release` 에 포함돼 prod 가 커밋 `340d81567`(V2 태그 `catus-v2.0.1-V2`, 2026-10-30 기준)을 실행한다. `prod-cd-V2.yml` 입력은 `version`(필수)과 `rollback` 뿐이고 배포는 `--role app` 전체라 서비스 단위 적용은 불가능하다. 마지막 성공 실행은 2026-10-31T02:55Z 의 `catus-v2.0.2-V2` 이고 앱 이미지는 `340d81567` 그대로다(`deployments/app/current-V2.json` 확인) |
+| P2 main → release 승격 | **실행 완료.** 에픽 PR #1407(`ec7d74695`)이 `release` 에 포함돼 prod 가 커밋 `340d81567`(V2 태그 `catus-v2.0.1-V2`, 2026-10-30 기준)을 실행한다. `prod-cd-V2.yml` 입력은 `version`(필수)·`rollback`·`allow_migration`이고 배포는 `--role app` 전체라 서비스 단위 적용은 불가능하다. 마지막 성공 실행은 2026-10-31T02:55Z 의 `catus-v2.0.2-V2` 이고 앱 이미지는 `340d81567` 그대로다(`deployments/app/current-V2.json` 확인) |
 | P3 Fluent Bit 기동·canary | §3.2 ②. 미실행 |
 | P4 기존 업로더(590·2288)와 `system_log/v2/` 병행 후 APP 업로더 중단([런북 §5](ingestion-runbook.md)) | 미실행. 두 업로더가 같은 호스트에서 같은 prefix 로 중복 쓰는지는 미확인 |
 | P5 Grafana 접근 인증·수집기 IAM·경보 | 인증은 §3.2 ④, 경보는 미정 |
