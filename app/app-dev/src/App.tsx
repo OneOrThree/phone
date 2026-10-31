@@ -519,9 +519,11 @@ function Gromo() {
 
   useEffect(() => trackDatadogView(route, titles[route]), [route]);
   // 첫 섬 여정(GROMO-2540) — 로그인 화면 노출(익명, 실행당 1회). 로그인하면 posthog 가 사용자와 잇는다.
+  // loaded 전 로딩 화면·세션 복원으로 홈으로 가는 기존 유저는 로그인 화면을 실제로 보지 않으므로 제외한다
+  // (route 초기값이 'login' 이라 부팅 중 바로 발행되면 분모가 왜곡된다).
   useEffect(() => {
-    if (route === 'login') markLoginViewed();
-  }, [route]);
+    if (loaded && route === 'login' && !getSession()) markLoginViewed();
+  }, [loaded, route]);
   // 첫 섬 도착 — 현재 섬이 처음 생기면 발행. 바다 항해로 섬을 얻는 동선은 ISLAND_SYNC 로 섬이 들어온다.
   // 계정 저장소에 login_completed 가 있는(추적된 최초 여정) 계정만, 한 번만 발행한다.
   useEffect(() => {
