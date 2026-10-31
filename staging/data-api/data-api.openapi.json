@@ -1161,6 +1161,55 @@
         }
       }
     },
+    "/internal/users/{userId}/islands/{islandId}/intro-arrivals": {
+      "post": {
+        "tags": [
+          "internal-island-membership-controller"
+        ],
+        "operationId": "introArrive",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/IslandArrivalView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/internal/users/{userId}/islands/{islandId}/arrivals": {
       "post": {
         "tags": [

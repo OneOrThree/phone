@@ -1054,6 +1054,36 @@
         }
       }
     },
+    "/islands/{islandId}/intro-arrivals": {
+      "post": {
+        "tags": [
+          "island-membership-controller"
+        ],
+        "operationId": "introArrive",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/IslandArrivalView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/islands/{islandId}/host-transfer": {
       "post": {
         "tags": [
@@ -4849,6 +4879,30 @@
           "url"
         ]
       },
+      "IslandArrivalView": {
+        "type": "object",
+        "properties": {
+          "islandId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "arrivedBefore": {
+            "type": "boolean"
+          },
+          "membershipStatus": {
+            "type": "string"
+          },
+          "currentIslandId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "arrivedBefore",
+          "islandId",
+          "membershipStatus"
+        ]
+      },
       "IslandHostTransferResult": {
         "type": "object",
         "properties": {
@@ -4951,30 +5005,6 @@
         "required": [
           "amount",
           "currency"
-        ]
-      },
-      "IslandArrivalView": {
-        "type": "object",
-        "properties": {
-          "islandId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "arrivedBefore": {
-            "type": "boolean"
-          },
-          "membershipStatus": {
-            "type": "string"
-          },
-          "currentIslandId": {
-            "type": "string",
-            "format": "uuid"
-          }
-        },
-        "required": [
-          "arrivedBefore",
-          "islandId",
-          "membershipStatus"
         ]
       },
       "InvitationArrivalView": {
