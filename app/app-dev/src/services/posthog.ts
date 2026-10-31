@@ -108,13 +108,15 @@ export function trackPostHogScreen(route: string): void {
 export function captureProductEvent(
   event: string,
   properties?: Record<string, string | number>,
+  // 서버 확정 시각 등으로 이벤트 시각을 덮어쓸 때 쓴다(미지정이면 수집 시각). Airbridge 에는 적용하지 않는다.
+  options?: { timestamp?: Date },
 ): void {
   captureAirbridgeEvent(event, properties);
   try {
-    client?.capture(event, {
-      ...properties,
-      analytics_environment: analyticsEnvironment(),
-    });
+    const merged = { ...properties, analytics_environment: analyticsEnvironment() };
+    // options 가 있을 때만 3번째 인자로 넘긴다 — 기존 호출(2인자)의 동작·계약을 그대로 둔다.
+    if (options) client?.capture(event, merged, options);
+    else client?.capture(event, merged);
   } catch {
     // Product actions must not fail when telemetry does.
   }
