@@ -1,6 +1,6 @@
 /**
- * iOS 푸시 등록 수명주기와 알림 수신·탭 라우팅(GROMO-2525). 서버 계약은 `api/deviceToken.ts`(PUT·DELETE), 네이티브는
- * 2523 브리지 `FCMTokenModule`(getToken·deleteToken·FCMTokenRefresh).
+ * iOS·Android 푸시 등록 수명주기와 알림 수신·탭 라우팅(GROMO-2525·2611). 서버 계약은 `api/deviceToken.ts`(PUT·DELETE).
+ * iOS 는 2523 브리지, Android 는 expo-notifications 의 FCM 토큰·수신 모듈을 사용한다.
  *
  * 기록: 보안 저장소 키 하나 `gromo.pushDevice` = `{userId, fcmToken, registeredToken, ownershipToken, deliveryTag}` 를
  * 통째로 쓴다.
@@ -28,6 +28,7 @@
  * | 브리지 `INVALID_APNS_TOKEN` | 그 APNs 토큰으로는 다시 부르지 않음(다음 APNs 토큰 이벤트를 기다림) |
  * | 브리지 `TOKEN_ERROR`·APNs 토큰 조회 실패·브리지/OS 호출 20초 초과 | 다음 트리거(앱 활성·설정 변경·토큰 이벤트)에 다시 — 촘촘한 재시도는 없음 |
  */
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import type {
   Notification,
@@ -36,6 +37,7 @@ import type {
 } from 'expo-notifications';
 import { AppState, NativeEventEmitter, NativeModules, Platform } from 'react-native';
 import { openAppLink } from './appDeepLink';
+import { screenTimeNative } from './ScreenTimeModule';
 import { takeDeviceBootstrap } from './api/auth';
 import { ApiError, CLIENT_STALE_SESSION, uuid } from './api/client';
 import {
@@ -58,6 +60,8 @@ const NOT_CONFIGURED = 'NOT_CONFIGURED';
 const INVALID_APNS_TOKEN = 'INVALID_APNS_TOKEN';
 
 const DEVICE_KEY = 'gromo.pushDevice';
+const ANDROID_PERMISSION_ASKED_KEY = 'gromo.androidPushPermissionAsked';
+const ANDROID_CHANNEL_ID = 'default';
 
 type PushDevice = {
   userId?: string;
@@ -75,6 +79,8 @@ let pending: { key: string; body: DeviceRegistrationBody } | undefined;
 let haltedGeneration: number | undefined;
 /** 돌고 있는 동기화를 깨운다. 기록을 읽기 전·정리 뒤에는 없다. */
 let wake: (() => void) | undefined;
+/** 두 화면에서 동시에 권한을 물어도 Android 시스템 팝업은 한 번만 연다. */
+let androidPermissionRequest: Promise<PushPermission> | undefined;
 let writes: Promise<unknown> = Promise.resolve();
 /** 이 실행에서 처리한 알림 응답 — 같은 탭이 리스너와 콜드 스타트 조회로 두 번 와도 한 번만 연다. */
 const handledResponses = new Set<string>();
@@ -127,12 +133,16 @@ function readDevice(stored: string | null): PushDevice {
 }
 
 /**
- * FCM data(`link`·`type`·`eventId`·`deliveryTag`)는 iOS 에서 `trigger.payload`(userInfo 전체)에 있다. `content.data` 는
- * Expo 푸시 서비스 형식 전용이라 FCM 푸시에선 비어 있다 — 그걸 읽으면 판정·라우팅이 조용히 전부 실패한다.
+ * FCM data(`link`·`type`·`eventId`·`deliveryTag`)는 iOS 에서 `trigger.payload`(userInfo 전체),
+ * Android 에서 `trigger.remoteMessage.data` 원본을 읽는다. Expo Android 는 보통 `content.data` 에도 복사하지만,
+ * data.body 가 JSON 이면 그것만 파싱한 결과로 덮으므로 원본의 태그·링크가 사라질 수 있다.
  */
 function payloadOf(notification: Notification): Record<string, unknown> {
   const trigger = notification.request.trigger;
-  return trigger && 'type' in trigger && trigger.type === 'push' ? (trigger.payload ?? {}) : {};
+  if (!trigger || !('type' in trigger) || trigger.type !== 'push') return {};
+  return Platform.OS === 'android'
+    ? (trigger.remoteMessage?.data ?? notification.request.content.data ?? {})
+    : (trigger.payload ?? {});
 }
 
 /** 알림을 받을 수 있는 권한인가 — 임시 허용(provisional)도 허용으로 본다. 동기화({@link startPushSync})와 권한 표시가 같은 기준이다. */
@@ -140,15 +150,24 @@ const granted = (N: NotificationsModule, permission: NotificationPermissionsStat
   permission.granted || permission.ios?.status === N.IosAuthorizationStatus.PROVISIONAL;
 
 /**
- * App 이 부팅(`loaded`) 뒤 한 번 시작한다. iOS 이고 브리지가 든 바이너리가 아니면 아무것도 하지 않는다 — 그런
- * 바이너리(Android·옛 iOS·웹·Jest)에서 expo-notifications 를 불러오면 네이티브 모듈이 없어 그 자리에서 던진다.
+ * App 이 부팅(`loaded`) 뒤 한 번 시작한다. iOS 브리지 또는 Android 일반 푸시가 든 바이너리가 아니면
+ * 아무것도 하지 않는다 — 옛 바이너리에서 expo-notifications 를 불러오지 않는다.
  * @param isEnabled 설정 「알림」 의도. 끄면 FCM 토큰만 폐기하고(서버 행·소유권은 둔다) 포그라운드 표시도 막는다.
  */
 export function startPushSync(isEnabled: () => boolean): () => void {
-  const fcm: FCMTokenBridge | undefined =
+  const iosBridge: FCMTokenBridge | undefined =
     Platform.OS === 'ios' ? NativeModules.FCMTokenModule : undefined;
-  if (!fcm) return () => {};
+  if (!iosBridge && !(Platform.OS === 'android' && screenTimeNative?.supportsGeneralPush))
+    return () => {};
   const N = require('expo-notifications') as typeof import('expo-notifications');
+  const fcm: FCMTokenBridge = iosBridge ?? {
+    getToken: async () => {
+      const token = await N.getDevicePushTokenAsync();
+      if (typeof token.data !== 'string' || !token.data) throw new Error('FCM_TOKEN_UNAVAILABLE');
+      return token.data;
+    },
+    deleteToken: () => N.unregisterForNotificationsAsync(),
+  };
   const cleanups: (() => void)[] = [];
   let stopped = false;
   let disabled = false;
@@ -251,6 +270,13 @@ export function startPushSync(isEnabled: () => boolean): () => void {
       persist().catch(() => {});
       if (!current()) return;
     }
+    if (Platform.OS === 'android')
+      await within(
+        N.setNotificationChannelAsync(ANDROID_CHANNEL_ID, {
+          name: 'Cattus',
+          importance: N.AndroidImportance.HIGH,
+        }),
+      );
     if (!isEnabled() || !granted(N, await within(N.getPermissionsAsync()))) {
       // 알림 끄기(설정 OFF·권한 거부) — DELETE 가 아니라 FCM 토큰만 폐기한다. 서버는 다음 발송에서 UNREGISTERED 로
       // transport_invalid 만 세우고 소유권을 남기므로, 다시 켜면 새 토큰을 그 소유권(CAS)으로 올린다. 꺼진 동안에는
@@ -265,9 +291,9 @@ export function startPushSync(isEnabled: () => boolean): () => void {
       return;
     }
     if (!live()) return;
-    // 이 실행의 APNs 토큰은 처음 한 번 묻고, 바뀌면 토큰 리스너가 알려 준다.
-    apnsHex ??= (await within(N.getDevicePushTokenAsync())).data;
-    const hex = apnsHex;
+    // iOS 에서만 APNs 토큰을 FCM 브리지에 건넨다. Android 는 FCM 토큰을 직접 받는다.
+    if (Platform.OS === 'ios') apnsHex ??= (await within(N.getDevicePushTokenAsync())).data;
+    const hex = Platform.OS === 'ios' ? apnsHex : 'android';
     if (!hex || hex === invalidHex || !live()) return;
     let token: string;
     try {
@@ -524,15 +550,22 @@ export function startPushSync(isEnabled: () => boolean): () => void {
       });
       const responses = N.addNotificationResponseReceivedListener(open);
       const apnsTokens = N.addPushTokenListener(({ data }) => {
-        // getDevicePushTokenAsync 도 같은 토큰으로 이 이벤트를 낸다 — 바뀐 토큰일 때만 깨운다(아니면 스스로 깨우는 고리).
+        // Android 의 getDevicePushTokenAsync 도 같은 토큰 이벤트를 내므로 이미 저장한 값은 다시 읽지 않는다.
+        if (Platform.OS === 'android') {
+          if (data !== device.fcmToken) schedule();
+          return;
+        }
         if (data === apnsHex) return;
         apnsHex = data;
         schedule();
       });
-      const fcmTokens = new NativeEventEmitter(NativeModules.FCMTokenModule).addListener(
-        'FCMTokenRefresh',
-        schedule,
-      );
+      const fcmTokens =
+        Platform.OS === 'ios'
+          ? new NativeEventEmitter(NativeModules.FCMTokenModule).addListener(
+              'FCMTokenRefresh',
+              schedule,
+            )
+          : undefined;
       const appState = AppState.addEventListener('change', (next) => {
         if (next === 'active') schedule();
       });
@@ -540,7 +573,7 @@ export function startPushSync(isEnabled: () => boolean): () => void {
         () => N.setNotificationHandler(null),
         () => responses.remove(),
         () => apnsTokens.remove(),
-        () => fcmTokens.remove(),
+        () => fcmTokens?.remove(),
         () => appState.remove(),
       );
       // 콜드 스타트 탭 — 기록을 읽은 뒤에 판정한다.
@@ -566,16 +599,31 @@ export function refreshPush(): void {
 }
 
 /**
- * 설정·권한 관리 화면이 보는 알림 권한(GROMO-2526). `unavailable` 은 iOS 가 아니거나 브리지가 없는 바이너리 — 알림 항목을 그리지
+ * 설정·권한 관리 화면이 보는 알림 권한(GROMO-2526·2611). `unavailable` 은 푸시 네이티브 모듈이 없는 바이너리 — 알림 항목을 그리지
  * 않는다. `error` 는 브리지가 있는데 네이티브가 권한을 읽지 못한 것(일시적 실패)이다 — 허용도 «브리지 없음»도 아닌 확인 못 함이다.
  */
 export type PushPermission = 'granted' | 'denied' | 'undetermined' | 'unavailable' | 'error';
 
 /** {@link startPushSync} 와 같은 바이너리 판정 — 그 밖에서는 expo-notifications 를 불러오는 자리에서 던지므로 불러오지 않는다. */
 function bridgedNotifications(): NotificationsModule | undefined {
-  return Platform.OS === 'ios' && NativeModules.FCMTokenModule
+  return (Platform.OS === 'ios' && NativeModules.FCMTokenModule) ||
+    (Platform.OS === 'android' && screenTimeNative?.supportsGeneralPush)
     ? (require('expo-notifications') as NotificationsModule)
     : undefined;
+}
+
+async function permissionOfDevice(
+  N: NotificationsModule,
+  permission: NotificationPermissionsStatus,
+): Promise<PushPermission> {
+  const status = permissionOf(N, permission);
+  if (Platform.OS === 'android' && Number(Platform.Version) >= 33) {
+    const asked = await AsyncStorage.getItem(ANDROID_PERMISSION_ASKED_KEY);
+    // Android 13+ 는 최초 조회가 denied/canAskAgain 으로 올 수 있다. 거절 뒤 undetermined 로 돌아와도 다시 묻지 않는다.
+    if (status === 'undetermined' && asked) return 'denied';
+    if (status === 'denied' && permission.canAskAgain && !asked) return 'undetermined';
+  }
+  return status;
 }
 
 // iOS 는 최상위 status 를 임시 허용(provisional)에도 undetermined 로 낸다 — 허용 판정을 먼저 본다.
@@ -597,7 +645,7 @@ export async function pushPermissionStatus(): Promise<PushPermission> {
   const N = bridgedNotifications();
   if (!N) return 'unavailable';
   try {
-    return permissionOf(N, await within(N.getPermissionsAsync()));
+    return permissionOfDevice(N, await within(N.getPermissionsAsync()));
   } catch {
     return 'error';
   }
@@ -610,18 +658,36 @@ export async function pushPermissionStatus(): Promise<PushPermission> {
  * @param shouldAsk 상태를 읽은 직후·팝업 직전에 한 번 본다(아직 안 물음일 때만). 읽는 사이 묻고 싶던 화면을 떠났다면 false 를
  *   돌려 팝업을 막는다 — 그러면 묻지 않고 `undetermined` 를 돌려준다.
  */
-export async function requestPushPermission(shouldAsk?: () => boolean): Promise<PushPermission> {
+export function requestPushPermission(shouldAsk?: () => boolean): Promise<PushPermission> {
+  if (Platform.OS === 'android' && androidPermissionRequest) return androidPermissionRequest;
+  const work = requestPushPermissionOnce(shouldAsk);
+  if (Platform.OS !== 'android') return work;
+  androidPermissionRequest = work.finally(() => {
+    androidPermissionRequest = undefined;
+  });
+  return androidPermissionRequest;
+}
+
+async function requestPushPermissionOnce(shouldAsk?: () => boolean): Promise<PushPermission> {
   const N = bridgedNotifications();
   if (!N) return 'unavailable';
   try {
     // 상태 읽기만 시간을 제한한다 — 팝업 요청은 사용자가 답할 때까지 기다려야 하므로 제한하지 않는다.
-    const current = permissionOf(N, await within(N.getPermissionsAsync()));
+    const current = await permissionOfDevice(N, await within(N.getPermissionsAsync()));
     if (current !== 'undetermined') return current;
     if (shouldAsk && !shouldAsk()) return 'undetermined';
-    const answered = permissionOf(
-      N,
-      await N.requestPermissionsAsync({ ios: { allowAlert: true, allowSound: true } }),
+    if (Platform.OS === 'android') {
+      await N.setNotificationChannelAsync(ANDROID_CHANNEL_ID, {
+        name: 'Cattus',
+        importance: N.AndroidImportance.HIGH,
+      });
+    }
+    const response = await N.requestPermissionsAsync(
+      Platform.OS === 'ios' ? { ios: { allowAlert: true, allowSound: true } } : {},
     );
+    // 네이티브 요청이 실패해 팝업이 뜨지 않았다면 다음 진입에 다시 물을 수 있어야 한다.
+    if (Platform.OS === 'android') await AsyncStorage.setItem(ANDROID_PERMISSION_ASKED_KEY, '1');
+    const answered = permissionOf(N, response);
     refreshPush();
     return answered;
   } catch {

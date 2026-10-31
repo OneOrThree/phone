@@ -1,0 +1,41 @@
+name: catus-dev-redis-v2
+services:
+  business:
+    image: redis:7.4.11-alpine
+    command:
+    - redis-server
+    - --aclfile
+    - /etc/redis/users.acl
+    - --maxmemory
+    - 64mb
+    - --maxmemory-policy
+    - noeviction
+    - --appendonly
+    - 'yes'
+    - --save
+    - ''
+    ports:
+    - ${HOST_PRIVATE_IP}:6380:6379
+    volumes:
+    - /var/lib/catus-dev-v2/redis-business:/data
+    - ${BUSINESS_ACL_FILE}:/etc/redis/users.acl:ro
+    mem_limit: 160m
+    restart: unless-stopped
+    healthcheck:
+      test:
+      - CMD
+      - redis-cli
+      - -e
+      - --user
+      - health
+      - --pass
+      - ''
+      - ping
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'

@@ -30,15 +30,34 @@ class DeveloperNoticeContractTest extends UpstreamTestBase {
                 .andExpect(status().isOk()).andExpect(jsonPath("$.data.items[0].publicationId").value(ID.toString()))
                 .andExpect(jsonPath("$.data.items[0].endsAt").hasJsonPath());
         assertThat(DATA.receivedFor(INTERNAL).get(0).header("X-User-Id")).isEqualTo(USER.toString());
+        assertThat(DATA.receivedFor(INTERNAL).get(0).header("Authorization")).isEqualTo("Bearer ci-token-data");
     }
 
     @Test
     void missingSessionAndExpiredNoticeAreNotReadable() throws Exception {
         mockMvc.perform(get("/me/developer-notices")).andExpect(status().isUnauthorized());
+        assertThat(DATA.receivedFor(INTERNAL)).isEmpty();
         DATA.on(INTERNAL + "/" + ID, request -> new MockUpstream.Response(404,
                 "{\"code\":\"NOT_FOUND\",\"message\":\"소식 없음\"}"));
         mockMvc.perform(get("/me/developer-notices/" + ID)
                 .header("Authorization", "Bearer " + Tokens.accessWithSession(USER, 3, SESSION)))
                 .andExpect(status().isNotFound()).andExpect(jsonPath("$.error.code").value("NOT_FOUND"));
+    }
+
+    @Test
+    void detailUsesVerifiedUserAndRejectsMalformedPublicationIdsBeforeUpstream() throws Exception {
+        DATA.on(INTERNAL + "/" + ID, request -> new MockUpstream.Response(200,
+                "{\"publicationId\":\"" + ID + "\",\"title\":\"소식\",\"body\":\"본문\","
+                        + "\"startsAt\":\"2026-10-29T00:00:00Z\",\"endsAt\":null,"
+                        + "\"publishedAt\":\"2026-10-28T00:00:00Z\"}"));
+        String authorization = "Bearer " + Tokens.accessWithSession(USER, 3, SESSION);
+        mockMvc.perform(get("/me/developer-notices/" + ID).header("Authorization", authorization)
+                        .header("X-User-Id", UUID.randomUUID()))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.data.publicationId").value(ID.toString()));
+        assertThat(DATA.receivedFor(INTERNAL + "/" + ID)).hasSize(1);
+        assertThat(DATA.receivedFor(INTERNAL + "/" + ID).get(0).header("X-User-Id")).isEqualTo(USER.toString());
+        mockMvc.perform(get("/me/developer-notices/not-a-uuid").header("Authorization", authorization))
+                .andExpect(status().isBadRequest());
+        assertThat(DATA.receivedFor(INTERNAL + "/not-a-uuid")).isEmpty();
     }
 }

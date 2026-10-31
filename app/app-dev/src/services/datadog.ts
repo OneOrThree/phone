@@ -35,7 +35,7 @@ export function initDatadog(): void {
               sessionSampleRate: 100,
               firstPartyHosts: [
                 {
-                  match: 'catus-api.oneorthree.world',
+                  match: 'catus-api-v2.oneorthree.world',
                   propagatorTypes: [dd.PropagatorType.DATADOG],
                 },
                 {

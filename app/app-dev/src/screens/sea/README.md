@@ -38,7 +38,7 @@ https://www.figma.com/design/XzlUvx1LGl5OZt6wHr2WRg/new-design?node-id=1357-1347
 
 ## 고양이 잡지 (2314)
 
-- `CurrentScreens` 가 `sea` 라우트에서도 오늘 호(`useMagazineToday`)를 읽어 `e.magazineToday` 로 넘긴다. `SeaVoyageHost` 는 표류(`sea` · 세션 없음 · 출항 연출 아님) 중에만 `SeaScreen.magazine` 을 준다.
+- `CurrentScreens` 가 `sea` 라우트에서도 오늘 호(`useMagazineToday`)를 읽어 `e.magazineToday` 로 넘긴다. `SeaVoyageHost` 는 표류(`sea` · 세션 없음 · 출항 연출 아님) 중이고 튜토리얼 완료·건너뛰기(`tutorial.step >= 22`) 또는 완료 이력(`focusGuideDone`)이 확인됐을 때만 `SeaScreen.magazine` 을 준다. 첫 섬 대기·튜토리얼 진행·완료 이력 복원 중에는 배달과 잡지 물건을 모두 숨기고 수령·배달 이력을 기록하지 않는다. 완료 조건이 충족되면 보류한 오늘 호를 정상 배달한다.
 - 펠리컨 배달 B1(`SeaMagazineDelivery`): 아직 받지 않은 오늘 호면 한 번 띄운다. 받음 `{place: SEA}` 와 `markDelivered` 는 실제로 뜬 순간(`onShown`)에만 — `SeaScreen` 이 다른 창(유저 카드·한마디·이모트·결과창) 때문에 미루는 동안은 적지 않는다. 그 사이 항해가 시작되거나 다른 곳에서 받았으면 띄울 차례를 거둔다. 「나중에 읽기」·안드로이드 뒤로가기(SeaScreen BackHandler, App 이 먼저 부르면 호스트 `backOverride`)는 `{place: SEA, deferred: true}`. 먼저 펠리컨 배달 영상(`pelican-mail.mp4`)을 보여 주고 끝나면 말풍선을 띄운다. 띄운 동안 장면을 모달로 숨기고 문구를 스크린리더에 한 번 알린다.
 - 뗏목 위 잡지 B3: 받은 호가 있으면 `SeaScene` 이 내 뗏목 오른쪽에 표지 물건(안 읽음 빨간 점)을 둔다. 가로 compact 에서는 뗏목 크기에 비례해 줄여 뗏목 옆에 나란히 둔다(누르는 자리 44 이상, 뗏목과 겹치지 않음). 꽂이·길게 누르기는 없다(`GET /me/magazine/issues` 를 부르지 않는다).
 - 펼치기는 라우트 `seaMagazine`(`seaRouteHeld` 에 포함 — 소속 섬 가드를 타지 않는다) → `MagazineReader place="SEA"`. 망원경 동그라미는 `pinToTelescope(id, 'magazine', promotionId)` 뒤 `e.replace('telescope')` 라 망원경 뒤로가기가 바다로 간다. 요청 중 잡지를 닫으면 이동하지 않고, 빠진 섬 토스트만 알린다.

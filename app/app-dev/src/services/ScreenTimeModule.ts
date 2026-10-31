@@ -78,6 +78,7 @@ export type AndroidMeasurement = import('./screentimeSync').ScreenTimeSnapshot &
 };
 type AndroidMethods = {
   supportsFocusShield?: boolean;
+  supportsGeneralPush?: boolean;
   openUsageAccessSettings(): Promise<boolean>;
   getUsageSnapshot(): Promise<AndroidUsageSnapshot>;
   getAndroidMeasurement(): Promise<AndroidMeasurement>;

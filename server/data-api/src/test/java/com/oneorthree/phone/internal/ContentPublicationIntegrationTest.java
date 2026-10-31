@@ -69,6 +69,8 @@ class ContentPublicationIntegrationTest {
         registry.add("internal.api.callers.console.console-actor", () -> "member-1");
         registry.add("internal.api.callers.console.allow[0]", () -> "GET /internal/admin/content/notices");
         registry.add("internal.api.callers.console.allow[1]", () -> "POST /internal/admin/content/magazine/previews");
+        registry.add("internal.api.callers.console.allow[2]", () ->
+                "POST /internal/admin/content/notices/*/withdraw");
         registry.add("internal.api.callers.business.token", () -> "content-test-business");
         // 실수로 넓은 허용목록을 등록해도 관리 경로는 전용 자격만 통과해야 한다.
         registry.add("internal.api.callers.business.allow[0]", () -> "GET /internal/admin/content/notices");
@@ -79,6 +81,7 @@ class ContentPublicationIntegrationTest {
     @Autowired MagazineReviewService reviews;
     @Autowired MagazinePublishScheduler scheduler;
     @Autowired JdbcTemplate jdbc;
+    @Autowired com.oneorthree.phone.internal.service.ConstructionPolicyAdminService construction;
     @Autowired MockMvc mvc;
     @Autowired UserRepository users;
     @Autowired GroupRepository groups;
@@ -112,6 +115,26 @@ class ContentPublicationIntegrationTest {
                 .isInstanceOf(ContentException.class).hasMessageContaining("다른 내용");
         assertThat(jdbc.queryForObject("SELECT actor FROM content_publications WHERE publication_id=?",
                 String.class, id)).isEqualTo("member-1");
+    }
+
+    @Test
+    void withdrawalImmediatelyEndsExposureAndKeepsThePublicationHistory() throws Exception {
+        UUID id = UUID.randomUUID();
+        notices.publish(id, draft(NOW.minusSeconds(60), null), "member-1");
+        String path = ADMIN + "/notices/" + id + "/withdraw";
+        mvc.perform(post(path).header("Authorization", "Bearer content-test-business"))
+                .andExpect(status().isForbidden());
+        mvc.perform(post(path).header("Authorization", "Bearer content-test-console"))
+                .andExpect(status().isOk());
+        assertThatThrownBy(() -> notices.get(id)).isInstanceOf(ContentException.class);
+        assertThat(notices.list(false).items()).isEmpty();
+        assertThat(notices.list(true).items()).hasSize(1);
+        assertThat(history.notices(null, 10).items().get(0))
+                .containsEntry("status", "WITHDRAWN").containsEntry("withdrawnBy", "member-1");
+        var first = notices.withdraw(id, "member-2");
+        assertThat(first.withdrawnBy()).isEqualTo("member-1");
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM content_publications WHERE publication_id=?",
+                Long.class, id)).isEqualTo(1);
     }
 
     @Test
@@ -405,4 +428,35 @@ class ContentPublicationIntegrationTest {
                 Timestamp.from(NOW.minusSeconds(86400)), Timestamp.from(NOW.minusSeconds(86400)), "검토한 홍보", LAYOUT);
         return id;
     }
+
+    @Test
+    void environmentContractUsesTheActualDatabaseMarker() throws Exception {
+        var environment = new org.springframework.mock.env.MockEnvironment();
+        environment.setActiveProfiles("prod");
+        var controller = new InternalContentAdminController(notices, history, reviews,
+                construction,
+                environment, jdbc);
+        var http = org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(controller).build();
+        String database = jdbc.queryForObject("SELECT current_database()", String.class);
+        // 테스트 컨테이너의 컨텍스트 전용 DB에만 표식을 설정한다.
+        assertThat(database).matches("ctx_[a-f0-9]+");
+        jdbc.execute("ALTER DATABASE " + database + " SET gromo.environment='prod'");
+        try {
+            http.perform(get(ADMIN + "/environment")).andExpect(status().isOk())
+                    .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath(
+                            "$.environment").value("prod"))
+                    .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath(
+                            "$.contractVersion").value("1"))
+                    .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath(
+                            "$.capabilities").value(org.hamcrest.Matchers.contains("content.publication.v1",
+                                    "content.history.v1", "content.notice.withdraw.v1",
+                                    "construction.policy.v1", "focus.policy.v1")));
+            jdbc.execute("ALTER DATABASE " + database + " SET gromo.environment='dev'");
+            assertThatThrownBy(controller::environment).isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("DB 환경");
+        } finally {
+            jdbc.execute("ALTER DATABASE " + database + " RESET gromo.environment");
+        }
+    }
+
 }

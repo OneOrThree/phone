@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.oneorthree.gromo",
+      "sha256_cert_fingerprints": [
+        "C4:86:0A:D5:DD:3B:60:5A:9A:6C:E8:3A:40:5E:52:24:8E:79:F0:13:30:A8:F1:C4:81:58:CF:F6:8D:B1:C8:02"
+      ]
+    }
+  }
+]

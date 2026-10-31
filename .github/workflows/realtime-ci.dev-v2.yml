@@ -1,0 +1,22 @@
+name: Realtime CI (dev)-v2
+on:
+  workflow_call:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'server/realtime/**'
+      - '.github/workflows/realtime-ci.dev-v2.yml'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  test:
+    uses: ./.github/workflows/be-gradle.yml
+    permissions:
+      contents: read
+      actions: read
+    with:
+      service: realtime
+      publish-jar: true
+      artifact-name: realtime-v2-test-results
+      artifact-path: build/test-results/

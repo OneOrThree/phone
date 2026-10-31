@@ -41,7 +41,7 @@ jobs:
       run: |
         flags=()
         if [ "$ROLLBACK" = true ]; then flags+=(--rollback); fi
-        python3 .github/scripts/catus-runtime-V2.py deploy --role kafka --version "$VERSION" "${flags[@]}"
+        python3 .github/scripts/v2/prod/catus-runtime-V2.py deploy --role kafka --version "$VERSION" "${flags[@]}"
     - uses: actions/upload-artifact@v4
       if: always()
       with:
@@ -65,4 +65,4 @@ jobs:
     - name: "\uBC30\uC9C0 \uBC0F \uAD00\uB828 PR \uAE30\uB85D"
       env:
         GH_TOKEN: ${{ github.token }}
-      run: python3 .github/scripts/catus-runtime-V2.py record --input deployment-V2.json
+      run: python3 .github/scripts/v2/prod/catus-runtime-V2.py record --input deployment-V2.json

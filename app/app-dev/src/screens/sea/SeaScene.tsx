@@ -255,12 +255,14 @@ export function SeaScene({
             accessibilityRole="button"
             accessibilityLabel={t('openSea.writeMessage')}
             onPress={onMessage}
-            style={[styles.bubble, styles.selfSubject, { minHeight: s.size.tapMin }]}
+            style={[styles.messageTouch, styles.selfSubject]}
           >
-            <Text numberOfLines={1} style={[styles.caption, font]}>
-              {self.message || self.subject || t('openSea.focusing')}
-            </Text>
-            <View style={styles.bubbleTail} accessible={false} />
+            <View style={styles.bubble}>
+              <Text numberOfLines={1} style={[styles.caption, font]}>
+                {self.message || self.subject || t('openSea.focusing')}
+              </Text>
+              <View style={styles.bubbleTail} accessible={false} />
+            </View>
           </Pressable>
         ) : (
           <Pressable
@@ -408,7 +410,13 @@ const styles = StyleSheet.create({
   },
   me: { color: s.color.text, backgroundColor: s.color.selected },
   // 뗏목 상자와 겹치는 아래쪽도 칩이 눌리게 뗏목(뒤 형제)보다 위에 둔다
-  messageTouch: { minHeight: s.size.tapMin, justifyContent: 'center', zIndex: 1 },
+  messageTouch: {
+    minWidth: s.size.tapMin,
+    minHeight: s.size.tapMin,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 1,
+  },
   emote: { position: 'absolute', right: 0, top: 0, width: 40, height: 40 },
   besideRaft: { flexDirection: 'row', alignItems: 'center' },
   magazine: { alignItems: 'center', justifyContent: 'center' },

@@ -33,7 +33,7 @@ public class ContentHistoryService {
         NoticeCursor before = noticeCursor(cursor);
         Long total = jdbc.queryForObject("SELECT count(*) FROM developer_notices", Long.class);
         List<Map<String, Object>> items = jdbc.query("SELECT n.publication_id,n.title,n.body,n.starts_at,"
-                + "n.ends_at,n.published_at,p.actor FROM developer_notices n"
+                + "n.ends_at,n.published_at,n.withdrawn_at,n.withdrawn_by,p.actor FROM developer_notices n"
                 + " LEFT JOIN content_publications p ON p.publication_id=n.publication_id"
                 + " WHERE (n.published_at,n.publication_id)<(?::timestamptz,?::uuid)"
                 + " ORDER BY n.published_at DESC,n.publication_id DESC LIMIT ?", (rs, row) -> {
@@ -49,7 +49,10 @@ public class ContentHistoryService {
                 item.put("endsAt", endsAt);
                 item.put("publishedAt", rs.getTimestamp("published_at").toInstant());
                 item.put("actor", rs.getString("actor"));
-                item.put("status", now.isBefore(startsAt) ? "SCHEDULED"
+                Timestamp withdrawn = rs.getTimestamp("withdrawn_at");
+                item.put("withdrawnAt", withdrawn == null ? null : withdrawn.toInstant());
+                item.put("withdrawnBy", rs.getString("withdrawn_by"));
+                item.put("status", withdrawn != null ? "WITHDRAWN" : now.isBefore(startsAt) ? "SCHEDULED"
                         : endsAt != null && !now.isBefore(endsAt) ? "EXPIRED" : "LIVE");
                 return item;
             }, Timestamp.from(before.publishedAt()), before.id(), size + 1);

@@ -1380,6 +1380,8 @@ Table developer_notices {
   starts_at timestamptz [not null]
   ends_at timestamptz
   published_at timestamptz [not null]
+  withdrawn_at timestamptz
+  withdrawn_by varchar(16)
 }
 Ref: developer_notices.publication_id > content_publications.publication_id [delete: no action]
 Table magazine_review_snapshots {

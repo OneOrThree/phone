@@ -83,7 +83,7 @@ class DeploymentGuardTest(unittest.TestCase):
         manifest = deploy.rebase.load_manifest()
         current = deploy.bundled_history(manifest)
         # 현재 V0 체인 전체 — 후속 migration 이 추가되면 이 목록도 늘어난다.
-        self.assertEqual(['0', '1', '2', '3', '4', '5', '6', '7'], [item['version'] for item in current])
+        self.assertEqual(['0', '1', '2', '3', '4', '5', '6', '7', '8'], [item['version'] for item in current])
         self.assertEqual(manifest['v0_checksum'], current[0]['checksum'])
 
     def test_원본_이력은_고정하고_후속_migration만_허용한다(self):
