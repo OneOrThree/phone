@@ -13,7 +13,16 @@ import {
  * 돌아온 뒤 1회. 응답을 기다리는 사이 조건이 깨지거나 계정이 바뀌면 결과를 버리고 다음 참일 때 다시 본다. 조회 실패는 조용히 넘긴다.
  * 띄운 편지는 `ready` 가 풀려도 닫을 때까지 남고, 닫는 순간 그 공지의 visibleAt 을 저장한다.
  */
-export function useDeveloperLetter({ ready, userId }: { ready: boolean; userId: string | null }) {
+export function useDeveloperLetter({
+  ready,
+  userId,
+  suspended = false,
+}: {
+  ready: boolean;
+  userId: string | null;
+  // 강제 업데이트 편지(GROMO-2617)가 대신하는 동안 — 떠 있던 패치노트를 버리되 «읽음»은 저장하지 않는다
+  suspended?: boolean;
+}) {
   const [shown, setShown] = useState<{ notice: DeveloperNotice; userId: string } | null>(null);
   const latest = useRef({ ready, userId });
   latest.current = { ready, userId };
@@ -29,6 +38,11 @@ export function useDeveloperLetter({ ready, userId }: { ready: boolean; userId: 
     due.current = true;
     setShown(null);
   }, [userId]);
+  useEffect(() => {
+    if (!suspended) return;
+    due.current = true;
+    setShown(null);
+  }, [suspended]);
   useEffect(() => {
     if (!ready || !userId || !due.current || shown) return;
     due.current = false;

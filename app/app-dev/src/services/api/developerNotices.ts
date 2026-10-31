@@ -19,3 +19,19 @@ export function listDeveloperNotices(): Promise<{ items: DeveloperNotice[] }> {
 export function getDeveloperNotice(id: string): Promise<DeveloperNotice> {
   return request(`/me/developer-notices/${encodeURIComponent(id)}`);
 }
+
+// 최소 버전 요구(GROMO-2617) — 로그인 전에도 부르는 공개 경로다. 실패는 호출자가 «통과»로 처리한다
+export type AppRequirements = {
+  minVersion: string | null;
+  title: string | null;
+  body: string | null;
+  publicationId: string | null;
+  publishedAt: string | null;
+};
+
+export function getAppRequirements(platform: 'ios' | 'android'): Promise<AppRequirements> {
+  return request(`/auth/sessions/app-requirements?platform=${platform}`, {
+    auth: false,
+    timeoutMs: 3000,
+  });
+}
