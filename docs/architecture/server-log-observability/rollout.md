@@ -35,12 +35,14 @@ dev 관찰(D2~D7)이 끝나고 §4 기준이 기록되기 전에는 ②(Fluent B
 
 | 순서 | 작업 | 확인 |
 | --- | --- | --- |
-| 1 | `terraform apply`: 로그 버킷 수명 규칙(`system_log/` 90일)과 IAM(쓰기 접두 `system_log/v2/env=prod/*`) 적용. 이 리소스는 버킷의 기존 수명 규칙을 대체하므로 plan 에서 기존 규칙 유무를 먼저 본다 | 적용 결과의 변경 목록 |
+| 1 | `terraform apply`: 로그 버킷 수명 규칙(`system_log/` 90일)과 IAM(쓰기 접두 `system_log/v2/env=prod/*`) 적용. 2026-10-31 plan 은 추가 1·변경 1·삭제 0 이고 버킷에 기존 수명 규칙이 없다. 적용 직전에 plan 을 다시 본다 | 적용 결과의 변경 목록 |
 | 2 | Infra `main` 에 머지된 커밋 SHA 로 phone 저장소 Actions 변수 `CATUS_PROD_INFRA_REVISION_V2` 를 변경. 변수만 바꿔서는 아무것도 실행되지 않는다 | 40자리 SHA, 그 SHA 의 Infra `catus-config.prod-V2` 발행 성공 |
 | 3 | `prod-ci-V2` 를 `release` 브랜치에서 `workflow_dispatch` 로 수동 실행 | 이미지 발행·구성 SHA 검증 통과, 새 태그 `catus-vX.Y.Z-V2` 생성 |
 | 4 | `prod-cd-V2` 실행(승인 후 수동, SSM 배포). 입력은 `version`(필수: 3단계에서 생긴 `catus-vX.Y.Z-V2` 태그)과 `rollback` 뿐이고 배포는 `--role app` 전체다 | 앱 4종 헬스 통과 |
 
 배포 엔진은 `up -d --no-deps <앱 4종>` 을 호출하고 compose 가 설정이 바뀐 서비스만 재생성한다. 그래서 스위치만 바꾸면 앱은 재시작되지 않고, 앱의 env·이미지·라벨이 바뀐 배포에서만 재시작된다(`infra_revision` 비교로 앱을 재시작하지 않는다). 3단계 전에 phone `main` → `release` 승격(`AGENTS.md` 「main → release 운영 승격」)이 끝나 있어야 한다.
+
+첫 배포는 로그 변경만 나가지 않는다. 2026-10-31 기준 prod 가 실제로 쓰는 Infra 는 `5555c345a` 이고(변수 값 `c2a0314` 는 배포된 적이 없다), 앱은 `340d81567` 이다. 그래서 Infra PR #25·#26·#27·#29 와 그 뒤 `main` 의 서버 변경, DB 전환 3건(Data `V8`, Notification `V17`·`V18`)이 함께 나간다. `V17` 은 발송 자료가 없고 한 번도 열지 않은 저장소만 게이트를 연다. 승격 전에 이 목록을 다시 확인한다.
 
 ### 3.2 켜는 순서 (Infra 기능 스위치)
 
@@ -50,7 +52,7 @@ dev 관찰(D2~D7)이 끝나고 §4 기준이 기록되기 전에는 ②(Fluent B
 | --- | --- | --- | --- |
 | ① | 스위치 전부 꺼진 채로 배포. `OBS_*`·Datadog 서비스 이름(`data-api`·`business-api`·`realtime`·`notification`)·Nginx JSON 접근 로그가 반영되고 새 서비스는 뜨지 않는다. 앱 4종과 Datadog Agent 설정이 바뀌어 동시에 재생성되므로 트래픽이 적은 시간에 배포한다 | 컨테이너 env 의 `OBS_SERVICE`·`OBS_ENV`·`OBS_VERSION`, 앱 로그 한 줄의 `service`·`env`·`version`, Nginx 로그가 JSON 한 줄, 서비스 목록이 이전과 같음 | 미실행 |
 | ② | `fluent_bit` + `loki`. dev 관찰이 끝난 뒤에만 | canary 가 Loki 에 도착, `dropped_records`, 호스트 디스크·메모리 여유(Loki 7일 보존) | 미실행 |
-| ③ | `s3`. dev 는 S3 를 쓰지 않기로 했으므로(D8) S3 실측(IAM·업로드·수명 규칙)은 prod 가 처음이다. 실패하면 ③만 되돌린다(§3.4). 머리글의 규칙대로 dev 관찰이 끝난 뒤에만 시작한다 | `system_log/v2/env=prod/` 객체 도착, canary 가 S3 에도 도착, Athena 조회 | 미실행 |
+| ③ | `s3`. dev 는 S3 를 쓰지 않기로 했으므로(D8) S3 실측(IAM·업로드·수명 규칙)은 prod 가 처음이다. 실패하면 ③만 되돌린다(§3.4). 머리글의 규칙대로 dev 관찰이 끝난 뒤에만 시작한다. Athena 판정 전에 사람이 준비한다: `primary` 작업 그룹의 쿼리 결과 위치 지정(2026-10-31 기준 비어 있음)과 `create-table.sql` 1회 실행(Glue 데이터베이스 0개) | `system_log/v2/env=prod/` 객체 도착, canary 가 S3 에도 도착, Athena 조회 | 미실행 |
 | ④ | Cloudflare 설정(§3.3)을 마친 뒤 `grafana` | 미인증 요청이 Access 로그인으로 이동, 원본 직접 요청은 401 | 미실행 |
 
 각 단계의 판정은 §4 지표로 하고, 앞 단계를 통과해야 다음으로 간다. 켠 뒤에는 앱 릴리스마다 마운트 경로가 바뀌어 Loki·Grafana·Fluent Bit 이 재생성된다. Loki 는 시간 기준 보존만 있으므로 ②를 켜기 전에 호스트 디스크 경보를 둔다. 켠 뒤 디스크·메모리의 판정 기준 숫자는 이 문서 §1 의 5번 규칙대로 dev 관찰 뒤에 정한다(지금 정해진 숫자는 없고, 이 절은 «무엇을 보는가»만 적는다). 관측 서비스(Fluent Bit·Loki·Grafana) 기동은 앱 검증이 끝난 뒤 별도 단계이며 실패해도 앱 롤백을 일으키지 않게 설계한다(에픽 2619 계약, 구현은 하위 티켓).
@@ -86,7 +88,7 @@ Grafana 는 Access 가 붙인 JWT(`Cf-Access-Jwt-Assertion`)를 JWKS 로 직접 
 | --- | --- |
 | P0 Infra 요청(IAM·lifecycle·Fluent Bit 서비스·Nginx `gromo_json`·Datadog 제외 목록) | 에픽 2619 하위 2623~2627·2630 이 코드로 만든다. 머지·`terraform apply` 전 |
 | P1 `OBS_SERVICE`·`OBS_ENV`·`OBS_VERSION`·`DD_TRACE_128_BIT_TRACEID_LOGGING_ENABLED` | 2623 이 만든다. 2026-10-30 재확인 필요 — 이 환경 변수가 prod 실행 구성에 이미 있는지 확인하지 않았다 |
-| P2 main → release 승격 | **실행 완료.** 에픽 PR #1407(`ec7d74695`)이 `release` 에 포함돼 prod 가 커밋 `340d81567`(V2 태그 `catus-v2.0.1-V2`, 2026-10-30 기준)을 실행한다. `prod-cd-V2.yml` 입력은 `version`(필수)과 `rollback` 뿐이고 배포는 `--role app` 전체라 서비스 단위 적용은 불가능하다. 마지막 성공 실행은 2026-10-29T23:11Z 이고 쓴 태그는 태그와 실행 시각으로 추정한 값이다(2026-10-30 기준) |
+| P2 main → release 승격 | **실행 완료.** 에픽 PR #1407(`ec7d74695`)이 `release` 에 포함돼 prod 가 커밋 `340d81567`(V2 태그 `catus-v2.0.1-V2`, 2026-10-30 기준)을 실행한다. `prod-cd-V2.yml` 입력은 `version`(필수)과 `rollback` 뿐이고 배포는 `--role app` 전체라 서비스 단위 적용은 불가능하다. 마지막 성공 실행은 2026-10-29T23:11Z 이고 `deployments/app/current-V2.json` 으로 태그를 확인했다(2026-10-31 기준) |
 | P3 Fluent Bit 기동·canary | §3.2 ②. 미실행 |
 | P4 기존 업로더(590·2288)와 `system_log/v2/` 병행 후 APP 업로더 중단([런북 §5](ingestion-runbook.md)) | 미실행. 두 업로더가 같은 호스트에서 같은 prefix 로 중복 쓰는지는 미확인 |
 | P5 Grafana 접근 인증·수집기 IAM·경보 | 인증은 §3.2 ④, 경보는 미정 |
@@ -104,7 +106,7 @@ Grafana 는 Access 가 붙인 JWT(`Cf-Access-Jwt-Assertion`)를 JWKS 로 직접 
 | 메타데이터 일치 | Loki | `count_over_time({env="dev", service=~"data-api\|business-api\|notification\|realtime"} \| json \| version="" [5m])` | 0 이 아님 → `OBS_*` 누락 |
 | trace ID 형식 | Loki | `{service="data-api"} \| json \| dd_trace_id != "" \| dd_trace_id !~ "[0-9a-f]{32}"` | 대부분의 줄에서 나옴 → 128-bit 로그가 꺼진 것 |
 | 원인 키 조회 | Grafana `log-investigation` | 요청·이벤트 하나를 [조회 안내 §1](query-guide.md) 순서로 ②~④ | 표가 비거나 `log_id` 사본 폭증 |
-| Athena 첫 실조회(사람이, 배포 뒤) | Athena 콘솔 | `create-table.sql` 실행 뒤 `SELECT count(*), count(log_id), count("timestamp"), count(request_id), count(attempt) FROM ops_logs WHERE env='dev' AND service='data-api' AND archive_date='<오늘>' AND archive_hour='<시>'` 로 주요 열 NULL 비율을 본다. 타입이 안 맞는 값(예: `attempt` 가 문자열)은 오류 없이 조용히 NULL 이 된다. 깨진 JSON 줄도 `ignore.malformed.json` 때문에 오류 없이 NULL 행이 된다 — `count(*)` 와 `count(log_id)` 의 차이가 크면 의심 | `log_id`·`timestamp` NULL 비율이 raw 줄(`parse_error`) 비율을 넘음. 이 문서는 실행하지 않았다(AWS 요청 금지) |
+| Athena 첫 실조회(사람이, 배포 뒤) | Athena 콘솔 | `create-table.sql` 실행 뒤 `SELECT count(*), count(log_id), count("timestamp"), count(request_id), count(attempt) FROM ops_logs WHERE env='prod' AND service='data-api' AND archive_date='<오늘>' AND archive_hour='<시>'` 로 주요 열 NULL 비율을 본다. 타입이 안 맞는 값(예: `attempt` 가 문자열)은 오류 없이 조용히 NULL 이 된다. 깨진 JSON 줄도 `ignore.malformed.json` 때문에 오류 없이 NULL 행이 된다 — `count(*)` 와 `count(log_id)` 의 차이가 크면 의심 | `log_id`·`timestamp` NULL 비율이 raw 줄(`parse_error`) 비율을 넘음. 이 문서는 실행하지 않았다(AWS 요청 금지) |
 | 서비스 영향 | Grafana `gromo-overview`·`gromo-components` | 배포 전후 같은 창의 요청 p95/p99, 서비스·컨테이너 CPU, 메모리 working set, 호스트 디스크 I/O([검증 결과 §5](verification-results.md#5-요청-p95p99-전후-비교-배포-뒤-저장-지표로-미실행)) | 새 부하를 만들지 않고 저장된 지표만 읽는다 |
 
 ## 5. 롤백

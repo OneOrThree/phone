@@ -146,7 +146,9 @@ Datadog 계약·색인 보존 확인, prod 로그 비용 판단, AWS 단가 조�
 | Loki·Grafana 둘 호스트 | prod 앱 호스트의 같은 compose(`catus-app-v2`). 새 서버를 만들지 않는다. `loki` `mem_limit: 512m`, `grafana` `mem_limit: 256m`, Fluent Bit `256m` | 최근 24시간 최저 여유 메모리 4.6GB, 디스크 26GB, 추가 서버 비용 없음. 대가: 수집기가 앱과 같은 호스트의 메모리·디스크를 쓴다. Loki 가 디스크를 채울 위험은 7일 보존과 켠 뒤 디스크 확인으로 막는다 |
 | 접근 인증 | Cloudflare Access 로 사용자를 막고, Grafana 가 `Cf-Access-Jwt-Assertion` JWT 를 JWKS(`https://<team>.cloudflareaccess.com/cdn-cgi/access/certs`)로 직접 검증한다. `aud` 를 확인하고 로그인 폼·익명 접근은 끈다. 자동 가입 사용자는 Viewer | Cloudflare Access 만 믿으면 Host 헤더로 우회할 수 있다. 원본에서도 JWT 로 막는다. Grafana 는 공개 포트 없이 Nginx `server` 블록으로만 연결된다 |
 | prod 보존 기간 | Loki 7일, S3 `system_log/` 90일(버킷 수명 규칙을 `terraform apply` 로 신설, 미완료 multipart 1일) | 기존 문서의 값. V2 버킷에는 수명 규칙이 없고 버전 관리가 켜져 있어 규칙을 새로 만든다 |
-| S3 자격 | Fluent Bit 컨테이너를 host 네트워크로 실행해 호스트 인스턴스 역할 자격을 쓴다. 인스턴스 메타데이터(IMDS) hop limit 은 바꾸지 않는다. 쓰기 권한은 `system_log/v2/env=prod/*` 로 줄인다 | hop limit 을 2 로 올리면 인터넷을 받는 컨테이너까지 비밀값 접근 역할을 쓸 수 있다. host 네트워크는 수집기 하나만 호스트 자격을 쓴다. Loki 는 `127.0.0.1:3100` 에만 공개한다 |
+| S3 자격 | Fluent Bit 컨테이너를 host 네트워크로 실행해 호스트 인스턴스 역할 자격을 쓴다. 인스턴스 메타데이터(IMDS) hop limit 은 바꾸지 않는다. 쓰기 권한은 `system_log/v2/env=prod/*` 로 줄인다 | 2026-10-31 실측 hop limit 은 이미 2 다(코드에 지정 없음, 2026-10-30 작성 때의 «올리면» 전제는 틀렸다). 결정은 유지한다: host 네트워크는 hop limit 값과 무관하게 수집기가 호스트 자격을 쓴다. hop limit 조정은 이 에픽 밖의 별도 티켓이다. Loki 는 `127.0.0.1:3100` 에만 공개한다 |
 | 켜기·되돌리기 | Infra 기능 스위치(`OBSERVABILITY`, 기본 꺼짐). 순서는 [rollout.md §3](rollout.md) | 머지해도 새 서비스는 뜨지 않는다 |
 
-미확인: Cloudflare 팀 도메인·Access `aud` 값·Grafana 호스트 이름(미정), 실제 IAM·S3 동작(AWS 에는 요청하지 않았다).
+2026-10-31 읽기 전용 확인: `terraform plan` 은 추가 1(수명 규칙)·변경 1(IAM 쓰기 접두 축소)·삭제 0 이다. 로그 버킷은 비어 있고 기존 수명 규칙이 없으며 암호화는 AES256 이라 KMS 권한이 필요 없다.
+
+미확인: Cloudflare 팀 도메인·Access `aud` 값·Grafana 호스트 이름(미정), 실제 S3 업로드 동작.
