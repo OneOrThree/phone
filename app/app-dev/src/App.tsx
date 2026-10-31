@@ -1,9 +1,11 @@
 import { getAssetRepository } from '@/services/assets/repository';
+import { useFocusTutorialViewed } from '@/hooks/useFocusTutorialViewed';
 import { syncAndroidMeasurement, syncAndroidFocus } from '@/services/androidScreenTime';
 import { startLiveActivityPushSync } from '@/services/liveActivityPush';
 import { updateIOSHomeWidget } from '@/services/iosHomeWidget';
 import { shouldReportShieldFailure, syncFocusShield } from '@/services/focusShield';
 import { Text } from '@/design-system/typography';
+import { useGowunFont } from '@/screens/island/sceneKit';
 import { useAppLayout } from '@/utils/layout';
 import { useRouteOrientation } from '@/utils/orientation';
 import { DeveloperLetter } from '@/screens/letter/DeveloperLetter';
@@ -315,6 +317,8 @@ function Bubble({ text, mine }: { text: string; mine: boolean }) {
   );
 }
 export default function App() {
+  // 웹에서 기본 본문 글꼴(고운돋움)을 전역 로드한다. 네이티브는 빈 목록이라 즉시 통과한다(GROMO-2639).
+  useGowunFont();
   return (
     <PostHogAnalyticsProvider>
       <SafeAreaProvider>
@@ -446,6 +450,7 @@ function Gromo() {
     [focusBlockingPermissionBusy, setFocusBlockingPermissionBusy] = useState(false),
     [reviewEpoch, setReviewEpoch] = useState(0);
   const guideStep = state.tutorial?.step ?? 0;
+  useFocusTutorialViewed(guideStep);
   const tutorialOwner = getSession()?.userId;
   const tutorialGeneration = sessionGeneration();
   const focusBlockingGateRef = useRef(focusBlockingGate);

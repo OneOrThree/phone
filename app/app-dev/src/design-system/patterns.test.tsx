@@ -115,14 +115,15 @@ test('Btn selected 는 고른 상태를 accessibilityState 로 알린다', async
   expect(getByLabelText('섬').props.accessibilityState.selected).toBeFalsy();
 });
 
-test('Btn 은 font 를 안 주면 글자에 글꼴을 넣지 않고(종전 그대로), 주면 그 글꼴로 그린다', async () => {
+test('Btn 은 font 를 안 주면 굵은 글자라 시스템 글꼴로(GROMO-2639), 주면 그 글꼴로 그린다', async () => {
   const { getByText } = await render(
     <>
       <Btn title="평범" onPress={jest.fn()} />
       <Btn title="바다" font="Gowun Dodum" onPress={jest.fn()} />
     </>,
   );
-  expect(StyleSheet.flatten(getByText('평범').props.style)).not.toHaveProperty('fontFamily');
+  // 기본 Btn 글자는 굵기 800 — 공용 Text 가 시스템 글꼴을 명시해 OS 가 굵게 그린다(고운돋움 아님)
+  expect(StyleSheet.flatten(getByText('평범').props.style).fontFamily).toBe('System');
   expect(StyleSheet.flatten(getByText('바다').props.style).fontFamily).toBe('Gowun Dodum');
 });
 
