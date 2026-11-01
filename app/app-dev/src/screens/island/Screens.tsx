@@ -237,29 +237,35 @@ function MainIslandRadio({ selected }: { selected: boolean }) {
   );
 }
 function Boat({ state, h = 260 }: any) {
+  // 미리보기 폭이 뗏목보다 넓으면 k.preview 가 뗏목을 가운데로 미는데, 고양이·꾸미기 오버레이의
+  // 절대 위치가 컨테이너 왼쪽 기준이라 고양이가 뗏목에서 벗어나 떠 보였다. 뗏목 폭(raftW) 상자로
+  // 감싸 오버레이를 그 상자 기준으로 두면 미리보기 폭과 무관하게 늘 뗏목 위에 선다.
+  const raftW = h * 0.86;
   return (
     <View style={[k.preview, { height: h }]}>
-      <Pic id="boat/raft" w={h * 0.86} />
-      <Pic
-        id={'cat/' + state.color}
-        w={h * 0.42}
-        style={{ position: 'absolute', left: h * 0.36, top: h * 0.12 }}
-      />
-      {/* 카탈로그 그림으로 겹치는 머리·목·신발(GROMO-2311) — 고양이 그림(idle.png)과 같은 상자 */}
-      <View
-        pointerEvents="none"
-        style={{
-          position: 'absolute',
-          left: h * 0.36,
-          top: h * 0.12,
-          width: h * 0.42,
-          height: h * 0.42,
-        }}
-      >
-        <CatOutfitLayers
-          outfit={outfitOf(state)}
-          pose={{ color: state.color, still: 'idle', size: h * 0.42 }}
+      <View style={{ width: raftW, height: h, justifyContent: 'center' }}>
+        <Pic id="boat/raft" w={raftW} />
+        <Pic
+          id={'cat/' + state.color}
+          w={h * 0.42}
+          style={{ position: 'absolute', left: h * 0.36, top: h * 0.12 }}
         />
+        {/* 카탈로그 그림으로 겹치는 머리·목·신발(GROMO-2311) — 고양이 그림(idle.png)과 같은 상자 */}
+        <View
+          pointerEvents="none"
+          style={{
+            position: 'absolute',
+            left: h * 0.36,
+            top: h * 0.12,
+            width: h * 0.42,
+            height: h * 0.42,
+          }}
+        >
+          <CatOutfitLayers
+            outfit={outfitOf(state)}
+            pose={{ color: state.color, still: 'idle', size: h * 0.42 }}
+          />
+        </View>
       </View>
     </View>
   );
@@ -644,6 +650,20 @@ function CheckDot({ size = 22 }: any) {
     >
       <Icon name="check" size={size * 0.55} stroke={3} />
     </View>
+  );
+}
+// 꾸미기 「기본」(장착 안 함) 칸 — 빈 박스 대신 «없음»(원+사선)을 그려 벗는 선택임을 알린다
+function NoneSlot({ size = 40 }: { size?: number }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 32 32">
+      <Path
+        d="M28 16a12 12 0 1 0-24 0a12 12 0 1 0 24 0"
+        stroke={C.muted}
+        strokeWidth={2.4}
+        fill="none"
+      />
+      <Path d="M8.5 8.5L23.5 23.5" stroke={C.muted} strokeWidth={2.4} strokeLinecap="round" />
+    </Svg>
   );
 }
 // 폴더형 아이콘 타일 탭(ftabs). items = [[글자, 아이콘], ...]
@@ -3917,7 +3937,7 @@ export function RedesignScreens({ e }: any) {
                   slot,
                   null,
                   t('wardrobe.default'),
-                  null,
+                  <NoneSlot />,
                   // 슬롯마다 같은 「기본」이 네 번 읽히지 않게 슬롯 이름을 붙인다
                   t('wardrobe.defaultFor', { slot: t(`wardrobe.section.${slot}`) }),
                 )}
