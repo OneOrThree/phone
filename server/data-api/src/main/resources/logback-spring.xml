@@ -114,19 +114,16 @@
     </springProfile>
 
     <!-- ===================== 후속 (예정, 384 범위 밖) — 레퍼런스 swm-secure-logger-starter 참고 ===================== -->
-    <!-- TODO GROMO-385+: USER-ACTIVITY/APP 롤링 파일 → S3 아카이브
+    <!-- TODO: USER-ACTIVITY/APP 롤링 파일 → S3 아카이브
          - 자정 롤링된 전날 파일(app.YYYY-MM-DD.log / user-activity.YYYY-MM-DD.log)을 S3에 업로드
-         - 현행 적재는 호스트 systemd 타이머(티켓 590)가 system_log/ · user_log/ 접두로 매시간 업로드, 790(Fluent Bit)은 user-activity/ 접두
+         - 현행 적재는 호스트 systemd 타이머(티켓 590, 완료)가 system_log/ · user_log/ 접두로 매시간 업로드, prod 업로더는 2288(진행 중)
+         - user-activity 의 Fluent Bit 직송 전환은 790(미착수, user-activity/ 접두). 컨테이너 stdout 원본은 이미 Fluent Bit 이 system_log/v2/ 로 보낸다(2556·2619)
          - 만료 규칙(세 접두 90일)은 server/scripts/s3-log-archive-lifecycle.json — 다른 접두로 올리면 만료가 닿지 않는다
          - 레퍼런스: S3LogArchiveService + S3LogConfig -->
-    <!-- TODO GROMO-385+: cloud 프로파일 — CloudWatch Logs 연동
-         - <springProfile name="cloud"> 에 AwsLogsAppender(ca.pjer:logback-awslogs-appender)
-         - logGroup/stream/region/retention, 키 주입은 환경변수/Secrets Manager -->
-    <!-- TODO GROMO-후속: API 요청/응답(access log) — RequestLoggingFilter 추가 시 @Slf4j→root→app.log로 자동 포함
-         (현재 시스템 로그는 dev/staging/prod root에서 app.log로 파일 출력됨, local/ci는 콘솔만). 레퍼런스: RequestLoggingFilter -->
-    <!-- TODO GROMO-운영관측: Slack ERROR 알림 appender
-         - ERROR 레벨을 Slack webhook으로 비동기 발송 (AsyncAppender, neverBlock)
-         - 레퍼런스: SlackErrorAppender. T3(Sentry)와 역할 중복 주의 — 둘 중 하나로 -->
+    <!-- TODO: API 요청 완료(access) 로그 — data-api 에는 없다(Business 는 2553 의 log_kind=access 로 남김)
+         - 추가하면 root 의 CONSOLE_JSON(stdout) 으로 나가 Fluent Bit 이 수집한다. 레퍼런스: RequestLoggingFilter -->
+    <!-- TODO GROMO-2660: ERROR 알림 — Slack webhook appender (AsyncAppender, neverBlock)
+         - 운영 장애 경보 경로(2660)에서 방식을 정한다. 레퍼런스: SlackErrorAppender -->
 
     <logger name="org.springframework" level="INFO"/>
 

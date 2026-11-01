@@ -154,7 +154,7 @@ json-file 로테이션(위 표)에 밀려난 구간은 어느 경우에도 복�
 
 ### 유휴 서비스 — 빈 결과는 수집 실패가 아니다
 
-복구 뒤 1시간 이상 로그가 없는 서비스는 `docker logs --since 1h` 이 비어 «최신 원본 시각»을 못 구한다. 근거: dev 저트래픽 구간에는 앱이 idle 이고 `/health` 는 로그를 남기지 않는다(`.github/workflows/ops-datadog.dev.yml:188-190`). 요청 단위 access log 도 앱에 없다(`server/data-api/src/main/resources/logback-spring.xml:119` 가 TODO 로 남아 있음).
+복구 뒤 1시간 이상 로그가 없는 서비스는 `docker logs --since 1h` 이 비어 «최신 원본 시각»을 못 구한다. 근거: dev 저트래픽 구간에는 앱이 idle 이고 `/health` 는 로그를 남기지 않는다(`.github/workflows/ops-datadog.dev.yml:188-190`). 요청 단위 access log 도 앱에 없다(`server/data-api/src/main/resources/logback-spring.xml:123` 가 TODO 로 남아 있음).
 
 - 원본 결과가 비어 있으면 그 서비스는 **판정 불가**로 기록한다. 통과도 실패도 아니다. `--since` 를 늘려(예: 1h) 마지막 줄이 있으면 그 시각으로 비교하고, 없으면 판정 불가 그대로 둔다.
 - 검증용 로그를 만들어야 할 때의 절차(**이번에 실행하지 않는다**, 재개 승인 뒤에만):
