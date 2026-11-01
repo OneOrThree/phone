@@ -7,11 +7,13 @@ import { componentTokens } from '@/design-system/tokens';
 import { HomeChatLog, type HomeChatLine } from '@/screens/island/HomeChatLog';
 
 const LINE_MS = componentTokens.homeChatLog.lineMs;
+const ENTRY_WINDOW_MS = componentTokens.homeChatLog.entryWindowMs;
+let base = 0;
 const line = (n: number, over: Partial<HomeChatLine> = {}): HomeChatLine => ({
   id: `m${n}`,
   name: `주민${n}`,
   text: `글${n}`,
-  at: 1_000 + n,
+  at: base + n,
   ...over,
 });
 
@@ -19,6 +21,7 @@ let onAppState: (next: string) => void;
 let subscription: jest.SpyInstance;
 beforeEach(() => {
   jest.useFakeTimers();
+  base = Date.now();
   subscription = jest.spyOn(AppState, 'addEventListener').mockImplementation((_event, handler) => {
     onAppState = handler as (next: string) => void;
     return { remove: jest.fn() };
@@ -34,13 +37,52 @@ const hidden = { includeHiddenElements: true };
 const shownTexts = (ui: Awaited<ReturnType<typeof render>>) =>
   [1, 2, 3, 4, 5, 6].filter((n) => ui.queryByText(new RegExp(`글${n}$`), hidden) !== null);
 
-test('홈에 들어오면 최근 글을 최대 3줄 「이름: 글」로 띄우고 말풍선 버튼을 둔다', async () => {
+test('홈에 들어오면 방금 올라온 글을 최대 3줄 「이름: 글」로 띄우고 말풍선 버튼을 둔다', async () => {
   const ui = await render(
     <HomeChatLog lines={[1, 2, 3, 4, 5].map((n) => line(n))} onOpen={() => {}} />,
   );
   expect(shownTexts(ui)).toEqual([3, 4, 5]);
   ui.getByText('주민5: 글5', hidden);
   ui.getByLabelText('섬 채팅 열기');
+  await ui.unmount();
+});
+
+test('홈에 들어올 때 3초보다 오래된 이력은 띄우지 않고 3초 안의 글만 띄운다', async () => {
+  const ui = await render(
+    <HomeChatLog
+      lines={[
+        line(1, { at: base - 60_000 }),
+        line(2, { at: base - ENTRY_WINDOW_MS - 1 }),
+        line(3, { at: base - ENTRY_WINDOW_MS }),
+        line(4),
+      ]}
+      onOpen={() => {}}
+    />,
+  );
+  expect(shownTexts(ui)).toEqual([3, 4]);
+  await ui.unmount();
+});
+
+test('이력만 있으면 줄 없이 말풍선만 남고, 다시 들어와도 이력을 띄우지 않는다', async () => {
+  const old = [line(1, { at: base - 60_000 }), line(2, { at: base - 30_000 })];
+  const first = await render(<HomeChatLog lines={old} onOpen={() => {}} />);
+  expect(first.queryByTestId('home-chat-lines', hidden)).toBeNull();
+  first.getByTestId('home-chat-open');
+  await first.unmount();
+  const second = await render(<HomeChatLog lines={old} onOpen={() => {}} />);
+  expect(shownTexts(second)).toEqual([]);
+  await second.unmount();
+});
+
+test('들어온 뒤 올라온 글은 폴링으로 늦게 받아도 띄운다', async () => {
+  const old = line(1, { at: base - 60_000 });
+  const ui = await render(<HomeChatLog lines={[old]} onOpen={() => {}} />);
+  // 들어온 직후 올라온 글을 다음 10초 폴링에서 받는다
+  await act(async () => {
+    await jest.advanceTimersByTimeAsync(10_000);
+  });
+  await ui.rerender(<HomeChatLog lines={[old, line(2, { at: base + 500 })]} onOpen={() => {}} />);
+  expect(shownTexts(ui)).toEqual([2]);
   await ui.unmount();
 });
 
