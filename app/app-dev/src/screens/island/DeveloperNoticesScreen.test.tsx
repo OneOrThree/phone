@@ -114,3 +114,55 @@ test('계정 전환 후 이전 계정의 늦은 목록 응답을 폐기한다', 
   });
   expect(screen.queryByText(item.title)).toBeNull();
 });
+
+const second = { ...item, publicationId: 'notice-2', title: '둘째 쪽 공지' };
+
+test('nextCursor 가 있으면 더 보기로 다음 쪽을 이어 붙이고, 마지막 쪽에서 버튼이 사라진다', async () => {
+  (listDeveloperNotices as jest.Mock)
+    .mockResolvedValueOnce({ items: [item], nextCursor: 'c1' })
+    .mockResolvedValueOnce({ items: [second], nextCursor: null });
+  const screen = await render(<DeveloperNoticesScreen e={events()} />);
+  await waitFor(() => expect(screen.getByText('더 보기')).toBeTruthy());
+  await fireEvent.press(screen.getByText('더 보기'));
+  await waitFor(() => expect(screen.getByText(second.title)).toBeTruthy());
+  expect(listDeveloperNotices).toHaveBeenLastCalledWith('c1');
+  expect(screen.getByText(item.title)).toBeTruthy();
+  expect(screen.queryByText('더 보기')).toBeNull();
+});
+
+test('nextCursor 가 없는 응답(옛 서버)에는 더 보기가 없다', async () => {
+  (listDeveloperNotices as jest.Mock).mockResolvedValue({ items: [item] });
+  const screen = await render(<DeveloperNoticesScreen e={events()} />);
+  await waitFor(() => expect(screen.getByText(item.title)).toBeTruthy());
+  expect(screen.queryByText('더 보기')).toBeNull();
+});
+
+test('CURSOR_EXPIRED 면 목록을 처음부터 다시 읽는다', async () => {
+  (listDeveloperNotices as jest.Mock)
+    .mockResolvedValueOnce({ items: [item], nextCursor: 'old' })
+    .mockRejectedValueOnce(new ApiError('CURSOR_EXPIRED', 'expired', 409))
+    .mockResolvedValueOnce({ items: [second], nextCursor: null });
+  const screen = await render(<DeveloperNoticesScreen e={events()} />);
+  await waitFor(() => expect(screen.getByText('더 보기')).toBeTruthy());
+  await fireEvent.press(screen.getByText('더 보기'));
+  await waitFor(() => expect(screen.getByText(second.title)).toBeTruthy());
+  expect(listDeveloperNotices).toHaveBeenCalledTimes(3);
+  expect(listDeveloperNotices).toHaveBeenLastCalledWith();
+  expect(screen.queryByText(item.title)).toBeNull();
+});
+
+test('그 밖의 더 보기 실패는 불러온 목록을 두고 같은 커서로 다시 누르게 한다', async () => {
+  (listDeveloperNotices as jest.Mock)
+    .mockResolvedValueOnce({ items: [item], nextCursor: 'c1' })
+    .mockRejectedValueOnce(new Error('offline'))
+    .mockResolvedValueOnce({ items: [second], nextCursor: null });
+  const screen = await render(<DeveloperNoticesScreen e={events()} />);
+  await waitFor(() => expect(screen.getByText('더 보기')).toBeTruthy());
+  await fireEvent.press(screen.getByText('더 보기'));
+  await waitFor(() => expect(listDeveloperNotices).toHaveBeenCalledTimes(2));
+  expect(screen.getByText(item.title)).toBeTruthy();
+  await fireEvent.press(screen.getByText('더 보기'));
+  await waitFor(() => expect(screen.getByText(second.title)).toBeTruthy());
+  expect(listDeveloperNotices).toHaveBeenNthCalledWith(2, 'c1');
+  expect(listDeveloperNotices).toHaveBeenNthCalledWith(3, 'c1');
+});
