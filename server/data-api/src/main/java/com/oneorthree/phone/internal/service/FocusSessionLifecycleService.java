@@ -635,7 +635,8 @@ public class FocusSessionLifecycleService {
         try {
             detail = authorizeSession(ownership.userId(), sessionId);
         } catch (FocusException e) {
-            // 소속을 잃었거나 기본 마커가 바깥에서 닫힌 세션이다 — 휴식 자동 종료와 같은 이유로 사용자 요청 경로가 정리한다.
+            // 소속을 잃은 세션은 강퇴 TX 가 이미 종결했거나 사용자 요청 경로가 정리한다. 기본 마커가 바깥에서 닫힌 세션은
+            // authorizeSession 이 ABANDONED 로 정리한 뒤 던진 것이고, 여기서 삼키므로 그 정리는 커밋된다.
             log.info("방치 세션 종결 대상이 아닙니다({}) — session={}, user={}",
                     e.getErrorCode(), sessionId, ownership.userId());
             return false;
