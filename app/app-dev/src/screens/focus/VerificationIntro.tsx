@@ -13,7 +13,7 @@ import { t } from '@/i18n';
 
 export type VerificationControlAnchor = { x: number; y: number; width: number; height: number };
 
-/** 첫 안내를 닫은 뒤 OS 권한을 확인한다. 미리보기는 사용자가 따로 연다. */
+/** 안내를 보는 것만으로 촬영하거나 카메라 권한을 요청하지 않는다. */
 export function VerificationIntro({
   onClose,
   anchor,
@@ -40,8 +40,31 @@ export function VerificationIntro({
           <Text accessibilityRole="header" style={[styles.title, font]}>
             {t('verification.intro.title')}
           </Text>
-          <Text style={[styles.precheck, font]}>{t('verification.intro.measurementHint')}</Text>
           <View style={styles.controls}>
+            <View style={styles.control}>
+              <Svg
+                width={c.verificationSetup.buttonSize}
+                height={c.verificationSetup.buttonSize}
+                viewBox="0 0 46 44"
+                fill="none"
+                accessible={false}
+              >
+                <Rect
+                  x="1"
+                  y="8"
+                  width="44"
+                  height="28"
+                  rx="14"
+                  fill={p.color.pink}
+                  stroke={p.color.brown}
+                />
+                <Circle cx="32" cy="22" r="10" fill={p.color.paper} />
+              </Svg>
+              <Text style={[styles.controlTitle, font]}>{t('verification.switchLabel')}</Text>
+              <Text style={[styles.controlHint, font]}>
+                {t('verification.intro.measurementHint')}
+              </Text>
+            </View>
             <View style={styles.control}>
               <Svg
                 width={c.verificationSetup.buttonSize}
@@ -103,6 +126,23 @@ export function VerificationIntro({
             : { top: insets.top + s.spacing.control, right: insets.right + s.spacing.page },
         ]}
       >
+        <Svg
+          width={c.verificationSetup.buttonSize}
+          height={c.verificationSetup.buttonSize}
+          viewBox="0 0 46 44"
+          fill="none"
+        >
+          <Rect
+            x="1"
+            y="8"
+            width="44"
+            height="28"
+            rx="14"
+            fill={p.color.pink}
+            stroke={p.color.brown}
+          />
+          <Circle cx="32" cy="22" r="10" fill={p.color.paper} />
+        </Svg>
         <Svg
           width={c.verificationSetup.buttonSize}
           height={c.verificationSetup.buttonSize}
@@ -206,7 +246,7 @@ const styles = StyleSheet.create({
   },
   spotlight: {
     position: 'absolute',
-    width: c.verificationSetup.buttonSize,
+    width: c.verificationSetup.buttonSize * 2 + s.spacing.control,
     height: c.verificationSetup.buttonSize,
     flexDirection: 'row',
     gap: s.spacing.control,

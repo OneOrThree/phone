@@ -19,7 +19,7 @@
 - [AI 측정·미리보기 조합별 사용자](https://us.posthog.com/project/669473/insights/jwdHMWw9): 측정 ON/OFF × 미리보기 열림/닫힘 네 조합.
 - 기존 13개 타일의 쿼리·배치·안내문·필터를 보존했고 새 카드의 실행을 확인했습니다. **아직 새 앱 이벤트가 수신되지 않아 수집 대기 상태이며, 화면의 0은 실제 사용자가 0명이라는 뜻이 아닙니다.**
 
-앱은 `focus_verification_state_observed`를 집중 전·집중 화면 진입 및 상태 변경에 연결했습니다. 2026-11-01 스위치 제거 이후에는 `measurement_mode=automatic`을 추가합니다. ON/OFF는 자동 측정 접근 상태이며 OFF는 안내 대기·권한 미허용·백그라운드 등을 포함하므로 사용자가 직접 끈 행동으로 해석하지 않습니다. 기존 버전의 스위치 조작과 비교하려면 이 속성 유무로 분리합니다. 단순 재렌더·권한 거절은 ON 성공으로 보내지 않습니다. 같은 사용자가 여러 상태를 경험할 수 있어 막대 합계는 전체 인원이 아닙니다. 영상·판정·인증 시간은 전송하지 않습니다.
+앱은 `focus_verification_state_observed`를 집중 전·집중 화면 진입 및 상태 변경에 연결했습니다. 최초 OFF도 관측하고 변경 여부를 따로 보내므로 기본 OFF와 실제 끈 행동을 구분할 수 있습니다. 단순 재렌더·권한 거절은 변경 성공으로 보내지 않습니다. 같은 사용자가 여러 상태를 경험할 수 있어 막대 합계는 전체 인원이 아닙니다. 영상·판정·인증 시간은 전송하지 않습니다.
 
 정의와 검증 기록은 [추가 카드 정의](posthog-focus-verification-additions.json)와 [지표별 집계 기준](posthog-metric-definitions.md#ai-집중측정-사용-상태)에 있습니다. Data Catalog의 두 정의는 승인 전 `proposed` 상태입니다. 앱의 새 빌드 적용·실기기 수신 확인은 아직 하지 않았습니다. 공식 기능 참고: [PostHog 대시보드](https://posthog.com/docs/product-analytics/dashboards).
 
