@@ -117,7 +117,8 @@ JSON 로그(`schema_version 1`)의 `service` 필드는 `OBS_SERVICE` 값이고, 
 올렸다. 그래서 마운트 방식으로는 prod 에 브리지를 놓을 수 없었고, 결과적으로 커스텀 메트릭이 dev 에만 있었다.
 
 지금은 `server/data-api/Dockerfile` 의 `com.datadoghq.ad.checks` 라벨에 스크레이프 설정을 구워, **같은 이미지가 어느
-환경에서든 같은 배선**을 갖는다. 메트릭 목록을 바꾸려면 그 라벨 한 곳만 고치면 된다.
+환경에서든 같은 배선**을 갖는다. Realtime·Business·Notification·exporter 라벨은 `server/scripts/` 의 compose 파일에 따로 있다.
+목록은 대시보드가 쓰는 이름만 적고 정규식을 쓰지 않는다(GROMO-2196, 규칙은 `server/data-api/CLAUDE.md` Observability 절).
 
 ## dev ↔ prod(Gromo 1.x) 정합
 
@@ -162,7 +163,7 @@ GAR(`asia-northeast3-docker.pkg.dev/oneorthree2/ci-cache`)을 사용한다.
 - **Infrastructure** > Host Map: `gromo-dev` / `catus-prod-V2`(Catus V2) / `gromo-prod`(Gromo 1.x) 호스트 + 컨테이너.
 - **Logs**: 컨테이너 stdout tail. 앱 로그는 JSON 이라 `dd.trace_id` 가 담긴다(아래 "로그↔트레이스 상관").
 - **APM** > Services: dev `data-api`·`business-api`·`realtime`·`notification`(`env:dev`), Gromo 1.x `gromo-back-prod`. 서비스·트레이스·플레임그래프.
-- **Metrics Explorer**: `gromo.*`(OpenMetrics 브리지 — http RED, HikariCP, JVM). `env:dev`/`env:prod` 로 가른다.
+- **Metrics Explorer**: `gromo.*`(OpenMetrics 브리지 — HikariCP, JVM, 큐레이트한 앱 지표. HTTP RED 는 APM `trace.*` 로 본다). `env:dev`/`env:prod` 로 가른다.
 - **Kafka 로그**: `service:gromo-kafka-dev` 는 브로커(`phone-kafka`, source `kafka`)와 Exporter 류
   (`gromo-kafka-exporter`, source `kafka-exporter`)가 함께 쓴다. 대시보드는 컨테이너·source 조건으로 링크를 둘로
   나눈다(service 태그·메트릭은 그대로). 근거와 반영 절차는 `docs/architecture/server-log-observability/kafka-log-links.md`.

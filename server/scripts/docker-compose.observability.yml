@@ -123,11 +123,11 @@ services:
     environment:
       REDIS_ADDR: redis://redis:6379
       REDIS_USER: health
+    # Datadog OpenMetrics(gromo_redis)는 뗐다(GROMO-2196) — 대시보드가 쓰는 지표가 없고, Datadog 의 Redis 지표는
+    # redis 서비스의 redisdb 체크(docker-compose.dev.yml)가 맡는다. 다시 달 땐 쓰는 이름만 metrics 에 적는다(.* 금지).
     labels:
       com.datadoghq.tags.env: dev
       com.datadoghq.tags.service: gromo-redis-dev
-      com.datadoghq.ad.checks: >-
-        {"openmetrics":{"init_config":{},"instances":[{"openmetrics_endpoint":"http://%%host%%:9121/metrics","namespace":"gromo_redis","metrics":[".*"],"health_service_check":true}]}}
     networks: [app-network]
     restart: unless-stopped
 
@@ -140,8 +140,11 @@ services:
     labels:
       com.datadoghq.tags.env: dev
       com.datadoghq.tags.service: gromo-kafka-dev
+      # metrics 는 대시보드가 쓰는 이름만 적은 큐레이트 목록이다(GROMO-2196) — 작성 규칙은 server/data-api/Dockerfile 의 Datadog 주석.
       com.datadoghq.ad.checks: >-
-        {"openmetrics":{"init_config":{},"instances":[{"openmetrics_endpoint":"http://%%host%%:9308/metrics","namespace":"gromo_kafka","metrics":[".*"],"health_service_check":true}]}}
+        {"openmetrics":{"init_config":{},"instances":[{"openmetrics_endpoint":"http://%%host%%:9308/metrics","namespace":"gromo_kafka","metrics":[
+        "kafka_brokers","kafka_topic_partition_current_offset","kafka_topic_partition_under_replicated_partition"
+        ],"health_service_check":true}]}}
     networks: [app-network]
     restart: unless-stopped
 
@@ -157,8 +160,12 @@ services:
     labels:
       com.datadoghq.tags.env: dev
       com.datadoghq.tags.service: gromo-kafka-dev
+      # metrics 는 대시보드가 쓰는 이름만 적은 큐레이트 목록이다(GROMO-2196) — 작성 규칙은 server/data-api/Dockerfile 의 Datadog 주석.
+      # kafka.yml 의 규칙이 이름을 kafka_network_requestmetrics_requests_total(COUNTER)로 내보내므로 _total 을 뗀 이름으로 적는다.
       com.datadoghq.ad.checks: >-
-        {"openmetrics":{"init_config":{},"instances":[{"openmetrics_endpoint":"http://%%host%%:9404/metrics","namespace":"gromo_kafka_jmx","metrics":[".*"],"health_service_check":true}]}}
+        {"openmetrics":{"init_config":{},"instances":[{"openmetrics_endpoint":"http://%%host%%:9404/metrics","namespace":"gromo_kafka_jmx","metrics":[
+        "kafka_network_requestmetrics_requests"
+        ],"health_service_check":true}]}}
     networks: [app-network]
     restart: unless-stopped
 
