@@ -30,7 +30,7 @@ FocusFinishView의 myRate 범위·퀘스트 포함 기준은 1772/1773의 승인
 ## 2. 원본 9계약과 GROMO-1998 추가 계약의 동작
 
 원본 9계약 뒤에 **GROMO-1998 이 셋을 더한다** — 서버 크론 `rest-auto-close` 와 그 결과를 한 번만 건네는
-`pending-result`·`acknowledge`. 원본 계약의 동작은 바뀌지 않는다.
+`pending-result`·`acknowledge`. **GROMO-2636 이 서버 크론 `stale-close` 를 하나 더한다.** 원본 계약의 동작은 바뀌지 않는다.
 
 ### start — POST /focus-sessions, 201
 
@@ -134,6 +134,29 @@ Business는 `/internal/users/{userId}/focus-sessions/{sessionId}/tutorial-reward
 - 「본인이 접속하지 않아도」 남의 모닥불 화면에서 사라져야 하므로 지연 판정이 아니라 **크론**이다
   (`FocusRestAutoCloseScheduler`, 매분 30초, ShedLock). 크론 게이트는 두지 않는다 — 지급 주체가 둘이 되는 문제가
   없고 세션당 정산 1행(PK)이 최후 방어선이다.
+
+### stale-close — 서버 크론(공개 엔드포인트 없음), GROMO-2636
+
+앱이 영영 돌아오지 않는 `ACTIVE` 세션은 앱 혼자 닫을 수 없다. 서버가 닫지 않으면 방치 세션이 하루 상한(480)까지 매일
+물고기를 적립하고 황금 물고기 추첨 인원에도 계속 세어진다(2026-11-01 운영 실측). 서버가 정산 없이 닫는다.
+
+- 대상: `lifecycle=ACTIVE` 이고 `last_transition_at <= now − 유예` 인 세션. 유예는 **섬 12시간 · 바다 3시간**이고 코드 상수
+  (`ISLAND_STALE_AFTER`·`SEA_STALE_AFTER`)다. 기산점은 마지막 전이(시작·재개)다 — 서버에는 활동 신호가 없다.
+  휴식(`PAUSED`)은 대상이 아니다(`rest-auto-close` 가 1시간에 닫는다).
+- 결과: 상세 `ABANDONED`(version+1), 열린 ACTIVE 구간을 서버 시각에 닫음, 기본 마커 `AUTO_CLOSED`(통계 제외). 바다는
+  `arrived=false`. **정산 행·일 집계·주간 랭킹 가산·보상은 없다** — 정상 완료인 `rest-auto-close` 와 달리 강퇴·마커
+  desync 정리와 같은 「미정산」이다. `settle` 을 부르지 않는다: 바다 세션을 정산하면 `arrived` 가 참이 되어 자리에 없는
+  사용자에게 무인도와 꾸미기 보상이 나간다. 이미 섬 통장에 들어간 물고기·황금 몫은 회수하지 않는다(FR-D03-기지급).
+- 사건: 섬은 `focus.member.updated`·`rest.member.updated`(completed)와 리스 해제, 바다는 `sea.member.updated`
+  (ended, `arrived=false`)와 리스 해제다. 마커 desync 정리(`abandonIfMarkerClosed`)와 같은 정리 한 곳을 쓴다.
+  정산 행이 없어 `pending-result` 에는 오지 않는다.
+- 잠금 순서는 전이와 같다(사용자 공유 → 섬 배타 → 멤버십 공유 → 상세 배타). 스캔이 고른 뒤 잠그기까지 `pause`·
+  `resume`·`finish` 가 이길 수 있으므로 **잠근 뒤 다시 판정**한다 — 여전히 `ACTIVE` 이고 여전히 유예를 넘겼을 때만 닫는다.
+  크론이 이기면 뒤늦은 `pause`·`resume`·`finish` 는 409 `SESSION_STATE_CONFLICT` 다(정산 행이 없어 `finish` 가 돌려줄
+  원 결과도 없다). `current` 는 `data:null`, `pending-result` 도 `data:null` 이다.
+- 크론은 `FocusStaleSessionScheduler`(매분 40초, ShedLock `focus-stale-session-close`, 한 틱 50건, 마지막 전이가 오래된
+  순)다. 한 건의 실패가 나머지를 막지 않고 다음 틱이 같은 후보를 다시 집는다. 스위치를 두지 않는다 — 종결은 잠금 아래
+  다시 판정하고 정산이 없어 이중 지급이 생기지 않는다.
 
 ### pending-result — GET /focus-sessions/pending-result, 200
 
@@ -326,7 +349,7 @@ legacy의 날짜 배분 함수를 새 구간마다 따로 호출해 총합을 �
 ## 5. legacy 공존과 전환 gate
 
 새 상세 FK로 protocol을 판별한다. 기존 `/api/v1/focus-session` save/end/cancel, start의 마커 회전,
-계정 파기, orphan 스윕, presence 복구 모두 상세 존재를 확인한다. 새 상세 행은 legacy 변경으로 마감하지 않는다.
+계정 파기, presence 복구 모두 상세 존재를 확인한다. 새 상세 행은 legacy 변경으로 마감하지 않는다.
 legacy body.sessionId로 새 세션 PK를 제출한 경우409로 거절하고 POST fallback이 우회하지 못하게 한다.
 
 신규 start가 기존 열린 마커를 발견하면409로 종료/동기화를 안내한다. 구 start가 새 진행 세션을 발견해도409다.
@@ -335,9 +358,10 @@ legacy 완료 업로드가 새 서버 구간과 중복되는지 user 잠금 아�
 덮어쓰기/재지급하지 않는다. 기존 비중복 오프라인 업로드는 유지한다. 겹침 거절의 legacy 오류/클라이언트
 fallback 처리를 구현하고 다기기 혼용 회귀 검증을 통과하기 전 새 경로를 활성화하지 않는다.
 
-v0.3 상세는 기존 orphan 스윕의12h AUTO_CLOSED 대상에서 제외한다. FR-D06의 새 종료/복구 정책과 동작하는
-정리 주체가 준비되지 않으면 새 세션을 운영에서 시작시키지 않는다. 새 정책 없이 미종료가 영구 남는 것도
-출시 성공이 아니다. 계정 탈퇴는 상세 subject·구간·정산 개인정보 파기를 기존 세션 익명화와 같은 TX에 포함하고
+기존 orphan 스윕(`FocusService.sweepOrphanSessions`, 12h AUTO_CLOSED)은 v0.3 상세를 대상에서 제외했고, 그 스윕
+자체를 #1247 이 지웠다. 새 상세의 정리 주체는 둘이다 — 휴식 1시간(`rest-auto-close`)과 방치된 `ACTIVE`(`stale-close`,
+FR-D06: 섬 12시간 · 바다 3시간). 정리 주체 없이 미종료가 영구 남는 것은 출시 성공이 아니다. 계정 탈퇴는
+상세 subject·구간·정산 개인정보 파기를 기존 세션 익명화와 같은 TX에 포함하고
 receipt 재생으로 제거한 개인정보를 되살리지 않는다.
 
 ### 5.1 기존 live reader도 출시 전환 대상이다
