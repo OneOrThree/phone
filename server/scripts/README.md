@@ -34,7 +34,7 @@ Realtime·OSS 관측 overlay는 dev용입니다. 그림의 선택 항목을 모�
 | [dev](docker-compose.dev.yml) | 개발 환경의 Data·DB·Redis 기본 구성 |
 | [prod](docker-compose.prod.yml) | 운영 Data·Datadog 구성. DB는 외부 RDS |
 | [realtime](docker-compose.realtime.yml) | dev에 채팅 DB 준비 작업·Realtime 추가 |
-| [business](docker-compose.business.yml) | Business와 미리보기 전용 Redis 추가 |
+| [business](docker-compose.business.yml) | Business와 전용 Redis 추가 |
 | [satellites](docker-compose.satellites.yml) | Business·Notification·전용 Redis. 서비스별 env와 이미지 digest 필수 |
 | [satellites.dev](docker-compose.satellites.dev.yml) | dev Nginx용 Business loopback 포트 8083. prod에는 적용하지 않음 |
 | [satellites.data](docker-compose.satellites.data.yml) | 기존 Data의 env·이미지 교체. `!override` 지원 Compose 필요 |
@@ -146,9 +146,9 @@ dev 의 compose 보간 입력 `dev.env`와 Data·위성 컨테이너 env 는 CD�
 
 ## 6. 공유 Redis ACL 반영
 
-Business·Data·Realtime이 공유 Redis를 사용한다. 서비스별 비밀번호와 키·채널 ACL을 유지하며
-미리보기는 전역 64개 슬롯으로 제한한다. 일반 CD는 Redis를 재생성하지 않는다.
-기존 Business Redis의 세션·탈퇴 차단 표지를 보존하는 bridge 기간과 최초 bootstrap은
+Business·Data·Realtime이 공유 Redis를 사용한다. 서비스별 비밀번호와 키·채널 ACL을 유지한다.
+일반 CD는 Redis를 재생성하지 않는다.
+기존 Business Redis의 세션 차단 표지를 보존하는 bridge 기간과 최초 bootstrap은
 [공유 Redis 운영](../../docs/architecture/shared-redis.md)을 따른다.
 
 
@@ -306,7 +306,7 @@ Fluent Bit 이 올리는 새 접두입니다. 키는 `system_log/v2/env=<env>/se
 ## 배포·검사 실행 계약
 
 - PR의 smoke 변경은 `smoke-check.yml`에서 셸 문법·mock API·격리 Python 계약으로 검증합니다. 실제 dev/prod API나 DB를 호출하지 않습니다.
-- 네 서비스 Gradle 검사는 `be-gradle.yml`로 공통화합니다. Business PDF 테스트는 Docker test 이미지의 poppler를 유지합니다. 동일 실행의 service/revision/run_id·checksum을 검증한 JAR만 이미지 조립에 사용합니다. PR/main/release가 다른 실행이면 검사를 새로 수행합니다.
+- 네 서비스 Gradle 검사는 `be-gradle.yml`로 공통화합니다. 동일 실행의 service/revision/run_id·checksum을 검증한 JAR만 이미지 조립에 사용합니다. PR/main/release가 다른 실행이면 검사를 새로 수행합니다.
 - release PR의 위성 경계 계약은 `satellite-ci.prod.yml`, 서비스 전체 검사 및 arm64 이미지 검증·발행은 `prod-ci.yml`이 담당합니다.
 - main CI·앱 업로드·smoke의 진행 중 실행은 유지하고, 같은 그룹의 대기는 최신 하나만 남깁니다. VM을 공유하는 Data·Realtime 공동 CD·Satellite CD·smoke execute의 잠금 대기는 `queue: max`를 유지합니다. 같은 SHA의 서로 다른 배포 작업이 서로를 취소하지 않게 하기 위한 별도 자원 잠금입니다.
 - 자동 smoke는 실제 생성된 서버 CI·배포의 완료를 기다립니다. 앱·문서만 바뀌어 서버 배포가 없으면 게스트 생성·300초 대기·15개 검사를 생략하고 「미실행」을 기록합니다. nav.json·paths.json처럼 서버 배포를 시작하는 공유 입력은 검사 대상에 남습니다.

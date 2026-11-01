@@ -11,20 +11,14 @@ OOM 시 추가 쓰기는 실패한다. AOF와 볼륨은 HA나 무손실 보장�
 
 | 소유자 | 키·채널 | 정책 |
 | --- | --- | --- |
-| Business | `cache:business:preview:slot:v1:{0..63}` | 전체 64개 슬롯, 직렬화 항목당 1MiB |
-| Business | `cache:business:revoked-session:*`, `withdrawn:*`, `rate:*` (모두 `cache:business:` 아래) | 기존 TTL 유지, 미리보기 축출 대상 제외 |
+| Business | `cache:business:revoked-session:*` (`cache:business:` 아래) | 기존 TTL 유지, 축출하지 않음 |
 | Data | `presence:*` | 쓰기 소유자 |
 | Realtime | `cache:chat:*`, `lock:chat:*`, 등록된 movement·sea 키, `chat:*` 채널 | 소유 키 읽기·쓰기, presence는 별도 읽기 전용 selector |
 
-미리보기에는 사용자와 URL 해시를 함께 저장하고 둘을 대조해 조회한다. 같은 URL이라도 다른 사용자의
-항목은 읽지 않는다. 슬롯 검색은 64개 작은 메타데이터로 제한하며 큰 payload는 일치한 슬롯에서만 읽는다.
-선점·완료·조회 순서 갱신·탈퇴 삭제는 Lua로 원자 처리한다. 모든 키는 KEYS 인자로 명시한다.
-
-PENDING은 90초, READY는 300초, FAILED는 30초다. 여유 슬롯이 없으면 최근 조회가 가장 오래된
-완료 항목만 교체한다. 모두 처리 중이면 새 요청을 `FAILED/BUSY`로 반환하고 worker를 시작하지 않는다.
-늦은 worker는 사용자·URL·세대가 같은 PENDING에만 결과를 쓸 수 있다.
-payload 64MiB 외에 Redis 해시·키·할당자·AOF 버퍼 메모리가 추가된다.
-이 한도는 서비스별 CPU·지연·장애 격리를 제공하지 않는다.
+파일 링크 미리보기가 쓰던 `cache:business:preview:slot:v1:{0..63}` 슬롯과 `cache:business:withdrawn:*`·
+`cache:business:rate:*` 키는 GROMO-2682 에서 미리보기와 함께 사라졌다. 앱이 더는 쓰지 않으므로 운영 Redis에
+남은 키는 직접 지우지 않고 TTL로 자연 소멸시킨다(슬롯 90초·300초·30초, 요청 제한 60초, 탈퇴 표지 최대 2시간).
+이 Redis는 서비스별 CPU·지연·장애 격리를 제공하지 않는다.
 
 ## 전환 중 차단 정보 보존
 
@@ -34,13 +28,12 @@ payload 64MiB 외에 Redis 해시·키·할당자·AOF 버퍼 메모리가 추�
 1. 새 Business의 기본 연결은 공유 Redis다. 전환 기간에만 다음 Business 전용 설정을 추가한다.
    `BUSINESS_REDIS_LEGACY_HOST=business-redis`, `BUSINESS_REDIS_LEGACY_PORT=6379`,
    `BUSINESS_REDIS_LEGACY_USERNAME=business`, `BUSINESS_REDIS_LEGACY_PASSWORD=<이전 비밀번호>`.
-2. 세션·탈퇴 차단 조회는 새 저장소를 먼저 읽고, 없으면 기존 저장소를 읽는다. 기존 키의 TTL을 갱신하지 않는다.
+2. 세션 차단 조회는 새 저장소를 먼저 읽고, 없으면 기존 저장소를 읽는다. 기존 키의 TTL을 갱신하지 않는다.
 3. 새 차단 표지는 양쪽에 동일한 절대 만료 시각(`SET PXAT`)으로 기록한다. 일부 쓰기 실패는 성공으로 숨기지 않는다.
-   미리보기·요청 제한 카운터는 공유 Redis에만 새로 만든다. 전환 시 이전 요청 제한 창은 이어받지 않는다.
 4. 이전 이미지를 실행하는 Business가 모두 교체된 뒤, 기존 차단 표지의 최대 수명을 기다린다.
-   최소 2시간이며, 이전/현재 AT 차단 TTL+60초가 더 길면 그 값을 적용한다. 검사 도구는 추가 60초 여유를 둔다.
+   최소 2시간(미리보기를 걷기 전 이미지가 쓰던 탈퇴 표지의 TTL이다)이며, 이전/현재 AT 차단 TTL+60초가 더 길면
+   그 값을 적용한다. 검사 도구는 추가 60초 여유를 둔다.
    이 기간 새 차단 표지는 이미 공유 Redis에도 있으므로, 기존 저장소에만 존재하던 표지는 자연 만료된다.
-5. 탈퇴 시 새 슬롯뿐 아니라 기존 Redis에 남은 해당 사용자의 이전 형식 미리보기와 레이트 키도 삭제한다.
 
 소스 Redis가 전환 중 죽거나 키를 자체 축출하면 기존 보존 한계는 남는다.
 Redis 조회 장애의 인증 fail-open도 이번 변경에서 바꾸지 않았다.
@@ -70,7 +63,7 @@ bridge 중 재시작·배포를 했다면 검사 도구는 현재 Business 컨�
    Compose의 `SHARED_REDIS_ACL_FILE`을 이 경로로, `SHARED_REDIS_ACL_SHA`를 파일 SHA-256으로 지정한다.
    기존 `redis_dev_data` 볼륨을 유지하고 `up -d --no-deps --force-recreate redis`만 수행한다.
 6. 같은 준비 파일과 dev·realtime·satellites·satellites.dev·satellites.data.dev 조합으로
-   Data·Realtime·Business를 `--no-deps`로 기동한다. readiness와 로그인·집중·채팅·미리보기의
+   Data·Realtime·Business를 `--no-deps`로 기동한다. readiness와 로그인·집중·채팅의
    정상 흐름을 확인하고 요청을 재개한다. 전환 중 `down -v`, `--remove-orphans`, 기존 Business Redis 재생성을 사용하지 않는다.
 7. 이후 일반 CD는 준비된 공유 Redis를 검사하고 앱만 교체한다.
 
@@ -120,7 +113,6 @@ Sentinel의 견고한 구성은 서로 독립적으로 고장 나는 위치의 S
 
 공유 Redis의 health 계정으로 Datadog/Redis exporter가 INFO·설정·slowlog를 조회한다.
 메모리 사용률, OOM 쓰기 오류, evicted_keys, AOF 쓰기·rewrite 오류, 재시작과 지연을 확인한다.
-미리보기 슬롯 포화는 `preview_rejected reason=CACHE_FULL` 로그로 구분한다.
 경보 수신 여부와 실제 복구 시간은 운영에서 별도 확인해야 한다.
 
 검증은 외부 서비스와 격리된 로컬 Redis와 합성 자격으로 수행한다. AWS 부하 테스트 및 부하용 데이터 생성은 금지한다.

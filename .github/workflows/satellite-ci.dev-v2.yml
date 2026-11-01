@@ -55,7 +55,6 @@ jobs:
     with:
       service: ${{ matrix.service }}
       enabled: ${{ github.event_name != 'pull_request' || fromJSON(needs.checks.outputs.services)[matrix.service] }}
-      business-pdf: ${{ matrix.service == 'business-api' }}
       publish-jar: true
       artifact-name: ${{ matrix.service }}-v2-test-results
       artifact-path: build/reports/

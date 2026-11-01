@@ -123,7 +123,6 @@ SERVICE_OPTIONAL_KEYS = {
         "DATA_API_BASE_URL", "NOTIFICATION_BASE_URL",
         "GOOGLE_CLIENT_ID", "APPLE_CLIENT_ID", "LINK_PROXY_SECRET",
         "LINK_TRUSTED_IP_HEADERS",
-        "GOOGLE_DRIVE_API_KEY",
         "BUSINESS_REDIS_LEGACY_HOST", "BUSINESS_REDIS_LEGACY_PORT",
         "BUSINESS_REDIS_LEGACY_USERNAME", "BUSINESS_REDIS_LEGACY_PASSWORD",
         # 커서 서명키 회전용 — 비우면 yml 기본값 v1. keys.v2 를 더한 뒤 이 값을 옮긴다(GROMO-1759).
@@ -330,6 +329,8 @@ def business_redis_acl(secret: dict[str, Any]) -> str:
     if not isinstance(password, str):
         raise ValueError("BUSINESS_REDIS_PASSWORD는 문자열이어야 합니다")
     digest = hashlib.sha256(password.encode("utf-8")).hexdigest()
+    # +incrby +expire +hget +hset +time +scan +del 은 링크 미리보기(GROMO-2682 에서 제거)가 쓰던 명령이다. 지금 앱은
+    # get·set·eval 계열만 쓰지만 ACL 해시(ACL_REVISION)가 바뀌면 공유 Redis 를 다시 bootstrap 해야 해서 줄이지 않았다.
     return ("user default off\n"
             # 비밀번호 없는 계정이지만 business-cache 내부망에서만 접근 가능하고 키 명령은 전부 막힌다.
             # Datadog Redis check가 요구하는 읽기 전용 관리 명령만 허용한다.

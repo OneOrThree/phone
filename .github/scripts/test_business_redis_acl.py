@@ -1,4 +1,4 @@
-"""실제 Redis에서 미리보기 Lua와 서비스별 ACL 경계를 검증한다."""
+"""실제 Redis에서 Business 차단 표지 Lua와 서비스별 ACL 경계를 검증한다."""
 import importlib.util
 from pathlib import Path
 import subprocess
@@ -40,22 +40,16 @@ class BusinessRedisAclTest(unittest.TestCase):
             command += ["--user", user, "--pass", cls.password if password is None else password]
         return subprocess.run(command + list(args), capture_output=True, text=True, timeout=10).stdout.strip()
 
-    def test_미리보기_캐시와_원자_레이트리밋은_허용된다(self):
-        key = "cache:business:preview:user:entry"
-        self.assertEqual(self.command("SET", key, "PENDING", "NX", "EX", "90"), "OK")
-        self.assertEqual(self.command("GET", key), "PENDING")
-        script = "local n=redis.call('INCRBY',KEYS[1],ARGV[1]); if n==tonumber(ARGV[1]) then redis.call('EXPIRE',KEYS[1],60) end; return n"
+    def test_차단_표지는_Lua로_기록하고_GET으로_읽는다(self):
+        # BusinessRedisMarkers.put 의 스크립트와 RevokedSessions.isRevoked 의 GET — 앱이 실제로 쓰는 두 호출이다.
+        key = "cache:business:revoked-session:acl-test"
+        script = "redis.call('SET', KEYS[1], '1', 'PXAT', ARGV[1]) return 1"
         digest = self.command("SCRIPT", "LOAD", script)
-        self.assertEqual(self.command("EVALSHA", digest, "1", "cache:business:rate:user", "2"), "2")
-        self.assertEqual(self.command("EVAL", script, "1", "cache:business:rate:user", "3"), "5")
-
-    def test_탈퇴자_사본_파기는_SCAN과_DEL로_자기_키만_지운다(self):
-        # GROMO-1943: PreviewCache.eraseUser 가 표지 SET → SCAN MATCH → DEL 을 쓴다.
-        prefix = "cache:business:preview:withdrawn-user:"
-        self.assertEqual(self.command("SET", prefix + "a", "x"), "OK")
-        self.assertIn(prefix + "a", self.command("SCAN", "0", "MATCH", prefix + "*", "COUNT", "500"))
-        self.assertEqual(self.command("DEL", prefix + "a", "cache:business:rate:withdrawn-user"), "1")
-        self.assertIn("NOPERM", self.command("DEL", "auth:rt:user"))
+        expiry = str(int(time.time() * 1000) + 60000)
+        self.assertEqual(self.command("EVALSHA", digest, "1", key, expiry), "1")
+        self.assertEqual(self.command("GET", key), "1")
+        # RevokedSessions 주석대로 EXISTS 는 ACL 밖이다 — 키는 이 접두, 조회는 GET 이어야 한다.
+        self.assertIn("NOPERM", self.command("EXISTS", key))
 
     def test_다른_키와_관리_명령은_스크립트에서도_거부된다(self):
         for args in [("GET", "noti:secret"), ("SET", "auth:rt:user", "value"),
@@ -72,7 +66,7 @@ class BusinessRedisAclTest(unittest.TestCase):
         self.assertIn("redis_version", self.command("INFO", "server", user="health", password=""))
         self.assertIn("maxmemory", self.command("CONFIG", "GET", "maxmemory", user="health", password=""))
         self.assertNotIn("NOPERM", self.command("SLOWLOG", "GET", "1", user="health", password=""))
-        self.assertIn("NOPERM", self.command("GET", "cache:business:preview:user:entry", user="health", password=""))
+        self.assertIn("NOPERM", self.command("GET", "cache:business:revoked-session:acl-test", user="health", password=""))
         self.assertNotIn(self.password, self.acl.read_text())
 
 

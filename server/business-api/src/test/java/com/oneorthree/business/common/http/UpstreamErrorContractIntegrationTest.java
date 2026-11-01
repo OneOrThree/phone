@@ -1,5 +1,6 @@
 package com.oneorthree.business.common.http;
 
+import com.oneorthree.business.auth.AccessTokenClaims;
 import com.oneorthree.business.auth.AuthAttributes;
 import com.oneorthree.business.config.RequestEnvelopeFilter;
 import com.oneorthree.business.support.MockUpstream;
@@ -179,7 +180,7 @@ class UpstreamErrorContractIntegrationTest extends UpstreamTestBase {
         }
 
         private UUID subject(HttpServletRequest request) {
-            return UUID.fromString((String) request.getAttribute(AuthAttributes.USER_ID));
+            return ((AccessTokenClaims) request.getAttribute(AuthAttributes.CLAIMS)).userId();
         }
     }
 }
