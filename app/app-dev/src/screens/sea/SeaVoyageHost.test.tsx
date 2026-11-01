@@ -22,11 +22,6 @@ import { SeaVoyageHost } from './SeaVoyageHost';
 import { FriendActionContext } from '@/screens/island/CatInfoPopup';
 import type { FriendsScreenState } from '@/screens/island/useFriendsScreen';
 
-jest.mock('@/screens/focus/VerificationSpike', () => ({
-  ...jest.requireActual('@/screens/focus/VerificationSpike'),
-  VERIFY_SPIKE: true,
-}));
-
 jest.mock('@/screens/focus/VerificationSession', () => ({
   VerificationSession: jest.fn(() => null),
 }));

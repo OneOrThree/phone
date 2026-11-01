@@ -1,4 +1,6 @@
 import { useCameraPermissions } from 'expo-camera';
+import { Alert } from 'react-native';
+import { VerificationSession } from '@/screens/focus/VerificationSession';
 import {
   clearVerificationResult,
   openVerificationCapture,
@@ -20,10 +22,6 @@ import { readAccountGuides, saveAccountGuides } from '@/services/accountGuides';
 import { getTelescope } from '@/services/api/telescope';
 import { getMagazineIssue, putMagazineReceipt } from '@/services/api/magazine';
 
-jest.mock('@/screens/focus/VerificationSpike', () => ({
-  ...jest.requireActual('@/screens/focus/VerificationSpike'),
-  VERIFY_SPIKE: true,
-}));
 jest.mock('@/screens/focus/VerificationSession', () => ({
   VerificationSession: jest.fn(() => null),
 }));
@@ -578,6 +576,33 @@ test.each(['magazine', 'seaMagazine'] as const)(
     expect(mockReaderMount).toHaveBeenCalledTimes(2);
     expect(mockReaderMount).toHaveBeenLastCalledWith('iss-21');
     await screen.unmount();
+  },
+);
+
+test.each([undefined, '0'])(
+  '개발용 환경변수=%s여도 스위치·카메라 버튼이 보이고 OFF 측정은 자동으로 켜지지 않는다',
+  async (flag) => {
+    const previous = process.env.EXPO_PUBLIC_VERIFY_SPIKE;
+    const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    try {
+      if (flag === undefined) delete process.env.EXPO_PUBLIC_VERIFY_SPIKE;
+      else process.env.EXPO_PUBLIC_VERIFY_SPIKE = flag;
+      const state = serverFocusState();
+      state.settings.studyVerification = false;
+      const dispatch = jest.fn();
+      const screen = await mount('focus', state, { dispatch });
+      expect(screen.getByRole('switch', { name: '카메라 인증 사용' })).not.toBeChecked();
+      expect(screen.getByRole('button', { name: '카메라 인증' })).toBeTruthy();
+      expect(jest.mocked(VerificationSession).mock.calls.at(-1)?.[0].enabled).toBe(false);
+      dispatch.mockClear();
+      await fireEvent.press(screen.getByRole('button', { name: '카메라 인증' }));
+      expect(alert).toHaveBeenCalledWith('측정을 켜주세요');
+      expect(dispatch).not.toHaveBeenCalled();
+    } finally {
+      if (previous === undefined) delete process.env.EXPO_PUBLIC_VERIFY_SPIKE;
+      else process.env.EXPO_PUBLIC_VERIFY_SPIKE = previous;
+      alert.mockRestore();
+    }
   },
 );
 

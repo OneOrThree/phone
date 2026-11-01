@@ -31,11 +31,7 @@ import { syncAndroidScreenTime } from '@/services/screentimeSync';
 import { pushPermissionStatus, requestPushPermission, type PushPermission } from '@/services/push';
 import { captureProductEvent } from '@/services/posthog';
 import { Ticking } from '@/hooks/useNow';
-import {
-  VERIFY_SPIKE,
-  VerificationSpike,
-  VerificationToggle,
-} from '@/screens/focus/VerificationSpike';
+import { VerificationSpike, VerificationToggle } from '@/screens/focus/VerificationSpike';
 import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -3636,9 +3632,7 @@ function FocusFlow({ e: environment }: any) {
       <FocusResultSummary
         subject={result?.subject ?? t('focusFlow.result.defaultSubject')}
         seconds={result?.seconds ?? 0}
-        verifiedSeconds={
-          VERIFY_SPIKE ? verificationResult(result?.id, result?.seconds ?? 0) : undefined
-        }
+        verifiedSeconds={verificationResult(result?.id, result?.seconds ?? 0)}
         fish={result?.fish ?? 0}
         questTitles={achievedQuestTitles}
         recordId={result?.id}
@@ -4213,7 +4207,7 @@ function FocusFlow({ e: environment }: any) {
               id="leave-fishing-arrival"
               onPress={returnFromArrival}
             />
-            {VERIFY_SPIKE && (
+            {Platform.OS !== 'web' && !experience && (
               <VerificationToggle
                 onPreviewChange={setVerificationPreviewOpen}
                 intro={verificationIntro}
@@ -4227,7 +4221,7 @@ function FocusFlow({ e: environment }: any) {
             )}
           </View>
         )}
-        {VERIFY_SPIKE &&
+        {Platform.OS !== 'web' &&
           !experience &&
           r === 'fishingArrival' &&
           !(tutorialStep >= 5 && tutorialStep <= 21) && (
@@ -4288,7 +4282,7 @@ function FocusFlow({ e: environment }: any) {
         )}
         {focusing && (
           <>
-            {VERIFY_SPIKE && !experience && !(tutorialStep >= 5 && tutorialStep <= 21) && (
+            {Platform.OS !== 'web' && !experience && !(tutorialStep >= 5 && tutorialStep <= 21) && (
               <View
                 pointerEvents="box-none"
                 {...a11yHidden(!!dialog || !!goldenCutscene || !!catInfo)}
@@ -4312,7 +4306,7 @@ function FocusFlow({ e: environment }: any) {
                 />
               </View>
             )}
-            {VERIFY_SPIKE && !experience && !(tutorialStep >= 5 && tutorialStep <= 21) && (
+            {Platform.OS !== 'web' && !experience && !(tutorialStep >= 5 && tutorialStep <= 21) && (
               <View
                 testID="focus-camera-toggle"
                 {...a11yHidden(!!dialog || !!goldenCutscene || !!catInfo)}

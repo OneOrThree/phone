@@ -1,9 +1,4 @@
-/**
- * 집중 인증 스파이크 — 버리는 코드. `EXPO_PUBLIC_VERIFY_SPIKE=1` 로 Metro 를 띄웠을 때만
- * 집중 화면에 작은 카메라와 인증 상태를 붙인다. 제품 화면에서는 렌더되지 않는다.
- *
- * 집중 중에는 작은 라이브 미리보기를 띄운다. 같은 세션의 프레임으로 손을 확인한다.
- */
+/** 낚시섬 AI집중측정 스위치·미리보기 제어. 제품 노출에 개발용 환경변수는 사용하지 않는다. */
 import { useEffect, useRef, useState } from 'react';
 import { readAccountGuides, saveAccountGuides } from '@/services/accountGuides';
 import { getSession, sessionGeneration } from '@/services/api/session';
@@ -30,8 +25,6 @@ import {
 } from '@/services/studyVerification/palmScore';
 
 export { VerificationSession as VerificationSpike } from './VerificationSession';
-
-export const VERIFY_SPIKE = process.env.EXPO_PUBLIC_VERIFY_SPIKE === '1';
 
 /** 스파이크 점검용: 번들된 .tflite 가 로드되는지, 텐서 모양이 맞는지 Metro 콘솔에 찍는다. */
 export async function probeModel(): Promise<void> {
