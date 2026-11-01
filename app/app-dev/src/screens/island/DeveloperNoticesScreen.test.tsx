@@ -178,11 +178,14 @@ test('더 보기를 연달아 두 번 눌러도 같은 커서 요청은 한 번�
     );
   const screen = await render(<DeveloperNoticesScreen e={events()} />);
   await waitFor(() => expect(screen.getByText('더 보기')).toBeTruthy());
-  const button = screen.getByText('더 보기');
-  // 재렌더 전에 두 번 — loadingMore 상태가 아직 낡아 있는 순간을 흉내 낸다
+  // 재렌더 전에 같은 렌더의 핸들러를 두 번 — loadingMore 상태가 아직 낡아 있는 순간을 흉내 낸다.
+  // fireEvent.press 를 겹쳐 부르면 act 가 겹쳐 경고가 나므로 RN 이 테스트용으로 여는 Pressable 설정에서 onPress 를 꺼낸다
+  const { onPress } = screen
+    .getByRole('button', { name: '더 보기' })
+    .props.onStartShouldSetResponder.testOnly_pressabilityConfig();
   await act(async () => {
-    fireEvent.press(button);
-    fireEvent.press(button);
+    onPress();
+    onPress();
   });
   expect(listDeveloperNotices).toHaveBeenCalledTimes(2);
   expect(listDeveloperNotices).toHaveBeenLastCalledWith('c1');
@@ -190,4 +193,48 @@ test('더 보기를 연달아 두 번 눌러도 같은 커서 요청은 한 번�
     finish({ items: [second], nextCursor: null });
   });
   await waitFor(() => expect(screen.getByText(second.title)).toBeTruthy());
+});
+
+test('더 보기가 늦는 사이 목록이 다시 시작되면 낡은 쪽은 붙지 않고 새 커서로 이어진다', async () => {
+  let finishStale!: (value: unknown) => void;
+  (listDeveloperNotices as jest.Mock)
+    .mockResolvedValueOnce({ items: [item], nextCursor: 'c1' })
+    .mockReturnValueOnce(
+      new Promise((resolve) => {
+        finishStale = resolve;
+      }),
+    )
+    .mockResolvedValueOnce({ items: [item], nextCursor: 'c2' })
+    .mockResolvedValueOnce({ items: [], nextCursor: null });
+  const screen = await render(<DeveloperNoticesScreen e={events()} />);
+  await waitFor(() => expect(screen.getByText('더 보기')).toBeTruthy());
+  await fireEvent.press(screen.getByText('더 보기'));
+  expect(listDeveloperNotices).toHaveBeenLastCalledWith('c1');
+  // 계정 전환으로 효과가 다시 돌아 새 첫 쪽(nextCursor c2)을 읽는다
+  await act(async () => {
+    mockSession.changeAccount();
+  });
+  await waitFor(() => expect(screen.getByText('더 보기')).toBeTruthy());
+  // 낡은 «더 보기» 응답이 뒤늦게 도착
+  await act(async () => {
+    finishStale({ items: [second], nextCursor: 'stale' });
+  });
+  expect(screen.queryByText(second.title)).toBeNull();
+  expect(screen.getByText(item.title)).toBeTruthy();
+  await fireEvent.press(screen.getByText('더 보기'));
+  expect(listDeveloperNotices).toHaveBeenLastCalledWith('c2');
+});
+
+test('더 보기 요청 중에는 버튼이 비활성이고 다시 눌러도 요청이 늘지 않는다', async () => {
+  (listDeveloperNotices as jest.Mock)
+    .mockResolvedValueOnce({ items: [item], nextCursor: 'c1' })
+    .mockReturnValueOnce(new Promise(() => {}));
+  const screen = await render(<DeveloperNoticesScreen e={events()} />);
+  await waitFor(() => expect(screen.getByText('더 보기')).toBeTruthy());
+  await fireEvent.press(screen.getByText('더 보기'));
+  expect(screen.getByRole('button', { name: '더 보기' }).props.accessibilityState.disabled).toBe(
+    true,
+  );
+  await fireEvent.press(screen.getByText('더 보기'));
+  expect(listDeveloperNotices).toHaveBeenCalledTimes(2);
 });

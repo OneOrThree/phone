@@ -89,6 +89,8 @@ export function DeveloperNoticesScreen({ e }: any) {
       .then((page) => {
         if (!alive()) return;
         setState((prev) => {
+          // 이 요청이 이어 받는 목록에만 붙인다 — 커서가 달라졌으면 다른 목록이다
+          if (prev.nextCursor !== cursor) return prev;
           const seen = new Set(prev.items.map((n) => n.publicationId));
           return {
             ...prev,
