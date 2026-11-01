@@ -121,7 +121,7 @@
          - 만료 규칙(세 접두 90일)은 server/scripts/s3-log-archive-lifecycle.json — 다른 접두로 올리면 만료가 닿지 않는다
          - 레퍼런스: S3LogArchiveService + S3LogConfig -->
     <!-- TODO: API 요청 완료(access) 로그 — data-api 에는 없다(Business 는 2553 의 log_kind=access 로 남김)
-         - 추가하면 dev·staging·prod 에서 root 의 CONSOLE_JSON(stdout) 으로 나가고 수집은 Fluent Bit(2556, prod 적용은 2619)이 맡는다. 지금 요청 단위로는 Nginx access 로그(2556)를 본다. 레퍼런스: RequestLoggingFilter -->
+         - 추가하면 dev·staging·prod 에서 root 의 CONSOLE_JSON(stdout) 으로 나가고, 수집은 위 S3 TODO 의 Fluent Bit 경로(2556, prod 적용은 2619)를 따른다. 레퍼런스: RequestLoggingFilter -->
     <!-- TODO GROMO-2660: ERROR 알림 — Slack webhook appender (AsyncAppender, neverBlock)
          - 운영 장애 경보 경로(2660)에서 방식을 정한다. 레퍼런스: SlackErrorAppender -->
 
