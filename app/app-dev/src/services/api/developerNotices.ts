@@ -12,8 +12,13 @@ export type DeveloperNotice = {
   forcesUpdate?: boolean;
 };
 
-export function listDeveloperNotices(): Promise<{ items: DeveloperNotice[] }> {
-  return request('/me/developer-notices');
+// 앱은 limit 을 보내지 않는다 — 서버 커서가 limit 에 묶여 있다. nextCursor 가 없으면(옛 서버 포함) 끝이다
+export function listDeveloperNotices(
+  cursor?: string,
+): Promise<{ items: DeveloperNotice[]; nextCursor?: string | null }> {
+  return request(
+    cursor ? `/me/developer-notices?cursor=${encodeURIComponent(cursor)}` : '/me/developer-notices',
+  );
 }
 
 export function getDeveloperNotice(id: string): Promise<DeveloperNotice> {

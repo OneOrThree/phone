@@ -179,3 +179,12 @@ it('suspended 가 되면 떠 있던 편지를 버리되 저장하지 않고, 풀
   await waitFor(() => expect(latest.notice?.publicationId).toBe('a'));
   expect(list).toHaveBeenCalledTimes(2);
 });
+
+it('첫 쪽에 nextCursor 가 있어도 인자 없이 한 번만 읽는다', async () => {
+  await AsyncStorage.setItem(letterSeenKey('u1'), String(Date.parse('2026-09-01T00:00:00Z')));
+  list.mockResolvedValue({ items: [notice('a', '2026-10-01T00:00:00Z')], nextCursor: 'next' });
+  await render(<Probe ready userId="u1" />);
+  await waitFor(() => expect(latest.notice?.publicationId).toBe('a'));
+  expect(list).toHaveBeenCalledTimes(1);
+  expect(list).toHaveBeenCalledWith();
+});
