@@ -5,9 +5,10 @@
 import assert from 'node:assert/strict';
 import { Platform } from 'react-native';
 import { t } from '@/i18n';
-import { ApiError, request } from '@/services/api/client';
+import { ApiError, request, resetVersionHeaderMissingForTest } from '@/services/api/client';
 import { clearSession, saveSession } from '@/services/api/session';
 import { replaceBlockedUsers } from '@/services/blockedUsers';
+import { captureProductEvent } from '@/services/posthog';
 import {
   friendlyRealtimeErrorMessage,
   IslandProjection,
@@ -86,6 +87,7 @@ jest.mock('expo-updates', () => ({
     return mockEmbeddedLaunch;
   },
 }));
+jest.mock('@/services/posthog', () => ({ captureProductEvent: jest.fn() }));
 
 const NOW = '2026-09-24T12:00:00.000Z';
 const wm = (
@@ -2048,6 +2050,23 @@ describe('STOMP CONNECT 앱 버전 헤더 (GROMO-2655)', () => {
       assert.equal(opened.length, 1);
     },
   );
+
+  test('버전을 못 읽는 네이티브가 재접속을 반복해도 누락 계측은 실행당 1회다', async () => {
+    const capture = captureProductEvent as jest.Mock;
+    capture.mockClear();
+    resetVersionHeaderMissingForTest();
+    mockVersion = null;
+    const channel = open();
+    channel.reopen();
+    await settle();
+    channel.reopen();
+    await settle();
+    expect(capture).toHaveBeenCalledTimes(1);
+    expect(capture).toHaveBeenCalledWith('app_version_header_missing', {
+      app_version_header_schema_version: 1,
+      reason: 'unavailable',
+    });
+  });
 });
 
 describe('이동 채널 (GROMO-2248)', () => {
