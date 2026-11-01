@@ -371,6 +371,7 @@ Semantic spacing:
 - 버튼 press scale: `0.97`
 - 토글 손잡이 이동: 140ms
 - Reduce Motion 설정 또는 `MotionContext`가 켜져 있으면 장식 모션을 제거한다.
+- OS의 모션 줄이기와 앱 설정(`settings.reduceMotion`) 중 하나라도 켜져 있으면 줄인다. App이 실행 중에 둘을 합쳐 화면과 `MotionContext`에 넘기고, 저장하는 값은 사용자가 설정 화면에서 직접 켠 것뿐이다(GROMO-2159).
 - 상태 변화는 모션 없이도 색·텍스트·형태로 이해할 수 있어야 한다.
 
 ## 7. 공용 컴포넌트 명세
