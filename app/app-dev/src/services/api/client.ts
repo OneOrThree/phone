@@ -74,8 +74,64 @@ function appVersionHeaders(): Record<string, string> {
   try {
     const { nativeApplicationVersion } =
       require('expo-application') as typeof import('expo-application');
-    if (typeof nativeApplicationVersion !== 'string') return {};
+    if (typeof nativeApplicationVersion !== 'string') {
+      reportVersionHeaderMissing('unavailable');
+      return {};
+    }
     return { 'X-App-Version': nativeApplicationVersion, 'X-App-Platform': Platform.OS };
+  } catch {
+    reportVersionHeaderMissing('error');
+    return {};
+  }
+}
+
+let versionHeaderMissingReported = false;
+
+/**
+ * 네이티브인데 버전 헤더를 못 읽은 실행을 PostHog 에 알린다(GROMO-2653) — 서버 기록의 «버전 미상»이 앱 쪽
+ * 원인인지 가리는 신호다. 앱 실행당 한 번만 보낸다(요청마다 보내면 한 사용자가 이벤트를 쏟아낸다).
+ * `reason` — `unavailable`: 모듈은 떴는데 값이 문자열이 아님 · `error`: 모듈 로드·접근이 던짐.
+ * 전송이 던져도 요청은 나간다 — 던졌어도 실행당 1회로 센다.
+ */
+function reportVersionHeaderMissing(reason: 'unavailable' | 'error'): void {
+  if (versionHeaderMissingReported) return;
+  versionHeaderMissingReported = true;
+  try {
+    // posthog.ts 를 최상위에서 import 하면 expo-application·AsyncStorage 까지 이 기반 모듈이 끌고 온다.
+    const { captureProductEvent } =
+      require('@/services/posthog') as typeof import('@/services/posthog');
+    captureProductEvent('app_version_header_missing', {
+      app_version_header_schema_version: 1,
+      reason,
+    });
+  } catch {
+    // 계측 실패가 요청을 막으면 안 된다.
+  }
+}
+
+/** 테스트 격리용 — 실행당 1회 플래그를 되돌린다. */
+export function resetVersionHeaderMissingForTest(): void {
+  versionHeaderMissingReported = false;
+}
+
+/** expo-updates 의 `updateId` 형식 — 소문자 UUID. */
+const UPDATE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+/**
+ * OTA 업데이트 ID 헤더(GROMO-2653) — 서버가 사용자별로 어느 OTA 번들을 실행 중인지 기록한다.
+ * 버전 헤더와 **분리**했다: STOMP 는 버전 헤더만 쓰고 업데이트 ID 는 싣지 않는다.
+ * 내장 번들로 실행 중이거나(OTA 가 아님) 웹이면 보내지 않는다. 값이 소문자 UUID 가 아니면 보내지 않는다 —
+ * 형식이 틀린 헤더 값은 fetch 를 던지게 해 전 요청을 막으므로 이 검사가 안전장치다.
+ * 호출 시점에 읽는다(expo-updates 의 두 값은 로드 때 정해진 상수라 비용은 모듈 캐시 조회 한 번).
+ */
+function appUpdateHeaders(): Record<string, string> {
+  if (Platform.OS !== 'ios' && Platform.OS !== 'android') return {};
+  try {
+    const { isEmbeddedLaunch, updateId } = require('expo-updates') as typeof import('expo-updates');
+    if (isEmbeddedLaunch || typeof updateId !== 'string' || !UPDATE_ID_PATTERN.test(updateId)) {
+      return {};
+    }
+    return { 'X-App-Update-Id': updateId };
   } catch {
     return {};
   }
@@ -118,6 +174,7 @@ async function refreshAccessTokenOnce(expectedGeneration: number): Promise<strin
         Accept: 'application/json',
         'X-Refresh-Token': session.refreshToken,
         ...appVersionHeaders(),
+        ...appUpdateHeaders(),
       },
       signal: controller.signal,
     });
@@ -297,6 +354,7 @@ async function requestAttempt<T>(
   const sent: Record<string, string> = {
     Accept: 'application/json',
     ...appVersionHeaders(),
+    ...appUpdateHeaders(),
     ...headers,
   };
   if (body !== undefined) sent['Content-Type'] = 'application/json';

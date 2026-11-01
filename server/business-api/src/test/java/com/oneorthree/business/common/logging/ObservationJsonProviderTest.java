@@ -127,6 +127,24 @@ class ObservationJsonProviderTest {
     }
 
     @Test
+    void accessEventEmitsOnlyLowercaseUuidUpdateId() throws Exception {
+        String updateId = "0b1f6c1e-9d3a-4f6e-8a52-7c1d2e3f4a5b";
+        assertThat(format(accessEventWithUpdateId(updateId))).containsEntry("log_kind", "access")
+                .containsEntry("app_update_id", updateId);
+
+        // 필터를 거치지 않고 provider 에 직접 들어온 값도 형식·타입이 틀리면 버린다(허용목록이 마지막 방어선).
+        for (Object bad : new Object[] {updateId.toUpperCase(), updateId.substring(1), updateId.replace("-", ""),
+                updateId + "\nforged=1", "a".repeat(5000), UUID.fromString(updateId), 42}) {
+            assertThat(format(accessEventWithUpdateId(bad))).doesNotContainKey("app_update_id");
+        }
+
+        // 접근 로그가 아닌 이벤트의 key/value 는 키 이름과 무관하게 내보내지 않는다.
+        LoggingEvent plain = (LoggingEvent) event("m", null, Map.of());
+        plain.addKeyValuePair(new KeyValuePair("app_update_id", updateId));
+        assertThat(format(plain)).containsEntry("log_kind", "application").doesNotContainKey("app_update_id");
+    }
+
+    @Test
     void masksMessageAndException() throws Exception {
         Map<String, Object> json = format(event("login email=user@example.com phone 010-1234-5678 rrn 900101-1234567",
                 new IllegalStateException("password=hunter2 contact mail@example.org"), Map.of()));
@@ -248,6 +266,13 @@ class ObservationJsonProviderTest {
         LoggingEvent event = new LoggingEvent(Logger.class.getName(), LOGGER, Level.INFO, message, error, null);
         event.setMDCPropertyMap(mdc);
         return event;
+    }
+
+    private static ILoggingEvent accessEventWithUpdateId(Object updateId) {
+        LoggingEvent access = (LoggingEvent) event("m", null, Map.of());
+        access.addMarker(ObservationJsonProvider.ACCESS);
+        access.addKeyValuePair(new KeyValuePair("app_update_id", updateId));
+        return access;
     }
 
     private Map<String, Object> format(ILoggingEvent event) throws Exception {

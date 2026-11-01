@@ -17,5 +17,9 @@ public final class DeveloperNotices {
     public record AppRequirement(String minVersion, String title, String body, UUID publicationId,
                                  Instant publishedAt) { }
 
-    public record Page(List<Notice> items) { }
+    /**
+     * 최신순 한 쪽. {@code hasMore} 는 옛 Data 응답에는 없다 — null 이면 마지막 쪽으로 읽는다. 원시 boolean 이면
+     * 이 키가 빠진 응답이 역직렬화에 실패(계약 위반 502)하므로 박싱 타입이다.
+     */
+    public record Page(List<Notice> items, Boolean hasMore) { }
 }

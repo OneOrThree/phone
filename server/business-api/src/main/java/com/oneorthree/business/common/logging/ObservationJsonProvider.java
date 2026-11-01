@@ -47,6 +47,13 @@ public final class ObservationJsonProvider implements StructuredLogFormatter<ILo
      * 같은 정규식이다 — 필터가 먼저 거르고 여기서 한 번 더 거르므로, 한쪽만 바꾸면 통과한 값이 다른 쪽에서 조용히 사라진다.
      */
     private static final Pattern APP_VERSION = Pattern.compile("[0-9]{1,9}\\.[0-9]{1,9}\\.[0-9]{1,9}");
+    /**
+     * 앱이 OTA 업데이트로 뜰 때 보내는 Expo Updates updateId(소문자 UUID, 대문자는 버린다).
+     * {@code RequestEnvelopeFilter.APP_UPDATE_ID} 와 같은 정규식이다 — {@code APP_VERSION} 과 같은 이유로
+     * 바꿀 때는 둘을 함께 바꾼다.
+     */
+    private static final Pattern APP_UPDATE_ID =
+            Pattern.compile("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}");
     private static final Pattern HTTP_ROUTE = Pattern.compile("[!-~]{1,256}");
     private static final List<String> ID_KEYS = List.of("request_id", "origin_request_id", "origin_trace_id",
             "user_id", "event_id", "delivery_id", "operation_id", "message_id", "edge_request_id");
@@ -197,6 +204,8 @@ public final class ObservationJsonProvider implements StructuredLogFormatter<ILo
             case "app_version" -> value instanceof String version && APP_VERSION.matcher(version).matches()
                     ? version : null;
             case "app_platform" -> "ios".equals(value) || "android".equals(value) ? value : null;
+            case "app_update_id" -> value instanceof String updateId && APP_UPDATE_ID.matcher(updateId).matches()
+                    ? updateId : null;
             default -> null;
         };
     }

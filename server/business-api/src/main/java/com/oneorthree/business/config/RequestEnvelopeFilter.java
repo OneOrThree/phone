@@ -40,7 +40,10 @@ public class RequestEnvelopeFilter extends OncePerRequestFilter {
     public static final String REQUEST_ID = "requestId";
     public static final String STRICT_ERROR_CONTRACT = "business.strictErrorContract";
 
-    /** 형식이 어긋난 X-App-Version·X-App-Platform 요청 수 — 태그 {@code header} 는 헤더 이름 둘 중 하나뿐이다. */
+    /**
+     * 형식이 어긋난 X-App-Version·X-App-Platform·X-App-Update-Id 요청 수 — 태그 {@code header} 는 헤더 이름 셋 중
+     * 하나뿐이다.
+     */
     static final String APP_HEADER_INVALID = "business.request.app_header.invalid";
 
     static final int MAX_BODY = 256 * 1024;
@@ -50,6 +53,12 @@ public class RequestEnvelopeFilter extends OncePerRequestFilter {
      * 한 번 더 거르므로, 한쪽만 바꾸면 통과한 값이 다른 쪽에서 조용히 사라진다. 바꿀 때는 둘을 함께 바꾼다.
      */
     private static final Pattern APP_VERSION = Pattern.compile("[0-9]{1,9}\\.[0-9]{1,9}\\.[0-9]{1,9}");
+    /**
+     * Expo Updates updateId(소문자 UUID, 대문자는 버린다). {@code ObservationJsonProvider.APP_UPDATE_ID} 와 같은
+     * 정규식이다 — {@code APP_VERSION} 과 같은 이유로 바꿀 때는 둘을 함께 바꾼다.
+     */
+    private static final Pattern APP_UPDATE_ID =
+            Pattern.compile("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}");
     private static final String HEADER_USER_ID = "X-User-Id";
     private final ApiResponses responses;
     private final MeterRegistry metrics;
@@ -107,6 +116,11 @@ public class RequestEnvelopeFilter extends OncePerRequestFilter {
         if (platform != null) {
             access = access.addKeyValue("app_platform", platform);
         }
+        // OTA 업데이트로 뜬 앱만 보낸다 — 내장 번들이면 헤더가 없고, 없으면 키도 카운터도 없다.
+        String updateId = validAppHeader(request, "X-App-Update-Id", u -> APP_UPDATE_ID.matcher(u).matches());
+        if (updateId != null) {
+            access = access.addKeyValue("app_update_id", updateId);
+        }
         if (completed) {
             // 예외가 빠져나가면 최종 상태는 컨테이너가 정하므로 싣지 않는다.
             access = access.addKeyValue("status_code", response.getStatus());
@@ -116,8 +130,9 @@ public class RequestEnvelopeFilter extends OncePerRequestFilter {
     }
 
     /**
-     * 앱 헤더를 앞뒤 공백을 걷어 읽는다(두 헤더가 같은 규칙). 없거나 비어 있으면 «없음»이라 null 이고 세지 않는다 —
-     * 헬스체크·웹 요청은 정상적으로 안 보낸다. 형식이 어긋나면 헤더 이름만 세고 null 이다. 원본 값은 태그에도 싣지 않는다.
+     * 앱 헤더를 앞뒤 공백을 걷어 읽는다(세 헤더가 같은 규칙). 없거나 비어 있으면 «없음»이라 null 이고 세지 않는다 —
+     * 헬스체크·웹 요청은 정상적으로 안 보내고, 내장 번들로 뜬 앱은 X-App-Update-Id 를 안 보낸다. 형식이 어긋나면
+     * 헤더 이름만 세고 null 이다. 원본 값은 태그에도 싣지 않는다.
      */
     private String validAppHeader(HttpServletRequest request, String name, Predicate<String> valid) {
         String raw = request.getHeader(name);
