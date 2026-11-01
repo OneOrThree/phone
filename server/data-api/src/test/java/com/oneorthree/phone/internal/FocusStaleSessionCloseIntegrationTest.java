@@ -44,6 +44,7 @@ import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -51,6 +52,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
@@ -161,8 +163,7 @@ class FocusStaleSessionCloseIntegrationTest {
     @Test
     @DisplayName("한 건이 실패해도 나머지는 닫힌다 — 실패한 행은 그대로 남아 다음 틱이 다시 집는다")
     void oneFailingSessionDoesNotStopTheRest() {
-        // 가장 오래된 후보를 «닫을 수 없는» 행으로 만든다 — 주인이 탈퇴 처리됐는데 상세가 ACTIVE 로 남은 반쪽 상태.
-        // 시작 순서·밀어 낸 순서와 나이 순서를 일부러 어긋나게 둔다 — 정렬이 없으면 순서가 우연히 맞기 어렵다.
+        // 한 후보를 «닫을 수 없는» 행으로 만든다 — 주인이 탈퇴 처리됐는데 상세가 ACTIVE 로 남은 반쪽 상태.
         UUID userA = newUser();
         FocusSessionView healthyA = start(userA, newIsland(userA, "멀쩡섬A"));
         UUID userB = newUser();
@@ -177,12 +178,14 @@ class FocusStaleSessionCloseIntegrationTest {
         shiftBack(broken.id(), 14 * HOUR);
         jdbc.update("update users set is_deleted=true where id=?", brokenUser);
 
-        assertThat(staleCandidates()).as("마지막 전이가 오래된 순이다")
-                .containsExactly(broken.id(), healthyB.id(), healthyC.id(), healthyA.id());
+        // 소문자 16진 문자열 순서가 PostgreSQL uuid 순서와 같다. UUID.compareTo 는 부호 있는 비교라 다르다.
+        List<UUID> byId = Stream.of(healthyA.id(), healthyB.id(), healthyC.id(), broken.id())
+                .sorted(Comparator.comparing(UUID::toString)).toList();
+        assertThat(staleCandidates()).as("세션 id 순이다").containsExactlyElementsOf(byId);
         Instant now = Instant.now();
         assertThat(details.findStaleActiveSessionIds(now.minus(FocusSessionLifecycleService.ISLAND_STALE_AFTER),
-                now.minus(FocusSessionLifecycleService.SEA_STALE_AFTER), Limit.of(2)))
-                .as("한 틱이 집는 건수를 자르고, 자를 때도 오래된 것부터다").containsExactly(broken.id(), healthyB.id());
+                now.minus(FocusSessionLifecycleService.SEA_STALE_AFTER), byId.get(0), Limit.of(2)))
+                .as("시작점 뒤부터 한 틱이 집는 건수까지만 집는다").containsExactly(byId.get(1), byId.get(2));
 
         assertThatCode(this::tick).as("한 건의 실패가 틱 밖으로 새지 않는다").doesNotThrowAnyException();
 
@@ -515,7 +518,7 @@ class FocusStaleSessionCloseIntegrationTest {
     private List<UUID> staleCandidates() {
         Instant now = Instant.now();
         return details.findStaleActiveSessionIds(now.minus(FocusSessionLifecycleService.ISLAND_STALE_AFTER),
-                now.minus(FocusSessionLifecycleService.SEA_STALE_AFTER), Limit.of(50));
+                now.minus(FocusSessionLifecycleService.SEA_STALE_AFTER), new UUID(0L, 0L), Limit.of(50));
     }
 
     /**

@@ -162,23 +162,25 @@ public interface FocusSessionDetailRepository extends JpaRepository<FocusSession
      * <p>서버에는 활동 신호가 없어 {@code lastTransitionAt} 만 본다. 엔티티를 올리지 않고, 고른 뒤 잠그기까지 사용자가
      * 움직일 수 있어 종결은 <b>잠근 뒤 다시 판정</b>한다({@link #findSessionIdsRestingSince} 와 같다).
      *
-     * <p>ponytail: 오래된 순으로 {@code limit} 건만 집는다. 닫을 수 없는 행(도메인 거절·탈퇴 반쪽 상태)이 앞에 쌓이면 뒤를
-     * 막는다 — 그 행은 매분 ERROR/INFO 로그로 먼저 드러나고, 문제가 되면 실패한 id 를 건너뛰는 커서를 둔다.
+     * <p>세션 id 순으로 {@code after} 뒤의 {@code limit} 건을 집는다. 닫을 수 없는 행(도메인 거절·탈퇴 반쪽 상태)이 한 배치를
+     * 채워도 크론이 이어 보므로 그 뒤 세션이 막히지 않는다.
      *
      * @param islandBefore 이 시각 이전에 마지막으로 전이한 섬 세션(= now − 섬 유예)
      * @param seaBefore    이 시각 이전에 마지막으로 전이한 바다 세션(= now − 바다 유예)
+     * @param after        이 세션 id 뒤부터 집는다
      * @param limit        한 틱이 집는 최대 건수
-     * @return 세션 id(마지막 전이가 오래된 순)
+     * @return 세션 id(오름차순)
      */
     @Query("SELECT d.sessionId FROM FocusSessionDetail d WHERE d.lifecycle = "
             + "com.oneorthree.phone.focus.repository.domain.FocusSessionLifecycle.ACTIVE AND ("
             + "(d.kind = com.oneorthree.phone.focus.repository.domain.FocusSessionKind.ISLAND "
             + "AND d.lastTransitionAt <= :islandBefore) "
             + "OR (d.kind = com.oneorthree.phone.focus.repository.domain.FocusSessionKind.SEA "
-            + "AND d.lastTransitionAt <= :seaBefore)) "
-            + "ORDER BY d.lastTransitionAt")
+            + "AND d.lastTransitionAt <= :seaBefore)) AND d.sessionId > :after "
+            + "ORDER BY d.sessionId")
     List<UUID> findStaleActiveSessionIds(@Param("islandBefore") Instant islandBefore,
-                                         @Param("seaBefore") Instant seaBefore, Limit limit);
+                                         @Param("seaBefore") Instant seaBefore, @Param("after") UUID after,
+                                         Limit limit);
 
     /**
      * 황금 물고기 추첨 틱용(GROMO-1956) — 지금 ACTIVE 세션이 {@code minimum} 명 이상인 섬.

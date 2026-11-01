@@ -16,10 +16,13 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
 /**
@@ -46,14 +49,14 @@ class FocusStaleSessionSchedulerTest {
     @Test
     @DisplayName("스캔 경계는 섬 «지금 − 12시간», 바다 «지금 − 3시간» 이고 한 틱은 50건까지다")
     void theScanCutoffsAreTwelveHoursForIslandsAndThreeForTheSea() {
-        given(details.findStaleActiveSessionIds(any(), any(), any())).willReturn(List.of());
+        given(details.findStaleActiveSessionIds(any(), any(), any(), any())).willReturn(List.of());
 
         scheduler().closeStaleSessions();
 
         ArgumentCaptor<Instant> island = ArgumentCaptor.forClass(Instant.class);
         ArgumentCaptor<Instant> sea = ArgumentCaptor.forClass(Instant.class);
         ArgumentCaptor<Limit> limit = ArgumentCaptor.forClass(Limit.class);
-        verify(details).findStaleActiveSessionIds(island.capture(), sea.capture(), limit.capture());
+        verify(details).findStaleActiveSessionIds(island.capture(), sea.capture(), any(), limit.capture());
         assertThat(island.getValue()).isEqualTo(NOW.minus(Duration.ofHours(12)));
         assertThat(sea.getValue()).isEqualTo(NOW.minus(Duration.ofHours(3)));
         assertThat(limit.getValue().max()).isEqualTo(50);
@@ -68,11 +71,32 @@ class FocusStaleSessionSchedulerTest {
     void oneFailingSessionDoesNotStopTheRest() {
         UUID broken = UUID.randomUUID();
         UUID healthy = UUID.randomUUID();
-        given(details.findStaleActiveSessionIds(any(), any(), any())).willReturn(List.of(broken, healthy));
+        given(details.findStaleActiveSessionIds(any(), any(), any(), any())).willReturn(List.of(broken, healthy));
         given(lifecycle.autoCloseStale(broken)).willThrow(new IllegalStateException("터졌다"));
 
         scheduler().closeStaleSessions();
 
         verify(lifecycle).autoCloseStale(healthy);
+    }
+
+    @Test
+    @DisplayName("닫지 못하는 세션이 배치를 채워도 다음 틱은 그 뒤를 보고, 끝까지 보면 처음으로 돌아간다")
+    void sessionsThatKeepFailingDoNotStarveTheOnesBehindThem() {
+        List<UUID> stuck = Stream.generate(UUID::randomUUID).limit(FocusStaleSessionScheduler.BATCH_SIZE).toList();
+        UUID behind = UUID.randomUUID();
+        given(details.findStaleActiveSessionIds(any(), any(), eq(FocusStaleSessionScheduler.FROM_START), any()))
+                .willReturn(stuck);
+        given(details.findStaleActiveSessionIds(any(), any(), eq(stuck.get(stuck.size() - 1)), any()))
+                .willReturn(List.of(behind));
+        given(lifecycle.autoCloseStale(any())).willThrow(new IllegalStateException("터졌다"));
+        FocusStaleSessionScheduler scheduler = scheduler();
+
+        scheduler.closeStaleSessions();
+        scheduler.closeStaleSessions();
+        verify(lifecycle).autoCloseStale(behind);
+
+        scheduler.closeStaleSessions();
+        verify(details, times(2))
+                .findStaleActiveSessionIds(any(), any(), eq(FocusStaleSessionScheduler.FROM_START), any());
     }
 }

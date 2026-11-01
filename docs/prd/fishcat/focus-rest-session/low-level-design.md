@@ -154,9 +154,10 @@ Business는 `/internal/users/{userId}/focus-sessions/{sessionId}/tutorial-reward
   `resume`·`finish` 가 이길 수 있으므로 **잠근 뒤 다시 판정**한다 — 여전히 `ACTIVE` 이고 여전히 유예를 넘겼을 때만 닫는다.
   크론이 이기면 뒤늦은 `pause`·`resume`·`finish` 는 409 `SESSION_STATE_CONFLICT` 다(정산 행이 없어 `finish` 가 돌려줄
   원 결과도 없다). `current` 는 `data:null`, `pending-result` 도 `data:null` 이다.
-- 크론은 `FocusStaleSessionScheduler`(매분 40초, ShedLock `focus-stale-session-close`, 한 틱 50건, 마지막 전이가 오래된
-  순)다. 한 건의 실패가 나머지를 막지 않고 다음 틱이 같은 후보를 다시 집는다. 스위치를 두지 않는다 — 종결은 잠금 아래
-  다시 판정하고 정산이 없어 이중 지급이 생기지 않는다.
+- 크론은 `FocusStaleSessionScheduler`(매분 40초, ShedLock `focus-stale-session-close`, 한 틱 50건, 세션 id 순으로
+  이어 본다)다. 한 건의 실패가 나머지를 막지 않는다. 닫지 못하는 세션이 한 배치를 채워도 다음 틱은 그 뒤를 보고, 끝까지
+  본 뒤 처음으로 돌아가 실패한 세션을 다시 집는다. 스위치를 두지 않는다 — 종결은 잠금 아래 다시 판정하고 정산이 없어
+  이중 지급이 생기지 않는다.
 
 ### pending-result — GET /focus-sessions/pending-result, 200
 
