@@ -171,6 +171,32 @@ test('OS 켜짐·꺼짐 이벤트를 화면 값이 따라가고, 껐다 켜도 �
   expect(osListeners).toHaveLength(0);
 });
 
+test('첫 OS 조회가 끝나기 전에 변경 이벤트가 오면 늦은 조회 결과가 이벤트 값을 덮지 않는다', async () => {
+  let finishQuery: (value: boolean) => void = () => {};
+  (AccessibilityInfo.isReduceMotionEnabled as jest.Mock).mockImplementation(
+    () => new Promise<boolean>((resolve) => (finishQuery = resolve)),
+  );
+  await seed(initialState(true).settings);
+  const app = await mount();
+  await emitOs(true);
+  expect(contextMotion).toBe(true);
+  await act(async () => finishQuery(false));
+  expect(captured.state.settings.reduceMotion).toBe(true);
+  expect(contextMotion).toBe(true);
+  await app.unmount();
+});
+
+test('OS 가 켜져 있어도 설정 화면이 읽는 저장값은 사용자 값 그대로다', async () => {
+  osReduceMotion = true;
+  await seed(initialState(true).settings);
+  const app = await mount();
+  await waitFor(() => assert.equal(captured.state.settings.reduceMotion, true));
+  expect(captured.savedSettings.reduceMotion).toBe(false);
+  await act(async () => captured.dispatch({ type: 'SETTING', key: 'reduceMotion', value: true }));
+  expect(captured.savedSettings.reduceMotion).toBe(true);
+  await app.unmount();
+});
+
 test('사용자가 켠 값은 OS 가 꺼져도 그대로 켜져 있다 (OS || 사용자 설정)', async () => {
   osReduceMotion = true;
   await seed({ ...initialState(true).settings, reduceMotion: true });

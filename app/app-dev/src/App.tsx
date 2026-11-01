@@ -2247,18 +2247,19 @@ function Gromo() {
     return () => clearInterval(id);
   }, []);
   useEffect(() => {
-    let live = true;
+    // 변경 이벤트가 먼저 오면 늦게 끝난 첫 조회가 옛 값으로 덮지 않게 버린다
+    let initialPending = true;
     AccessibilityInfo.isReduceMotionEnabled()
       .then((value) => {
-        if (live) setOsReduceMotion(value);
+        if (initialPending) setOsReduceMotion(value);
       })
       .catch(() => {});
-    const subscription = AccessibilityInfo.addEventListener(
-      'reduceMotionChanged',
-      setOsReduceMotion,
-    );
+    const subscription = AccessibilityInfo.addEventListener('reduceMotionChanged', (value) => {
+      initialPending = false;
+      setOsReduceMotion(value);
+    });
     return () => {
-      live = false;
+      initialPending = false;
       subscription?.remove();
     };
   }, []);
@@ -2765,6 +2766,7 @@ function Gromo() {
       <RedesignScreens
         e={{
           state: viewState,
+          savedSettings: state.settings,
           route,
           fromSea: history.length ? seaRouteHeld(history[0].route) : !state.onboarded,
           termsVersion: TERMS_VERSION,
