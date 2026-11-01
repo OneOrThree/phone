@@ -199,6 +199,7 @@ test.each([
   'https://catus-api-v2.oneorthree.world/abcdefgh',
   'https://catus-api-v2.oneorthree.world/x/l/abcdefgh',
   'https://catus-api-v2.oneorthree.world/l/abcdefgh/extra',
+  'https://catus-api-v2.oneorthree.world/l/abcdefgh/',
   'https://catus-api-v2.oneorthree.world.evil.com/l/abcdefgh',
   'https://evil.example/catus-api-v2.oneorthree.world/l/abcdefgh',
   'http://catus-api-v2.oneorthree.world/l/abcdefgh',
