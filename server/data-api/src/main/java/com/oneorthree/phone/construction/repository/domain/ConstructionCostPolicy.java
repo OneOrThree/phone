@@ -43,6 +43,6 @@ public class ConstructionCostPolicy {
     private int buildSeconds;
 
     @CreationTimestamp
-    @Column(name = "created_at")
+    @Column(name = "created_at", updatable = false)
     private Instant createdAt;
 }

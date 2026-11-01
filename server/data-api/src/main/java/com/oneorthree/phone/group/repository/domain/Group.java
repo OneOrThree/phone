@@ -84,6 +84,7 @@ public class Group {
     private Long version;
 
     @CreationTimestamp
+    @Column(name = "created_at", updatable = false)
     private Instant createdAt;
 
     @Column(name = "deleted_at")

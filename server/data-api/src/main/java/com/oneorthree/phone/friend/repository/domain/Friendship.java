@@ -61,7 +61,7 @@ public class Friendship {
     private FriendshipStatus status = FriendshipStatus.PENDING;
 
     @CreationTimestamp
-    @Column(name = "created_at")
+    @Column(name = "created_at", updatable = false)
     private Instant createdAt;
 
     @UpdateTimestamp
