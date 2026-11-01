@@ -129,6 +129,20 @@ test('초기화 뒤 사용자가 직접 켠 reduceMotion 은 다시 실행해도
   await second.unmount();
 });
 
+test('저장본 없는 새 설치에서 사용자가 켠 reduceMotion 은 다시 실행해도 유지된다', async () => {
+  // 새 설치는 LOAD 를 거치지 않아 표식이 initialState 에서만 온다
+  const first = await mount();
+  expect(captured.state.settings.reduceMotion).toBe(false);
+  await act(async () => captured.dispatch({ type: 'SETTING', key: 'reduceMotion', value: true }));
+  await flushSave();
+  await first.unmount();
+
+  captured = undefined;
+  const second = await mount();
+  expect(captured.state.settings.reduceMotion).toBe(true);
+  await second.unmount();
+});
+
 test('OS 모션 줄이기가 켜져 있으면 화면과 MotionContext 에는 켜지지만 저장하지 않는다', async () => {
   osReduceMotion = true;
   await seed(initialState(true).settings);
