@@ -108,6 +108,21 @@ describe('남의 글 아바타의 외양 조회(GROMO-2497)', () => {
     await ui.unmount();
   });
 
+  test('외양 조회가 실패하면 글에 실린 털색으로 그린다', async () => {
+    const FRIEND = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+    await looks.start({}, true);
+    const chat = chatOf({
+      messages: [message('m1', { userId: FRIEND, name: '민지', catColor: 'ginger' })],
+    });
+    const ui = await render(<Harness e={env()} chat={chat} />);
+    await waitFor(() => assert.deepEqual(looks.asked, [FRIEND]));
+    assert.deepEqual(
+      ui.queryAllByTestId('cat-avatar-image').map((n) => n.props.source),
+      [art['avatar/ginger']],
+    );
+    await ui.unmount();
+  });
+
   test('글이 늘어도 외양 구독은 화면에서 한 번이다', async () => {
     const FRIEND = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
     await looks.start({ [FRIEND]: { catColor: 'ginger' } });
