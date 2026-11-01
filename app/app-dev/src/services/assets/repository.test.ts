@@ -1,4 +1,5 @@
-jest.mock('./nativeAdapter', () => ({ nativePort: () => null }));
+let mockPort: object | null = null;
+jest.mock('./nativeAdapter', () => ({ nativePort: () => mockPort }));
 import { AssetRepository } from './repository';
 import { ChannelClient } from './channelClient';
 import { AssetPort } from './nativeAdapter';
@@ -517,4 +518,52 @@ test('rig JSON 이 든 팩은 파일을 하나도 받지 않고 incompatible 로
   expect(f.counts().downloads).toBe(0);
   expect((await r.ensurePack('interior-hall')).status).toBe('ready');
   expect(f.counts().downloads).toBe(1);
+});
+
+describe('운영 이미지 CDN 이 없는 동안 앱 게이트', () => {
+  const keys = [
+    'EXPO_PUBLIC_ENV',
+    'EXPO_PUBLIC_IMAGE_ASSETS_ENABLED',
+    'EXPO_PUBLIC_IMAGE_ASSETS_URL',
+    'EXPO_PUBLIC_IMAGE_ASSETS_ENV',
+  ];
+  const originalEnv = keys.map((k) => process.env[k]);
+  const originalDev = __DEV__;
+
+  afterEach(() => {
+    mockPort = null;
+    Object.assign(globalThis, { __DEV__: originalDev });
+    keys.forEach((k, i) => {
+      if (originalEnv[i] === undefined) delete process.env[k];
+      else process.env[k] = originalEnv[i];
+    });
+  });
+
+  /** .env 의 dev CDN 값이 인라인된 번들. 값이 셸에 없어 빌드 가드는 이 경우를 통과시킨다. */
+  function loadBundle(dev: boolean, env: string | undefined) {
+    mockPort = {};
+    Object.assign(globalThis, { __DEV__: dev });
+    if (env === undefined) delete process.env.EXPO_PUBLIC_ENV;
+    else process.env.EXPO_PUBLIC_ENV = env;
+    process.env.EXPO_PUBLIC_IMAGE_ASSETS_ENABLED = 'true';
+    process.env.EXPO_PUBLIC_IMAGE_ASSETS_URL = 'https://d111111abcdef8.cloudfront.net';
+    process.env.EXPO_PUBLIC_IMAGE_ASSETS_ENV = 'dev';
+    let repository: unknown;
+    jest.isolateModules(() => {
+      repository = require('./repository').getAssetRepository();
+    });
+    return repository;
+  }
+
+  test.each(['prod', '', 'staging', undefined])(
+    '릴리스 번들(EXPO_PUBLIC_ENV=%s)은 dev CDN 값이 인라인돼도 켜지지 않는다',
+    (env) => {
+      expect(loadBundle(false, env)).toBeNull();
+    },
+  );
+
+  test('dev 릴리스와 개발 빌드는 CDN 을 켠다', () => {
+    expect(loadBundle(false, 'dev')).toBeInstanceOf(Object);
+    expect(loadBundle(true, undefined)).toBeInstanceOf(Object);
+  });
 });

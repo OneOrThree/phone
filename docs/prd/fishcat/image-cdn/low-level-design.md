@@ -154,6 +154,6 @@ sidecar는 catalog에 등장하는 정적 상대 경로→팩/전체 digest를 �
 
 초기 pack은 `interior-hall/background`, source는 `src/assets/interiors/hall-cute-v1.png`이며 원본 번들 fallback을 유지한다. 발행 manifest에는 꾸미기 팩과 rig JSON이 함께 실리고 앱은 이를 거부하지 않는다. 다만 앱이 내려받는 팩은 PNG만 든 팩이다. JSON rig 저장은 별도 스키마 검증과 카탈로그 resolver가 포함된 후속 작업이다.
 
-`getAssetCacheNative()`가 optional 모듈의 `apiVersion === 1`을 확인한다. Android 런타임은 `2.0.0-no-special-use-assets-v1`, iOS는 `2.0.0-push-meta-assets-v1`로 구분한다. 모듈이 없으면 번들 경로만 사용한다. `EXPO_PUBLIC_IMAGE_ASSETS_ENABLED=true`, HTTPS origin `EXPO_PUBLIC_IMAGE_ASSETS_URL`, 환경 `EXPO_PUBLIC_IMAGE_ASSETS_ENV=dev|prod`가 모두 유효해야 활성화한다.
+`getAssetCacheNative()`가 optional 모듈의 `apiVersion === 1`을 확인한다. Android 런타임은 `2.0.0-no-special-use-assets-v1`, iOS는 `2.0.0-push-meta-assets-v1`로 구분한다. 모듈이 없으면 번들 경로만 사용한다. `EXPO_PUBLIC_IMAGE_ASSETS_ENABLED=true`, HTTPS origin `EXPO_PUBLIC_IMAGE_ASSETS_URL`, 환경 `EXPO_PUBLIC_IMAGE_ASSETS_ENV=dev|prod`가 모두 유효해야 활성화한다. 운영 CDN이 없는 동안 운영 번들은 이 값과 무관하게 끈다. 개발 빌드(`__DEV__`)이거나 `EXPO_PUBLIC_ENV=dev`인 번들만 켠다(GROMO-2671).
 
 채널은 16KiB, manifest는 1MiB, snapshot은 2MiB 상한이다. 네이티브 bounded metadata 수신에도 redirect 거부·identity encoding·timeout을 적용한다. 다운로드 origin allowlist는 원격 manifest가 아니라 빌드에 포함된 공개 CDN 설정에서 얻는다. 전체 캐시 256MiB 중 메타데이터 8MiB를 확보하고 이미지·staging·남은 예약 합계는 248MiB로 제한한다. 시범은 프로세스 중단 복구를 검증하며 전원 상실 내구성이나 실기기 디코드 성공을 로컬 테스트만으로 단정하지 않는다.

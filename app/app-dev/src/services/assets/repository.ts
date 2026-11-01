@@ -581,7 +581,10 @@ let singleton: AssetRepository | null | undefined;
 export function getAssetRepository() {
   if (singleton !== undefined) return singleton;
   singleton = null;
+  // 운영 이미지 CDN 은 아직 없다(GROMO-2671). 빌드 가드는 셸 값만 보므로 .env 에서 인라인된 dev CDN 값은
+  // 여기서 막는다. 판정은 socialLogin 의 dev 행 선택과 같다. 운영 CDN 을 검증한 뒤 이 조건을 뺀다.
   if (
+    !(__DEV__ || (process.env.EXPO_PUBLIC_ENV ?? '').trim() === 'dev') ||
     process.env.EXPO_PUBLIC_IMAGE_ASSETS_ENABLED !== 'true' ||
     !process.env.EXPO_PUBLIC_IMAGE_ASSETS_URL
   )
