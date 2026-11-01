@@ -13,7 +13,7 @@
 | 선형 이력 요구 | 사용하지 않음. main 부모를 남기는 merge commit을 허용해야 함 |
 | required checks·push 제한 | 기존 값을 보존. 이번 변경으로 Android 검사나 release 전용 gate를 새로 필수 지정하지 않음 |
 
-GitHub의 보호 설정 자체는 PR의 소스 브랜치를 main으로 제한하거나 해당 PR에만 merge 방식을 고정하지 않는다. 운영 승격의 head=main·base=release·merge commit 조건은 기존 `AGENTS.md`와 `.github/scripts/catus-version.py`의 검증을 함께 따른다. 일반 작업 PR의 squash merge 규약은 그대로다.
+GitHub의 보호 설정 자체는 PR의 소스 브랜치를 main으로 제한하거나 해당 PR에만 merge 방식을 고정하지 않는다. 운영 승격의 head=main·base=release·merge commit 조건은 `AGENTS.md`의 승격 규칙으로 지킨다. V2 발행은 병합 방식을 검사하지 않으며, `pr-ci-policy.py`는 같은 저장소 main → release PR을 승격으로 분류할 뿐이다. V1 `.github/scripts/catus-version.py`의 검증은 `prod-ci.yml`과 함께 꺼져 있다. 일반 작업 PR의 squash merge 규약은 그대로다.
 
 ## 점검과 계획
 
