@@ -1,6 +1,6 @@
 import { ConstructionEditor, ConstructionReview, proposalFrom, type PolicySnapshot } from './ConstructionPolicy';
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { iosStoreNotice, storeWarning, unpublishedWarning, type SystemVersions } from './versions';
+import { iosStoreNotice, shortCommit, storeWarning, unpublishedWarning, type SystemVersions } from './versions';
 import { confirmNotices, FORCE_WARNING, forces, type ConfirmNotice } from './confirmNotices';
 import { ApiError, request } from './api';
 import type { ContentItem, ContentKind, ContentStatus, Draft, FcmCatalogPage, FcmTemplate, HistoryItem, HistoryPage, MagazineCard, MagazineSnapshot, Session } from './types';
@@ -214,10 +214,11 @@ function VersionInfo({ versions }: { versions: SystemVersions | null }) {
   const service = (key: 'data' | 'notification') => {
     const value = versions?.[key];
     const commit = value?.serverVersion;
-    return <li key={key}>{SERVICE_LABEL[key]} <span title={commit ?? undefined}>{commit ? commit.slice(0, 7) : '-'}</span> · DB {value?.schemaVersion ? `V${value.schemaVersion}` : '-'}</li>;
+    return <li key={key}>{SERVICE_LABEL[key]} <span title={commit ?? undefined}>{shortCommit(commit)}</span> · DB {value?.schemaVersion ? `V${value.schemaVersion}` : '-'}</li>;
   };
+  const infra = versions?.infraRevision;
   const store = versions ? (versions.iosStore.status === 'ok' ? versions.iosStore.version : STORE_LABEL[versions.iosStore.status]) : '확인 불가';
-  return <div className="version-info"><strong>시스템 버전</strong><ul>{versions?.local ? null : <>{service('data')}{service('notification')}</>}{versions?.local ? <li>로컬 모드 · 버전 조회 안 함</li> : <li>iOS App Store {store}</li>}</ul></div>;
+  return <div className="version-info"><strong>시스템 버전</strong><ul>{versions?.local ? null : <>{service('data')}{service('notification')}<li>Infra <span title={infra ?? undefined}>{shortCommit(infra)}</span></li></>}{versions?.local ? <li>로컬 모드 · 버전 조회 안 함</li> : <li>iOS App Store {store}</li>}</ul></div>;
 }
 function ConfirmDialog({ item, action, busy, error, mode, iosStore, onClose, onConfirm }: { iosStore: SystemVersions['iosStore'] | null; item: ContentItem; action: string; busy: boolean; error: string; mode: Session['mode']; onClose: () => void; onConfirm: () => void }) {
   const ref = useRef<HTMLDialogElement>(null);
