@@ -1,16 +1,17 @@
 import {
-  AssetFile,
   AssetPack,
   EnsureResult,
   PackLease,
+  PngFile,
   canonical,
   digest,
+  onlyPng,
   parseManifest,
 } from './contracts';
 import { ChannelClient, ChannelState } from './channelClient';
 import { AssetPort, nativePort } from './nativeAdapter';
 import { POLICY, retryDelay } from './policy';
-type PackRecord = AssetPack & {
+type PackRecord = AssetPack<PngFile> & {
   packId: string;
   adoptedAt: number;
   lastUsedAt?: number;
@@ -282,6 +283,8 @@ export class AssetRepository {
     await this.refresh(missing || !!failure);
     const pack = this.state.channel.manifest?.packs[packId];
     if (!pack) return { status: 'deferred', reason: 'offline' };
+    // rig JSON 이 든 팩(꾸미기)은 이 앱이 저장하지 못한다. 한 파일도 받기 전에 보류한다 — 일부만 받아 준비됨으로 표시하지 않는다.
+    if (!onlyPng(pack)) return { status: 'deferred', reason: 'incompatible' };
     if (now < this.state.channel.nextRetry) return { status: 'deferred', reason: 'backoff' };
     const k = key(packId, pack.version);
     if (Object.values(pack.files).some((f) => this.state.bad.includes(f.sha256))) {
@@ -371,14 +374,14 @@ export class AssetRepository {
       });
     }).catch(() => {});
   }
-  private object(file: AssetFile): Promise<string> {
+  private object(file: PngFile): Promise<string> {
     const hit = this.jobs.get(file.sha256);
     if (hit) return hit;
     const task = this.receive(file).finally(() => this.jobs.delete(file.sha256));
     this.jobs.set(file.sha256, task);
     return task;
   }
-  private async receive(file: AssetFile) {
+  private async receive(file: PngFile) {
     try {
       const stat = await this.port.inspect(this.uri(file.sha256));
       if (stat.bytes === file.bytes && stat.sha256 === file.sha256) return this.uri(file.sha256);
