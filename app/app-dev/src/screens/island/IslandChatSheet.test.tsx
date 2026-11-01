@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import React, { useState } from 'react';
+import { AppState } from 'react-native';
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 import { ApiError } from '@/services/api/client';
 import { initialState } from '@/services/model';
@@ -105,6 +106,26 @@ describe('남의 글 아바타의 외양 조회(GROMO-2497)', () => {
       ),
     );
     await ui.unmount();
+  });
+
+  test('글이 늘어도 외양 구독은 화면에서 한 번이다', async () => {
+    const FRIEND = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+    await looks.start({ [FRIEND]: { catColor: 'ginger' } });
+    // RN jest 설정의 mock 이다 — 구현은 두고 호출 수만 센다
+    const subscriptions = AppState.addEventListener as unknown as jest.Mock;
+    const count = async (n: number) => {
+      subscriptions.mockClear();
+      const messages = Array.from({ length: n }, (_, i) =>
+        message(`m${i}`, { userId: FRIEND, name: '민지' }),
+      );
+      const ui = await render(<Harness e={env()} chat={chatOf({ messages })} />);
+      await waitFor(() => assert.equal(ui.queryAllByTestId('cat-avatar-image').length, n));
+      const calls = subscriptions.mock.calls.length;
+      await ui.unmount();
+      return calls;
+    };
+    const one = await count(1);
+    assert.equal(await count(30), one);
   });
 });
 
