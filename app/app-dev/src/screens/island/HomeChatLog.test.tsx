@@ -63,15 +63,32 @@ test('홈에 들어올 때 3초보다 오래된 이력은 띄우지 않고 3초 
   await ui.unmount();
 });
 
-test('이력만 있으면 줄 없이 말풍선만 남고, 다시 들어와도 이력을 띄우지 않는다', async () => {
+test('이력만 있으면 줄 없이 말풍선만 남고, 다시 들어오면 그 시각 기준으로 3초를 다시 잰다', async () => {
   const old = [line(1, { at: base - 60_000 }), line(2, { at: base - 30_000 })];
   const first = await render(<HomeChatLog lines={old} onOpen={() => {}} />);
   expect(first.queryByTestId('home-chat-lines', hidden)).toBeNull();
   first.getByTestId('home-chat-open');
   await first.unmount();
-  const second = await render(<HomeChatLog lines={old} onOpen={() => {}} />);
-  expect(shownTexts(second)).toEqual([]);
+  // 건물에 1분 있다가 나오면 그동안 올라온 글도 3초 밖이면 이력이다
+  await act(async () => {
+    await jest.advanceTimersByTimeAsync(60_000);
+  });
+  const now = Date.now();
+  const second = await render(
+    <HomeChatLog
+      lines={[...old, line(3, { at: now - ENTRY_WINDOW_MS - 1 }), line(4, { at: now - 1_000 })]}
+      onOpen={() => {}}
+    />,
+  );
+  expect(shownTexts(second)).toEqual([4]);
   await second.unmount();
+});
+
+test('빈 목록이 먼저 오고 이력이 이어 와도 띄우지 않는다', async () => {
+  const ui = await render(<HomeChatLog lines={[]} onOpen={() => {}} />);
+  await ui.rerender(<HomeChatLog lines={[line(1, { at: base - 60_000 })]} onOpen={() => {}} />);
+  expect(shownTexts(ui)).toEqual([]);
+  await ui.unmount();
 });
 
 test('들어온 뒤 올라온 글은 폴링으로 늦게 받아도 띄운다', async () => {
