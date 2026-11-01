@@ -50,7 +50,11 @@ module.exports = {
       // 시작·가입 화면의 세로 고정을 위해 전체 화면을 요구한다. iPadOS 26은 Expo 패치로 대응한다
       requireFullScreen: true,
       bundleIdentifier: 'com.oneorthree.focuscat',
-      associatedDomains: ['applinks:link.oneorthree.world', 'applinks:oneorthree.dev.mooo.com'],
+      associatedDomains: [
+        'applinks:link.oneorthree.world',
+        'applinks:catus-api-v2.oneorthree.world',
+        'applinks:oneorthree.dev.mooo.com',
+      ],
       // GROMO-2523·2544 푸시·Meta SDK가 든 바이너리만 새 JS OTA를 받게 iOS 런타임을 분리한다.
       // 체크인된 ios/Cattus/Supporting/Expo.plist 의 EXUpdatesRuntimeVersion 과 같은 값이어야 한다.
       runtimeVersion: '2.0.0-push-meta-assets-ai-focus-v1',
@@ -80,7 +84,11 @@ module.exports = {
         'android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK',
         'android.permission.FOREGROUND_SERVICE_SPECIAL_USE',
       ],
-      intentFilters: ['link.oneorthree.world', 'oneorthree.dev.mooo.com'].map((host) => ({
+      intentFilters: [
+        'link.oneorthree.world',
+        'catus-api-v2.oneorthree.world',
+        'oneorthree.dev.mooo.com',
+      ].map((host) => ({
         action: 'VIEW',
         autoVerify: true,
         category: ['BROWSABLE', 'DEFAULT'],
