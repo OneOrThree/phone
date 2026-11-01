@@ -50,6 +50,22 @@ const bottomOf = (style: unknown): number | undefined => {
   return undefined;
 };
 
+// RN 은 한 이벤트에 여러 리스너를 허용한다 — App 의 setKeyboardHeight 와 Screens.tsx 의
+// setKeyboardVisible 가 (Android 에선) 둘 다 keyboardDidShow 를 구독한다. 이벤트당 콜백을
+// 하나만 보관하면 뒤에 등록된 쪽이 앞을 덮어 App 의 높이 추적을 못 잡으니 배열로 모아 모두 부른다.
+const spyKeyboard = () => {
+  const listeners: Record<string, ((...args: any[]) => void)[]> = {};
+  const spy = jest.spyOn(Keyboard, 'addListener').mockImplementation(((
+    event: string,
+    callback: (...args: any[]) => void,
+  ) => {
+    (listeners[event] ||= []).push(callback);
+    return { remove: jest.fn() } as any;
+  }) as any);
+  const fire = (event: string, arg?: any) => (listeners[event] ?? []).forEach((cb) => cb(arg));
+  return { spy, fire };
+};
+
 const originalOS = Platform.OS;
 
 beforeEach(async () => {
@@ -62,14 +78,7 @@ afterEach(() => {
 });
 
 test('키보드가 떠 있을 때 전역 알림 토스트는 키보드 높이만큼 위로 올라온다', async () => {
-  const listeners: Record<string, (...args: any[]) => void> = {};
-  const addListener = jest.spyOn(Keyboard, 'addListener').mockImplementation(((
-    event: string,
-    callback: (...args: any[]) => void,
-  ) => {
-    listeners[event] = callback;
-    return { remove: jest.fn() } as any;
-  }) as any);
+  const { spy, fire } = spyKeyboard();
 
   try {
     const screen = await render(<App />);
@@ -86,7 +95,7 @@ test('키보드가 떠 있을 때 전역 알림 토스트는 키보드 높이만
     );
 
     // 편지 쓰기 화면에서 TextInput 포커스로 소프트 키보드가 뜬 상황을 흉내 낸다
-    await act(async () => listeners.keyboardDidShow?.({ endCoordinates: { height: 300 } }));
+    await act(async () => fire('keyboardDidShow', { endCoordinates: { height: 300 } }));
 
     const toastAfter = screen.getByTestId('global-toast');
     assert.equal(
@@ -96,24 +105,19 @@ test('키보드가 떠 있을 때 전역 알림 토스트는 키보드 높이만
     );
 
     // 키보드가 내려가면 원래 위치로 돌아온다
-    await act(async () => listeners.keyboardDidHide?.());
+    await act(async () => fire('keyboardDidHide'));
     const toastHidden = screen.getByTestId('global-toast');
     assert.equal(bottomOf(toastHidden.props.style), 40);
   } finally {
-    addListener.mockRestore();
+    spy.mockRestore();
   }
 });
 
-test('Android 는 windowSoftInputMode=adjustResize 로 영역이 이미 줄어들어 있어 키보드 높이를 또 더하지 않는다', async () => {
+test('Android 도 edge-to-edge 에선 adjustResize 가 창을 줄이지 못하므로 토스트를 키보드 높이만큼 올린다', async () => {
+  // 종전에는 Android 가 adjustResize 로 영역이 이미 줄어든다고 보고 bottom 보정을 iOS 에서만 했다.
+  // edgeToEdgeEnabled=true(Expo SDK 57) 에서는 창이 줄지 않아 토스트가 키보드에 가렸다 — 양쪽 모두 보정한다.
   Platform.OS = 'android';
-  const listeners: Record<string, (...args: any[]) => void> = {};
-  const addListener = jest.spyOn(Keyboard, 'addListener').mockImplementation(((
-    event: string,
-    callback: (...args: any[]) => void,
-  ) => {
-    listeners[event] = callback;
-    return { remove: jest.fn() } as any;
-  }) as any);
+  const { spy, fire } = spyKeyboard();
 
   try {
     const screen = await render(<App />);
@@ -122,15 +126,15 @@ test('Android 는 windowSoftInputMode=adjustResize 로 영역이 이미 줄어�
     await act(async () => captured.notify('편지를 보내지 못했어요'));
 
     // 편지 쓰기 화면에서 TextInput 포커스로 소프트 키보드가 뜬 상황을 흉내 낸다
-    await act(async () => listeners.keyboardDidShow?.({ endCoordinates: { height: 300 } }));
+    await act(async () => fire('keyboardDidShow', { endCoordinates: { height: 300 } }));
 
     const toastAfter = screen.getByTestId('global-toast');
     assert.equal(
       bottomOf(toastAfter.props.style),
-      40,
-      'Android 에서는 adjustResize 가 이미 키보드만큼 영역을 줄여주므로 bottom 을 추가로 올리면 이중 보정이 된다',
+      340,
+      'edge-to-edge 에서는 Android 도 키보드 높이(300)만큼 올라가 키보드에 가리지 않아야 한다',
     );
   } finally {
-    addListener.mockRestore();
+    spy.mockRestore();
   }
 });
