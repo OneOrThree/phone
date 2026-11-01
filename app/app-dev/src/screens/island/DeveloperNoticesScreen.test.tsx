@@ -166,3 +166,28 @@ test('그 밖의 더 보기 실패는 불러온 목록을 두고 같은 커서�
   expect(listDeveloperNotices).toHaveBeenNthCalledWith(2, 'c1');
   expect(listDeveloperNotices).toHaveBeenNthCalledWith(3, 'c1');
 });
+
+test('더 보기를 연달아 두 번 눌러도 같은 커서 요청은 한 번만 나간다', async () => {
+  let finish!: (value: unknown) => void;
+  (listDeveloperNotices as jest.Mock)
+    .mockResolvedValueOnce({ items: [item], nextCursor: 'c1' })
+    .mockReturnValueOnce(
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+    );
+  const screen = await render(<DeveloperNoticesScreen e={events()} />);
+  await waitFor(() => expect(screen.getByText('더 보기')).toBeTruthy());
+  const button = screen.getByText('더 보기');
+  // 재렌더 전에 두 번 — loadingMore 상태가 아직 낡아 있는 순간을 흉내 낸다
+  await act(async () => {
+    fireEvent.press(button);
+    fireEvent.press(button);
+  });
+  expect(listDeveloperNotices).toHaveBeenCalledTimes(2);
+  expect(listDeveloperNotices).toHaveBeenLastCalledWith('c1');
+  await act(async () => {
+    finish({ items: [second], nextCursor: null });
+  });
+  await waitFor(() => expect(screen.getByText(second.title)).toBeTruthy());
+});

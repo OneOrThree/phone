@@ -17,9 +17,7 @@ export function listDeveloperNotices(
   cursor?: string,
 ): Promise<{ items: DeveloperNotice[]; nextCursor?: string | null }> {
   return request(
-    cursor === undefined
-      ? '/me/developer-notices'
-      : `/me/developer-notices?cursor=${encodeURIComponent(cursor)}`,
+    cursor ? `/me/developer-notices?cursor=${encodeURIComponent(cursor)}` : '/me/developer-notices',
   );
 }
 

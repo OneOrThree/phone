@@ -34,13 +34,15 @@ export function DeveloperNoticesScreen({ e }: any) {
     nextCursor: null,
   });
   const [loadingMore, setLoadingMore] = useState(false);
-  // 효과가 다시 돌면(계정·경로·재시도) 늦게 온 «더 보기» 응답을 버리기 위한 세대표
+  // 효과가 다시 돌거나 화면이 내려가면(계정·경로·재시도·언마운트) 늦게 온 «더 보기» 응답을 버리기 위한 세대표
   const epoch = useRef(0);
+  // 더 보기 중복 탭 방지 — loadingMore 상태는 다음 렌더 전까지 낡아 있어 동기 플래그를 따로 둔다
+  const inFlight = useRef(false);
   const enabled = !!e.islands;
 
   useEffect(() => {
     let current = true;
-    epoch.current += 1;
+    inFlight.current = false;
     setLoadingMore(false);
     setState({ generation, id, status: 'loading', items: [], nextCursor: null });
     // 목업 모드에는 운영 공지를 합성하거나 실제 서버 요청을 보내지 않는다.
@@ -72,14 +74,16 @@ export function DeveloperNoticesScreen({ e }: any) {
       });
     return () => {
       current = false;
+      epoch.current += 1;
     };
   }, [generation, id, attempt, enabled]);
 
   const loadMore = () => {
     const cursor = state.nextCursor;
-    if (!cursor || loadingMore) return;
+    if (!cursor || loadingMore || inFlight.current) return;
     const mine = epoch.current;
     const alive = () => mine === epoch.current && generation === sessionGeneration();
+    inFlight.current = true;
     setLoadingMore(true);
     listDeveloperNotices(cursor)
       .then((page) => {
@@ -92,10 +96,12 @@ export function DeveloperNoticesScreen({ e }: any) {
             nextCursor: page.nextCursor ?? null,
           };
         });
+        inFlight.current = false;
         setLoadingMore(false);
       })
       .catch((error: unknown) => {
         if (!alive()) return;
+        inFlight.current = false;
         setLoadingMore(false);
         // 커서가 만료·위조면 첫 쪽부터 다시 읽는다. 그 밖의 실패는 목록·커서를 두고 다시 누르게 한다
         if (

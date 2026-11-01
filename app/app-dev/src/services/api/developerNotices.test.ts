@@ -23,3 +23,9 @@ test('cursor 는 인코딩한 쿼리로 보내고, 없으면 쿼리를 붙이지
   await listDeveloperNotices();
   expect(request).toHaveBeenLastCalledWith('/me/developer-notices');
 });
+
+test('빈 문자열 cursor 도 쿼리를 붙이지 않는다', async () => {
+  (request as jest.Mock).mockResolvedValue({ items: [], nextCursor: null });
+  await listDeveloperNotices('');
+  expect(request).toHaveBeenLastCalledWith('/me/developer-notices');
+});
