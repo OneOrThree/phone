@@ -4090,7 +4090,7 @@ export function RedesignScreens({ e }: any) {
           lead={
             <Avatar
               userId={friend.userId}
-              color={friend.catColor ?? 'white'}
+              color={friend.catColor}
               outfit={friend.catColor ? appearanceOutfit(friend.appearance) : undefined}
             />
           }
@@ -4112,7 +4112,7 @@ export function RedesignScreens({ e }: any) {
           lead={
             <Avatar
               userId={friend.userId}
-              color={friend.catColor ?? 'white'}
+              color={friend.catColor}
               outfit={friend.catColor ? appearanceOutfit(friend.appearance) : undefined}
             />
           }
@@ -4139,7 +4139,7 @@ export function RedesignScreens({ e }: any) {
           lead={
             <Avatar
               userId={friend.userId}
-              color={friend.catColor ?? 'white'}
+              color={friend.catColor}
               outfit={friend.catColor ? appearanceOutfit(friend.appearance) : undefined}
             />
           }
@@ -4170,7 +4170,7 @@ export function RedesignScreens({ e }: any) {
             lead={
               <Avatar
                 userId={friend.userId}
-                color={friend.catColor ?? 'white'}
+                color={friend.catColor}
                 outfit={friend.catColor ? appearanceOutfit(friend.appearance) : undefined}
               />
             }

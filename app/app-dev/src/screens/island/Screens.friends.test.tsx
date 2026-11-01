@@ -1,4 +1,4 @@
-/** 친구 목록·검색 줄의 고양이 그림 — 서버가 catColor 를 안 주면(2389 이전) 예전처럼 흰 고양이, 주면 그 색(GROMO-2391). */
+/** 친구 목록·검색 줄의 고양이 그림 — 서버가 catColor 를 안 주면 색을 추측하지 않는 빈 상자, 주면 그 색(GROMO-2391·2497). */
 import assert from 'node:assert/strict';
 import React, { useMemo, useReducer, useRef, useState } from 'react';
 import { fireEvent, render, waitFor } from '@testing-library/react-native';
@@ -143,7 +143,7 @@ function LiveHarness({ open }: { open: boolean }) {
   return open ? <Harness friendsScreen={friendsScreen} /> : null;
 }
 
-test('서버가 털색을 안 준 친구는 흰 고양이, 준 친구는 그 색으로 그린다', async () => {
+test('서버가 털색을 안 준 친구는 빈 상자(흰 고양이로 추측하지 않음), 준 친구는 그 색으로 그린다', async () => {
   const screen = await render(
     <Harness
       friendsScreen={screenState([
@@ -153,8 +153,43 @@ test('서버가 털색을 안 준 친구는 흰 고양이, 준 친구는 그 색
     />,
   );
   const sources = screen.getAllByTestId('cat-avatar-image').map((n) => n.props.source);
-  assert.ok(sources.includes(art['avatar/white']));
-  assert.ok(sources.includes(art['avatar/ginger']));
+  assert.deepEqual(sources, [art['avatar/ginger']]);
+});
+
+test('받은·보낸 요청과 검색 결과 줄도 털색이 없으면 빈 상자다 — 어느 줄도 임의 색을 칠하지 않는다(GROMO-2497)', async () => {
+  const request = (userId: string, nickname: string) => ({
+    requestId: `r-${userId}`,
+    userId,
+    nickname,
+    tierLevel: null,
+    createdAt: 't',
+  });
+  const lists = await render(
+    <Harness
+      friendsScreen={{
+        ...screenState([]),
+        data: {
+          friends: [friend('f1', '짝꿍', null)],
+          friendRequests: [request('u-recv', '받은이')],
+          sentFriendRequests: [request('u-sent', '보낸이')],
+        },
+      }}
+    />,
+  );
+  ['짝꿍', '받은이', '보낸이'].forEach((name) => assert.ok(lists.getByText(name)));
+  assert.equal(lists.queryAllByTestId('cat-avatar-image').length, 0);
+  const found = await render(
+    <Harness
+      friendsScreen={{
+        ...screenState([]),
+        query: '구름',
+        searchStatus: 'ready',
+        searchItems: [{ userId: 'u9', nickname: '구름', relation: 'NONE', catColor: null }],
+      }}
+    />,
+  );
+  assert.ok(found.getByText('구름'));
+  assert.equal(found.queryAllByTestId('cat-avatar-image').length, 0);
 });
 
 test('받은·보낸 요청과 친구가 모두 0건이면 빈 칸·「받은 요청 0」 배지 대신 빈 안내 하나만 보인다(GROMO-2412)', async () => {

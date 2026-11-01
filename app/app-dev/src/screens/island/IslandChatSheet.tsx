@@ -28,6 +28,8 @@ export const chatTime = (at: number, now: number) => {
 
 type Row = {
   id: string;
+  /** 작성자 사용자 id — 아바타가 이 id 로 털색·착용을 조회한다. 목업 글은 없다. */
+  userId?: string;
   name: string;
   text: string;
   time: string;
@@ -58,6 +60,7 @@ export function IslandChatSheet({ e, chat }: { e: any; chat: IslandChat }) {
   const rows: Row[] = server
     ? chat.messages.map((m) => ({
         id: m.id,
+        userId: m.userId,
         name: m.name ?? t('islandChat.unknown'),
         text: m.text,
         time: chatTime(Date.parse(m.createdAt), now),
@@ -220,7 +223,12 @@ export function IslandChatSheet({ e, chat }: { e: any; chat: IslandChat }) {
             key={m.id}
             style={{ flexDirection: 'row', alignItems: 'flex-start', gap: BUBBLE.gap }}
           >
-            <Avatar color={m.color ?? 'gray'} outfit={m.color ? m.outfit : undefined} size={36} />
+            <Avatar
+              userId={m.userId}
+              color={m.color}
+              outfit={m.color ? m.outfit : undefined}
+              size={36}
+            />
             {/* 꼬리(왼쪽 위 각진 모서리)는 프로필을 향한다(DESIGN §8.5) */}
             <View
               style={{

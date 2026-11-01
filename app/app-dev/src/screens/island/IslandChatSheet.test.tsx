@@ -5,6 +5,8 @@ import { ApiError } from '@/services/api/client';
 import { initialState } from '@/services/model';
 import { IslandChatSheet } from '@/screens/island/IslandChatSheet';
 import type { IslandChat } from '@/screens/island/useIslandChat';
+import { art } from '@/constants/art';
+import { fakeMemberLooksServer } from '@/services/memberLooks.testing';
 
 jest.mock('@/utils/layout', () => ({
   useAppLayout: () => ({
@@ -73,6 +75,37 @@ test('서버 채팅 — 남의 글은 이름·시각과 함께, 내 글은 「�
   ui.getByText('나 · 5분 전');
   expect(ui.queryByText('나나')).toBeNull();
   await ui.unmount();
+});
+
+// 세션·memberLooks·request 는 실물이고 서버 자리의 fetch 만 대신한다 — 글의 userId 가 아바타 조회까지 이어지는지 본다
+describe('남의 글 아바타의 외양 조회(GROMO-2497)', () => {
+  const looks = fakeMemberLooksServer();
+  afterEach(() => looks.stop());
+
+  test('작성자 사용자 id 로 조회한 털색을 그리고, 서버가 가린 작성자는 빈 상자이며, 내 글엔 아바타가 없다', async () => {
+    const MINE = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const FRIEND = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+    const GONE = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+    await looks.start({ [FRIEND]: { catColor: 'ginger' } }); // GONE 은 서버가 모른다(탈퇴) → hiddenUserIds
+    const chat = chatOf({
+      myId: MINE,
+      messages: [
+        message('m1', { userId: FRIEND, name: '민지' }),
+        message('m2', { userId: GONE, name: '지우' }),
+        message('m3', { userId: MINE, name: '나나', text: '내 글' }),
+      ],
+    });
+    const ui = await render(<Harness e={env()} chat={chat} />);
+    await waitFor(() => assert.deepEqual([...looks.asked].sort(), [FRIEND, GONE]));
+    // 고정 gray 도 없다 — 조회된 민지의 털색 하나뿐이고 지우 칸은 그림 없는 상자다
+    await waitFor(() =>
+      assert.deepEqual(
+        ui.queryAllByTestId('cat-avatar-image').map((n) => n.props.source),
+        [art['avatar/ginger']],
+      ),
+    );
+    await ui.unmount();
+  });
 });
 
 test('보내기 — 성공하면 입력을 비우고, 실패하면 초안을 두고 서버 문구를 알린다', async () => {
