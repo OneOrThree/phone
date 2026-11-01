@@ -9,12 +9,16 @@ import com.oneorthree.realtime.common.exception.UpstreamUnavailableException;
 import com.oneorthree.realtime.common.redis.RedisKeys;
 import com.oneorthree.realtime.fanout.ChatFanout;
 import com.oneorthree.realtime.focus.IslandFocusSessions;
+import com.oneorthree.realtime.logging.CapturedLogs;
+import com.oneorthree.realtime.logging.ObservationJsonProvider;
 import com.oneorthree.realtime.membership.MembershipService;
 import com.oneorthree.realtime.message.exception.ChatErrorCode;
 import com.oneorthree.realtime.message.exception.ChatException;
 import com.oneorthree.realtime.message.service.ChatAccessGuard;
 import com.oneorthree.realtime.message.service.ChatUserFence;
 import com.oneorthree.realtime.movement.stomp.MovementSubscriptionListener;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.AppenderBase;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -24,14 +28,24 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
+import org.slf4j.MDC;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.simp.stomp.StompCommand;
 import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
 import org.springframework.messaging.support.MessageBuilder;
+import org.springframework.mock.env.MockEnvironment;
+import tools.jackson.databind.ObjectMapper;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Locale;
 import java.util.UUID;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
@@ -1012,6 +1026,243 @@ class StompAuthChannelInterceptorTest {
 
         assertThat(errorFrameChannel(() -> interceptor.preSend(message(intentSend(groupId)), null)))
                 .isEqualTo("movement");
+    }
+
+    // ── GROMO-2655 CONNECT 접속 로그 — 앱 버전·플랫폼 ───────────────────────
+
+    private static final ObjectMapper JSON_MAPPER = new ObjectMapper();
+    private static final List<String> BAD_APP_VERSIONS = List.of("v1.0.2", "1.0", "1.0.2.3", "1.0.2-beta", "1.0.2:x",
+            "1234567890.0.0", "١.٠.٢", "1.0.2 3", "latest", "", "   ");
+    private static final List<String> BAD_APP_PLATFORMS = List.of("web", "IOS", "Android", "ios:x", "iosandroid",
+            "ios android", "", "   ");
+
+    /** 운영 콘솔과 같은 provider — 로그를 내는 순간의 이벤트 MDC 로 JSON 한 줄을 만든다. */
+    private final ObservationJsonProvider jsonProvider = new ObservationJsonProvider(
+            new MockEnvironment().withProperty("OBS_SERVICE", "realtime").withProperty("OBS_ENV", "dev"));
+    private final List<AppenderBase<ILoggingEvent>> jsonAppenders = new ArrayList<>();
+
+    /** 인터셉터 로거가 낸 줄을 실제 {@link ObservationJsonProvider} 로 찍어 모은다. */
+    private List<String> captureJson() {
+        List<String> lines = new CopyOnWriteArrayList<>();
+        AppenderBase<ILoggingEvent> toJson = new AppenderBase<>() {
+            @Override
+            protected void append(ILoggingEvent event) {
+                lines.add(jsonProvider.format(event));
+            }
+        };
+        toJson.start();
+        interceptorLogger().addAppender(toJson);
+        jsonAppenders.add(toJson);
+        return lines;
+    }
+
+    @AfterEach
+    void detachJsonAppenders() {
+        jsonAppenders.forEach(appender -> interceptorLogger().detachAppender(appender));
+        jsonAppenders.clear();
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> parseJson(String line) {
+        assertThat(line.indexOf('\n')).as("JSON 은 한 줄").isEqualTo(line.length() - 1);
+        return JSON_MAPPER.readValue(line, Map.class);
+    }
+
+    /** 앱 헤더를 실은 CONNECT — {@code null} 이면 그 헤더를 보내지 않는다(구버전 앱은 둘 다 없다). */
+    private static StompHeaderAccessor connectWith(String sessionId, String version, String platform) {
+        StompHeaderAccessor connect = accessor(StompCommand.CONNECT);
+        connect.setSessionId(sessionId);
+        connect.addNativeHeader("Authorization", BEARER);
+        if (version != null) {
+            connect.addNativeHeader("X-App-Version", version);
+        }
+        if (platform != null) {
+            connect.addNativeHeader("X-App-Platform", platform);
+        }
+        return connect;
+    }
+
+    @Test
+    @DisplayName("CONNECT 접속 로그 — 형식이 맞는 X-App-Version·X-App-Platform 이 INFO 한 줄의 app_version·app_platform 으로 남고 JSON 에도 나간다 (GROMO-2655)")
+    void connectLogCarriesValidatedAppHeaders() {
+        given(jwtValidator.extractUserId("test-token")).willReturn(Optional.of(userId));
+        List<String> json = captureJson();
+        try (CapturedLogs logs = CapturedLogs.of(StompAuthChannelInterceptor.class)) {
+            interceptor.preSend(message(connectWith("c-1", "1.0.2", "ios")), null);
+            interceptor.preSend(message(connectWith("c-2", "2.0.1", "android")), null);
+            interceptor.preSend(message(connectWith("c-3", "3.1.4", null)), null);
+            interceptor.preSend(message(connectWith("c-4", null, "ios")), null);
+
+            List<CapturedLogs.Line> lines = logs.lines(line -> true);
+            assertThat(lines).extracting(CapturedLogs.Line::message).containsOnly("stomp_connect").hasSize(4);
+            assertThat(lines).extracting(line -> line.get("app_version")).containsExactly("1.0.2", "2.0.1", "3.1.4", null);
+            assertThat(lines).extracting(line -> line.get("app_platform")).containsExactly("ios", "android", null, "ios");
+        }
+
+        assertThat(json).hasSize(4);
+        assertThat(parseJson(json.get(0))).containsEntry("level", "INFO").containsEntry("log_kind", "application")
+                .containsEntry("logger", StompAuthChannelInterceptor.class.getName())
+                .containsEntry("message", "stomp_connect").containsEntry("service", "realtime")
+                .containsEntry("app_version", "1.0.2").containsEntry("app_platform", "ios");
+        assertThat(parseJson(json.get(1))).containsEntry("app_version", "2.0.1").containsEntry("app_platform", "android");
+        assertThat(parseJson(json.get(2))).containsEntry("app_version", "3.1.4").doesNotContainKey("app_platform");
+        assertThat(parseJson(json.get(3))).containsEntry("app_platform", "ios").doesNotContainKey("app_version");
+        assertThat(String.join("", json)).as("사용자·토큰은 접속 줄에 싣지 않는다")
+                .doesNotContain(userId.toString()).doesNotContain("test-token");
+        assertThat(MDC.get("app_version")).as("줄을 내고 바로 되돌린다").isNull();
+        assertThat(MDC.get("app_platform")).isNull();
+    }
+
+    @Test
+    @DisplayName("CONNECT 접속 로그 — 헤더 값 앞뒤 공백은 걷어서 싣는다 (GROMO-2655)")
+    void connectLogStripsWhitespaceAroundAppHeaders() {
+        given(jwtValidator.extractUserId("test-token")).willReturn(Optional.of(userId));
+        List<String> json = captureJson();
+        try (CapturedLogs logs = CapturedLogs.of(StompAuthChannelInterceptor.class)) {
+            interceptor.preSend(message(connectWith("c-1", " 2.0.1\t", "\tandroid ")), null);
+
+            CapturedLogs.Line line = logs.lines(l -> true).get(0);
+            assertThat(line.get("app_version")).isEqualTo("2.0.1");
+            assertThat(line.get("app_platform")).isEqualTo("android");
+        }
+        assertThat(parseJson(json.get(0))).containsEntry("app_version", "2.0.1").containsEntry("app_platform", "android");
+    }
+
+    @Test
+    @DisplayName("CONNECT 접속 로그 — 형식이 틀린 값은 그 키만 빠지고 CONNECT 는 성공한다. 짝 키는 그대로 남는다 (GROMO-2655)")
+    void connectLogDropsMalformedAppHeadersButStillAccepts() {
+        given(jwtValidator.extractUserId("test-token")).willReturn(Optional.of(userId));
+        List<String> json = captureJson();
+        try (CapturedLogs logs = CapturedLogs.of(StompAuthChannelInterceptor.class)) {
+            int sent = 0;
+            for (String badVersion : BAD_APP_VERSIONS) {
+                StompHeaderAccessor connect = connectWith("v-" + sent, badVersion, "ios");
+                assertThatCode(() -> interceptor.preSend(message(connect), null)).as("version=[%s]", badVersion)
+                        .doesNotThrowAnyException();
+                assertThat(connect.getUser()).as("version=[%s]", badVersion).isInstanceOf(ChatPrincipal.class);
+                CapturedLogs.Line line = logs.lines(l -> true).get(sent);
+                assertThat(line.mdc()).as("version=[%s]", badVersion).doesNotContainKey("app_version")
+                        .containsEntry("app_platform", "ios");
+                assertThat(parseJson(json.get(sent))).as("version=[%s]", badVersion).doesNotContainKey("app_version")
+                        .containsEntry("app_platform", "ios");
+                sent++;
+            }
+            for (String badPlatform : BAD_APP_PLATFORMS) {
+                StompHeaderAccessor connect = connectWith("p-" + sent, "1.0.2", badPlatform);
+                assertThatCode(() -> interceptor.preSend(message(connect), null)).as("platform=[%s]", badPlatform)
+                        .doesNotThrowAnyException();
+                assertThat(connect.getUser()).as("platform=[%s]", badPlatform).isInstanceOf(ChatPrincipal.class);
+                CapturedLogs.Line line = logs.lines(l -> true).get(sent);
+                assertThat(line.mdc()).as("platform=[%s]", badPlatform).doesNotContainKey("app_platform")
+                        .containsEntry("app_version", "1.0.2");
+                assertThat(parseJson(json.get(sent))).as("platform=[%s]", badPlatform)
+                        .doesNotContainKey("app_platform").containsEntry("app_version", "1.0.2");
+                sent++;
+            }
+            assertThat(logs.lines(l -> true)).hasSize(BAD_APP_VERSIONS.size() + BAD_APP_PLATFORMS.size());
+        }
+    }
+
+    @Test
+    @DisplayName("CONNECT — 두 헤더가 없는 구버전 앱도 거절되지 않고 주체가 묶이며, 접속 로그는 앱 키 없이 남는다 (GROMO-2655)")
+    void oldAppConnectWithoutAppHeadersIsAcceptedAndLogsWithoutAppKeys() {
+        given(jwtValidator.extractUserId("test-token")).willReturn(Optional.of(userId));
+        List<String> json = captureJson();
+        try (CapturedLogs logs = CapturedLogs.of(StompAuthChannelInterceptor.class)) {
+            StompHeaderAccessor oldApp = connectWith("c-old", null, null); // Authorization 만 — 앱 헤더를 모르던 시절의 CONNECT
+            Message<byte[]> frame = message(oldApp);
+
+            assertThat(interceptor.preSend(frame, null)).as("프레임을 버리지 않는다").isSameAs(frame);
+            ChatPrincipal bound = new ChatPrincipal(userId, BEARER);
+            assertThat(oldApp.getUser()).isEqualTo(bound);
+            assertThat(registry.find("c-old")).as("세션에 주체가 등록된다").isEqualTo(bound);
+
+            List<CapturedLogs.Line> lines = logs.lines(line -> true);
+            assertThat(lines).hasSize(1);
+            assertThat(lines.get(0).message()).isEqualTo("stomp_connect");
+            assertThat(lines.get(0).mdc()).doesNotContainKeys("app_version", "app_platform");
+        }
+        assertThat(json).hasSize(1);
+        assertThat(parseJson(json.get(0))).containsEntry("message", "stomp_connect")
+                .doesNotContainKeys("app_version", "app_platform");
+    }
+
+    @Test
+    @DisplayName("CONNECT 접속 로그 — 줄바꿈·JSON 조각을 단 헤더 값은 로그 어디에도 그대로 나가지 않는다 (GROMO-2655)")
+    void forgedAppHeaderValuesNeverReachTheLine() {
+        given(jwtValidator.extractUserId("test-token")).willReturn(Optional.of(userId));
+        String forged = "{\"level\":\"ERROR\",\"message\":\"forged\",\"user_id\":\"someone\"}";
+        List<String> json = captureJson();
+        try (CapturedLogs logs = CapturedLogs.of(StompAuthChannelInterceptor.class)) {
+            interceptor.preSend(message(connectWith("f-1", "1.0.2\n" + forged, "ios\r\n" + forged)), null);
+            interceptor.preSend(message(connectWith("f-2", "\r\n" + forged, "\u001b[31mandroid")), null);
+            interceptor.preSend(message(connectWith("f-3", "9.9.9 " + forged, "ios\u0000")), null);
+
+            assertThat(logs.lines(line -> true)).hasSize(3).allSatisfy(line -> {
+                assertThat(line.message()).isEqualTo("stomp_connect");
+                assertThat(line.mdc()).doesNotContainKeys("app_version", "app_platform");
+                assertThat(line.mdc().values()).noneMatch(value -> value.contains("forged"));
+            });
+        }
+        assertThat(json).hasSize(3).allSatisfy(line -> {
+            assertThat(line).doesNotContain("forged").doesNotContain("someone");
+            assertThat(parseJson(line)).containsEntry("level", "INFO").containsEntry("message", "stomp_connect")
+                    .doesNotContainKeys("app_version", "app_platform", "user_id");
+        });
+    }
+
+    @Test
+    @DisplayName("CONNECT 접속 로그 — 인증을 통과한 접속만 남는다. 토큰이 없거나 폐기된 세션의 거절에는 줄이 없다 (GROMO-2655)")
+    void rejectedConnectWritesNoConnectLine() {
+        UUID revokedSid = UUID.randomUUID();
+        java.time.Instant exp = java.time.Instant.now().plusSeconds(600);
+        given(jwtValidator.extractUserId("test-token")).willReturn(Optional.of(userId));
+        given(jwtValidator.extractSessionProof("test-token")).willReturn(Optional.of(
+                new com.oneorthree.realtime.auth.VerifiedAccessIdentity(userId, revokedSid, 0L, exp)));
+        fence.revokeSession(revokedSid, exp);
+        StompHeaderAccessor noToken = accessor(StompCommand.CONNECT);
+        noToken.addNativeHeader("X-App-Version", "1.0.2");
+        noToken.addNativeHeader("X-App-Platform", "ios");
+
+        try (CapturedLogs logs = CapturedLogs.of(StompAuthChannelInterceptor.class)) {
+            assertThatThrownBy(() -> interceptor.preSend(message(noToken), null)).isInstanceOf(DomainException.class);
+            assertThatThrownBy(() -> interceptor.preSend(message(connectWith("r-1", "1.0.2", "ios")), null))
+                    .isInstanceOf(DomainException.class);
+
+            assertThat(logs.lines(line -> true)).isEmpty();
+        }
+        assertThat(MDC.get("app_version")).isNull();
+    }
+
+    @Test
+    @DisplayName("CONNECT 접속 로그 — 앱 키는 그 줄에서 되돌려, 같은 스레드가 이어서 처리하는 다음 프레임의 로그에 새지 않는다 (GROMO-2655)")
+    void appKeysDoNotLeakIntoTheNextFrameOnTheSameThread() throws Exception {
+        given(jwtValidator.extractUserId("test-token")).willReturn(Optional.of(userId));
+        org.mockito.BDDMockito.willThrow(new ChatException(ChatErrorCode.NOT_A_MEMBER))
+                .given(accessGuard).requireMember(groupId, userId, BEARER);
+        ExecutorService inbound = Executors.newSingleThreadExecutor(task -> new Thread(task, "inbound-leak-test"));
+        try (CapturedLogs logs = CapturedLogs.of(StompAuthChannelInterceptor.class)) {
+            inbound.submit(() -> interceptor.preSend(message(connectWith(SESSION, "1.0.2", "ios")), null))
+                    .get(5, TimeUnit.SECONDS);
+            // 같은 스레드의 다음 프레임 — 구독 거절은 INFO 한 줄(섬 구독 거절)을 남긴다.
+            Map<String, String> left = inbound.submit(() -> {
+                assertThatThrownBy(() -> interceptor.preSend(message(movementSubscribe("events", groupId)), null))
+                        .isInstanceOf(ChatException.class);
+                Map<String, String> mdc = MDC.getCopyOfContextMap();
+                return mdc == null ? Map.<String, String>of() : mdc;
+            }).get(5, TimeUnit.SECONDS);
+
+            CapturedLogs.Line connect = logs.lines(line -> line.message().equals("stomp_connect")).get(0);
+            CapturedLogs.Line reject = logs.lines(line -> line.message().contains("섬 구독 거절")).get(0);
+            assertThat(connect.get("app_version")).isEqualTo("1.0.2");
+            assertThat(connect.get("app_platform")).isEqualTo("ios");
+            assertThat(reject.thread()).as("같은 스레드가 다음 프레임을 처리한다").isEqualTo("inbound-leak-test")
+                    .isEqualTo(connect.thread());
+            assertThat(reject.mdc()).doesNotContainKeys("app_version", "app_platform");
+            assertThat(left).doesNotContainKeys("app_version", "app_platform");
+        } finally {
+            inbound.shutdownNow();
+        }
     }
 
     @Test

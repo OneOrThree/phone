@@ -14,7 +14,8 @@ import java.util.regex.Pattern;
  *
  * <p>전체 {@code MDC.clear()} 를 하지 않고, tracer 소유 {@code dd.*}·{@code trace_id}·{@code span_id} 는 읽지도 쓰지도 않는다.
  * 값은 계약 §2.1 형식(ID {@code [A-Za-z0-9_.:-]{1,128}}, attempt 1..1000000)을 어기면 그 키만 버린다 — 관측 실패가 업무를
- * 실패시키지 않는다. 설치한 스레드에서 닫는다.
+ * 실패시키지 않는다. 클라이언트가 보내는 앱 헤더 값({@link #APP_VERSION}·{@link #APP_PLATFORM})은 ID 형식보다 훨씬 좁다.
+ * 설치한 스레드에서 닫는다.
  */
 public final class LogContext implements AutoCloseable {
 
@@ -27,6 +28,12 @@ public final class LogContext implements AutoCloseable {
     public static final String ATTEMPT = "attempt";
     public static final String MESSAGE_ID = "message_id";
     public static final String EVENT_NAME = "event_name";
+    /**
+     * 앱이 STOMP CONNECT 에 싣는 {@code X-App-Version}·{@code X-App-Platform} (GROMO-2655). 접속 로그 한 줄에만 단다 — 스레드를 건너
+     * 옮기지 않는다({@link #PROPAGATED} 밖). 값은 클라이언트 입력이라 {@link #valid} 가 아래 좁은 형식만 통과시킨다.
+     */
+    public static final String APP_VERSION = "app_version";
+    public static final String APP_PLATFORM = "app_platform";
     /**
      * 내부 표식(값 {@code "1"}) — 입구가 받은 원인 문맥을 형식·버전 검사로 버렸다. 원래 없던 origin 과 구분해, 팬아웃 telemetry
      * 가 버린 문맥을 현재 {@code request_id} 로 다시 올리지 않게 한다. Data {@code OutboxOrigin} 과 같은 키이고, JSON allowlist
@@ -50,6 +57,12 @@ public final class LogContext implements AutoCloseable {
 
     // 들어오는 HTTP X-Request-Id 필터는 [A-Za-z0-9_-] 로 더 좁다. 서비스 간 origin 은 나가는 쪽 규칙(이 패턴)을 따른다 — 의도된 차이.
     private static final Pattern ID = Pattern.compile("[A-Za-z0-9_.:-]{1,128}");
+    /**
+     * 앱 semver(X.Y.Z). business-api 의 {@code RequestEnvelopeFilter.APP_VERSION}·
+     * {@code ObservationJsonProvider.APP_VERSION} 과 같은 정규식이다 — 서비스마다 Gradle 이 따로라 복사했다. 한쪽만 바꾸면
+     * 같은 앱이 서비스마다 다른 값으로 남으니 바꿀 때는 함께 바꾼다.
+     */
+    private static final Pattern APP_SEMVER = Pattern.compile("[0-9]{1,9}\\.[0-9]{1,9}\\.[0-9]{1,9}");
     private static final int MAX_ATTEMPT = 1_000_000;
 
     /** 이 scope 가 건드린 키 → 건드리기 전 값(null = 없었다). */
@@ -194,10 +207,22 @@ public final class LogContext implements AutoCloseable {
         }
     }
 
-    /** 계약 §2.1 형식 검사 — 맞으면 값(앞뒤 공백 제거), 아니면 null. */
+    /**
+     * 계약 §2.1 형식 검사 — 맞으면 값(앞뒤 공백 제거), 아니면 null. 앱 헤더 키는 더 좁다: {@link #APP_VERSION} 은 {@code X.Y.Z}(각 1~9
+     * 자리 숫자), {@link #APP_PLATFORM} 은 {@code ios}|{@code android} 뿐이다(ID 형식이면 {@code 1.0.2-beta}·{@code ios:x} 가 통과한다).
+     * 앱 헤더 키의 공백은 business-api 처럼 {@code strip()} 으로 걷는다.
+     */
     public static String valid(String key, String value) {
         if (value == null) {
             return null;
+        }
+        if (APP_VERSION.equals(key)) {
+            String version = value.strip();
+            return APP_SEMVER.matcher(version).matches() ? version : null;
+        }
+        if (APP_PLATFORM.equals(key)) {
+            String platform = value.strip();
+            return "ios".equals(platform) || "android".equals(platform) ? platform : null;
         }
         String trimmed = value.trim();
         if (ATTEMPT.equals(key)) {

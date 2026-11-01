@@ -21,7 +21,8 @@ import java.util.regex.Pattern;
 
 /**
  * 관측 JSON 한 줄(schema_version 1). {@code logging.structured.format.console} 이 이 클래스를 가리킨다.
- * 이벤트의 MDC 스냅샷만 읽고, allowlist 밖 MDC·key/value 는 내보내지 않는다. 접근 로그(access)는 이 서비스 범위 밖이다.
+ * 이벤트의 MDC 스냅샷만 읽고, allowlist 밖 MDC·key/value 는 내보내지 않는다. 접근 로그(access)는 이 서비스 범위 밖이다 —
+ * STOMP 접속 줄의 {@code app_version}·{@code app_platform} 도 access 가 아니라 application 줄의 MDC 키로 나간다.
  */
 public final class ObservationJsonProvider implements StructuredLogFormatter<ILoggingEvent> {
 
@@ -39,6 +40,7 @@ public final class ObservationJsonProvider implements StructuredLogFormatter<ILo
             "user_id", "event_id", "delivery_id", "operation_id", "message_id", "edge_request_id");
     private static final Set<String> EVENT_NAMES = Set.of("operation.link", "outbox.delivery", "consumer.accept",
             "transport.result", "dispatch.settle", "fanout.publish", "fanout.receive");
+    private static final List<String> APP_KEYS = List.of(LogContext.APP_VERSION, LogContext.APP_PLATFORM);
 
     private final Map<String, String> runtime;
 
@@ -160,6 +162,13 @@ public final class ObservationJsonProvider implements StructuredLogFormatter<ILo
         String eventName = mdc.get("event_name");
         if (eventName != null && EVENT_NAMES.contains(eventName)) {
             out.put("event_name", eventName);
+        }
+        // 클라이언트 헤더 값이라 MDC 를 누가 넣었든 좁은 형식을 여기서 한 번 더 확인한다(business-api provider 와 같은 이중 검사).
+        for (String key : APP_KEYS) {
+            String value = LogContext.valid(key, mdc.get(key));
+            if (value != null) {
+                out.put(key, value);
+            }
         }
     }
 

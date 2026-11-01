@@ -111,6 +111,29 @@ class ObservationJsonProviderTest {
                 .doesNotContainKeys("attempt", "event_name");
     }
 
+    /** STOMP 접속 줄의 앱 헤더(GROMO-2655) — application 줄의 MDC 키로 나가며, MDC 를 누가 넣었든 좁은 형식을 여기서 다시 거른다. */
+    @Test
+    void writesAppHeaderKeysOnlyInTheNarrowFormat() throws Exception {
+        assertThat(format(event("stomp_connect", null, Map.of("app_version", "1.0.2", "app_platform", "ios"))))
+                .containsEntry("log_kind", "application").containsEntry("app_version", "1.0.2")
+                .containsEntry("app_platform", "ios");
+        assertThat(format(event("m", null, Map.of("app_version", "2.0.1", "app_platform", "android"))))
+                .containsEntry("app_version", "2.0.1").containsEntry("app_platform", "android");
+
+        Map<String, String> bad = new HashMap<>();
+        bad.put("app_version", "1.0.2-beta"); // ID 형식은 통과하지만 semver 가 아니다
+        bad.put("app_platform", "web");
+        assertThat(format(event("m", null, bad))).doesNotContainKeys("app_version", "app_platform");
+        bad.put("app_version", "1.0\n{\"level\":\"ERROR\"}");
+        bad.put("app_platform", "ios\nx");
+        String line = provider.format(event("m", null, bad));
+        assertThat(parse(line)).doesNotContainKeys("app_version", "app_platform").containsEntry("level", "INFO");
+        assertThat(line).doesNotContain("ERROR");
+        assertThat(format(event("m", null, Map.of()))).doesNotContainKeys("app_version", "app_platform");
+        assertThat(format(event("m", null, Map.of("app_version", "1.0.2"))))
+                .containsEntry("app_version", "1.0.2").doesNotContainKey("app_platform");
+    }
+
     @Test
     void masksMessageAndException() throws Exception {
         Map<String, Object> json = format(event("login email=user@example.com phone 010-1234-5678 rrn 900101-1234567",
