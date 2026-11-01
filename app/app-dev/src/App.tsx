@@ -2849,10 +2849,10 @@ function Gromo() {
     <MotionContext.Provider value={state.settings.reduceMotion}>
       <SafeAreaView edges={[]} style={[S.page, { backgroundColor: C.cream }]}>
         <StatusBar style="dark" />
-        <KeyboardAvoidingView
-          style={{ flex: 1 }}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        >
+        {/* 키보드가 입력칸을 가리지 않게 루트에서 회피한다. Android 는 edge-to-edge(edgeToEdgeEnabled=true)라
+            windowSoftInputMode=adjustResize 가 더 이상 창을 줄여 주지 못하므로 iOS 처럼 padding 으로 직접 올린다.
+            종전 Android behavior=undefined 는 adjustResize 에 기댄 값이라 키보드가 입력칸을 가렸다. */}
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
           <Animated.View
             key={reviewEpoch}
             testID="app-content"
@@ -2910,10 +2910,11 @@ function Gromo() {
             style={{
               position: 'absolute',
               // 키보드가 떠 있으면(편지 쓰기 등) 그만큼 더 띄워 소프트 키보드에 가리지 않게 한다.
-              // Android 는 windowSoftInputMode=adjustResize 로 이 View 의 부모 영역이 이미 키보드
-              // 높이만큼 줄어들어 있어 여기서 또 더하면 이중 보정이 된다(GROMO-2169 리뷰 지적) —
-              // 키보드 높이 보정은 iOS 에서만 한다.
-              bottom: 40 + (Platform.OS === 'android' ? 0 : keyboardHeight),
+              // 이 토스트는 루트 KeyboardAvoidingView 의 형제라 그 padding 회피를 받지 않으므로
+              // 직접 키보드 높이만큼 올린다. 종전에는 Android 가 windowSoftInputMode=adjustResize 로
+              // 부모 영역이 이미 줄어든다고 보고 iOS 에서만 보정했으나, edge-to-edge(edgeToEdgeEnabled=true)
+              // 에서는 adjustResize 가 창을 줄이지 못해 Android 토스트가 키보드에 가렸다 — 양쪽 모두 보정한다.
+              bottom: 40 + keyboardHeight,
               left: (layout.width - layout.floatingWidth) / 2,
               width: layout.floatingWidth,
               backgroundColor: C.ink,
