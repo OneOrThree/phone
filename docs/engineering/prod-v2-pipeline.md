@@ -195,6 +195,4 @@ EC2별 CI/CD 설계안과 비교했다.
 | DB 변경 | 호환 마이그레이션 적용 | 기본 중단, `allow_migration` 승인 시 통과 |
 | 일부 서비스 실패 | 호환되는 이전 조합 복구 | 같다. 호환 여부는 사람이 승격 전에 검토한다 |
 
-`docs/conventions/git-pr-conventions.md`는 release PR의 `release:*` 라벨로 버전을 올린다고 적지만, V2 발행은 이 라벨을 읽지 않는다.
-
 Infra `README-V2.md`는 Kafka·Redis 구성을 `server/scripts/runtime-V2/`로 적지만 실제 위치는 `server/scripts/v2/prod/`다.

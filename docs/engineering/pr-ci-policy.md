@@ -7,12 +7,12 @@
 | --- | --- |
 | 피처 → 피처 | 서버 전체 기능 CI 생략. 필요할 때 해당 브랜치에서 수동 검사 |
 | 피처 → main | 변경 서비스의 빌드·기능 테스트·계약 검사 필수 |
-| 같은 저장소 main → release | 승격 출처·버전 라벨·산출물 계획 검증. 전체 Gradle 기능 테스트와 이미지 재빌드는 PR에서 생략 |
+| 같은 저장소 main → release | 승격 출처·버전 라벨 개수와 허용값·산출물 계획 검증. 전체 Gradle 기능 테스트와 이미지 재빌드는 PR에서 생략 |
 | main 병합 후 | 최종 main SHA 검사·JAR 생성 후 dev 이미지 발행·CD |
 | release 병합 후 | 최종 release SHA의 운영 빌드·산출물 검증·발행. 운영 적용은 별도 CD |
 
 main → release는 **Create a merge commit**으로 main 부모 이력을 보존한다.
-`release:major`, `release:minor`, `release:patch`는 최대 하나를 붙이며 없으면 patch다.
+`release:major`, `release:minor`, `release:patch`는 최대 하나만 붙인다. `pr-ci-policy.yml`이 개수와 허용값만 검사하며 V2 버전에는 영향이 없다. V2 태그는 patch만 오른다(`prod-v2-pipeline.md` 「버전」).
 포크 저장소의 main 또는 선별 이식 브랜치 → release는 main 승격으로 간주하지 않고 기존 기능 검증을 유지한다.
 PR 대상 브랜치를 바꾸는 `edited` 이벤트도 검사한다. 승격 라벨 변경은 가벼운 정책 workflow만 다시 실행하고 전체 기능 테스트는 재시작하지 않는다.
 승격 PR에서 기능 테스트를 생략해도 release push에서 운영 JAR·이미지를 만들고 검증하는 절차는 유지한다.
