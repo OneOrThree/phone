@@ -21,7 +21,7 @@ module.exports = {
     locales: { ko: './locales/ko.json', en: './locales/en.json' },
     slug: 'focuscat',
     owner: 'oneorthree',
-    version: '2.0.1',
+    version: '2.3.0',
     runtimeVersion: '2.0.0',
     updates: {
       url: 'https://u.expo.dev/b791fb8b-1f6c-4e6f-88f6-84ef0a99c79d',
@@ -67,7 +67,7 @@ module.exports = {
     },
     android: {
       package: 'com.oneorthree.gromo',
-      versionCode: 21,
+      versionCode: 379,
       // 집중 차단 기능이 있는 기존 Android OTA와 네이티브 구성을 분리한다.
       runtimeVersion: '2.0.1-android-push-assets-ai-focus-v1',
       permissions: [
