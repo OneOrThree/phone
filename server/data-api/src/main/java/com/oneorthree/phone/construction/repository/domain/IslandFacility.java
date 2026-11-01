@@ -65,7 +65,7 @@ public class IslandFacility {
     private Instant completedAt;
 
     @CreationTimestamp
-    @Column(name = "created_at")
+    @Column(name = "created_at", updatable = false)
     private Instant createdAt;
 
     /** 건설 확정 — BUILDING 행을 만든다. */

@@ -92,6 +92,7 @@ public class User {
     private long authGeneration = 0L;
 
     @CreationTimestamp
+    @Column(name = "created_at", updatable = false)
     private Instant createdAt;
 
     @UpdateTimestamp

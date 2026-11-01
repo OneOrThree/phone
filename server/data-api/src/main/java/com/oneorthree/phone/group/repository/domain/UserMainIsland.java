@@ -50,6 +50,7 @@ public class UserMainIsland {
     private Group island;
 
     @CreationTimestamp
+    @Column(name = "created_at", updatable = false)
     private Instant createdAt;
 
     @UpdateTimestamp

@@ -104,6 +104,7 @@ public class GroupMember {
      * <p>그래서 «멤버십 시작 시각»은 {@link #rejoinedAt} 이 덧씌운다 — {@link #membershipStartedAt()}.
      */
     @CreationTimestamp
+    @Column(name = "created_at", updatable = false)
     private Instant createdAt;
 
     /**

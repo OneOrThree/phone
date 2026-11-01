@@ -159,7 +159,7 @@ public class FocusSessionDetail {
 
     /** 값은 {@link CreationTimestamp}가 채우지만, DB 기본값도 V58 과 같게 선언해 둔다(위 version 주석 참조). */
     @CreationTimestamp
-    @Column(columnDefinition = "timestamptz not null default now()")
+    @Column(columnDefinition = "timestamptz not null default now()", updatable = false)
     private Instant createdAt;
 
     /**
