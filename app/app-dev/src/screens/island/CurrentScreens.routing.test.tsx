@@ -1,3 +1,6 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { AppState } from 'react-native';
+import { VerificationSession } from '@/screens/focus/VerificationSession';
 import { useCameraPermissions } from 'expo-camera';
 import {
   clearVerificationResult,
@@ -20,10 +23,6 @@ import { readAccountGuides, saveAccountGuides } from '@/services/accountGuides';
 import { getTelescope } from '@/services/api/telescope';
 import { getMagazineIssue, putMagazineReceipt } from '@/services/api/magazine';
 
-jest.mock('@/screens/focus/VerificationSpike', () => ({
-  ...jest.requireActual('@/screens/focus/VerificationSpike'),
-  VERIFY_SPIKE: true,
-}));
 jest.mock('@/screens/focus/VerificationSession', () => ({
   VerificationSession: jest.fn(() => null),
 }));
@@ -263,6 +262,18 @@ const mount = async (route: Route, state: State = serverFocusState(), extra: obj
 beforeEach(async () => {
   jest.clearAllMocks();
   clearVerificationResult('s-me');
+  await readAccountGuides('me');
+  await AsyncStorage.clear();
+  AppState.currentState = 'active';
+  const permission = {
+    granted: false,
+    canAskAgain: false,
+    status: 'denied',
+    expires: 'never',
+  } as NonNullable<ReturnType<typeof useCameraPermissions>[0]>;
+  jest
+    .mocked(useCameraPermissions)
+    .mockReturnValue([permission, jest.fn(), jest.fn(async () => permission)]);
   await clearSession();
   await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'me' });
 });
@@ -581,29 +592,91 @@ test.each(['magazine', 'seaMagazine'] as const)(
   },
 );
 
-test('집중 중 카메라 끄기는 설정만 바꾸고 세션과 타이머를 유지한다', async () => {
+test.each([false, undefined])(
+  '이전 측정 설정=%s여도 자동 측정하고 미리보기 조작은 세션과 타이머를 유지한다',
+  async (legacySetting) => {
+    const permission = {
+      granted: true,
+      canAskAgain: false,
+      status: 'granted',
+      expires: 'never',
+    } as NonNullable<ReturnType<typeof useCameraPermissions>[0]>;
+    jest
+      .mocked(useCameraPermissions)
+      .mockReturnValue([permission, jest.fn(), jest.fn(async () => permission)]);
+    await saveAccountGuides('me', { verificationIntroSeen: true });
+    const state = serverFocusState();
+    state.focusGuideDone = true;
+    state.settings.studyVerification = legacySetting;
+    state.settings.studyVerificationCamera = 'front';
+    state.session!.seconds = 123;
+    const dispatch = jest.fn();
+    const screen = await mount('focus', state, { dispatch, now: Date.now(), guideStep: 99 });
+    await waitFor(() =>
+      expect(jest.mocked(VerificationSession).mock.calls.at(-1)?.[0]).toMatchObject({
+        enabled: true,
+        previewVisible: false,
+        sessionId: 's-me',
+        cameraPosition: 'front',
+      }),
+    );
+    expect(screen.queryByRole('switch')).toBeNull();
+    expect(screen.getByText('00:02:03')).toBeTruthy();
+    dispatch.mockClear();
+    const button = () => screen.getByRole('button', { name: '카메라 미리보기' });
+    await fireEvent.press(button());
+    await waitFor(() =>
+      expect(jest.mocked(VerificationSession).mock.calls.at(-1)?.[0]).toMatchObject({
+        enabled: true,
+        previewVisible: true,
+      }),
+    );
+    await fireEvent.press(button());
+    await waitFor(() =>
+      expect(jest.mocked(VerificationSession).mock.calls.at(-1)?.[0]).toMatchObject({
+        enabled: true,
+        previewVisible: false,
+      }),
+    );
+    expect(dispatch).not.toHaveBeenCalled();
+    expect(screen.getByText('00:02:03')).toBeTruthy();
+  },
+);
+
+test('미리보기를 열고 계정을 바꿔도 새 안내 확인 전에는 이전 영상과 측정이 이어지지 않는다', async () => {
+  const permission = {
+    granted: true,
+    canAskAgain: false,
+    status: 'granted',
+    expires: 'never',
+  } as NonNullable<ReturnType<typeof useCameraPermissions>[0]>;
+  jest
+    .mocked(useCameraPermissions)
+    .mockReturnValue([permission, jest.fn(), jest.fn(async () => permission)]);
+  await saveAccountGuides('me', { verificationIntroSeen: true });
   const state = serverFocusState();
-  state.settings.studyVerification = true;
-  state.settings.studyVerificationCamera = 'front';
-  state.session!.seconds = 123;
-  const dispatch = jest.fn();
-  const now = Date.now();
-  const screen = await mount('focus', state, { dispatch, now });
-  expect(screen.getByTestId('focus-camera-toggle')).toBeTruthy();
-  expect(screen.getByText('00:02:03')).toBeTruthy();
-  dispatch.mockClear();
-  await fireEvent.press(screen.getByRole('switch', { name: '카메라 인증 사용' }));
-  expect(dispatch.mock.calls.map(([action]) => action)).toEqual([
-    { type: 'SETTING', key: 'studyVerificationCamera', value: 'front' },
-    { type: 'SETTING', key: 'studyVerification', value: false },
-  ]);
-  const next = dispatch.mock.calls.reduce((current, [action]) => reducer(current, action), state);
-  expect(next.session).toEqual(state.session);
-  await screen.rerender(screenOf('focus', next, { dispatch, now }));
-  expect(screen.getByText('00:02:03')).toBeTruthy();
+  state.focusGuideDone = true;
+  const screen = await mount('focus', state, { guideStep: 99 });
+  await waitFor(() =>
+    expect(jest.mocked(VerificationSession).mock.calls.at(-1)?.[0].enabled).toBe(true),
+  );
+  await fireEvent.press(screen.getByRole('button', { name: '카메라 미리보기' }));
+  await waitFor(() =>
+    expect(jest.mocked(VerificationSession).mock.calls.at(-1)?.[0].previewVisible).toBe(true),
+  );
+  await saveSession({ accessToken: 'B', refreshToken: 'RB', userId: 'new-camera-owner' });
+  jest.mocked(VerificationSession).mockClear();
+  await screen.rerender(screenOf('focus', state, { guideStep: 99 }));
+  await waitFor(() => expect(screen.getByTestId('verification-intro')).toBeTruthy());
+  expect(jest.mocked(VerificationSession).mock.calls.length).toBeGreaterThan(0);
+  expect(
+    jest
+      .mocked(VerificationSession)
+      .mock.calls.every(([props]) => !props.enabled && !props.previewVisible),
+  ).toBe(true);
 });
 
-test('카메라를 끄고 종료해도 사용한 세션의 결과에 누적 시간을 전달하고 기록에는 넣지 않는다', async () => {
+test('카메라가 중단된 뒤 종료해도 사용한 세션의 결과에 누적 시간을 전달하고 기록에는 넣지 않는다', async () => {
   const state = serverFocusState();
   state.settings.studyVerification = false;
   const capture = openVerificationCapture('s-me');
@@ -663,7 +736,9 @@ test('집중 화면으로 복원해도 안내를 안 본 계정에는 자동 안
   expect(first.getByText('00:02:03')).toBeTruthy();
   await first.unmount();
   const restored = await mount('focus', state, { guideStep: 99, now });
-  await waitFor(() => expect(restored.getByRole('button', { name: '카메라 인증' })).toBeEnabled());
+  await waitFor(() =>
+    expect(restored.getByRole('button', { name: '카메라 미리보기' })).toBeEnabled(),
+  );
   expect(restored.queryByTestId('verification-intro')).toBeNull();
 });
 
@@ -674,7 +749,9 @@ test('입장 안내를 본 로컬 기록이 있으면 집중 화면에서도 안
   const state = serverFocusState();
   state.focusGuideDone = true;
   const screen = await mount('focus', state, { guideStep: 99 });
-  await waitFor(() => expect(screen.getByRole('button', { name: '카메라 인증' })).toBeEnabled());
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: '카메라 미리보기' })).toBeEnabled(),
+  );
   expect(screen.queryByTestId('verification-intro')).toBeNull();
 });
 
@@ -682,8 +759,9 @@ test('첫 집중 체험이 끝나지 않았으면 집중 화면에서도 카메�
   const state = serverFocusState();
   state.focusGuideDone = false;
   const screen = await mount('focus', state, { guideStep: 99 });
-  await waitFor(() => expect(screen.getByRole('button', { name: '카메라 인증' })).toBeEnabled());
+  expect(screen.getByRole('button', { name: '카메라 미리보기' })).toBeDisabled();
   expect(screen.queryByTestId('verification-intro')).toBeNull();
+  expect(jest.mocked(VerificationSession).mock.calls.at(-1)?.[0].enabled).toBe(false);
 });
 
 test('과목·집중시간은 지도 안에 붙고 미리보기 토글은 지도 좌표를 바꾸지 않는다', async () => {
@@ -696,8 +774,9 @@ test('과목·집중시간은 지도 안에 붙고 미리보기 토글은 지도
   jest
     .mocked(useCameraPermissions)
     .mockReturnValue([permission, jest.fn(), jest.fn(async () => permission)]);
+  await saveAccountGuides('me', { verificationIntroSeen: true });
   const state = serverFocusState();
-  state.settings.studyVerification = true;
+  state.focusGuideDone = true;
   state.session!.seconds = 123;
   const screen = await mount('focus', state, { now: Date.now() });
   const map = screen.getByTestId('focus-world');
@@ -705,14 +784,17 @@ test('과목·집중시간은 지도 안에 붙고 미리보기 토글은 지도
   const position = hud.props.style;
   expect(within(hud).getByText(state.session!.subject)).toBeTruthy();
   expect(within(hud).getByText('00:02:03')).toBeTruthy();
-  await fireEvent.press(screen.getByRole('button', { name: '카메라 인증' }));
+  await waitFor(() =>
+    expect(screen.getByRole('button', { name: '카메라 미리보기' })).toBeEnabled(),
+  );
+  await fireEvent.press(screen.getByRole('button', { name: '카메라 미리보기' }));
   await waitFor(() =>
     expect(
-      screen.getByRole('button', { name: '카메라 인증' }).props.accessibilityState.expanded,
+      screen.getByRole('button', { name: '카메라 미리보기' }).props.accessibilityState.expanded,
     ).toBe(true),
   );
   expect(within(map).getByTestId('fishing-focus-hud').props.style).toEqual(position);
-  await fireEvent.press(screen.getByRole('button', { name: '카메라 인증' }));
+  await fireEvent.press(screen.getByRole('button', { name: '카메라 미리보기' }));
   expect(within(map).getByTestId('fishing-focus-hud').props.style).toEqual(position);
   expect(within(map).getByText('00:02:03')).toBeTruthy();
 });

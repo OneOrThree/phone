@@ -31,12 +31,9 @@ import { syncAndroidScreenTime } from '@/services/screentimeSync';
 import { pushPermissionStatus, requestPushPermission, type PushPermission } from '@/services/push';
 import { captureProductEvent } from '@/services/posthog';
 import { Ticking } from '@/hooks/useNow';
-import {
-  VERIFY_SPIKE,
-  VerificationSpike,
-  VerificationToggle,
-} from '@/screens/focus/VerificationSpike';
-import React, { useEffect, useRef, useState } from 'react';
+import { VerificationControls } from '@/screens/focus/VerificationControls';
+import { VerificationSession } from '@/screens/focus/VerificationSession';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   AccessibilityInfo,
@@ -2378,6 +2375,18 @@ function FocusFlow({ e: environment }: any) {
     // 첫 물고기 reel이 끝나 12단계로 갈 차례 — 황금 컷신·reel이 끝날 때까지 미룬다
     [tutorialCatchRevision, setTutorialCatchRevision] = useState<number | null>(null);
   const [verificationPreviewOpen, setVerificationPreviewOpen] = useState(false);
+  const [verificationAccess, setVerificationAccess] = useState<{
+    owner: string;
+    generation: number;
+  } | null>(null);
+  const verificationEnabled =
+    !!verificationAccess &&
+    verificationAccess.owner === getSession()?.userId &&
+    verificationAccess.generation === sessionGeneration();
+  const updateVerificationAccess = useCallback((enabled: boolean) => {
+    const owner = getSession()?.userId;
+    setVerificationAccess(enabled && owner ? { owner, generation: sessionGeneration() } : null);
+  }, []);
   const returningFromArrival = useRef(false);
   // 보상을 확인하는 동안에도 결과 화면에서 고른 다음 목적지를 유지한다.
   const resultDestination = useRef<'island' | 'focus'>('island');
@@ -3636,9 +3645,7 @@ function FocusFlow({ e: environment }: any) {
       <FocusResultSummary
         subject={result?.subject ?? t('focusFlow.result.defaultSubject')}
         seconds={result?.seconds ?? 0}
-        verifiedSeconds={
-          VERIFY_SPIKE ? verificationResult(result?.id, result?.seconds ?? 0) : undefined
-        }
+        verifiedSeconds={verificationResult(result?.id, result?.seconds ?? 0)}
         fish={result?.fish ?? 0}
         questTitles={achievedQuestTitles}
         recordId={result?.id}
@@ -4213,21 +4220,17 @@ function FocusFlow({ e: environment }: any) {
               id="leave-fishing-arrival"
               onPress={returnFromArrival}
             />
-            {VERIFY_SPIKE && (
-              <VerificationToggle
+            {Platform.OS !== 'web' && !experience && (
+              <VerificationControls
+                key={`${getSession()?.userId}:${sessionGeneration()}`}
                 onPreviewChange={setVerificationPreviewOpen}
                 intro={verificationIntro}
-                on={s.settings.studyVerification === true}
-                cameraPosition={s.settings.studyVerificationCamera}
-                onChange={(value, position) => {
-                  e.dispatch({ type: 'SETTING', key: 'studyVerificationCamera', value: position });
-                  e.dispatch({ type: 'SETTING', key: 'studyVerification', value });
-                }}
+                onMeasurementChange={updateVerificationAccess}
               />
             )}
           </View>
         )}
-        {VERIFY_SPIKE &&
+        {Platform.OS !== 'web' &&
           !experience &&
           r === 'fishingArrival' &&
           !(tutorialStep >= 5 && tutorialStep <= 21) && (
@@ -4243,9 +4246,9 @@ function FocusFlow({ e: environment }: any) {
                 left: safe.left + semanticTokens.spacing.page,
               }}
             >
-              <VerificationSpike
-                enabled={s.settings.studyVerification === true}
-                previewVisible={verificationPreviewOpen}
+              <VerificationSession
+                enabled={verificationEnabled}
+                previewVisible={verificationEnabled && verificationPreviewOpen}
                 onCameraPositionChange={(position) =>
                   e.dispatch({ type: 'SETTING', key: 'studyVerificationCamera', value: position })
                 }
@@ -4288,7 +4291,7 @@ function FocusFlow({ e: environment }: any) {
         )}
         {focusing && (
           <>
-            {VERIFY_SPIKE && !experience && !(tutorialStep >= 5 && tutorialStep <= 21) && (
+            {Platform.OS !== 'web' && !experience && !(tutorialStep >= 5 && tutorialStep <= 21) && (
               <View
                 pointerEvents="box-none"
                 {...a11yHidden(!!dialog || !!goldenCutscene || !!catInfo)}
@@ -4299,11 +4302,11 @@ function FocusFlow({ e: environment }: any) {
                   left: Math.max(18, safe.left),
                 }}
               >
-                <VerificationSpike
+                <VerificationSession
                   key={s.session!.id}
                   sessionId={s.session!.id}
-                  enabled={s.settings.studyVerification === true}
-                  previewVisible={verificationPreviewOpen}
+                  enabled={verificationEnabled}
+                  previewVisible={verificationEnabled && verificationPreviewOpen}
                   onCameraPositionChange={(position) =>
                     e.dispatch({ type: 'SETTING', key: 'studyVerificationCamera', value: position })
                   }
@@ -4312,7 +4315,7 @@ function FocusFlow({ e: environment }: any) {
                 />
               </View>
             )}
-            {VERIFY_SPIKE && !experience && !(tutorialStep >= 5 && tutorialStep <= 21) && (
+            {Platform.OS !== 'web' && !experience && !(tutorialStep >= 5 && tutorialStep <= 21) && (
               <View
                 testID="focus-camera-toggle"
                 {...a11yHidden(!!dialog || !!goldenCutscene || !!catInfo)}
@@ -4323,20 +4326,12 @@ function FocusFlow({ e: environment }: any) {
                   right: safe.right + semanticTokens.spacing.page,
                 }}
               >
-                <VerificationToggle
+                <VerificationControls
+                  key={`${getSession()?.userId}:${sessionGeneration()}`}
                   onPreviewChange={setVerificationPreviewOpen}
-                  inSession
                   intro={verificationIntro}
-                  on={s.settings.studyVerification === true}
-                  cameraPosition={s.settings.studyVerificationCamera}
-                  onChange={(value, position) => {
-                    e.dispatch({
-                      type: 'SETTING',
-                      key: 'studyVerificationCamera',
-                      value: position,
-                    });
-                    e.dispatch({ type: 'SETTING', key: 'studyVerification', value });
-                  }}
+                  inSession
+                  onMeasurementChange={updateVerificationAccess}
                 />
               </View>
             )}

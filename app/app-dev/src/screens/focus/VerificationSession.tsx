@@ -14,7 +14,7 @@ import { VerificationCamera, type VerificationDetection } from './VerificationCa
 import type { VerificationCameraPosition } from '@/services/studyVerification/types';
 import type { StudyObjectPresence } from '@/services/studyVerification/studyObjects';
 
-/** 설정을 꺼도 이 컴포넌트는 유지해 이미 확인한 인증 시간을 보존한다. */
+/** 권한 철회나 촬영 중단에도 이미 확인한 인증 시간은 결과 메모리에 보존한다. */
 export function VerificationSession({
   sessionId,
   enabled = true,

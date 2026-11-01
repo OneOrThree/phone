@@ -1473,7 +1473,7 @@
     }
   },
   "verification": {
-    "button": "Camera verification",
+    "button": "Camera preview",
     "switch": "Camera verification",
     "on": "On",
     "off": "Off",
@@ -1482,9 +1482,9 @@
       "privacy": "Checked only on your device. Video is never saved, shared, or sent.",
       "try": "Try the camera",
       "later": "Not now",
-      "preview": "Tracking stays on while enabled,\neven without the preview.",
+      "preview": "Measurement starts automatically with camera access.\nIt continues with the preview closed.",
       "precheckHint": "Before starting, use the preview to check whether your focus is recognized.",
-      "measurementHint": "On · Off",
+      "measurementHint": "Detects your hands and a book or laptop.",
       "previewLabel": "Preview",
       "previewHint": "See your camera view."
     },
