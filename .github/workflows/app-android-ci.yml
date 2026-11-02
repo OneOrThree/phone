@@ -9,7 +9,7 @@ name: Android CI
 #
 # 잡 분리 이유: 키(Play·업로드)를 다루는 잡엔 의존성 코드(npm·pip·Gradle)가 안 돎.
 # GitHub-hosted 는 잡마다 새 VM → 악성 의존성이 남긴 프로세스·env 변조가 키 잡에 못 닿음.
-# - server-gate: 운영에 없는 서버 코드가 main 에 있으면 여기서 실패해 Play 까지 가지 않는다(GROMO-2684).
+# - server-gate: 운영에 없는 서버 코드가 main 에 있으면 경고를 남긴다(GROMO-2684). 지금은 막지 않는다(continue-on-error).
 # - settings: SDK 공개 설정만 전달하고 CI run_number로 versionCode를 고정한다.
 # - build: AWS·Play·서명 키 없음. npm ci + Gradle, 일회용 키 서명. main만 PostHog 분석 업로드 키 사용.
 # - 업로드 키·Play 키는 별도 Android CD에서만 사용한다.
@@ -114,8 +114,11 @@ jobs:
   server-gate:
     name: 운영 서버 선행 확인
     needs: change-plan
-    # main 산출물은 CD 수동 실행으로도 게시할 수 있어 publish 값과 무관하게 본다. 막히면 Android CI 가 실패로 끝난다.
+    # main 산출물은 CD 수동 실행으로도 게시할 수 있어 publish 값과 무관하게 본다.
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && needs.change-plan.outputs.build == 'true'
+    # 2026-11-02 임시로 막지 않는다 — 앱이 쓰지 않는 서버 변경(#1551 application.yml)에도 막혀 첫 Play 업로드가 밀렸다.
+    # 결과는 잡 경고로만 남는다. 앱이 실제로 필요로 하는 API 만 보는 게이트가 생기면 이 줄을 지워 다시 막는다.
+    continue-on-error: true
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
