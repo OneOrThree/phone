@@ -47,6 +47,16 @@ def normalized(protection):
     return result
 
 
+def comparable(protection):
+    """재조회 비교용. GitHub 는 비어 있는 허용 목록 키를 응답에서 생략하므로 빈 객체로 채워 맞춘다."""
+    result = normalized(protection)
+    reviews = result and result['required_pull_request_reviews']
+    if reviews is not None:
+        for key in ('dismissal_restrictions', 'bypass_pull_request_allowances'):
+            reviews.setdefault(key, actors(None))
+    return result
+
+
 def desired(snapshot, policy):
     if (policy.get('repository'), policy.get('branch')) != (REPOSITORY, BRANCH):
         raise ValueError('이 정책은 OneOrThree/phone의 release 전용이다')
@@ -115,7 +125,7 @@ def apply_plan(plan, api):
         raise ValueError('적용 중인 ruleset이 있음 — 통합 정책 검토 후 별도 적용 필요')
     api.request('/branches/' + BRANCH + '/protection', 'PUT', plan['payload'])
     after = capture(api)
-    if normalized(after['protection']) != normalized(plan['payload']):
+    if comparable(after['protection']) != comparable(plan['payload']):
         raise RuntimeError('보호 설정 재조회 결과가 계획과 다름 — 현재 설정을 확인할 것')
     return after
 
