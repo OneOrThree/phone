@@ -1,7 +1,7 @@
 # PR 대상에 따른 서버 CI 정책
 
 피처 브랜치에 하위 PR을 쌓을 때 Data API 같은 전체 기능·통합 테스트를 매번 반복하지 않는다.
-통합 검증은 main 대상 PR에서 수행한다. 자동 코드 리뷰와 가벼운 마이그레이션 불변 검사는 별도로 유지한다.
+통합 검증은 main 대상 PR에서 수행한다. 자동 코드 리뷰와 가벼운 상시 검사는 별도로 유지한다: `migration-immutable`(마이그레이션 불변과 DB 전환 도구 검사)과 `agent-harness`(하네스 문서·스킬·워크플로 지도 검사).
 
 | 경로 | 자동 검사·발행 |
 | --- | --- |
@@ -10,6 +10,8 @@
 | 같은 저장소 main → release | 승격 출처·버전 라벨 개수와 허용값·산출물 계획 검증. 전체 Gradle 기능 테스트와 이미지 재빌드는 PR에서 생략 |
 | main 병합 후 | 최종 main SHA 검사·JAR 생성 후 dev 이미지 발행·CD |
 | release 병합 후 | 최종 release SHA의 운영 빌드·산출물 검증·발행. 운영 적용은 별도 CD |
+
+경로와 상관없이 모든 PR에서 `agent-harness`가, release 대상이 아닌 모든 PR에서 `migration-immutable`이 돈다. 둘 다 가벼워서 피처 → 피처 PR에서도 생략하지 않는다.
 
 main → release는 **Create a merge commit**으로 main 부모 이력을 보존한다.
 `release:major`, `release:minor`, `release:patch`는 최대 하나만 붙인다. `pr-ci-policy.yml`이 개수와 허용값만 검사하며 V2 버전에는 영향이 없다. V2 태그는 patch만 오른다(`prod-v2-pipeline.md` 「버전」).
@@ -37,6 +39,8 @@ Business API·Notification 수동 검사는 두 서비스를 모두 검사한다
 
 - `.github/scripts/pr-ci-policy.py`: 같은 저장소 main 승격과 전체 검사 대상 판정
 - `.github/workflows/pr-ci-policy.yml`: 가벼운 정책·브랜치 경계 회귀 검사
+- `.github/workflows/migration-immutable.yml`: 적용된 Flyway 파일 불변 검사와 `db-tools` 잡(`server/data-api/docs/db/test-*.py` 4종). 경로 필터가 없다
+- `.github/workflows/agent-harness.yml`: 설정·게이트 자체 검사, 하네스 문서 검사(`.github/scripts/check-agent-harness.py`), `.claude/skills/*/scripts`의 `test_*.py`. 모든 PR과 main push에서 돈다
 - Data·Realtime·Satellite·Backoffice dev CI: main 대상 필터와 수동 검사
 - `prod-ci.yml`, `prod-ci-V2.yml`: 승격 PR의 전체 Gradle·이미지 검사 생략
 - `satellite-ci.prod.yml` → `satellite-check.yml`: 승격 PR에서 공개 명령·Outbox의 Data API 통합 테스트 생략, 가벼운 격리 계약 검사 유지

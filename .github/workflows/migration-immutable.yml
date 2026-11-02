@@ -23,6 +23,10 @@ name: 적용된 마이그레이션 불변
 # 이 잡을 main 브랜치 보호의 required check 로 걸 수 있게 하기 위해서다. paths 로 걸러 두면
 # 조건에 안 맞는 PR 에서 잡이 «아예 생성되지 않아» required check 가 영원히 pending 으로 남고
 # 머지가 막힌다. 실행이 십여 초라 전 PR 에서 도는 비용이 그 위험보다 싸다.
+#
+# ── db-tools 잡은 어디서 왔나 ─────────────────────────────────────────────────────
+# `DB 전환 도구 검사`(server/data-api/docs/db/test-*.py 4종)는 꺼진 V1 data-api-ci.dev.yml 의 `db-tools` 잡이었다.
+# 그 워크플로가 꺼진 뒤 PR 에서 도는 곳이 없어 같은 네 명령을 여기로 옮겼다(GROMO-2697). V1 의 마지막 실행은 51초였다.
 
 on:
   pull_request:
@@ -108,3 +112,19 @@ jobs:
           echo "::error::이미 통합 브랜치에 있는 마이그레이션을 고치면 Flyway 체크섬이 달라져 dev·prod 가 부팅하지 못합니다. 원문으로 되돌리고 새 V 파일을 추가하세요. 정말 의도한 변경이면 커밋 메시지에 'Flyway-Override: <이유>' 줄을 넣으세요."
           echo "$changed"
           exit 1
+
+  # 꺼진 V1 data-api-ci.dev.yml 의 db-tools 잡을 그대로 옮겼다(위 머리 주석). 경로 필터가 없어 모든 PR 에서 돈다.
+  db-tools:
+    name: DB 전환 도구 검사
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: 이력·대상·재실행 보호 조건
+        run: |
+          python3 server/data-api/docs/db/test-rebase-v0.py
+          python3 server/data-api/docs/db/test-deploy-v0.py
+          python3 server/data-api/docs/db/test-backoffice-bridge-integration.py
+          python3 server/data-api/docs/db/test-compare-schema-dbml.py

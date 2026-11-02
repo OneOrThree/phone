@@ -6,20 +6,21 @@
 
 ## 1. 변경 영역별 흐름
 
-- main 대상 PR에서는 경로와 상관없이 `pr-ci-policy`와 `migration-immutable`이 돈다.
+- 모든 PR에서는 경로와 상관없이 `agent-harness`가 돈다. main 대상 PR에서는 `pr-ci-policy`와 `migration-immutable`도 돈다.
 - 경로 필터 목록은 각 워크플로 파일이 정본이다. dev V2 CI의 경로는 [dev V2 파이프라인 「CI」](dev-v2-pipeline.md#ci)에 있다.
 - 운영은 사람이 바꾼다. main → release 같은 저장소 PR을 merge commit으로 머지하면, release push에서 `prod-ci-V2`가 산출물과 `catus-v*-V2` 태그만 발행한다. 이때 운영은 그대로다. 사람이 release에서 `prod-cd-V2`를 `version`으로 실행하고 환경 승인 1회를 거쳐야 운영 V2가 바뀐다.
 - 서버 4종·Kafka·Redis의 운영 CD를 자동으로 부르는 워크플로는 없다. 백오피스만 main 머지에서 운영 배포가 시작된다(승인 1회).
 
 | 바꾼 경로 | PR에서 | main 머지 뒤 | 운영까지 |
 | --- | --- | --- | --- |
-| `app/app-dev` JS·TS | `app-lint`, `app-android-ci`(계약 테스트만, AAB 없음) | `app-lint`, `app-android-ci`(서버 선행 게이트 → 운영 V2 서버용 AAB), `app-ios-testflight-dev`(2026-11-02 현재 건너뜀) | Android: `app-android-cd`가 Play internal 트랙에 자동 게시(2026-11-02 18:08 KST 다시 켜짐), 프로덕션은 Play 콘솔 승격. iOS·OTA: 로컬 `ios/testflight.sh`·`scripts/ota-update.sh`와 스토어 제출 |
+| `app/app-dev` JS·TS | `app-lint`, `app-android-ci`(계약 테스트만, AAB 없음) | `app-lint`, `app-android-ci`(서버 선행 게이트 → 운영 V2 서버용 AAB), `app-ios-testflight-dev`(2026-11-02 현재 건너뜀) | Android: `app-android-cd`가 Play internal 트랙에 자동 게시(2026-11-02 18:08 KST 다시 켜짐), 프로덕션은 Play 콘솔 승격. iOS·OTA: 로컬 `app/app-dev/ios/testflight.sh`·`app/app-dev/scripts/ota-update.sh`와 스토어 제출 |
 | iOS 네이티브 `app/app-dev/ios` | `app-lint`만. iOS 컴파일 검사는 없다 | `app-lint`, `app-ios-testflight-dev`(건너뜀) | 로컬 빌드 → 스토어 |
 | Android 네이티브 `app/app-dev/android`·`modules/*/android` | `app-lint`, `app-android-build`, `app-android-ci` | `app-lint`, `app-android-build`, `app-android-ci`(AAB) | `app-android-cd` → Play internal, 프로덕션은 Play 콘솔 승격 |
 | `server/data-api` | `data-api-ci.dev-v2`, `satellite-ci.dev-v2`, `prod-ci-V2`, Java·`build.gradle`이면 `api-dog-generate` | `data-api-ci.dev-v2`가 GAR 이미지 발행 → `cd-auto.dev-v2`가 dev V2에 Data·Realtime 배포 → dev 스모크 | release 승격 + `prod-cd-V2`. 마이그레이션이 들면 `allow_migration=true`와 RDS 스냅샷([DB 전환이 든 V2 배포](../prd/fishcat/server-separation/deployment.md#db-전환이-든-v2-배포)) |
 | `server/realtime` | `realtime-ci.dev-v2`, `data-api-ci.dev-v2`, `prod-ci-V2`. Realtime Gradle이 3번 돈다 | data-api와 같다 | data-api와 같다 |
 | `server/business-api` | `satellite-ci.dev-v2`, `prod-ci-V2`, Java·`build.gradle`이면 `api-dog-generate`, `ApiErrorCode.java`면 `app-lint` | `satellite-ci.dev-v2`가 이미지 발행 → `cd-auto.dev-v2`가 dev V2에 배포 | release 승격 + `prod-cd-V2` |
 | `server/notification` | `satellite-ci.dev-v2`, `prod-ci-V2` | business-api와 같다 | release 승격 + `prod-cd-V2` |
+| 서버 문서 `server/<서버>/**/*.md`만 | 그 서버의 dev CI(PR 경로는 문서를 빼지 않는다) | 서버마다 다르다. data-api·business-api·notification 문서는 `satellite-ci.dev-v2` push 경로가 문서를 빼지 않아 `cd-auto.dev-v2`가 dev V2에 다시 배포한다(data-api 문서면 Realtime도). realtime 문서(`src/main/resources` 밖)는 도는 push CI가 없어 다음 realtime 배포 때 함께 간다 | 없음. 운영 계획(`catus-plan.py`)은 `.md`를 뺀다 |
 | `backoffice` | `backoffice-ci` | `backoffice-ci`, `backoffice-cd.prod-V2` → `backoffice-production` 승인 1회 → 운영 배포 | dev·release 단계가 없다. `.md`가 아닌 파일의 main 머지가 곧 운영 배포다 |
 | Kafka `server/scripts/v2/dev/kafka`, `server/scripts/v2/prod/kafka*` | dev 파일은 `kafka-ci.dev-v2`, prod 파일은 `kafka-ci.prod-V2`. `server/scripts/**`라 `satellite-ci.dev-v2`도 돈다 | dev 파일은 GCS 발행 → `cd-auto.dev-v2`. prod 파일은 없음 | release 승격 + `kafka-cd.prod-V2` 수동 실행 |
 | Redis `server/scripts/v2/dev/redis`, `server/scripts/v2/prod/redis*` | Kafka와 같은 방식(`redis-ci.dev-v2`, `redis-ci.prod-V2`) | Kafka와 같은 방식 | release 승격 + `redis-cd.prod-V2` 수동 실행 |
@@ -27,7 +28,7 @@
 | 이미지 CDN `assets-cdn`, `scripts/assets-cdn` | `image-assets` 검사, `app-lint` | 검사·`app-lint`만 | dev CDN은 `image-assets` 수동 실행(발행·롤백). 운영 CDN은 없다 |
 | 스모크 `smoke/server` | `smoke-check` | 바로 도는 것은 없다. 다음 dev 배포의 `ops-smoke.dev-v2`가 쓴다 | 운영 스모크 워크플로는 없다 |
 | CI 스크립트 `.github/scripts` | `satellite-ci.dev-v2`. 운영 발행 스크립트(`catus-*`·`v2/prod/**`)면 `prod-ci-V2`도 | `satellite-ci.dev-v2` → `cd-auto.dev-v2`(서비스 지문이 같으면 배포 없음) | 운영 지문 입력이 바뀌면 다음 release 발행에서 서버 4종을 모두 다시 빌드한다 |
-| 문서 `docs`, 루트 `*.md` | 상시 2개뿐. `AGENTS.md`·`CLAUDE.md`·`.claude/**`면 `agent-harness`도 | 없음 | 없음 |
+| 문서 `docs`, 루트 `*.md` | 상시 3개뿐: `pr-ci-policy`, `migration-immutable`, `agent-harness`. `agent-harness`가 하네스 문서의 링크·경로·워크플로 언급을 검사한다 | 없음 | 없음 |
 
 예외와 주의:
 
@@ -39,6 +40,8 @@
 
 ## 2. 워크플로
 
+`.github/workflows/`에 은퇴하지 않은 워크플로를 더하면 `agent-harness`가 이 지도에 그 파일 이름이 없다고 실패한다. 새 워크플로는 2-1 표에 한 줄을 더한다. 은퇴시킬 때는 파일 첫 줄에 `# RETIRED: <대체>`를 달고 2-2 표로 옮긴다. 문서가 은퇴한 워크플로 이름을 적을 때는 같은 줄에 «V1»·«옛» 같은 표시를 쓴다.
+
 ### 2-1 살아 있는 워크플로
 
 2026-11-02 현재 켜진 V2·공통 워크플로다.
@@ -46,8 +49,8 @@
 | 영역 | 파일 | GitHub 이름 | 목적 |
 | --- | --- | --- | --- |
 | 공통 | [pr-ci-policy.yml](../../.github/workflows/pr-ci-policy.yml) | PR CI 정책 | main·release 대상 모든 PR(라벨·대상 변경 포함). 승격 PR 판정과 `release:*` 라벨 검사. 같은 판정 스크립트를 `prod-ci-V2`도 돈다 |
-| 공통 | [migration-immutable.yml](../../.github/workflows/migration-immutable.yml) | 적용된 마이그레이션 불변 | release 대상이 아닌 모든 PR. 통합 브랜치에 들어간 Flyway 파일의 수정·삭제·개명을 막는다 |
-| 공통 | [agent-harness.yml](../../.github/workflows/agent-harness.yml) | Agent Harness | `.claude/**`·`AGENTS.md`·`CLAUDE.md`·`norm.sh` 변경 PR과 main push. 에이전트 설정과 게이트 자체 검사 |
+| 공통 | [migration-immutable.yml](../../.github/workflows/migration-immutable.yml) | 적용된 마이그레이션 불변 | release 대상이 아닌 모든 PR. 통합 브랜치에 들어간 Flyway 파일의 수정·삭제·개명을 막는다. `db-tools` 잡(DB 전환 도구 검사)이 `server/data-api/docs/db/test-*.py` 4종을 돌린다(`test-backoffice-bridge-integration.py`는 Docker를 쓴다) |
+| 공통 | [agent-harness.yml](../../.github/workflows/agent-harness.yml) | Agent Harness | 모든 PR과 main push(경로 필터 없음). 에이전트 설정·게이트 자체 검사, 하네스 문서의 링크·경로·워크플로 언급, 이 지도에 활성 워크플로가 모두 있는지, 스킬 머리말, 루트 `CLAUDE.md` 12KB 상한, 용어집 금지어, `.claude/skills/*/scripts`의 `test_*.py` |
 | 공통 | [claude-review.yml](../../.github/workflows/claude-review.yml) | Claude PR Review | PR 댓글의 `@claude`. Claude PR 리뷰. 리뷰 줄 댓글 트리거는 잡 조건 때문에 늘 건너뛴다 |
 | 공통 | [smoke-check.yml](../../.github/workflows/smoke-check.yml) | Smoke Checks | `smoke/server/**` 변경 PR(main·release). 스모크 케이스 오프라인 검사 |
 | 공통 | [api-dog-generate.yml](../../.github/workflows/api-dog-generate.yml) | Generate OpenAPI Docs | Data·Business Java·`build.gradle` 변경 PR, main·release·`bfeat/`·`bfix/`·`brefactor/` push, 수동. OpenAPI 생성. push에서만 gh-pages 게시·Apidog 반영·Slack 알림 |
@@ -141,7 +144,7 @@ dev V2 반영 확인: `cd-auto.dev-v2` 실행의 성공은 배포했다는 뜻�
 | 빌드 번호(iOS) | TestFlight. pbxproj `CURRENT_PROJECT_VERSION`은 하한이다 | fastlane이 업로드 때 정한다. max(그 마케팅 버전의 TestFlight 최대, pbxproj 값) + 1이고 커밋하지 않는다(`ios/fastlane/Fastfile`) |
 | 빌드 번호(Android `versionCode`) | Play 콘솔. `build.gradle` 값은 하한이다 | `app-android-ci`가 max(`ANDROID_VERSION_CODE_BASE`, `build.gradle`) + 실행 번호로 정한다(`.github/ci/android-artifact.py`). 로컬 업로드는 사람이 정한다 |
 | runtimeVersion | `app/app-dev/app.config.js`(플랫폼별), `ios/Cattus/Supporting/Expo.plist`, `android/app/src/main/res/values/strings.xml` | 네이티브가 바뀔 때 사람이 |
-| OTA 업데이트 id | 요청 헤더 `X-App-Update-Id`(`app/app-dev/src/services/api/client.ts`) | `scripts/ota-update.sh`를 실행할 때마다 |
+| OTA 업데이트 id | 요청 헤더 `X-App-Update-Id`(`app/app-dev/src/services/api/client.ts`) | `app/app-dev/scripts/ota-update.sh`를 실행할 때마다 |
 | 서버 태그 | git 태그 `catus-v*-V2`. 지금 운영 태그는 `deployment-status` 브랜치 `prod-V2/app.json` | `prod-ci-V2`의 release 발행마다 `-V2` 태그 중 최대의 patch + 1 |
 | 서버 태그(V1) | git 태그 `catus-v*`(`-V2` 없음), `.github/scripts/catus-version.py` | 꺼짐 |
 | Kafka·Redis·백오피스 태그 | git 태그 `kafka-v*-V2`·`redis-v*-V2`·`backoffice-v*-V2` | 각 CI의 발행마다 patch + 1. 백오피스는 main 머지마다 |
