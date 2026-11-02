@@ -1303,7 +1303,7 @@
     "peerName": "Tofu",
     "peerMessage": "Let's focus together!",
     "destination": "Sailing to {{name}}",
-    "sailing": "We're almost there.",
+    "sailing": "Arriving in {{seconds}}s.",
     "chooseAgain": "Choose another island"
   },
   "onboardingStory": {

@@ -1,5 +1,12 @@
 import React, { useContext, useEffect, useRef, useState } from 'react';
-import { AppState, Platform, StyleSheet, View, useWindowDimensions } from 'react-native';
+import {
+  AccessibilityInfo,
+  AppState,
+  Platform,
+  StyleSheet,
+  View,
+  useWindowDimensions,
+} from 'react-native';
 import { Btn, Txt } from '@/design-system/patterns';
 import { MotionContext, useScreenInsets } from '@/design-system/primitives';
 import { primitiveTokens as p, semanticTokens as s } from '@/design-system/tokens';
@@ -34,6 +41,8 @@ export function FirstVoyageScene({
   const { width, height } = useWindowDimensions();
   const compact = width > height && height < 660;
   const [ready, setReady] = useState(false);
+  // 도착까지 남은 초 — 안내 줄에 그대로 보인다.
+  const [secondsLeft, setSecondsLeft] = useState(Math.ceil(FIRST_VOYAGE_MS / 1000));
   const [footer, setFooter] = useState(0);
   const arrival = useRef(onArrive);
   const autoArrived = useRef(false);
@@ -42,9 +51,21 @@ export function FirstVoyageScene({
     let remaining = FIRST_VOYAGE_MS;
     let startedAt = Date.now();
     let timer: ReturnType<typeof setTimeout> | undefined;
+    // 초 경계마다 남은 초를 다시 계산한다. 백그라운드에서 멈춘 만큼은 remaining 이 보존한다.
+    const tick = () => {
+      const left = remaining - (Date.now() - startedAt);
+      if (left <= 0) {
+        remaining = 0;
+        timer = undefined;
+        setReady(true);
+        return;
+      }
+      setSecondsLeft(Math.ceil(left / 1000));
+      timer = setTimeout(tick, left % 1000 || 1000);
+    };
     const start = () => {
       startedAt = Date.now();
-      timer = setTimeout(() => setReady(true), remaining);
+      tick();
     };
     if (AppState.currentState !== 'background' && AppState.currentState !== 'inactive') start();
     const subscription = AppState.addEventListener('change', (state) => {
@@ -61,6 +82,13 @@ export function FirstVoyageScene({
       subscription.remove();
     };
   }, []);
+  // 화면 읽기는 남은 초를 처음 한 번만 알린다 — 매초 바뀌는 숫자를 계속 읽지 않는다.
+  const announced = useRef(false);
+  useEffect(() => {
+    if (!screenReader || announced.current || ready || error) return;
+    announced.current = true;
+    AccessibilityInfo.announceForAccessibility(t('firstVoyage.sailing', { seconds: secondsLeft }));
+  }, [screenReader, ready, error, secondsLeft]);
   useEffect(() => {
     if (ready && !screenReader && !error && !autoArrived.current) {
       autoArrived.current = true;
@@ -119,8 +147,10 @@ export function FirstVoyageScene({
           ) : ready && screenReader ? (
             <Btn title={t('openSea.disembark')} onPress={onArrive} disabled={pending} />
           ) : (
-            <Txt accessibilityLiveRegion="polite">
-              {t(pending ? 'openSea.entering' : 'firstVoyage.sailing')}
+            <Txt accessibilityLiveRegion={pending || ready ? 'polite' : 'none'}>
+              {pending || ready
+                ? t('openSea.entering')
+                : t('firstVoyage.sailing', { seconds: secondsLeft })}
             </Txt>
           )}
         </GuideBox>
