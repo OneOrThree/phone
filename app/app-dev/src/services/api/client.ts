@@ -28,7 +28,7 @@ import {
   sessionGeneration,
 } from './session';
 
-export const DEV_API_URL = 'https://oneorthree.dev.mooo.com';
+export const DEV_API_URL = 'https://oneorthree-v2.dev.mooo.com';
 export const PRODUCTION_API_URL = 'https://catus-api-v2.oneorthree.world';
 export const LOCAL_WEB_API_URL = 'http://localhost:8080';
 

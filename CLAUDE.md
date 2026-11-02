@@ -92,7 +92,7 @@ The map is [docs/engineering/pipeline-map.md](docs/engineering/pipeline-map.md):
 - `.github/scripts/app-server-gate.py` blocks app releases until the latest `prod-cd-V2` run on `release` has succeeded; a run that is waiting for approval, rejected, failed or cancelled keeps the block. When the owner has you start a production CD, ask for its approval at once.
 - `release` is protected (since 2026-11-02): changes arrive only by PR, and every review conversation must be resolved before the merge.
 - Android: since 2026-11-02 18:08 KST `app-android-cd` is enabled again. An app merge to `main` builds an AAB for production V2 and publishes it to the Play internal track.
-- iOS: the dev TestFlight upload on `main` push is skipped because the repository variable `IOS_DEV_RUNNERS` is unset. `ios/testflight.sh --dev` builds still point at the old dev VM `oneorthree.dev.mooo.com` (ticket 2661).
+- iOS: the dev TestFlight upload on `main` push is skipped because the repository variable `IOS_DEV_RUNNERS` is unset. `ios/testflight.sh --dev` builds point at dev V2 `oneorthree-v2.dev.mooo.com` (ticket 2661).
 - A new dev environment key goes into the per-service filter of `.github/scripts/write-compose-env.py` in the same PR; `.github/scripts/test_config_contract.py` fails otherwise (dev V2 renders through the same filter). dev V2 Realtime takes its keys from `rtkeys` in `.github/scripts/v2/dev/dev-env-V2.py`. Production V2 env keys live in the Infra repository `OneOrThree/cattus-infra` (`prod/catus-v2/runtime/env_writer-V2.py`); this repository's filter is not their source.
 
 The old `gromo-dev-app` VM, disk and runner registration were deleted on 2026-11-02. The V2 build runner remains.

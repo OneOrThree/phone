@@ -123,7 +123,7 @@
 | --- | --- | --- | --- |
 | 호스트 | GCP 프로젝트 `oneorthree2`(asia-northeast3-a)의 VM `catus-dev-v2-app`·`catus-dev-v2-data`·`catus-dev-v2-redis` | AWS ap-northeast-2의 EC2 `catus-prod-V2`(서버 4종·nginx), `catus-kafka-prod-V2`, `catus-redis-prod-V2`, `catus-backoffice-prod-V2` | 삭제됨: 옛 dev VM `gromo-dev-app`·디스크·러너, 운영 V1 `catus-prod`·구 백오피스, Gromo 1.x 운영 서버 |
 | DB | data VM의 PostgreSQL 컨테이너 | RDS `catus-prod-db`(운영 V1 서버 종료 후에도 보존). `catus-prod-db-v2`는 있지만 쓰지 않는다 | |
-| 공개 주소 | `oneorthree-v2.dev.mooo.com` | `catus-api-v2.oneorthree.world`, `backoffice-v2.oneorthree.world` | `oneorthree.dev.mooo.com`(삭제한 옛 dev VM 주소. iOS dev 빌드의 주소 전환은 별도 작업) |
+| 공개 주소 | `oneorthree-v2.dev.mooo.com` | `catus-api-v2.oneorthree.world`, `backoffice-v2.oneorthree.world` | `oneorthree.dev.mooo.com`(삭제한 옛 dev VM 주소. 앱 dev 빌드는 dev V2 주소로 전환함) |
 | 시크릿 | `catus/dev/env-v2`, `catus/dev/cicd-v2` | `catus/prod/cicd-V2`, `catus/prod/env`(V2에서 계속 사용), `catus/prod/database-V2`. 전체 표는 Infra `prod/catus-v2/README-V2.md` | `gromo/dev/env`(옛 dev VM), `catus/prod/cicd`·`catus/prod/database`(운영 V1) |
 | 이미지 | GAR `asia-northeast3-docker.pkg.dev/oneorthree2/<서비스>/<서비스>:dev-v2-<sha>-<run_id>-<attempt>`. digest로 배포 | ECR `catus-prod/<서비스>-v2`(Infra `prod/catus-v2/storage-V2.tf` 기준). digest로 배포 | |
 | 산출물 | `gs://catus-dev-v2-deploy-263851348176` | `s3://catus-prod-deploy-artifacts-808715036056-v2` | |
