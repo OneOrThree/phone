@@ -97,8 +97,8 @@ test('iOS dev TestFlight lane pins the team dev server and keeps the production 
   const posthog = fs.readFileSync(path.join(appDevRoot, 'src/services/posthog.ts'), 'utf8');
 
   // dev 주소는 앱 코드(client.ts)와 lane 이 같은 값을 써야 한다
-  expect(client).toContain("DEV_API_URL = 'https://oneorthree.dev.mooo.com'");
-  expect(fastfile).toContain('DEV_API_URL = "https://oneorthree.dev.mooo.com"');
+  expect(client).toContain("DEV_API_URL = 'https://oneorthree-v2.dev.mooo.com'");
+  expect(fastfile).toContain('DEV_API_URL = "https://oneorthree-v2.dev.mooo.com"');
   // dev lane 은 환경변수를 믿지 않고 서버 주소·청중·RUM 환경명을 직접 고정한다(||= 아님)
   expect(fastfile).toContain('lane :beta_dev');
   expect(fastfile).toContain('ENV["EXPO_PUBLIC_API_URL"] = DEV_API_URL');
@@ -117,10 +117,10 @@ test('iOS dev TestFlight lane pins the team dev server and keeps the production 
   expect(posthog).toContain('if (client || !projectToken || !host) return;');
   // Xcode gate 는 dev 청중일 때만 dev 주소를 허용하고, 그때 운영 주소는 막는다
   expect(xcode).toContain('${GROMO_IOS_AUDIENCE:-prod}');
-  expect(xcode).toContain('https://oneorthree.dev.mooo.com');
+  expect(xcode).toContain('https://oneorthree-v2.dev.mooo.com');
   // 실행 스크립트의 --dev 도 같은 주소를 고정하고 dev lane 을 부른다
   expect(testflight).toContain('--dev');
-  expect(testflight).toContain('export EXPO_PUBLIC_API_URL="https://oneorthree.dev.mooo.com"');
+  expect(testflight).toContain('export EXPO_PUBLIC_API_URL="https://oneorthree-v2.dev.mooo.com"');
   expect(testflight).toContain('fastlane beta_dev');
 });
 
@@ -249,7 +249,7 @@ test('iOS release gate script allows only the matching audience/API URL pair', (
     'Check iOS release Apple audience readiness',
   );
   const prodUrl = 'https://catus-api-v2.oneorthree.world';
-  const devUrl = 'https://oneorthree.dev.mooo.com';
+  const devUrl = 'https://oneorthree-v2.dev.mooo.com';
   // SRCROOT 는 .xcode.env 없는 빈 ios/ 폴더. 그 옆 src/config/googleClientIds.json 은 GROMO-2226 가드가 읽는다(기본: prod 채움).
   const run = (audience, apiUrl, { prodIds = { ios: 'p-ios', web: 'p-web' }, publicEnv } = {}) => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gromo-gate-'));
