@@ -251,7 +251,11 @@ test('iOS release gate script allows only the matching audience/API URL pair', (
   const prodUrl = 'https://catus-api-v2.oneorthree.world';
   const devUrl = 'https://oneorthree.dev.mooo.com';
   // SRCROOT 는 .xcode.env 없는 빈 ios/ 폴더. 그 옆 src/config/googleClientIds.json 은 GROMO-2226 가드가 읽는다(기본: prod 채움).
-  const run = (audience, apiUrl, { prodIds = { ios: 'p-ios', web: 'p-web' }, publicEnv } = {}) => {
+  const run = (
+    audience,
+    apiUrl,
+    { prodIds = { ios: 'p-ios', web: 'p-web' }, publicEnv, imageAssets = {} } = {},
+  ) => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gromo-gate-'));
     fs.mkdirSync(path.join(root, 'ios'));
     fs.mkdirSync(path.join(root, 'src/config'), { recursive: true });
@@ -272,6 +276,7 @@ test('iOS release gate script allows only the matching audience/API URL pair', (
         EXPO_PUBLIC_API_URL: apiUrl,
         ...(audience === undefined ? {} : { GROMO_IOS_AUDIENCE: audience }),
         ...(env === undefined ? {} : { EXPO_PUBLIC_ENV: env }),
+        ...imageAssets,
       },
       encoding: 'utf8',
     }).status;
@@ -298,4 +303,68 @@ test('iOS release gate script allows only the matching audience/API URL pair', (
   expect(run('prod', prodUrl, { publicEnv: null })).toBe(1);
   expect(run(undefined, prodUrl, { publicEnv: '' })).toBe(1);
   expect(run('dev', devUrl, { publicEnv: null })).toBe(1);
+
+  // GROMO-2671 — 운영 이미지 CDN 은 아직 없다: 운영 청중은 dev CDN 값(켜짐 또는 주소)이 있으면 막고, 비었거나 꺼짐이면 통과한다.
+  // 위의 run(undefined, prodUrl) === 0 이 다른 가드는 모두 통과한다는 기준선이라, 아래 1 은 이미지 CDN 가드 때문이다.
+  const devCdn = 'https://d111111abcdef8.cloudfront.net';
+  const cdn = (enabled, url, imageEnv) => ({
+    imageAssets: {
+      EXPO_PUBLIC_IMAGE_ASSETS_ENABLED: enabled,
+      EXPO_PUBLIC_IMAGE_ASSETS_URL: url,
+      EXPO_PUBLIC_IMAGE_ASSETS_ENV: imageEnv,
+    },
+  });
+  expect(run(undefined, prodUrl, cdn('true', devCdn, 'dev'))).toBe(1);
+  expect(run('prod', prodUrl, cdn('true', devCdn, 'prod'))).toBe(1);
+  expect(run(undefined, prodUrl, cdn('true', '', 'dev'))).toBe(1);
+  expect(run(undefined, prodUrl, cdn('false', devCdn, 'dev'))).toBe(1);
+  expect(run(undefined, prodUrl, cdn('false', '', 'prod'))).toBe(0);
+  expect(run(undefined, prodUrl, cdn('', '', ''))).toBe(0);
+  expect(run(undefined, prodUrl, cdn('false', '', 'dev'))).toBe(0);
+  // dev 청중(팀 dev 서버 TestFlight)은 dev CDN 을 켠 채 빌드한다
+  expect(run('dev', devUrl, cdn('true', devCdn, 'dev'))).toBe(0);
+});
+
+test('운영 빌드 경로(TestFlight 스크립트·fastlane beta·Android release)는 dev 이미지 CDN 값을 막고 OTA 는 CDN 을 끈 채 고정한다', () => {
+  const read = (relativePath) => fs.readFileSync(path.join(appDevRoot, relativePath), 'utf8');
+  const testflight = read('ios/testflight.sh');
+  const fastfile = read('ios/fastlane/Fastfile');
+  const gradle = read('android/app/build.gradle');
+
+  // testflight.sh — 운영 분기 안(dev 분기 앞)에서만 막는다. --dev 는 CDN 을 켠 채 빌드한다.
+  const prodStart = testflight.indexOf('if [[ "$AUDIENCE" == "prod" ]]; then');
+  const devStart = testflight.indexOf('\nelse\n', prodStart);
+  const testflightGuard = testflight.indexOf(
+    'if [[ "${EXPO_PUBLIC_IMAGE_ASSETS_ENABLED:-}" == "true" || -n "${EXPO_PUBLIC_IMAGE_ASSETS_URL:-}" ]]; then',
+  );
+  expect(prodStart).toBeGreaterThan(-1);
+  expect(testflightGuard).toBeGreaterThan(prodStart);
+  expect(testflightGuard).toBeLessThan(devStart);
+
+  // fastlane beta — 막은 뒤 꺼진 값으로 고정한다(셸에 값이 없을 때 .env 의 dev CDN 이 인라인되는 틈). beta_dev 는 건드리지 않는다.
+  const betaLane = fastfile.slice(
+    fastfile.indexOf('lane :beta do'),
+    fastfile.indexOf('lane :beta_dev do'),
+  );
+  const betaGuard = betaLane.indexOf(
+    'if ENV["EXPO_PUBLIC_IMAGE_ASSETS_ENABLED"] == "true" || !ENV["EXPO_PUBLIC_IMAGE_ASSETS_URL"].to_s.empty?',
+  );
+  expect(betaGuard).toBeGreaterThan(-1);
+  for (const pin of [
+    'ENV["EXPO_PUBLIC_IMAGE_ASSETS_ENABLED"] = "false"',
+    'ENV["EXPO_PUBLIC_IMAGE_ASSETS_URL"] = ""',
+    'ENV["EXPO_PUBLIC_IMAGE_ASSETS_ENV"] = "prod"',
+  ])
+    expect(betaLane.indexOf(pin)).toBeGreaterThan(betaGuard);
+  expect(fastfile.slice(fastfile.indexOf('lane :beta_dev do'))).not.toContain('IMAGE_ASSETS');
+
+  // Android release — 운영 청중만 막는다. dev 청중(CI 의 dev AAB)은 CDN 값을 그대로 받는다.
+  expect(gradle).toMatch(
+    /includesReleaseArtifactTask && !devAudience &&\s*\n\s*\(System\.getenv\("EXPO_PUBLIC_IMAGE_ASSETS_ENABLED"\) == "true" \|\| System\.getenv\("EXPO_PUBLIC_IMAGE_ASSETS_URL"\)\)\) \{\s*\n\s*throw new GradleException\(\s*\n\s*"Android release 차단: 운영 이미지 CDN/,
+  );
+
+  // 운영 OTA — 셸·.env 값과 무관하게 꺼진 값을 고정한다.
+  expect(read('scripts/ota-update.sh')).toContain(
+    'export EXPO_PUBLIC_IMAGE_ASSETS_ENABLED=false\nexport EXPO_PUBLIC_IMAGE_ASSETS_URL=""\nexport EXPO_PUBLIC_IMAGE_ASSETS_ENV=prod\n',
+  );
 });
