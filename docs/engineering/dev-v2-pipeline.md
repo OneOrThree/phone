@@ -232,7 +232,6 @@ DB migration이 이미 적용됐을 수 있으므로 이전 이미지로 자동 
 ## 남은 일
 
 - **구 dev 데이터**: 구 VM·디스크는 스냅샷 없이 삭제됐다. dev V2 DB를 유지하며 구 디스크에서 이전할 수는 없다.
-- **앱 dev 빌드 주소**: Android CI, iOS 스크립트, `.env.example`은 아직 `oneorthree.dev.mooo.com`을 가리킨다.
 - **관측**: 2026-11-02 실물 점검에서 dev V2 3대 모두 Datadog 컨테이너가 없고 시스템 서비스가 비활성이었다. 구 Datadog workflow를 재사용하지 않는다.
 - **nginx 차이**: Infra 템플릿의 `/ws/realtime`에는 기존 dev와 달리 `proxy_send_timeout`이 없어 기본 60초다. 추가가 필요하다.
 - **외부 IP**: data·redis VM은 이미지와 GCS 접근용 외부 IP를 아직 쓴다.

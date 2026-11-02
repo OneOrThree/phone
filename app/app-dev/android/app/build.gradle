@@ -137,9 +137,9 @@ gradle.taskGraph.whenReady { taskGraph ->
         )
     }
     // dev 청중은 dev 주소만. 운영 주소 박힌 dev 빌드도 막음
-    if (includesReleaseArtifactTask && devAudience && apiUrl != "https://oneorthree.dev.mooo.com") {
+    if (includesReleaseArtifactTask && devAudience && apiUrl != "https://oneorthree-v2.dev.mooo.com") {
         throw new GradleException(
-            "Android dev release 차단: GROMO_ANDROID_AUDIENCE=dev 이면 EXPO_PUBLIC_API_URL은 https://oneorthree.dev.mooo.com 이어야 합니다."
+            "Android dev release 차단: GROMO_ANDROID_AUDIENCE=dev 이면 EXPO_PUBLIC_API_URL은 https://oneorthree-v2.dev.mooo.com 이어야 합니다."
         )
     }
     // GROMO-2226 — JS 의 Google 클라이언트 행은 EXPO_PUBLIC_ENV 로 고른다. 청중과 어긋나면 빈 prod 행(dev 청중) 또는 dev 행(운영)이 실린다.

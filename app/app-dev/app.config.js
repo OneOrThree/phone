@@ -53,7 +53,7 @@ module.exports = {
       associatedDomains: [
         'applinks:link.oneorthree.world',
         'applinks:catus-api-v2.oneorthree.world',
-        'applinks:oneorthree.dev.mooo.com',
+        'applinks:oneorthree-v2.dev.mooo.com',
       ],
       // GROMO-2523·2544 푸시·Meta SDK가 든 바이너리만 새 JS OTA를 받게 iOS 런타임을 분리한다.
       // 체크인된 ios/Cattus/Supporting/Expo.plist 의 EXUpdatesRuntimeVersion 과 같은 값이어야 한다.
@@ -87,7 +87,7 @@ module.exports = {
       intentFilters: [
         'link.oneorthree.world',
         'catus-api-v2.oneorthree.world',
-        'oneorthree.dev.mooo.com',
+        'oneorthree-v2.dev.mooo.com',
       ].map((host) => ({
         action: 'VIEW',
         autoVerify: true,
