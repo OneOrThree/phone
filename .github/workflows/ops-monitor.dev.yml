@@ -1,3 +1,4 @@
+# RETIRED: 대응 없음 — 옛 dev VM 의 Prometheus·Grafana·Loki 전용
 name: Dev Monitoring (Observability)
 
 # 관측 스택(Prometheus·Grafana·Loki·exporters)을 dev(self-hosted) 서버에 수동으로 올린다.

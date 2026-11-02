@@ -1,3 +1,4 @@
+# RETIRED: app-cd.dev-v2.yml 의 force_redeploy 가 대신한다(서버 4종을 함께 다시 띄운다)
 # dev 서버 재배포 — 시크릿만 바꿨을 때. GROMO-2224.
 #
 # 새 이미지 없이 SM 값만 다시 읽혀야 할 때 쓴다 (10/1 Origin 수정은 무관한 realtime PR 머지 때까지 반영 안 됐다).

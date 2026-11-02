@@ -1,3 +1,4 @@
+# RETIRED: data-api-ci.dev-v2.yml 이 대신한다
 name: Data API CI
 
 on:

@@ -21,15 +21,15 @@ PR 대상 브랜치를 바꾸는 `edited` 이벤트도 검사한다. 승격 라�
 ## 피처 브랜치에서 수동으로 기능 검사하기
 
 ```sh
-gh workflow run data-api-ci.dev.yml --ref feat/작업-브랜치
-gh workflow run realtime-ci.dev.yml --ref feat/작업-브랜치
-gh workflow run satellite-ci.dev.yml --ref feat/작업-브랜치
+gh workflow run data-api-ci.dev-v2.yml --ref feat/작업-브랜치
+gh workflow run satellite-ci.dev-v2.yml --ref feat/작업-브랜치
 gh workflow run backoffice-ci.yml --ref feat/작업-브랜치
 ```
 
 GitHub Actions의 **Run workflow**에서 브랜치를 선택해도 된다. 정책을 적용한 workflow가 해당 브랜치에도 있어야 한다.
-수동 실행은 GitHub-hosted에서 기능·계약 검사를 수행하며 dev 이미지 빌드는 생략한다. dev AWS 자격 조회·GAR 발행·dev CD는 `push`와 `main` 조건을 유지하므로 수동 검사로 배포되지 않는다.
-위성 서비스 수동 검사는 두 서비스를 모두 검사한다. 자동 main PR에서는 기존 변경 서비스 판정을 따른다.
+Realtime 검사는 `data-api-ci.dev-v2.yml`이 함께 돈다. `realtime-ci.dev-v2.yml`에는 수동 실행 트리거가 없다.
+수동 실행은 GitHub-hosted에서 기능·계약 검사를 수행하며 dev 이미지 빌드는 생략한다. GAR 이미지 발행과 Auto CD 호출은 `main` ref 조건이 있어, 피처 브랜치 수동 검사로는 배포되지 않는다.
+Business API·Notification 수동 검사는 두 서비스를 모두 검사한다. 자동 main PR에서는 기존 변경 서비스 판정을 따른다.
 
 피처 간 검사를 생략하면 통합 문제 발견이 main 대상 PR까지 늦어질 수 있다. 긴 작업 중에는 위 수동 검사를 실행하고 main PR의 필수 검사가 끝나기 전에 병합하지 않는다.
 
