@@ -47,7 +47,7 @@ class SatelliteCiPlanTest(unittest.TestCase):
 
     def test_위성과_무관한_github_변경은_켜지_않는다(self):
         """이 줄이 GROMO-1918 의 핵심이다 — 여기가 True 로 돌아가면 그때 그 사고가 재발한다."""
-        self.assert_plan(['.github/workflows/data-api-ci.dev.yml'], False, False)
+        self.assert_plan(['.github/workflows/data-api-ci.dev-v2.yml'], False, False)
         self.assert_plan(['.github/workflows/app-lint.yml'], False, False)
         self.assert_plan(['.github/scripts/check-satellite-contracts.py'], False, False)
         # realtime compose 는 계약 테스트만 (GROMO-2224)
@@ -59,10 +59,9 @@ class SatelliteCiPlanTest(unittest.TestCase):
         self.assert_plan(['.github/workflows/satellite-check.yml'], True, True)
         self.assert_plan(['.github/scripts/satellite-ci-plan.py'], True, True)
         self.assert_plan(['.github/actions/ci-jar/action.yml'], True, True)
-        # 위성 배포가 실행하는 공용 스크립트·CD 도 배포 대상 (GROMO-2224)
-        for path in ('.github/scripts/dev-env.sh', '.github/scripts/write-compose-env.py',
-                     '.github/scripts/wait-healthy.sh', '.github/scripts/mark-deploy.sh',
-                     '.github/workflows/satellite-cd.dev.yml'):
+        for path in ('.github/scripts/write-compose-env.py',
+                     '.github/workflows/prod-ci-V2.yml',
+                     '.github/workflows/satellite-ci.dev-v2.yml'):
             self.assert_plan([path], True, True)
 
     def test_루트_설정_파일은_전체를_켜지_않는다(self):

@@ -1,12 +1,12 @@
 # 위성(business-api · notification) 공용 검사. GROMO-2224 에서 dev·prod CI 로 나누며 분리.
-# satellite-ci.dev.yml · satellite-ci.prod.yml 이 호출. 변경 판정 결과(services)를 이미지 잡에 넘김.
+# satellite-ci.dev-v2.yml · satellite-ci.prod.yml 이 호출. 변경 판정 결과(services)를 이미지 잡에 넘김.
 name: Satellite Checks
 
 on:
   workflow_call:
     inputs:
       build-services:
-        description: 서비스 전체 검사·JAR 생성. release PR에서는 prod-ci가 담당한다.
+        description: 서비스 전체 검사·JAR 생성. release PR에서는 prod-ci-V2가 담당한다.
         type: boolean
         default: true
       run-functional-tests:

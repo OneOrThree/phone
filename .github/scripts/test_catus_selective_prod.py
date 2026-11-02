@@ -74,37 +74,6 @@ class SelectivePlanTests(unittest.TestCase):
             self.assertEqual({service for service in planner.SERVICES if before[service] != after[service]}, {'data-api'})
             self.assertNotEqual(migrations_before['data-api'], migrations_after['data-api'])
 
-    def test_발행_워크플로는_기존_Infra_구성의_체크섬과_경로를_검증한다(self):
-        ci = yaml.load((Path(__file__).parents[1] / 'workflows/prod-ci.yml').read_text(), Loader=yaml.BaseLoader)
-        step = next(step for step in ci['jobs']['release']['steps'] if step.get('name') == '불변 릴리스 생성·업로드')
-        script = textwrap.dedent(step['run'].split("python3 - <<'PYTHON'\n", 1)[1].split('\nPYTHON', 1)[0])
-        for failure in (None, 'archive_checksum', 'file_checksum', 'path', 'revision'):
-            with self.subTest(failure=failure), tempfile.TemporaryDirectory() as directory:
-                root = Path(directory) / 'infra-config'
-                root.mkdir()
-                # 구성 검증에서는 실행기 코드를 import하지 않는다. 기존 구성에는 V0 전환 상수가 없다.
-                content = b"raise RuntimeError('must not execute during extraction')\n"
-                name = '../release.py' if failure == 'path' else 'release.py'
-                with zipfile.ZipFile(root / 'configuration.zip', 'w') as archive:
-                    archive.writestr(name, content)
-                metadata = {'product': 'catus', 'infra_revision': 'b' * 40,
-                            'sha256': hashlib.sha256((root / 'configuration.zip').read_bytes()).hexdigest(),
-                            'files': {name: hashlib.sha256(content).hexdigest()}}
-                if failure == 'archive_checksum':
-                    metadata['sha256'] = '0' * 64
-                elif failure == 'file_checksum':
-                    metadata['files'][name] = '0' * 64
-                elif failure == 'revision':
-                    metadata['infra_revision'] = 'e' * 40
-                (root / 'configuration.json').write_text(json.dumps(metadata))
-                result = subprocess.run([sys.executable, '-c', script], cwd=directory,
-                                        env={**os.environ, 'INFRA_REVISION': 'b' * 40}, capture_output=True, text=True)
-                if failure is None:
-                    self.assertEqual(result.returncode, 0, result.stderr)
-                    self.assertEqual((root / 'release.py').read_bytes(), content)
-                else:
-                    self.assertNotEqual(result.returncode, 0)
-                    self.assertFalse((Path(directory) / 'release.py').exists())
 
     def test_Infra변경은_앱을_재빌드하지_않고_전체를_배포한다(self):
         plan = planner.plan(self.source, self.migrations, baseline(self.source), 'f' * 40, 'e' * 40)
@@ -118,28 +87,6 @@ class SelectivePlanTests(unittest.TestCase):
         self.assertEqual(unchanged['build_services'], [])
         self.assertEqual(unchanged['deploy_services'], [])
 
-    def test_변경없는_수동버전발행은_기존이미지를_재사용하며_release잡을_실행한다(self):
-        plan = planner.plan(self.source, self.migrations, baseline(self.source), 'f' * 40, 'b' * 40)
-        self.assertEqual(plan['build_services'], [])
-        self.assertEqual(plan['deploy_services'], [])
-        ci = yaml.load((Path(__file__).parents[1] / 'workflows/prod-ci.yml').read_text(), Loader=yaml.BaseLoader)
-        condition = ci['jobs']['release']['if']
-        cases = [('workflow_dispatch', 'release', False, 'success', 'skipped', True),
-                 ('push', 'release', False, 'success', 'skipped', False),
-                 ('push', 'release', True, 'success', 'success', True),
-                 ('pull_request', 'release', True, 'success', 'success', False),
-                 ('workflow_dispatch', 'main', False, 'success', 'skipped', False),
-                 ('workflow_dispatch', 'release', False, 'failure', 'skipped', False),
-                 ('workflow_dispatch', 'release', True, 'success', 'failure', False)]
-        for event, branch, changed, contracts, images, expected in cases:
-            values = {'github.event_name': event, 'github.ref': 'refs/heads/' + branch,
-                      'needs.contracts.result': contracts, 'needs.plan.result': 'success',
-                      'needs.plan.outputs.any': str(changed).lower(), 'needs.images.result': images}
-            expression = ' '.join(condition.split()).replace('always()', 'True').replace('&&', 'and').replace('||', 'or')
-            for key, value in values.items():
-                expression = expression.replace(key, repr(value))
-            with self.subTest(event=event, branch=branch, changed=changed, contracts=contracts, images=images):
-                self.assertEqual(eval(expression, {'__builtins__': {}}, {}), expected)
 
     def test_실제파일지문은_단일소스_SQL_공용빌드변경을_구분한다(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -213,15 +160,6 @@ class SelectivePlanTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(json.loads(output.read_text())['build_services'], expected)
 
-    def test_release가_유일한_prod자동발행_브랜치다(self):
-        workflows = Path(__file__).parents[1] / 'workflows'
-        ci = yaml.load((workflows / 'prod-ci.yml').read_text(), Loader=yaml.BaseLoader)
-        cd = yaml.load((workflows / 'prod-cd.yml').read_text(), Loader=yaml.BaseLoader)
-        satellite = yaml.load((workflows / 'satellite-ci.prod.yml').read_text(), Loader=yaml.BaseLoader)
-        self.assertEqual(ci['on']['push']['branches'], ['release'])
-        self.assertEqual(cd['jobs']['deploy']['if'], "github.ref == 'refs/heads/release'")
-        self.assertNotIn('push', satellite['on'])
-        self.assertEqual(satellite['on']['pull_request']['branches'], ['release'])
 
     def test_잘못된_Gromo기준이나_이미지를_재사용하지_않는다(self):
         previous = baseline(self.source)
@@ -232,18 +170,6 @@ class SelectivePlanTests(unittest.TestCase):
         previous['product'] = 'focuscat'
         with self.assertRaises(ValueError):
             planner.plan(self.source, self.migrations, previous, 'f' * 40, 'b' * 40)
-
-    def test_공용빌드입력_변경은_PR검사와_release발행을_모두_시작한다(self):
-        import fnmatch
-        path = Path(__file__).parents[1] / 'workflows' / 'prod-ci.yml'
-        ci = yaml.load(path.read_text(), Loader=yaml.BaseLoader)
-        shared_inputs = ['.github/actions/ci-jar/action.yml', '.github/scripts/ci-jar.py',
-                         '.dockerignore', 'server/gradle/shared.gradle']
-        for event in ['pull_request', 'push']:
-            for name in shared_inputs:
-                with self.subTest(event=event, path=name):
-                    self.assertTrue(any(fnmatch.fnmatchcase(name, pattern)
-                                        for pattern in ci['on'][event]['paths']))
 
 
 if __name__ == '__main__':

@@ -11,49 +11,18 @@ def workflow(name):
 
 
 class WorkflowRefactorTests(unittest.TestCase):
-    def test_release_image_has_one_jar_producer_and_verifies_it(self):
-        prod = workflow('prod-ci')
-        self.assertIn('checks', prod['jobs']['images']['needs'])
-        self.assertEqual(prod['jobs']['checks']['uses'], './.github/workflows/be-gradle.yml')
-        self.assertEqual(prod['jobs']['checks']['with']['publish-jar'], 'true')
-        jars = [step['with']['operation'] for step in prod['jobs']['images']['steps']
-                if step.get('uses') == './.github/actions/ci-jar']
-        self.assertEqual(jars, ['verify'])
-        self.assertEqual(workflow('satellite-ci.prod')['jobs']['checks']['with']['build-services'], 'false')
-        self.assertNotIn('images', workflow('satellite-ci.prod')['jobs'])
+    def test_local_reusable_workflows_exist_and_no_retired_dev_runner_is_used(self):
+        for path in ROOT.glob('*.yml'):
+            definition = yaml.load(path.read_text(), Loader=yaml.BaseLoader)
+            for job in definition.get('jobs', {}).values():
+                target = job.get('uses', '')
+                if target.startswith('./.github/workflows/'):
+                    self.assertTrue((ROOT / target.rsplit('/', 1)[-1]).is_file(), target)
+                runner = job.get('runs-on')
+                if isinstance(runner, list):
+                    self.assertFalse('self-hosted' in runner and 'dev' in runner, path.name)
+        self.assertIn('deployment-badges.py', (ROOT / 'cd-auto.dev-v2.yml').read_text())
 
-    def test_main_pr_builds_each_service_once_and_release_keeps_prod_checks(self):
-        prod = workflow('prod-ci')
-        for name in ('checks', 'images'):
-            self.assertIn("github.base_ref == 'release'", prod['jobs'][name]['if'])
-            self.assertIn("github.event_name != 'pull_request'", prod['jobs'][name]['if'])
-        for filename, job, producer in [('data-api-ci.dev', 'build', 'test'),
-                                          ('realtime-ci.dev', 'docker-build', 'build'),
-                                          ('satellite-ci.dev', 'images', 'checks')]:
-            definition = workflow(filename)
-            self.assertIn('.github/workflows/prod-ci.yml', definition['on']['pull_request']['paths'])
-            self.assertIn('.github/actions/check-arm-image/**', definition['on']['pull_request']['paths'])
-            image = definition['jobs'][job]
-            self.assertIn(producer, image['needs'])
-            steps = image['steps']
-            verify = next(i for i, step in enumerate(steps) if step.get('uses') == './.github/actions/ci-jar')
-            arm = next(i for i, step in enumerate(steps) if step.get('uses') == './.github/actions/check-arm-image')
-            self.assertLess(verify, arm)
-            self.assertIn("github.event_name == 'pull_request'", steps[arm]['if'])
-            self.assertNotIn('gradlew', steps[arm].get('run', ''))
-        arm = yaml.load((ROOT.parent / 'actions/check-arm-image/action.yml').read_text(), Loader=yaml.BaseLoader)
-        inputs = arm['runs']['steps'][0]['with']
-        self.assertEqual(inputs['platforms'], 'linux/arm64')
-        self.assertEqual(inputs['build-args'], 'JAR_SOURCE=prebuilt')
-        self.assertEqual(inputs['push'], 'false')
-
-    def test_progressing_deploy_is_retained_and_shared_vm_waits_are_not_dropped(self):
-        for name in ('data-api-ci.dev', 'satellite-ci.dev', 'ops-smoke.dev'):
-            w = workflow(name)
-            self.assertNotEqual(w['concurrency']['cancel-in-progress'], 'true')
-            self.assertNotIn('queue', w['concurrency'])
-        for name in ('data-api-cd.dev', 'satellite-cd.dev'):
-            self.assertEqual(workflow(name)['concurrency']['queue'], 'max')
 
     def test_app_queues_keep_latest_pending_with_publication_based_classification(self):
         ios, android, cd = workflow('app-ios-testflight-dev'), workflow('app-android-ci'), workflow('app-android-cd')

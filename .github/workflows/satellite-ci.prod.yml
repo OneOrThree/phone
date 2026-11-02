@@ -1,4 +1,4 @@
-# 위성(business-api · notification) release PR 검사. release push 발행은 prod-ci.yml로 통일한다.
+# 위성(business-api · notification) release PR 검사. release push 발행은 prod-ci-V2.yml로 통일한다.
 # 검사는 satellite-check.yml 공용. GROMO-2224 에서 satellite-ci.yml 을 dev·prod 로 분리.
 name: Satellite CI (prod)
 
@@ -35,7 +35,6 @@ on:
       - '.github/workflows/satellite-ci.*.yml'
       - '.github/workflows/satellite-check.yml'
       - '.github/workflows/be-gradle.yml'
-      - '.github/workflows/satellite-cd.dev.yml'
       - 'docs/contracts/**'
 
 concurrency:
@@ -56,5 +55,5 @@ jobs:
       contents: read
       actions: read
 
-  # release의 arm64 이미지 검증·발행은 prod-ci가 맡는다.
+  # release의 arm64 이미지 검증·발행은 prod-ci-V2가 맡는다.
   # 여기서는 위성 경계 계약만 검사하고 JAR·이미지를 중복 생성하지 않는다.
