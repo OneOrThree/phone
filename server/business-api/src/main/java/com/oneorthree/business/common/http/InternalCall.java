@@ -28,8 +28,9 @@ import java.util.Map;
  * @param onBehalfOfUserId  사용자 위임 호출이면 그 userId(검증한 AT subject), 서비스 전용이면 null
  * @param idempotencyKey    {@code Idempotency-Key} 헤더 값. <b>재시도에서 같은 값을 유지</b>한다(㉼)
  * @param declaredHeaders   유스케이스가 명시한 그 밖의 헤더
- * @param endUserAuthErrors RT 증명 엔드포인트에서 등록된 사용자 401을 구분하는가
  * @param retryable         멱등이 보장되는 호출인가. <b>opt-in 이다</b> — §4 의 재시도 대상 규칙
+ * @param endUserAuthErrors RT 증명 엔드포인트에서 등록된 사용자 401을 구분하는가
+ * @param readTimeout       이 호출 한 시도의 읽기 시간 상한. null 이면 상류 기본 read-timeout 을 쓴다
  */
 public record InternalCall(
         HttpMethod method,
@@ -40,7 +41,8 @@ public record InternalCall(
         String idempotencyKey,
         Map<String, String> declaredHeaders,
         boolean retryable,
-        boolean endUserAuthErrors) {
+        boolean endUserAuthErrors,
+        java.time.Duration readTimeout) {
 
     private static final String HEADER_AUTHORIZATION = "authorization";
     private static final String HEADER_USER_ID = "x-user-id";
@@ -118,6 +120,7 @@ public record InternalCall(
         private String idempotencyKey;
         private boolean retryable;
         private boolean endUserAuthErrors;
+        private java.time.Duration readTimeout;
 
         private Builder(HttpMethod method, String path) {
             this.method = method;
@@ -171,10 +174,16 @@ public record InternalCall(
             return this;
         }
 
+        /** 이 호출만 한 시도의 읽기 시간 상한을 상류 기본값 대신 쓴다(예: 한 TX 가 긴 탈퇴). */
+        public Builder readTimeout(java.time.Duration value) {
+            this.readTimeout = value;
+            return this;
+        }
+
         public InternalCall build() {
             boolean retry = retryable || HttpMethod.GET.equals(method);
             return new InternalCall(method, path, query, body, userId, idempotencyKey,
-                    headers, retry, endUserAuthErrors);
+                    headers, retry, endUserAuthErrors, readTimeout);
         }
     }
 }

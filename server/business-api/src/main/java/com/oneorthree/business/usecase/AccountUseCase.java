@@ -64,11 +64,20 @@ public class AccountUseCase {
     }
 
     public Deleted withdraw(AccessTokenClaims claims, String appleAuthorizationCode, Deadline deadline) {
-        JsonNode response = relay(() -> data.deleteAccount(claims.userId(), claims.sessionId(),
-                claims.authGeneration(), deadline));
-        JsonNode deleted = response == null ? null : response.get("deleted");
-        if (deleted == null || !deleted.isBoolean() || !deleted.booleanValue()) {
-            throw invalid();
+        try {
+            JsonNode response = relay(() -> data.deleteAccount(claims.userId(), claims.sessionId(),
+                    claims.authGeneration(), deadline));
+            JsonNode deleted = response == null ? null : response.get("deleted");
+            if (deleted == null || !deleted.isBoolean() || !deleted.booleanValue()) {
+                throw invalid();
+            }
+        } catch (UpstreamDomainException e) {
+            // 세션 검증을 통과한 사용자의 탈퇴 요청이 404 USER_NOT_FOUND 면, 앞선 시도(응답 유실·시간 초과)가
+            // 이미 커밋한 것이다. 확정으로 읽고 일회용 Apple 코드를 쓸 수 있는 뒤 정리를 건너뛰지 않는다.
+            if (e.getStatus() != 404 || !"USER_NOT_FOUND".equals(e.getCode())) {
+                throw e;
+            }
+            log.info("탈퇴 이미 확정 — 커밋 뒤 정리를 이어 간다 userId={}", claims.userId());
         }
         if (claims.sessionId() != null) {
             try {

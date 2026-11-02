@@ -3,6 +3,7 @@ package com.oneorthree.business.api;
 import com.oneorthree.business.auth.AccessTokenClaims;
 import com.oneorthree.business.common.api.ApiErrorCode;
 import com.oneorthree.business.common.api.PublicApiException;
+import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.common.request.CommandKeys;
 import com.oneorthree.business.common.validation.PublicIds;
 import com.oneorthree.business.config.UpstreamConfigProperties;
@@ -17,6 +18,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 import tools.jackson.databind.JsonNode;
 
+import java.time.Duration;
 import java.util.Set;
 import java.util.UUID;
 
@@ -39,6 +41,8 @@ public class AccountController {
     private static final Set<String> CAT_COLORS = Set.of("black", "ginger", "cream", "gray", "white", "calico");
     private static final Set<String> WITHDRAW_FIELDS = Set.of("confirmation", "appleAuthorizationCode");
     private static final String CONFIRMATION = "DELETE";
+    /** 탈퇴 전용 Data 예산 — 뒤따르는 Apple 폐기 8초(4초 × 2)를 더해도 앱 요청 제한 15초 안에 든다. */
+    private static final Duration WITHDRAW_BUDGET = Duration.ofSeconds(6);
 
     private final AccountUseCase account;
     private final SettingsSessionGuard sessions;
@@ -105,6 +109,7 @@ public class AccountController {
         if (code != null && (!code.isString() || code.stringValue().isBlank())) {
             throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, "appleAuthorizationCode");
         }
-        return account.withdraw(claims, code == null ? null : code.stringValue(), properties.deadline());
+        return account.withdraw(claims, code == null ? null : code.stringValue(),
+                Deadline.startingNow(WITHDRAW_BUDGET));
     }
 }

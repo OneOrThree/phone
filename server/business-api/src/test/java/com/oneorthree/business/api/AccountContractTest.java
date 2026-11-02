@@ -244,6 +244,70 @@ class AccountContractTest extends UpstreamTestBase {
     }
 
     @Test
+    void retryAfterLostResponseReadsUserNotFoundAsConfirmedAndFinishesCleanup() throws Exception {
+        // 첫 응답은 유실(503)되고 그 사이 Data 는 커밋을 끝냈다 — 재시도는 404 USER_NOT_FOUND 다.
+        java.util.concurrent.atomic.AtomicInteger calls = new java.util.concurrent.atomic.AtomicInteger();
+        DATA.on(DATA_DELETE, request -> calls.getAndIncrement() == 0
+                ? new MockUpstream.Response(503, "{\"error\":\"boom\"}")
+                : new MockUpstream.Response(404, "{\"code\":\"USER_NOT_FOUND\",\"message\":\"x\"}"));
+        APPLE.on("POST /auth/token", request -> ok("{\"refresh_token\":\"RT\"}"));
+        APPLE.on("POST /auth/revoke", request -> ok(""));
+
+        mockMvc.perform(withdraw(APPLE_CODE)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.deleted").value(true));
+
+        assertThat(DATA.hits(DATA_DELETE)).isEqualTo(2);
+        assertThat(APPLE.hits("POST /auth/token")).isEqualTo(1);
+        assertThat(APPLE.hits("POST /auth/revoke")).isEqualTo(1);
+        assertThat(redis.hasKey(REVOKED)).isTrue();
+    }
+
+    @Test
+    void userNotFoundFromStartIsConfirmedWithdrawalAndRevokesApple() throws Exception {
+        DATA.on(DATA_DELETE, request -> new MockUpstream.Response(404,
+                "{\"code\":\"USER_NOT_FOUND\",\"message\":\"x\"}"));
+        APPLE.on("POST /auth/token", request -> ok("{\"refresh_token\":\"RT\"}"));
+        APPLE.on("POST /auth/revoke", request -> ok(""));
+
+        mockMvc.perform(withdraw(APPLE_CODE)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.deleted").value(true));
+
+        assertThat(APPLE.hits("POST /auth/token")).isEqualTo(1);
+        assertThat(APPLE.hits("POST /auth/revoke")).isEqualTo(1);
+    }
+
+    @Test
+    void otherNotFoundCodeIsNotWithdrawalConfirmation() throws Exception {
+        DATA.on(DATA_DELETE, request -> new MockUpstream.Response(404,
+                "{\"code\":\"NOT_FOUND\",\"message\":\"x\"}"));
+
+        mockMvc.perform(withdraw(APPLE_CODE)).andExpect(status().isNotFound());
+
+        assertThat(APPLE.received()).isEmpty();
+    }
+
+    @Test
+    void slowCommittedWithdrawalWaitsForDedicatedReadBudgetWithoutRetry() throws Exception {
+        // ci 일반 읽기 예산은 300ms 다. 탈퇴는 전용 예산(5초)이라 600ms 응답도 끊지 않고 재시도하지 않는다.
+        DATA.on(DATA_DELETE, request -> {
+            try {
+                Thread.sleep(600);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            return ok("{\"deleted\":true}");
+        });
+        APPLE.on("POST /auth/token", request -> ok("{\"refresh_token\":\"RT\"}"));
+        APPLE.on("POST /auth/revoke", request -> ok(""));
+
+        mockMvc.perform(withdraw(APPLE_CODE)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.deleted").value(true));
+
+        assertThat(DATA.hits(DATA_DELETE)).isEqualTo(1);
+        assertThat(APPLE.hits("POST /auth/revoke")).isEqualTo(1);
+    }
+
+    @Test
     void withdrawalWithoutCodeNeverCallsApple() throws Exception {
         DATA.on(DATA_DELETE, request -> ok("{\"deleted\":true}"));
 
@@ -317,7 +381,6 @@ class AccountContractTest extends UpstreamTestBase {
             "PATCH,409,IDEMPOTENCY_KEY_CONFLICT,409,IDEMPOTENCY_KEY_REUSED,Idempotency-Key",
             "PATCH,503,PROFILE_UPDATE_UNAVAILABLE,400,SERVICE_UNAVAILABLE,-",
             "DELETE,400,HOST_WITHDRAW,400,HOST_WITHDRAW,-",
-            "DELETE,404,USER_NOT_FOUND,404,USER_NOT_FOUND,-",
             "DELETE,403,SESSION_NOT_ACTIVE,401,UNAUTHORIZED,-",
             "DELETE,409,HOST_WITHDRAW,400,UPSTREAM_CONTRACT_ERROR,-"})
     void mapsDataVerdictsToPublicErrors(String method, int upstream, String code, int expected, String publicCode,
