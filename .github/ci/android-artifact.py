@@ -37,9 +37,12 @@ def identity():
 def verify(directory, expected):
     root = Path(directory)
     metadata = json.loads((root / 'metadata.json').read_text())
-    keys = {'schema', 'revision', 'run_id', 'run_attempt', 'version_code', 'sha256', 'publish'}
-    if set(metadata) != keys or metadata['schema'] != 2 or type(metadata.get('publish')) is not bool:
+    keys = {'schema', 'revision', 'run_id', 'run_attempt', 'version_code', 'sha256', 'publish', 'audience'}
+    if set(metadata) != keys or metadata['schema'] != 3 or type(metadata.get('publish')) is not bool:
         raise ValueError('Android 산출물 메타데이터 형식 오류')
+    # dev 서버 AAB 가 internal 에 올라가면 콘솔 승격 한 번으로 스토어에 나갈 수 있다.
+    if metadata['audience'] != 'prod':
+        raise ValueError('Android 산출물이 운영 빌드가 아니다')
     if any(metadata.get(key) != value for key, value in expected.items()):
         raise ValueError('Android 산출물의 원본 SHA·run·attempt 불일치')
     code = metadata['version_code']
@@ -68,8 +71,8 @@ def main():
             parser.error('--aab 필요')
         args.directory.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(args.aab, args.directory / 'app-release.aab')
-        metadata = {**expected, 'schema': 2, 'publish': os.environ.get('PUBLISH_ALLOWED') == 'true', 'version_code': int(os.environ['VERSION_CODE']),
-                    'sha256': checksum(args.directory / 'app-release.aab')}
+        metadata = {**expected, 'schema': 3, 'publish': os.environ.get('PUBLISH_ALLOWED') == 'true', 'version_code': int(os.environ['VERSION_CODE']),
+                    'audience': os.environ['GROMO_ANDROID_AUDIENCE'], 'sha256': checksum(args.directory / 'app-release.aab')}
         (args.directory / 'metadata.json').write_text(json.dumps(metadata, sort_keys=True) + '\n')
     metadata = verify(args.directory, expected)
     output = os.environ.get('GITHUB_OUTPUT')

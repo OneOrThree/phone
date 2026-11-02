@@ -55,12 +55,20 @@ class AndroidPipelineTests(unittest.TestCase):
                 archive.writestr('base/manifest/AndroidManifest.xml', b'manifest fixture')
                 archive.writestr('BundleConfig.pb', b'bundle fixture')
             expected = {'revision': SHA, 'run_id': '12', 'run_attempt': '2'}
-            metadata = {**expected, 'schema': 2, 'publish': True, 'version_code': 100, 'sha256': artifact.checksum(root / 'app-release.aab')}
+            metadata = {**expected, 'schema': 3, 'publish': True, 'version_code': 100, 'audience': 'prod',
+                        'sha256': artifact.checksum(root / 'app-release.aab')}
             (root / 'metadata.json').write_text(json.dumps(metadata))
             self.assertEqual(artifact.verify(root, expected)['version_code'], 100)
             for key in expected:
                 with self.subTest(key=key), self.assertRaises(ValueError):
                     artifact.verify(root, {**expected, key: 'other'})
+            # dev 서버 빌드와 청중 기록이 없는 과거 산출물은 수동 CD 로도 게시하지 못한다.
+            old = {key: value for key, value in metadata.items() if key != 'audience'}
+            for rejected in ({**metadata, 'audience': 'dev'}, {**old, 'schema': 2}):
+                (root / 'metadata.json').write_text(json.dumps(rejected))
+                with self.subTest(rejected=rejected), self.assertRaises(ValueError):
+                    artifact.verify(root, expected)
+            (root / 'metadata.json').write_text(json.dumps(metadata))
             (root / 'app-release.aab').write_bytes(b'changed after CI')
             with self.assertRaisesRegex(ValueError, 'checksum'):
                 artifact.verify(root, expected)

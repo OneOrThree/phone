@@ -18,7 +18,9 @@ versionCode는 `max(ANDROID_VERSION_CODE_BASE, build.gradle의 versionCode) + GI
 
 기존 Play 버전이 이 값보다 높거나 workflow 실행 번호를 새로 시작했다면 저장소 변수 `ANDROID_VERSION_CODE_BASE`를 높인 뒤 새 CI를 실행한다. CD가 기존 Play 번호와 충돌하면 게시를 중단하며 임의로 AAB의 버전을 바꾸거나 재빌드하지 않는다. Android versionCode 상한은 코드에서 검증한다.
 
-main CI 산출물 `android-ci-<run_id>-<run_attempt>`에는 `app-release.aab`와 `metadata.json`이 들어간다. 메타데이터는 소스 SHA·CI run ID·attempt·versionCode·AAB SHA-256을 연결한다. 14일 보관하며 만료된 경우 새 CI가 필요하다.
+CI가 Play에 올린 뒤에는 `build.gradle` 값 그대로 로컬에서 올리면 Play가 거절한다. 로컬 업로드가 필요하면 최근 CI 값보다 높은 versionCode를 쓴다.
+
+main CI 산출물 `android-ci-<run_id>-<run_attempt>`에는 `app-release.aab`와 `metadata.json`이 들어간다. 메타데이터는 소스 SHA·CI run ID·attempt·versionCode·청중·AAB SHA-256을 연결한다. 14일 보관하며 만료된 경우 새 CI가 필요하다.
 
 ## 서버 선행 게이트
 
@@ -63,10 +65,11 @@ Android CI 수동 실행은 빌드까지이며 자동 게시하지 않는다. �
 검증하되 Play에는 자동 게시하지 않는다. 이전 취소·실패 실행의 미게시 런타임 변경이 있으면 함께 게시 대상으로 선택한다. 플랫폼별 네이티브 입력은 해당 플랫폼만,
 공유 소스·asset·의존성·`ios/release-config.sh`는 두 플랫폼의 게시 입력이다.
 
-Android CI 산출물의 schema 2 메타데이터에는 `publish`가 포함된다. CD는 checksum과
-원본 실행을 검증한 뒤 이 값이 true인 경우에만 자동 서명·게시한다. CI를 수동 실행한
+Android CI 산출물의 schema 3 메타데이터에는 `publish`와 `audience`가 포함된다. `audience`가
+`prod`가 아니면 수동 실행을 포함해 CD가 서명·게시하지 않는다. CD는 checksum과
+원본 실행을 검증한 뒤 `publish`가 true인 경우에만 자동 서명·게시한다. CI를 수동 실행한
 경우에도 자동 게시하지 않으며, 실제 게시 시험은 성공한 main CI 실행 ID로 Android CD를
-명시적으로 수동 실행한다. schema 1의 과거 산출물은 새 CI 실행으로 다시 생성해야 한다.
+명시적으로 수동 실행한다. schema 2 이하의 과거 산출물(dev 서버 빌드)은 CD가 거절하므로 새 CI 실행으로 다시 생성해야 한다.
 
 필수 Lint·Android Checks는 main 실행별 그룹으로 보존한다. 게시 job만 보존하고 선행 검사를 취소하면 동일 SHA 게이트가 실패해 런타임 변경의 게시가 누락될 수 있기 때문이다. PR 검사는 기존처럼 PR별 최신 실행으로 대체한다.
 
