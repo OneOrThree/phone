@@ -131,7 +131,9 @@ app:
 # ⚠️ APPLE_CLIENT_ID 는 data-api 의 aud 목록(쉼표 구분)이라 재사용하지 않는다.
 apple:
   revoke:
-    client-id: com.oneorthree.focuscat # 2.0 앱 번들 id — code 를 받은 앱과 같아야 한다
+    # code 를 받은 앱의 번들 id 와 같아야 한다. 2.0 앱을 gromo 번들(com.oneorthree.gromo)로 내보낼 때는
+    # 운영 시크릿 APPLE_REVOKE_CLIENT_ID 로 바꾼다 — 비면 focuscat(GROMO-2711).
+    client-id: ${APPLE_REVOKE_CLIENT_ID:com.oneorthree.focuscat}
     team-id: ${APPLE_TEAM_ID:}
     key-id: ${APPLE_KEY_ID:}
     private-key: ${APPLE_PRIVATE_KEY:}
