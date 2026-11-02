@@ -118,7 +118,7 @@ Android CI의 main 릴리스는 AWS Secrets Manager `gromo/prod/android`의 `POS
 
 ### 첫 섬·집중, 섬·친구, 오류 대시보드
 
-[Catus · 첫 섬과 집중](https://us.posthog.com/project/669473/dashboard/2220995)은 로그인 → 첫 섬 도착 → 첫 실제 집중 → 다른 날 재집중과 집중 습관·장소별 집중을 보는 9개 지표로 구성합니다. [섬과 친구](https://us.posthog.com/project/669473/dashboard/2234114)의 6개 지표와 [오류와 수집 상태](https://us.posthog.com/project/669473/dashboard/2234116)의 4개 지표, [섬 성장과 경제](https://us.posthog.com/project/669473/dashboard/2236458)의 6개 지표는 별도 대시보드에서 확인합니다. 성장·경제·장소별 집중 카드 8개는 게시·SQL 검증을 마쳤으며 필요한 이벤트는 아직 미계측입니다. 각 카드에는 집계 대상과 데이터의 의미를 짧게 설명합니다. 저장된 정의·상세 집계 기준·이벤트 구현 상태는 [analytics/README.md](analytics/README.md)에서 연결합니다.
+[Cattus · 첫 섬과 집중](https://us.posthog.com/project/669473/dashboard/2220995)은 로그인 → 첫 섬 도착 → 첫 실제 집중 → 다른 날 재집중과 집중 습관·장소별 집중을 보는 9개 지표로 구성합니다. [섬과 친구](https://us.posthog.com/project/669473/dashboard/2234114)의 6개 지표와 [오류와 수집 상태](https://us.posthog.com/project/669473/dashboard/2234116)의 4개 지표, [섬 성장과 경제](https://us.posthog.com/project/669473/dashboard/2236458)의 6개 지표는 별도 대시보드에서 확인합니다. 성장·경제·장소별 집중 카드 8개는 게시·SQL 검증을 마쳤으며 필요한 이벤트는 아직 미계측입니다. 각 카드에는 집계 대상과 데이터의 의미를 짧게 설명합니다. 저장된 정의·상세 집계 기준·이벤트 구현 상태는 [analytics/README.md](analytics/README.md)에서 연결합니다.
 
 최초 여정 카드 4개는 분석 정의만 준비된 상태이며 신규 `activation_step` 발행은 아직 구현하지 않았습니다. 기존의 일반 섬 가입·집중 이벤트를 최초 여정으로 간주하지 않습니다. 오류 카드 3개는 새 운영 빌드 적용과 수신 확인이 필요합니다. 이 준비 상태는 각 대시보드 상단에 안내합니다. JS 오류·운영 네이티브 크래시 자동 수집과 소스맵/심볼 업로드를 연결했으며 새 네이티브 빌드에 적용됩니다. 인증 파일과 플랫폼별 범위는 [계측 문서](analytics/README.md)를 따릅니다.
 
