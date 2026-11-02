@@ -74,7 +74,7 @@ class GateTest(unittest.TestCase):
         self.assertEqual(fetch.calls, [(gate.RECORD_URL, gate.RAW)])
         self.assertIn('ref=deployment-status', gate.RECORD_URL)
         self.assertEqual(git.calls[0], ('fetch', '--quiet', 'origin', f'refs/tags/{TAG}:refs/tags/{TAG}'))
-        self.assertEqual(git.calls[1], ('rev-parse', '--verify', f'{TAG}^{{commit}}'))
+        self.assertEqual(git.calls[1], ('rev-parse', '--verify', f'refs/tags/{TAG}^{{commit}}'))
         self.assertEqual(git.calls[2], ('diff', '--name-only', '--no-renames', f'{SHA}...HEAD'))
         self.assertNotIn(('fetch', '--quiet', 'origin', 'release'), git.calls)
         self.assertIn(TAG, out)
@@ -85,7 +85,7 @@ class GateTest(unittest.TestCase):
         code, _, err = run(fetch=api('catus-v2.0.2-V2'), git=git)
         self.assertEqual(code, 1)
         self.assertIn('catus-v2.0.2-V2', err)
-        self.assertEqual(git.calls[1], ('rev-parse', '--verify', 'catus-v2.0.2-V2^{commit}'))
+        self.assertEqual(git.calls[1], ('rev-parse', '--verify', 'refs/tags/catus-v2.0.2-V2^{commit}'))
 
     def test_malformed_tag_blocks_without_git(self):
         for bad in ('main', 'catus-v2.0.4', 'catus-v2.0.4-V2\n--evil', '', None, 5):

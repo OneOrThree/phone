@@ -26,14 +26,14 @@ const link = url => {
   } catch { return null; }
 };
 
-// 순수 판정. compare 는 GitHub compare 응답(JSON) 또는 null.
-export function releaseVerdict(serverVersion, compare) {
-  if (typeof serverVersion !== "string" || !SHA.test(serverVersion)) return { status: "unknown" };
+// 순수 판정. baseCommit 은 운영에 배포된 앱 태그의 커밋(앱 게이트와 같은 기준), compare 는 GitHub compare 응답(JSON) 또는 null.
+export function releaseVerdict(baseCommit, compare) {
+  if (typeof baseCommit !== "string" || !SHA.test(baseCommit)) return { status: "unknown" };
   if (!compare || !Number.isInteger(compare.ahead_by)) return { status: "unknown" };
   const files = Array.isArray(compare.files) ? compare.files : compare.ahead_by === 0 ? [] : null;
   if (!files) return { status: "unknown" };
   const aheadBy = compare.ahead_by;
-  const compareUrl = link(compare.html_url) ?? `${WEB}compare/${serverVersion}...main`;
+  const compareUrl = link(compare.html_url) ?? `${WEB}compare/${baseCommit}...main`;
   // 이름이 바뀐 파일은 옛 경로(previous_filename)도 본다 — 서버 밖으로 옮겨진 서버 코드도 운영과 다르다.
   const touches = name => typeof name === "string" && SERVER_RUNTIME.test(name);
   const changed = files.filter(file => touches(file?.filename) || touches(file?.previous_filename));
@@ -43,8 +43,8 @@ export function releaseVerdict(serverVersion, compare) {
   return { status: "ship", changedFiles: 0, aheadBy, compareUrl };
 }
 
-// 갱신 한 번의 호출 수(GitHub API 기준) = compare 1 + runs 4 + tags 1 = 6회. 배포 기록 4건은 raw.githubusercontent.com 이라 이 한도에 잡히지 않는다. serverVersion 키가 하나일 때 10분 캐시라 시간당 최대 36회로,
-// 미인증 한도(IP 당 시간당 60회) 안이다(키가 바뀌면 그만큼 다시 부른다). 실패 결과도 같은 시간 보관해 장애 때 한도를 쓰지 않는다.
+// 갱신 한 번의 호출 수(GitHub API 기준) = compare 1 + runs 4 + tags 1 = 6회. 배포 기록 4건은 raw.githubusercontent.com 이라 이 한도에 잡히지 않는다. 10분 캐시(키 하나)라 시간당 최대 36회로,
+// 미인증 한도(IP 당 시간당 60회) 안이다. 실패 결과도 같은 시간 보관해 장애 때 한도를 쓰지 않는다.
 export function createReleaseStatus({ fetchImpl = fetch, androidStoreVersion, now = Date.now }) {
   const get = async path => {
     const response = await fetchImpl(API + path, {
@@ -61,10 +61,9 @@ export function createReleaseStatus({ fetchImpl = fetch, androidStoreVersion, no
   };
   const attempt = async work => { try { return await work(); } catch { return null; } };
 
-  async function refresh(serverVersion) {
-    const valid = typeof serverVersion === "string" && SHA.test(serverVersion);
-    const [compare, tags, android, ...rest] = await Promise.all([
-      valid ? attempt(() => get(`/compare/${serverVersion}...main`)) : null,
+  async function refresh() {
+    // 기록·tags·runs·Android 를 먼저 읽는다. compare 는 기록 태그의 커밋이 나온 뒤에만 부른다.
+    const [tags, android, ...rest] = await Promise.all([
       attempt(() => get("/tags?per_page=100")),
       attempt(() => androidStoreVersion?.()),
       ...Object.values(UNITS).map(([file]) =>
@@ -80,8 +79,7 @@ export function createReleaseStatus({ fetchImpl = fetch, androidStoreVersion, no
       // 태그는 deployment-status 기록이 정본이다. 형식이 다르거나 못 읽으면 null 이고 head_sha 로 대신하지 않는다.
       const recorded = records[index];
       const tag = typeof recorded === "string" && new RegExp(`^${prefix}\\d+\\.\\d+\\.\\d+-V2$`).test(recorded) ? recorded : null;
-      // 서버는 /api 가 알려 준 실행 커밋(serverVersion)을 우선한다.
-      const commit = name === "server" && valid ? serverVersion : commitOf(tag);
+      const commit = commitOf(tag);
       if (!tag && !commit && !run) { units[name] = null; return; }
       // 시각·링크는 「마지막 성공 배포 실행」의 값이다(롤백이면 그 실행이 가리키는 커밋과 다를 수 있다).
       units[name] = {
@@ -89,22 +87,23 @@ export function createReleaseStatus({ fetchImpl = fetch, androidStoreVersion, no
         deployedAt: run?.run_started_at ?? run?.created_at ?? null,
       };
     });
-    return { local: false, checkedAt: new Date(now()).toISOString(), verdict: releaseVerdict(serverVersion, compare), units, androidStore: android };
+    // 판정 기준 = 운영 앱 태그의 커밋. 못 얻으면 compare 없이 unknown.
+    const base = units.server?.commit ?? null;
+    const compare = base ? await attempt(() => get(`/compare/${base}...main`)) : null;
+    return { local: false, checkedAt: new Date(now()).toISOString(), verdict: releaseVerdict(base, compare), units, androidStore: android };
   }
 
-  const cache = new Map();
-  return async serverVersion => {
-    const key = serverVersion ?? "";
-    const hit = cache.get(key);
-    if (hit && now() - hit.at < TTL) return hit.result;
-    if (cache.size > 8) cache.clear();
-    const entry = { at: now(), result: refresh(serverVersion ?? null) };
-    cache.set(key, entry);
+  // 키 없는 단일 캐시. 동시 요청은 같은 promise 를 공유한다.
+  let entry = null;
+  return async () => {
+    if (entry && now() - entry.at < TTL) return entry.result;
+    const mine = { at: now(), result: refresh() };
+    entry = mine;
     // 거부된 promise 가 캐시에 남아 10분간 같은 실패를 돌려주지 않게 한다.
-    try { entry.result = await entry.result; } catch (error) {
-      if (cache.get(key) === entry) cache.delete(key);
+    try { mine.result = await mine.result; } catch (error) {
+      if (entry === mine) entry = null;
       throw error;
     }
-    return entry.result;
+    return mine.result;
   };
 }

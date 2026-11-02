@@ -149,7 +149,7 @@ CI는 코드와 빌드를 검사하지만 운영의 자격 증명, 네트워크,
 - 선행 조건: Infra가 AWS 역할 `catus-backoffice-release-V2`(신뢰 대상 `repo:OneOrThree/phone:environment:backoffice-production`)를 먼저 적용해야 한다.
 - 백오피스가 서버 변경보다 먼저 운영에 나갈 수 있다(서버는 release 경유). 의존 계약이 없어 백오피스가 시작을 거부하면 SSM 배포가 실패하고, 호스트가 직전 버전으로 되돌린다.
 - PR 검사는 `backoffice-ci.yml`이다.
-- 「출시 현황」 화면(`/api/system/release-status`): 운영 서버 실행 커밋(Data `serverVersion`) 기준으로 GitHub compare를 호출해 「서버 먼저 배포」·「앱 출시 가능」·「판정 불가」를 보이고, 서버·백오피스·Kafka·Redis의 배포 태그(`deployment-status` 기록)·커밋·마지막 성공 배포 실행의 KST 시각. 운영 백오피스(`BACKOFFICE_ENV=prod`)에서만 판정하고 dev에서는 조회하지 않는다. 표에는 서버·백오피스·Kafka·Redis의 배포 정보와 App Store·Play·DB 번호를 표로 보인다. 앱 게이트와 같은 판정이며 앱 출시 전에 눈으로 확인하는 용도다.
+- 「출시 현황」 화면(`/api/system/release-status`): `deployment-status`에 기록된 운영 앱 배포 태그(`prod-V2/app.json`)의 커밋 기준으로(앱 게이트와 같은 기준) GitHub compare를 호출해 「서버 먼저 배포」·「앱 출시 가능」·「판정 불가」를 보이고, 서버·백오피스·Kafka·Redis의 배포 태그(`deployment-status` 기록)·커밋·마지막 성공 배포 실행의 KST 시각. 운영 백오피스(`BACKOFFICE_ENV=prod`)에서만 판정하고 dev에서는 조회하지 않는다. 표에는 서버·백오피스·Kafka·Redis의 배포 정보와 App Store·Play·DB 번호를 표로 보인다. 앱 게이트와 같은 판정이며 앱 출시 전에 눈으로 확인하는 용도다.
 - 앱 배포는 백오피스 운영자 시크릿을 계속 읽는다.
 
 ## 복구

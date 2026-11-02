@@ -55,29 +55,40 @@ test("잘린 목록에 일치 파일이 없으면 unknown, 있으면 server-firs
   assert.deepEqual(releaseVerdict(SV, compare(many)), { status: "unknown" });
   assert.equal(releaseVerdict(SV, compare([...many.slice(1), file("server/notification/src/main/A.java")])).status, "server-first");
 });
-test("잘못된 serverVersion 과 비정상 compare 는 unknown", () => {
+test("잘못된 기준 커밋과 비정상 compare 는 unknown", () => {
   for (const bad of [null, "", "main", "ABCDEF1", "abc12", `${SV}0`]) assert.deepEqual(releaseVerdict(bad, compare([])), { status: "unknown" });
   for (const bad of [null, {}, { ahead_by: "3" }, { ahead_by: 2 }]) assert.deepEqual(releaseVerdict(SV, bad), { status: "unknown" });
 });
 
-test("판정은 compare 호출 결과를 따르고 잘못된 serverVersion 은 compare 를 부르지 않는다", async () => {
-  const run = async (serverVersion, override) => {
+test("판정은 기록 태그의 커밋으로 compare 를 호출한다", async () => {
+  const run = async override => {
     const { fetchImpl, calls } = fakeGithub(override);
-    const result = await createReleaseStatus({ fetchImpl, androidStoreVersion: android })(serverVersion);
+    const result = await createReleaseStatus({ fetchImpl, androidStoreVersion: android })();
     return { result, compares: calls.filter(c => c.url.includes("/compare/")) };
   };
-  assert.equal((await run(SV, {})).result.verdict.status, "server-first");
-  assert.equal((await run(SV, { "/compare/": compare([file("docs/a.md")]) })).result.verdict.status, "ship");
-  assert.equal((await run(SV, { "/compare/": new Response("{}", { status: 404 }) })).result.verdict.status, "unknown");
-  const bad = await run("main", {});
-  assert.equal(bad.compares.length, 0);
-  assert.deepEqual(bad.result.verdict, { status: "unknown" });
-  assert.equal((await run(null, {})).compares.length, 0);
+  const ok = await run({});
+  assert.equal(ok.result.verdict.status, "server-first");
+  assert.deepEqual(ok.compares.map(c => c.url), [`https://api.github.com/repos/OneOrThree/phone/compare/${SV}...main`]);
+  assert.equal((await run({ "/compare/": compare([file("docs/a.md")]) })).result.verdict.status, "ship");
+  assert.equal((await run({ "/compare/": new Response("{}", { status: 404 }) })).result.verdict.status, "unknown");
+  // 이전 태그가 배포된 상태면 그 태그의 커밋이 기준이다(최신 실행·서버 보고 버전과 무관).
+  const old = await run({ "rec:app": { message: "catus-v2.0.2-V2" } });
+  assert.match(old.compares[0].url, new RegExp(`compare/${"f".repeat(40)}\\.\\.\\.main`));
 });
 
-test("배포 단위는 태그를 커밋으로 찾고 서버는 serverVersion 기준", async () => {
+test("기록을 못 읽거나 태그가 목록에 없으면 compare 없이 unknown", async () => {
+  for (const override of [{ "rec:app": new Error("down") }, { "rec:app": { message: "catus-v2.0.4" } },
+    { "rec:app": { message: "catus-v9.9.9-V2" } }, { "/tags": new Error("down") }]) {
+    const { fetchImpl, calls } = fakeGithub(override);
+    const result = await createReleaseStatus({ fetchImpl, androidStoreVersion: android })();
+    assert.deepEqual(result.verdict, { status: "unknown" });
+    assert.equal(calls.filter(c => c.url.includes("/compare/")).length, 0);
+  }
+});
+
+test("배포 단위는 기록 태그를 커밋으로 찾는다(서버도 같다)", async () => {
   const { fetchImpl } = fakeGithub();
-  const { units, androidStore, local } = await createReleaseStatus({ fetchImpl, androidStoreVersion: android })(SV);
+  const { units, androidStore, local } = await createReleaseStatus({ fetchImpl, androidStoreVersion: android })();
   assert.equal(local, false);
   assert.deepEqual(units.server, { commit: SV, tag: "catus-v2.0.3-V2", runUrl: RUN.html_url, deployedAt: RUN.run_started_at });
   assert.equal(units.backoffice.tag, "backoffice-v1.0.5-V2");
@@ -91,7 +102,7 @@ test("fetch 실패·비정상 JSON·낯선 링크에도 던지지 않는다", as
     "rec:kafka": new Error("down"), "rec:redis": { message: "redis-v1.0.0" }, "rec:backoffice": { message: "catus-v1.0.0-V2" },
     "/actions/workflows/redis": new Response("<html>", { status: 200 }), "/actions/workflows/backoffice": { workflow_runs: [] },
     "/actions/workflows/prod": { workflow_runs: [{ ...RUN, html_url: "javascript:alert(1)" }] } });
-  const result = await createReleaseStatus({ fetchImpl: fail.fetchImpl, androidStoreVersion: async () => { throw new Error("x"); } })(SV);
+  const result = await createReleaseStatus({ fetchImpl: fail.fetchImpl, androidStoreVersion: async () => { throw new Error("x"); } })();
   assert.deepEqual(result.verdict, { status: "unknown" });
   assert.equal(result.units.kafka, null);
   assert.equal(result.units.redis, null);
@@ -101,26 +112,27 @@ test("fetch 실패·비정상 JSON·낯선 링크에도 던지지 않는다", as
   assert.equal(result.androidStore, null);
 });
 
-test("10분 캐시: 안에서는 재호출 없음, 지나거나 serverVersion 이 바뀌면 다시, 실패도 캐시", async () => {
+test("10분 캐시: 안에서는 재호출 없음, 지나면 다시, 동시 요청은 합치고 실패 결과도 캐시", async () => {
   let clock = 1000;
   const { fetchImpl, calls } = fakeGithub();
   const status = createReleaseStatus({ fetchImpl, androidStoreVersion: android, now: () => clock });
-  const first = await status(SV);
+  const first = await status();
   assert.equal(calls.length, 6);
-  assert.equal(await status(SV), first);
+  assert.equal(await status(), first);
   clock += 9 * 60000;
-  await status(SV);
+  await status();
   assert.equal(calls.length, 6);
   clock += 2 * 60000;
-  await status(SV);
+  await status();
   assert.equal(calls.length, 12);
-  await status("e".repeat(40));
-  assert.equal(calls.length, 18);
+  const [x, y] = await Promise.all([status(), status()]);
+  assert.equal(x, y);
+  assert.equal(calls.length, 12);
 
   const down = fakeGithub({ "/": new Error("down") });
   const failing = createReleaseStatus({ fetchImpl: down.fetchImpl, androidStoreVersion: android, now: () => clock });
-  await failing(SV); await failing(SV);
-  assert.equal(down.calls.length, 6);
+  await failing(); await failing();
+  assert.equal(down.calls.length, 5); // compare 는 기준 커밋이 없어 부르지 않는다
 });
 
 test("배포 기록이 정본이다: 이전 태그 배포면 그 태그의 커밋, 기록 실패·형식 이상이면 null", async () => {
@@ -132,18 +144,21 @@ test("배포 기록이 정본이다: 이전 태그 배포면 그 태그의 커�
   assert.equal(units.server.tag, "catus-v2.0.2-V2");
   assert.equal(units.server.commit, "f".repeat(40));
   const bad = fakeGithub({ "rec:backoffice": new Error("down"), "rec:app": { message: "catus-v2.0.2" }, "rec:kafka": { message: 7 }, "rec:redis": new Response("x", { status: 404 }) });
-  const result = await createReleaseStatus({ fetchImpl: bad.fetchImpl, androidStoreVersion: android })(SV);
+  const result = await createReleaseStatus({ fetchImpl: bad.fetchImpl, androidStoreVersion: android })();
   for (const name of ["backoffice", "kafka", "redis"]) {
     assert.equal(result.units[name].tag, null, name);
     assert.equal(result.units[name].commit, null, name);
+    // 기록을 못 읽어도 마지막 성공 실행의 시각·링크는 유지한다(화면은 태그·커밋을 「확인 불가」로 표시).
+    assert.equal(result.units[name].deployedAt, RUN.run_started_at, name);
+    assert.equal(result.units[name].runUrl, RUN.html_url, name);
   }
   assert.equal(result.units.server.tag, null);
-  assert.equal(result.units.server.commit, SV);
+  assert.equal(result.units.server.commit, null);
 });
 
 test("GitHub 요청에는 운영자 토큰도 Authorization 도 없다", async () => {
   const { fetchImpl, calls } = fakeGithub();
-  await createReleaseStatus({ fetchImpl, androidStoreVersion: android })(SV);
+  await createReleaseStatus({ fetchImpl, androidStoreVersion: android })();
   for (const { url, options } of calls) {
     assert.ok(url.startsWith("https://api.github.com/repos/OneOrThree/phone/"));
     assert.deepEqual(Object.keys(options.headers).sort(), ["Accept", "User-Agent"]);
@@ -170,17 +185,17 @@ test("checkedAt 은 계산 시각이고 캐시 히트에서 유지된다", async
   let clock = Date.parse("2026-11-02T00:00:00Z");
   const { fetchImpl } = fakeGithub();
   const status = createReleaseStatus({ fetchImpl, androidStoreVersion: android, now: () => clock });
-  const first = await status(SV);
+  const first = await status();
   assert.equal(first.checkedAt, "2026-11-02T00:00:00.000Z");
   clock += 5 * 60000;
-  assert.equal((await status(SV)).checkedAt, first.checkedAt);
+  assert.equal((await status()).checkedAt, first.checkedAt);
   clock += 6 * 60000;
-  assert.equal((await status(SV)).checkedAt, "2026-11-02T00:11:00.000Z");
+  assert.equal((await status()).checkedAt, "2026-11-02T00:11:00.000Z");
 });
 
 test("문자열이 아닌 태그 이름은 던지지 않는다", async () => {
   const { fetchImpl } = fakeGithub({ "/tags": [null, { name: 5, commit: { sha: SV } }, { name: { x: 1 }, commit: { sha: SV } }] });
-  const result = await createReleaseStatus({ fetchImpl, androidStoreVersion: android })(SV);
+  const result = await createReleaseStatus({ fetchImpl, androidStoreVersion: android })();
   assert.equal(result.units.backoffice.commit, null);
   assert.equal(result.units.backoffice.tag, "backoffice-v1.0.5-V2");
 });
@@ -190,8 +205,8 @@ test("거부된 promise 는 캐시에 남지 않고 다시 시도한다", async 
   const now = () => { calls++; if (calls === 2) throw new Error("clock"); return 1000; };
   const { fetchImpl } = fakeGithub();
   const status = createReleaseStatus({ fetchImpl, androidStoreVersion: android, now });
-  await assert.rejects(status(SV), /clock/);
-  const result = await status(SV);
+  await assert.rejects(status(), /clock/);
+  const result = await status();
   assert.equal(result.local, false);
 });
 
@@ -219,17 +234,15 @@ test("로컬 모드는 외부를 부르지 않고 local 만 준다", async t => 
   assert.deepEqual(await get(), [200, { local: true }]);
   assert.equal(calls.length, 0);
 });
-test("연결 모드는 서버 버전을 trim 해 넘기고 unknown 은 null", async t => {
-  const seen = [];
-  const releaseStatus = async version => { seen.push(version); return { local: false, verdict: { status: "unknown" }, units: {}, androidStore: null }; };
-  for (const serverVersion of [` ${SV} `, "unknown", undefined]) {
-    const upstream = { verifyEnvironment: async () => ({ data: { serverVersion }, notification: {} }) };
-    const { get } = await serve(t, "connected", upstream, releaseStatus);
-    const [status, body] = await get();
-    assert.equal(status, 200);
-    assert.equal(body.local, false);
-  }
-  assert.deepEqual(seen, [SV, null, null]);
+test("연결 모드(prod)는 인증 뒤 verifyEnvironment 없이 결과를 준다", async t => {
+  let calls = 0;
+  const releaseStatus = async (...args) => { calls++; assert.equal(args.length, 0); return { local: false, verdict: { status: "unknown" }, units: {}, androidStore: null }; };
+  const upstream = { verifyEnvironment: async () => { throw new Error("서버 버전에 의존하지 않는다"); } };
+  const { get } = await serve(t, "connected", upstream, releaseStatus);
+  const [status, body] = await get();
+  assert.equal(status, 200);
+  assert.equal(body.local, false);
+  assert.equal(calls, 1);
 });
 
 test("dev 연결 모드는 조회 없이 local 만 준다", async t => {

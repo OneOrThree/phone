@@ -11,7 +11,7 @@ function UnitCell({ unit }: { unit: ReleaseUnit | null | undefined }) {
   if (!unit) return <>{NONE}</>;
   const time = kst(unit.deployedAt);
   return <>
-    {unit.tag ?? '태그 없음'} · {unit.commit ? <code title={unit.commit}>{unit.commit.slice(0, 7)}</code> : NONE}
+    {unit.tag ?? NONE} · {unit.commit ? <code title={unit.commit}>{unit.commit.slice(0, 7)}</code> : NONE}
     {time && <small>{time}</small>}
     {unit.runUrl && <small><a href={unit.runUrl} target="_blank" rel="noreferrer">배포 실행 보기</a></small>}
   </>;

@@ -85,7 +85,7 @@ Notification의 모든 인스턴스를 새 버전으로 교체한 다음 연결 
 
 ## 출시 현황 (GROMO-2684)
 
-사이드바 「출시 현황」은 앱을 내기 전에 운영 서버에 없는 서버 변경이 main에 있는지 보여 준다. BFF `GET /api/system/release-status`가 운영 서버의 `serverVersion`을 받아 GitHub 공개 API(토큰 없음, 10분 캐시, 갱신당 6회)로 compare를 조회한다. 배포 태그는 CD가 `deployment-status` 브랜치(`prod-V2/<role>.json`)에 기록한 값을 raw.githubusercontent.com에서 읽고, 커밋은 태그 목록에서 찾는다. dev 연결 모드(`BACKOFFICE_ENV`가 prod가 아님)에서는 조회하지 않고 「출시 판정은 운영 백오피스에서만 합니다.」만 보인다. 서버 실행 코드(`server/*/src/main`)가 바뀌었으면 「서버 먼저 배포」, 아니면 「앱 출시 가능」, 조회가 안 되면 「판정 불가」다. 같은 판정을 앱 출시 스크립트가 `.github/scripts/app-server-gate.py`로 강제한다. GitHub 미인증 한도는 IP 단위라 같은 IP를 쓰는 다른 프로세스가 소진하면 「판정 불가」·「확인 불가」로 나올 수 있다. Android 버전은 Play 공개 페이지 구조에 의존한다(티켓 2654에서 Play Developer API로 교체 가능).
+사이드바 「출시 현황」은 앱을 내기 전에 운영 서버에 없는 서버 변경이 main에 있는지 보여 준다. BFF `GET /api/system/release-status`가 운영 앱 배포 기록 태그(`prod-V2/app.json`)의 커밋을 기준으로 GitHub 공개 API(토큰 없음, 10분 캐시, 갱신당 6회)로 compare를 조회한다. 배포 태그는 CD가 `deployment-status` 브랜치(`prod-V2/<role>.json`)에 기록한 값을 raw.githubusercontent.com에서 읽고, 커밋은 태그 목록에서 찾는다. dev 연결 모드(`BACKOFFICE_ENV`가 prod가 아님)에서는 조회하지 않고 「출시 판정은 운영 백오피스에서만 합니다.」만 보인다. 서버 실행 코드(`server/*/src/main`)가 바뀌었으면 「서버 먼저 배포」, 아니면 「앱 출시 가능」, 조회가 안 되면 「판정 불가」다. 같은 판정을 앱 출시 스크립트가 `.github/scripts/app-server-gate.py`로 강제한다. GitHub 미인증 한도는 IP 단위라 같은 IP를 쓰는 다른 프로세스가 소진하면 「판정 불가」·「확인 불가」로 나올 수 있다. Android 버전은 Play 공개 페이지 구조에 의존한다(티켓 2654에서 Play Developer API로 교체 가능).
 
 ## 검증
 

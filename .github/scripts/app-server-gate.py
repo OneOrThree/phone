@@ -63,7 +63,7 @@ def production_tag(fetch=fetch_json):
 
 def tag_commit(tag, git=run_git):
     git('fetch', '--quiet', 'origin', f'refs/tags/{tag}:refs/tags/{tag}')
-    sha = git('rev-parse', '--verify', f'{tag}^{{commit}}').strip()
+    sha = git('rev-parse', '--verify', f'refs/tags/{tag}^{{commit}}').strip()
     if not re.fullmatch(r'[0-9a-f]{40}', sha):
         raise GateError(f'운영 태그 {tag} 의 커밋을 풀지 못했습니다: {sha!r}')
     return sha
