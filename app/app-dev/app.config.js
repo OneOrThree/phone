@@ -21,7 +21,7 @@ module.exports = {
     locales: { ko: './locales/ko.json', en: './locales/en.json' },
     slug: 'focuscat',
     owner: 'oneorthree',
-    version: '2.3.0',
+    version: '2.3.2',
     runtimeVersion: '2.0.0',
     updates: {
       url: 'https://u.expo.dev/b791fb8b-1f6c-4e6f-88f6-84ef0a99c79d',

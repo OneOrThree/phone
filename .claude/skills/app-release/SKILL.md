@@ -48,9 +48,10 @@ disable-model-invocation: true
 
 - main 의 앱 머지 → Android CI(운영 V2 서버용 AAB) → Android CD → Play internal 자동 게시. Android CD 는 2026-11-02 18:08 KST 에 다시 켜졌다.
 - 프로덕션은 Play 콘솔에서 internal 출시를 승격한다.
+- CI/CD 는 versionCode 만 올리고 버전 이름은 올리지 않는다. 승격이나 CD 수동 실행 전에 올라갈 버전 이름(`android/app/build.gradle` 의 `versionName`)이 스토어 현재 버전보다 높은지 본다. 같거나 낮으면 버전을 올리는 PR 을 먼저 머지한다(2026-11-03 versionCode 752 가 2.3.0 으로 올라간 일).
 - versionCode 규칙, `server-gate` 로 막혔을 때의 재실행, 게시 재시도는 android-ci-cd.md 를 따른다.
 
-완료 조건: Android CD 실행이 success 이고, versionCode 와 그 Android CI 실행의 커밋을 적었다.
+완료 조건: Android CD 실행이 success 이고, 버전 이름·versionCode 와 그 Android CI 실행의 커밋을 적었다.
 
 ## 4. OTA
 
