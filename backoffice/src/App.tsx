@@ -5,6 +5,7 @@ import { confirmNotices, FORCE_WARNING, forces, type ConfirmNotice } from './con
 import { ApiError, request } from './api';
 import type { ContentItem, ContentKind, ContentStatus, Draft, FcmCatalogPage, FcmTemplate, HistoryItem, HistoryPage, MagazineCard, MagazineSnapshot, Session } from './types';
 import { FocusPolicyPanel } from './FocusPolicyPanel';
+import { MonitoringLinks } from './MonitoringLinks';
 import { ReleaseStatus } from './ReleaseStatus';
 import { confirmEditorLeave } from './navigation';
 
@@ -80,6 +81,7 @@ function Icon({ name }: { name: string }) {
     settings: <><circle cx="12" cy="12" r="3" /><path d="M12 2v3m0 14v3M2 12h3m14 0h3M4.9 4.9 7 7m10 10 2.1 2.1M19.1 4.9 17 7M7 17l-2.1 2.1" /></>,
     plus: <path d="M12 5v14M5 12h14" />,
     arrow: <path d="M5 12h14m-5-5 5 5-5 5" />,
+    pulse: <path d="M3 12h4l3-8 4 16 3-8h4" />,
   };
   return <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name] ?? paths.notice}</svg>;
 }
@@ -251,7 +253,7 @@ export default function App() {
   const [sessionLoading, setSessionLoading] = useState(true);
   const [channel, setChannel] = useState<ContentKind>('fcm');
   const [policyOpen, setPolicyOpen] = useState(false);
-  const [releaseOpen, setReleaseOpen] = useState(false);
+  const [panel, setPanel] = useState<'release' | 'monitoring' | null>(null);
   const [policyDirty, setPolicyDirty] = useState(false);
   const [view, setView] = useState<'workflow' | 'history' | 'catalog'>('catalog');
   const [items, setItems] = useState<ContentItem[]>([]);
@@ -322,9 +324,13 @@ export default function App() {
   const editorNotice = iosStoreNotice(draft?.minIosVersion, versions?.iosStore);
   function mayLeave() { return confirmEditorLeave(dirty, policyDirty,
     () => window.confirm('저장하지 않은 변경 내용이 있습니다. 변경을 버리고 이동할까요?')); }
+  function openPanel(next: 'release' | 'monitoring') {
+    if (panel === next || !mayLeave()) return;
+    setPolicyDirty(false); setPolicyOpen(false); setPanel(next); setDraft(null); setSelected(null); setError('');
+  }
   function changeChannel(next: ContentKind) {
     if (busy || !mayLeave()) return;
-    setReleaseOpen(false); setChannel(next); setView(next === 'fcm' ? 'catalog' : 'workflow');
+    setPanel(null); setChannel(next); setView(next === 'fcm' ? 'catalog' : 'workflow');
     setPolicyOpen(false); setPolicyDirty(false); setSelected(null); setDraft(null); setSearch(''); setFilter('all'); setError(''); setArchivedView(false);
   }
   function createDraft() {
@@ -394,11 +400,11 @@ export default function App() {
   if (!session) return <main className="login-layout"><section className="login-intro"><a className="brand" href="/"><span className="brand-mark">c</span><span>콘텐츠 운영실</span></a><div><h1>보내기 전에,<br />한 번 더 확인.</h1><p>앱 알림부터 개발자 공지, 잡지까지.<br />작성한 내용과 수신자를 검토하고 승인합니다.</p></div><p className="login-footnote">검토 → 승인 → 발송·게시</p></section><section className="login-form-wrap"><form className="login-form" onSubmit={login}><h2>운영실 로그인</h2><p className="muted">등록된 운영자 계정으로 접속해 주세요.</p><Field label="운영자 계정"><input name="actor" autoComplete="username" value={actor} onChange={event => setActor(event.target.value)} required disabled={!!busy} /></Field><Field label="비밀번호"><input name="password" type="password" autoComplete="current-password" value={password} onChange={event => setPassword(event.target.value)} required disabled={!!busy} /></Field>{error && <p role="alert" className="error-message">{error}</p>}<button className="button primary login-submit" disabled={!!busy}>{busy ? '로그인 중…' : '로그인'}<Icon name="arrow" /></button></form></section></main>;
   return <div className="app-shell">
     <a className="skip-link" href="#workspace">본문으로 이동</a>
-    <aside className="sidebar"><a className="brand" href="/" onClick={event => { event.preventDefault(); if (!busy && mayLeave()) { setReleaseOpen(false); setPolicyOpen(false); setPolicyDirty(false); setDraft(null); setSelected(null); } }}><span className="brand-mark">c</span><span>콘텐츠<br />운영실</span></a><div className={`mode-badge ${session.mode}`}><span aria-hidden="true" />{session.mode === 'local' ? '로컬 모드' : '서비스 연결'}</div>
-      <nav aria-label="운영 메뉴">{CHANNELS.map(value => <button key={value.kind} className={`nav-item ${!policyOpen && !releaseOpen && channel === value.kind ? 'active' : ''}`} aria-current={!policyOpen && !releaseOpen && channel === value.kind ? 'page' : undefined} disabled={!!busy} onClick={() => changeChannel(value.kind)}><Icon name={value.icon} /><span>{value.name}</span><span className="nav-count">{items.filter(item => item.kind === value.kind && item.status === 'review').length || ''}</span></button>)}<button className={`nav-item ${policyOpen ? 'active' : ''}`} aria-current={policyOpen ? 'page' : undefined} disabled={!!busy} onClick={() => { if (!policyOpen && mayLeave()) { setPolicyDirty(false); setReleaseOpen(false); setPolicyOpen(true); setDraft(null); setSelected(null); setError(''); } }}><Icon name="settings" /><span>집중 보상 정책</span></button><button className={`nav-item ${releaseOpen ? 'active' : ''}`} aria-current={releaseOpen ? 'page' : undefined} disabled={!!busy} onClick={() => { if (!releaseOpen && mayLeave()) { setPolicyDirty(false); setPolicyOpen(false); setReleaseOpen(true); setDraft(null); setSelected(null); setError(''); } }}><Icon name="arrow" /><span>출시 현황</span></button></nav>
-      <div className="sidebar-bottom"><VersionInfo versions={versions} /><p>{session.mode === 'local' ? '외부 발송·게시 없이 검토 흐름을 확인합니다.' : '승인한 내용만 서비스에 발송·게시합니다.'}</p><div className="actor-row"><span className="avatar" aria-hidden="true">{session.actor.slice(0, 1).toUpperCase()}</span><span>{session.actor}</span></div><button className="logout" disabled={!!busy} onClick={() => { if (mayLeave()) void perform('logout', async () => { await request('/api/logout', { method: 'POST', csrfToken: session.csrfToken }); setSession(null); setItems([]); setReleaseOpen(false); setPolicyOpen(false); setPolicyDirty(false); setDraft(null); setSelected(null); }); }}>로그아웃</button></div>
+    <aside className="sidebar"><a className="brand" href="/" onClick={event => { event.preventDefault(); if (!busy && mayLeave()) { setPanel(null); setPolicyOpen(false); setPolicyDirty(false); setDraft(null); setSelected(null); } }}><span className="brand-mark">c</span><span>콘텐츠<br />운영실</span></a><div className={`mode-badge ${session.mode}`}><span aria-hidden="true" />{session.mode === 'local' ? '로컬 모드' : '서비스 연결'}</div>
+      <nav aria-label="운영 메뉴">{CHANNELS.map(value => <button key={value.kind} className={`nav-item ${!policyOpen && !panel && channel === value.kind ? 'active' : ''}`} aria-current={!policyOpen && !panel && channel === value.kind ? 'page' : undefined} disabled={!!busy} onClick={() => changeChannel(value.kind)}><Icon name={value.icon} /><span>{value.name}</span><span className="nav-count">{items.filter(item => item.kind === value.kind && item.status === 'review').length || ''}</span></button>)}<button className={`nav-item ${policyOpen ? 'active' : ''}`} aria-current={policyOpen ? 'page' : undefined} disabled={!!busy} onClick={() => { if (!policyOpen && mayLeave()) { setPolicyDirty(false); setPanel(null); setPolicyOpen(true); setDraft(null); setSelected(null); setError(''); } }}><Icon name="settings" /><span>집중 보상 정책</span></button><button className={`nav-item ${panel === 'release' ? 'active' : ''}`} aria-current={panel === 'release' ? 'page' : undefined} disabled={!!busy} onClick={() => openPanel('release')}><Icon name="arrow" /><span>출시 현황</span></button><button className={`nav-item ${panel === 'monitoring' ? 'active' : ''}`} aria-current={panel === 'monitoring' ? 'page' : undefined} disabled={!!busy} onClick={() => openPanel('monitoring')}><Icon name="pulse" /><span>모니터링 링크</span></button></nav>
+      <div className="sidebar-bottom"><VersionInfo versions={versions} /><p>{session.mode === 'local' ? '외부 발송·게시 없이 검토 흐름을 확인합니다.' : '승인한 내용만 서비스에 발송·게시합니다.'}</p><div className="actor-row"><span className="avatar" aria-hidden="true">{session.actor.slice(0, 1).toUpperCase()}</span><span>{session.actor}</span></div><button className="logout" disabled={!!busy} onClick={() => { if (mayLeave()) void perform('logout', async () => { await request('/api/logout', { method: 'POST', csrfToken: session.csrfToken }); setSession(null); setItems([]); setPanel(null); setPolicyOpen(false); setPolicyDirty(false); setDraft(null); setSelected(null); }); }}>로그아웃</button></div>
     </aside>
-    <main className="workspace" id="workspace">{releaseOpen ? <ReleaseStatus versions={versions} onUnauthorized={() => handleError(new ApiError('로그인이 필요합니다.', 401))} /> : policyOpen ? <FocusPolicyPanel session={session} onDirtyChange={setPolicyDirty} onUnauthorized={() => handleError(new ApiError('로그인이 필요합니다.', 401))} /> : <><header className="workspace-header"><div><h1>{currentChannel.name}</h1><p>{currentChannel.description}</p></div><button className="button primary" onClick={createDraft} disabled={!!busy}><Icon name="plus" />새 초안</button></header>
+    <main className="workspace" id="workspace">{panel === 'release' ? <ReleaseStatus versions={versions} onUnauthorized={() => handleError(new ApiError('로그인이 필요합니다.', 401))} /> : panel === 'monitoring' ? <MonitoringLinks /> : policyOpen ? <FocusPolicyPanel session={session} onDirtyChange={setPolicyDirty} onUnauthorized={() => handleError(new ApiError('로그인이 필요합니다.', 401))} /> : <><header className="workspace-header"><div><h1>{currentChannel.name}</h1><p>{currentChannel.description}</p></div><button className="button primary" onClick={createDraft} disabled={!!busy}><Icon name="plus" />새 초안</button></header>
       <div className="local-banner"><strong>{session.environment === 'local' ? '로컬 작업 공간' : session.environment === 'dev' ? '개발 환경 · dev' : '운영 환경 · prod'}</strong><span>{session.environment === 'local' ? '발송·게시는 로컬 기록으로만 처리됩니다.' : '검토와 발행은 이 환경의 Data·Notification에서만 처리됩니다.'}</span></div>
       {error && <div className="error-banner" role="alert"><span>{error}</span><button className="text-button" onClick={() => setError('')}>닫기</button></div>}
       {channel !== 'construction' && <div className="view-switch" role="group" aria-label="작업과 운영 이력">{channel === 'fcm' && <button className={view === 'catalog' ? 'active' : ''} aria-pressed={view === 'catalog'} onClick={() => { if (mayLeave()) setView('catalog'); }}>알림 설정</button>}<button className={view === 'workflow' ? 'active' : ''} aria-pressed={view === 'workflow'} onClick={() => { if (mayLeave()) setView('workflow'); }}>작성·검토</button><button className={view === 'history' ? 'active' : ''} aria-pressed={view === 'history'} onClick={() => { if (mayLeave()) setView('history'); }}>운영 이력</button></div>}
