@@ -1,11 +1,11 @@
 # Android CI와 Play 내부 테스트 CD
 
-CI 성공은 검사와 AAB 생성 성공을 뜻한다. Play 게시 결과는 별도의 Android CD 실행에서 확인한다. dev 서버용 `com.oneorthree.gromo` 앱을 대상으로 한다.
+CI 성공은 검사와 AAB 생성 성공을 뜻한다. Play 게시 결과는 별도의 Android CD 실행에서 확인한다. 운영 V2 서버(`https://catus-api-v2.oneorthree.world`)용 `com.oneorthree.gromo` 앱을 대상으로 한다. 자동 게시는 internal 트랙까지이고, 프로덕션 출시는 Play 콘솔에서 승격한다.
 
 ```text
 PR → Android CI → 일회용 키 AAB 빌드 검사 (게시 없음)
-main → 필수 앱 검사 → Android CI → AAB + CI 메타데이터
-                                ↓ 성공 이벤트
+main → 필수 앱 검사 → 서버 선행 게이트 → Android CI → AAB + CI 메타데이터
+                                                 ↓ 성공 이벤트
                     Android CD: 원본 CI 검증 → 업로드 키 서명
                                 → Play internal 게시·재조회
 ```
@@ -19,6 +19,12 @@ versionCode는 `max(ANDROID_VERSION_CODE_BASE, build.gradle의 versionCode) + GI
 기존 Play 버전이 이 값보다 높거나 workflow 실행 번호를 새로 시작했다면 저장소 변수 `ANDROID_VERSION_CODE_BASE`를 높인 뒤 새 CI를 실행한다. CD가 기존 Play 번호와 충돌하면 게시를 중단하며 임의로 AAB의 버전을 바꾸거나 재빌드하지 않는다. Android versionCode 상한은 코드에서 검증한다.
 
 main CI 산출물 `android-ci-<run_id>-<run_attempt>`에는 `app-release.aab`와 `metadata.json`이 들어간다. 메타데이터는 소스 SHA·CI run ID·attempt·versionCode·AAB SHA-256을 연결한다. 14일 보관하며 만료된 경우 새 CI가 필요하다.
+
+## 서버 선행 게이트
+
+main CI는 `server-gate` 잡에서 `.github/scripts/app-server-gate.py`를 실행한다. 운영 V2에 배포되지 않은 서버 실행 코드가 main에 있으면 이 잡이 실패하고 AAB와 CD는 실행되지 않는다. Play 콘솔의 프로덕션 승격에는 별도 검사가 없으므로 internal 게시도 같은 조건을 지킨다.
+
+막혔다면 서버를 release로 승격·배포한 뒤 실패한 Android CI를 다시 실행한다. 다음 앱 변경 push에서도 미게시 변경이 함께 게시된다. PR과 main 외 브랜치의 수동 실행은 게시하지 않으므로 게이트를 실행하지 않는다.
 
 ## 독립 CD와 신뢰 경계
 
@@ -43,6 +49,7 @@ Android CI 수동 실행은 빌드까지이며 자동 게시하지 않는다. �
 - `.github/ci/android-artifact.py` — 실행별 버전·AAB 메타데이터·checksum
 - `.github/ci/android-cd-source.py` — 신뢰한 성공 CI·main 이력·attempt 산출물 확인
 - `.github/ci/play-verify-bundle.py` — 버전 충돌과 게시 바이트 검증
+- `.github/scripts/app-server-gate.py` — 운영 V2 서버 선행 판정
 - `.github/ci/test_android_pipeline.py` — 네트워크·실제 키 없이 경계 검사
 - `.github/scripts/test_workflow_refactor.py` — 독립 실행·필수 검사·자격 증명 순서
 - [Play Bundle API](https://developers.google.com/android-publisher/api-ref/rest/v3/edits.bundles) — 게시 AAB의 versionCode·SHA-256

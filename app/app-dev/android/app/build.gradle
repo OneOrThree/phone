@@ -99,8 +99,8 @@ gradle.taskGraph.whenReady { taskGraph ->
     def includesReleaseArtifactTask = taskGraph.allTasks.any { task ->
         task.project == project && releaseArtifactTasks.contains(task.name.toLowerCase(Locale.ROOT))
     }
-    // dev 청중(GROMO_ANDROID_AUDIENCE=dev) = Play 내부 테스트용 팀 dev 서버 빌드 (GROMO-2223).
-    // 운영 세션 안 이어받음 → legacy 세션 가드는 운영만. 값은 CI(.github/workflows/app-android-ci.yml)만 줌. 비면 prod.
+    // dev 청중(GROMO_ANDROID_AUDIENCE=dev) = 로컬에서 만드는 팀 dev 서버 빌드. Android CI 는 prod 로 빌드한다.
+    // 운영 세션 안 이어받음 → legacy 세션 가드는 운영만. 비면 prod.
     def androidAudience = System.getenv("GROMO_ANDROID_AUDIENCE") ?: "prod"
     if (includesReleaseArtifactTask && !(androidAudience in ["prod", "dev"])) {
         throw new GradleException(
@@ -260,7 +260,7 @@ android {
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 379
         versionName "2.3.0"
-        // dev 청중(Play 내부 테스트용 팀 dev 서버 빌드)은 OTA 를 끈다 — 운영과 같은 채널·runtime 이라 켜 두면
+        // dev 청중(팀 dev 서버 빌드)은 OTA 를 끈다 — 운영과 같은 채널·runtime 이라 켜 두면
         // 운영 OTA 를 받아 운영 API 가 박힌 JS 로 바뀐다. iOS dev 빌드는 Fastfile beta_dev 가 같은 일을 한다.
         manifestPlaceholders += [expoUpdatesEnabled: System.getenv("GROMO_ANDROID_AUDIENCE") == "dev" ? "false" : "true"]
 
