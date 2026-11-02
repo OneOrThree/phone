@@ -1,5 +1,9 @@
 # 혼합 부하의 중단 결과와 종료 진단
 
+> **과거 기록 —** 여기 적힌 `aws-*` 스크립트는 2026-11-02 삭제됐고 다시 실행하지 않는다.
+> 이 스크립트만 쓰던 `loadtest_focus.py`·`loadtest_evidence.py`·`ws-evidence.mjs`·`focus-journey.mjs`와 그 테스트도 함께 지웠다.
+> AWS 대상 부하 금지는 [README](../README.md) 맨 위를 따른다.
+
 `loadtest/scripts/aws-mixed.py`는 기존 k6 HTTP 여정과 Node WebSocket 단계를 함께 실행한다. 대상 URL과 fixture 경로는 반드시 인자로 지정한다. fixture·토큰·운영 보고서를 저장소에 넣지 않는다. Python 3, Node 22 이상, k6가 필요하며, 실행 전에 전용 시험 계정과 정리 범위를 확인한다.
 
 ```bash
