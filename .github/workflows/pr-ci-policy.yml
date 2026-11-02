@@ -6,6 +6,7 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+  pull-requests: read
 jobs:
   policy:
     runs-on: ubuntu-latest
@@ -17,4 +18,11 @@ jobs:
       - run: python3 -m pip install 'PyYAML==6.0.2'
       - id: policy
         run: python3 .github/scripts/pr-ci-policy.py --validate-labels
+      # 경고만 한다 — 운영에 닿는 변경이면 ::warning 과 요약 표를 남기고, 실패해도 이 검사를 붉게 만들지 않는다.
+      - name: 운영 영향 경고
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api --paginate "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" --jq '.[].filename' | python3 .claude/prod-impact.py --files --github --base-ref "${{ github.base_ref }}"
       - run: python3 -m unittest discover -s .github/scripts -p 'test_pr_ci_policy.py' -v
