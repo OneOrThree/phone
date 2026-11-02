@@ -1161,6 +1161,55 @@
         }
       }
     },
+    "/internal/users/{userId}/islands/{islandId}/intro-arrivals": {
+      "post": {
+        "tags": [
+          "internal-island-membership-controller"
+        ],
+        "operationId": "introArrive",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/IslandArrivalView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/internal/users/{userId}/islands/{islandId}/arrivals": {
       "post": {
         "tags": [
@@ -5023,6 +5072,34 @@
               "type": "string",
               "format": "uuid"
             }
+          },
+          {
+            "name": "afterPublishedAt",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "afterId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 100
+            }
           }
         ],
         "responses": {
@@ -8005,6 +8082,9 @@
           },
           "arrived": {
             "type": "boolean"
+          },
+          "createdIsland": {
+            "type": "boolean"
           }
         }
       },
@@ -10141,6 +10221,9 @@
             "items": {
               "$ref": "#/components/schemas/Notice"
             }
+          },
+          "hasMore": {
+            "type": "boolean"
           }
         }
       },
