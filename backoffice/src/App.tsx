@@ -279,7 +279,7 @@ export default function App() {
   function handleError(cause: unknown) {
     if (cause instanceof ApiError && cause.status === 401) {
       setSession(null); setItems([]); setSelected(null); setDraft(null);
-      setPolicyOpen(false); setPolicyDirty(false);
+      setPanel(null); setPolicyOpen(false); setPolicyDirty(false);
     }
     setError(cause instanceof Error ? cause.message : '요청을 처리하지 못했습니다. 다시 시도해 주세요.');
   }
