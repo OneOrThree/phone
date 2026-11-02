@@ -436,7 +436,7 @@ def rerun_check(run_id, repo, cwd, deadline=None):
         path = (run.get("path") or "").split("@")[0]        # 실행의 path 는 `.github/workflows/x.yml@refs/heads/release`
         name = run.get("name") or ""
         android = os.path.basename(path) == ANDROID_CD or name == "Android CD"
-        if android or os.path.basename(path) in PROD_CD or re.fullmatch(r"Catus \w+ CD V2", name):
+        if android or os.path.basename(path) in PROD_CD or re.fullmatch(r"Cattus \w+ CD V2", name):
             effect = "같은 AAB 를 Play 내부 테스트에 다시 게시한다" if android else "같은 입력으로 운영에 배포한다"
             return "운영 CD 재실행 — %s (run %s) 를 다시 돌리면 %s. 확인한 뒤 승인한다" % (name or path, run_id, effect)
     except Exception:
@@ -742,8 +742,8 @@ def run_selftest():
         check("merge: 조회 실패도 ask", "운영 영향을 확인하지 못했다 — no pull requests found" in (ask("gh pr merge") or ""))
         replies[:] = [("pr view", "not json")]
         check("merge: 응답 형식 오류도 ask", "확인하지 못했다" in (ask("gh pr merge 3") or ""))
-        replies[:] = [("runs/123", '{"name": "Catus app CD V2", "path": ".github/workflows/prod-cd-V2.yml@refs/heads/release"}')]
-        check("rerun: 운영 CD 면 ask", "운영 CD 재실행 — Catus app CD V2" in (ask("gh run rerun 123") or ""))
+        replies[:] = [("runs/123", '{"name": "Cattus app CD V2", "path": ".github/workflows/prod-cd-V2.yml@refs/heads/release"}')]
+        check("rerun: 운영 CD 면 ask", "운영 CD 재실행 — Cattus app CD V2" in (ask("gh run rerun 123") or ""))
         replies[:] = [("runs/126", '{"name": "Android CD", "path": ".github/workflows/app-android-cd.yml@refs/heads/main"}'),
                       ("runs/127", '{"name": "Android CD"}'),
                       ("runs/128", '{"path": ".github/workflows/app-android-cd.yml@refs/heads/main"}'),
@@ -857,7 +857,7 @@ def run_selftest():
         check("재실행 조회도 같은 마감을 쓴다: 뒤의 병합은 시간 안에 확인하지 못했다고 ask",
               timeouts[0] == LOOKUP_SECONDS and (reason or "").startswith("시간 안에 확인하지 못했다"), (reason, timeouts))
         replies[:] = [view(1), ("pulls/1/files", "docs/a.md\n"),
-                      ("runs/5", '{"name": "Catus app CD V2", "path": ".github/workflows/prod-cd-V2.yml@refs/heads/release"}')]
+                      ("runs/5", '{"name": "Cattus app CD V2", "path": ".github/workflows/prod-cd-V2.yml@refs/heads/release"}')]
         costs.clear()
         costs.update({"pr view 1": 4, "pulls/1/files": 3.9})
         reason, took = chained("gh pr merge 1 && gh run rerun 5")
@@ -875,7 +875,7 @@ def run_selftest():
                     '"api --paginate repos/{owner}/{repo}/pulls/7/files --jq ' + FILES_JQ + '") printf \'backoffice/a.ts\\ndocs/b.md\\n\';;\n'
                     '"pr view 8 --json number,baseRefName") echo "HTTP 404: Not Found" >&2; exit 1;;\n'
                     '"pr view 9 --json number,baseRefName") sleep 5;;\n'
-                    '"api repos/{owner}/{repo}/actions/runs/123") echo \'{"name": "Catus kafka CD V2", "path": ".github/workflows/kafka-cd.prod-V2.yml@refs/heads/release"}\';;\n'
+                    '"api repos/{owner}/{repo}/actions/runs/123") echo \'{"name": "Cattus kafka CD V2", "path": ".github/workflows/kafka-cd.prod-V2.yml@refs/heads/release"}\';;\n'
                     'esac\n')
         os.chmod(stub, 0o755)
         real_path, real_seconds = os.environ["PATH"], LOOKUP_SECONDS
@@ -889,7 +889,7 @@ def run_selftest():
             reason = merge_check("9", None, root)
             check("진짜 _gh: 시간 초과도 ask", reason == "운영 영향을 확인하지 못했다 — gh 조회 시간 초과", reason)
             LOOKUP_SECONDS = real_seconds
-            check("진짜 _gh: rerun 운영 CD", "운영 CD 재실행 — Catus kafka CD V2" in (rerun_check("123", None, root) or ""))
+            check("진짜 _gh: rerun 운영 CD", "운영 CD 재실행 — Cattus kafka CD V2" in (rerun_check("123", None, root) or ""))
             os.environ["PATH"] = tmp + "/none"
             reason = merge_check("7", None, root)
             check("진짜 _gh: gh 가 없으면 ask", reason == "운영 영향을 확인하지 못했다 — gh 를 찾지 못했다", reason)

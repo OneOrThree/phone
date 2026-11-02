@@ -1,4 +1,4 @@
-name: Catus redis CD V2
+name: Cattus redis CD V2
 'on':
   workflow_dispatch:
     inputs:

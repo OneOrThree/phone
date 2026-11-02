@@ -62,7 +62,7 @@ GUARD_REQUIRED = (PROD_IMPACT,)
 # prod 가 없어 따로 둔다.
 PROD_ASK_RULES = (
     "Bash(gh workflow run *prod*)",
-    "Bash(gh workflow run *Catus*)",
+    "Bash(gh workflow run *Cattus*)",
     "Bash(gh workflow run *android-cd*)",
     "Bash(gh workflow run *Android CD*)",
     "Bash(gh api *dispatches*)",

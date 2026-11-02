@@ -69,15 +69,15 @@
 | dev V2 배포 | [redis-cd.dev-v2.yml](../../.github/workflows/redis-cd.dev-v2.yml) | Redis CD (dev)-v2 | 수동(manifest URI). dev Redis 런타임 적용 |
 | dev V2 배포 | [postgres-cd.dev-v2.yml](../../.github/workflows/postgres-cd.dev-v2.yml) | Postgres CD (dev)-v2 | 수동(manifest URI). dev PostgreSQL 런타임 적용 |
 | dev V2 배포 | [ops-smoke.dev-v2.yml](../../.github/workflows/ops-smoke.dev-v2.yml) | 서버 스모크 스냅샷 (dev)-v2 | 수동. `cd-auto.dev-v2`의 `record` 잡이 실행한다. `oneorthree-v2.dev.mooo.com` 스모크 |
-| 운영 V2 | [prod-ci-V2.yml](../../.github/workflows/prod-ci-V2.yml) | Catus app CI V2 | main·release 대상 PR, release push, 수동. 운영 계획·Gradle. release push에서 arm64 ECR 이미지·S3 산출물·`catus-v*-V2` 태그 발행 |
-| 운영 V2 | [prod-cd-V2.yml](../../.github/workflows/prod-cd-V2.yml) | Catus app CD V2 | 수동(release, `version`). `catus-production-V2` 승인 1회 → SSM으로 서버 4종을 운영 V2에 배포 |
-| 운영 V2 | [kafka-ci.prod-V2.yml](../../.github/workflows/kafka-ci.prod-V2.yml) | Catus kafka CI V2 | `server/scripts/v2/prod/kafka*` PR(main·release), release push, 수동. 테스트, release push에서 설정 묶음·`kafka-v*-V2` 태그 발행 |
-| 운영 V2 | [kafka-cd.prod-V2.yml](../../.github/workflows/kafka-cd.prod-V2.yml) | Catus kafka CD V2 | 수동(release, `version`). `catus-production-V2` 승인 1회 → SSM으로 운영 Kafka 배포 |
-| 운영 V2 | [redis-ci.prod-V2.yml](../../.github/workflows/redis-ci.prod-V2.yml) | Catus redis CI V2 | `server/scripts/v2/prod/redis*` PR(main·release), release push, 수동. 테스트, release push에서 설정 묶음·`redis-v*-V2` 태그 발행 |
-| 운영 V2 | [redis-cd.prod-V2.yml](../../.github/workflows/redis-cd.prod-V2.yml) | Catus redis CD V2 | 수동(release, `version`). `catus-production-V2` 승인 1회 → SSM으로 운영 Redis 배포 |
+| 운영 V2 | [prod-ci-V2.yml](../../.github/workflows/prod-ci-V2.yml) | Cattus app CI V2 | main·release 대상 PR, release push, 수동. 운영 계획·Gradle. release push에서 arm64 ECR 이미지·S3 산출물·`catus-v*-V2` 태그 발행 |
+| 운영 V2 | [prod-cd-V2.yml](../../.github/workflows/prod-cd-V2.yml) | Cattus app CD V2 | 수동(release, `version`). `catus-production-V2` 승인 1회 → SSM으로 서버 4종을 운영 V2에 배포 |
+| 운영 V2 | [kafka-ci.prod-V2.yml](../../.github/workflows/kafka-ci.prod-V2.yml) | Cattus kafka CI V2 | `server/scripts/v2/prod/kafka*` PR(main·release), release push, 수동. 테스트, release push에서 설정 묶음·`kafka-v*-V2` 태그 발행 |
+| 운영 V2 | [kafka-cd.prod-V2.yml](../../.github/workflows/kafka-cd.prod-V2.yml) | Cattus kafka CD V2 | 수동(release, `version`). `catus-production-V2` 승인 1회 → SSM으로 운영 Kafka 배포 |
+| 운영 V2 | [redis-ci.prod-V2.yml](../../.github/workflows/redis-ci.prod-V2.yml) | Cattus redis CI V2 | `server/scripts/v2/prod/redis*` PR(main·release), release push, 수동. 테스트, release push에서 설정 묶음·`redis-v*-V2` 태그 발행 |
+| 운영 V2 | [redis-cd.prod-V2.yml](../../.github/workflows/redis-cd.prod-V2.yml) | Cattus redis CD V2 | 수동(release, `version`). `catus-production-V2` 승인 1회 → SSM으로 운영 Redis 배포 |
 | 운영 V2 | [satellite-ci.prod.yml](../../.github/workflows/satellite-ci.prod.yml) | Satellite CI (prod) | release 대상 PR. Business API·Notification 경계 계약 검사. 승격 PR은 기능 테스트를 건너뛴다 |
 | 백오피스 | [backoffice-ci.yml](../../.github/workflows/backoffice-ci.yml) | Backoffice CI | `backoffice/**` PR(main·release)과 main push, 수동. npm test·build와 관련 Python 테스트 |
-| 백오피스 | [backoffice-cd.prod-V2.yml](../../.github/workflows/backoffice-cd.prod-V2.yml) | Catus backoffice CD V2 | `backoffice/**`(`.md` 제외) main push, 수동. 테스트·`backoffice-v*-V2` 발행 → `backoffice-production` 승인 1회 → SSM 운영 배포 |
+| 백오피스 | [backoffice-cd.prod-V2.yml](../../.github/workflows/backoffice-cd.prod-V2.yml) | Cattus backoffice CD V2 | `backoffice/**`(`.md` 제외) main push, 수동. 테스트·`backoffice-v*-V2` 발행 → `backoffice-production` 승인 1회 → SSM 운영 배포 |
 | 모바일 앱 | [app-lint.yml](../../.github/workflows/app-lint.yml) | Lint | `app/app-dev/**` PR과 main push, 다른 워크플로가 호출. ESLint·Prettier·tsc·jest |
 | 모바일 앱 | [app-android-build.yml](../../.github/workflows/app-android-build.yml) | Android Checks | Android 네이티브 입력 PR과 main push, 호출. Android 네이티브 컴파일·XML 검사 |
 | 모바일 앱 | [app-android-ci.yml](../../.github/workflows/app-android-ci.yml) | Android CI | `app/app-dev/**`(iOS 폴더 제외) PR과 main push, 수동. PR은 계약 테스트만. main은 서버 선행 게이트 뒤 운영 V2 서버용 AAB |

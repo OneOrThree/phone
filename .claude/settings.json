@@ -2,7 +2,7 @@
   "permissions": {
     "ask": [
       "Bash(gh workflow run *prod*)",
-      "Bash(gh workflow run *Catus*)",
+      "Bash(gh workflow run *Cattus*)",
       "Bash(gh workflow run *android-cd*)",
       "Bash(gh workflow run *Android CD*)",
       "Bash(gh api *dispatches*)",
