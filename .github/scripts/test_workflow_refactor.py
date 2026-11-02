@@ -115,6 +115,9 @@ class WorkflowRefactorTests(unittest.TestCase):
         self.assertIn('server-gate', android['jobs']['settings']['needs'])
         self.assertIn("needs.server-gate.result == 'success'", android['jobs']['settings']['if'])
         self.assertNotIn('GH_TOKEN', android['jobs']['build']['env'])
+        # 건너뛰기 값이 게이트 잡까지 번지면 판정 없이 통과한다.
+        self.assertNotIn('ALLOW_SERVER_GAP', android.get('env', {}))
+        self.assertNotIn('ALLOW_SERVER_GAP', gate['steps'][-1]['env'])
 
     def test_gate_changes_always_schedule_required_lint(self):
         lint = workflow('app-lint')['on']['push']['paths']
