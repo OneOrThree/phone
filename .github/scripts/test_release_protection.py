@@ -39,6 +39,20 @@ class FakeAPI:
         return {'name': 'release'}
 
 
+class OmittingAPI(FakeAPI):
+    """GitHub 처럼 재조회 응답에서 비어 있는 허용 목록 키를 생략한다."""
+
+    def request(self, path, method='GET', payload=None, missing_ok=False):
+        result = super().request(path, method, payload, missing_ok)
+        if method == 'GET' and path.endswith('/protection') and result:
+            result = copy.deepcopy(result)
+            reviews = result.get('required_pull_request_reviews') or {}
+            for key in ('dismissal_restrictions', 'bypass_pull_request_allowances'):
+                if not any(reviews.get(key, {}).values()):
+                    reviews.pop(key, None)
+        return result
+
+
 class ProtectionTests(unittest.TestCase):
     def test_offline_cli_creates_plan_without_github_cli(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -118,3 +132,25 @@ class ProtectionTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'ruleset'):
             protection.apply_plan(plan, api)
         self.assertEqual(api.writes, [])
+
+    def test_apply_accepts_reread_that_omits_empty_allowances(self):
+        before = snapshot()
+        plan = protection.make_plan(before, POLICY)
+        api = OmittingAPI(before)
+        protection.apply_plan(plan, api)
+        self.assertEqual(len(api.writes), 1)
+        self.assertNotIn('bypass_pull_request_allowances',
+                         api.request('/branches/release/protection')['required_pull_request_reviews'])
+
+    def test_comparable_treats_missing_key_as_empty_object(self):
+        empty = {'users': [], 'teams': [], 'apps': []}
+        present = {'required_pull_request_reviews': {
+            'dismissal_restrictions': {}, 'bypass_pull_request_allowances': empty}}
+        a = protection.comparable({'required_pull_request_reviews': {}})['required_pull_request_reviews']
+        b = protection.comparable(present)['required_pull_request_reviews']
+        self.assertEqual(a, b)
+        self.assertEqual(a['bypass_pull_request_allowances'], empty)
+        self.assertIsNone(protection.comparable({})['required_pull_request_reviews'])
+        # 실제로 다른 허용 목록은 여전히 다르게 비교된다.
+        other = {'required_pull_request_reviews': {'bypass_pull_request_allowances': {'users': [{'login': 'x'}]}}}
+        self.assertNotEqual(protection.comparable(other), protection.comparable(present))
