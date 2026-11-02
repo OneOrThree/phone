@@ -1,6 +1,6 @@
 # prod V2 파이프라인
 
-AWS EC2 4대로 나눈 Catus V2 운영의 CI/CD 현행 정리다. 2026-10-31 코드와 Infra `main`을 대조해 썼다. 실제 판정은 워크플로와 `.github/scripts/v2/prod/catus-runtime-V2.py`가 정본이다.
+AWS EC2 4대로 나눈 운영 V2의 CI/CD 현행 정리다. 2026-10-31 코드와 Infra `main`을 대조해 썼다. 실제 판정은 워크플로와 `.github/scripts/v2/prod/catus-runtime-V2.py`가 정본이다.
 
 - DB 마이그레이션이 든 배포는 [DB 전환이 든 V2 배포](../prd/fishcat/server-separation/deployment.md#db-전환이-든-v2-배포)를 따른다.
 - 관측 스택을 켜는 절차는 [서버 로그 관측 rollout](../architecture/server-log-observability/rollout.md)을 따른다.
@@ -18,7 +18,7 @@ AWS EC2 4대로 나눈 Catus V2 운영의 CI/CD 현행 정리다. 2026-10-31 코
 | `catus-kafka-prod-V2` | m6g.medium | 부팅 20 GiB + 데이터 30 GiB | Kafka 3.8.1 |
 | `catus-redis-prod-V2` | m6g.medium | 부팅 20 GiB + 데이터 20 GiB | Redis 7.4.11 두 개 |
 | `catus-backoffice-prod-V2` | t4g.small | 부팅 20 GiB + 데이터 10 GiB | 백오피스 |
-| RDS `catus-prod-db` | db.t4g.small | 20 GiB | 운영 DB. 기존 Catus 서버와 공유 |
+| RDS `catus-prod-db` | db.t4g.small | 20 GiB | 운영 DB. 운영 V1과 공유 |
 | RDS `catus-prod-db-v2` | db.t4g.small | 20 GiB, 최대 50 GiB | 전용 DB로 만들어 뒀지만 아직 쓰지 않음 |
 
 공개 주소는 `catus-api-v2.oneorthree.world`, `backoffice-v2.oneorthree.world`다.
@@ -56,7 +56,7 @@ flowchart LR
     end
     subgraph CD["CD · 수동 적용"]
         direction LR
-        D1["release에서 실행<br/>version 입력"] --> D2["환경 catus-production-V2<br/>승인자 없음(2026-11-02)"]
+        D1["release에서 실행<br/>version 입력"] --> D2["환경 catus-production-V2<br/>승인 1회(2026-11-02 적용)"]
         D2 --> D3["태그·릴리스 일치 확인<br/>SSM 전송"]
         D3 --> D4{"호스트 검증 통과?"}
         D4 -->|예| D5["current-V2.json 기록<br/>배지·PR 댓글"]
@@ -66,7 +66,8 @@ flowchart LR
 ```
 
 - 발행과 배포는 분리돼 있다. release 머지는 산출물만 만들고 운영을 바꾸지 않는다.
-- 배포는 항상 수동 CD다. 환경 `catus-production-V2`는 2026-11-02 현재 승인자가 없어, 실행하면 승인 없이 바로 배포된다. 승인자 적용은 GROMO-2695다.
+- 배포는 항상 수동 CD다. 환경 `catus-production-V2`는 2026-11-02부터(GROMO-2695) 승인자 3명 중 1명의 승인을 받은 뒤 배포한다(본인 승인 허용). 승인자는 GitHub 환경 설정이 정본이다.
+- 승인 대기 중인 실행도 끝나지 않은 실행이다. 그 실행이 release의 최근 `prod-cd-V2` 실행이면 앱 출시 게이트가 막는다(아래 「모바일 앱 출시 순서」의 한계). 실행을 승인 대기로 오래 두지 않는다.
 - CD는 `release` 브랜치에서만 돈다. 단위마다 concurrency 그룹이 달라 서버와 Kafka 배포가 서로를 막지 않는다. 동시 실행은 피한다.
 - 승격 PR의 검사 범위는 [PR 대상에 따른 서버 CI 정책](pr-ci-policy.md)을 따른다.
 
