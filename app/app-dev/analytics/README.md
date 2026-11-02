@@ -2,18 +2,18 @@
 
 대시보드는 집계 대상과 데이터의 의미를 짧게 설명하고, 상세 집계 기준은 [posthog-metric-definitions.md](posthog-metric-definitions.md)에 보관합니다. 대시보드 정의와 앱 계측 구현 상태를 구분합니다. 운영 이벤트가 없는 것은 출시 전에는 정상이며, 0% 전환율이나 크래시 없음의 근거가 아닙니다.
 
-| 대시보드                                                                            | 지표 수 | 저장된 정의                                                                                     |
-| ----------------------------------------------------------------------------------- | ------- | ----------------------------------------------------------------------------------------------- |
-| [Catus · 첫 섬과 집중](https://us.posthog.com/project/669473/dashboard/2220995)     | 9       | [기존 정의](posthog-dashboard.json) · [장소별 추가 정의](posthog-focus-location-additions.json) |
-| [Catus · 섬과 친구](https://us.posthog.com/project/669473/dashboard/2234114)        | 6       | [posthog-social-dashboard.json](posthog-social-dashboard.json)                                  |
-| [Catus · 오류와 수집 상태](https://us.posthog.com/project/669473/dashboard/2234116) | 4       | [posthog-health-dashboard.json](posthog-health-dashboard.json)                                  |
-| [Catus · 섬 성장과 경제](https://us.posthog.com/project/669473/dashboard/2236458)   | 6       | [posthog-growth-dashboard.json](posthog-growth-dashboard.json)                                  |
+| 대시보드                                                                             | 지표 수 | 저장된 정의                                                                                     |
+| ------------------------------------------------------------------------------------ | ------- | ----------------------------------------------------------------------------------------------- |
+| [Cattus · 첫 섬과 집중](https://us.posthog.com/project/669473/dashboard/2220995)     | 9       | [기존 정의](posthog-dashboard.json) · [장소별 추가 정의](posthog-focus-location-additions.json) |
+| [Cattus · 섬과 친구](https://us.posthog.com/project/669473/dashboard/2234114)        | 6       | [posthog-social-dashboard.json](posthog-social-dashboard.json)                                  |
+| [Cattus · 오류와 수집 상태](https://us.posthog.com/project/669473/dashboard/2234116) | 4       | [posthog-health-dashboard.json](posthog-health-dashboard.json)                                  |
+| [Cattus · 섬 성장과 경제](https://us.posthog.com/project/669473/dashboard/2236458)   | 6       | [posthog-growth-dashboard.json](posthog-growth-dashboard.json)                                  |
 
 각 대시보드의 상단 안내 한 개에 수집 상태·집계 범위와 다른 대시보드 링크를 둡니다. 기존 인사이트 ID와 쿼리는 유지하고 배치·제목·설명만 변경합니다.
 
 ## AI 집중측정·미리보기 비교 · 2026-11-01
 
-[Catus · 2주 집중과 생활 변화](https://us.posthog.com/project/669473/dashboard/2220995) 하단에 AI 비교 섹션을 추가했습니다. 운영 환경의 낚시섬 집중 중 관측을 기준으로 최근 14개 UTC 날짜의 고유 사용자를 비교합니다.
+[Cattus · 2주 집중과 생활 변화](https://us.posthog.com/project/669473/dashboard/2220995) 하단에 AI 비교 섹션을 추가했습니다. 운영 환경의 낚시섬 집중 중 관측을 기준으로 최근 14개 UTC 날짜의 고유 사용자를 비교합니다.
 
 - [AI 집중측정 ON·OFF 사용자](https://us.posthog.com/project/669473/insights/CJ8K1PRL): 전체 관측 사용자와 측정 ON·OFF 사용자.
 - [AI 측정·미리보기 조합별 사용자](https://us.posthog.com/project/669473/insights/jwdHMWw9): 측정 ON/OFF × 미리보기 열림/닫힘 네 조합.
@@ -27,8 +27,8 @@
 
 2026-10-21 PostHog MCP로 아래 8개 카드를 게시하고 SQL·저장된 인사이트·대시보드 재실행을 확인했습니다. **카드는 게시됐지만 필요한 새 이벤트는 아직 미계측입니다.** 모두 빈 결과이며 실제 0을 뜻하지 않습니다. 기존 카드의 ID·쿼리·레이아웃·안내문과 제외 필터를 보존했습니다.
 
-- 새 대시보드 **Catus · 섬 성장과 경제**, 6개 카드: [게시 정의](posthog-growth-dashboard.json).
-- 기존 **Catus · 첫 섬과 집중**에 섬/바다 집중시간·사용자 수와 장소별 하루 집중시간 2개 카드 추가: [추가 정의](posthog-focus-location-additions.json).
+- 새 대시보드 **Cattus · 섬 성장과 경제**, 6개 카드: [게시 정의](posthog-growth-dashboard.json).
+- 기존 **Cattus · 첫 섬과 집중**에 섬/바다 집중시간·사용자 수와 장소별 하루 집중시간 2개 카드 추가: [추가 정의](posthog-focus-location-additions.json).
 - 집계 의미, 이벤트 계약, 구현·검증 조건: [섬 성장·경제·집중 장소 지표 계약](posthog-growth-metric-contract.md).
 - 원격 게시 ID·검증 결과·합성 CTE 표본: [게시 검증 기록](posthog-growth-publication-verification.json). 실제 수신 표본·원장 대조는 계측 배포 후 진행합니다.
 

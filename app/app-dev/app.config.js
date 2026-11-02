@@ -2,7 +2,7 @@
 // 가입자는 2.0에서 새 계정이 된다 — 1.x 미이관 정책과 같은 방향으로 수용한 결정이다.
 const kakaoNativeAppKey = '1280641e9b639a279b7406f24b059703';
 const { withLegacyAndroidKakao } = require('./kakaoAndroidConfig');
-// iOS 스토어 버전(1.0.2)은 아래 version(2.0.1, Android 용)과 다르다 — 이유는 iosStoreVersionConfig.js
+// iOS 스토어 버전은 아래 version(Android 용)과 따로 관리한다 — 이유와 현재 값은 iosStoreVersionConfig.js
 const { withIosStoreVersion } = require('./iosStoreVersionConfig');
 const { withIosMeta } = require('./metaIosConfig');
 // GROMO-2215·2226 — 구글 클라이언트 id 정본은 src/config/googleClientIds.json 이다(socialLogin.ts 와 같은 파일).

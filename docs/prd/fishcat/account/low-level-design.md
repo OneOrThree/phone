@@ -541,7 +541,7 @@ epoch/gen·완료 RT hash·고정 만료/복구창을 검사해 동일 결과를
 | group_invites.inviter_id/invitee_id 및 상태·초대/응답 시각 | V1의 두 사용자 FK가 NOT NULL. 직접 초대 기능은 미사용이나 테이블은 유지되고 현재 탈퇴 삭제 호출 없음 | inviter_id 또는 invitee_id가 탈퇴자인 행을 상태와 무관하게 같은 중앙 TX에서 hard delete. 다른 사용자끼리의 초대·그룹·기존 링크/정산 증거는 보존 |
 | user_blocks.blocker_id/blocked_id/created_at | 양쪽 NOT NULL users FK. 현재 탈퇴 정리 호출 없음; 차단 writer는 아직 미구현 | blocker 또는 blocked가 탈퇴자인 원 `user_blocks` 행은 모두 같은 TX에서 hard delete. 다만 신고센터 RP-차단의 재가입 승계용 별도 keyed 방향성 관계 표지는 원행 삭제 전에 내구 확정하고 차단 해제·차단자 탈퇴 때 파기. 원행을 남기거나 한 방향만 삭제하지 않음 |
 | user_streaks.user_id/last_session_date/streak_count/longest_streak_count/updated_at | V2 이후 user_id 자체가 PK/FK. 현재 실제 탈퇴 경로에 삭제 없음 | 집중 정산 증거 동결 뒤 같은 TX에서 사용자 streak 행 hard delete. legacy entity의 '현재 withdraw 하드삭제' 주석을 구현 근거로 삼지 않음 |
-| friendships.from_user_id/to_user_id/status 및 생성·변경·삭제 시각, pinned_users | V1은 두 사용자 FK가 NOT NULL이고 (from_user_id,to_user_id) 유일. 현재 detachWithdrawnUser는 deleted_at IS NULL 행만 잠가 deleted_at을 기록하고 이미 soft delete된 행은 제외. pin만 양방향 hard delete | 탈퇴자가 from 또는 to인 행을 status·deleted_at과 무관하게 같은 중앙 TX에서 hard delete. 활성 조회 필터나 soft delete를 파기로 취급하지 않음. pin 양방향 hard delete 유지, 두 활성 사용자끼리의 관계·pin 보존. 아래 친구 writer 경계 적용 |
+| friendships.from_user_id/to_user_id/status 및 생성·변경·삭제 시각, ~~pinned_users~~(v0 리베이스에서 퇴역 — manifest.json:36) · 섬 핀 `telescope_pins` | V1은 두 사용자 FK가 NOT NULL이고 (from_user_id,to_user_id) 유일. 현재 detachWithdrawnUser는 deleted_at IS NULL 행만 잠가 deleted_at을 기록하고 이미 soft delete된 행은 제외. ~~pin만 양방향 hard delete~~ → 사용자 핀은 섬 핀(user→island)이고 탈퇴 시 `TelescopePinRepository.deleteAllOfUser` 로 지운다(`GroupMemberService.java:387`) | 탈퇴자가 from 또는 to인 행을 status·deleted_at과 무관하게 같은 중앙 TX에서 hard delete. 활성 조회 필터나 soft delete를 파기로 취급하지 않음. ~~pin 양방향 hard delete 유지~~(친구 핀 퇴역), 두 활성 사용자끼리의 관계 보존. 아래 친구 writer 경계 적용 |
 | user_items, currency_transactions | user FK로 이력 보존 | 기존 정산/보유 관계의 증거. 서버 공개 projection에서 탈퇴자 name/catColor를 재생하지 않음 |
 | character_equipment.user_id/item_id/slot_type/equipped_at | V1의 별도 장착 행이며 user_id NOT NULL. 현재 중앙 탈퇴에 삭제 호출 없음 | user_items 보유·거래 증거와 구분한 개인 설정이다. 같은 탈퇴 TX에서 해당 사용자 장착 행 hard delete. EquipmentService의 활성 users 공유 잠금과 직렬화하고 타인 장착·보유/원장은 보존 |
 | personal_appearances.user_id/clothes/decor/position/version | V64 유저당 1행, user_id PK·users FK | 같은 탈퇴 TX에서 본인 행 hard delete(GROMO-1950). 개인 외양 PATCH는 users 배타 잠금부터 잡아 탈퇴와 직렬화되고 탈퇴 뒤엔 404라 재생성되지 않음. 섬 외양(island_appearances)은 섬 자산이라 보존 |
@@ -791,7 +791,7 @@ V1 `friendships`의 `from_user_id`·`to_user_id`는 NOT NULL users FK이고 `(fr
 
 후속 탈퇴는 users 배타 잠금을 유지한 중앙 TX에서 친구 소유 서비스에 위임해
 `DELETE FROM friendships WHERE from_user_id=:id OR to_user_id=:id`를 status·deleted_at과 무관하게 실행하고
-기존 `pinned_users` 양방향 삭제를 유지한다. 두 활성 사용자끼리의 관계·pin은 보존한다. 벌크 DELETE를 쓰면 같은 TX에서
+~~기존 `pinned_users` 양방향 삭제를 유지한다.~~ `pinned_users` 는 퇴역했다(섬 핀은 `deleteAllOfUser`). 두 활성 사용자끼리의 관계는 보존한다. 벌크 DELETE를 쓰면 같은 TX에서
 먼저 로드한 Friendship 엔티티의 지연 flush가 삭제 행을 되살리거나 0행 UPDATE를 내지 않도록 순서를 검증한다.
 기존 soft delete 복원 분기(`createRequest:140~163`의 `findPair`가 삭제 행까지 읽음)는 호출자와 대상이 모두 활성인 쌍에만
 도달하므로 탈퇴자 행의 잔존에 기대지 않는다. 삭제는 유일 키를 비울 뿐 새 충돌을 만들지 않으며, 정상 재가입은 새 userId다.
@@ -1061,7 +1061,7 @@ NOT NULL로 승격했다. V1 FK는 이 행에서 users/group_challenges로 향�
 | OPEN 참가 target 결손·증거 확정 불가·삭제 직후 실패 | 동결 완료로 위장하지 않음, 중앙 TX rollback, 기존 원본과 환불 정합 유지 |
 | 알림 로그 수신자/친구 상대/라이벌·챌린지 키·PENDING/DEFERRED/SENT | 사용자 연계 대상만 파기, 다른 수신자의 비사용자 키 보존, 기본 NOT NULL/FK 실DB 대조 |
 | 친구/추월/claim writer와 탈퇴의 양방향 경합·늦은 FCM 응답·위성 relay/import | 중앙/위성 이력 부활0, 실패 시 중앙 TX rollback, 내구 재전달로 위성 파기 확인 |
-| 친구 PENDING/ACCEPTED/REJECTED·이미 soft delete된 행의 from/to 양방향·pin 양방향·타인 관계 fixture | 탈퇴자 friendships/pin 행0(status·deleted_at 무관), 두 활성 사용자 관계·soft delete 복원 분기 보존, V1 NOT NULL FK·유일 제약 실DB 대조 |
+| 친구 PENDING/ACCEPTED/REJECTED·이미 soft delete된 행의 from/to 양방향·pin 양방향·타인 관계 fixture | 탈퇴자 friendships 행0(status·deleted_at 무관; 친구 핀은 퇴역), 두 활성 사용자 관계·soft delete 복원 분기 보존, V1 NOT NULL FK·유일 제약 실DB 대조 |
 | 친구 요청/복원·수락/거절·친구 삭제·pin과 탈퇴 양방향 실제 PG 경합·삭제 직후 실패 | writer 선행 행도 삭제·탈퇴 뒤 관계/pin 부활0, 늦은 친구 삭제는 500 없이 NOT_FRIEND, 실패 시 관계/계정/환불/outbox 전체 rollback |
 | 양방향 차단·스트릭 full fixture 및 차단/집중 완료와 탈퇴 양방향 경합 | 대상 차단/streak행0·타인행보존·지연 writer 부활0, 삭제 직후 실패하면 전체 rollback |
 | 리그 일간 snapshot·주간 결과 파기와 정산/추월/확인 writer 경합 | 개인 결과0·최소 완료 마커 유지, 이중 정산0·지연 재생성0·타인 결과 보존·중간 실패 전체 rollback |
@@ -1113,7 +1113,7 @@ NOT NULL로 승격했다. V1 FK는 이 행에서 users/group_challenges로 향�
 | `server/data-api/docs/db/schema.dbml` | group_announcements.user_id: 작성자, 탈퇴 시 null |
 | `server/data-api/src/main/java/com/oneorthree/phone/user/exception/UserErrorCode.java` | 본인 계정 부재 USER_NOT_FOUND |
 | `server/data-api/src/main/java/com/oneorthree/phone/friend/service/FriendService.java` | detachWithdrawnUser의 활성 행 soft delete·pin 양방향 삭제, createRequest 복원 분기와 두 users 공유 잠금, 수락·거절 행 잠금, deleteFriend의 무잠금 조회 뒤 UPDATE |
-| `server/data-api/src/main/java/com/oneorthree/phone/friend/repository/FriendshipRepository.java`, `PinnedUserRepository.java` | findActiveByUserId 배타 잠금·deleted_at 조건, findPair 삭제 행 포함, deleteAllInvolving 양방향 |
+| `server/data-api/src/main/java/com/oneorthree/phone/friend/repository/FriendshipRepository.java`, ~~`PinnedUserRepository.java`~~(삭제됨) | findActiveByUserId 배타 잠금·deleted_at 조건, findPair 삭제 행 포함, deleteAllInvolving 양방향 |
 | `server/data-api/src/main/java/com/oneorthree/phone/group/repository/domain/GroupMember.java`, `GroupRepository.java`, `GroupMemberRepository.java` | leave()의 is_left/left_reason만 변경, notificationEnabled·announcementPermission·status·role NOT NULL, is_left=false OWNER 방장 판정 |
 | `server/data-api/src/main/java/com/oneorthree/phone/invitelink/repository/domain/InviteLinkClick.java`, `InviteLinkClickRepository.java`, `invitelink/support/InviteLinkGa4Events.java`, `common/analytics/Ga4MeasurementClientImpl.java` | ip_hash NOT NULL·user_agent·matched_device_id·app_instance_id, markMatched, 기기 재시도 조회, 서버 MP app_instance_id 전송 |
 | `app/legacy/app-dev/src/store/UserContext.tsx`, `app/legacy/app-dev/src/screens/settings/AccountScreen.tsx`, `app/legacy/app-dev/src/services/analytics.ts` | GA4 setUserId(userId), 탈퇴 성공 뒤 setUserId(null) 이전의 withdrawal_confirmed, 설치 device_id 공통 파라미터·getAppInstanceId |
