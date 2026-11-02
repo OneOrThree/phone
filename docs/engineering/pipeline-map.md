@@ -102,12 +102,12 @@ V1 워크플로 파일은 첫 줄에 `# RETIRED:`를 단다. `prod-ci.yml`은 �
 | [satellite-ci.dev.yml](../../.github/workflows/satellite-ci.dev.yml) | 꺼짐 | 옛 dev VM Business·Notification CI | [satellite-ci.dev-v2.yml](../../.github/workflows/satellite-ci.dev-v2.yml) |
 | [satellite-cd.dev.yml](../../.github/workflows/satellite-cd.dev.yml) | 꺼짐 | 옛 dev VM Business·Notification 배포 | [cd-auto.dev-v2.yml](../../.github/workflows/cd-auto.dev-v2.yml) |
 | [ops-smoke.dev.yml](../../.github/workflows/ops-smoke.dev.yml) | 꺼짐 | `oneorthree.dev.mooo.com` 스모크 | [ops-smoke.dev-v2.yml](../../.github/workflows/ops-smoke.dev-v2.yml) |
-| [ops-datadog.dev.yml](../../.github/workflows/ops-datadog.dev.yml) | 켜짐 | 옛 dev VM Datadog 켜기·끄기 | 없음. dev V2는 Datadog에 연결되지 않았다 |
-| [ops-kafka.dev.yml](../../.github/workflows/ops-kafka.dev.yml) | 켜짐 | 옛 dev VM Kafka up·prepare·status·down | [kafka-cd.dev-v2.yml](../../.github/workflows/kafka-cd.dev-v2.yml)(적용만, status·down 없음) |
-| [ops-monitor.dev.yml](../../.github/workflows/ops-monitor.dev.yml) | 켜짐 | 옛 dev VM Prometheus·Grafana·Loki | 없음 |
-| [ops-redeploy.dev.yml](../../.github/workflows/ops-redeploy.dev.yml) | 켜짐 | 꺼진 V1 배포 잡 재실행 | [app-cd.dev-v2.yml](../../.github/workflows/app-cd.dev-v2.yml)의 `force_redeploy`(서버 4종 함께) |
-| [ops-stack.dev.yml](../../.github/workflows/ops-stack.dev.yml) | 켜짐 | V1 워크플로 이름으로 배포 흐름 요약, 옛 dev VM 런타임 상태 | 없음 |
-| [ops-deployment-badges.yml](../../.github/workflows/ops-deployment-badges.yml) | 켜짐. 원천 V1 워크플로가 모두 꺼져 수동 실행으로만 돈다 | V1 워크플로 6개 완료 때 배포 배지 게시 | 없음. V2 배지는 `cd-auto.dev-v2`와 운영 V2 CD의 `record` 잡이 직접 게시한다 |
+| [ops-datadog.dev.yml](../../.github/workflows/ops-datadog.dev.yml) | 꺼짐 | 옛 dev VM Datadog 켜기·끄기 | 없음. dev V2는 Datadog에 연결되지 않았다 |
+| [ops-kafka.dev.yml](../../.github/workflows/ops-kafka.dev.yml) | 꺼짐 | 옛 dev VM Kafka up·prepare·status·down | [kafka-cd.dev-v2.yml](../../.github/workflows/kafka-cd.dev-v2.yml)(적용만, status·down 없음) |
+| [ops-monitor.dev.yml](../../.github/workflows/ops-monitor.dev.yml) | 꺼짐 | 옛 dev VM Prometheus·Grafana·Loki | 없음 |
+| [ops-redeploy.dev.yml](../../.github/workflows/ops-redeploy.dev.yml) | 꺼짐 | 꺼진 V1 배포 잡 재실행 | [app-cd.dev-v2.yml](../../.github/workflows/app-cd.dev-v2.yml)의 `force_redeploy`(서버 4종 함께) |
+| [ops-stack.dev.yml](../../.github/workflows/ops-stack.dev.yml) | 꺼짐 | V1 워크플로 이름으로 배포 흐름 요약, 옛 dev VM 런타임 상태 | 없음 |
+| [ops-deployment-badges.yml](../../.github/workflows/ops-deployment-badges.yml) | 꺼짐 | V1 워크플로 6개 완료 때 배포 배지 게시 | 없음. V2 배지는 `cd-auto.dev-v2`와 운영 V2 CD의 `record` 잡이 직접 게시한다 |
 
 ### 2-3 GitHub에 등록됐지만 파일이 없는 워크플로
 
