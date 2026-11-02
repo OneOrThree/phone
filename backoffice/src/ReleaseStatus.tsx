@@ -11,7 +11,7 @@ function UnitCell({ unit }: { unit: ReleaseUnit | null | undefined }) {
   if (!unit) return <>{NONE}</>;
   const time = kst(unit.deployedAt);
   return <>
-    {unit.tag ?? '태그 없음'} · <code title={unit.commit}>{unit.commit.slice(0, 7)}</code>
+    {unit.tag ?? '태그 없음'} · {unit.commit ? <code title={unit.commit}>{unit.commit.slice(0, 7)}</code> : NONE}
     {time && <small>{time}</small>}
     {unit.runUrl && <small><a href={unit.runUrl} target="_blank" rel="noreferrer">배포 실행 보기</a></small>}
   </>;
@@ -46,11 +46,12 @@ export function ReleaseStatus({ versions, onUnauthorized }: { versions: SystemVe
   return <div className="policy-workspace">
     <header className="workspace-header"><div><h1>출시 현황</h1><p>앱을 내기 전에 운영 서버에 없는 서버 변경이 main에 있는지 확인합니다.</p></div></header>
     {state === 'loading' ? <p role="status" aria-busy="true">출시 현황을 불러오는 중…</p>
-      : status?.local ? <p className="callout" role="status">로컬 모드에서는 GitHub와 스토어를 조회하지 않습니다.</p>
+      : status?.local ? <p className="callout" role="status">출시 판정은 운영 백오피스에서만 합니다.</p>
       : <>
         <section className={`callout release-verdict ${verdict.tone}`} role="status">
           <h2>{verdict.title}</h2>
           {verdict.detail && <p>{verdict.detail}</p>}
+          {kst(status?.checkedAt) && <p><small>기준 시각 {kst(status?.checkedAt)}</small></p>}
           {status?.verdict?.status === 'server-first' && <p><a href={status.verdict.compareUrl} target="_blank" rel="noreferrer">변경 비교 보기</a></p>}
         </section>
         <div className="policy-table-wrap"><table className="policy-table"><thead><tr><th>대상</th><th>운영 값</th></tr></thead>

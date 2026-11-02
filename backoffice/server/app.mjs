@@ -255,7 +255,8 @@ export function createApp({
         return;
       }
       if (path === "/api/system/release-status" && req.method === "GET") {
-        if (mode === "local") { send(200, { local: true }); return; }
+        // dev 서버 버전으로 운영 출시를 판정하면 안 되므로 prod 연결 모드에서만 조회한다.
+        if (mode === "local" || environment !== "prod") { send(200, { local: true }); return; }
         const { data } = await upstream.verifyEnvironment(environment, auth.actor, operator);
         const version = typeof data?.serverVersion === "string" ? data.serverVersion.trim() : "";
         send(200, await releaseStatus(version && version.toLowerCase() !== "unknown" ? version : null));

@@ -1,4 +1,4 @@
-export interface ReleaseUnit { commit: string; tag: string | null; runUrl: string | null; deployedAt: string | null }
+export interface ReleaseUnit { commit: string | null; tag: string | null; runUrl: string | null; deployedAt: string | null }
 export type Verdict =
   | { status: 'server-first'; changedFiles: number; aheadBy: number; compareUrl: string }
   | { status: 'ship'; changedFiles: 0; aheadBy: number; compareUrl: string }
@@ -6,6 +6,7 @@ export type Verdict =
 export interface StoreVersion { version: string | null; status: string }
 export interface ReleaseStatusResponse {
   local: boolean;
+  checkedAt?: string;
   verdict?: Verdict;
   units?: Record<'server' | 'backoffice' | 'kafka' | 'redis', ReleaseUnit | null>;
   androidStore?: StoreVersion | null;

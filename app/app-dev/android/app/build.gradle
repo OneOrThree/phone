@@ -188,7 +188,13 @@ gradle.taskGraph.whenReady { taskGraph ->
     // 저장소 루트 = android(rootDir) 기준 ../../.. . ALLOW_SERVER_GAP 은 자식 프로세스가 환경에서 물려받는다.
     if (includesReleaseArtifactTask && !devAudience) {
         def gateScript = new File(rootDir, "../../../.github/scripts/app-server-gate.py").canonicalFile
-        def gate = new ProcessBuilder("python3", gateScript.path).redirectErrorStream(true).start()
+        def gate
+        try {
+            gate = new ProcessBuilder("python3", gateScript.path).redirectErrorStream(true).start()
+        } catch (IOException e) {
+            throw new GradleException("Android release 차단: 서버 선행 게이트를 실행하지 못했습니다 (python3 확인): ${e.message}")
+        }
+        gate.outputStream.close()
         def gateOutput = gate.inputStream.text
         if (gate.waitFor() != 0) {
             throw new GradleException("Android release 차단: 서버 선행 게이트 실패\n${gateOutput}")

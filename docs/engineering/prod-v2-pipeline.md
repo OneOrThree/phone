@@ -120,10 +120,10 @@ PR에서는 base와 head의 변경으로 검사 대상을 고른다. release 발
 
 앱이 서버보다 먼저 나가면 새 API가 운영에서 404가 된다(`POST /islands/{id}/intro-arrivals` 100건 실패). 순서는 항상 서버(release 승격 → `prod-cd-V2.yml`) 다음 앱이다.
 
-- 게이트: `.github/scripts/app-server-gate.py`. 운영 `prod-cd-V2.yml`의 마지막 성공 실행 커밋과 현재 HEAD를 `git diff <운영커밋>...HEAD`로 비교해, `server/(business-api|data-api|realtime|notification)/src/main/` 아래 파일이 있으면 exit 1로 막는다. 조회·git 실패도 판정 불가로 막는다(fail closed).
+- 게이트: `.github/scripts/app-server-gate.py`. CD `record` 단계가 성공 배포마다 공개 브랜치 `deployment-status`의 `prod-V2/app.json`에 기록하는 배포 태그(`message`, `catus-vX.Y.Z-V2`)를 GitHub contents API로 읽고(raw CDN은 최대 5분 늦다), `git fetch origin refs/tags/<태그>`로 받아 커밋으로 푼 뒤 `git diff --no-renames <운영커밋>...HEAD`로 현재 HEAD와 비교해, `server/(business-api|data-api|realtime|notification)/src/main/` 아래 파일이 있으면 exit 1로 막는다. 조회·git 실패도 판정 불가로 막는다(fail closed).
 - 호출: `app/app-dev/scripts/ota-update.sh`(미커밋 검사 직후), `app/app-dev/ios/testflight.sh`(운영 분기만, `--dev` 제외), `app/app-dev/android/app/build.gradle`(운영 청중의 release 산출 작업).
 - 예외: 서버 변경이 앱과 무관하다고 직접 확인했으면 `ALLOW_SERVER_GAP="사유"`를 설정하고 실행한다. 공백만 있는 값은 무시한다.
-- 한계: 롤백 배포 뒤에는 운영 커밋이 실제 실행 커밋이 아니라 release 끝 커밋이다. 정확한 값은 S3 `current-V2.json`이지만 AWS 권한이 필요해 쓰지 않는다.
+- 한계: 기준은 `deployment-status` 기록이다. 이전 태그 배포·롤백도 기록된 태그를 따르므로 맞게 판정한다. `record` 단계가 실패하면 기록이 옛 값으로 남아 비교 범위가 넓어질 뿐이라 더 보수적으로 막힌다. 기록·태그 조회가 실패하면 판정 불가로 막는다.
 - 정규식은 `backoffice/server/release-status.mjs`의 `SERVER_RUNTIME`과 같이 고친다. 테스트는 `test_app_server_gate.py`(`backoffice-ci.yml`에서 실행).
 
 ### 배포 후 확인
@@ -149,7 +149,7 @@ CI는 코드와 빌드를 검사하지만 운영의 자격 증명, 네트워크,
 - 선행 조건: Infra가 AWS 역할 `catus-backoffice-release-V2`(신뢰 대상 `repo:OneOrThree/phone:environment:backoffice-production`)를 먼저 적용해야 한다.
 - 백오피스가 서버 변경보다 먼저 운영에 나갈 수 있다(서버는 release 경유). 의존 계약이 없어 백오피스가 시작을 거부하면 SSM 배포가 실패하고, 호스트가 직전 버전으로 되돌린다.
 - PR 검사는 `backoffice-ci.yml`이다.
-- 「출시 현황」 화면(`/api/system/release-status`): 운영 서버 실행 커밋(Data `serverVersion`) 기준으로 GitHub compare를 호출해 「서버 먼저 배포」·「앱 출시 가능」·「판정 불가」를 보이고, 서버·백오피스·Kafka·Redis의 마지막 성공 배포(태그·커밋·KST 시각)와 App Store·Play·DB 번호를 표로 보인다. 앱 게이트와 같은 판정이며 앱 출시 전에 눈으로 확인하는 용도다.
+- 「출시 현황」 화면(`/api/system/release-status`): 운영 서버 실행 커밋(Data `serverVersion`) 기준으로 GitHub compare를 호출해 「서버 먼저 배포」·「앱 출시 가능」·「판정 불가」를 보이고, 서버·백오피스·Kafka·Redis의 배포 태그(`deployment-status` 기록)·커밋·마지막 성공 배포 실행의 KST 시각. 운영 백오피스(`BACKOFFICE_ENV=prod`)에서만 판정하고 dev에서는 조회하지 않는다. 표에는 서버·백오피스·Kafka·Redis의 배포 정보와 App Store·Play·DB 번호를 표로 보인다. 앱 게이트와 같은 판정이며 앱 출시 전에 눈으로 확인하는 용도다.
 - 앱 배포는 백오피스 운영자 시크릿을 계속 읽는다.
 
 ## 복구

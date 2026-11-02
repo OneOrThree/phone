@@ -10,11 +10,20 @@ spec.loader.exec_module(gate)
 SHA = 'a' * 40
 
 
-def api(sha=SHA):
-    return lambda url: {'workflow_runs': [{'head_sha': sha}]}
+TAG = 'catus-v2.0.4-V2'
 
 
-def failing_api(url):
+def api(tag=TAG):
+    calls = []
+
+    def fetch(url, accept=None):
+        calls.append((url, accept))
+        return {'schemaVersion': 1, 'label': 'app', 'message': tag}
+    fetch.calls = calls
+    return fetch
+
+
+def failing_api(url, accept=None):
     raise gate.GateError('조회 실패')
 
 
@@ -23,6 +32,8 @@ def git_with(files):
 
     def git(*args):
         calls.append(args)
+        if args[0] == 'rev-parse':
+            return SHA + '\n'
         return '\n'.join(files) if args[0] == 'diff' else ''
     git.calls = calls
     return git
@@ -56,18 +67,65 @@ class GateTest(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn('aaaaaaa', out)
 
-    def test_three_dot_diff_against_release_fetch(self):
-        git = git_with([])
-        run(git=git)
-        self.assertEqual(git.calls[0], ('fetch', '--quiet', 'origin', 'release'))
-        self.assertEqual(git.calls[1], ('diff', '--name-only', f'{SHA}...HEAD'))
+    def test_resolves_recorded_tag_to_commit_then_three_dot_diff(self):
+        git, fetch = git_with([]), api()
+        code, out, _ = run(fetch=fetch, git=git)
+        self.assertEqual(code, 0)
+        self.assertEqual(fetch.calls, [(gate.RECORD_URL, gate.RAW)])
+        self.assertIn('ref=deployment-status', gate.RECORD_URL)
+        self.assertEqual(git.calls[0], ('fetch', '--quiet', 'origin', f'refs/tags/{TAG}:refs/tags/{TAG}'))
+        self.assertEqual(git.calls[1], ('rev-parse', '--verify', f'{TAG}^{{commit}}'))
+        self.assertEqual(git.calls[2], ('diff', '--name-only', '--no-renames', f'{SHA}...HEAD'))
+        self.assertNotIn(('fetch', '--quiet', 'origin', 'release'), git.calls)
+        self.assertIn(TAG, out)
+
+    def test_older_tag_deployed_still_blocks_newer_server_changes(self):
+        # 기록 태그(이전 배포)가 release 끝보다 뒤라, 그 뒤의 서버 변경이 그대로 잡힌다.
+        git = git_with(['server/data-api/src/main/java/New.java'])
+        code, _, err = run(fetch=api('catus-v2.0.2-V2'), git=git)
+        self.assertEqual(code, 1)
+        self.assertIn('catus-v2.0.2-V2', err)
+        self.assertEqual(git.calls[1], ('rev-parse', '--verify', 'catus-v2.0.2-V2^{commit}'))
+
+    def test_malformed_tag_blocks_without_git(self):
+        for bad in ('main', 'catus-v2.0.4', 'catus-v2.0.4-V2\n--evil', '', None, 5):
+            git = git_with([])
+            code, _, err = run(fetch=api(bad), git=git)
+            self.assertEqual(code, 1, bad)
+            self.assertEqual(git.calls, [])
+            self.assertIn('ALLOW_SERVER_GAP', err)
+
+    def test_tag_resolution_failure_blocks_and_names_tag(self):
+        def git(*args):
+            if args[0] == 'rev-parse':
+                raise gate.GateError('unknown revision')
+            return ''
+        code, _, err = run(git=git)
+        self.assertEqual(code, 1)
+        self.assertIn(TAG, err)
+        code, _, err = run(git=lambda *a: 'garbage' if a[0] == 'rev-parse' else '')
+        self.assertEqual(code, 1)
 
     def test_api_failure_blocks(self):
         code, _, err = run(fetch=failing_api)
         self.assertEqual(code, 1)
         self.assertIn('ALLOW_SERVER_GAP', err)
-        for bad in ({}, {'workflow_runs': []}, {'workflow_runs': [{'head_sha': '--upload-pack=x'}]}):
-            self.assertEqual(run(fetch=lambda url, bad=bad: bad)[0], 1)
+        for bad in ({}, None, {'message': '--upload-pack=x'}):
+            self.assertEqual(run(fetch=lambda url, accept=None, bad=bad: bad)[0], 1)
+
+    def test_file_renamed_out_of_server_is_blocked(self):
+        # --no-renames 이면 git 은 이름 변경을 옛 경로 삭제 + 새 경로 추가로 낸다.
+        code, _, err = run(git=git_with(['server/data-api/src/main/java/Old.java', 'docs/Old.java']))
+        self.assertEqual(code, 1)
+        self.assertIn('server/data-api/src/main/java/Old.java', err)
+
+    def test_git_timeout_blocks(self):
+        from unittest import mock
+        import subprocess
+        with mock.patch.object(gate.subprocess, 'run', side_effect=subprocess.TimeoutExpired('git', 60)) as run_mock:
+            with self.assertRaises(gate.GateError):
+                gate.run_git('fetch')
+            self.assertEqual(run_mock.call_args.kwargs['timeout'], 60)
 
     def test_git_failure_blocks(self):
         self.assertEqual(run(git=failing_git)[0], 1)
