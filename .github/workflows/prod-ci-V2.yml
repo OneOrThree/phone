@@ -1,4 +1,4 @@
-name: Catus app CI V2
+name: Cattus app CI V2
 'on':
   pull_request:
     types: [opened, synchronize, reopened, edited]

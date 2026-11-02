@@ -476,7 +476,7 @@ class AgentHarnessTest(unittest.TestCase):
                     harness.validate_settings(self.root)
 
     def test_core_ask_rules_stay_in_the_contract(self):
-        for rule in ("Bash(gh workflow run *prod*)", "Bash(gh workflow run *Catus*)", "Bash(gh workflow run *android-cd*)",
+        for rule in ("Bash(gh workflow run *prod*)", "Bash(gh workflow run *Cattus*)", "Bash(gh workflow run *android-cd*)",
                      "Bash(gh workflow run *Android CD*)",
                      "Bash(gh api *dispatches*)", "Bash(gh api *pending_deployments*)"):
             self.assertIn(rule, harness.PROD_ASK_RULES)

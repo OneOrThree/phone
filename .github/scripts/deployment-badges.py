@@ -116,7 +116,7 @@ def badges(state):
         dev = {'message': f'배포 확인 {count}/4', 'color': 'lightgrey'}
     prod = state.get('prod/catus')
     return {'dev.json': {**base, 'label': 'dev 서버', **dev},
-            'prod.json': {**base, 'label': 'Catus prod', 'message': prod['version'] if prod else '배포 확인 전',
+            'prod.json': {**base, 'label': 'Cattus prod', 'message': prod['version'] if prod else '배포 확인 전',
                           'color': 'brightgreen' if prod else 'lightgrey'},
             'state.json': state}
 

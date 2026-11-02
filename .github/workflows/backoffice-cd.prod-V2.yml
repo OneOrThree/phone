@@ -1,4 +1,4 @@
-name: Catus backoffice CD V2
+name: Cattus backoffice CD V2
 'on':
   push:
     branches:
