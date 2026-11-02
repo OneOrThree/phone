@@ -4585,7 +4585,8 @@ export function RedesignScreens({ e }: any) {
         tail={
           <Toggle
             label={label}
-            value={(state.settings as any)[key]}
+            // 화면용 합친 값이 아니라 저장값을 보인다 — OS 모션 줄이기가 켜져 있어도 앱 설정을 바꿀 수 있다(GROMO-2159)
+            value={((e.savedSettings ?? state.settings) as any)[key]}
             onChange={(value: boolean) => act('SETTING', { key, value })}
           />
         }

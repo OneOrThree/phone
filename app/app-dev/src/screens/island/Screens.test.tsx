@@ -217,6 +217,7 @@ function Harness({
   onPreviewAudio,
   localePref = 'system',
   fromSea = false,
+  osReduceMotion = false,
 }: any) {
   const [activeRoute, setActiveRoute] = useState(route);
   const [shielded, setShielded] = useState(false);
@@ -276,7 +277,11 @@ function Harness({
   const screens = (
     <RedesignScreens
       e={{
-        state,
+        // App 과 같다 — 화면은 OS 값을 합친 state, 설정 토글은 저장값(savedSettings)을 읽는다
+        state: osReduceMotion
+          ? { ...state, settings: { ...state.settings, reduceMotion: true } }
+          : state,
+        savedSettings: state.settings,
         route: flow ? activeRoute : route,
         fromSea,
         dispatch,
@@ -3143,6 +3148,16 @@ test('메일 앱 열기에 실패하면 수신 주소가 있는 안내를 보여
   assert.equal(notifyMock.mock.calls.length, 0);
   assert.ok(exposed);
   open.mockRestore();
+});
+
+test('OS 모션 줄이기가 켜져 있어도 설정 토글은 저장값을 보이고 눌러서 바꿀 수 있다 (GROMO-2159)', async () => {
+  const ui = await render(<Harness route="settings" full osReduceMotion />);
+  const toggle = () => ui.getByRole('switch', { name: '동작 줄이기' });
+  assert.equal(toggle().props.accessibilityState.checked, false);
+  await fireEvent.press(toggle());
+  assert.equal(toggle().props.accessibilityState.checked, true);
+  await fireEvent.press(toggle());
+  assert.equal(toggle().props.accessibilityState.checked, false);
 });
 
 test('문의하기는 신고센터 아래 행에서 한국어면 오픈채팅을 열고, 실패하면 수신 주소 안내만 보여준다', async () => {

@@ -320,7 +320,10 @@ export type State = {
     notifications: boolean;
     sound: boolean;
     volume?: number;
+    // 사용자가 설정 화면에서 직접 켠 값만 담는다. OS 의 모션 줄이기는 저장하지 않고 App 이 실행 중에 합친다(GROMO-2159).
     reduceMotion: boolean;
+    // 위 의미로 저장하는 형식이면 true. 없으면 OS 가 쓴 값이 섞인 예전 저장본이라 LOAD 가 한 번 끈다.
+    reduceMotionUserOnly?: boolean;
     publicRecords: boolean;
     permission: boolean;
     haptics: boolean;
@@ -801,6 +804,7 @@ export function initialState(full = false): State {
       sound: true,
       volume: 0.55,
       reduceMotion: false,
+      reduceMotionUserOnly: true,
       publicRecords: true,
       permission: full,
       haptics: true,
@@ -1642,6 +1646,9 @@ export function reducer(state: State, a: Action): State {
         : null,
       settings: {
         ...loaded.settings,
+        // 표식 없는 저장본의 reduceMotion 은 OS 가 쓴 값과 사용자가 켠 값을 가를 수 없다 — 한 번 끄고 표식을 남긴다(GROMO-2159)
+        reduceMotion: loaded.settings.reduceMotionUserOnly ? loaded.settings.reduceMotion : false,
+        reduceMotionUserOnly: true,
         publicRecords: true,
         screenTimeHistoryReady: loaded.settings.screenTimeHistoryReady ?? false,
       },
