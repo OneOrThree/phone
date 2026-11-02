@@ -234,7 +234,9 @@ if (posthogUploadEnabled) {
     extensions.extraProperties.set("posthog.dotenvFile", posthogDotenv)
     apply plugin: "com.posthog.android"
     posthog {
-        uploadNativeSymbols.set(true)
+        // 네이티브 크래시는 Sentry 가 받는다(GROMO-2687, posthog.ts 의 nativeCrashes=false). PostHog 의 .so 심볼은 쓰이지 않고,
+        // 다른 빌드가 같은 디버그 ID 를 다른 내용으로 먼저 올렸으면 content_hash_mismatch 로 릴리스 빌드가 실패한다(GROMO-2667).
+        uploadNativeSymbols.set(false)
     }
     apply from: new File(projectRoot, "node_modules/posthog-react-native/tooling/posthog.gradle")
 } else {
