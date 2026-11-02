@@ -2226,6 +2226,8 @@ export function RedesignScreens({ e }: any) {
           homeChat={
             chatBlocked ? undefined : (
               <HomeChatLog
+                // 섬이 바뀌면 다시 마운트해 3초 기준선과 띄운 줄을 새로 잡는다(GROMO-2678)
+                key={state.serverIslands?.currentIslandId ?? 'local'}
                 lines={chatLines}
                 pending={server && !!e.islandChat?.loading}
                 onOpen={() => go('chat')}
