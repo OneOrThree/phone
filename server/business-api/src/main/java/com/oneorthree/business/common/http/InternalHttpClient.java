@@ -213,11 +213,12 @@ public class InternalHttpClient implements AutoCloseable {
     private <T> T attempt(InternalCall call, UpstreamRequestContext context,
             ParameterizedTypeReference<T> responseType) {
         HttpUriRequestBase request = request(call, context);
-        Duration attemptBudget = properties.connectTimeout().plus(properties.readTimeout());
+        Duration readTimeout = call.readTimeout() != null ? call.readTimeout() : properties.readTimeout();
+        Duration attemptBudget = properties.connectTimeout().plus(readTimeout);
         Duration remaining = context.deadline().remaining();
         long nanos = Math.min(attemptBudget.toNanos(), remaining.toNanos());
         request.setConfig(RequestConfig.custom().setConnectionRequestTimeout(Timeout.ofNanoseconds(nanos))
-                .setResponseTimeout(timeout(properties.readTimeout())).build());
+                .setResponseTimeout(timeout(readTimeout)).build());
         Runnable unregister = context.onCancel(request::cancel);
         AtomicInteger responseStatus = new AtomicInteger();
         Future<T> future = null;

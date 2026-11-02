@@ -87,8 +87,10 @@ public class AppleTokenRevoker {
                 log.warn("Apple 토큰 교환 응답에 토큰 없음 — userId={}", userId);
                 return;
             }
-            post(userId, "/auth/revoke", form("client_id", clientId, "client_secret", secret, "token", revoked,
-                    "token_type_hint", refresh != null ? "refresh_token" : "access_token"));
+            if (post(userId, "/auth/revoke", form("client_id", clientId, "client_secret", secret, "token", revoked,
+                    "token_type_hint", refresh != null ? "refresh_token" : "access_token")) != null) {
+                log.info("Apple 토큰 폐기 완료 — userId={}", userId);
+            }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             log.warn("Apple 토큰 폐기 중단(인터럽트) — userId={}", userId);

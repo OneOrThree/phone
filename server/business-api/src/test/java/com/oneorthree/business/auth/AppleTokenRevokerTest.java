@@ -7,6 +7,9 @@ import io.jsonwebtoken.Jws;
 import io.jsonwebtoken.Jwts;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 
 import java.security.KeyPair;
 import java.time.Instant;
@@ -16,6 +19,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /** 탈퇴 시 Apple 토큰 폐기(GROMO-2401) — client_secret JWT 와 token→revoke 호출 순서·본문. */
+@ExtendWith(OutputCaptureExtension.class)
 class AppleTokenRevokerTest {
 
     private static final MockUpstream APPLE = MockUpstream.start();
@@ -101,6 +105,21 @@ class AppleTokenRevokerTest {
 
         revoker("not-a-key").revoke(USER, "c");
         assertThat(APPLE.hits("POST /auth/token")).isEqualTo(1);
+    }
+
+    @Test
+    void logsInfoOnlyWhenRevokeSucceeds(CapturedOutput output) {
+        APPLE.on("POST /auth/token", r -> new MockUpstream.Response(200, "{\"refresh_token\":\"RT\"}"));
+        APPLE.on("POST /auth/revoke", r -> new MockUpstream.Response(200, ""));
+        revoker(PEM).revoke(USER, "c");
+        assertThat(output.getAll()).contains("Apple 토큰 폐기 완료 — userId=" + USER);
+
+        APPLE.reset();
+        APPLE.on("POST /auth/token", r -> new MockUpstream.Response(200, "{\"refresh_token\":\"RT\"}"));
+        APPLE.on("POST /auth/revoke", r -> new MockUpstream.Response(500, "{}"));
+        UUID other = UUID.randomUUID();
+        revoker(PEM).revoke(other, "c");
+        assertThat(output.getAll()).doesNotContain("Apple 토큰 폐기 완료 — userId=" + other);
     }
 
     @Test
