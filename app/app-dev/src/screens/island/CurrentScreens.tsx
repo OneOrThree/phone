@@ -1,8 +1,3 @@
-import { FishingFocusHud } from '@/screens/focus/FishingFocusHud';
-import {
-  clearVerificationResult,
-  verificationResult,
-} from '@/services/studyVerification/sessionResult';
 import { DeveloperNoticesScreen } from '@/screens/island/DeveloperNoticesScreen';
 import { useAccountGuides } from '@/screens/island/useAccountGuides';
 import { useConstructionAnnouncements } from '@/screens/island/useConstructionAnnouncements';
@@ -31,7 +26,6 @@ import { syncAndroidScreenTime } from '@/services/screentimeSync';
 import { pushPermissionStatus, requestPushPermission, type PushPermission } from '@/services/push';
 import { captureProductEvent } from '@/services/posthog';
 import { Ticking } from '@/hooks/useNow';
-import { VerificationSpike, VerificationToggle } from '@/screens/focus/VerificationSpike';
 import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -2373,7 +2367,6 @@ function FocusFlow({ e: environment }: any) {
     [tutorialCatchStart, setTutorialCatchStart] = useState<number | null>(null),
     // 첫 물고기 reel이 끝나 12단계로 갈 차례 — 황금 컷신·reel이 끝날 때까지 미룬다
     [tutorialCatchRevision, setTutorialCatchRevision] = useState<number | null>(null);
-  const [verificationPreviewOpen, setVerificationPreviewOpen] = useState(false);
   const returningFromArrival = useRef(false);
   // 보상을 확인하는 동안에도 결과 화면에서 고른 다음 목적지를 유지한다.
   const resultDestination = useRef<'island' | 'focus'>('island');
@@ -3073,7 +3066,6 @@ function FocusFlow({ e: environment }: any) {
       !!(s.serverIslands ? s.serverIslands.currentIslandId : i.joined),
     leave = () => {
       const navigate = () => {
-        clearVerificationResult(result?.id);
         // 자동 종료 결과는 닫을 때 acknowledge — 확인 전까지 서버가 계속 돌려주므로 실패해도 잃지 않는다
         if (result?.ackId) e.focus?.acknowledge(result.ackId).catch(() => {});
         if (resultDestination.current === 'focus' && canRestartFocus) {
@@ -3632,7 +3624,6 @@ function FocusFlow({ e: environment }: any) {
       <FocusResultSummary
         subject={result?.subject ?? t('focusFlow.result.defaultSubject')}
         seconds={result?.seconds ?? 0}
-        verifiedSeconds={verificationResult(result?.id, result?.seconds ?? 0)}
         fish={result?.fish ?? 0}
         questTitles={achievedQuestTitles}
         recordId={result?.id}
@@ -3813,10 +3804,6 @@ function FocusFlow({ e: environment }: any) {
     spots = [...fishingPeerSpots, ...(seated ? [mine] : [])];
   const focusing = activeFocus,
     mySubject = r === 'focusSetup' ? null : (s.session?.subject ?? result?.subject ?? null);
-  const verificationIntro =
-    s.focusGuideDone && !experience && !dialog && !catInfo && !leg && !voyage && !goldenCutscene
-      ? 'automatic'
-      : undefined;
   // 집중 준비 모달은 누른 곳(내 고양이) 위에 붙인다. 위가 좁으면 아래 → 오른쪽 → 왼쪽.
   const setup = (toScreen: (p: Point) => Point, size: number) => {
     const { x, y } = toScreen(mine),
@@ -3984,7 +3971,6 @@ function FocusFlow({ e: environment }: any) {
           gram={i.buildings.includes('gram')}
           onGram={musicRoute ? () => setDialog('music') : undefined}
           seated={seated}
-          focusHud={focusing}
           inert={!!dialog || r === 'focusResult' || !!goldenCutscene || !!catInfo}
           overlayBlocksMap={r === 'focusSetup'}
           overlay={
@@ -4083,15 +4069,6 @@ function FocusFlow({ e: environment }: any) {
             });
             return (
               <>
-                {focusing && (
-                  <FishingFocusHud
-                    subject={s.session!.subject}
-                    seconds={sessionSeconds(s.session, e.now)}
-                    size={size}
-                    sizeY={sizeY}
-                    textStyle={hudText}
-                  />
-                )}
                 {peers.map((actor) => {
                   const outfit = lookOf(
                     live.looks,
@@ -4197,9 +4174,7 @@ function FocusFlow({ e: environment }: any) {
               left: safe.left + semanticTokens.spacing.page,
               right: safe.right + semanticTokens.spacing.page,
               gap: semanticTokens.spacing.control,
-              flexDirection: 'row',
-              justifyContent: 'space-between',
-              alignItems: 'center',
+              alignItems: 'flex-start',
             }}
           >
             <FiButton
@@ -4207,47 +4182,8 @@ function FocusFlow({ e: environment }: any) {
               id="leave-fishing-arrival"
               onPress={returnFromArrival}
             />
-            {Platform.OS !== 'web' && !experience && (
-              <VerificationToggle
-                onPreviewChange={setVerificationPreviewOpen}
-                intro={verificationIntro}
-                on={s.settings.studyVerification === true}
-                cameraPosition={s.settings.studyVerificationCamera}
-                onChange={(value, position) => {
-                  e.dispatch({ type: 'SETTING', key: 'studyVerificationCamera', value: position });
-                  e.dispatch({ type: 'SETTING', key: 'studyVerification', value });
-                }}
-              />
-            )}
           </View>
         )}
-        {Platform.OS !== 'web' &&
-          !experience &&
-          r === 'fishingArrival' &&
-          !(tutorialStep >= 5 && tutorialStep <= 21) && (
-            <View
-              pointerEvents="box-none"
-              {...a11yHidden(!!catInfo || !!dialog)}
-              style={{
-                position: 'absolute',
-                top:
-                  safe.top +
-                  semanticTokens.spacing.control * 2 +
-                  componentTokens.verificationSetup.buttonSize,
-                left: safe.left + semanticTokens.spacing.page,
-              }}
-            >
-              <VerificationSpike
-                enabled={s.settings.studyVerification === true}
-                previewVisible={verificationPreviewOpen}
-                onCameraPositionChange={(position) =>
-                  e.dispatch({ type: 'SETTING', key: 'studyVerificationCamera', value: position })
-                }
-                cameraPosition={s.settings.studyVerificationCamera}
-                textStyle={hudText}
-              />
-            </View>
-          )}
         {liveIslandId && live.status === 'error' && (
           <View
             {...a11yHidden(!!catInfo)}
@@ -4282,58 +4218,39 @@ function FocusFlow({ e: environment }: any) {
         )}
         {focusing && (
           <>
-            {Platform.OS !== 'web' && !experience && !(tutorialStep >= 5 && tutorialStep <= 21) && (
-              <View
-                pointerEvents="box-none"
-                {...a11yHidden(!!dialog || !!goldenCutscene || !!catInfo)}
-                style={{
-                  position: 'absolute',
-                  zIndex: 5,
-                  top: safe.top + semanticTokens.spacing.control,
-                  left: Math.max(18, safe.left),
-                }}
+            <View
+              pointerEvents="none"
+              {...a11yHidden(!!dialog || !!goldenCutscene || !!catInfo)}
+              style={{
+                position: 'absolute',
+                zIndex: 5,
+                top: wide ? Math.max(14, safe.top + 14) : Math.max(100, safe.top + 48),
+                left: Math.max(18, safe.left),
+                right: Math.max(18, safe.right),
+                alignItems: 'center',
+              }}
+            >
+              <Text
+                numberOfLines={1}
+                style={[hudText, { fontSize: 16, lineHeight: 25.6, fontWeight: '900' }]}
               >
-                <VerificationSpike
-                  key={s.session!.id}
-                  sessionId={s.session!.id}
-                  enabled={s.settings.studyVerification === true}
-                  previewVisible={verificationPreviewOpen}
-                  onCameraPositionChange={(position) =>
-                    e.dispatch({ type: 'SETTING', key: 'studyVerificationCamera', value: position })
-                  }
-                  textStyle={hudText}
-                  cameraPosition={s.settings.studyVerificationCamera}
-                />
-              </View>
-            )}
-            {Platform.OS !== 'web' && !experience && !(tutorialStep >= 5 && tutorialStep <= 21) && (
-              <View
-                testID="focus-camera-toggle"
-                {...a11yHidden(!!dialog || !!goldenCutscene || !!catInfo)}
-                style={{
-                  position: 'absolute',
-                  zIndex: 5,
-                  top: safe.top + semanticTokens.spacing.control,
-                  right: safe.right + semanticTokens.spacing.page,
-                }}
+                {s.session!.subject}
+              </Text>
+              <Text
+                style={[
+                  hudText,
+                  {
+                    fontSize: wide ? 32 : 42,
+                    lineHeight: (wide ? 32 : 42) * 1.15,
+                    fontWeight: '900',
+                    letterSpacing: -1.5,
+                    fontVariant: ['tabular-nums'],
+                  },
+                ]}
               >
-                <VerificationToggle
-                  onPreviewChange={setVerificationPreviewOpen}
-                  inSession
-                  intro={verificationIntro}
-                  on={s.settings.studyVerification === true}
-                  cameraPosition={s.settings.studyVerificationCamera}
-                  onChange={(value, position) => {
-                    e.dispatch({
-                      type: 'SETTING',
-                      key: 'studyVerificationCamera',
-                      value: position,
-                    });
-                    e.dispatch({ type: 'SETTING', key: 'studyVerification', value });
-                  }}
-                />
-              </View>
-            )}
+                {hms(sessionSeconds(s.session, e.now))}
+              </Text>
+            </View>
             <View
               {...a11yHidden(!!dialog || !!goldenCutscene || !!catInfo)}
               style={{

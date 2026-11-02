@@ -115,10 +115,6 @@ PODS:
     - ExpoModulesCore
   - ExpoBlur (57.0.3):
     - ExpoModulesCore
-  - ExpoCamera (57.0.6):
-    - ExpoModulesCore
-  - ExpoCameraBarcodeScanning (57.0.6):
-    - ExpoCamera
   - ExpoDevice (57.0.2):
     - ExpoModulesCore
   - ExpoDomWebView (57.0.1):
@@ -129,7 +125,7 @@ PODS:
     - ExpoModulesCore
   - ExpoHaptics (57.0.2):
     - ExpoModulesCore
-  - ExpoKeepAwake (57.0.2):
+  - ExpoKeepAwake (57.0.1):
     - ExpoModulesCore
   - ExpoLocalization (57.0.2):
     - ExpoModulesCore
@@ -326,53 +322,6 @@ PODS:
     - nanopb/encode (= 3.30910.0)
   - nanopb/decode (3.30910.0)
   - nanopb/encode (3.30910.0)
-  - NitroImage (0.15.2):
-    - hermes-engine
-    - NitroModules
-    - RCTRequired
-    - RCTTypeSafety
-    - React-callinvoker
-    - React-Core
-    - React-Core-prebuilt
-    - React-debug
-    - React-Fabric
-    - React-featureflags
-    - React-graphics
-    - React-ImageManager
-    - React-jsi
-    - React-NativeModulesApple
-    - React-RCTFabric
-    - React-renderercss
-    - React-rendererdebug
-    - React-utils
-    - ReactCodegen
-    - ReactCommon/turbomodule/bridging
-    - ReactCommon/turbomodule/core
-    - ReactNativeDependencies
-    - Yoga
-  - NitroModules (0.37.1):
-    - hermes-engine
-    - RCTRequired
-    - RCTTypeSafety
-    - React-callinvoker
-    - React-Core
-    - React-Core-prebuilt
-    - React-debug
-    - React-Fabric
-    - React-featureflags
-    - React-graphics
-    - React-ImageManager
-    - React-jsi
-    - React-NativeModulesApple
-    - React-RCTFabric
-    - React-renderercss
-    - React-rendererdebug
-    - React-utils
-    - ReactCodegen
-    - ReactCommon/turbomodule/bridging
-    - ReactCommon/turbomodule/core
-    - ReactNativeDependencies
-    - Yoga
   - OpenTelemetry-Swift-Api (2.5.1)
   - PostHog (3.88.2)
   - posthog-react-native-plugin (2.12.6):
@@ -1825,31 +1774,6 @@ PODS:
     - ReactCommon/turbomodule/core
     - ReactNativeDependencies
     - Yoga
-  - react-native-fast-tflite (3.0.1):
-    - hermes-engine
-    - NitroModules
-    - RCTRequired
-    - RCTTypeSafety
-    - React-callinvoker
-    - React-Core
-    - React-Core-prebuilt
-    - React-debug
-    - React-Fabric
-    - React-featureflags
-    - React-graphics
-    - React-ImageManager
-    - React-jsi
-    - React-NativeModulesApple
-    - React-RCTFabric
-    - React-renderercss
-    - React-rendererdebug
-    - React-utils
-    - ReactCodegen
-    - ReactCommon/turbomodule/bridging
-    - ReactCommon/turbomodule/core
-    - ReactNativeDependencies
-    - TensorFlowLiteC (= 2.17.0)
-    - Yoga
   - react-native-line (6.0.1):
     - hermes-engine
     - LineSDKSwift (~> 5.16.1)
@@ -2671,85 +2595,6 @@ PODS:
     - ReactCommon/turbomodule/core
     - ReactNativeDependencies
     - Yoga
-  - TensorFlowLiteC (2.17.0):
-    - TensorFlowLiteC/Core (= 2.17.0)
-  - TensorFlowLiteC/Core (2.17.0)
-  - VisionCamera (5.2.3):
-    - hermes-engine
-    - NitroImage
-    - NitroModules
-    - RCTRequired
-    - RCTTypeSafety
-    - React-callinvoker
-    - React-Core
-    - React-Core-prebuilt
-    - React-debug
-    - React-Fabric
-    - React-featureflags
-    - React-graphics
-    - React-ImageManager
-    - React-jsi
-    - React-NativeModulesApple
-    - React-RCTFabric
-    - React-renderercss
-    - React-rendererdebug
-    - React-utils
-    - ReactCodegen
-    - ReactCommon/turbomodule/bridging
-    - ReactCommon/turbomodule/core
-    - ReactNativeDependencies
-    - Yoga
-  - VisionCameraResizer (5.2.3):
-    - hermes-engine
-    - NitroModules
-    - RCTRequired
-    - RCTTypeSafety
-    - React-callinvoker
-    - React-Core
-    - React-Core-prebuilt
-    - React-debug
-    - React-Fabric
-    - React-featureflags
-    - React-graphics
-    - React-ImageManager
-    - React-jsi
-    - React-NativeModulesApple
-    - React-RCTFabric
-    - React-renderercss
-    - React-rendererdebug
-    - React-utils
-    - ReactCodegen
-    - ReactCommon/turbomodule/bridging
-    - ReactCommon/turbomodule/core
-    - ReactNativeDependencies
-    - VisionCamera
-    - Yoga
-  - VisionCameraWorklets (5.2.3):
-    - hermes-engine
-    - NitroModules
-    - RCTRequired
-    - RCTTypeSafety
-    - React-callinvoker
-    - React-Core
-    - React-Core-prebuilt
-    - React-debug
-    - React-Fabric
-    - React-featureflags
-    - React-graphics
-    - React-ImageManager
-    - React-jsi
-    - React-NativeModulesApple
-    - React-RCTFabric
-    - React-renderercss
-    - React-rendererdebug
-    - React-utils
-    - ReactCodegen
-    - ReactCommon/turbomodule/bridging
-    - ReactCommon/turbomodule/core
-    - ReactNativeDependencies
-    - RNWorklets
-    - VisionCamera
-    - Yoga
   - Yoga (0.0.0)
 
 DEPENDENCIES:
@@ -2767,8 +2612,6 @@ DEPENDENCIES:
   - ExpoAsset (from `../node_modules/expo-asset/ios`)
   - ExpoAudio (from `../node_modules/expo-audio/ios`)
   - ExpoBlur (from `../node_modules/expo-blur/ios`)
-  - ExpoCamera (from `../node_modules/expo-camera/ios/ExpoCamera.podspec`)
-  - ExpoCameraBarcodeScanning (from `../node_modules/expo-camera/ios/ExpoCameraBarcodeScanning.podspec`)
   - ExpoDevice (from `../node_modules/expo-device/ios`)
   - "ExpoDomWebView (from `../node_modules/@expo/dom-webview/ios`)"
   - ExpoFileSystem (from `../node_modules/expo-file-system/ios/ExpoFileSystem.podspec`)
@@ -2792,8 +2635,6 @@ DEPENDENCIES:
   - FBSDKCoreKit (~> 18.1.1)
   - FirebaseMessaging (~> 12.19.0)
   - hermes-engine (from `../node_modules/react-native/sdks/hermes-engine/hermes-engine.podspec`)
-  - NitroImage (from `../node_modules/react-native-nitro-image`)
-  - NitroModules (from `../node_modules/react-native-nitro-modules`)
   - "posthog-react-native-plugin (from `../node_modules/@posthog/react-native-plugin`)"
   - RCTDeprecation (from `../node_modules/react-native/ReactApple/Libraries/RCTFoundation/RCTDeprecation`)
   - RCTRequired (from `../node_modules/react-native/Libraries/Required`)
@@ -2833,7 +2674,6 @@ DEPENDENCIES:
   - React-Mapbuffer (from `../node_modules/react-native/ReactCommon`)
   - React-microtasksnativemodule (from `../node_modules/react-native/ReactCommon/react/nativemodule/microtasks`)
   - React-mutationobservernativemodule (from `../node_modules/react-native/ReactCommon/react/nativemodule/mutationobserver`)
-  - react-native-fast-tflite (from `../node_modules/react-native-fast-tflite`)
   - "react-native-line (from `../node_modules/@xmartlabs/react-native-line`)"
   - react-native-safe-area-context (from `../node_modules/react-native-safe-area-context`)
   - "react-native-skia (from `../node_modules/@shopify/react-native-skia`)"
@@ -2879,9 +2719,6 @@ DEPENDENCIES:
   - RNReanimated (from `../node_modules/react-native-reanimated`)
   - RNSVG (from `../node_modules/react-native-svg`)
   - RNWorklets (from `../node_modules/react-native-worklets`)
-  - VisionCamera (from `../node_modules/react-native-vision-camera`)
-  - VisionCameraResizer (from `../node_modules/react-native-vision-camera-resizer`)
-  - VisionCameraWorklets (from `../node_modules/react-native-vision-camera-worklets`)
   - Yoga (from `../node_modules/react-native/ReactCommon/yoga`)
 
 SPEC REPOS:
@@ -2922,7 +2759,6 @@ SPEC REPOS:
     - PromisesSwift
     - ReachabilitySwift
     - RecaptchaInterop
-    - TensorFlowLiteC
 
 EXTERNAL SOURCES:
   airbridge-react-native-sdk:
@@ -2953,10 +2789,6 @@ EXTERNAL SOURCES:
     :path: "../node_modules/expo-audio/ios"
   ExpoBlur:
     :path: "../node_modules/expo-blur/ios"
-  ExpoCamera:
-    :podspec: "../node_modules/expo-camera/ios/ExpoCamera.podspec"
-  ExpoCameraBarcodeScanning:
-    :podspec: "../node_modules/expo-camera/ios/ExpoCameraBarcodeScanning.podspec"
   ExpoDevice:
     :path: "../node_modules/expo-device/ios"
   ExpoDomWebView:
@@ -3000,10 +2832,6 @@ EXTERNAL SOURCES:
   hermes-engine:
     :podspec: "../node_modules/react-native/sdks/hermes-engine/hermes-engine.podspec"
     :tag: hermes-v250829098.0.14
-  NitroImage:
-    :path: "../node_modules/react-native-nitro-image"
-  NitroModules:
-    :path: "../node_modules/react-native-nitro-modules"
   posthog-react-native-plugin:
     :path: "../node_modules/@posthog/react-native-plugin"
   RCTDeprecation:
@@ -3080,8 +2908,6 @@ EXTERNAL SOURCES:
     :path: "../node_modules/react-native/ReactCommon/react/nativemodule/microtasks"
   React-mutationobservernativemodule:
     :path: "../node_modules/react-native/ReactCommon/react/nativemodule/mutationobserver"
-  react-native-fast-tflite:
-    :path: "../node_modules/react-native-fast-tflite"
   react-native-line:
     :path: "../node_modules/@xmartlabs/react-native-line"
   react-native-safe-area-context:
@@ -3172,12 +2998,6 @@ EXTERNAL SOURCES:
     :path: "../node_modules/react-native-svg"
   RNWorklets:
     :path: "../node_modules/react-native-worklets"
-  VisionCamera:
-    :path: "../node_modules/react-native-vision-camera"
-  VisionCameraResizer:
-    :path: "../node_modules/react-native-vision-camera-resizer"
-  VisionCameraWorklets:
-    :path: "../node_modules/react-native-vision-camera-worklets"
   Yoga:
     :path: "../node_modules/react-native/ReactCommon/yoga"
 
@@ -3208,14 +3028,12 @@ SPEC CHECKSUMS:
   ExpoAsset: bea9115098b9f4ddfb0456961c8a7d2779ccc8f5
   ExpoAudio: bd075db379c5a70b7f9a7b5b541d5c67f59b5dca
   ExpoBlur: 975b78b65b3c8f475c44bd8f8b53948146b1ff9b
-  ExpoCamera: d3d3c6c6ddca5088d4eed2df010c0f33e78bebd1
-  ExpoCameraBarcodeScanning: e20737140da28cfd614abccd86ef50b47f0f94b5
   ExpoDevice: 5c638e530304a51992263ab5c1cab726f992b9dc
   ExpoDomWebView: beaec034e51bd028428b98bb1f2633ab79c6d095
   ExpoFileSystem: cc500f33804065aacc7b3366007267b84deca8c8
   ExpoFont: d5b77d74f8d5d1a248de70955bfad847079e9074
   ExpoHaptics: bc5461002fc97e53c213a1af6c88c8f95965b734
-  ExpoKeepAwake: 72af0b3be3615e59bc819d26061ff4e06b155ee0
+  ExpoKeepAwake: c26f14275017370cc8a4b7b43a0e23361f2053a5
   ExpoLocalization: f204d4ca963bfcea932068a978247878f664f5a4
   ExpoLogBox: 80957303325cd4439137765c90a87d7f22aaf2ff
   ExpoModulesCore: f602acaee3fcdf29c1025bfc8368169729608d66
@@ -3249,8 +3067,6 @@ SPEC CHECKSUMS:
   KSCrash: 8c4464fd5da7de520f2ce4a00fdf63f169a80f18
   LineSDKSwift: 510e2842f86816cb26e4ab227a004320d844cb12
   nanopb: fad817b59e0457d11a5dfbde799381cd727c1275
-  NitroImage: 5daf897d2f37ed419186278d6b0fcdd8aab313b0
-  NitroModules: 38f8754287858ff1294e43fd43f614a664e54050
   OpenTelemetry-Swift-Api: 3be9043f6288eb4ac3cbe7548b5bd45fb4ed5849
   PostHog: b022f9212b67fadbc2ebc52d34451d668c6335a6
   posthog-react-native-plugin: a9bee70f036afe5b7eba9e38dd0fe97c13aa35bf
@@ -3294,7 +3110,6 @@ SPEC CHECKSUMS:
   React-Mapbuffer: ce449ccdf3b80384415b925606be8a4bdcfc65d3
   React-microtasksnativemodule: 2eb3f49d0d8e77b5343455eccd057010b8d38b6b
   React-mutationobservernativemodule: f0a0d5ae9b51caf7becbeabf836d716cfedb6bf2
-  react-native-fast-tflite: 276fe4facf24a7500bc9f068e95a2373044d056c
   react-native-line: cd5eaad4be1725b05814fa9ed0794c1295744294
   react-native-safe-area-context: 6b4966397ada0f7dd481e4486a2ef936834861a1
   react-native-skia: b319389e81797af11985805fcfad0714b8670cab
@@ -3341,10 +3156,6 @@ SPEC CHECKSUMS:
   RNReanimated: fcf6a8cdd698fb09a811a8d6c5bcfe36575d965d
   RNSVG: 3fe8590403ac9f107b4d14591bc6e54da4894e5c
   RNWorklets: 43af89f696342f91118a2f1f3a879056e2f47331
-  TensorFlowLiteC: eac6d689a8d391d1b202dc59e3d9165ba64aaf73
-  VisionCamera: f84550cffbbf23f3cac7a3d1d2e66e5098a4e8eb
-  VisionCameraResizer: ff4f3c9bd01f23392b367a65e16c18cc17b94e31
-  VisionCameraWorklets: b6de1b4f950e958236366987750ed0b3c86228b9
   Yoga: fe50ab299e578f397fef753cf309c6703a4db29b
 
 PODFILE CHECKSUM: d8f6b0ba2418cd50ac1941a9bbb08ed93b54289f

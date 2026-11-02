@@ -151,7 +151,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     gap: p.space[2],
-    minHeight: p.space[12],
+    minHeight: 48,
     backgroundColor: `${s.color.accent}4D`,
     borderRadius: s.radius.control,
     paddingHorizontal: p.space[4],
