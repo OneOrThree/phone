@@ -52,8 +52,10 @@ module.exports = {
       bundleIdentifier: 'com.oneorthree.gromo',
       associatedDomains: ['applinks:link.oneorthree.world', 'applinks:oneorthree.dev.mooo.com'],
       // GROMO-2523·2544 푸시·Meta SDK가 든 바이너리만 새 JS OTA를 받게 iOS 런타임을 분리한다.
+      // gromo 번들 바이너리는 Google 클라이언트 스킴이 focuscat 바이너리와 달라 같은 OTA 를 받으면
+      // 로그인 탭에서 크래시하므로 런타임을 또 가른다(focuscat 쪽은 2.0.0-push-meta-assets-v1).
       // 체크인된 ios/Cattus/Supporting/Expo.plist 의 EXUpdatesRuntimeVersion 과 같은 값이어야 한다.
-      runtimeVersion: '2.0.0-push-meta-assets-v1',
+      runtimeVersion: '2.0.0-gromo-push-meta-assets-v1',
       infoPlist: {
         CFBundleLocalizations: ['ko', 'en'],
         NSSupportsLiveActivities: true,
