@@ -74,7 +74,7 @@ RK-D04(지난 주 마감 시각·지연 반영 수용 창)는 이 표의 대상�
 
 **레포 선례**
 
-- `focus/repository/DailyFocusStatRepository.java:165` — 기존 리그 평균이 정확히 선택지 B다. 주석이 스스로 「분모는 모수 전체가 아니라 그 기간에 행이 있는 유저 수」라고 적는다. `low-level-design.md:206` 이 이 방식을 **새 주차 cohort 로 재사용하지 말라**고 명시한다.
+- ※ 1.x 리그는 v0 리베이스에서 퇴역 — 역사 기록(`server/data-api/docs/db/v0-rebase/manifest.json:26-29`, 클래스·`league_*` 테이블 없음). `focus/repository/DailyFocusStatRepository.java:165` (현재 이 파일은 78줄이라 인용 줄 번호는 옛 것이다) — 기존 리그 평균이 정확히 선택지 B다. 주석이 스스로 「분모는 모수 전체가 아니라 그 기간에 행이 있는 유저 수」라고 적는다. `low-level-design.md:206` 이 이 방식을 **새 주차 cohort 로 재사용하지 말라**고 명시한다.
 - `group/repository/domain/GroupMember.java:57-61` — `@Table(uniqueConstraints = @UniqueConstraint(columnNames = {"user_id","group_id"}))`. **유저×섬당 행이 영원히 하나**다. `:103-112` 의 `is_left`·`left_reason` 는 현재 상태 플래그일 뿐 `left_at` 타임스탬프가 없고, `:173` 의 `rejoin()` 이 새 이력 행을 넣지 않고 **같은 행을 되살린다**. 마이그레이션 원본은 `V1__baseline.sql:225-234` — `joined_at` 은 있으나 재가입 때 덮인다.
   → **「W주에 누가 주민이었나」를 현재 스키마로 복원할 수 없다**는 `low-level-design.md:112` 의 서술은 코드와 일치한다(확인함).
 
@@ -106,8 +106,8 @@ V59 번호를 잡는 결정이라 **가장 먼저 답해야 한다** — 이것�
 
 **레포 선례**
 
-- `league/service/LeagueService.java:155` — 기존 리그가 `i+1` 로 순번을 매긴다. 곧 선택지 C 이고, `low-level-design.md:205` 가 「i+1 은 공동순위 정책이 아님」이라고 **선례를 선례로 쓰지 말라**고 적어 둔 자리다.
-- `league/repository/domain/LeagueRankSnapshot.java:21-26` — 유니크는 `uq_league_rank_snapshots_user_day (user_id, created_at)` 이고 필드는 `id·userId·rank·createdAt` 뿐(`:36-48`). **사용자×날짜당 rank 한 개를 덮어쓰는 저장소**라 주간 랭킹의 불변 페이지 정본으로 재사용할 수 없다(`low-level-design.md:118` 의 서술과 일치).
+- ※ 1.x 리그는 v0 리베이스에서 퇴역 — 역사 기록(`server/data-api/docs/db/v0-rebase/manifest.json:26-29`, 클래스·`league_*` 테이블 없음). `league/service/LeagueService.java:155` — 기존 리그가 `i+1` 로 순번을 매긴다. 곧 선택지 C 이고, `low-level-design.md:205` 가 「i+1 은 공동순위 정책이 아님」이라고 **선례를 선례로 쓰지 말라**고 적어 둔 자리다.
+- ※ 1.x 리그는 v0 리베이스에서 퇴역 — 역사 기록(`server/data-api/docs/db/v0-rebase/manifest.json:26-29`, 클래스·`league_*` 테이블 없음). `league/repository/domain/LeagueRankSnapshot.java:21-26` — 유니크는 `uq_league_rank_snapshots_user_day (user_id, created_at)` 이고 필드는 `id·userId·rank·createdAt` 뿐(`:36-48`). **사용자×날짜당 rank 한 개를 덮어쓰는 저장소**라 주간 랭킹의 불변 페이지 정본으로 재사용할 수 없다(`low-level-design.md:118` 의 서술과 일치).
 
 **추천: A (1,1,3)**
 
@@ -132,7 +132,7 @@ B 는 표시 순위와 실제 등수가 갈려 myRank 설명이 어려워지고,
 
 **레포 선례**
 
-- `low-level-design.md:204` 가 인용한 `league/repository/LeagueRankingQueryRepository.java:124/146/170` — 기존 리그의 live 계산은 `now - startedAt` 이라 **휴식 시간이 그대로 가산**된다. RK-P04(휴식 제외)와 어긋나므로 B 를 고르면 이 쿼리를 재사용할 수 없고 PR743 의 구간 기반 계산을 새로 써야 한다.
+- ※ 1.x 리그는 v0 리베이스에서 퇴역 — 역사 기록(`server/data-api/docs/db/v0-rebase/manifest.json:26-29`, 클래스·`league_*` 테이블 없음). `low-level-design.md:204` 가 인용한 `league/repository/LeagueRankingQueryRepository.java:124/146/170` — 기존 리그의 live 계산은 `now - startedAt` 이라 **휴식 시간이 그대로 가산**된다. RK-P04(휴식 제외)와 어긋나므로 B 를 고르면 이 쿼리를 재사용할 수 없고 PR743 의 구간 기반 계산을 새로 써야 한다.
 - 같은 선례가 top 은 live, 페이지는 settled 로 **섞어 쓴다**. `low-level-design.md:108` 이 이 혼용을 금지한다.
 
 **추천: A (완료분만)**
@@ -191,7 +191,7 @@ RC-D01 과 **한 번에 같은 답**으로 처리해야 한다 — 따로 답하
 **레포 선례**
 
 - `../api-platform/policy.md:52` — 403 `FACILITY_LOCKED` 행(「필요한 시설 미해금. field=null, 도메인 선행 조건 확인」). (c) 의 근거.
-- `league/service/LeagueService.java:155` — 기존 리그에 「평균 표시 반올림」 선례가 없다(정수 초를 그대로 쓴다). (a) 는 **새로 정하는 것**이지 기존 규칙을 따르는 게 아니다.
+- ※ 1.x 리그는 v0 리베이스에서 퇴역 — 역사 기록(`server/data-api/docs/db/v0-rebase/manifest.json:26-29`, 클래스·`league_*` 테이블 없음). `league/service/LeagueService.java:155` — 기존 리그에 「평균 표시 반올림」 선례가 없다(정수 초를 그대로 쓴다). (a) 는 **새로 정하는 것**이지 기존 규칙을 따르는 게 아니다.
 
 **늦어지면 못 나가는 것**: 공개 DTO 확정. 기획 v1 프레임 58(섬 간 랭킹)이 그려지지 않는다.
 (a)~(d) 는 서로 독립이라 **(b)(c)(d) 는 오늘 바로 확정 가능**하고 실제로 셋 다 이미 문서가 한 방향을 금지해 두었다.
@@ -224,7 +224,7 @@ GROMO-1759 가 **CI 프로파일에만** 이 스위치를 켠 상태이고 그 �
 | 1 | **주민 랭킹 화면이 폐지됐는데 랭킹 문서가 모른다** | `../bff-screens/policy.md` B23 이 「전망대 주민 랭킹 폐지(island-rankings)」를 기획 v0.6 정책 변경으로 기록하고, `../bff-screens/planning-v1-mapping.md:63` 이 「섬 내 주민 랭킹(`GET /islands/{islandId}/rankings/members`, v0.3 "tower" 화면 전용)은 기획 v1 98계약에 없다 — B23 …과 맞물려 화면 자체가 B15 로 폐지됐으므로」라고 적는다. 그런데 `island-rankings/` 문서에는 「폐지」·「B15」·「B23」 문자열이 **0건**이다(grep 확인). prd·policy·LLD 가 여전히 2계약을 살아 있는 것으로 서술한다 |
 | 2 | **티켓 GROMO-1777 이 폐지된 계약을 여전히 요구** | 요약 「섬 내 주민 랭킹·섬 간 랭킹 2종」, 완료 조건에 「최소 인원 미달 섬이 정해진 방식으로 응답한다」가 그대로 있다. 티켓 최종 수정 `2026-09-13`, B15/B23/B25 결정은 `2026-09-15~16` — **티켓이 결정보다 먼저 멈춰 있다** |
 | 3 | **티켓의 참고 경로가 존재하지 않는다** | 티켓 본문 `docs/prd/island-ranking/`·`docs/prd/api-platform/`. 실제는 `docs/prd/fishcat/island-rankings/`·`docs/prd/fishcat/api-platform/`. README 도 「티켓의 island-ranking 대신 배정 경로 island-rankings 를 사용한다」로 한 번 정정했으나 `fishcat/` 단이 빠져 있다 |
-| 4 | `LeagueRankSnapshot` 의 유니크 키 서술 | 「`(user_id, rank, date)`」로 알려져 있으나 실제는 `uq_league_rank_snapshots_user_day (user_id, created_at)` (`LeagueRankSnapshot.java:21-26`). `rank` 는 유니크에 없다. **재사용 불가라는 결론은 그대로**다 — 사용자×날짜당 rank 한 개를 덮어쓰는 구조라 주간 불변 페이지 정본이 될 수 없다 |
+| 4 | `LeagueRankSnapshot` 의 유니크 키 서술 (1.x 리그는 v0 리베이스에서 퇴역 — 역사 기록, manifest.json:26-29) | 「`(user_id, rank, date)`」로 알려져 있으나 실제는 `uq_league_rank_snapshots_user_day (user_id, created_at)` (`LeagueRankSnapshot.java:21-26`). `rank` 는 유니크에 없다. **재사용 불가라는 결론은 그대로**다 — 사용자×날짜당 rank 한 개를 덮어쓰는 구조라 주간 불변 페이지 정본이 될 수 없다 |
 | 5 | 다음 마이그레이션 번호 | 현재 최고가 `V58__focus_session_lifecycle.sql` 이므로 **V59** 가 맞다(확인함). D01 이 유일하게 이 번호를 쓴다 |
 
 **1 번이 이 문서에서 가장 큰 항목이다.** RK-D01(최소 2명·myRank 대상)·RK-D02(동점)·RK-D06(c)(eligibility) 는
