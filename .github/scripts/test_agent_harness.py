@@ -9,6 +9,7 @@ import re
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 
 
 SPEC = importlib.util.spec_from_file_location("agent_harness", Path(__file__).with_name("check-agent-harness.py"))
@@ -533,6 +534,7 @@ class DocumentSensorTest(unittest.TestCase):
         message = self.assert_violations(harness.check_document_paths, make_repo(self, files), "문서 경로", 1)
         self.assertIn("app/app-dev/CLAUDE.md:1", message)
 
+    @patch.dict(harness.STALE_IN_SERVER_DOCS, {("경로", "server/observability/README.md"): ("docs/stale.md",)}, clear=True)
     def test_known_stale_server_paths_are_excused_only_for_that_doc_and_token(self):
         (_, doc), tokens = next(item for item in harness.STALE_IN_SERVER_DOCS.items() if item[0][0] == "경로")
         files = {doc: "".join(f"`{token}`\n" for token in tokens), "scripts/x.sh": "", "docs/README.md": "# docs\n"}
@@ -543,6 +545,15 @@ class DocumentSensorTest(unittest.TestCase):
         self.assert_violations(harness.check_document_paths, make_repo(self, extra), "docs/zzz-gone.md", 1)
 
     # ── 2 워크플로 언급 ─────────────────────────────────────────────────────────────────────
+    def test_removed_workflow_requires_inventory_and_historical_marker(self):
+        inventory = "# 지도\n\n## 2-2 V1 워크플로와 V2 대응\n| V1 파일 | 상태 | 대체 |\n| --- | --- | --- |\n| `removed-ci.yml` | 제거됨 | `a-ci.yml` |\n\n## 2-3 GitHub에 등록됐지만 파일이 없는 워크플로\n"
+        root = make_repo(self, {harness.PIPELINE_MAP: inventory, "CLAUDE.md": "# C\n옛 `removed-ci.yml`은 제거했다.\n"})
+        harness.check_workflow_mentions(root)
+        (root / "CLAUDE.md").write_text("# C\n`removed-ci.yml`을 실행한다.\n")
+        self.assert_violations(harness.check_workflow_mentions, root, "removed-ci.yml", 1)
+        (root / "CLAUDE.md").write_text("# C\n옛 `typo-ci.yml`은 제거했다.\n")
+        self.assert_violations(harness.check_workflow_mentions, root, "typo-ci.yml", 1)
+
     def test_retired_workflow_needs_a_marker_unless_it_is_in_the_v1_section(self):
         for word in ("RETIRED", "retired", "V1", "은퇴", "꺼진", "꺼져", "옛", "legacy", "disabled"):
             with self.subTest(marker=word):
@@ -593,6 +604,7 @@ class DocumentSensorTest(unittest.TestCase):
             with self.subTest(plain=stem):
                 self.assertFalse(harness.WORKFLOW_SHAPE.search(stem))
 
+    @patch.dict(harness.STALE_IN_SERVER_DOCS, {("은퇴", "server/observability/README.md"): ("old-ci.yml",)}, clear=True)
     def test_known_stale_server_workflow_mentions_are_excused_only_for_that_doc_and_name(self):
         (_, doc), names = next(item for item in harness.STALE_IN_SERVER_DOCS.items() if item[0][0] == "은퇴")
         retired = {f".github/workflows/{name}": "# RETIRED: 대체\n" for name in names}
