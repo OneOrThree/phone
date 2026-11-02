@@ -130,6 +130,9 @@ module.exports = {
       // prebuild 전용 입력 — 체크인된 ios/Cattus/Info.plist 가 실제 스킴 정본이다(위 주석)
       ['@react-native-google-signin/google-signin', { iosUrlScheme: googleIosUrlScheme }],
       '@xmartlabs/react-native-line',
+      // 크래시·오류 수집(services/sentry.ts). org/project/authToken 은 빌드 env(SENTRY_*)로 넘겨
+      // 소스맵을 올린다 — 여기 토큰을 적으면 앱 패키지에 노출되므로 적지 않는다.
+      '@sentry/react-native',
       // GROMO-2380 고운돋움을 앱에 넣어 첫 화면부터 글꼴을 기다리지 않는다(웹만 useFonts 로 불러온다).
       // iOS는 글꼴 파일 속 가족 이름(Gowun Dodum), 안드로이드는 아래 등록 이름(Gowun)으로 찾는다 — sceneKit 의 GOWUN
       // 안드로이드를 xml 글꼴로 등록해야 굵게(700 이상)도 시스템 글꼴로 바뀌지 않고 고운돋움을 굵게 그린다
