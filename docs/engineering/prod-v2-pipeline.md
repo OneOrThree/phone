@@ -124,6 +124,8 @@ PR에서는 base와 head의 변경으로 검사 대상을 고른다. release 발
 - 호출: `app/app-dev/scripts/ota-update.sh`(미커밋 검사 직후), `app/app-dev/ios/testflight.sh`(운영 분기만, `--dev` 제외), `app/app-dev/android/app/build.gradle`(운영 청중의 release 산출 작업).
 - 예외: 서버 변경이 앱과 무관하다고 직접 확인했으면 `ALLOW_SERVER_GAP="사유"`를 설정하고 실행한다. 공백만 있는 값은 무시한다.
 - 한계: 기준은 `deployment-status` 기록이다. 이전 태그 배포·롤백도 기록된 태그를 따르므로 맞게 판정한다. `record` 단계가 실패하면 기록이 옛 값으로 남아 비교 범위가 넓어질 뿐이라 더 보수적으로 막힌다. 기록·태그 조회가 실패하면 판정 불가로 막는다.
+- 잡지 못하는 것: `server/*/src/main/` 밖의 의존성이다. Infra 구성과 시크릿 변경(예: 초대 링크의 nginx 랜딩과 `LINK_BASE_URL`)은 게이트와 출시 현황 어디에도 나타나지 않으므로 앱 PR의 출시 순서를 따로 확인한다. 태그가 main에 없는 release 전용 커밋을 가리키면 그 커밋의 서버 변경도 비교에서 빠진다.
+- 출시 현황의 결과는 10분 캐시라 일시 장애의 「판정 불가」나 main 머지 직후의 낡은 「앱 출시 가능」이 잠시 남을 수 있다. 화면의 기준 시각으로 확인하고, 실제 차단은 캐시를 쓰지 않는 게이트가 맡는다.
 - 정규식은 `backoffice/server/release-status.mjs`의 `SERVER_RUNTIME`과 같이 고친다. 테스트는 `test_app_server_gate.py`(`backoffice-ci.yml`에서 실행).
 
 ### 배포 후 확인
