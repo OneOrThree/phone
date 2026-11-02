@@ -2129,7 +2129,8 @@ export function Hall({ e }: any) {
     <NavBtn close testID="hall-close" label="닫기" onPress={onPress} style={style} />
   );
   const person = (
-    m: { id: string; name: string; color: string; outfit?: Outfit },
+    // userId: 외양을 조회할 사용자 id — 주민 칸은 id 가 곧 사용자 id 라 생략하고, 가입 신청 칸(id=신청 id)만 넘긴다
+    m: { id: string; userId?: string; name: string; color: string; outfit?: Outfit },
     n: number,
     opts: any = {},
   ) => (
@@ -2157,7 +2158,7 @@ export function Hall({ e }: any) {
     >
       <View pointerEvents="none">
         <Avatar
-          userId={m.id}
+          userId={m.userId ?? m.id}
           color={m.color}
           outfit={m.outfit}
           n={n}
@@ -2854,6 +2855,7 @@ export function Hall({ e }: any) {
               {person(
                 {
                   ...q,
+                  userId: 'applicantId' in q ? q.applicantId : undefined,
                   name: q.name ?? '신청자',
                   // 서버 모드는 신청자 본인의 색, 목업은 로컬 신청 데이터의 색
                   color: liveManagement

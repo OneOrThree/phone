@@ -68,7 +68,9 @@ export EXPO_NO_DOTENV=1
 export EXPO_PUBLIC_API_URL="https://catus-api-v2.oneorthree.world"
 export EXPO_PUBLIC_APPLE_LOGIN_ENABLED=1
 export EXPO_PUBLIC_ENV=prod
-# CDN 시범 검증 전에는 OTA도 번들 이미지를 사용합니다.
+# 운영 이미지 CDN 은 아직 없다(GROMO-2671) — OTA도 번들 이미지를 사용합니다.
+# 운영 CDN 을 발행·검증한 뒤 아래 세 값을 운영 값(true · 운영 CDN 주소 · prod)으로 바꾼다.
+# iOS 운영 레인(ios/fastlane/Fastfile beta)·Android release(android/app/build.gradle)·ios/testflight.sh·앱 게이트(src/services/assets/repository.ts) 의 dev CDN 차단도 같이 바꾼다.
 export EXPO_PUBLIC_IMAGE_ASSETS_ENABLED=false
 export EXPO_PUBLIC_IMAGE_ASSETS_URL=""
 export EXPO_PUBLIC_IMAGE_ASSETS_ENV=prod

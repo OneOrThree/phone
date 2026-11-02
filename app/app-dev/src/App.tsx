@@ -372,6 +372,18 @@ function Gromo() {
   const [state, dispatch] = useReducer(reducer, undefined, () =>
     DEMO ? demoState() : initialState(),
   );
+  // OS 의 모션 줄이기는 저장하지 않고 실행 중에만 따라간다 — 저장된 settings.reduceMotion 은 사용자가 직접 켠 값뿐이다(GROMO-2159).
+  // 합친 값(reduceMotion)은 화면에 넘기는 e.state·MotionContext·App 자신의 모션에만 쓴다. 저장·dispatch·stateRef 는
+  // 합치지 않은 state 를 쓴다: 합친 값이 저장되면 OS 를 꺼도 켜진 채 굳는다.
+  const [osReduceMotion, setOsReduceMotion] = useState(false);
+  const reduceMotion = osReduceMotion || state.settings.reduceMotion;
+  const viewState = useMemo(
+    () =>
+      reduceMotion === state.settings.reduceMotion
+        ? state
+        : { ...state, settings: { ...state.settings, reduceMotion } },
+    [state, reduceMotion],
+  );
   const [loaded, setLoaded] = useState(false),
     [storageOwnerReady, setStorageOwnerReady] = useState(true),
     // 부팅 섬 동기화 실패 — 바다에서 망원경을 열 때 동기화를 재시도할 플래그(로컬 폴백 금지)
@@ -744,7 +756,7 @@ function Gromo() {
     return fireTransitionController.start(
       'fire',
       direction,
-      state.settings.reduceMotion,
+      reduceMotion,
       () => performGo(r, id),
       BUILDING_TRANSITION_DURATION_MS,
       () => {
@@ -755,7 +767,7 @@ function Gromo() {
     );
   };
   const returnToIsland = (target: BuildingTransitionTarget, done: () => void) =>
-    fireTransitionController.start(target, 'return', state.settings.reduceMotion, done);
+    fireTransitionController.start(target, 'return', reduceMotion, done);
   const replace = (r: Route, id = '') => {
     setDetail(id);
     setTab('');
@@ -2235,9 +2247,21 @@ function Gromo() {
     return () => clearInterval(id);
   }, []);
   useEffect(() => {
-    AccessibilityInfo.isReduceMotionEnabled().then((v) => {
-      if (v) dispatch({ type: 'SETTING', key: 'reduceMotion', value: true });
+    // 변경 이벤트가 먼저 오면 늦게 끝난 첫 조회가 옛 값으로 덮지 않게 버린다
+    let initialPending = true;
+    AccessibilityInfo.isReduceMotionEnabled()
+      .then((value) => {
+        if (initialPending) setOsReduceMotion(value);
+      })
+      .catch(() => {});
+    const subscription = AccessibilityInfo.addEventListener('reduceMotionChanged', (value) => {
+      initialPending = false;
+      setOsReduceMotion(value);
     });
+    return () => {
+      initialPending = false;
+      subscription?.remove();
+    };
   }, []);
   useEffect(() => {
     if (!loaded) return;
@@ -2489,12 +2513,12 @@ function Gromo() {
   useEffect(() => {
     if (!loaded) return;
     transition.stopAnimation();
-    transition.setValue(state.settings.reduceMotion ? 1 : 0);
+    transition.setValue(reduceMotion ? 1 : 0);
     // JS 드라이버: 네이티브 드라이버는 iOS 에서 전환 중 화면(도서관 JPEG 배경 등)이 다시 커밋되면
     // 중간 opacity 가 남아 화면이 뿌옇게 굳는다
     Animated.timing(transition, {
       toValue: 1,
-      duration: state.settings.reduceMotion ? 0 : 160,
+      duration: reduceMotion ? 0 : 160,
       useNativeDriver: false,
     }).start();
   }, [route, loaded, reviewEpoch]);
@@ -2619,7 +2643,7 @@ function Gromo() {
       boatTravel.setValue(-180);
       Animated.timing(boatTravel, {
         toValue: 350,
-        duration: state.settings.reduceMotion ? 1 : 3000,
+        duration: reduceMotion ? 1 : 3000,
         useNativeDriver: true,
       }).start();
     }
@@ -2732,7 +2756,7 @@ function Gromo() {
     setTimeout(
       () =>
         mailRef.current?.scrollToEnd({
-          animated: !state.settings.reduceMotion,
+          animated: !reduceMotion,
         }),
       100,
     );
@@ -2741,7 +2765,8 @@ function Gromo() {
     return (
       <RedesignScreens
         e={{
-          state,
+          state: viewState,
+          savedSettings: state.settings,
           route,
           fromSea: history.length ? seaRouteHeld(history[0].route) : !state.onboarded,
           termsVersion: TERMS_VERSION,
@@ -2846,7 +2871,7 @@ function Gromo() {
       </SafeAreaView>
     );
   return (
-    <MotionContext.Provider value={state.settings.reduceMotion}>
+    <MotionContext.Provider value={reduceMotion}>
       <SafeAreaView edges={[]} style={[S.page, { backgroundColor: C.cream }]}>
         <StatusBar style="dark" />
         {/* 키보드가 입력칸을 가리지 않게 루트에서 회피한다. Android 는 edge-to-edge(edgeToEdgeEnabled=true)라
@@ -2899,7 +2924,7 @@ function Gromo() {
         />
         <BuildingTransitionOverlay
           state={fireTransition}
-          reduceMotion={state.settings.reduceMotion}
+          reduceMotion={reduceMotion}
           origin={{ x: layout.width / 2, y: layout.height / 2 }}
         />
         {toast !== '' && (
@@ -2929,7 +2954,7 @@ function Gromo() {
           <Modal
             visible={true}
             transparent
-            animationType={state.settings.reduceMotion ? 'none' : 'fade'}
+            animationType={reduceMotion ? 'none' : 'fade'}
             onRequestClose={() => setModal(null)}
           >
             <Pressable
@@ -3012,7 +3037,7 @@ function Gromo() {
           <Modal
             visible={true}
             transparent
-            animationType={state.settings.reduceMotion ? 'none' : 'fade'}
+            animationType={reduceMotion ? 'none' : 'fade'}
             onRequestClose={() => !convUi.busy && closeMemberConversion()}
           >
             <Pressable
@@ -3146,7 +3171,7 @@ function Gromo() {
           <Modal
             visible={true}
             transparent
-            animationType={state.settings.reduceMotion ? 'none' : 'fade'}
+            animationType={reduceMotion ? 'none' : 'fade'}
             onRequestClose={() => settleSwitch(false)}
           >
             <View

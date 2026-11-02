@@ -5,6 +5,7 @@ import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 import { ApiError } from '@/services/api/client';
 import { clearSession, saveSession } from '@/services/api/session';
 import { initialState } from '@/services/model';
+import { art } from '@/constants/art';
 import {
   markUserBlocked,
   replaceBlockedUsers,
@@ -437,6 +438,39 @@ test('시스템 편지 상세 — 발신자는 「섬 알림」이고 답장 버
   expect(ui.queryByTestId('reply-to-letter')).toBeNull();
   expect(ui.queryByLabelText('섬 알림 더보기')).toBeNull();
   await ui.unmount();
+});
+
+test('편지 상세 — 시스템 편지의 보낸이는 빈 원이고 털색을 준 친구는 그 색으로 그린다(GROMO-2497)', async () => {
+  screenMock.mockResolvedValue(screen([]));
+  listSystemMock.mockResolvedValue(slice([systemItem()]));
+  getLetterMock.mockResolvedValue(
+    letterView({
+      id: SYSTEM_LETTER,
+      senderId: null,
+      senderNickname: null,
+      content: '소다 섬에서 나가게 됐어요',
+      kind: 'KICK',
+    }),
+  );
+  const system = await renderMail(makeE());
+  await waitFor(() => assert.ok(system.getByTestId('received-letter-0')));
+  await fireEvent.press(system.getByTestId('received-letter-0'));
+  await waitFor(() => assert.ok(system.getByText('소다 섬에서 나가게 됐어요')));
+  assert.equal(system.queryAllByTestId('cat-avatar-image').length, 0);
+  await system.unmount();
+
+  screenMock.mockResolvedValue(screen([letterItem()]));
+  listSystemMock.mockResolvedValue(slice([]));
+  getLetterMock.mockResolvedValue(letterView({ catColor: 'ginger' }));
+  const friend = await renderMail(makeE());
+  await waitFor(() => assert.ok(friend.getByTestId('received-letter-0')));
+  await fireEvent.press(friend.getByTestId('received-letter-0'));
+  await waitFor(() => assert.ok(friend.getByText('반가워, 잘 지내?')));
+  assert.deepEqual(
+    friend.queryAllByTestId('cat-avatar-image').map((n) => n.props.source),
+    [art['avatar/ginger']],
+  );
+  await friend.unmount();
 });
 
 test('시스템 편지 — kind 가 있으면 발신자 id·닉네임이 채워져 와도 「섬 알림」이고 답장·더보기가 없다', async () => {

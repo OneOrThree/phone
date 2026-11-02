@@ -338,6 +338,8 @@ export const componentTokens = {
   // 홈 왼쪽 아래 최근 채팅 줄(GROMO-2501) — 게임 채팅창처럼 잠깐 떴다 흐려진다. 표면은 홈 HUD 와 같은 얇은 반투명 Paper
   homeChatLog: {
     maxLines: 3,
+    // 홈에 들어올 때 이만큼 전부터 올라온 글만 띄운다. 그보다 오래된 이력은 채팅방에서 본다
+    entryWindowMs: 3000,
     lineMs: 8000,
     fadeMs: 400,
     gap: space[1] + 2,

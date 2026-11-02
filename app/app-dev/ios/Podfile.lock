@@ -69,7 +69,7 @@ PODS:
     - ExpoModulesCore
   - EXApplication (57.0.3):
     - ExpoModulesCore
-  - EXConstants (57.0.17):
+  - EXConstants (57.0.22):
     - ExpoModulesCore
   - EXJSONUtils (57.0.2)
   - EXManifests (57.0.2):
@@ -170,7 +170,7 @@ PODS:
     - ExpoModulesJSI
     - ExpoModulesWorklets
     - RNWorklets
-  - ExpoNotifications (57.0.17):
+  - ExpoNotifications (57.0.22):
     - ExpoModulesCore
   - ExpoScreenOrientation (57.0.2):
     - ExpoModulesCore
@@ -3199,7 +3199,7 @@ SPEC CHECKSUMS:
   DatadogWebViewTracking: e0470157f55a83680a549d79ba2985e0d17465db
   EASClient: 0a37063ccb7acd90d4a490e804b16c9bf709d34a
   EXApplication: a727f05eb8592f0bc764f6ab8d51eacc158652ec
-  EXConstants: 799577d2516460afb4b57874d6823a62327ce5c7
+  EXConstants: 8a0eb5e2553569c0e6710b73a8d90d1ce358c153
   EXJSONUtils: a49e3ef80dff762108e5690c7b2f360675dcf7f6
   EXManifests: 4c53b2602e03ccf44d0b4ff9c5d655b2c5acba3f
   Expo: 8fcd49c9918bb861a881ea9844a3f099a9b0bd3b
@@ -3222,7 +3222,7 @@ SPEC CHECKSUMS:
   ExpoModulesJSI: 9df8e7c9719f59e8c001ec33611774137fc1484a
   ExpoModulesWorklets: 767d05688faa3bbf38b19c08abca031b5328093a
   ExpoModulesWorkletsAdapter: 13e111038fec9c5f2e92c16481ba928fa4bf5414
-  ExpoNotifications: 42cba361a6b378e6e54b795f55932e4eba058829
+  ExpoNotifications: b91c7c9e21df9b9649b382d8fbf297262c6c4c76
   ExpoScreenOrientation: 29f306f9e1a37b304862310ceb9664866f653ebd
   ExpoSecureStore: ff1fd5e073957417ba8f9dec0bebcbd55a60e747
   ExpoVideo: 31d5dc617d913808aeba05c3ab900712637b0e47
