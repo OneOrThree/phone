@@ -272,7 +272,7 @@ class WriteComposeEnvTest(unittest.TestCase):
             NOTI_DB_USERNAME="gromo_notification", NOTI_DB_PASSWORD="noti-only",
             NOTIFICATION_GENERATION_REQUIRED="true", NOTIFICATION_LEGACY_DEVICE_REGISTRATION="false",
             SVC_TOKEN_BIZ_TO_DATA="biz-data", SVC_TOKEN_BIZ_TO_NOTI="biz-noti",
-            BUSINESS_REDIS_PASSWORD="redis-only-password", GOOGLE_DRIVE_API_KEY="drive-only",
+            BUSINESS_REDIS_PASSWORD="redis-only-password",
             BUSINESS_CURSOR_KEY_V1="cursor-only",
             SVC_TOKEN_DATA_TO_NOTI="data-noti",
             SVC_TOKEN_NOTI_TO_DATA="noti-data",
@@ -286,7 +286,9 @@ class WriteComposeEnvTest(unittest.TestCase):
         )
         retired_keys = ("SVC_TOKEN_BIZ_TO_LINK", "SVC_TOKEN_DATA_TO_LINK", "LINK_CAPABILITY_KEY",
                         "LINK_IP_SALT", "COMPAT_MATCH_HANDLER_ENABLED", "COMPAT_IMPORT_CONTRACT_READY",
-                        "COMPAT_MIGRATION_ID", "BUSINESS_COMPAT_CLAIM_QUEUE_REPLAY_ENABLED")
+                        "COMPAT_MIGRATION_ID", "BUSINESS_COMPAT_CLAIM_QUEUE_REPLAY_ENABLED",
+                        # GROMO-2682 링크 미리보기와 함께 걷은 Drive 키 — 시크릿에 남아 있어도 어느 서비스에도 나가지 않는다.
+                        "GOOGLE_DRIVE_API_KEY")
         combined.update({key: "retired-secret" for key in retired_keys})
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -328,7 +330,6 @@ class WriteComposeEnvTest(unittest.TestCase):
             self.assertEqual(biz["LINK_PROXY_SECRET"], "proxy-proof")
             self.assertNotIn("LINK_BASE_URL", biz)
             self.assertEqual(biz["BUSINESS_REDIS_PASSWORD"], "redis-only-password")
-            self.assertEqual(biz["GOOGLE_DRIVE_API_KEY"], "drive-only")
             self.assertEqual(biz["LOGIN_ATTEMPT_DIGEST_SECRET"], "digest-only-secret")
             self.assertEqual(biz["BUSINESS_CURSOR_KEY_V1"], "cursor-only")
             self.assertEqual(biz["BUSINESS_REDIS_USERNAME"], "business")
@@ -348,7 +349,7 @@ class WriteComposeEnvTest(unittest.TestCase):
             for key in ("FCM_SERVICE_ACCOUNT_JSON", "NOTI_DB_PASSWORD", "API_DB_PASSWORD",
                         "SVC_TOKEN_CONSOLE_TO_NOTI", "SVC_TOKEN_DATA_TO_LINK"):
                 self.assertNotIn(key, biz)
-            for key in ("JWT_SECRET", "API_DB_PASSWORD", "SVC_TOKEN_BIZ_TO_LINK", "LINK_CAPABILITY_KEY", "BUSINESS_REDIS_PASSWORD", "GOOGLE_DRIVE_API_KEY",
+            for key in ("JWT_SECRET", "API_DB_PASSWORD", "SVC_TOKEN_BIZ_TO_LINK", "LINK_CAPABILITY_KEY", "BUSINESS_REDIS_PASSWORD",
                         "LOGIN_ATTEMPT_DIGEST_SECRET", "BUSINESS_CURSOR_KEY_V1"):
                 self.assertNotIn(key, noti)
             for environment in (biz, noti):

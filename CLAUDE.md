@@ -25,7 +25,7 @@ leftover (see `app/app-dev/app.config.js`).
 | `app/legacy/scripts/`   | 1.x 로컬 웹 실행 도우미 (`local-web.sh`, `local-web.command`). |
 | `server/data-api/`      | Spring Boot 4 + Java 17 + PostgreSQL REST API. See `server/data-api/CLAUDE.md`. |
 | `server/realtime/`          | Spring Boot 4 realtime service — WebSocket/STOMP + Redis, its own `gromo_chat` DB. A **separate** Gradle project sharing no code with `data-api`. See `server/realtime/CLAUDE.md`. |
-| `server/business-api/` | 공개 파일 링크 미리보기 Spring Boot 서비스. 독립 Gradle·전용 Redis. 실행·API 계약은 `server/business-api/README.md`. |
+| `server/business-api/` | 앱이 들어오는 유일한 표면 — 인증·요청 검증과 Data·Notification·Realtime 조합 Spring Boot 서비스. 독립 Gradle·전용 Redis. 실행·API 계약은 `server/business-api/README.md`. |
 | `server/observability/` | Prometheus / Grafana / Loki / Datadog configs for the dev observability overlay. See `server/observability/README.md`. |
 | `server/scripts/`       | The `docker-compose.*.yml` files (`dev` / `local` / `prod` base + `realtime` / `kafka` / `satellites` / `satellites.data` / `business` / `datadog` / `observability` overlays) and satellite deploy prep. The one-line compose combo per environment, the "empty secret → behaviour" table and log-rotation values live in `server/scripts/README.md` §3–§6. |
 | `loadtest/`             | k6 load-testing harness (scenarios, GCP runner terraform, trigger dashboard). See `loadtest/README.md`. |
@@ -153,8 +153,7 @@ PR checks live in the dev CI file. Shared steps go in a reusable file without an
   `docker-compose.business.yml`.
 - **공용 서버 검사**: `be-gradle.yml`을 Data·Realtime·Satellite·prod가 호출한다.
   Data는 Gradle `build` 한 번으로 정적 검사·테스트·bootJar를 만들고 이미지 잡은 같은 실행의
-  JAR를 검증해 조립한다. Business는 `business-pdf` 입력으로 Docker test 이미지의 poppler
-  의존성을 유지한다. service/revision/run_id가 다른 산출물은 재사용하지 않는다.
+  JAR를 검증해 조립한다. service/revision/run_id가 다른 산출물은 재사용하지 않는다.
 - **Realtime 검사**: `realtime-ci.dev.yml`은 PR 검사와 Data CI의 `workflow_call`을 받는다.
   `be-gradle.yml`의 `service: realtime`으로 Checkstyle·SpotBugs·Testcontainers·bootJar를
   검사하고, 호출받은 main 실행에서 공동 배포용 이미지 digest를 반환한다.

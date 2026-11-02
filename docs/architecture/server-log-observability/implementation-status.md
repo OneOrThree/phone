@@ -46,7 +46,7 @@
 
 ### 2차 후속 9건 (2026-10-29~30, 같은 에픽)
 
-에픽 PR 리뷰에서 비차단으로 미룬 항목(F1~F24)을 영역별로 묶은 티켓이다. 같은 안전 경계(배포·재시작·Datadog write·AWS 요청 없음)로 진행했다. 2587(Business PDF 파서 격리)은 인프라 담당 결정 전이라 이 에픽에 넣지 않았다.
+에픽 PR 리뷰에서 비차단으로 미룬 항목(F1~F24)을 영역별로 묶은 티켓이다. 같은 안전 경계(배포·재시작·Datadog write·AWS 요청 없음)로 진행했다. Business PDF 파서 격리(2587, 티켓은 삭제됨)는 인프라 담당 결정 전이라 이 에픽에 넣지 않았고, 이후 PDF를 가져와 변환하던 파일 링크 미리보기 자체를 GROMO-2682 에서 걷어 해당 없음이 됐다.
 
 | 티켓 | 작업 단위 | 현황(조정자 갱신) |
 | --- | --- | --- |
@@ -237,7 +237,7 @@ dev Loki는 2554 조사 당시 떠 있지 않아(`runtime-inventory.md`) dev 배
 
 ## 아직 구현하지 않은 경계
 
-- 2553 은 요청 ID의 동기 HTTP 경로를 연결했다. Outbox 영속 carrier·Kafka/HTTP 헤더·notification 수신은 2557, notification 기기별 발송 operation 은 2558, Realtime Redis 두 채널(`chat:fanout`·`chat:events:v1`)과 STOMP 프레임 scope는 2559 에서 구현했다(위 절). 2559 에서 남은 것은 「2559 범위 밖·후속」에 적었다. Preview worker 는 각 티켓 범위다.
+- 2553 은 요청 ID의 동기 HTTP 경로를 연결했다. Outbox 영속 carrier·Kafka/HTTP 헤더·notification 수신은 2557, notification 기기별 발송 operation 은 2558, Realtime Redis 두 채널(`chat:fanout`·`chat:events:v1`)과 STOMP 프레임 scope는 2559 에서 구현했다(위 절). 2559 에서 남은 것은 「2559 범위 밖·후속」에 적었다. Business preview worker 는 GROMO-2682 에서 미리보기와 함께 제거돼 대상에서 빠졌다.
 - Data 인증 실패는 TraceIdFilter 앞에서 끝나므로 이번 구현만으로 Data의 모든 401/403 로그에 요청 ID가 생기지 않는다. 인증 이전 scope·인증 이후 사용자 보강은 2555 범위(JSON 출력)에 넣지 않았다 — 후속 과제다. Business의 error/async dispatch 최종 상태도 2555는 미처리 예외만 `outcome=unhandled_exception`으로 구분하고 error dispatch 재진입은 다루지 않는다.
 - 2553 시점의 Business access log는 미처리 예외 최종 상태를 구분하지 않았다. 2555부터 미처리 예외는 `status_code` 없이 `outcome=unhandled_exception`으로 남는다.
 - 로그 JSON·마스킹·`log_id`와 Loki 로컬 수집은 2555에서 구현하고 로컬 하네스로 검증했다. DD agent 활성 상태의 span 전파, sample 미보관 시 조회, 실배포 JSON 출력, 실제 S3 적재·보존·부하 영향은 아직 미검증이다(S3 출력과 Nginx 입력의 로컬 검증은 위 2556 절).

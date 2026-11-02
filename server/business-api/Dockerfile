@@ -1,15 +1,8 @@
 # Business API 이미지 — 멀티 스테이지 + jammy 베이스.
 # ⚠️ temurin 의 alpine 태그는 amd64 전용(arm64 매니페스트 없음) — t4g·Apple Silicon 대응으로 jammy 를 쓴다.
 
-# CI 검증 도구는 러너 호스트에 설치하지 않는다. 이 스테이지 안에서 gradle 을 돌려야
-# ThumbnailRendererTest 계열이 pdftoppm·prlimit 을 찾을 수 있다.
 # 기본값은 기존 소스 빌드. CI는 같은 실행에서 검증한 JAR를 prebuilt로 전달한다.
 ARG JAR_SOURCE=builder
-
-FROM eclipse-temurin:17.0.20.1_1-jdk-jammy AS test
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends poppler-utils util-linux \
-    && rm -rf /var/lib/apt/lists/*
 
 # builder 는 $BUILDPLATFORM(빌드 머신 네이티브)에서 돌려 gradle 을 QEMU 에뮬레이션 없이 실행한다.
 # 산출 JAR 는 아키텍처 무관이라 최종 스테이지만 타깃 아키텍처의 JRE 로 조립한다.
@@ -35,13 +28,11 @@ LABEL com.oneorthree.redis-layout="shared-v1"
 # curl — compose 헬스체크가 쓴다. 이 베이스에 지금은 들어 있지만 «보장»된 것이 아니다: 베이스 태그를
 #        올릴 때 베이스가 한 번 슬림해지는 것만으로 매 검사가 `curl: not found` 가 되어 앱이
 #        멀쩡한데도 컨테이너가 계속 unhealthy 로 판정된다. 그 의존을 이미지 안에 못 박는다.
-# poppler-utils·util-linux — PDF 썸네일은 prlimit 으로 제한한 별도 pdftoppm 프로세스에서 처리한다.
-# fonts-noto-cjk — 한글이 들어간 PDF 첫 페이지가 두부(□)로 렌더되지 않게 한다.
 ADD --checksum=sha256:aeb74b05314e21211b55af13240723dd9014e18dd70422f8501fa180b1b3113b \
     https://repo1.maven.org/maven2/com/datadoghq/dd-java-agent/1.64.0/dd-java-agent-1.64.0.jar /opt/dd-java-agent.jar
 # 원격 ADD 는 JAR 를 0600 으로 남길 수 있으므로 business 실행 사용자가 읽게 고정한다.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl poppler-utils util-linux fonts-noto-cjk \
+    && apt-get install -y --no-install-recommends curl \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd -g 10001 business && useradd -u 10001 -g business -M business \
     && mkdir -p /app/logs && chown -R business:business /app \
@@ -50,8 +41,7 @@ WORKDIR /app
 COPY --from=artifact /app/app.jar app.jar
 USER business
 RUN test -r /opt/dd-java-agent.jar
-# headless — ImageIO 축소 경로가 X11 을 찾지 않게 한다.
-ENV JAVA_TOOL_OPTIONS="-Xmx512m -XX:ActiveProcessorCount=2 -Djava.awt.headless=true -javaagent:/opt/dd-java-agent.jar"
+ENV JAVA_TOOL_OPTIONS="-Xmx512m -XX:ActiveProcessorCount=2 -javaagent:/opt/dd-java-agent.jar"
 # 8080 — compose 가 SERVER_PORT=8080 을 주고 /health 를 검사한다. 위성 배포에서 8082 는 알림 서버 몫이다.
 # 관리 포트 9091 은 EXPOSE 하지 않는다: 포트 격리가 /actuator/* 를 사설로 유지하는 유일한 수단이다.
 EXPOSE 8080

@@ -2,7 +2,7 @@
 """공개 OpenAPI 전 operation 을 k6 시나리오 카탈로그와 재대조해 CSV 로 남긴다 (GROMO-2346).
 
 있음 = k6/cases/public.json 의 조회 사례 또는 k6/cases/write.json 의 쓰기 시나리오가 그 operation 을 호출한다.
-제외 = 외부 의존성(소셜 IdP·FCM/APNs·링크 제공자·객체 저장소)이라 하네스가 부하를 만들지 않는다.
+제외 = 외부 의존성(소셜 IdP·FCM/APNs·링크 제공자)이라 하네스가 부하를 만들지 않는다.
 없음 = 의존성은 없지만 시나리오가 아직 없다(별도 fixture·쓰기 수명주기·정리 필요).
 실측 여부는 보지 않는다 — 실행 결과는 survey 보고서 소관이다.
 
@@ -17,7 +17,6 @@ METHODS = ('get', 'post', 'put', 'patch', 'delete')
 # (정규식 'METHOD /path', 사유) — 위에서부터 첫 일치. 외부 의존성만 넣는다.
 EXCLUDE = [
     (r'^POST /auth/sessions$', '소셜 로그인 — 외부 IdP(Apple·Google 등) 의존'),
-    (r'^\w+ /(api/v1/)?link-previews', '링크 미리보기 — 외부 사이트 fetch·객체 저장소(썸네일) 의존'),
     (r'^POST /l/match$', '링크 매칭 — 외부 MMP·링크 제공자 의존'),
     (r'^POST /api/v1/(invite-links/claim|groups/\{groupId\}/invite-link)$', '초대 링크 — 외부 링크 제공자 의존(구 /api/v1 표면)'),
     (r'^(PUT|DELETE) /api/v1/users/me/device-token$', '기기 토큰 — 실제 FCM 기기·자격 의존'),
