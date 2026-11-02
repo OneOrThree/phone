@@ -17,6 +17,7 @@ import {
   updateNotice as patchNotice,
 } from '@/services/api/notices';
 import { initialState } from '@/services/model';
+import { art } from '@/constants/art';
 import {
   Board,
   buildings,
@@ -2197,6 +2198,23 @@ test('퀘스트 상세 — progress 의 주민 목록을 그리고 수령 버튼
   ]);
   // 로컬 CLAIM/지갑 가산은 없다 — 갱신은 getBoard 재조회가 맡는다.
   assert.equal(e.dispatch.mock.calls.filter((c: any[]) => c[0]?.type === 'CLAIM').length, 0);
+  await screen.unmount();
+});
+
+test('퀘스트 상세 — 털색을 안 준 주민은 빈 상자이고 준 주민만 그 색으로 그린다(GROMO-2497)', async () => {
+  getBoardMock.mockResolvedValue(page([], null, 'host', [questItem()]));
+  const [withColor, noColor] = questProgress().members;
+  getQuestProgressMock.mockResolvedValue(
+    questProgress({ members: [{ ...withColor, catColor: 'ginger' }, noColor] }),
+  );
+  const screen = await renderBoard(makeE({ route: 'quest', detail: 'occ-1', tab: '퀘스트' }));
+
+  await waitFor(() => assert.ok(screen.getByText(/· 달성/)));
+  assert.ok(screen.getByText('주민')); // 털색이 없는 u2 의 줄은 있다
+  assert.deepEqual(
+    screen.queryAllByTestId('cat-avatar-image').map((n) => n.props.source),
+    [art['avatar/ginger']],
+  );
   await screen.unmount();
 });
 

@@ -4,6 +4,7 @@ import { cleanup, fireEvent, render, waitFor } from '@testing-library/react-nati
 import { Library } from './Library';
 import { dateKey, diaryRange, shortDate } from './library/diaryData';
 import { initialState } from '@/services/model';
+import { assets } from '@/constants/assets';
 import {
   getFocusStatistics,
   getLibraryScreen,
@@ -620,4 +621,36 @@ test('내 일기장으로 갔다 이웃 일기장으로 돌아오면 다시 잴 
   await screen.rerender(<Library e={environment()} />);
   await screen.rerender(<Library e={environment({ neighbors: true })} />);
   expect(book().height).toBe(full);
+});
+
+test('서버 이웃 일기장 — 털색을 안 준 이웃은 빈 상자이고 준 이웃만 그 색으로 그린다(GROMO-2497)', async () => {
+  const e = { ...environment({ neighbors: true }), islands: [] };
+  jest.mocked(getLibraryScreen).mockResolvedValue({
+    island: { id: e.state.islandId, name: '섬', role: 'owner' },
+    statisticsAvailability: 'available',
+    focusStatistics: null,
+    screenTimeStatistics: null,
+    fishEarnings: { members: [] },
+    missingFragments: [],
+  });
+  const neighbor = (userId: string, name: string, catColor: string | null) => ({
+    userId,
+    name,
+    catColor,
+    totalSeconds: 0,
+    series: [],
+  });
+  (getFocusStatistics as jest.Mock).mockResolvedValue({
+    scope: 'island',
+    members: [neighbor('u2', '민지', null), neighbor('u3', '하늘', 'ginger')],
+    nextCursor: null,
+  });
+  (getScreenTimeStatistics as jest.Mock).mockResolvedValue({ scope: 'island', members: [] });
+  const screen = await render(<Library e={e} />);
+  await waitFor(() => expect(screen.getByTestId('diary-member-u3')).toBeTruthy());
+  expect(screen.getByTestId('diary-member-u2')).toBeTruthy();
+  // 일기장 그림은 idle 자세(still="idle")다
+  expect(screen.getAllByTestId('cat-avatar-image').map((n) => n.props.source)).toEqual([
+    assets['characters/cat/ginger/idle.png'],
+  ]);
 });
