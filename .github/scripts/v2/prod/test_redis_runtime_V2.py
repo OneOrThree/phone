@@ -11,7 +11,7 @@ import uuid
 
 
 class RedisTest(unittest.TestCase):
-    def test_캐시와_차단_표지가_재시작_후_남고_다른_역할의_키를_거부한다(self):
+    def test_차단_표지가_재시작_후_남고_다른_역할의_키를_거부한다(self):
         spec=importlib.util.spec_from_file_location('writer',Path(__file__).parents[2]/'write-compose-env.py')
         writer=importlib.util.module_from_spec(spec);spec.loader.exec_module(writer)
         name='catus-business-probe-v2-'+uuid.uuid4().hex[:12]
@@ -39,12 +39,9 @@ class RedisTest(unittest.TestCase):
                 self.assertEqual(run('exec',name,*service['healthcheck']['test'][1:]).strip(),'PONG')
                 self.assertIn('noeviction',run('exec',name,'redis-cli','-e','--user','health','--pass','','CONFIG','GET','maxmemory-policy'))
                 self.assertEqual(redis('SET','cache:business:revoked:probe-V2','1','PX','60000'),'OK')
-                self.assertEqual(redis('HSET','cache:business:preview:probe-V2','json','fixture'),'1')
-                self.assertEqual(redis('HGET','cache:business:preview:probe-V2','json'),'fixture')
                 with self.assertRaises(subprocess.CalledProcessError):redis('SET','presence:probe-V2','blocked')
                 run('restart',name)
                 self.assertEqual(redis('GET','cache:business:revoked:probe-V2'),'1')
-                self.assertEqual(redis('HGET','cache:business:preview:probe-V2','json'),'fixture')
             finally:
                 subprocess.run(['docker','rm','-f',name],capture_output=True,timeout=60)
                 subprocess.run(['docker','volume','rm',volume],capture_output=True,timeout=60)

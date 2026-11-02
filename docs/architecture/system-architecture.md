@@ -59,7 +59,7 @@ flowchart TB
 | **`DELETE /api/v1/users/me/device-token`** | business-api | **AT 만으로는 부족** — 현 `deleteDeviceToken`(`userApi.ts:88-94`)은 **refresh 인터셉터가 없는 bare axios 에 기존 AT** 를 싣고 `App.tsx:293-306,528` 은 실패를 삼킨다. 앱을 1시간 넘게 안 쓴 뒤 로그아웃·계정 전환하면 **만료 AT 로 401 이 나 Business 에 닿지도 못해 outbox 조차 안 남고**, 뒤의 `/auth/logout` 에는 대상 토큰·소유권 값이 없어 복구 불가다. 그래서 **이 삭제만은 RT(또는 별도 기기 자격)로 인증**하거나, **세션 전환을 깨지 않는 방식으로 fresh AT 를 확보한 뒤** outbox 기록까지 끝낸다 |
 | 그 외 `/api/v1/**` · `/bff/**` | business-api | JWT (Business API 서명 검증) |
 | `/auth/sessions` 및 `/auth/sessions/**` | business-api — 무접두 신규 API, URI 그대로 전달 | 선택 AT·RT·provider 자격의 세부 인증은 계정 계약(1757)에서 구현한다. nginx의 경로 연결은 인증 예외를 만들지 않으며, 현재 `AccessTokenFilter` 기본 보호를 유지한다 |
-| `/me` · `/islands` · `/focus-sessions` · `/invitations` · `/rankings` · `/statistics` · `/screens` · `/link-previews` 및 각각의 `/` 하위 | business-api — 정확한 루트 경계만 연결(`me-other` 등 제외) | 앱 JWT 검증. 외부 `X-User-Id`·caller·링크 IP 증명 헤더는 폐기하고 내부 위임은 Business가 생성한다. 링크용 공유 시크릿 불필요. nginx upstream 재시도는 명시적으로 끈다. 기존 `/api/v1/link-previews` 계약·thumbnail URL은 유지한다 |
+| `/me` · `/islands` · `/focus-sessions` · `/invitations` · `/rankings` · `/statistics` · `/screens` 및 각각의 `/` 하위 | business-api — 정확한 루트 경계만 연결(`me-other` 등 제외) | 앱 JWT 검증. 외부 `X-User-Id`·caller·링크 IP 증명 헤더는 폐기하고 내부 위임은 Business가 생성한다. 링크용 공유 시크릿 불필요. nginx upstream 재시도는 명시적으로 끈다. 링크 미리보기(`/link-previews`·`/api/v1/link-previews`)는 GROMO-2682 에서 Business 와 함께 걷었고 nginx도 이 경로를 연결하지 않는다 |
 | `/internal/admin/**` | notification | 서비스 토큰(콘솔 전용). ~~Vercel egress IP 는 가변이라 IP 허용 목록 없음~~ → A23: 콘솔은 Business API 안(같은 compose) — 알림 화면 연결은 L16 대로 나중 |
 | `/health` | business-api (각 서비스 헬스는 compose 내부) | 없음 |
 | `/l/**` · `/link/**` · `/.well-known/**` · `/console/**` | ~~**nginx 가 아니라 DNS** — `link.oneorthree.world` → Vercel~~ → ~~**A23(2026-09-13): business-api** — nginx 라우팅 한 번으로 전환한다(링크 HLD §7 4단계). data-api 로 가는 링크 경로는 없다(공인 노출 0)~~ → **현행(GROMO-2645): nginx 가 직접 응답한다.** `/l/<슬러그 8자>` 는 정적 인라인 랜딩, `/.well-known/apple-app-site-association` · `/.well-known/assetlinks.json` 은 고정 JSON 이다(Infra `prod/catus-v2/runtime/nginx.conf-V2.template`). 서비스를 호출하지 않으며 business-api · data-api 에는 `/l/` 처리가 없다. 슬러그 형식이 아니면 404 다. `/link/**` · `/console/**` 도 서버 구현이 없어 404 다 | ~~`/l/referrer` 만 AT(게스트 포함, 링크 정책 L23) · 콘솔은 팀원별 비밀번호 슬롯 + 서명 쿠키(L16) · 나머지 공개 경로는 무인증 + IP HMAC 레이트리밋(링크 LLD §4.3) · 인증 예외는 (메서드, 경로) 정확 목록(링크 HLD §5)~~ → 없음(정적 응답). HTML 에는 정규식 캡처 슬러그만 넣고 `?g=` 같은 요청 입력은 넣지 않는다 |
@@ -90,12 +90,11 @@ data-api 는 호스트 포트를 열지 않는다(compose 네트워크 내부만
 
 ### 2.4 시크릿 (A11 ⑥)
 
-A22 ㋺의 기존 미리보기 통합으로 Business 컨테이너 한도는 2 GiB이며 전용 Redis 캐시는 192 MiB를 추가한다. `business-cache` 내부 네트워크에는 Business와 Redis만 연결하고, Redis 포트는 publish하지 않는다. JVM 힙은 512 MiB, PDF 프로세스 한도는 기존 값을 유지한다. PID 한도 128 안에서 JVM·Redis 연결·PDF 프로세스가 함께 동작하도록 Tomcat 요청 스레드를 최대 32·최소 대기 4로 제한한다. 이는 공유 Redis·리그 전환을 앞당기는 변경이 아니다.
+Business 컨테이너 한도는 2 GiB이며 전용 Redis 캐시는 192 MiB를 추가한다(A22 ㋺가 파일 미리보기의 JVM·PDF 프로세스 한도를 보존하려고 잡은 값이다. 미리보기를 GROMO-2682 에서 걷었지만 한도는 재측정 없이 그대로 둔다). `business-cache` 내부 네트워크에는 Business와 Redis만 연결하고, Redis 포트는 publish하지 않는다. JVM 힙은 512 MiB다. PID 한도 128 안에서 JVM·Redis 연결이 함께 동작하도록 Tomcat 요청 스레드를 최대 32·최소 대기 4로 제한한다. 이는 공유 Redis·리그 전환을 앞당기는 변경이 아니다.
 
 | 시크릿 | 보유 |
 |---|---|
 | `BUSINESS_REDIS_PASSWORD` | Business만 원문 보유. Redis에는 SHA-256 비밀번호와 키·명령 ACL 파일만 주입 |
-| `GOOGLE_DRIVE_API_KEY` | Business 미리보기 전용(선택). Data·Notification에는 전달하지 않음 |
 | `JWT_SECRET` | 최종적으로 business-api **만**. **회수 시점은 FCM(아래)과 같은 순서다** — 현 `application-prod.yml:30` 이 기본값 없는 필수 placeholder 라, 라우팅 전환보다 먼저 data-api 에서 빼거나 **직전 digest 로 롤백**하면 **Data 가 기동하지 못해 전체 API 가 멈춘다**. **business-api 에 먼저 병행 배포 → 인증 트래픽 전환과 구 인증 코드 제거 확인 → 롤백 창 종료 → 그다음 data-api 에서 회수** |
 | **`APPLE_CLIENT_ID` · `GOOGLE_CLIENT_ID`**(+ 그 밖의 provider 설정) | 최종적으로 **business-api** — IdP 토큰 검증을 옮기므로 함께 옮긴다. **회수 시점은 `JWT_SECRET`·FCM 과 같다**(병행 배포 → 인증 트래픽 전환·구 인증 코드 제거 확인 → 롤백 창 종료 → data-api 에서 회수). 현 `application-prod.yml:39·46` 이 **기본값 없는 필수 주입**이라 빠뜨리면 placeholder 해석 단계에서 **기동 자체가 실패**하고 해당 소셜 로그인이 전부 중단된다 |
 | **`API_DB_URL` · `API_DB_USERNAME` · `API_DB_PASSWORD`** (gromo) | data-api — **현 `application-prod.yml:3-5` 이 읽는 실제 이름이다**(기본값 없음). 표에 다른 이름을 적어 두면 그대로 배포했을 때 기동 실패 |

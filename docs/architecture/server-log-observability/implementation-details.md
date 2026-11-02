@@ -102,7 +102,6 @@ DD `1.64.0`은 로그 발생 시점의 span context를 `ILoggingEvent`와 연결
 | HTTP 수신 thread | Business `RequestEnvelopeFilter`, Data `FilterConfig`/`TraceIdFilter` | agent server span + request ID scope. 인증 전 초기화, 인증 후 user 보강 |
 | Business 화면 조합 pool | [ScreenComposer](../../../server/business-api/src/main/java/com/oneorthree/business/common/http/ScreenComposer.java) | 2553: 이미 명시 전달하는 `UpstreamRequestContext.within`에 request ID scope 적용. FutureTask를 추가 wrapper로 감싸지 않아 cancel/remove 의미 유지. agent executor 전파 실측은 후속 |
 | Business 내부 HTTP pool | [InternalHttpClient](../../../server/business-api/src/main/java/com/oneorthree/business/common/http/InternalHttpClient.java) | 2553: HTTP worker도 `context.within`으로 실행해 같은 request ID 설치·복원. outbound client span의 헤더 전파 실측은 후속 |
-| Business preview worker | [PreviewService](../../../server/business-api/src/main/java/com/oneorthree/business/linkpreview/service/PreviewService.java) | 제출 시 snapshot과 요청 번호 유지. 장시간 후 실행이면 원인 ID와 작업 trace 분리 |
 | Data 레거시 `@Async` | 초기 조사에 있던 `AsyncConfig`·`NotificationAsyncConfig`는 구현 기준 main에서 삭제됨 | 삭제된 GA4/push executor를 복원하지 않는다. 현재 Outbox scheduler/transport 및 남은 비동기 경계를 대상으로 구현한다 |
 | Outbox scheduler | [OutboxRelayService](../../../server/data-api/src/main/java/com/oneorthree/phone/outbox/service/OutboxRelayService.java) | thread snapshot으로 넘길 수 없음. DB에 원인 문맥 저장 후 전달 행마다 복원하고 새 시도 trace 생성 |
 | Kafka consumer | Notification/Realtime listener | agent Kafka header 추출 + 이벤트 metadata scope. DLT/재시도 로그까지 적용 |

@@ -4,7 +4,7 @@ import { scryptSync } from "node:crypto";
 import { Store } from "../server/store.mjs";
 import { createApp } from "../server/app.mjs";
 import { Upstream } from "../server/upstream.mjs";
-import { exceedsStoreVersion } from "../src/versions.ts";
+import { exceedsStoreVersion, shortCommit } from "../src/versions.ts";
 import contract from "../server/contract.json" with { type: "json" };
 const apiContract = { contractVersion: contract.contractVersion, capabilities: [...contract.data, ...contract.notification] };
 const APPLE = "https://itunes.apple.com/lookup?id=6813004121&country=kr";
@@ -37,7 +37,7 @@ const ok = () => Response.json({ resultCount: 1, results: [{ version: "1.0.2" }]
 test("로컬 모드는 외부를 부르지 않는다", async t => {
   const calls = [];
   const get = await serve(t, "local", new Upstream({ mode: "local", fetchImpl: async u => { calls.push(u); throw new Error("no"); } }));
-  assert.deepEqual(await get(), [200, { local: true, data: null, notification: null, iosStore: { version: null, status: "local" } }]);
+  assert.deepEqual(await get(), [200, { local: true, data: null, notification: null, infraRevision: null, iosStore: { version: null, status: "local" } }]);
   assert.equal(calls.length, 0);
 });
 test("연결 모드는 두 서비스 버전을 주고 구버전 서버는 null", async t => {
@@ -57,6 +57,24 @@ test("서버가 unknown 을 돌려주면 null 로 정규화한다", async t => {
   const run = async data => (await (await serve(t, "connected", connected(ok, { data }).upstream))())[1];
   assert.equal((await run({ serverVersion: "unknown", schemaVersion: "unknown" })).data, null);
   assert.deepEqual((await run({ serverVersion: " Unknown ", schemaVersion: "9" })).data, { serverVersion: null, schemaVersion: "9" });
+});
+const INFRA = "0123456789abcdef0123456789abcdef01234567";
+test("Infra 구성 커밋은 Data 응답의 infraRevision 이고 없는 구버전·unknown·문자열 아님은 null", async t => {
+  const run = async data => (await (await serve(t, "connected", connected(ok, { data }).upstream))())[1];
+  const versions = { serverVersion: "abc1234def", schemaVersion: "9" };
+  assert.equal((await run({ ...versions, infraRevision: ` ${INFRA} ` })).infraRevision, INFRA);
+  // 구버전 Data 는 키가 없다. 서버 버전이 있어도 Infra 커밋으로 대신하지 않는다.
+  assert.equal((await run(versions)).infraRevision, null);
+  for (const infraRevision of ["unknown", " Unknown ", "  ", 123, null])
+    assert.equal((await run({ ...versions, infraRevision })).infraRevision, null);
+  // 서버·DB 버전을 모르는 Data 여도 Infra 커밋은 따로 전달된다.
+  const body = await run({ serverVersion: "unknown", schemaVersion: "unknown", infraRevision: INFRA });
+  assert.equal(body.data, null);
+  assert.equal(body.infraRevision, INFRA);
+});
+test("사이드바 커밋 표시는 앞 7자리이고 값이 없으면 「-」", () => {
+  assert.equal(shortCommit(INFRA), "0123456");
+  for (const missing of [null, undefined, ""]) assert.equal(shortCommit(missing), "-");
 });
 test("iOS 스토어 조회 결과 분류, 실패해도 라우트는 성공", async t => {
   const cases = [

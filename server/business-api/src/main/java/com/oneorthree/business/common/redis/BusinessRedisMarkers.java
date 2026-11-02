@@ -11,14 +11,13 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.connection.RedisStandaloneConfiguration;
 import org.springframework.data.redis.connection.lettuce.LettuceClientConfiguration;
 import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
-import org.springframework.data.redis.core.ScanOptions;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Component;
 
 /**
- * 세션·탈퇴 차단 표지의 Redis 전환. 기존 저장소의 TTL을 바꾸지 않고 읽으며 새 표지는 양쪽에 쓴다.
- * 기존 Redis는 최대 표지 수명이 지난 뒤 분리한다. 일반 캐시에는 이중 저장을 적용하지 않는다.
+ * 폐기 세션 표지의 Redis 전환. 기존 저장소의 TTL을 바꾸지 않고 읽으며 새 표지는 양쪽에 쓴다.
+ * 기존 Redis는 최대 표지 수명이 지난 뒤 분리한다.
  */
 @Component
 @Slf4j
@@ -69,10 +68,6 @@ public class BusinessRedisMarkers {
         legacyFactory = null;
     }
 
-    public boolean contains(String key) {
-        return redis.opsForValue().get(key) != null || legacy != null && legacy.opsForValue().get(key) != null;
-    }
-
     /** 기존 Redis만 실패해도 새 저장소의 차단 표지는 계속 검사한다. */
     public boolean containsRevocation(String key) {
         if (redis.opsForValue().get(key) != null) {
@@ -100,20 +95,6 @@ public class BusinessRedisMarkers {
             legacy.execute(PUT, List.of(key), expiry);
         }
         return expiresAt;
-    }
-
-    /** 전환 중 남아 있는 이전 형식의 개인 미리보기도 탈퇴 시 제거한다. */
-    public void eraseLegacyPreviews(String user) {
-        if (legacy == null) {
-            return;
-        }
-        try (var cursor = legacy.scan(ScanOptions.scanOptions()
-                .match("cache:business:preview:" + user + ":*").count(100).build())) {
-            while (cursor.hasNext()) {
-                legacy.delete(cursor.next());
-            }
-        }
-        legacy.delete("cache:business:rate:" + user);
     }
 
     @PreDestroy

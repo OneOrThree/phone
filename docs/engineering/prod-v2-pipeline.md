@@ -112,7 +112,7 @@ PR에서는 base와 head의 변경으로 검사 대상을 고른다. release 발
 | `rollback` | 이전 태그로 명시적 복구 |
 | `allow_migration` | DB 마이그레이션이 든 릴리스 승인. `rollback`과 함께 쓸 수 없고 앱에서만 유효 |
 
-앱 CD는 서비스를 고르지 못한다. Infra `deploy-V2.py`가 네 서비스를 모두 `up -d --no-deps`로 넘기고, Compose가 이미지·env·라벨이 바뀐 서비스만 재생성한다. Infra 버전 고정값만 바뀌고 앱 설정이 같으면 재시작하지 않는다.
+앱 CD는 서비스를 고르지 못한다. Infra `deploy-V2.py`가 네 서비스를 모두 `up -d --no-deps`로 넘기고, Compose가 이미지·env·라벨이 바뀐 서비스만 재생성한다. Infra 버전 고정값만 바뀌고 앱 설정이 같으면 Realtime·Business·Notification은 재시작하지 않는다. Data는 고정값을 `OBS_INFRA_REVISION`으로 받아 백오피스에 보여 주므로, 고정값이 바뀐 릴리스를 배포하면 재생성된다.
 
 마이그레이션 지문이 직전 성공과 다르면 기본으로 멈춘다. 절차는 [DB 전환이 든 V2 배포](../prd/fishcat/server-separation/deployment.md#db-전환이-든-v2-배포)를 따른다.
 

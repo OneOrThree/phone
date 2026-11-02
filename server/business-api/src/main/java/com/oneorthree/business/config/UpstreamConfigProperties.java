@@ -36,7 +36,7 @@ public class UpstreamConfigProperties {
         return Deadline.startingNow(composition.getDeadline());
     }
 
-    /** 대상 셋과 조합 worker의 합계. Tomcat·JVM·Redis·미리보기/PDF PID 여유는 별도로 남긴다. */
+    /** 대상 셋과 조합 worker의 합계. Tomcat·JVM·Redis PID 여유는 별도로 남긴다. */
     public void validateWorkerBudget() {
         if (data.getMaxConnections() < 1 || notification.getMaxConnections() < 1
                 || realtime.getMaxConnections() < 1
@@ -60,7 +60,8 @@ public class UpstreamConfigProperties {
      * 초기 JVM 안전 상한이며 운영 처리량/SLO를 보장하는 수치가 아니다.
      *
      * <p>pool-size 4 의 근거(GROMO-2345 재검토): 스레드 합계 18(= Data 4 + Notification 4 + Link 4 + Realtime 2 +
-     * 조합 4)은 컨테이너 PID 128 에서 Tomcat 16+16·미리보기/DNS 8·JVM/Redis/PDF 자식을 빼고 남긴 몫이다. 조합 스레드는
+     * 조합 4)은 컨테이너 PID 128 에서 Tomcat 16+16·JVM/Redis 를 빼고 남긴 몫이다(처음 잡을 때는 미리보기/DNS 8·PDF 자식
+     * 몫도 뺐다 — 미리보기는 GROMO-2682 에서 걷었지만 합계 18 은 재측정 없이 그대로 둔다). 조합 스레드는
      * 조각이 끝날 때까지 Data worker 하나를 붙잡으므로 조합 4 : Data 4 로 맞춰 둔 것이다. 홈은 요청 1건이 최대
      * 7조각을 한 단계에서 낸다(소속 1, 섬 상세 1, 섬 단계 7, 방송기 1) — 4 스레드면 섬 단계가 2번에 나뉘지만, 홈 외 화면과
      * Notification·Link 몫을 줄일 부하 근거가 아직 없어 값은 그대로다(바꾸려면 혼합 부하로 합계 18 안 재배분을 측정).

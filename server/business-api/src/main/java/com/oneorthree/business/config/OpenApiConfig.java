@@ -39,7 +39,6 @@ public class OpenApiConfig {
             "/letters/**",
             "/customization/**",
             "/l/**",
-            "/link-previews/**",
             // 호환 계약 — «당분간 유지». Apidog 병합 단계에서 business-api/legacy 폴더로 격리된다.
             "/api/v1/**");
 

@@ -4,11 +4,9 @@ import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
-import com.oneorthree.business.linkpreview.exception.PreviewExceptionHandler;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.EnumSource;
-import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.slf4j.LoggerFactory;
@@ -53,22 +51,6 @@ class ApiResponsesBoundaryTest {
         responses.writeFilterError(request, response, code, "내부 전용 문구");
         assertThat(response.getStatus()).isEqualTo(code.getStatus().value()).isGreaterThanOrEqualTo(500);
         assertThat(responses.error(request, code, null, null).getStatusCode()).isEqualTo(code.getStatus());
-    }
-
-    @ParameterizedTest
-    @CsvSource({"/link-previews/item,400", "/api/v1/link-previews/item,503"})
-    void previewFailurePreservesRetryAfterAndHidesStorageDetails(String path, int status) {
-        var request = new MockHttpServletRequest("GET", path);
-        var handler = new PreviewExceptionHandler(responses);
-        var result = handler.unavailable(new DataAccessResourceFailureException("private Redis address"), request);
-
-        assertThat(result.getStatusCode().value()).isEqualTo(status);
-        assertThat(result.getHeaders().getFirst("Retry-After")).isEqualTo("10");
-        String body = new ObjectMapper().writeValueAsString(result.getBody());
-        assertThat(body).contains("SERVICE_UNAVAILABLE").doesNotContain("private Redis address");
-        if (path.startsWith("/link-previews/")) {
-            assertThat(((ApiErrorResponse) result.getBody()).error().retryable()).isTrue();
-        }
     }
 
     @ParameterizedTest

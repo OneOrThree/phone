@@ -59,7 +59,7 @@ CI 호스트 사양 조회 결과는 `e2-custom-4-8192`(4 vCPU·8 GiB), 같은 V
 같은 run과 revision의 이전 성공 산출물을 쓸 수 있다. 전체 재실행은 동일 이름의 산출물을 교체한다.
 
 각 Dockerfile은 `JAR_SOURCE=builder`를 기본값으로 유지하고 CI만 `JAR_SOURCE=prebuilt`를 사용한다.
-런타임 스테이지는 하나이므로 JRE, Business PDF 도구·폰트·비root 사용자, curl, Datadog agent,
+런타임 스테이지는 하나이므로 JRE, Business 비root 사용자, curl, Datadog agent,
 포트·환경변수·ENTRYPOINT가 두 경로에서 동일하다. `ci-artifact/`는 gitignore되고 `build/` 제외 규칙과 분리된다.
 
 Data의 `test` 잡은 `test bootJar`를 함께 실행하고 JAR 크기를 기존 산출물에서 잰다.

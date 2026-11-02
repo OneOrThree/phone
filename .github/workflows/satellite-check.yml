@@ -122,7 +122,6 @@ jobs:
     with:
       service: ${{ matrix.service }}
       enabled: ${{ fromJSON(needs.changes.outputs.services)[matrix.service] }}
-      business-pdf: ${{ matrix.service == 'business-api' }}
       publish-jar: true
       artifact-name: ${{ matrix.service }}-test-results
       artifact-path: build/reports/

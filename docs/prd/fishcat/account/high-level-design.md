@@ -215,7 +215,7 @@ claim 클릭의 matched_device_id·app_instance_id·ip_hash·user_agent도 같�
 
 사용자 활동 로그도 정상적으로 UUID를 기록한다. 이 로그와 회전본·S3 적재본·외부 sink 복사본은 행 단위로 지우지 않고 **보존 기간 만료로 파기**한다(재영님 결정 2026-09-19). 기간 정본은 policy.md 로그·분석 보존 기간 표이며 로컬 logback maxHistory(APP 7일·user-activity 30일)와 S3 수명 주기 규칙(90일)이 각각 표의 자기 행을 구현한다. 기간이 없거나 설정 미확인인 sink는 파기 완료를 주장하지 않는다.
 
-Business Redis의 링크 미리보기 캐시와 Data 공유 Redis의 집중 프레즌스도 사용자 UUID 키를 만든다. 미리보기는 Data→Business 전달이 금지이므로 Business가 탈퇴 명령 전에 차단 표지를 두고 비동기 완료·조회가 이를 원자 대조하며, 탈퇴 확정 뒤 prefix를 지운다. 프레즌스는 시작 커밋 콜백과 재구축 Lua가 같은 Redis의 tombstone을 한 스크립트에서 대조해 제거 뒤 재생성을 막는다.
+Data 공유 Redis의 집중 프레즌스도 사용자 UUID 키를 만든다(Business Redis의 링크 미리보기 캐시도 같았으나 GROMO-2682에서 미리보기와 함께 제거돼 파기 대상이 아니다). 프레즌스는 시작 커밋 콜백과 재구축 Lua가 같은 Redis의 tombstone을 한 스크립트에서 대조해 제거 뒤 재생성을 막는다.
 
 GA4도 User-ID·app_instance_id·설치 device_id로 같은 사용자를 잇는다. 이 연결도 GA4 속성의 데이터 보존 기간(policy.md, 권장 2개월) 만료로 파기하며 사용자 삭제 요청 작업을 두지 않는다. 앱은 탈퇴 성공 뒤 User-ID를 해제한 다음에만 이벤트를 보낸다.
 
