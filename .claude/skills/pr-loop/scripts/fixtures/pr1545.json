@@ -1,0 +1,147 @@
+{
+ "_source": "OneOrThree/phone PR #1545 (2026-11-02 조회). graphql = pr_state.QUERY 의 pullRequest, comments = REST issues/1545/comments. 작성자 로그인은 pr-author 로 바꿨고 본문은 줄였다.",
+ "graphql": {
+  "state": "MERGED",
+  "mergeStateStatus": "UNKNOWN",
+  "baseRefName": "main",
+  "author": {
+   "login": "pr-author"
+  },
+  "reviewThreads": {
+   "pageInfo": {
+    "hasNextPage": false
+   },
+   "nodes": []
+  },
+  "reactions": {
+   "nodes": [
+    {
+     "user": {
+      "login": "chatgpt-codex-connector[bot]"
+     },
+     "createdAt": "2026-11-02T12:18:41Z"
+    }
+   ]
+  },
+  "commits": {
+   "nodes": [
+    {
+     "commit": {
+      "oid": "514c352b4b690e7bb6d1eea92e6a904f4420f72e",
+      "committedDate": "2026-11-02T12:11:38Z",
+      "statusCheckRollup": {
+       "contexts": {
+        "pageInfo": {
+         "hasNextPage": false
+        },
+        "nodes": [
+         {
+          "__typename": "CheckRun",
+          "name": "에이전트 설정 · 게이트 검사",
+          "status": "COMPLETED",
+          "conclusion": "SUCCESS"
+         },
+         {
+          "__typename": "CheckRun",
+          "name": "policy",
+          "status": "COMPLETED",
+          "conclusion": "SUCCESS"
+         },
+         {
+          "__typename": "CheckRun",
+          "name": "policy",
+          "status": "COMPLETED",
+          "conclusion": "SUCCESS"
+         },
+         {
+          "__typename": "CheckRun",
+          "name": "policy",
+          "status": "COMPLETED",
+          "conclusion": "SUCCESS"
+         },
+         {
+          "__typename": "CheckRun",
+          "name": "checks / 위성 변경 입력 판정",
+          "status": "COMPLETED",
+          "conclusion": "SUCCESS"
+         },
+         {
+          "__typename": "CheckRun",
+          "name": "check",
+          "status": "COMPLETED",
+          "conclusion": "SUCCESS"
+         },
+         {
+          "__typename": "CheckRun",
+          "name": "checks / 서비스별 시크릿 · DB 격리",
+          "status": "COMPLETED",
+          "conclusion": "SUCCESS"
+         },
+         {
+          "__typename": "CheckRun",
+          "name": "checks / 공개 명령 원자성 · 계약",
+          "status": "COMPLETED",
+          "conclusion": "SUCCESS"
+         },
+         {
+          "__typename": "CheckRun",
+          "name": "checks / ${{ matrix.service }} 검증",
+          "status": "COMPLETED",
+          "conclusion": "SKIPPED"
+         },
+         {
+          "__typename": "CheckRun",
+          "name": "build (business-api) / gradle",
+          "status": "COMPLETED",
+          "conclusion": "SUCCESS"
+         },
+         {
+          "__typename": "CheckRun",
+          "name": "build (notification) / gradle",
+          "status": "COMPLETED",
+          "conclusion": "SUCCESS"
+         },
+         {
+          "__typename": "CheckRun",
+          "name": "images",
+          "status": "COMPLETED",
+          "conclusion": "SKIPPED"
+         },
+         {
+          "__typename": "CheckRun",
+          "name": "auto-cd",
+          "status": "COMPLETED",
+          "conclusion": "SKIPPED"
+         }
+        ]
+       }
+      }
+     }
+    }
+   ]
+  }
+ },
+ "comments": [
+  {
+   "user": {
+    "login": "chatgpt-codex-connector[bot]"
+   },
+   "created_at": "2026-11-02T12:14:02Z",
+   "body": "<!-- codex-pull-request-review-summary -->\n<!-- codex-review-state:v1 {\"code_review\":{\"commit_sha\":\"514c352b4b690e7bb6d1eea92e6a904f4420f72e\",\"has_any_findings\":false,\"has_unresolved_findings\":false,\"status\":\"completed\"},\"security_review\":{\"commit_sha\":\"514c352b4b690e7bb6d1eea92e6a904f4420f72e\",\"has_any_findings\":null,\"has_unresolved_findings\":null,\"status\":\"completed\"}} -->\n<!-- codex-security-review:v1 {\"blockingSeverityThreshold\":\"P0\",\"headSha\":\"514c352b4b690e7bb6d1eea92e6a904f4420f72e\",\"mergeGateEnabled\":false,\"pullRequestNumber\":1545,\"repository\":\"OneOrThree/phone\",\"status\":\"completed\"} -->\n## Codex Review Summary\n\nThis comment shows the latest Codex review activity on this pull request."
+  },
+  {
+   "user": {
+    "login": "pr-author"
+   },
+   "created_at": "2026-11-02T12:14:06Z",
+   "body": "@claude 리뷰 부탁드립니다. 특히 아래를 봐 주세요.\n\n1. 규칙 1·2 가 지문 포함 조건과 같은지"
+  },
+  {
+   "user": {
+    "login": "claude[bot]"
+   },
+   "created_at": "2026-11-02T12:14:32Z",
+   "body": "**Claude encountered an error after 0s** —— [View job](https://github.com/OneOrThree/phone/actions/runs/41443020355)\n\n---\nI'll analyze this and get back to you."
+  }
+ ]
+}
