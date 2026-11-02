@@ -10,7 +10,6 @@ from pathlib import Path
 import re
 import signal
 import subprocess
-import tempfile
 import time
 import uuid
 
@@ -76,20 +75,6 @@ def classify(code, rc, body):
     return False, code in {'502', '503', '504'}, 'HTTP_' + code
 
 
-def record_timestamp(path):
-    if not path:
-        return
-    target = Path(path)
-    # 기존 실행 간 제한 창은 실패·재시도까지 포함한 마지막 요청을 기준으로 한다.
-    fd, temporary = tempfile.mkstemp(dir=target.parent, prefix=target.name + '.')
-    try:
-        with os.fdopen(fd, 'w') as file:
-            file.write(str(int(time.time())))
-        os.replace(temporary, target)
-    finally:
-        Path(temporary).unlink(missing_ok=True)
-
-
 class CurlRequest:
     def __init__(self, directory, env, device, config):
         self.directory, self.env, self.config = directory, env, config
@@ -101,7 +86,6 @@ class CurlRequest:
         directory, config = self.directory, self.config
         for name in ('body.json', 'headers'):
             (directory / name).write_text('')
-        record_timestamp(self.env.get('SMOKE_GUEST_LAST_REQUEST_FILE'))
         args = ['curl', '-q', '--config', str(directory / 'guest-curl.cfg'), '--request', 'POST',
                 '--max-time', str(min(config['http'], remaining)),
                 '--connect-timeout', str(min(config['connect'], config['http'], remaining)),
