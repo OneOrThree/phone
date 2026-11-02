@@ -1,6 +1,6 @@
 # server/data-api/ — Spring Boot backend
 
-**Catus 2.0의 내부 API와 데이터 정본**을 담당한다. 루트 `CLAUDE.md` 규칙을 함께 따른다.
+**Cattus 2.0의 내부 API와 데이터 정본**을 담당한다. 루트 `CLAUDE.md` 규칙을 함께 따른다.
 아래 명령은 `server/data-api/`에서 실행한다.
 
 ## Stack
@@ -90,7 +90,7 @@ Enforced by `config/checkstyle/checkstyle.xml` (Google Java Style, modified):
 - `./gradlew checkstyleMain checkstyleTest` — style checks.
 - `./gradlew spotbugsMain` — static analysis.
 - `./gradlew jacocoTestReport` — coverage report.
-- Local helper: `./test-local.sh` spins up a throwaway `postgres:16-alpine` container, runs the tests, then tears it down.
+- Local gate: `./norm.sh` runs Checkstyle → SpotBugs → test + bootJar like CI (what `/back-check` runs, `.claude/commands/back-check.md:12`). It starts no host DB: tests bring their own PostgreSQL via Testcontainers, and the datasource is pinned to a dead port `127.0.0.1:1` (`norm.sh:5-8,38`). `test-local.sh` starts a host Postgres (`test-local.sh:5-11`) that the tests do not use.
 
 ## Docs
 

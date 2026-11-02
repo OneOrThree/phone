@@ -79,7 +79,7 @@ Data와 Realtime은 **같은 중단 창에서 교체**한다. 새 Data가 제거
   해당 push의 위성 배포가 필요하면 먼저 완료를 기다린다. 이미지·runtime·DB 사전 검증 후
   nginx와 Data·Realtime·Business·Notification 및 DB 관측 연결을 중지한다. DB·Redis·Kafka는
   유지한다. 전환 후 두 이미지와 readiness, 기존 위성 복원을 검증한 뒤 트래픽을 재개한다.
-  실행 기록·백업과 재실행 방법은 [개발 공동 배포](../../../scripts/README.md#catus-v0-전환과-datarealtime-동시-교체)를 따른다.
+  실행 기록·백업과 재실행 방법은 [개발 공동 배포](../../../scripts/README.md#cattus-v0-전환과-datarealtime-동시-교체)를 따른다.
 - Catus prod는 기존 Infra 실행 구성을 사용한다. 별도 V0 자동 전환 SSM 변경을 요구하지 않는다.
   **최초 전환에서는 운영 호스트에서 nginx·네 앱·Data DB 관측 연결을 중지한 뒤** 같은 Data
   digest의 `deploy-v0.py`를 수동 실행하고, V0 검증이 끝나면 기존 승인 CD로 네 앱을 배포한다.

@@ -61,9 +61,9 @@ flowchart LR
 | 대상 | 위치 |
 | --- | --- |
 | VM·디스크·IAM·버킷 | Infra `dev/runtime-v2.tf`, `dev/deployment-v2.tf`, `dev/backup-v2.tf` |
-| 앱 Compose·nginx | Infra `dev/runtime-v2/` |
+| 서버 묶음 Compose·nginx | Infra `dev/runtime-v2/` |
 | PostgreSQL·Kafka·Redis Compose | phone `server/scripts/v2/dev/` |
-| 앱 호스트 배포 스크립트 | phone `server/scripts/v2/dev/app/deploy.py` |
+| 서버 묶음 호스트 배포 스크립트 | phone `server/scripts/v2/dev/app/deploy.py` |
 | 판정·배포 스크립트 | phone `.github/scripts/v2/dev/` |
 
 `server/scripts/nginx-dev-2.0-routes.conf.example`은 기존 dev와 로컬 nginx용이며 dev V2는 읽지 않는다. dev V2의 공개 경로를 바꾸려면 Infra `dev/runtime-v2/nginx.conf.template`을 고친다.
@@ -125,7 +125,7 @@ flowchart LR
    - 실행 중: 기다리고, CI 완료 때 다시 판정한다.
    - 없음 또는 취소: CI를 수동 실행하고 기다린다.
    - 실패, 또는 성공했는데 산출물 없음: Auto CD를 실패시킨다.
-4. 런타임이 모두 준비되면 앱 대상을 정한다. 필요한 이미지 CI가 없으면 같은 방식으로 실행하고 기다린다.
+4. 런타임이 모두 준비되면 서버 묶음 대상을 정한다. 필요한 이미지 CI가 없으면 같은 방식으로 실행하고 기다린다.
 
 토큰으로 시작한 CI는 `workflow_run`을 깨우지 못한다. 그래서 수동 실행된 CI는 마지막 `auto-cd` job에서 Auto CD를 직접 다시 부른다.
 
@@ -146,7 +146,7 @@ Redis는 실행마다 ACL 파일 경로가 달라, 같은 산출물을 다시 �
 
 ### app
 
-앱 대상은 `dev-plan-V2.py`가 정한다.
+서버 묶음 대상은 `dev-plan-V2.py`가 정한다.
 
 | 변경 | 빌드 대상 | 배포 대상 |
 | --- | --- | --- |
@@ -180,10 +180,10 @@ Redis는 실행마다 ACL 파일 경로가 달라, 같은 산출물을 다시 �
 
 | 상황 | 할 일 |
 | --- | --- |
-| Infra 앱 구성만 바뀜 | Infra 발행 성공 후 Auto CD를 main에서 수동 실행한다. Infra 발행은 Auto CD를 부르지 않는다 |
-| 앱 시크릿 변경 | `App CD (dev)-v2`를 최신 Infra manifest URI와 `force_redeploy`로 실행한다. CI run ID 입력은 선택이다 |
-| Redis 비밀번호·ACL 변경 | `Redis CD (dev)-v2`를 manifest URI와 `selection`(`all`, `shared`, `business`)으로 실행한 뒤 앱을 `force_redeploy`로 재배포한다 |
-| DB 비밀번호 변경 | 파이프라인 밖에서 `ALTER ROLE`을 실행한 뒤 앱을 재배포한다 |
+| Infra 서버 묶음 구성만 바뀜 | Infra 발행 성공 후 Auto CD를 main에서 수동 실행한다. Infra 발행은 Auto CD를 부르지 않는다 |
+| 서버 묶음 시크릿 변경 | `App CD (dev)-v2`를 최신 Infra manifest URI와 `force_redeploy`로 실행한다. CI run ID 입력은 선택이다 |
+| Redis 비밀번호·ACL 변경 | `Redis CD (dev)-v2`를 manifest URI와 `selection`(`all`, `shared`, `business`)으로 실행한 뒤 서버 묶음을 `force_redeploy`로 재배포한다 |
+| DB 비밀번호 변경 | 파이프라인 밖에서 `ALTER ROLE`을 실행한 뒤 서버 묶음을 재배포한다 |
 | 런타임 단독 재시도 | `kafka·postgres·redis-cd.dev-v2.yml`에 manifest URI를 넣어 실행한다 |
 
 - 시크릿 변경은 지문에 잡히지 않아 Auto CD가 감지하지 못한다.
@@ -212,8 +212,8 @@ DB migration이 이미 적용됐을 수 있으므로 이전 이미지로 자동 
 
 | 항목 | 검토안 | 현재 |
 | --- | --- | --- |
-| 앱 VM | e2-small | e2-medium |
-| 컴퓨팅 월 추정 | 약 $39.22 | 앱 VM 상향으로 이 금액은 더 맞지 않는다. 재계산이 필요하다 |
+| 서버 묶음 VM(`catus-dev-v2-app`) | e2-small | e2-medium |
+| 컴퓨팅 월 추정 | 약 $39.22 | 서버 묶음 VM 상향으로 이 금액은 더 맞지 않는다. 재계산이 필요하다 |
 | Kafka·DB 동거 | 같은 VM, 컨테이너·디렉터리 분리 | 같다. Compose 파일을 나누고 호스트 잠금을 공유 |
 | Redis | Shared·Business 프로세스 2개, ACL, AOF | 같다 |
 
@@ -221,12 +221,12 @@ DB migration이 이미 적용됐을 수 있으므로 이전 이미지로 자동 
 
 ## 스모크·배지
 
-- 앱이나 런타임을 실제 배포하면 `record` job이 `ops-smoke.dev-v2.yml`을 호출한다. 대기만 하고 끝난 실행은 호출하지 않는다.
+- 서버 묶음이나 런타임을 실제 배포하면 `record` job이 `ops-smoke.dev-v2.yml`을 호출한다. 대기만 하고 끝난 실행은 호출하지 않는다.
 - 스모크는 서비스 healthy 확인 뒤 5분을 기다렸다 검사한다.
 - 스모크는 `ubuntu-latest`에서 공개 API를 검사하고, `dev-smoke-docker-V2.py`가 `docker` 호출만 IAP SSH로 해당 VM에 보낸다. 전체 15개 TC를 유지한다.
 - 스모크는 CD와 같은 `catus-dev-v2-deploy` 잠금 안에서 돈다. 대기 실행이 취소되지 않게 이 그룹의 워크플로는 모두 `queue: max`다.
 - `record` job이 dev 배포 배지를 직접 게시한다. 토큰으로 실행한 Auto CD는 `workflow_run`을 깨우지 않으므로 공용 `deployment-badges.py`를 직접 호출한다. V1 배지 workflow는 제거했다.
-- dev 배지는 서비스별 최신 결과를 합친다. 앱 배포 실패는 대상 서비스만, `plan` 실패는 네 서비스 모두 실패로 기록한다. 런타임만 바뀐 실행의 실패는 앱 배지를 바꾸지 않는다.
+- dev 배지는 서비스별 최신 결과를 합친다. 서버 묶음 배포 실패는 대상 서비스만, `plan` 실패는 네 서비스 모두 실패로 기록한다. 런타임만 바뀐 실행의 실패는 서버 묶음 배지를 바꾸지 않는다.
 - 수동으로 옛 SHA를 재배포한 뒤 도는 스모크는 대상 SHA의 후손이 아니어서 실패로 보고된다.
 
 ## 남은 일
