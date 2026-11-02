@@ -69,8 +69,12 @@ services:
       com.datadoghq.tags.version: ${IMAGE_REVISION:-unknown}
       com.datadoghq.ad.logs: >-
         [{"source":"java","service":"business-api"}]
+      # metrics 는 대시보드가 쓰는 이름만 적은 큐레이트 목록이다(GROMO-2196) — 작성 규칙은 server/data-api/Dockerfile 의 Datadog 주석.
+      # Business 는 JDBC·Kafka 의존성이 없어(server/business-api/build.gradle) 공통 13종 중 노출되는 5종만 적는다.
       com.datadoghq.ad.checks: >-
-        {"openmetrics":{"init_config":{},"instances":[{"openmetrics_endpoint":"http://%%host%%:9091/actuator/prometheus","namespace":"gromo_business","metrics":[".*"],"health_service_check":true,"send_distribution_buckets":true,"collect_counters_with_distributions":true}]}}
+        {"openmetrics":{"init_config":{},"instances":[{"openmetrics_endpoint":"http://%%host%%:9091/actuator/prometheus","namespace":"gromo_business","metrics":[
+        "executor_active_threads","executor_queued_tasks","jvm_gc_overhead","jvm_gc_pause_seconds","process_uptime_seconds"
+        ],"health_service_check":true,"send_distribution_buckets":true,"collect_counters_with_distributions":true}]}}
 
   notification:
     logging: *app-logging
@@ -112,8 +116,13 @@ services:
       com.datadoghq.tags.version: ${IMAGE_REVISION:-unknown}
       com.datadoghq.ad.logs: >-
         [{"source":"java","service":"notification"}]
+      # metrics 는 대시보드가 쓰는 이름만 적은 큐레이트 목록이다(GROMO-2196) — 작성 규칙은 server/data-api/Dockerfile 의 Datadog 주석.
       com.datadoghq.ad.checks: >-
-        {"openmetrics":{"init_config":{},"instances":[{"openmetrics_endpoint":"http://%%host%%:9091/actuator/prometheus","namespace":"gromo_notification","metrics":[".*"],"health_service_check":true,"send_distribution_buckets":true,"collect_counters_with_distributions":true}]}}
+        {"openmetrics":{"init_config":{},"instances":[{"openmetrics_endpoint":"http://%%host%%:9091/actuator/prometheus","namespace":"gromo_notification","metrics":[
+        "executor_active_threads","executor_queued_tasks",
+        "hikaricp_connections_acquire_seconds","hikaricp_connections_active","hikaricp_connections_idle","hikaricp_connections_pending","hikaricp_connections_timeout","hikaricp_connections_usage_seconds","jdbc_connections_max",
+        "jvm_gc_overhead","jvm_gc_pause_seconds","process_uptime_seconds","spring_kafka_template_seconds"
+        ],"health_service_check":true,"send_distribution_buckets":true,"collect_counters_with_distributions":true}]}}
 
 networks:
   business-cache:
