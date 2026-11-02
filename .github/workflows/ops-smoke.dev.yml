@@ -1,3 +1,4 @@
+# RETIRED: ops-smoke.dev-v2.yml 이 대신한다
 name: 서버 스모크 스냅샷
 
 on:

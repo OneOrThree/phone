@@ -14,7 +14,7 @@ main → 필수 앱 검사 → 서버 선행 게이트 → Android CI → AAB + 
 
 `app-android-ci.yml`은 빌드 설정과 AAB까지만 만든다. 빌드 잡에는 AWS·Play·업로드 서명 키를 전달하지 않는다. main의 SDK 공개 설정은 기존 격리된 설정 잡에서 읽으며 Play API를 조회하지 않는다. main 빌드의 PostHog 심볼 전송은 유지한다.
 
-versionCode는 `max(ANDROID_VERSION_CODE_BASE, build.gradle의 versionCode) + GITHUB_RUN_NUMBER`로 정한다. 기준 변수가 비어 있으면 build.gradle 값을 사용한다. 같은 입력과 CI 실행의 재시도는 같은 코드를 사용하고, 다음 CI 실행은 더 큰 코드를 사용한다. CI와 CD가 겹쳐도 'Play 최대값+1'을 동시에 선택하는 경쟁이 없다.
+versionCode는 `max(ANDROID_VERSION_CODE_BASE, build.gradle의 versionCode) + GITHUB_RUN_NUMBER`로 정한다. 기준 변수가 비어 있으면 build.gradle 값을 사용한다. 2026-11-02 현재 저장소 변수 `ANDROID_VERSION_CODE_BASE`는 설정돼 있지 않아 build.gradle 값이 기준이다(조정자 확인). 같은 입력과 CI 실행의 재시도는 같은 코드를 사용하고, 다음 CI 실행은 더 큰 코드를 사용한다. CI와 CD가 겹쳐도 'Play 최대값+1'을 동시에 선택하는 경쟁이 없다.
 
 기존 Play 버전이 이 값보다 높거나 workflow 실행 번호를 새로 시작했다면 저장소 변수 `ANDROID_VERSION_CODE_BASE`를 높인 뒤 새 CI를 실행한다. CD가 기존 Play 번호와 충돌하면 게시를 중단하며 임의로 AAB의 버전을 바꾸거나 재빌드하지 않는다. Android versionCode 상한은 코드에서 검증한다.
 

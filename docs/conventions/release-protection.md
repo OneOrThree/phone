@@ -4,6 +4,8 @@
 
 ## 정책
 
+아래 표는 목표 정책이다. 2026-11-02 현재 `release`에는 적용 전이고(브랜치 `protected=false`), 적용은 GROMO-2695에서 한다.
+
 | 설정 | 기준 |
 |---|---|
 | PR 요구 | 관리자 포함. 승인 인원 기본 0명이며 기존 더 강한 승인·코드오너 조건은 유지 |
@@ -47,5 +49,5 @@ python3 .github/scripts/release-protection.py \
 
 - `AGENTS.md` — main → release 운영 승격
 - `docs/conventions/git-pr-conventions.md` — 일반 개발 PR·수동 머지 규칙
-- `docs/prd/fishcat/server-separation/deployment.md` — Catus 운영 발행·배포와 승인 환경
+- [prod V2 파이프라인](../engineering/prod-v2-pipeline.md) — 운영 V2 발행·배포와 배포 환경
 - [GitHub branch protection REST API](https://docs.github.com/en/rest/branches/branch-protection#update-branch-protection) — payload·승인 수 0·관리자 적용·merge 이력 설정

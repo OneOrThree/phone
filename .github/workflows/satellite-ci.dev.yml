@@ -1,3 +1,4 @@
+# RETIRED: satellite-ci.dev-v2.yml 이 대신한다
 # 위성(business-api · notification) CI — PR 검사 + main push 시 GAR(amd64) 발행. satellite-cd.dev.yml 이 이어서 배포.
 # 검사는 satellite-check.yml 공용. GROMO-2224 에서 satellite-ci.yml 을 dev·prod 로 분리.
 name: Satellite CI (dev)

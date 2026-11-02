@@ -1,3 +1,4 @@
+# RETIRED: kafka-cd.dev-v2.yml 이 적용만 대신한다(status·down 대응 없음) — 옛 dev VM 전용
 name: Dev Kafka (single-node broker)
 
 # Kafka 단일 노드 브로커(docker-compose.kafka.yml)를 dev(self-hosted) 서버에 수동으로 올리고 내린다 (GROMO-1658).

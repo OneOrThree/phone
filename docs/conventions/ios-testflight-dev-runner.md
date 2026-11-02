@@ -2,9 +2,11 @@
 
 main에 `app/app-dev/**` 변경이 머지되면, **머지 버튼을 누른 사람의 맥**에서 dev 서버용 TestFlight 빌드가 자동으로 올라간다(워크플로 `iOS TestFlight (dev)`, 티켓 2219). 그러려면 각자 맥이 레포의 GitHub Actions 러너로 등록돼 있어야 한다. 이 문서는 그 등록 절차와 알아둘 점이다.
 
+**현재 상태(2026-11-02)**: 레포 변수 `IOS_DEV_RUNNERS`가 없어 main push 자동 업로드는 돌지 않는다. 최근 10회 실행이 모두 건너뛰었다(GitHub Actions 조회). 수동 실행은 이 변수와 관계없이 누른 사람의 맥에서 돈다.
+
 ## 왜 이렇게 하나
 
-- iOS 빌드는 Xcode가 있는 맥에서만 된다. 지금 레포에 등록된 러너는 GCP 리눅스 2대라 못 한다.
+- iOS 빌드는 Xcode가 있는 맥에서만 된다. 레포의 GCP 리눅스 러너로는 못 한다. 2026-11-02 현재 레포 러너는 4대다: 리눅스 2대와 맥 2대(`soobin-macbookpro`, `taehwa-macbook`).
 - GitHub이 빌려주는 macOS 러너는 비공개 레포 기준 리눅스의 10배 요금이고, 매번 빈 컴퓨터라 인증서·키를 다시 넣어야 한다.
 - 각자 맥은 이미 Xcode와 서명 환경이 있다. 러너 라벨에 깃허브 아이디를 붙여 두면 워크플로가 `github.actor`(머지한 사람)로 그 맥을 고른다.
 
@@ -28,11 +30,11 @@ main에 `app/app-dev/**` 변경이 머지되면, **머지 버튼을 누른 사�
 
 ## 빌드가 어떻게 도는가
 
-- 트리거: `main` push 중 `app/app-dev/**` 변경, 또는 수동 실행. **PR에서는 돌지 않는다**(아래 "공개 레포" 참고).
+- 트리거: `main` push 중 `app/app-dev/**` 변경(Android 네이티브·문서 변경 제외, 정확한 목록은 워크플로의 `on.push.paths`), 또는 수동 실행. **PR에서는 돌지 않는다**(아래 "공개 레포" 참고).
 - 러너 선택: `runs-on: [self-hosted, macOS, ios, <github.actor>]`. 단, 머지한 사람이 레포 변수 **`IOS_DEV_RUNNERS`**(러너를 등록한 깃허브 아이디의 쉼표 목록, 공백 없이 — 예 `flying-adventure,joejaeyoung`)에 없으면 **러너 배정 전에 빌드를 건너뛴다**. 변수가 없거나 비어 있어도 자동 빌드를 하지 않는다(워크플로의 `GITHUB_TOKEN`으로는 러너 목록 API를 못 읽어 변수로 판단한다). 등록 스크립트가 러너가 **online**으로 보인 뒤에 변수에 아이디를 덧붙이므로 직접 만질 일은 없다. 수동 실행은 **목록과 관계없이 항상 누른 사람의 맥**에서 돈다 — 아무 브랜치나 고를 수 있는 수동 실행이 남의 맥으로 가면 안 되기 때문이다. 러너를 등록하지 않은 사람이 누르면 그냥 대기한다. 다른 사람 맥에서 돌리고 싶으면 그 사람이 직접 Run workflow를 누른다 — 남의 맥을 고르는 입력란은 일부러 두지 않았다(수동 실행은 아무 브랜치에서나 할 수 있어서, 검토 안 된 코드를 남의 맥에서 돌리는 길이 된다).
-- 하는 일: `setup-node`(Node 24) → `npm ci` → `app/app-dev/ios/testflight.sh --dev` (티켓 2218). 스크립트가 Pods 동기화, fastlane 설치, dev 서버 주소 고정, archive, TestFlight 업로드까지 한다. 테스트 노트 첫 줄에 `dev 서버(oneorthree.dev.mooo.com) 빌드 — <commit>`이 붙는다.
+- 하는 일: 맥을 잡기 전에 리눅스에서 `change-plan`(iOS 게시 범위 판정)과 `quality-gate`(같은 SHA의 앱 필수 검사 완료 대기)가 먼저 돈다. 수동 실행은 `quality-gate` 대신 `app-lint.yml`을 돈다. 그다음 맥에서 `setup-node`(Node 24) → `npm ci` → `app/app-dev/ios/testflight.sh --dev` (티켓 2218). 스크립트가 Pods 동기화, fastlane 설치, dev 서버 주소 고정, archive, TestFlight 업로드까지 한다. 테스트 노트 첫 줄에 `dev 서버(oneorthree.dev.mooo.com) 빌드 — <commit>`이 붙는다. 이 주소는 옛 dev VM이다(dev V2가 아니다).
 - 값의 출처: ASC 키(비밀값)는 각자 맥의 `~/actions-runner/.env`. 약관 버전·Datadog 같은 공개 설정은 레포의 `app/app-dev/ios/release-config.sh`라 따로 넣을 것이 없다. Firebase 설정 파일은 `.env`의 `GROMO_IOS_CREDENTIALS_DIR`가 가리키는 레포 밖 디렉터리(아래 「푸시 설정 파일」).
-- 동시 실행은 하나로 제한된다(빌드 번호는 TestFlight 최신 + 1이라 겹치면 안 된다). 연달아 머지되면 뒤 것들이 순서대로 기다린다(`queue: max` — 기본값은 대기 중인 실행을 하나만 남기고 취소한다).
+- 동시 실행은 하나로 제한된다. 빌드 번호는 같은 마케팅 버전의 TestFlight 최대 번호 + 1이고, pbxproj `CURRENT_PROJECT_VERSION` + 1이 하한이라(`ios/fastlane/Fastfile`의 `compute_build_number`) 겹치면 안 된다. 연달아 머지되면 실행 중 빌드는 유지하고, 대기 중인 빌드는 최신 하나만 남긴다(워크플로 `concurrency`에 `queue`가 없어 GitHub 기본값을 따른다).
 - 고른 맥이 꺼져 있으면 잡이 "대기 중"으로 남았다가 맥이 켜지면 돈다. `IOS_DEV_RUNNERS`에 없는 사람이나 봇이 머지하면 빌드를 건너뛴다. 자동 빌드를 중단하려면 목록에서 내 아이디를 빼고, 마지막 항목이면 변수를 삭제한다. 러너를 유지하면 수동 실행은 계속 쓸 수 있다. 24시간 안에 러너가 안 잡히면 GitHub이 잡을 실패 처리한다.
 
 ## 푸시 설정 파일 `GoogleService-Info.plist` (GROMO-2523)
@@ -63,7 +65,7 @@ main에 `app/app-dev/**` 변경이 머지되면, **머지 버튼을 누른 사�
 | 내가 머지했는데 빌드가 건너뛰어짐 | `IOS_DEV_RUNNERS`에 내 아이디가 없거나 `[skip testflight]` 표시가 있다. 자동 빌드를 원하면 러너 등록·온라인 상태를 확인하고 등록 스크립트를 (다시) 돌리면 목록에 덧붙인다 |
 | "러너 .env 에 ASC_… 가 없다" | `~/actions-runner/.env`에 세 줄이 있는지 확인하고 `svc.sh stop && svc.sh start` (서비스는 시작할 때 .env를 읽는다) |
 | `errSecInternalComponent`로 CodeSign 실패 | 둘 중 하나다. ① 키체인이 백그라운드 서명을 허용하지 않음 → 위 4번 명령. ② 러너 서비스 설정(`~/Library/LaunchAgents/actions.runner.*.plist`)에 `SessionCreate`가 남아 있음 → 러너가 로그인 세션과 분리돼 키체인을 못 쓴다. 등록 스크립트를 다시 돌리면 빼고 재설치한다 |
-| 업로드가 "build number already used" 류로 거절됨 | 같은 시간에 누군가 로컬에서 수동 운영 빌드(`testflight.sh`)를 올린 것. 빌드 번호는 `beta`·`beta_dev`가 같은 앱의 TestFlight 최신 + 1을 쓰므로 겹칠 수 있다(`concurrency`는 Actions 안의 실행만 직렬화한다). Run workflow로 다시 올리면 된다 |
+| 업로드가 "build number already used" 류로 거절됨 | 같은 시간에 누군가 로컬에서 수동 운영 빌드(`testflight.sh`)를 올린 것. 빌드 번호는 `beta`·`beta_dev`가 같은 규칙(같은 마케팅 버전의 TestFlight 최대 + 1)을 쓰므로 겹칠 수 있다(`concurrency`는 Actions 안의 실행만 직렬화한다). Run workflow로 다시 올리면 된다 |
 | 서명·프로비저닝 실패 | fastlane이 ASC API 키로 프로파일을 받는다. 키의 역할이 App Manager 이상인지, 번들 id `com.oneorthree.focuscat`에 접근 권한이 있는지, 키체인에 팀 인증서가 있는지 확인 |
 | `error: iOS release 차단: …/GoogleService-Info.plist 없음` | `~/actions-runner/.env`에 `GROMO_IOS_CREDENTIALS_DIR`가 없거나 그 아래 `dev/`·`prod/` 파일이 없다. 위 「푸시 설정 파일」대로 두고 서비스를 재시작한다 |
 | `pod install`에서 죽음 | 맥의 CocoaPods·Ruby 버전. 로컬에서 `cd app/app-dev/ios && pod install`이 되는지 먼저 본다 |

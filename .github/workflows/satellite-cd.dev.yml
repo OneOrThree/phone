@@ -1,3 +1,4 @@
+# RETIRED: cd-auto.dev-v2.yml(Auto CD) 이 대신한다
 name: Satellite Dev CD
 
 on:
