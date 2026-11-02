@@ -24,9 +24,11 @@ main CI 산출물 `android-ci-<run_id>-<run_attempt>`에는 `app-release.aab`와
 
 ## 서버 선행 게이트
 
-main CI는 `server-gate` 잡에서 `.github/scripts/app-server-gate.py`를 실행한다. 운영 V2에 배포되지 않은 서버 실행 코드가 main에 있으면 이 잡이 실패하고 AAB와 CD는 실행되지 않는다. Play 콘솔의 프로덕션 승격에는 별도 검사가 없으므로 internal 게시도 같은 조건을 지킨다.
+main CI는 `server-gate` 잡에서 `.github/scripts/app-server-gate.py`를 실행한다. 운영 V2에 배포되지 않은 서버 실행 코드가 main에 있으면 이 잡이 실패한다.
 
-막혔다면 서버를 release로 승격·배포한 뒤 실패한 Android CI를 다시 실행한다. 다음 앱 변경 push에서도 미게시 변경이 함께 게시된다. PR과 main 외 브랜치의 수동 실행은 게시하지 않으므로 게이트를 실행하지 않는다.
+2026-11-02부터 이 잡은 `continue-on-error`라 실패해도 AAB와 CD가 이어진다. 앱이 쓰지 않는 서버 변경에도 막혀 첫 Play 업로드가 밀렸기 때문이다. 결과는 실행 요약의 잡 경고로 본다. Play 콘솔에서 프로덕션으로 승격하기 전에 이 잡의 결과를 직접 확인한다. 앱이 실제로 부르는 API만 보는 게이트가 생기면 다시 막는다.
+
+PR과 main 외 브랜치의 수동 실행은 게시하지 않으므로 게이트를 실행하지 않는다.
 
 ## 독립 CD와 신뢰 경계
 
