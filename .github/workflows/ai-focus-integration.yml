@@ -1,0 +1,31 @@
+name: AI Focus Integration Checks
+
+# main 대상 검사와 같은 게이트를 AI 분할 PR에도 적용한다. 배포 잡은 호출하지 않는다.
+on:
+  pull_request:
+    branches:
+      - afeat/GROMO-2503-ai-focus-integration
+      - afeat/GROMO-2505-ai-camera-foundation
+      - afeat/GROMO-2506-ai-focus-detection
+      - afeat/GROMO-2507-ai-camera-inference
+      - afeat/GROMO-2509-ai-session-memory
+      - afeat/GROMO-2508-ai-measurement-lifecycle
+      - afeat/GROMO-2511-ai-island-hud
+      - afeat/GROMO-2510-ai-controls-and-guide
+    paths:
+      - app/app-dev/**
+      - .github/workflows/ai-focus-integration.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ai-focus-integration-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  app-checks:
+    uses: ./.github/workflows/app-lint.yml
+  android-checks:
+    if: github.head_ref == 'afeat/GROMO-2505-ai-camera-foundation'
+    uses: ./.github/workflows/app-android-build.yml

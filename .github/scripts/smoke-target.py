@@ -7,15 +7,17 @@ import re
 import subprocess
 import sys
 
-CONTAINERS = {'data-api': 'phone-data-api', 'realtime': 'phone-realtime',
-              'business-api': 'phone-business-api-1', 'notification': 'phone-notification-1'}
+CONTAINERS = json.loads(os.environ.get('SMOKE_SERVICE_CONTAINERS') or 'null') or {
+    'data-api': 'phone-data-api', 'realtime': 'phone-realtime',
+    'business-api': 'phone-business-api-1', 'notification': 'phone-notification-1'}
+DOCKER = os.environ.get('SMOKE_DOCKER', 'docker')
 
 
 def inspect_targets():
     records = {}
     for service, name in CONTAINERS.items():
-        container = json.loads(subprocess.check_output(['docker', 'inspect', name]))[0]
-        image = json.loads(subprocess.check_output(['docker', 'image', 'inspect', container['Image']]))[0]
+        container = json.loads(subprocess.check_output([DOCKER, 'inspect', name]))[0]
+        image = json.loads(subprocess.check_output([DOCKER, 'image', 'inspect', container['Image']]))[0]
         records[service] = {'container_id': container['Id'], 'image_id': container['Image'],
                             'image': container['Config']['Image'],
                             'repo_digests': image.get('RepoDigests') or [],
@@ -49,11 +51,13 @@ def main():
             raise ValueError('검사 중 컨테이너·이미지 버전 변경')
         return
     payload = os.environ.get('SMOKE_TARGET_PLAN', '')
-    if os.environ.get('GITHUB_EVENT_NAME') == 'workflow_dispatch':
+    dispatched = os.environ.get('GITHUB_EVENT_NAME') == 'workflow_dispatch'
+    if dispatched and not payload:
         plan = {'revision': os.environ['GITHUB_SHA'], 'services': []}
     else:
         plan = json.loads(payload)
-        if not plan.get('services'):
+        # dev V2는 Auto CD가 대상을 넘겨 실행. Infra만 바뀐 배포는 새 이미지가 없다.
+        if not dispatched and not plan.get('services'):
             raise ValueError('자동 smoke에 배포 대상 서비스가 없음')
     def descendant(before, after):
         # 얕은 checkout으로 추정하지 않는다. 알려진 main 이력 안의 후속 SHA만 인정한다.

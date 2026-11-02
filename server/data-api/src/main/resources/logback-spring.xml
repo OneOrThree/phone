@@ -8,47 +8,52 @@
 
     <!-- PII 마스킹: %mask 컨버전 워드 등록 -->
     <conversionRule conversionWord="mask"
-                    converterClass="com.oneorthree.phone.common.logging.MaskingConverter"/>
+                    class="com.oneorthree.phone.common.logging.MaskingConverter"/>
 
     <!-- APP 텍스트 패턴 (MDC trace_id/user_id + 마스킹된 메시지) -->
     <property name="APP_PATTERN"
               value="[%d{yyyy-MM-dd HH:mm:ss.SSS}] [%thread] %-5level %logger{36} [%X{trace_id}] [%X{user_id}] [request_id=%X{request_id}] - %mask%n"/>
 
     <!-- ===================== APP (시스템 로그, 텍스트) ===================== -->
-    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
-        <encoder>
-            <pattern>${APP_PATTERN}</pattern>
-            <charset>UTF-8</charset>
-        </encoder>
-    </appender>
+    <!-- 어느 프로필에서도 참조되지 않는 appender 는 logback 이 stderr 로 경고한다. 쓰는 프로필 안에만 둔다 (GROMO-2631) -->
+    <springProfile name="local | default | ci">
+        <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+            <encoder>
+                <pattern>${APP_PATTERN}</pattern>
+                <charset>UTF-8</charset>
+            </encoder>
+        </appender>
+    </springProfile>
 
-    <!-- 관측 JSON(schema_version 1) 콘솔. 수집기는 stdout 만 읽는다. 형식·마스킹·allowlist 는 ObservationJsonProvider -->
-    <appender name="CONSOLE_JSON" class="ch.qos.logback.core.ConsoleAppender">
-        <encoder class="org.springframework.boot.logging.logback.StructuredLogEncoder">
-            <format>com.oneorthree.phone.common.logging.ObservationJsonProvider</format>
-            <charset>UTF-8</charset>
-        </encoder>
-    </appender>
+    <springProfile name="dev | staging | prod">
+        <!-- 관측 JSON(schema_version 1) 콘솔. 수집기는 stdout 만 읽는다. 형식·마스킹·allowlist 는 ObservationJsonProvider -->
+        <appender name="CONSOLE_JSON" class="ch.qos.logback.core.ConsoleAppender">
+            <encoder class="org.springframework.boot.logging.logback.StructuredLogEncoder">
+                <format>com.oneorthree.phone.common.logging.ObservationJsonProvider</format>
+                <charset>UTF-8</charset>
+            </encoder>
+        </appender>
 
-    <appender name="APP_FILE_RAW" class="ch.qos.logback.core.rolling.RollingFileAppender">
-        <file>logs/app.log</file>
-        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
-            <fileNamePattern>logs/app.%d{yyyy-MM-dd}.log</fileNamePattern>
-            <!-- 로컬 보존 7일 = policy.md L01. 탈퇴자 로그는 보존 만료로 파기(GROMO-1942). S3 system_log/ 적재본은 별도 90일(L03) -->
-            <maxHistory>7</maxHistory>
-            <totalSizeCap>1GB</totalSizeCap>
-        </rollingPolicy>
-        <encoder>
-            <pattern>${APP_PATTERN}</pattern>
-            <charset>UTF-8</charset>
-        </encoder>
-    </appender>
-    <appender name="APP_FILE" class="ch.qos.logback.classic.AsyncAppender">
-        <appender-ref ref="APP_FILE_RAW"/>
-        <queueSize>512</queueSize>
-        <discardingThreshold>0</discardingThreshold>
-        <neverBlock>true</neverBlock>
-    </appender>
+        <appender name="APP_FILE_RAW" class="ch.qos.logback.core.rolling.RollingFileAppender">
+            <file>logs/app.log</file>
+            <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+                <fileNamePattern>logs/app.%d{yyyy-MM-dd}.log</fileNamePattern>
+                <!-- 로컬 보존 7일 = policy.md L01. 탈퇴자 로그는 보존 만료로 파기(GROMO-1942). S3 system_log/ 적재본은 별도 90일(L03) -->
+                <maxHistory>7</maxHistory>
+                <totalSizeCap>1GB</totalSizeCap>
+            </rollingPolicy>
+            <encoder>
+                <pattern>${APP_PATTERN}</pattern>
+                <charset>UTF-8</charset>
+            </encoder>
+        </appender>
+        <appender name="APP_FILE" class="ch.qos.logback.classic.AsyncAppender">
+            <appender-ref ref="APP_FILE_RAW"/>
+            <queueSize>512</queueSize>
+            <discardingThreshold>0</discardingThreshold>
+            <neverBlock>true</neverBlock>
+        </appender>
+    </springProfile>
 
     <!-- ===================== USER-ACTIVITY (유저 행동 이벤트, JSON) ===================== -->
     <appender name="UA_FILE_RAW" class="ch.qos.logback.core.rolling.RollingFileAppender">
@@ -88,9 +93,6 @@
     <!-- user-activity 전용 로거: APP에 섞이지 않게 additivity=false -->
     <logger name="user-activity" level="INFO" additivity="false">
         <appender-ref ref="UA_FILE"/>
-        <springProfile name="local | default | ci">
-            <appender-ref ref="CONSOLE"/>
-        </springProfile>
     </logger>
 
     <!-- ===================== 프로파일별 root ===================== -->
@@ -98,6 +100,10 @@
         <root level="INFO">
             <appender-ref ref="CONSOLE"/>
         </root>
+        <!-- 로컬에서는 user-activity 도 콘솔로 본다. 레벨·additivity 는 위 정의를 그대로 쓴다 -->
+        <logger name="user-activity">
+            <appender-ref ref="CONSOLE"/>
+        </logger>
     </springProfile>
     <springProfile name="dev | staging | prod">
         <!-- APP_FILE(텍스트)은 컷오버 전까지 유지 — 호스트 타이머 적재가 이 파일을 읽는다 -->
@@ -108,19 +114,16 @@
     </springProfile>
 
     <!-- ===================== 후속 (예정, 384 범위 밖) — 레퍼런스 swm-secure-logger-starter 참고 ===================== -->
-    <!-- TODO GROMO-385+: USER-ACTIVITY/APP 롤링 파일 → S3 아카이브
+    <!-- TODO: USER-ACTIVITY/APP 롤링 파일 → S3 아카이브
          - 자정 롤링된 전날 파일(app.YYYY-MM-DD.log / user-activity.YYYY-MM-DD.log)을 S3에 업로드
-         - 현행 적재는 호스트 systemd 타이머(티켓 590)가 system_log/ · user_log/ 접두로 매시간 업로드, 790(Fluent Bit)은 user-activity/ 접두
+         - 기존 호스트는 systemd 타이머(티켓 590)가 system_log/ · user_log/ 접두로 매시간 업로드. Catus V2 dev·prod 에는 아직 업로더가 없고 prod 는 2288(진행 중)이 맡는다
+         - user-activity 의 Fluent Bit 직송 전환은 790(미착수, user-activity/ 접두). 컨테이너 stdout 원본은 Fluent Bit 이 system_log/v2/ 로 보내도록 구성돼 있다(2556, prod 적용은 2619)
          - 만료 규칙(세 접두 90일)은 server/scripts/s3-log-archive-lifecycle.json — 다른 접두로 올리면 만료가 닿지 않는다
          - 레퍼런스: S3LogArchiveService + S3LogConfig -->
-    <!-- TODO GROMO-385+: cloud 프로파일 — CloudWatch Logs 연동
-         - <springProfile name="cloud"> 에 AwsLogsAppender(ca.pjer:logback-awslogs-appender)
-         - logGroup/stream/region/retention, 키 주입은 환경변수/Secrets Manager -->
-    <!-- TODO GROMO-후속: API 요청/응답(access log) — RequestLoggingFilter 추가 시 @Slf4j→root→app.log로 자동 포함
-         (현재 시스템 로그는 dev/staging/prod root에서 app.log로 파일 출력됨, local/ci는 콘솔만). 레퍼런스: RequestLoggingFilter -->
-    <!-- TODO GROMO-운영관측: Slack ERROR 알림 appender
-         - ERROR 레벨을 Slack webhook으로 비동기 발송 (AsyncAppender, neverBlock)
-         - 레퍼런스: SlackErrorAppender. T3(Sentry)와 역할 중복 주의 — 둘 중 하나로 -->
+    <!-- TODO: API 요청 완료(access) 로그 — data-api 에는 없다(Business 는 2553 의 log_kind=access 로 남김)
+         - 추가하면 dev·staging·prod 에서 root 의 CONSOLE_JSON(stdout) 으로 나가고, 수집은 위 S3 TODO 의 Fluent Bit 경로(2556, prod 적용은 2619)를 따른다. 레퍼런스: RequestLoggingFilter -->
+    <!-- TODO GROMO-2660: ERROR 알림 — Slack webhook appender (AsyncAppender, neverBlock)
+         - 운영 장애 경보 경로(2660)에서 방식을 정한다. 레퍼런스: SlackErrorAppender -->
 
     <logger name="org.springframework" level="INFO"/>
 

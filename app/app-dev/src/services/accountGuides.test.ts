@@ -68,3 +68,13 @@ test('구버전 완료·건너뛰기 이력에는 앱 차단 안내를 새로 �
   );
   expect((await readAccountGuides('alice')).focusBlockingIntro).toBeUndefined();
 });
+
+test('카메라 안내 확인 이력은 계정별로 보존하고 늦은 저장이 다시 되돌리지 않는다', async () => {
+  await Promise.all([
+    saveAccountGuides('alice', { verificationIntroSeen: true }),
+    saveAccountGuides('alice', { focusDone: true }),
+    saveAccountGuides('alice', { verificationIntroSeen: false }),
+  ]);
+  expect((await readAccountGuides('alice')).verificationIntroSeen).toBe(true);
+  expect((await readAccountGuides('bob')).verificationIntroSeen).toBeUndefined();
+});

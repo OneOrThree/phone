@@ -194,7 +194,7 @@ test.each(firstBuildings)(
 
     expect(screen.getByText(`${name} 짓기`)).toBeTruthy();
     expect(await screen.findByText('20/60 마리')).toBeTruthy();
-    expect(screen.getByText('방장이 건설을 시작해요')).toBeTruthy();
+    expect(screen.getByText('섬장이 건설을 시작해요')).toBeTruthy();
     expect(screen.queryByTestId('server-build-start')).toBeNull();
     expect(api.startConstruction).not.toHaveBeenCalled();
   },
@@ -237,7 +237,7 @@ test.each(firstBuildings)(
     expect(await screen.findByText(`${name} 공사 중`)).toBeTruthy();
     expect(screen.getByText('9분 남음')).toBeTruthy();
     expect(screen.queryByTestId('server-build-start')).toBeNull();
-    expect(screen.queryByText('방장이 건설을 시작해요')).toBeNull();
+    expect(screen.queryByText('섬장이 건설을 시작해요')).toBeNull();
   },
 );
 

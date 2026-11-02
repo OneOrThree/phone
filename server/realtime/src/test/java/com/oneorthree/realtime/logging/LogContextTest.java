@@ -58,6 +58,35 @@ class LogContextTest {
     }
 
     @Test
+    @DisplayName("앱 헤더 키는 ID 형식이 아니라 좁은 형식만 통과한다 — app_version X.Y.Z, app_platform ios|android, 앞뒤 공백은 걷는다 (GROMO-2655)")
+    void appHeaderKeysUseTheNarrowFormat() {
+        assertThat(LogContext.valid(LogContext.APP_VERSION, " 1.0.2\t")).isEqualTo("1.0.2");
+        assertThat(LogContext.valid(LogContext.APP_VERSION, "123456789.0.0")).isEqualTo("123456789.0.0");
+        assertThat(LogContext.valid(LogContext.APP_PLATFORM, " ios ")).isEqualTo("ios");
+        assertThat(LogContext.valid(LogContext.APP_PLATFORM, "android")).isEqualTo("android");
+        for (String version : new String[] {"1.0", "v1.0.2", "1.0.2.3", "1.0.2-beta", "1.0.2:x", "1234567890.0.0",
+                "١.٠.٢", "1.0.2\nx", "", " "}) {
+            assertThat(LogContext.valid(LogContext.APP_VERSION, version)).as("version=[%s]", version).isNull();
+        }
+        for (String platform : new String[] {"web", "IOS", "Android", "ios:x", "ios\u0000", "ios\nandroid", "", " "}) {
+            assertThat(LogContext.valid(LogContext.APP_PLATFORM, platform)).as("platform=[%s]", platform).isNull();
+        }
+        assertThat(LogContext.valid(LogContext.REQUEST_ID, "1.0.2-beta")).as("ID 형식은 그대로 넓다").isEqualTo("1.0.2-beta");
+        assertThat(LogContext.valid(LogContext.APP_VERSION, null)).isNull();
+
+        try (LogContext scope = LogContext.open().put(LogContext.APP_VERSION, "1.0.2-beta")
+                .put(LogContext.APP_PLATFORM, "ios\nforged")) {
+            assertThat(MDC.get(LogContext.APP_VERSION)).as("put 도 같은 검사를 한다").isNull();
+            assertThat(MDC.get(LogContext.APP_PLATFORM)).isNull();
+            scope.put(LogContext.APP_VERSION, "2.0.1").put(LogContext.APP_PLATFORM, "android");
+            assertThat(MDC.get(LogContext.APP_VERSION)).isEqualTo("2.0.1");
+            assertThat(MDC.get(LogContext.APP_PLATFORM)).isEqualTo("android");
+        }
+        assertThat(MDC.get(LogContext.APP_VERSION)).as("닫으면 지운다").isNull();
+        assertThat(MDC.get(LogContext.APP_PLATFORM)).isNull();
+    }
+
+    @Test
     @DisplayName("스냅샷 치환은 스냅샷 키를 그대로 깔고(없는 전달 키는 지운다) 닫으면 실행 스레드 값으로 돌아간다")
     void replaceInstallsExactlyTheSnapshot() {
         MDC.put(LogContext.EVENT_ID, "stale");

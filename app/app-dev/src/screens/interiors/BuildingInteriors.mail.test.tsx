@@ -42,6 +42,16 @@ jest.mock('@/services/api/safety', () => ({
   getBlockedUsers: jest.fn(),
 }));
 
+const mockCapture = jest.fn();
+jest.mock('@/services/posthog', () => ({
+  captureProductEvent: (...a: unknown[]) => mockCapture(...a),
+  getPostHogClient: () => null,
+  initPostHog: () => {},
+  trackPostHogScreen: () => {},
+  identifyPostHogUser: () => {},
+  resetPostHogUser: () => {},
+}));
+
 jest.mock('@/utils/layout', () => ({
   useAppLayout: () => ({
     width: 402,
@@ -341,6 +351,19 @@ test('편지 열기 — GET 상세로 본문을 그린다(DELETE 는 나가지 �
   await waitFor(() => assert.ok(ui.getByText('반가워, 잘 지내?')));
   assert.deepEqual([...getLetterMock.mock.calls[0]], [LETTER]);
   assert.equal(closeLetterMock.mock.calls.length, 0);
+  await ui.unmount();
+});
+
+test('받은 편지를 탭해 열면 feature_used(mail/read) 를 탭당 1회 발행한다', async () => {
+  screenMock.mockResolvedValue(screen([letterItem()]));
+  getLetterMock.mockResolvedValue(letterView());
+  const ui = await renderMail(makeE());
+  await waitFor(() => assert.ok(ui.getByTestId('received-letter-0')));
+  mockCapture.mockClear();
+
+  await fireEvent.press(ui.getByTestId('received-letter-0'));
+
+  expect(mockCapture.mock.calls).toEqual([['feature_used', { building: 'mail', action: 'read' }]]);
   await ui.unmount();
 });
 

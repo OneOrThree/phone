@@ -87,6 +87,8 @@ export type FocusFinishView = {
   /** 바다 항해 정산(GROMO-2310 타입만 — 결과창은 GROMO-2311). */
   kind?: 'island' | 'sea';
   arrived?: boolean;
+  /** 이번 sea 정산으로 섬이 새로 생성됐으면 true(무인도 항해 성공, GROMO-2649). 구버전 서버는 없음. */
+  createdIsland?: boolean;
   seaReward?: {
     grantedProductIds: string[];
     minutesToNextTier: number | null;

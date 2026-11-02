@@ -38,7 +38,7 @@ dev 관찰(D2~D7)이 끝나고 §4 기준이 기록되기 전에는 ②(Fluent B
 | 1 | `terraform apply`: 로그 버킷 수명 규칙(`system_log/` 90일)과 IAM(쓰기 접두 `system_log/v2/env=prod/*`) 적용. 2026-10-31 plan 은 추가 1·변경 1·삭제 0 이고 버킷에 기존 수명 규칙이 없다. 적용 직전에 plan 을 다시 본다 | 적용 결과의 변경 목록 |
 | 2 | Infra `main` 에 머지된 커밋 SHA 로 phone 저장소 Actions 변수 `CATUS_PROD_INFRA_REVISION_V2` 를 변경. 변수만 바꿔서는 아무것도 실행되지 않는다 | 40자리 SHA, 그 SHA 의 Infra `catus-config.prod-V2` 발행 성공 |
 | 3 | `prod-ci-V2` 를 `release` 브랜치에서 `workflow_dispatch` 로 수동 실행 | 이미지 발행·구성 SHA 검증 통과, 새 태그 `catus-vX.Y.Z-V2` 생성 |
-| 4 | `prod-cd-V2` 실행(승인 후 수동, SSM 배포). 입력은 `version`(필수: 3단계에서 생긴 `catus-vX.Y.Z-V2` 태그)과 `rollback` 뿐이고 배포는 `--role app` 전체다 | 앱 4종 헬스 통과 |
+| 4 | `prod-cd-V2` 실행(승인 후 수동, SSM 배포). 입력은 `version`(필수: 3단계에서 생긴 `catus-vX.Y.Z-V2` 태그)·`rollback`·`allow_migration`(DB 마이그레이션이 든 릴리스만)이고 배포는 `--role app` 전체다 | 앱 4종 헬스 통과 |
 
 배포 엔진은 `up -d --no-deps <앱 4종>` 을 호출하고 compose 가 설정이 바뀐 서비스만 재생성한다. 그래서 스위치만 바꾸면 앱은 재시작되지 않고, 앱의 env·이미지·라벨이 바뀐 배포에서만 재시작된다(`infra_revision` 비교로 앱을 재시작하지 않는다). ①은 phone 승격 없이 Infra 만으로 배포할 수 있다(번들에 관측 파일이 없으면 배포 엔진이 관측 단계를 건너뛴다). ②부터는 phone 번들이 필요해 `main` → `release` 승격(`AGENTS.md` 「main → release 운영 승격」)이 먼저다.
 
@@ -46,7 +46,7 @@ dev 관찰(D2~D7)이 끝나고 §4 기준이 기록되기 전에는 ②(Fluent B
 
 ### 3.2 켜는 순서 (Infra 기능 스위치)
 
-스위치는 `prod/catus-v2/runtime/env-V2.py` 의 `OBSERVABILITY = {'fluent_bit', 'loki', 'grafana', 's3'}` 이고 기본값은 모두 False 다. 하나를 켤 때마다 §3.1 의 2~4단계(Infra 커밋 → `CATUS_PROD_INFRA_REVISION_V2` 변경 → `prod-ci-V2` → `prod-cd-V2`)를 한 번 돈다.
+스위치는 `prod/catus-v2/runtime/env-V2.py` 의 `OBSERVABILITY = {'fluent_bit', 'loki', 'grafana', 's3'}` 이고 Infra `main` 값은 `fluent_bit`·`loki`·`s3` 가 True, `grafana` 가 False 다(2026-10-31, 실제 적용은 배포 결과로 확인). 하나를 켤 때마다 §3.1 의 2~4단계(Infra 커밋 → `CATUS_PROD_INFRA_REVISION_V2` 변경 → `prod-ci-V2` → `prod-cd-V2`)를 한 번 돈다.
 
 | 단계 | 켜는 것 | 확인 | 상태 |
 | --- | --- | --- | --- |
@@ -56,6 +56,12 @@ dev 관찰(D2~D7)이 끝나고 §4 기준이 기록되기 전에는 ②(Fluent B
 | ④ | Cloudflare 설정(§3.3)을 마친 뒤 `grafana` | 미인증 요청이 Access 로그인으로 이동, 원본 직접 요청은 401 | 미실행 |
 
 각 단계의 판정은 §4 지표로 하고, 앞 단계를 통과해야 다음으로 간다. 켠 뒤에는 앱 릴리스마다 마운트 경로가 바뀌어 Loki·Grafana·Fluent Bit 이 재생성된다. Loki 는 시간 기준 보존만 있으므로 ②를 켜기 전에 호스트 디스크 경보를 둔다. 켠 뒤 디스크·메모리의 판정 기준 숫자는 이 문서 §1 의 5번 규칙대로 dev 관찰 뒤에 정한다(지금 정해진 숫자는 없고, 이 절은 «무엇을 보는가»만 적는다). 관측 서비스(Fluent Bit·Loki·Grafana) 기동은 앱 검증이 끝난 뒤 별도 단계이며 실패해도 앱 롤백을 일으키지 않게 설계한다(에픽 2619 계약, 구현은 하위 티켓).
+
+Datadog 기동 소음과 일회성 컨테이너 필터는 콘솔 파이프라인이 아니라 Agent 설정에 있다(티켓 2630, `OneOrThree/cattus-infra` #32). 2026-10-30 조사 뒤에 추가했고 2026-10-31 배포로 prod 에 적용했다.
+
+- `prod/catus-v2/runtime/compose-V2.yml` 의 앱 4종 `com.datadoghq.ad.logs` 라벨 `log_processing_rules` 가 `Picked up JAVA_TOOL_OPTIONS`·`DATADOG TRACER CONFIGURATION` 줄을 Datadog 전송에서 뺀다. 이 줄은 Fluent Bit 경로에는 남는다.
+- `prod/catus-v2/runtime/env-V2.py` 의 `DD_CONTAINER_EXCLUDE_LOGS` 가 `catus-db-*`·`catus-noti-restore-check-*` 컨테이너와 postgres 이미지를 Datadog 수집에서 뺀다. Fluent Bit 은 이름이 아니라 compose 서비스 라벨로 거른다(`server/observability/fluent-bit/logs.lua` 의 `ALLOWED`). compose 라벨이 없는 일회성 컨테이너는 Fluent Bit 도 수집하지 않는다.
+- 임의 이름의 `notification-v2` 일회성 컨테이너는 상시 서비스와 이미지가 같아 Datadog 필터로 거르지 못한다.
 
 ### 3.3 Cloudflare 수동 단계 (④ 전)
 
@@ -88,7 +94,7 @@ Grafana 는 Access 가 붙인 JWT(`Cf-Access-Jwt-Assertion`)를 JWKS 로 직접 
 | --- | --- |
 | P0 Infra 요청(IAM·lifecycle·Fluent Bit 서비스·Nginx `gromo_json`·Datadog 제외 목록) | 에픽 2619 하위 2623~2627·2630 이 코드로 만든다. 머지·`terraform apply` 전 |
 | P1 `OBS_SERVICE`·`OBS_ENV`·`OBS_VERSION`·`DD_TRACE_128_BIT_TRACEID_LOGGING_ENABLED` | 2623 이 만든다. 2026-10-30 재확인 필요 — 이 환경 변수가 prod 실행 구성에 이미 있는지 확인하지 않았다 |
-| P2 main → release 승격 | **실행 완료.** 에픽 PR #1407(`ec7d74695`)이 `release` 에 포함돼 prod 가 커밋 `340d81567`(V2 태그 `catus-v2.0.1-V2`, 2026-10-30 기준)을 실행한다. `prod-cd-V2.yml` 입력은 `version`(필수)과 `rollback` 뿐이고 배포는 `--role app` 전체라 서비스 단위 적용은 불가능하다. 마지막 성공 실행은 2026-10-31T02:55Z 의 `catus-v2.0.2-V2` 이고 앱 이미지는 `340d81567` 그대로다(`deployments/app/current-V2.json` 확인) |
+| P2 main → release 승격 | **실행 완료.** 에픽 PR #1407(`ec7d74695`)이 `release` 에 포함돼 prod 가 커밋 `340d81567`(V2 태그 `catus-v2.0.1-V2`, 2026-10-30 기준)을 실행한다. `prod-cd-V2.yml` 입력은 `version`(필수)·`rollback`·`allow_migration`이고 배포는 `--role app` 전체라 서비스 단위 적용은 불가능하다. 마지막 성공 실행은 2026-10-31T02:55Z 의 `catus-v2.0.2-V2` 이고 앱 이미지는 `340d81567` 그대로다(`deployments/app/current-V2.json` 확인) |
 | P3 Fluent Bit 기동·canary | §3.2 ②. 미실행 |
 | P4 기존 업로더(590·2288)와 `system_log/v2/` 병행 후 APP 업로더 중단([런북 §5](ingestion-runbook.md)) | 미실행. 두 업로더가 같은 호스트에서 같은 prefix 로 중복 쓰는지는 미확인 |
 | P5 Grafana 접근 인증·수집기 IAM·경보 | 인증은 §3.2 ④, 경보는 미정 |

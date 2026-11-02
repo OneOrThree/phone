@@ -32,7 +32,7 @@ def accepts_pr(name, base):
 class PolicyTests(unittest.TestCase):
     def test_feature_stack_has_no_automatic_server_functional_workflow(self):
         for name in ['data-api-ci.dev', 'realtime-ci.dev', 'satellite-ci.dev',
-                     'prod-ci', 'prod-ci-V2', 'backoffice-ci', 'backoffice-ci.prod-V2']:
+                     'prod-ci', 'prod-ci-V2', 'backoffice-ci']:
             with self.subTest(workflow=name):
                 self.assertFalse(accepts_pr(name, 'feat/integration'))
                 self.assertTrue(accepts_pr(name, 'main'))

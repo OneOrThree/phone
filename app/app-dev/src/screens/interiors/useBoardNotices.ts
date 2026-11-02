@@ -23,6 +23,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { subscribeScreenTimeObservations } from '@/services/screenTimeEvents';
 import { ApiError, CLIENT_STALE_SESSION, uuid } from '@/services/api/client';
 import { sessionGeneration } from '@/services/api/session';
+import { captureProductEvent } from '@/services/posthog';
 import {
   createNotice as postNotice,
   createNoticeComment as postComment,
@@ -159,6 +160,9 @@ export function useBoardNotices({ active, scopeKey }: { active: boolean; scopeKe
   const intents = useRef(new Map<string, IntentSlot>());
   // 멱등 재시도가 같은 댓글 결과를 재생해도 목록 카운트를 두 번 올리지 않는다.
   const confirmedCommentIds = useRef(new Set<string>());
+  // 멱등 key 당 계측 1회 — 쓰기 성공 후 재조회(refreshList) 실패로 같은 key 를 재시도하면
+  // 서버가 결과를 멱등 재생하지만(실제 생성은 1회), 그때 이벤트를 다시 발행하지 않게 막는다.
+  const emitted = useRef(new Set<string>());
   // 캐시된 섬 데이터가 어느 epoch·세대에서 왔는지 — 계정/범위 교체 직후 리렌더 전에
   // 잡힌 옛 콜백이 옛 islandId 를 새 계정 토큰으로 보내는 것을 막는다.
   const proven = useRef({ epoch: -1, generation: -1 });
@@ -435,7 +439,16 @@ export function useBoardNotices({ active, scopeKey }: { active: boolean; scopeKe
       return runWrite(
         `create:${islandId}`,
         JSON.stringify(body),
-        (key) => postNotice(islandId, body, key),
+        async (key) => {
+          const created = await postNotice(islandId, body, key);
+          // 글 작성 POST 커밋 성공 1회(중복 탭은 단일 flight 로 합류) — 게시판 핵심 행동.
+          // 멱등 key 당 1회만 발행한다 — 재조회 실패 뒤 같은 key 재시도의 서버 멱등 재생엔 재발행하지 않는다.
+          if (!emitted.current.has(key)) {
+            emitted.current.add(key);
+            captureProductEvent('feature_used', { building: 'board', action: 'write' });
+          }
+          return created;
+        },
         () => refreshList(e, generation),
       );
     },
@@ -610,6 +623,7 @@ export function useBoardNotices({ active, scopeKey }: { active: boolean; scopeKe
     // 범위·계정이 바뀌면 미해결 쓰기 의도도 새 범위로 넘기지 않는다.
     intents.current.clear();
     confirmedCommentIds.current.clear();
+    emitted.current.clear();
     if (!active) set(EMPTY);
     else load().catch(() => {});
     // 언마운트·의존성 교체로 돌아온 응답이 새 범위를 덮지 못하게 epoch 를 올린다.

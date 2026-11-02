@@ -10,15 +10,59 @@ import re
 import shlex
 import subprocess
 import tarfile
+import time
 
 ROOT = Path(__file__).resolve().parents[4]
 BUCKET = 'gs://catus-dev-v2-deploy-263851348176'
 
 
+class CommandError(RuntimeError):
+    """종료 코드를 싣는 RuntimeError. ssh()가 255만 재시도하는 근거다."""
+
+    def __init__(self, message, returncode):
+        super().__init__(message)
+        self.returncode = returncode
+
+
+# aws_secret()이 돌려준 값과 생성한 env 값. 실패 메시지에서 가린다.
+secret_values = set()
+
+
+def secret_parts(text):
+    """여러 줄 값은 stderr에 줄 조각으로 나온다. 줄 전체, KEY=VALUE의 값, 따옴표를 벗긴 값을 모두 후보로 삼는다."""
+    parts = set()
+    for line in text.splitlines():
+        value = line.strip().partition('=')[2]
+        parts |= {line.strip(), value, value.strip('\'"')}
+    return parts
+
+
+def remember_env_secrets(envs):
+    """앱 payload는 JSON 한 줄이라 stdin 가리기가 값 단위로 닿지 않는다. 생성한 env 값을 미리 등록한다."""
+    for text in envs.values(): secret_values.update(secret_parts(text))
+
+
+def mask(text, data):
+    """실패 메시지에서 시크릿 값과 이 호출의 stdin을 가린다."""
+    # tar 묶음에는 시크릿이 없다. 줄을 후보로 삼으면 원격 오류의 경로까지 가려진다.
+    stdin = b'' if not data or b'\0' in data else data
+    candidates = secret_values | secret_parts(stdin.decode(errors='replace'))
+    # 긴 값부터 가려야 일부만 남지 않는다. 4자 미만은 흔한 토큰이라 가리면 오탐이 더 크다.
+    # 인코딩·이스케이프로 바뀐 값은 못 가린다.
+    for value in sorted(candidates, key=len, reverse=True):
+        if len(value) >= 4: text = text.replace(value, '***')
+    return text
+
+
 def command(args, *, data=None):
     result = subprocess.run(args, input=data, capture_output=True, check=False)
     if result.returncode:
-        raise RuntimeError('dev V2 명령 실패: ' + args[0])
+        # 인자와 stdout에는 비밀이 섞일 수 있어 싣지 않는다. stderr 마지막 줄만, 비밀을 가려 남긴다.
+        # ssh 자체가 실패하면 gcloud가 Recommendation 안내와 래퍼 오류를 덧붙인다. 원인은 그 앞줄이다.
+        last = result.stderr.decode(errors='replace').partition('\nRecommendation:')[0].strip().splitlines()[-1:]
+        detail = mask(last[0].strip(), data)[:300] if last else ''
+        raise CommandError(f'dev V2 명령 실패: {args[0]} (종료 {result.returncode})' + (': ' + detail if detail else ''),
+                           result.returncode)
     return result.stdout
 
 
@@ -29,6 +73,8 @@ def aws_secret(name):
                    '--secret-id', name, '--query', 'SecretString', '--output', 'text'])
     result = json.loads(raw)
     if not isinstance(result, dict): raise ValueError('시크릿이 JSON 객체가 아닙니다')
+    for value in result.values():
+        if isinstance(value, str): secret_values.update(secret_parts(value))
     return result
 
 
@@ -67,17 +113,26 @@ def validate_manifest(role, uri, manifest, archive):
 
 
 ssh_key_ready = False
+SSH_ATTEMPTS, SSH_RETRY_SECONDS = 3, 10
 
 
 def ssh(host, remote, data=None):
     global ssh_key_ready
     args = ['gcloud', 'compute', 'ssh', host, '--project=oneorthree2', '--zone=asia-northeast3-a',
             '--tunnel-through-iap', '--ssh-key-expire-after=1h', '--quiet', '--command']
-    if not ssh_key_ready:
-        # 새 러너 첫 호출은 키 생성 출력이 stdout에 섞임. 먼저 소비.
-        command(args + ['true'])
-        ssh_key_ready = True
-    return command(args + [remote], data=data)
+    for attempt in range(1, SSH_ATTEMPTS + 1):
+        try:
+            if not ssh_key_ready:
+                # 새 러너 첫 호출은 키 생성 출력이 stdout에 섞임. 먼저 소비.
+                command(args + ['true'])
+                ssh_key_ready = True
+            return command(args + [remote], data=data)
+        except CommandError as error:
+            # 255는 ssh 연결·인증·IAP 실패나 접속 후 끊김이다. 저장소의 원격 스크립트는 1·2만 쓴다.
+            # 원격 명령의 실패는 같은 명령을 한 번 더 돌리지 않도록 바로 올린다.
+            if error.returncode != 255 or attempt == SSH_ATTEMPTS: raise
+            print(f'{error} — {SSH_RETRY_SECONDS}초 뒤 재시도 ({attempt}/{SSH_ATTEMPTS})', flush=True)
+            time.sleep(SSH_RETRY_SECONDS)
 
 
 def redis_changes(previous_files, current_files):

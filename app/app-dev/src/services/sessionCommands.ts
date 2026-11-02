@@ -3,7 +3,7 @@
 // 후속 API·dispatch·반환 전에 세대 fence, 409·404 계열은 current 재조회로 정본을 맞춘 뒤
 // 원 오류를 다시 던진다. 멱등 키는 세대 격리 ref에만 두고 State/AsyncStorage에 저장하지 않는다.
 import { ApiError, CLIENT_STALE_SESSION, uuid } from '@/services/api/client';
-import { sessionGeneration } from '@/services/api/session';
+import { getSession, sessionGeneration } from '@/services/api/session';
 import {
   acknowledgeFocusResult as apiAcknowledge,
   claimTutorialReward as apiTutorialReward,
@@ -24,7 +24,33 @@ import {
 import { getTelescope as apiTelescope } from '@/services/api/telescope';
 import { intentKeyPool, RecordItem, Route, Session, sessionRoute, State } from '@/services/model';
 import { captureProductEvent } from '@/services/posthog';
+import { markActivationStage } from '@/services/activationJourney';
 import { measureDatadogOperation } from '@/services/datadog';
+
+/**
+ * 집중 완료 기록의 섬/바다 집중시간 요약(GROMO-2540). PostHog 대시보드의 「섬과 바다 중 어디서 집중」·
+ * 「장소별 하루 집중시간」을 채운다. 한 세션은 섬 또는 바다 하나이므로 activeSeconds 를 그 장소에 싣고,
+ * kind 가 없으면(구버전 서버) 경과시간으로 장소를 추측하지 않고 미상으로 둔다.
+ */
+function captureFocusLocationSummary(view: FocusFinishView): void {
+  const seconds = view.activeSeconds;
+  // 자동 종료 세션을 다음 날 복구해 발행해도, 대시보드가 수집 시각이 아닌 서버 완료 시각(completedAt)으로
+  // 집계·완료일 귀속을 하도록 이벤트 시각을 완료 시각으로 덮어쓴다. 파싱 실패 시에만 수집 시각으로 둔다.
+  const completedAt = new Date(view.completedAt);
+  captureProductEvent(
+    'focus_location_summary',
+    {
+      record_id: view.recordId,
+      duration_seconds: seconds,
+      island_seconds: view.kind === 'island' ? seconds : 0,
+      sea_seconds: view.kind === 'sea' ? seconds : 0,
+      unknown_seconds: view.kind === undefined ? seconds : 0,
+      metrics_schema_version: 1,
+      analytics_excluded: 0,
+    },
+    Number.isNaN(completedAt.getTime()) ? undefined : { timestamp: completedAt },
+  );
+}
 
 export type FocusApi = {
   current: typeof apiCurrent;
@@ -252,6 +278,9 @@ export const createSessionCommands = (deps: SessionCommandDeps) => {
     deps.dispatch({ type: 'SESSION_SYNC', session: latest ? sessionFromServer(latest) : null });
     scoped().keys.release(slot, destinationIslandId);
     captureProductEvent('focus_started');
+    void markActivationStage(getSession()?.userId, 'first_focus_started', {
+      prerequisite: 'island_arrived',
+    });
     // 확정된 최신 세션 — 호출부가 이것의 종류로 화면을 고른다(null = 그사이 끝나 진행 세션이 없다)
     return latest;
   };
@@ -282,6 +311,17 @@ export const createSessionCommands = (deps: SessionCommandDeps) => {
           record: recordFromFinish(pending, pending.recordId),
           fromRest: true,
         });
+        // 자동 종료된 미확인 결과도 장소 요약과 최초 완료를 남긴다 — finish 경로만으로는 돌아오지 않는
+        // 세션이 빠지고, 최초 완료가 나중 수동 종료일로 잘못 기록된다. duration>0 인 유효 완료만 소비한다.
+        captureFocusLocationSummary(pending);
+        if (pending.activeSeconds > 0) {
+          const completedAt = new Date(pending.completedAt);
+          void markActivationStage(getSession()?.userId, 'first_focus_completed', {
+            prerequisite: 'first_focus_started',
+            extra: { duration_seconds: pending.activeSeconds },
+            ...(Number.isNaN(completedAt.getTime()) ? {} : { timestamp: completedAt }),
+          });
+        }
         return 'focusResult';
       }
       return null;
@@ -337,6 +377,9 @@ export const createSessionCommands = (deps: SessionCommandDeps) => {
           deps.dispatch({ type: 'SESSION_SYNC', session: sessionFromServer(view) });
           scoped().keys.release('start', raw);
           captureProductEvent('focus_started');
+          void markActivationStage(getSession()?.userId, 'first_focus_started', {
+            prerequisite: 'island_arrived',
+          });
           return view;
         }),
       ),
@@ -383,6 +426,17 @@ export const createSessionCommands = (deps: SessionCommandDeps) => {
             duration_seconds: result.activeSeconds,
             earned_fish: result.earnedFish,
           });
+          captureFocusLocationSummary(result);
+          // duration_seconds>0 인 실제 완료만 최초 완료로 소비한다 — 0초 완료를 소비하면 대시보드가
+          // 인정하지 않는데도 중복 방지 때문에 이후 실제 완료가 퍼널·리텐션에서 영구 누락된다.
+          if (result.activeSeconds > 0) {
+            const completedAt = new Date(result.completedAt);
+            void markActivationStage(getSession()?.userId, 'first_focus_completed', {
+              prerequisite: 'first_focus_started',
+              extra: { duration_seconds: result.activeSeconds },
+              ...(Number.isNaN(completedAt.getTime()) ? {} : { timestamp: completedAt }),
+            });
+          }
           return result;
         }),
       ),

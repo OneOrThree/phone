@@ -97,7 +97,7 @@ class FanoutLogContextIntegrationTest {
             "aggregateVersion", "occurredAt", "payload");
     /** 앱 로그 문맥 키 — 실행기 스레드에 남으면 안 된다. */
     private static final String[] APP_KEYS = {"request_id", "origin_request_id", "origin_trace_id", "user_id",
-        "event_id", "delivery_id", "attempt", "message_id", "event_name"};
+        "event_id", "delivery_id", "attempt", "message_id", "event_name", "app_version", "app_platform"};
     /**
      * 모양이 깨진 관측 메타데이터 — 업무 봉투는 그대로 전달돼야 한다(계약 §0). 마지막은 v1 인데 한 필드만 틀린 것: 나머지 값도
      * 믿지 않고 통째로 버린다.
@@ -390,6 +390,43 @@ class FanoutLogContextIntegrationTest {
     }
 
     @Test
+    @DisplayName("CONNECT 접속 로그 — 앱 헤더가 있으면 그 줄에만 app_version·app_platform 이 붙고, 없거나 틀린 구버전 앱도 접속된다. 다음 프레임 로그·실행기 스레드엔 남지 않는다 (GROMO-2655)")
+    void connectLineCarriesValidatedAppHeadersOnly() throws Exception {
+        UUID stranger = UUID.randomUUID(); // alice 가 주민이 아닌 섬 — 구독이 거절돼 «다음 프레임» 로그가 난다
+        try (CapturedLogs logs = CapturedLogs.of(StompAuthChannelInterceptor.class)) {
+            StompSession modern = connect(new StompSessionHandlerAdapter() {
+            }, "2.0.1", "android");
+            connect(); // 구버전 앱: 앱 헤더 없음
+            connect(new StompSessionHandlerAdapter() {
+            }, "v2!", "web"); // 형식 오류 — 거절하지 않고 키만 뺀다
+
+            // CONNECTED 를 받고 돌아왔다면 관문은 이미 줄을 냈다.
+            List<CapturedLogs.Line> connects = logs.await(line -> "stomp_connect".equals(line.message()), 3,
+                    TIMEOUT_MILLIS);
+            assertThat(connects).hasSize(3);
+            assertThat(connects.get(0).mdc()).containsEntry("app_version", "2.0.1")
+                    .containsEntry("app_platform", "android");
+            assertThat(connects.get(1).mdc()).doesNotContainKeys("app_version", "app_platform");
+            assertThat(connects.get(2).mdc()).doesNotContainKeys("app_version", "app_platform");
+            assertThat(connects).allSatisfy(line -> {
+                assertThat(UUID.fromString(line.get("request_id"))).as("접속 줄도 그 프레임의 request_id 를 단다")
+                        .isNotNull();
+                assertThat(line.mdc()).as("사용자는 싣지 않는다(관문엔 아직 주체가 없다)").doesNotContainKey("user_id");
+            });
+
+            subscribeRaw(modern, "/topic/islands/" + stranger + "/events");
+            CapturedLogs.Line rejected = single(logs.await(line -> line.message().contains("섬 구독 거절")
+                    && line.message().contains(stranger.toString()), 1, TIMEOUT_MILLIS));
+            assertThat(rejected.mdc()).as("앱 키는 접속 줄에서 되돌려 다음 프레임 로그에 새지 않는다")
+                    .doesNotContainKeys("app_version", "app_platform");
+            assertThat(logs.lines(line -> !"stomp_connect".equals(line.message())))
+                    .allSatisfy(line -> assertThat(line.mdc()).doesNotContainKeys("app_version", "app_platform"));
+        }
+        assertNoAppContextLeftOn("clientInboundChannelExecutor");
+        assertNoAppContextLeftOn("clientOutboundChannelExecutor");
+    }
+
+    @Test
     @DisplayName("chat:sea:v1 — 발행 줄과 자기 메아리가 사건 event_id·원인 request_id 를 달고, 다른 인스턴스의 옛 wire·새 wire 를 모두 받아 새 wire 의 원인을 잇는다 (GROMO-2581)")
     void seaWireCarriesTheCause() throws Exception {
         UUID room = UUID.randomUUID();
@@ -504,8 +541,20 @@ class FanoutLogContextIntegrationTest {
     }
 
     private StompSession connect(StompSessionHandlerAdapter handler) throws Exception {
+        return connect(handler, null, null);
+    }
+
+    /** 앱 헤더({@code X-App-Version}·{@code X-App-Platform})를 CONNECT 프레임에 싣는다 — {@code null} 이면 보내지 않는다(구버전 앱). */
+    private StompSession connect(StompSessionHandlerAdapter handler, String appVersion, String appPlatform)
+            throws Exception {
         StompHeaders headers = new StompHeaders();
         headers.add("Authorization", aliceBearer);
+        if (appVersion != null) {
+            headers.add("X-App-Version", appVersion);
+        }
+        if (appPlatform != null) {
+            headers.add("X-App-Platform", appPlatform);
+        }
         return stompClient.connectAsync("ws://localhost:" + port + "/ws/chat", new WebSocketHttpHeaders(), headers,
                 handler).get(15, TimeUnit.SECONDS);
     }

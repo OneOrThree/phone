@@ -6,8 +6,8 @@ import { startSeaFocusSession, updateSeaRemark } from '@/services/api/focusSessi
 import { clearSession, saveSession, getSession } from '@/services/api/session';
 import { initialState, intentKeyPool, reducer } from '@/services/model';
 
-jest.mock('@/components/VideoCutscene', () => ({
-  VideoCutscene: ({ accessibilityLabel, onFinish }: any) => {
+jest.mock('@/screens/world/HarborCutscene', () => ({
+  HarborCutscene: ({ accessibilityLabel, onFinish }: any) => {
     const { Pressable, Text } = require('react-native');
     return (
       <Pressable testID="sailing" onPress={onFinish}>

@@ -34,6 +34,8 @@ import java.util.UUID;
  *                      결과를 남기기 전의 구버전 Data 만 그렇다(필수가 아니다)
  * @param kind          {@code "island"} 또는 {@code "sea"}(GROMO-2299) — 선택이다(구버전 Data 는 안 보낸다)
  * @param arrived       바다 세션의 도착 여부(항해 시간을 채웠는가). 섬 세션이거나 구버전 Data 면 {@code null}
+ * @param createdIsland 이번 정산으로 무인도에 새 섬을 세웠는지(GROMO-2650) — 앱 이름 짓기 팝업 트리거. 일반 섬
+ *                      도착은 {@code false}, 이 필드를 모르는 구버전 Data 는 안 보내 {@code null}
  */
 public record FocusFinish(
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) UUID recordId,
@@ -49,7 +51,8 @@ public record FocusFinish(
         List<ActiveIntervalState> activeIntervals,
         SeaReward seaReward,
         String kind,
-        Boolean arrived) {
+        Boolean arrived,
+        Boolean createdIsland) {
 
     /**
      * @param personalFishAdded     개인 지갑 반영

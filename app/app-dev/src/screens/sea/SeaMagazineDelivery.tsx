@@ -15,7 +15,9 @@ import {
   primitiveTokens as p,
   semanticTokens as s,
 } from '@/design-system/tokens';
-import { VideoCutscene } from '@/components/VideoCutscene';
+import { HarborCutscene } from '@/screens/world/HarborCutscene';
+import type { Color } from '@/services/model';
+import type { Outfit } from '@/components/CatOutfitLayers';
 import { assets } from '@/constants/assets';
 import { MAGAZINE_UI } from '@/constants/magazineAssets';
 import { t } from '@/i18n';
@@ -23,21 +25,24 @@ import { useGowun } from '@/screens/island/sceneKit';
 import { seaAssets } from './seaAssets';
 
 const D = c.magazineReader.seaDelivery;
-const PELICAN_MAIL = require('@/assets/ota/cutscenes/pelican-mail.mp4');
 
 /**
  * 바다 위 펠리컨 배달(GROMO-2314 · Figma B1 `1228:1308`) — 표류 중 아직 받지 않은 오늘 호가 있으면 `SeaScreen` 이
- * 다른 창이 없을 때 화면 전체로 띄운다. 먼저 펠리컨 배달 영상(5초)을 보여 주고, 끝나면 말풍선·버튼을 띄운다.
- * 영상이 시작된 순간이 «실제로 뜬 순간» — 그때 `onShown` 을 한 번 부르고(호스트가 받음 SEA 를 적는다)
+ * 다른 창이 없을 때 화면 전체로 띄운다. 먼저 펠리컨 배달 분리 장면(5초)을 보여 주고, 끝나면 말풍선·버튼을 띄운다.
+ * 연출이 시작된 순간이 «실제로 뜬 순간» — 그때 `onShown` 을 한 번 부르고(호스트가 받음 SEA 를 적는다)
  * 스크린리더에 문구를 한 번 알린다(iOS 는 직접 읽고, 안드로이드는 말풍선 문구의 live region).
- * 영상 구간의 접근성 라벨은 같은 문구가 겹쳐 읽히지 않게 장면 설명이다.
+ * 연출 구간의 접근성 라벨은 같은 문구가 겹쳐 읽히지 않게 장면 설명이다.
  * 그림은 402×874 기준 크기를 화면에 맞춰 줄이고, 큰 글자·가로 화면에서 넘치면 세로로 민다.
  */
 export function SeaMagazineDelivery({
+  color,
+  outfit,
   onShown,
   onOpen,
   onLater,
 }: {
+  color: Color;
+  outfit?: Outfit;
   onShown: () => void;
   onOpen: () => void;
   onLater: () => void;
@@ -67,8 +72,10 @@ export function SeaMagazineDelivery({
       onLayout={(event) => setBox(event.nativeEvent.layout)}
     >
       {intro ? (
-        <VideoCutscene
-          source={PELICAN_MAIL}
+        <HarborCutscene
+          direction="pelican-mail"
+          color={color}
+          outfit={outfit}
           accessibilityLabel={t('magazine.delivery.seaCutscene')}
           testID="sea-magazine-cutscene"
           onFinish={() => setIntro(false)}

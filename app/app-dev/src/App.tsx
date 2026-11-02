@@ -1,9 +1,11 @@
 import { getAssetRepository } from '@/services/assets/repository';
+import { useFocusTutorialViewed } from '@/hooks/useFocusTutorialViewed';
 import { syncAndroidMeasurement, syncAndroidFocus } from '@/services/androidScreenTime';
 import { startLiveActivityPushSync } from '@/services/liveActivityPush';
 import { updateIOSHomeWidget } from '@/services/iosHomeWidget';
 import { shouldReportShieldFailure, syncFocusShield } from '@/services/focusShield';
 import { Text } from '@/design-system/typography';
+import { useGowunFont } from '@/screens/island/sceneKit';
 import { useAppLayout } from '@/utils/layout';
 import { useRouteOrientation } from '@/utils/orientation';
 import { DeveloperLetter } from '@/screens/letter/DeveloperLetter';
@@ -166,6 +168,7 @@ import { adoptSignedInAccount, createMemberConversion } from '@/services/memberC
 import { trackDatadogView } from '@/services/datadog';
 import { PostHogAnalyticsProvider } from '@/services/PostHogAnalyticsProvider';
 import { startSocialAnalytics } from '@/services/socialAnalytics';
+import { markActivationStage, markLoginViewed } from '@/services/activationJourney';
 import { startMetaTracking } from '@/services/metaSdk';
 import {
   refreshPush,
@@ -314,6 +317,8 @@ function Bubble({ text, mine }: { text: string; mine: boolean }) {
   );
 }
 export default function App() {
+  // 웹에서 기본 본문 글꼴(고운돋움)을 전역 로드한다. 네이티브는 빈 목록이라 즉시 통과한다(GROMO-2639).
+  useGowunFont();
   return (
     <PostHogAnalyticsProvider>
       <SafeAreaProvider>
@@ -445,6 +450,7 @@ function Gromo() {
     [focusBlockingPermissionBusy, setFocusBlockingPermissionBusy] = useState(false),
     [reviewEpoch, setReviewEpoch] = useState(0);
   const guideStep = state.tutorial?.step ?? 0;
+  useFocusTutorialViewed(guideStep);
   const tutorialOwner = getSession()?.userId;
   const tutorialGeneration = sessionGeneration();
   const focusBlockingGateRef = useRef(focusBlockingGate);
@@ -524,6 +530,20 @@ function Gromo() {
   const pendingBootOwnerTransfer = useRef<(() => Promise<void>) | null>(null);
 
   useEffect(() => trackDatadogView(route, titles[route]), [route]);
+  // 첫 섬 여정(GROMO-2540) — 로그인 화면 노출(익명, 실행당 1회). 로그인하면 posthog 가 사용자와 잇는다.
+  // loaded 전 로딩 화면·세션 복원으로 홈으로 가는 기존 유저는 로그인 화면을 실제로 보지 않으므로 제외한다
+  // (route 초기값이 'login' 이라 부팅 중 바로 발행되면 분모가 왜곡된다).
+  useEffect(() => {
+    if (loaded && route === 'login' && !getSession()) markLoginViewed();
+  }, [loaded, route]);
+  // 첫 섬 도착 — 현재 섬이 처음 생기면 발행. 바다 항해로 섬을 얻는 동선은 ISLAND_SYNC 로 섬이 들어온다.
+  // 계정 저장소에 login_completed 가 있는(추적된 최초 여정) 계정만, 한 번만 발행한다.
+  useEffect(() => {
+    const islandId = state.serverIslands?.currentIslandId;
+    const userId = getSession()?.userId;
+    if (islandId && userId)
+      void markActivationStage(userId, 'island_arrived', { prerequisite: 'login_completed' });
+  }, [state.serverIslands?.currentIslandId]);
   const transition = useRef(new Animated.Value(1)).current,
     boatTravel = useRef(new Animated.Value(-180)).current,
     toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null),
@@ -1381,7 +1401,7 @@ function Gromo() {
           // /me 응답을 기다리는 사이 세션이 바뀌었으면 이전 사용자의 저장본도 지우지 않는다.
           ensureCurrent();
           // 사용자 귀속 blob 전체를 지우고 빈 상태로 — 이전 계정의 섬·친구·진행이 섞이지 않는다.
-          // settings 만 기기 귀속(정책 A15)이라 보존한다.
+          // 기기 설정(정책 A15)은 보존하되 카메라 측정 ON은 다른 계정에 넘기지 않는다.
           // 이미 시작된 A 저장도 먼저 끝낸 다음 지워야 late write가 삭제 뒤에 A blob을 부활시키지 않는다.
           setStorageOwnerGate(false);
           await userStorageWriteQueue.current;
@@ -1399,7 +1419,7 @@ function Gromo() {
             type: 'LOAD',
             state: {
               ...(DEMO ? demoState() : initialState()),
-              settings: stateRef.current.settings,
+              settings: { ...stateRef.current.settings, studyVerification: false },
             },
             now: Date.now(),
           });
@@ -1501,7 +1521,13 @@ function Gromo() {
     try {
       const result = await guestLogin();
       // 채택 도중 세션이 바뀌어 중단됐으면(null) 완료 이벤트를 남기지 않는다.
-      if (await adoptSession(result, previousUserId)) captureProductEvent('guest_login_completed');
+      const account = await adoptSession(result, previousUserId);
+      if (account) {
+        captureProductEvent('guest_login_completed');
+        // 온보딩 미완료 = 신규 계정의 최초 여정 시작. 기존 계정 재로그인은 발행하지 않는다.
+        if (!account.onboardingComplete)
+          void markActivationStage(account.id, 'login_completed', { extra: { provider: 'guest' } });
+      }
     } catch (error) {
       setGuestError(errorTextOr(error, 'login.error.guestFailed'));
     } finally {
@@ -1563,8 +1589,13 @@ function Gromo() {
         attemptId: attempt.attemptId,
       });
       socialLoginAttempt.current = null;
-      if (await adoptSession(result, previousUserId))
+      const account = await adoptSession(result, previousUserId);
+      if (account) {
         captureProductEvent('social_login_completed', { provider });
+        // 온보딩 미완료 = 신규 계정의 최초 여정 시작. 기존 계정 재로그인은 발행하지 않는다.
+        if (!account.onboardingComplete)
+          void markActivationStage(account.id, 'login_completed', { extra: { provider } });
+      }
     } catch (thrown) {
       const retryableTransportFailure =
         thrown instanceof ApiError &&
@@ -1972,7 +2003,11 @@ function Gromo() {
                 type: 'LOAD',
                 state: {
                   ...initialState(DEMO),
-                  settings: loadable?.settings ?? stateRef.current.settings,
+                  // 전환 도중 종료된 부팅 복구도 이전 계정의 카메라 측정 ON을 넘기지 않는다.
+                  settings: {
+                    ...(loadable?.settings ?? stateRef.current.settings),
+                    studyVerification: false,
+                  },
                 },
                 now: Date.now(),
               });
@@ -2219,6 +2254,9 @@ function Gromo() {
           if (active && current === request && generation === sessionGeneration()) {
             dispatch({ type: 'SCREEN_TIME_SNAPSHOT', snapshot, now: Date.now() });
             dispatch({ type: 'SETTING', key: 'screenTimeSyncError', value: snapshot.reportFailed });
+            // 하루 스크린타임 스냅샷 확정 — 측정값이 있을 때 스냅샷 dispatch당 1회
+            if (snapshot.minutes !== null)
+              captureProductEvent('screen_time_daily', { minutes: snapshot.minutes });
           }
         } catch {
           const status = await screenTime.getAuthorizationStatus().catch(() => 'unavailable');
@@ -2256,6 +2294,9 @@ function Gromo() {
         if (!isCurrent()) return;
         dispatch({ type: 'SCREEN_TIME_SNAPSHOT', snapshot: result.snapshot, now: Date.now() });
         measured = true;
+        // 하루 스크린타임 스냅샷 확정 — 측정값이 있을 때 스냅샷 dispatch당 1회
+        if (result.snapshot.minutes !== null)
+          captureProductEvent('screen_time_daily', { minutes: result.snapshot.minutes });
         await reportScreenTime(result.authorization, result.timeline, generation);
         if (isCurrent()) dispatch({ type: 'SETTING', key: 'screenTimeSyncError', value: false });
       } catch {
@@ -2808,10 +2849,10 @@ function Gromo() {
     <MotionContext.Provider value={state.settings.reduceMotion}>
       <SafeAreaView edges={[]} style={[S.page, { backgroundColor: C.cream }]}>
         <StatusBar style="dark" />
-        <KeyboardAvoidingView
-          style={{ flex: 1 }}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        >
+        {/* 키보드가 입력칸을 가리지 않게 루트에서 회피한다. Android 는 edge-to-edge(edgeToEdgeEnabled=true)라
+            windowSoftInputMode=adjustResize 가 더 이상 창을 줄여 주지 못하므로 iOS 처럼 padding 으로 직접 올린다.
+            종전 Android behavior=undefined 는 adjustResize 에 기댄 값이라 키보드가 입력칸을 가렸다. */}
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
           <Animated.View
             key={reviewEpoch}
             testID="app-content"
@@ -2869,10 +2910,11 @@ function Gromo() {
             style={{
               position: 'absolute',
               // 키보드가 떠 있으면(편지 쓰기 등) 그만큼 더 띄워 소프트 키보드에 가리지 않게 한다.
-              // Android 는 windowSoftInputMode=adjustResize 로 이 View 의 부모 영역이 이미 키보드
-              // 높이만큼 줄어들어 있어 여기서 또 더하면 이중 보정이 된다(GROMO-2169 리뷰 지적) —
-              // 키보드 높이 보정은 iOS 에서만 한다.
-              bottom: 40 + (Platform.OS === 'android' ? 0 : keyboardHeight),
+              // 이 토스트는 루트 KeyboardAvoidingView 의 형제라 그 padding 회피를 받지 않으므로
+              // 직접 키보드 높이만큼 올린다. 종전에는 Android 가 windowSoftInputMode=adjustResize 로
+              // 부모 영역이 이미 줄어든다고 보고 iOS 에서만 보정했으나, edge-to-edge(edgeToEdgeEnabled=true)
+              // 에서는 adjustResize 가 창을 줄이지 못해 Android 토스트가 키보드에 가렸다 — 양쪽 모두 보정한다.
+              bottom: 40 + keyboardHeight,
               left: (layout.width - layout.floatingWidth) / 2,
               width: layout.floatingWidth,
               backgroundColor: C.ink,

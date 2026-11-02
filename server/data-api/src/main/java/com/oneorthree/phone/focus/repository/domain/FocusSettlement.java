@@ -101,6 +101,6 @@ public class FocusSettlement {
     private Boolean customizationRewardNew;
 
     @CreationTimestamp
-    @Column(name = "created_at", columnDefinition = "timestamptz not null default now()")
+    @Column(name = "created_at", columnDefinition = "timestamptz not null default now()", updatable = false)
     private Instant createdAt;
 }

@@ -42,7 +42,7 @@ public class IslandConstructionState {
     private long targetEpoch = 0;
 
     @CreationTimestamp
-    @Column(name = "created_at")
+    @Column(name = "created_at", updatable = false)
     private Instant createdAt;
 
     @UpdateTimestamp

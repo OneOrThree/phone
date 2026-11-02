@@ -121,6 +121,7 @@ public class FocusSession {
      * GROMO-671(커밋1): 세션 생성 시각.
      */
     @CreationTimestamp
+    @Column(name = "created_at", updatable = false)
     private Instant createdAt;
 
     /**

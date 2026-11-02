@@ -4,18 +4,21 @@
 `ci-jar`는 동일 Actions 실행 ID·SHA·서비스·checksum으로 JAR를 검증하며,
 다른 실행의 JAR나 PR 검사 결과를 운영 발행에 재사용하지 않는다.
 
+전체 파이프라인은 [dev V2](../engineering/dev-v2-pipeline.md)와 [prod V2](../engineering/prod-v2-pipeline.md) 문서를 본다.
+
 | 단계 | Gradle·JAR 책임 | 이미지 검사·발행 |
 |---|---|---|
-| main 대상 PR | Data·Realtime·Satellite 서비스 CI에서 변경 서비스별 1회 | 같은 JAR로 dev amd64 및 운영 arm64 조립 검증. 발행 없음 |
-| release 대상 PR | prod-ci에서 변경 서비스별 1회 | 운영 arm64 조립 검증. 발행 없음 |
-| main push | dev 서비스 CI에서 최종 main SHA 검사 | dev amd64 발행·배포 |
-| release push·수동 발행 | prod-ci에서 운영 상태 대비 변경 서비스 검사 | 운영 arm64 발행. 운영 배포는 기존 CD 경로 |
+| main 대상 PR | Data·Realtime·Satellite 서비스 CI에서 변경 서비스별 1회 | 발행 없음 |
+| release 대상 PR | `prod-ci-V2`에서 변경 서비스별 1회 | 발행 없음 |
+| main push | dev V2 서비스 CI에서 최종 main SHA 검사 | dev amd64 발행, Auto CD 배포 |
+| release push·수동 발행 | `prod-ci-V2`에서 운영 상태 대비 변경 서비스 검사 | 운영 arm64 발행. 운영 배포는 `prod-cd-V2` |
 
-main 대상 PR의 prod-ci는 운영 계획·계약 검사만 수행한다. prod-ci.yml이나
-공통 arm64 검증 액션이 바뀌면 서비스 CI도 시작되어 실제 이미지 조립을 검증한다.
+main 대상 PR의 `prod-ci-V2`는 운영 계획·계약 검사만 수행한다.
 PR의 SHA와 main/release 최종 SHA는 달라질 수 있으므로 단계 사이의 검사는 생략하지 않는다.
 
 ## 최신 대기 실행과 누적 배포 변경
+
+이 절은 꺼진 `satellite-ci.dev.yml` 기준이다. dev V2는 성공 상태의 서비스별 지문으로 누적 변경을 판정한다.
 
 main 위성 CI는 대기를 최신으로 대체해도 변경을 유실하지 않도록, 마지막으로 성공한
 Satellite Dev CD의 `satellite-deploy-record`에 기록된 실제 소스 SHA부터 현재 SHA까지

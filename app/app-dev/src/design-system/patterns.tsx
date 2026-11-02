@@ -577,6 +577,7 @@ export function Field({
   tabletScale,
   disabled = false,
   maxLength,
+  onSubmit,
 }: any) {
   return (
     <View style={{ gap: 6 }}>
@@ -599,7 +600,11 @@ export function Field({
         multiline={multiline}
         returnKeyType={multiline ? 'default' : 'done'}
         blurOnSubmit={!multiline}
-        onSubmitEditing={() => !multiline && Keyboard.dismiss()}
+        onSubmitEditing={() => {
+          if (multiline) return;
+          onSubmit?.();
+          Keyboard.dismiss();
+        }}
         keyboardType={numeric ? 'numeric' : 'default'}
         style={[k.field, multiline && { minHeight: 96, textAlignVertical: 'top' }, inputStyle]}
       />
@@ -1099,6 +1104,7 @@ export function Wheel({
               key={i}
               accessibilityRole="button"
               accessibilityLabel={`${a11yLabel ?? label} ${x}`}
+              accessibilityState={{ selected: x === value }}
               onPress={() => {
                 onChange(x);
                 ref.current?.scrollTo({ y: i * h, animated: true });

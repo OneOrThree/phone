@@ -71,6 +71,8 @@ export function RaftDestinations({ e }: { e: any }) {
   if (departing)
     return (
       <SeaDeparture
+        color={s.color}
+        outfit={s.equipped}
         onComplete={() => {
           if (visiting) e.dispatch({ type: 'END_VISIT' });
           e.reset('sea');

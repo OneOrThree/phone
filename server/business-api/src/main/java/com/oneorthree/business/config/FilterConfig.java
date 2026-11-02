@@ -3,6 +3,7 @@ package com.oneorthree.business.config;
 import com.oneorthree.business.auth.AccessTokenVerifier;
 import com.oneorthree.business.auth.RevokedSessions;
 import com.oneorthree.business.common.api.ApiResponses;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -33,9 +34,10 @@ import org.springframework.context.annotation.Configuration;
 public class FilterConfig {
 
     @Bean
-    public FilterRegistrationBean<RequestEnvelopeFilter> requestEnvelopeFilterRegistration(ApiResponses responses) {
+    public FilterRegistrationBean<RequestEnvelopeFilter> requestEnvelopeFilterRegistration(
+            ApiResponses responses, MeterRegistry metrics) {
         FilterRegistrationBean<RequestEnvelopeFilter> registration =
-                new FilterRegistrationBean<>(new RequestEnvelopeFilter(responses));
+                new FilterRegistrationBean<>(new RequestEnvelopeFilter(responses, metrics));
         registration.addUrlPatterns("/*");
         registration.setOrder(0);
         return registration;

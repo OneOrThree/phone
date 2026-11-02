@@ -42,7 +42,8 @@ def redis_probe(business=False):
     app_prefix = 'BUSINESS_REDIS_' if business else 'REDIS_'
     username = os.environ.get(prefix + '_USERNAME', settings.get(app_prefix + 'USERNAME', ''))
     password = os.environ.get(prefix + '_PASSWORD', settings.get(app_prefix + 'PASSWORD', ''))
-    key = ('cache:business:smoke:' if business else 'smoke:redis:') + str(uuid.uuid4())
+    # dev V2 공용 Redis의 data 계정은 presence:* 만 허용. 환경별로 접두사를 받는다.
+    key = ('cache:business:smoke:' if business else os.environ.get('SMOKE_REDIS_KEY_PREFIX', 'smoke:redis:')) + str(uuid.uuid4())
     value = str(uuid.uuid4())
 
     # 비밀번호는 argv로 넘기지 않는다. docker exec stdin은 redis-cli의 명령 입력으로 사용한다.

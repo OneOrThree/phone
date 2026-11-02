@@ -9,6 +9,8 @@ import { initialState, reducer, colors, type Route } from '@/services/model';
 import type { TelescopeItem } from '@/services/api/telescope';
 import { OnboardingFlow } from './OnboardingFlow';
 import { applyLocalePref } from '@/i18n';
+import { Btn, Txt } from '@/design-system/patterns';
+import { primitiveTokens as p } from '@/design-system/tokens';
 
 // ?onboarding 는 API·인증 저장소에 쓰지 않는 실제 RN 화면의 검토 진입점이다.
 const destinations: TelescopeItem[] = ['별빛섬', '무인도', '별고래섬'].map((name, i) => ({
@@ -49,6 +51,8 @@ export function OnboardingPreviewScene({
   const [route, setRoute] = useState<Route>(scenario ? 'sea' : 'login');
   const [terms, setTerms] = useState(false);
   const [message, setMessage] = useState('');
+  const [arrived, setArrived] = useState<string | null>(null);
+  const onFirstVoyageArrival = (item: TelescopeItem) => setArrived(item.name);
   const [now, setNow] = useState(Date.now());
   const backOverride = useRef<(() => boolean) | null>(null);
   useEffect(() => {
@@ -84,7 +88,22 @@ export function OnboardingPreviewScene({
     <SafeAreaProvider>
       <MotionContext.Provider value={false}>
         <View style={{ flex: 1 }}>
-          {route === 'login' ? (
+          {arrived ? (
+            <View
+              testID="first-voyage-preview-arrived"
+              style={{ flex: 1, justifyContent: 'center', padding: p.space[6], gap: p.space[4] }}
+            >
+              <Txt kind="h24">{arrived}에 도착했어요!</Txt>
+              <Txt>첫 항해 체험 미리보기예요. 실제 앱에서는 섬으로 이어져요.</Txt>
+              <Btn
+                title="다시 보기"
+                onPress={() => {
+                  setArrived(null);
+                  reset('telescope');
+                }}
+              />
+            </View>
+          ) : route === 'login' ? (
             <LoginScreen
               providers={['apple', 'google']}
               termsAccepted={terms}
@@ -102,6 +121,7 @@ export function OnboardingPreviewScene({
                 backOverride,
                 back: () => reset('sea'),
                 focus: { startSea },
+                onFirstVoyageArrival,
               }}
             />
           ) : route === 'character' ? (
@@ -117,6 +137,7 @@ export function OnboardingPreviewScene({
                 focus: {
                   startSea,
                 },
+                onFirstVoyageArrival,
               }}
             />
           ) : (

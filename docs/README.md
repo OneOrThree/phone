@@ -85,6 +85,8 @@ Git·PR 은 `git-pr-conventions.md`, 지라는 `jira-conventions.md`(분류) + `
 - [AWS 운영 부하 실측과 시험 데이터 정리](engineering/aws-loadtest/2026-10-29/README.md) — 채팅·홈·집중 지연, 중단 조건, 수용량 판단 한계와 잔존 검증.
 - [CI 중복 빌드·캐시·실행 범위 개선](engineering/ci-build-reuse/README.md) — 원인 분석, 검증 로그, 전후 측정과 성과 서술 근거.
 - [PR 대상에 따른 서버 CI 정책](engineering/pr-ci-policy.md) — 피처 간 수동 기능 검사, main 통합 검증, release 승격과 발행 경계.
+- [dev V2 파이프라인](engineering/dev-v2-pipeline.md) — GCP VM 3대 구성, Auto CD 판정, 수동 작업, 실패 복구, 남은 일.
+- [prod V2 파이프라인](engineering/prod-v2-pipeline.md) — EC2 4대 구성, 단위별 발행·배포, 복구, Kafka 사양 판단.
 - [README 정보구조 개선 조사](engineering/readme-information-architecture/research.md) — 루트·영역·상세 문서 분리, 접힌 섹션, 문서 사이트 도입 기준.
 
 ## 신규 설계

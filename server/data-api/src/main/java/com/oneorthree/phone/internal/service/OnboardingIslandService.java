@@ -1,8 +1,11 @@
 package com.oneorthree.phone.internal.service;
 
+import com.oneorthree.phone.common.port.IslandAppearancePort;
 import com.oneorthree.phone.construction.repository.IslandConstructionStateRepository;
+import com.oneorthree.phone.construction.repository.IslandFacilityRepository;
 import com.oneorthree.phone.construction.repository.IslandWalletRepository;
 import com.oneorthree.phone.construction.repository.domain.IslandConstructionState;
+import com.oneorthree.phone.construction.repository.domain.IslandFacility;
 import com.oneorthree.phone.construction.repository.domain.IslandWallet;
 import com.oneorthree.phone.focus.repository.FocusSessionDetailRepository;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
@@ -47,8 +50,13 @@ public class OnboardingIslandService {
     private final GroupMemberRepository members;
     private final IslandWalletRepository wallets;
     private final IslandConstructionStateRepository construction;
+    private final IslandFacilityRepository facilities;
     private final FocusSessionDetailRepository sessions;
     private final IslandMovementGuards guards;
+    private final IslandAppearancePort islandAppearance;
+
+    /** 새 섬이 생성과 함께 받는 완공 시설 — 마을회관(GROMO-2650). */
+    private static final String HALL_BUILDING_ID = "hall";
 
     /** 일반 목록과 독립적으로 확률을 적용한다. 첫 정착에 갈 수 있는 섬이 없으면 확률과 무관하게 보여 준다. */
     public Optional<TelescopeItemView> destination(UUID userId, List<UUID> joined,
@@ -69,15 +77,22 @@ public class OnboardingIslandService {
                 TelescopeService.NEARBY_SAILING_MINUTES, null, false, false, null, null, null, 0));
     }
 
-    /** 종료 마커가 닫힌 뒤 같은 트랜잭션에서 호출한다. 실패·재시도는 전부 롤백 또는 완료 세션 재생으로 처리된다. */
-    public Group materializeAtFinish(User user, UserIslandContext context) {
+    /** 완료 항해 또는 첫 항해 체험의 도착 TX에서 생성한다. 호출자가 이동 가드와 멱등 재생을 보장한다. */
+    public Group materializeAtFinish(User user, UserIslandContext context, Instant completedAt) {
         guards.requireJoinedIslandLimit(user);
         Group island = groups.save(Group.builder().name("새로운 섬").description("")
                 .maxMembers(Group.DEFAULT_MAX_MEMBERS).isPrivate(false).approvalRequired(false).build());
         wallets.save(IslandWallet.empty(island.getId()));
         construction.save(IslandConstructionState.empty(island.getId()));
+        // 새 섬은 마을회관을 완공 상태로 함께 받는다(GROMO-2650). 다만 ConstructionGuideRecipient 행은
+        // 만들지 않는다 — 완공 안내는 recipient 행에서만 발동하므로, 심지 않아야 축하가 엉뚱하게 뜨지 않는다.
+        facilities.save(IslandFacility.completedSeed(island.getId(), HALL_BUILDING_ID, completedAt));
+        // 완공 시설은 같은 TX 에서 공동 외양 맵에도 default 로 등록해야 한다(GROMO-1783) — 등록하지 않으면
+        // buildingThemes 에 hall 이 없어 회관 테마 PATCH 가 미등록 건물로 422 거절되고, 완공 스케줄러는
+        // BUILDING 시설만 처리해 이후에도 복구되지 않는다. 완공 안내 recipient 는 여전히 만들지 않는다.
+        islandAppearance.buildingCompleted(island.getId(), HALL_BUILDING_ID, user.getId());
         members.save(GroupMember.builder().user(user).group(island).role(GroupMemberRole.OWNER).build());
-        // 이미 완료한 15분 항해가 이동 경로다. 일반 즉시 전환의 출발 섬 전망대 조건은 적용하지 않는다.
+        // 실제 항해는 완료 검증을, 첫 항해 체험은 호출부의 출발 가드를 이미 거쳤다.
         context.moveTo(island.getId());
         return island;
     }

@@ -205,7 +205,7 @@ TC는 아래 도메인별로 구분한다. 식별자는 기존 번호를 유지�
 | 식별자 | SMOKE-SERVER-017 |
 | 목적 | 공유 Redis에 접속해 값을 저장·조회·삭제할 수 있는지 확인한다 |
 | 연결 요구사항 | dev 공유 Redis 접속 설정·인증·키 접근 권한 |
-| 사전 조건 | `[self-hosted, dev]` 러너. 기존 Redis 접속·인증 설정 사용. 앱 키와 충돌하지 않는 런별 `smoke:redis:<uuid>` 임시 키에 대한 ACL 권한 |
+| 사전 조건 | `[self-hosted, dev]` 러너. 기존 Redis 접속·인증 설정 사용. 앱 키와 충돌하지 않는 런별 `smoke:redis:<uuid>` 임시 키(dev V2는 `presence:smoke:<uuid>`)에 대한 ACL 권한 |
 | 입력값 | 고유 임시 키·값 생성 → TTL 60초로 `SET` → `GET` → `TTL` 확인 → 해당 키 `DEL` → `GET` |
 | 기대 결과 | SET 성공·GET 값 일치·TTL이 0보다 크고 60초 이하·DEL 결과 1·삭제 후 GET 결과 없음. 연결·인증 오류·값 불일치·정리 실패는 FAIL |
 

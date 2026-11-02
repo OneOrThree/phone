@@ -4,6 +4,7 @@ import { CANONICAL_BUILDINGS, type BuildingId } from '@/services/api/home';
 export type AccountGuides = {
   focusDone: boolean;
   focusBlockingIntro?: 'pending' | 'seen';
+  verificationIntroSeen?: boolean;
   buildings: BuildingId[];
   completions: string[];
 };
@@ -27,6 +28,8 @@ function decode(raw: string | null): AccountGuides {
     typeof value.focusDone !== 'boolean' ||
     (value.focusBlockingIntro !== undefined &&
       !['pending', 'seen'].includes(value.focusBlockingIntro)) ||
+    (value.verificationIntroSeen !== undefined &&
+      typeof value.verificationIntroSeen !== 'boolean') ||
     !Array.isArray(value.buildings) ||
     !Array.isArray(value.completions) ||
     value.buildings.some((b: BuildingId) => !CANONICAL_BUILDINGS.includes(b)) ||
@@ -57,6 +60,9 @@ export function saveAccountGuides(
                   ? ('seen' as const)
                   : ('pending' as const),
             }
+          : {}),
+        ...(current.verificationIntroSeen || update.verificationIntroSeen
+          ? { verificationIntroSeen: true }
           : {}),
         buildings: [...new Set([...current.buildings, ...(update.buildings ?? [])])],
         completions: [...new Set([...current.completions, ...(update.completions ?? [])])],

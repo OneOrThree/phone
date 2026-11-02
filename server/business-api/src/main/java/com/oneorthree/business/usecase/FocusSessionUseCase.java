@@ -242,7 +242,8 @@ public class FocusSessionUseCase {
             @JsonInclude(JsonInclude.Include.NON_NULL) List<ActiveIntervalView> activeIntervals,
             SeaRewardView seaReward,
             @JsonInclude(JsonInclude.Include.NON_NULL) String kind,
-            @JsonInclude(JsonInclude.Include.NON_NULL) Boolean arrived) {
+            @JsonInclude(JsonInclude.Include.NON_NULL) Boolean arrived,
+            @JsonInclude(JsonInclude.Include.NON_NULL) Boolean createdIsland) {
         private static FinishView from(FocusFinish source) {
             if (source == null) {
                 return null;
@@ -254,7 +255,8 @@ public class FocusSessionUseCase {
                     new AllocationView(source.allocation().personalFishAdded(),
                             source.allocation().constructionFishAdded()),
                     source.completedAt(), progress, ActiveIntervalView.fromAll(source.activeIntervals()),
-                    SeaRewardView.from(source.seaReward()), source.kind(), source.arrived());
+                    SeaRewardView.from(source.seaReward()), source.kind(), source.arrived(),
+                    source.createdIsland());
         }
     }
 

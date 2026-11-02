@@ -355,6 +355,8 @@ export function SeaScreen(props: SeaScreenProps) {
       </View>
       {delivery && (
         <SeaMagazineDelivery
+          color={self.color}
+          outfit={self.outfit}
           onShown={magazine!.onShown}
           onOpen={magazine!.onOpen}
           onLater={magazine!.onLater}

@@ -5,19 +5,22 @@
  *
  * - 진행률·수령 가능·달성·보너스는 응답 필드가 정본이다 — rate===100 으로 달성을 추정하거나
  *   보상량을 상수로 만들지 않는다.
- * - `windowStart`/`windowEnd`·`date` 의 시각 축은 UTC 다(결정 Q-6) — 벽시계 문자열을
- *   로컬 타임존으로 재해석하지 않는다.
+ * - 서버 계약은 `windowStart`/`windowEnd` 를 UTC `HH:mm`, `timezone`="UTC" 로 고정이다(결정 Q-6).
+ *   창은 절대 시각 구간이라 **이 어댑터가 경계에서만** KST↔UTC 벽시계 변환을 한다(GROMO-2672):
+ *   읽기(current·progress)는 응답 창을 UTC→KST 로, 쓰기(create)는 본문 창을 KST→UTC 로 바꾼다.
+ *   그래서 호출부·폼·표시는 전부 KST 벽시계만 다룬다. `date` 의 축은 UTC 그대로 둔다.
  * - 쓰기(생성·수정·수령)는 호출자가 만든 UUID36 `Idempotency-Key` 를 받는다. 같은 의도의
  *   재시도는 같은 key·같은 본문으로 보낸다(서버가 원 결과를 재생한다).
  * - 생성 본문은 허용 키만 받는다 — screen 에 `windowStart`/`windowEnd` 를 싣거나 모르는
  *   키를 넣으면 400 이다. `timezone` 은 생략(=UTC) 또는 "UTC" 만 받는다.
- *   ⚠️ 서버 `HH:mm` 은 `LocalTime` 엄격 파싱이라 `24:00` 을 받지 못한다 — 자정 종료는
- *   호출부가 `23:59` 로 내려 보낸다(마지막 1분은 표현할 수 없다).
+ *   ⚠️ 서버 `HH:mm` 은 `LocalTime` 엄격 파싱이라 `24:00` 을 받지 못한다 — 24:00 KST 는 15:00 UTC 라
+ *   보통 문제없고, 변환 결과가 24:00 이 되는 드문 경우만 방어적으로 23:59 로 내린다.
  * - 수정(PATCH)은 `title`/`targetMinutes` 만 받는다 — type·창·expectedVersion 을 섞으면 400.
  * - claim 본문은 정확히 `{occurrenceId, expectedVersion}` 두 키다 — 사용자 ID·claimable·
  *   지급량은 서버가 판정하므로 보내지 않는다.
  */
 import { request } from './client';
+import { kstClockToUtc, utcWindowToKst } from '@/utils/questWindowTz';
 
 /** 회차 헤더 — current 목록의 항목. 수령 축은 요청한 주민이다(GROMO-1991). */
 export type QuestItem = {
@@ -89,12 +92,14 @@ export type QuestUpdateBody = { title?: string; targetMinutes?: number };
 
 const enc = encodeURIComponent;
 
-export function getCurrentQuests(islandId: string): Promise<QuestCurrent> {
-  return request<QuestCurrent>(`/islands/${enc(islandId)}/quests/current`);
+export async function getCurrentQuests(islandId: string): Promise<QuestCurrent> {
+  const current = await request<QuestCurrent>(`/islands/${enc(islandId)}/quests/current`);
+  // 서버 UTC 창을 KST 로 돌려 소비자는 벽시계만 본다.
+  return { items: current.items.map(utcWindowToKst) };
 }
 
 /** occurrenceId 필수. 다음 주민 페이지는 서버가 발급한 cursor를 그대로 보낸다. */
-export function getQuestProgress(
+export async function getQuestProgress(
   islandId: string,
   questId: string,
   occurrenceId: string,
@@ -102,9 +107,11 @@ export function getQuestProgress(
 ): Promise<QuestProgress> {
   const query = new URLSearchParams({ occurrenceId });
   if (cursor !== undefined) query.set('cursor', cursor);
-  return request<QuestProgress>(
+  const progress = await request<QuestProgress>(
     `/islands/${enc(islandId)}/quests/${enc(questId)}/progress?${query.toString()}`,
   );
+  // 회차 헤더의 UTC 창을 KST 로 돌린다(주민·커서는 그대로).
+  return utcWindowToKst(progress);
 }
 
 export function createQuest(
@@ -112,9 +119,17 @@ export function createQuest(
   body: QuestCreateBody,
   key: string,
 ): Promise<QuestCreated> {
+  // 호출부는 KST 벽시계를 넘긴다 — 여기서 UTC 로 바꿔 서버 계약(UTC)에 맞춘다.
+  const converted: QuestCreateBody = { ...body };
+  if (body.windowStart != null) converted.windowStart = kstClockToUtc(body.windowStart);
+  if (body.windowEnd != null) {
+    const utcEnd = kstClockToUtc(body.windowEnd);
+    // 서버 LocalTime 은 24:00 을 못 받는다 — 변환 결과가 24:00 인 드문 경우만 23:59 로 내린다(방어).
+    converted.windowEnd = utcEnd === '24:00' ? '23:59' : utcEnd;
+  }
   return request<QuestCreated>(`/islands/${enc(islandId)}/quests`, {
     method: 'POST',
-    body,
+    body: converted,
     idempotencyKey: key,
   });
 }

@@ -166,6 +166,13 @@ tasks.withType(Javadoc).configureEach {
 tasks.named('test') {
 	// 전체 통합 테스트의 Spring/Kafka 컨텍스트가 기본 512MiB 테스트 힙을 넘는다. 운영 JVM과 무관하다.
 	maxHeapSize = '2g'
+	// 테스트 포크 수 — 기본 1(직렬)이 현행이다. 포크는 JVM 이라 위 힙(2g)과 JVM 당 싱글톤 컨테이너
+	// (TestPostgres·OutboxTestPostgres·OutboxTestKafka)가 포크마다 따로 뜬다. *MigrationTest·Redis 테스트의
+	// 클래스 전용 컨테이너는 그 위에 더해진다. 정합성을 막는 공유 상태(고정 포트·withReuse·System.setProperty)는
+	// 없으니, 올릴 때는 실행 환경(CI test 잡은 GitHub-hosted ubuntu-latest — be-gradle.yml, 로컬은 Docker Desktop VM)의
+	// CPU·메모리·디스크 여유를 함께 보고 `-PtestMaxParallelForks=N` 또는 환경변수 `TEST_MAX_PARALLEL_FORKS=N` 으로
+	// 준다 (티켓 1795).
+	maxParallelForks = (findProperty('testMaxParallelForks') ?: System.getenv('TEST_MAX_PARALLEL_FORKS') ?: '1') as int
 	// 스프링 테스트 컨텍스트 캐시 한도는 기본값(32)을 쓴다. 한도를 넘으면 LRU 축출이 컨텍스트를 닫지만,
 	// 컨텍스트마다 자기 스키마(TestPostgres)·자기 database(OutboxTestPostgres)를 가지므로 닫히는 컨텍스트의
 	// create-drop 이 살아 있는 이웃의 테이블을 지우지 않는다 (GROMO-1792 — 1757 의 maxSize=64 임시 조치 해제).

@@ -1,7 +1,14 @@
 package com.oneorthree.notification;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import jakarta.servlet.http.HttpServletRequest;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.mock.env.MockEnvironment;
@@ -22,6 +29,21 @@ import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.verify;
 
 class PublicationEnvironmentTest {
+    private final Logger guardLog = (Logger) LoggerFactory.getLogger(NotificationEnvironmentGuard.class);
+    private final ListAppender<ILoggingEvent> logs = new ListAppender<>();
+
+    @BeforeEach
+    void captureLogs() {
+        logs.start();
+        guardLog.addAppender(logs);
+    }
+
+    @AfterEach
+    void releaseLogs() {
+        guardLog.detachAppender(logs);
+        logs.stop();
+    }
+
     @Test
     void RDS_설명_표식이_프로파일과_FCM에_일치할_때만_발송_준비가_된다() {
         var environment = new MockEnvironment();
@@ -102,7 +124,7 @@ class PublicationEnvironmentTest {
         environment.setActiveProfiles("dev");
         var jdbc = mock(JdbcTemplate.class);
         when(jdbc.queryForList(anyString(), eq(String.class))).thenReturn(List.of("dev"));
-        when(jdbc.queryForList(argThat(sql -> sql.contains("gromo.fcm_project_id")), eq(String.class)))
+        when(jdbc.queryForList(argThat(sql -> sql != null && sql.contains("gromo.fcm_project_id")), eq(String.class)))
                 .thenReturn(List.of("gromo-dev"));
         var publications = mock(PublicationService.class);
         var request = mock(HttpServletRequest.class);
@@ -122,7 +144,7 @@ class PublicationEnvironmentTest {
         environment.setActiveProfiles("dev");
         var jdbc = mock(JdbcTemplate.class);
         when(jdbc.queryForList(anyString(), eq(String.class))).thenReturn(List.of("dev"));
-        when(jdbc.queryForList(argThat(sql -> sql.contains("gromo.fcm_project_id")), eq(String.class)))
+        when(jdbc.queryForList(argThat(sql -> sql != null && sql.contains("gromo.fcm_project_id")), eq(String.class)))
                 .thenReturn(List.of("gromo-dev"));
         var publications = mock(PublicationService.class);
         var request = mock(HttpServletRequest.class);
@@ -142,7 +164,7 @@ class PublicationEnvironmentTest {
         environment.setActiveProfiles("prod");
         var jdbc = mock(JdbcTemplate.class);
         when(jdbc.queryForList(anyString(), eq(String.class))).thenReturn(List.of("prod"));
-        when(jdbc.queryForList(argThat(sql -> sql.contains("gromo.fcm_project_id")), eq(String.class)))
+        when(jdbc.queryForList(argThat(sql -> sql != null && sql.contains("gromo.fcm_project_id")), eq(String.class)))
                 .thenReturn(List.of("catus-prod"));
         var guard = new NotificationEnvironmentGuard(environment, jdbc, "catus-prod");
         var controller = new PublicationController(mock(PublicationService.class), guard, mock(AdminCatalog.class));
@@ -160,7 +182,112 @@ class PublicationEnvironmentTest {
                         "$.capabilities").value(org.hamcrest.Matchers.contains("notification.publication.v1",
                                 "notification.history.v1", "notification.templates.v1",
                                 "notification.publication.cancel.v1")));
+        http.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get(
+                        "/internal/admin/publications/environment"))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath(
+                        "$.serverVersion").value("unknown"))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath(
+                        "$.schemaVersion").value("unknown"));
         assertThat(guard.identity()).containsExactlyInAnyOrderEntriesOf(
                 Map.of("environment", "prod", "fcmProjectId", "catus-prod"));
+    }
+
+    @Test
+    void 서버_버전은_OBS_VERSION이고_Flyway_이력이_있으면_마지막_성공_버전을_반환한다() {
+        var environment = new MockEnvironment();
+        environment.setProperty("OBS_VERSION", " abc123 ");
+        var jdbc = mock(JdbcTemplate.class);
+        when(jdbc.queryForObject(anyString(), eq(Boolean.class))).thenReturn(true);
+        when(jdbc.queryForList(argThat(sql -> sql.contains("flyway_schema_history")), eq(String.class)))
+                .thenReturn(List.of("7"));
+
+        assertThat(new NotificationEnvironmentGuard(environment, jdbc, "x").versions())
+                .containsExactlyInAnyOrderEntriesOf(Map.of("serverVersion", "abc123", "schemaVersion", "7"));
+    }
+
+    private Map<String, String> versionsWith(java.util.function.Consumer<JdbcTemplate> stub) {
+        var jdbc = mock(JdbcTemplate.class);
+        when(jdbc.queryForObject(anyString(), eq(Boolean.class))).thenReturn(true);
+        stub.accept(jdbc);
+        return new NotificationEnvironmentGuard(new MockEnvironment(), jdbc, "x").versions();
+    }
+
+    @Test
+    void Flyway_이력이_비었거나_null이거나_조회에_실패하면_스키마_버전은_unknown이다() {
+        assertThat(versionsWith(j -> when(j.queryForList(argThat(sql -> sql.contains("flyway_schema_history")),
+                eq(String.class))).thenReturn(List.of()))).containsEntry("schemaVersion", "unknown");
+        assertThat(versionsWith(j -> when(j.queryForList(argThat(sql -> sql.contains("flyway_schema_history")),
+                eq(String.class))).thenReturn(java.util.Collections.singletonList(null))))
+                .containsEntry("schemaVersion", "unknown");
+        assertThat(versionsWith(j -> when(j.queryForList(argThat(sql -> sql.contains("flyway_schema_history")),
+                eq(String.class))).thenThrow(new DataAccessResourceFailureException("x"))))
+                .containsEntry("schemaVersion", "unknown");
+    }
+
+    @Test
+    void Flyway_이력_조회가_반복해서_실패해도_WARN은_프로세스당_한_번이다() {
+        var jdbc = mock(JdbcTemplate.class);
+        when(jdbc.queryForObject(anyString(), eq(Boolean.class))).thenReturn(true);
+        when(jdbc.queryForList(argThat(sql -> sql != null && sql.contains("flyway_schema_history")),
+                eq(String.class))).thenThrow(new DataAccessResourceFailureException("x"));
+        var guard = new NotificationEnvironmentGuard(new MockEnvironment(), jdbc, "x");
+
+        for (int i = 0; i < 3; i++) {
+            assertThat(guard.versions()).containsEntry("schemaVersion", "unknown");
+        }
+
+        assertThat(logs.list).filteredOn(event -> event.getLevel() == Level.WARN).singleElement()
+                .satisfies(event -> assertThat(event.getThrowableProxy().getClassName())
+                        .isEqualTo(DataAccessResourceFailureException.class.getName()));
+    }
+
+    @Test
+    void Flyway_이력_조회가_실패하지_않으면_WARN이_없다() {
+        assertThat(versionsWith(j -> when(j.queryForList(argThat(sql -> sql.contains("flyway_schema_history")),
+                eq(String.class))).thenReturn(List.of("7")))).containsEntry("schemaVersion", "7");
+        var noTable = mock(JdbcTemplate.class);
+        when(noTable.queryForObject(anyString(), eq(Boolean.class))).thenReturn(false);
+        assertThat(new NotificationEnvironmentGuard(new MockEnvironment(), noTable, "x").versions())
+                .containsEntry("schemaVersion", "unknown");
+
+        assertThat(logs.list).noneMatch(event -> event.getLevel() == Level.WARN);
+    }
+
+    @Test
+    void 환경_응답은_Flyway_조회가_실패해도_200이고_unknown이다() throws Exception {
+        var environment = new MockEnvironment();
+        environment.setActiveProfiles("prod");
+        var jdbc = mock(JdbcTemplate.class);
+        when(jdbc.queryForList(argThat(sql -> sql != null && sql.contains("gromo.environment")), eq(String.class)))
+                .thenReturn(List.of("prod"));
+        when(jdbc.queryForList(argThat(sql -> sql != null && sql.contains("gromo.fcm_project_id")), eq(String.class)))
+                .thenReturn(List.of("catus-prod"));
+        when(jdbc.queryForObject(anyString(), eq(Boolean.class))).thenThrow(new DataAccessResourceFailureException("x"));
+        var controller = new PublicationController(mock(PublicationService.class),
+                new NotificationEnvironmentGuard(environment, jdbc, "catus-prod"), mock(AdminCatalog.class));
+        org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(controller).build()
+                .perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get(
+                        "/internal/admin/publications/environment"))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath(
+                        "$.schemaVersion").value("unknown"));
+    }
+
+    @Test
+    void 환경_표식이_다르면_Flyway_이력은_조회하지_않는다() {
+        var environment = new MockEnvironment();
+        environment.setActiveProfiles("dev");
+        var jdbc = mock(JdbcTemplate.class);
+        when(jdbc.queryForList(argThat(sql -> sql != null && sql.contains("gromo.environment")), eq(String.class)))
+                .thenReturn(List.of("prod"));
+        when(jdbc.queryForList(argThat(sql -> sql != null && sql.contains("gromo.fcm_project_id")), eq(String.class)))
+                .thenReturn(List.of("x"));
+        var controller = new PublicationController(mock(PublicationService.class),
+                new NotificationEnvironmentGuard(environment, jdbc, "x"), mock(AdminCatalog.class));
+
+        assertThatThrownBy(controller::environment).isInstanceOf(IllegalStateException.class);
+        verify(jdbc, org.mockito.Mockito.never()).queryForList(
+                argThat(sql -> sql != null && sql.contains("flyway_schema_history")), eq(String.class));
+        verify(jdbc, org.mockito.Mockito.never()).queryForObject(anyString(), eq(Boolean.class));
     }
 }

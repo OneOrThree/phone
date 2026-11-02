@@ -507,6 +507,11 @@
     "finishFailed": "Couldn't finish the focus session.",
     "resumeFailed": "Couldn't resume the focus session."
   },
+  "board": {
+    "quest": {
+      "crossMidnight": "A window can't run across 9 AM"
+    }
+  },
   "home": {
     "hud": {
       "visiting": "Visiting {{name}}",
@@ -560,9 +565,14 @@
       "loadFailed": "Couldn't load your island info."
     },
     "tutorial": {
-      "focusStart": "Tap the Start Focus button below to begin focusing.",
-      "hallGuide": "First, let's build the Town Hall to manage the island.\nJust gather {{count}} fish!",
-      "ok": "Got it"
+      "focusStart": "Tap the Start Focus button below to begin focusing."
+    },
+    "naming": {
+      "title": "Name your\nnew island",
+      "placeholder": "New Island",
+      "save": "Save and enter",
+      "saving": "Saving…",
+      "error": "Couldn't save the name. Tap to try again."
     },
     "lock": {
       "missing": "No {{building}} yet",
@@ -1193,7 +1203,7 @@
     "sessionRevoked": "Signed out elsewhere, so the live connection was closed."
   },
   "openSea": {
-    "abandonCutscene": "Giving up the voyage to {{name}}. The island drifts away.",
+    "abandonCutscene": "Giving up the voyage to {{name}}. The raft slows down and the cat rests at sea.",
     "name": "Open sea",
     "skip": "Skip",
     "duration": "{{minutes}}m {{seconds}}s",
@@ -1284,6 +1294,18 @@
   "arrivalCutscene": {
     "label": "Arriving at {{destination}}. The raft pulls in to the dock."
   },
+  "firstVoyage": {
+    "invite": "Want to come along?\nLet's try a nearby island first.",
+    "scope": "Pick an island you like.\nWe'll be there in no time.",
+    "depart": "Great, let's go!",
+    "start": "Go to this island",
+    "meeting": "Out at sea, you can focus together\nwith people you haven't met before.",
+    "peerName": "Tofu",
+    "peerMessage": "Let's focus together!",
+    "destination": "Sailing to {{name}}",
+    "sailing": "We're almost there.",
+    "chooseAgain": "Choose another island"
+  },
   "onboardingStory": {
     "brand": "Focus Cat",
     "tagline": "A place for your focus to grow",
@@ -1336,7 +1358,8 @@
     "loading": "Loading notices…",
     "empty": "There are no published notices.",
     "failed": "Could not load notices. Please try again.",
-    "missing": "This notice has expired or is no longer available."
+    "missing": "This notice has expired or is no longer available.",
+    "more": "Load more"
   },
   "developerLetter": {
     "from": "A letter from the team",
@@ -1448,5 +1471,68 @@
         "canopy-moon": "Moonlight Parasol"
       }
     }
+  },
+  "verification": {
+    "button": "Camera verification",
+    "switch": "Camera verification",
+    "on": "On",
+    "off": "Off",
+    "intro": {
+      "title": "On Fishing Island,\ncheck your focus time\nwith the camera",
+      "privacy": "Checked only on your device. Video is never saved, shared, or sent.",
+      "try": "Try the camera",
+      "later": "Not now",
+      "preview": "Tracking stays on while enabled,\neven without the preview.",
+      "precheckHint": "Before starting, use the preview to check whether your focus is recognized.",
+      "measurementHint": "On · Off",
+      "previewLabel": "Preview",
+      "previewHint": "See your camera view."
+    },
+    "result": {
+      "title": "Verified time / Total focus time",
+      "accessibility": "Verified time {{verified}}, total focus time {{total}}"
+    },
+    "session": {
+      "cameraError": "Camera unavailable.",
+      "measurementActive": "Measuring",
+      "measurementPreparing": "Preparing measurement",
+      "measurementActiveA11y": "AI focus measurement using the camera is active",
+      "retryCamera": "Retry camera",
+      "enable": "Turn on",
+      "turnOff": "Turn off AI focus tracking and keep focusing",
+      "turnOn": "Turn on AI focus tracking independently of the preview",
+      "verified": "Verified {{time}}"
+    },
+    "setup": {
+      "body": "Your camera checks your desk every 20 seconds.\nPhotos never leave your phone.",
+      "hint": "Keep your hands in view",
+      "enable": "Start",
+      "disable": "Turn off",
+      "flip": "Switch camera",
+      "denied": "Allow camera access in Settings",
+      "openSettings": "Open Settings",
+      "requesting": "Checking camera permission",
+      "noCamera": "No camera is available",
+      "permissionError": "Could not check camera permission. Please open this again.",
+      "cameraError": "Could not start the camera. Please reopen or switch cameras.",
+      "settingsError": "Could not open Settings. Allow camera access in your device settings.",
+      "openHint": "Check whether focus is detected in the camera preview",
+      "enableMeasurement": "Please turn on AI focus tracking",
+      "detection": {
+        "checking": "Checking focus…",
+        "focused": "Focus confirmed",
+        "missingHand": "Your hands aren’t visible.",
+        "missingObject": "A laptop or book isn’t visible.",
+        "unavailable": "Could not check focus detection"
+      },
+      "detectedHint": "You can start focusing like this",
+      "objects": {
+        "detected": "Detected: {{objects}}",
+        "book": "Book",
+        "laptop": "Laptop",
+        "keyboard": "Keyboard"
+      }
+    },
+    "switchLabel": "AI Focus Tracking"
   }
 }

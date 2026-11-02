@@ -50,6 +50,7 @@ export function useMapGesture<C>(camera: C) {
     };
     return {
       transform: [{ translateX: x }, { translateY: y }, { scale: k }],
+      inverseScale: Animated.divide(1, k),
       /** 지금 화면에 보이는 카메라 — 끄는 중이면 아직 커밋하지 않은 값. */
       visible: () => visible,
       /** 끄는 중: 커밋된 배치를 next 카메라 자리로 옮겨 보인다. */

@@ -32,7 +32,7 @@ while IFS= read -r value; do
 done <<< "$identities"
 [[ "$index" == 5 ]] || { echo '친구 fixture 식별자 누락' >&2; exit 1; }
 if [[ -n "${SMOKE_DB_CONTAINER:-}" ]]; then
-  docker exec -i "$SMOKE_DB_CONTAINER" psql -U "${SMOKE_DB_USER:-postgres}" -d "${SMOKE_DB_NAME:-phone}" "${args[@]}" < "$SCRIPT_DIR/seed-friendship.sql"
+  "${SMOKE_DOCKER:-docker}" exec -i "$SMOKE_DB_CONTAINER" psql -U "${SMOKE_DB_USER:-postgres}" -d "${SMOKE_DB_NAME:-phone}" "${args[@]}" < "$SCRIPT_DIR/seed-friendship.sql"
 elif [[ -n "${SMOKE_DATABASE_URL:-}" ]]; then
   PGDATABASE="$SMOKE_DATABASE_URL" psql "${args[@]}" < "$SCRIPT_DIR/seed-friendship.sql"
 else

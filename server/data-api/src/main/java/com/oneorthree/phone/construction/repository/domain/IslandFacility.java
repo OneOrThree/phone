@@ -65,7 +65,7 @@ public class IslandFacility {
     private Instant completedAt;
 
     @CreationTimestamp
-    @Column(name = "created_at")
+    @Column(name = "created_at", updatable = false)
     private Instant createdAt;
 
     /** 건설 확정 — BUILDING 행을 만든다. */
@@ -80,6 +80,21 @@ public class IslandFacility {
                 .startedBy(startedBy)
                 .startedAt(startedAt)
                 .completesAt(completesAt)
+                .build();
+    }
+
+    /**
+     * 섬 생성과 함께 넣는 완공 시설 — 건설 비용 없이 바로 COMPLETED 다(GROMO-2650).
+     * 무인도 항해 정산이 새 섬을 만들 때 마을회관을 이 경로로 함께 심는다.
+     */
+    public static IslandFacility completedSeed(UUID islandId, String buildingId, Instant completedAt) {
+        return IslandFacility.builder()
+                .islandId(islandId)
+                .buildingId(buildingId)
+                .status(FacilityStatus.COMPLETED)
+                .cost(0)
+                .costRevision(0)
+                .completedAt(completedAt)
                 .build();
     }
 

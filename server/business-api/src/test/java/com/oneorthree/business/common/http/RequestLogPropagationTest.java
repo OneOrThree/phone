@@ -9,6 +9,7 @@ import com.oneorthree.business.common.exception.UpstreamUnavailableException;
 import com.oneorthree.business.config.RequestEnvelopeFilter;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import jakarta.servlet.ServletException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -46,6 +47,9 @@ class RequestLogPropagationTest {
     private static final ParameterizedTypeReference<Reply> TYPE = new ParameterizedTypeReference<>() { };
     private static final org.slf4j.Logger LOG = LoggerFactory.getLogger(RequestLogPropagationTest.class);
 
+    private final RequestEnvelopeFilter filter = new RequestEnvelopeFilter(mock(ApiResponses.class),
+            new SimpleMeterRegistry());
+
     @AfterEach
     void clearMdc() {
         MDC.clear();
@@ -82,7 +86,7 @@ class RequestLogPropagationTest {
                 MockHttpServletRequest incoming = new MockHttpServletRequest("GET", "/health");
                 incoming.addHeader("X-Request-Id", "untrusted");
                 MockHttpServletResponse response = new MockHttpServletResponse();
-                new RequestEnvelopeFilter(mock(ApiResponses.class)).doFilter(incoming, response, (request, result) -> {
+                filter.doFilter(incoming, response, (request, result) -> {
                     String id = (String) request.getAttribute(RequestEnvelopeFilter.REQUEST_ID);
                     assertThat(MDC.get("request_id")).isEqualTo(id);
                     UpstreamRequestContext context = composer.start(id, null);
@@ -159,7 +163,7 @@ class RequestLogPropagationTest {
         MDC.put("request_id", "outer");
         MDC.put("dd.trace_id", "tracer");
         var response = new MockHttpServletResponse();
-        assertThatThrownBy(() -> new RequestEnvelopeFilter(mock(ApiResponses.class)).doFilter(
+        assertThatThrownBy(() -> filter.doFilter(
                 new MockHttpServletRequest("GET", "/health"), response, (request, result) -> {
                     assertThat(MDC.get("request_id")).isEqualTo(response.getHeader("X-Request-Id"));
                     throw new ServletException("synthetic");

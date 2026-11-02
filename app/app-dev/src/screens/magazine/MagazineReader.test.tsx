@@ -112,7 +112,7 @@ test('첫 장은 편집부 — 표지 띠(날짜·호) · 1~3위 메달 · 어�
   const { screen } = await open();
   expect(getIssue).toHaveBeenCalledWith('iss-19');
   expect(screen.getByText('10월 14일 · 19호')).toBeTruthy();
-  expect(screen.getByText('이번 주 랭킹')).toBeTruthy();
+  expect(screen.getByText('이번 주 순위')).toBeTruthy();
   expect(screen.getByLabelText('1위 별고래섬, 평균 2시간 5분')).toBeTruthy();
   expect(screen.getByTestId('magazine-rank-3')).toBeTruthy();
   expect(screen.getByText('달빛섬')).toBeTruthy();

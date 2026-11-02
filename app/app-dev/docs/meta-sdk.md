@@ -6,12 +6,11 @@ Meta 앱 ID는 `1092876403132413`, Android 패키지는 `com.oneorthree.gromo`, 
 
 앱 이벤트 측정용 공식 `com.facebook.android:facebook-core:19.0.0` 모듈을 고정 버전으로 설치한다. Maven Central과 INTERNET 권한은 기존 설정을 재사용한다. SDK의 `FacebookInitProvider`가 앱 시작 시 초기화하므로 수동 `FacebookSdk.sdkInitialize` 호출은 추가하지 않는다.
 
-1. 해당 Meta 앱의 설정 → 고급에서 **Client Token**을 확인한다. App Secret 또는 Airbridge 토큰을 사용하지 않는다.
-2. `app/app-dev/.env.local` 또는 빌드 환경 변수에 `META_CLIENT_TOKEN`을 설정한다.
-3. GitHub Actions 저장소 변수 `META_CLIENT_TOKEN`에도 같은 값을 등록한다. Android CI build 작업이 이 공개 클라이언트 토큰을 주입한다.
-4. 새 Android 바이너리를 빌드한다. OTA만으로 SDK와 토큰을 설치할 수 없다.
+1. App ID·공개 **Client Token**의 정본은 iOS와 공유하는 `src/config/metaApp.json`이다. App Secret 또는 Airbridge 토큰을 사용하지 않는다.
+2. 별도 토큰으로 검증해야 할 때만 `app/app-dev/.env.local` 또는 빌드 환경 변수에 `META_CLIENT_TOKEN`을 설정한다. GitHub Actions 저장소 변수도 같은 덮어쓰기를 지원하며, 미설정·빈 값이면 공용 JSON의 토큰을 사용한다.
+3. 새 Android 바이너리를 빌드한다. OTA만으로 SDK와 토큰을 설치할 수 없다.
 
-토큰은 `meta.gradle`에서 생성한 문자열 리소스에만 들어간다. 미설정 상태는 빌드 로그에 경고하고 provider·자동 초기화·이벤트 수집을 모두 비활성화하므로 **SDK가 포함되어 있어도 측정 완료 상태가 아니다**. Client Token을 등록한 뒤 다시 빌드해야 한다.
+Android 토큰은 `meta.gradle`에서 문자열 리소스로 생성한다. 이전 빌드는 환경 변수만 읽었으므로 `META_CLIENT_TOKEN`이 없으면 provider·자동 초기화·이벤트 수집을 모두 비활성화했다. 해당 바이너리는 공용 JSON을 읽도록 수정한 새 빌드로 교체해야 한다. SDK 포함·빌드 성공만으로 측정 완료를 판단하지 않는다.
 
 개발 빌드의 자동 수집은 기본적으로 비활성화된다. 테스트 기기에서 검증할 때만 `META_DEV_ENABLED=1`로 네이티브 빌드한다. 릴리스는 토큰 설정 시 자동 설치·앱 활성화 이벤트와 광고 식별자 수집을 켠다. 화면 제목·AppLink 메타데이터 및 제품 개선 데이터 자동 전송은 비활성화한다.
 

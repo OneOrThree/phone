@@ -34,6 +34,16 @@ jest.mock('@/services/api/safety', () => ({
   getBlockedUsers: jest.fn(),
 }));
 
+const mockCapture = jest.fn();
+jest.mock('@/services/posthog', () => ({
+  captureProductEvent: (...a: unknown[]) => mockCapture(...a),
+  getPostHogClient: () => null,
+  initPostHog: () => {},
+  trackPostHogScreen: () => {},
+  identifyPostHogUser: () => {},
+  resetPostHogUser: () => {},
+}));
+
 const ISLAND = 'island-1';
 const LETTER = 'letter-1';
 
@@ -688,6 +698,38 @@ test('발송 — POST 성공 시 생성된 편지를 돌려주고 목록을 다�
   assert.deepEqual(sendLetterMock.mock.calls[0][0], { receiverId: 'u2', content: '잘 지내?' });
   assert.equal((created as { id: string }).id, LETTER);
   assert.equal(listLettersMock.mock.calls.length, 2);
+  await hook.unmount();
+});
+
+test('발송 POST 201 성공 시 feature_used(mail/send) 를 1회 발행한다', async () => {
+  sendLetterMock.mockResolvedValue(letterView({ receiverId: 'u2' }));
+  const hook = await mount();
+  listLettersMock.mockResolvedValue(slice([]));
+  mockCapture.mockClear();
+
+  await act(async () => {
+    await hook.result.current.send('u2', '잘 지내?');
+  });
+
+  expect(mockCapture.mock.calls).toEqual([['feature_used', { building: 'mail', action: 'send' }]]);
+  await hook.unmount();
+});
+
+test('발송이 실패하면 feature_used 를 발행하지 않는다', async () => {
+  sendLetterMock.mockRejectedValue(
+    new ApiError('SOCIAL_LOGIN_REQUIRED', '회원 연동이 필요합니다.', 403),
+  );
+  const hook = await mount();
+  mockCapture.mockClear();
+
+  await act(async () => {
+    await hook.result.current.send('u2', 'x').then(
+      () => null,
+      () => null,
+    );
+  });
+
+  expect(mockCapture.mock.calls).toEqual([]);
   await hook.unmount();
 });
 

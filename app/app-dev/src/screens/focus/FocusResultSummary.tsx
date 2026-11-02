@@ -1,3 +1,4 @@
+import { VerificationResultSummary } from './VerificationResultSummary';
 import { customizationTitle } from '@/i18n/customization';
 import React, { useEffect } from 'react';
 import { Image, StyleSheet, View, useWindowDimensions } from 'react-native';
@@ -15,6 +16,7 @@ import { hms } from './FishingIsland';
 export function FocusResultSummary({
   subject,
   seconds,
+  verifiedSeconds,
   fish,
   questTitles,
   recordId,
@@ -23,6 +25,7 @@ export function FocusResultSummary({
 }: {
   subject: string;
   seconds: number;
+  verifiedSeconds?: number;
   fish: number;
   questTitles: string[];
   /** 이 결과의 기록 id — 같은 결과창을 다시 보여도 옷장 NEW 를 되살리지 않게 한 번만 넣는다. */
@@ -47,16 +50,24 @@ export function FocusResultSummary({
       </View>
       <View style={[styles.metrics, largeText && styles.stackedMetrics]}>
         <View style={styles.duration}>
-          <Text style={styles.label}>{t('focusFlow.result.durationLabel')}</Text>
-          <Text
-            testID="focus-result-duration"
-            numberOfLines={1}
-            adjustsFontSizeToFit
-            minimumFontScale={0.7}
-            style={[styles.time, largeText && styles.centeredTime]}
-          >
-            {hms(seconds)}
-          </Text>
+          {verifiedSeconds == null ? (
+            <>
+              <Text style={[styles.label, styles.centeredTime]}>
+                {t('focusFlow.result.durationLabel')}
+              </Text>
+              <Text
+                testID="focus-result-duration"
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.7}
+                style={[styles.time, styles.centeredTime]}
+              >
+                {hms(seconds)}
+              </Text>
+            </>
+          ) : (
+            <VerificationResultSummary verifiedSeconds={verifiedSeconds} totalSeconds={seconds} />
+          )}
         </View>
         <View
           accessible

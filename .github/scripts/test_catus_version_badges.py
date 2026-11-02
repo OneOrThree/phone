@@ -669,5 +669,37 @@ else:
                             ast.parse(script.split(marker, 1)[1].split('\n' + delimiter, 1)[0])
 
 
+class AutoCdBadgeTest(unittest.TestCase):
+    def env(self, plan='success', runtime='skipped', app='success', services='["data-api","realtime"]'):
+        return {'PLAN_RESULT': plan, 'RUNTIME_RESULT': runtime, 'APP_RESULT': app,
+                'DEPLOY_SERVICES': services, 'GITHUB_SHA': 'a' * 40}
+
+    def test_success_records_only_deployed_services(self):
+        records = badge.auto_cd_records(self.env())
+        self.assertEqual({(r['service'], r['result']) for r in records},
+                         {('data-api', 'success'), ('realtime', 'success')})
+
+    def test_no_deploy_keeps_badge(self):
+        self.assertEqual(badge.auto_cd_records(self.env(app='skipped', services='')), [])
+
+    def test_app_failure_marks_deployed_services(self):
+        records = badge.auto_cd_records(self.env(app='failure'))
+        self.assertEqual({(r['service'], r['result']) for r in records},
+                         {('data-api', 'failure'), ('realtime', 'failure')})
+
+    def test_plan_failure_marks_all(self):
+        records = badge.auto_cd_records(self.env(plan='failure', app='skipped', services=''))
+        self.assertEqual({r['service'] for r in records}, badge.DEV)
+        self.assertEqual({r['result'] for r in records}, {'failure'})
+
+    def test_runtime_failure_marks_only_planned_services(self):
+        records = badge.auto_cd_records(self.env(runtime='failure', app='skipped'))
+        self.assertEqual({(r['service'], r['result']) for r in records},
+                         {('data-api', 'failure'), ('realtime', 'failure')})
+
+    def test_runtime_only_failure_keeps_app_badge(self):
+        self.assertEqual(badge.auto_cd_records(self.env(runtime='failure', app='skipped', services='')), [])
+
+
 if __name__ == '__main__':
     unittest.main()

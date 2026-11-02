@@ -46,5 +46,9 @@ class DeployAppTest(unittest.TestCase):
     def test_package_only_accepts_expected_files(self):
         with self.assertRaises(ValueError): m.package({'../escape':b'data'})
 
+    def test_generated_env_values_are_registered_before_any_ssh(self):
+        source = Path(__file__).with_name('dev-deploy-app-V2.py').read_text()
+        self.assertLess(source.index('runtime.remember_env_secrets(envs)'), source.index('runtime.ssh('))
+
 
 if __name__ == '__main__': unittest.main()

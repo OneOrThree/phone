@@ -13,6 +13,7 @@ import com.oneorthree.phone.internal.dto.TelescopePinCommandRequest;
 import com.oneorthree.phone.internal.dto.TelescopePinView;
 import com.oneorthree.phone.internal.dto.TelescopeView;
 import com.oneorthree.phone.internal.service.IslandMembershipService;
+import com.oneorthree.phone.internal.service.IntroVoyageService;
 import com.oneorthree.phone.internal.service.TelescopePinService;
 import com.oneorthree.phone.internal.service.TelescopeService;
 import jakarta.validation.Valid;
@@ -57,6 +58,7 @@ import java.util.UUID;
 public class InternalIslandMembershipController {
 
     private final IslandMembershipService islandMembershipService;
+    private final IntroVoyageService introVoyageService;
     private final TelescopeService telescopeService;
     private final TelescopePinService telescopePinService;
 
@@ -140,6 +142,13 @@ public class InternalIslandMembershipController {
     public IslandArrivalView arrive(@PathVariable UUID userId, @PathVariable UUID islandId,
                                     @RequestHeader("Idempotency-Key") UUID idempotencyKey) {
         return islandMembershipService.arrive(userId, islandId, idempotencyKey);
+    }
+
+    /** 로컬 최초 항해 체험의 도착. 횟수 제한 없이 현재 망원경 목적지와 이동 가드를 검증한다. */
+    @PostMapping("/islands/{islandId}/intro-arrivals")
+    public IslandArrivalView introArrive(@PathVariable UUID userId, @PathVariable UUID islandId,
+                                         @RequestHeader("Idempotency-Key") UUID idempotencyKey) {
+        return introVoyageService.arrive(userId, islandId, idempotencyKey);
     }
 
     /** 현재 섬 이동 (LLD §3.6). */

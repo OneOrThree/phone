@@ -351,7 +351,7 @@ grep -rn "com\.oneorthree\.phone\.<도메인>\.<옛경로>\." src/main src/test
 FQCN·클래스명이 문자열이나 문서 참조로 박히는 자리는 세 종류다:
 
 1. **`@Query` JPQL 의 enum 리터럴** — JPQL 은 enum 을 FQCN 으로 쓴다
-2. **`src/main/resources/logback-spring.xml`** 의 `converterClass`
+2. **`src/main/resources/logback-spring.xml`** 의 `<conversionRule>` `class` 속성
    (현재 `common/logging/MaskingConverter` 하나)
 3. **Javadoc `{@link}`** — 같은 패키지라 짧은 이름으로 걸려 있던 링크는 패키지가 갈리는
    순간 끊긴다. `compileJava`·`checkstyleMain`·테스트가 **전부 초록인 채 통과**하므로

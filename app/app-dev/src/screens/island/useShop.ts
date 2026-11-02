@@ -21,6 +21,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError, CLIENT_STALE_SESSION, uuid } from '@/services/api/client';
 import { sessionGeneration } from '@/services/api/session';
+import { captureProductEvent } from '@/services/posthog';
 import {
   getIslandInventory,
   getMyInventory,
@@ -136,6 +137,9 @@ export function useShop({
   const mounted = useRef(false);
   const epoch = useRef(0);
   const intents = useRef(new Map<string, IntentSlot>());
+  // 멱등 key 당 계측 1회 — 쓰기 성공 후 재조회(after) 실패로 같은 key 를 재시도하면 서버가
+  // 결과를 멱등 재생하지만(실제 차감·생성은 1회), 그때 이벤트를 다시 발행하지 않게 막는다.
+  const emitted = useRef(new Set<string>());
   const detailSeq = useRef(0);
   // 이미 제목을 받은 상품 — 내역·옷장이 아는 id 는 다시 상세를 부르지 않는다.
   const titled = useRef(new Set<string>());
@@ -612,7 +616,18 @@ export function useShop({
         return await runWrite(
           `buy:${product.id}`,
           JSON.stringify(body),
-          (key) => purchaseProduct(island, body, key),
+          async (key) => {
+            const order = await purchaseProduct(island, body, key);
+            // 구매 POST 커밋 성공 1회(중복 탭은 단일 flight 로 합류) — 상점 핵심 행동과 섬 통장 차감.
+            // amount 는 서버가 판정한 실제 차감액(order.spent). 축음기 음원 구매도 이 경로를 탄다.
+            // 멱등 key 당 1회만 — 재조회 실패 뒤 같은 key 재시도의 서버 멱등 재생엔 재발행하지 않는다.
+            if (!emitted.current.has(key)) {
+              emitted.current.add(key);
+              captureProductEvent('feature_used', { building: 'shop', action: 'purchase' });
+              captureProductEvent('fish_spent', { reason: 'shop', amount: order.spent });
+            }
+            return order;
+          },
           () => refreshAll(e, generation),
         );
       } catch (error) {
@@ -639,7 +654,16 @@ export function useShop({
         return await runWrite(
           'equip',
           JSON.stringify(patch),
-          (key) => patchMyAppearance(patch, key),
+          async (key) => {
+            const applied = await patchMyAppearance(patch, key);
+            // 개인 외양(옷장) PATCH 커밋 성공 1회 — 꾸미기 핵심 행동(착용·변경·해제 모두 포함)
+            // 멱등 key 당 1회만 — 재조회 실패 뒤 같은 key 재시도의 서버 멱등 재생엔 재발행하지 않는다.
+            if (!emitted.current.has(key)) {
+              emitted.current.add(key);
+              captureProductEvent('feature_used', { building: 'wardrobe', action: 'equip' });
+            }
+            return applied;
+          },
           async () => {
             if (!alive(e, generation)) throw stale();
             const my = await getMyInventory();
@@ -713,6 +737,7 @@ export function useShop({
   useEffect(() => {
     epoch.current += 1;
     intents.current.clear();
+    emitted.current.clear();
     titled.current.clear();
     if (!active || !scope) {
       set(EMPTY);

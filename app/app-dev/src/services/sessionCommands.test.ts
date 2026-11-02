@@ -22,8 +22,17 @@ import {
 } from '@/services/model';
 import { ApiError } from '@/services/api/client';
 import type { FocusFinishView, FocusSessionView } from '@/services/api/focusSessions';
+import { captureProductEvent } from '@/services/posthog';
 
-jest.mock('@/services/api/session', () => ({ sessionGeneration: () => 0 }));
+jest.mock('@/services/api/session', () => ({ sessionGeneration: () => 0, getSession: () => null }));
+jest.mock('@/services/posthog', () => ({
+  captureProductEvent: jest.fn(),
+  getPostHogClient: () => null,
+  initPostHog: () => {},
+  trackPostHogScreen: () => {},
+  identifyPostHogUser: () => {},
+  resetPostHogUser: () => {},
+}));
 
 const view = (over: Partial<FocusSessionView> = {}): FocusSessionView => ({
   id: 'sess-1',
@@ -255,6 +264,31 @@ test('finish — 정산 뷰를 기록·결과로 반영하고 진행 세션을 �
   assert.equal(h.state().lastResult?.fish, 25);
   assert.equal(h.state().records[0].id, 'sess-1');
   assert.equal(h.state().lastResult?.ackId, undefined);
+});
+
+test('finish — 섬/바다 집중 장소 요약(focus_location_summary)을 발행한다', async () => {
+  const capture = captureProductEvent as jest.Mock;
+  capture.mockClear();
+  const h = harness({
+    finish: async () => finish({ recordId: 'r-sea', activeSeconds: 900, kind: 'sea' }),
+  });
+  h.join();
+  await h.cmds.start({ subject: '수학' });
+  await h.cmds.finish();
+
+  const summary = capture.mock.calls.find(([event]) => event === 'focus_location_summary');
+  assert.ok(summary, 'focus_location_summary 가 발행되어야 한다');
+  assert.deepEqual(summary[1], {
+    record_id: 'r-sea',
+    duration_seconds: 900,
+    island_seconds: 0,
+    sea_seconds: 900,
+    unknown_seconds: 0,
+    metrics_schema_version: 1,
+    analytics_excluded: 0,
+  });
+  // 복구일이 아닌 서버 완료 시각으로 집계되도록 이벤트 시각을 completedAt 으로 넘긴다
+  assert.deepEqual(summary[2], { timestamp: new Date('2026-09-22T01:00:00Z') });
 });
 
 test('멱등 재시도 — 응답 유실·retryable 실패는 같은 키·같은 body 로 다시 보낸다', async () => {

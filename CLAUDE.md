@@ -11,7 +11,9 @@ repo-wide concerns.
 **gromo** — a focus-time management + character-customization mobile app.
 Users run focus sessions, track screen time, and customize a 2D character with
 shop items. Company `oneorthree`. The frozen 1.x app uses iOS bundle id
-`com.oneorthree.gromo`; the active 2.0 app uses `com.oneorthree.focuscat` on iOS and Android.
+`com.oneorthree.gromo`; the active 2.0 app uses `com.oneorthree.focuscat` on iOS and
+`com.oneorthree.gromo` on Android. The Android id is the current Play package, not a 1.x
+leftover (see `app/app-dev/app.config.js`).
 
 ## Monorepo layout
 
@@ -78,7 +80,7 @@ rejects a `gh pr create` that breaks them (reason goes back to you, no user prom
   **never `--draft`**, `--fill` or `--web` (codex auto-review attaches to ready PRs only; the
   gate needs an explicit title and body). Exactly one existing label matching the TYPE:
   FEAT→`enhancement`, FIX→`bug`, REFACTOR→`refactoring`, CHORE→by content (`documentation`
-  docs-only, `workflow` CI/scripts/hooks, `test` tests-only, else no label). `release` 대상 릴리스 PR에서만 버전 라벨 `release:major|minor|patch` 하나를 추가 허용, 그 외 `release:*` 금지,
+  docs-only, `workflow` CI/scripts/hooks, `test` tests-only, else no label). `release` 대상 릴리스 PR에서만 버전 라벨 `release:major|minor|patch` 하나를 추가 허용(`prod-ci-V2.yml`은 이 라벨을 읽지 않아 V2 태그는 patch만 오른다), 그 외 `release:*` 금지,
   never create labels, no `--reviewer`. For same-repository `main` → `release` promotion,
   follow `AGENTS.md` §「main → release 운영 승격」 and skip code-review requests.
   For other PRs, in the same turn post an `@claude`
@@ -123,6 +125,11 @@ files because their deploy paths differ entirely (dev: compose on the VM runner,
 PR checks live in the dev CI file. Shared steps go in a reusable file without an env suffix
 (`satellite-check.yml`, `be-gradle.yml`). App workflows are not renamed yet.
 
+**V2 is the live server pipeline.** dev: `*.dev-v2.yml` on GCP VMs `catus-dev-v2-{app,data,redis}` —
+[docs/engineering/dev-v2-pipeline.md](docs/engineering/dev-v2-pipeline.md). prod: `*-V2.yml` on EC2 hosts —
+[docs/engineering/prod-v2-pipeline.md](docs/engineering/prod-v2-pipeline.md). 기존 파일(`data-api-ci·cd.dev`,
+`realtime-ci.dev`, `satellite-ci·cd.dev`, `ops-smoke.dev`, `prod-ci`, `prod-cd`)은 2026-10-31 기준 `disabled_manually`다. 아래 서버 항목에서 이 파일들을 설명하는 부분은 기존 경로 기록이다. 앱 워크플로 항목은 해당하지 않는다.
+
 - **App**: `app-lint.yml` — ESLint + Prettier + tsc + jest on `app/app-dev/**` (plus
   `server/business-api/**/ApiErrorCode.java`, which the app's error-code parity test reads — GROMO-2253);
   `app-android-build.yml` — Android build checks on native-affecting paths.
@@ -151,7 +158,7 @@ PR checks live in the dev CI file. Shared steps go in a reusable file without an
 - **Realtime 검사**: `realtime-ci.dev.yml`은 PR 검사와 Data CI의 `workflow_call`을 받는다.
   `be-gradle.yml`의 `service: realtime`으로 Checkstyle·SpotBugs·Testcontainers·bootJar를
   검사하고, 호출받은 main 실행에서 공동 배포용 이미지 digest를 반환한다.
-- **Data·Realtime dev 공동 배포**: `data-api-ci.dev.yml`이 main의 두 서비스 변경을 받아
+- **Data·Realtime dev 공동 배포 (기존 경로, 꺼짐)**: `data-api-ci.dev.yml`이 main의 두 서비스 변경을 받아
   같은 SHA의 두 이미지를 GAR에 발행한다. 필요한 같은 SHA 위성 배포 완료 후
   `data-api-cd.dev.yml`이 `dev-vm-deploy` 잠금 안에서 DB 전환과 두 서비스 교체를 수행한다.
   PR에서는 검사와 이미지 빌드만 수행한다. DB 도구도 Data 이미지의 입력이므로
@@ -159,7 +166,7 @@ PR checks live in the dev CI file. Shared steps go in a reusable file without an
   배포 흐름·실패 복구·영구 상태 경로는 `server/scripts/README.md`와
   `server/data-api/docs/db/README.md`를 따른다. dev VM은 `gromo-dev-app`이고 AWS는
   OIDC → Secrets Manager 조회에 사용한다.
-- **dev runtime secrets / deploy result (GROMO-2224)**: the single source is Secrets Manager `gromo/dev/env`
+- **dev runtime secrets / deploy result (GROMO-2224, 기존 경로)**: dev V2 uses `catus/dev/env-v2` instead. `write-compose-env.py` filter·forbidden keys and `test_config_contract.py` also apply to V2. `dev-env.sh`, `secrets-check`, `wait-healthy.sh`, `mark-deploy.sh` below are for the old path only. `ops-*.dev` stay enabled except `ops-smoke.dev`, but they target the old dev VM, not dev V2. For the old path, the single source is Secrets Manager `gromo/dev/env`
   (read via `.github/scripts/dev-env.sh secrets`). Each container gets only its own keys because
   `write-compose-env.py` filters by a per-service allowlist and fails on missing/blank required keys — **the
   filter, not the secret layout, is the per-service boundary**. The filter also carries per-service
@@ -182,8 +189,8 @@ PR checks live in the dev CI file. Shared steps go in a reusable file without an
   `ops-redeploy.dev.yml`에서 Data 또는 Realtime을 선택하면 마지막 성공한 공동 배포 job을
   다시 실행해 두 서비스의 시크릿을 함께 갱신한다. 요청 접수 후 새 attempt의 해당 배포 job 완료까지
   기다리고 성공·실패를 보고한다. 두 서비스의 결과 배지는 원본 배포 실행에서 각각 기록한다.
-- **Prod**: Catus 2.0은 `prod-ci.yml`(release 이미지 발행·전체 이미지 조합 기록·PR 라벨 기반 catus-vX.Y.Z 태깅)과 `prod-cd.yml`(승인 후 수동 SSM 배포·버전 지정 롤백)으로 관리한다. 최초 V0 전환은 전체 이미지를 발행하고 운영 호스트에서 앱을 중지한 상태로 DB를 먼저 준비한 뒤 기존 승인 CD를 실행한다. 이후 Data·Realtime 변경은 두 이미지를 같은 SHA로 빌드한다. 운영 실행 구성은 게시된 Infra SHA로 고정하며, DB 자동 전환용 Infra 변경을 요구하지 않는다. 기존 Gromo 1.x와 분리하며 `satellite-ci.prod.yml`은 release PR 검사만 수행한다. release push 자동 발행은 `prod-ci.yml` 하나가 담당한다.
-  실행 순서·운영 선행 조건·배지 초기화는 `docs/prd/fishcat/server-separation/deployment.md`의 「Catus 2.0 운영 발행·배포」를 따른다. 워크플로 추가 자체가 운영 적용 완료를 뜻하지 않는다.
+- **Prod**: 현행은 `prod-ci-V2.yml`(release 이미지·`catus-vX.Y.Z-V2` 태그 발행)과 `prod-cd-V2.yml`(승인 후 수동 SSM 배포)이다. 이하는 꺼진 기존 경로 기록이다. 기존 경로는 `prod-ci.yml`(release 이미지 발행·전체 이미지 조합 기록·PR 라벨 기반 catus-vX.Y.Z 태깅)과 `prod-cd.yml`(승인 후 수동 SSM 배포·버전 지정 롤백)으로 관리했다. 최초 V0 전환은 전체 이미지를 발행하고 운영 호스트에서 앱을 중지한 상태로 DB를 먼저 준비한 뒤 기존 승인 CD를 실행한다. 이후 Data·Realtime 변경은 두 이미지를 같은 SHA로 빌드한다. 운영 실행 구성은 게시된 Infra SHA로 고정하며, DB 자동 전환용 Infra 변경을 요구하지 않는다. 기존 Gromo 1.x와 분리하며 `satellite-ci.prod.yml`은 release PR 검사만 수행한다. release push 자동 발행은 `prod-ci.yml` 하나가 담당한다.
+  V2 실행 순서·복구는 `docs/engineering/prod-v2-pipeline.md`, 기존 절차는 `docs/prd/fishcat/server-separation/deployment.md`의 「Catus 2.0 운영 발행·배포」를 따른다. 워크플로 추가 자체가 운영 적용 완료를 뜻하지 않는다.
 - **앱 업로드 게이트**: 자동 Android·iOS 업로드는 `wait-app-checks.py`로 동일 main push SHA의
   Lint 성공을 확인한다. Android 네이티브 입력 변경이면 Android Checks도 필요하다.
   수동 실행은 reusable Lint·Android Checks를 직접 실행한다. 실패·취소·미생성을 성공으로 인정하지 않는다.
@@ -204,6 +211,7 @@ PR checks live in the dev CI file. Shared steps go in a reusable file without an
 - **Dev ops (manual dispatch, `ops-*`)**: `ops-datadog.dev.yml` (Datadog APM toggle),
   `ops-monitor.dev.yml` (Prometheus/Grafana/Loki stack), `ops-kafka.dev.yml` (single-node Kafka broker
   up/status/down only — does not enable the outbox relay).
+- **Backoffice**: `backoffice-ci.yml` runs PR checks; `backoffice-cd.prod-V2.yml` runs on `backoffice/**` (non-md) merges to `main` — tests, one `backoffice-production` environment approval, publish `backoffice-vX.Y.Z-V2`, SSM deploy to `catus-backoffice-prod-V2` (manual `version` redeploys an existing tag, plus `rollback` for an older one; needs Infra role `catus-backoffice-release-V2`).
 - **Load test**: `loadtest.yml` — manual dispatch with profile/scenario inputs.
 - `claude-review.yml` — Claude PR review, triggered by an `@claude` comment.
 

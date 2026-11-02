@@ -26,6 +26,7 @@ permissions:
 concurrency:
   group: catus-dev-v2-deploy
   cancel-in-progress: false
+  queue: max
 jobs:
   deploy:
     if: github.ref == 'refs/heads/main'

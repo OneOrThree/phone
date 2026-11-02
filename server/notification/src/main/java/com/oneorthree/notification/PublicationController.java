@@ -28,6 +28,7 @@ class PublicationController {
     @GetMapping("/internal/admin/publications/environment")
     Map<String, Object> environment() {
         Map<String, Object> result = new java.util.LinkedHashMap<>(guard.identity());
+        result.putAll(guard.versions());
         result.put("contractVersion", "1");
         result.put("capabilities", java.util.List.of("notification.publication.v1",
                 "notification.history.v1", "notification.templates.v1", "notification.publication.cancel.v1"));

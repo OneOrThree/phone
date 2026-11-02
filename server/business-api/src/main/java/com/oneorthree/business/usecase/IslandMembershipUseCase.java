@@ -75,6 +75,7 @@ public class IslandMembershipUseCase {
             Map.entry("OBSERVATORY_LOCKED", new PublicFailure(ApiErrorCode.FACILITY_LOCKED, null)),
             // 진행 중 집중 세션이 있어 이동/생성을 거절했다(LLD §3.1·§3.6).
             Map.entry("SESSION_IN_PROGRESS", new PublicFailure(ApiErrorCode.STATE_CONFLICT, null)),
+            Map.entry("SEA_DESTINATION_UNAVAILABLE", new PublicFailure(ApiErrorCode.SEA_DESTINATION_UNAVAILABLE, null)),
             // 소속 섬 상한 3 (GROMO-2260) — 앱이 「섬을 하나 나가세요」를 띄우도록 전용 코드로 옮긴다.
             Map.entry("GROUP_LIMIT_EXCEEDED", new PublicFailure(ApiErrorCode.ISLAND_LIMIT_EXCEEDED, null)),
             // 가 본 적 없는 소속 섬으로 즉시 이동 (GROMO-2260).
@@ -274,6 +275,15 @@ public class IslandMembershipUseCase {
         var arrival = relay(() -> data.arriveAtIsland(claims.userId(), islandId, key, deadline));
         if (arrival == null || !islandId.equals(arrival.islandId())) {
             throw new UpstreamContractMismatchException("도착 응답의 섬이 요청과 다릅니다");
+        }
+        return IslandArrivalView.from(arrival);
+    }
+
+    /** 무인도 후보는 서버가 새 실제 섬 ID로 바꾸므로 요청 ID와 응답 ID의 일치를 요구하지 않는다. */
+    public IslandArrivalView introArrive(AccessTokenClaims claims, UUID islandId, UUID key, Deadline deadline) {
+        var arrival = relay(() -> data.introArriveAtIsland(claims.userId(), islandId, key, deadline));
+        if (arrival == null || arrival.islandId() == null) {
+            throw new UpstreamContractMismatchException("첫 항해 도착 응답에 실제 섬이 없습니다");
         }
         return IslandArrivalView.from(arrival);
     }

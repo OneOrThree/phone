@@ -14,6 +14,7 @@ import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.Clock;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.regex.Pattern;
@@ -25,6 +26,8 @@ public class DeveloperNoticeService {
     private static final Pattern MIN_VERSION = Pattern.compile("^[0-9]{1,9}\\.[0-9]{1,9}\\.[0-9]{1,9}$");
     private static final String COLUMNS = "publication_id,title,body,starts_at,ends_at,published_at,"
             + "min_ios_version,min_android_version";
+    /** 한 쪽의 최대이자 기본 크기. 앱이 첫 쪽만 훑어 예약 공지를 고르므로 기본값을 줄이지 않는다. */
+    private static final int PAGE_MAX = 100;
     private final JdbcTemplate jdbc;
     private final ContentStore store;
     private final Clock clock;
@@ -74,17 +77,46 @@ public class DeveloperNoticeService {
         return new Withdrawal(id, at, actor);
     }
 
+    /** 관리 목록(전체)이나 공개 목록(활성만)의 첫 쪽 — 최대 100건이다. 이어 읽기는 공개 목록의 keyset 쪽만 한다. */
     @Transactional(readOnly = true)
     public Page list(boolean management) {
-        String where = management ? "" : " WHERE withdrawn_at IS NULL AND starts_at<=?"
-                + " AND (ends_at IS NULL OR ends_at>?)";
-        Object[] args = management ? new Object[0]
-                : new Object[]{Timestamp.from(clock.instant()), Timestamp.from(clock.instant())};
-        List<Notice> rows = jdbc.query("SELECT " + COLUMNS
-                        + " FROM developer_notices" + where
-                        + " ORDER BY published_at DESC,publication_id DESC LIMIT 100",
-                DeveloperNoticeService::notice, args);
-        return new Page(rows);
+        return page(management, null, null, PAGE_MAX);
+    }
+
+    /**
+     * 공개 목록 한 쪽 — {@code (publishedAt DESC, id DESC)}. anchor 는 이전 쪽 마지막 행의 두 값이고 둘 다 있거나
+     * 둘 다 없어야 한다. 같은 {@code publishedAt} 의 행은 id 가 가르므로 쪽 경계에서 겹치거나 빠지지 않는다.
+     * 활성 조건의 now 는 쪽마다 다시 읽는다 — 쪽 사이에 미시작·만료가 바뀌는 것은 허용한다.
+     */
+    @Transactional(readOnly = true)
+    public Page list(Instant afterPublishedAt, UUID afterId, int limit) {
+        if (limit < 1 || limit > PAGE_MAX || (afterPublishedAt == null) != (afterId == null)) {
+            throw new ContentException(ContentErrorCode.INVALID_REQUEST);
+        }
+        return page(false, afterPublishedAt, afterId, limit);
+    }
+
+    /** limit+1 건을 읽어 {@code hasMore} 를 정한다 — 정확히 limit 건이면 false 다. */
+    private Page page(boolean management, Instant afterPublishedAt, UUID afterId, int limit) {
+        List<Object> args = new ArrayList<>();
+        String where = "";
+        if (!management) {
+            Timestamp now = Timestamp.from(clock.instant());
+            where = " WHERE withdrawn_at IS NULL AND starts_at<=? AND (ends_at IS NULL OR ends_at>?)";
+            args.add(now);
+            args.add(now);
+        }
+        if (afterPublishedAt != null) {
+            where += (where.isEmpty() ? " WHERE" : " AND") + " (published_at,publication_id)<(?::timestamptz,?::uuid)";
+            args.add(Timestamp.from(afterPublishedAt));
+            args.add(afterId);
+        }
+        args.add(limit + 1);
+        List<Notice> rows = jdbc.query("SELECT " + COLUMNS + " FROM developer_notices" + where
+                        + " ORDER BY published_at DESC,publication_id DESC LIMIT ?",
+                DeveloperNoticeService::notice, args.toArray());
+        boolean hasMore = rows.size() > limit;
+        return new Page(hasMore ? rows.subList(0, limit) : rows, hasMore);
     }
 
     @Transactional(readOnly = true)
@@ -152,5 +184,6 @@ public class DeveloperNoticeService {
 
     public record Withdrawal(UUID publicationId, Instant withdrawnAt, String withdrawnBy) { }
 
-    public record Page(List<Notice> items) { }
+    /** {@code hasMore} 는 이 쪽 뒤에 같은 조건의 행이 더 있다는 뜻이다 — 이어 읽을 경계는 호출자가 마지막 행에서 만든다. */
+    public record Page(List<Notice> items, boolean hasMore) { }
 }

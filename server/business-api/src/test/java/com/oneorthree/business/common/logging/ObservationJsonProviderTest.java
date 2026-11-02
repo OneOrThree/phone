@@ -11,6 +11,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
+import org.slf4j.event.KeyValuePair;
 import org.springframework.mock.env.MockEnvironment;
 import tools.jackson.databind.ObjectMapper;
 
@@ -107,6 +108,40 @@ class ObservationJsonProviderTest {
                 .doesNotContainKeys("request_id", "trace_id", "legacy_trace_id", "private", "dd.service", "dd");
         assertThat(format(event("m", null, Map.of("attempt", "0", "event_name", "custom.thing"))))
                 .doesNotContainKeys("attempt", "event_name");
+    }
+
+    @Test
+    void accessEventEmitsOnlyValidatedAppFields() throws Exception {
+        LoggingEvent ok = (LoggingEvent) event("m", null, Map.of());
+        ok.addMarker(ObservationJsonProvider.ACCESS);
+        ok.addKeyValuePair(new KeyValuePair("app_version", "1.0.2"));
+        ok.addKeyValuePair(new KeyValuePair("app_platform", "ios"));
+        assertThat(format(ok)).containsEntry("log_kind", "access").containsEntry("app_version", "1.0.2")
+                .containsEntry("app_platform", "ios").containsEntry("version", "abc123");
+
+        LoggingEvent bad = (LoggingEvent) event("m", null, Map.of());
+        bad.addMarker(ObservationJsonProvider.ACCESS);
+        bad.addKeyValuePair(new KeyValuePair("app_version", "1.0\nx"));
+        bad.addKeyValuePair(new KeyValuePair("app_platform", "web"));
+        assertThat(format(bad)).doesNotContainKeys("app_version", "app_platform");
+    }
+
+    @Test
+    void accessEventEmitsOnlyLowercaseUuidUpdateId() throws Exception {
+        String updateId = "0b1f6c1e-9d3a-4f6e-8a52-7c1d2e3f4a5b";
+        assertThat(format(accessEventWithUpdateId(updateId))).containsEntry("log_kind", "access")
+                .containsEntry("app_update_id", updateId);
+
+        // 필터를 거치지 않고 provider 에 직접 들어온 값도 형식·타입이 틀리면 버린다(허용목록이 마지막 방어선).
+        for (Object bad : new Object[] {updateId.toUpperCase(), updateId.substring(1), updateId.replace("-", ""),
+                updateId + "\nforged=1", "a".repeat(5000), UUID.fromString(updateId), 42}) {
+            assertThat(format(accessEventWithUpdateId(bad))).doesNotContainKey("app_update_id");
+        }
+
+        // 접근 로그가 아닌 이벤트의 key/value 는 키 이름과 무관하게 내보내지 않는다.
+        LoggingEvent plain = (LoggingEvent) event("m", null, Map.of());
+        plain.addKeyValuePair(new KeyValuePair("app_update_id", updateId));
+        assertThat(format(plain)).containsEntry("log_kind", "application").doesNotContainKey("app_update_id");
     }
 
     @Test
@@ -231,6 +266,13 @@ class ObservationJsonProviderTest {
         LoggingEvent event = new LoggingEvent(Logger.class.getName(), LOGGER, Level.INFO, message, error, null);
         event.setMDCPropertyMap(mdc);
         return event;
+    }
+
+    private static ILoggingEvent accessEventWithUpdateId(Object updateId) {
+        LoggingEvent access = (LoggingEvent) event("m", null, Map.of());
+        access.addMarker(ObservationJsonProvider.ACCESS);
+        access.addKeyValuePair(new KeyValuePair("app_update_id", updateId));
+        return access;
     }
 
     private Map<String, Object> format(ILoggingEvent event) throws Exception {

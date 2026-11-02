@@ -42,6 +42,7 @@ import { constructionPhase, normalizedConstructionProgress } from './constructio
 import { myIslands } from '@/services/api/islands';
 import { sessionGeneration } from '@/services/api/session';
 import { collectPages } from '@/screens/interiors/useIslandManagement';
+import { captureProductEvent } from '@/services/posthog';
 
 /** 화면이 닫혀 있을 때 캡처된 쓰기 콜백이 나가지 않게 하는 앱 측 code. */
 export const CLIENT_INACTIVE = 'CLIENT_INACTIVE';
@@ -147,6 +148,9 @@ export function useConstruction({
   /** 의도 슬롯 — 같은 payload 재시도는 같은 key 를 쓰게 보관한다. */
   const intents = useRef(new Map<string, WriteIntent>());
   const flights = useRef(new Map<string, Promise<void>>());
+  // 멱등 key 당 계측 1회 — 착공 성공 후 재조회가 재시도 가능한 실패로 끝나 같은 key 로 재시도하면
+  // 서버가 결과를 멱등 재생하지만(실제 차감은 1회), 그때 이벤트를 다시 발행하지 않게 막는다.
+  const emitted = useRef(new Set<string>());
   /** 단일 쓰기 flight — 명령 병렬 실행으로 상태를 덮지 않는다. 의도 객체가 소유권 토큰. */
   const writeBusy = useRef<WriteIntent | null>(null);
   /** 마지막으로 본 now — 시각 변경 감지용. */
@@ -249,6 +253,7 @@ export function useConstruction({
     ) {
       intentMap.clear();
       flightMap.clear();
+      emitted.current.clear();
       writeBusy.current = null;
     }
     scopeRef.current = scope;
@@ -339,7 +344,7 @@ export function useConstruction({
       payload: string,
       exec: (key: string) => Promise<unknown>,
       apply?: (result: unknown) => void,
-      capture?: (result: unknown) => void,
+      capture?: (result: unknown, key: string) => void,
     ): Promise<void> => {
       // dedupe·단일 flight 먼저 — 재조회 구간에도 같은 의도는 합류하고 다른 의도는 거절한다.
       const inFlight = flights.current.get(slot);
@@ -372,7 +377,7 @@ export function useConstruction({
           const wrote = await exec(key);
           // POST가 커밋된 뒤 재조회가 실패하거나 화면이 닫혀도 receipt은 잃지 않는다.
           // 계정 세대가 바뀐 응답은 저장하지 않고, 대상 섬 검증은 수신 reducer가 다시 한다.
-          if (scope.gen === sessionGeneration()) capture?.(wrote);
+          if (scope.gen === sessionGeneration()) capture?.(wrote, key);
           // 쓰기 성공은 서버 재조회로 확정한 뒤에만 resolve 한다 — 응답 본문만으로 확정 금지.
           await runReload(scope).catch((error) => {
             // 살아 있는 scope 의 STALE 은 더 늦게 시작한 읽기가 확정권을 가져간 것뿐이다 —
@@ -474,7 +479,21 @@ export function useConstruction({
             key,
           ),
         (result) => setStarted(result as ConstructionStarted),
-        (result) => onStarted?.(result as ConstructionStarted, target),
+        (result, key) => {
+          const started = result as ConstructionStarted;
+          // 서버 착공(POST 커밋) 성공 시 1회 — 완공 추정이 아닌 착공 확정 공통 지점.
+          // 멱등 key 당 1회만 — 재조회 실패 뒤 같은 key 재시도의 서버 멱등 재생엔 재발행하지 않는다.
+          if (!emitted.current.has(key)) {
+            emitted.current.add(key);
+            captureProductEvent('construction_started', { building_id: buildingId });
+            // 착공으로 섬 통장(물고기)에서 실제 차감된 금액 — 서버가 확정한 spent.amount
+            captureProductEvent('fish_spent', {
+              reason: 'construction',
+              amount: started.spent.amount,
+            });
+          }
+          onStarted?.(started, target);
+        },
       );
     },
     [callScope, confirmedItem, onStarted, runWrite],

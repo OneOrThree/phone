@@ -42,6 +42,15 @@ class TargetTests(unittest.TestCase):
              patch.object(target.sys, 'argv', ['smoke-target.py']), self.assertRaises(ValueError):
             target.main()
 
+    def test_dispatch_with_plan_checks_requested_target(self):
+        records = {'data-api': {'revision': 'a' * 40}}
+        plan = json.dumps({'revision': 'b' * 40, 'services': ['data-api']})
+        with tempfile.TemporaryDirectory() as directory, patch.object(target, 'inspect_targets', return_value=records), \
+                patch.dict(os.environ, {'RUNNER_TEMP': directory, 'GITHUB_EVENT_NAME': 'workflow_dispatch',
+                                        'SMOKE_TARGET_PLAN': plan}), \
+                self.assertRaisesRegex(ValueError, '일치하지 않음'):
+            target.main()
+
     def test_failed_revision_check_still_preserves_actual_image_evidence(self):
         with tempfile.TemporaryDirectory() as directory, \
              patch.dict(os.environ, {'RUNNER_TEMP': directory, 'GITHUB_EVENT_NAME': 'push',
