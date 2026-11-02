@@ -256,7 +256,8 @@ jobs:
           target=app/app-dev/android/credentials/prod/google-services.json
           mkdir -p "$(dirname "$target")"
           printf '%s' "$ANDROID_FIREBASE_PROD_JSON" > "$target"
-          jq -e '.project_info.project_id == "catus-prod" and any(.client[]; .client_info.android_client_info.package_name == "com.oneorthree.gromo")' "$target" > /dev/null
+          jq -e '.project_info.project_id == "catus-prod" and any(.client[]; .client_info.android_client_info.package_name == "com.oneorthree.gromo")' "$target" > /dev/null \
+            || { echo "::error::ANDROID_FIREBASE_PROD_JSON 이 catus-prod / com.oneorthree.gromo 설정이 아닙니다"; exit 1; }
           chmod 600 "$target"
 
       # 빌드 도구 (app-android-build.yml 과 같음)

@@ -37,8 +37,10 @@ def identity():
 def verify(directory, expected):
     root = Path(directory)
     metadata = json.loads((root / 'metadata.json').read_text())
+    if metadata.get('schema') != 3:
+        raise ValueError('schema 3 이전 Android 산출물(dev 서버 빌드)이다. 새 CI 실행이 필요하다')
     keys = {'schema', 'revision', 'run_id', 'run_attempt', 'version_code', 'sha256', 'publish', 'audience'}
-    if set(metadata) != keys or metadata['schema'] != 3 or type(metadata.get('publish')) is not bool:
+    if set(metadata) != keys or type(metadata.get('publish')) is not bool:
         raise ValueError('Android 산출물 메타데이터 형식 오류')
     # dev 서버 AAB 가 internal 에 올라가면 콘솔 승격 한 번으로 스토어에 나갈 수 있다.
     if metadata['audience'] != 'prod':
