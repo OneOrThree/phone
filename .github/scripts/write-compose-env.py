@@ -135,6 +135,8 @@ SERVICE_OPTIONAL_KEYS = {
         "STATIC_ASSETS_BASE_URL",
         # GROMO-2401 탈퇴 시 Apple 토큰 폐기(Sign in with Apple .p8 키) — 비우면 폐기를 건너뛰고 WARN.
         "APPLE_TEAM_ID", "APPLE_KEY_ID", "APPLE_PRIVATE_KEY",
+        # GROMO-2711 폐기 요청의 client_id(앱 번들 id) — 비면 yml 기본값 com.oneorthree.focuscat. gromo 번들 출시 뒤엔 com.oneorthree.gromo.
+        "APPLE_REVOKE_CLIENT_ID",
     ),
     "notification": (
         "NOTIFICATION_SCHEDULING_ENABLED", "NOTIFICATION_KAFKA_ENABLED", "NOTIFICATION_GENERATION_REQUIRED",
