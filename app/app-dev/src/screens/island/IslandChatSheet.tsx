@@ -9,6 +9,7 @@ import { componentTokens, semanticTokens } from '@/design-system/tokens';
 import { IslandSheet, Avatar, sheetInput } from '@/screens/island/IslandSheet';
 import { appearanceOutfit, type Outfit } from '@/components/CatOutfitLayers';
 import { ApiError } from '@/services/api/client';
+import { useMemberLooks } from '@/services/memberLooks';
 import { currentIsland, dayKey, type State } from '@/services/model';
 import type { IslandChat } from '@/screens/island/useIslandChat';
 import { t } from '@/i18n';
@@ -54,18 +55,27 @@ export function IslandChatSheet({ e, chat }: { e: any; chat: IslandChat }) {
     };
   }, []);
 
+  // 작성자 외양은 화면에서 한 번만 구독한다 — 아바타마다 구독하면 글 수만큼 리스너·타이머가 는다
+  const looks = useMemberLooks(
+    server ? chat.messages.filter((m) => m.userId !== chat.myId).map((m) => m.userId) : [],
+    server,
+  );
+
   // 채팅방은 최신 글이 아래에 온다 — 서버 목록은 오래된 것부터, 목업 섬은 최신 것부터라 뒤집는다
   const rows: Row[] = server
-    ? chat.messages.map((m) => ({
-        id: m.id,
-        name: m.name ?? t('islandChat.unknown'),
-        text: m.text,
-        time: chatTime(Date.parse(m.createdAt), now),
-        color: m.catColor ?? null,
-        outfit: appearanceOutfit(m.appearance),
-        mine: m.userId === chat.myId,
-        failed: false,
-      }))
+    ? chat.messages.map((m) => {
+        const look = looks[m.userId];
+        return {
+          id: m.id,
+          name: m.name ?? t('islandChat.unknown'),
+          text: m.text,
+          time: chatTime(Date.parse(m.createdAt), now),
+          color: look ? look.catColor : (m.catColor ?? null),
+          outfit: look ? (look.appearance ?? undefined) : appearanceOutfit(m.appearance),
+          mine: m.userId === chat.myId,
+          failed: false,
+        };
+      })
     : [...island.messages].reverse().map((m) => ({
         id: m.id,
         name: m.name,
@@ -220,7 +230,7 @@ export function IslandChatSheet({ e, chat }: { e: any; chat: IslandChat }) {
             key={m.id}
             style={{ flexDirection: 'row', alignItems: 'flex-start', gap: BUBBLE.gap }}
           >
-            <Avatar color={m.color ?? 'gray'} outfit={m.color ? m.outfit : undefined} size={36} />
+            <Avatar color={m.color} outfit={m.color ? m.outfit : undefined} size={36} />
             {/* 꼬리(왼쪽 위 각진 모서리)는 프로필을 향한다(DESIGN §8.5) */}
             <View
               style={{

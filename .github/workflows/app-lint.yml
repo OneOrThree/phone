@@ -22,6 +22,9 @@ on:
       - 'docs/prd/fishcat/island-movement/fixtures/**'
       # 앱 errors 동치 테스트(i18n/index.test.ts)가 서버의 ApiErrorCode.java 를 읽는다 — 서버만 바뀐 PR 에서도 돌아야 한다 (GROMO-2253)
       - 'server/business-api/**/ApiErrorCode.java'
+      # 앱 manifest 테스트가 실제 발행기를 돌린다 — 발행기만 바뀐 PR 에서도 돌아야 앱 파서와 어긋나는 것을 잡는다 (GROMO-2671)
+      - 'scripts/assets-cdn/**'
+      - 'assets-cdn/**'
   pull_request:
     branches: [main] # main 대상 PR만 — 릴리즈 PR(main→release)은 이미 검사된 코드라 제외 (data-api-ci.dev.yml과 동일 패턴)
     paths:
@@ -45,6 +48,9 @@ on:
       - 'docs/prd/fishcat/island-movement/fixtures/**'
       # 앱 errors 동치 테스트(i18n/index.test.ts)가 서버의 ApiErrorCode.java 를 읽는다 — 서버만 바뀐 PR 에서도 돌아야 한다 (GROMO-2253)
       - 'server/business-api/**/ApiErrorCode.java'
+      # 앱 manifest 테스트가 실제 발행기를 돌린다 — 발행기만 바뀐 PR 에서도 돌아야 앱 파서와 어긋나는 것을 잡는다 (GROMO-2671)
+      - 'scripts/assets-cdn/**'
+      - 'assets-cdn/**'
 
 # 중간 푸시분은 어차피 다음 푸시에 무의미해지는데, 그때까지 러너를 물고 있다
 # (GROMO-1797). 그룹 이름은 다른 파이프라인과 달라야 한다 — 같으면 서로를 막는다.

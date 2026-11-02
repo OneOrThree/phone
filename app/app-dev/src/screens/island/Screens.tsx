@@ -2226,6 +2226,8 @@ export function RedesignScreens({ e }: any) {
           homeChat={
             chatBlocked ? undefined : (
               <HomeChatLog
+                // 섬이 바뀌면 다시 마운트해 3초 기준선과 띄운 줄을 새로 잡는다(GROMO-2678)
+                key={state.serverIslands?.currentIslandId ?? 'local'}
                 lines={chatLines}
                 pending={server && !!e.islandChat?.loading}
                 onOpen={() => go('chat')}
@@ -4110,7 +4112,7 @@ export function RedesignScreens({ e }: any) {
           lead={
             <Avatar
               userId={friend.userId}
-              color={friend.catColor ?? 'white'}
+              color={friend.catColor}
               outfit={friend.catColor ? appearanceOutfit(friend.appearance) : undefined}
             />
           }
@@ -4132,7 +4134,7 @@ export function RedesignScreens({ e }: any) {
           lead={
             <Avatar
               userId={friend.userId}
-              color={friend.catColor ?? 'white'}
+              color={friend.catColor}
               outfit={friend.catColor ? appearanceOutfit(friend.appearance) : undefined}
             />
           }
@@ -4159,7 +4161,7 @@ export function RedesignScreens({ e }: any) {
           lead={
             <Avatar
               userId={friend.userId}
-              color={friend.catColor ?? 'white'}
+              color={friend.catColor}
               outfit={friend.catColor ? appearanceOutfit(friend.appearance) : undefined}
             />
           }
@@ -4190,7 +4192,7 @@ export function RedesignScreens({ e }: any) {
             lead={
               <Avatar
                 userId={friend.userId}
-                color={friend.catColor ?? 'white'}
+                color={friend.catColor}
                 outfit={friend.catColor ? appearanceOutfit(friend.appearance) : undefined}
               />
             }
@@ -4583,7 +4585,8 @@ export function RedesignScreens({ e }: any) {
         tail={
           <Toggle
             label={label}
-            value={(state.settings as any)[key]}
+            // 화면용 합친 값이 아니라 저장값을 보인다 — OS 모션 줄이기가 켜져 있어도 앱 설정을 바꿀 수 있다(GROMO-2159)
+            value={((e.savedSettings ?? state.settings) as any)[key]}
             onChange={(value: boolean) => act('SETTING', { key, value })}
           />
         }

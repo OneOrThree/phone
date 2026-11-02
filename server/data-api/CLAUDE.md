@@ -149,8 +149,14 @@ whitelist (GROMO-735).
   (see its README).
 - Dev Datadog은 `server/scripts/docker-compose.datadog.yml`과 수동
   `ops-datadog.dev.yml`로 관리한다. Catus prod 실행 구성은 아래 Deploy 안내의
-  Infra 경로에서 확인한다. OpenMetrics 수집 목록은 `server/data-api/Dockerfile`의
-  `com.datadoghq.ad.checks` 라벨에 있으므로 수집 메트릭 변경은 그 목록에 반영한다.
+  Infra 경로에서 확인한다.
+- OpenMetrics 수집 목록(`com.datadoghq.ad.checks` 라벨의 `metrics`)은 `.*`가 아니라 대시보드가 쓰는 이름만 적은
+  큐레이트 목록이다(GROMO-2196, 출처 Datadog 대시보드 «CATUS · PROD 통합 관측»·«CATUS · DEV 통합 관측»).
+  라벨은 서비스마다 다른 파일에 있다. Data API(`gromo`)는 `server/data-api/Dockerfile`, Realtime은
+  `docker-compose.realtime.yml`, Business·Notification은 `docker-compose.satellites.yml`, kafka·jmx exporter는
+  `docker-compose.observability.yml`(모두 `server/scripts/`)이며, 새 지표는 해당 라벨에 정확한 이름으로 더한다.
+  정규식 금지, 카운터는 `_total`을 뗀 이름, `*_max`는 별도 이름이다. 규칙 전문은 Dockerfile의 라벨 주석이고
+  `.github/scripts/test_datadog_openmetrics_labels.py`가 CI에서 정규식 항목을 막는다.
 
 ## Deploy
 

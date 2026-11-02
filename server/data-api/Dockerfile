@@ -52,13 +52,20 @@ COPY src/main/resources/db/v0 /opt/catus-db/src/main/resources/db/v0
 COPY src/main/resources/db/seed /opt/catus-db/src/main/resources/db/seed
 
 # Datadog Autodiscovery — Micrometer /actuator/prometheus 를 OpenMetrics 로 스크레이프 (GROMO-1489).
-# 이미지 라벨에 두는 이유: Agent 설정 파일(conf.d/openmetrics.d)로 두면 호스트에 그 파일이 있어야 하는데,
-# prod 는 docker-compose.prod.yml 만 S3 로 배포하고 레포를 체크아웃하지 않아 마운트할 파일이 없다.
-# 이미지에 구우면 dev·prod 가 같은 이미지로 같은 배선을 갖는다 — 정본이 여기 하나다.
+# 이미지 라벨에 두는 이유: Agent 설정 파일(conf.d/openmetrics.d)은 호스트에 그 파일이 있어야 하는데 운영 호스트에는
+# 이 레포가 체크아웃되지 않는다. 이미지에 구우면 dev·prod 가 같은 이미지로 같은 배선을 갖는다.
+# 이 라벨이 Data API(namespace gromo)의 정본이다. 다른 서비스의 라벨은 각자 compose 에 있다:
+#   Realtime = docker-compose.realtime.yml · Business/Notification = docker-compose.satellites.yml ·
+#   kafka/jmx exporter = docker-compose.observability.yml (운영 Business/Notification 은 Infra 저장소 compose-V2.yml).
 # %%host%% 는 Agent 가 컨테이너 IP 로 치환한다. 9091 은 호스트 미공개 관리 포트(application-{dev,prod}.yml).
-# 비용: 커스텀 메트릭은 timeseries 당 과금 → .* 대신 대시보드가 쓰는 것만 큐레이트.
-# ⚠️ OpenMetrics(agent:7)는 카운터의 _total 접미사를 떼고 매칭 → logback_events 처럼 접미사 없이 적는다.
-LABEL com.datadoghq.ad.checks='{"openmetrics":{"init_config":{},"instances":[{"openmetrics_endpoint":"http://%%host%%:9091/actuator/prometheus","namespace":"gromo","metrics":[".*"],"health_service_check":true,"send_distribution_buckets":true,"collect_counters_with_distributions":true}]}}' \
+# 비용: 커스텀 메트릭은 timeseries 당 과금 → .* 가 아니라 대시보드가 쓰는 이름만 적는다(GROMO-2196).
+#   출처는 Datadog 대시보드 «CATUS · PROD 통합 관측»(z2h-qq5-8vk)·«CATUS · DEV 통합 관측»(hav-c4v-rkm)의 gromo.* 지표와
+#   outbox_relay_backlog(GROMO-2406)다. 새 지표를 쓰려면 이름을 여기에 더한다.
+# metrics 작성 규칙 — .github/scripts/test_datadog_openmetrics_labels.py 가 CI 에서 막는다.
+#   · 정규식이 아니라 «정확한 이름»이다. 영문·숫자·_ 만 쓴 항목은 Agent(OpenMetrics V2)가 이름 그대로 비교한다(.*·^…$ 금지).
+#   · 카운터는 _total 을 뗀 이름이다: hikaricp_connections_timeout_total → hikaricp_connections_timeout.
+#   · Micrometer 의 *_max 는 별도 게이지라 이름을 따로 적어야 온다: jvm_gc_pause_seconds 만 적으면 jvm_gc_pause_seconds_max 는 오지 않는다.
+LABEL com.datadoghq.ad.checks='{"openmetrics":{"init_config":{},"instances":[{"openmetrics_endpoint":"http://%%host%%:9091/actuator/prometheus","namespace":"gromo","metrics":["executor_active_threads","executor_queued_tasks","hikaricp_connections_acquire_seconds","hikaricp_connections_active","hikaricp_connections_idle","hikaricp_connections_pending","hikaricp_connections_timeout","hikaricp_connections_usage_seconds","jdbc_connections_max","jvm_gc_overhead","jvm_gc_pause_seconds","process_uptime_seconds","spring_kafka_template_seconds","outbox_relay_backlog"],"health_service_check":true,"send_distribution_buckets":true,"collect_counters_with_distributions":true}]}}' \
       com.datadoghq.ad.logs='[{"source":"java"}]'
 
 EXPOSE 8080
