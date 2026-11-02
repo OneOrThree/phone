@@ -30,7 +30,7 @@ gh workflow run backoffice-ci.yml --ref feat/작업-브랜치
 
 GitHub Actions의 **Run workflow**에서 브랜치를 선택해도 된다. 정책을 적용한 workflow가 해당 브랜치에도 있어야 한다.
 Realtime 검사는 `data-api-ci.dev-v2.yml`이 함께 돈다. `realtime-ci.dev-v2.yml`에는 수동 실행 트리거가 없다.
-수동 실행은 GitHub-hosted에서 기능·계약 검사를 수행하며 dev 이미지 빌드는 생략한다. GAR 이미지 발행과 Auto CD 호출은 `main` ref 조건이 있어, 피처 브랜치 수동 검사로는 배포되지 않는다.
+피처 브랜치 수동 실행은 기능·계약 검사만 수행한다. GAR 이미지 발행과 Auto CD 호출은 `main` ref 조건이 있으므로 main에서 수동 실행하면 발행·배포로 이어질 수 있다.
 Business API·Notification 수동 검사는 두 서비스를 모두 검사한다. 자동 main PR에서는 기존 변경 서비스 판정을 따른다.
 
 피처 간 검사를 생략하면 통합 문제 발견이 main 대상 PR까지 늦어질 수 있다. 긴 작업 중에는 위 수동 검사를 실행하고 main PR의 필수 검사가 끝나기 전에 병합하지 않는다.
@@ -42,5 +42,5 @@ Business API·Notification 수동 검사는 두 서비스를 모두 검사한다
 - `.github/workflows/migration-immutable.yml`: 적용된 Flyway 파일 불변 검사와 `db-tools` 잡(`server/data-api/docs/db/test-*.py` 4종). 경로 필터가 없다
 - `.github/workflows/agent-harness.yml`: 설정·게이트 자체 검사, 하네스 문서 검사(`.github/scripts/check-agent-harness.py`), `.claude/skills/*/scripts`의 `test_*.py`. 모든 PR과 main push에서 돈다
 - Data·Realtime·Satellite·Backoffice dev CI: main 대상 필터와 수동 검사
-- `prod-ci.yml`, `prod-ci-V2.yml`: 승격 PR의 전체 Gradle·이미지 검사 생략
+- `prod-ci-V2.yml`: 승격 PR의 전체 Gradle·이미지 검사 생략
 - `satellite-ci.prod.yml` → `satellite-check.yml`: 승격 PR에서 공개 명령·Outbox의 Data API 통합 테스트 생략, 가벼운 격리 계약 검사 유지

@@ -1,5 +1,10 @@
 # 서버 실행 · 배포 도구
 
+> 2026-11-02 구 단일 VM 서버와 구 CI/CD·운영 도구를 폐기했습니다. 현행 원격 배포는
+> [dev V2](../../docs/engineering/dev-v2-pipeline.md)·[prod V2](../../docs/engineering/prod-v2-pipeline.md)를 따릅니다.
+> 아래 기본 Compose·overlay는 로컬 재현과 구 구성 기록이며 V2 서버에 그대로 적용하지 않습니다.
+
+
 > 환경별 컨테이너 구성과 서비스 분리·데이터 이관 절차를 재현하는 도구 모음입니다.
 
 [서버 전체 보기](../README.md) · [시스템 아키텍처](../../docs/architecture/system-architecture.md) · [관측 스택](../observability/README.md)
@@ -78,7 +83,7 @@ docker compose -p "$PROD_PROJECT" --project-directory <prod 배포 디렉터리>
 | 환경 | 파일 조합 | 지금 자동으로 도는 부분 | 사람이 붙이는 부분 |
 | --- | --- | --- | --- |
 | local | local (+`--profile nginx`) | — | 전부. nginx 프로필은 아래 불릿 |
-| dev | dev + realtime (+datadog) (+kafka) + satellites.data.dev; 위성은 satellites + satellites.dev | `data-api-cd.dev.yml`: DB 준비 후 Data·Realtime 공동 교체; 위성은 Satellite Dev CD | Kafka 최초 기동(Actions **Dev Kafka**), 미완료 V0 배포의 수동 복구 |
+| 구 V1 dev | dev + realtime (+datadog) (+kafka) + satellites.data.dev; 위성은 satellites + satellites.dev | `data-api-cd.dev.yml`: DB 준비 후 Data·Realtime 공동 교체; 위성은 Satellite Dev CD | Kafka 최초 기동(Actions **Dev Kafka**), 미완료 V0 배포의 수동 복구 |
 | prod | prod (+kafka) (+satellites (+satellites.data)) | 없음 — 옛 `prod-cd.yml`(SSM 으로 `docker-compose.prod.yml` 단독 `up -d`)은 GROMO-2224 에서 삭제 | 위성·Kafka 전부 수동. Realtime 은 prod 배선 자체가 없다 |
 
 - **local nginx 프로필**(GROMO-2216): [dev 공개 라우팅 정본](nginx-dev-2.0-routes.conf.example)을 [`nginx-local-routes.sh`](nginx-local-routes.sh)가 기동 때 읽어 upstream 두 곳만 호스트 포트로 치환해 그대로 쓴다 — `/internal`·`/actuator`·옛 경로 404 와 신원 헤더 비움이 dev 와 같다. 변수는 셸 env 로 준다(`.env` 불필요).
@@ -230,7 +235,7 @@ python3 server/scripts/prepare-satellite-deploy.py --help
 3. 트래픽과 Data·Realtime 및 DB writer를 중지하고 진행 중 요청을 소진한 뒤 V0 전환을 수행합니다. 전환 검증이 성공하면 같은 창에서 새 Data와 새 Realtime을 기동합니다.
 4. Data 내부 섬 목록 인증·응답과 Realtime의 섬 입장·채팅 연결을 확인한 뒤 트래픽을 재개합니다. 스키마 전환 뒤 복구는 V0 문서의 백업·검증 절차를 따릅니다.
 
-개발 환경의 자동 진입점은 `data-api-ci.dev.yml`입니다. Data 또는 Realtime 입력이 바뀌면 같은 main SHA로 두 이미지를 검사·발행하고, 두 digest를 `data-api-cd.dev.yml`에 함께 전달합니다. 해당 push가 위성 CI 대상이면 같은 SHA의 Business·Notification 배포 완료를 먼저 기다립니다. Realtime CI는 PR 검사와 재사용 빌드만 담당하며 독립 Realtime CD는 없습니다.
+옛 V1 개발 환경의 자동 진입점은 `data-api-ci.dev.yml`이었습니다. Data 또는 Realtime 입력이 바뀌면 같은 main SHA로 두 이미지를 검사·발행하고, 두 digest를 `data-api-cd.dev.yml`에 함께 전달합니다. 해당 push가 위성 CI 대상이면 같은 SHA의 Business·Notification 배포 완료를 먼저 기다립니다. Realtime CI는 PR 검사와 재사용 빌드만 담당하며 독립 Realtime CD는 없습니다.
 
 공동 CD의 [`deploy-core-dev.py`](../../.github/scripts/deploy-core-dev.py)는 이미지 OCI revision·digest, 실제 Compose의 공유 토큰·프로파일, DB 전환 패키지, nginx stop/start 권한을 먼저 검증합니다. nginx가 실행 중이었다면 멈추고 Data·Realtime·Business·Notification 및 Data DB 관측 연결을 중지합니다. DB·Redis·Kafka와 볼륨은 유지합니다. 이미지에 포함된 `deploy-v0.py`로 DB 백업·기존 migration 보완·V0 전환을 수행한 뒤 새 Data·Realtime을 함께 시작합니다. 두 컨테이너의 readiness와 이미지가 확인되면 원래 실행 중이던 위성·관측 및 nginx를 복원합니다.
 
@@ -309,12 +314,12 @@ Fluent Bit 이 올리는 새 접두입니다. 키는 `system_log/v2/env=<env>/se
 
 - PR의 smoke 변경은 `smoke-check.yml`에서 셸 문법·mock API·격리 Python 계약으로 검증합니다. 실제 dev/prod API나 DB를 호출하지 않습니다.
 - 네 서비스 Gradle 검사는 `be-gradle.yml`로 공통화합니다. 동일 실행의 service/revision/run_id·checksum을 검증한 JAR만 이미지 조립에 사용합니다. PR/main/release가 다른 실행이면 검사를 새로 수행합니다.
-- release PR의 위성 경계 계약은 `satellite-ci.prod.yml`, 서비스 전체 검사 및 arm64 이미지 검증·발행은 `prod-ci.yml`이 담당합니다.
+- release PR의 위성 경계 계약은 `satellite-ci.prod.yml`, 서비스 전체 검사 및 arm64 이미지 검증·발행은 `prod-ci-V2.yml`이 담당합니다.
 - main CI·앱 업로드·smoke의 진행 중 실행은 유지하고, 같은 그룹의 대기는 최신 하나만 남깁니다. VM을 공유하는 Data·Realtime 공동 CD·Satellite CD·smoke execute의 잠금 대기는 `queue: max`를 유지합니다. 같은 SHA의 서로 다른 배포 작업이 서로를 취소하지 않게 하기 위한 별도 자원 잠금입니다.
 - 자동 smoke는 실제 생성된 서버 CI·배포의 완료를 기다립니다. 앱·문서만 바뀌어 서버 배포가 없으면 게스트 생성·300초 대기·15개 검사를 생략하고 「미실행」을 기록합니다. nav.json·paths.json처럼 서버 배포를 시작하는 공유 입력은 검사 대상에 남습니다.
 - 스모크 실행 순서는 [전체 흐름도](../../smoke/README.md#전체-실행-흐름)를 따릅니다. 게스트 로그인의 일시적 실패만 같은 기기로 5초 뒤 최대 두 번 더 요청하며, 요청 횟수·시간 제한과 재시도 후 통과 보고는 [로그인 실행 규칙](../../smoke/server/README.md#로그인이-늦을-때)·[AS IS / TO BE](../../smoke/server/login-retry.md)에 둡니다.
 - 잠금 안의 `smoke-target.py`가 변경된 서비스의 실제 OCI revision과 요청 SHA를 비교하고 네 서비스의 image ID·RepoDigests를 `smoke-results/targets.json`에 보관합니다. 변경되지 않은 서비스는 이전 SHA를 유지할 수 있습니다. 검사 중 버전 유지도 확인합니다.
 - 요청 SHA 이후의 이미지가 이미 배포됐다면 git 조상 관계가 확인된 경우에만 「후속 SHA로 대체됨」으로 생략합니다. 알 수 없는 SHA·조상 이미지·다른 분기 이미지는 실패합니다. 취소된 CI도 실제 후속 main 실행과 조상 관계를 확인해야 대체로 처리합니다. 공동 CD가 기다리던 위성 실행이 취소되면 후속 위성 배포 완료를 기다립니다.
 - 「미실행」·「대체됨」은 15개 TC 통과 증거가 아닙니다. 해당 SHA의 릴리스 기능 검증으로 인용하지 않습니다. 수동 smoke는 배포 대기 없이 현재 환경을 검사하고 실제 버전을 함께 남깁니다.
-- `ops-redeploy.dev.yml`은 요청 접수 뒤 원본 run의 새 attempt에서 정확히 해당 배포 job이 끝날 때까지 기다립니다. 배포 job 실패·취소·시간 초과는 복구 실패이며, 완료 배지는 원본 CI/CD의 시도별 배포 결과 산출물로 갱신합니다.
+- 제거한 V1 `ops-redeploy.dev.yml`은 요청 접수 뒤 원본 run의 새 attempt에서 정확히 해당 배포 job이 끝날 때까지 기다립니다. 배포 job 실패·취소·시간 초과는 복구 실패이며, 완료 배지는 원본 CI/CD의 시도별 배포 결과 산출물로 갱신합니다.
 - 후속 CD는 main 실행, 배지 게시 job은 신뢰한 main 배포 또는 release 수동 운영 배포에만 반응합니다. GitHub가 생성한 기존 동일 SHA 체크가 release PR에 표시되는 것은 별도의 Android release PR 실행을 뜻하지 않습니다.

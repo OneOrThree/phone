@@ -1,5 +1,11 @@
 # Observability
 
+> 2026-11-02 기준 운영 V2 4대에는 Datadog Agent가 실행 중이며, dev V2 3대에는 Agent가 없습니다.
+> 구 dev의 Datadog·Kafka·관측 토글 workflow는 제거했습니다. 현행 운영 관측 설정은 Infra
+> `prod/catus-v2/runtime/`, 배포는 [prod V2](../../docs/engineering/prod-v2-pipeline.md)를 따릅니다.
+> 아래 OSS overlay 구성은 로컬 재현·과거 구 dev 구조 설명입니다.
+
+
 > 요청이 느려진 이유를 트래픽·DB·리소스·로그에서 함께 찾는 GROMO 관측 설정입니다.
 
 [서버 전체 보기](../README.md) · [실행·배포 도구](../scripts/README.md) · [Datadog 상세](datadog/README.md) · [부하 테스트](../../loadtest/README.md)
