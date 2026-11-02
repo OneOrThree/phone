@@ -40,6 +40,7 @@ python3 .claude/skills/deploy-status/scripts/where_is.py <PR번호|SHA>
 
 - `Auto CD (dev)-v2` 실행이 success 여도 `app` 잡은 skipped 일 수 있다. dev 반영은 실행 결론이 아니라 `state.json` 의 revision 으로 본다. 스크립트는 그렇게 본다.
 - `state.json` 의 dev 기록이 `result: failure` 면 revision 은 실패한 배포다. 마지막 성공은 그 파일로 알 수 없다. 4절로 본다.
+- 서버 문서(`.md`)만 바꾼 머지는 서버마다 다르다. data-api·business-api·notification 문서는 dev 에 다시 배포된다(data-api 면 Realtime 도). realtime 문서는 도는 dev CI 가 없어, 다음 realtime 배포까지 realtime 이 「아직 안 감」으로 남는다. 정상이다([파이프라인 지도](../../../docs/engineering/pipeline-map.md) 1절).
 - `state.json` 의 `prod/catus` 와 `prod.json` 은 운영 V1 기록이다. 운영 V2 는 `prod-V2/<역할>.json` 이다.
 - 운영 기록은 성공한 배포만 남긴다. 승인 대기·거부·실패·취소된 실행은 줄 끝의 「최근 실행」으로만 보인다. release 의 최근 `prod-cd-V2` 실행이 `completed`·`success` 가 아니면 다음 성공 실행까지 앱 출시 게이트(`app-server-gate.py`)가 막는다. 거부로는 풀리지 않는다.
 - 운영 단위의 기록 시각은 그 태그가 기록 파일에 들어간 때다. 같은 태그를 다시 배포하면 바뀌지 않는다. 다시 배포한 때는 「최근 실행」으로 본다.

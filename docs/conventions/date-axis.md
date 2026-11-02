@@ -263,7 +263,7 @@ GROMO-1254 의 스크린타임 연속 달성일 수정 초안이 실제로 여�
 
 ## 5. 테스트 관행 — 3층
 
-러너 TZ 가 `Asia/Seoul` 고정(`app/jest.config.js:3`)이라 **값만으로는 로컬과 KST 가 안 갈린다.**
+러너 TZ 가 `Asia/Seoul` 고정(`app/app-dev/jest.config.js`)이라 **값만으로는 로컬과 KST 가 안 갈린다.**
 그래서 축 테스트는 세 층을 겹쳐 쓴다.
 
 ### 층 1 — 러너 TZ 고정
@@ -545,7 +545,7 @@ DAY 는 자정 경계 9h 어긋남, WEEK 은 UTC 일요일 15:00~24:00 구간에
 | 3 (정리) | 전환 가드(이중키 조회·양쪽 허용값) 제거 — 롤아웃 완료·레거시 종료 후 | UTC |
 
 **Phase 2 는 한 이미지로 묶는다** — 「같은 날」로는 부족하다. `main` push 마다 dev 가 자동 배포되고
-(`data-api-ci.dev.yml` → `data-api-cd.dev.yml`), prod 는 `release` push 단위로 나가므로, Phase 2 항목을 PR 여러 개로 쪼개
+(`data-api-ci.dev-v2.yml` → `cd-auto.dev-v2.yml`), prod 는 `release` push 단위로 나가므로, Phase 2 항목을 PR 여러 개로 쪼개
 순차 병합하면 그 사이마다 「`ZonePolicy` 는 UTC · `LeagueScheduler` zone 은 KST」 같은 반쪽 상태가
 실제로 배포된다(§1 명제 2). **Phase 2 의 서버 변경은 PR 하나 · `release` 배포 하나**로 낸다.
 

@@ -218,7 +218,7 @@ cd ios
 ./testflight.sh --dev
 ```
 
-App Store Connect API 키는 `ASC_KEY_ID`·`ASC_ISSUER_ID`·`ASC_KEY_PATH` 환경변수가 이미 있으면 그대로 쓰고(CI 러너), 없을 때만 `ios/fastlane/.env`를 읽습니다(양식 `ios/fastlane/.env.example`). 1.x legacy 폴더의 설정은 더 이상 읽지 않습니다. main 머지 시 이 dev 빌드를 자동으로 올리는 워크플로는 `.github/workflows/app-ios-testflight-dev.yml` 이고, 러너 맥 등록·푸시 설정 파일 배치는 `docs/conventions/ios-testflight-dev-runner.md` 를 따릅니다.
+App Store Connect API 키는 `ASC_KEY_ID`·`ASC_ISSUER_ID`·`ASC_KEY_PATH` 환경변수가 이미 있으면 그대로 쓰고(CI 러너), 없을 때만 `ios/fastlane/.env`를 읽습니다(양식 `ios/fastlane/.env.example`). 1.x legacy 폴더의 설정은 더 이상 읽지 않습니다. main 머지 시 이 dev 빌드를 자동으로 올리는 워크플로는 `.github/workflows/app-ios-testflight-dev.yml` 이고(2026-11-02 현재 레포 변수 `IOS_DEV_RUNNERS` 가 없어 main push 실행은 건너뛴다), 러너 맥 등록·푸시 설정 파일 배치는 `docs/conventions/ios-testflight-dev-runner.md` 를 따릅니다.
 
 ### 푸시 설정 파일 `GoogleService-Info.plist` (GROMO-2523)
 
