@@ -121,7 +121,6 @@ jobs:
     uses: ./.github/workflows/be-gradle.yml
     with:
       service: ${{ matrix.service }}
-      business-pdf: ${{ matrix.service == 'business-api' }}
       publish-jar: true
       artifact-name: prod-${{ matrix.service }}-reports
       artifact-path: build/reports/

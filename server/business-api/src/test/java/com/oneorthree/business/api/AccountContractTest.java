@@ -43,11 +43,9 @@ class AccountContractTest extends UpstreamTestBase {
     private static final String DATA_PATCH = "PATCH " + ROUTE;
     private static final String DATA_DELETE = "DELETE " + ROUTE;
 
-    @Autowired com.oneorthree.business.linkpreview.repository.PreviewCache previews;
-    private static final String RATE = "cache:business:rate:" + USER;
-    private static final String WITHDRAWN = "cache:business:withdrawn:" + USER;
+    private static final String REVOKED = "cache:business:revoked-session:" + SESSION;
 
-    /** 탈퇴가 미리보기 사본을 실제로 지우는지 보려면 진짜 Redis 가 있어야 한다(GROMO-1943). */
+    /** 탈퇴가 세션을 거부목록에 올리는지(또는 올리지 않는지) 보려면 진짜 Redis 가 있어야 한다. */
     @SuppressWarnings("resource")
     private static final GenericContainer<?> REDIS = new GenericContainer<>("redis:7-alpine").withExposedPorts(6379);
 
@@ -73,7 +71,7 @@ class AccountContractTest extends UpstreamTestBase {
     void resetApple() {
         APPLE.reset();
         // 탈퇴 성공이 세션을 거부목록에 올리므로, 탈퇴 성공 테스트가 여럿이면 뒤 테스트가 401 이 된다.
-        redis.delete("cache:business:revoked-session:" + SESSION);
+        redis.delete(REVOKED);
     }
 
     @Test
@@ -209,8 +207,6 @@ class AccountContractTest extends UpstreamTestBase {
     @Test
     void withdrawsWithExactConfirmation() throws Exception {
         DATA.on(DATA_DELETE, request -> ok("{\"deleted\":true}"));
-        String other = UUID.randomUUID().toString();
-        seedPreviewCopies(other);
 
         mockMvc.perform(withdraw("{\"confirmation\":\"DELETE\"}"))
                 .andExpect(status().isOk())
@@ -220,12 +216,8 @@ class AccountContractTest extends UpstreamTestBase {
         assertThat(sent.header("X-User-Id")).isEqualTo(USER.toString());
         assertThat(sent.header("X-Session-Id")).isEqualTo(SESSION.toString());
         assertThat(sent.header("X-Auth-Generation")).isEqualTo("3");
-        // 탈퇴가 확정되면 그 사용자의 미리보기·레이트 키가 지워지고 차단 표지가 남는다(GROMO-1943).
-        assertThat(previews.find(USER.toString(), "a")).isNull();
-        assertThat(previews.find(USER.toString(), "b")).isNull();
-        assertThat(redis.hasKey(RATE)).isFalse();
-        assertThat(redis.hasKey(WITHDRAWN)).isTrue();
-        assertThat(previews.find(other, "a")).isNotNull();
+        // 탈퇴가 확정되면 그 세션이 거부목록에 오른다.
+        assertThat(redis.hasKey(REVOKED)).isTrue();
     }
 
     @ParameterizedTest
@@ -249,6 +241,70 @@ class AccountContractTest extends UpstreamTestBase {
 
         assertThat(APPLE.receivedFor("POST /auth/token").get(0).body()).contains("code=c-1");
         assertThat(APPLE.receivedFor("POST /auth/revoke").get(0).body()).contains("token=RT");
+    }
+
+    @Test
+    void retryAfterLostResponseReadsUserNotFoundAsConfirmedAndFinishesCleanup() throws Exception {
+        // 첫 응답은 유실(503)되고 그 사이 Data 는 커밋을 끝냈다 — 재시도는 404 USER_NOT_FOUND 다.
+        java.util.concurrent.atomic.AtomicInteger calls = new java.util.concurrent.atomic.AtomicInteger();
+        DATA.on(DATA_DELETE, request -> calls.getAndIncrement() == 0
+                ? new MockUpstream.Response(503, "{\"error\":\"boom\"}")
+                : new MockUpstream.Response(404, "{\"code\":\"USER_NOT_FOUND\",\"message\":\"x\"}"));
+        APPLE.on("POST /auth/token", request -> ok("{\"refresh_token\":\"RT\"}"));
+        APPLE.on("POST /auth/revoke", request -> ok(""));
+
+        mockMvc.perform(withdraw(APPLE_CODE)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.deleted").value(true));
+
+        assertThat(DATA.hits(DATA_DELETE)).isEqualTo(2);
+        assertThat(APPLE.hits("POST /auth/token")).isEqualTo(1);
+        assertThat(APPLE.hits("POST /auth/revoke")).isEqualTo(1);
+        assertThat(redis.hasKey(REVOKED)).isTrue();
+    }
+
+    @Test
+    void userNotFoundFromStartIsConfirmedWithdrawalAndRevokesApple() throws Exception {
+        DATA.on(DATA_DELETE, request -> new MockUpstream.Response(404,
+                "{\"code\":\"USER_NOT_FOUND\",\"message\":\"x\"}"));
+        APPLE.on("POST /auth/token", request -> ok("{\"refresh_token\":\"RT\"}"));
+        APPLE.on("POST /auth/revoke", request -> ok(""));
+
+        mockMvc.perform(withdraw(APPLE_CODE)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.deleted").value(true));
+
+        assertThat(APPLE.hits("POST /auth/token")).isEqualTo(1);
+        assertThat(APPLE.hits("POST /auth/revoke")).isEqualTo(1);
+    }
+
+    @Test
+    void otherNotFoundCodeIsNotWithdrawalConfirmation() throws Exception {
+        DATA.on(DATA_DELETE, request -> new MockUpstream.Response(404,
+                "{\"code\":\"NOT_FOUND\",\"message\":\"x\"}"));
+
+        mockMvc.perform(withdraw(APPLE_CODE)).andExpect(status().isNotFound());
+
+        assertThat(APPLE.received()).isEmpty();
+    }
+
+    @Test
+    void slowCommittedWithdrawalWaitsForDedicatedReadBudgetWithoutRetry() throws Exception {
+        // ci 일반 읽기 예산은 300ms 다. 탈퇴는 전용 예산(5초)이라 600ms 응답도 끊지 않고 재시도하지 않는다.
+        DATA.on(DATA_DELETE, request -> {
+            try {
+                Thread.sleep(600);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            return ok("{\"deleted\":true}");
+        });
+        APPLE.on("POST /auth/token", request -> ok("{\"refresh_token\":\"RT\"}"));
+        APPLE.on("POST /auth/revoke", request -> ok(""));
+
+        mockMvc.perform(withdraw(APPLE_CODE)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.deleted").value(true));
+
+        assertThat(DATA.hits(DATA_DELETE)).isEqualTo(1);
+        assertThat(APPLE.hits("POST /auth/revoke")).isEqualTo(1);
     }
 
     @Test
@@ -325,12 +381,10 @@ class AccountContractTest extends UpstreamTestBase {
             "PATCH,409,IDEMPOTENCY_KEY_CONFLICT,409,IDEMPOTENCY_KEY_REUSED,Idempotency-Key",
             "PATCH,503,PROFILE_UPDATE_UNAVAILABLE,400,SERVICE_UNAVAILABLE,-",
             "DELETE,400,HOST_WITHDRAW,400,HOST_WITHDRAW,-",
-            "DELETE,404,USER_NOT_FOUND,404,USER_NOT_FOUND,-",
             "DELETE,403,SESSION_NOT_ACTIVE,401,UNAUTHORIZED,-",
             "DELETE,409,HOST_WITHDRAW,400,UPSTREAM_CONTRACT_ERROR,-"})
     void mapsDataVerdictsToPublicErrors(String method, int upstream, String code, int expected, String publicCode,
                                         String field) throws Exception {
-        seedPreviewCopies();
         DATA.on(method + " " + ROUTE, request -> new MockUpstream.Response(upstream,
                 "{\"code\":\"" + code + "\",\"message\":\"internal detail\"}"));
         MockHttpServletRequestBuilder request = switch (method) {
@@ -343,8 +397,8 @@ class AccountContractTest extends UpstreamTestBase {
                 .andExpect(field == null ? jsonPath("$.error.field").value(nullValue())
                         : jsonPath("$.error.field").value(field))
                 .andExpect(jsonPath("$.requestId").isNotEmpty());
-        // 확정되지 않은 탈퇴(거절·이미 탈퇴·세션 폐기)는 사본을 건드리지 않는다.
-        assertCopiesUntouched();
+        // 확정되지 않은 탈퇴(거절·이미 탈퇴·세션 폐기)는 세션을 거부목록에 올리지 않는다.
+        assertThat(redis.hasKey(REVOKED)).isFalse();
     }
 
     @Test
@@ -356,31 +410,8 @@ class AccountContractTest extends UpstreamTestBase {
         DATA.on(DATA_GET, request -> ok("{\"id\":\"" + USER + "\",\"name\":null,\"catColor\":null}"));
         mockMvc.perform(auth(get("/me"))).andExpect(status().isBadRequest());
         DATA.on(DATA_DELETE, request -> ok("{\"deleted\":false}"));
-        seedPreviewCopies();
         mockMvc.perform(withdraw("{\"confirmation\":\"DELETE\"}")).andExpect(status().isBadRequest());
-        assertCopiesUntouched();
-    }
-
-    private void seedPreviewCopies(String... others) {
-        previews.eraseUser(USER.toString());
-        redis.delete(List.of(WITHDRAWN, RATE));
-        seedPreview(USER.toString(), "a");
-        seedPreview(USER.toString(), "b");
-        redis.opsForValue().set(RATE, "3");
-        for (String user : others) seedPreview(user, "a");
-    }
-
-    private void seedPreview(String user, String id) {
-        var preview = new com.oneorthree.business.linkpreview.dto.Preview(id, "PENDING", "https://example.com",
-                null, null, null, null, null, null);
-        previews.claim(user, new com.oneorthree.business.linkpreview.repository.PreviewCache.Entry(preview, null, "g"));
-    }
-
-    private void assertCopiesUntouched() {
-        assertThat(previews.find(USER.toString(), "a")).isNotNull();
-        assertThat(previews.find(USER.toString(), "b")).isNotNull();
-        assertThat(redis.hasKey(RATE)).isTrue();
-        assertThat(redis.hasKey(WITHDRAWN)).isFalse();
+        assertThat(redis.hasKey(REVOKED)).isFalse();
     }
 
     private static MockHttpServletRequestBuilder auth(MockHttpServletRequestBuilder request) {

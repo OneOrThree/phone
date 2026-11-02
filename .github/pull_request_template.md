@@ -2,7 +2,7 @@
 제목: [TYPE] GROMO-#### 한 줄 요약   (TYPE ∈ FEAT / FIX / CHORE / REFACTOR)
   예) [FEAT] GROMO-206 인게임 재화 관리 기능 구현
       [FIX] GROMO-232 TAG 삭제 시 FocusSession cascade 삭제
-담당자 = 본인, 라벨 정확히 1개(FEAT→enhancement · FIX→bug · REFACTOR→refactoring · CHORE→documentation|workflow|test), draft 금지.
+담당자 = 본인, 라벨 1개(FEAT→enhancement · FIX→bug · REFACTOR→refactoring · CHORE→documentation|workflow|test, 어느 것도 맞지 않으면 라벨 없음), draft 금지.
 구현 티켓만 GROMO-#### 전체 키, 참조 티켓은 「티켓 455」처럼 번호만.
 정본: docs/conventions/git-pr-conventions.md
 -->

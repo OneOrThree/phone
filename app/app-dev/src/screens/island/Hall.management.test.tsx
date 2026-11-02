@@ -8,6 +8,8 @@ import { applyLocalePref } from '@/i18n';
 import { ApiError } from '@/services/api/client';
 import { useIslandManagement } from '@/screens/interiors/useIslandManagement';
 import * as magazine from '@/services/api/magazine';
+import { art } from '@/constants/art';
+import { fakeMemberLooksServer } from '@/services/memberLooks.testing';
 
 jest.mock('@/screens/interiors/useIslandManagement', () => ({
   ...jest.requireActual('@/screens/interiors/useIslandManagement'),
@@ -630,6 +632,40 @@ test('신청자·주민 아바타는 각자의 고양이 색이고 색이 없으
   // 색 없는 주민 칸이 내 색(state.color)으로 칠해지지 않는다 — 내 색 그림은 어디에도 없다
   if (state.color !== 'cream' && state.color !== 'calico')
     assert.ok(!all.includes(art[`avatar/${state.color}`]));
+});
+
+// 세션·memberLooks·request 는 실물이고 서버 자리의 fetch 만 대신한다 — 위 H21 테스트는 세션이 없어 조회가 일어나지 않는다
+describe('가입 신청·주민 아바타의 외양 조회(GROMO-2497)', () => {
+  const looks = fakeMemberLooksServer();
+  afterEach(() => looks.stop());
+
+  test('신청 아바타는 신청 id 가 아니라 신청자의 사용자 id 로 조회하고 주민 칸은 주민 id 로 조회한다', async () => {
+    const APPLICANT = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+    const REQUEST = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+    const RESIDENT = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+    // 신청 id 는 사용자가 아니라 서버가 hiddenUserIds 로 돌려준다 — 그 id 로 조회하면 신청자 칸이 빈 상자가 된다
+    await looks.start({
+      [APPLICANT]: { catColor: 'cream', appearance: { head: 'mandarin' } },
+      [RESIDENT]: { catColor: 'gray' },
+    });
+    managementMock.mockReturnValue(
+      management({
+        members: [{ id: RESIDENT, name: '주민', catColor: null, role: 'member', appearance: {} }],
+        requests: [
+          { id: REQUEST, applicantId: APPLICANT, name: '신청자', status: 'pending', version: 1 },
+        ],
+      }),
+    );
+    const screen = await render(<Hall e={e()} />);
+    await waitFor(() => assert.deepEqual([...looks.asked].sort(), [APPLICANT, RESIDENT]));
+    await waitFor(() => {
+      const sources = screen.queryAllByTestId('cat-avatar-image').map((n) => n.props.source);
+      assert.equal(sources.length, 2);
+      assert.ok(sources.includes(art['avatar/cream'])); // 신청자 — 조회 값(목록엔 털색도 없다)
+      assert.ok(sources.includes(art['avatar/gray'])); // 주민
+      assert.equal(screen.getAllByTestId('outfit-fit').length, 1); // 신청자의 머리
+    });
+  });
 });
 
 test('서버 주민이 머리를 입었으면 그 아바타에 합성 캔버스가 얹힌다(GROMO-2391)', async () => {

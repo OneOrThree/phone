@@ -19,10 +19,9 @@ import java.util.UUID;
  * <p>sid 없는 구 AT 는 이 목록으로 막지 못한다(필터가 그대로 통과시킨다). legacy RT 로그아웃은 새 세션 행을 만들어
  * 그 id 를 등록하지만, 그 id 를 가진 AT 는 없으므로 헛 키 하나가 TTL 로 사라질 뿐이다.
  *
- * <p>공유 Redis는 noeviction·AOF를 사용하고 미리보기 용량을 별도로 제한한다. 전환 중에는 이전
+ * <p>공유 Redis는 noeviction·AOF를 사용한다. 전환 중에는 이전
  * Redis의 차단 표지도 조회한다. 여전히 best-effort다: 조회 장애의 fail-open과 AOF 미동기화 데이터
  * 유실 가능성은 남는다. 축출 방지가 폐기 AT의 무조건적 거부를 보장하지는 않는다.
-
  */
 @Slf4j
 @Component

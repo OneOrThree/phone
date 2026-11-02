@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[2]
 IMAGE = "nginx:1.28-alpine"
 PUBLIC_ROOTS = (
     "/auth/sessions", "/me", "/islands", "/focus-sessions", "/invitations",
-    "/rankings", "/statistics", "/screens", "/link-previews",
+    "/rankings", "/statistics", "/screens",
 )
 
 
@@ -170,9 +170,7 @@ class PublicApiIngressTest(unittest.TestCase):
         duplicate = self.assert_backend("/me", headers=("Idempotency-Key: first", "Idempotency-Key: second"))
         self.assertEqual("first, second", duplicate["key"])
 
-    def test_current_preview_and_notification_routes_remain_intact(self):
-        for path in ("/api/v1/link-previews", "/api/v1/link-previews/example/thumbnail"):
-            self.assert_backend(path)
+    def test_current_notification_routes_remain_intact(self):
         for path in ("/api/v1/users/me/device-token", "/api/v1/users/me/notification-settings"):
             actual = self.assert_backend(path, headers=("X-Link-Proxy-Secret: forged",))
             self.assertEqual("synthetic-private-proof", actual["proof"])
@@ -183,7 +181,10 @@ class PublicApiIngressTest(unittest.TestCase):
                      "/api/v1/invite-links/claim",
                      "/api/v1/me/challenge-results/00000000-0000-0000-0000-000000000001/claim",
                      "/api/v1/me/challenge-results/00000000-0000-0000-0000-000000000001/ack",
-                     "/l/match", "/l/example", "/l/referrer"):
+                     "/l/match", "/l/example", "/l/referrer",
+                     # 링크 미리보기(GROMO-1747)는 GROMO-2682 에서 Business 와 함께 걷었다.
+                     "/link-previews", "/link-previews/example/thumbnail",
+                     "/api/v1/link-previews", "/api/v1/link-previews/example/thumbnail"):
             self.assert_backend(path, ports=("18081",))
 
     def test_failed_write_is_not_retried_on_another_upstream(self):

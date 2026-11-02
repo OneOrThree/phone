@@ -4,8 +4,8 @@
 # CI 는 `./gradlew build --stacktrace` 한 번으로 checkstyle · spotbugs · test · bootJar 를
 # 전부 돈다. 여기서도 같은 한 줄을 쓴다 — 태스크를 나눠 부르면 CI 와 달라진다.
 #
-# business-api 와 달리 컨테이너가 필요 없다(PDF 도구에 의존하지 않는다). 다만 테스트가
-# Testcontainers 로 Postgres 를 직접 띄우므로 Docker 는 떠 있어야 한다.
+# 컨테이너 안에서 돌릴 필요는 없다. 다만 테스트가 Testcontainers 로 Postgres 를 직접
+# 띄우므로 Docker 는 떠 있어야 한다.
 
 set -e
 

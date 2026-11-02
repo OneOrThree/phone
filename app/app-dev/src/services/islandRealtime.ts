@@ -20,7 +20,7 @@ import { memberLooks, ensureMemberLooks } from './memberLooks';
  */
 import { Client, type IFrame, type IMessage } from '@stomp/stompjs';
 import { t } from '@/i18n';
-import { API_URL, ApiError } from '@/services/api/client';
+import { API_URL, ApiError, appVersionHeaders } from '@/services/api/client';
 import { focusSeat } from '@/services/api/focusSessions';
 import { getAccessToken, getSession } from '@/services/api/session';
 import type { MoveIntent } from '@/services/movementSync';
@@ -569,6 +569,9 @@ export const realtimeClientOptions = () => ({
     c.reconnectDelay = reconnectJitterMs();
     const token = getAccessToken();
     if (token) c.connectHeaders = { Authorization: `Bearer ${token}` };
+    // 버전 헤더(GROMO-2655)는 토큰과 무관하게 접속마다 새로 읽어 싣는다(캐시하지 않는다) —
+    // 서버 stomp_connect 로그의 app_version·app_platform. OTA 업데이트 ID 는 싣지 않는다.
+    c.connectHeaders = { ...c.connectHeaders, ...appVersionHeaders() };
   },
 });
 

@@ -46,7 +46,7 @@
 
 ### 2차 후속 9건 (2026-10-29~30, 같은 에픽)
 
-에픽 PR 리뷰에서 비차단으로 미룬 항목(F1~F24)을 영역별로 묶은 티켓이다. 같은 안전 경계(배포·재시작·Datadog write·AWS 요청 없음)로 진행했다. 2587(Business PDF 파서 격리)은 인프라 담당 결정 전이라 이 에픽에 넣지 않았다.
+에픽 PR 리뷰에서 비차단으로 미룬 항목(F1~F24)을 영역별로 묶은 티켓이다. 같은 안전 경계(배포·재시작·Datadog write·AWS 요청 없음)로 진행했다. Business PDF 파서 격리(2587, 티켓은 삭제됨)는 인프라 담당 결정 전이라 이 에픽에 넣지 않았고, 이후 PDF를 가져와 변환하던 파일 링크 미리보기 자체를 GROMO-2682 에서 걷어 해당 없음이 됐다.
 
 | 티켓 | 작업 단위 | 현황(조정자 갱신) |
 | --- | --- | --- |
@@ -102,7 +102,7 @@ Business의 Checkstyle Test·SpotBugs Test는 저장소 설정에 따라 비활�
 
 **JVM JSON 출력.** Business·Data·Notification·Realtime이 dev·prod(Data는 staging 포함) 콘솔에 `schema_version` 1 JSON 한 줄을 낸다. 서비스마다 둔 `ObservationJsonProvider`(Spring Boot `StructuredLogFormatter` + `JsonWriter`, 새 의존성 없음)가 형식을 만든다. Business·Notification·Realtime은 `logging.structured.format.console`, Data는 `logback-spring.xml`의 `CONSOLE_JSON`으로 켠다. local·ci·default 콘솔, Data `APP_FILE`·`UA_FILE`·user-activity, Business `logging.file.name` 파일은 컷오버 전까지 기존 텍스트 그대로다.
 
-- provider는 로그 이벤트의 MDC 스냅샷만 읽고 정해진 키(`request_id`, `origin_*`, `user_id`, `event_id`, `delivery_id`, `attempt`, `operation_id`, `event_name`, `message_id`, `edge_request_id`)만 내보낸다. Data의 레거시 `trace_id`는 `legacy_trace_id`로 낸다.
+- provider는 로그 이벤트의 MDC 스냅샷만 읽고 정해진 키(`request_id`, `origin_*`, `user_id`, `event_id`, `delivery_id`, `attempt`, `operation_id`, `event_name`, `message_id`, `edge_request_id`, Realtime의 `app_version`·`app_platform`)만 내보낸다. Data의 레거시 `trace_id`는 `legacy_trace_id`로 낸다.
 - `dd.trace_id`·`dd.span_id` 원문은 `dd` 객체에 두고, 32자리 hex trace와 10진 span만 canonical `trace_id`(32 hex)·`span_id`(16 hex)로 바꾼다. 10진 trace는 상위 64비트를 잃었을 수 있어 canonical을 만들지 않는다. dd-trace 1.64.0은 128-bit 생성·로그가 기본 켜짐이라 이 서비스가 시작한 trace는 32 hex로 나온다(2557 조사). compose에 `DD_TRACE_128_BIT_TRACEID_LOGGING_ENABLED=true`를 명시했다.
 - message·exception은 Data `MaskingConverter`의 4규칙으로 마스킹한 뒤 16 KiB·32 KiB(UTF-8 문자 경계)로 자르고, 잘리면 `truncated`·`original_size_bytes`를 붙인다. 원본이 한도의 2배를 넘으면 마스킹 전에 2배로 먼저 자른다(이때 `original_size_bytes`는 원본 크기). 출력 `original_size_bytes`는 사전 자르기가 일어났으면 원본 바이트 수이고, 사전 자르기 없이 마스킹 뒤에만 잘렸으면 **마스킹 후** 바이트 수다. 이메일 정규식은 로컬 파트 시작 위치를 묶고 possessive 로 받아 선형 시간이다(`@` 없는 영숫자 16,000자: 옛 정규식 1.5초 → 0ms, 로컬 측정). Data `%mask` 변환기도 같은 정규식을 쓴다.
 - Business 완료 로그는 `log_kind=access`와 `http_method`·`http_route`(경로 템플릿)·`status_code`·`duration_ms`·`outcome`·`app_version`·`app_platform`·`app_update_id`를 구조화해 낸다. 예외가 필터 밖으로 나가 상태가 미확정이면 `status_code`를 빼고 `outcome=unhandled_exception`으로 낸다. query string·본문과 임의 헤더는 싣지 않는다. 검증을 통과한 `X-App-Version`·`X-App-Platform`·`X-App-Update-Id`만 `app_version`·`app_platform`·`app_update_id`로 싣고, 어긋난 값은 키를 생략한다. `access` 줄에 싣는 것은 Business뿐이다. Realtime은 `app_version`·`app_platform` 두 키만 STOMP CONNECT 접속 로그(`application` 줄)에 싣는다 — 아래 2559 절의 「STOMP 접속 로그」.
@@ -185,7 +185,7 @@ dev Loki는 2554 조사 당시 떠 있지 않아(`runtime-inventory.md`) dev 배
 
 **STOMP 수신 프레임.** 수신 인터셉터 맨 앞의 `StompLogScope`가 프레임마다 새 `request_id`와 인증 주체 `user_id`를 `beforeHandle`~`afterMessageHandled` 동안 설치하고 복원한다. 채팅 발신이 내는 팬아웃의 origin은 이 `request_id`다. 순서 보존 콜백이 같은 스레드에서 다음 프레임의 `preSend`를 부르는 구간에는 두 키를 내려 둔다. 그래서 `preSend`~`afterSendCompletion` 구간에서 나오는 거절 로그(ERROR 프레임)에는 `request_id`가 없다. 프레임을 버리지 않으며 거절 판정은 기존 인터셉터 그대로다(`StompLogScopeTest`).
 
-**STOMP 접속 로그 (GROMO-2655).** CONNECT가 인증을 통과하면(토큰 검증과 폐기 세션 재검사 뒤) `StompAuthChannelInterceptor`가 INFO 한 줄 `stomp_connect`를 남긴다. 접근 로그가 아니라 `log_kind=application`이다. `request_id`는 위 `StompLogScope`가 달고, `user_id`는 CONNECT 관문에 아직 주체가 없어 붙지 않는다. 클라이언트 헤더 `X-App-Version`(`X.Y.Z`)·`X-App-Platform`(`ios`|`android`)은 앞뒤 공백을 걷고 Business와 같은 정규식으로 거른 값만 `app_version`·`app_platform`(MDC 키)으로 이 줄에만 싣는다. 줄을 낸 직후 되돌려 같은 스레드가 이어서 처리하는 다음 프레임의 로그에 새지 않으며, provider가 allowlist에서 형식을 한 번 더 거른다. 헤더가 없거나 어긋나면 키만 빠지고 CONNECT는 거절하지 않는다(헤더를 모르는 구버전 앱). 사용자·토큰·원본 헤더 값은 싣지 않는다. 앱이 CONNECT에 헤더를 싣는 변경은 서버 변경과 따로 가는 앱 PR이다 — 싣기 전의 앱은 키 없이 접속한다. `StompAuthChannelInterceptorTest`(유효·공백·형식 오류·위조 값·구버전·거절·같은 스레드 누수)와 `FanoutLogContextIntegrationTest`의 `connectLineCarriesValidatedAppHeadersOnly`(실소켓)가 확인한다.
+**STOMP 접속 로그 (GROMO-2655).** CONNECT가 인증을 통과하면(토큰 검증과 폐기 세션 재검사 뒤) `StompAuthChannelInterceptor`가 INFO 한 줄 `stomp_connect`를 남긴다. 접근 로그가 아니라 `log_kind=application`이다. `request_id`는 위 `StompLogScope`가 달고, `user_id`는 CONNECT 관문에 아직 주체가 없어 붙지 않는다. 클라이언트 헤더 `X-App-Version`(`X.Y.Z`)·`X-App-Platform`(`ios`|`android`)은 앞뒤 공백을 걷고 Business와 같은 정규식으로 거른 값만 `app_version`·`app_platform`(MDC 키)으로 이 줄에만 싣는다. 줄을 낸 직후 되돌려 같은 스레드가 이어서 처리하는 다음 프레임의 로그에 새지 않으며, provider가 allowlist에서 형식을 한 번 더 거른다. 헤더가 없거나 어긋나면 키만 빠지고 CONNECT는 거절하지 않는다(헤더를 모르는 구버전 앱). 사용자·토큰·원본 헤더 값은 싣지 않는다. 앱은 섬·바다 연결이 함께 쓰는 `realtimeClientOptions().beforeConnect`에서 접속마다 두 헤더를 CONNECT에 싣는다. 토큰 유무와 무관하고, `X-App-Update-Id`는 싣지 않는다. 이 변경이 나가기 전의 앱은 키 없이 접속한다. `StompAuthChannelInterceptorTest`(유효·공백·형식 오류·위조 값·구버전·거절·같은 스레드 누수)와 `FanoutLogContextIntegrationTest`의 `connectLineCarriesValidatedAppHeadersOnly`(실소켓)가 확인한다.
 
 **수신 입구.** `KafkaEventInbound`는 `ConsumerRecord` 헤더를, `/internal/events`·우체통은 인증을 통과한 요청의 헤더를 처리 동안 설치한다(형식 오류·모르는 버전은 무시). HTTP·Kafka 공통 `InboundAcceptLog`가 `event_name=consumer.accept` 한 줄(`accepted|duplicate|failed`)을 남긴다. 본문 처리·dedupe·재시도·DLT 판정은 바꾸지 않는다.
 
@@ -237,7 +237,7 @@ dev Loki는 2554 조사 당시 떠 있지 않아(`runtime-inventory.md`) dev 배
 
 ## 아직 구현하지 않은 경계
 
-- 2553 은 요청 ID의 동기 HTTP 경로를 연결했다. Outbox 영속 carrier·Kafka/HTTP 헤더·notification 수신은 2557, notification 기기별 발송 operation 은 2558, Realtime Redis 두 채널(`chat:fanout`·`chat:events:v1`)과 STOMP 프레임 scope는 2559 에서 구현했다(위 절). 2559 에서 남은 것은 「2559 범위 밖·후속」에 적었다. Preview worker 는 각 티켓 범위다.
+- 2553 은 요청 ID의 동기 HTTP 경로를 연결했다. Outbox 영속 carrier·Kafka/HTTP 헤더·notification 수신은 2557, notification 기기별 발송 operation 은 2558, Realtime Redis 두 채널(`chat:fanout`·`chat:events:v1`)과 STOMP 프레임 scope는 2559 에서 구현했다(위 절). 2559 에서 남은 것은 「2559 범위 밖·후속」에 적었다. Business preview worker 는 GROMO-2682 에서 미리보기와 함께 제거돼 대상에서 빠졌다.
 - Data 인증 실패는 TraceIdFilter 앞에서 끝나므로 이번 구현만으로 Data의 모든 401/403 로그에 요청 ID가 생기지 않는다. 인증 이전 scope·인증 이후 사용자 보강은 2555 범위(JSON 출력)에 넣지 않았다 — 후속 과제다. Business의 error/async dispatch 최종 상태도 2555는 미처리 예외만 `outcome=unhandled_exception`으로 구분하고 error dispatch 재진입은 다루지 않는다.
 - 2553 시점의 Business access log는 미처리 예외 최종 상태를 구분하지 않았다. 2555부터 미처리 예외는 `status_code` 없이 `outcome=unhandled_exception`으로 남는다.
 - 로그 JSON·마스킹·`log_id`와 Loki 로컬 수집은 2555에서 구현하고 로컬 하네스로 검증했다. DD agent 활성 상태의 span 전파, sample 미보관 시 조회, 실배포 JSON 출력, 실제 S3 적재·보존·부하 영향은 아직 미검증이다(S3 출력과 Nginx 입력의 로컬 검증은 위 2556 절).

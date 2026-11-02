@@ -97,6 +97,7 @@ import java.util.function.Function;
  * <p>기본 세션이 이미 닫혔는데 상세만 진행 중인 기록은 {@link #abandonIfMarkerClosed}로 정리한다.
  * 1시간 이상 휴식한 세션은 {@link #autoCloseTimedOutRest}가 일반 종료와 같은 정산을 수행하고,
  * 결과를 {@link #pendingResult}로 제공해 {@link #acknowledgeResult}로 한 번만 소비한다.
+ * 집중 중({@code ACTIVE})으로 방치된 세션은 {@link #autoCloseStale}이 정산 없이 {@code ABANDONED}로 닫는다.
  */
 @Service
 @Slf4j
@@ -110,6 +111,13 @@ public class FocusSessionLifecycleService {
      * 휴식 시작부터 자동 종료까지의 유예 시간. 제품 정책에 따라 1시간으로 고정한다.
      */
     public static final Duration REST_AUTO_CLOSE_AFTER = Duration.ofHours(1);
+    /**
+     * 방치 판정 유예(GROMO-2636) — {@code ACTIVE} 인 채 마지막 전이(시작·재개) 뒤 이 시간이 지나면 서버가 섬 집중을
+     * {@code ABANDONED} 로 닫는다. 서버에는 활동 신호가 없어 전이 시각만 쓴다.
+     */
+    public static final Duration ISLAND_STALE_AFTER = Duration.ofHours(12);
+    /** 바다 집중의 방치 유예 — 항해는 최대 90분이라 3시간이면 도착 뒤에도 한참 지난 세션이다. */
+    public static final Duration SEA_STALE_AFTER = Duration.ofHours(3);
     /** 「진행 중」으로 보는 lifecycle — 사용자당 최대 1건(V58 부분 UNIQUE)이 걸리는 집합 그대로다. */
     private static final List<FocusSessionLifecycle> PROGRESSING =
             List.of(FocusSessionLifecycle.ACTIVE, FocusSessionLifecycle.PAUSED);
@@ -595,6 +603,68 @@ public class FocusSessionLifecycleService {
     }
 
     /**
+     * 방치 세션 서버 종결 (GROMO-2636) — {@code ACTIVE} 로 마지막 전이 뒤 {@link #ISLAND_STALE_AFTER}(섬)·
+     * {@link #SEA_STALE_AFTER}(바다)가 지난 세션 하나를 {@link FocusSessionLifecycle#ABANDONED} 로 끝낸다.
+     *
+     * <p>앱이 영영 돌아오지 않는 세션은 앱 혼자 닫을 수 없다. 서버가 닫는 주체가 없던 동안 방치 세션이 하루 상한까지
+     * 매일 물고기를 적립하고 황금 물고기 추첨 인원에도 계속 세어졌다. lifecycle 이 {@code ACTIVE} 를 벗어나면
+     * 적립 틱과 황금 추첨이 함께 멈춘다.
+     *
+     * <p><b>정산하지 않는다</b>(강퇴와 같은 「미정산」). {@link #settle} 을 부르지 않는 것이 핵심이다 — 바다 세션을
+     * 정산하면 {@code arrived} 가 참이 되어 자리에 없는 사용자에게 무인도와 꾸미기 보상이 나간다. 열린 구간을 닫고
+     * 상세를 {@code ABANDONED}, 기본 마커를 {@code AUTO_CLOSED} 로 바꿀 뿐 정산 행·일 집계·주간 랭킹 가산은 만들지 않는다.
+     * 이미 섬 통장에 들어간 물고기도 회수하지 않는다(공동 재화).
+     *
+     * <p>잠금과 경합은 {@link #autoCloseTimedOutRest} 와 같다: {@link #authorizeSession} 으로 전이와 같은 순서로 잠근 뒤
+     * <b>다시 판정</b>한다 — 여전히 {@code ACTIVE} 이고 여전히 유예를 넘겼을 때만 닫는다. 스캔이 고른 뒤 잠그기까지
+     * pause·resume·finish 가 이기면 아무것도 하지 않고, 이 쪽이 이기면 뒤늦은 전이는 409
+     * {@code SESSION_STATE_CONFLICT} 를 본다. 도메인 거절({@link FocusException})은 실패가 아니라 대상이 아님이다.
+     * 그 밖의 {@code RuntimeException} 은 올려 호출측({@code FocusStaleSessionScheduler})이 건별로 잡는다.
+     *
+     * @param sessionId 종결 후보 세션
+     * @return 실제로 종결했으면 {@code true}. 그 사이 사용자가 먼저 움직였거나 대상이 아니면 {@code false}
+     */
+    @Transactional
+    public boolean autoCloseStale(UUID sessionId) {
+        FocusSessionOwnership ownership = focusSessionDetailRepository.findOwnershipBySessionId(sessionId)
+                .orElse(null);
+        if (ownership == null || ownership.userId() == null) {
+            return false;
+        }
+        FocusSessionDetail detail;
+        try {
+            detail = authorizeSession(ownership.userId(), sessionId);
+        } catch (FocusException e) {
+            // 소속을 잃은 세션은 강퇴 TX 가 이미 종결했거나 사용자 요청 경로가 정리한다. 기본 마커가 바깥에서 닫힌 세션은
+            // authorizeSession 이 ABANDONED 로 정리한 뒤 던진 것이고, 여기서 삼키므로 그 정리는 커밋된다.
+            log.info("방치 세션 종결 대상이 아닙니다({}) — session={}, user={}",
+                    e.getErrorCode(), sessionId, ownership.userId());
+            return false;
+        }
+        Instant lastTransitionAt = detail.getLastTransitionAt();
+        boolean sea = detail.getKind() == FocusSessionKind.SEA;
+        if (detail.getLifecycle() != FocusSessionLifecycle.ACTIVE
+                || lastTransitionAt.isAfter(clock.instant().minus(sea ? SEA_STALE_AFTER : ISLAND_STALE_AFTER))) {
+            return false;
+        }
+        Instant t = transitionAnchor(detail);
+        List<FocusSessionInterval> intervals = focusSessionIntervalRepository
+                .findBySessionIdOrderByOrdinalAsc(sessionId);
+        FocusIntervalMath.openInterval(intervals).ifPresent(open -> open.close(t));
+        long activeSeconds = FocusIntervalMath.activeSecondsAsOf(intervals, t);
+        detail.applyAbandon(t);
+        if (sea) {
+            // 정산이 없으니 도착 판정도 없다 — 도착하지 못한 종결로 못 박아 진행 중(null)과 가른다.
+            detail.markArrived(false);
+        }
+        focusSessionRepository.markAutoClosedIfOpen(sessionId, t);
+        releaseAbandoned(detail, activeSeconds, t);
+        log.info("방치된 집중 세션을 서버가 닫았습니다(ABANDONED, 미정산). session={}, user={}, kind={}, "
+                + "lastTransitionAt={}", sessionId, ownership.userId(), detail.getKind(), lastTransitionAt);
+        return true;
+    }
+
+    /**
      * {@code GET /focus-sessions/pending-result} (GROMO-1998) — 아직 안 보여 준 자동 종료 결과 <b>한 건</b>.
      *
      * <p>앱을 다시 켰을 때 결과창을 띄우는 자리다. 보여 준 뒤 {@link #acknowledgeResult} 를 부르지 않으면
@@ -1028,20 +1098,27 @@ public class FocusSessionLifecycleService {
         List<FocusSessionInterval> intervals = focusSessionIntervalRepository
                 .findBySessionIdOrderByOrdinalAsc(detail.getSessionId());
         detail.applyAbandon(t);
+        releaseAbandoned(detail, FocusIntervalMath.activeSecondsAsOf(intervals, t), t);
+        return true;
+    }
+
+    /**
+     * 정산 없이 {@code ABANDONED} 로 끝난 세션의 투영·리스 정리 — 마커 desync 정리({@link #abandonIfMarkerClosed})와
+     * 방치 세션 종결({@link #autoCloseStale})이 같은 모양으로 쓴다. {@code applyAbandon} 뒤에 부른다.
+     */
+    private void releaseAbandoned(FocusSessionDetail detail, long activeSeconds, Instant t) {
         // 선행 조건 #9 — 정리된 세션을 그 섬의 focus/rest 목록에서 지운다. 안 보내면 휴식 중에 정리된
         // 사용자의 옛 restSeat 가 그 섬의 rest 투영에 영영 남는다. 세션이 끝났으니 리스도 지운다.
-        long activeSeconds = FocusIntervalMath.activeSecondsAsOf(intervals, t);
         if (detail.getKind() == FocusSessionKind.SEA) {
             // 바다 세션은 섬 목록에 없었으니 섬 사건 없이 리스만 지우고, 방에는 도착 못 한 종료로 알린다.
             focusPresenceProjection.seaEnded(detail.getUserId(), presenceOrderOf(detail.getSessionId()));
             seaSessionEvents.ended(detail.getUserId(), detail.getSessionId(), detail.getIslandId(),
                     detail.getSailingMinutes(), activeSeconds, false, t);
-            return true;
+            return;
         }
         focusPresenceProjection.ended(detail.getUserId(), detail.getIslandId(), detail.getSessionId(),
                 detail.getSubject(), activeSeconds, t, detail.getVersion(),
                 presenceOrderOf(detail.getSessionId()));
-        return true;
     }
 
     private static void requireLifecycle(FocusSessionDetail detail, FocusSessionLifecycle expected) {

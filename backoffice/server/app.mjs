@@ -8,6 +8,7 @@ import {
 import { readFile } from "node:fs/promises";
 import { resolve, extname, sep } from "node:path";
 import { Failure, requireValue } from "./store.mjs";
+import { createReleaseStatus } from "./release-status.mjs";
 import { FocusPolicyStore, focusDigest, normalizeFocusPolicy } from "./focus-policy.mjs";
 const hash = (value) => createHash("sha256").update(value).digest("hex");
 const safeEqual = (a, b) => {
@@ -61,6 +62,8 @@ export function createApp({
   staticDir,
   secureCookie = mode === "connected",
   clock = Date.now,
+  // 결과를 10분 캐시하므로 앱 생성 때 한 번만 만든다. 테스트는 대체 함수를 넣는다.
+  releaseStatus = createReleaseStatus({ androidStoreVersion: () => upstream.androidStoreVersion() }),
 }) {
   const sessions = new Map(),
     attempts = new Map();
@@ -238,17 +241,26 @@ export function createApp({
       const operator = operators[auth.actor];
       if (path === "/api/system/versions" && req.method === "GET") {
         if (mode === "local") {
-          send(200, { local: true, data: null, notification: null, iosStore: await upstream.iosStoreVersion() });
+          send(200, { local: true, data: null, notification: null, infraRevision: null,
+            iosStore: await upstream.iosStoreVersion() });
           return;
         }
-        // 구버전 서버는 두 키가 없다 -> null. iOS 조회는 실패해도 던지지 않는다.
+        // 구버전 서버는 이 키들이 없다 -> null. iOS 조회는 실패해도 던지지 않는다.
         const [identity, iosStore] = await Promise.all([
           upstream.verifyEnvironment(environment, auth.actor, operator), upstream.iosStoreVersion()]);
         // 표시 전용 값이라 문자열이 아니면 버린다(앱 화면이 slice 로 죽지 않게).
         const str = v => { const t = typeof v === "string" ? v.trim() : ""; return t && t.toLowerCase() !== "unknown" ? t : null; };
         const pick = value => str(value?.serverVersion) || str(value?.schemaVersion)
           ? { serverVersion: str(value.serverVersion), schemaVersion: str(value.schemaVersion) } : null;
-        send(200, { local: false, data: pick(identity.data), notification: pick(identity.notification), iosStore });
+        // 운영에 적용된 Infra 구성 커밋은 Data 만 알려 준다(운영 배포가 Data 컨테이너에만 넣는다).
+        send(200, { local: false, data: pick(identity.data), notification: pick(identity.notification),
+          infraRevision: str(identity.data?.infraRevision), iosStore });
+        return;
+      }
+      if (path === "/api/system/release-status" && req.method === "GET") {
+        // dev 환경에서 운영 출시를 판정하면 안 되므로 prod 연결 모드에서만 조회한다.
+        if (mode === "local" || environment !== "prod") { send(200, { local: true }); return; }
+        send(200, await releaseStatus());
         return;
       }
       if (path === "/api/session" && req.method === "GET") {

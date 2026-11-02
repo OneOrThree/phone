@@ -9,7 +9,6 @@ import com.oneorthree.business.common.api.PublicApiException;
 import com.oneorthree.business.common.exception.UpstreamContractMismatchException;
 import com.oneorthree.business.common.exception.UpstreamDomainException;
 import com.oneorthree.business.common.http.Deadline;
-import com.oneorthree.business.linkpreview.repository.PreviewCache;
 import com.oneorthree.business.upstream.data.DataAuthClient;
 import com.oneorthree.business.upstream.data.dto.AccountMe;
 import com.oneorthree.business.upstream.data.dto.AccountProfile;
@@ -31,10 +30,9 @@ import java.util.function.Supplier;
  * 비주민 섬 403 {@code MEMBER_ONLY} → 공개 403 {@code FORBIDDEN} 셋이고, 나머지({@code USER_NOT_FOUND}·
  * {@code NICKNAME_*}·{@code HOST_WITHDRAW}·키 충돌)는 이름이 같은 공개 코드로 {@code registeredUpstream} 이 옮긴다.
  *
- * <p>탈퇴가 확정되면 Business 링크 미리보기 캐시의 차단 표지·삭제(LLD §4)를 여기서 한다(GROMO-1943) —
- * Data→Business 전달이 없으므로 탈퇴 요청이 지나가는 이 자리가 Business 쪽 {@code user.withdrawn} 소비자다.
- * ponytail: 표지를 «Data 호출 뒤»에 놓는다. 호출 전에 놓으면 확정 실패(HOST_WITHDRAW 등) 때 해제가 필요하고,
- * 그 해제가 재시도(이미 탈퇴 → 404)와 구분되지 않는다. 커밋~표지 사이 수 ms 에 생긴 키도 표지 뒤 SCAN 이 지운다.
+ * <p>탈퇴가 확정되면 Data 호출이 끝난 뒤 이 자리에서 해당 세션을 거부목록에 올리고 Apple 토큰을 폐기한다.
+ * 둘 다 best-effort 라 실패해도 탈퇴는 실패로 보이지 않는다. 링크 미리보기 캐시 파기(GROMO-1943)는
+ * 미리보기와 함께 GROMO-2682 에서 걷었다.
  */
 @Slf4j
 @Service
@@ -42,7 +40,6 @@ import java.util.function.Supplier;
 public class AccountUseCase {
 
     private final DataAuthClient data;
-    private final PreviewCache previewCache;
     private final RevokedSessions revokedSessions;
     private final AppleTokenRevoker appleRevoker;
 
@@ -67,18 +64,20 @@ public class AccountUseCase {
     }
 
     public Deleted withdraw(AccessTokenClaims claims, String appleAuthorizationCode, Deadline deadline) {
-        JsonNode response = relay(() -> data.deleteAccount(claims.userId(), claims.sessionId(),
-                claims.authGeneration(), deadline));
-        JsonNode deleted = response == null ? null : response.get("deleted");
-        if (deleted == null || !deleted.isBoolean() || !deleted.booleanValue()) {
-            throw invalid();
-        }
         try {
-            previewCache.eraseUser(claims.userId().toString());
-        } catch (RuntimeException e) {
-            // 탈퇴는 이미 Data 에 커밋됐다 — 사본 정리 실패로 탈퇴를 실패처럼 보이게 하지 않는다.
-            // 남은 키는 TTL(최대 300초)로 사라진다. 표지가 없으니 남은 AT 수명 동안은 새 사본이 생길 수 있다.
-            log.warn("탈퇴 미리보기 캐시 정리 실패 — userId={}", claims.userId(), e);
+            JsonNode response = relay(() -> data.deleteAccount(claims.userId(), claims.sessionId(),
+                    claims.authGeneration(), deadline));
+            JsonNode deleted = response == null ? null : response.get("deleted");
+            if (deleted == null || !deleted.isBoolean() || !deleted.booleanValue()) {
+                throw invalid();
+            }
+        } catch (UpstreamDomainException e) {
+            // 세션 검증을 통과한 사용자의 탈퇴 요청이 404 USER_NOT_FOUND 면, 앞선 시도(응답 유실·시간 초과)가
+            // 이미 커밋한 것이다. 확정으로 읽고 일회용 Apple 코드를 쓸 수 있는 뒤 정리를 건너뛰지 않는다.
+            if (e.getStatus() != 404 || !"USER_NOT_FOUND".equals(e.getCode())) {
+                throw e;
+            }
+            log.info("탈퇴 이미 확정 — 커밋 뒤 정리를 이어 간다 userId={}", claims.userId());
         }
         if (claims.sessionId() != null) {
             try {

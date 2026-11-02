@@ -91,7 +91,7 @@ test -f src/main/resources/application-local.yml || cp src/main/resources/applic
 | ci | 기본적으로 Flyway 비활성, Hibernate `create-drop` |
 | dev · staging · prod | Flyway 적용, Hibernate `validate` |
 
-변경 이력은 [Flyway 마이그레이션](src/main/resources/db/migration), 스키마 문서는 [DBML](docs/db/schema.dbml)로 관리합니다. 이미 적용한 마이그레이션을 수정하지 않고 새 버전을 추가합니다.
+변경 이력은 [Flyway 마이그레이션](src/main/resources/db/v0), 스키마 문서는 [DBML](docs/db/schema.dbml)로 관리합니다. 새 파일은 `db/v0`에 추가하고 번호는 그 폴더의 가장 큰 번호 + 1로 정합니다. 이미 적용한 마이그레이션을 수정하지 않고 새 버전을 추가합니다. `db/migration`은 동결된 과거 이행 자료이므로 새 파일을 두지 않습니다.
 
 서비스 폴더에서 실행합니다. 테스트 DB는 Testcontainers가 준비합니다.
 

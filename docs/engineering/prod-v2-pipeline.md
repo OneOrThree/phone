@@ -1,6 +1,6 @@
 # prod V2 파이프라인
 
-AWS EC2 4대로 나눈 Catus V2 운영의 CI/CD 현행 정리다. 2026-10-31 코드와 Infra `main`을 대조해 썼다. 실제 판정은 워크플로와 `.github/scripts/v2/prod/catus-runtime-V2.py`가 정본이다.
+AWS EC2 4대로 나눈 운영 V2의 CI/CD 현행 정리다. 2026-10-31 코드와 Infra `main`을 대조해 썼다. 실제 판정은 워크플로와 `.github/scripts/v2/prod/catus-runtime-V2.py`가 정본이다.
 
 - DB 마이그레이션이 든 배포는 [DB 전환이 든 V2 배포](../prd/fishcat/server-separation/deployment.md#db-전환이-든-v2-배포)를 따른다.
 - 관측 스택을 켜는 절차는 [서버 로그 관측 rollout](../architecture/server-log-observability/rollout.md)을 따른다.
@@ -8,7 +8,7 @@ AWS EC2 4대로 나눈 Catus V2 운영의 CI/CD 현행 정리다. 2026-10-31 코
 
 기존 워크플로 `prod-ci.yml`, `prod-cd.yml`은 `disabled_manually`다. 백오피스는 `backoffice-cd.prod-V2.yml`이 main 머지로 발행·배포한다(아래 「백오피스」).
 
-꺼진 것은 배포 워크플로뿐이다. 2026-10-31 기준 기존 EC2 `catus-prod`, `catus-backoffice-prod`는 켜져 있다. 운영 DB `catus-prod-db`와 앱 시크릿 원본도 기존 서버와 V2가 함께 쓴다. 기존 서버 종료 일정은 정해지지 않았다.
+꺼진 것은 배포 워크플로뿐이다. 2026-10-31 기준 기존 EC2 `catus-prod`, `catus-backoffice-prod`는 켜져 있다. 운영 DB `catus-prod-db`와 서버 시크릿 원본도 기존 서버와 V2가 함께 쓴다. 기존 서버 종료 일정은 정해지지 않았다.
 
 ## 구성
 
@@ -18,7 +18,7 @@ AWS EC2 4대로 나눈 Catus V2 운영의 CI/CD 현행 정리다. 2026-10-31 코
 | `catus-kafka-prod-V2` | m6g.medium | 부팅 20 GiB + 데이터 30 GiB | Kafka 3.8.1 |
 | `catus-redis-prod-V2` | m6g.medium | 부팅 20 GiB + 데이터 20 GiB | Redis 7.4.11 두 개 |
 | `catus-backoffice-prod-V2` | t4g.small | 부팅 20 GiB + 데이터 10 GiB | 백오피스 |
-| RDS `catus-prod-db` | db.t4g.small | 20 GiB | 운영 DB. 기존 Catus 서버와 공유 |
+| RDS `catus-prod-db` | db.t4g.small | 20 GiB | 운영 DB. 운영 V1과 공유 |
 | RDS `catus-prod-db-v2` | db.t4g.small | 20 GiB, 최대 50 GiB | 전용 DB로 만들어 뒀지만 아직 쓰지 않음 |
 
 공개 주소는 `catus-api-v2.oneorthree.world`, `backoffice-v2.oneorthree.world`다.
@@ -27,20 +27,20 @@ AWS EC2 4대로 나눈 Catus V2 운영의 CI/CD 현행 정리다. 2026-10-31 코
 
 | 대상 | 위치 |
 | --- | --- |
-| AWS 자원, SSM 문서, 앱·백오피스 Compose, env 계약 | Infra `prod/catus-v2/` |
+| AWS 자원, SSM 문서, 서버·백오피스 Compose, env 계약 | Infra `prod/catus-v2/` |
 | Kafka·Redis Compose와 설정 | phone `server/scripts/v2/prod/` |
 | 발행·배포 스크립트 | phone `.github/scripts/v2/prod/catus-runtime-V2.py` |
-| 앱 변경 판정 | phone `.github/scripts/catus-plan.py` |
+| 서버 변경 판정 | phone `.github/scripts/catus-plan.py` |
 
 시크릿 표, 인증서 발급, Grafana 수동 설정은 Infra `prod/catus-v2/README-V2.md`를 따른다. 시크릿은 Infra가 소유한다.
 
-앱 env는 배포할 때 시크릿에서 만든다. 값을 바꿔도 실행 중 컨테이너는 그대로이고, 다음 앱 배포 때 반영된다. Redis 비밀번호를 바꾸면 Redis CD를 앱보다 먼저 실행한다.
+서버 env는 배포할 때 시크릿에서 만든다. 값을 바꿔도 실행 중 컨테이너는 그대로이고, 다음 서버 배포 때 반영된다. Redis 비밀번호를 바꾸면 Redis CD를 서버보다 먼저 실행한다.
 
 ## 단위별 파이프라인
 
 | 단위 | CI | CD | 태그 |
 | --- | --- | --- | --- |
-| 앱 4종 | `prod-ci-V2.yml` | `prod-cd-V2.yml` | `catus-vX.Y.Z-V2` |
+| 서버 4종 | `prod-ci-V2.yml` | `prod-cd-V2.yml` | `catus-vX.Y.Z-V2` |
 | Kafka | `kafka-ci.prod-V2.yml` | `kafka-cd.prod-V2.yml` | `kafka-vX.Y.Z-V2` |
 | Redis | `redis-ci.prod-V2.yml` | `redis-cd.prod-V2.yml` | `redis-vX.Y.Z-V2` |
 
@@ -54,9 +54,9 @@ flowchart LR
         C2 --> C3["release push 또는 수동 실행<br/>단위별 발행"]
         C3 --> C4["S3 불변 산출물<br/>Git 태그"]
     end
-    subgraph CD["CD · 승인 후 수동 적용"]
+    subgraph CD["CD · 수동 적용"]
         direction LR
-        D1["release에서 실행<br/>version 입력"] --> D2["환경 승인<br/>catus-production-V2"]
+        D1["release에서 실행<br/>version 입력"] --> D2["환경 catus-production-V2<br/>승인 1회(2026-11-02 적용)"]
         D2 --> D3["태그·릴리스 일치 확인<br/>SSM 전송"]
         D3 --> D4{"호스트 검증 통과?"}
         D4 -->|예| D5["current-V2.json 기록<br/>배지·PR 댓글"]
@@ -66,17 +66,18 @@ flowchart LR
 ```
 
 - 발행과 배포는 분리돼 있다. release 머지는 산출물만 만들고 운영을 바꾸지 않는다.
-- 배포는 항상 수동 CD다. 환경 `catus-production-V2`의 승인을 거친다.
-- CD는 `release` 브랜치에서만 돈다. 단위마다 concurrency 그룹이 달라 앱과 Kafka 배포가 서로를 막지 않는다. 동시 실행은 피한다.
+- 배포는 항상 수동 CD다. 환경 `catus-production-V2`는 2026-11-02부터(GROMO-2695) 승인자 3명 중 1명의 승인을 받은 뒤 배포한다(본인 승인 허용). 승인자는 GitHub 환경 설정이 정본이다.
+- 승인 대기 중인 실행도 끝나지 않은 실행이다. 그 실행이 release의 최근 `prod-cd-V2` 실행이면 앱 출시 게이트가 막는다(아래 「모바일 앱 출시 순서」의 한계). 실행을 승인 대기로 오래 두지 않는다.
+- CD는 `release` 브랜치에서만 돈다. 단위마다 concurrency 그룹이 달라 서버와 Kafka 배포가 서로를 막지 않는다. 동시 실행은 피한다.
 - 승격 PR의 검사 범위는 [PR 대상에 따른 서버 CI 정책](pr-ci-policy.md)을 따른다.
 
 ### 처음 구성할 때의 순서
 
-Redis → Kafka → 앱 순서로 배포한다. 앱 배포는 V2 DB 시크릿이 없을 때만 전용 RDS를 준비한다. 지금은 공유 DB용 시크릿이 있어 이 단계가 돌지 않는다.
+Redis → Kafka → 서버 순서로 배포한다. 서버 배포는 V2 DB 시크릿이 없을 때만 전용 RDS를 준비한다. 지금은 공유 DB용 시크릿이 있어 이 단계가 돌지 않는다.
 
-Redis CD는 먼저 앱 호스트에서 비밀번호를 파생 Redis 시크릿으로 옮긴 뒤 Redis 호스트에 적용한다. 앱은 원본과 파생 자격이 다르면 Redis 선행 배포를 요구한다.
+Redis CD는 먼저 서버 호스트에서 비밀번호를 파생 Redis 시크릿으로 옮긴 뒤 Redis 호스트에 적용한다. 서버 배포는 원본과 파생 자격이 다르면 Redis 선행 배포를 요구한다.
 
-## 앱
+## 서버
 
 ### 빌드 대상
 
@@ -94,11 +95,11 @@ PR에서는 base와 head의 변경으로 검사 대상을 고른다. release 발
 
 새 공통 모듈을 추가하면 `SHARED`도 갱신한다.
 
-이미지는 `linux/arm64`로 빌드해 ECR `catus-prod/<service>`에 digest로 올린다. 릴리스에는 재사용 이미지까지 네 서비스 digest 조합을 기록한다. `prod-ci-V2.yml`은 `CATUS_PROD_INFRA_REVISION_V2`로 Infra 커밋을 고정한다.
+이미지는 `linux/arm64`로 빌드해 ECR `catus-prod/<service>-v2`(Infra `prod/catus-v2/storage-V2.tf` 기준)에 digest로 올린다. 릴리스에는 재사용 이미지까지 네 서비스 digest 조합을 기록한다. `prod-ci-V2.yml`은 `CATUS_PROD_INFRA_REVISION_V2`로 Infra 커밋을 고정한다.
 
 ### 버전
 
-`publish`는 기존 태그와 S3 `versions/` 중 가장 큰 버전의 patch를 1 올린다. 앱 기본 시작값은 `catus-v2.0.0-V2`, 나머지는 `v1.0.0-V2`다.
+`publish`는 `-V2`로 끝나는 기존 태그와 S3 `versions/` 기록 중 가장 큰 버전의 patch를 1 올린다. 숫자가 더 큰 V1 태그(`catus-v2.1.0`~`catus-v3.0.0`)가 따로 있지만 세지 않는다. 서버 기본 시작값은 `catus-v2.0.0-V2`, 나머지는 `v1.0.0-V2`다.
 
 `release:major·minor·patch` 라벨은 V2 스크립트가 읽지 않는다. 지금 V2에서는 patch만 오른다. 스크립트에 버전 지정 인자가 있지만 워크플로가 넘기지 않는다.
 
@@ -110,17 +111,29 @@ PR에서는 base와 head의 변경으로 검사 대상을 고른다. release 발
 | --- | --- |
 | `version` | 배포할 `catus-vX.Y.Z-V2` 태그. 필수 |
 | `rollback` | 이전 태그로 명시적 복구 |
-| `allow_migration` | DB 마이그레이션이 든 릴리스 승인. `rollback`과 함께 쓸 수 없고 앱에서만 유효 |
+| `allow_migration` | DB 마이그레이션이 든 릴리스 승인. `rollback`과 함께 쓸 수 없고 서버 배포에서만 유효 |
 
-앱 CD는 서비스를 고르지 못한다. Infra `deploy-V2.py`가 네 서비스를 모두 `up -d --no-deps`로 넘기고, Compose가 이미지·env·라벨이 바뀐 서비스만 재생성한다. Infra 버전 고정값만 바뀌고 앱 설정이 같으면 재시작하지 않는다.
+서버 CD는 서비스를 고르지 못한다. Infra `deploy-V2.py`가 네 서비스를 모두 `up -d --no-deps`로 넘기고, Compose가 이미지·env·라벨이 바뀐 서비스만 재생성한다. Infra 버전 고정값만 바뀌고 서버 설정이 같으면 Realtime·Business·Notification은 재시작하지 않는다. Data는 고정값을 `OBS_INFRA_REVISION`으로 받아 백오피스에 보여 주므로, 고정값이 바뀐 릴리스를 배포하면 재생성된다.
 
 마이그레이션 지문이 직전 성공과 다르면 기본으로 멈춘다. 절차는 [DB 전환이 든 V2 배포](../prd/fishcat/server-separation/deployment.md#db-전환이-든-v2-배포)를 따른다.
+
+### 모바일 앱 출시 순서: 서버 먼저 (GROMO-2684)
+
+앱이 서버보다 먼저 나가면 새 API가 운영에서 404가 된다(`POST /islands/{id}/intro-arrivals` 100건 실패). 순서는 항상 서버(release 승격 → `prod-cd-V2.yml`) 다음 앱이다.
+
+- 게이트: `.github/scripts/app-server-gate.py`. CD `record` 단계가 성공 배포마다 공개 브랜치 `deployment-status`의 `prod-V2/app.json`에 기록하는 배포 태그(`message`, `catus-vX.Y.Z-V2`)를 GitHub contents API로 읽고(raw CDN은 최대 5분 늦다), `git fetch origin refs/tags/<태그>`로 받아 커밋으로 푼 뒤 `git diff --no-renames <운영커밋>...HEAD`로 현재 HEAD와 비교해, `server/(business-api|data-api|realtime|notification)/src/main/` 아래 파일이 있으면 exit 1로 막는다. 조회·git 실패도 판정 불가로 막는다(fail closed).
+- 호출: `app/app-dev/scripts/ota-update.sh`(미커밋 검사 직후), `app/app-dev/ios/testflight.sh`(운영 분기만, `--dev` 제외), `app/app-dev/android/app/build.gradle`(운영 청중의 release 산출 작업).
+- 예외: 서버 변경이 앱과 무관하다고 직접 확인했으면 `ALLOW_SERVER_GAP="사유"`를 설정하고 실행한다. 공백만 있는 값은 무시한다.
+- 한계: 기준은 `deployment-status` 기록이다. 이전 태그 배포·롤백도 기록된 태그를 따르므로 맞게 판정한다. `record` 작업이 실패하면 기록이 롤백 전 값으로 남을 수 있어, 게이트와 출시 현황은 release 의 최근 `prod-cd-V2.yml` 실행(`runs?branch=release`)이 끝났고 성공일 때만 기록을 믿는다. 실패·취소·진행 중이거나 조회가 안 되면 판정 불가로 막는다. 기록·태그 조회가 실패하면 판정 불가로 막는다.
+- 잡지 못하는 것: `server/*/src/main/` 밖의 의존성이다. Infra 구성과 시크릿 변경(예: 초대 링크의 nginx 랜딩과 `LINK_BASE_URL`)은 게이트와 출시 현황 어디에도 나타나지 않으므로 앱 PR의 출시 순서를 따로 확인한다. 태그가 main에 없는 release 전용 커밋을 가리키면 그 커밋의 서버 변경도 비교에서 빠진다.
+- 출시 현황의 결과는 10분 캐시라 일시 장애의 「판정 불가」나 main 머지 직후의 낡은 「앱 출시 가능」이 잠시 남을 수 있다. 화면의 기준 시각으로 확인하고, 실제 차단은 캐시를 쓰지 않는 게이트가 맡는다.
+- 정규식은 `backoffice/server/release-status.mjs`의 `SERVER_RUNTIME`과 같이 고친다. 테스트는 `test_app_server_gate.py`(`backoffice-ci.yml`에서 실행).
 
 ### 배포 후 확인
 
 CI는 코드와 빌드를 검사하지만 운영의 자격 증명, 네트워크, DB 연결, nginx 라우팅은 보증하지 않는다. 그래서 CD가 실제 요청 경로까지 확인한 뒤 성공으로 기록한다.
 
-앱 최소 점검은 공개 HTTPS와 60초 진단 토큰의 WSS/STOMP CONNECT·DISCONNECT, 무인증 CONNECT 거부다. 고객 DB 행을 만들거나 메시지를 발행하지 않는다. 사용자 생성, 집중 시작, 채팅 발송 같은 쓰기는 CD에서 돌리지 않는다.
+서버 최소 점검은 공개 HTTPS와 60초 진단 토큰의 WSS/STOMP CONNECT·DISCONNECT, 무인증 CONNECT 거부다. 고객 DB 행을 만들거나 메시지를 발행하지 않는다. 사용자 생성, 집중 시작, 채팅 발송 같은 쓰기는 CD에서 돌리지 않는다.
 
 ## Kafka·Redis
 
@@ -131,7 +144,7 @@ CI는 코드와 빌드를 검사하지만 운영의 자격 증명, 네트워크,
 
 ## 백오피스
 
-- 경로(GROMO-2666): `backoffice/**`(Markdown 제외)를 main에 머지 → `backoffice-cd.prod-V2.yml`이 테스트·빌드 → 환경 `backoffice-production` 승인 1회 → `backoffice-vX.Y.Z-V2`(patch +1) 발행 → SSM으로 `catus-backoffice-prod-V2`에 배포 → 관련 PR 댓글·배지 기록. 앱·Kafka·Redis는 그대로 release 전용이다.
+- 경로(GROMO-2666): `backoffice/**`(Markdown 제외)를 main에 머지 → `backoffice-cd.prod-V2.yml`이 테스트·빌드 → 환경 `backoffice-production` 승인 1회 → `backoffice-vX.Y.Z-V2`(patch +1) 발행 → SSM으로 `catus-backoffice-prod-V2`에 배포 → 관련 PR 댓글·배지 기록. 서버·Kafka·Redis는 그대로 release 전용이다.
 - 수동 실행: 입력을 비우면 현재 main을 발행·배포한다. `version`에 기존 태그를 넣으면 발행 없이 그 태그를 배포한다. 발행 뒤 배포만 실패한 태그는 그대로 다시 넣는다. 현재 운영보다 이전 태그로 되돌릴 때만 `rollback`을 켠다. `rollback`은 `version`과 함께만 쓴다. 수동 실행은 main에서 한다. 다른 ref에서는 job이 조용히 건너뛰어진다.
 - 입력이 비어 있으면 코드가 그대로여도 새 patch 태그를 발행한다. 이미지는 직전 것을 다시 쓴다.
 - 승인을 기다리는 실행이 동시 실행 그룹을 잡는다. 승인을 미루면 뒤의 머지가 대기열에 쌓인다(대기는 최신 1건만 남는다). 배포하지 않을 실행은 취소한다.
@@ -139,11 +152,12 @@ CI는 코드와 빌드를 검사하지만 운영의 자격 증명, 네트워크,
 - 선행 조건: Infra가 AWS 역할 `catus-backoffice-release-V2`(신뢰 대상 `repo:OneOrThree/phone:environment:backoffice-production`)를 먼저 적용해야 한다.
 - 백오피스가 서버 변경보다 먼저 운영에 나갈 수 있다(서버는 release 경유). 의존 계약이 없어 백오피스가 시작을 거부하면 SSM 배포가 실패하고, 호스트가 직전 버전으로 되돌린다.
 - PR 검사는 `backoffice-ci.yml`이다.
-- 앱 배포는 백오피스 운영자 시크릿을 계속 읽는다.
+- 「출시 현황」 화면(`/api/system/release-status`): `deployment-status`에 기록된 운영 서버 배포 태그(`prod-V2/app.json`)의 커밋 기준으로(앱 게이트와 같은 기준) GitHub compare를 호출해 「서버 먼저 배포」·「앱 출시 가능」·「판정 불가」를 보이고, 서버·백오피스·Kafka·Redis의 배포 태그(`deployment-status` 기록)·커밋·마지막 성공 배포 실행의 KST 시각. 운영 백오피스(`BACKOFFICE_ENV=prod`)에서만 판정하고 dev에서는 조회하지 않는다. 표에는 서버·백오피스·Kafka·Redis의 배포 정보와 App Store·Play·DB 번호를 표로 보인다. 앱 게이트와 같은 판정이며 앱 출시 전에 눈으로 확인하는 용도다.
+- 서버 배포는 백오피스 운영자 시크릿을 계속 읽는다.
 
 ## 복구
 
-- 앱 적용이 실패하면 Infra `deploy-V2.py`가 직전 릴리스로 자동 복구를 시도한다. Kafka·Redis는 자동 복구하지 않는다.
+- 서버 적용이 실패하면 Infra `deploy-V2.py`가 직전 릴리스로 자동 복구를 시도한다. Kafka·Redis는 자동 복구하지 않는다.
 - CD의 `rollback` 입력은 지정한 이전 태그로 복구한다. 첫 배포에는 복구할 V2 버전이 없다.
 - 수동 `rollback`은 현재 성공 기록과 마이그레이션 지문이 다르면 거부된다. `allow_migration` 승인이 있어도 같다.
 - 자동 복구는 `allow_migration` 배포가 실패해도 동작한다. 실패한 배포는 성공 기록을 바꾸지 않아 복구 대상과 지문이 같기 때문이다. 이미 적용된 스키마는 되돌리지 않으므로 이전 이미지가 새 스키마와 호환돼야 한다. 절차는 [DB 전환이 든 V2 배포](../prd/fishcat/server-separation/deployment.md#db-전환이-든-v2-배포)를 따른다.
@@ -182,7 +196,7 @@ Kafka는 전체 서비스 RPS가 아니라 알림 사건률과 배치 피크로 
 - 지속 CPU 포화, consumer lag 증가, 발행 지연, 메모리 압박
 - 복구·재처리 구간의 부족
 
-앱과 Redis에는 이 축소 논리를 적용하지 않는다. 둘 다 채팅과 presence 부하를 직접 받는다.
+서버 호스트와 Redis에는 이 축소 논리를 적용하지 않는다. 둘 다 채팅과 presence 부하를 직접 받는다.
 
 ## 설계안과 현재의 차이
 
@@ -190,8 +204,8 @@ EC2별 CI/CD 설계안과 비교했다.
 
 | 항목 | 설계안 | 현재 |
 | --- | --- | --- |
-| 앱 EC2 | 8 GiB 메모리 유지 | m6g.large. 같다 |
-| 앱 CD 대상 | `deploy_services`만 pull·교체 | 네 서비스를 넘기고 Compose가 변경분만 재생성 |
+| 서버 EC2 | 8 GiB 메모리 유지 | m6g.large. 같다 |
+| 서버 CD 대상 | `deploy_services`만 pull·교체 | 네 서비스를 넘기고 Compose가 변경분만 재생성 |
 | DB 변경 | 호환 마이그레이션 적용 | 기본 중단, `allow_migration` 승인 시 통과 |
 | 일부 서비스 실패 | 호환되는 이전 조합 복구 | 같다. 호환 여부는 사람이 승격 전에 검토한다 |
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 운영 앱(iOS·안드로이드)에 OTA(EAS Update) 발행 — 스토어 심사 없이 JS·src/assets/ota 수정을 내려보낸다.
 #   ./scripts/ota-update.sh [--platform ios|android|all] "수정 내용 한 줄"
-# 앱은 켤 때 받아 두고 다음 실행부터 적용한다. dev 빌드(TestFlight·Play 내부 테스트)는 OTA 가 꺼져 있어 받지 않는다.
+# 앱은 켤 때 받아 두고 다음 실행부터 적용한다. dev 빌드(TestFlight)는 OTA 가 꺼져 있어 받지 않고, Play 내부 테스트는 운영 빌드라 받는다.
 # 네이티브(라이브러리·Pods·Gradle·Info.plist·권한)를 바꿨으면 OTA 로 못 보낸다 — 스토어 빌드 + runtimeVersion 올리기.
 # Expo 로그인: `npx eas-cli login`(oneorthree 조직 권한) 또는 EXPO_TOKEN 환경변수.
 set -euo pipefail
@@ -45,6 +45,9 @@ if [[ -n "$(git status --porcelain --untracked-files=all -- .)" ]]; then
   exit 1
 fi
 
+# 앱이 서버보다 먼저 나가면 새 API 가 운영에서 404 가 된다(GROMO-2684). 서버 선행 여부를 확인한다.
+python3 ../../.github/scripts/app-server-gate.py
+
 if ! "${EAS[@]}" whoami >/dev/null 2>&1; then
   echo "❌ Expo 로그인이 필요해요. npx eas-cli login 으로 로그인하거나 EXPO_TOKEN 을 설정하세요." >&2
   exit 1
@@ -65,7 +68,9 @@ export EXPO_NO_DOTENV=1
 export EXPO_PUBLIC_API_URL="https://catus-api-v2.oneorthree.world"
 export EXPO_PUBLIC_APPLE_LOGIN_ENABLED=1
 export EXPO_PUBLIC_ENV=prod
-# CDN 시범 검증 전에는 OTA도 번들 이미지를 사용합니다.
+# 운영 이미지 CDN 은 아직 없다(GROMO-2671) — OTA도 번들 이미지를 사용합니다.
+# 운영 CDN 을 발행·검증한 뒤 아래 세 값을 운영 값(true · 운영 CDN 주소 · prod)으로 바꾼다.
+# iOS 운영 레인(ios/fastlane/Fastfile beta)·Android release(android/app/build.gradle)·ios/testflight.sh·앱 게이트(src/services/assets/repository.ts) 의 dev CDN 차단도 같이 바꾼다.
 export EXPO_PUBLIC_IMAGE_ASSETS_ENABLED=false
 export EXPO_PUBLIC_IMAGE_ASSETS_URL=""
 export EXPO_PUBLIC_IMAGE_ASSETS_ENV=prod

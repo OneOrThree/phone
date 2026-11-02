@@ -45,6 +45,10 @@ LEGACY_OPTIONAL_KEYS = (
     "CHAT_WEBSOCKET_HEARTBEAT_SERVER_MS", "CHAT_WEBSOCKET_HEARTBEAT_CLIENT_MS",
     # GROMO-2339 섬 이동 다중 인스턴스 스위치 — 기본 ON(단일 인스턴스에서도 Redis 리스·채널을 탄다). 끄려면 false.
     "REALTIME_MOVEMENT_MULTI_INSTANCE_ENABLED",
+    # GROMO-2193 Grafana 관리자 비밀번호 — 없으면 쓰지 않는다. 기본 admin 을 채우면 호스트에 열린 Grafana(3000)가 admin/admin 으로 뜬다.
+    # 없을 때의 실패는 docker-compose.observability.yml 의 ${GRAFANA_ADMIN_PASSWORD:?} 가 맡아 관측 스택만 멈춘다.
+    # 필수로 올리지 않는 이유: 올리면 관측과 무관한 dev 배포·secrets-check 가 전부 이 키 때문에 막힌다.
+    "GRAFANA_ADMIN_PASSWORD",
 )
 
 # legacy(dev 전용) 에서 «비면 배포 차단» 으로 올린 값. GROMO-2224.
@@ -123,7 +127,6 @@ SERVICE_OPTIONAL_KEYS = {
         "DATA_API_BASE_URL", "NOTIFICATION_BASE_URL",
         "GOOGLE_CLIENT_ID", "APPLE_CLIENT_ID", "LINK_PROXY_SECRET",
         "LINK_TRUSTED_IP_HEADERS",
-        "GOOGLE_DRIVE_API_KEY",
         "BUSINESS_REDIS_LEGACY_HOST", "BUSINESS_REDIS_LEGACY_PORT",
         "BUSINESS_REDIS_LEGACY_USERNAME", "BUSINESS_REDIS_LEGACY_PASSWORD",
         # 커서 서명키 회전용 — 비우면 yml 기본값 v1. keys.v2 를 더한 뒤 이 값을 옮긴다(GROMO-1759).
@@ -162,7 +165,7 @@ SERVICE_FORBIDDEN_KEYS = {
 def allowed_keys(service: str) -> set[str]:
     """그 서비스 env 에 나갈 수 있는 키 전부(필수·선택·관측·전환)."""
     if service == "legacy":
-        return set(LEGACY_REQUIRED_KEYS) | set(LEGACY_OPTIONAL_KEYS) | {"GRAFANA_ADMIN_USER", "GRAFANA_ADMIN_PASSWORD"}
+        return set(LEGACY_REQUIRED_KEYS) | set(LEGACY_OPTIONAL_KEYS) | {"GRAFANA_ADMIN_USER"}
     keys = set(SERVICE_REQUIRED_KEYS[service]) | set(SERVICE_OPTIONAL_KEYS[service]) | set(OBSERVABILITY_KEYS)
     if service == "data-api":
         keys |= set(TRANSITION_KEYS)
@@ -265,12 +268,7 @@ def render(secret: dict[str, Any], app_image: str, service: str = "legacy",
     if environment == "dev":
         values.extend((("APP_HEALTH_START_PERIOD", "240s"), ("APP_HEALTH_RETRIES", "6")))
     values.extend((key, secret[key]) for key in LEGACY_REQUIRED_KEYS)
-    values.extend(
-        (
-            ("GRAFANA_ADMIN_USER", secret.get("GRAFANA_ADMIN_USER", "admin")),
-            ("GRAFANA_ADMIN_PASSWORD", secret.get("GRAFANA_ADMIN_PASSWORD", "admin")),
-        )
-    )
+    values.append(("GRAFANA_ADMIN_USER", secret.get("GRAFANA_ADMIN_USER", "admin")))
     values.extend((key, secret[key]) for key in LEGACY_OPTIONAL_KEYS if secret.get(key) is not None)
     return "".join(f"{key}={dotenv_quote(value)}\n" for key, value in values)
 
@@ -330,6 +328,8 @@ def business_redis_acl(secret: dict[str, Any]) -> str:
     if not isinstance(password, str):
         raise ValueError("BUSINESS_REDIS_PASSWORD는 문자열이어야 합니다")
     digest = hashlib.sha256(password.encode("utf-8")).hexdigest()
+    # +incrby +expire +hget +hset +time +scan +del 은 링크 미리보기(GROMO-2682 에서 제거)가 쓰던 명령이다. 지금 앱은
+    # get·set·eval 계열만 쓰지만 ACL 해시(ACL_REVISION)가 바뀌면 공유 Redis 를 다시 bootstrap 해야 해서 줄이지 않았다.
     return ("user default off\n"
             # 비밀번호 없는 계정이지만 business-cache 내부망에서만 접근 가능하고 키 명령은 전부 막힌다.
             # Datadog Redis check가 요구하는 읽기 전용 관리 명령만 허용한다.

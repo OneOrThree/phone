@@ -116,7 +116,7 @@ A1-b는 **비공개 섬 resolve에 rate-limit이 들어간 뒤에** 별건으로
 - **정규화는 현재 어디에도 없다.** `server/data-api/.../invitelink/` 와 `server/business-api/` 전체에서
   slug에 `toLowerCase`/`trim`/`strip`을 적용하는 자리는 **0건**이다. 검색에 걸린 `toLowerCase` 호출은 전부
   다른 대상이다 — `LandingRenderer.java:212`(URL), `UserAgentClassifier.java:45,80`(User-Agent),
-  `DriveLink.java:21`·`PublicAddressPolicy.java:31,37`(호스트). 즉 slug 조회는 **바이트 정확 일치**다.
+  `DriveLink.java:21`·`PublicAddressPolicy.java:31,37`(호스트; 이 둘은 링크 미리보기와 함께 GROMO-2682에서 제거됐다). 즉 slug 조회는 **바이트 정확 일치**다.
   조회는 경로 변수를 그대로 넘긴다 — `invitelink/LinkPublicController.java:56~58` →
   `InviteLinkService.java:113` `inviteLinkRepository.findBySlug(slug)`.
 - **DB도 대소문자를 구분한다.** `server/data-api/src/main/resources/db/migration/V21__group_invite_links.sql:11`

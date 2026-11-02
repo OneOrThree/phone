@@ -1,5 +1,9 @@
 // 공통 설정 — 합격선(threshold)은 스크립트에 내장: 회귀 1차 판정은 사람 눈이 아니라 코드 (설계 §2-3)
-export const BASE_URL = __ENV.BASE_URL || 'http://localhost:8080';
+import { assertNotAwsTarget } from './aws-guard.mjs';
+
+// AWS 대상 부하 금지(2026-10-29): BASE_URL 은 이 한 줄에서만 읽는다. 시나리오가 __ENV.BASE_URL 을
+// 직접 읽으면 가드를 건너뛴다(tests/test_aws_guard.mjs 가 직접 읽는 곳이 없는지 확인한다).
+export const BASE_URL = assertNotAwsTarget(__ENV.BASE_URL || 'http://localhost:8080');
 export const API = `${BASE_URL}/api/v1`;
 
 // phase:main 만 판정 — 워밍업은 run.sh 가 별도 k6 실행(--no-thresholds)으로 분리

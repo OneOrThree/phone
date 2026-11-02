@@ -15,20 +15,13 @@ GROMO-1750 · 2026-09-12 · [정책 정본](policy.md) · [HLD](high-level-desig
 | 빈 페이지 | `200 {"data":{"items":[],"nextCursor":null}}` |
 | 생성 | `201 {"data":{"id":"..."}}` |
 | 데이터 없는 신규 JSON mutation | `200 {"data":null}`; 삭제 확인 DTO가 정해졌으면 그 DTO |
-| PNG 썸네일 | `200 image/png`, bytes 원문, JSON 래핑 금지 |
+| 바이너리 | bytes 원문, JSON 래핑 금지(현재 이 규칙을 쓰는 공개 경로는 없다 — 링크 미리보기 썸네일은 GROMO-2682에서 제거) |
 
-### 미리보기 호환 별칭
+### 미리보기 호환 별칭 (제거됨)
 
-| 계약 | 기존 `/api/v1/link-previews` 계열 | 신규 `/link-previews` 계열 |
-| --- | --- | --- |
-| POST/GET 성공 JSON | 기존 Preview 객체/목록 직접 반환 | `{data: ...}` 봉투 |
-| 실패 JSON | 기존 `{code,message}` 평면 오류 | 공통 error4필드+requestId |
-| Preview.thumbnailUrl | 기존 `/api/v1/link-previews/{id}/thumbnail` 유지 | `/link-previews/{id}/thumbnail` |
-| thumbnail 성공 | image/png bytes·기존 인증 | 같은 PNG bytes·인증 |
-
-두 계열은 같은 사용자별 Preview 저장/캐시를 사용한다. 신규 URL은 공개 응답 매핑에서 만들고 기존 캐시 객체·호환 응답을 바꾸지 않는다. 기존 별칭을 삭제하는 선택은 이번1751 구현 범위에 없다.
-
-썸네일 클라이언트는 `Accept: image/png, application/json`으로 PNG 성공과 JSON 오류를 함께 허용한다. 양쪽 경로 모두 image/png 단독 요청의 성공 PNG 및 도메인 실패 JSON을 보존한다. 선행 [PR744 PreviewExceptionHandler](https://github.com/OneOrThree/phone/blob/3cbccfb1600af6282d32f3662ba537fb0443309b/server/business-api/src/main/java/com/oneorthree/business/linkpreview/exception/PreviewExceptionHandler.java#L47-L61)는 오류의 Content-Type을 application/json으로 명시한다. [기존 회귀 테스트](https://github.com/OneOrThree/phone/blob/3cbccfb1600af6282d32f3662ba537fb0443309b/server/business-api/src/test/java/com/oneorthree/business/common/api/PublicApiContractTest.java#L125-L145)는 신규/legacy 양쪽 image/png 요청의 NOT_FOUND404 JSON과, application/json 단독 요청의 서비스 미호출406·빈 본문을 구분한다. 따라서 도메인 실패 JSON을 image/png 단독이라는 이유만으로406으로 바꾸지 않는다. 실제406은 공통 예외 규약대로 빈 본문·X-Request-Id를 유지하며 성공 봉투로 감싸지 않는다. mixed Accept의 성공/실패 조합도1751 회귀에 포함한다. 이 단락은 선행 구현의 확인이며 기준 main에 이미 통합됐다는 뜻은 아니다.
+링크 미리보기 API(`/api/v1/link-previews`·`/link-previews`)와 그 호환 별칭 계약은 앱 호출부가 없어 GROMO-2682(2026-11-01)에서 제거했다.
+두 계열의 응답·오류·thumbnailUrl 대응표와 PNG 썸네일 Accept 협상 규칙은 더 이상 적용하지 않는다. 이후 어떤 경로가 바이너리를
+돌려주더라도 JSON 봉투로 감싸지 않고(`ApiResponseAdvice`), 지원할 수 없는 Accept는 아래 오류 규약대로 406+빈 본문이다.
 
 성공의 requestId는 `X-Request-Id` 헤더에 둔다. 오류 본문에는 같은 값을 넣는다. 서버는 들어온 `X-Request-Id`를 인증 근거나 서버 ID로 사용하지 않는다.
 
@@ -114,7 +107,7 @@ GROMO-1750 · 2026-09-12 · [정책 정본](policy.md) · [HLD](high-level-desig
 
 추가 경계:
 
-- 신규 `POST /link-previews`는 조회성 비동기 미리보기 작업이며 공통 명령키 필수가 아니다. 기존 사용자+URL cache/claim을 재사용한다. 같은 URL 재조회와 재화 mutation의 영속 명령을 같은 receipt 정책으로 묶지 않는다.
+- 조회성 요청은 공통 명령키 필수가 아니다(과거 `POST /link-previews`가 그랬으나 GROMO-2682에서 제거했다). 조회성 재요청과 재화 mutation의 영속 명령을 같은 receipt 정책으로 묶지 않는다.
 - GET30개와 BFF GET13개는 공통 키 대상이 아니다. GET에 키가 있어도 쓰기처럼 예약하지 않는다.
 - 로그인과 로그아웃의 범용 키 제외는 전용 멱등 계약을 없애지 않는다. [아키텍처 결정 장부](../../../architecture/decisions.md)의 **A7·㊑·㊒·㊔·㊙·㊡·㉮·㊼**를 기준으로 1756이 실제 구현과 대조한다. 로그인은 Data의 시도 키 기반 upsert/CAS nonce → Business의 고정 jti/발급시각 기반 서명 → Data의 CAS 확정이며, 성공은 같은 서명 재료로 복구하고 CAS 충돌은 시도 재개 규약을 따른다. refresh 회전 CAS 0행은 ㉮에 따라 세션 종료이며 로그인 성공 재생과 혼동하지 않는다.
 - 로그인 시도 ID의 전달 정본은 [계정 PR740](https://github.com/OneOrThree/phone/pull/740)의 `X-Login-Attempt-Id` 헤더다. 앱은 로그인 시도 시작에 UUID36자를 한 번 생성하고 응답 유실/경쟁 재개에서 같은 ID·자격·의미 본문을 유지한다. Business가 요청마다 새 ID를 만들거나 loginAttemptId 본문 필드를 추가하지 않는다. 복구 창·다른 자격의 같은 ID 거절·CAS 재준비는 계정 LLD의 기존 상태 전이를 그대로 따른다.
@@ -279,16 +272,16 @@ sequenceDiagram
 
 HTTP 재시도는 GET과 Data가 영속 멱등을 보장하는 명시 명령만, 기존 클라이언트의 횟수 상한 안에서 같은 deadline·키로 수행한다. 인증/인가/형식/버전 충돌은 자동 재시도하지 않는다. `Retry-After`를 기다리면 전체 deadline을 넘는 경우 지금 응답을 끝내고 앱에 복구 규칙을 전달한다.
 
-지원할 수 없는 Accept는406+빈 본문이며 X-Request-Id를 유지한다. 없는 HTTP 경로는404 RESOURCE_NOT_FOUND, 본인 계정 부재는404 USER_NOT_FOUND, 상품 부재는404 PRODUCT_NOT_FOUND로 복구 의미를 구분한다. 기존 preview NOT_FOUND는 보존한다. 초대 코드 부재는 기존404 SLUG_NOT_FOUND(field=`code`), 미지원 provider는 기존400 UNSUPPORTED_PROVIDER(field=`provider`)를 등록표에서 보존하고 둘 다 retryable=false다. 부재 초대404를 만료 초대410이나502로 바꾸지 않는다.
+지원할 수 없는 Accept는406+빈 본문이며 X-Request-Id를 유지한다. 없는 HTTP 경로는404 RESOURCE_NOT_FOUND, 본인 계정 부재는404 USER_NOT_FOUND, 상품 부재는404 PRODUCT_NOT_FOUND로 복구 의미를 구분한다. 초대 코드 부재는 기존404 SLUG_NOT_FOUND(field=`code`), 미지원 provider는 기존400 UNSUPPORTED_PROVIDER(field=`provider`)를 등록표에서 보존하고 둘 다 retryable=false다. 부재 초대404를 만료 초대410이나502로 바꾸지 않는다.
 
-필터에서 직접 쓰는401/413, Jackson/validation의400/422, 미지원 경로/메서드의404/405, 미리보기 예외, 내부 호출 예외, 예상 못한500이 같은 외부 오류 serializer를 사용한다. 기존1659 compat 경로는 원래 상류 domain status/code 보존 규약대로 남긴다. 신규 도메인 경로만 승인된 status/code registry와 대조하여 보존/명시 매핑하며, 등록되지 않은 조합은502 `UPSTREAM_CONTRACT_ERROR`로 드러낸다. ResponseBodyAdvice 사용 여부는 구현 선택이지만 Error DTO 이중감싸기·PNG bytes·Actuator·legacy응답 래핑을 막는 범위 테스트가 필수다. 관리 포트 노출/인증예외 정책은 기존 보안 경계를 그대로 따른다.
+필터에서 직접 쓰는401/413, Jackson/validation의400/422, 미지원 경로/메서드의404/405, 내부 호출 예외, 예상 못한500이 같은 외부 오류 serializer를 사용한다. 기존1659 compat 경로는 원래 상류 domain status/code 보존 규약대로 남긴다. 신규 도메인 경로만 승인된 status/code registry와 대조하여 보존/명시 매핑하며, 등록되지 않은 조합은502 `UPSTREAM_CONTRACT_ERROR`로 드러낸다. ResponseBodyAdvice 사용 여부는 구현 선택이지만 Error DTO 이중감싸기·바이너리 bytes·Actuator·legacy응답 래핑을 막는 범위 테스트가 필수다. 관리 포트 노출/인증예외 정책은 기존 보안 경계를 그대로 따른다.
 
 ## 6. 검증 계획과 이번 문서의 실제 확인
 
 | 구현 티켓 검증 | 실패하면 나타날 문제 |
 | --- | --- |
 | 필터401/413·MVC400/404/405/415/422·상류502/503/504·500 JSON 스냅샷 및406빈본문 | 앱이 같은 실패를 다른 구조로 받음 |
-| JSON null/빈items/201·바이너리PNG·기존API 경로 계약; 양쪽 thumbnail mixed/image-only Accept의 PNG 성공·JSON 오류, JSON-only406빈본문 | 이중 봉투, thumbnail 손상, 구앱 호환 파괴·도메인404를406으로 오인 |
+| JSON null/빈items/201·바이너리 bytes·기존API 경로 계약; 지원할 수 없는 Accept의 406빈본문(신규·legacy 양쪽) | 이중 봉투, 바이너리 손상, 구앱 호환 파괴 |
 | encoded/matrix URI·중복헤더·위조 X-User-Id·AT만료 | 무접두어 변경 중 인증 우회/타인 주체 전달 |
 | Postgres 두 동시 동일key·본문불일치·커밋후응답유실·rollback | 이중 차감/보상, 잘못된 결과 재생 |
 | 동일key 성공후 stale expectedVersion·다른key 종료/구매 | 원 성공409오인 또는 도메인유일성 누락 |
@@ -310,6 +303,6 @@ HTTP 재시도는 GET과 Data가 영속 멱등을 보장하는 명시 명령만,
 | 선택적 게스트 AT subject 승계·위조/만료 AT·메시지 field=clientMessageId | 계정 데이터 분리·오류 입력 오표시 |
 | cursor 서명/만료/타사용자/필터/동률/메시지방향 | 정보유출·페이지중복/누락·무한스크롤루프 |
 | bounded 병렬·context/큐/enqueue 전후 예산 소진504·executor 포화503·선택 timeout과 전체504 경계·필수/선택 즉시 실패·모든 조기 종료의 실제 I/O 취소 후 자원회수 | thread/connection 고갈, 권한상실 은폐 |
-| 1659 auth/key/내부토큰 회귀·기존미리보기 전체 회귀 | 이미 해결한 인증·위성·SSRF 회귀 |
+| 1659 auth/key/내부토큰 회귀 | 이미 해결한 인증·위성 회귀 |
 
 이번 문서 작업에서는 원본 복사본 SHA-256/바이트 비교, 66개 원본 method/path 대조, 변경36개 전수 적용표, 원본 버전필드9개+상점 기술 확장1개+건설 비용 기술 확장1개(총11축) 대조, Markdown 상대 링크와 Mermaid fence 짝을 확인한다. 빌드·단위/통합 테스트는 문서 변경에 실행하지 않으며 위 표의 통과를 주장하지 않는다. 실제 검증 결과는 구현 PR에 명령·exit code·결과 파일과 함께 남긴다.

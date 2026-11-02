@@ -276,11 +276,11 @@ ownership/세션을 가지므로 늦은 삭제·폐기가 새 등록이나 다�
 
 요청 `{ "confirmation": "DELETE" }`. 대소문자까지 정확히 일치해야 하며 누락/다른 값은 400이다. 유효 AT와 활성 계정·세션 검사, 필수 멱등 키를 요구한다. confirmation은 재인증 수단이 아니다.
 
-선택 필드 `appleAuthorizationCode`(비어 있지 않은 문자열)를 함께 받을 수 있다. 허용 본문은 `{ "confirmation": "DELETE" }` 또는 `{ "confirmation": "DELETE", "appleAuthorizationCode": "<code>" }` 둘뿐이며, 그 밖의 필드·문자열이 아닌 값·빈 문자열·명시 null은 400 `INVALID_REQUEST`(코드가 틀리면 `field: appleAuthorizationCode`)다. 필드가 없는 기존 클라이언트는 그대로 동작한다. 이 코드는 App Store 5.1.1(v) 대응이다 — 앱이 탈퇴 직전 Sign in with Apple을 다시 돌려 받은 일회용 값이고, 탈퇴 판정에는 쓰지 않는다. Business는 Data의 탈퇴가 확정된 **뒤** 기존 best-effort 정리(미리보기 캐시·세션 거부목록) 다음에 Apple `/auth/token`으로 교환해 얻은 refresh token(없으면 access token)을 `/auth/revoke`로 폐기한다. 아무것도 저장하지 않고, 설정(`APPLE_TEAM_ID`·`APPLE_KEY_ID`·`APPLE_PRIVATE_KEY`) 누락·Apple 오류·타임아웃은 WARN 한 줄만 남기며 응답은 그대로 200 `{ "deleted": true }`다. 탈퇴가 확정되지 않은 경우(`HOST_WITHDRAW` 등)에는 Apple을 부르지 않는다.
+선택 필드 `appleAuthorizationCode`(비어 있지 않은 문자열)를 함께 받을 수 있다. 허용 본문은 `{ "confirmation": "DELETE" }` 또는 `{ "confirmation": "DELETE", "appleAuthorizationCode": "<code>" }` 둘뿐이며, 그 밖의 필드·문자열이 아닌 값·빈 문자열·명시 null은 400 `INVALID_REQUEST`(코드가 틀리면 `field: appleAuthorizationCode`)다. 필드가 없는 기존 클라이언트는 그대로 동작한다. 이 코드는 App Store 5.1.1(v) 대응이다 — 앱이 탈퇴 직전 Sign in with Apple을 다시 돌려 받은 일회용 값이고, 탈퇴 판정에는 쓰지 않는다. Business는 Data의 탈퇴가 확정된 **뒤** 기존 best-effort 정리(세션 거부목록) 다음에 Apple `/auth/token`으로 교환해 얻은 refresh token(없으면 access token)을 `/auth/revoke`로 폐기한다. 아무것도 저장하지 않고, 설정(`APPLE_TEAM_ID`·`APPLE_KEY_ID`·`APPLE_PRIVATE_KEY`) 누락·Apple 오류·타임아웃은 WARN 한 줄만 남기며 응답은 그대로 200 `{ "deleted": true }`다. 탈퇴가 확정되지 않은 경우(`HOST_WITHDRAW` 등)에는 Apple을 부르지 않는다.
 
 Data의 기존 `AccountWithdrawalService.withdraw` 단일 TX에 신규 파기를 넣는다. 다른 주민이 있는 방장은 기존 400 `HOST_WITHDRAW`이고 전체 변경이 롤백된다. 성공은 200 `{ "data": { "deleted": true } }`. 원본 예상 계약의 200과 legacy DELETE `/api/v1/users/me`의 204를 구분한다.
 
-성공 후 같은 AT로 재요청하면 공통 검사 순서에 따라 세션·authGeneration 폐기보다 사용자 비활성이 먼저 판정되어 404 `USER_NOT_FOUND`이고, 토큰 자체가 만료/위조면 401이다. 범용 receipt가 남아 있어도 폐기된 주체에게 개인 응답을 재생하지 않는다. 클라이언트는 최초 200 또는 같은 명령 재시도의 404 `USER_NOT_FOUND`를 탈퇴 확정으로 보고 아래 탈퇴 전용 로컬 파기를 실행한다. 401은 기존 refresh 흐름을 타며, 탈퇴한 계정의 refresh·logout도 같은 순서로 404 `USER_NOT_FOUND`다. logout의 활성 사용자 내 완료 재생 특례를 계정 탈퇴에 확대하지 않는다.
+성공 후 같은 AT로 재요청하면 공통 검사 순서에 따라 세션·authGeneration 폐기보다 사용자 비활성이 먼저 판정되어 404 `USER_NOT_FOUND`이고, 토큰 자체가 만료/위조면 401이다. 범용 receipt가 남아 있어도 폐기된 주체에게 개인 응답을 재생하지 않는다. Business는 탈퇴 전용 읽기 5초·요청 6초 예산을 쓰고, Data의 404 `USER_NOT_FOUND`를 탈퇴 확정으로 읽어 커밋 뒤 정리(Apple 폐기 포함)를 이어 간 뒤 200 `{deleted:true}`로 끝낸다. 클라이언트는 최초 200 또는 같은 명령 재시도의 404 `USER_NOT_FOUND`(구버전 호환)를 탈퇴 확정으로 보고 아래 탈퇴 전용 로컬 파기를 실행한다. 401은 기존 refresh 흐름을 타며, 탈퇴한 계정의 refresh·logout도 같은 순서로 404 `USER_NOT_FOUND`다. logout의 활성 사용자 내 완료 재생 특례를 계정 탈퇴에 확대하지 않는다.
 
 ### 2.6 GET /me/settings
 
@@ -554,7 +554,7 @@ epoch/gen·완료 RT hash·고정 만료/복구창을 검사해 동일 결과를
 | league_weekly_results.user_id/focus_seconds/tier/acknowledged_at | 실제 주간 정산 결과이며 사용자·주차 유일성이 중복 정산 방지에도 쓰임. 현재 탈퇴 삭제 없음 | 개인 순위/집중량/티어 변경/확인 시각은 같은 TX에서 파기. 중복 정산을 막는 최소 userId/weekStart 완료 마커만 분리 보존하고 활성 사용자 재검사로 탈퇴 뒤 정산·재생성 차단. 원 결과를 일반 API로 노출하지 않음 |
 | Redis 랭킹의 모든 주차 ZSET·presence·지연 점수 사건 | 중앙 soft delete만으로 제거 보장 안 됨 | 같은 탈퇴 TX에 version을 가진 user.withdrawn outbox를 내구화. 랭킹 소비자는 tombstone/version 설정과 모든 주차 ZSET·presence 제거를 원자 적용하고 지연·DLT 점수의 부활을 거부 |
 | Data 공유 Redis `presence:focus:{userId}` lease·`:closed` 표식 | 기준 main `RedisFocusPresence.focusStarted`의 AFTER_COMMIT `SET_IF_NEWER`와 reconciler의 `restoreLeaseIfMissing`(`SET_IF_ABSENT`)은 `:closed`·세션 순서만 비교하고 탈퇴 tombstone은 보지 않음. lease는 시작 기준 최대 13시간 | 소비자는 같은 Redis의 사용자 tombstone 기록과 lease·`:closed` 삭제를 한 원자 처리로 적용하고, 두 writer Lua가 그 tombstone을 같은 스크립트에서 대조해 재생성을 거절. 아래 랭킹 절 적용 |
-| Business Redis 링크 미리보기 `cache:business:preview:{userId}:{id}`(원본 URL·Base64 썸네일)·`cache:business:rate:{userId}` | 기준 main `PreviewCache`는 pending 90초·READY 300초·FAILED 30초·rate 60초로 사용자 UUID 키에 저장. `PreviewService`는 worker 스레드에서 비동기 완료하며 탈퇴 정리·활성 검사 없음 | Data→Business 전달이 금지이므로 탈퇴 명령을 받은 Business가 Data 호출 전 차단 표지를 두고 claim·rate·complete·조회가 원자 대조. 탈퇴 확정 뒤 두 prefix 삭제, 확정 실패면 표지 해제. 아래 미리보기 절 적용 |
+| ~~Business Redis 링크 미리보기 `cache:business:preview:{userId}:{id}`·`cache:business:rate:{userId}`~~ | **GROMO-2682(2026-11-01)에서 링크 미리보기와 함께 제거** — 이 캐시는 더 이상 만들어지지 않는다 | 파기 대상 아님. 운영 Redis에 남은 키는 TTL로 소멸 |
 | gromo_chat.chat_read_cursors의 user_id/group_id/last_read_message_id/updated_at | 기준 main·PR739 이름 전환 코드에 커서 UPSERT가 있으나 탈퇴 삭제/consumer/fencing 없음 | 해당 user_id의 모든 방 커서 행 hard delete. 중앙 TX의 user.withdrawn 내구 전달 뒤 chat/realtime 로컬 TX에서 tombstone/version·DELETE·수신 완료를 함께 확정하고 모든 cursor writer와 직렬화. 같은 tombstone과 개별 로그아웃의 auth.session.revoked 세션 fence를 REST·STOMP 인가, 기존 구독 전달, 메시지 writer에도 적용하고 멤버십 캐시 삭제·활성 소켓 종료까지 완료 조건. 메시지 본문/sender_id 보존은 변경하지 않되 공개 응답(히스토리·방 목록 최신 메시지·재전송 응답)의 탈퇴 발신자 senderId는 null로 치환 |
 | user_focus_tags.user_id, source_occupation_default_tag_id, default_tags.name 연결 | 기존 erase에는 삭제 없음 | FocusSession이 user_focus_tags를 참조하므로 직접 user_id만 nullify해도 사용자 역추적 경로가 남음. 정산 증거 동결 뒤 태그의 사용자 귀속/직군 출처를 끊는 nullable migration 또는 세션 태그 연결 해제 후 개인 채택 행 파기를 비교 검증. 공유 default_tags는 일괄 삭제하지 않음. 두 대안 모두 setupFocusTag/updateFocusTag 및 복원·관리 writer의 활성 users 공유 잠금과 탈퇴 배타 잠금으로 직렬화 |
 | character_generation.user_id, created_at, client_generation_id | 기존 erase에는 정리 없음 | 같은 중앙 탈퇴 TX에서 해당 user_id의 모든 생성 이력 hard delete. 기존 recordGeneration의 users 배타 잠금 → 사용자 advisory → 이력 순서를 유지하여 삭제 뒤 재생성을 차단하고 타인 이력은 보존 |
@@ -851,13 +851,12 @@ device_id를 모든 이벤트 공통 파라미터로 싣는다. 서버 `Ga4Measu
 
 이것은 앱 후속 구현 조건이며 현재 앱에 탈퇴 전용 정리가 있다고 주장하지 않는다. 서버 7개 계약과 원본 예시는 바꾸지 않는다.
 
-#### Business 링크 미리보기 캐시의 탈퇴 파기
+#### Business 링크 미리보기 캐시의 탈퇴 파기 (제거됨)
 
-기준 main `server/business-api`의 `PreviewCache`는 `cache:business:preview:{userId}:{id}`에 원본 URL·Base64 썸네일을 담아 pending 90초, READY 300초, FAILED 30초 동안 두고, `cache:business:rate:{userId}` 카운터를 60초 둔다. `PreviewController`는 인증 필터가 넣은 userId만 쓰며 활성 사용자 검사가 없고, `PreviewService`는 worker 스레드에서 비동기로 `complete`한다. `complete`는 현재 값이 pending 그대로일 때만 쓰므로 키를 지운 뒤 이미 claim한 작업이 되살리지는 않는다. 그러나 삭제 직후 도착한 요청의 claim·rate와 만료 전 AT로 들어온 새 요청·조회는 탈퇴 뒤에도 사용자 UUID 키를 다시 만든다.
-
-[서비스 아키텍처 §3](../../../architecture/service-architecture.md)은 Data → Business 호출을 금지하므로 이 캐시는 `user.withdrawn` relay 대상이 아니다. 대신 `DELETE /me`를 받는 Business가 **Data 탈퇴 명령을 보내기 전에** 같은 Redis에 사용자 차단 표지를 두고, claim·rate·complete·조회·썸네일 스크립트가 그 표지를 원자 대조해 표지가 있으면 쓰거나 반환하지 않는다. Data가 탈퇴 성공(최초 200 또는 같은 명령의 확정 재생)을 돌려주면 두 prefix를 삭제한다. `HOST_WITHDRAW`처럼 탈퇴가 수행되지 않았음이 확정되면 표지를 해제하고, 응답 유실·timeout처럼 결과가 불명확하면 표지를 유지한 채 같은 멱등 키로 결과를 확인한다. 표지 수명은 기존 AT 최대 수명과 캐시 TTL 중 긴 쪽보다 짧지 않게 둔다. 미리보기 경로에도 신규 경로와 같은 동기 활성 검사를 추가하되 현재 구현이 있다고 주장하지 않는다.
-
-Business가 표지를 두기 전에 죽으면 탈퇴 명령도 전달되지 않는다. 표지를 둔 뒤 prefix 삭제 전에 죽으면 새 기록은 표지가 막지만 이미 기록된 항목은 기존 TTL(최대 300초) 안에서만 남는다. 이 잔존을 숨기지 않고 완료로 표시하지 않는다. 표지를 둔 동안 같은 사용자의 정상 미리보기는 탈퇴 결과가 확정될 때까지 일시 거절될 수 있다(fail-closed).
+링크 미리보기 API와 그 Redis 캐시는 앱 호출부가 없어 GROMO-2682(2026-11-01)에서 제거했다. 그래서 탈퇴 때 지울
+Business 미리보기·요청 제한 키와, 그 재생성을 막던 탈퇴 차단 표지(`cache:business:withdrawn:*`)는 더 이상 만들어지지 않는다.
+이미 운영 Redis에 있던 키는 TTL(최대 2시간)로 사라진다. 제거 전의 설계(탈퇴 명령 전 차단 표지 → 확정 뒤 prefix 삭제)는
+제거 커밋 직전의 이 문서에서 볼 수 있고, 되살리려면 제거 커밋을 되돌린다([결정 로그](../decision-log.md) RP-링크미리보기제거).
 
 #### 알림 발송 이력의 파기 경계
 
@@ -1087,7 +1086,6 @@ NOT NULL로 승격했다. V1 FK는 이 행에서 users/group_challenges로 향�
 | 로그 보존 기간 정합 | 로컬 logback APP maxHistory=7·user-activity=30 = policy.md L01·L02, S3 수명 주기 `system_log/`·`user_log/`·`user-activity/` 각 90일 = policy.md L03·L04·L10(`get-bucket-lifecycle-configuration` 출력으로 확인, 2026-09-19 적용). 미확인 sink의 파기 완료 주장0 |
 | GA4 데이터 보존·탈퇴 뒤 앱 이벤트 | GA4 속성 이벤트 데이터 보존 = policy.md L05(2개월) 설정 확인 전 완료 주장0, 탈퇴 뒤 옛 User-ID로 전송0 |
 | 탈퇴 200·응답 유실 뒤 재시도 404·다른 기기 탈퇴 뒤 404, 마운트된 Provider의 늦은 쓰기·정리 중 앱 종료, 같은 기기의 다른 계정 버킷 | 탈퇴자 userId 항목·마커·누끼 파일0, 늦은 쓰기 부활0·다음 실행 재개, 다른 계정 버킷·기기 전역 값 보존, 일반 로그아웃/계정 전환 보존 정책 불변 |
-| 미리보기 claim 직후·worker 완료 직전·rate 증가 중 탈퇴, 만료 전 AT의 새 요청/조회/썸네일, HOST_WITHDRAW 실패·응답 유실·표지 뒤 crash | 탈퇴 확정 뒤 preview/rate 키0·재생성0, 확정 실패면 표지 해제로 정상 미리보기 복구, 불명확 결과는 표지 유지·재확인, 표지 뒤 crash 잔존은 TTL 상한 안에서만 남고 완료 주장0 |
 
 기준 main 근거:
 
@@ -1122,7 +1120,6 @@ NOT NULL로 승격했다. V1 FK는 이 행에서 users/group_challenges로 향�
 | `app/legacy/app-dev/src/App.tsx`, `app/legacy/app-dev/src/types/storage.ts`, `app/legacy/app-dev/src/store/CharacterContext.tsx`, `app/legacy/app-dev/src/services/sessionErrors.ts`, `app/legacy/app-dev/src/services/api.ts` | 일반 로그아웃 multiRemove와 equipment·ownedItems 보존 주석, 계정별 맵·userId 마커 키, customUri·createdAt, USER_NOT_FOUND 안내와 401 refresh 실패의 일반 로그아웃 수렴 |
 | `server/chat/src/main/java/com/oneorthree/chat/membership/MembershipService.java`, `message/service/ChatMessageService.java`, `message/service/ChatAccessGuard.java`, `config/StompAuthChannelInterceptor.java`, `auth/ChatPrincipal.java` (기준 main 529a396) | 멤버십 캐시 TTL 무효화뿐, send의 집중·멤버십 판정 뒤 저장, SUBSCRIBE·SEND의 토큰·판정, 만료 시 기존 구독 유지, sid·authGeneration 미검사. 메시지별 전달 검사·연결 레지스트리·폐기 소비자 없음 |
 | `server/realtime/src/main/java/com/oneorthree/realtime/config/ChatOutboundChannelInterceptor.java`, `config/RealtimeSessionRegistry.java` (기준 이후 머지된 PR739 `da1ae5a39`) | 기존 구독 메시지별 토큰·멤버십 재검사, 세션 ID 단위 종료만. 사용자·sid 색인·인스턴스 간 전파·폐기 fence 없음 |
-| `server/business-api/src/main/java/com/oneorthree/business/linkpreview/repository/PreviewCache.java`, `service/PreviewService.java`, `PreviewController.java` | 사용자 UUID 키·pending 90/READY 300/FAILED 30초·rate 60초, CAS complete, worker 비동기 완료, 활성 검사 없음 |
 | `server/data-api/src/main/java/com/oneorthree/phone/group/service/GroupBetService.java`(toResultParticipants·loadCurrentBets·toSessionResponse·displayNickname), `group/dto/GroupBetResultParticipantResponse.java`·`GroupBetResponse.java`·`GroupBetParticipantResponse.java`·`GroupBetSessionParticipantResponse.java`; 선행 PR745 `9ad4236`의 `server/business-api/.../usecase/NotificationSettingsUseCase.java`·`api/dto/DeviceTokenRegisterResponse.java`·`app/legacy/app-dev/src/services/notificationCommands.ts` | 결과·현재 회차·세션 참가자 모두 탈퇴자 닉네임만 치환·실제 userId(creatorUserId 포함) 반환, 설정 GET 정본 조회·PUT 내구 명령 뒤 적용, 등록 응답 ownershipToken과 앱 승계·X-Device-Ownership |
 | `server/data-api/src/main/java/com/oneorthree/phone/common/port/RedisFocusPresence.java`, `focus/scheduler/FocusPresenceReconciler.java`, `app/legacy/app-dev/src/components/PushGate.tsx` | AFTER_COMMIT SET_IF_NEWER·SET_IF_ABSENT의 closed/세션 순서 비교, lease 시작 기준 13시간, 트랜잭션 밖 재구축 쓰기, 등록 effect의 [userId] 의존 |
 | `server/data-api/src/main/java/com/oneorthree/phone/notification/client/FcmPushNotificationClient.java`, `group/service/GroupService.java`(publishJoinAttribution·ga4JoinParams), `common/analytics/Ga4MeasurementClientImpl.java`, `app/legacy/app-dev/src/services/push.ts`·`pushBackground.ts` | 표시 알림 notification 페이로드·silent content-available, 가입 MP의 app_instance_id 미저장·user_id 없는 본문, 수신·탭·콜드스타트의 대상 미확인 saveToInbox·로컬 배너·딥링크 |

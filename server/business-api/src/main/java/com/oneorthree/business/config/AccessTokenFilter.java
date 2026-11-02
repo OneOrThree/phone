@@ -158,9 +158,6 @@ public class AccessTokenFilter extends OncePerRequestFilter {
         }
 
         request.setAttribute(AuthAttributes.CLAIMS, claims.get());
-        // 미리보기 계열 핸들러는 «문자열 userId» 속성을 읽는다(1747 부터의 계약). 신원의 출처를 한 곳으로
-        // 모으면서 그 계약을 유지한다 — 여기서 심지 않으면 그쪽이 조용히 null 사용자로 동작한다.
-        request.setAttribute(AuthAttributes.USER_ID, claims.get().userId().toString());
         filterChain.doFilter(request, response);
     }
 

@@ -87,20 +87,6 @@ class SharedRedisTest(unittest.TestCase):
                 failed = subprocess.run(command, capture_output=True, text=True, timeout=10)
                 self.assertNotEqual(failed.returncode, 0)
 
-    def test_actual_preview_scripts_work_with_generated_acl(self):
-        root = ROOT / "server/business-api/src/main/resources/redis"
-        slots = [f"cache:business:preview:slot:v1:{i}" for i in range(64)]
-        marker = "cache:business:withdrawn:fixture"
-        def script(name, keys, *args):
-            return self.command("business", "EVAL", (root / f"preview-{name}.lua").read_text(),
-                                str(len(keys)), *keys, *args)
-        self.assertEqual(script("claim", slots + [marker], "fixture:id", "fixture", "g", '{"pending":true}'), "1")
-        self.assertEqual(script("complete", slots + [marker], "fixture:id", "g", '{"ready":true}', "300"), "1")
-        self.assertEqual(script("find", slots + [marker], "fixture:id"), '{"ready":true}')
-        self.assertEqual(script("erase", slots + [marker, "cache:business:rate:fixture"], "fixture",
-                                str(int(time.time() * 1000) + 60000)), "1")
-        self.assertEqual(script("claim", slots + [marker], "fixture:next", "fixture", "g", "{}"), "0")
-
     def test_restart_preserves_marker_and_ttl(self):
         key = "cache:business:revoked-session:restart"
         self.assertEqual(self.command("business", "SET", key, "1", "EX", "60"), "OK")

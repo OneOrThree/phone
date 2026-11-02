@@ -199,8 +199,9 @@ test.each(['ios', 'android', 'web'] as const)(
       uncaughtExceptions: true,
       unhandledRejections: true,
       console: false,
-      nativeCrashes: os !== 'web',
-      androidNdkCrashes: os === 'android',
+      // 네이티브 크래시는 Sentry 가 전담한다(services/sentry.ts).
+      nativeCrashes: false,
+      androidNdkCrashes: false,
     });
     const exception = { event: '$exception', properties: { $exception_level: 'fatal' } };
     expect(options.before_send(exception)).toEqual({

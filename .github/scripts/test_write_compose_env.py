@@ -74,6 +74,41 @@ class WriteComposeEnvTest(unittest.TestCase):
         for service in ("business-api", "notification"):
             self.assertTrue(set(keys).isdisjoint(MODULE.allowed_keys(service)))
 
+    def test_Grafana_관리자_비밀번호는_시크릿에_있을_때만_쓰고_기본_admin_을_채우지_않는다(self) -> None:
+        # GROMO-2193: 값이 없을 때 admin 을 채우면 호스트에 열린 Grafana(3000)가 admin/admin 으로 뜬다.
+        # 없을 때의 실패는 관측 overlay 의 ${GRAFANA_ADMIN_PASSWORD:?} 몫이다. 필수 키로 올리면 관측과 무관한 dev 배포까지 막힌다.
+        self.assertNotIn("GRAFANA_ADMIN_PASSWORD", MODULE.LEGACY_REQUIRED_KEYS)
+        without = MODULE.render(secret(), "example/data:1")
+        self.assertNotIn("GRAFANA_ADMIN_PASSWORD", without)
+        self.assertIn("GRAFANA_ADMIN_USER='admin'", without)
+        given = MODULE.render(secret(GRAFANA_ADMIN_PASSWORD="fixture-grafana"), "example/data:1")
+        self.assertIn("GRAFANA_ADMIN_PASSWORD='fixture-grafana'", given)
+
+    def test_관측_overlay는_Grafana_비밀번호가_비면_compose_가_멈춘다(self) -> None:
+        # writer 가 실제로 쓴 dev.env 와 실제 관측 overlay 를 그대로 물려, 기본값 없이 :? 가 막는지 본다 (GROMO-2193).
+        scripts = SCRIPT.parents[2] / "server" / "scripts"
+        hermetic = {key: value for key, value in os.environ.items() if not key.startswith("GRAFANA_")}
+        with tempfile.TemporaryDirectory() as directory:
+            def config(**overrides: object) -> subprocess.CompletedProcess[str]:
+                env_file = Path(directory) / "dev.env"
+                subprocess.run([sys.executable, str(SCRIPT), "--output", str(env_file), "--app-image", "example/app@sha256:abc"],
+                               input=json.dumps(secret(**overrides)), text=True, check=True)
+                return subprocess.run(["docker", "compose", "--env-file", str(env_file),
+                                       "-f", str(scripts / "docker-compose.dev.yml"),
+                                       "-f", str(scripts / "docker-compose.observability.yml"),
+                                       "config", "--format", "json"],
+                                      env=hermetic, text=True, capture_output=True)
+
+            for overrides in ({}, {"GRAFANA_ADMIN_PASSWORD": ""}):
+                with self.subTest(overrides=overrides):
+                    failed = config(**overrides)
+                    self.assertNotEqual(failed.returncode, 0)
+                    self.assertIn("GRAFANA_ADMIN_PASSWORD", failed.stderr)
+            rendered = config(GRAFANA_ADMIN_PASSWORD="fixture-grafana")
+            self.assertEqual(rendered.returncode, 0, rendered.stderr)
+            grafana = json.loads(rendered.stdout)["services"]["grafana"]["environment"]
+            self.assertEqual(grafana["GF_SECURITY_ADMIN_PASSWORD"], "fixture-grafana")
+
     def test_compose가_메타문자와_줄바꿈을_원문으로_복원한다(self) -> None:
         password = "p$WORD # literal\\path'quote\nnext"
         with tempfile.TemporaryDirectory() as directory:
@@ -237,7 +272,7 @@ class WriteComposeEnvTest(unittest.TestCase):
             NOTI_DB_USERNAME="gromo_notification", NOTI_DB_PASSWORD="noti-only",
             NOTIFICATION_GENERATION_REQUIRED="true", NOTIFICATION_LEGACY_DEVICE_REGISTRATION="false",
             SVC_TOKEN_BIZ_TO_DATA="biz-data", SVC_TOKEN_BIZ_TO_NOTI="biz-noti",
-            BUSINESS_REDIS_PASSWORD="redis-only-password", GOOGLE_DRIVE_API_KEY="drive-only",
+            BUSINESS_REDIS_PASSWORD="redis-only-password",
             BUSINESS_CURSOR_KEY_V1="cursor-only",
             SVC_TOKEN_DATA_TO_NOTI="data-noti",
             SVC_TOKEN_NOTI_TO_DATA="noti-data",
@@ -251,7 +286,9 @@ class WriteComposeEnvTest(unittest.TestCase):
         )
         retired_keys = ("SVC_TOKEN_BIZ_TO_LINK", "SVC_TOKEN_DATA_TO_LINK", "LINK_CAPABILITY_KEY",
                         "LINK_IP_SALT", "COMPAT_MATCH_HANDLER_ENABLED", "COMPAT_IMPORT_CONTRACT_READY",
-                        "COMPAT_MIGRATION_ID", "BUSINESS_COMPAT_CLAIM_QUEUE_REPLAY_ENABLED")
+                        "COMPAT_MIGRATION_ID", "BUSINESS_COMPAT_CLAIM_QUEUE_REPLAY_ENABLED",
+                        # GROMO-2682 링크 미리보기와 함께 걷은 Drive 키 — 시크릿에 남아 있어도 어느 서비스에도 나가지 않는다.
+                        "GOOGLE_DRIVE_API_KEY")
         combined.update({key: "retired-secret" for key in retired_keys})
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -293,7 +330,6 @@ class WriteComposeEnvTest(unittest.TestCase):
             self.assertEqual(biz["LINK_PROXY_SECRET"], "proxy-proof")
             self.assertNotIn("LINK_BASE_URL", biz)
             self.assertEqual(biz["BUSINESS_REDIS_PASSWORD"], "redis-only-password")
-            self.assertEqual(biz["GOOGLE_DRIVE_API_KEY"], "drive-only")
             self.assertEqual(biz["LOGIN_ATTEMPT_DIGEST_SECRET"], "digest-only-secret")
             self.assertEqual(biz["BUSINESS_CURSOR_KEY_V1"], "cursor-only")
             self.assertEqual(biz["BUSINESS_REDIS_USERNAME"], "business")
@@ -313,7 +349,7 @@ class WriteComposeEnvTest(unittest.TestCase):
             for key in ("FCM_SERVICE_ACCOUNT_JSON", "NOTI_DB_PASSWORD", "API_DB_PASSWORD",
                         "SVC_TOKEN_CONSOLE_TO_NOTI", "SVC_TOKEN_DATA_TO_LINK"):
                 self.assertNotIn(key, biz)
-            for key in ("JWT_SECRET", "API_DB_PASSWORD", "SVC_TOKEN_BIZ_TO_LINK", "LINK_CAPABILITY_KEY", "BUSINESS_REDIS_PASSWORD", "GOOGLE_DRIVE_API_KEY",
+            for key in ("JWT_SECRET", "API_DB_PASSWORD", "SVC_TOKEN_BIZ_TO_LINK", "LINK_CAPABILITY_KEY", "BUSINESS_REDIS_PASSWORD",
                         "LOGIN_ATTEMPT_DIGEST_SECRET", "BUSINESS_CURSOR_KEY_V1"):
                 self.assertNotIn(key, noti)
             for environment in (biz, noti):

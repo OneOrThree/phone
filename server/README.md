@@ -10,7 +10,7 @@ GROMO는 집중 세션과 스크린타임을 기록하고, 캐릭터·아이템�
 
 | 구성 | 담당하는 일 | 저장소 · 의존성 | 문서 |
 | --- | --- | --- | --- |
-| Business API | 앱 요청 인증·조합, 공개 파일 링크 미리보기 | 상류 HTTP, 미리보기 전용 Redis | [README](business-api/README.md) |
+| Business API | 앱 요청 인증·조합 | 상류 HTTP, 폐기 세션 표지용 전용 Redis | [README](business-api/README.md) |
 | Data API | 계정·집중·섬·재화의 상태와 트랜잭션, 정산 | PostgreSQL, Redis, 선택적 outbox relay | [README](data-api/README.md) |
 | Notification | 기기·설정·예약 알림·발송·운영 관리 | 전용 PostgreSQL, Kafka, FCM | [README](notification/README.md) |
 | Realtime | 섬 채팅·읽음 위치·인스턴스 간 전파 | 전용 PostgreSQL, Redis Pub/Sub | [README](realtime/README.md) |
@@ -28,12 +28,12 @@ GROMO는 집중 세션과 스크린타임을 기록하고, 캐릭터·아이템�
 ```mermaid
 flowchart LR
   app["GROMO 앱"] -->|"기존 API·인증 발급"| data["Data API"]
-  app -->|"조합 API·파일 미리보기"| business["Business API"]
+  app -->|"조합 API"| business["Business API"]
   app -->|"WebSocket·채팅 REST"| realtime["Realtime"]
   business -->|"내부 HTTP"| data
   business -->|"기기·설정·알림 확인"| notification["Notification"]
   business -->|"링크 발급·귀속"| link["Link / MMP · 별도 저장소"]
-  business --> preview[("미리보기 전용 Redis")]
+  business --> bizRedis[("전용 Redis · 폐기 세션 표지")]
   data --> coreDb[("코어 PostgreSQL")]
   data -->|"집중 상태 기록"| redis[("공유 Redis")]
   realtime -->|"집중 상태 조회·팬아웃"| redis
@@ -63,7 +63,6 @@ flowchart LR
 | 응답을 놓쳐도 명령을 중복 실행하지 않기 | 같은 요청 키로 확정 결과를 재생하고 상태·receipt·outbox를 함께 저장 | [Business 공통 계층](business-api/README.md) |
 | 섬 안에서 대화하고 집중 중에는 채팅 제한하기 | 멤버십·집중 상태 검사, Redis 팬아웃, 채팅 이력과 읽음 위치 | [Realtime](realtime/README.md) |
 | 알림을 적절한 시점과 기기에 보내기 | 수신 중복 제거, 수신 동의·조용한 시간·확인 여부·발송 적격 검사 | [Notification](notification/README.md) |
-| 파일을 공유하면 미리보기 보여주기 | 공개 URL 검증, 이미지·PDF 썸네일 생성, TTL 캐시 | [Business API](business-api/README.md) |
 | 문제가 생긴 구간을 찾고 배포를 재현하기 | 요청·DB·리소스 지표와 로그, digest 기반 이미지, 서비스별 환경변수 | [관측](observability/README.md) · [배포 도구](scripts/README.md) |
 
 ## 4. 기술 스택
@@ -93,7 +92,7 @@ API는 `http://localhost:8080`, Swagger UI는 `http://localhost:8080/swagger-ui/
 
 ## 6. 검증 · 배포
 
-서비스 폴더에서 `./gradlew build`로 테스트·정적 검사·패키징을 수행합니다. 통합 테스트에는 실행 중인 Docker가 필요합니다. Business의 PDF 미리보기 테스트는 Poppler가 필요하므로 Dockerfile의 `test` 단계를 사용할 수 있습니다.
+서비스 폴더에서 `./gradlew build`로 테스트·정적 검사·패키징을 수행합니다. 통합 테스트에는 실행 중인 Docker가 필요합니다.
 
 - Data API: [dev CI](../.github/workflows/data-api-ci.dev.yml). 운영 CI·CD 는 없음 (GROMO-2224 에서 삭제 — prod 파이프라인 재작업 예정).
 - Realtime: [독립 CI](../.github/workflows/realtime-ci.dev.yml).

@@ -38,7 +38,7 @@
 | k6 스위트(smoke 관통에 필요한 최소 매트릭스 3종 + 믹스 1종) | 전체 매트릭스 파일(heatmap·league·friends·search 등) |
 | make 딸깍 파이프라인 + verdict/baseline diff | spike(23:59 스크린타임)·soak 실행 |
 | workflow_dispatch + 전용 러너 + 대시보드 MVP | 대시보드 호스팅(GCS 정적)·알림·run 취소·멀티 baseline |
-| | prod(AWS) 환경 부하 — 절대치는 GCP 기준임을 리포트에 명시 |
+| | ~~prod(AWS) 환경 부하~~ → 2026-10-29 영구 금지(후속 범위 아님, `loadtest/README.md` 맨 위). 절대치는 GCP 기준임을 리포트에 명시 |
 
 ## 3. 용어
 

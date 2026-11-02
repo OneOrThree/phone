@@ -71,7 +71,7 @@ class PublicResponseTypeAuditTest extends UpstreamTestBase {
         Set<String> found = new TreeSet<>();
         int endpoints = 0;
         for (var handler : mappings.getHandlerMethods().values()) {
-            // business 아래 모든 @RestController — 패키지를 api·linkpreview 로 좁히면 새 패키지의 컨트롤러가 조용히 빠진다.
+            // business 아래 모든 @RestController — 패키지를 api 로 좁히면 새 패키지의 컨트롤러가 조용히 빠진다.
             if (handler.getBeanType().getPackageName().startsWith("com.oneorthree.business")
                     && handler.getBeanType().isAnnotationPresent(RestController.class)) {
                 String name = handler.getBeanType().getSimpleName() + "#" + handler.getMethod().getName();

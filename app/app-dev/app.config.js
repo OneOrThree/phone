@@ -50,7 +50,11 @@ module.exports = {
       // 시작·가입 화면의 세로 고정을 위해 전체 화면을 요구한다. iPadOS 26은 Expo 패치로 대응한다
       requireFullScreen: true,
       bundleIdentifier: 'com.oneorthree.gromo',
-      associatedDomains: ['applinks:link.oneorthree.world', 'applinks:oneorthree.dev.mooo.com'],
+      associatedDomains: [
+        'applinks:link.oneorthree.world',
+        'applinks:catus-api-v2.oneorthree.world',
+        'applinks:oneorthree.dev.mooo.com',
+      ],
       // GROMO-2523·2544 푸시·Meta SDK가 든 바이너리만 새 JS OTA를 받게 iOS 런타임을 분리한다.
       // gromo 번들 바이너리는 Google 클라이언트 스킴이 focuscat 바이너리와 달라 같은 OTA 를 받으면
       // 로그인 탭에서 크래시하므로 런타임을 또 가른다(focuscat 쪽은 2.0.0-push-meta-assets-v1).
@@ -78,7 +82,11 @@ module.exports = {
         'android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK',
         'android.permission.FOREGROUND_SERVICE_SPECIAL_USE',
       ],
-      intentFilters: ['link.oneorthree.world', 'oneorthree.dev.mooo.com'].map((host) => ({
+      intentFilters: [
+        'link.oneorthree.world',
+        'catus-api-v2.oneorthree.world',
+        'oneorthree.dev.mooo.com',
+      ].map((host) => ({
         action: 'VIEW',
         autoVerify: true,
         category: ['BROWSABLE', 'DEFAULT'],
@@ -119,6 +127,9 @@ module.exports = {
       // prebuild 전용 입력 — 체크인된 ios/Cattus/Info.plist 가 실제 스킴 정본이다(위 주석)
       ['@react-native-google-signin/google-signin', { iosUrlScheme: googleIosUrlScheme }],
       '@xmartlabs/react-native-line',
+      // 크래시·오류 수집(services/sentry.ts). org/project/authToken 은 빌드 env(SENTRY_*)로 넘겨
+      // 소스맵을 올린다 — 여기 토큰을 적으면 앱 패키지에 노출되므로 적지 않는다.
+      '@sentry/react-native',
       // GROMO-2380 고운돋움을 앱에 넣어 첫 화면부터 글꼴을 기다리지 않는다(웹만 useFonts 로 불러온다).
       // iOS는 글꼴 파일 속 가족 이름(Gowun Dodum), 안드로이드는 아래 등록 이름(Gowun)으로 찾는다 — sceneKit 의 GOWUN
       // 안드로이드를 xml 글꼴로 등록해야 굵게(700 이상)도 시스템 글꼴로 바뀌지 않고 고운돋움을 굵게 그린다

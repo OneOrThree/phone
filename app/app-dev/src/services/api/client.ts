@@ -67,8 +67,9 @@ export const CLIENT_STALE_SESSION = 'CLIENT_STALE_SESSION';
  * 앱 버전·플랫폼 헤더(GROMO-2642) — 서버가 사용자별 앱 버전을 기록한다. iOS 와 Android 는 버전 트랙이
  * 다르므로(1.0.x / 2.0.x) 두 헤더를 항상 함께 보낸다. 웹·버전 미상이면 둘 다 보내지 않는다.
  * 호출 시점에 읽어 테스트가 값을 바꿀 수 있다(비용은 네이티브 상수 조회 한 번).
+ * STOMP CONNECT 도 같은 헤더를 쓴다(`islandRealtime.realtimeClientOptions`, GROMO-2655).
  */
-function appVersionHeaders(): Record<string, string> {
+export function appVersionHeaders(): Record<string, string> {
   if (Platform.OS !== 'ios' && Platform.OS !== 'android') return {};
   // 기반 모듈이라 네이티브 모듈을 최상위 import 하지 않는다 — 모듈이 없는 테스트·바이너리에서도 요청은 나간다.
   try {

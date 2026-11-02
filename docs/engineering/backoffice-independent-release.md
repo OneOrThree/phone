@@ -6,11 +6,12 @@
 
 ## API 호환 경계
 
-백오피스 BFF는 Data·Notification HTTP API만 호출한다. 단, 화면 표시용으로 `itunes.apple.com` 조회 한 건을 더 보낸다(운영자 토큰 없음, 실패해도 작업은 막지 않는다). 서비스 DB에는 직접 접속하지 않는다. `backoffice/server/contract.json`이 이 버전의 필수 계약이다.
+백오피스 BFF는 Data·Notification HTTP API만 호출한다. 단, 화면 표시용으로 `itunes.apple.com`(App Store)·`play.google.com` 공개 페이지(Android 버전)·GitHub 공개 API(`api.github.com/repos/OneOrThree/phone`, 「출시 현황」의 배포 실행·태그·compare)와 `raw.githubusercontent.com`의 `deployment-status` 배포 기록(운영 백오피스에서만)를 조회한다(운영자 토큰·Authorization 없음, 실패해도 작업은 막지 않는다). GitHub 결과는 10분 캐시한다. 서비스 DB에는 직접 접속하지 않는다. `backoffice/server/contract.json`이 이 버전의 필수 계약이다.
 
 - Data `/internal/admin/content/environment`: `environment`, `contractVersion: "1"`, `capabilities`.
 - Notification `/internal/admin/publications/environment`: 위 필드와 `fcmProjectId`.
 - 두 환경 응답의 선택 필드 `serverVersion`(배포 커밋)·`schemaVersion`(DB 마이그레이션 번호). `schemaVersion`은 서비스별 자체 마이그레이션 번호(Data `db/v0`, Notification `db/migration`)라 서비스 간에 비교할 수 없고, `serverVersion`은 이미지별 태그가 아니라 릴리스 배포 커밋이다. 화면 표시 전용이며 필수 계약이 아니다. 없는 구버전 서버는 「-」로 표시한다.
+- Data 환경 응답만의 선택 필드 `infraRevision`(운영에 적용된 cattus-infra 구성 커밋). 운영 배포가 릴리스 manifest의 `infra_revision`을 Data 컨테이너 환경변수 `OBS_INFRA_REVISION`으로 넣으며, 다른 서비스에는 넣지 않아 Notification 응답에는 없다. 변수가 없거나 비어 있으면(dev 포함) Data는 `serverVersion`처럼 `unknown`을 돌려준다. 백오피스 서버가 이를 `null`로 바꿔 `/api/system/versions`의 최상위 `infraRevision`으로 전달하고, 화면은 사이드바 「시스템 버전」에 앞 7자리를 보여 주며 없으면 「-」로 표시한다. 화면 표시 전용이며 필수 계약이 아니다.
 - Data 필수 capability: `content.publication.v1`, `content.history.v1`, `content.notice.withdraw.v1`, `content.app-requirements.v1`, `construction.policy.v1`, `focus.policy.v1`.
 - Notification 필수 capability: `notification.publication.v1`, `notification.history.v1`, `notification.publication.cancel.v1`, `notification.templates.v1`.
 

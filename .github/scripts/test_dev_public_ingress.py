@@ -94,7 +94,6 @@ http {
             ("/screens/board", "business"),
             ("/api/v1/users/me/device-token", "business"),
             ("/api/v1/users/me/notification-settings", "business"),
-            ("/api/v1/link-previews", "business"),
             ("/health", "business"),
             ("/ws/realtime", "realtime::upgrade"),
         ):
@@ -108,8 +107,10 @@ http {
         )
 
     def test_legacy_and_internal_routes_are_closed(self):
+        # 링크 미리보기(GROMO-1747)는 GROMO-2682 에서 Business 와 함께 걷었다 — 다시 열리면 여기서 걸린다.
         for path in ("/api/v1/users/me", "/api/v1/users/me/device-token-extra",
-                     "/internal/admin/status", "/actuator/health", "/old", "/ws/chat"):
+                     "/internal/admin/status", "/actuator/health", "/old", "/ws/chat",
+                     "/link-previews", "/api/v1/link-previews", "/api/v1/link-previews/example/thumbnail"):
             with self.subTest(path=path):
                 self.assertEqual(self.get(path)[0], 404)
 

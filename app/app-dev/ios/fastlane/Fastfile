@@ -105,6 +105,16 @@ platform :ios do
       "iOS release/TestFlight 차단: Apple 계정 재진입을 위해 서버 dual-audience 배포를 검증한 뒤 EXPO_PUBLIC_APPLE_LOGIN_ENABLED=1 로 실행하세요."
     ) unless ENV["EXPO_PUBLIC_APPLE_LOGIN_ENABLED"] == "1"
 
+    # GROMO-2671 — 운영 이미지 CDN 은 아직 없다. 셸에 dev CDN 값(켜짐 또는 주소)이 남아 있으면 막고, 셸에 값이 없을 때 Expo 가
+    # .env 의 dev CDN 을 인라인하지 못하게 꺼진 값으로 고정한다(아래 EXPO_PUBLIC_ENV 고정과 같은 이유).
+    # 운영 CDN 을 발행·검증한 뒤 이 검사와 세 값을 운영 값으로 바꾼다(scripts/ota-update.sh 의 고정값도 함께).
+    UI.user_error!(
+      "iOS release/TestFlight 차단: 운영 이미지 CDN 이 아직 없어 EXPO_PUBLIC_IMAGE_ASSETS_ENABLED=true 와 EXPO_PUBLIC_IMAGE_ASSETS_URL 은 운영 빌드에 쓸 수 없습니다 — dev CDN 이 운영 바이너리에 실립니다. 두 값을 비우고 다시 실행하세요."
+    ) if ENV["EXPO_PUBLIC_IMAGE_ASSETS_ENABLED"] == "true" || !ENV["EXPO_PUBLIC_IMAGE_ASSETS_URL"].to_s.empty?
+    ENV["EXPO_PUBLIC_IMAGE_ASSETS_ENABLED"] = "false"
+    ENV["EXPO_PUBLIC_IMAGE_ASSETS_URL"] = ""
+    ENV["EXPO_PUBLIC_IMAGE_ASSETS_ENV"] = "prod"
+
     # 청중은 lane 이 정한다 — 셸에 GROMO_IOS_AUDIENCE=dev 가 남아 있어도 운영 빌드는 운영 가드(운영 주소 요구)를 탄다
     ENV["GROMO_IOS_AUDIENCE"] = "prod"
     # GROMO-2226 — JS 는 EXPO_PUBLIC_ENV 로 Google 클라이언트 행을 고른다. 셸에 값이 없으면 Expo 가 .env 를 인라인하므로

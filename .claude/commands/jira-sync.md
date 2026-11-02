@@ -12,7 +12,7 @@ PRD 기반 Jira 티켓 자동 생성: **$ARGUMENTS**
 ## 실행 흐름
 
 ### 1. 인자 파싱
-- PRD 파일 경로 (없으면 팀 공유 `docs/prd/*/prd.md` → 개인 스크래치 `doc/` 의 최근 `*-prd.md` 순으로 자동 선택)
+- PRD 파일 경로 (없으면 팀 공유 `docs/prd/<product>/<feature>/prd.md` → 개인 스크래치 `doc/` 의 최근 `*-prd.md` 순으로 자동 선택)
 - `--label <값>` → 선택. 플랫폼이 명확할 때만 (`BE` · `App` · `iOS` · `Android` · `Infra`)
 - fixVersion 은 **생성 시 넣지 않는다** — 미완료 티켓은 비워 두고 완료 처리 때 붙인다 (`jira-conventions.md` §4)
 - `--sprint` → 현재 활성 스프린트에 넣는다. 없으면 백로그
@@ -38,7 +38,7 @@ python3 .claude/jira_assign.py meta
 | summary | `동사형 한 줄` — 대괄호 접두 없음. 동사: 구현 / 조회 API 구현 / 설정 API 구현 / 마이그레이션 / 연동 |
 | goal | 섹션의 비즈니스 목적 한두 줄 |
 | dod | **엔드포인트·상태코드·에러 케이스·테이블명**을 그대로 완료 조건으로 — 「`POST /api/x` 가 201 을 반환한다」「`V<N>__x.sql` 로 `t` 테이블이 생긴다」. 이것들이 게이트가 요구하는 구체 토큰이다 |
-| refs | `docs/prd/<기능>/prd.md §N-N` · policy.md 결정 번호 |
+| refs | `docs/prd/<product>/<feature>/prd.md §N-N` · policy.md 결정 번호 |
 | deliverable / output_location | 대개 `PR` / `server/data-api — OneOrThree/phone PR` |
 | domain | 2단계 목록 안에서. 없으면 **사용자에게 묻는다** — 임의로 고르지 않는다 |
 | estimate | 본인 백로그라 선택. 넣으면 SP 가 자동 환산된다 |
@@ -88,4 +88,3 @@ python3 .claude/jira_assign.py create "$SCRATCH/sync.json"
 
 ## 관련 커맨드
 - `/jira-assign` — 사람에게 시키는 지시서 한 건 (담당자·마감·스프린트 기본 채움)
-- `/jira-impl` — 이미 있는 티켓을 읽어 내 구현용 스펙 md 로

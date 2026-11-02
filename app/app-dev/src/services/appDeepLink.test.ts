@@ -177,8 +177,11 @@ test('OS·SDK 중복 링크는 한 번만 이동하고 이후 다시 탭한 링�
 
 test.each([
   ['https://link.oneorthree.world/l/abcdefgh?g=ignored', 'abcdefgh'],
+  ['https://catus-api-v2.oneorthree.world/l/abcdefgh?g=ignored', 'abcdefgh'],
   ['https://oneorthree.dev.mooo.com/l/abcdefgh', 'abcdefgh'],
   ['gromo://join?g=ignored&s=abcdefgh', 'abcdefgh'],
+  // Infra V2 nginx 초대 랜딩의 «앱에서 열기» 버튼이 쓰는 주소(prod/catus-v2/runtime/nginx.conf-V2.template).
+  ['gromo://join?s=abcdefgh', 'abcdefgh'],
 ])('초대 링크 %s는 서버 확인용 코드만 반환한다', (url, code) => {
   expect(parseAppDeepLink(url)).toEqual({ kind: 'invitation', code });
 });
@@ -186,6 +189,48 @@ test.each([
   'https://link.oneorthree.world.evil.com/l/abcdefgh',
   'https://link.oneorthree.world/l/abcdefgh/extra',
   'https://link.oneorthree.world/l/invalid',
+  // 운영 V2 호스트는 앱 API 도 서빙한다. /l/<슬러그> 만 초대이고 같은 호스트의 다른 경로는 초대가 아니다.
+  'https://catus-api-v2.oneorthree.world/me',
+  'https://catus-api-v2.oneorthree.world/health',
+  'https://catus-api-v2.oneorthree.world/ws/realtime',
+  'https://catus-api-v2.oneorthree.world/invite-links/claim',
+  'https://catus-api-v2.oneorthree.world/groups/abcdefgh/invite-link',
+  'https://catus-api-v2.oneorthree.world/l/match',
+  'https://catus-api-v2.oneorthree.world/abcdefgh',
+  'https://catus-api-v2.oneorthree.world/x/l/abcdefgh',
+  'https://catus-api-v2.oneorthree.world/l/abcdefgh/extra',
+  'https://catus-api-v2.oneorthree.world/l/abcdefgh/',
+  'https://catus-api-v2.oneorthree.world.evil.com/l/abcdefgh',
+  'https://evil.example/catus-api-v2.oneorthree.world/l/abcdefgh',
+  'http://catus-api-v2.oneorthree.world/l/abcdefgh',
 ])('잘못된 초대 URL %s는 무시한다', (url) => {
   expect(parseAppDeepLink(url)).toBeNull();
 });
+
+// 초대 URL 을 받는 호스트는 파서·iOS Associated Domains·Android App Links·expo 설정이 같아야 한다.
+// 한 곳만 빠지면 OS 가 링크를 앱으로 넘기지 않거나, 넘겨도 앱이 버린다.
+test.each(['link.oneorthree.world', 'catus-api-v2.oneorthree.world', 'oneorthree.dev.mooo.com'])(
+  '초대 호스트 %s를 파서와 네이티브·expo 설정이 함께 받는다',
+  (host) => {
+    const read = (file: string) => readFileSync(path.join(__dirname, '../..', file), 'utf8');
+    const { expo } = require('../../app.config');
+    expect(parseAppDeepLink(`https://${host}/l/abcdefgh`)).toEqual({
+      kind: 'invitation',
+      code: 'abcdefgh',
+    });
+    expect(read('ios/Cattus/Cattus.entitlements')).toContain(`<string>applinks:${host}</string>`);
+    // autoVerify 필터 안, /l/ 로만 좁힌 형태여야 한다. 호스트 전체를 받으면 API 주소까지 앱으로 열린다.
+    expect(read('android/app/src/main/AndroidManifest.xml')).toMatch(
+      new RegExp(
+        `<intent-filter android:autoVerify="true">(?:(?!</intent-filter>)[\\s\\S])*android:host="${host.replace(/\./g, '\\.')}" android:pathPrefix="/l/"/>`,
+      ),
+    );
+    expect(expo.ios.associatedDomains).toContain(`applinks:${host}`);
+    expect(expo.android.intentFilters).toContainEqual({
+      action: 'VIEW',
+      autoVerify: true,
+      category: ['BROWSABLE', 'DEFAULT'],
+      data: [{ scheme: 'https', host, pathPrefix: '/l/' }],
+    });
+  },
+);

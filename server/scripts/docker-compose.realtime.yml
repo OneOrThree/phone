@@ -158,8 +158,18 @@ services:
       com.datadoghq.tags.version: ${IMAGE_REVISION:-unknown}
       com.datadoghq.ad.logs: >-
         [{"source":"java","service":"realtime"}]
+      # metrics 는 대시보드가 쓰는 이름만 적은 큐레이트 목록이다(GROMO-2196) — 작성 규칙은 server/data-api/Dockerfile 의 Datadog 주석.
+      # 히스토그램은 이 서비스의 movement_*_seconds 뿐이고 대시보드는 .count·.sum·_max 만 쓴다. 버킷마다 시계열이 생겨 끈다.
       com.datadoghq.ad.checks: >-
-        {"openmetrics":{"init_config":{},"instances":[{"openmetrics_endpoint":"http://%%host%%:9091/actuator/prometheus","namespace":"gromo_realtime","metrics":[".*"],"health_service_check":true,"send_distribution_buckets":true,"collect_counters_with_distributions":true}]}}
+        {"openmetrics":{"init_config":{},"instances":[{"openmetrics_endpoint":"http://%%host%%:9091/actuator/prometheus","namespace":"gromo_realtime","metrics":[
+        "executor_active_threads","executor_queued_tasks",
+        "hikaricp_connections_acquire_seconds","hikaricp_connections_active","hikaricp_connections_idle","hikaricp_connections_pending","hikaricp_connections_timeout","hikaricp_connections_usage_seconds","jdbc_connections_max",
+        "jvm_gc_overhead","jvm_gc_pause_seconds","process_uptime_seconds","spring_kafka_template_seconds",
+        "lettuce_seconds",
+        "movement_outbox_overflow","movement_outbox_reliable_depth_max","movement_outbox_send_failed","movement_outbox_snapshot_superseded",
+        "movement_pathfind_seconds","movement_pathfind_seconds_max","movement_tick_seconds","movement_tick_seconds_max",
+        "movement_recheck_suspended","sea_deliver_dropped"
+        ],"health_service_check":true,"collect_histogram_buckets":false}]}}
     healthcheck:
       # 관리 포트는 컨테이너 안에서만 보인다 — 헬스체크는 컨테이너 안에서 돌므로 닿는다.
       test: ["CMD-SHELL", "curl -fsS http://localhost:9091/actuator/health/readiness || exit 1"]

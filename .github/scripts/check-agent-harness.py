@@ -1,11 +1,16 @@
 #!/usr/bin/env python3
-"""추적 중인 Claude 설정과 PR/Jira 게이트를 외부 서비스 없이 검증한다.
+"""추적 중인 Claude 설정과 PR/Jira 게이트, 운영 영향 경고를 외부 서비스 없이 검증한다.
 
-보장하는 것: 추적되는 .claude/settings.json 의 훅 구조, 저장소 내부 훅 파일의 존재, 두 게이트가 PreToolUse 에
-동기·인용된 $CLAUDE_PROJECT_DIR 경로로 연결돼 있음, 두 게이트의 --selftest 통과.
+보장하는 것: 추적되는 .claude/settings.json 의 훅 구조, 저장소 내부 훅 파일의 존재, 두 게이트(pr-gate · jira_gate)가
+PreToolUse 에, 운영 영향 훅(prod-impact)이 PreToolUse(Bash)와 PostToolUse(편집 도구)에 동기·인용된 $CLAUDE_PROJECT_DIR
+경로로 연결돼 있음(prod-impact 는 스크립트가 없으면 조용히 끝나는 존재 가드 `[ -f … ] || exit 0;` 모양만 인정),
+permissions.ask 에 운영 배포 확인 규칙이 있음, 세 스크립트의 --selftest 통과.
 
 보장하지 않는 것:
 - 훅 명령이 Claude Code 안에서 실제로 같은 방식으로 실행된다는 것 — 문자열 구조와 파일 존재만 본다.
+- pr-gate · jira_gate 의 존재 가드 — 세션이 도는 중에 체크아웃이 스크립트 없는 옛 브랜치로 바뀌면 python 이 exit 2 를 내
+  PreToolUse 가 Bash(jira_gate 는 createJiraIssue) 호출을 막는다. 두 게이트는 가드 없는 모양 그대로다.
+- ask 규칙이 실제 명령에 매칭된다는 것 — 규칙 문자열의 존재만 본다(매칭 한계는 .claude/prod-impact.py 의 docstring).
 - 개인 설정 — settings.local.json · ~/.claude/settings.json · 관리형 정책이 게이트를 끄거나 disableAllHooks 를
   켜도 이 검사는 초록이다. 「모두의 세션에서 게이트가 켜져 있다」는 증명이 아니다.
 - 게이트 로직의 정확성 — 각 --selftest 가 아는 범위까지만.
@@ -25,6 +30,30 @@ GATES = {
     ".claude/pr-gate.py": "Bash",
     ".claude/jira_gate.py": ".*createJiraIssue$",
 }
+# 운영 영향 훅은 막지 않고 알리기만 하지만, 빠지거나 비동기·상대 경로로 바뀌면 경고가 조용히 사라진다는 점은 같다.
+# 그래서 게이트와 같은 모양 검사를 받는다. 이벤트가 둘이라 {스크립트: ((이벤트, matcher), …)} 로 적는다.
+PROD_IMPACT = ".claude/prod-impact.py"
+GUARDED = {
+    **{script: (("PreToolUse", matcher),) for script, matcher in GATES.items()},
+    PROD_IMPACT: (("PreToolUse", "Bash"), ("PostToolUse", "Edit|Write|MultiEdit|NotebookEdit")),
+}
+# Claude Code 는 세션 시작 때 훅 설정을 고정한다. 새 훅이 있는 세션이 도는 중에 체크아웃이 스크립트 없는 옛 브랜치로 바뀌면
+# python 이 exit 2 를 내고 PreToolUse 는 모든 Bash 호출을 막는다. 그래서 운영 영향 훅은 파일이 없으면 조용히 끝나는
+# 존재 가드 `[ -f "<경로>" ] || exit 0; python3 "<경로>" --hook` 모양만 등록으로 인정한다(가드를 빼면 보호가 조용히 빠진다).
+GUARD_REQUIRED = (PROD_IMPACT,)
+# 운영 배포 명령의 확인은 훅이 아니라 permissions.ask 로 한다(bypassPermissions 에서도 지켜진다). rtk 훅이 `gh api …` 를
+# `rtk gh api …` 로 다시 쓰므로 gh api 규칙은 rtk 형태를 함께 둔다. Android CD 는 Play 내부 테스트에 게시하는데 이름에
+# prod 가 없어 따로 둔다.
+PROD_ASK_RULES = (
+    "Bash(gh workflow run *prod*)",
+    "Bash(gh workflow run *Catus*)",
+    "Bash(gh workflow run *android-cd*)",
+    "Bash(gh workflow run *Android CD*)",
+    "Bash(gh api *dispatches*)",
+    "Bash(gh api *pending_deployments*)",
+    "Bash(rtk gh api *dispatches*)",
+    "Bash(rtk gh api *pending_deployments*)",
+)
 PROJECT_PREFIXES = ("$CLAUDE_PROJECT_DIR/", "${CLAUDE_PROJECT_DIR}/")
 # 변수 접두사 없이 적힌 저장소 내부 참조도 같은 검사를 받는다 — 훅은 CLAUDE_PROJECT_DIR 에서 실행되므로
 # 이 상대 경로는 저장소 파일을 가리킨다.
@@ -159,13 +188,15 @@ def validate_settings(root):
                         continue
                     if not target.is_file():
                         raise ValueError(f"{event}: 훅 파일이 없습니다: {relative}")
-                    if relative not in GATES:
+                    if relative not in GUARDED:
                         continue
                     # 게이트는 «막는» 훅이다 — 비동기면 도구 실행을 못 막고, 경로가 인용되지 않으면
                     # 공백이 든 체크아웃에서 인자가 갈라져 게이트가 뜨지도 못한다.
                     if hook.get("async"):
                         raise ValueError(f"{event}: 필수 게이트는 동기 실행이어야 합니다(async 금지): {relative}")
-                    if f'"{token}"' not in command:
+                    # 존재 가드가 있으면 같은 경로가 두 번 나온다 — 나온 횟수만큼 모두 인용돼야 한다(`[ -f $경로 ]` 는 공백 경로에서
+                    # 인자 오류로 죽어 훅이 조용히 빠진다).
+                    if command.count(f'"{token}"') < tokens.count(token):
                         raise ValueError(f"{event}: 게이트 경로는 큰따옴표로 인용해야 합니다: {relative}")
                     # 훅은 현재 작업 디렉터리에서 실행된다 — 상대 경로 게이트는 server/data-api 에서 작업하면
                     # 그 아래의 .claude/ 를 찾다 죽어 모든 Bash 를 막는다. 게이트만은 변수 기준 경로여야 한다.
@@ -174,20 +205,29 @@ def validate_settings(root):
                     # shlex 는 줄바꿈을 공백으로 보지만 셸은 명령 구분자로 본다 — 게이트가 인자 없이 끝나 버린다.
                     if "\n" in command or "\r" in command:
                         raise ValueError(f"{event}: 게이트 명령에 줄바꿈이 있습니다: {relative}")
-                    if (event == "PreToolUse" and group.get("matcher") == GATES[relative]
-                            and tokens == ["python3", token, "--hook"]):
-                        registered.add(relative)
+                    expected = ["python3", token, "--hook"]
+                    if relative in GUARD_REQUIRED:      # 가드의 경로와 실행 경로는 같은 토큰(같은 파일)이어야 한다
+                        expected = ["[", "-f", token, "]", "||", "exit", "0", ";"] + expected
+                    if (event, group.get("matcher")) in GUARDED[relative] and tokens == expected:
+                        registered.add((relative, event, group.get("matcher")))
 
-    missing = GATES.keys() - registered
+    required = {(script, event, matcher) for script, places in GUARDED.items() for event, matcher in places}
+    missing = required - registered
     if missing:
-        raise ValueError("PreToolUse 게이트 연결이 없거나 잘못되었습니다: " + ", ".join(sorted(missing)))
+        raise ValueError("훅 게이트 연결이 없거나 잘못되었습니다: "
+                         + ", ".join(f"{script} ({event}/{matcher})" for script, event, matcher in sorted(missing)))
+    permissions = settings.get("permissions")
+    ask = permissions.get("ask") if isinstance(permissions, dict) else None
+    absent = [rule for rule in PROD_ASK_RULES if not isinstance(ask, list) or rule not in ask]
+    if absent:
+        raise ValueError("permissions.ask 에 운영 배포 확인 규칙이 없습니다: " + ", ".join(absent))
 
 
 def check_harness(root):
     root = root.resolve()
     validate_settings(root)
-    print("[통과] .claude/settings.json 구조 · 훅 경로 · 게이트 연결", flush=True)
-    for script in GATES:
+    print("[통과] .claude/settings.json 구조 · 훅 경로 · 게이트 연결 · 운영 배포 확인 규칙", flush=True)
+    for script in GUARDED:
         result = subprocess.run(
             [sys.executable, str(root / script), "--selftest"],
             cwd=root, capture_output=True, text=True, timeout=30,

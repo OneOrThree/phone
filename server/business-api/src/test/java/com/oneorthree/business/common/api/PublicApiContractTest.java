@@ -4,9 +4,6 @@ import com.oneorthree.business.common.exception.CompositionCapacityExceededExcep
 import com.oneorthree.business.common.exception.UpstreamCredentialRejectedException;
 import com.oneorthree.business.common.exception.UpstreamDomainException;
 import com.oneorthree.business.common.exception.UpstreamTimeoutException;
-import com.oneorthree.business.linkpreview.exception.PreviewException;
-import com.oneorthree.business.linkpreview.dto.Preview;
-import com.oneorthree.business.linkpreview.service.PreviewService;
 import com.oneorthree.business.support.Tokens;
 import com.oneorthree.business.support.UpstreamTestBase;
 import jakarta.servlet.Filter;
@@ -26,7 +23,6 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -46,9 +42,6 @@ import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.asyncDispatch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -65,9 +58,7 @@ class PublicApiContractTest extends UpstreamTestBase {
 
     private static final UUID USER = UUID.randomUUID();
     private static final String ROOT = "/me/_contract";
-
-    @MockitoBean
-    private PreviewService previewService;
+    private static final byte[] PNG = { (byte) 0x89, 'P', 'N', 'G', 13, 10, 26, 10 };
 
     @Test
     void freezesPublishedErrorNames() {
@@ -202,65 +193,23 @@ class PublicApiContractTest extends UpstreamTestBase {
 
     @Test
     void preservesBinaryAndStreamingBodies() throws Exception {
-        byte[] png = { (byte) 0x89, 'P', 'N', 'G', 13, 10, 26, 10 };
-        when(previewService.thumbnail(anyString(), anyString())).thenReturn(png);
-        mockMvc.perform(auth(get("/link-previews/p/thumbnail")).accept(MediaType.IMAGE_PNG))
+        mockMvc.perform(auth(get(ROOT + "/binary")).accept(MediaType.IMAGE_PNG))
                 .andExpect(status().isOk()).andExpect(content().contentType(MediaType.IMAGE_PNG))
-                .andExpect(content().bytes(png));
+                .andExpect(content().bytes(PNG));
         MvcResult async = mockMvc.perform(auth(get(ROOT + "/stream")))
                 .andExpect(request().asyncStarted()).andReturn();
         mockMvc.perform(asyncDispatch(async)).andExpect(content().bytes("raw-stream".getBytes(StandardCharsets.UTF_8)));
     }
 
+    /** 지원할 수 없는 Accept 는 신규·legacy 경로 모두 406 + 빈 본문이고 서버 X-Request-Id 는 유지한다(오류 규약 §4). */
     @ParameterizedTest
-    @ValueSource(strings = {"/link-previews/missing/thumbnail", "/api/v1/link-previews/missing/thumbnail"})
-    void incompatibleThumbnailAcceptReturnsEmpty406(String path) throws Exception {
+    @ValueSource(strings = {ROOT + "/binary", "/api/v1/_contract/binary"})
+    void incompatibleAcceptReturnsEmpty406(String path) throws Exception {
         mockMvc.perform(auth(get(path)).accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isNotAcceptable())
                 .andExpect(content().bytes(new byte[0]))
                 .andExpect(header().doesNotExist("Content-Type"))
                 .andExpect(header().exists("X-Request-Id"));
-        org.mockito.Mockito.verifyNoInteractions(previewService);
-    }
-
-    @Test
-    void previewErrorsUseNewEnvelopeEvenWhenPngWasRequested() throws Exception {
-        when(previewService.thumbnail(anyString(), anyString())).thenThrow(new PreviewException("NOT_FOUND"));
-        mockMvc.perform(auth(get("/link-previews/missing/thumbnail")).accept(MediaType.IMAGE_PNG))
-                .andExpect(status().isNotFound()).andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
-                .andExpect(jsonPath("$.error.code").value("NOT_FOUND"));
-        mockMvc.perform(auth(get("/api/v1/link-previews/missing/thumbnail")).accept(MediaType.IMAGE_PNG))
-                .andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("NOT_FOUND"))
-                .andExpect(jsonPath("$.error").doesNotExist());
-    }
-
-    @Test
-    void previewAliasKeepsFailureDataAndUsesItsOwnThumbnailPath() throws Exception {
-        Preview failed = new Preview("p", "FAILED", "https://example.com/file", null, null,
-                null, null, null, "FETCH_TIMEOUT");
-        when(previewService.request(anyString(), any(), anyString())).thenReturn(List.of(failed));
-        mockMvc.perform(auth(post("/link-previews")).contentType(MediaType.APPLICATION_JSON)
-                .content("{\"urls\":[\"https://example.com/file\"]}"))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.data[0].errorCode").value("FETCH_TIMEOUT"))
-                .andExpect(jsonPath("$.error").doesNotExist());
-        Preview ready = new Preview("p", "READY", "https://example.com/file", "file", "application/pdf",
-                12L, "FILE", "/api/v1/link-previews/p/thumbnail", null);
-        when(previewService.get(anyString(), anyString())).thenReturn(ready);
-        mockMvc.perform(auth(get("/link-previews/p")))
-                .andExpect(jsonPath("$.data.thumbnailUrl").value("/link-previews/p/thumbnail"));
-        mockMvc.perform(auth(get("/api/v1/link-previews/p")))
-                .andExpect(jsonPath("$.thumbnailUrl").value("/api/v1/link-previews/p/thumbnail"));
-    }
-
-    @ParameterizedTest
-    @ValueSource(strings = {"INVALID_URL", "BLOCKED_ADDRESS", "FETCH_TIMEOUT", "REDIRECT_REJECTED",
-            "NOT_PUBLIC_OR_NOT_FOUND", "UPSTREAM_ERROR", "UNSUPPORTED_CONTENT", "FILE_TOO_LARGE",
-            "DRIVE_NOT_CONFIGURED", "INVALID_IMAGE", "IMAGE_TOO_LARGE", "THUMBNAIL_TOO_LARGE",
-            "RENDER_TIMEOUT", "INVALID_PDF", "UNSUPPORTED_DRIVE_LINK", "FETCH_FAILED", "INVALID_REQUEST"})
-    void previewExceptionCodesRemainSpecific(String code) throws Exception {
-        when(previewService.get(anyString(), anyString())).thenThrow(new PreviewException(code));
-        mockMvc.perform(auth(get("/link-previews/p"))).andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error.code").value(code)).andExpect(jsonPath("$.error.retryable").value(false));
     }
 
     @ParameterizedTest
@@ -476,6 +425,11 @@ class PublicApiContractTest extends UpstreamTestBase {
         @PostMapping(ROOT + "/created")
         ResponseEntity<Map<String, String>> created() {
             return ResponseEntity.status(201).body(Map.of("id", "one"));
+        }
+
+        @GetMapping(value = { ROOT + "/binary", "/api/v1/_contract/binary" }, produces = MediaType.IMAGE_PNG_VALUE)
+        byte[] binary() {
+            return PNG;
         }
 
         @GetMapping(ROOT + "/stream")

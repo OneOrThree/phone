@@ -16,7 +16,7 @@
 | `focus/repository/domain/FocusSessionStatus.java` | ACTIVE/COMPLETED/CANCELED/AUTO_CLOSED, 종료 기록 필터에 역사적 호환 있음 | enum 일괄 개명 금지. 새 lifecycle을 별도 상세 행에서 해석 |
 | `V47__focus_sessions_single_live_marker.sql:75` | 열린 마커 인덱스는 **비고유**, 롤백 호환 때문에 UNIQUE 연기 | 새/구 writer의 user 배타 잠금이 필수. UNIQUE가 이미 있다는 전제로 설계하지 않음 |
 | `common/port/RedisFocusPresence.java:83`, `:178`, `:258` | Data가 presence:focus:*를 commit 뒤 쓰고 세션 토큰으로 해제 | Data 단일 소유 유지. 새 상태와 내구 갱신/복구를 통합 |
-| `FocusPresenceReconciler`, `FocusSessionOrphanScheduler` | 기존 열린 마커 복구와12h 고아 정리 | v0.3 행을 기존 자동정리로 잃지 않도록 protocol 분기 필수 |
+| `FocusPresenceReconciler`, `FocusStaleSessionScheduler` | 기존 열린 마커 복구와 방치 세션 종결(섬 12시간·바다 3시간, FR-D06). 옛 `FocusSessionOrphanScheduler` 는 v0.3 상세를 제외했고 #1247 에서 삭제됐다 | 새 상세의 방치 세션은 `stale-close` 가 닫는다 |
 | `league/repository/LeagueRankingQueryRepository.java:91~127` | `ended_at IS NULL` 마커를 골라 `now - GREATEST(started_at, weekStartAt)`를 정렬에 더함. 상세/REST 구간 미인지 | 상세가 있는 세션은 주간 ACTIVE 구간 합으로 읽도록 전환. paused를 단순 제외해 이미 쌓인 ACTIVE 초까지 버리지 않음 |
 | `FocusService.java:330~351`, 앱 `focusRestore.ts:29~43`, `useLeagueRanking.ts:75~85`, `stats/format.ts:70~102` | 완료 목록의 단일 startedAt~endedAt으로 앱이 순수 초/주간 합계와 연속 시간표를 재구성. 날짜별 net만 추가해도 이 경로는 그대로 | 완료 reader와 앱의 ACTIVE 합·구간 인식도 활성화 gate에 포함. 호환 앱 버전/접근 경계 또는 모든 소비처가 검증된 읽기 projection 필요 |
 | `.github/workflows/prod-rollback.yml:11~14,50~65` (GROMO-2224 에서 삭제) | 사용자가 지정한 옛 이미지가 ECR에 있는지만 확인한 뒤 SSM으로 재배포. 상세 프로토콜 호환 검사 없음 | 신규 API를 닫은 상태로 호환 reader/writer 먼저 배포하고 롤백 최소 호환 baseline을 올린 뒤 신규 활성화 |
@@ -83,11 +83,12 @@ stateDiagram-v2
   active --> completed: finish REST / 원자 정산
   paused --> completed: finish REST / 휴식 제외 원자 정산
   paused --> completed: rest-auto-close / 휴식 1시간(GROMO-1998)
+  active --> abandoned: stale-close / 섬 12시간·바다 3시간, 정산 없음(GROMO-2636)
   completed --> completed: 완료 결과 복구 / 추가 정산 없음
 ```
 
 목표 시간 도달, WebSocket 끊김, 모닥불 관람, 화면 종료는 상태 전이가 아니다.
-FR-D03의 강퇴 강제 종료는 확정됐고, FR-D06의 orphan 전이는 아직 위 그림에 운영 규칙으로 넣지 않았다.
+FR-D03의 강퇴 강제 종료와 FR-D06의 방치 종결은 확정됐다. 강퇴 전이는 위 그림에 넣지 않았다.
 세션 없는 공유 휴식도 현재 정본의 상태 전이가 아니다(GROMO-1958 — planning-document/`rest-screen-spec.md` 개정 뒤 별도 범위).
 active·paused는 모두 현재 섬 전환과 두 번째 세션 시작을 막는다.
 

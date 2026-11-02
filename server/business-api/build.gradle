@@ -51,17 +51,17 @@ dependencies {
 	compileOnly 'org.projectlombok:lombok'
 	annotationProcessor 'org.projectlombok:lombok'
 
-	// 미리보기 전용 임시 캐시(Redis) — A19 네임스페이스 표의 cache:business:* 소유자다.
+	// 폐기 세션 거부목록용 Redis — A19 네임스페이스 표의 cache:business:* 소유자다.
 	// ⚠️ 도메인 DB·Flyway·스케줄러 의존성은 «일부러 넣지 않는다»(A22 · §2 「안 하는 일」). 이 Redis 는
-	//    그 예외가 아니라 사본이다: 비워도 다음 요청이 다시 만들고, 어떤 도메인 판정도 여기 의존하지 않는다.
+	//    그 예외가 아니라 사본이다: 어떤 도메인 판정도 여기 의존하지 않는다(세션 폐기의 정본은 Data).
 	//    누가 도메인 상태를 여기 얹으려 하면 build.gradle 에 datasource 가 없다는 사실에서 먼저 걸린다.
 	implementation 'org.springframework.boot:spring-boot-starter-data-redis'
 
-	// 외부 파일 서버로 나가는 미리보기 수집 — 리다이렉트·본문 상한·SSRF 방어를 직접 제어해야 해서
-	// RestClient 가 아니라 httpclient5 를 쓴다(PublicHttpClient).
+	// 내부 HTTP 클라이언트(InternalHttpClient) — 요청 취소·대상별 풀·재시도 정책을 직접 제어해야 해서
+	// RestClient 가 아니라 httpclient5 를 쓴다.
 	implementation 'org.apache.httpcomponents.client5:httpclient5'
 
-	// Testcontainers — 미리보기 캐시 테스트가 진짜 Redis 를 띄운다(스텁으로는 Lua·TTL 계약을 못 본다).
+	// Testcontainers — 진짜 Redis 를 띄운다(스텁으로는 Lua·ACL·TTL 계약을 못 본다).
 	testImplementation 'org.testcontainers:junit-jupiter:1.20.1'
 
 	testImplementation 'org.springframework.boot:spring-boot-starter-test'
