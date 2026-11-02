@@ -109,6 +109,9 @@ API는 `http://localhost:8080`, Swagger UI는 `http://localhost:8080/swagger-ui/
 
 ## 운영 V2 배포
 
+2026-11-02 구 dev·운영 서버를 종료했습니다. 구 워크플로우 14개 제거와 DNS·S3·Datadog 상태는 [구 서버 정리](docs/engineering/prod-v2-pipeline.md#구-서버-정리-2026-11-02)에 기록합니다. 기존 백오피스 주소는 운영 V2 주소로 이동합니다.
+
+
 운영 V2는 AWS EC2 4대(서버 4종·Kafka·Redis·백오피스)에서 돕니다. 서버 4종·Kafka·Redis는 main → release 승격 PR(merge commit) 뒤 release push에서 태그와 산출물이 발행되고, 사람이 release에서 CD를 실행하고 환경 `catus-production-V2`의 승인 1회를 거쳐야 운영에 반영됩니다. 백오피스는 release를 거치지 않고, main 머지에서 승인 1회 뒤 바로 배포됩니다. 경로별 흐름은 [파이프라인 지도](docs/engineering/pipeline-map.md), 절차와 복구는 [prod V2 파이프라인](docs/engineering/prod-v2-pipeline.md)을 따릅니다.
 
 | 단위 | CI | CD | 마지막 운영 성공 태그 |

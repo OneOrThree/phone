@@ -1,14 +1,14 @@
 # dev V2 파이프라인
 
-GCP VM 3대로 나눈 dev V2의 CI/CD 현행 정리다. 2026-10-31 코드와 Infra `main`을 대조해 썼다. 실제 판정은 워크플로와 `.github/scripts/v2/dev/`가 정본이다.
+GCP VM 3대로 나눈 dev V2의 CI/CD 현행 정리다. 2026-11-02 구 서버 종료와 워크플로 정리를 반영했다. 실제 판정은 워크플로와 `.github/scripts/v2/dev/`가 정본이다.
 
 운영 쪽은 [prod V2 파이프라인](prod-v2-pipeline.md)을 본다.
 
 ## 현재 상태
 
 - 공개 주소는 `oneorthree-v2.dev.mooo.com`이다.
-- `*.dev-v2.yml` 워크플로는 모두 켜져 있다. 기존 dev의 `data-api-ci·cd.dev`, `realtime-ci.dev`, `satellite-ci·cd.dev`, `ops-smoke.dev`는 `disabled_manually`다. main 머지는 dev V2에만 자동 반영된다.
-- 기존 `gromo-dev-app` VM과 `oneorthree.dev.mooo.com`은 남아 있다.
+- 현행 `*.dev-v2.yml`을 사용한다. 구 dev CI/CD·스모크·운영 도구는 제거했다. main 머지는 dev V2에 자동 반영된다.
+- 구 `gromo-dev-app` VM·디스크·GitHub 러너 등록은 삭제했다. 기존 dev 주소는 삭제한 서버를 가리켜 앱 빌드에서 전환이 필요하다.
 
 아직 끝나지 않은 일은 [남은 일](#남은-일)에 모았다.
 
@@ -225,14 +225,14 @@ DB migration이 이미 적용됐을 수 있으므로 이전 이미지로 자동 
 - 스모크는 서비스 healthy 확인 뒤 5분을 기다렸다 검사한다.
 - 스모크는 `ubuntu-latest`에서 공개 API를 검사하고, `dev-smoke-docker-V2.py`가 `docker` 호출만 IAP SSH로 해당 VM에 보낸다. 전체 15개 TC를 유지한다.
 - 스모크는 CD와 같은 `catus-dev-v2-deploy` 잠금 안에서 돈다. 대기 실행이 취소되지 않게 이 그룹의 워크플로는 모두 `queue: max`다.
-- `record` job이 dev 배포 배지를 직접 게시한다. 토큰으로 실행한 Auto CD는 `workflow_run`을 깨우지 않아 V1 배지 워크플로 `ops-deployment-badges.yml`로는 받을 수 없다.
+- `record` job이 dev 배포 배지를 직접 게시한다. 토큰으로 실행한 Auto CD는 `workflow_run`을 깨우지 않으므로 공용 `deployment-badges.py`를 직접 호출한다. V1 배지 workflow는 제거했다.
 - dev 배지는 서비스별 최신 결과를 합친다. 앱 배포 실패는 대상 서비스만, `plan` 실패는 네 서비스 모두 실패로 기록한다. 런타임만 바뀐 실행의 실패는 앱 배지를 바꾸지 않는다.
 - 수동으로 옛 SHA를 재배포한 뒤 도는 스모크는 대상 SHA의 후손이 아니어서 실패로 보고된다.
 
 ## 남은 일
 
-- **데이터 이전**: 기존 dev 데이터를 복사할지, 새 DB를 유지할지 정해지지 않았다.
+- **구 dev 데이터**: 구 VM·디스크는 스냅샷 없이 삭제됐다. dev V2 DB를 유지하며 구 디스크에서 이전할 수는 없다.
 - **앱 dev 빌드 주소**: Android CI, iOS 스크립트, `.env.example`은 아직 `oneorthree.dev.mooo.com`을 가리킨다.
-- **관측**: dev V2 호스트는 Datadog에 보고하지 않는다.
+- **관측**: 2026-11-02 실물 점검에서 dev V2 3대 모두 Datadog 컨테이너가 없고 시스템 서비스가 비활성이었다. 구 Datadog workflow를 재사용하지 않는다.
 - **nginx 차이**: Infra 템플릿의 `/ws/realtime`에는 기존 dev와 달리 `proxy_send_timeout`이 없어 기본 60초다. 추가가 필요하다.
 - **외부 IP**: data·redis VM은 이미지와 GCS 접근용 외부 IP를 아직 쓴다.

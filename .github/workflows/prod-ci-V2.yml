@@ -14,7 +14,6 @@ name: Catus app CI V2
     - .github/scripts/ci-jar.py
     - .github/scripts/catus-*
     - .github/scripts/v2/prod/**
-    - .github/workflows/prod-ci.yml
     - .github/workflows/be-gradle.yml
     - .dockerignore
     - server/gradle*
@@ -42,7 +41,6 @@ name: Catus app CI V2
     - .github/scripts/ci-jar.py
     - .github/scripts/catus-*
     - .github/scripts/v2/prod/**
-    - .github/workflows/prod-ci.yml
     - .github/workflows/be-gradle.yml
     - .dockerignore
     - server/gradle*

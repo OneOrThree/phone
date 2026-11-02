@@ -6,7 +6,7 @@ on:
     paths:
       - 'smoke/server/**'
       - '.github/workflows/smoke-check.yml'
-      - '.github/workflows/ops-smoke.dev.yml'
+      - '.github/workflows/ops-smoke.dev-v2.yml'
       - '.github/scripts/report-smoke.py'
       - '.github/scripts/test_smoke_report.py'
       - '.github/scripts/test_smoke_guest_budget.py'

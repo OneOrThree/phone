@@ -1,10 +1,16 @@
 # GROMO Datadog 연동 (dev · prod)
 
+> 2026-11-02 운영 V2 앱·Kafka·Redis·백오피스 4대에서 Agent `healthy`·health PASS를 확인했습니다.
+> Agent는 Infra V2 배포가 관리합니다. dev V2 3대에는 실행 중인 Agent가 없습니다.
+> 구 서버와 `ops-datadog.dev.yml`은 제거했으므로 아래 구 dev·Gromo 1.x 절차는 역사 자료입니다.
+> 현행 배포는 [prod V2](../../../docs/engineering/prod-v2-pipeline.md)를 따릅니다.
+
+
 **인프라·컨테이너 메트릭 + 로그 + 앱 APM(분산 트레이싱) + 앱 커스텀 메트릭**을 Datadog(us5)로 push.
 dev 는 기존 OSS 관측 스택(Prometheus/Grafana/Loki) 옆에 **토글 가능한 overlay**로 얹는다.
 Gromo 1.x prod 는 `docker-compose.prod.yml` 에 **상시 내장**돼 있다. Catus V2 prod 의 Agent·컨테이너 라벨은
 Infra 저장소가 소유하며 이 폴더의 overlay 를 쓰지 않는다(이름 기준은 아래 «이름 규칙»).
-설계: `docs/superpowers/specs/2026-07-16-datadog-dev-design.md`.
+과거 설계 문서는 현재 저장소에 남아 있지 않다.
 
 ## 구성
 
@@ -14,7 +20,7 @@ Infra 저장소가 소유하며 이 폴더의 overlay 를 쓰지 않는다(이�
 | `docker-compose.prod.yml` | **Gromo 1.x prod** — 같은 배선을 app·nginx·datadog-agent 로 상시 포함 (Catus V2 아님) |
 | `server/data-api/Dockerfile` | `dd-java-agent.jar` 내장 + **OpenMetrics AD 라벨**(아래 참고) |
 | `server/data-api/src/main/resources/application-{dev,prod}.yml` | 관리 포트 9091 에 `/actuator/prometheus` 노출 |
-| `.github/workflows/ops-datadog.dev.yml` | dev up/down/restart 토글 + **수집 검증 게이트** |
+| 구 `ops-datadog.dev.yml` (제거됨) | 과거 dev 토글. V2에서는 Infra 배포 설정을 사용 |
 | `dashboards/gromo-dev-architecture.json` | dev 아키텍처 클릭 탐색 + Docker·Kafka·Redis 부하 통합 대시보드 (손으로 관리, 생성기 없음) |
 | `dashboards/test_log_links.py` | Kafka 로그 링크 분리 검증 (`python3 -m unittest discover -s server/observability/datadog/dashboards -p 'test_*.py'`) |
 | `pipelines/*.json` · `pipelines/manage.py` | Kafka Exporter·PostgreSQL 로그 심각도 파이프라인(티켓 2572). stderr 정상 로그의 error 오분류를 명시 매핑으로 보정한다 — **Datadog 미적용**. 적용·롤백 절차와 검증 범위는 `docs/architecture/server-log-observability/datadog-severity-pipeline.md` |
@@ -87,7 +93,7 @@ JSON 로그(`schema_version 1`)의 `service` 필드는 `OBS_SERVICE` 값이고, 
 - [cattus 앱 성능 대시보드](https://us5.datadoghq.com/dashboard/qp2-2ym-yyh).
   JSON은 `dashboards/cattus-app-rum.json`이 정본이다. 모든 쿼리에 cattus ID·서비스를 고정하고
   환경 기본값은 `prod`로 둔다. 버전·OS 필터로 배포 영향을 비교한다.
-- iOS `testflight.sh`·Android CI·`scripts/ota-update.sh`가 `app/app-dev/ios/release-config.sh`의 새 ID·Client Token을
+- iOS `testflight.sh`·Android CI·`app/app-dev/scripts/ota-update.sh`가 `app/app-dev/ios/release-config.sh`의 새 ID·Client Token을
   읽는다. Client Token은 공개 SDK 수집 토큰이다. Datadog API/App Key를 앱에 넣지 않는다.
 - 로컬 실행은 `app/app-dev/.env.example`의 두 Datadog 변수를 설정한다. 키가 없으면 수집을 끈다.
   `release-config.sh`는 셸에서 덮어쓴 ID가 옛 gromo ID면 실패하고, SDK도 해당 ID로 전송하지 않는다.
@@ -187,7 +193,7 @@ docker exec gromo-datadog-agent agent status | grep -E 'LogsProcessed|Instance I
 - `LogsProcessed: 0` → 로그 tailer 가 하나도 안 붙었다.
 - `Instance ID: container|docker ... [ERROR]` → 컨테이너별 메트릭이 통째로 빈다.
 
-dev 는 `ops-datadog.dev.yml` 의 **수집 검증** 스텝이 이 둘을 자동으로 어서션한다(0이면 워크플로 실패).
+옛 V1 절차: dev 는 `ops-datadog.dev.yml` 의 **수집 검증** 스텝이 이 둘을 자동으로 어서션한다(0이면 워크플로 실패).
 
 ### 로그↔트레이스 상관 (dev Data API)
 
@@ -204,7 +210,7 @@ Gromo 1.x prod 의 텍스트 패턴 로그는 상관되지 않는다.
 
 ## 다음 (Phase 3 — 별도 결정)
 
-만족 시 dev 공동 배포에 상시 내장으로 승격 + Prometheus/Grafana/Loki 스택 폐기(`ops-monitor.dev.yml` down).
+옛 V1 절차: 만족 시 dev 공동 배포에 상시 내장으로 승격 + Prometheus/Grafana/Loki 스택 폐기(`ops-monitor.dev.yml` down).
 
 ## service 이름 변경을 참조하는 Datadog 자원 (사람이 Datadog 에 반영)
 

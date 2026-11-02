@@ -246,7 +246,7 @@ PIPELINE_MAP = "docs/engineering/pipeline-map.md"
 V1_SECTION = "2-2 V1 워크플로와 V2 대응"                          # 은퇴한 워크플로 이름을 표시 없이 적어도 되는 절
 NO_FILE_SECTION = "2-3 GitHub에 등록됐지만 파일이 없는 워크플로"     # 저장소에 없는 워크플로 이름을 적어도 되는 절
 RETIRED_FIRST_LINE = "# RETIRED"                                  # 은퇴한 워크플로 파일의 첫 줄
-RETIRED_WORDS = re.compile(r"RETIRED|retired|V1|은퇴|꺼진|꺼져|옛|legacy|disabled")   # 같은 줄의 은퇴 표시
+RETIRED_WORDS = re.compile(r"RETIRED|retired|V1|은퇴|꺼진|꺼져|옛|legacy|disabled|제거|폐기")   # 같은 줄의 은퇴 표시
 ROOT_DOCS = ("CLAUDE.md", "AGENTS.md", "CONTEXT.md", "README.md", "docs/README.md")
 DOC_DIRS = (".claude/commands", ".claude/agents", "docs/conventions", "docs/engineering")
 HUMAN_ONLY_SKILLS = ("prod-release", "app-release")             # 운영을 바꾸는 절차 — disable-model-invocation: true 가 있어야 한다
@@ -256,16 +256,7 @@ GLOSSARY_DOCS = ("CLAUDE.md", "AGENTS.md", "backoffice/AGENTS.md")
 GLOSSARY_EXCLUDED = (".claude/skills/gromo-screen-flow/SKILL.md",)
 # server/ 아래 문서는 고치면 dev 재빌드·재배포를 부를 수 있어 GROMO-2697 이 고치지 못했다. 그 안의 낡은 언급은 이 검사에서 뺀다.
 # {(검사, 문서): (뺄 토큰, …)} — 문서를 고칠 때 이 항목도 지운다. 같은 문서의 다른 위반이나 다른 문서의 같은 위반은 그대로 잡힌다.
-STALE_IN_SERVER_DOCS = {
-    ("경로", "server/observability/datadog/README.md"): (
-        "docs/superpowers/specs/2026-07-16-datadog-dev-design.md",   # 문서가 없다
-        "scripts/ota-update.sh",                                     # app/app-dev/scripts/ota-update.sh 의 줄임
-    ),
-    # 꺼진 V1 워크플로를 «지금의 진입점»처럼 적은 문장이다.
-    ("은퇴", "server/data-api/CLAUDE.md"): ("ops-datadog.dev.yml", "prod-cd.yml"),
-    ("은퇴", "server/observability/datadog/README.md"): ("ops-datadog.dev.yml", "ops-monitor.dev.yml"),
-    ("은퇴", "server/scripts/README.md"): ("data-api-cd.dev.yml", "data-api-ci.dev.yml", "ops-redeploy.dev.yml"),
-}
+STALE_IN_SERVER_DOCS = {}
 
 FENCE_OPEN = re.compile(r"^\s*(`{3,}|~{3,})")
 HEADING = re.compile(r"^(#{1,6})\s+(.*\S)\s*$")
@@ -433,6 +424,17 @@ def check_workflow_mentions(root):
     files = tracked_files(root)
     docs = harness_docs(files)
     states = workflow_states(root, files)
+    # 실제로 제거한 파일도 파이프라인 지도 2-2의 제거 상태 행으로만 식별한다.
+    # 오타나 임의의 미존재 workflow를 은퇴 표시만으로 허용하지 않는다.
+    removed = set()
+    if PIPELINE_MAP in files:
+        lines = unfenced(read_doc(root, PIPELINE_MAP))
+        for index in section_range(lines, V1_SECTION):
+            line = lines[index]
+            columns = line.split('|')
+            if len(columns) >= 4 and columns[2].strip() == '제거됨':
+                removed.update(WORKFLOW_NAME.findall(columns[1]))
+    states.update({name: True for name in removed if name not in states})
     basenames = {path.rsplit("/", 1)[-1] for path in files}
     violations, marked_lines, stale = [], set(), 0
     for path in docs:

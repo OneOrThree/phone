@@ -1,5 +1,10 @@
 # 백오피스 서버 기능의 선별 운영 승격
 
+> 이 문서는 V2 전환 이전의 선별 승격 기록입니다. 구 CI/CD와 서버는 2026-11-02 폐기했습니다.
+> 현재 백오피스는 main의 `backoffice-cd.prod-V2.yml`로 발행·승인 배포합니다.
+> 현행 절차는 [prod V2 파이프라인](prod-v2-pipeline.md#백오피스)을 따릅니다.
+
+
 이번 선별 배포는 `release-backoffice/GROMO-2595`에서 필요한 Data·Notification API, Business 공지 조회, 공유 환경 설정·계약 검사만 모아 `release`로 승격한다. 백오피스 앱은 별도 `backoffice-vX.Y.Z` 릴리스로 배포한다. main 전체 변경을 포함하지 않는다.
 
 `release/backoffice-GROMO-2595`는 기존 `release` Git ref와 파일/디렉터리 충돌로 공존할 수 없어 `release-backoffice/GROMO-2595`를 사용한다.
@@ -38,4 +43,4 @@ Data의 환경 API와 Notification의 환경 API가 각각 `prod` 및 `catus-pro
 
 격리 DB에서 선별 SQL 적용과 후속 main DB 전환 호환성을 검증한다. 필요한 서버 기능 PR과 선별 승격 PR을 검토한 뒤 운영자가 Create a merge commit으로 병합한다. 기존 prod CI/CD로 서버를 배포하고 인증된 API 환경·계약·이력을 확인한 다음 독립 백오피스를 배포한다. 운영 데이터의 실제 발송·게시를 배포 테스트에서 실행하지 않는다. AWS 부하 테스트와 부하 데이터 생성은 금지한다.
 
-`prod-ci.yml`의 `test_catus*.py` discovery가 신규 `test_catus_selective_version.py`를 포함한다. 테스트는 임시 Git 저장소에 실제 두 부모 merge와 squash·변경 tree를 만들고 GitHub API 응답만 대체한다.
+옛 V1 `prod-ci.yml`의 `test_catus*.py` discovery가 신규 `test_catus_selective_version.py`를 포함한다. 테스트는 임시 Git 저장소에 실제 두 부모 merge와 squash·변경 tree를 만들고 GitHub API 응답만 대체한다.
