@@ -42,7 +42,7 @@ nginx·인증서는 Infra 소유다. `nginx-satellites.include.conf.example`과 
 - 준비된 Business 경로만 라우팅하고 나머지 기존 Data 경로를 유지한다.
 - Notification은 시스템 §2.1대로 `/internal/admin/`만 공개하며 서비스가 콘솔 전용 Bearer와 actor를 검증한다. 나머지 `/internal/`과 management 9091은 공개하지 않는다.
 - 게스트 요청의 IP 신뢰 검증은 현재 nginx·Business 계약과 `LINK_PROXY_SECRET`을 유지한다. 이 이름의 시크릿은 폐기된 독립 Link 서비스의 배포 자격이 아니다.
-- 독립 Link 이관·export/freeze·호환 match 전환 단계는 폐기됐다. 현재 섬 초대 공유 주소의 `LINK_BASE_URL`은 유지한다. Data 내부 API와 관리 포트를 공개 라우팅에 추가하지 않는다.
+- 독립 Link 이관·export/freeze·호환 match 전환 단계는 폐기됐다. 섬 초대 공유 주소 `LINK_BASE_URL`은 운영 V2에서 V2 공개 호스트(`https://catus-api-v2.oneorthree.world`)를 가리켜야 한다. `/l/<슬러그>` 랜딩과 `/.well-known/apple-app-site-association`·`assetlinks.json`은 서비스가 아니라 Infra의 V2 nginx(`prod/catus-v2/runtime/nginx.conf-V2.template`)가 고정 응답으로 돌려주므로 Business·Data에 `/l/` 라우트를 추가하지 않는다. Data 내부 API와 관리 포트를 공개 라우팅에 추가하지 않는다.
 
 ## 실패 복구
 
@@ -90,7 +90,7 @@ Redis는 Business 전용 내부 네트워크에서 `cache:business:*`만 읽고 
 - 제품명을 Catus로 정정해 Infra의 `prod/catus`에 새 state·새 AWS 스택을 준비한다. 신규 스택의 적용 완료와 운영 검증을 확인한 뒤 다음 단계로 진행한다. 기존 FocusCat은 전환 검증 후 별도 정리하며, Gromo 1.x는 계속 유지한다. 이전 스택의 성공 상태나 이미지·버전 참조를 Catus로 복사하지 않는다.
 - Infra의 private GitHub 저장소에서 required reviewers 설정은 API 422, main 보호 설정은 API 403으로 실패했다. 사용자는 내장 승인자를 유지하고 지원 플랜 준비 전까지 정규 GitHub 구성 발행 잠금을 유지하기로 결정했다. 이후 FocusCat→Catus 교체 지시로 이번 전환은 운영자 직접 작업으로 수행했다. Phone은 public 저장소이므로 별도 승인 환경·release 제한을 설정한다. `CATUS_PROD_INFRA_REVISION`에는 실제 승인 발행된 구성의 SHA만 등록한다.
 - `catus/prod/env`의 필요한 앱 설정·FCM·Google·Apple·JWT·서비스 caller 자격은 `gromo/dev/env`의 키와 값을 그대로 따른다. DB 접속 키·POSTGRES 관리 값·관리형 서비스 URL·파일 경로 키는 복사 대상에서 제외한다. 운영 DB 자격은 별도로 생성한 `catus/prod/database`에서 공급하고, 개발 env에 없는 채팅 DB 자격도 여기에 따로 준비한다. Redis·프록시·Datadog의 운영 설정과 자격은 Infra에서 별도 보충한다. 앱의 OAuth audience/bundle ID(`com.oneorthree.focuscat`)는 스택 이름 변경으로 바꾸지 않는다. 관리형 RDS 시크릿의 AWS 자동 생성 이름도 변경 대상이 아니다.
-- 현재 섬 초대 공유 주소 `LINK_BASE_URL`은 prod에서 `https://catus-api.oneorthree.world`를 사용하며 dev는 기존 주소를 유지한다. 폐기된 독립 Link migration이나 호환 endpoint를 복구하지 않는다. DB·로그 장애 알람 수신처는 별도 운영 구성 항목이다.
+- 섬 초대 공유 주소 `LINK_BASE_URL`은 기존 스택에서 prod `https://catus-api.oneorthree.world`, dev는 기존 주소를 사용했다. 기존 prod 호스트는 꺼져 열리지 않으므로(2026-10-31 확인) 운영 V2는 V2 공개 호스트 `https://catus-api-v2.oneorthree.world`를 쓴다. Secrets Manager `catus/prod/env`의 값 변경은 Infra의 초대 랜딩 배포 뒤에 한다. 지금 초대 링크가 막혀 있어 새 앱 바이너리를 기다리지 않는다. 그 바이너리 전까지 새 링크는 랜딩의 앱 열기 버튼으로 연다. 폐기된 독립 Link migration이나 호환 endpoint를 복구하지 않는다. DB·로그 장애 알람 수신처는 별도 운영 구성 항목이다.
 
 ### 2026-10-14 운영 전환 확인
 
