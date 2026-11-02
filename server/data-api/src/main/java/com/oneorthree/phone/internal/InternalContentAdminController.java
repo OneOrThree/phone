@@ -46,7 +46,7 @@ public class InternalContentAdminController {
     @GetMapping("/environment")
     public Map<String, Object> environment() {
         return Map.of("environment", verifiedEnvironment(), "contractVersion", "1",
-                "serverVersion", serverVersion(), "schemaVersion", schemaVersion(),
+                "serverVersion", serverVersion(), "infraRevision", infraRevision(), "schemaVersion", schemaVersion(),
                 "capabilities", java.util.List.of("content.publication.v1", "content.history.v1",
                         "content.notice.withdraw.v1", "content.app-requirements.v1",
                         "construction.policy.v1", "focus.policy.v1"));
@@ -54,8 +54,17 @@ public class InternalContentAdminController {
 
     /** 배포 커밋 SHA(OBS_VERSION). 없으면 unknown. */
     private String serverVersion() {
-        String version = environment.getProperty("OBS_VERSION");
-        return version == null || version.isBlank() ? "unknown" : version.strip();
+        return runtimeValue("OBS_VERSION");
+    }
+
+    /** 운영에 적용된 cattus-infra 구성 커밋(OBS_INFRA_REVISION, 운영 배포가 Data 컨테이너에만 넣는다). 없으면 unknown. */
+    private String infraRevision() {
+        return runtimeValue("OBS_INFRA_REVISION");
+    }
+
+    private String runtimeValue(String key) {
+        String value = environment.getProperty(key);
+        return value == null || value.isBlank() ? "unknown" : value.strip();
     }
 
     /**

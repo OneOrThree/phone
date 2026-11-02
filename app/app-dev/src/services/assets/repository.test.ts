@@ -1,8 +1,10 @@
-jest.mock('./nativeAdapter', () => ({ nativePort: () => null }));
+let mockPort: object | null = null;
+jest.mock('./nativeAdapter', () => ({ nativePort: () => mockPort }));
 import { AssetRepository } from './repository';
 import { ChannelClient } from './channelClient';
 import { AssetPort } from './nativeAdapter';
 import { canonical, digest, parseManifest } from './contracts';
+import { buildPublisherManifest } from './__fixtures__/publisherManifest';
 import { POLICY } from './policy';
 function fixture() {
   let now = 1000000000;
@@ -474,4 +476,94 @@ test('부팅 디스크 목록의 일시 실패 후 다음 초기화는 기존 sn
   expect((await restarted.acquirePack('interior-hall'))?.version).toBe(lease.version);
   expect([...f.files.keys()].filter((uri) => uri.includes('/indexes/'))).toHaveLength(2);
   expect(f.counts().downloads).toBe(1);
+});
+
+// 발행기가 실제로 만든 manifest 의 회관 외 팩(꾸미기 PNG 팩 10개 + rig JSON 팩)
+const customizationPacks = () =>
+  Object.fromEntries(
+    Object.entries(buildPublisherManifest().packs).filter(([id]) => id !== 'interior-hall'),
+  );
+
+test('main 이 발행한 manifest(꾸미기 팩·rig JSON 포함)여도 회관 팩만 받고, 재시작 뒤 저장된 채널도 복원한다', async () => {
+  const f = fixture();
+  f.set({ extras: customizationPacks() });
+  const r = f.create();
+  expect((await r.ensurePack('interior-hall')).status).toBe('ready');
+  // 요청한 팩의 파일만 받는다 — 회관 PNG 하나. 꾸미기 파일 112개는 요청한 적이 없다.
+  expect(f.counts().downloads).toBe(1);
+  // snapshot 에 꾸미기 팩이 든 채널이 저장됐고(복원 경로가 그것을 다시 검증한다), 재시작이 그 snapshot 을 채택한다.
+  const stored = [...f.files].filter(([uri]) => uri.includes('/indexes/'));
+  expect(stored.some(([, text]) => text.includes('customization-rigs'))).toBe(true);
+  const lease = await f.create().acquirePack('interior-hall');
+  expect(lease?.assets.background.uri).toContain('/objects/');
+  expect(f.counts().downloads).toBe(1);
+});
+
+test('rig JSON 이 든 팩은 파일을 하나도 받지 않고 incompatible 로 보류하며 실패로 세지 않는다', async () => {
+  const f = fixture();
+  const packs = customizationPacks();
+  // 발행기 팩에는 없는 JSON 과 PNG 의 혼합 팩 — 일부만 받아 준비됨으로 표시하지 않는다.
+  const mixedFiles = {
+    image: Object.values(packs['customization-head'].files)[0],
+    rig: Object.values(packs['customization-rigs'].files)[0],
+  };
+  packs.mixed = { version: digest(canonical(mixedFiles)), files: mixedFiles };
+  f.set({ extras: packs });
+  const r = f.create();
+  for (const id of ['customization-rigs', 'mixed']) {
+    expect(await r.ensurePack(id)).toEqual({ status: 'deferred', reason: 'incompatible' });
+    expect(await r.ensurePack(id)).toEqual({ status: 'deferred', reason: 'incompatible' });
+    expect(await r.acquirePack(id)).toBeNull();
+  }
+  expect(f.counts().downloads).toBe(0);
+  expect((await r.ensurePack('interior-hall')).status).toBe('ready');
+  expect(f.counts().downloads).toBe(1);
+});
+
+describe('운영 이미지 CDN 이 없는 동안 앱 게이트', () => {
+  const keys = [
+    'EXPO_PUBLIC_ENV',
+    'EXPO_PUBLIC_IMAGE_ASSETS_ENABLED',
+    'EXPO_PUBLIC_IMAGE_ASSETS_URL',
+    'EXPO_PUBLIC_IMAGE_ASSETS_ENV',
+  ];
+  const originalEnv = keys.map((k) => process.env[k]);
+  const originalDev = __DEV__;
+
+  afterEach(() => {
+    mockPort = null;
+    Object.assign(globalThis, { __DEV__: originalDev });
+    keys.forEach((k, i) => {
+      if (originalEnv[i] === undefined) delete process.env[k];
+      else process.env[k] = originalEnv[i];
+    });
+  });
+
+  /** .env 의 dev CDN 값이 인라인된 번들. 값이 셸에 없어 빌드 가드는 이 경우를 통과시킨다. */
+  function loadBundle(dev: boolean, env: string | undefined) {
+    mockPort = {};
+    Object.assign(globalThis, { __DEV__: dev });
+    if (env === undefined) delete process.env.EXPO_PUBLIC_ENV;
+    else process.env.EXPO_PUBLIC_ENV = env;
+    process.env.EXPO_PUBLIC_IMAGE_ASSETS_ENABLED = 'true';
+    process.env.EXPO_PUBLIC_IMAGE_ASSETS_URL = 'https://d111111abcdef8.cloudfront.net';
+    process.env.EXPO_PUBLIC_IMAGE_ASSETS_ENV = 'dev';
+    let repository: unknown;
+    jest.isolateModules(() => {
+      repository = require('./repository').getAssetRepository();
+    });
+    return repository;
+  }
+
+  test.each(['prod', '', 'staging', undefined])(
+    '릴리스 번들(EXPO_PUBLIC_ENV=%s)은 dev CDN 값이 인라인돼도 켜지지 않는다',
+    (env) => {
+      expect(loadBundle(false, env)).toBeNull();
+    },
+  );
+
+  test('dev 릴리스와 개발 빌드는 CDN 을 켠다', () => {
+    expect(loadBundle(false, 'dev')).toBeInstanceOf(Object);
+    expect(loadBundle(true, undefined)).toBeInstanceOf(Object);
+  });
 });

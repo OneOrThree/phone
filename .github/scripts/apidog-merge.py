@@ -64,7 +64,6 @@ DOMAINS = {
     "알림": ["user-notification", "notification", "user", "outbox-command", "developer-notice"],
     "콘텐츠 운영": ["content-admin", "focus-policy-admin"],
     "화면": ["screen"],
-    "링크 미리보기": ["preview"],
 }
 CONTROLLER_DOMAIN = {c: d for d, controllers in DOMAINS.items() for c in controllers}
 # 대응표 실수는 import 시점에 막는다 — dict 는 중복 키를 조용히 덮고, '/' 는 폴더를 한 단 더 판다.

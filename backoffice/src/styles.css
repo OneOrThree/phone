@@ -250,3 +250,7 @@ code { overflow-wrap: anywhere; }
 .version-info { font-size: var(--text-xs); color: var(--color-muted); line-height: 1.65; }
 .version-info ul { margin: 0; padding: 0; list-style: none; }
 @media (max-width: 900px) { .version-info { display: none; } }
+.release-verdict h2 { font-size: var(--text-md); }
+.release-verdict.ok { background: var(--color-success-soft); color: var(--color-success); }
+.release-verdict.unknown { background: var(--color-paper-deep); color: var(--color-muted); }
+.policy-table code { font-family: var(--font-mono); }

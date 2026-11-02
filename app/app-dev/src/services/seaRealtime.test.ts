@@ -1,3 +1,4 @@
+import { Platform } from 'react-native';
 import { memberLooks } from './memberLooks';
 import * as apiClient from './api/client';
 // 바다 방 STOMP(GROMO-2310) — 서버가 강제하는 프레임 순서, NOT_IN_SEA_ROOM 재 enter, left 멱등, member → 참가자 폴백.
@@ -8,6 +9,8 @@ jest.mock('@/services/api/session', () => ({
   ...jest.requireActual('@/services/api/session'),
   getAccessToken: () => 'AT',
 }));
+// 앱 버전은 네이티브 모듈이라 목이다 — api/client.test.ts 와 같은 방식.
+jest.mock('expo-application', () => ({ nativeApplicationVersion: '1.0.2' }));
 jest.mock('@stomp/stompjs', () => {
   class FakeClient {
     static instances: FakeClient[] = [];
@@ -126,6 +129,21 @@ test('프레임 순서 — 개인 큐 SUB → enter → assigned 뒤 방 SUB →
   expect(client().connectHeaders.Authorization).toBe('Bearer AT');
   personal('sea.room.snapshot', { roomId: 'room-1', members: [member('me'), member('a')] });
   expect(spy.members.map((m) => m.userId)).toEqual(['me', 'a']);
+});
+
+describe('CONNECT 앱 버전 헤더 (GROMO-2655)', () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  // 바다 연결은 섬 연결과 같은 realtimeClientOptions() 를 쓴다 — 서버 stomp_connect 로그에 두 값이 남아야 한다.
+  test('Authorization 과 앱 버전·플랫폼 헤더가 함께 실린다', () => {
+    jest.replaceProperty(Platform, 'OS', 'ios');
+    open();
+    expect(client().connectHeaders).toEqual({
+      Authorization: 'Bearer AT',
+      'X-App-Version': '1.0.2',
+      'X-App-Platform': 'ios',
+    });
+  });
 });
 
 test('방 사건 — joined·updated 는 갱신, left 는 멱등 제거, 다른 방 사건은 버린다', () => {

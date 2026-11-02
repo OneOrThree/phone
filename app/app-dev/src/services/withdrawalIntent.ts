@@ -57,6 +57,21 @@ export async function confirmWithdrawal(intent: WithdrawalIntent): Promise<void>
 }
 
 /**
+ * 탈퇴 전에 Apple 일회용 코드를 받아야 하는가(App Store 5.1.1(v)). 세션 provider 는 2026-10-22 전에
+ * 로그인해 유지 중인 세션에 없으므로 서버가 주는 연동 목록도 함께 본다. Apple 재인증은 iOS 에서만 열린다.
+ */
+export function needsAppleAuthorizationCode(
+  platform: string,
+  sessionProvider: string | null | undefined,
+  linkedProviders: readonly string[] | null | undefined,
+): boolean {
+  return (
+    platform === 'ios' &&
+    (sessionProvider === 'apple' || linkedProviders?.includes('apple') === true)
+  );
+}
+
+/**
  * 탈퇴한 계정의 로컬 정리. 1.x 사용자 데이터와 소유자 표식이 모두 지워져야 끝난다 — 실패하면 던지고
  * 의도는 남는다. 의도 표식 삭제는 best-effort 다: 남아도 세션이 없는 부팅에서는 쓰이지 않는다.
  */

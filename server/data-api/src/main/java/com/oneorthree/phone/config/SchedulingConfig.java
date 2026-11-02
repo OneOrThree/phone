@@ -32,7 +32,7 @@ public class SchedulingConfig {
         return scheduler(6, "sched-");
     }
 
-    /** 분당 보상·황금 물고기·휴식 자동 종료를 섬 건설 정산과 분리한다. */
+    /** 분당 보상·황금 물고기·휴식 자동 종료·방치 세션 종결을 섬 건설 정산과 분리한다(1스레드라 초를 0·20·30·40 으로 나눈다). */
     @Bean(FOCUS_REWARD_SCHEDULER)
     public ThreadPoolTaskScheduler focusRewardTaskScheduler() {
         return scheduler(1, "focus-reward-sched-");

@@ -109,7 +109,7 @@ export function Diary({ e, font }: { e: any; font?: string }) {
         .map((m) => ({
           id: m.userId,
           name: m.name ?? '주민',
-          color: m.catColor ?? 'black',
+          color: m.catColor ?? null,
           outfit: m.catColor ? appearanceOutfit(m.appearance) : undefined,
         }))
     : island.members;

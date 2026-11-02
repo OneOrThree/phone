@@ -3,6 +3,7 @@ package com.oneorthree.phone.focus.repository;
 import com.oneorthree.phone.focus.repository.domain.FocusSessionDetail;
 import com.oneorthree.phone.focus.repository.domain.FocusSessionLifecycle;
 import jakarta.persistence.LockModeType;
+import org.springframework.data.domain.Limit;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
@@ -152,6 +153,34 @@ public interface FocusSessionDetailRepository extends JpaRepository<FocusSession
             + "com.oneorthree.phone.focus.repository.domain.FocusSessionLifecycle.PAUSED "
             + "AND d.lastTransitionAt <= :before")
     List<UUID> findSessionIdsRestingSince(@Param("before") Instant before);
+
+    /**
+     * 방치 세션 종결 후보 (GROMO-2636) — {@code ACTIVE} 인 채 마지막 전이(시작·재개) 뒤 종류별 유예가 지난 세션 id.
+     * 섬은 {@code islandBefore}, 바다는 {@code seaBefore} 이전에 전이한 것만 걸린다. 휴식({@code PAUSED})은 대상이 아니다 —
+     * 1시간 자동 종료({@link #findSessionIdsRestingSince})가 맡는다.
+     *
+     * <p>서버에는 활동 신호가 없어 {@code lastTransitionAt} 만 본다. 엔티티를 올리지 않고, 고른 뒤 잠그기까지 사용자가
+     * 움직일 수 있어 종결은 <b>잠근 뒤 다시 판정</b>한다({@link #findSessionIdsRestingSince} 와 같다).
+     *
+     * <p>세션 id 순으로 {@code after} 뒤의 {@code limit} 건을 집는다. 닫을 수 없는 행(도메인 거절·탈퇴 반쪽 상태)이 한 배치를
+     * 채워도 크론이 이어 보므로 그 뒤 세션이 막히지 않는다.
+     *
+     * @param islandBefore 이 시각 이전에 마지막으로 전이한 섬 세션(= now − 섬 유예)
+     * @param seaBefore    이 시각 이전에 마지막으로 전이한 바다 세션(= now − 바다 유예)
+     * @param after        이 세션 id 뒤부터 집는다
+     * @param limit        한 틱이 집는 최대 건수
+     * @return 세션 id(오름차순)
+     */
+    @Query("SELECT d.sessionId FROM FocusSessionDetail d WHERE d.lifecycle = "
+            + "com.oneorthree.phone.focus.repository.domain.FocusSessionLifecycle.ACTIVE AND ("
+            + "(d.kind = com.oneorthree.phone.focus.repository.domain.FocusSessionKind.ISLAND "
+            + "AND d.lastTransitionAt <= :islandBefore) "
+            + "OR (d.kind = com.oneorthree.phone.focus.repository.domain.FocusSessionKind.SEA "
+            + "AND d.lastTransitionAt <= :seaBefore)) AND d.sessionId > :after "
+            + "ORDER BY d.sessionId")
+    List<UUID> findStaleActiveSessionIds(@Param("islandBefore") Instant islandBefore,
+                                         @Param("seaBefore") Instant seaBefore, @Param("after") UUID after,
+                                         Limit limit);
 
     /**
      * 황금 물고기 추첨 틱용(GROMO-1956) — 지금 ACTIVE 세션이 {@code minimum} 명 이상인 섬.

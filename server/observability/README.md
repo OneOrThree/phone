@@ -66,7 +66,11 @@ docker compose --env-file "$RUNTIME_ENV_FILE" \
   -f server/scripts/docker-compose.dev.yml -f server/scripts/docker-compose.observability.yml up -d
 ```
 
-- Grafana: `http://<서버>:3000` (admin / `$GRAFANA_ADMIN_PASSWORD`)
+- Grafana: `http://<서버>:3000` (`admin` / `$GRAFANA_ADMIN_PASSWORD`)
+- **`GRAFANA_ADMIN_PASSWORD` 는 필수이고 기본값이 없다**(GROMO-2193). 값이 없거나 비면 `docker compose` 가 이 overlay 를 읽는 단계에서
+  `required variable GRAFANA_ADMIN_PASSWORD is missing a value` 로 멈춘다. Grafana 가 아닌 서비스만 지정해도(`ps prometheus`,
+  `up --no-deps …`, `rm -sf …`) 같다. dev 는 Secrets Manager `gromo/dev/env` 에 이 키를 넣으면 `dev-env.sh` 가 만드는 임시 `dev.env`
+  에 실려 오고(키가 없으면 줄 자체를 쓰지 않는다), 로컬 수동 실행은 환경변수로 준다.
 - 대시보드: **"GROMO — dev 관측"** (자동 프로비저닝, 5초 새로고침)
   - ※ 대시보드는 **as-code** — Grafana UI 에서 패널을 즉석 수정해도 ~10초 내 파일 버전으로 되돌아간다. 영구 변경은 `server/observability/grafana/dashboards/gromo-overview.json` 을 직접 수정.
 
@@ -105,7 +109,11 @@ DB 캐시히트↓(`blks_read`↑) → 인덱스/쿼리 문제. 두 지표의 �
 
 - `/actuator/*` 는 무인증(JwtFilter 는 `/api/*` 만 필터). dev 는 관리 포트 **9091 을 호스트 미공개**로 두어
   `app-network` 안 Prometheus 만 접근 → 공개 8080 으로 메트릭이 새지 않음.
-- **Grafana 3000 은 외부 노출** — 방화벽/보안그룹으로 접근 제한 + `GRAFANA_ADMIN_PASSWORD` 변경 필수.
+- **Grafana 3000 은 외부 노출** — 방화벽/보안그룹으로 접근 제한 + `GRAFANA_ADMIN_PASSWORD` 필수(기본 `admin` 비밀번호는 없다, 위 «실행»).
+  - ⚠️ 이 값은 `grafana_data` 볼륨을 **처음 만들 때만** 적용된다. 예전에 `admin/admin` 으로 만든 볼륨은 코드를 바꿔도 그 비밀번호가 그대로다
+    (같은 볼륨에 env 만 바꿔 컨테이너를 다시 만들어도 옛 비밀번호로만 로그인된다 — Grafana 11.4.0 에서 확인). 한 번 리셋한다.
+    먼저 새 값으로 컨테이너를 재생성(`ops-monitor.dev` 의 `up`)한 뒤, 컨테이너에 주입된 값을 그대로 쓰면 호스트 명령줄에 비밀번호가 남지 않는다:
+    `docker exec gromo-grafana sh -c 'grafana cli admin reset-admin-password "$GF_SECURITY_ADMIN_PASSWORD"'`
 - Fluent Bit 은 `docker.sock` 을 쓰지 않는다. 컨테이너 로그 디렉터리(`/var/lib/docker/containers`)를 읽기 전용으로 마운트하며,
   같은 디렉터리의 `config.v2.json`(컨테이너 환경변수 포함)도 보이므로 `logs.lua` 는 compose 서비스·프로젝트 라벨 두 값만 읽는다.
 - 수집 대상은 compose 프로젝트 `phone` 의 `data-api`·`business-api`·`notification`·`realtime` 뿐이다. 그 밖 컨테이너와 Fluent Bit 자신의 로그는 버린다.

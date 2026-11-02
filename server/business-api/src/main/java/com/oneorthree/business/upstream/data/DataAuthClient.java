@@ -15,6 +15,7 @@ import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpMethod;
 import tools.jackson.databind.JsonNode;
 
+import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
@@ -35,6 +36,11 @@ public class DataAuthClient {
     private static final String PATH_SESSION_VERIFY = "/internal/auth/sessions/verify";
     private static final String PATH_LOGIN_ATTEMPTS = "/internal/auth/login-attempts";
     private static final String PATH_LOGIN_ATTEMPT_LOOKUP = "/internal/auth/login-attempts/lookup";
+    /**
+     * 탈퇴는 한 TX 에서 섬 정리까지 끝내 운영에서 0.9~1.8초 걸렸다. 일반 조회 예산 1.5초로 끊으면
+     * 커밋된 탈퇴를 실패로 오인한다.
+     */
+    private static final Duration WITHDRAW_READ_TIMEOUT = Duration.ofSeconds(5);
     private static final String PATH_ACCOUNT = "/internal/users/{userId}";
 
     private final InternalHttpClient http;
@@ -275,12 +281,14 @@ public class DataAuthClient {
 
     /**
      * 탈퇴 (GROMO-1801 · 계정 LLD §2.5). 응답 유실 뒤 재시도는 이미 비활성이라 404 {@code USER_NOT_FOUND} 이고,
-     * 앱은 그것을 탈퇴 확정으로 읽는다 — 그래서 재시도해도 안전하다.
+     * 호출부({@code AccountUseCase.withdraw})는 그것을 탈퇴 확정으로 읽는다 — 그래서 재시도해도 안전하다.
+     * 읽기 시간은 일반 조회 예산 대신 {@link #WITHDRAW_READ_TIMEOUT} 을 쓴다.
      */
     public JsonNode deleteAccount(UUID userId, UUID sessionId, long generation, Deadline deadline) {
         return http.exchange(sessionScoped(HttpMethod.DELETE, userPath(PATH_ACCOUNT, userId), userId, sessionId,
                         generation)
                         .idempotentCommand()
+                        .readTimeout(WITHDRAW_READ_TIMEOUT)
                         .build(), deadline,
                 new ParameterizedTypeReference<JsonNode>() { });
     }

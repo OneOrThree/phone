@@ -40,7 +40,7 @@ dev 관찰(D2~D7)이 끝나고 §4 기준이 기록되기 전에는 ②(Fluent B
 | 3 | `prod-ci-V2` 를 `release` 브랜치에서 `workflow_dispatch` 로 수동 실행 | 이미지 발행·구성 SHA 검증 통과, 새 태그 `catus-vX.Y.Z-V2` 생성 |
 | 4 | `prod-cd-V2` 실행(승인 후 수동, SSM 배포). 입력은 `version`(필수: 3단계에서 생긴 `catus-vX.Y.Z-V2` 태그)·`rollback`·`allow_migration`(DB 마이그레이션이 든 릴리스만)이고 배포는 `--role app` 전체다 | 앱 4종 헬스 통과 |
 
-배포 엔진은 `up -d --no-deps <앱 4종>` 을 호출하고 compose 가 설정이 바뀐 서비스만 재생성한다. 그래서 스위치만 바꾸면 앱은 재시작되지 않고, 앱의 env·이미지·라벨이 바뀐 배포에서만 재시작된다(`infra_revision` 비교로 앱을 재시작하지 않는다). ①은 phone 승격 없이 Infra 만으로 배포할 수 있다(번들에 관측 파일이 없으면 배포 엔진이 관측 단계를 건너뛴다). ②부터는 phone 번들이 필요해 `main` → `release` 승격(`AGENTS.md` 「main → release 운영 승격」)이 먼저다.
+배포 엔진은 `up -d --no-deps <앱 4종>` 을 호출하고 compose 가 설정이 바뀐 서비스만 재생성한다. 그래서 스위치만 바꾸면 Realtime·Business·Notification은 재시작되지 않고, 앱의 env·이미지·라벨이 바뀐 배포에서만 재시작된다. Data는 Infra 고정값을 `OBS_INFRA_REVISION`으로 받아, 스위치 변경으로 고정값이 바뀌면 그 배포에서 재생성된다. ①은 phone 승격 없이 Infra 만으로 배포할 수 있다(번들에 관측 파일이 없으면 배포 엔진이 관측 단계를 건너뛴다). ②부터는 phone 번들이 필요해 `main` → `release` 승격(`AGENTS.md` 「main → release 운영 승격」)이 먼저다.
 
 **승격은 지금 막혀 있다.** `deploy-V2.py` 는 `migration_fingerprints` 가 직전 성공 기록과 다르면 배포를 중단하고, 이를 넘기는 절차가 없다(티켓 2634). 2026-10-31 기준 `main` 에는 `release` 에 없는 Data `V8`, Notification `V17`·`V18`, `v0-rebase/backoffice-profile.json` 이 있다. `V17` 은 발송 자료가 없고 한 번도 열지 않은 저장소만 게이트를 연다. 2026-10-31 기준 prod 는 `catus-v2.0.2-V2`(소스 `6a8e678a9`, Infra `c2a0314`, 앱 이미지 `340d81567`)다.
 

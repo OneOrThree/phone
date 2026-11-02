@@ -2937,7 +2937,7 @@ type QuestView = Omit<Quest, 'rate'> & {
 type ResidentRate = {
   id: string;
   name: string;
-  // 서버가 털색을 안 준 주민(탈퇴 등)은 null — 그릴 때 중립 gray 로 둔다
+  // 서버가 털색을 안 준 주민(탈퇴 등)은 null — 그릴 때 빈 상자로 둔다(색을 추측하지 않는다)
   color: string | null;
   outfit?: Outfit;
   rate: number | null;
@@ -5548,7 +5548,7 @@ export function Board({
                       <View accessible accessibilityLabel={`${name} 고양이 프로필`}>
                         <CatAvatar
                           userId={id}
-                          color={color ?? 'gray'}
+                          color={color}
                           outfit={color ? outfit : undefined}
                           size={42}
                         />
@@ -7660,7 +7660,7 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
     active: serverMail,
     scopeKey: island ? String(island.id) : 'mock',
   });
-  // 친구·편지 상대는 서버가 털색·착용을 주지 않아 null(중립 gray 로 그린다).
+  // 친구·편지 상대는 응답에 털색·착용이 없으면 null — 아바타가 userId 묶음 조회로 채우고, 값이 없으면 빈 상자로 그린다.
   const friendIsland = (userId: string | null) =>
     (userId && mail.friends.find((f) => f.userId === userId)?.mainIslandName) || '';
   const friends: FriendView[] = serverMail
@@ -7820,12 +7820,7 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
         boxShadow: '0 2px 0 #b58f6b',
       }}
     >
-      <CatAvatar
-        userId={userId}
-        color={color ?? 'gray'}
-        outfit={color ? outfit : undefined}
-        size={size}
-      />
+      <CatAvatar userId={userId} color={color} outfit={color ? outfit : undefined} size={size} />
     </View>
   );
 

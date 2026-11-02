@@ -190,6 +190,10 @@ Android release task graph는 기본 차단됩니다. Android legacy 세션의 R
 OTA 스크립트는 셸의 `EXPO_PUBLIC_*`를 비우고 이 정본을 읽습니다. 전송 실패 뒤 키나 본문을 바꾸는
 자동 재시도는 추가하지 않습니다. 이 설정을 포함한 앱 또는 호환 OTA 적용 뒤에 복구됩니다.
 
+## 앱 출시 전 서버 선행 게이트 (GROMO-2684)
+
+운영 앱 출시 경로(`scripts/ota-update.sh`, 운영 `ios/testflight.sh`, 운영 청중 Android release)는 시작 전에 `.github/scripts/app-server-gate.py`를 실행한다. 운영에 배포된 커밋 뒤에 `server/*/src/main` 변경이 남아 있으면 서버를 먼저 승격·배포하라며 막는다. 조회가 실패해도 막는다. 의도한 예외는 `ALLOW_SERVER_GAP="사유"`를 설정해 실행한다. 백오피스 「출시 현황」 화면에서 같은 판정을 미리 볼 수 있다. `--dev` 빌드는 대상이 아니다.
+
 ## TestFlight
 
 Catus 테스트 빌드를 TestFlight에 올립니다. 공개 릴리스 설정(약관 버전·Datadog RUM)은 `ios/release-config.sh`, App Store Connect API 키는 `ios/fastlane/.env`(gitignore, 양식은 `.env.example`)에 둡니다.
@@ -223,7 +227,7 @@ iOS 앱은 FCM 토큰을 받으려고 서버 환경별 Firebase 설정 파일을
 - 개발 맥: `ios/credentials/dev/GoogleService-Info.plist`·`ios/credentials/prod/GoogleService-Info.plist`(gitignore). 다른 곳에 두려면 `GROMO_IOS_CREDENTIALS_DIR`(그 아래 `dev/`·`prod/`)를 환경변수나 `ios/.xcode.env.local` 에 둡니다. 운영 서버로 디버그 빌드를 돌릴 때는 `ios/.xcode.env.local` 에 `export EXPO_PUBLIC_ENV=prod` 도 둡니다 — plist 와 서버 환경이 어긋나면 발송이 `SENDER_ID_MISMATCH` 로 실패합니다.
 - plist 의 `BUNDLE_ID` 가 번들 id 와 다르거나 `PROJECT_ID` 가 `ios/release-config.sh` 의 `GROMO_FIREBASE_PROJECT_ID_DEV`·`_PROD`(각 서버 `FCM_PROJECT_ID`)와 다르면 빌드가 실패합니다. 파일이 없으면 Release 는 실패하고, Debug 는 경고만 내고 푸시 없이 빌드합니다(`FCMTokenModule` 이 `NOT_CONFIGURED` 로 거절).
 - TestFlight 러너 맥은 레포 밖 경로를 씁니다 — [`ios-testflight-dev-runner.md`](../../docs/conventions/ios-testflight-dev-runner.md) 「푸시 설정 파일」.
-- `expo-notifications` 는 `57.0.17` 로 정확히 고정합니다. 설치된 expo 57.0.21 이 기대하는 값이고, `~` 로 두면 57.0.24 가 `expo-constants` 를 한 벌 더 설치합니다. `expo install --check` 가 이 고정을 경고해도 그대로 두고, 올릴 때는 expo 패치와 함께 올립니다. Android 는 `package.json` 의 `expo.autolinking.android.exclude` 로 이 모듈을 빼 바이너리가 그대로입니다.
+- `expo-notifications` 는 `57.0.22` 로 정확히 고정합니다(GROMO-2531). 57.0.17 은 네이티브 푸시 토큰 요청이 한 번 거절되면 앱을 다시 켤 때까지 같은 거절만 되돌려 주는 결함이 있었고, 57.0.22 가 JS(`getDevicePushTokenAsync`)만 고쳤습니다 — 네이티브 소스는 그대로라 `runtimeVersion` 을 올리지 않습니다. 이 버전이 요구하는 `expo-constants ~57.0.21`·`@expo/image-utils ^0.11.6` 때문에 lock 의 두 패키지가 각각 57.0.22·0.11.6 한 벌로 올랐습니다(`npm ls expo-constants` 로 한 벌인지 확인). `expo install --check` 가 이 고정(설치된 expo 57.0.21 포함)을 경고해도 그대로 두고, 더 올릴 때는 expo 패치와 함께 올립니다 — 57.0.23 부터는 Android 네이티브(Kotlin) 코드가 바뀌어 새 바이너리가 필요합니다. Android 도 GROMO-2611 부터 이 모듈을 네이티브로 씁니다.
 - 앱의 `PrivacyInfo.xcprivacy` 에 있는 UserDefaults 사유 `1C8F.1` 은 `pod install` 이 FirebaseCoreInternal 의 privacy manifest 를 합쳐 넣은 값입니다(Podfile `privacy_file_aggregation_enabled`). 손으로 지우지 않습니다.
 
 ### 약관 문서 버전 `EXPO_PUBLIC_TERMS_VERSION`
@@ -263,4 +267,4 @@ Meta 콘솔 iOS 번들 ID는 `com.oneorthree.focuscat`, Store ID는 `6813004121`
 
 `CatusAssetCache` 로컬 Expo 모듈이 추가되어 Android·iOS 모두 새 바이너리가 필요합니다. OTA 런타임은 Android 푸시 추가 이후 각각 `2.0.1-android-push-assets-v1`, `2.0.0-push-meta-assets-v1`입니다. 기존 바이너리와 웹은 번들 이미지를 유지합니다.
 
-기본값은 비활성화입니다. 개발 CDN을 게시한 뒤 Android CI repository vars `IMAGE_ASSETS_DEV_ENABLED=true`, `IMAGE_ASSETS_DEV_URL=https://<distribution>.cloudfront.net`을 설정해 개발 바이너리를 검증합니다. 로컬/iOS 빌드는 `.env.example`의 `EXPO_PUBLIC_IMAGE_ASSETS_*` 세 값을 명시합니다. 운영 OTA 스크립트는 시범 검증 전까지 기능을 끈 상태로 고정합니다. 개인 이미지나 인증이 필요한 파일은 공개 CDN에 올리지 않습니다.
+기본값은 비활성화입니다. 개발 CDN을 게시한 뒤 Android CI repository vars `IMAGE_ASSETS_DEV_ENABLED=true`, `IMAGE_ASSETS_DEV_URL=https://<distribution>.cloudfront.net`을 설정해 개발 바이너리를 검증합니다. 로컬/iOS 빌드는 `.env.example`의 `EXPO_PUBLIC_IMAGE_ASSETS_*` 세 값을 명시합니다. 운영 CDN은 아직 없으므로(GROMO-2671) 운영 OTA 스크립트와 iOS 운영 레인(`fastlane beta`)은 기능을 끈 값으로 고정하고, 운영 TestFlight(`ios/testflight.sh`)·Xcode Release 운영 청중·Android 운영 release는 셸에 `EXPO_PUBLIC_IMAGE_ASSETS_ENABLED=true`가 있거나 `EXPO_PUBLIC_IMAGE_ASSETS_URL`이 비어 있지 않으면 빌드가 실패합니다(이 빌드 가드는 셸 값만 봅니다). `.env`에서 인라인된 값은 앱 게이트(`src/services/assets/repository.ts`의 `getAssetRepository`)가 운영 번들에서 끕니다. 운영 CDN을 발행·검증한 뒤 이 차단과 고정값을 운영 값으로 함께 바꿉니다. 개인 이미지나 인증이 필요한 파일은 공개 CDN에 올리지 않습니다.

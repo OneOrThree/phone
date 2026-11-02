@@ -49,9 +49,9 @@ services:
     cpus: 2
     pids_limit: 128
     read_only: true
-    # /tmp 는 외부 PDF 임시 파일 자리라 Docker 기본값(noexec)을 유지한다. 실행 권한은 프로파일러 전용
-    # /ddprof 에만 준다 — 쓰기·실행이 함께 되는 자리가 하나 생기는 보안 절충이다(GROMO-2574 문서).
-    # 앱 uid/gid 10001(server/business-api/Dockerfile 45행 useradd, 50행 USER)만 접근하게 좁혔다.
+    # /tmp 는 Docker 기본값(noexec)을 유지한다(예전에는 외부 PDF 임시 파일 자리였다 — GROMO-2682 로 걷었다). 실행 권한은
+    # 프로파일러 전용 /ddprof 에만 준다 — 쓰기·실행이 함께 되는 자리가 하나 생기는 보안 절충이다(GROMO-2574 문서).
+    # 앱 uid/gid 10001(server/business-api/Dockerfile 의 useradd·USER)만 접근하게 좁혔다.
     # 되돌릴 때는 DD_PROFILING_TEMPDIR 와 이 tmpfs 의 /ddprof 두 줄을 함께 되돌린다(환경변수만 남으면 읽기 전용 루트라 쓰기가 실패한다).
     tmpfs: ['/tmp:size=64m,mode=1777', '/ddprof:size=16m,mode=0700,uid=10001,gid=10001,exec']
     volumes: [business-logs:/app/logs]
@@ -69,8 +69,12 @@ services:
       com.datadoghq.tags.version: ${IMAGE_REVISION:-unknown}
       com.datadoghq.ad.logs: >-
         [{"source":"java","service":"business-api"}]
+      # metrics 는 대시보드가 쓰는 이름만 적은 큐레이트 목록이다(GROMO-2196) — 작성 규칙은 server/data-api/Dockerfile 의 Datadog 주석.
+      # Business 는 JDBC·Kafka 의존성이 없어(server/business-api/build.gradle) 공통 13종 중 노출되는 5종만 적는다.
       com.datadoghq.ad.checks: >-
-        {"openmetrics":{"init_config":{},"instances":[{"openmetrics_endpoint":"http://%%host%%:9091/actuator/prometheus","namespace":"gromo_business","metrics":[".*"],"health_service_check":true,"send_distribution_buckets":true,"collect_counters_with_distributions":true}]}}
+        {"openmetrics":{"init_config":{},"instances":[{"openmetrics_endpoint":"http://%%host%%:9091/actuator/prometheus","namespace":"gromo_business","metrics":[
+        "executor_active_threads","executor_queued_tasks","jvm_gc_overhead","jvm_gc_pause_seconds","process_uptime_seconds"
+        ],"health_service_check":true,"send_distribution_buckets":true,"collect_counters_with_distributions":true}]}}
 
   notification:
     logging: *app-logging
@@ -112,8 +116,13 @@ services:
       com.datadoghq.tags.version: ${IMAGE_REVISION:-unknown}
       com.datadoghq.ad.logs: >-
         [{"source":"java","service":"notification"}]
+      # metrics 는 대시보드가 쓰는 이름만 적은 큐레이트 목록이다(GROMO-2196) — 작성 규칙은 server/data-api/Dockerfile 의 Datadog 주석.
       com.datadoghq.ad.checks: >-
-        {"openmetrics":{"init_config":{},"instances":[{"openmetrics_endpoint":"http://%%host%%:9091/actuator/prometheus","namespace":"gromo_notification","metrics":[".*"],"health_service_check":true,"send_distribution_buckets":true,"collect_counters_with_distributions":true}]}}
+        {"openmetrics":{"init_config":{},"instances":[{"openmetrics_endpoint":"http://%%host%%:9091/actuator/prometheus","namespace":"gromo_notification","metrics":[
+        "executor_active_threads","executor_queued_tasks",
+        "hikaricp_connections_acquire_seconds","hikaricp_connections_active","hikaricp_connections_idle","hikaricp_connections_pending","hikaricp_connections_timeout","hikaricp_connections_usage_seconds","jdbc_connections_max",
+        "jvm_gc_overhead","jvm_gc_pause_seconds","process_uptime_seconds","spring_kafka_template_seconds"
+        ],"health_service_check":true,"send_distribution_buckets":true,"collect_counters_with_distributions":true}]}}
 
 networks:
   business-cache:

@@ -170,11 +170,43 @@ gradle.taskGraph.whenReady { taskGraph ->
             )
         }
     }
+    // GROMO-2671 — 운영 이미지 CDN 은 아직 없다. 운영 청중 빌드에 dev CDN 값(켜짐 또는 주소)이 실리면 막는다.
+    // 위 EXPO_PUBLIC_ENV 와 같은 이유로 .env 파일은 읽지 않는다 — 셸 값만 본다. 운영 CDN 을 발행·검증한 뒤 이 검사를 운영 주소 기준으로
+    // 바꾸고, 운영 빌드가 EXPO_PUBLIC_IMAGE_ASSETS_* 세 값을 운영 값으로 쓰게 한다.
+    if (includesReleaseArtifactTask && !devAudience &&
+            (System.getenv("EXPO_PUBLIC_IMAGE_ASSETS_ENABLED") == "true" || System.getenv("EXPO_PUBLIC_IMAGE_ASSETS_URL"))) {
+        throw new GradleException(
+            "Android release 차단: 운영 이미지 CDN 이 아직 없어 EXPO_PUBLIC_IMAGE_ASSETS_ENABLED=true 와 EXPO_PUBLIC_IMAGE_ASSETS_URL 은 운영 빌드에 쓸 수 없습니다 — dev CDN 이 운영 바이너리에 실립니다. 두 값을 비우고 다시 실행하세요."
+        )
+    }
     if (includesReleaseArtifactTask && !releaseKeystorePropertiesFile.exists()) {
         throw new GradleException(
             "프로덕션 서명 파일 없음: ${releaseKeystorePropertiesFile} — 기존 GROMO 업로드 키를 android/credentials/prod/에 배치하세요."
         )
     }
+    // 앱이 서버보다 먼저 나가면 새 API 가 운영에서 404 가 된다(GROMO-2684). 운영 청중만 서버 선행 여부를 확인한다.
+    // 저장소 루트 = android(rootDir) 기준 ../../.. . ALLOW_SERVER_GAP 은 자식 프로세스가 환경에서 물려받는다.
+    if (includesReleaseArtifactTask && !devAudience) {
+        def gateScript = new File(rootDir, "../../../.github/scripts/app-server-gate.py").canonicalFile
+        def gate
+        try {
+            gate = new ProcessBuilder("python3", gateScript.path).redirectErrorStream(true).start()
+        } catch (IOException e) {
+            throw new GradleException("Android release 차단: 서버 선행 게이트를 실행하지 못했습니다 (python3 확인): ${e.message}")
+        }
+        gate.outputStream.close()
+        def gateOutput = gate.inputStream.text
+        if (gate.waitFor() != 0) {
+            throw new GradleException("Android release 차단: 서버 선행 게이트 실패\n${gateOutput}")
+        }
+    }
+}
+
+// GROMO-2671 — JS 번들 태스크 입력에는 소스 파일만 있다. EXPO_PUBLIC_* 값만 바꿔 다시 빌드하면 UP-TO-DATE 로 건너뛰어
+// 앞선 빌드의 값(dev 서버 주소 등)이 든 번들이 그대로 실린다. 셸 값과 .env 파일을 입력으로 선언한다.
+tasks.matching { it.name.startsWith("createBundle") }.configureEach {
+    inputs.property("expoPublicEnv", new TreeMap(System.getenv().findAll { it.key.startsWith("EXPO_PUBLIC_") }).toString())
+    inputs.files(fileTree(dir: projectRoot, includes: [".env*"])).optional()
 }
 
 // FCM 공개 클라이언트 설정은 해당 빌드 환경에서만 읽는다. 다른 환경 파일로 폴백하지 않는다.

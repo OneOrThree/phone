@@ -166,13 +166,21 @@ class ContentEnvironmentTest {
                         "/internal/admin/content/environment"));
     }
 
-    /** 호출마다 새로 만든다 — 같은 인스턴스를 여러 번 부르는 테스트는 이 결과를 변수에 담아 쓴다. */
     private InternalContentAdminController controller(String obsVersion, boolean historyTable,
             java.util.function.Consumer<JdbcTemplate> flyway) {
+        return controller(obsVersion, null, historyTable, flyway);
+    }
+
+    /** 호출마다 새로 만든다 — 같은 인스턴스를 여러 번 부르는 테스트는 이 결과를 변수에 담아 쓴다. */
+    private InternalContentAdminController controller(String obsVersion, String infraRevision,
+            boolean historyTable, java.util.function.Consumer<JdbcTemplate> flyway) {
         var environment = new MockEnvironment();
         environment.setActiveProfiles("prod");
         if (obsVersion != null) {
             environment.setProperty("OBS_VERSION", obsVersion);
+        }
+        if (infraRevision != null) {
+            environment.setProperty("OBS_INFRA_REVISION", infraRevision);
         }
         var jdbc = mock(JdbcTemplate.class);
         when(jdbc.queryForList(argThat(sql -> sql != null && !sql.contains("flyway_schema_history")),
@@ -198,6 +206,37 @@ class ContentEnvironmentTest {
                 .jsonPath("$.serverVersion").value("unknown"));
         environmentResponse("  ", true).andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers
                 .jsonPath("$.serverVersion").value("unknown"));
+    }
+
+    private org.springframework.test.web.servlet.ResultActions infraRevisionResponse(String obsVersion,
+            String infraRevision) throws Exception {
+        return org.springframework.test.web.servlet.setup.MockMvcBuilders
+                .standaloneSetup(controller(obsVersion, infraRevision, true, j -> { })).build()
+                .perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get(
+                        "/internal/admin/content/environment"));
+    }
+
+    @Test
+    void OBS_INFRA_REVISION이_있으면_서버_버전과_따로_Infra_구성_커밋으로_반환한다() throws Exception {
+        var infra = "0123456789abcdef0123456789abcdef01234567";
+        infraRevisionResponse("abc123", " " + infra + " ")
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath(
+                        "$.infraRevision").value(infra))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath(
+                        "$.serverVersion").value("abc123"));
+    }
+
+    @Test
+    void OBS_INFRA_REVISION이_없거나_비어_있으면_서버_버전으로_채우지_않고_unknown이다() throws Exception {
+        infraRevisionResponse("abc123", null)
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath(
+                        "$.infraRevision").value("unknown"));
+        infraRevisionResponse("abc123", "  ")
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath(
+                        "$.infraRevision").value("unknown"));
     }
 
     @Test

@@ -3,11 +3,11 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, edited]
     branches: [main, release]
-    paths: ['backoffice/**', '.github/workflows/backoffice-*.yml', '.github/scripts/backoffice-*.py', '.github/scripts/test_backoffice*.py', '.github/scripts/pr-ci-policy.py', '.github/scripts/test_pr_ci_policy.py']
+    paths: ['backoffice/**', '.github/workflows/backoffice-*.yml', '.github/scripts/backoffice-*.py', '.github/scripts/test_backoffice*.py', '.github/scripts/app-server-gate.py', '.github/scripts/test_app_server_gate.py', '.github/scripts/pr-ci-policy.py', '.github/scripts/test_pr_ci_policy.py']
   workflow_dispatch: {}
   push:
     branches: [main]
-    paths: ['backoffice/**', '.github/workflows/backoffice-*.yml', '.github/scripts/backoffice-*.py', '.github/scripts/test_backoffice*.py', '.github/scripts/pr-ci-policy.py', '.github/scripts/test_pr_ci_policy.py']
+    paths: ['backoffice/**', '.github/workflows/backoffice-*.yml', '.github/scripts/backoffice-*.py', '.github/scripts/test_backoffice*.py', '.github/scripts/app-server-gate.py', '.github/scripts/test_app_server_gate.py', '.github/scripts/pr-ci-policy.py', '.github/scripts/test_pr_ci_policy.py']
 permissions:
   contents: read
 jobs:
@@ -30,4 +30,6 @@ jobs:
       - run: npm test
       - run: npm run build
       - run: python3 -m unittest discover -s .github/scripts -p 'test_backoffice*.py' -v
+        working-directory: .
+      - run: python3 -m unittest discover -s .github/scripts -p 'test_app_server_gate.py' -v
         working-directory: .

@@ -2,8 +2,12 @@ export interface SystemVersions {
   local: boolean;
   data: { serverVersion: string | null; schemaVersion: string | null } | null;
   notification: { serverVersion: string | null; schemaVersion: string | null } | null;
+  // 운영에 적용된 cattus-infra 커밋(Data 응답 기준). 구버전 Data·dev·로컬은 null.
+  infraRevision: string | null;
   iosStore: { version: string | null; status: 'ok' | 'unpublished' | 'unavailable' | 'local' };
 }
+// 사이드바의 커밋은 앞 7자리만 보이고, 값이 없으면(구버전 서버·dev·로컬) 「-」.
+export const shortCommit = (commit: string | null | undefined) => commit ? commit.slice(0, 7) : '-';
 // 숫자 1~3개 조각만 받고 빠진 뒤쪽은 0으로 채운다("2.0" == "2.0.0"). 그 외 형식은 null.
 const parse = (value: string) => {
   const v = value.trim();

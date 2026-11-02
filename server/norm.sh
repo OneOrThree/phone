@@ -1,8 +1,8 @@
 #!/bin/bash
 # 이 체크아웃에 있는 «모든» 서버의 로컬 CI 게이트를 순서대로 돌린다.
 #
-# 서버마다 검사 방식이 다르다(data-api 는 태스크를 나눠 부르고, realtime·notification 은
-# `./gradlew build` 한 번, business-api 는 컨테이너 안에서 돈다). 그래서 여기서 명령을
+# 서버마다 검사 방식이 다르다(data-api 는 태스크를 나눠 부르고, realtime·notification·business-api 는
+# `./gradlew build` 한 번). 그래서 여기서 명령을
 # 다시 쓰지 않고 각 서버의 norm.sh 에 위임한다 — CI 와의 대조는 그쪽 파일에 적혀 있다.
 #
 # 브랜치마다 있는 서버가 다르므로(예: server/notification 은 알림 분리 브랜치에만 있다)

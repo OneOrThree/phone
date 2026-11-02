@@ -50,7 +50,7 @@ P06은 저장 비용을 숨기지 않는다. receipt 건수·바이트 증가를
 |401|KAKAO_TOKEN / APPLE_TOKEN / GOOGLE_TOKEN / LINE_TOKEN / INSTAGRAM_TOKEN / FACEBOOK_TOKEN|false|field=`provider`, 신규 로그인의 제공자 자격 검증 실패. 우리 AT 인증 오류 및 내부 서비스 인증401과 구분|
 |403|FORBIDDEN|false|주체에게 행위 권한 없음. field=null|
 |403|FACILITY_LOCKED|false|필요한 시설 미해금. field=null, 도메인 선행 조건 확인|
-|404|NOT_FOUND|false|기존 preview 및 그룹 내부 자원 호환 의미 보존. 아래 명시한 위임·강퇴의 대상 사용자/멤버 부재에도 사용. 그 밖의 신규 대상 부재에 일괄 재사용하지 않음|
+|404|NOT_FOUND|false|기존 그룹 내부 자원 호환 의미 보존. 아래 명시한 위임·강퇴의 대상 사용자/멤버 부재에도 사용. 그 밖의 신규 대상 부재에 일괄 재사용하지 않음|
 |404|USER_NOT_FOUND|false|field=null, 본인 계정 부재/탈퇴. 기존 사용자 코드 보존, 로그인 상태 정리·재인증|
 |404|RESOURCE_NOT_FOUND|false|field=null, 존재하지 않는 HTTP 경로. 사용자나 섬 부재로 해석하지 않음|
 |404|PRODUCT_NOT_FOUND|false|field=null, 미등록/접근 불가 상품. 상점·외양의 구체 대상 부재|
@@ -94,9 +94,9 @@ P06은 저장 비용을 숨기지 않는다. receipt 건수·바이트 증가를
 
 `INVITATION_EXPIRED`는 원본의 초대 만료 HTTP410을 유지하기 위해 신규 공개 오류로 등록한다. 기준 main의 `InviteLinkErrorCode`에는 대응하는 만료 상수가 없으므로 기존 `SLUG_NOT_FOUND`404를 바꾸지 않고 위 공개 표에 같은 이름·상태와 field=`code`로 등록한다. 부재404와 만료410을502로 바꾸거나 서로 합치지 않는다. 신규 내부 제공자가 이 사유를 확정해 반환할 때 Business의 등록된410/INVITATION_EXPIRED 조합으로 전달한다. 초대 TTL·재발급·승인 생략 등 미결 제품 정책을 이 오류 이름으로 결정하지 않는다.
 
-미리보기 호환 매핑은 분리한다. `RATE_LIMITED`·`NOT_FOUND`는 유지, 요청 유효성 `INVALID_REQUEST`는400으로 유지한다. 기존 provider 실패 코드(`FETCH_TIMEOUT` 등)가 **Preview 객체의 실패 상태 데이터**이면 POST200을 유지한다. 신규 경로는 data 안에, 기존 호환 경로는 원래 직접 반환하던 객체/목록 안에 남는다. 이를 HTTP504로 바꾸지 않는다. 예외로 나오는 미리보기400의 세부 코드는 1751에서 원 코드 목록을 그대로 계약 테스트에 고정한다. 기존 `/api/v1/link-previews`는 성공 본문과 `{code,message}` 평면 오류, 기존 `/api/v1/link-previews/{id}/thumbnail` URL을 보존한다. 신규 `/link-previews`는 JSON 봉투·공통 오류·신규 `/link-previews/{id}/thumbnail` URL을 사용한다. 공유 Preview 캐시의 저장 URL을 전역 변경하지 않고 신규 응답 매핑에서만 URL을 바꾼다. PNG 성공은 양쪽 모두 image/png이며, 미리보기 도메인 실패는 application/json으로 명시하여 각 경로의 오류 형식을 따른다. 앱은 성공 이미지와 실패 JSON을 모두 처리하도록 `Accept: image/png, application/json`을 보낸다. 기존 image/png 단독 요청도 PNG 성공 및 명시 JSON 오류 동작을 유지한다.
+미리보기 호환 매핑(`RATE_LIMITED`·`NOT_FOUND` 유지, provider 실패 코드를 Preview 객체의 실패 상태 데이터로 두는 규칙, `/link-previews` 별칭 URL)은 링크 미리보기를 GROMO-2682(2026-11-01)에서 제거하면서 적용 대상이 없어졌다.
 
-406은 JSON 오류 표의 예외다. [기존 오류 규약 §4](../../../conventions/error-contract.md#4-상태-매핑-규칙)에 따라 지원할 수 없는 Accept는 **406+빈 본문**으로 반환하며 서버 X-Request-Id는 유지한다. 썸네일에 application/json만 허용하면 PNG 성공 매핑과 협상할 수 없어 서비스 호출 전406이다. 반면 image/png를 허용해 썸네일 핸들러에 진입한 뒤 발생한 도메인 오류는 앞 문단의 명시 JSON 응답이므로 image/png 단독이라는 이유로406으로 바꾸지 않는다. 협상 불가를 봉투 직렬화 때문에500으로 만들지 않는다. 이 빈 응답을 data:null 성공으로 감싸지 않는다.
+406은 JSON 오류 표의 예외다. [기존 오류 규약 §4](../../../conventions/error-contract.md#4-상태-매핑-규칙)에 따라 지원할 수 없는 Accept는 **406+빈 본문**으로 반환하며 서버 X-Request-Id는 유지한다. 협상 불가를 봉투 직렬화 때문에500으로 만들지 않는다. 이 빈 응답을 data:null 성공으로 감싸지 않는다.
 
 ## 원본과 채택 계약 대조
 

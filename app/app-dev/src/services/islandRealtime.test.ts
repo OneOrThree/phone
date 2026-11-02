@@ -1,12 +1,14 @@
 /**
  * 섬 실시간 프로젝션·세션 (GROMO-2010) — 스냅숏 정본, 워터마크 중복·역순 방어,
- * 모르는 주민 재조회, 응원 dedupe·TTL, STOMP 목적지·인증 헤더.
+ * 모르는 주민 재조회, 응원 dedupe·TTL, STOMP 목적지·인증·앱 버전 헤더.
  */
 import assert from 'node:assert/strict';
+import { Platform } from 'react-native';
 import { t } from '@/i18n';
-import { ApiError } from '@/services/api/client';
+import { ApiError, request, resetVersionHeaderMissingForTest } from '@/services/api/client';
 import { clearSession, saveSession } from '@/services/api/session';
 import { replaceBlockedUsers } from '@/services/blockedUsers';
+import { captureProductEvent } from '@/services/posthog';
 import {
   friendlyRealtimeErrorMessage,
   IslandProjection,
@@ -63,6 +65,29 @@ jest.mock('@stomp/stompjs', () => {
   }
   return { Client: FakeClient };
 });
+
+// 앱 버전·OTA 값은 네이티브 모듈이라 목이다 — api/client.test.ts 와 같은 방식(getter 가 호출 시점의 값을 돌려준다).
+let mockVersion: string | null = '1.0.2';
+let mockThrowOnAccess = false;
+jest.mock('expo-application', () => ({
+  get nativeApplicationVersion() {
+    if (mockThrowOnAccess) throw new Error('Cannot find native module');
+    return mockVersion;
+  },
+}));
+
+const OTA_ID = '0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d';
+let mockUpdateId: string | null = OTA_ID;
+let mockEmbeddedLaunch = false;
+jest.mock('expo-updates', () => ({
+  get updateId() {
+    return mockUpdateId;
+  },
+  get isEmbeddedLaunch() {
+    return mockEmbeddedLaunch;
+  },
+}));
+jest.mock('@/services/posthog', () => ({ captureProductEvent: jest.fn() }));
 
 const NOW = '2026-09-24T12:00:00.000Z';
 const wm = (
@@ -1907,6 +1932,140 @@ describe('stompIslandChannel', () => {
     assert.equal((events[0] as any).type, 'focus.member.updated');
     assert.equal(ch.send('/app/islands/i1/focus/emotes', { sessionId: 's', type: 'hello' }), true);
     assert.deepEqual(JSON.parse(client().published[0].body), { sessionId: 's', type: 'hello' });
+  });
+});
+
+describe('STOMP CONNECT 앱 버전 헤더 (GROMO-2655)', () => {
+  const client = () => (Client as any).instances.at(-1);
+  const os = (v: string) => jest.replaceProperty(Platform, 'OS', v as any);
+  const open = (opened: string[] = []) =>
+    stompIslandChannel({
+      islandId: 'i1',
+      emote: false,
+      onEvent: () => {},
+      onOpen: () => opened.push('open'),
+      onError: () => {},
+    });
+  /** reopen() 은 deactivate 가 끝난 뒤(마이크로태스크) 다시 붙는다. */
+  const settle = async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  };
+
+  beforeEach(() => {
+    (Client as any).instances.length = 0;
+    os('ios');
+  });
+  afterEach(() => {
+    mockVersion = '1.0.2';
+    mockThrowOnAccess = false;
+    mockUpdateId = OTA_ID;
+    mockEmbeddedLaunch = false;
+    jest.restoreAllMocks();
+  });
+
+  test('토큰이 있으면 Authorization 과 두 버전 헤더가 함께 실린다', () => {
+    open();
+    assert.deepEqual(client().connectHeaders, {
+      Authorization: 'Bearer AT',
+      'X-App-Version': '1.0.2',
+      'X-App-Platform': 'ios',
+    });
+  });
+
+  test('토큰이 없어도 두 버전 헤더는 실리고 Authorization 은 없다', async () => {
+    await clearSession();
+    open();
+    assert.deepEqual(client().connectHeaders, {
+      'X-App-Version': '1.0.2',
+      'X-App-Platform': 'ios',
+    });
+  });
+
+  test('재접속마다 beforeConnect 가 다시 돌아 새 토큰과 새로 읽은 버전 헤더가 함께 실린다', async () => {
+    const channel = open();
+    await saveSession({ accessToken: 'AT2', refreshToken: 'RT2', userId: 'me' });
+    mockVersion = '1.0.3'; // 첫 접속의 값을 캐시했다면 옛 값이 남는다
+    channel.reopen();
+    await settle();
+    assert.deepEqual(client().connectHeaders, {
+      Authorization: 'Bearer AT2',
+      'X-App-Version': '1.0.3',
+      'X-App-Platform': 'ios',
+    });
+  });
+
+  test('토큰이 사라진 재접속도 기존 Authorization 은 지우지 않고 버전 헤더만 새로 읽는다', async () => {
+    const channel = open();
+    await clearSession();
+    mockVersion = '1.0.3';
+    channel.reopen();
+    await settle();
+    assert.deepEqual(client().connectHeaders, {
+      // 종전 동작 그대로 — 토큰이 없으면 connectHeaders 의 Authorization 을 건드리지 않는다
+      Authorization: 'Bearer AT',
+      'X-App-Version': '1.0.3',
+      'X-App-Platform': 'ios',
+    });
+  });
+
+  test('OTA 로 실행 중이어도 X-App-Update-Id 는 CONNECT 에 싣지 않는다 — HTTP 만 싣는다', async () => {
+    // 대조: 같은 목에서 HTTP 요청은 싣는다. 목이 살아 있어야 아래 «싣지 않는다» 단정이 뜻을 가진다.
+    const sent: Record<string, string>[] = [];
+    const realFetch = (global as any).fetch;
+    (global as any).fetch = jest.fn(async (_url: string, init: RequestInit) => {
+      sent.push(init.headers as Record<string, string>);
+      return {
+        ok: true,
+        status: 200,
+        headers: { get: () => null },
+        text: async () => '{"data":null}',
+      } as unknown as Response;
+    });
+    try {
+      await request('/me');
+    } finally {
+      (global as any).fetch = realFetch;
+    }
+    assert.equal(sent[0]['X-App-Update-Id'], OTA_ID);
+
+    open();
+    assert.equal('X-App-Update-Id' in client().connectHeaders, false);
+  });
+
+  test.each([
+    ['웹', 'web', '1.0.2', false],
+    ['버전 값이 없는 네이티브', 'ios', null, false],
+    ['expo-application 접근이 던지는 네이티브', 'android', '1.0.2', true],
+  ])(
+    '%s — 버전 헤더 없이 Authorization 만 싣고 접속은 진행된다',
+    (_label, platform, version, throws) => {
+      os(platform);
+      mockVersion = version;
+      mockThrowOnAccess = throws;
+      const opened: string[] = [];
+      open(opened);
+      assert.deepEqual(client().connectHeaders, { Authorization: 'Bearer AT' });
+      assert.equal(client().connected, true);
+      assert.equal(opened.length, 1);
+    },
+  );
+
+  test('버전을 못 읽는 네이티브가 재접속을 반복해도 누락 계측은 실행당 1회다', async () => {
+    const capture = captureProductEvent as jest.Mock;
+    capture.mockClear();
+    resetVersionHeaderMissingForTest();
+    mockVersion = null;
+    const channel = open();
+    channel.reopen();
+    await settle();
+    channel.reopen();
+    await settle();
+    expect(capture).toHaveBeenCalledTimes(1);
+    expect(capture).toHaveBeenCalledWith('app_version_header_missing', {
+      app_version_header_schema_version: 1,
+      reason: 'unavailable',
+    });
   });
 });
 

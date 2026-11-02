@@ -37,7 +37,10 @@ services:
     container_name: gromo-grafana
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      # 3000 포트가 호스트에 열려 있어 기본 비밀번호를 두지 않는다(GROMO-2193). 비면 compose 가 파일을 읽는 단계에서 멈추므로
+      # 이 파일을 -f 로 물리는 모든 명령(ops-monitor.dev 전 동작, ops-kafka.dev 의 up)이 값 없이는 실패한다.
+      # 이 값은 grafana_data 볼륨을 처음 만들 때만 적용된다 — 이미 만든 볼륨은 server/observability/README.md 의 리셋 절차로 바꾼다.
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?Grafana 관리자 비밀번호(GRAFANA_ADMIN_PASSWORD)가 필요합니다. dev 는 Secrets Manager gromo/dev/env 에 넣고 로컬은 환경변수로 준다. 기본값 admin 은 쓰지 않는다}
       GF_USERS_ALLOW_SIGN_UP: "false"
     volumes:
       - ../observability/grafana/provisioning:/etc/grafana/provisioning:ro
@@ -123,11 +126,11 @@ services:
     environment:
       REDIS_ADDR: redis://redis:6379
       REDIS_USER: health
+    # Datadog OpenMetrics(gromo_redis)는 뗐다(GROMO-2196) — 대시보드가 쓰는 지표가 없고, Datadog 의 Redis 지표는
+    # redis 서비스의 redisdb 체크(docker-compose.dev.yml)가 맡는다. 다시 달 땐 쓰는 이름만 metrics 에 적는다(.* 금지).
     labels:
       com.datadoghq.tags.env: dev
       com.datadoghq.tags.service: gromo-redis-dev
-      com.datadoghq.ad.checks: >-
-        {"openmetrics":{"init_config":{},"instances":[{"openmetrics_endpoint":"http://%%host%%:9121/metrics","namespace":"gromo_redis","metrics":[".*"],"health_service_check":true}]}}
     networks: [app-network]
     restart: unless-stopped
 
@@ -140,8 +143,11 @@ services:
     labels:
       com.datadoghq.tags.env: dev
       com.datadoghq.tags.service: gromo-kafka-dev
+      # metrics 는 대시보드가 쓰는 이름만 적은 큐레이트 목록이다(GROMO-2196) — 작성 규칙은 server/data-api/Dockerfile 의 Datadog 주석.
       com.datadoghq.ad.checks: >-
-        {"openmetrics":{"init_config":{},"instances":[{"openmetrics_endpoint":"http://%%host%%:9308/metrics","namespace":"gromo_kafka","metrics":[".*"],"health_service_check":true}]}}
+        {"openmetrics":{"init_config":{},"instances":[{"openmetrics_endpoint":"http://%%host%%:9308/metrics","namespace":"gromo_kafka","metrics":[
+        "kafka_brokers","kafka_topic_partition_current_offset","kafka_topic_partition_under_replicated_partition"
+        ],"health_service_check":true}]}}
     networks: [app-network]
     restart: unless-stopped
 
@@ -157,8 +163,12 @@ services:
     labels:
       com.datadoghq.tags.env: dev
       com.datadoghq.tags.service: gromo-kafka-dev
+      # metrics 는 대시보드가 쓰는 이름만 적은 큐레이트 목록이다(GROMO-2196) — 작성 규칙은 server/data-api/Dockerfile 의 Datadog 주석.
+      # kafka.yml 의 규칙이 이름을 kafka_network_requestmetrics_requests_total(COUNTER)로 내보내므로 _total 을 뗀 이름으로 적는다.
       com.datadoghq.ad.checks: >-
-        {"openmetrics":{"init_config":{},"instances":[{"openmetrics_endpoint":"http://%%host%%:9404/metrics","namespace":"gromo_kafka_jmx","metrics":[".*"],"health_service_check":true}]}}
+        {"openmetrics":{"init_config":{},"instances":[{"openmetrics_endpoint":"http://%%host%%:9404/metrics","namespace":"gromo_kafka_jmx","metrics":[
+        "kafka_network_requestmetrics_requests"
+        ],"health_service_check":true}]}}
     networks: [app-network]
     restart: unless-stopped
 

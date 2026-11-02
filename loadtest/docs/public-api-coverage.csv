@@ -50,8 +50,6 @@ POST,/auth/sessions/guest,start_1,없음,,인증/세션·탈퇴 상태 전이 �
 POST,/auth/sessions/current/refresh,refresh,없음,,인증/세션·탈퇴 상태 전이 — 별도 수명주기 fixture 필요
 POST,/api/v1/me/challenge-results/{sessionId}/claim,claimDisplay,없음,,별도 쓰기 수명주기·정리(teardown) fixture 필요
 POST,/api/v1/me/challenge-results/{sessionId}/ack,acknowledge_1,없음,,별도 쓰기 수명주기·정리(teardown) fixture 필요
-POST,/link-previews,create_3,제외,,링크 미리보기 — 외부 사이트 fetch·객체 저장소(썸네일) 의존
-POST,/api/v1/link-previews,create_4,제외,,링크 미리보기 — 외부 사이트 fetch·객체 저장소(썸네일) 의존
 POST,/api/v1/invite-links/claim,claim_1,제외,,초대 링크 — 외부 링크 제공자 의존(구 /api/v1 표면)
 POST,/api/v1/groups/{groupId}/invite-link,issueInviteLink,제외,,초대 링크 — 외부 링크 제공자 의존(구 /api/v1 표면)
 GET,/me,me,있음,account,
@@ -115,10 +113,6 @@ GET,/friends,friends_1,있음,friends,
 GET,/friends/search,search,있음,friend_search,
 GET,/focus-sessions/pending-result,pendingResult,있음,focus_pending,
 GET,/focus-sessions/current,current_1,있음,focus_current,
-GET,/link-previews/{id}/thumbnail,thumbnail,제외,,링크 미리보기 — 외부 사이트 fetch·객체 저장소(썸네일) 의존
-GET,/api/v1/link-previews/{id}/thumbnail,thumbnail_1,제외,,링크 미리보기 — 외부 사이트 fetch·객체 저장소(썸네일) 의존
-GET,/api/v1/link-previews/{id},get_1,제외,,링크 미리보기 — 외부 사이트 fetch·객체 저장소(썸네일) 의존
-GET,/link-previews/{id},get_2,제외,,링크 미리보기 — 외부 사이트 fetch·객체 저장소(썸네일) 의존
 DELETE,/me/telescope/pins/{islandId},unpinTelescope,있음,telescope_pin,
 DELETE,/islands/{islandId}/notices/{noticeId}/comments/{commentId},deleteComment,없음,,별도 쓰기 수명주기·정리(teardown) fixture 필요
 DELETE,/islands/{islandId}/memberships/me,leave,있음,join_approval,

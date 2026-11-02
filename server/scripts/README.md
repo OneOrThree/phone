@@ -34,7 +34,7 @@ Realtime·OSS 관측 overlay는 dev용입니다. 그림의 선택 항목을 모�
 | [dev](docker-compose.dev.yml) | 개발 환경의 Data·DB·Redis 기본 구성 |
 | [prod](docker-compose.prod.yml) | 운영 Data·Datadog 구성. DB는 외부 RDS |
 | [realtime](docker-compose.realtime.yml) | dev에 채팅 DB 준비 작업·Realtime 추가 |
-| [business](docker-compose.business.yml) | Business와 미리보기 전용 Redis 추가 |
+| [business](docker-compose.business.yml) | Business와 전용 Redis 추가 |
 | [satellites](docker-compose.satellites.yml) | Business·Notification·전용 Redis. 서비스별 env와 이미지 digest 필수 |
 | [satellites.dev](docker-compose.satellites.dev.yml) | dev Nginx용 Business loopback 포트 8083. prod에는 적용하지 않음 |
 | [satellites.data](docker-compose.satellites.data.yml) | 기존 Data의 env·이미지 교체. `!override` 지원 Compose 필요 |
@@ -128,6 +128,7 @@ dev 의 compose 보간 입력 `dev.env`와 Data·위성 컨테이너 env 는 CD�
 | `REALTIME_AUTHORIZATION_WAIT_TIMEOUT` · `REALTIME_AUTHORIZATION_CACHE_TTL_SECONDS` | Realtime(선택, `REALTIME_AUTHORIZATION_CLIENT_ENABLED=true` 일 때만 의미) | `200ms`·`30` — 현재 멤버십 HTTP 판정의 동시 상한(`REALTIME_AUTHORIZATION_MAX_IN_FLIGHT`, 16)이 찼을 때 기다리는 시간(총 예산 1.5s 에 포함, `0` = 바로 503)과 «허용» 결정 캐시 TTL(초, `0` = 끔; 거절은 캐시 안 함, 멤버십 사건·탈퇴가 즉시 지움. 사건은 한 인스턴스에만 닿으므로 다중 인스턴스에서 즉시성이 필요하면 `0`). GROMO-2342 |
 | `CHAT_WEBSOCKET_HEARTBEAT_SERVER_MS` · `CHAT_WEBSOCKET_HEARTBEAT_CLIENT_MS` | Realtime(선택, dev.env → `realtime.yml`) | `10000`·`10000` — STOMP heartbeat(GROMO-2341). CONNECTED 가 `heart-beat:<server>,<client>` 로 협상하고, 클라이언트가 3×max(client, 앱 송신 주기) 동안 아무것도 안 보내면 브로커가 세션을 닫는다(ERROR `Session closed.` 를 보내며 1002 종료). 앱(`islandRealtime.ts`) 10s/10s 와 맞추고 Cloudflare 유휴 100s 보다 짧게 둔다 |
 | `CHAT_DATA_API_MAX_CONCURRENCY` | Realtime(선택, OFF 모드 `GroupClient`) | `32` — 캐시 미스 시 내부 `GET /internal/users/{userId}/islands` 동시 호출 상한. 넘으면 `chat.data-api.timeout-ms`(2s)까지 기다리다 503. 연결·읽기 타임아웃 2s 는 `SimpleClientHttpRequestFactory`(소켓 읽기마다 적용), keep-alive 는 JDK 기본. GROMO-2342 |
+| `GRAFANA_ADMIN_PASSWORD` | 관측 overlay `docker-compose.observability.yml`(dev.env, 선택) | 기본값 없음 — 비면 이 overlay 를 `-f` 로 물리는 모든 명령(`ops-monitor.dev` 전 동작, `ops-kafka.dev` 의 `up`)이 compose 로드 단계에서 멈춘다. writer·배포·secrets-check 는 막지 않는다. GROMO-2193 |
 
 섬 목록·멤버십·차단 조회는 Realtime 서비스 자격으로 Data 내부 API를 호출합니다. `SVC_TOKEN_REALTIME_TO_DATA`는 공유 dev env와 Data 전용 env 모두 필수이며, Data 기본 프로파일은 `<환경>,satellites,realtime-authorization`입니다. `--data-profiles`로 덮어쓸 때도 두 내부 API 프로파일을 포함해야 합니다. 응원 인가와 받는 사람 기준 차단 필터의 활성화 순서는 [runtime.md «dev 에서 켜는 순서»](../../docs/prd/fishcat/server-separation/runtime.md#dev-에서-켜는-순서)를 따릅니다.
 
@@ -146,9 +147,9 @@ dev 의 compose 보간 입력 `dev.env`와 Data·위성 컨테이너 env 는 CD�
 
 ## 6. 공유 Redis ACL 반영
 
-Business·Data·Realtime이 공유 Redis를 사용한다. 서비스별 비밀번호와 키·채널 ACL을 유지하며
-미리보기는 전역 64개 슬롯으로 제한한다. 일반 CD는 Redis를 재생성하지 않는다.
-기존 Business Redis의 세션·탈퇴 차단 표지를 보존하는 bridge 기간과 최초 bootstrap은
+Business·Data·Realtime이 공유 Redis를 사용한다. 서비스별 비밀번호와 키·채널 ACL을 유지한다.
+일반 CD는 Redis를 재생성하지 않는다.
+기존 Business Redis의 세션 차단 표지를 보존하는 bridge 기간과 최초 bootstrap은
 [공유 Redis 운영](../../docs/architecture/shared-redis.md)을 따른다.
 
 
@@ -306,7 +307,7 @@ Fluent Bit 이 올리는 새 접두입니다. 키는 `system_log/v2/env=<env>/se
 ## 배포·검사 실행 계약
 
 - PR의 smoke 변경은 `smoke-check.yml`에서 셸 문법·mock API·격리 Python 계약으로 검증합니다. 실제 dev/prod API나 DB를 호출하지 않습니다.
-- 네 서비스 Gradle 검사는 `be-gradle.yml`로 공통화합니다. Business PDF 테스트는 Docker test 이미지의 poppler를 유지합니다. 동일 실행의 service/revision/run_id·checksum을 검증한 JAR만 이미지 조립에 사용합니다. PR/main/release가 다른 실행이면 검사를 새로 수행합니다.
+- 네 서비스 Gradle 검사는 `be-gradle.yml`로 공통화합니다. 동일 실행의 service/revision/run_id·checksum을 검증한 JAR만 이미지 조립에 사용합니다. PR/main/release가 다른 실행이면 검사를 새로 수행합니다.
 - release PR의 위성 경계 계약은 `satellite-ci.prod.yml`, 서비스 전체 검사 및 arm64 이미지 검증·발행은 `prod-ci.yml`이 담당합니다.
 - main CI·앱 업로드·smoke의 진행 중 실행은 유지하고, 같은 그룹의 대기는 최신 하나만 남깁니다. VM을 공유하는 Data·Realtime 공동 CD·Satellite CD·smoke execute의 잠금 대기는 `queue: max`를 유지합니다. 같은 SHA의 서로 다른 배포 작업이 서로를 취소하지 않게 하기 위한 별도 자원 잠금입니다.
 - 자동 smoke는 실제 생성된 서버 CI·배포의 완료를 기다립니다. 앱·문서만 바뀌어 서버 배포가 없으면 게스트 생성·300초 대기·15개 검사를 생략하고 「미실행」을 기록합니다. nav.json·paths.json처럼 서버 배포를 시작하는 공유 입력은 검사 대상에 남습니다.

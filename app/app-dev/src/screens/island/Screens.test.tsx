@@ -217,6 +217,7 @@ function Harness({
   onPreviewAudio,
   localePref = 'system',
   fromSea = false,
+  osReduceMotion = false,
 }: any) {
   const [activeRoute, setActiveRoute] = useState(route);
   const [shielded, setShielded] = useState(false);
@@ -276,7 +277,11 @@ function Harness({
   const screens = (
     <RedesignScreens
       e={{
-        state,
+        // App 과 같다 — 화면은 OS 값을 합친 state, 설정 토글은 저장값(savedSettings)을 읽는다
+        state: osReduceMotion
+          ? { ...state, settings: { ...state.settings, reduceMotion: true } }
+          : state,
+        savedSettings: state.settings,
         route: flow ? activeRoute : route,
         fromSea,
         dispatch,
@@ -2077,6 +2082,29 @@ test('Apple 코드를 받지 못하면(취소 아님) 탈퇴 요청 없이 일�
   await clearSession();
 });
 
+test('세션 provider 가 없어도 서버 연동 목록에 apple 이 있으면 탈퇴가 코드를 받아 보낸다', async () => {
+  // 2026-10-22 전에 로그인해 유지 중인 Apple 세션 — session.provider 가 비어 있다.
+  mockWithdrawAccount.mockResolvedValue({ deleted: true });
+  mockAppleAuthorizationCode.mockResolvedValue('apple-code-linked');
+  await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'old-apple-user' });
+  const initial = {
+    ...initialState(false),
+    name: '수빈',
+    profileNames: ['수빈'],
+    linkedProviders: ['apple'],
+  };
+  const s = await render(
+    <Harness route="profile" initial={initial} api={() => ({})} expose={() => {}} />,
+  );
+
+  await fireEvent.press(s.getByText('회원 탈퇴'));
+  await waitFor(() => assert.equal(mockWithdrawAccount.mock.calls.length, 1));
+  assert.equal(mockAppleAuthorizationCode.mock.calls.length, 1);
+  assert.equal(mockWithdrawAccount.mock.calls[0][1], 'apple-code-linked');
+  await clearLocalDataOwner();
+  await clearSession();
+});
+
 test('Apple 이 아닌 계정과 알 수 없는 제공자의 탈퇴는 Apple 재인증 없이 코드 없이 보낸다', async () => {
   mockWithdrawAccount.mockResolvedValue({ deleted: true });
   await saveSession({
@@ -3143,6 +3171,16 @@ test('메일 앱 열기에 실패하면 수신 주소가 있는 안내를 보여
   assert.equal(notifyMock.mock.calls.length, 0);
   assert.ok(exposed);
   open.mockRestore();
+});
+
+test('OS 모션 줄이기가 켜져 있어도 설정 토글은 저장값을 보이고 눌러서 바꿀 수 있다 (GROMO-2159)', async () => {
+  const ui = await render(<Harness route="settings" full osReduceMotion />);
+  const toggle = () => ui.getByRole('switch', { name: '동작 줄이기' });
+  assert.equal(toggle().props.accessibilityState.checked, false);
+  await fireEvent.press(toggle());
+  assert.equal(toggle().props.accessibilityState.checked, true);
+  await fireEvent.press(toggle());
+  assert.equal(toggle().props.accessibilityState.checked, false);
 });
 
 test('문의하기는 신고센터 아래 행에서 한국어면 오픈채팅을 열고, 실패하면 수신 주소 안내만 보여준다', async () => {

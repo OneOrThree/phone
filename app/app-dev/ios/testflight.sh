@@ -32,6 +32,14 @@ if [[ "$AUDIENCE" == "prod" ]]; then
     echo "❌ iOS release/TestFlight 차단: 운영 Google 클라이언트 id 미발급 — src/config/googleClientIds.json prod 칸을 채운 뒤 다시 실행하세요." >&2
     exit 1
   fi
+  # GROMO-2671 — 운영 이미지 CDN 은 아직 없다. 셸에 dev CDN 값(켜짐 또는 주소)이 남아 있으면 운영 바이너리에 실리므로 막는다.
+  # 운영 CDN 을 발행·검증한 뒤 이 검사를 운영 주소 기준으로 바꾸고, fastlane beta 레인·scripts/ota-update.sh 의 고정값도 운영 값으로 바꾼다.
+  if [[ "${EXPO_PUBLIC_IMAGE_ASSETS_ENABLED:-}" == "true" || -n "${EXPO_PUBLIC_IMAGE_ASSETS_URL:-}" ]]; then
+    echo "❌ iOS release/TestFlight 차단: 운영 이미지 CDN 이 아직 없어 EXPO_PUBLIC_IMAGE_ASSETS_ENABLED=true 와 EXPO_PUBLIC_IMAGE_ASSETS_URL 은 운영 빌드에 쓸 수 없습니다 — dev CDN 이 운영 바이너리에 실립니다. 두 값을 비우고 다시 실행하세요." >&2
+    exit 1
+  fi
+  # 앱이 서버보다 먼저 나가면 새 API 가 운영에서 404 가 된다(GROMO-2684). 서버 선행 여부를 확인한다.
+  python3 ../../../.github/scripts/app-server-gate.py
 else
   # dev 빌드는 서버 주소를 여기서 고정한다 — 운영 주소를 실수로 넘겨도 dev lane 이 다시 덮어쓴다
   export EXPO_PUBLIC_API_URL="https://oneorthree.dev.mooo.com"

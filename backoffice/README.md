@@ -59,7 +59,7 @@ ALTER DATABASE <NOTIFICATION_DB명> SET gromo.fcm_project_id TO '<dev 앱의 FCM
 
 HTTPS 역방향 프록시 뒤에 단일 인스턴스로 운영한다. 인터넷에 내부 `/internal/**` 경로를 개방하지 않는다. 백오피스 서버만 서비스망에 접속한다. SQLite 폴더는 전용 영구 볼륨으로 두고 일관된 SQLite 백업 방식으로 보존한다. 디스크·백업에는 검토 원문과 사용자 UUID가 있으므로 운영자만 접근할 수 있어야 한다. 로컬/연결 모드는 DB 파일이 분리되어 모의 게시를 운영 게시로 오해하지 않는다.
 
-백오피스 서버는 화면 표시를 위해 `itunes.apple.com` 조회(App Store 공개 버전)도 한다. 운영자 토큰과 내부 헤더는 보내지 않는다. 조회가 실패하면 화면에 「확인 불가」만 표시하고 작업은 막지 않는다. 사이드바 「시스템 버전」은 Data·Notification의 `serverVersion`·`schemaVersion`과 이 값을 보여 준다.
+백오피스 서버는 화면 표시를 위해 `itunes.apple.com` 조회(App Store 공개 버전)도 한다. 운영자 토큰과 내부 헤더는 보내지 않는다. 조회가 실패하면 화면에 「확인 불가」만 표시하고 작업은 막지 않는다. 사이드바 「시스템 버전」은 Data·Notification의 `serverVersion`·`schemaVersion`, Data의 `infraRevision`(운영에 적용된 Infra 구성 커밋)과 이 값을 보여 준다.
 
 세션은 HttpOnly·SameSite=Strict·연결 모드 Secure 쿠키, 8시간 수명이다. 모든 변경 요청은 정확한 Origin과 CSRF 값을 확인한다. 서버 재시작은 세션을 종료하며, 진행 중인 발송은 결과 확인 필요 상태로 바꾼다. 같은 최초 발송자가 재시도하면 동일 publication UUID가 사용된다. 멀티 인스턴스 배포는 지원하지 않는다.
 
@@ -82,6 +82,10 @@ HTTPS 역방향 프록시 뒤에 단일 인스턴스로 운영한다. 인터넷�
 최초 운영자의 자격을 복구할 수 없거나 동일 요청이 계속 거절되면 서비스 운영 담당자가 해당 publicationId의 영수증과 실제 게시·발송 기록을 조회해 원인을 확인할 때까지 보류한다. SQLite의 상태·발송자·publicationId를 수동 변경하거나 새 초안으로 다시 발송하지 않는다. 현재 버전은 발송자 승계나 강제 잠금 해제를 지원하지 않는다.
 
 Notification의 모든 인스턴스를 새 버전으로 교체한 다음 연결 모드의 발송 기능을 사용한다. 구버전 인스턴스가 고정 메시지를 다르게 처리하지 않도록 롤링 배포 도중에는 발송하지 않는다. 로그인 제한은 연결 소켓의 IP 기준이므로 역방향 프록시 뒤에서는 운영자들이 같은 제한을 공유할 수 있다. 전달 헤더를 임의로 신뢰해 이를 우회하지 않는다.
+
+## 출시 현황 (GROMO-2684)
+
+사이드바 「출시 현황」은 앱을 내기 전에 운영 서버에 없는 서버 변경이 main에 있는지 보여 준다. BFF `GET /api/system/release-status`가 운영 앱 배포 기록 태그(`prod-V2/app.json`)의 커밋을 기준으로 GitHub 공개 API(토큰 없음, 10분 캐시, 갱신당 7회, release 의 최근 `prod-cd-V2.yml` 실행이 성공일 때만 배포 기록을 믿음)로 compare를 조회한다. 배포 태그는 CD가 `deployment-status` 브랜치(`prod-V2/<role>.json`)에 기록한 값을 raw.githubusercontent.com에서 읽고, 커밋은 태그 목록에서 찾는다. dev 연결 모드(`BACKOFFICE_ENV`가 prod가 아님)에서는 조회하지 않고 「출시 판정은 운영 백오피스에서만 합니다.」만 보인다. 서버 실행 코드(`server/*/src/main`)가 바뀌었으면 「서버 먼저 배포」, 아니면 「앱 출시 가능」, 조회가 안 되면 「판정 불가」다. 같은 판정을 앱 출시 스크립트가 `.github/scripts/app-server-gate.py`로 강제한다. GitHub 미인증 한도는 IP 단위라 같은 IP를 쓰는 다른 프로세스가 소진하면 「판정 불가」·「확인 불가」로 나올 수 있다. Android 버전은 Play 공개 페이지 구조에 의존한다(티켓 2654에서 Play Developer API로 교체 가능).
 
 ## 검증
 
