@@ -139,8 +139,8 @@ dev V2 반영 확인: `cd-auto.dev-v2` 실행의 성공은 배포했다는 뜻�
 
 | 축 | 읽는 곳 | 누가·언제 올리나 |
 | --- | --- | --- |
-| 앱 버전(iOS) | `app/app-dev/ios/Cattus.xcodeproj/project.pbxproj`의 `MARKETING_VERSION`, `ios/Cattus/Info.plist`, `iosStoreVersionConfig.js` | 사람이 PR로 |
-| 앱 버전(Android) | `app/app-dev/android/app/build.gradle`의 `versionName`, `app.config.js`의 `version` | 사람이 PR로 |
+| 앱 버전(iOS) | git 태그 `app-<버전>-ios-<빌드>`. 하한은 `app/app-dev/ios/Cattus.xcodeproj/project.pbxproj`의 `MARKETING_VERSION`(`ios/Cattus/Info.plist`·`iosStoreVersionConfig.js`와 같은 값) | 운영 `testflight.sh`(fastlane `beta`)가 업로드 때 그 태그 중 최대의 patch + 1로 정하고(하한보다 낮으면 하한) 업로드 뒤 태그를 단다(`.github/ci/app-version.py`, GROMO-2731). minor·major는 하한을 사람이 PR로 올린다 |
+| 앱 버전(Android) | git 태그 `app-<버전>-android-<versionCode>`. 하한은 `app/app-dev/android/app/build.gradle`의 `versionName` | `app-android-ci`가 그 태그 중 최대의 patch + 1로 정하고(하한보다 낮으면 하한) Android CD가 Play internal 게시 뒤 태그를 단다. minor·major는 하한을 사람이 PR로 올린다. `app.config.js`의 `version`은 쓰지 않는다 |
 | 빌드 번호(iOS) | TestFlight. pbxproj `CURRENT_PROJECT_VERSION`은 하한이다 | fastlane이 업로드 때 정한다. max(그 마케팅 버전의 TestFlight 최대, pbxproj 값) + 1이고 커밋하지 않는다(`ios/fastlane/Fastfile`) |
 | 빌드 번호(Android `versionCode`) | Play 콘솔. `build.gradle` 값은 하한이다 | `app-android-ci`가 max(`ANDROID_VERSION_CODE_BASE`, `build.gradle`) + 실행 번호로 정한다(`.github/ci/android-artifact.py`). 로컬 업로드는 사람이 정한다 |
 | runtimeVersion | `app/app-dev/app.config.js`(플랫폼별), `ios/Cattus/Supporting/Expo.plist`, `android/app/src/main/res/values/strings.xml` | 네이티브가 바뀔 때 사람이 |
@@ -150,7 +150,7 @@ dev V2 반영 확인: `cd-auto.dev-v2` 실행의 성공은 배포했다는 뜻�
 | Kafka·Redis·백오피스 태그 | git 태그 `kafka-v*-V2`·`redis-v*-V2`·`backoffice-v*-V2` | 각 CI의 발행마다 patch + 1. 백오피스는 main 머지마다 |
 | Infra revision | 레포 변수 `CATUS_PROD_INFRA_REVISION_V2` | 사람이 |
 | dev 이미지 태그 | GAR 태그 `dev-v2-<sha>-<run_id>-<attempt>` | dev CI 실행마다 |
-| 앱 git 태그 | `app-1.0.0-*`, `app-1.1.0-*` | 1.x 레인만 붙였다. 2.x 앱 태그는 없다 |
+| 앱 git 태그 | 2.x는 `app-<버전>-<android\|ios>-<빌드>`(메시지 `server: <운영 서버 태그>`). 1.x는 `app-1.0.0-*`·`app-1.1.0-*` | Android CD의 「앱 버전 태그」 잡, iOS는 fastlane `beta`가 게시 뒤 단다. 위 앱 버전 행이 이 태그를 읽는다 |
 | GitHub Releases | 없다(2026-11-02 조회) | |
 | Jira fixVersion | Jira | 사람이. 2.0.0까지만 있다(2026-11-02 조회) |
 | API 경로 | `app/app-dev/src/services/api/client.ts` | 버전을 붙이지 않는다. `/api/v1`은 1.x 표면이고 기기 푸시 토큰만 예외다 |

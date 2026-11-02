@@ -55,16 +55,17 @@ class AndroidPipelineTests(unittest.TestCase):
                 archive.writestr('base/manifest/AndroidManifest.xml', b'manifest fixture')
                 archive.writestr('BundleConfig.pb', b'bundle fixture')
             expected = {'revision': SHA, 'run_id': '12', 'run_attempt': '2'}
-            metadata = {**expected, 'schema': 3, 'publish': True, 'version_code': 100, 'audience': 'prod',
-                        'sha256': artifact.checksum(root / 'app-release.aab')}
+            metadata = {**expected, 'schema': 4, 'publish': True, 'version_code': 100, 'version_name': '2.3.3',
+                        'audience': 'prod', 'sha256': artifact.checksum(root / 'app-release.aab')}
             (root / 'metadata.json').write_text(json.dumps(metadata))
-            self.assertEqual(artifact.verify(root, expected)['version_code'], 100)
+            self.assertEqual(artifact.verify(root, expected)['version_name'], '2.3.3')
             for key in expected:
                 with self.subTest(key=key), self.assertRaises(ValueError):
                     artifact.verify(root, {**expected, key: 'other'})
-            # dev 서버 빌드와 청중 기록이 없는 과거 산출물은 수동 CD 로도 게시하지 못한다.
-            old = {key: value for key, value in metadata.items() if key != 'audience'}
-            for rejected, message in (({**metadata, 'audience': 'dev'}, '운영 빌드'), ({**old, 'schema': 2}, 'schema 3 이전')):
+            # dev 서버 빌드, 버전 이름이 없는 과거 산출물은 수동 CD 로도 게시하지 못한다.
+            old = {key: value for key, value in metadata.items() if key != 'version_name'}
+            for rejected, message in (({**metadata, 'audience': 'dev'}, '운영 빌드'), ({**old, 'schema': 3}, 'schema 4 이전'),
+                                      ({**metadata, 'version_name': '2.3'}, '버전 이름')):
                 (root / 'metadata.json').write_text(json.dumps(rejected))
                 with self.subTest(rejected=rejected), self.assertRaisesRegex(ValueError, message):
                     artifact.verify(root, expected)
@@ -80,7 +81,7 @@ class AndroidPipelineTests(unittest.TestCase):
             with zipfile.ZipFile(root / 'source.aab', 'w') as archive:
                 archive.writestr('base/manifest/AndroidManifest.xml', b'manifest fixture')
                 archive.writestr('BundleConfig.pb', b'bundle fixture')
-            env = {'SOURCE_REVISION': SHA, 'SOURCE_RUN_ID': '12', 'SOURCE_ATTEMPT': '2', 'VERSION_CODE': '100'}
+            env = {'SOURCE_REVISION': SHA, 'SOURCE_RUN_ID': '12', 'SOURCE_ATTEMPT': '2', 'VERSION_CODE': '100', 'VERSION_NAME': '2.3.3'}
             argv = ['android-artifact.py', 'pack', '--aab', str(root / 'source.aab'), '--directory', str(root / 'out')]
             with patch('sys.argv', argv), patch.dict(os.environ, {**env, 'GROMO_ANDROID_AUDIENCE': 'prod'}, clear=True):
                 artifact.main()
