@@ -655,7 +655,11 @@ export function WorldMap({
   const reduceFacilityMotion = useContext(MotionContext) || state.settings.reduceMotion;
   const ownDayNight = useVillageDayNight();
   const dayNight = dayNightProp ?? ownDayNight;
-  const mailboxLetters = !fishing && (showMailboxLetters ?? hasMailboxLetters(state, island.id));
+  // 서버 미읽음 수는 우체통 완공을 모른다 — 짓지 않은 우체통을 펠리컨 합성 그림으로 그리지 않는다(GROMO-2700)
+  const mailboxLetters =
+    !fishing &&
+    island.buildings.includes('mail') &&
+    (showMailboxLetters ?? hasMailboxLetters(state, island.id));
   const [camera, setCamera] = useState({
     x: fishing ? 512 : village ? 800 : 585,
     y: fishing ? 770 : village ? 510 : 430,
