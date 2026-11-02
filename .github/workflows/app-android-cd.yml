@@ -250,7 +250,7 @@ jobs:
           track: internal
           status: ${{ vars.PLAY_INTERNAL_RELEASE_STATUS || 'completed' }}
           # 릴리스 이름 50자 제한 → 커밋 8자
-          releaseName: dev ${{ needs.source.outputs.version-code }} (${{ steps.rev.outputs.short }})
+          releaseName: prod ${{ needs.source.outputs.version-code }} (${{ steps.rev.outputs.short }})
 
       - name: 업로드 확인 (internal 트랙 재조회)
         id: verify

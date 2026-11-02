@@ -55,15 +55,39 @@ class AndroidPipelineTests(unittest.TestCase):
                 archive.writestr('base/manifest/AndroidManifest.xml', b'manifest fixture')
                 archive.writestr('BundleConfig.pb', b'bundle fixture')
             expected = {'revision': SHA, 'run_id': '12', 'run_attempt': '2'}
-            metadata = {**expected, 'schema': 2, 'publish': True, 'version_code': 100, 'sha256': artifact.checksum(root / 'app-release.aab')}
+            metadata = {**expected, 'schema': 3, 'publish': True, 'version_code': 100, 'audience': 'prod',
+                        'sha256': artifact.checksum(root / 'app-release.aab')}
             (root / 'metadata.json').write_text(json.dumps(metadata))
             self.assertEqual(artifact.verify(root, expected)['version_code'], 100)
             for key in expected:
                 with self.subTest(key=key), self.assertRaises(ValueError):
                     artifact.verify(root, {**expected, key: 'other'})
+            # dev 서버 빌드와 청중 기록이 없는 과거 산출물은 수동 CD 로도 게시하지 못한다.
+            old = {key: value for key, value in metadata.items() if key != 'audience'}
+            for rejected, message in (({**metadata, 'audience': 'dev'}, '운영 빌드'), ({**old, 'schema': 2}, 'schema 3 이전')):
+                (root / 'metadata.json').write_text(json.dumps(rejected))
+                with self.subTest(rejected=rejected), self.assertRaisesRegex(ValueError, message):
+                    artifact.verify(root, expected)
+            (root / 'metadata.json').write_text(json.dumps(metadata))
             (root / 'app-release.aab').write_bytes(b'changed after CI')
             with self.assertRaisesRegex(ValueError, 'checksum'):
                 artifact.verify(root, expected)
+
+    def test_pack_records_prod_audience_and_rejects_dev(self):
+        # pack 은 main 에서만 돌아 PR 빌드로는 깨진 것을 알 수 없다.
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with zipfile.ZipFile(root / 'source.aab', 'w') as archive:
+                archive.writestr('base/manifest/AndroidManifest.xml', b'manifest fixture')
+                archive.writestr('BundleConfig.pb', b'bundle fixture')
+            env = {'SOURCE_REVISION': SHA, 'SOURCE_RUN_ID': '12', 'SOURCE_ATTEMPT': '2', 'VERSION_CODE': '100'}
+            argv = ['android-artifact.py', 'pack', '--aab', str(root / 'source.aab'), '--directory', str(root / 'out')]
+            with patch('sys.argv', argv), patch.dict(os.environ, {**env, 'GROMO_ANDROID_AUDIENCE': 'prod'}, clear=True):
+                artifact.main()
+            self.assertEqual(json.loads((root / 'out/metadata.json').read_text())['audience'], 'prod')
+            with patch('sys.argv', argv), patch.dict(os.environ, {**env, 'GROMO_ANDROID_AUDIENCE': 'dev'}, clear=True):
+                with self.assertRaisesRegex(ValueError, '운영 빌드'):
+                    artifact.main()
 
     def test_bundle_version_reuse_requires_same_uploaded_bytes(self):
         record = {'versionCode': 100, 'sha256': 'b' * 64}

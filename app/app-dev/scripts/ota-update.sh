@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 운영 앱(iOS·안드로이드)에 OTA(EAS Update) 발행 — 스토어 심사 없이 JS·src/assets/ota 수정을 내려보낸다.
 #   ./scripts/ota-update.sh [--platform ios|android|all] "수정 내용 한 줄"
-# 앱은 켤 때 받아 두고 다음 실행부터 적용한다. dev 빌드(TestFlight·Play 내부 테스트)는 OTA 가 꺼져 있어 받지 않는다.
+# 앱은 켤 때 받아 두고 다음 실행부터 적용한다. dev 빌드(TestFlight)는 OTA 가 꺼져 있어 받지 않고, Play 내부 테스트는 운영 빌드라 받는다.
 # 네이티브(라이브러리·Pods·Gradle·Info.plist·권한)를 바꿨으면 OTA 로 못 보낸다 — 스토어 빌드 + runtimeVersion 올리기.
 # Expo 로그인: `npx eas-cli login`(oneorthree 조직 권한) 또는 EXPO_TOKEN 환경변수.
 set -euo pipefail

@@ -1,11 +1,11 @@
 # Android CI와 Play 내부 테스트 CD
 
-CI 성공은 검사와 AAB 생성 성공을 뜻한다. Play 게시 결과는 별도의 Android CD 실행에서 확인한다. dev 서버용 `com.oneorthree.gromo` 앱을 대상으로 한다.
+CI 성공은 검사와 AAB 생성 성공을 뜻한다. Play 게시 결과는 별도의 Android CD 실행에서 확인한다. 운영 V2 서버(`https://catus-api-v2.oneorthree.world`)용 `com.oneorthree.gromo` 앱을 대상으로 한다. 자동 게시는 internal 트랙까지이고, 프로덕션 출시는 Play 콘솔에서 승격한다.
 
 ```text
-PR → Android CI → 일회용 키 AAB 빌드 검사 (게시 없음)
-main → 필수 앱 검사 → Android CI → AAB + CI 메타데이터
-                                ↓ 성공 이벤트
+PR → Android CI → CI/CD 계약 테스트 (AAB 없음)
+main → 필수 앱 검사 → 서버 선행 게이트 → Android CI → AAB + CI 메타데이터
+                                                 ↓ 성공 이벤트
                     Android CD: 원본 CI 검증 → 업로드 키 서명
                                 → Play internal 게시·재조회
 ```
@@ -18,7 +18,15 @@ versionCode는 `max(ANDROID_VERSION_CODE_BASE, build.gradle의 versionCode) + GI
 
 기존 Play 버전이 이 값보다 높거나 workflow 실행 번호를 새로 시작했다면 저장소 변수 `ANDROID_VERSION_CODE_BASE`를 높인 뒤 새 CI를 실행한다. CD가 기존 Play 번호와 충돌하면 게시를 중단하며 임의로 AAB의 버전을 바꾸거나 재빌드하지 않는다. Android versionCode 상한은 코드에서 검증한다.
 
-main CI 산출물 `android-ci-<run_id>-<run_attempt>`에는 `app-release.aab`와 `metadata.json`이 들어간다. 메타데이터는 소스 SHA·CI run ID·attempt·versionCode·AAB SHA-256을 연결한다. 14일 보관하며 만료된 경우 새 CI가 필요하다.
+CI가 Play에 올린 뒤에는 `build.gradle` 값 그대로 로컬에서 올리면 Play가 거절한다. 로컬 업로드가 필요하면 최근 CI 값보다 높은 versionCode를 쓴다.
+
+main CI 산출물 `android-ci-<run_id>-<run_attempt>`에는 `app-release.aab`와 `metadata.json`이 들어간다. 메타데이터는 소스 SHA·CI run ID·attempt·versionCode·청중·AAB SHA-256을 연결한다. 14일 보관하며 만료된 경우 새 CI가 필요하다.
+
+## 서버 선행 게이트
+
+main CI는 `server-gate` 잡에서 `.github/scripts/app-server-gate.py`를 실행한다. 운영 V2에 배포되지 않은 서버 실행 코드가 main에 있으면 이 잡이 실패하고 AAB와 CD는 실행되지 않는다. Play 콘솔의 프로덕션 승격에는 별도 검사가 없으므로 internal 게시도 같은 조건을 지킨다.
+
+막혔다면 서버를 release로 승격·배포한 뒤 실패한 Android CI를 다시 실행한다. 다음 앱 변경 push에서도 미게시 변경이 함께 게시된다. PR과 main 외 브랜치의 수동 실행은 게시하지 않으므로 게이트를 실행하지 않는다.
 
 ## 독립 CD와 신뢰 경계
 
@@ -32,6 +40,8 @@ CI와 CD는 진행 중 실행을 유지하고 대기를 최신 하나만 남긴�
 
 ## 수동 실행·재시도
 
+PR에서는 AAB를 만들지 않는다. R8·JS 번들링·운영 가드처럼 릴리스 빌드에서만 드러나는 문제는 main CI에서 확인한다. 네이티브 라이브러리 추가처럼 위험한 변경은 그 브랜치에서 Android CI를 수동 실행해 머지 전에 빌드한다.
+
 Android CI 수동 실행은 빌드까지이며 자동 게시하지 않는다. 다른 브랜치의 수동 CI도 게시하지 않는다. Android CD를 main에서 수동 실행할 때 `ci-run-id`에 성공한 main CI 실행 ID를 지정한다. CI의 현재 성공 attempt만 선택한다.
 
 게시 후 PR 표시 등에서 실패했다면 CD의 실패한 게시 job만 재실행해 같은 서명 AAB를 재사용한다. 동일 versionCode의 기존 번들이 현재 업로드 바이트와 다르면 성공으로 간주하지 않는다. 서명까지 전체 재실행해 bytes가 바뀐 경우에는 새 CI를 실행하거나 게시 완료 상태를 별도 확인해야 한다.
@@ -43,6 +53,7 @@ Android CI 수동 실행은 빌드까지이며 자동 게시하지 않는다. �
 - `.github/ci/android-artifact.py` — 실행별 버전·AAB 메타데이터·checksum
 - `.github/ci/android-cd-source.py` — 신뢰한 성공 CI·main 이력·attempt 산출물 확인
 - `.github/ci/play-verify-bundle.py` — 버전 충돌과 게시 바이트 검증
+- `.github/scripts/app-server-gate.py` — 운영 V2 서버 선행 판정
 - `.github/ci/test_android_pipeline.py` — 네트워크·실제 키 없이 경계 검사
 - `.github/scripts/test_workflow_refactor.py` — 독립 실행·필수 검사·자격 증명 순서
 - [Play Bundle API](https://developers.google.com/android-publisher/api-ref/rest/v3/edits.bundles) — 게시 AAB의 versionCode·SHA-256
@@ -56,10 +67,11 @@ Android CI 수동 실행은 빌드까지이며 자동 게시하지 않는다. �
 검증하되 Play에는 자동 게시하지 않는다. 이전 취소·실패 실행의 미게시 런타임 변경이 있으면 함께 게시 대상으로 선택한다. 플랫폼별 네이티브 입력은 해당 플랫폼만,
 공유 소스·asset·의존성·`ios/release-config.sh`는 두 플랫폼의 게시 입력이다.
 
-Android CI 산출물의 schema 2 메타데이터에는 `publish`가 포함된다. CD는 checksum과
-원본 실행을 검증한 뒤 이 값이 true인 경우에만 자동 서명·게시한다. CI를 수동 실행한
+Android CI 산출물의 schema 3 메타데이터에는 `publish`와 `audience`가 포함된다. `audience`가
+`prod`가 아니면 수동 실행을 포함해 CD가 서명·게시하지 않는다. CD는 checksum과
+원본 실행을 검증한 뒤 `publish`가 true인 경우에만 자동 서명·게시한다. CI를 수동 실행한
 경우에도 자동 게시하지 않으며, 실제 게시 시험은 성공한 main CI 실행 ID로 Android CD를
-명시적으로 수동 실행한다. schema 1의 과거 산출물은 새 CI 실행으로 다시 생성해야 한다.
+명시적으로 수동 실행한다. schema 2 이하의 과거 산출물(dev 서버 빌드)은 CD가 거절하므로 새 CI 실행으로 다시 생성해야 한다.
 
 필수 Lint·Android Checks는 main 실행별 그룹으로 보존한다. 게시 job만 보존하고 선행 검사를 취소하면 동일 SHA 게이트가 실패해 런타임 변경의 게시가 누락될 수 있기 때문이다. PR 검사는 기존처럼 PR별 최신 실행으로 대체한다.
 
