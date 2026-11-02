@@ -18,6 +18,10 @@ ROOT = Path(__file__).resolve().parents[2]
 # raw CDN 은 최대 5분 늦어 게이트는 contents API 로 읽는다.
 RECORD_URL = ('https://api.github.com/repos/OneOrThree/phone/contents/prod-V2/app.json?ref=deployment-status')
 RAW = 'application/vnd.github.raw+json'
+# record 는 prod-cd-V2.yml 안의 작업이라 실패하면 실행 결론이 success 가 아니다.
+# release 의 가장 최근 운영 CD 실행이 끝났고 성공일 때만 위 기록을 믿는다(롤백 뒤 record 실패로 옛 태그가 남는 경우를 막는다).
+LATEST_RUN_URL = ('https://api.github.com/repos/OneOrThree/phone/actions/workflows/'
+                  'prod-cd-V2.yml/runs?branch=release&per_page=1')
 PROD_TAG = re.compile(r'catus-v\d+\.\d+\.\d+-V2')
 # 서버 실행 코드 정규식. backoffice/server/release-status.mjs 의 SERVER_RUNTIME 과 같이 고쳐야 한다.
 SERVER_RUNTIME = re.compile(r'^server/(business-api|data-api|realtime|notification)/src/main/')
@@ -50,8 +54,20 @@ def run_git(*args):
         raise GateError(f'git {" ".join(args)} 실패: {getattr(error, "stderr", "") or error}'.strip())
 
 
+def require_successful_deploy(fetch=fetch_json):
+    try:
+        run = fetch(LATEST_RUN_URL)['workflow_runs'][0]
+        status, conclusion = run['status'], run['conclusion']
+    except (KeyError, IndexError, TypeError):
+        raise GateError('release 의 최근 운영 CD 실행을 찾지 못해 운영 상태를 확인할 수 없습니다.')
+    if status != 'completed' or conclusion != 'success':
+        raise GateError(f'release 의 최근 운영 CD 실행이 성공으로 끝나지 않아(상태 {status}, 결론 {conclusion}) '
+                        '운영 상태를 확인할 수 없습니다. 배포 기록을 믿을 수 없습니다.')
+
+
 def production_tag(fetch=fetch_json):
-    # record 단계가 실패하면 기록이 옛 태그로 남아 비교 범위가 넓어진다 — 더 보수적으로 막힐 뿐 통과하지는 않는다.
+    # 기록 단계(record)가 실패했거나 배포가 진행·취소·실패 중이면 기록이 옛 값일 수 있어 여기서 먼저 막는다.
+    require_successful_deploy(fetch)
     try:
         tag = fetch(RECORD_URL, RAW)['message']
     except (KeyError, TypeError):

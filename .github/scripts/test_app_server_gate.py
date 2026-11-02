@@ -13,11 +13,14 @@ SHA = 'a' * 40
 TAG = 'catus-v2.0.4-V2'
 
 
-def api(tag=TAG):
+def api(tag=TAG, latest=None):
     calls = []
+    run = {'status': 'completed', 'conclusion': 'success'} if latest is None else latest
 
     def fetch(url, accept=None):
         calls.append((url, accept))
+        if url == gate.LATEST_RUN_URL:
+            return {'workflow_runs': [run] if run else []}
         return {'schemaVersion': 1, 'label': 'app', 'message': tag}
     fetch.calls = calls
     return fetch
@@ -71,7 +74,8 @@ class GateTest(unittest.TestCase):
         git, fetch = git_with([]), api()
         code, out, _ = run(fetch=fetch, git=git)
         self.assertEqual(code, 0)
-        self.assertEqual(fetch.calls, [(gate.RECORD_URL, gate.RAW)])
+        self.assertEqual([c[0] for c in fetch.calls], [gate.LATEST_RUN_URL, gate.RECORD_URL])
+        self.assertEqual(fetch.calls[1], (gate.RECORD_URL, gate.RAW))
         self.assertIn('ref=deployment-status', gate.RECORD_URL)
         self.assertEqual(git.calls[0], ('fetch', '--quiet', 'origin', f'refs/tags/{TAG}:refs/tags/{TAG}'))
         self.assertEqual(git.calls[1], ('rev-parse', '--verify', f'refs/tags/{TAG}^{{commit}}'))
@@ -86,6 +90,21 @@ class GateTest(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn('catus-v2.0.2-V2', err)
         self.assertEqual(git.calls[1], ('rev-parse', '--verify', 'refs/tags/catus-v2.0.2-V2^{commit}'))
+
+    def test_untrusted_latest_deploy_run_blocks_before_record_and_git(self):
+        for latest in ({'status': 'completed', 'conclusion': 'failure'}, {'status': 'in_progress', 'conclusion': None},
+                       {'status': 'completed', 'conclusion': 'cancelled'}, {}, {'foo': 1}):
+            git, fetch = git_with([]), api(latest=latest)
+            code, _, err = run(fetch=fetch, git=git)
+            self.assertEqual(code, 1, latest)
+            self.assertEqual(git.calls, [])
+            self.assertEqual([c[0] for c in fetch.calls], [gate.LATEST_RUN_URL])
+            self.assertIn('운영 상태를 확인할 수 없', err)
+            self.assertIn('ALLOW_SERVER_GAP', err)
+
+    def test_successful_latest_run_continues_to_record(self):
+        self.assertEqual(run(fetch=api(latest={'status': 'completed', 'conclusion': 'success'}))[0], 0)
+        self.assertIn('branch=release', gate.LATEST_RUN_URL)
 
     def test_malformed_tag_blocks_without_git(self):
         for bad in ('main', 'catus-v2.0.4', 'catus-v2.0.4-V2\n--evil', '', None, 5):

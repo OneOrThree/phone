@@ -43,7 +43,7 @@ export function releaseVerdict(baseCommit, compare) {
   return { status: "ship", changedFiles: 0, aheadBy, compareUrl };
 }
 
-// 갱신 한 번의 호출 수(GitHub API 기준) = compare 1 + runs 4 + tags 1 = 6회. 배포 기록 4건은 raw.githubusercontent.com 이라 이 한도에 잡히지 않는다. 10분 캐시(키 하나)라 시간당 최대 36회로,
+// 갱신 한 번의 호출 수(GitHub API 기준) = compare 1 + runs 4 + tags 1 + 최신 운영 CD 실행 1 = 7회. 배포 기록 4건은 raw.githubusercontent.com 이라 이 한도에 잡히지 않는다. 10분 캐시(키 하나)라 시간당 최대 42회로,
 // 미인증 한도(IP 당 시간당 60회) 안이다. 실패 결과도 같은 시간 보관해 장애 때 한도를 쓰지 않는다.
 export function createReleaseStatus({ fetchImpl = fetch, androidStoreVersion, now = Date.now }) {
   const get = async path => {
@@ -63,9 +63,11 @@ export function createReleaseStatus({ fetchImpl = fetch, androidStoreVersion, no
 
   async function refresh() {
     // 기록·tags·runs·Android 를 먼저 읽는다. compare 는 기록 태그의 커밋이 나온 뒤에만 부른다.
-    const [tags, android, ...rest] = await Promise.all([
+    const [tags, android, latest, ...rest] = await Promise.all([
       attempt(() => get("/tags?per_page=100")),
       attempt(() => androidStoreVersion?.()),
+      // record 는 prod-cd-V2.yml 안의 작업이라 실패하면 실행 결론이 success 가 아니다. release 의 최신 실행이 성공일 때만 기록을 믿는다.
+      attempt(() => get("/actions/workflows/prod-cd-V2.yml/runs?branch=release&per_page=1")),
       ...Object.values(UNITS).map(([file]) =>
         attempt(() => get(`/actions/workflows/${file}/runs?status=success&per_page=1`))),
       ...Object.keys(UNITS).map(name => attempt(() => getRecord(ROLE[name]))),
@@ -88,7 +90,9 @@ export function createReleaseStatus({ fetchImpl = fetch, androidStoreVersion, no
       };
     });
     // 판정 기준 = 운영 앱 태그의 커밋. 못 얻으면 compare 없이 unknown.
-    const base = units.server?.commit ?? null;
+    const newest = latest?.workflow_runs?.[0];
+    const trusted = newest?.status === "completed" && newest?.conclusion === "success";
+    const base = trusted ? units.server?.commit ?? null : null;
     const compare = base ? await attempt(() => get(`/compare/${base}...main`)) : null;
     return { local: false, checkedAt: new Date(now()).toISOString(), verdict: releaseVerdict(base, compare), units, androidStore: android };
   }

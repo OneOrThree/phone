@@ -33,6 +33,7 @@ function fakeGithub(override = {}) {
     if (path.startsWith("/tags")) return Response.json([
       { name: "catus-v2.0.3-V2", commit: { sha: SV } }, { name: "backoffice-v1.0.5-V2", commit: { sha: HEAD } },
       { name: "backoffice-v1.0.4-V2", commit: { sha: "e".repeat(40) } }, { name: "catus-v2.0.2-V2", commit: { sha: "f".repeat(40) } }]);
+    if (path.includes("branch=release")) return Response.json({ workflow_runs: [{ status: "completed", conclusion: "success" }] });
     return Response.json({ workflow_runs: [RUN] });
   };
   return { fetchImpl, calls };
@@ -76,6 +77,21 @@ test("판정은 기록 태그의 커밋으로 compare 를 호출한다", async (
   assert.match(old.compares[0].url, new RegExp(`compare/${"f".repeat(40)}\\.\\.\\.main`));
 });
 
+test("최신 운영 CD 실행이 성공이 아니면 compare 없이 unknown이고 표 값은 유지된다", async () => {
+  const latest = "/actions/workflows/prod-cd-V2.yml/runs?branch=release";
+  for (const value of [{ workflow_runs: [{ status: "completed", conclusion: "failure" }] },
+    { workflow_runs: [{ status: "in_progress", conclusion: null }] }, { workflow_runs: [{ status: "completed", conclusion: "cancelled" }] },
+    { workflow_runs: [] }, {}, new Error("down"), new Response("x", { status: 500 })]) {
+    const { fetchImpl, calls } = fakeGithub({ [latest]: value });
+    const result = await createReleaseStatus({ fetchImpl, androidStoreVersion: android })();
+    assert.deepEqual(result.verdict, { status: "unknown" });
+    assert.equal(calls.filter(c => c.url.includes("/compare/")).length, 0);
+    assert.equal(result.units.server.tag, "catus-v2.0.3-V2");
+    assert.equal(result.units.server.deployedAt, RUN.run_started_at);
+    assert.equal(result.units.server.runUrl, RUN.html_url);
+  }
+});
+
 test("기록을 못 읽거나 태그가 목록에 없으면 compare 없이 unknown", async () => {
   for (const override of [{ "rec:app": new Error("down") }, { "rec:app": { message: "catus-v2.0.4" } },
     { "rec:app": { message: "catus-v9.9.9-V2" } }, { "/tags": new Error("down") }]) {
@@ -117,22 +133,22 @@ test("10분 캐시: 안에서는 재호출 없음, 지나면 다시, 동시 요�
   const { fetchImpl, calls } = fakeGithub();
   const status = createReleaseStatus({ fetchImpl, androidStoreVersion: android, now: () => clock });
   const first = await status();
-  assert.equal(calls.length, 6);
+  assert.equal(calls.length, 7);
   assert.equal(await status(), first);
   clock += 9 * 60000;
   await status();
-  assert.equal(calls.length, 6);
+  assert.equal(calls.length, 7);
   clock += 2 * 60000;
   await status();
-  assert.equal(calls.length, 12);
+  assert.equal(calls.length, 14);
   const [x, y] = await Promise.all([status(), status()]);
   assert.equal(x, y);
-  assert.equal(calls.length, 12);
+  assert.equal(calls.length, 14);
 
   const down = fakeGithub({ "/": new Error("down") });
   const failing = createReleaseStatus({ fetchImpl: down.fetchImpl, androidStoreVersion: android, now: () => clock });
   await failing(); await failing();
-  assert.equal(down.calls.length, 5); // compare 는 기준 커밋이 없어 부르지 않는다
+  assert.equal(down.calls.length, 6); // compare 는 기준 커밋이 없어 부르지 않는다
 });
 
 test("배포 기록이 정본이다: 이전 태그 배포면 그 태그의 커밋, 기록 실패·형식 이상이면 null", async () => {
