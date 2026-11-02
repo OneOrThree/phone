@@ -135,7 +135,7 @@ List<Xxx> findAllActive(Collection<UUID> ids);
 
 ### 관계 조회 — id 하나로 끝나지 않는 자리
 
-위 표준형은 전부 **단일 id 조회**다. 하지만 "이 유저가 이 그룹의 멤버인가"처럼 **이미 조회한
+위 표준형은 전부 **단일 id 조회**다. 하지만 "이 유저가 이 섬의 주민인가"처럼 **이미 조회한
 엔티티 둘 사이의 관계**를 묻는 조회도 같은 계층에 든다. 형태만 다를 뿐 접는 이유가 같기 때문이다
 — 같은 쿼리가 도메인 곳곳에서 제각기 다른 예외로 갈린다.
 
@@ -171,7 +171,8 @@ Optional<GroupMember> findMembership(User user, Group group); // 부재가 정�
 
 **"단일 진입점"이라고 쓰지 마라.** 위 예외들이 남으므로 사실이 아니고, 그렇게 적으면
 다음 사람이 계층만 감사하고 남은 경로를 놓친다. `user` 의 경우 **탈퇴자 401 게이트가
-계층이 아니라 `config/JwtFilter` 에 있다**(GROMO-827).
+계층이 아니라 필터에 있다** — 옛 data-api `config/JwtFilter`(GROMO-827)는 없어졌고, 지금은 Business API
+`config/AccessTokenFilter` 가 탈퇴·로그아웃으로 폐기된 세션의 AT 를 거절한다.
 
 ### 계층을 만들면 테스트가 하나 사라진다 — 그 자리에 다시 세워라
 
@@ -247,8 +248,8 @@ Controller  →  Service  →  Repository  →  Entity
 | L3 | `friend` | 유저 사이의 관계 |
 | L4 | `stats` · `ranking` | 기록·관계를 집계한 파생. `ranking`(GROMO-1997)은 주간 섬 랭킹의 동결 분모 표와 주 경계 계산기뿐이고 도메인 타입을 하나도 참조하지 않는다 — 집중 합·주민 수·전망대를 «조합»하는 것은 L10 `internal` 이다 |
 | L5 | `group` | 섬·멤버십 |
-| L6 | `invitelink` · `construction` | 그룹을 가리키는 초대 · 섬(group)에 딸린 시설·공동 지갑(GROMO-1767). 내부 표면 구현은 `internal` 이 이것을 참조하므로 이 도메인이 `internal.dto` 를 참조하면 역행이다 — 계약 view 타입은 자기 `dto/` 에 둔다 |
-| L7 | `notification` · `appearance` · `quest` | 현행 알림 사건을 outbox에 적는다 · 섬 공동/개인 외양(GROMO-1783) · 섬 퀘스트(GROMO-1773) — 집중 구간(`focus`)·스크린타임(`screentime`)을 판정하고 섬 통장(`construction`)에 정산하므로 그 셋보다 위다. 같은 층끼리는 참조하지 않는다 |
+| L6 | `invitelink` · `construction` | 섬을 가리키는 초대 · 섬(group)에 딸린 시설·섬 통장(GROMO-1767). 내부 표면 구현은 `internal` 이 이것을 참조하므로 이 도메인이 `internal.dto` 를 참조하면 역행이다 — 계약 view 타입은 자기 `dto/` 에 둔다 |
+| L7 | `notification` · `appearance` · `quest` | 현행 알림 사건을 outbox에 적는다 · 섬 공동/개인 외양(GROMO-1783) · 퀘스트(GROMO-1773) — 집중 구간(`focus`)·스크린타임(`screentime`)을 판정하고 섬 통장(`construction`)에 정산하므로 그 셋보다 위다. 같은 층끼리는 참조하지 않는다 |
 | L8 | `auth` · `magazine` | 진입·부가 · 고양이 잡지의 홍보 칸·꾸미기 재료(GROMO-2289) — 엔티티·리포지토리·순수 규칙(`support/`)만 두고, 홍보비는 섬 통장(`construction`)에서 빠지고 재료는 카탈로그·보유품(`appearance`)을 읽으므로 둘 위다. 신청·고치기 조합은 L10 `internal` 이 한다 |
 | L9 | `withdrawal` | **조립·오케스트레이션 전용** — 자기 테이블이 없고, 아래 도메인의 정리를 정해진 순서로 부른다 |
 | L10 | `internal` | **가장 위** — 서비스 간 내부 표면(`/internal/*`, GROMO-1659·1660). 앱 계약이 아니라 Business·알림·링크가 부르는 입구이고 `auth`(L8)·`group`(L5)·`invitelink`(L6)·`user`(L0)·`outbox`(L-1) 등 아래 도메인을 «조합»해 응답한다 — 아무도 이 패키지를 참조하지 않는다. `internal` 은 타 도메인 repository 직접 사용을 허용하며 이 면제는 freeze 대상이 아니다 — 출발에서 제외돼 store 에 줄이 쌓이지 않는다 |
@@ -281,7 +282,7 @@ Controller  →  Service  →  Repository  →  Entity
    의존 간선이 된다 — `user/service/UserTierLookup` 으로 옮겨 `friend → league` 를 없앴다.
 
 **여러 도메인을 «정해진 순서로» 정리해야 하면 오케스트레이터를 위에 둔다.** 회원 탈퇴가
-그렇다 — 계정·그룹·집중·통계·스크린타임·친구를 순서대로 정리하는데, 그 전부가
+그렇다 — 계정·섬·집중·통계·스크린타임·친구를 순서대로 정리하는데, 그 전부가
 `UserService.withdraw` 한 메서드(90줄) 안에 있어서 가장 아래 도메인이 위의 다섯을 참조했다.
 정리하는 **방법**은 각 도메인이 알고, 정리하는 **순서**는 그 위에서 정한다
 (`withdrawal/AccountWithdrawalService`).
@@ -298,8 +299,8 @@ Controller  →  Service  →  Repository  →  Entity
 못한다. 이벤트는 «누가 받든 상관없고 순서도 상관없는» 알림에 쓴다.
 
 **아래에서 위로 가야만 하는 일이 생기면** 이벤트(`event/`)나 포트(`common/port/`)로 뒤집는다.
-선례: `common/port/InviteAttributionPort` — 그룹 참여 로그가 초대 slug 를 남겨야 해서
-`group → invitelink` 가 생겼는데, 필요한 것은 “이 slug 가 누구의 어느 그룹 링크인가” 하나뿐이라
+선례: `common/port/InviteAttributionPort` — 섬 가입 로그가 초대 slug 를 남겨야 해서
+`group → invitelink` 가 생겼는데, 필요한 것은 “이 slug 가 누구의 어느 섬 링크인가” 하나뿐이라
 그 질문만 포트로 세우고 답은 `invitelink` 가 낸다.
 
 ### 아직 지켜지지 않는 항목 (숨기지 않고 적는다)

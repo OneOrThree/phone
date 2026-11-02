@@ -1,8 +1,10 @@
 # 날짜 축(date axis) 규약
 
 > ⚠️ **2026-09-18 재영님 결정(D8)으로 UTC 전환 예정** — 모든 시간 UTC · 하루 리셋 UTC 00:00 · 글로벌 출시 전제.
-> §2 의 「서버 축 = KST 고정」과 정면 충돌하므로 영향 조사를 마쳤고(≈272 파일 — 요약은 [Catus 결정 로그](../prd/fishcat/decision-log.md) D8) 전환 계획을 **§7 에 세웠다(GROMO-1930)**.
+> §2 의 「서버 축 = KST 고정」과 정면 충돌하므로 영향 조사를 마쳤고(≈272 파일 — 요약은 [제품 결정 로그](../prd/fishcat/decision-log.md) D8) 전환 계획을 **§7 에 세웠다(GROMO-1930)**.
 > **실제 컷오버 전까지 현재 KST 가 authoritative 하다 — 이 문서의 KST 규약이 현행이며 코드·마이그레이션을 지금 고치지 않는다.**
+
+> **범위(2026-11-02)** — §3·§4 의 앱 쪽 정본·분류표는 동결된 1.x 앱(`app/legacy/app-dev`)의 인벤토리다. 2.0 앱(`app/app-dev`)의 날짜 축 분류는 아직 없다(미조사). §7 의 리그·챌린지 절차는 대상 코드와 테이블이 V0 에서 은퇴해 지금은 없다 — 해당 절 머리에 표시했다.
 
 앱이 "오늘"이라고 부르는 날짜에는 **축이 세 개** 있다. 어떤 값을 어느 축에서 뽑느냐를
 틀리면 **비KST 기기**에서 하루씩 어긋난 화면이 나온다 — 오늘 칸을 비켜 찍힌 마커,
@@ -132,6 +134,8 @@ GROMO-1254 의 스크린타임 연속 달성일 수정 초안이 실제로 여�
 
 ## 3. 유틸 카탈로그
 
+> 1.x 인벤토리 — 이 절의 파일은 모두 동결된 `app/legacy/app-dev` 에 있다.
+
 ### `app/legacy/app-dev/src/utils/localDate.ts`
 
 | 함수 | 축 | 용도 |
@@ -179,6 +183,8 @@ GROMO-1254 의 스크린타임 연속 달성일 수정 초안이 실제로 여�
 ---
 
 ## 4. 전수 분류표
+
+> 1.x 인벤토리 — 이 표는 동결된 `app/legacy/app-dev` 를 전수 분류한 것이다.
 
 `app/legacy/app-dev/src/legacy/**`(동결)·`app/legacy/app-dev/src/mocks/fixtures/**` 는 제외.
 
@@ -393,6 +399,8 @@ javadoc 예시 문자열 1건뿐이고, 테스트 `FocusSessionContractTest.java
 
 ### 7.2 컬럼별 처리표 — 무엇을 재계산하고 무엇을 봉인하는가
 
+> 2026-11-02 `db/v0` 기준 `user_streaks`·`daily_screen_time_stats`·`group_challenge_members`·`league_*`·`user_focus_time_settings`·`user_screen_time_settings` 는 없다(V0 에서 은퇴). 그 행은 기록이다.
+
 | 컬럼 | 원본 instant 컬럼 유무 | 재계산 가능 | 처리 |
 | --- | --- | --- | --- |
 | `daily_focus_stats.date` | ✅ `focus_sessions.started_at`·`ended_at`(+ jsonb 분포) | 가능 | UTC 재버킷 — 행 UPDATE 가 아니라 세션 원본에서 통째 재생성 권장. 전환일 행은 양축 혼재 가능 |
@@ -414,6 +422,8 @@ Phase 2 컷오버는 라벨의 의미만 바꾸고 기존 행은 건드리지 �
 일괄 작업이라 **별도 결정·선택사항**이다(전환일 혼재 행까지 정리하고 싶을 때 Phase 3 이후 수행).
 
 ### 7.3 주간 리그 — 이중 정산과 누락을 둘 다 막는 순서
+
+> 대상 코드(`LeagueScheduler`·`LeagueWeek`·`LeagueAnchorRotator`)와 `league_*` 테이블은 V0 에서 은퇴해 없다(2026-11-02). 이 절은 기록이다.
 
 **현재 기구** (전부 KST): `LeagueScheduler.java:25` cron `0 0 0 * * MON` zone=Asia/Seoul →
 `runWeeklyBatch` → `LeagueWeek`(LeagueWeek.java:24,31 — 월요일 00:00 **KST** instant) →
@@ -467,7 +477,7 @@ anchor 선삽입과 무관하게 동작한다. UTC 빌드의 `[A_k, M_utc)` 창�
 
 | 키 | 발급 지점 | 비고 |
 | --- | --- | --- |
-| `focusGoal:{userId}:{statDate}` | `FocusService.java:1349` — statDate 는 KST 버킷 | 지급 창 [어제,오늘](:1338) 이라 노출은 전환일 ±1일 |
+| `focusGoal:{userId}:{statDate}` | `FocusService.java:1349` — statDate 는 KST 버킷 | 지급 창 [어제,오늘] (:1338) 이라 노출은 전환일 ±1일 |
 | `stGoal:{userId}:{date}` | `ScreenTimeService.java:206-207` — date = `resolveLocalDate`(KST) | 〃 (:195 창) |
 | `streak:{userId}:{yyyy-mm-dd}` | **리터럴 키는 없다** — `user_streaks.last_session_date` 비교가 멱등 역할 (`UserStreakService.java:66`: `sessionDate == lastSessionDate` → 무변화) | 키 충돌은 없지만, 경계일 같은 실적이 다른 라벨로 들어오면 스트릭이 하루 중복 연장될 수 있다 — **수용**(아래) |
 | `league:{weekStartAt}:{userId}` | `LeagueUserSettler.java:169` | §7.3 의 이중 정산과 같은 그림 — 주차 축 변형 |
@@ -521,6 +531,8 @@ DAY 는 자정 경계 9h 어긋남, WEEK 은 UTC 일요일 15:00~24:00 구간에
 날짜 필드로 전송 — §6 G2·G3)은 UTC 전환과 독립으로 유효하며, 전환 작업에 포함할지 결정 항목이다.
 
 ### 7.7 배포·롤백 순서와 검증
+
+> 리그 항목(「롤백 시 리그」, 리그 검증)의 대상 코드와 테이블은 없다(2026-11-02, V0 에서 은퇴).
 
 **원칙 — 동시 배포는 불가능하다.** iOS 심사·단계 롤아웃 때문에 서버 컷오버 시점에 구버전 앱이
 남는다. 서버가 전환 창에 양 세대를 수용하는 쪽으로 순서를 잡는다.

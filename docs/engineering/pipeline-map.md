@@ -2,13 +2,13 @@
 
 이 문서는 「바꾼 경로 → PR에서 도는 것 → 머지 뒤 → 운영까지」의 정본이다. 상세 절차는 [dev V2 파이프라인](dev-v2-pipeline.md)과 [prod V2 파이프라인](prod-v2-pipeline.md)을 따른다. 용어는 [CONTEXT.md](../../CONTEXT.md)를 따른다. 워크플로 내용은 2026-11-02 main(`46d4d9c2f`)의 파일을 읽어 썼다. 켜짐·꺼짐, 레포 변수, 환경 같은 GitHub 설정은 같은 날 조회한 값이다.
 
-**운영 보호(2026-11-02)**: 환경 `catus-production-V2`에 승인자가 없어, 운영 V2 CD는 실행하면 바로 배포된다. 승인자 적용은 GROMO-2695다.
+**운영 보호(2026-11-02 적용, GROMO-2695)**: 운영 V2 CD(`prod-cd-V2`·`kafka-cd.prod-V2`·`redis-cd.prod-V2`)는 환경 `catus-production-V2`에서 승인자 3명 중 1명의 승인을 기다린다(본인 승인 허용). `release`는 PR로만 바뀐다 — 관리자 포함, 승인 0명, 대화 해결 필수, force push·삭제 금지([release 브랜치 보호](../conventions/release-protection.md)). release의 최근 `prod-cd-V2` 실행이 승인 대기 중이거나 성공하지 못했으면 서버 선행 게이트가 앱 출시를 막는다(§1 「예외와 주의」).
 
 ## 1. 변경 영역별 흐름
 
 - main 대상 PR에서는 경로와 상관없이 `pr-ci-policy`와 `migration-immutable`이 돈다.
 - 경로 필터 목록은 각 워크플로 파일이 정본이다. dev V2 CI의 경로는 [dev V2 파이프라인 「CI」](dev-v2-pipeline.md#ci)에 있다.
-- 운영은 사람이 바꾼다. main → release 같은 저장소 PR을 merge commit으로 머지하면, release push에서 `prod-ci-V2`가 산출물과 `catus-v*-V2` 태그만 발행한다. 이때 운영은 그대로다. 사람이 release에서 `prod-cd-V2`를 `version`으로 실행해야 운영 V2가 바뀐다.
+- 운영은 사람이 바꾼다. main → release 같은 저장소 PR을 merge commit으로 머지하면, release push에서 `prod-ci-V2`가 산출물과 `catus-v*-V2` 태그만 발행한다. 이때 운영은 그대로다. 사람이 release에서 `prod-cd-V2`를 `version`으로 실행하고 환경 승인 1회를 거쳐야 운영 V2가 바뀐다.
 - 서버 4종·Kafka·Redis의 운영 CD를 자동으로 부르는 워크플로는 없다. 백오피스만 main 머지에서 운영 배포가 시작된다(승인 1회).
 
 | 바꾼 경로 | PR에서 | main 머지 뒤 | 운영까지 |
@@ -67,11 +67,11 @@
 | dev V2 배포 | [postgres-cd.dev-v2.yml](../../.github/workflows/postgres-cd.dev-v2.yml) | Postgres CD (dev)-v2 | 수동(manifest URI). dev PostgreSQL 런타임 적용 |
 | dev V2 배포 | [ops-smoke.dev-v2.yml](../../.github/workflows/ops-smoke.dev-v2.yml) | 서버 스모크 스냅샷 (dev)-v2 | 수동. `cd-auto.dev-v2`의 `record` 잡이 실행한다. `oneorthree-v2.dev.mooo.com` 스모크 |
 | 운영 V2 | [prod-ci-V2.yml](../../.github/workflows/prod-ci-V2.yml) | Catus app CI V2 | main·release 대상 PR, release push, 수동. 운영 계획·Gradle. release push에서 arm64 ECR 이미지·S3 산출물·`catus-v*-V2` 태그 발행 |
-| 운영 V2 | [prod-cd-V2.yml](../../.github/workflows/prod-cd-V2.yml) | Catus app CD V2 | 수동(release, `version`). SSM으로 서버 4종을 운영 V2에 배포 |
+| 운영 V2 | [prod-cd-V2.yml](../../.github/workflows/prod-cd-V2.yml) | Catus app CD V2 | 수동(release, `version`). `catus-production-V2` 승인 1회 → SSM으로 서버 4종을 운영 V2에 배포 |
 | 운영 V2 | [kafka-ci.prod-V2.yml](../../.github/workflows/kafka-ci.prod-V2.yml) | Catus kafka CI V2 | `server/scripts/v2/prod/kafka*` PR(main·release), release push, 수동. 테스트, release push에서 설정 묶음·`kafka-v*-V2` 태그 발행 |
-| 운영 V2 | [kafka-cd.prod-V2.yml](../../.github/workflows/kafka-cd.prod-V2.yml) | Catus kafka CD V2 | 수동(release, `version`). SSM으로 운영 Kafka 배포 |
+| 운영 V2 | [kafka-cd.prod-V2.yml](../../.github/workflows/kafka-cd.prod-V2.yml) | Catus kafka CD V2 | 수동(release, `version`). `catus-production-V2` 승인 1회 → SSM으로 운영 Kafka 배포 |
 | 운영 V2 | [redis-ci.prod-V2.yml](../../.github/workflows/redis-ci.prod-V2.yml) | Catus redis CI V2 | `server/scripts/v2/prod/redis*` PR(main·release), release push, 수동. 테스트, release push에서 설정 묶음·`redis-v*-V2` 태그 발행 |
-| 운영 V2 | [redis-cd.prod-V2.yml](../../.github/workflows/redis-cd.prod-V2.yml) | Catus redis CD V2 | 수동(release, `version`). SSM으로 운영 Redis 배포 |
+| 운영 V2 | [redis-cd.prod-V2.yml](../../.github/workflows/redis-cd.prod-V2.yml) | Catus redis CD V2 | 수동(release, `version`). `catus-production-V2` 승인 1회 → SSM으로 운영 Redis 배포 |
 | 운영 V2 | [satellite-ci.prod.yml](../../.github/workflows/satellite-ci.prod.yml) | Satellite CI (prod) | release 대상 PR. Business API·Notification 경계 계약 검사. 승격 PR은 기능 테스트를 건너뛴다 |
 | 백오피스 | [backoffice-ci.yml](../../.github/workflows/backoffice-ci.yml) | Backoffice CI | `backoffice/**` PR(main·release)과 main push, 수동. npm test·build와 관련 Python 테스트 |
 | 백오피스 | [backoffice-cd.prod-V2.yml](../../.github/workflows/backoffice-cd.prod-V2.yml) | Catus backoffice CD V2 | `backoffice/**`(`.md` 제외) main push, 수동. 테스트·`backoffice-v*-V2` 발행 → `backoffice-production` 승인 1회 → SSM 운영 배포 |

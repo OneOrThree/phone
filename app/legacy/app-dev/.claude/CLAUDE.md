@@ -35,7 +35,8 @@ local-only folders below.
 Original planning/design source docs live in `app/legacy/app-dev/.docs/`. **This folder is in
 `.gitignore` (local-only)** — personal working references, not for external sharing.
 
-**[`app/legacy/app-dev/.docs/README.md`](../.docs/README.md) is the index** — read it before hunting for a doc.
+**`app/legacy/app-dev/.docs/README.md` is the index** — read it before hunting for a doc. (2026-11-02: the
+folder is absent from the owner's main checkout; where it went is unverified.)
 Folder map (그 README가 정본, 이 표는 요약):
 
 | Folder                                                                      | Purpose                                                                                                           |
@@ -45,7 +46,7 @@ Folder map (그 README가 정본, 이 표는 요약):
 | `qa/` · `ops/`                                                              | QA scenarios/verification · ops refs (release/OTA, data map, schema.dbml)                                         |
 | `api-성능/` · `그로스실험/`                                                 | prod API 응답시간 실측 + 서버 조립 이관 설계 · 지표 기반 실험(baseline·가설·검증)                                 |
 | `design/` · `marketing/` · `store/` · `presentations/` · `troubleshooting/` | 시안 · 마케팅 · 스토어 · 발표자료 · 트러블슈팅                                                                    |
-| `pr/` · `archive/`                                                          | PR 초안 · 지난 문서 보존(현행 아님) — 티켓 초안은 파일로 안 남긴다(`jira-ticket` 스킬)                            |
+| `pr/` · `archive/`                                                          | PR 초안 · 지난 문서 보존(현행 아님) — 티켓 초안은 파일로 안 남긴다(`/jira-assign` 으로 바로 만든다)               |
 
 > New docs go in one of these folders — **never at `.docs/` root**. 단 기능 설계서는 예외로
 > 팀 공유 `docs/prd/gromo/<기능-영문-kebab>/`에 만든다 (위 섹션).
@@ -84,13 +85,13 @@ problem→cause→fix, build/deploy notes, checklist). Promote it into "Doc navi
 ## Architecture
 
 State is managed with the **Context API + hooks** (no Redux/MobX/Zustand). Providers are
-nested in `src/App.tsx`: `UserProvider › CoinProvider › EquipmentProvider › FocusProvider ›
-SubjectProvider`, consumed via `useUser()` / `useCoins()` / `useEquipment()` / `useFocus()` /
-`useSubjects()`. State is persisted to AsyncStorage and synced to the backend through the
-axios client.
+nested in `src/App.tsx` (see "Context / global state" for the order), consumed via `useUser()` /
+`useCoins()` / `useEquipment()` / `useCharacter()` / `useFocus()` / `useSubjects()` /
+`useOverlaySlot()`, with `useToast()` from the outer `ToastProvider`. State is persisted to
+AsyncStorage and synced to the backend through the axios client.
 
-`App.tsx` only does auth/onboarding gating + provider nesting (+ app-shell components
-`PushGate`, `PendingGoalApplier`); the navigators live in `src/navigation/RootNavigator.tsx`.
+`App.tsx` only does auth/onboarding gating + provider nesting (+ app-shell components such as
+`PushGate` and `PendingGoalApplier`); the navigators live in `src/navigation/RootNavigator.tsx`.
 
 ---
 
@@ -120,8 +121,8 @@ app/legacy/app-dev/
     ├── navigation/          # RootNavigator.tsx (NavigationContainer + Tab/Stack), navigationRef, types
     ├── screens/             # screens + per-feature folders (focus/, league/, onboarding/, settings/, stats/, group/)
     ├── services/            # API·external — api.ts (axios), *Api.ts, ScreenTimeModule.ts, analytics, push
-    ├── store/               # global state (Context API): User/Coin/Equipment/Focus/Subject
-    ├── types/               # shared TS types — api.ts, navigation.ts, storage.ts, dto/
+    ├── store/               # global state (Context API): User/Coin/Equipment/Character/Focus/Subject/OverlaySlot/Toast
+    ├── types/               # shared TS types — api.ts, storage.ts, dto/ (navigation types: src/navigation/types.ts)
     ├── utils/               # cross-feature pure helpers — localDate.ts, challengeTime.ts, deviceLocale.ts
     └── legacy/              # frozen v1 code (reference only — never import from live code)
 ```
@@ -164,12 +165,17 @@ npx expo run:ios --device     # on-device (needs p12; Jaeyoung's machine only)
 ### Backend connection (`.env`)
 
 `app/legacy/app-dev/.env` is a personal, untracked file. Copy from the example (`cp .env.example .env`
-from inside `app/legacy/app-dev/`). `EXPO_PUBLIC_API_URL` selects the target:
+from inside `app/legacy/app-dev/`). `EXPO_PUBLIC_API_URL` selects the target; when it is unset, iOS and
+Android builds use `https://oneorthree.dev.mooo.com` (`src/services/apiBaseUrl.ts`).
 
-- **Team server (default, recommended)**: `EXPO_PUBLIC_API_URL=https://oneorthree.dev.mooo.com` — no backend setup needed.
-- **Local backend**: bring up `server/data-api/` (Spring Boot) with `docker compose -f server/scripts/docker-compose.dev.yml up -d` (from the repo root), then `EXPO_PUBLIC_API_URL=http://localhost:8080` (use your Mac's LAN IP for a real device).
+- **No working dev backend for 1.x.** The old dev VM `oneorthree.dev.mooo.com` now runs 2.0 servers,
+  so the 1.x `/api/v1` calls get 404 there (2026-11-02 survey). `server/data-api/` in this repository
+  serves only `/internal/**`, so a local backend does not serve 1.x either.
+- **Production**: `https://api.oneorthree.world` (`ios/testflight.sh` `PROD_API_URL`), the Gromo 1.x
+  production server. Whether it is still up was not checked (unverified).
+- **Local UI work**: the partial axios mock (`EXPO_PUBLIC_USE_MOCK=true` in a dev build, `src/mocks/`).
 
-See DevRunbook.md "3.2 backend connection mode" for details.
+DevRunbook.md "3.2 backend connection mode" describes the same switch; its server list is outdated.
 
 ---
 
@@ -256,8 +262,10 @@ See DevRunbook.md "3.2 backend connection mode" for details.
 
 - **Location**: `src/store/`. **Pattern**: Context API + Provider; each file exports a provider and a `use…()` hook.
 - **Provider order** (in `src/App.tsx`, top → bottom): `UserProvider` → `CoinProvider` →
-  `EquipmentProvider` → `FocusProvider` → `SubjectProvider` → (`PushGate` ·
-  `PendingGoalApplier` ·) `<RootNavigator/>`.
+  `EquipmentProvider` → `CharacterProvider` → `FocusProvider` → `SubjectProvider` →
+  `OverlaySlotProvider` → (`OrphanFocusSettler` · `PendingFocusUploader` · `PushGate` ·
+  `PendingGoalApplier` · `ScreenTimeSyncer` · `ChallengeResultHost` ·) `<RootNavigator/>`.
+  `ToastProvider` wraps the whole tree just inside `SafeAreaProvider`.
 
 ---
 
@@ -273,7 +281,8 @@ See DevRunbook.md "3.2 backend connection mode" for details.
 
 ### App Groups
 
-Both entitlements files declare:
+All six entitlements files (`ios/gromo`, `ios/GromoScreenTimeMonitor`, `ios/screentimereport`,
+`ios/ShieldAction`, `ios/ShieldConfiguration`, `ios/Widget`) declare:
 
 ```xml
 <key>com.apple.security.application-groups</key>
@@ -300,7 +309,7 @@ Both entitlements files declare:
 - `Info.plist`:
   ```xml
   <key>NSFamilyControlsUsageDescription</key>
-  <string>앱별 사용 시간을 확인하기 위해 필요합니다.</string>
+  <string>폰 사용 시간을 측정해 스크린타임 목표 달성 확인과 사용 통계 제공에 사용합니다.</string>
   ```
 
 ---
@@ -312,7 +321,7 @@ npm start            # Metro dev server
 npm run ios          # simulator
 npx expo run:ios --device   # device (p12 required)
 
-npm run typecheck    # tsc --noEmit (also in CI lint pipeline)
+npm run typecheck    # tsc --noEmit (no CI runs it for 1.x — run it locally)
 npm run lint         # ESLint (print-width 100, single quotes, trailing-comma all; ignores android/, ios/)
 npm run lint:fix
 npm run format:check # Prettier
@@ -339,6 +348,9 @@ npm run format:check
 npm run typecheck
 ```
 
+No CI covers this app. Before a hotfix PR, also run the full local gate at the top of
+`app/legacy/app-dev/README.md` (it adds `npm test`, `npm run gen:palette:check` and the Android checks).
+
 ### Commit / push rule
 
 - When a unit of work is done, propose committing and suggest the message.
@@ -354,8 +366,8 @@ draft PR gets zero automated review.
 
 Title, body sections, assignee (`--assignee @me`), the single type label, ticket-reference
 rule (full key only for the implemented ticket, number only for the rest) and the "no
-claude.ai session link" rule are all in the root `CLAUDE.md` → "Git & PR conventions" and
-the canon `docs/conventions/git-pr-conventions.md`. App-specific: keep the template's
+claude.ai session link" rule are all in the canon `docs/conventions/git-pr-conventions.md`
+(the root `CLAUDE.md` has a short summary). App-specific: keep the template's
 `## 빌드/배포 영향` section and tick what applies (native change → new TestFlight build,
 JS-only → OTA, new dependency, new `EXPO_PUBLIC_*`, entitlements).
 
@@ -378,7 +390,8 @@ Commits/pushes leading up to the PR still need explicit user approval — see
 ## Testing
 
 - **유닛·컴포넌트 테스트 (jest)**: `npm test` — jest-expo 프리셋, `src/**/*.test.ts(x)` (GROMO-945·946·948).
-  KST 고정(`jest.config.js`), AsyncStorage 공식 mock(`jest.setup.js`). CI(app-lint.yml)에서도 돈다.
+  KST 고정(`jest.config.js`), AsyncStorage 공식 mock(`jest.setup.js`). 1.x 에는 CI 가 없어 로컬에서 직접 돌린다
+  (`app-lint.yml` 은 2.0 `app/app-dev/**` 만 본다).
 - **E2E (Maestro)**: `./scripts/e2e.sh` — Release 시뮬 자립 빌드(dev URL 주입·서명 보정) 후
   `.maestro/flows/` 01→02→03 순서 실행. 01이 게스트 계정을 만들고 02가 집중 기록을 만들며
   03이 그 기록을 조회하는 체이닝 구조(GROMO-947). 대본 셀렉터는 **testID만** 사용 — 시스템
