@@ -9,7 +9,7 @@
 
 ## §1. 계약별 상세
 
-### 1.1~1.10 — 기존 친구·핀 계약 (동작 변경 없음, 경로만 무접두)
+### 1.1~1.10 — 기존 친구 계약 (동작 변경 없음, 경로만 무접두) · ~~핀~~ 퇴역
 
 현재 구현의 실제 응답 필드를 그대로 옮긴다 — `FriendControllerDocs.java`·`PinControllerDocs.java`의
 Swagger 설명과 `FriendService.java`의 실제 필드가 근거다(HLD §1 표의 `파일:줄` 참고).
@@ -20,12 +20,12 @@ Swagger 설명과 `FriendService.java`의 실제 필드가 근거다(HLD §1 표
 | 2 | `POST /friends/requests/{id}/accept` | 없음(`id`=요청 행 id) | 없음 | 200 | 403 `NOT_REQUEST_RECEIVER` · 404 `REQUEST_NOT_FOUND` | 요청의 **수신자**만 |
 | 3 | `POST /friends/requests/{id}/reject` | 없음 | 없음 | 200 | 403 `NOT_REQUEST_RECEIVER` · 404 `REQUEST_NOT_FOUND` · 409 `INVALID_REQUEST_STATUS`(PENDING 아니면) | 요청의 **수신자**만 |
 | 4 | `DELETE /friends/{friendUserId}` | 없음 | 없음 | 204 | 404 `NOT_FRIEND` | 관계의 양쪽 누구나 |
-| 5 | `GET /friends?date=YYYY-MM-DD` | query `date`(KST 기준 오늘) | `FriendResponse[]` — `userId`·`nickname`·`tierLevel`·`occupation`·`isPinned`·`isFocusing`·`focusTimeMinutes`·`focusStartedAt`·`focusTagName` | 200 | 400(`date` 누락·형식) | 로그인 유저 본인 목록만 |
-| 6 | `GET /friends/requests?type=received\|sent` | query `type` | `FriendRequestResponse[]` — `requestId`·`userId`·`nickname`·`tierLevel`·`createdAt`(=행의 `updatedAt`, HLD §2.2 상태 전이와 달리 친구 요청은 `updatedAt`이 요청 사이클 시작 시각) | 200 | 없음(`type` 미인식 값은 `sent`로 취급 — 대소문자 무시) | 로그인 유저 본인 목록만 |
-| 7 | `GET /friends/search?type=&q=` | query `type`(`SearchType`)·`q` | `FriendSearchResultResponse[]` — `userId`·`nickname`·`tierLevel`·`occupation`·`relation`(`NONE`\|`PENDING`\|`FRIEND`) | 200 | 400 `INVALID_SEARCH_TYPE` | 로그인 유저. 결과에서 자기 자신 제외 |
-| 8 | `POST /pins/{userId}` | 없음 | 없음 | 204 | 400 `SELF_PIN` (대상 없음은 404) | 로그인 유저. 친구 아닌 유저도 가능 |
-| 9 | `DELETE /pins/{userId}` | 없음 | 없음 | 204(핀 없어도 204, 멱등) | 없음 | 로그인 유저 |
-| 10 | `GET /pins?date=YYYY-MM-DD` | query `date` | `PinnedUserResponse[]` — `userId`·`nickname`·`character`(장착 슬롯 목록)·`focusTimeMinutes`·`isFocusing` | 200 | 400(`date` 누락·형식) | 로그인 유저 본인 목록만 |
+| 5 | `GET /friends?date=YYYY-MM-DD` | query `date`(KST 기준 오늘) | `FriendResponse[]` — `userId`·`nickname`·`isFocusing`·`focusTimeMinutes`·`focusStartedAt`·`focusTagName`·`mainIslandName`(`friend/dto/FriendResponse.java`; ~~`tierLevel`·`occupation`·`isPinned`~~ 는 없다) | 200 | 400(`date` 누락·형식) | 로그인 유저 본인 목록만 |
+| 6 | `GET /friends/requests?type=received\|sent` | query `type` | `FriendRequestResponse[]` — `requestId`·`userId`·`nickname`·~~`tierLevel`~~·`createdAt`(=행의 `updatedAt`, HLD §2.2 상태 전이와 달리 친구 요청은 `updatedAt`이 요청 사이클 시작 시각) | 200 | 없음(`type` 미인식 값은 `sent`로 취급 — 대소문자 무시) | 로그인 유저 본인 목록만 |
+| 7 | `GET /friends/search?type=&q=` | query `type`(`SearchType`)·`q` | `FriendSearchResultResponse[]` — `userId`·`nickname`·~~`tierLevel`·`occupation`~~·`relation`(`NONE`\|`PENDING`\|`FRIEND`) | 200 | 400 `INVALID_SEARCH_TYPE` | 로그인 유저. 결과에서 자기 자신 제외 |
+| 8 | ~~`POST /pins/{userId}`~~ | | | | | 1.x 핀(`pinned_users`)은 v0 리베이스에서 퇴역했다(`server/data-api/docs/db/v0-rebase/manifest.json:36`) — 역사 기록. 현행 핀은 섬 핀(`telescope_pins`, `V0__baseline.sql:1529`, `/me/telescope/pins`, 사용자→섬)뿐이다 |
+| 9 | ~~`DELETE /pins/{userId}`~~ | | | | | 퇴역(8행 참고) |
+| 10 | ~~`GET /pins?date=YYYY-MM-DD`~~ | | ~~`PinnedUserResponse[]`~~ | | | 퇴역(8행 참고) |
 
 ### 1.11 — 친구 요청 취소 (신규)
 
@@ -193,7 +193,7 @@ ORDER BY id DESC
 | 항목 | 값 |
 | --- | --- |
 | 파라미터 | `type`(필수, 현재 `NICKNAME` 만 구현) · `q`(필수) — 둘 다 없으면 Business 에서 400 |
-| 응답 body | `FriendSearchResultResponse[]` — `userId`·`nickname`·`tierLevel`·`occupation`·`relation`. **0건 또는 1건**(닉네임이 대소문자 무시로 유일하므로). 없으면 빈 배열, 404 가 아니다 |
+| 응답 body | `FriendSearchResultResponse[]` — `userId`·`nickname`·~~`tierLevel`·`occupation`~~·`relation`. **0건 또는 1건**(닉네임이 대소문자 무시로 유일하므로). 없으면 빈 배열, 404 가 아니다 |
 | 필수 결과 필드 | `userId`·`nickname`·`relation` — Business 가 셋 중 하나라도 누락·null 이면 502 `UPSTREAM_CONTRACT_ERROR` 로 올린다(`FriendSearchItem` 의 `@JsonSetter(nulls = Nulls.FAIL)`). `nickname` 은 친구 목록(`FriendItem`)과 달리 필수다 — 검색은 닉네임으로 찾은 결과이고 탈퇴자를 제외하므로 값이 없다는 건 계약 파손이다. `tierLevel`·`occupation` 은 비친구에게 null 이 정상이라 제외 |
 | 에러 | 400 `INVALID_SEARCH_TYPE`(→ 공개 `INVALID_PARAMETER`, field=`type`) · 404 `USER_NOT_FOUND` |
 | 내부 경로 | `GET /internal/users/{userId}/friend-search` — **`friends/search` 가 아니다.** `DELETE /internal/users/*/friends/*`(§1.4)와 세그먼트 수가 같아 허용목록이 메서드로만 갈리게 된다. `GET /internal/users/*/island-search` 와 같은 형태 |
@@ -342,7 +342,7 @@ CREATE INDEX idx_letters_sender_cursor   ON letters (sender_id,   id DESC) WHERE
 > 보존)와 그 대가로 남는 레거시 우회는 계정 LLD §2.1 「게스트 제한과 기존 계정 충돌의 2단계
 > 확인」에 있다.
 
-**2026-09-25 후속 결정(RP-게스트쓰기):** 2.0 게스트의 편지 발송·친구 요청을 추가 소유 확인 없이 다시 허용한다. 위 인용은 1992의 현재 구현 설명이며 목표 계약이 아니다. 현행 `SOCIAL_LOGIN_REQUIRED` 친구·편지 가드는 후속 구현에서 제거한다. 상점 구매 정책은 그대로다. 게스트 탈퇴·새 발급 뒤 제재·차단 승계는 보장되지 않는 미해결 위험이다.
+**2026-09-25 후속 결정(RP-게스트쓰기):** 2.0 게스트의 편지 발송·친구 요청을 추가 소유 확인 없이 다시 허용한다. 위 인용은 1992의 현재 구현 설명이며 목표 계약이 아니다. ~~현행 `SOCIAL_LOGIN_REQUIRED` 친구·편지 가드는 후속 구현에서 제거한다.~~ **2026-11-03 대체됨** — 친구 요청·편지의 게스트 차단(1992)이 맞는 현행이라 제거하지 않는다(`InternalFriendController.java:99`, `InternalLetterController.java:58`, 앱 `ko.json:344`). 위 «다시 허용»은 채택되지 않았다. 상점 구매 정책은 그대로다. 게스트 탈퇴·새 발급 뒤 제재·차단 승계는 보장되지 않는 미해결 위험이다.
 
 ### 결정 2 — 받는 쪽 섬의 우체통 시설이 완공돼야 편지를 받을 수 있는가
 

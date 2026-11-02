@@ -202,8 +202,8 @@ INSERT INTO island_weekly_member_counts … SELECT … GROUP BY gm.group_id ON C
   `groups` 행 KEY SHARE 를 요구해 「테이블 잠금 → groups 행」 순서가 되고, finish 의 「groups FOR UPDATE → 테이블 잠금」과
   교착한다. `groups` 는 소프트 삭제라 CASCADE 효용이 없고, 고아 행은 읽기 쪽 생존·이름 조회가 거른다.
 
-랭킹 GET 은 읽기 응답 외의 경제 효과가 0이다. 지갑·보상 원장을 호출하지 않고, 기존 리그 정산 함수도 부르지
-않으며, 새 realtime 사건을 만들지 않는다.
+랭킹 GET 은 읽기 응답 외의 경제 효과가 0이다. 지갑·보상 원장을 호출하지 않고, ~~기존 리그 정산 함수도 부르지
+않으며,~~ (1.x 리그는 v0 리베이스에서 퇴역해 정산 함수가 없다 — manifest.json:26-29) 새 realtime 사건을 만들지 않는다.
 
 **표면.** 내부 `GET /internal/users/{userId}/island-rankings` — 경로 섬이 없는 «전체 섬» 순위라 주체 축이다
 (B26, 1759 의 `island-search`·`island-discovery` 와 같은 자리). 공개 `GET /rankings/islands` 는
