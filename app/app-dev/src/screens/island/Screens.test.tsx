@@ -2082,6 +2082,29 @@ test('Apple 코드를 받지 못하면(취소 아님) 탈퇴 요청 없이 일�
   await clearSession();
 });
 
+test('세션 provider 가 없어도 서버 연동 목록에 apple 이 있으면 탈퇴가 코드를 받아 보낸다', async () => {
+  // 2026-10-22 전에 로그인해 유지 중인 Apple 세션 — session.provider 가 비어 있다.
+  mockWithdrawAccount.mockResolvedValue({ deleted: true });
+  mockAppleAuthorizationCode.mockResolvedValue('apple-code-linked');
+  await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'old-apple-user' });
+  const initial = {
+    ...initialState(false),
+    name: '수빈',
+    profileNames: ['수빈'],
+    linkedProviders: ['apple'],
+  };
+  const s = await render(
+    <Harness route="profile" initial={initial} api={() => ({})} expose={() => {}} />,
+  );
+
+  await fireEvent.press(s.getByText('회원 탈퇴'));
+  await waitFor(() => assert.equal(mockWithdrawAccount.mock.calls.length, 1));
+  assert.equal(mockAppleAuthorizationCode.mock.calls.length, 1);
+  assert.equal(mockWithdrawAccount.mock.calls[0][1], 'apple-code-linked');
+  await clearLocalDataOwner();
+  await clearSession();
+});
+
 test('Apple 이 아닌 계정과 알 수 없는 제공자의 탈퇴는 Apple 재인증 없이 코드 없이 보낸다', async () => {
   mockWithdrawAccount.mockResolvedValue({ deleted: true });
   await saveSession({

@@ -24,6 +24,7 @@ import {
   beginWithdrawal,
   confirmWithdrawal,
   finishWithdrawalCleanup,
+  needsAppleAuthorizationCode,
   type WithdrawalIntent,
 } from '@/services/withdrawalIntent';
 import { clearStudyWidget } from '@/services/studyWidget';
@@ -4528,7 +4529,13 @@ export function RedesignScreens({ e }: any) {
                         // 서버가 탈퇴 뒤 Apple 토큰을 폐기). 코드는 한 번만 쓰이고 수명이 짧아 시도마다 새로
                         // 받는다. 의도 기록 전에 받으므로 취소·실패해도 기기엔 아무것도 남지 않는다.
                         let appleCode: string | undefined;
-                        if (Platform.OS === 'ios' && getSession()?.provider === 'apple') {
+                        if (
+                          needsAppleAuthorizationCode(
+                            Platform.OS,
+                            getSession()?.provider,
+                            state.linkedProviders,
+                          )
+                        ) {
                           try {
                             appleCode = await appleAuthorizationCode();
                           } catch (thrown) {
