@@ -3,7 +3,7 @@
 
 보장하는 것: 추적되는 .claude/settings.json 의 훅 구조, 저장소 내부 훅 파일의 존재, 두 게이트(pr-gate · jira_gate)가
 PreToolUse 에, 운영 영향 훅(prod-impact)이 PreToolUse(Bash)와 PostToolUse(편집 도구)에 동기·인용된 $CLAUDE_PROJECT_DIR
-경로로 연결돼 있음(prod-impact 는 스크립트가 없으면 조용히 끝나는 존재 가드 `[ -f … ] || exit 0;` 모양만 인정),
+경로로 연결돼 있음(세 훅 모두 스크립트가 없으면 조용히 끝나는 존재 가드 `[ -f … ] || exit 0;` 모양만 인정),
 permissions.ask 에 운영 배포 확인 규칙이 있음, 세 스크립트의 --selftest 통과. 그리고 문서 센서 여섯 개(추적 파일만 본다):
 1 하네스 문서의 상대 링크와 백틱 저장소 경로가 추적 파일·폴더(또는 무시 경로)를 가리킨다.
 2 하네스 문서가 적은 워크플로 파일이 실재하고, 은퇴(`# RETIRED`)한 것은 은퇴 표시와 함께만 나온다.
@@ -14,8 +14,6 @@ permissions.ask 에 운영 배포 확인 규칙이 있음, 세 스크립트의 -
 
 보장하지 않는 것:
 - 훅 명령이 Claude Code 안에서 실제로 같은 방식으로 실행된다는 것 — 문자열 구조와 파일 존재만 본다.
-- pr-gate · jira_gate 의 존재 가드 — 세션이 도는 중에 체크아웃이 스크립트 없는 옛 브랜치로 바뀌면 python 이 exit 2 를 내
-  PreToolUse 가 Bash(jira_gate 는 createJiraIssue) 호출을 막는다. 두 게이트는 가드 없는 모양 그대로다.
 - ask 규칙이 실제 명령에 매칭된다는 것 — 규칙 문자열의 존재만 본다(매칭 한계는 .claude/prod-impact.py 의 docstring).
 - 개인 설정 — settings.local.json · ~/.claude/settings.json · 관리형 정책이 게이트를 끄거나 disableAllHooks 를
   켜도 이 검사는 초록이다. 「모두의 세션에서 게이트가 켜져 있다」는 증명이 아니다.
@@ -56,7 +54,8 @@ GUARDED = {
 # Claude Code 는 세션 시작 때 훅 설정을 고정한다. 새 훅이 있는 세션이 도는 중에 체크아웃이 스크립트 없는 옛 브랜치로 바뀌면
 # python 이 exit 2 를 내고 PreToolUse 는 모든 Bash 호출을 막는다. 그래서 운영 영향 훅은 파일이 없으면 조용히 끝나는
 # 존재 가드 `[ -f "<경로>" ] || exit 0; python3 "<경로>" --hook` 모양만 등록으로 인정한다(가드를 빼면 보호가 조용히 빠진다).
-GUARD_REQUIRED = (PROD_IMPACT,)
+# pr-gate · jira_gate 도 같다 — 스크립트가 없는 브랜치로 바뀐 세션에서 가드가 없으면 python 이 exit 2 를 내 Bash 가 막힌다.
+GUARD_REQUIRED = (PROD_IMPACT, *GATES)
 # 운영 배포 명령의 확인은 훅이 아니라 permissions.ask 로 한다(bypassPermissions 에서도 지켜진다). rtk 훅이 `gh api …` 를
 # `rtk gh api …` 로 다시 쓰므로 gh api 규칙은 rtk 형태를 함께 둔다. Android CD 는 Play 내부 테스트에 게시하는데 이름에
 # prod 가 없어 따로 둔다.

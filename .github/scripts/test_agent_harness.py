@@ -17,7 +17,8 @@ harness = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(harness)
 
 
-GUARD = '[ -f "$CLAUDE_PROJECT_DIR/.claude/prod-impact.py" ] || exit 0; '
+def guard_for(script):
+    return f'[ -f "$CLAUDE_PROJECT_DIR/{script}" ] || exit 0; '
 
 # ── 문서 센서용 임시 저장소 ────────────────────────────────────────────────────────────────────
 # 센서는 `git ls-files` 의 추적 파일만 본다. 그래서 임시 트리마다 `git init` + `git add -A`(커밋은 필요 없다)를 한다.
@@ -134,9 +135,9 @@ def write_files(root, files):
 
 
 def hook_command(script):
-    """등록 명령. 운영 영향 훅만 스크립트가 없으면 조용히 끝나는 존재 가드를 앞에 둔다."""
+    """등록 명령. 존재 가드가 필요한 훅은 자기 스크립트를 검사하는 가드를 앞에 둔다."""
     run = f'python3 "$CLAUDE_PROJECT_DIR/{script}" --hook'
-    return GUARD + run if script in harness.GUARD_REQUIRED else run
+    return guard_for(script) + run if script in harness.GUARD_REQUIRED else run
 
 
 def hook_group(script, matcher):
@@ -236,6 +237,7 @@ class AgentHarnessTest(unittest.TestCase):
 
     def test_braced_project_directory_and_quoted_paths_are_supported(self):
         self.settings["hooks"]["PreToolUse"][0]["hooks"][0]["command"] = (
+            '[ -f "${CLAUDE_PROJECT_DIR}/.claude/pr-gate.py" ] || exit 0; '
             'python3 "${CLAUDE_PROJECT_DIR}/.claude/pr-gate.py" --hook'
         )
         extra = self.root / ".claude/extra hook.py"
@@ -434,6 +436,27 @@ class AgentHarnessTest(unittest.TestCase):
                     settings["hooks"][event][-1]["hooks"][0]["command"] = f'[ -f "$CLAUDE_PROJECT_DIR/{other}" ] || exit 0; {run}'
                     (self.root / ".claude/settings.json").write_text(json.dumps(settings), encoding="utf-8")
                     with self.assertRaisesRegex(ValueError, "게이트 연결.*prod-impact"):
+                        harness.validate_settings(self.root)
+
+    def test_pr_gate_and_jira_gate_require_the_existence_guard(self):
+        """두 게이트도 가드가 없으면 스크립트 없는 체크아웃에서 Bash·createJiraIssue 를 막는다 — 가드 없는 모양은 등록으로 치지 않는다."""
+        for script, event_index, name in ((".claude/pr-gate.py", 0, "pr-gate"), (".claude/jira_gate.py", None, "jira_gate")):
+            path = f'"$CLAUDE_PROJECT_DIR/{script}"'
+            run = f"python3 {path} --hook"
+            variants = {
+                "가드 없음": run,
+                "&& 로 이음": f"[ -f {path} ] && {run}",
+                "다른 파일 검사": f'[ -f "$CLAUDE_PROJECT_DIR/.claude/prod-impact.py" ] || exit 0; {run}',
+            }
+            for variant, command in variants.items():
+                with self.subTest(gate=name, variant=variant):
+                    settings = json.loads(json.dumps(self.settings))
+                    groups = settings["hooks"]["PreToolUse"]
+                    group = groups[0] if event_index == 0 else next(
+                        g for g in groups if script in g["hooks"][0]["command"])
+                    group["hooks"][0]["command"] = command
+                    (self.root / ".claude/settings.json").write_text(json.dumps(settings), encoding="utf-8")
+                    with self.assertRaisesRegex(ValueError, f"게이트 연결.*{name}"):
                         harness.validate_settings(self.root)
 
     def test_every_prod_ask_rule_is_required(self):

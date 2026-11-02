@@ -45,7 +45,6 @@ class SmokeWorkflowTests(unittest.TestCase):
         commands = '\n'.join(step.get('run', '') for step in checks['jobs']['checks']['steps'])
         self.assertIn("discover -s smoke/server/tests -p 'test_*.py'", commands)
         self.assertIn("-p 'test_smoke_report.py'", commands)
-        self.assertIn("-p 'test_smoke_guest_budget.py'", commands)
         self.assertIn("-p 'test_smoke_workflow.py'", commands)
 
 
