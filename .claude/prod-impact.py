@@ -11,8 +11,9 @@
 --hook (등록: .claude/settings.json, 동기·10초, `[ -f … ] || exit 0;` 존재 가드 뒤). 어떤 오류에도 exit 0 이다 — 훅이 exit 2 를 내면
 도구 호출이 막힌다. 존재 가드는 세션이 도는 중에 체크아웃이 이 파일 없는 옛 브랜치로 바뀌어도(python 이 exit 2) Bash 가 막히지 않게 한다.
 - PostToolUse(Edit·Write·MultiEdit·NotebookEdit): 편집한 파일이 운영에 닿으면 세션당 파일마다 한 번 알린다.
-- PreToolUse(Bash): `gh pr merge` 는 PR 파일 목록을 조회해 영향이 있거나 조회가 실패하면 확인(ask)을 받는다.
-  `gh run rerun` 은 운영 CD 실행이면 확인을 받는다. `gh pr create`·`git push` 는 브랜치 변경만 보고 알리기만 한다.
+- PreToolUse(Bash): `gh pr merge` 는 PR 파일 목록(이름 변경의 옛 경로 포함)을 조회해 영향이 있거나 조회가 실패하면 확인(ask)을 받는다.
+  `gh run rerun` 은 운영 CD 실행(서버·백오피스 CD, Android CD)이면 확인을 받는다.
+  `gh pr create`·`git push` 는 브랜치 변경(`git diff --no-renames` 라 옛 경로도 보인다)만 보고 알리기만 한다.
   그 밖의 Bash 는 «gh»·«git» 단어가 없으면 아무것도 불러오지 않고 끝난다(모든 Bash 호출마다 도는 훅이다).
 
 운영 배포 명령(`gh workflow run`·`gh api …dispatches`)의 확인은 이 스크립트가 아니라 .claude/settings.json 의
@@ -41,7 +42,11 @@ ANDROID_WORKFLOWS = (".github/workflows/app-android-ci.yml", ".github/workflows/
 PROCESS_WORKFLOWS = tuple(".github/workflows/%s.yml" % name for name in (
     "prod-ci-V2", "prod-cd-V2", "kafka-ci.prod-V2", "kafka-cd.prod-V2",
     "redis-ci.prod-V2", "redis-cd.prod-V2", "backoffice-cd.prod-V2")) + ANDROID_WORKFLOWS
-PROD_CD =("prod-cd-V2.yml", "kafka-cd.prod-V2.yml", "redis-cd.prod-V2.yml", "backoffice-cd.prod-V2.yml")
+PROD_CD = ("prod-cd-V2.yml", "kafka-cd.prod-V2.yml", "redis-cd.prod-V2.yml", "backoffice-cd.prod-V2.yml")
+ANDROID_CD = "app-android-cd.yml"       # `gh run rerun` 이 운영 게시로 보는 Android 실행(워크플로 표시 이름 «Android CD»)
+# PR 파일 목록 조회의 jq. 이름 변경이면 filename 에는 새 경로만 오고 옛 경로는 previous_filename 에 온다 — 둘 다 판정한다.
+# .github/workflows/pr-ci-policy.yml 의 `--jq` 와 같아야 한다(selftest 가 대조한다).
+FILES_JQ = ".[] | .filename, (.previous_filename // empty)"
 EDIT_TOOLS = ("Edit", "Write", "MultiEdit", "NotebookEdit")
 PIPELINE_DOC = "docs/engineering/prod-v2-pipeline.md"
 ANDROID_DOC = "docs/conventions/android-ci-cd.md"
@@ -347,7 +352,7 @@ def merge_check(selector, repo, cwd):
                                  "--json", "number,baseRefName"))
         number, base = view["number"], view["baseRefName"]
         files = lookup("api", "--paginate", "repos/%s/pulls/%s/files" % (repo or "{owner}/{repo}", number),
-                       "--jq", ".[].filename").splitlines()
+                       "--jq", FILES_JQ).splitlines()
         found = impacts(find_root(cwd), files, base)
     except Exception as error:
         return "운영 영향을 확인하지 못했다 — %s" % error
@@ -364,8 +369,10 @@ def rerun_check(run_id, repo, cwd):
         run = json.loads(_gh(["api", "repos/%s/actions/runs/%s" % (repo or "{owner}/{repo}", run_id)], cwd, LOOKUP_SECONDS))
         path = (run.get("path") or "").split("@")[0]        # 실행의 path 는 `.github/workflows/x.yml@refs/heads/release`
         name = run.get("name") or ""
-        if os.path.basename(path) in PROD_CD or re.fullmatch(r"Catus \w+ CD V2", name):
-            return "운영 CD 재실행 — %s (run %s) 를 다시 돌리면 같은 입력으로 운영에 배포한다. 확인한 뒤 승인한다" % (name or path, run_id)
+        android = os.path.basename(path) == ANDROID_CD or name == "Android CD"
+        if android or os.path.basename(path) in PROD_CD or re.fullmatch(r"Catus \w+ CD V2", name):
+            effect = "같은 AAB 를 Play 내부 테스트에 다시 게시한다" if android else "같은 입력으로 운영에 배포한다"
+            return "운영 CD 재실행 — %s (run %s) 를 다시 돌리면 %s. 확인한 뒤 승인한다" % (name or path, run_id, effect)
     except Exception:
         pass
     return None
@@ -548,6 +555,7 @@ PARSE_CASES = [
 
 def run_selftest():
     global _gh, parse_bash, LOOKUP_SECONDS
+    import shutil
     import subprocess
     import tempfile
     root = _repo_root()
@@ -633,13 +641,22 @@ def run_selftest():
                       ("pulls/7/files", "backoffice/server/app.mjs\ndocs/README.md\n")]
         reason = ask("gh pr merge 7 --squash")
         check("merge: 영향 있으면 ask", reason and "#7 (base: main)" in reason and "백오피스" in reason, reason)
-        check("merge: 조회 인자(번호·paginate·placeholder)", calls[0][:3] == ["pr", "view", "7"]
-              and calls[1][:2] == ["api", "--paginate"] and calls[1][2] == "repos/{owner}/{repo}/pulls/7/files", calls)
+        check("merge: 조회 인자(번호·paginate·placeholder·jq)", calls[0][:3] == ["pr", "view", "7"]
+              and calls[1][:2] == ["api", "--paginate"] and calls[1][2] == "repos/{owner}/{repo}/pulls/7/files"
+              and calls[1][3:] == ["--jq", FILES_JQ], calls)
         del calls[:]
         ask("gh pr merge --squash")
         check("merge: 번호 없으면 현재 브랜치 PR", calls[0] == ["pr", "view", "--json", "number,baseRefName"], calls)
         replies[:] = [("pr view", '{"number": 8, "baseRefName": "main"}'), ("pulls/8/files", "docs/README.md\n")]
         check("merge: 영향 없으면 통과", ask("gh pr merge 8") is None)
+        # 이름 변경: PR files API 는 filename 에 새 경로만 주고 옛 경로는 previous_filename 에 준다. FILES_JQ 는 둘 다 내보내므로
+        # 가짜 gh 의 응답(= jq 출력)에는 새 경로와 옛 경로가 함께 온다.
+        replies[:] = [("pr view", '{"number": 10, "baseRefName": "main"}'),
+                      ("pulls/10/files", "docs/x.md\nbackoffice/server/x.mjs\n")]
+        reason = ask("gh pr merge 10")
+        check("merge: 백오피스 밖으로 옮기는 이름 변경은 옛 경로로 ask", reason and "#10 (base: main)" in reason and "백오피스" in reason, reason)
+        replies[:] = [("pr view", '{"number": 11, "baseRefName": "main"}'), ("pulls/11/files", "docs/x.md\n")]
+        check("merge: 새 경로만 오면 통과(대조)", ask("gh pr merge 11") is None)
         replies[:] = [("pr view", '{"number": 9, "baseRefName": "release"}'), ("pulls/9/files", "docs/README.md\n")]
         check("merge: release 가 base 면 ask", "release 머지는" in (ask("gh pr merge 9") or ""))
         replies[:] = [("pr view", RuntimeError("no pull requests found"))]
@@ -648,6 +665,16 @@ def run_selftest():
         check("merge: 응답 형식 오류도 ask", "확인하지 못했다" in (ask("gh pr merge 3") or ""))
         replies[:] = [("runs/123", '{"name": "Catus app CD V2", "path": ".github/workflows/prod-cd-V2.yml@refs/heads/release"}')]
         check("rerun: 운영 CD 면 ask", "운영 CD 재실행 — Catus app CD V2" in (ask("gh run rerun 123") or ""))
+        replies[:] = [("runs/126", '{"name": "Android CD", "path": ".github/workflows/app-android-cd.yml@refs/heads/main"}'),
+                      ("runs/127", '{"name": "Android CD"}'),
+                      ("runs/128", '{"path": ".github/workflows/app-android-cd.yml@refs/heads/main"}'),
+                      ("runs/129", '{"name": "Android CI", "path": ".github/workflows/app-android-ci.yml@refs/heads/main"}')]
+        reason = ask("gh run rerun 126 --failed")
+        check("rerun: Android CD 면 ask(Play 내부 테스트 재게시)",
+              reason and "운영 CD 재실행 — Android CD (run 126)" in reason and "Play 내부 테스트에 다시 게시한다" in reason, reason)
+        check("rerun: Android CD 를 이름만으로도 알아본다", "Android CD" in (ask("gh run rerun 127") or ""))
+        check("rerun: Android CD 를 path 만으로도 알아본다", "app-android-cd.yml" in (ask("gh run rerun 128") or ""))
+        check("rerun: Android CI(게시가 아님)는 통과", ask("gh run rerun 129") is None)
         replies[:] = [("runs/124", '{"name": "Data API CI (dev)-v2", "path": ".github/workflows/data-api-ci.dev-v2.yml@refs/heads/main"}')]
         check("rerun: dev CI 면 통과", ask("gh run rerun 124 --failed") is None)
         replies[:] = [("runs/125", RuntimeError("HTTP 404"))]
@@ -662,7 +689,7 @@ def run_selftest():
         with open(stub, "w") as f:
             f.write('#!/bin/sh\ncase "$*" in\n'
                     '"pr view 7 --json number,baseRefName") echo \'{"number": 7, "baseRefName": "main"}\';;\n'
-                    '"api --paginate repos/{owner}/{repo}/pulls/7/files --jq .[].filename") printf \'backoffice/a.ts\\ndocs/b.md\\n\';;\n'
+                    '"api --paginate repos/{owner}/{repo}/pulls/7/files --jq ' + FILES_JQ + '") printf \'backoffice/a.ts\\ndocs/b.md\\n\';;\n'
                     '"pr view 8 --json number,baseRefName") echo "HTTP 404: Not Found" >&2; exit 1;;\n'
                     '"pr view 9 --json number,baseRefName") sleep 5;;\n'
                     '"api repos/{owner}/{repo}/actions/runs/123") echo \'{"name": "Catus kafka CD V2", "path": ".github/workflows/kafka-cd.prod-V2.yml@refs/heads/release"}\';;\n'
@@ -685,6 +712,21 @@ def run_selftest():
             check("진짜 _gh: gh 가 없으면 ask", reason == "운영 영향을 확인하지 못했다 — gh 를 찾지 못했다", reason)
         finally:
             os.environ["PATH"], LOOKUP_SECONDS = real_path, real_seconds
+
+    # PR files API 의 이름 변경: FILES_JQ 가 pr-ci-policy.yml 의 `--jq` 와 같은지(파일을 읽어 대조), jq 가 있으면 실제로 새 경로와
+    # 옛 경로를 모두 내보내는지 확인한다. 둘이 갈라지면 CI 의 경고와 훅의 병합 확인이 서로 다른 목록을 본다.
+    with open(os.path.join(root, ".github/workflows/pr-ci-policy.yml"), encoding="utf-8") as f:
+        used = re.findall(r"--jq '([^']*)'", f.read())
+    check("pr-ci-policy.yml 의 --jq 가 FILES_JQ 와 같다", FILES_JQ in used, (used, FILES_JQ))
+    jq = shutil.which("jq")
+    if jq:
+        sample = json.dumps([{"filename": "docs/x.md", "previous_filename": "backoffice/server/x.mjs", "status": "renamed"},
+                             {"filename": "docs/a.md", "status": "modified"}])
+        done = subprocess.run([jq, "-r", FILES_JQ], input=sample, capture_output=True, text=True)
+        check("FILES_JQ: 이름 변경이면 새 경로와 옛 경로를 모두 낸다(jq)",
+              done.stdout.splitlines() == ["docs/x.md", "backoffice/server/x.mjs", "docs/a.md"], (done.stdout, done.stderr))
+    else:
+        check("FILES_JQ: jq 가 없어 실제 출력 대조는 건너뛴다", True)
 
     # 훅: git push · gh pr create (임시 저장소, 막지 않고 알리기만)
     def git(path, *args):
