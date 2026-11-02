@@ -48,8 +48,8 @@ python3 .claude/jira_assign.py meta
 ### 3. 맥락 조사 — 참고 자료를 실제로 확보한다
 "참고 자료: 알아서 찾아보세요" 는 지시가 아니다. 시킬 일과 관련된 것을 직접 찾아 링크로 박는다.
 
-- 관련 PRD·정책 문서: `docs/prd/<기능>/`, `docs/conventions/`
-- 따라야 할 기존 코드 패턴: 같은 도메인의 `api/`·`service/`·`domain/` 중 **비슷한 것 한 개를 지목**
+- 관련 PRD·정책 문서: `docs/prd/<product>/<feature>/`, `docs/conventions/`
+- 따라야 할 기존 코드 패턴: 같은 서비스·도메인에서 **비슷한 것 한 개를 지목** (패키지 배치는 `docs/conventions/backend-layering.md`)
 - 선행 티켓·PR 이 있으면 `GROMO-####` / PR 번호
 - 스키마가 걸리면 `server/data-api/docs/db/schema.dbml`
 
@@ -123,4 +123,3 @@ python3 .claude/jira_assign.py create "$SCRATCH/assign.json"
 
 - `/jira-sync` — PRD 문서 한 장을 통째로 티켓 배치로 (같은 스크립트·같은 양식, 담당자 기본 본인·스프린트 없음)
 - `/jira-assign` — **사람에게 일을 시키는 지시서 한 건** (이 문서)
-- `/jira-impl` — 이미 있는 티켓을 읽어 내 구현용 스펙 md 로

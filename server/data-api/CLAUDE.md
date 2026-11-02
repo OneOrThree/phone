@@ -105,12 +105,12 @@ whitelist (GROMO-735).
 스키마 실행 정본은 **Flyway `src/main/resources/db/v0/`**이며,
 `docs/db/schema.dbml`은 그 구조를 문서화한다.
 
-- **새 스키마 변경**: `db/v0/`의 가장 큰 숫자 버전 다음에
-  `V<N+1>__<desc>.sql`을 추가하고 `schema.dbml`을 함께 갱신한다. 첫 후속 변경은
-  `V1__*.sql`이다. 적용한 마이그레이션은 수정하지 않고 새 버전으로 보정한다.
-- **V0와 과거 체인**: `db/v0/V0__baseline.sql`은 빈 DB의 시작점이다.
-  `db/migration/V1`~`V138`은 과거 이행 테스트·전환 검증용 불변 자료이며,
-  새 마이그레이션을 추가하거나 애플리케이션 실행 경로로 선택하지 않는다.
+- **New schema change**: add `V<N+1>__<desc>.sql` to `db/v0/`, where N is the highest numeric
+  version in that folder (compare numbers, not strings), and update `schema.dbml` in the same
+  change. Never edit an applied migration; correct it with a new version.
+- **V0 and the frozen chain**: `db/v0/V0__baseline.sql` is the starting point for an empty DB.
+  `db/migration` is frozen history kept for migration-transition tests and verification;
+  never add files there or select it as an application path.
 - **기존 dev/prod DB 전환 또는 복구 작업**: 먼저 [DB 전환 절차](docs/db/README.md)를
   읽는다. `rebase-v0.py`의 대상·이력·스키마 검증, 읽기 전용 계획, 전체 백업,
   writer 중지와 명시적 전환 절차를 따른다. `baseline-on-migrate`는 꺼져 있으며
@@ -177,12 +177,11 @@ The fast path for working in `server/data-api/`:
 - `superpowers:test-driven-development` — default for new logic (JUnit 5 + Testcontainers).
 - `superpowers:systematic-debugging` — for test failures / unexpected behavior.
 - `/back-check` — local CI gate (Checkstyle + SpotBugs + tests) before pushing.
-- `/back-endpoint <설명>` — scaffold a Controller→Service→Repository→DTO + test slice.
 - `/back-migration <설명>` — scaffold the next Flyway `V<N+1>__<desc>.sql` in `src/main/resources/db/v0/`.
 - `spring-reviewer` (subagent) — focused Java/JPA/security/convention review of the diff.
 - `/code-review` — repo-wide correctness + cleanup pass on the diff before a PR.
 - `/security-review` — run when touching auth / `InternalAuthFilter` / endpoints / secrets.
-- `/verify` — confirm a change actually runs before claiming it's done.
+- `superpowers:verification-before-completion` — run the verification commands and read their output before claiming a change works.
 - **Serena symbol tools** (Java LSP is enabled): `get_symbols_overview`, `find_symbol`,
   `find_referencing_symbols` — navigate/refactor Java by symbol instead of reading whole
   files (token-cheap; ideal for tracing service→repository call paths).
