@@ -280,7 +280,7 @@ ownership/세션을 가지므로 늦은 삭제·폐기가 새 등록이나 다�
 
 Data의 기존 `AccountWithdrawalService.withdraw` 단일 TX에 신규 파기를 넣는다. 다른 주민이 있는 방장은 기존 400 `HOST_WITHDRAW`이고 전체 변경이 롤백된다. 성공은 200 `{ "data": { "deleted": true } }`. 원본 예상 계약의 200과 legacy DELETE `/api/v1/users/me`의 204를 구분한다.
 
-성공 후 같은 AT로 재요청하면 공통 검사 순서에 따라 세션·authGeneration 폐기보다 사용자 비활성이 먼저 판정되어 404 `USER_NOT_FOUND`이고, 토큰 자체가 만료/위조면 401이다. 범용 receipt가 남아 있어도 폐기된 주체에게 개인 응답을 재생하지 않는다. Business는 탈퇴 전용 읽기 8초·요청 10초 예산을 쓰고, Data의 404 `USER_NOT_FOUND`를 탈퇴 확정으로 읽어 커밋 뒤 정리(Apple 폐기 포함)를 이어 간 뒤 200 `{deleted:true}`로 끝낸다. 클라이언트는 최초 200 또는 같은 명령 재시도의 404 `USER_NOT_FOUND`(구버전 호환)를 탈퇴 확정으로 보고 아래 탈퇴 전용 로컬 파기를 실행한다. 401은 기존 refresh 흐름을 타며, 탈퇴한 계정의 refresh·logout도 같은 순서로 404 `USER_NOT_FOUND`다. logout의 활성 사용자 내 완료 재생 특례를 계정 탈퇴에 확대하지 않는다.
+성공 후 같은 AT로 재요청하면 공통 검사 순서에 따라 세션·authGeneration 폐기보다 사용자 비활성이 먼저 판정되어 404 `USER_NOT_FOUND`이고, 토큰 자체가 만료/위조면 401이다. 범용 receipt가 남아 있어도 폐기된 주체에게 개인 응답을 재생하지 않는다. Business는 탈퇴 전용 읽기 5초·요청 6초 예산을 쓰고, Data의 404 `USER_NOT_FOUND`를 탈퇴 확정으로 읽어 커밋 뒤 정리(Apple 폐기 포함)를 이어 간 뒤 200 `{deleted:true}`로 끝낸다. 클라이언트는 최초 200 또는 같은 명령 재시도의 404 `USER_NOT_FOUND`(구버전 호환)를 탈퇴 확정으로 보고 아래 탈퇴 전용 로컬 파기를 실행한다. 401은 기존 refresh 흐름을 타며, 탈퇴한 계정의 refresh·logout도 같은 순서로 404 `USER_NOT_FOUND`다. logout의 활성 사용자 내 완료 재생 특례를 계정 탈퇴에 확대하지 않는다.
 
 ### 2.6 GET /me/settings
 

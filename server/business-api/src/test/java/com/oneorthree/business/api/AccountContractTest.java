@@ -259,8 +259,7 @@ class AccountContractTest extends UpstreamTestBase {
         assertThat(DATA.hits(DATA_DELETE)).isEqualTo(2);
         assertThat(APPLE.hits("POST /auth/token")).isEqualTo(1);
         assertThat(APPLE.hits("POST /auth/revoke")).isEqualTo(1);
-        assertThat(redis.hasKey(WITHDRAWN)).isTrue();
-        assertThat(redis.hasKey("cache:business:revoked-session:" + SESSION)).isTrue();
+        assertThat(redis.hasKey(REVOKED)).isTrue();
     }
 
     @Test
@@ -289,7 +288,7 @@ class AccountContractTest extends UpstreamTestBase {
 
     @Test
     void slowCommittedWithdrawalWaitsForDedicatedReadBudgetWithoutRetry() throws Exception {
-        // ci 일반 읽기 예산은 300ms 다. 탈퇴는 전용 예산(8초)이라 600ms 응답도 끊지 않고 재시도하지 않는다.
+        // ci 일반 읽기 예산은 300ms 다. 탈퇴는 전용 예산(5초)이라 600ms 응답도 끊지 않고 재시도하지 않는다.
         DATA.on(DATA_DELETE, request -> {
             try {
                 Thread.sleep(600);

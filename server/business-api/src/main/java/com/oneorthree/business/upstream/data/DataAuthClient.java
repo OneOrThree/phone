@@ -40,7 +40,7 @@ public class DataAuthClient {
      * 탈퇴는 한 TX 에서 섬 정리까지 끝내 운영에서 0.9~1.8초 걸렸다. 일반 조회 예산 1.5초로 끊으면
      * 커밋된 탈퇴를 실패로 오인한다.
      */
-    private static final Duration WITHDRAW_READ_TIMEOUT = Duration.ofSeconds(8);
+    private static final Duration WITHDRAW_READ_TIMEOUT = Duration.ofSeconds(5);
     private static final String PATH_ACCOUNT = "/internal/users/{userId}";
 
     private final InternalHttpClient http;

@@ -107,7 +107,7 @@ public class AppleTokenRevoker {
     /** 2xx 면 본문(빈 본문은 빈 객체), 아니면 WARN 후 null. */
     private JsonNode post(UUID userId, String path, String body) throws Exception {
         HttpRequest request = HttpRequest.newBuilder(URI.create(baseUrl + path))
-                .timeout(Duration.ofSeconds(5))
+                .timeout(Duration.ofSeconds(4)) // 두 번 호출해도 탈퇴 전체가 앱 요청 제한 15초 안에 들게 한다
                 .header("Content-Type", "application/x-www-form-urlencoded")
                 .POST(HttpRequest.BodyPublishers.ofString(body)).build();
         HttpResponse<String> response = http.send(request, HttpResponse.BodyHandlers.ofString());

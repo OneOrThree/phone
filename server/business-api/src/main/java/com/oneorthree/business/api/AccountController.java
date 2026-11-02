@@ -41,8 +41,8 @@ public class AccountController {
     private static final Set<String> CAT_COLORS = Set.of("black", "ginger", "cream", "gray", "white", "calico");
     private static final Set<String> WITHDRAW_FIELDS = Set.of("confirmation", "appleAuthorizationCode");
     private static final String CONFIRMATION = "DELETE";
-    /** 탈퇴 전용 요청 예산 — 앱 요청 제한 15초(REQUEST_TIMEOUT_MS) 안에 든다. */
-    private static final Duration WITHDRAW_BUDGET = Duration.ofSeconds(10);
+    /** 탈퇴 전용 Data 예산 — 뒤따르는 Apple 폐기 8초(4초 × 2)를 더해도 앱 요청 제한 15초 안에 든다. */
+    private static final Duration WITHDRAW_BUDGET = Duration.ofSeconds(6);
 
     private final AccountUseCase account;
     private final SettingsSessionGuard sessions;
