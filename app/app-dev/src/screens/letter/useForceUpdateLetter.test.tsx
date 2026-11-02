@@ -38,8 +38,8 @@ test('isBelowMinVersion 은 자리별 숫자로 비교하고 형식 오류는 �
   expect(isBelowMinVersion(undefined, '2.0.0')).toBe(false);
 });
 
-test('스토어 주소에 id0 이 없다', () => {
-  expect(STORE_URLS.ios).not.toMatch(/id0(\D|$)/);
+test('스토어 주소는 gromo 레코드를 가리킨다', () => {
+  expect(STORE_URLS.ios).toBe('https://apps.apple.com/app/id6774498679');
   expect(STORE_URLS.android).toContain('com.oneorthree.gromo');
 });
 

@@ -109,6 +109,7 @@ export function isBelowMinVersion(
 }
 
 export const STORE_URLS = {
-  ios: 'https://apps.apple.com/app/id6813004121',
+  // gromo 레코드(com.oneorthree.gromo)의 App Store ID — focuscat 레코드(6813004121)가 아니다
+  ios: 'https://apps.apple.com/app/id6774498679',
   android: 'https://play.google.com/store/apps/details?id=com.oneorthree.gromo',
 };
