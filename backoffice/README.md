@@ -83,6 +83,10 @@ HTTPS 역방향 프록시 뒤에 단일 인스턴스로 운영한다. 인터넷�
 
 Notification의 모든 인스턴스를 새 버전으로 교체한 다음 연결 모드의 발송 기능을 사용한다. 구버전 인스턴스가 고정 메시지를 다르게 처리하지 않도록 롤링 배포 도중에는 발송하지 않는다. 로그인 제한은 연결 소켓의 IP 기준이므로 역방향 프록시 뒤에서는 운영자들이 같은 제한을 공유할 수 있다. 전달 헤더를 임의로 신뢰해 이를 우회하지 않는다.
 
+## 출시 현황 (GROMO-2684)
+
+사이드바 「출시 현황」은 앱을 내기 전에 운영 서버에 없는 서버 변경이 main에 있는지 보여 준다. BFF `GET /api/system/release-status`가 운영 앱 배포 기록 태그(`prod-V2/app.json`)의 커밋을 기준으로 GitHub 공개 API(토큰 없음, 10분 캐시, 갱신당 7회, release 의 최근 `prod-cd-V2.yml` 실행이 성공일 때만 배포 기록을 믿음)로 compare를 조회한다. 배포 태그는 CD가 `deployment-status` 브랜치(`prod-V2/<role>.json`)에 기록한 값을 raw.githubusercontent.com에서 읽고, 커밋은 태그 목록에서 찾는다. dev 연결 모드(`BACKOFFICE_ENV`가 prod가 아님)에서는 조회하지 않고 「출시 판정은 운영 백오피스에서만 합니다.」만 보인다. 서버 실행 코드(`server/*/src/main`)가 바뀌었으면 「서버 먼저 배포」, 아니면 「앱 출시 가능」, 조회가 안 되면 「판정 불가」다. 같은 판정을 앱 출시 스크립트가 `.github/scripts/app-server-gate.py`로 강제한다. GitHub 미인증 한도는 IP 단위라 같은 IP를 쓰는 다른 프로세스가 소진하면 「판정 불가」·「확인 불가」로 나올 수 있다. Android 버전은 Play 공개 페이지 구조에 의존한다(티켓 2654에서 Play Developer API로 교체 가능).
+
 ## 검증
 
 `npm test`는 승인 우회·수정·중복·재시작 복구·스냅샷 검증·인증·CSRF·고정 상류 요청을 로컬에서 검사한다. `npm run build`는 TypeScript와 배포 번들을 검사한다. AWS 부하 테스트와 부하 데이터 생성은 영구 금지이며 이 도구의 검증에 사용하지 않는다.

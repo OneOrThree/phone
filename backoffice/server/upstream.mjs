@@ -47,6 +47,21 @@ export class Upstream {
       return { version: null, status: "unavailable" };
     }
   }
+  // 표시 전용. iosStoreVersion 과 같이 운영자 토큰이 나가지 않고 실패해도 던지지 않는다.
+  // ponytail: Play 공개 페이지의 마크업에 의존한다. 구조가 바뀌면 "unavailable"로 떨어진다.
+  // 티켓 2654 에서 Play Developer API 로 바꿀 수 있다.
+  async androidStoreVersion() {
+    if (this.mode === "local") return { version: null, status: "local" };
+    try {
+      const response = await this.fetchImpl("https://play.google.com/store/apps/details?id=com.oneorthree.gromo&hl=ko&gl=KR",
+        { headers: { "User-Agent": "Mozilla/5.0" }, redirect: "error", signal: AbortSignal.timeout(5000) });
+      if (!response.ok) return { version: null, status: "unavailable" };
+      const version = (await response.text()).match(/\[\[\["(\d+\.\d+\.\d+)"\]\]/)?.[1];
+      return version ? { version, status: "ok" } : { version: null, status: "unavailable" };
+    } catch {
+      return { version: null, status: "unavailable" };
+    }
+  }
   async request(base, path, actor, token, body, method = "POST", key) {
     if (!base || !token)
       throw Object.assign(
