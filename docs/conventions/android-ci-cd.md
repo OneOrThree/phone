@@ -3,7 +3,7 @@
 CI 성공은 검사와 AAB 생성 성공을 뜻한다. Play 게시 결과는 별도의 Android CD 실행에서 확인한다. 운영 V2 서버(`https://catus-api-v2.oneorthree.world`)용 `com.oneorthree.gromo` 앱을 대상으로 한다. 자동 게시는 internal 트랙까지이고, 프로덕션 출시는 Play 콘솔에서 승격한다.
 
 ```text
-PR → Android CI → 일회용 키 AAB 빌드 검사 (게시 없음)
+PR → Android CI → CI/CD 계약 테스트 (AAB 없음)
 main → 필수 앱 검사 → 서버 선행 게이트 → Android CI → AAB + CI 메타데이터
                                                  ↓ 성공 이벤트
                     Android CD: 원본 CI 검증 → 업로드 키 서명
@@ -39,6 +39,8 @@ Play 게시 잡은 `play-internal` 환경과 기존 OIDC 역할을 유지한다.
 CI와 CD는 진행 중 실행을 유지하고 대기를 최신 하나만 남긴다. main의 앱 변경 판정은 마지막 실제 게시 SHA부터 누적하므로, 테스트·도구 push가 대기 실행을 대체해도 미게시 런타임 변경은 최신 실행에서 다시 빌드·게시한다. 수동 CI 검증의 완료 이벤트는 Play 자동 게시와 별도 그룹을 사용한다.
 
 ## 수동 실행·재시도
+
+PR에서는 AAB를 만들지 않는다. R8·JS 번들링·운영 가드처럼 릴리스 빌드에서만 드러나는 문제는 main CI에서 확인한다. 네이티브 라이브러리 추가처럼 위험한 변경은 그 브랜치에서 Android CI를 수동 실행해 머지 전에 빌드한다.
 
 Android CI 수동 실행은 빌드까지이며 자동 게시하지 않는다. 다른 브랜치의 수동 CI도 게시하지 않는다. Android CD를 main에서 수동 실행할 때 `ci-run-id`에 성공한 main CI 실행 ID를 지정한다. CI의 현재 성공 attempt만 선택한다.
 

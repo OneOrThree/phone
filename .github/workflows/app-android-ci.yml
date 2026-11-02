@@ -3,8 +3,9 @@ name: Android CI
 # Android release AAB 빌드 (GROMO-2223). CD 짝: app-android-cd.yml.
 #
 # 검사·AAB 생성은 CI, 서명·Play 게시는 독립 CD 실행이 담당한다.
-# - PR: build 잡만. AAB 끝까지 빌드(JS 번들·Hermes·리소스·서명). 키 안 씀. 일회용 키 서명, 결과 버림.
+# - PR: CI/CD 계약 테스트만. AAB 는 만들지 않는다(10-07~11-02 PR 빌드 274회에서 코드 문제를 잡은 적이 없다).
 # - main: server-gate → settings → build → AAB+메타데이터. 앱 배포 입력이 바뀐 경우에만 CD가 자동 게시한다.
+# - 브랜치 수동 실행: 위험한 변경(네이티브 라이브러리 추가 등)을 머지 전에 빌드한다. 일회용 키 서명, 결과 버림.
 #
 # 잡 분리 이유: 키(Play·업로드)를 다루는 잡엔 의존성 코드(npm·pip·Gradle)가 안 돎.
 # GitHub-hosted 는 잡마다 새 VM → 악성 의존성이 남긴 프로세스·env 변조가 키 잡에 못 닿음.
@@ -17,7 +18,7 @@ name: Android CI
 # 빌드 대상:
 # - 앱 com.oneorthree.gromo, 서버 운영 V2(https://catus-api-v2.oneorthree.world). dev 서버 빌드는 로컬에서만 만든다.
 # - GROMO_ANDROID_AUDIENCE=prod 로 build.gradle 의 운영 가드를 모두 탄다.
-# - OTA·PostHog 는 스토어 앱과 같게 켠다. PR·검증 빌드만 PostHog 를 끈다.
+# - OTA·PostHog 는 스토어 앱과 같게 켠다. 브랜치 검증 빌드만 PostHog 를 끈다.
 
 on:
   pull_request:
@@ -73,6 +74,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      # PR 에서 도는 유일한 자리다. 실패하면 아래 판정값이 비어 뒤 잡이 돌지 않는다.
+      - name: SDK 설정·CI/CD 산출물 계약 검사
+        run: python3 -m unittest discover -s .github/ci -p 'test_*.py' -v
       - name: 실제 변경 입력 판정
         id: plan
         env:
@@ -185,9 +189,9 @@ jobs:
   build:
     name: release AAB 빌드
     needs: [settings, manual-quality, manual-native, change-plan]
-    # PR은 settings를 생략하고 빌드만 한다. main은 settings 성공이 필요하다.
+    # main은 settings 성공이 필요하다. 다른 브랜치는 수동 실행만 게시 없는 검증 빌드를 한다.
     if: >-
-      !cancelled() && needs.change-plan.outputs.build == 'true' && (github.event_name == 'pull_request' || needs.settings.result == 'success' ||
+      !cancelled() && needs.change-plan.outputs.build == 'true' && (needs.settings.result == 'success' ||
       (github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/main' &&
        needs.manual-quality.result == 'success' && needs.manual-native.result == 'success'))
     runs-on: ubuntu-latest
@@ -207,7 +211,7 @@ jobs:
       EXPO_PUBLIC_IMAGE_ASSETS_ENABLED: "false"
       EXPO_PUBLIC_IMAGE_ASSETS_URL: ""
       EXPO_PUBLIC_IMAGE_ASSETS_ENV: prod
-      # 게시 빌드만 운영 토큰을 넣는다. PR·검증 빌드는 빈 토큰을 인라인해 SDK 초기화를 막는다.
+      # 게시 빌드만 운영 토큰을 넣는다. 브랜치 검증 빌드는 빈 토큰을 인라인해 SDK 초기화를 막는다.
       EXPO_PUBLIC_POSTHOG_PROJECT_TOKEN: ${{ needs.settings.outputs.posthog-project-token || '' }}
       # 1.x 계정은 V2 로 이관하지 않아(decisions.md A24) 승격 경로가 없다. 1.x 에서 업데이트하면 로그인 화면으로 간다.
       GROMO_LEGACY_SESSION_MIGRATION_READY: "1"
@@ -217,9 +221,6 @@ jobs:
       AIRBRIDGE_APP_TOKEN: ${{ vars.AIRBRIDGE_APP_TOKEN }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-
-      - name: SDK 설정·CI/CD 산출물 계약 검사
-        run: python3 -m unittest discover -s .github/ci -p 'test_*.py' -v
 
       - name: PostHog SDK 설정 적용
         if: env.IS_RELEASE == 'true'
@@ -319,7 +320,7 @@ jobs:
       - name: AAB 빌드
         working-directory: app/app-dev/android
         env:
-          # PR 은 안 올림. 값 무관
+          # 브랜치 검증 빌드는 안 올림. 값 무관
           GROMO_VERSION_CODE: ${{ needs.settings.outputs.code || '1' }}
           # JS 번들 production. 잡 전체에 걸면 npm ci 가 devDependencies(patch-package) 빼서 깨짐
           NODE_ENV: production
@@ -363,6 +364,6 @@ jobs:
           {
             echo "## Android CI — build"
             echo "- 이벤트: ${{ github.event_name }} · 서버: ${EXPO_PUBLIC_API_URL}"
-            echo "- versionCode: ${{ needs.settings.outputs.code || '1 (PR, 안 올림)' }}"
+            echo "- versionCode: ${{ needs.settings.outputs.code || '1 (브랜치 검증, 안 올림)' }}"
             echo "- 결과: ${{ job.status }}"
           } >> "$GITHUB_STEP_SUMMARY"
