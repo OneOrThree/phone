@@ -382,4 +382,3 @@ GROMO-1654 에서는 `GroupBetSettler.effectiveJoinDeadline` 하나가 여기 �
    `common/exception/GlobalExceptionHandler.handleDomain` 하나가 전부 받는다. 규칙과 이유는
    [error-contract.md](error-contract.md) (GROMO-1657)
 4. 다른 도메인의 데이터가 필요하면 **그 도메인의 service 를 주입한다** — repository 가 아니라
-5. `/back-endpoint` 스킬이 이 배치대로 골격을 잡아준다
