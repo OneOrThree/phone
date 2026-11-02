@@ -12,6 +12,9 @@
 도구 호출이 막힌다. 존재 가드는 세션이 도는 중에 체크아웃이 이 파일 없는 옛 브랜치로 바뀌어도(python 이 exit 2) Bash 가 막히지 않게 한다.
 - PostToolUse(Edit·Write·MultiEdit·NotebookEdit): 편집한 파일이 운영에 닿으면 세션당 파일마다 한 번 알린다.
 - PreToolUse(Bash): `gh pr merge` 는 PR 파일 목록(이름 변경의 옛 경로 포함)을 조회해 영향이 있거나 조회가 실패하면 확인(ask)을 받는다.
+  병합 대상 저장소는 URL·`-R/--repo` 로 정한다. 이 체크아웃의 원격(`remote.*.url`)에 없는 저장소의 PR 이면 조회하지 않고 확인을 받는다.
+  조회는 훅 전체가 마감 하나(시작 + 8초)를 나눠 쓴다 — `gh pr merge 1 && gh pr merge 2` 도 훅 timeout(10초) 안에 끝나고,
+  시간이 모자라면 그때까지 모은 사유로 바로 ask 한다(아무것도 못 모았으면 «시간 안에 확인하지 못했다»).
   `gh run rerun` 은 운영 CD 실행(서버·백오피스 CD, Android CD)이면 확인을 받는다.
   `gh pr create`·`git push` 는 브랜치 변경(`git diff --no-renames` 라 옛 경로도 보인다)만 보고 알리기만 한다.
   그 밖의 Bash 는 «gh»·«git» 단어가 없으면 아무것도 불러오지 않고 끝난다(모든 Bash 호출마다 도는 훅이다).
@@ -31,6 +34,7 @@ import json
 import os
 import re
 import sys
+import time
 
 PLAN = ".github/scripts/catus-plan.py"
 APP_PLAN = ".github/ci/app-change-plan.py"
@@ -50,7 +54,9 @@ FILES_JQ = ".[] | .filename, (.previous_filename // empty)"
 EDIT_TOOLS = ("Edit", "Write", "MultiEdit", "NotebookEdit")
 PIPELINE_DOC = "docs/engineering/prod-v2-pipeline.md"
 ANDROID_DOC = "docs/conventions/android-ci-cd.md"
-LOOKUP_SECONDS = 8          # gh 조회 합계. 훅 timeout(10초)보다 짧아야 ask 를 낼 수 있다
+LOOKUP_SECONDS = 8          # gh 조회 합계 — 훅 전체가 마감 하나(시작 + 8초)를 나눠 쓴다. 훅 timeout(10초)보다 짧아야 ask 를 낼 수 있다
+MIN_LOOKUP = 0.5            # 마감까지 이만큼도 안 남으면 조회를 시작하지 않는다
+OUTSIDE_REPO = "이 저장소 밖 PR 병합 — 운영 영향을 판정하지 못했다. 확인한 뒤 승인한다"
 GH_OR_GIT = re.compile(r"(?<![\w-])(gh|git)(?![\w-])")
 WRAPPERS = {"command", "rtk", "proxy", "sudo", "env", "time", "nohup", "exec", "builtin",
             "if", "then", "else", "elif", "do", "while", "until", "!", "{"}
@@ -336,24 +342,81 @@ def _gh(args, cwd, timeout):
     return done.stdout
 
 
-def merge_check(selector, repo, cwd):
-    """`gh pr merge` 의 확인 사유. 영향이 없으면 None. 조회가 실패하면 «확인하지 못했다» 로 확인을 받는다."""
-    import time
-    start = time.monotonic()
+def _now():
+    return time.monotonic()         # 시험이 시계를 바꿔 끼운다
+
+
+def _repo_of(text):
+    """`OWNER/REPO` · `github.com/OWNER/REPO` · PR URL(`https://github.com/OWNER/REPO/pull/N`)의 «OWNER/REPO».
+    github.com 이 아닌 호스트이거나 모르는 형태면 None."""
+    m = re.fullmatch(r"(?:https?://)?(?:github\.com/)?([\w.-]+)/([\w.-]+?)(?:\.git)?(?:/pull/\d+.*)?/?", text.strip())
+    return "%s/%s" % m.groups() if m else None
+
+
+def _pr_target(selector, repo):
+    """`gh pr merge` 의 (대상 저장소 «OWNER/REPO», `pr view` 선택자). URL 과 `-R/--repo` 로 정한다.
+    저장소가 없으면 None(= 현재 저장소). URL 을 못 읽거나 URL 과 `-R` 이 서로 다르면 False(= 확정 못 함)."""
+    targets = []
+    if selector and re.match(r"https?://", selector):
+        number = re.search(r"/pull/(\d+)", selector)
+        slug = _repo_of(selector)
+        if not number or not slug:
+            return False, selector
+        targets.append(slug)
+        selector = number.group(1)          # URL 은 번호로 바꿔 `-R` 과 함께 넘긴다 — 두 조회가 같은 저장소를 본다
+    if repo:
+        slug = _repo_of(repo)
+        if not slug:
+            return False, selector
+        targets.append(slug)
+    if len({t.lower() for t in targets}) > 1:
+        return False, selector
+    return (targets[0] if targets else None), selector
+
+
+def _remote_repos(root, timeout):
+    """이 체크아웃 원격들의 «OWNER/REPO»(소문자). 못 읽으면 빈 집합 — 대상이 이 저장소인지 확정하지 못한다."""
+    if not root or timeout <= 0:
+        return set()
+    import subprocess
+    try:
+        done = subprocess.run(["git", "-C", root, "config", "--get-regexp", r"^remote\..*\.url$"],
+                              capture_output=True, text=True, timeout=timeout, stdin=subprocess.DEVNULL)
+    except Exception:
+        return set()
+    repos = set()
+    for line in done.stdout.splitlines():
+        m = re.search(r"[:/]([^/:\s]+)/([^/\s]+?)(?:\.git)?/?$", line.strip())      # https·ssh·scp 형태 모두
+        if m:
+            repos.add(("%s/%s" % m.groups()).lower())
+    return repos
+
+
+def merge_check(selector, repo, cwd, deadline=None):
+    """`gh pr merge` 의 확인 사유. 영향이 없으면 None. 조회가 실패하면 «확인하지 못했다» 로 확인을 받는다.
+
+    대상 저장소는 URL 과 `-R/--repo` 로 정한다. 이 체크아웃의 원격(`remote.*.url`)에 없는 저장소의 PR 이면 조회하지 않고 확인을
+    받는다 — 다른 저장소 PR 을 보면서 파일 목록은 현재 저장소의 같은 번호에서 가져오는 일을 막는다. 같은 저장소면 두 조회에
+    같은 저장소를 쓴다. deadline 은 훅 전체가 나눠 쓰는 마감(`_now()` 기준)이다."""
+    deadline = _now() + LOOKUP_SECONDS if deadline is None else deadline
 
     def lookup(*args):
-        left = LOOKUP_SECONDS - (time.monotonic() - start)
-        if left < 0.5:
+        left = deadline - _now()
+        if left < MIN_LOOKUP:
             raise RuntimeError("조회 시간 초과(%d초)" % LOOKUP_SECONDS)
         return _gh(list(args), cwd, left)
 
+    target, selector = _pr_target(selector, repo)
+    root = find_root(cwd)
+    if target is False or (target and target.lower() not in _remote_repos(root, min(3, deadline - _now()))):
+        return OUTSIDE_REPO
     try:
-        view = json.loads(lookup("pr", "view", *([selector] if selector else []), *(["-R", repo] if repo else []),
+        view = json.loads(lookup("pr", "view", *([selector] if selector else []), *(["-R", target] if target else []),
                                  "--json", "number,baseRefName"))
         number, base = view["number"], view["baseRefName"]
-        files = lookup("api", "--paginate", "repos/%s/pulls/%s/files" % (repo or "{owner}/{repo}", number),
+        files = lookup("api", "--paginate", "repos/%s/pulls/%s/files" % (target or "{owner}/{repo}", number),
                        "--jq", FILES_JQ).splitlines()
-        found = impacts(find_root(cwd), files, base)
+        found = impacts(root, files, base)
     except Exception as error:
         return "운영 영향을 확인하지 못했다 — %s" % error
     if not found:
@@ -361,12 +424,15 @@ def merge_check(selector, repo, cwd):
     return "운영 영향이 있는 PR 병합 — #%s (base: %s). 확인한 뒤 승인한다:\n%s" % (number, base, "\n".join("- " + x for x in found))
 
 
-def rerun_check(run_id, repo, cwd):
+def rerun_check(run_id, repo, cwd, deadline=None):
     """`gh run rerun <id>` 가 운영 CD 실행이면 확인 사유. 아니거나 조회가 실패하면 None — 재실행은 dev CI 에도 흔하다."""
     if not run_id or not run_id.isdigit():
         return None
+    left = (_now() + LOOKUP_SECONDS if deadline is None else deadline) - _now()
+    if left < MIN_LOOKUP:
+        return None                 # 마감이 지났다 — 조회가 실패하면 통과하는 규칙이라 건너뛴다
     try:
-        run = json.loads(_gh(["api", "repos/%s/actions/runs/%s" % (repo or "{owner}/{repo}", run_id)], cwd, LOOKUP_SECONDS))
+        run = json.loads(_gh(["api", "repos/%s/actions/runs/%s" % (repo or "{owner}/{repo}", run_id)], cwd, left))
         path = (run.get("path") or "").split("@")[0]        # 실행의 path 는 `.github/workflows/x.yml@refs/heads/release`
         name = run.get("name") or ""
         android = os.path.basename(path) == ANDROID_CD or name == "Android CD"
@@ -378,14 +444,15 @@ def rerun_check(run_id, repo, cwd):
     return None
 
 
-def branch_impacts(root, base):
+def branch_impacts(root, base, deadline=None):
     """브랜치 변경(origin/<base>...HEAD)의 운영 영향. ponytail: fetch 하지 않는다 — 오래된 origin/<base> 면 이미 머지된 변경이 섞인다."""
-    if not root:
+    left = 5 if deadline is None else min(5, deadline - _now())
+    if not root or left < MIN_LOOKUP:
         return []
     import subprocess
     try:
         done = subprocess.run(["git", "-C", root, "diff", "--no-renames", "--name-only", "-z", "origin/%s...HEAD" % base],
-                              capture_output=True, text=True, timeout=5, stdin=subprocess.DEVNULL)
+                              capture_output=True, text=True, timeout=left, stdin=subprocess.DEVNULL)
     except Exception:
         return []
     return impacts(root, done.stdout.split("\0"), base) if done.returncode == 0 else []
@@ -397,17 +464,25 @@ def bash_hook(data):
     if not isinstance(command, str) or not GH_OR_GIT.search(command):
         return None                 # 거의 모든 Bash 호출이 여기서 끝난다 — 아무것도 불러오지 않는다
     cwd = data["cwd"] if isinstance(data.get("cwd"), str) else os.getcwd()
-    asks, notes = [], []
+    # 훅 전체가 마감 하나를 나눠 쓴다. `gh pr merge 1 && gh pr merge 2` 처럼 이어져도 훅 timeout(10초) 안에 ask 를 내기 위해서다.
+    deadline = _now() + LOOKUP_SECONDS
+    asks, notes, unchecked = [], [], 0
     for kind, arg, repo in parse_bash(command):
         if kind == "merge":
-            asks.append(merge_check(arg, repo, cwd))
+            if deadline - _now() < MIN_LOOKUP:
+                unchecked += 1      # 남은 시간이 없다 — 조회를 시작하지 않고 그때까지 모은 사유로 바로 ask 한다
+            else:
+                asks.append(merge_check(arg, repo, cwd, deadline))
         elif kind == "rerun":
-            asks.append(rerun_check(arg, repo, cwd))
+            asks.append(rerun_check(arg, repo, cwd, deadline))
         elif kind == "create":
-            notes += branch_impacts(find_root(cwd), arg or "main")
+            notes += branch_impacts(find_root(cwd), arg or "main", deadline)
         elif kind == "push":
-            notes += branch_impacts(find_root(os.path.join(cwd, os.path.expanduser(arg)) if arg else cwd), "main")
+            notes += branch_impacts(find_root(os.path.join(cwd, os.path.expanduser(arg)) if arg else cwd), "main", deadline)
     asks = [x for x in asks if x]
+    if unchecked:
+        asks.append(("그 밖의 병합 %d건은 시간 안에 확인하지 못했다. 확인한 뒤 승인한다" if asks else
+                     "시간 안에 확인하지 못했다 — 병합 %d건의 운영 영향을 판정하지 못했다. 확인한 뒤 승인한다") % unchecked)
     notes = list(dict.fromkeys(notes))
     if asks:
         return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "ask",
@@ -554,7 +629,7 @@ PARSE_CASES = [
 
 
 def run_selftest():
-    global _gh, parse_bash, LOOKUP_SECONDS
+    global _gh, _now, parse_bash, LOOKUP_SECONDS
     import shutil
     import subprocess
     import tempfile
@@ -612,6 +687,10 @@ def run_selftest():
         got = parse_bash(command)
         check("명령 해석: " + command, got == expected, got)
 
+    def git(path, *args):
+        subprocess.run(["git", "-C", path, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false",
+                        "-c", "core.hooksPath=/dev/null"] + list(args), check=True, capture_output=True)
+
     # 훅: Bash. gh 는 가짜로 바꿔 네트워크 없이 확인한다.
     calls, replies = [], []
 
@@ -624,8 +703,8 @@ def run_selftest():
                 return reply
         raise RuntimeError("예상 밖 gh 호출 %s" % args)
 
-    def ask(command):
-        out = bash_hook({"tool_name": "Bash", "tool_input": {"command": command}, "cwd": root})
+    def ask(command, cwd=None):
+        out = bash_hook({"tool_name": "Bash", "tool_input": {"command": command}, "cwd": cwd or root})
         return (out or {}).get("hookSpecificOutput", {}).get("permissionDecisionReason") if out else None
 
     real_gh, real_parse = _gh, parse_bash
@@ -683,6 +762,110 @@ def run_selftest():
     finally:
         _gh, parse_bash = real_gh, real_parse
 
+    # 병합 대상 저장소: URL·-R 로 정한다. 이 체크아웃의 원격에 없는 저장소의 PR 은 조회 없이 ask, 같은 저장소면 두 조회에 같은 저장소를 쓴다.
+    outside = "이 저장소 밖 PR 병합 — 운영 영향을 판정하지 못했다. 확인한 뒤 승인한다"
+    with tempfile.TemporaryDirectory() as tmp:
+        phone, bare = os.path.join(tmp, "phone"), os.path.join(tmp, "bare")
+        for path in (phone, bare):
+            os.makedirs(path)
+            git(path, "init", "-q")
+        git(phone, "remote", "add", "origin", "https://github.com/OneOrThree/phone")
+        git(phone, "remote", "add", "mirror", "git@github.com:OneOrThree/phone-mirror.git")      # scp 형태 원격도 읽는다
+        _gh = fake_gh
+        try:
+            def asked(command, cwd=phone):
+                del calls[:]
+                return ask(command, cwd)
+            replies[:] = [("pr view", '{"number": 7, "baseRefName": "main"}'), ("pulls/7/files", "backoffice/server/app.mjs\n")]
+            for command in ("gh pr merge https://github.com/other/repo/pull/7", "gh pr merge 7 -R other/repo",
+                            "gh pr merge 7 --repo=other/repo", "gh pr merge https://ghe.example.com/OneOrThree/phone/pull/7",
+                            "gh pr merge https://github.com/OneOrThree/phone/pull/7 -R other/repo",
+                            "gh pr merge https://github.com/OneOrThree/phone/issues/7"):
+                reason = asked(command)
+                check("merge: 이 저장소 밖 PR 은 조회 없이 ask — " + command, reason == outside and calls == [], (reason, calls))
+            reason = asked("gh pr merge https://github.com/OneOrThree/phone/pull/7", bare)
+            check("merge: 원격이 없으면 URL 대상을 확정 못 해 조회 없이 ask", reason == outside and calls == [], (reason, calls))
+            for command, slug in (("gh pr merge https://github.com/OneOrThree/phone/pull/7", "OneOrThree/phone"),
+                                  ("gh pr merge 7 -R OneOrThree/phone", "OneOrThree/phone"),
+                                  ("gh pr merge https://github.com/oneorthree/PHONE/pull/7/files", "oneorthree/PHONE"),
+                                  ("gh pr merge https://github.com/OneOrThree/phone-mirror/pull/7", "OneOrThree/phone-mirror")):
+                reason = asked(command)
+                check("merge: 같은 저장소면 두 조회에 같은 저장소 — " + command,
+                      reason and "#7 (base: main)" in reason and "백오피스" in reason
+                      and calls[0] == ["pr", "view", "7", "-R", slug, "--json", "number,baseRefName"]
+                      and calls[1][2] == "repos/%s/pulls/7/files" % slug, (reason, calls))
+            reason = asked("gh pr merge 7", bare)
+            check("merge: 번호만 주면 원격이 없어도 현재 저장소로 조회한다",
+                  reason and "#7" in reason and calls[0][:3] == ["pr", "view", "7"], (reason, calls))
+        finally:
+            _gh = real_gh
+
+    # 훅 전체가 마감 하나를 나눠 쓴다: 가짜 시계로 느린 조회를 흉내 낸다(실제로 기다리지 않는다).
+    clock, timeouts, costs = [1000.0], [], {}
+
+    def slow_gh(args, cwd, timeout):
+        calls.append(args)
+        timeouts.append(timeout)
+        line = " ".join(args)
+        for needle, reply in replies:
+            if needle in line:
+                if costs.get(needle, 0) > timeout:      # 제한 시간을 넘기는 조회 — 제한 시간만큼 흐르고 끊긴다
+                    clock[0] += timeout
+                    raise RuntimeError("gh 조회 시간 초과")
+                clock[0] += costs.get(needle, 0)
+                if isinstance(reply, Exception):
+                    raise reply
+                return reply
+        raise RuntimeError("예상 밖 gh 호출 %s" % args)
+
+    def chained(command):
+        del calls[:], timeouts[:]
+        start = clock[0]
+        return ask(command), clock[0] - start
+
+    def view(number):
+        return "pr view %d" % number, '{"number": %d, "baseRefName": "main"}' % number
+
+    real_now = _now
+    _gh, _now = slow_gh, (lambda: clock[0])
+    try:
+        replies[:] = [view(1), ("pulls/1/files", "backoffice/a.ts\n"), view(2), ("pulls/2/files", "docs/b.md\n"),
+                      view(3), ("pulls/3/files", "docs/c.md\n")]
+        costs.update({"pr view 1": 1, "pulls/1/files": 1, "pr view 2": 99})        # 두 번째 병합의 첫 조회가 끝나지 않는다
+        reason, took = chained("gh pr merge 1 && gh pr merge 2")
+        check("병합이 이어져도 마감은 하나: 느린 두 번째 조회는 마감에서 끊고 첫 사유와 함께 ask",
+              reason and "#1 (base: main)" in reason and "운영 영향을 확인하지 못했다 — gh 조회 시간 초과" in reason
+              and took <= LOOKUP_SECONDS, (reason, took))
+        check("두 번째 병합의 조회 제한 시간은 첫 병합이 쓰고 남은 시간",
+              timeouts[:3] == [LOOKUP_SECONDS, LOOKUP_SECONDS - 1, LOOKUP_SECONDS - 2], timeouts)
+        reason, took = chained("gh pr merge 1 && gh pr merge 2 && gh pr merge 3")
+        check("마감이 지나면 남은 병합은 조회를 시작하지 않고 모은 사유로 바로 ask",
+              reason and "#1 (base: main)" in reason and "그 밖의 병합 1건은 시간 안에 확인하지 못했다" in reason
+              and not any("3" in args for args in calls) and took <= LOOKUP_SECONDS, (reason, calls, took))
+        replies[:] = [view(1), ("pulls/1/files", "docs/a.md\n"), view(2), ("pulls/2/files", "docs/b.md\n")]
+        costs.clear()
+        costs.update({"pr view 1": 4, "pulls/1/files": 3.8})                        # 영향 없이 마감 직전까지 쓴다
+        reason, took = chained("gh pr merge 1 && gh pr merge 2")
+        check("아무것도 못 모았으면 «시간 안에 확인하지 못했다» ask",
+              reason == "시간 안에 확인하지 못했다 — 병합 1건의 운영 영향을 판정하지 못했다. 확인한 뒤 승인한다"
+              and not any("2" in args for args in calls), (reason, calls))
+        replies[:] = [("runs/5", '{"name": "Data API CI (dev)-v2", "path": ".github/workflows/data-api-ci.dev-v2.yml@refs/heads/main"}'),
+                      view(1), ("pulls/1/files", "docs/a.md\n")]
+        costs.clear()
+        costs.update({"runs/5": 7.9})
+        reason, took = chained("gh run rerun 5 && gh pr merge 1")
+        check("재실행 조회도 같은 마감을 쓴다: 뒤의 병합은 시간 안에 확인하지 못했다고 ask",
+              timeouts[0] == LOOKUP_SECONDS and (reason or "").startswith("시간 안에 확인하지 못했다"), (reason, timeouts))
+        replies[:] = [view(1), ("pulls/1/files", "docs/a.md\n"),
+                      ("runs/5", '{"name": "Catus app CD V2", "path": ".github/workflows/prod-cd-V2.yml@refs/heads/release"}')]
+        costs.clear()
+        costs.update({"pr view 1": 4, "pulls/1/files": 3.9})
+        reason, took = chained("gh pr merge 1 && gh run rerun 5")
+        check("마감이 지난 뒤의 재실행 조회는 건너뛴다(조회 실패와 같이 통과)",
+              reason is None and not any("runs/5" in " ".join(args) for args in calls), (reason, calls))
+    finally:
+        _gh, _now = real_gh, real_now
+
     # 진짜 _gh: PATH 맨 앞의 가짜 gh 실행 파일로 하위 프로세스·실패·시간 초과·gh 없음 경로를 확인한다(실제 gh 는 부르지 않는다)
     with tempfile.TemporaryDirectory() as tmp:
         stub = os.path.join(tmp, "gh")
@@ -729,10 +912,6 @@ def run_selftest():
         check("FILES_JQ: jq 가 없어 실제 출력 대조는 건너뛴다", True)
 
     # 훅: git push · gh pr create (임시 저장소, 막지 않고 알리기만)
-    def git(path, *args):
-        subprocess.run(["git", "-C", path, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false",
-                        "-c", "core.hooksPath=/dev/null"] + list(args), check=True, capture_output=True)
-
     with tempfile.TemporaryDirectory() as tmp:
         repo = os.path.join(tmp, "repo")
         os.makedirs(repo)
