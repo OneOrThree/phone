@@ -28,7 +28,7 @@ Xcode 「Check iOS release Apple audience readiness」 빌드 단계(Release 구
 Release 빌드(Xcode Release 단계·gradle release 작업)는 `EXPO_PUBLIC_ENV` 를 **셸(또는 `.xcode.env`)에 명시**해야 한다 —
 `.env*` 파일에 기대지 않는다. Expo 는 `.env.local`·`.env.production` 을 `.env` 보다 우선하므로 가드가 파일을 읽어도 번들과
 같은 값을 보장할 수 없다. 레인은 전부 명시한다: `testflight.sh`(`EXPO_PUBLIC_ENV=$AUDIENCE`), Fastfile `beta`(prod)·`beta_dev`(dev),
-`app-android-ci.yml`(dev). 수동 Android 운영 빌드는 `EXPO_PUBLIC_ENV=prod ./gradlew bundleRelease` 처럼 준다.
+`app-android-ci.yml`(prod). 수동 Android 운영 빌드는 `EXPO_PUBLIC_ENV=prod ./gradlew bundleRelease` 처럼 준다.
 
 ## 이후 클라이언트 ID 변경 시
 

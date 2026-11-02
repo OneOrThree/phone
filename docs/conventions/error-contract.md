@@ -1,8 +1,14 @@
 # 백엔드 에러 응답 계약
 
-> 이 문서는 GROMO-1657(공통 응답·예외 규약 통일)에서 확정한 **현재 상태**다. 계약을 지키는 테스트는
+> 이 문서는 GROMO-1657(공통 응답·예외 규약 통일)에서 확정한 **data-api 의 봉투**다. 계약을 지키는 테스트는
 > `server/data-api/src/test/java/com/oneorthree/phone/common/exception/ErrorContractTest.java` 이고,
-> 앱 쪽 분기는 `app/legacy/app-dev/src/services/groupApi.ts` 의 `groupErrorCode()` 가 대표다.
+> 앱 쪽 분기는 `app/app-dev/src/services/api/client.ts` 의 `ApiError`(`code` 로 분기)가 대표다.
+> 2.0 앱이 받는 공개 오류는 Business API 의 중첩 봉투(`{"error": {code, message, field, retryable}, "requestId": …}`)이고,
+> Business 는 Data 의 도메인 `code` 를 그대로 싣는다. 최상위 `{code, message}` 는 data-api 와 1.x 표면의 모양이다.
+>
+> 2026-11-02 기준 낡은 곳: data-api 에는 `JwtFilter`·`RequestSizeLimitFilter` 가 없다(앱 인증은 Business API
+> `config/AccessTokenFilter`, 내부 인증은 data-api `config/InternalAuthFilter` — 거부 본문 없음). §1 「범위」·§4·§5 의 필터 서술은
+> 옛 구조다. 챌린지 도메인은 2.0 에서 은퇴해 `CHALLENGE_*`·`BET_*` 코드는 없다.
 
 ---
 
@@ -86,7 +92,7 @@ common/exception/CommonErrorCode    ← 도메인에 속하지 않는 실패(검
 
 | 실패의 성격 | 상태 | 예 |
 | --- | --- | --- |
-| 지목한 대상이 없다 — **무엇**이 없는지 코드에 담는다 | 404 | `GROUP_NOT_FOUND`·`CHALLENGE_NOT_FOUND`·`TARGET_USER_NOT_FOUND`·`BET_NOT_FOUND`. `NOT_FOUND` 는 그룹 **안의** 것(공지·멤버십)에만 남았다(GROMO-1725) |
+| 지목한 대상이 없다 — **무엇**이 없는지 코드에 담는다 | 404 | `GROUP_NOT_FOUND`(섬)·`TARGET_USER_NOT_FOUND`·`QUEST_NOT_FOUND`·`LETTER_NOT_FOUND`·`PRODUCT_NOT_FOUND`. 섬 도메인의 `NOT_FOUND` 는 섬 **안의** 것(공지·멤버십)에만 남았다(GROMO-1725) |
 | 요청자 본인의 계정이 없다(재로그인이 답) | 404 | `USER_NOT_FOUND` — 대상 부재와 **코드를 가른다**(GROMO-1247). 요청자 조회는 전 도메인이 `UserQueryService.getCaller*` 를 쓴다(GROMO-1725); `getTarget*` 은 지목 대상 전용 |
 | 입력이 틀렸다 | 400 | `NICKNAME_INVALID`, `INVALID_DATE_RANGE` |
 | 권한이 없다 | 403 | `NOT_OWNER`, `GUEST_FORBIDDEN` |
@@ -120,11 +126,11 @@ common/exception/CommonErrorCode    ← 도메인에 속하지 않는 실패(검
 | `@LoginUser` 배선 오류 | 500 | `LOGIN_USER_RESOLUTION_FAILED` |
 | 그 외 전부 (catch-all) | 500 | `INTERNAL_ERROR` — 고정 문구, 원인은 로그로만 |
 
-없는 경로에 `NOT_FOUND` 를 쓰지 않는 이유: 앱이 그 문자열을 「그룹이 사라짐」으로 해석하는 분기가
-17곳이다. 오타 난 경로에 그 코드를 주면 엉뚱한 안내가 뜬다.
+없는 경로에 `NOT_FOUND` 를 쓰지 않는 이유: 앱은 그 문자열을 대상(섬·편지·방명록 글 등)이 사라진 것으로 읽고
+상태를 다시 맞춘다(1.x 실측 17곳, 2.0 은 `sessionCommands.ts`·`islandCommands.ts`·`Guestbook.tsx` 등). 오타 난 경로에 그 코드를 주면 엉뚱한 안내가 뜬다.
 
 **같은 404 라도 탈출구가 다르면 코드를 가른다.** 대상 부재는 화면에서 처리할 일이고, 본인 계정 부재는
-재로그인만이 답이다 — 한 코드로 뭉치면 앱이 멀쩡한 방장을 로그아웃시킨다.
+재로그인만이 답이다 — 한 코드로 뭉치면 앱이 멀쩡한 섬장을 로그아웃시킨다.
 
 ---
 

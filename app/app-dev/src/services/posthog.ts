@@ -41,7 +41,6 @@ export function initPostHog(): void {
   try {
     const PostHogClient = require('posthog-react-native').default as typeof PostHog;
     const environment = analyticsEnvironment();
-    const native = Platform.OS === 'ios' || Platform.OS === 'android';
     let deviceProperties: AnalyticsDeviceProperties = {};
     const devicePropertiesReady = readAnalyticsDeviceProperties().then((properties) => {
       deviceProperties = properties;
@@ -65,10 +64,10 @@ export function initPostHog(): void {
           uncaughtExceptions: true,
           unhandledRejections: true,
           console: false,
-          // 네이티브 전송은 JS before_send를 거치지 않는다. 운영에서만 켜서
-          // 환경 속성이 없는 네이티브 fatal도 운영 오류 카드에서 구분한다.
-          nativeCrashes: native && environment === 'production',
-          androidNdkCrashes: Platform.OS === 'android' && environment === 'production',
+          // 네이티브 크래시는 Sentry(services/sentry.ts)가 전담한다 — 수집기 둘이 같은
+          // 시그널 핸들러를 다퉈 크래시 리포트가 유실되지 않도록 PostHog 네이티브 수집은 끈다.
+          nativeCrashes: false,
+          androidNdkCrashes: false,
         },
       },
       before_send: (event) => {

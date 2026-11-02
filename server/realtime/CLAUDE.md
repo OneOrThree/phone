@@ -1,6 +1,6 @@
 # server/realtime/ — 섬 실시간 서비스
 
-**gromo**의 섬 실시간 서비스. 채팅은 이 프로세스의 기존 도메인이다. A **separate** Spring Boot project from `server/data-api/`:
+**Cattus**의 섬 실시간 서비스. 채팅은 이 프로세스의 기존 도메인이다. A **separate** Spring Boot project from `server/data-api/`:
 its own Gradle build, its own database, its own package root (`com.oneorthree.realtime`).
 The two share **no code** — their external contracts are listed below, including an optional current-membership HTTP provider. Loads in addition to
 the root `CLAUDE.md`. Run all commands from inside `server/realtime/`.
@@ -125,7 +125,7 @@ Entity PKs are UUID v7 via `@GeneratedUuidV7`. Error responses use one envelope
   error queue uses it.
 - **기존 구독도 전달 직전에 재검사한다.** `ChatOutboundChannelInterceptor`가 JWT·집중 상태와
   멤버십을 다시 검사한다. Redis/상류 판정 실패는 본문 전달을 거절한다. 옵션 OFF의 멤버십 캐시는 TTL 방식이라
-  탈퇴·강퇴가 캐시 만료까지 지연될 수 있다. ON의 기존 그룹 채팅은 Data 현재 인가를 조회하되
+  탈퇴·강퇴가 캐시 만료까지 지연될 수 있다. ON의 기존 섬 채팅은 Data 현재 인가를 조회하되
   최종 beforeHandle 이후 DB 변경과 TCP 전송을 원자화하지 않는다. 새 보호 채널은 이 연결만으로 열리지 않으며,
   현재 도메인의 권한 회수·시설 접근·스냅샷을 검증하기 전까지 활성화하지 않는다.
   **통과한 결정은 짧게 캐시한다**(GROMO-2340, `OutboundAuthzCache`) — 아래 「송신 예산·heartbeat」 절.
@@ -158,6 +158,8 @@ Entity PKs are UUID v7 via `@GeneratedUuidV7`. Error responses use one envelope
   (`StompHeartbeatTimeoutIntegrationTest`, 1s 로 줄여 고정). 값은 `chat.websocket.heartbeat.server-ms`·`client-ms`(기본 10000).
   `heart-beat:0,0` 클라이언트(k6 등)는 양쪽 다 꺼진다. 프록시 유휴 상한(Cloudflare 약 100s, nginx
   `proxy_read/send_timeout 3600s` — `server/scripts/nginx-*.example`)보다 짧아야 연결이 산다 — 늘리거나 끄지 마라.
+  dev V2 의 Infra nginx 템플릿은 `/ws/realtime` 에 `proxy_send_timeout` 이 없어 기본 60초다
+  ([dev V2 파이프라인 「남은 일」](../../docs/engineering/dev-v2-pipeline.md#남은-일)) — heartbeat 10s 는 그보다도 짧다.
 - **아웃바운드 실행기는 유한 큐다**(`OutboundSendBudget`). `chat.websocket.outbound.core-threads`(0 = CPU×2)·
   `max-threads`(0 = core)·`queue-capacity`(10000). 큐가 차면 거부된 프레임의 세션을 **종류 불문 1008
   `OUTBOUND_QUEUE_FULL`** 로 닫는다(채팅은 재연결 이력, 이동은 재구독 FullState 로 복구). 거부 핸들러는 **던지지 않는다** —
@@ -216,8 +218,8 @@ Entity PKs are UUID v7 via `@GeneratedUuidV7`. Error responses use one envelope
   없다, `MovementMultiInstanceOffTest` 가 고정). **옵트아웃한 채 2대 이상이면** 같은 섬 방이 인스턴스마다 따로 생겨 서로 안 보인다.
 - **ON 의 고정 비용(1대여도)**: 전용 스레드 3(`movement-cluster`·`movement-relay-in`·`movement-relay-out`), 1초마다 소유 섬별
   RENEW(EVAL) + PING PUBLISH(소유자별 — 입장해 있는 섬의 소유자마다 1건, 소유자 채널로) + 내 세션 섬 MGET 감시, 자기 세션 프레임도 Redis 메아리로 받는다(왕복 1회 지연). 명령은 EVAL·
-  PUBLISH·SUBSCRIBE·GETDEL·MGET·SET 을 쓴다 — realtime Redis 에는 아직 ACL 이 없다(GROMO-1744, dev·prod 모두 ACL 파일 없음)라
-  지금은 막히지 않는다. ACL 을 걸 때 아래 「ACL 이 걸리는 날」 목록을 같이 넣어야 이동이 fail-closed 로 멈추지 않는다.
+  PUBLISH·SUBSCRIBE·GETDEL·MGET·SET 을 쓴다 — realtime Redis 사용자 ACL 이 이 명령과 키·채널을 허용한다(아래 「realtime
+  Redis ACL」). 새 명령·키·채널을 쓰면 그 ACL 에 같이 넣는다 — 빠지면 이동이 fail-closed 로 멈춘다.
 - **ON — 섬마다 소유자 한 곳.** `MovementOwnership`(Lua ACQUIRE/RENEW/RELEASE) 리스를 든 인스턴스만 `RoomRuntime` 을 돌린다.
   세션 키는 `<instanceId>:<sessionId>`. 비소유 인스턴스 세션의 명령은 `chat:movement:cmd:v1` 로 소유자에게, 소유자의
   프레임은 `chat:movement:frames:v1` 로 전원에게 — **소유자도 자기 메아리로만 자기 세션에 넣는다**(전달 경로 하나).
@@ -272,7 +274,7 @@ Entity PKs are UUID v7 via `@GeneratedUuidV7`. Error responses use one envelope
   `routing.failed{stale_room}` 으로 버린다.
 - **지표**: `movement.owner.{acquire{trigger},lost{reason},islands,forward{type},forward.stale{reason}}`,
   `movement.routing.failed{reason=redis|no_lease|stale_queue|stale_room|publish}`, `movement.relay.{stale,dropped,queue.depth,lag}`, `movement.cluster.evict{reason=dead_instance|ghost|missing}`(`dead_instance`·`ghost` 는 내보낸 원격 actor 수, `missing` 은 EVICTED 로 알린 세션 수 — 단위가 달라 reason 을 가로질러 합치지 않는다), `movement.cluster.poll`(1초 감시 한 틱 Timer — submit 작업 제외; `enabled=false` 여도 생성자에서 등록돼 0 샘플로 노출(무해). submit 작업은 같은 스레드의 다음 순번이라 poll p95 가 낮아도 스레드가 밀려 있을 수 있다).
-- **배포 전후 확인**: 머지 PR 의 `deployed:dev-realtime` 라벨 → 롤링 중 `movement.cluster.evict{reason=dead_instance}` 일시 상승 뒤 0, `movement.owner.lost{reason=expired}`·`movement.fullstate.retry` 일시 상승 예상, `movement.cluster.poll` p95 는 늘지 않아야 한다. PING 드롭은 `movement.relay.dropped{kind=control}`·`movement.routing.failed{reason=publish}` 에 포함된다. 이 기준은 2대(GROMO-2353) 전제다 — 1대에선 소유자가 자기라 PING 이 안 나가 `dead_instance`·`ghost` 는 0 이 정상이고, 혼합 버전 구간(위 「혼합 버전 한계」)에선 `dead_instance` 가 한 번 더 오를 수 있다.
+- **배포 전후 확인**: 배포 반영(dev V2 는 `cd-auto.dev-v2` 의 `app` 잡 결과·호스트 저널 — `deployed:dev-realtime` PR 라벨은 꺼진 V1 경로만 붙였다) → 롤링 중 `movement.cluster.evict{reason=dead_instance}` 일시 상승 뒤 0, `movement.owner.lost{reason=expired}`·`movement.fullstate.retry` 일시 상승 예상, `movement.cluster.poll` p95 는 늘지 않아야 한다. PING 드롭은 `movement.relay.dropped{kind=control}`·`movement.routing.failed{reason=publish}` 에 포함된다. 이 기준은 2대(GROMO-2353) 전제다 — 1대에선 소유자가 자기라 PING 이 안 나가 `dead_instance`·`ghost` 는 0 이 정상이고, 혼합 버전 구간(위 「혼합 버전 한계」)에선 `dead_instance` 가 한 번 더 오를 수 있다.
 
 ## Redis keys (A19 namespace table)
 
@@ -311,18 +313,18 @@ architecture decision A19 table. `movement:*`·`chat:movement:*` 는 이동 다�
 
 `MembershipService.myGroupIds` 의 `multiGet`(MGET)과 `MembershipService.store` 의 CAS Lua 도 `cache:chat:member:`·`cache:chat:membergen:` 두 키를 한 번에 만져 같은 제약을 받는다. `Sourced.read` 는 `cache:chat:block:{userId}`·`cache:chat:blockgen:{userId}` 두 키를 한 Lua 로 읽는다. Redis Cluster 로 옮기면 두 키의 접두사가 달라 슬롯이 갈려 CROSSSLOT 이 난다. 여기서 `{userId}` 는 자리표시자이지 해시 태그가 아니다. 옮길 때 `{…}` 해시 태그로 묶거나 두 번 읽는다. 지금은 단일 노드(Sentinel 포함)라 무관하다.
 
-**ACL 이 걸리는 날 이동 다중 인스턴스에 필요한 것**(지금은 dev·prod 모두 realtime Redis 에 ACL 파일이 없어 고칠 파일이 없다 — GROMO-1744):
-키 `~movement:*`, 채널 `&chat:movement:*`, 명령 `+eval +evalsha +publish +subscribe +getdel +mget`(Lua 안의 `TIME`·`PEXPIRE` 는
-EVAL 권한 아래에서도 각각 허용돼야 한다 — `+time +pexpire +set +get +del`). 빠지면 소유자 획득이 실패해 그 섬 이동 명령이 전부
-`movement.routing.failed{reason=redis}` 로 떨어진다(fail-closed).
+**realtime Redis ACL**(공유 Redis 의 `realtime` 사용자): 옛 dev VM 과 dev V2 의 ACL 파일은 `.github/scripts/write-compose-env.py`
+`shared_redis_acl` 이 만든다(dev V2 는 `.github/scripts/v2/dev/dev-deploy-runtime-V2.py` 가 부른다). 운영 V2 공유 Redis 도 `--aclfile` 로 뜨지만
+(`server/scripts/v2/prod/redis-V2.yml`) 그 파일을 만드는 곳은 이 저장소에 없다(미확인). 이동 다중 인스턴스에 필요한 권한은
+`shared_redis_acl` 에 들어 있다: 키 `~movement:owner:*`·`~movement:epoch`·`~movement:room:*:handoff`, 채널 `&chat:*`, 명령
+`+@read +@write +@scripting +@pubsub +time`. 새 키·채널·명령을 쓰면 그 함수에 같이 넣는다 — 빠지면 소유자 획득이 실패해 그 섬 이동 명령이
+전부 `movement.routing.failed{reason=redis}` 로 떨어진다(fail-closed).
 
-**This ownership is a code convention, not an enforced boundary — yet.** A19 says the chat
-Redis user should get `presence:*` through a **separate read-only ACL selector**
-(`%R~presence:*`; A19 explains why it cannot share a selector with the writable patterns),
-but no deployment applies it: the dev overlay runs stock Redis with no ACL file and no
-credentials, so both services share the default all-access user. Until GROMO-1744 lands,
-nothing stops this service from writing `presence:*` except the rule below — which means a
-mistake here silently disables "no chat while focusing" instead of failing loudly.
+**The ACL enforces this ownership.** In `shared_redis_acl` the `realtime` user reaches `presence:*` only through the
+**separate read-only selector** `(%R~presence:* +get +exists)` that A19 calls for (A19 explains why it cannot share a
+selector with the writable patterns), and `.github/scripts/check-satellite-contracts.py` fails if that selector is
+removed. Under that ACL a write to `presence:*` from this service is refused by Redis, so a mistake here fails loudly
+instead of silently disabling "no chat while focusing". The production V2 ACL file is outside this repository (unverified).
 
 Data API also keeps `presence:focus:{userId}:closed` in that namespace — a short-lived
 "this session already ended" marker it uses to order its own writes. Chat never reads it,
@@ -511,7 +513,7 @@ migration — fix with `V<N+1>` (Flyway checksums them).
 `auth.session.revoked` 가 와서 즉시 닫는다(always on since 10-27, ticket 2535; TTL is the upper bound only while the relay is off). `allowed:false`는 `NOT_A_MEMBER`이며 어떤 내부 조건이
 실패했는지 추측하지 않는다. 로컬 invalid AT는401, 서비스401/403/404·5xx·malformed·timeout은503이다.
 
-현재 연결 범위는 그룹 SUBSCRIBE, SEND 서비스, 히스토리 GET, 읽음 POST, 기존 그룹 outbound
+현재 연결 범위는 섬 채팅 SUBSCRIBE, SEND 서비스, 히스토리 GET, 읽음 POST, 기존 섬 채팅 outbound
 `beforeHandle`, 그리고 **movement 두 토픽의 SUBSCRIBE**(`ChatAccessGuard.requireMember` — 집중 여부 없이
 멤버십만, GROMO-2247)이다. ON이면 movement SUBSCRIBE도 Data 현재 인가를 탄다. 그 뒤의 강퇴는
 `island.members.updated`(MEMBER_REMOVED) 커밋 뒤 `MovementSubscriptionListener`가 그 사용자(`memberUserId`가 없으면
@@ -525,7 +527,7 @@ migration — fix with `V<N+1>` (Flyway checksums them).
 `movement-recheck`(1스레드), 송신 워치독·소켓 종료는 `movement-watchdog`(2스레드)에서 돈다.
 이동 소켓 종료 사유(close reason, 앱은 재연결·재구독 FullState 로 다시 맞춘다): 1008 `UNAUTHORIZED`·`MOVEMENT_BACKPRESSURE`(송신 큐 상한), 1011 `MEMBERSHIP_UNVERIFIED`·`MOVEMENT_SEND_FAILED`(reliable 프레임을 아웃바운드 채널에 넘기지 못했거나 핸들러가 처리 중 던짐 — Snapshot 실패는 버리기만).
 CONNECT·방 목록·duplicates·개인큐는 이 추가 조회 범위가 아니다.
-새14개 이벤트·시설·재연결·transport는 계속 닫혀 있고(이동 Snapshot 토픽은 GROMO-2247 로 열렸다) host-transfer도 OFF다.
+전달하지 않는 이벤트 13종(아래 「신규 이벤트 골격과 활성화 경계」)·시설·재연결·transport는 계속 닫혀 있고(이동 Snapshot 토픽은 GROMO-2247 로 열렸다) host-transfer도 OFF다.
 rooms 목록·개인 duplicates의 오래된 재전송 응답까지 현재 세션을 검사하는 것은 아니므로
 “로그아웃 후 채팅 전체 즉시 차단”·“Realtime 전체 세션 철회 완료”로 설명하지 않는다.
 
@@ -543,10 +545,10 @@ unknown/duplicate/trailing/빈본문/타입 오류는503이다. 초기값은 con
 키를 추가·개명하면 그 키의 env 형태(대문자·`.`/`-`→`_`)가 Data나 다른 서비스의 env와 겹치지 않는지 확인하라 —
 `RealtimeAuthorizationConfigTest`가 두 env를 함께 둔 실제 `application.yml` 우선순위로 이 회귀를 잡는다.
 켜는 순서: Data(프로필·전용 토큰·feature) → Realtime client 주입 → sid/gen 없는 AT 소진 확인·부하 검증 → Realtime ON.
-Data가 꺼진 채 Realtime만 켜면 404→503으로 그룹 채팅 경계가 전부 막힌다(ON에는 fallback이 없다).
+Data가 꺼진 채 Realtime만 켜면 404→503으로 섬 채팅 경계가 전부 막힌다(ON에는 fallback이 없다).
 main의 AT 발급 경로(로그인·게스트·갱신)는 이미 전부 sid/gen을 싣는다. 그래도 그 이전에 받은 AT는 ON에서
-그룹 채팅 경계401이고, dev AT 수명은30일이다.
-sid 없는 AT 가 소진되면(prod 발급 뒤 1 h, dev 30 d) `.or(extractUserId)` 폴백 4곳(`JwtFilter:42`·`ChatOutboundChannelInterceptor:457`·`StompAuthChannelInterceptor:630`·CONNECT `:196`)을 제거할 수 있다. 발급 지점 조사는 아래 문서의 「켜기 전 조건」에 있다.
+섬 채팅 경계401이고, dev AT 수명은30일이다.
+sid 없는 AT 가 소진되면(prod 발급 뒤 1 h, dev 30 d) `.or(extractUserId)` 폴백 4곳(`JwtFilter:44`·`ChatOutboundChannelInterceptor:514`·`StompAuthChannelInterceptor:654`·CONNECT `:196`)을 제거할 수 있다. 발급 지점 조사는 아래 문서의 「켜기 전 조건」에 있다.
 DB 판정 뒤 beforeHandle/TCP까지의 분산 원자성이나 이미 보낸 프레임의 회수는 보장하지 않는다.
 신규64개(HTTP35·verifier10·JWT11·config6·전달 가드2)를 포함한 전체 Realtime build는 `norm.sh` exit 0,
 테스트205개(기존141+신규64)·실패0·오류0·skip0이다(2026-09-15).
@@ -562,7 +564,7 @@ Chat never touches the `gromo` database and Data API never touches `gromo_chat`.
 
 ## 신규 이벤트 골격과 활성화 경계
 
-`event/EventRouter.route(RealtimeEventEnvelope, RealtimeAudience)`가 14종 이벤트의 단일 내부 진입점이다.
+`event/EventRouter.route(RealtimeEventEnvelope, RealtimeAudience)`가 16종 이벤트(`RealtimeEventType`)의 단일 내부 진입점이다.
 이름별 고정 목적지만 계산하고 payload의 destination을 거절한다. 개인 자산은 소유자 한 명의 개인큐로만,
 공동 자산은 같은 섬으로만 보낸다. 필수 `schemaVersion: 1`과 안전 정수 자원 버전을 구분하고, payload version 일치·owner/currency 범위를 검사한다.
 알 수 없거나 누락된 schemaVersion은 거절한다. emote도 schemaVersion은 1이고 aggregateVersion만 null이다.
@@ -597,9 +599,10 @@ STOMP `id` 만 바꿔 반복하면 소켓 하나로 레지스트리 메모리를
 창마다 하나씩 꾸준히 쌓으면 걸리지 않는다. 그래서 `RealtimeSessionRegistry` 가 두 가지를 따로 센다:
 **중복**(같은 목적지 재구독 → 사건 하나가 구독 수만큼 복제되는 증폭을 막는다)과
 **총량**(세션당 `MAX_SUBSCRIPTIONS_PER_SESSION` = 96 → 임의 UUID 로 목적지를 바꿔도 막힌다).
-하나만으로는 다른 하나가 샌다. 96 의 근거는 계정당 소속 상한(`GroupService.MAX_JOINED_GROUPS` = 10)
+하나만으로는 다른 하나가 샌다. 96 은 옛 소속 상한(`GroupService.MAX_JOINED_GROUPS` = 10)으로 잡은 값이다: 10
 × 섬당 목적지 7(`focus`·`rest`·`emotes`·`events`·채팅·`movement`·`movement/snapshot`) + 개인 큐 2 = **72**,
 거기에 바다 목적지 2(`/user/queue/sea`·`/topic/sea/rooms/{roomId}`)를 더한 **74** 에 약 30% 여유다(`events` 는 GROMO-2302).
+지금 상한은 data-api `IslandInputPolicy.MAX_JOINED_ISLANDS` = 3 이라 같은 계산으로 3 × 7 + 2 + 2 = **25** 다. 96 은 그보다 넉넉하다.
 **UNSUBSCRIBE 가 자리를 돌려주므로**(`id → destination` 으로 추적한다) 섬을 떠날 때 해지하는 정상
 클라이언트는 이 상한에 닿지 않는다.
 
@@ -623,8 +626,8 @@ STOMP `id` 만 바꿔 반복하면 소켓 하나로 레지스트리 메모리를
 되돌렸다: `SimpleBrokerMessageHandler` 가 구독자별 메시지를 다시 만드는 과정에서 살아남지 않아
 **전원이 fail-closed 로 막혔다**(실측). 팬아웃 봉투(`chat:events:v1`)는 다른 인스턴스에 같은 집합을 넘긴다.
 
-14종 전체 payload 스키마, 신청 수신자의 현재 방장 권한, 시설 해금, 개인 큐 전달이 준비되어야
-나머지 12종의 전달 adapter를 활성화할 수 있다.
+16종 전체 payload 스키마, 신청 수신자의 현재 섬장 권한, 시설 해금, 개인 큐 전달이 준비되어야
+나머지 13종의 전달 adapter를 활성화할 수 있다.
 
 계약: `docs/prd/fishcat/realtime-events/` (참고 티켓 1754). 기존 `chat:fanout` payload와 Redis 키·DB 이름·테이블은
 호환 유지한다. `com.oneorthree.realtime`, `RealtimeApplication`, Gradle `realtime`과 CI/image/compose 이름만

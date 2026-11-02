@@ -1273,7 +1273,7 @@
     "peerName": "두부",
     "peerMessage": "같이 집중해요!",
     "destination": "{{name}} 항해 중",
-    "sailing": "조금만 가면 도착해.",
+    "sailing": "{{seconds}}초 뒤 도착해.",
     "chooseAgain": "다른 섬 고르기"
   },
   "onboardingStory": {

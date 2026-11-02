@@ -1,5 +1,16 @@
 # loadtest — gromo 부하테스트 하네스 (GROMO-548)
 
+> **AWS 대상 부하 금지 (2026-10-29 소유자 지시, 영구)**
+>
+> - 범위: AWS에서 부하기를 돌리는 것, 그리고 AWS에 있는 서비스를 대상으로 하는 부하·스트레스·한계·지속 부하 테스트.
+> - 로컬이나 다른 클라우드에서 AWS 공개 도메인(Cloudflare 경유 포함)으로 보내는 부하도 범위에 든다.
+> - 금지 호스트: `oneorthree.world`, `amazonaws.com`, `cloudfront.net`과 그 서브도메인.
+> - 가드: `k6/lib/config.js`가 `BASE_URL`을 `k6/lib/aws-guard.mjs`로 검사한다. 금지 호스트면 init 단계에서 `AWS 대상 부하 금지(2026-10-29): <호스트>`로 실패한다. `make test-existing BASE_URL=...`도 같은 가드를 지난다.
+> - `BASE_URL`은 `config.js`에서만 읽는다. 시나리오가 `__ENV.BASE_URL`을 직접 읽으면 가드를 건너뛴다.
+> - 가드는 호스트 이름만 본다. IP로 직접 적은 AWS 주소와 AWS를 가리키는 다른 도메인은 막지 못하니 대상은 사람이 확인한다.
+> - 확인: `loadtest/`에서 `node --test tests/test_aws_guard.mjs`
+> - 이 하네스의 대상은 GCP 인프라(`make test`)와 로컬 격리 스택(`make local-up`)이다.
+
 버튼 하나(딸깍)로 부하테스트를 실행·판정·비교하는 하네스. 상세 기획은 **[docs/prd.md](docs/prd.md)**,
 아키텍처 원천은 `knowledge/topics/부하테스트-아키텍처.md` v2.
 
@@ -210,9 +221,9 @@ sequenceDiagram
 - run 비교는 **메타(sha·seed·스펙) 동일**할 때만 유효 — 다르면 verdict가 diff를 거부한다.
 - 실부하 DB에 `EXPLAIN ANALYZE` 금지 — 심층 분석은 `analysis` 클론에서.
 
-## 외부 대상 혼합 시험의 중단 증거
+## 과거 기록 — AWS 대상 시험
 
-명시한 대상에서 HTTP와 WebSocket을 함께 측정하고 중단된 단계의 원시 결과를 보존하는 방법은
-[혼합 부하의 중단 결과와 종료 진단](docs/mixed-results.md)을 참고한다. 실제 공통 측정 시간이 부족하면 개별 단계가 통과했어도 혼합 시험은 통과하지 않는다.
+AWS 대상 시험에 쓰던 `aws-*` 스크립트는 2026-11-02 삭제했다. 다시 만들거나 실행하지 않는다. 당시 기록만 남긴다.
 
-집중 세션의 응답 유실 진단·소유권 기반 정리·서버 원장 대조는 [집중 실패 원장](docs/aws-focus-failure-ledger.md)을 참고한다.
+- [혼합 부하의 중단 결과와 종료 진단](docs/mixed-results.md)
+- [집중 실패 원장](docs/aws-focus-failure-ledger.md) — 응답 유실 진단·소유권 기반 정리·서버 원장 대조

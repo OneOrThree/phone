@@ -2,7 +2,7 @@
 
 브랜치·커밋·PR 제목·본문·담당자·라벨·리뷰·머지에 대한 **단일 정본**이다. 2026-09-15 에 최근 머지
 60건의 실태(담당자=작성자 59건 · 라벨 정확히 1개 59건 · draft 0건)를 그대로 규칙으로 적었다.
-루트 `CLAUDE.md` 와 `.claude/pr-gate.py` 훅은 이 문서를 가리키고, 어긋나면 이 문서가 맞다.
+루트 `CLAUDE.md`·`AGENTS.md` 와 `.claude/pr-gate.py` 훅은 이 문서를 가리키고, 어긋나면 이 문서가 맞다.
 
 ## 1. 브랜치
 
@@ -14,7 +14,7 @@
 | --- | --- | --- |
 | `b` | `server/**` 전체 — data-api · realtime · business-api · notification | `bfeat/GROMO-1762-chat-auth` |
 | `a` | `app/**` | `afix/GROMO-1637-focus-shield` |
-| (없음) | 횡단 — `.github/` · 루트 스크립트 · `.claude/` · 여러 영역 동시 | `chore/GROMO-1885-conventions-and-gates` |
+| (없음) | 횡단 — `.github/` · `.claude/` · `backoffice/` · `smoke/` · `assets-cdn/` · 루트 스크립트 · 여러 영역 동시 | `chore/GROMO-1885-conventions-and-gates` |
 | `doc/` | `docs/**` 만 | `doc/GROMO-1740-readme-overhaul` (신규 PRD 는 `doc/prd-<기능>`, 수정은 `doc/fix-prd-<기능>`) |
 
 `<type>` ∈ `feat` · `fix` · `refactor` · `chore`. 슬러그는 영문 kebab-case, 티켓 키는 대문자.
@@ -22,6 +22,8 @@
 - **코딩 전에 브랜치를 만든다.** `main` 에서 편집하지 않는다. `main` 은 통합 브랜치, `release` 는 배포 브랜치다.
 - 새 브랜치는 **만드는 즉시 origin 에 push** 한다 (Claude Code 는 `.claude/settings.json` 훅이 자동으로 한다. 안 됐으면 `git push -u origin <branch>`).
 - 스쿼시 머지라 스택 브랜치는 부모가 머지되면 충돌한다. 형제 PR 과 겹치면 `git merge origin/main` 머지 커밋으로 풀고 force push 는 쓰지 않는다.
+- main 대상 PR 은 squash 로 머지한다. 에픽 피처 브랜치에 하위 PR 을 쌓을 때(`/epic-batch`)는 하위 PR 을 피처 브랜치에 merge commit 으로 머지한다 — squash 하면 그 위에 쌓인 하위 브랜치가 충돌한다.
+- 브랜치 push 로 API 문서(gh-pages·Apidog)를 발행하는 것은 `bfeat/`·`bfix/`·`brefactor/` 뿐이다(`api-dog-generate.yml`). 서버 변경을 다른 접두로 하면 main 머지 전에는 그 브랜치의 문서가 나오지 않는다.
 
 ## 2. 커밋 · PR 제목
 
@@ -90,7 +92,7 @@ Claude Code 에서는 `.claude/pr-gate.py` 훅이 위 규칙을 어긴 `gh pr cr
 
 - 같은 저장소의 **head=`main`, base=`release`** 운영 승격은 `AGENTS.md`의 「main → release 운영 승격」을 따른다. 코드 리뷰 요청 대신 변경 요약 댓글을 확인한다. 아래 코드 리뷰 루프는 그 외 PR에 적용한다.
 - PR 을 열자마자 **`@claude` 리뷰 요청 코멘트**를 단다 — 이 PR 에 맞춘 리뷰 포인트 3~5개. 답글·기록 코멘트에는 `@claude` 를 쓰지 않는다 (워크플로가 다시 돈다).
-- **codex**(`chatgpt-codex-connector`)는 부르지 않아도 ready PR 에 붙고, **push 마다 새 라운드**를 돈다. `@codex` 를 따로 부르지 않는다.
+- **codex**(`chatgpt-codex-connector`)는 부르지 않아도 ready PR 에 붙는다. push 뒤 새 라운드는 보장되지 않으니 판정이 최신 head 에 대한 것인지 §7 ② 로 확인한다. `@codex review` 를 PR 코멘트로 부르지 않는다 — 수동 호출은 사용 한도에 걸려 실패하고, 실패가 요약 코멘트를 덮어써 이전 판정까지 지운다.
 - 지적은 성격으로 처리한다 — 라운드 수로 자르지 않는다:
 
 | 지적 | 처리 |
@@ -104,17 +106,19 @@ Claude Code 에서는 `.claude/pr-gate.py` 훅이 위 규칙을 어긴 `gh pr cr
 
 ## 7. 머지 조건
 
-같은 저장소의 main → release 운영 승격은 코드 리뷰 판정 대신 `AGENTS.md`의 변경 요약을 확인한다. 적용 대상 CI 전부 통과와 `mergeStateStatus=CLEAN` 조건은 유지하며, 미해결 리뷰 스레드가 있으면 main 대상 PR에서 처리한 근거를 확인한다. 아래 네 조건은 그 외 PR에 적용한다.
+같은 저장소의 main → release 운영 승격은 코드 리뷰 판정 대신 `AGENTS.md`의 변경 요약을 확인한다. 적용 대상 CI 전부 통과와 `mergeStateStatus=CLEAN` 조건은 유지한다. 미해결 리뷰 스레드는 main 대상 PR에서 처리한 근거를 답글로 남기고 해결 처리한다 — `release` 브랜치 보호(2026-11-02 적용, [release 브랜치 보호](release-protection.md))가 대화 해결을 요구해, 스레드가 하나라도 남으면 머지가 막힌다. 아래 네 조건은 그 외 PR에 적용한다.
 
 네 가지가 **같은 커밋**에서 동시에 성립해야 한다:
 
 1. 미답변 루트 리뷰 스레드 **0**
-2. 리뷰어 판정이 깨끗함 — **최신 head push 이후**의 codex 👍(PR 본문 리액션) 또는 「no major issues」 산문, `@claude` 는 `**Claude finished` 로 시작하는 코멘트의 산문. 오래된 커밋에 대한 판정은 무효
+2. 리뷰어 판정이 깨끗함 — **최신 head 커밋**에 대한 판정만 친다. codex 는 codex 요약 코멘트(`<!-- codex-review-state:v1 … -->`)의 `code_review.commit_sha` 가 head SHA 와 같고 `status: completed`·`has_any_findings: false` 인 것. 요약 코멘트가 없는 PR 에서만 head push 뒤에 붙은 PR 본문 👍 리액션을 판정으로 친다 — push 중에 끝난 옛 커밋 리뷰의 👍 도 head push 뒤에 붙을 수 있다. `status: failed`(사용 한도 초과 등)는 판정이 아니다. `@claude` 는 `**Claude finished` 로 시작하는 코멘트의 산문
 3. CI **전부 통과** — 「실패 0」 ≠ 「전부 통과」. 대기·취소가 남아 있으면 아니다
 4. `mergeStateStatus` = `CLEAN`
 
+main 이 아닌 브랜치(에픽 피처 브랜치 등)를 대상으로 한 PR 에서는 서버·앱 CI 가 돌지 않는다 — 그 워크플로의 PR 트리거가 base `main`(일부는 `release`까지)만 받는다. 그래서 그 PR 의 「CI 전부 통과」는 상시 검사만 뜻한다. 통합 검증은 main 대상 에픽 PR 에서 다시 본다([PR 대상에 따른 서버 CI 정책](../engineering/pr-ci-policy.md)).
+
 이 레포엔 정식 APPROVE 가 없다(모든 리뷰가 `COMMENTED`). 「승인받았다」는 표현은 쓰지 않는다.
-**머지 버튼은 사람이 누른다.** 에이전트는 네 조건의 상태를 보고할 뿐 머지하지 않는다.
+머지는 기본으로 사람이 한다. 소유자가 배치 머지를 위임한 경우에만 에이전트가 같은 커밋에서 네 조건을 확인하고 머지한다. 백오피스 코드 PR(`backoffice/**`, `.md` 제외)은 머지가 운영 배포를 부르므로 위임에 그 PR 이 적혀 있을 때만 에이전트가 머지한다. Claude Code 에서는 `.claude/prod-impact.py` 가 운영에 닿는 PR 의 `gh pr merge` 앞에서 확인을 받는다.
 Flyway 마이그레이션 번호 순서 = 머지 순서다 (`out-of-order` 꺼져 있음).
 
 ## 8. git 실행 권한 (에이전트)

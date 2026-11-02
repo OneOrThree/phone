@@ -1,3 +1,4 @@
+# RETIRED: prod-cd-V2.yml 이 대신한다
 name: prod-cd
 on:
   workflow_dispatch:

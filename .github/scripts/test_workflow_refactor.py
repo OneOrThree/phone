@@ -106,6 +106,27 @@ class WorkflowRefactorTests(unittest.TestCase):
         auth_index = next(i for i, step in enumerate(sign) if step.get('name') == 'AWS 인증')
         self.assertLess(verify_index, auth_index)
 
+    def test_android_main_build_passes_server_gate_before_key_and_build_jobs(self):
+        android = workflow('app-android-ci')
+        gate = android['jobs']['server-gate']
+        self.assertEqual(gate['steps'][0]['with']['fetch-depth'], '0')
+        self.assertEqual(gate['steps'][-1]['run'], 'python3 .github/scripts/app-server-gate.py')
+        self.assertIn('GH_TOKEN', gate['steps'][-1]['env'])
+        self.assertIn('server-gate', android['jobs']['settings']['needs'])
+        self.assertIn("needs.server-gate.result == 'success'", android['jobs']['settings']['if'])
+        self.assertNotIn('GH_TOKEN', android['jobs']['build']['env'])
+        # 건너뛰기 값이 게이트 잡까지 번지면 판정 없이 통과한다.
+        self.assertNotIn('ALLOW_SERVER_GAP', android.get('env', {}))
+        self.assertNotIn('ALLOW_SERVER_GAP', gate['steps'][-1]['env'])
+
+    def test_android_pr_runs_contract_tests_without_building_aab(self):
+        android = workflow('app-android-ci')
+        self.assertNotIn('pull_request', android['jobs']['build']['if'])
+        self.assertIn('pull_request', android['on'])
+        names = [step.get('name') for step in android['jobs']['change-plan']['steps']]
+        # 계약 검사가 판정보다 앞이어야 실패할 때 판정값이 비어 AAB·CD 까지 가지 않는다.
+        self.assertLess(names.index('SDK 설정·CI/CD 산출물 계약 검사'), names.index('실제 변경 입력 판정'))
+
     def test_gate_changes_always_schedule_required_lint(self):
         lint = workflow('app-lint')['on']['push']['paths']
         for name in ('app-ios-testflight-dev.yml', 'app-android-ci.yml', 'app-android-build.yml'):

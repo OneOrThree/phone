@@ -48,7 +48,7 @@ flowchart LR
 
 ## 4. dev 실행과 운영
 
-dev 서버의 **로그·트래픽·쿼리 부하를 한 화면에서 실시간** 확인. Prometheus + Grafana + Loki 셀프호스트를
+옛 dev VM(`gromo-dev-app`, V1 — dev V2 가 아니다)의 **로그·트래픽·쿼리 부하를 한 화면에서 실시간** 확인. Prometheus + Grafana + Loki 셀프호스트를
 docker-compose overlay 로 기존 dev 스택 위에 얹는다. 무료(컨테이너 비용뿐). 수집층은 GROMO-588(Actuator+micrometer).
 
 ## 실행
@@ -57,7 +57,7 @@ docker-compose overlay 로 기존 dev 스택 위에 얹는다. 무료(컨테이�
 
 ```bash
 # 저장소 루트에서 실행
-# dev VM 에는 영구 env 파일이 없다(GROMO-2224). 평소엔 Actions 의 ops-monitor.dev 를 쓴다.
+# 옛 dev VM 에는 영구 env 파일이 없다(GROMO-2224). 평소엔 Actions 의 ops-monitor.dev(V1) 를 쓴다.
 # 수동이 꼭 필요하면 SM 을 읽을 수 있는 AWS 자격으로 임시 env 를 만들고, 쓰고 나면 지운다:
 #   RUNTIME_ENV_FILE=$(.github/scripts/dev-env.sh)   # 떠 있는 data-api 이미지 기준
 #   ... 아래 명령 ...;  rm -rf "$(dirname "$RUNTIME_ENV_FILE")"
@@ -85,7 +85,7 @@ docker compose --env-file "$RUNTIME_ENV_FILE" \
 > `down`은 병합된 기본 앱·DB까지 종료하므로 관측만 중지할 때는 위 `stop`을 사용합니다.
 
 > ⚠️ 반드시 `-f` 두 개로 실행. 그래야 dev 의 `app-network`·`app`·`db` 와 같은 프로젝트/네트워크를 공유해
-> `data-api:9091`·`db:5432` 를 서비스명으로 스크레이프한다. `data-api-cd.dev.yml` 은 `up -d --no-deps data-api` 만 하므로 배포와 간섭 없음.
+> `data-api:9091`·`db:5432` 를 서비스명으로 스크레이프한다. 꺼진 V1 `data-api-cd.dev.yml` 은 `up -d --no-deps data-api` 만 했으므로 배포와 간섭이 없었다.
 
 ## 한 화면 구성
 

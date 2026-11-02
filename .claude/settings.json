@@ -1,4 +1,16 @@
 {
+  "permissions": {
+    "ask": [
+      "Bash(gh workflow run *prod*)",
+      "Bash(gh workflow run *Catus*)",
+      "Bash(gh workflow run *android-cd*)",
+      "Bash(gh workflow run *Android CD*)",
+      "Bash(gh api *dispatches*)",
+      "Bash(gh api *pending_deployments*)",
+      "Bash(rtk gh api *dispatches*)",
+      "Bash(rtk gh api *pending_deployments*)"
+    ]
+  },
   "hooks": {
     "PostToolUse": [
       {
@@ -9,6 +21,17 @@
             "command": "c=$(jq -r '.tool_input.command // empty'); printf '%s' \"$c\" | grep -qE '(^|[^[:alnum:]_])git[[:space:]]+(checkout[[:space:]]+(-[^[:space:]]+[[:space:]]+)*-[bB][[:space:]]|switch[[:space:]]+(-[^[:space:]]+[[:space:]]+)*(-[cC]|--create|--force-create)([[:space:]]|$))' || exit 0; b=$(git branch --show-current); [ -n \"$b\" ] || exit 0; git ls-remote --exit-code --heads origin \"$b\" >/dev/null 2>&1 && exit 0; if git push -u origin \"$b\" >/dev/null 2>&1; then printf '{\"systemMessage\":\"팀 규칙: 새 브랜치 %s → origin push 완료\"}' \"$b\"; else printf '{\"systemMessage\":\"팀 규칙: 새 브랜치 %s 자동 push 실패 — 수동 push 필요\"}' \"$b\"; fi",
             "timeout": 30,
             "statusMessage": "팀 규칙: 새 브랜치 자동 push"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -f \"$CLAUDE_PROJECT_DIR/.claude/prod-impact.py\" ] || exit 0; python3 \"$CLAUDE_PROJECT_DIR/.claude/prod-impact.py\" --hook",
+            "timeout": 10,
+            "statusMessage": "운영 영향 검사"
           }
         ]
       }
@@ -22,6 +45,17 @@
             "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/pr-gate.py\" --hook",
             "timeout": 10,
             "statusMessage": "PR 게이트: gh pr create 규칙 검사"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -f \"$CLAUDE_PROJECT_DIR/.claude/prod-impact.py\" ] || exit 0; python3 \"$CLAUDE_PROJECT_DIR/.claude/prod-impact.py\" --hook",
+            "timeout": 10,
+            "statusMessage": "운영 영향 검사"
           }
         ]
       },
