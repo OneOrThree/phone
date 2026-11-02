@@ -1,4 +1,4 @@
-# CLAUDE.md — GroMo 활성 2.0 앱
+# CLAUDE.md — Cattus 활성 2.0 앱
 
 @DESIGN.md
 

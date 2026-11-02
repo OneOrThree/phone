@@ -29,7 +29,7 @@ flowchart TD
 
 Realtime·OSS 관측 overlay는 dev용입니다. 그림의 선택 항목을 모든 환경에 일괄 적용하는 구조는 아닙니다.
 
-이 문서의 prod Compose·`gromo/prod/env` 설명은 기존 Gromo 구성을 대상으로 합니다. 현행 Catus 운영은 Infra 저장소의 `prod/catus-v2/`와 [prod V2 파이프라인](../../docs/engineering/prod-v2-pipeline.md)을 따르고, 현행 dev는 [dev V2 파이프라인](../../docs/engineering/dev-v2-pipeline.md)을 따릅니다. 이 문서의 공동 배포·`gromo-dev-app` 설명은 꺼진 기존 경로입니다. 기존 `prod-ci.yml`·`prod-cd.yml` 절차는 [Catus 운영 절차](../../docs/prd/fishcat/server-separation/deployment.md#catus-20-운영-발행배포)에 기록돼 있습니다.
+이 문서의 prod Compose·`gromo/prod/env` 설명은 기존 Gromo 구성을 대상으로 합니다. 현행 Cattus 운영은 Infra 저장소의 `prod/catus-v2/`와 [prod V2 파이프라인](../../docs/engineering/prod-v2-pipeline.md)을 따르고, 현행 dev는 [dev V2 파이프라인](../../docs/engineering/dev-v2-pipeline.md)을 따릅니다. 이 문서의 공동 배포·`gromo-dev-app` 설명은 꺼진 기존 경로입니다. 기존 `prod-ci.yml`·`prod-cd.yml` 절차는 [Cattus 운영 절차](../../docs/prd/fishcat/server-separation/deployment.md#catus-20-운영-발행배포)에 기록돼 있습니다.
 
 ## 2. Compose 파일 안내
 
@@ -69,7 +69,7 @@ docker compose -f server/scripts/docker-compose.local.yml --profile nginx rm -sf
 (cd server/data-api && AUTH_GUEST_RATE_LIMIT_MAX=1000000 AUTH_GUEST_RATE_LIMIT_MAX_GLOBAL=1000000 ./gradlew bootRun)   # application-local.yml.example 의 auth.guest.rate-limit 자리표시자 — 이미 application-local.yml 이 있으면 같은 블록을 직접 추가
 
 # dev (GCP gromo-dev-app) — Data·Postgres·공유 Redis·Realtime·Kafka·Business(공유 Redis)·Notification. compose 에 nginx 없음(호스트 systemd Nginx 가 공개 라우팅)
-# dev VM 에 영구 env 없음(GROMO-2224) — CD·ops-*.dev 워크플로가 job 마다 SM 에서 임시로 만든다. 수동이면
+# (V1 dev, 삭제된 경로) dev VM 에 영구 env 없음(GROMO-2224) — 당시 CD·ops-*.dev 워크플로(#1556 에서 삭제)가 job 마다 SM 에서 임시로 만들었다. 수동이면
 # RUNTIME_ENV_FILE=$(.github/scripts/dev-env.sh) 로 만들고(SM 읽을 AWS 자격 필요) 쓰고 나서 지운다. <out> 은 위성 env 임시 폴더.
 # 전체 기동이면 Data 이미지도 넘긴다 — 인자 없이 만들면 phone-data-api 가 없는 새·복구 VM 에서 APP_IMAGE 가 자리표시라 pull 이 실패:
 #   RUNTIME_ENV_FILE=$(.github/scripts/dev-env.sh asia-northeast3-docker.pkg.dev/oneorthree2/data-api/data-api@sha256:<digest>)
@@ -107,7 +107,7 @@ docker compose -p "$PROD_PROJECT" --project-directory <prod 배포 디렉터리>
 
 ## 4. 시크릿·스위치 — 비었을 때의 동작
 
-dev 의 compose 보간 입력 `dev.env`와 Data·위성 컨테이너 env 는 CD·`ops-*.dev` 워크플로가 **job 마다** Secrets Manager 에서 임시로 만들고 끝나면 지웁니다([`dev-env.sh`](../../.github/scripts/dev-env.sh) → [`write-compose-env.py`](../../.github/scripts/write-compose-env.py)). 원본은 `gromo/dev/env` 하나이고, 서버별로 필요한 키만 고르는 건 `write-compose-env.py` 허용목록입니다. 그래서 dev 스위치는 파일이 아니라 **SM 키**로 바꾸고, 반영은 다음 배포 또는 Actions 의 `ops-redeploy.dev` 로 합니다. 필수 9개 외 아래 dev 행의 키는 SM 에 있을 때만 옮기고, 없으면 compose 기본값이 남습니다. 위성·Data 전용 env 는 같은 스크립트의 `--service` 허용목록이 정합니다. prod 의 Data 는 `.env.prod`(SM `gromo/prod/env` 전체)를 통째로 받습니다.
+(V1 dev 기록) dev 의 compose 보간 입력 `dev.env`와 Data·위성 컨테이너 env 는 CD·`ops-*.dev` 워크플로(#1556 에서 삭제)가 **job 마다** Secrets Manager 에서 임시로 만들고 끝나면 지웁니다([`dev-env.sh`](../../.github/scripts/dev-env.sh) → [`write-compose-env.py`](../../.github/scripts/write-compose-env.py)). 원본은 `gromo/dev/env` 하나이고, 서버별로 필요한 키만 고르는 건 `write-compose-env.py` 허용목록입니다. 그래서 dev 스위치는 파일이 아니라 **SM 키**로 바꾸고, 반영은 다음 배포로 합니다. 현행 dev V2 는 `App CD (dev)-v2` 를 `force_redeploy` 로 실행합니다([dev V2 파이프라인](../../docs/engineering/dev-v2-pipeline.md)). 필수 9개 외 아래 dev 행의 키는 SM 에 있을 때만 옮기고, 없으면 compose 기본값이 남습니다. 위성·Data 전용 env 는 같은 스크립트의 `--service` 허용목록이 정합니다. V1 prod 의 Data 는 `.env.prod`(SM `gromo/prod/env` 전체)를 통째로 받았습니다. 현행 prod V2 env 는 `OneOrThree/cattus-infra` 의 `prod/catus-v2/runtime/env_writer-V2.py` 가 만듭니다.
 
 | 키 | 받는 쪽 · 경로 | 비었을 때 |
 | --- | --- | --- |
@@ -123,7 +123,7 @@ dev 의 compose 보간 입력 `dev.env`와 Data·위성 컨테이너 env 는 CD�
 | `APPLE_CLIENT_ID` · `GOOGLE_CLIENT_ID` | Data(legacy **필수**). Business env 로도 옮겨지지만 Business 코드는 읽지 않는다 — 제공자 토큰 검증은 Data 가 한다 | writer 가 거부(키 자체가 없을 때). 값이 빈 문자열이면 부팅은 되고 경고 한 줄만 남긴 채 그 제공자 로그인이 **전부** 401 `APPLE_TOKEN`·`GOOGLE_TOKEN`. 값은 쉼표로 구분한 허용 `aud` 목록이다(계정 정책 LOGIN-D03) — Apple 은 앱 번들 id(`com.oneorthree.focuscat`, 1.x `com.oneorthree.gromo`), Google 은 **Web 클라이언트 id**(2.0 은 `263851348176-hpndg0cj…`, GROMO-2215). 바꿀 때는 기존 값을 지우지 않고 **덧붙인다** — 설치된 구 빌드가 옛 `aud` 로 들어온다. 발급·확인 절차는 개인 문서가 아니라 이 표가 정본이다 |
 | `OUTBOX_RELAY_REALTIME_KAFKA_ENABLED` | Data(satellites, 선택) | `false` — REALTIME 을 HTTP 로 보낸다 |
 | `OUTBOX_RELAY_RUN_LENGTH` · `OUTBOX_RELAY_WORKER_THREADS` · `OUTBOX_RELAY_TICK_BUDGET` | Data(satellites, 선택) | `10` · `4` · `PT5S` — 축마다 앞쪽 10건을 한 번에 집고, 축 4개를 병렬로 보내고, 한 틱이 5초 안에서 빌 때까지 라운드를 반복한다(GROMO-2338). poll 1s 면 relay 가 일하는 비율 ≈ 5/(5+1) ≈ 83%. relay 동시 DB 커넥션은 최대 worker-threads + 1(Hikari 기본 10). `1`·`1`·`PT0S` 면 2337 까지의 동작(축당 틱당 1건)이다. **`OUTBOX_RELAY_LEASE_DURATION` 은 `run-length × http-read-timeout`(기본 10 × 10s) 보다 충분히 커야 한다** — 축 안은 순차라 뒤 행이 앞 행 전송을 기다리는 동안 리스가 만료되면 그 축이 멈추고 나머지를 놓는다(순서는 안전하지만 처리량이 떨어진다) |
-| `CHAT_WS_ALLOWED_ORIGINS` | Realtime(dev.env → `realtime.yml`) | Origin 을 보낸 WS 핸드셰이크 전부 403. React Native 앱도 접속 URL 기준 `Origin: https://<API 호스트>` 를 보내므로 **앱 실시간 연결이 끊긴다**. dev 는 `https://oneorthree.dev.mooo.com`(GROMO-2175). 기본값을 `*` 로 열지 않는다 |
+| `CHAT_WS_ALLOWED_ORIGINS` | Realtime(dev.env → `realtime.yml`) | Origin 을 보낸 WS 핸드셰이크 전부 403. React Native 앱도 접속 URL 기준 `Origin: https://<API 호스트>` 를 보내므로 **앱 실시간 연결이 끊긴다**. V1 dev 는 `https://oneorthree.dev.mooo.com`(GROMO-2175)이었고, dev V2 는 이 값에 `https://oneorthree-v2.dev.mooo.com` 을 항상 더합니다(`.github/scripts/v2/dev/dev-env-V2.py:85-86`). 기본값을 `*` 로 열지 않는다 |
 | `REALTIME_EVENTS_KAFKA_ENABLED` | Realtime(dev.env) | `false` — `realtime-events` 소비자가 뜨지 않는다 |
 | `REALTIME_MOVEMENT_MULTI_INSTANCE_ENABLED` | Realtime(dev.env → `realtime.yml`) | `true`(기본, 비어 있어도 ON) — 섬마다 소유자 리스 `movement:owner:*` 를 든 한 대가 이동 방을 돌리고 나머지는 `chat:movement:cmd:v1`·`frames:v1` 로 중계한다(GROMO-2339, ADR A26). 1대여도 같은 경로라 리스 갱신이 1초마다 돈다. `false` 로 끄면 Redis 를 쓰지 않는 단일 인스턴스 현행 경로 — **끈 채 2대 이상이면 같은 섬 방이 인스턴스마다 따로 생겨 서로 안 보인다**. PING 은 소유자별 채널 `chat:movement:cmd:v1:<instanceId>`(GROMO-2352)로 가므로 1대면 소유자가 자기라 PING 이 안 나가고, poll p95 기준치는 2대(2353) 뒤에 잡는다. |
 | `KAFKA_BOOTSTRAP_SERVERS` | Realtime(dev.env) · Data·Notification(서비스 env) | Realtime·Data 는 `kafka:9092`. Notification 은 필수 |
@@ -134,7 +134,7 @@ dev 의 compose 보간 입력 `dev.env`와 Data·위성 컨테이너 env 는 CD�
 | `REALTIME_AUTHORIZATION_WAIT_TIMEOUT` · `REALTIME_AUTHORIZATION_CACHE_TTL_SECONDS` | Realtime(선택, `REALTIME_AUTHORIZATION_CLIENT_ENABLED=true` 일 때만 의미) | `200ms`·`30` — 현재 멤버십 HTTP 판정의 동시 상한(`REALTIME_AUTHORIZATION_MAX_IN_FLIGHT`, 16)이 찼을 때 기다리는 시간(총 예산 1.5s 에 포함, `0` = 바로 503)과 «허용» 결정 캐시 TTL(초, `0` = 끔; 거절은 캐시 안 함, 멤버십 사건·탈퇴가 즉시 지움. 사건은 한 인스턴스에만 닿으므로 다중 인스턴스에서 즉시성이 필요하면 `0`). GROMO-2342 |
 | `CHAT_WEBSOCKET_HEARTBEAT_SERVER_MS` · `CHAT_WEBSOCKET_HEARTBEAT_CLIENT_MS` | Realtime(선택, dev.env → `realtime.yml`) | `10000`·`10000` — STOMP heartbeat(GROMO-2341). CONNECTED 가 `heart-beat:<server>,<client>` 로 협상하고, 클라이언트가 3×max(client, 앱 송신 주기) 동안 아무것도 안 보내면 브로커가 세션을 닫는다(ERROR `Session closed.` 를 보내며 1002 종료). 앱(`islandRealtime.ts`) 10s/10s 와 맞추고 Cloudflare 유휴 100s 보다 짧게 둔다 |
 | `CHAT_DATA_API_MAX_CONCURRENCY` | Realtime(선택, OFF 모드 `GroupClient`) | `32` — 캐시 미스 시 내부 `GET /internal/users/{userId}/islands` 동시 호출 상한. 넘으면 `chat.data-api.timeout-ms`(2s)까지 기다리다 503. 연결·읽기 타임아웃 2s 는 `SimpleClientHttpRequestFactory`(소켓 읽기마다 적용), keep-alive 는 JDK 기본. GROMO-2342 |
-| `GRAFANA_ADMIN_PASSWORD` | 관측 overlay `docker-compose.observability.yml`(dev.env, 선택) | 기본값 없음 — 비면 이 overlay 를 `-f` 로 물리는 모든 명령(`ops-monitor.dev` 전 동작, `ops-kafka.dev` 의 `up`)이 compose 로드 단계에서 멈춘다. writer·배포·secrets-check 는 막지 않는다. GROMO-2193 |
+| `GRAFANA_ADMIN_PASSWORD` | 관측 overlay `docker-compose.observability.yml`(dev.env, 선택) | 기본값 없음 — 비면 이 overlay 를 `-f` 로 물리는 모든 명령(V1 의 `ops-monitor.dev` 전 동작·`ops-kafka.dev` 의 `up`. 두 워크플로는 #1556 에서 삭제)이 compose 로드 단계에서 멈춘다. writer·배포·secrets-check 는 막지 않는다. GROMO-2193 |
 
 섬 목록·멤버십·차단 조회는 Realtime 서비스 자격으로 Data 내부 API를 호출합니다. `SVC_TOKEN_REALTIME_TO_DATA`는 공유 dev env와 Data 전용 env 모두 필수이며, Data 기본 프로파일은 `<환경>,satellites,realtime-authorization`입니다. `--data-profiles`로 덮어쓸 때도 두 내부 API 프로파일을 포함해야 합니다. 응원 인가와 받는 사람 기준 차단 필터의 활성화 순서는 [runtime.md «dev 에서 켜는 순서»](../../docs/prd/fishcat/server-separation/runtime.md#dev-에서-켜는-순서)를 따릅니다.
 
@@ -224,14 +224,14 @@ python3 server/scripts/prepare-satellite-deploy.py --help
 
 실행 전 대상 DB를 확인하고 서비스 환경변수 분리 절차와 함께 적용합니다.
 
-### Catus V0 전환과 Data·Realtime 동시 교체
+### Cattus V0 전환과 Data·Realtime 동시 교체
 
-기존 dev와 Catus prod DB는 [Data V0 전환 절차](../data-api/docs/db/README.md)의 읽기 전용 계획·백업·writer 중지·검증을 거쳐 전환합니다. 독립 Link 서비스의 정지 스냅샷 이관 경로와 실행 도구는 폐기했습니다. 현행 섬 초대 링크는 Data 내부 API가 관리합니다.
+기존 dev와 Cattus prod DB는 [Data V0 전환 절차](../data-api/docs/db/README.md)의 읽기 전용 계획·백업·writer 중지·검증을 거쳐 전환합니다. 독립 Link 서비스의 정지 스냅샷 이관 경로와 실행 도구는 폐기했습니다. 현행 섬 초대 링크는 Data 내부 API가 관리합니다.
 
 **Data와 Realtime은 같은 중단 창에서 교체해야 합니다.** 새 Data는 `/api/v1/groups`를 제공하지 않으며, 새 Realtime은 서비스 토큰으로 `GET /internal/users/{userId}/islands`를 호출합니다. 구 Realtime과 새 Data를 함께 서비스하면 섬 멤버십 조회가 실패합니다.
 
 1. 배포 전에 두 이미지와 runtime 설정을 준비합니다. Data는 `<환경>,satellites,realtime-authorization` 프로파일과 `SVC_TOKEN_REALTIME_TO_DATA`가 필요하며, Realtime에도 같은 토큰을 주입합니다. Data를 호출할 주소와 서비스 토큰이 배포 설정에 반영되어 있어야 합니다.
-2. Catus prod는 Infra의 `prod/catus/runtime`에 `SPRING_PROFILES_ACTIVE=prod,satellites,realtime-authorization` 및 양쪽 서비스 토큰을 **재시작 전에** 반영합니다. 이 저장소의 옛 Gromo 1.x `docker-compose.prod.yml`이나 env writer 검증만으로 외부 Catus runtime이 바뀌지 않습니다.
+2. Cattus prod는 Infra의 `prod/catus/runtime`에 `SPRING_PROFILES_ACTIVE=prod,satellites,realtime-authorization` 및 양쪽 서비스 토큰을 **재시작 전에** 반영합니다. 이 저장소의 옛 Gromo 1.x `docker-compose.prod.yml`이나 env writer 검증만으로 외부 Cattus runtime이 바뀌지 않습니다.
 3. 트래픽과 Data·Realtime 및 DB writer를 중지하고 진행 중 요청을 소진한 뒤 V0 전환을 수행합니다. 전환 검증이 성공하면 같은 창에서 새 Data와 새 Realtime을 기동합니다.
 4. Data 내부 섬 목록 인증·응답과 Realtime의 섬 입장·채팅 연결을 확인한 뒤 트래픽을 재개합니다. 스키마 전환 뒤 복구는 V0 문서의 백업·검증 절차를 따릅니다.
 
@@ -243,9 +243,9 @@ python3 server/scripts/prepare-satellite-deploy.py --help
 
 권한만 확인하려면 VM에서 `sudo -n -u runner sudo -n -l /usr/bin/systemctl stop nginx`와 `sudo -n -u runner sudo -n -l /usr/bin/systemctl start nginx`를 실행합니다. 실패하면 공동 CD는 서비스 중지·DB 전환 전에 멈추고 필요한 명령을 로그에 표시합니다.
 
-진행 기록과 백업은 러너 계정의 `~/.local/state/catus/dev/`에 보존됩니다(디렉터리 0700, JSON 0600). 이 경로를 작업 디렉터리 정리 대상에 넣지 않습니다. 실패하면 nginx와 writer는 닫힌 상태를 유지합니다. **실패한 공동 CD job을 재실행**하면 DB 실제 상태를 다시 확인하고 이어서 처리합니다. 앱 결함을 수정한 새 SHA도 기존 트래픽·writer가 중지되어 있고 새 이미지로 검증한 DB가 `current`이면 재개할 수 있습니다. 최초 전환이 아직 `legacy`·`empty`인 상태에서는 동일 SHA·digest로 재시도합니다. 원래 서비스 실행 목록과 백업을 유지하며, 일반 ops·위성 배포는 미완료 기록을 우회하지 못합니다. 정상 배포의 설정만 재적용할 때는 `Ops Dev Redeploy`에서 Data 또는 Realtime을 선택하며, 두 경우 모두 마지막 공동 배포 job을 재실행합니다. 이전 독립 배포 이력은 선택하지 않습니다.
+진행 기록과 백업은 러너 계정의 `~/.local/state/catus/dev/`에 보존됩니다(디렉터리 0700, JSON 0600). 이 경로를 작업 디렉터리 정리 대상에 넣지 않습니다. 실패하면 nginx와 writer는 닫힌 상태를 유지합니다. **실패한 공동 CD job을 재실행**하면 DB 실제 상태를 다시 확인하고 이어서 처리합니다. 앱 결함을 수정한 새 SHA도 기존 트래픽·writer가 중지되어 있고 새 이미지로 검증한 DB가 `current`이면 재개할 수 있습니다. 최초 전환이 아직 `legacy`·`empty`인 상태에서는 동일 SHA·digest로 재시도합니다. 원래 서비스 실행 목록과 백업을 유지하며, 일반 ops·위성 배포는 미완료 기록을 우회하지 못합니다. (V1 기록) 정상 배포의 설정만 재적용할 때는 `Ops Dev Redeploy`(삭제됨)에서 Data 또는 Realtime을 선택하며, 두 경우 모두 마지막 공동 배포 job을 재실행합니다. 이전 독립 배포 이력은 선택하지 않습니다.
 
-새 커밋의 자동 CD가 선행 위성 배포의 미완료 전환 검사에 막히면, Actions의 **Data·Realtime Dev CD**를 `main`에서 수동 실행합니다. main에 포함된 소스 SHA의 Data CI에서 Data·Realtime 이미지 발행 job이 모두 성공한 뒤 그 두 digest와 `image_revision`을 입력합니다. 그 뒤 문서·앱 변경이 main에 추가돼도 검증된 조상 SHA의 이미지로 복구할 수 있습니다. 실행 코드는 선택한 현재 main을 사용합니다. 전체 CI 성공은 요구하지 않지만 두 이미지 발행 성공·고정 저장소·OCI revision·digest를 검증합니다. 수동 실행은 미완료 journal과 `current` DB가 있을 때만 허용하여 정상 배포의 위성 대기를 우회하지 못합니다. 복구 후 막혔던 위성 CD를 재실행합니다. `legacy`·`empty` 상태의 최초 전환 실패는 원래 공동 CD를 재실행합니다.
+새 커밋의 자동 CD가 선행 위성 배포의 미완료 전환 검사에 막히면, Actions의 **Data·Realtime Dev CD**(V1 경로, #1556 에서 삭제)를 `main`에서 수동 실행했습니다. main에 포함된 소스 SHA의 Data CI에서 Data·Realtime 이미지 발행 job이 모두 성공한 뒤 그 두 digest와 `image_revision`을 입력합니다. 그 뒤 문서·앱 변경이 main에 추가돼도 검증된 조상 SHA의 이미지로 복구할 수 있습니다. 실행 코드는 선택한 현재 main을 사용합니다. 전체 CI 성공은 요구하지 않지만 두 이미지 발행 성공·고정 저장소·OCI revision·digest를 검증합니다. 수동 실행은 미완료 journal과 `current` DB가 있을 때만 허용하여 정상 배포의 위성 대기를 우회하지 못합니다. 복구 후 막혔던 위성 CD를 재실행합니다. `legacy`·`empty` 상태의 최초 전환 실패는 원래 공동 CD를 재실행합니다.
 
 
 ## 10. 로그 S3 적재본 수명 주기
@@ -266,7 +266,7 @@ python3 server/scripts/prepare-satellite-deploy.py --help
 
 `put-bucket-lifecycle-configuration`은 버킷의 기존 규칙 전체를 **교체**합니다. 먼저 현재 규칙을 조회해 다른 규칙이 있으면 이 파일에 합친 뒤 적용합니다.
 
-`<account-id>`는 운영 AWS 계정의 12자리 ID이며(dev 시크릿 `gromo/dev/env`가 있는 계정과 같은 계정) 공개 문서에 적지 않습니다. ID 자체는 접근 권한을 주지 않는 식별자지만 공격 표면 정보라 가립니다. 실제 버킷 이름은 Infra 저장소(현행 `OneOrThree/Infra`, 이 버킷의 원본 기록은 구 `OneOrThree/terraform`의 `aws-prod-server/s3.tf`)나 `aws --profile gromo sts get-caller-identity`로 확인합니다.
+`<account-id>`는 운영 AWS 계정의 12자리 ID이며(dev 시크릿 `gromo/dev/env`가 있는 계정과 같은 계정) 공개 문서에 적지 않습니다. ID 자체는 접근 권한을 주지 않는 식별자지만 공격 표면 정보라 가립니다. 실제 버킷 이름은 Infra 저장소(현행 `OneOrThree/cattus-infra`, 이 버킷의 원본 기록은 구 `OneOrThree/terraform`의 `aws-prod-server/s3.tf`)나 `aws --profile gromo sts get-caller-identity`로 확인합니다.
 
 ```bash
 aws --profile gromo s3api get-bucket-lifecycle-configuration --bucket gromo-prod-logs-<account-id>

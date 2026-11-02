@@ -1,8 +1,8 @@
-# GROMO 서버
+# Cattus 서버
 
 > 집중한 시간이 캐릭터의 성장과 함께하는 섬의 활동으로 이어지도록 만드는 백엔드입니다.
 
-GROMO는 집중 세션과 스크린타임을 기록하고, 캐릭터·아이템·재화·친구·그룹 활동을 연결하는 앱입니다. 이 폴더는 앱의 요청을 처리하는 API부터 실시간 채팅, 푸시 알림, 배포와 관측까지 담습니다.
+Cattus는 집중 세션과 스크린타임을 기록하고, 캐릭터·아이템·재화·친구·그룹 활동을 연결하는 앱입니다. 이 폴더는 앱의 요청을 처리하는 API부터 실시간 채팅, 푸시 알림, 배포와 관측까지 담습니다.
 
 [전체 프로젝트](../README.md) · [설계 결정](../docs/architecture/decisions.md) · [기능 문서](../docs/README.md) · [부하 테스트](../loadtest/README.md)
 
@@ -27,8 +27,7 @@ GROMO는 집중 세션과 스크린타임을 기록하고, 캐릭터·아이템�
 
 ```mermaid
 flowchart LR
-  app["GROMO 앱"] -->|"기존 API·인증 발급"| data["Data API"]
-  app -->|"조합 API"| business["Business API"]
+  app["Cattus 앱"] -->|"공개 API·인증 발급"| business["Business API"]
   app -->|"WebSocket·채팅 REST"| realtime["Realtime"]
   business -->|"내부 HTTP"| data
   business -->|"기기·설정·알림 확인"| notification["Notification"]
@@ -49,7 +48,7 @@ flowchart LR
 
 ### 서비스 분리 목표
 
-목표는 **앱의 일반 API 진입점을 Business로 모으고, 코어 데이터 변경을 Data에 집중하는 구조**입니다. 현재는 기존 API·인증이 Data에 남아 있으며, 새 BFF 화면과 실시간 이벤트의 일부는 기반만 준비되어 있습니다. 다음 그림은 구현 완료 현황이 아닌 Target-1 설계입니다.
+목표는 **앱의 일반 API 진입점을 Business로 모으고, 코어 데이터 변경을 Data에 집중하는 구조**입니다. 현재 앱의 일반 API와 인증은 Business가 받고(루트 경로, 접두사 없음: `/auth/sessions`·`/me`·`/screens/*`·`/focus-sessions`), Data는 `/internal/**`로만 호출됩니다. Data의 공개 컨트롤러는 `/health` 하나입니다(`data-api/.../common/api/HealthController.java:13`). 실시간 이벤트의 일부는 기반만 준비되어 있습니다. 다음 그림은 구현 완료 현황이 아닌 Target-1 설계입니다.
 
 [![Target-1 서비스 구성](../docs/architecture/diagrams/01-service-target1.svg)](../docs/architecture/service-architecture.md)
 
