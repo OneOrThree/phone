@@ -1,7 +1,7 @@
 {
   "project_id": 669473,
   "dashboard_id": 2234116,
-  "title": "Catus · 오류와 수집 상태",
+  "title": "Cattus · 오류와 수집 상태",
   "description": "오류·크래시를 겪은 사용자와 문제가 발생한 앱 버전, 섬·친구 데이터의 수집 상태를 확인합니다.",
   "pinned": false,
   "tiles": [
