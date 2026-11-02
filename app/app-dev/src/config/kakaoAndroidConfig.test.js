@@ -143,6 +143,9 @@ test('Android CI builds the prod V2 AAB and independent CD publishes only verifi
     /!devAudience\s*&&\s*System\.getenv\("GROMO_LEGACY_SESSION_MIGRATION_READY"\)/,
   );
   expect(gradle).toMatch(/devAudience\s*&&\s*apiUrl\s*!=\s*"https:\/\/oneorthree\.dev\.mooo\.com"/);
+  // 입력 선언은 번들 태스크에만. PostHog 정리 태스크는 Delete 라 inputs 가 붙으면 main 빌드만 실패한다
+  expect(gradle).toContain('tasks.matching { it.name ==~ /createBundle\\w*JsAndAssets/ }');
+  expect(gradle).not.toContain('it.name.startsWith("createBundle")');
   // CI 가 운영 V2 주소·청중·RUM 환경명 고정
   expect(ci).toContain('EXPO_PUBLIC_API_URL: https://catus-api-v2.oneorthree.world');
   expect(ci).toContain('GROMO_ANDROID_AUDIENCE: prod');

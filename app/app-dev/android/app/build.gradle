@@ -204,7 +204,8 @@ gradle.taskGraph.whenReady { taskGraph ->
 
 // GROMO-2671 — JS 번들 태스크 입력에는 소스 파일만 있다. EXPO_PUBLIC_* 값만 바꿔 다시 빌드하면 UP-TO-DATE 로 건너뛰어
 // 앞선 빌드의 값(dev 서버 주소 등)이 든 번들이 그대로 실린다. 셸 값과 .env 파일을 입력으로 선언한다.
-tasks.matching { it.name.startsWith("createBundle") }.configureEach {
+// 이름 끝까지 맞춘다. PostHog 정리 태스크(createBundle…_PostHogUploadCleanUp)는 Delete 라 inputs 를 붙이면 Gradle 이 실패한다.
+tasks.matching { it.name ==~ /createBundle\w*JsAndAssets/ }.configureEach {
     inputs.property("expoPublicEnv", new TreeMap(System.getenv().findAll { it.key.startsWith("EXPO_PUBLIC_") }).toString())
     inputs.files(fileTree(dir: projectRoot, includes: [".env*"])).optional()
 }
