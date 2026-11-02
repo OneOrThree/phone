@@ -8,7 +8,7 @@ IOS_DIR = File.expand_path("..", __dir__).freeze
 HERMES_CLI_PATH = File.expand_path("../node_modules/hermes-compiler/hermesc/osx-bin/hermesc", IOS_DIR).freeze
 PRODUCTION_API_URL = "https://catus-api-v2.oneorthree.world".freeze
 # 팀 dev 서버 — src/services/api/client.ts 의 DEV_API_URL 과 같은 값
-DEV_API_URL = "https://oneorthree.dev.mooo.com".freeze
+DEV_API_URL = "https://oneorthree-v2.dev.mooo.com".freeze
 # expo-updates(OTA) 설정 — 운영과 같은 채널(production)·runtime(iOS 2.0.0-push-meta-assets-v1, app.config.js ios.runtimeVersion)을 쓴다
 EXPO_PLIST = File.join(IOS_DIR, "Cattus/Supporting/Expo.plist").freeze
 
@@ -126,7 +126,7 @@ platform :ios do
     ENV["EXPO_PUBLIC_POSTHOG_PROJECT_TOKEN"] = ""
 
     commit = `git rev-parse --short HEAD`.strip
-    changelog = "dev 서버(oneorthree.dev.mooo.com) 빌드 — #{commit} · #{Time.now.strftime("%Y-%m-%d %H:%M")}"
+    changelog = "dev 서버(oneorthree-v2.dev.mooo.com) 빌드 — #{commit} · #{Time.now.strftime("%Y-%m-%d %H:%M")}"
     # OTA 는 끈 채 아카이브한다 — 운영과 같은 채널·runtime 이라 켜 두면 운영 OTA 를 받아 운영 API 가 박힌 JS 로 바뀐다.
     # 작업 트리의 Expo.plist 는 빌드가 끝나면(실패해도) 원복한다.
     original_expo_plist = File.read(EXPO_PLIST)
