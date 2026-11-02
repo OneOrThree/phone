@@ -8,6 +8,7 @@ import {
 import { readFile } from "node:fs/promises";
 import { resolve, extname, sep } from "node:path";
 import { Failure, requireValue } from "./store.mjs";
+import { createReleaseStatus } from "./release-status.mjs";
 import { FocusPolicyStore, focusDigest, normalizeFocusPolicy } from "./focus-policy.mjs";
 const hash = (value) => createHash("sha256").update(value).digest("hex");
 const safeEqual = (a, b) => {
@@ -61,6 +62,8 @@ export function createApp({
   staticDir,
   secureCookie = mode === "connected",
   clock = Date.now,
+  // 결과를 10분 캐시하므로 앱 생성 때 한 번만 만든다. 테스트는 대체 함수를 넣는다.
+  releaseStatus = createReleaseStatus({ androidStoreVersion: () => upstream.androidStoreVersion() }),
 }) {
   const sessions = new Map(),
     attempts = new Map();
@@ -249,6 +252,13 @@ export function createApp({
         const pick = value => str(value?.serverVersion) || str(value?.schemaVersion)
           ? { serverVersion: str(value.serverVersion), schemaVersion: str(value.schemaVersion) } : null;
         send(200, { local: false, data: pick(identity.data), notification: pick(identity.notification), iosStore });
+        return;
+      }
+      if (path === "/api/system/release-status" && req.method === "GET") {
+        if (mode === "local") { send(200, { local: true }); return; }
+        const { data } = await upstream.verifyEnvironment(environment, auth.actor, operator);
+        const version = typeof data?.serverVersion === "string" ? data.serverVersion.trim() : "";
+        send(200, await releaseStatus(version && version.toLowerCase() !== "unknown" ? version : null));
         return;
       }
       if (path === "/api/session" && req.method === "GET") {

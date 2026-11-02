@@ -190,6 +190,10 @@ Android release task graph는 기본 차단됩니다. Android legacy 세션의 R
 OTA 스크립트는 셸의 `EXPO_PUBLIC_*`를 비우고 이 정본을 읽습니다. 전송 실패 뒤 키나 본문을 바꾸는
 자동 재시도는 추가하지 않습니다. 이 설정을 포함한 앱 또는 호환 OTA 적용 뒤에 복구됩니다.
 
+## 앱 출시 전 서버 선행 게이트 (GROMO-2684)
+
+운영 앱 출시 경로(`scripts/ota-update.sh`, 운영 `ios/testflight.sh`, 운영 청중 Android release)는 시작 전에 `.github/scripts/app-server-gate.py`를 실행한다. 운영에 배포된 커밋 뒤에 `server/*/src/main` 변경이 남아 있으면 서버를 먼저 승격·배포하라며 막는다. 조회가 실패해도 막는다. 의도한 예외는 `ALLOW_SERVER_GAP="사유"`를 설정해 실행한다. 백오피스 「출시 현황」 화면에서 같은 판정을 미리 볼 수 있다. `--dev` 빌드는 대상이 아니다.
+
 ## TestFlight
 
 Catus 테스트 빌드를 TestFlight에 올립니다. 공개 릴리스 설정(약관 버전·Datadog RUM)은 `ios/release-config.sh`, App Store Connect API 키는 `ios/fastlane/.env`(gitignore, 양식은 `.env.example`)에 둡니다.

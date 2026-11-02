@@ -175,6 +175,16 @@ gradle.taskGraph.whenReady { taskGraph ->
             "프로덕션 서명 파일 없음: ${releaseKeystorePropertiesFile} — 기존 GROMO 업로드 키를 android/credentials/prod/에 배치하세요."
         )
     }
+    // 앱이 서버보다 먼저 나가면 새 API 가 운영에서 404 가 된다(GROMO-2684). 운영 청중만 서버 선행 여부를 확인한다.
+    // 저장소 루트 = android(rootDir) 기준 ../../.. . ALLOW_SERVER_GAP 은 자식 프로세스가 환경에서 물려받는다.
+    if (includesReleaseArtifactTask && !devAudience) {
+        def gateScript = new File(rootDir, "../../../.github/scripts/app-server-gate.py").canonicalFile
+        def gate = new ProcessBuilder("python3", gateScript.path).redirectErrorStream(true).start()
+        def gateOutput = gate.inputStream.text
+        if (gate.waitFor() != 0) {
+            throw new GradleException("Android release 차단: 서버 선행 게이트 실패\n${gateOutput}")
+        }
+    }
 }
 
 // FCM 공개 클라이언트 설정은 해당 빌드 환경에서만 읽는다. 다른 환경 파일로 폴백하지 않는다.

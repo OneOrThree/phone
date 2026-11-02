@@ -6,7 +6,7 @@
 
 ## API 호환 경계
 
-백오피스 BFF는 Data·Notification HTTP API만 호출한다. 단, 화면 표시용으로 `itunes.apple.com` 조회 한 건을 더 보낸다(운영자 토큰 없음, 실패해도 작업은 막지 않는다). 서비스 DB에는 직접 접속하지 않는다. `backoffice/server/contract.json`이 이 버전의 필수 계약이다.
+백오피스 BFF는 Data·Notification HTTP API만 호출한다. 단, 화면 표시용으로 `itunes.apple.com`(App Store)·`play.google.com` 공개 페이지(Android 버전)·GitHub 공개 API(`api.github.com/repos/OneOrThree/phone`, 「출시 현황」의 배포 기록·태그·compare)를 조회한다(운영자 토큰·Authorization 없음, 실패해도 작업은 막지 않는다). GitHub 결과는 10분 캐시한다. 서비스 DB에는 직접 접속하지 않는다. `backoffice/server/contract.json`이 이 버전의 필수 계약이다.
 
 - Data `/internal/admin/content/environment`: `environment`, `contractVersion: "1"`, `capabilities`.
 - Notification `/internal/admin/publications/environment`: 위 필드와 `fcmProjectId`.

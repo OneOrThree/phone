@@ -32,6 +32,8 @@ if [[ "$AUDIENCE" == "prod" ]]; then
     echo "❌ iOS release/TestFlight 차단: 운영 Google 클라이언트 id 미발급 — src/config/googleClientIds.json prod 칸을 채운 뒤 다시 실행하세요." >&2
     exit 1
   fi
+  # 앱이 서버보다 먼저 나가면 새 API 가 운영에서 404 가 된다(GROMO-2684). 서버 선행 여부를 확인한다.
+  python3 ../../../.github/scripts/app-server-gate.py
 else
   # dev 빌드는 서버 주소를 여기서 고정한다 — 운영 주소를 실수로 넘겨도 dev lane 이 다시 덮어쓴다
   export EXPO_PUBLIC_API_URL="https://oneorthree.dev.mooo.com"

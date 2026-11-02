@@ -45,6 +45,9 @@ if [[ -n "$(git status --porcelain --untracked-files=all -- .)" ]]; then
   exit 1
 fi
 
+# 앱이 서버보다 먼저 나가면 새 API 가 운영에서 404 가 된다(GROMO-2684). 서버 선행 여부를 확인한다.
+python3 ../../.github/scripts/app-server-gate.py
+
 if ! "${EAS[@]}" whoami >/dev/null 2>&1; then
   echo "❌ Expo 로그인이 필요해요. npx eas-cli login 으로 로그인하거나 EXPO_TOKEN 을 설정하세요." >&2
   exit 1
