@@ -1,5 +1,12 @@
 # Cattus
 
+## 바로가기
+
+| 구분 | 내용 |
+| --- | --- |
+| 프로젝트 | [제품과 시스템](#제품과-시스템) · [저장소 지도](#저장소-지도) · [문서 찾아가기](#문서-찾아가기) |
+| 개발·운영 | [로컬에서 시작하기](#로컬에서-시작하기) · [변경에 참여하기](#변경에-참여하기) · [운영 V2 배포](#운영-v2-배포) |
+
 [![서버 스모크 스냅샷](https://github.com/OneOrThree/phone/actions/workflows/ops-smoke.dev-v2.yml/badge.svg?branch=main)](https://github.com/OneOrThree/phone/actions/workflows/ops-smoke.dev-v2.yml)
 [![dev 서버 배포](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FOneOrThree%2Fphone%2Fdeployment-status%2Fdev.json)](https://github.com/OneOrThree/phone/tree/deployment-status)
 [![운영 V2 서버 태그](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FOneOrThree%2Fphone%2Fdeployment-status%2Fprod-V2%2Fapp.json)](https://github.com/OneOrThree/phone/actions/workflows/prod-cd-V2.yml)
