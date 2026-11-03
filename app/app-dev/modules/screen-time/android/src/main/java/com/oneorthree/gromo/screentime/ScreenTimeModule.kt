@@ -121,6 +121,10 @@ class ScreenTimeModule : Module() {
     }
     AsyncFunction("setAndroidAllowedPackages") { owner: String, packages: List<String> -> ledger.allow(owner, packages) }
     AsyncFunction("getMeasurementSelectionCounts") { ledger.selection() }
+    // 화면이 켜져 있는지(GROMO-2635) — 집중 중 백그라운드 전환이 화면을 끈(잠근) 것인지 다른 앱으로 간 것인지 가른다.
+    AsyncFunction("isScreenInteractive") {
+      (context.getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager)?.isInteractive ?: true
+    }
     // 이전 JS 호출도 서비스를 다시 시작하거나 차단 성공으로 응답하지 않는다.
     AsyncFunction("syncAndroidFocus") { _: String -> false }
     AsyncFunction("endAndroidFocus") { clearFocusActivity() }

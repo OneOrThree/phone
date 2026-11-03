@@ -466,6 +466,8 @@ export const createSessionCommands = (deps: SessionCommandDeps) => {
      */
     recover: async (): Promise<Route | null> => beginRecover()(),
     beginRecover,
+    /** 휴식·재개·종료·출항 요청이 진행 중인지(GROMO-2635 이탈 폴백이 사용자가 누른 명령과 겹치지 않게 본다). */
+    busy: () => transitioning > 0,
   };
   return { commands };
 };
