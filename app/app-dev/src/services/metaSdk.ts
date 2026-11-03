@@ -42,8 +42,9 @@ function buildExtinfo(): string[] {
   const info = Array<string>(16).fill('');
   info[0] = ios ? 'i2' : 'a2';
   info[1] = Application.applicationId ?? '';
-  info[2] = Application.nativeApplicationVersion ?? '';
-  info[3] = Application.nativeBuildVersion ?? '';
+  // Meta 문서 예시 순서: [2] 짧은 버전 = 빌드 번호("771"), [3] 긴 버전 = 표시 버전("Version 7.7.1").
+  info[2] = Application.nativeBuildVersion ?? '';
+  info[3] = Application.nativeApplicationVersion ?? '';
   info[4] = Device.osVersion ?? String(Platform.Version);
   info[5] = (ios ? Device.modelId : Device.modelName) ?? '';
   info[6] = intl.locale.replace('-', '_');

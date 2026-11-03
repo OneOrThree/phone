@@ -5,6 +5,11 @@ const mockMetaContext = jest.fn();
 const mockAnonymousId = jest.fn();
 let mockAndroidModule: unknown;
 jest.mock('expo', () => ({ requireOptionalNativeModule: () => mockAndroidModule }));
+jest.mock('expo-application', () => ({
+  applicationId: 'com.oneorthree.focuscat',
+  nativeApplicationVersion: '2.3.8',
+  nativeBuildVersion: '778',
+}));
 const originalDev = __DEV__;
 const originalOS = Platform.OS;
 const originalState = AppState.currentState;
@@ -121,6 +126,8 @@ describe('metaContext', () => {
     expect(context).toMatchObject(native);
     expect(context?.extinfo).toHaveLength(16);
     expect(context?.extinfo[0]).toBe('i2');
+    // Meta 예시 순서: [2] 빌드 번호, [3] 표시 버전
+    expect(context?.extinfo.slice(1, 4)).toEqual(['com.oneorthree.focuscat', '778', '2.3.8']);
     expect(context?.extinfo[4]).not.toBe('');
   });
 
