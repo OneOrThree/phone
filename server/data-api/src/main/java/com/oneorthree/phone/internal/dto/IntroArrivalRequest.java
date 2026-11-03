@@ -15,7 +15,7 @@ public record IntroArrivalRequest(Meta meta, String clientIp) {
     /**
      * @param anonId                    Meta SDK 설치 익명 ID — 1~128자 출력 가능 ASCII
      * @param advertiserTrackingEnabled iOS 는 ATT 허용일 때만 true
-     * @param extinfo                   정확히 16칸 — [0] 은 i2|a2, [4] 는 비지 않음
+     * @param extinfo                   정확히 16칸 — [0] 은 i2|a2, [4] 는 비지 않음, 제어 문자 없음(NUL 은 jsonb 가 거부한다)
      */
     public record Meta(String anonId, Boolean advertiserTrackingEnabled, List<String> extinfo) {
 
@@ -23,7 +23,8 @@ public record IntroArrivalRequest(Meta meta, String clientIp) {
         public boolean valid() {
             return anonId != null && anonId.matches("[\\x21-\\x7E]{1,128}") && advertiserTrackingEnabled != null
                     && extinfo != null && extinfo.size() == 16
-                    && extinfo.stream().allMatch(v -> v != null && v.length() <= 128)
+                    && extinfo.stream().allMatch(v -> v != null && v.length() <= 128
+                            && v.chars().noneMatch(c -> c < 0x20))
                     && ("i2".equals(extinfo.get(0)) || "a2".equals(extinfo.get(0)))
                     && !extinfo.get(4).isBlank();
         }

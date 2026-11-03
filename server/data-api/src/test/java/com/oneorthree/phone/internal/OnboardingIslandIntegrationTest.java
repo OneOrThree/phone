@@ -352,6 +352,21 @@ class OnboardingIslandIntegrationTest {
     }
 
     @Test
+    @DisplayName("extinfo 에 NUL 이 든 meta 는 버리고(SKIPPED) 도착은 처리한다 — jsonb 변환 실패로 되돌리지 않는다")
+    void extinfoWithNulIsSkippedWithoutBreakingArrival() {
+        UUID user = user();
+        UUID candidate = telescope.list(user).items().get(0).islandId();
+        var base = meta("anon-1");
+        List<String> ext = new ArrayList<>(base.meta().extinfo());
+        ext.set(15, "Asia\u0000Seoul");
+        var arrival = intro.arrive(user, candidate, UUID.randomUUID(), new IntroArrivalRequest(
+                new IntroArrivalRequest.Meta("anon-1", true, ext), base.clientIp()));
+        assertThat(arrival.islandId()).isNotNull();
+        assertThat(jdbc.queryForObject("select send_status from first_island_arrivals where user_id=?",
+                String.class, user)).isEqualTo("SKIPPED");
+    }
+
+    @Test
     @DisplayName("메타 없이 시작한 기존 섬 방문 도착도 첫 도착 사건을 SKIPPED 로 기록한다")
     void firstArrivalWithoutMetaIsSkipped() {
         UUID owner = user();

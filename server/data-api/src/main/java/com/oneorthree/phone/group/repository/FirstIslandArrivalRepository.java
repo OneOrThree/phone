@@ -16,14 +16,15 @@ public interface FirstIslandArrivalRepository extends JpaRepository<FirstIslandA
 
     /**
      * 이미 있으면 아무것도 하지 않는다. 넣은 행 수(0|1)를 돌려준다. 메타 값이 없으면 호출부가 SKIPPED 로 넘긴다.
+     * attempts 는 0 을 직접 넣는다 — Flyway 를 끈 local·ci 스키마(엔티티 생성)에는 DB 기본값이 없다.
      *
      * @param extinfoJson 16칸 문자열 배열의 JSON 텍스트(없으면 null)
      */
     @Modifying(flushAutomatically = true)
     @Query(value = "INSERT INTO first_island_arrivals (user_id, event_id, island_id, occurred_at, anon_id, "
-            + "advertiser_tracking_enabled, extinfo, client_ip, send_status, next_attempt_at) "
+            + "advertiser_tracking_enabled, extinfo, client_ip, send_status, attempts, next_attempt_at) "
             + "VALUES (:userId, :eventId, :islandId, :occurredAt, CAST(:anonId AS varchar), "
-            + "CAST(:tracking AS boolean), CAST(:extinfoJson AS jsonb), CAST(:clientIp AS varchar), :status, "
+            + "CAST(:tracking AS boolean), CAST(:extinfoJson AS jsonb), CAST(:clientIp AS varchar), :status, 0, "
             + "CAST(:nextAttemptAt AS timestamptz)) ON CONFLICT (user_id) DO NOTHING",
             nativeQuery = true)
     int insertIfAbsent(@Param("userId") UUID userId, @Param("eventId") UUID eventId,

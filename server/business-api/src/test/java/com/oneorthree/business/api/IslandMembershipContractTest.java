@@ -117,6 +117,9 @@ class IslandMembershipContractTest extends UpstreamTestBase {
         assertThat(introWith("{not json")).doesNotContain("anonId");
         assertThat(introWith("{\"meta\":{\"anonId\":\"a\",\"advertiserTrackingEnabled\":true,\"extinfo\":"
                 + EXT.replace("\"17.5.1\"", "\"\"") + "}}")).doesNotContain("anonId");
+        // NUL 같은 제어 문자는 Data 의 jsonb 저장을 깨 도착까지 되돌리므로 meta 째 버린다.
+        assertThat(introWith("{\"meta\":{\"anonId\":\"a\",\"advertiserTrackingEnabled\":true,\"extinfo\":"
+                + EXT.replace("\"Asia/Seoul\"", "\"Asia\\u0000Seoul\"") + "}}")).doesNotContain("anonId");
     }
 
     @Test

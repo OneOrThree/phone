@@ -39,7 +39,9 @@ final class IntroArrivalMetas {
             }
             List<String> extinfo = new ArrayList<>(16);
             for (JsonNode item : ext) {
-                if (!item.isString() || item.asString().length() > 128) {
+                // 제어 문자(특히 NUL)는 Data 의 jsonb 저장에서 실패해 도착까지 되돌리므로 버린다.
+                if (!item.isString() || item.asString().length() > 128
+                        || item.asString().chars().anyMatch(c -> c < 0x20)) {
                     return rejected();
                 }
                 extinfo.add(item.asString());
