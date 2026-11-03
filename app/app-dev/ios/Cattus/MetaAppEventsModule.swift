@@ -49,6 +49,23 @@ final class MetaAppEventsModule: NSObject {
     }
   }
 
+  /// 첫 항해 도착 요청에 실어 서버(CAPI)가 사용자를 매칭하는 값(GROMO-2742). SDK 시작 전·개발 빌드는 null.
+  @objc(metaContext:rejecter:)
+  func metaContext(
+    _ resolve: @escaping RCTPromiseResolveBlock,
+    rejecter reject: @escaping RCTPromiseRejectBlock
+  ) {
+    guard started, !Self.isDevelopmentBuild else {
+      resolve(nil)
+      return
+    }
+    let context: [String: Any] = [
+      "anonId": AppEvents.shared.anonymousID,
+      "advertiserTrackingEnabled": ATTrackingManager.trackingAuthorizationStatus == .authorized,
+    ]
+    resolve(context)
+  }
+
   private func configure(_ status: ATTrackingManager.AuthorizationStatus) {
     let granted = status == .authorized
     Settings.shared.isAdvertiserTrackingEnabled = granted

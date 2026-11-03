@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { request, uuid } from '@/services/api/client';
+import { metaContext } from '@/services/metaSdk';
 import { sessionGeneration } from '@/services/api/session';
 import type { Arrival, TelescopeItem } from '@/services/api/telescope';
 
@@ -42,13 +43,21 @@ export function clearFirstVoyageIntent(owner: string) {
 }
 
 /** 실제 집중을 생성하지 않는다. 서버 receipt가 무인도 생성·도착의 응답 유실 재시도를 처리한다. */
-export function arriveFirstVoyage(
+export async function arriveFirstVoyage(
   intent: FirstVoyageIntent,
   generation = sessionGeneration(),
 ): Promise<Arrival> {
+  // 서버가 Meta로 첫 도착 이벤트를 보낼 매칭 값(GROMO-2742). 실패·지연이 도착을 막지 않게 1초로 끊는다.
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const meta = await Promise.race([
+    metaContext().catch(() => undefined),
+    new Promise<undefined>((resolve) => (timer = setTimeout(() => resolve(undefined), 1000))),
+  ]);
+  clearTimeout(timer);
   return request(`/islands/${encodeURIComponent(intent.destination.islandId)}/intro-arrivals`, {
     method: 'POST',
     idempotencyKey: intent.key,
     generation,
+    ...(meta ? { body: { meta } } : {}),
   });
 }
