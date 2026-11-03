@@ -5,7 +5,6 @@
 // `{ TileTerrainCanvas: () => null }` 로 얕게 mock 해도 영향이 없다 — 그 테스트가 mock 하는 건 이
 // 모듈이 아니라 TileTerrainCanvas 뿐이다(그래서 매 렌더 무조건 불러야 하는 WorldMap 쪽 판정을 예전엔
 // './TileTerrainCanvas' 에서 못 가져오고 복제해야 했다 — 이제 여기서 가져온다).
-import type { NavServerDebug } from './TileTerrainCanvas';
 
 /** 보정 깜빡임 창 길이(ms) — 이 창 안에서만 캔버스 원이 CORRECTION_TICK_MS 로 돈다. */
 export const CORRECTION_WINDOW_MS = 500;
@@ -41,6 +40,8 @@ export function correctionBlinkVisible(correctedAt: number | null, now: number):
  * 50ms(CORRECTION_TICK_MS)는 캔버스 원 자신의 타이머 몫이다 — readout 은 틱 지연 숫자만 그리므로
  * 50ms 로 더 자주 갈 필요가 없고, 보정 한 번당 10회 더 돌던 재렌더가 사라진다(GROMO-2249 보완9 항목 1).
  */
-export function debugClockPeriod(server: NavServerDebug | null | undefined): number | null {
+export function debugClockPeriod<T extends { status: string }>(
+  server: T | null | undefined,
+): number | null {
   return server?.status === 'live' ? 500 : null;
 }

@@ -1,0 +1,38 @@
+[
+  {
+    "stage": "baseline",
+    "file": "src/App.clock.test.tsx",
+    "beforeSha256": "4a042166b3d5024f7a44e77fefb0b34079c530e8799bcbdb5cb3c5a2822e3a81",
+    "instrumentedSha256": "4621c6573558f24a889e9d046c854bca6722bd432e52db00ecc56d95b7b5dbb6"
+  },
+  {
+    "stage": "baseline",
+    "file": "src/screens/island/WorldMap.renderCount.test.tsx",
+    "beforeSha256": "36f7abfd6bd8eb68dead14586a595368a017e48592f9881daa9a0c46ff8829cb",
+    "instrumentedSha256": "7e09bf9a7fcb95d04b1d399f7e59346e9c973b78d93884902483ce49b0e6938f"
+  },
+  {
+    "stage": "baseline",
+    "file": "src/screens/focus/FishingIsland.renderCount.test.tsx",
+    "beforeSha256": "c59c44c30ab69d17736b48a0265495a26e3a1edb2bc05ad584a1bf383ca3b21a",
+    "instrumentedSha256": "a8ab749702714c85c782de5d80b061712c0447e7d4a029dbfdd2ab98406a7be6"
+  },
+  {
+    "stage": "after",
+    "file": "src/App.clock.test.tsx",
+    "beforeSha256": "4a042166b3d5024f7a44e77fefb0b34079c530e8799bcbdb5cb3c5a2822e3a81",
+    "instrumentedSha256": "4621c6573558f24a889e9d046c854bca6722bd432e52db00ecc56d95b7b5dbb6"
+  },
+  {
+    "stage": "after",
+    "file": "src/screens/island/WorldMap.renderCount.test.tsx",
+    "beforeSha256": "36f7abfd6bd8eb68dead14586a595368a017e48592f9881daa9a0c46ff8829cb",
+    "instrumentedSha256": "7e09bf9a7fcb95d04b1d399f7e59346e9c973b78d93884902483ce49b0e6938f"
+  },
+  {
+    "stage": "after",
+    "file": "src/screens/focus/FishingIsland.renderCount.test.tsx",
+    "beforeSha256": "c59c44c30ab69d17736b48a0265495a26e3a1edb2bc05ad584a1bf383ca3b21a",
+    "instrumentedSha256": "a8ab749702714c85c782de5d80b061712c0447e7d4a029dbfdd2ab98406a7be6"
+  }
+]

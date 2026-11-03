@@ -1,60 +1,61 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { BackHandler, Image, Platform, Pressable, ScrollView, TextInput, View } from 'react-native';
-import Svg, { Path } from 'react-native-svg';
-import { isMockMode } from '@/services/demoMode';
-import { art, CharCount, NavBtn, Wheel } from '@/design-system/patterns';
-import { componentTokens, semanticTokens } from '@/design-system/tokens';
 import { CatAvatar } from '@/components/CatAvatar';
 import { appearanceOutfit, outfitOf, type Outfit } from '@/components/CatOutfitLayers';
-import { useAppLayout } from '@/utils/layout';
-import {
-  State,
-  Building,
-  viewIsland,
-  buildingNames,
-  costs,
-  buildMinutes,
-  balance,
-  buildingShare,
-  collectedBy,
-  isHost,
-  isFull,
-  residentCount,
-  capacityOf,
-  shopPrerequisitesMet,
-  inviteCodeOf,
-  joinRequests,
-  ledgerParts,
-  canSelectBuilding,
-  dayKey,
-  kstMonthDay,
-  CAPACITY_MAX,
-  CAPACITY_MIN,
-} from '@/services/model';
-import { BROWN, T, fill, hm, safeOffset, useGowun, web } from '@/screens/island/sceneKit';
-import {
-  useLedgerScreen,
-  shiftMonth,
-  type LedgerScreenState,
-  type LedgerTab,
-} from '@/screens/island/useLedgerScreen';
-import { useConstruction } from '@/screens/island/useConstruction';
+import { CharCount, NavBtn, Wheel, art } from '@/design-system/patterns';
+import { componentTokens, semanticTokens } from '@/design-system/tokens';
+import { t } from '@/i18n';
+import type { ScreenProps } from '@/navigation/ScreenEnvironment';
 import {
   managementErrorMessage,
   useIslandManagement,
 } from '@/screens/interiors/useIslandManagement';
-import { getSession, sessionGeneration } from '@/services/api/session';
-import { captureProductEvent } from '@/services/posthog';
-import { t } from '@/i18n';
-import { useVisitorJoin } from '@/screens/island/useVisitorJoin';
+import { BROWN, T, fill, hm, safeOffset, useGowun, web } from '@/screens/island/sceneKit';
+import { useConstruction } from '@/screens/island/useConstruction';
 import { useInviteShare } from '@/screens/island/useInviteShare';
+import {
+  shiftMonth,
+  useLedgerScreen,
+  type LedgerScreenState,
+  type LedgerTab,
+} from '@/screens/island/useLedgerScreen';
+import { useVisitorJoin } from '@/screens/island/useVisitorJoin';
 import { useIslandNews } from '@/screens/magazine/useIslandNews';
 import {
   ISLAND_GREETING_MAX,
   ISLAND_INTRO_MAX,
   ISLAND_NAME_MAX,
 } from '@/services/api/islandManagement';
+import { getSession, sessionGeneration } from '@/services/api/session';
+import { isMockMode } from '@/services/demoMode';
+import type { Route } from '@/services/model';
+import {
+  Building,
+  CAPACITY_MAX,
+  CAPACITY_MIN,
+  State,
+  balance,
+  buildMinutes,
+  buildingNames,
+  buildingShare,
+  canSelectBuilding,
+  capacityOf,
+  collectedBy,
+  costs,
+  dayKey,
+  isFull,
+  isHost,
+  joinRequests,
+  kstMonthDay,
+  ledgerParts,
+  residentCount,
+  shopPrerequisitesMet,
+  viewIsland,
+} from '@/services/model';
+import { captureProductEvent } from '@/services/posthog';
 import { clampCodePoints } from '@/utils/codePoints';
+import { useAppLayout } from '@/utils/layout';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { BackHandler, Image, Pressable, ScrollView, TextInput, View } from 'react-native';
+import Svg, { Path } from 'react-native-svg';
 
 // v2 시안(042~061) 마을회관: 책상 장면 → 섬 정보 카드·수정·위임·탈퇴 / 공동 가계부 / 목각 건물·청사진
 // App.tsx 의 REVIEW/DEMO 와 같은 판정(services/demoMode) — 모크 모드는 서버가 없으므로 가계부도 로컬 원장으로 그린다.
@@ -147,7 +148,7 @@ export const buildBlockedText = (reason: string | null) =>
       : reason === 'IN_PROGRESS'
         ? '다른 공사가 끝난 뒤에 지을 수 있어요'
         : '지금은 건설할 수 없어요';
-const bldRoute: Record<string, string> = {
+const bldRoute: Record<string, Route> = {
   library: 'library',
   tower: 'tower',
   mail: 'mail',
@@ -198,7 +199,7 @@ function Avatar({ color, outfit, userId, n, size }: any) {
   );
 }
 
-export function Hall({ e }: any) {
+export function Hall({ e }: ScreenProps) {
   const font = useGowun();
   const s: State = e.state,
     i = viewIsland(s),
@@ -603,19 +604,19 @@ export function Hall({ e }: any) {
     const spots = [
       {
         label: '섬 관리',
-        route: 'manage',
+        route: 'manage' as const,
         on: true,
         box: land ? [309.4, 85.8, 255.1, 236] : [116, 375.8, 170.1, 157.3],
       },
       {
         label: '목각 건물 고르기',
-        route: 'construction',
+        route: 'construction' as const,
         on: false,
         box: land ? [337, 5, 200, 100] : [85, 270.9, 231.9, 131.1],
       },
       {
         label: '공동 가계부',
-        route: 'ledger',
+        route: 'ledger' as const,
         on: false,
         box: land ? [529.7, 243, 156.5, 196.7] : [262.9, 480.7, 104.4, 131.1],
       },
@@ -2101,7 +2102,9 @@ export function Hall({ e }: any) {
         danger: true,
         onOk: () =>
           void runManagement(async () => {
-            const my = await e.islands.leave(liveIslandId);
+            const commands = e.islands;
+            if (!commands || !liveIslandId) return;
+            const my = await commands.leave(liveIslandId);
             // 재조회한 current 가 응답보다 최신이라 먼저 본다 — 다른 섬이 current 면 홈. current 가 비고 서버가
             // 먼바다라고 했으면 바다로(GROMO-2366), 다음 위치를 모르면(구 응답) App 이 보낸다.
             if (my.currentIslandId) e.home();

@@ -1,14 +1,14 @@
+import { createPreviewEnvironment } from '@/navigation/previewEnvironment';
 // 고양이 잡지 펼치기(GROMO-2289 · A1~A4) — 첫 장 편집부(메달·NEW·편집냥) · 다음 장부터 3칸씩 · 끝 쪽 근처에서 다음 커서 ·
 // 섬에서 펼치면 망원경 동그라미 없음(우리 섬 배지만) · 펼치면 읽음 받음 · 빈 호 · 섬장 끝 쪽 안내(쓰기는 마을회관) · 7호 밖 · 크게 보기.
 // 서버 API(magazine.ts)는 목이다.
-import React from 'react';
-import { act, fireEvent, render, waitFor, within } from '@testing-library/react-native';
 import { applyLocalePref } from '@/i18n';
 import { ApiError } from '@/services/api/client';
+import type { MagazineCell, MagazineIssuePage } from '@/services/api/magazine';
 import * as api from '@/services/api/magazine';
 import { pinToTelescope } from '@/services/api/telescope';
-import type { MagazineCell, MagazineIssuePage } from '@/services/api/magazine';
 import { initialState } from '@/services/model';
+import { act, fireEvent, render, waitFor, within } from '@testing-library/react-native';
 import { FlatList, StyleSheet } from 'react-native';
 import { MagazineReader, issueBleed, magazinePages, readerGeometry } from './MagazineReader';
 import { resetMagazineToday } from './useMagazineToday';
@@ -103,7 +103,7 @@ async function open(
 ) {
   getIssue.mockResolvedValueOnce(first);
   more.forEach((next) => getIssue.mockResolvedValueOnce(next));
-  const screen = await render(<MagazineReader e={e} host={host} />);
+  const screen = await render(<MagazineReader e={createPreviewEnvironment(e)} host={host} />);
   await waitFor(() => expect(screen.getByTestId('magazine-pages')).toBeTruthy());
   return { screen, e };
 }
@@ -194,7 +194,7 @@ test('이어 읽기가 실패하면 같은 쪽에서는 다시 부르지 않고,
   getIssue
     .mockResolvedValueOnce(page({ cells: [cell(1), cell(2), cell(3)], nextCursor: 'c1' }))
     .mockRejectedValueOnce(new ApiError('NETWORK', '오프라인', 0));
-  const screen = await render(<MagazineReader e={env()} />);
+  const screen = await render(<MagazineReader e={createPreviewEnvironment(env())} />);
   await waitFor(() => expect(getIssue).toHaveBeenCalledTimes(2));
   await act(async () => {});
   expect(getIssue).toHaveBeenCalledTimes(2);
@@ -209,7 +209,7 @@ test('끝 쪽에서 이어 읽기가 실패하면 쪽 번호 자리에 「더 �
     .mockResolvedValueOnce(page({ cells: [cell(1), cell(2), cell(3)], nextCursor: 'c1' }))
     .mockRejectedValueOnce(new ApiError('NETWORK', '오프라인', 0))
     .mockResolvedValueOnce(page({ editorial: null, cells: [cell(4)], nextCursor: null }));
-  const screen = await render(<MagazineReader e={env()} />);
+  const screen = await render(<MagazineReader e={createPreviewEnvironment(env())} />);
   await waitFor(() => expect(screen.getByTestId('magazine-more-retry')).toBeTruthy());
   expect(screen.getByText('더 불러오지 못했어요 · 다시')).toBeTruthy();
   await fireEvent.press(screen.getByTestId('magazine-more-retry'));
@@ -221,7 +221,7 @@ test('이어 읽는 중에는 쪽 번호를 「N쪽 넘게 중」으로 읽는�
   getIssue
     .mockResolvedValueOnce(page({ cells: [cell(1), cell(2), cell(3)], nextCursor: 'c1' }))
     .mockReturnValueOnce(new Promise(() => {})); // 다음 칸은 아직 오는 중
-  const screen = await render(<MagazineReader e={env()} />);
+  const screen = await render(<MagazineReader e={createPreviewEnvironment(env())} />);
   await waitFor(() => expect(screen.getByText('1 / 2+')).toBeTruthy());
   await waitFor(() => expect(getIssue).toHaveBeenCalledTimes(2));
   expect(screen.getByTestId('magazine-page').props.accessibilityLabel).toBe('2쪽 넘게 중 1쪽');
@@ -251,7 +251,7 @@ test('회전으로 쪽 폭이 바뀌면 보던 쪽 위치로 다시 맞춘다', 
     await fireEvent.press(screen.getByTestId('magazine-next'));
     scroll.mockClear();
     mockScreen = { width: 874, height: 402 };
-    await screen.rerender(<MagazineReader e={env()} />);
+    await screen.rerender(<MagazineReader e={createPreviewEnvironment(env())} />);
     const { innerW } = readerGeometry({
       width: 874,
       height: 402,
@@ -305,7 +305,7 @@ test('섬장에게만 끝 쪽 「우리 섬도 실어 볼까요?」 — 쓰기 �
 test('7호보다 오래된 호는 「이 호는 이제 볼 수 없어요」 · 닫기', async () => {
   getIssue.mockRejectedValueOnce(new ApiError('MAGAZINE_ISSUE_NOT_FOUND', '없음', 404));
   const e = env({ detail: 'old' });
-  const screen = await render(<MagazineReader e={e} />);
+  const screen = await render(<MagazineReader e={createPreviewEnvironment(e)} />);
   await waitFor(() => expect(screen.getByText('이 호는 이제 볼 수 없어요')).toBeTruthy());
   await fireEvent.press(screen.getByText('확인'));
   expect(e.back).toHaveBeenCalled();
@@ -314,7 +314,7 @@ test('7호보다 오래된 호는 「이 호는 이제 볼 수 없어요」 · �
 
 test('다른 오류는 다시 시도로 다시 읽는다', async () => {
   getIssue.mockRejectedValueOnce(new ApiError('NETWORK', '오프라인', 0));
-  const screen = await render(<MagazineReader e={env()} />);
+  const screen = await render(<MagazineReader e={createPreviewEnvironment(env())} />);
   await waitFor(() => expect(screen.getByText('잡지를 펼치지 못했어요')).toBeTruthy());
   getIssue.mockResolvedValueOnce(page());
   await fireEvent.press(screen.getByTestId('magazine-retry'));
@@ -438,7 +438,7 @@ describe('바다에서 펼친 잡지(GROMO-2314 · A2)', () => {
   const seaEnv = () => ({ ...env(), notify: jest.fn(), replace: jest.fn() });
   async function openSea(first: MagazineIssuePage, e = seaEnv()) {
     getIssue.mockResolvedValueOnce(first);
-    const screen = await render(<MagazineReader e={e} place="SEA" />);
+    const screen = await render(<MagazineReader e={createPreviewEnvironment(e)} place="SEA" />);
     await waitFor(() => expect(screen.getByTestId('magazine-pages')).toBeTruthy());
     return { screen, e };
   }

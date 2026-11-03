@@ -1,0 +1,214 @@
+{
+  "ios": {
+    "method": "Maestro command start through target assertion completion; includes automation settling and intentional motion; not first-frame latency",
+    "runs": [
+      {
+        "scenario": "home",
+        "seconds": 6.265,
+        "status": "COMPLETED"
+      },
+      {
+        "scenario": "shop",
+        "seconds": 9.874,
+        "status": "COMPLETED"
+      },
+      {
+        "scenario": "focusArrival",
+        "seconds": 6.365,
+        "status": "COMPLETED"
+      },
+      {
+        "scenario": "sea",
+        "seconds": 5.539,
+        "status": "COMPLETED"
+      },
+      {
+        "scenario": "home",
+        "seconds": 4.776,
+        "status": "COMPLETED"
+      },
+      {
+        "scenario": "shop",
+        "seconds": 8.251,
+        "status": "COMPLETED"
+      },
+      {
+        "scenario": "focusArrival",
+        "seconds": 6.673,
+        "status": "COMPLETED"
+      },
+      {
+        "scenario": "sea",
+        "seconds": 5.595,
+        "status": "COMPLETED"
+      },
+      {
+        "scenario": "home",
+        "seconds": 5.741,
+        "status": "COMPLETED"
+      },
+      {
+        "scenario": "shop",
+        "seconds": 10.356,
+        "status": "COMPLETED"
+      },
+      {
+        "scenario": "focusArrival",
+        "seconds": 9.468,
+        "status": "COMPLETED"
+      },
+      {
+        "scenario": "sea",
+        "seconds": 5.13,
+        "status": "COMPLETED"
+      },
+      {
+        "scenario": "home",
+        "seconds": 5.046,
+        "status": "COMPLETED"
+      },
+      {
+        "scenario": "shop",
+        "seconds": 8.576,
+        "status": "COMPLETED"
+      },
+      {
+        "scenario": "focusArrival",
+        "seconds": 7.28,
+        "status": "COMPLETED"
+      },
+      {
+        "scenario": "sea",
+        "seconds": 5.52,
+        "status": "COMPLETED"
+      },
+      {
+        "scenario": "home",
+        "seconds": 5.152,
+        "status": "COMPLETED"
+      },
+      {
+        "scenario": "shop",
+        "seconds": 9.283,
+        "status": "COMPLETED"
+      },
+      {
+        "scenario": "focusArrival",
+        "seconds": 9.226,
+        "status": "COMPLETED"
+      },
+      {
+        "scenario": "sea",
+        "seconds": 5.133,
+        "status": "COMPLETED"
+      }
+    ],
+    "allCommandsCompleted": true
+  },
+  "android": {
+    "method": "Maestro command start through target assertion completion; includes automation settling and intentional motion; not first-frame latency",
+    "runs": [
+      {
+        "scenario": "home",
+        "seconds": 3.102,
+        "status": "COMPLETED"
+      },
+      {
+        "scenario": "shop",
+        "seconds": 16.893,
+        "status": "COMPLETED"
+      },
+      {
+        "scenario": "focusArrival",
+        "seconds": 21.739,
+        "status": "COMPLETED"
+      },
+      {
+        "scenario": "sea",
+        "seconds": 6.542,
+        "status": "COMPLETED"
+      },
+      {
+        "scenario": "home",
+        "seconds": 2.787,
+        "status": "COMPLETED"
+      },
+      {
+        "scenario": "shop",
+        "seconds": 8.773,
+        "status": "COMPLETED"
+      },
+      {
+        "scenario": "focusArrival",
+        "seconds": 26.563,
+        "status": "COMPLETED"
+      },
+      {
+        "scenario": "sea",
+        "seconds": 6.845,
+        "status": "COMPLETED"
+      },
+      {
+        "scenario": "home",
+        "seconds": 2.855,
+        "status": "COMPLETED"
+      },
+      {
+        "scenario": "shop",
+        "seconds": 17.466,
+        "status": "COMPLETED"
+      },
+      {
+        "scenario": "focusArrival",
+        "seconds": 28.806,
+        "status": "COMPLETED"
+      },
+      {
+        "scenario": "sea",
+        "seconds": 6.896,
+        "status": "COMPLETED"
+      },
+      {
+        "scenario": "home",
+        "seconds": 3.272,
+        "status": "COMPLETED"
+      },
+      {
+        "scenario": "shop",
+        "seconds": 16.077,
+        "status": "COMPLETED"
+      },
+      {
+        "scenario": "focusArrival",
+        "seconds": 24.775,
+        "status": "COMPLETED"
+      },
+      {
+        "scenario": "sea",
+        "seconds": 6.802,
+        "status": "COMPLETED"
+      },
+      {
+        "scenario": "home",
+        "seconds": 2.702,
+        "status": "COMPLETED"
+      },
+      {
+        "scenario": "shop",
+        "seconds": 16.129,
+        "status": "COMPLETED"
+      },
+      {
+        "scenario": "focusArrival",
+        "seconds": 22.27,
+        "status": "COMPLETED"
+      },
+      {
+        "scenario": "sea",
+        "seconds": 6.928,
+        "status": "COMPLETED"
+      }
+    ],
+    "allCommandsCompleted": true
+  }
+}

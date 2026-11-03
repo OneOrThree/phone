@@ -1,18 +1,19 @@
-import React, { useEffect, useState } from 'react';
-import { Modal, View } from 'react-native';
 import { Btn, Overlay, Txt } from '@/design-system/patterns';
 import { semanticTokens } from '@/design-system/tokens';
-import { RaftDestinationScene } from './RaftDestinationScene';
 import { t } from '@/i18n';
 import { islandTitle } from '@/i18n/format';
+import type { ScreenEnvironment } from '@/navigation/ScreenEnvironment';
 import { SheetGroup, SheetRow } from '@/screens/island/IslandSheet';
 import { useIslandSailing } from '@/screens/island/useIslandSailing';
 import { confirmLeaveVisit, useVisitorJoin } from '@/screens/island/useVisitorJoin';
 import { SeaDeparture } from '@/screens/sea/SeaDeparture';
 import { currentIsland, serverVisit, viewIsland, type State } from '@/services/model';
+import { useEffect, useState } from 'react';
+import { Modal, View } from 'react-native';
+import { RaftDestinationScene } from './RaftDestinationScene';
 
 /** 뗏목 이동 화면 — 바다와 집중섬, 가 본 소속 섬으로 이어진다. */
-export function RaftDestinations({ e }: { e: any }) {
+export function RaftDestinations({ e }: { e: ScreenEnvironment }) {
   const s: State = e.state;
   const visiting = !!s.visitingIslandId;
   const [membersOpen, setMembersOpen] = useState(false);

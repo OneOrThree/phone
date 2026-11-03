@@ -1,12 +1,12 @@
-import React from 'react';
+import { CatSprite } from '@/components/CatSprite';
+import { NavBtn, art } from '@/design-system/patterns';
+import { semanticTokens } from '@/design-system/tokens';
+import type { ScreenProps } from '@/navigation/ScreenEnvironment';
+import { T, fill, safeOffset, useGowun, web } from '@/screens/island/sceneKit';
+import { State } from '@/services/model';
+import { useAppLayout } from '@/utils/layout';
 import { Image, Platform, Pressable, View } from 'react-native';
 import Svg, { Circle, Ellipse, G, Polygon } from 'react-native-svg';
-import { art, NavBtn } from '@/design-system/patterns';
-import { semanticTokens } from '@/design-system/tokens';
-import { useAppLayout } from '@/utils/layout';
-import { CatSprite } from '@/components/CatSprite';
-import { State } from '@/services/model';
-import { T, fill, safeOffset, useGowun, web } from '@/screens/island/sceneKit';
 import { Diary } from './library/Diary';
 
 function Flower({ outline }: { outline: boolean }) {
@@ -134,24 +134,8 @@ function Cover({ nb, x, y, w, h, land, font, onPress }: any) {
     </Pressable>
   );
 }
-function Round({ title, glyph, onPress, disabled, size, style, testID }: any) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={title}
-      accessibilityState={{ disabled }}
-      disabled={disabled}
-      testID={testID}
-      hitSlop={8}
-      onPress={onPress}
-      style={style}
-    >
-      <T style={{ fontSize: size, fontWeight: '800', lineHeight: size * 1.45 }}>{glyph}</T>
-    </Pressable>
-  );
-}
 
-export function Library({ e }: any) {
+export function Library({ e }: ScreenProps) {
   const font = useGowun();
   const L = useAppLayout(),
     off = safeOffset(L),

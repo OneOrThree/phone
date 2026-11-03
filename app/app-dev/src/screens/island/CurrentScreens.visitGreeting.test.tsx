@@ -1,9 +1,10 @@
+import { createPreviewEnvironment } from '@/navigation/previewEnvironment';
 // 방문자 화면(GROMO-2263): 섬장 인사말 말풍선은 방문마다 한 번만 뜬다.
-import React, { useReducer } from 'react';
-import { act, fireEvent, isHiddenFromAccessibility, render } from '@testing-library/react-native';
 import { CurrentScreens } from '@/screens/island/CurrentScreens';
-import { initialState, reducer, type State } from '@/services/model';
 import { clearSession, saveSession } from '@/services/api/session';
+import { initialState, reducer, type State } from '@/services/model';
+import { act, fireEvent, isHiddenFromAccessibility, render } from '@testing-library/react-native';
+import { useReducer } from 'react';
 
 jest.mock('@/screens/focus/useIslandPresence', () => ({
   catColor: (color: string) => color,
@@ -90,7 +91,7 @@ function Harness({ initial, mounts = 0 }: { initial: State; mounts?: number }) {
   return (
     <CurrentScreens
       key={mounts}
-      e={{
+      e={createPreviewEnvironment({
         state,
         route: 'visitIsland',
         detail: 'v1',
@@ -107,7 +108,7 @@ function Harness({ initial, mounts = 0 }: { initial: State; mounts?: number }) {
         text: '',
         setText: jest.fn(),
         islands: { join: jest.fn(), cancel: jest.fn() },
-      }}
+      })}
     />
   );
 }

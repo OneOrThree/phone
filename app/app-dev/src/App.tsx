@@ -1,130 +1,46 @@
-import { getAssetRepository } from '@/services/assets/repository';
-import { useFocusTutorialViewed } from '@/hooks/useFocusTutorialViewed';
-import { syncAndroidMeasurement, syncAndroidFocus } from '@/services/androidScreenTime';
-import { startLiveActivityPushSync } from '@/services/liveActivityPush';
-import { updateIOSHomeWidget } from '@/services/iosHomeWidget';
-import { shouldReportShieldFailure, syncFocusShield } from '@/services/focusShield';
+import { DEEP_LINK_HOLD_ROUTES, NO_ISLAND_ROUTES, SEA_HUD_ROUTES, titles } from '@/app/routePolicy';
+import { useIslandAudio } from '@/app/useIslandAudio';
+import { useFocusShieldSync, useScreenTimeSync } from '@/app/useScreenTimeSync';
+import { PolicyLinks } from '@/components/PolicyLink';
+import { RouteTransitionShield } from '@/components/RouteTransitionShield';
+import { bundledAudioSource } from '@/constants/audio';
+import { Btn as NativeButton, Txt as NativeText, Overlay } from '@/design-system/patterns';
+import { C, MotionContext, S, T } from '@/design-system/primitives';
+import { primitiveTokens, semanticTokens } from '@/design-system/tokens';
 import { Text } from '@/design-system/typography';
+import { useFocusTutorialViewed } from '@/hooks/useFocusTutorialViewed';
+import { useSoundPlayer } from '@/hooks/useSoundPlayer';
+import { useSystemReduceMotion } from '@/hooks/useSystemReduceMotion';
+import {
+  LEGACY_LOCALE_KEY,
+  LOCALE_KEY,
+  applyLocalePref,
+  errorTextOr,
+  t,
+  type LocalePref,
+} from '@/i18n';
+import { BuildingTransitionOverlay } from '@/screens/island/BuildingTransitionOverlay';
+import { CurrentScreens as RedesignScreens } from '@/screens/island/CurrentScreens';
 import { useGowunFont } from '@/screens/island/sceneKit';
-import { useAppLayout } from '@/utils/layout';
-import { useRouteOrientation } from '@/utils/orientation';
+import { useBuildingIndicators } from '@/screens/island/useBuildingIndicators';
+import { useIslandPlayback } from '@/screens/island/useIslandPlayback';
 import { DeveloperLetter } from '@/screens/letter/DeveloperLetter';
 import { useDeveloperLetter } from '@/screens/letter/useDeveloperLetter';
 import { useForceUpdateLetter } from '@/screens/letter/useForceUpdateLetter';
-import { isLetterReady, STORE_URLS, visibleAt } from '@/services/developerLetter';
-import { Btn as NativeButton, Overlay, Txt as NativeText } from '@/design-system/patterns';
-import {
-  CurrentScreens as RedesignScreens,
-  FocusBlockingIntro,
-} from '@/screens/island/CurrentScreens';
-import React, { useState, useReducer, useEffect, useMemo, useRef } from 'react';
-import {
-  View,
-  ScrollView,
-  Image,
-  ImageBackground,
-  Pressable,
-  Switch,
-  Modal,
-  Animated,
-  BackHandler,
-  Platform,
-  ActivityIndicator,
-  AppState,
-  KeyboardAvoidingView,
-  Keyboard,
-  Share,
-  AccessibilityInfo,
-  FlatList,
-  Linking,
-} from 'react-native';
-import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { StatusBar } from 'expo-status-bar';
-import { useSoundPlayer } from '@/hooks/useSoundPlayer';
-import { useIslandPlayback } from '@/screens/island/useIslandPlayback';
-import { useBuildingIndicators } from '@/screens/island/useBuildingIndicators';
-import { bundledAudioSource } from '@/constants/audio';
-import { screenTime } from '@/services/screenTime';
-import {
-  endLiveActivities,
-  shouldPollExpiredRest,
-  shouldReconcileExpiredRest,
-  syncLiveActivity,
-} from '@/services/liveActivity';
-import { shouldGateFocusBlockingIntro, shouldGateScreenTimeBoard } from '@/services/screenTimeFlow';
+import { FocusBlockingIntro } from '@/screens/permissions/FocusBlockingIntro';
+import { PostHogAnalyticsProvider } from '@/services/PostHogAnalyticsProvider';
 import { saveAccountGuides } from '@/services/accountGuides';
-import { reconcileTutorial } from '@/services/tutorial';
-import { syncIOSScreenTime } from '@/services/iosScreenTimeSync';
-import { reportScreenTime, subscribeScreenTimeReporting } from '@/services/screenTimeReporting';
-import { clearStudyWidget } from '@/services/studyWidget';
-import { settleWithdrawalIntent } from '@/services/withdrawalIntent';
-import * as Haptics from 'expo-haptics';
-import Svg, { Path } from 'react-native-svg';
+import { markActivationStage, markLoginViewed } from '@/services/activationJourney';
 import {
-  C,
-  S,
-  T,
-  H,
-  Card,
-  Button,
-  Avatar,
-  Field,
-  Progress,
-  Art,
-  Menu,
-  Tabs,
-  MotionContext,
-  useScreenInsets,
-} from '@/design-system/primitives';
-import { primitiveTokens, semanticTokens } from '@/design-system/tokens';
-import { assets, cat } from '@/constants/assets';
-import { Flag, BoatPortrait, IslandDecor, IslandPreview } from '@/screens/cosmetics/Cosmetics';
-import { IslandDiscovery } from '@/screens/discovery/IslandDiscovery';
-import { FocusSea, clock } from '@/screens/focus/FocusSea';
-import {
-  initialState,
-  demoState,
-  reducer,
-  displayIsland as currentIsland,
-  viewIsland,
-  serverHome,
-  sessionSeconds,
-  questRate,
-  canBuild,
-  canBuy,
-  products,
-  costs,
-  buildMinutes,
-  buildingCost,
-  buildingNames,
-  buildingOrder,
-  colors,
-  State,
-  Route,
-  Building,
-  Quest,
-  Member,
-  dayKey,
-  seaRouteHeld,
-  visitRouteHeld,
-  sessionRoute,
-  tickIdle,
-} from '@/services/model';
-import {
+  login as apiLogin,
   checkSession,
   guestLogin,
-  login as apiLogin,
   logout,
   prepareLogout,
   type Account,
   type LoginResult,
   type Provider,
 } from '@/services/api/auth';
-import { loginProviders } from '@/services/loginProviders';
-import { TERMS_VERSION } from '@/services/termsVersion';
-import { PolicyLinks } from '@/components/PolicyLink';
-import { isSocialLoginCancellation, socialCredential } from '@/services/socialLogin';
 import {
   ApiError,
   CLIENT_NETWORK_ERROR,
@@ -132,50 +48,70 @@ import {
   CLIENT_TIMEOUT,
   uuid,
 } from '@/services/api/client';
-import { type HomeSnapshot, loadHomeSnapshot } from '@/services/homeSnapshot';
 import {
   getLastSessionUserId,
-  isLocalDataOwnerUnknown,
   getSession,
+  isLocalDataOwnerUnknown,
   rememberLocalDataOwner,
   restoreSession,
-  setSessionLostHandler,
   sessionGeneration,
+  setSessionLostHandler,
   subscribeSession,
 } from '@/services/api/session';
-import { createIslandCommands } from '@/services/islandCommands';
-import { createSessionCommands } from '@/services/sessionCommands';
-import { decideBootRoute } from '@/services/islandBoot';
-import { createShieldedRouteTransition } from '@/services/routeTransition';
 import { parseAppDeepLink, subscribeToAppLinks } from '@/services/appDeepLink';
-import { islandErrorMessage } from '@/services/islandErrors';
+import { getAssetRepository } from '@/services/assets/repository';
 import {
   BUILDING_TRANSITION_DURATION_MS,
   BUILDING_TRANSITION_RETURN_TARGET,
-  createBuildingTransitionController,
   cancelBuildingTransition,
   clearBuildingTransitionRouteCovers,
+  createBuildingTransitionController,
   isBuildingTransitionActive,
   isBuildingTransitionRouteCovered,
   subscribeBuildingTransitionActivity,
   subscribeBuildingTransitionRouteCover,
-  type BuildingTransitionTarget,
   type BuildingTransitionState,
+  type BuildingTransitionTarget,
 } from '@/services/buildingTransition';
-import { BuildingTransitionOverlay } from '@/screens/island/BuildingTransitionOverlay';
-import { RouteTransitionShield } from '@/components/RouteTransitionShield';
-import { adoptSignedInAccount, createMemberConversion } from '@/services/memberConversion';
 import { trackDatadogView } from '@/services/datadog';
-import { PostHogAnalyticsProvider } from '@/services/PostHogAnalyticsProvider';
-import { startSocialAnalytics } from '@/services/socialAnalytics';
-import { markActivationStage, markLoginViewed } from '@/services/activationJourney';
+import { isDemoMode, isReviewMode } from '@/services/demoMode';
+import { STORE_URLS, isLetterReady, visibleAt } from '@/services/developerLetter';
+import { loadHomeSnapshot, type HomeSnapshot } from '@/services/homeSnapshot';
+import { updateIOSHomeWidget } from '@/services/iosHomeWidget';
+import { decideBootRoute } from '@/services/islandBoot';
+import { createIslandCommands } from '@/services/islandCommands';
+import { islandErrorMessage } from '@/services/islandErrors';
+import {
+  endLiveActivities,
+  shouldPollExpiredRest,
+  shouldReconcileExpiredRest,
+  syncLiveActivity,
+} from '@/services/liveActivity';
+import { startLiveActivityPushSync } from '@/services/liveActivityPush';
+import { loginProviders } from '@/services/loginProviders';
+import { adoptSignedInAccount, createMemberConversion } from '@/services/memberConversion';
 import { startMetaTracking } from '@/services/metaSdk';
 import {
-  refreshPush,
-  requestPushPermission,
-  startPushSync,
-  unregisterPushDevice,
-} from '@/services/push';
+  Building,
+  Route,
+  State,
+  buildMinutes,
+  buildingCost,
+  buildingNames,
+  buildingOrder,
+  canBuild,
+  displayIsland as currentIsland,
+  dayKey,
+  demoState,
+  initialState,
+  reducer,
+  seaRouteHeld,
+  serverHome,
+  sessionRoute,
+  tickIdle,
+  viewIsland,
+  visitRouteHeld,
+} from '@/services/model';
 import {
   captureProductEvent,
   identifyPostHogUser,
@@ -183,14 +119,43 @@ import {
   trackPostHogScreen,
 } from '@/services/posthog';
 import {
-  applyLocalePref,
-  errorTextOr,
-  LEGACY_LOCALE_KEY,
-  LOCALE_KEY,
-  t,
-  type LocalePref,
-} from '@/i18n';
-import { isDemoMode, isReviewMode } from '@/services/demoMode';
+  refreshPush,
+  requestPushPermission,
+  startPushSync,
+  unregisterPushDevice,
+} from '@/services/push';
+import { createShieldedRouteTransition } from '@/services/routeTransition';
+import { screenTime } from '@/services/screenTime';
+import { shouldGateFocusBlockingIntro, shouldGateScreenTimeBoard } from '@/services/screenTimeFlow';
+import { createSessionCommands } from '@/services/sessionCommands';
+import { startSocialAnalytics } from '@/services/socialAnalytics';
+import { isSocialLoginCancellation, socialCredential } from '@/services/socialLogin';
+import { clearStudyWidget } from '@/services/studyWidget';
+import { TERMS_VERSION } from '@/services/termsVersion';
+import { reconcileTutorial } from '@/services/tutorial';
+import { settleWithdrawalIntent } from '@/services/withdrawalIntent';
+import { subscribeForegroundClock } from '@/utils/foregroundClock';
+import { useAppLayout } from '@/utils/layout';
+import { useRouteOrientation } from '@/utils/orientation';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Haptics from 'expo-haptics';
+import { StatusBar } from 'expo-status-bar';
+import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import {
+  ActivityIndicator,
+  Animated,
+  AppState,
+  BackHandler,
+  Keyboard,
+  KeyboardAvoidingView,
+  Linking,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  View,
+} from 'react-native';
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 // 판정 정본은 services/demoMode — 회관·게시판·우체통·posthog 도 같은 함수를 본다
 const REVIEW = isReviewMode();
 const DEMO = isDemoMode();
@@ -217,105 +182,6 @@ const SAVE_DELAY_MS = 1000;
 // 채택 도중 세션 세대가 바뀌면(401 정리·다른 로그인) 남은 적용을 버리는 내부 신호. 호출부에는
 // 오류로 드러내지 않는다 — 새 세션의 화면이 이미 자기 흐름을 진행 중이다.
 const STALE_ADOPTION = Symbol('staleAdoption');
-const titles: Record<Route, string> = {
-  login: 'GROMO',
-  character: '내 고양이',
-  createIsland: '새 섬 만들기',
-  joinIsland: '섬 찾기',
-  approval: '가입 승인 대기',
-  arrival: '섬에 도착했어요',
-  home: '우리 섬',
-  guide: '몽돌 안내',
-  focusSetup: '낚시 집중 준비',
-  focus: '함께 낚시 집중',
-  rest: '모닥불',
-  focusResult: '이번 집중 결과',
-  hall: '마을회관',
-  stats: '우리 섬 기록',
-  manage: '섬 관리',
-  members: '함께하는 주민',
-  ledger: '공동 자원 내역',
-  construction: '다음 건물 선택',
-  board: '게시판',
-  notice: '공지',
-  noticeEdit: '공지 작성·수정',
-  quest: '그룹원 달성률',
-  questEdit: '퀘스트 만들기',
-  tower: '전망대',
-  explore: '다른 섬 둘러보기',
-  visit: '바다 건너 섬',
-  visitIsland: '다른 섬 구경',
-  visitIslandFocus: '다른 섬 낚시 구경',
-  travel: '섬 사이 이동',
-  mail: '우리 섬 편지방',
-  shop: '강아지 상점',
-  product: '상품 상세',
-  orders: '구매 내역',
-  boat: '내 배',
-  raft: '뗏목',
-  telescope: '망원경',
-  sea: '먼바다',
-  seaArrival: '먼바다',
-  seaMagazine: '고양이 잡지',
-  promotionEditor: '우리 섬 홍보 쓰기',
-  magazine: '고양이 잡지',
-  mainIsland: '내 메인 섬 변경하기',
-  currentIsland: '현재 섬 변경하기',
-  profile: '내 정보',
-  settings: '앱 설정',
-  language: '언어',
-  blockedUsers: '차단한 사용자',
-  developerNotices: '개발자 공지',
-  developerNotice: '개발자 공지 상세',
-  wardrobe: '내 꾸미기',
-  sound: '꽃나팔 방송기',
-  library: '도서관',
-  diary: '일기장',
-  friends: '친구 관리',
-  friendSearch: '친구 찾기',
-  friendMail: '친구 편지',
-  chat: '우리 섬 편지방',
-  fishingArrival: '낚시섬 도착',
-  focusVisit: '낚시섬 구경',
-  focusTravel: '낚시섬으로',
-  returnTravel: '우리 섬으로',
-  permission: '측정 권한',
-  screenTimeApps: '측정 앱',
-  demo: '목업 체험 도구',
-};
-function Bubble({ text, mine }: { text: string; mine: boolean }) {
-  const [size, setSize] = useState({ w: 240, h: 60 });
-  const w = size.w,
-    h = size.h,
-    r = 17;
-  return (
-    <View
-      onLayout={(e) =>
-        setSize({
-          w: e.nativeEvent.layout.width,
-          h: e.nativeEvent.layout.height,
-        })
-      }
-      style={{ position: 'relative', padding: 13, maxWidth: 260, minWidth: 90 }}
-    >
-      <Svg
-        width={w}
-        height={h}
-        style={{ position: 'absolute', top: 0, left: 0, overflow: 'visible' }}
-      >
-        <Path
-          d={`M -3 0 H ${w - r} Q ${w} 0 ${w} ${r} V ${h - r} Q ${w} ${h} ${w - r} ${h} H ${r} Q 0 ${h} 0 ${h - r} V 10 Q 0 7 -2 5 Q -7 0 -3 0 Z`}
-          transform={mine ? `translate(${w} 0) scale(-1 1)` : undefined}
-          fill={mine ? C.soft : C.paper}
-          stroke={C.brown}
-          strokeWidth={1.3}
-          strokeLinejoin="round"
-        />
-      </Svg>
-      <T>{text}</T>
-    </View>
-  );
-}
 export default function App() {
   // 웹에서 기본 본문 글꼴(고운돋움)을 전역 로드한다. 네이티브는 빈 목록이라 즉시 통과한다(GROMO-2639).
   useGowunFont();
@@ -327,55 +193,16 @@ export default function App() {
     </PostHogAnalyticsProvider>
   );
 }
-// 딥링크를 보관만 하는 화면 — 로그인과 계정·섬 온보딩 단계, 첫 섬 합류 뒤의 필수 안내(guide).
-// 안내 중에 링크를 소비하면 온보딩과 마찬가지로 첫 튜토리얼을 건너뛴다.
-const DEEP_LINK_HOLD_ROUTES: Route[] = [
-  'login',
-  'character',
-  'createIsland',
-  'joinIsland',
-  'approval',
-  'guide',
-];
-// 바다 표류 HUD 로 여는 친구·설정·꾸미기와 그 안에서 이어 여는 화면(GROMO-2404) — 계정 단위 화면이라 소속 섬이
-// 없어도 머물고, 닫기는 홈 대신 바다로 간다. 강퇴 복구 신호도 이 화면들은 옮기지 않는다.
-const SEA_HUD_ROUTES: Route[] = [
-  'friends',
-  'friendSearch',
-  'blockedUsers',
-  'developerNotices',
-  'developerNotice',
-  'settings',
-  'mainIsland',
-  'profile',
-  'language',
-  'permission',
-  'screenTimeApps',
-  'wardrobe',
-];
-// 소속 섬이 없어도 머무는 화면 — 로그인·계정 온보딩·섬 고르기·구경, 바다 표류에서 연 망원경(GROMO-2366), 위 HUD 화면.
-const NO_ISLAND_ROUTES: Route[] = [
-  'login',
-  'character',
-  'createIsland',
-  'joinIsland',
-  'approval',
-  'currentIsland',
-  'visit',
-  'telescope',
-  ...SEA_HUD_ROUTES,
-];
 
 function Gromo() {
   const layout = useAppLayout();
-  const insets = useScreenInsets();
   const [state, dispatch] = useReducer(reducer, undefined, () =>
     DEMO ? demoState() : initialState(),
   );
   // OS 의 모션 줄이기는 저장하지 않고 실행 중에만 따라간다 — 저장된 settings.reduceMotion 은 사용자가 직접 켠 값뿐이다(GROMO-2159).
   // 합친 값(reduceMotion)은 화면에 넘기는 e.state·MotionContext·App 자신의 모션에만 쓴다. 저장·dispatch·stateRef 는
   // 합치지 않은 state 를 쓴다: 합친 값이 저장되면 OS 를 꺼도 켜진 채 굳는다.
-  const [osReduceMotion, setOsReduceMotion] = useState(false);
+  const osReduceMotion = useSystemReduceMotion();
   const reduceMotion = osReduceMotion || state.settings.reduceMotion;
   const viewState = useMemo(
     () =>
@@ -413,14 +240,12 @@ function Gromo() {
     [body, setBody] = useState(''),
     [windowStart, setWindowStart] = useState('00:00'),
     [windowEnd, setWindowEnd] = useState('24:00'),
-    [search, setSearch] = useState(''),
     [terms, setTerms] = useState(false),
     [guestBusy, setGuestBusy] = useState(false),
     [guestError, setGuestError] = useState(''),
     [socialBusy, setSocialBusy] = useState<Provider | null>(null),
     [socialError, setSocialError] = useState(''),
     [approval, setApproval] = useState(false),
-    [emote, setEmote] = useState<string | null>(null),
     // 화면 시계 — 분이 바뀔 때만 다시 그린다. 초 단위로 흐르는 표시는 각 화면이 useNow·Ticking 으로
     // 스스로 다시 그린다(GROMO-2372). e.now 는 그릴 때의 시각이다.
     [, setClockMinute] = useState(() => Math.floor(Date.now() / 60000)),
@@ -557,10 +382,7 @@ function Gromo() {
       void markActivationStage(userId, 'island_arrived', { prerequisite: 'login_completed' });
   }, [state.serverIslands?.currentIslandId]);
   const transition = useRef(new Animated.Value(1)).current,
-    boatTravel = useRef(new Animated.Value(-180)).current,
     toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null),
-    emoteTimer = useRef<ReturnType<typeof setTimeout> | null>(null),
-    mailRef = useRef<FlatList>(null),
     // 화면이 뒤로가기를 먼저 처리하면(true) 아래 기본 동작을 건너뛴다(낚시섬 걷기·항해·모달·결과 흐름)
     backOverride = useRef<(() => boolean) | null>(null),
     switchResolve = useRef<((ok: boolean) => void) | null>(null);
@@ -616,8 +438,7 @@ function Gromo() {
         !island.buildingQuest &&
         !island.construction &&
         !island.nextBuilding &&
-        !island.completed),
-    record = state.lastResult;
+        !island.completed);
   // 공용 곡 선택과 기기의 실제 재생은 별개다. 축음기를 열어도 집중 밖에서는 듣지 않는다.
   const islandAudioOn =
     loaded &&
@@ -632,6 +453,12 @@ function Gromo() {
     if (toastTimer.current) clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(() => setToast(''), 2400);
   };
+  useEffect(
+    () => () => {
+      if (toastTimer.current) clearTimeout(toastTimer.current);
+    },
+    [],
+  );
   const playback = useIslandPlayback({
     active: !REVIEW && !DEMO && hasServerSession && island.buildings.includes('gram'),
     islandId: state.serverIslands?.currentIslandId ?? null,
@@ -671,7 +498,6 @@ function Gromo() {
     setTab('');
     setText('');
     setBody('');
-    setSearch('');
     setHistory((h) => [...h, { route, detail, tab, text, body }]);
     transitionRoute(nextRoute);
     if (state.settings.haptics && Platform.OS !== 'web') Haptics.selectionAsync().catch(() => {});
@@ -773,7 +599,6 @@ function Gromo() {
     setTab('');
     setText('');
     setBody('');
-    setSearch('');
     transitionRoute(r);
   };
   const reset = (r: Route, id = '') => {
@@ -784,7 +609,6 @@ function Gromo() {
     setTab('');
     setText('');
     setBody('');
-    setSearch('');
     transitionRoute(r);
   };
   const back = () => {
@@ -2237,208 +2061,32 @@ function Gromo() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- flushSave 는 ref·notify 만 읽어 첫 렌더 것으로 충분하다
   }, []);
   useEffect(() => {
-    const id = setInterval(() => {
-      const now = Date.now();
+    const unsubscribe = subscribeForegroundClock((now) => {
       // 같은 분이면 같은 값이라 다시 그리지 않는다
       setClockMinute(Math.floor(now / 60000));
       // 할 일 없는 TICK 은 보내지 않는다 — App 을 매초 다시 그리지 않게(GROMO-2372)
       if (!tickIdle(stateRef.current, now)) dispatch({ type: 'TICK', now });
     }, 1000);
-    return () => clearInterval(id);
+    return unsubscribe;
   }, []);
-  useEffect(() => {
-    // 변경 이벤트가 먼저 오면 늦게 끝난 첫 조회가 옛 값으로 덮지 않게 버린다
-    let initialPending = true;
-    AccessibilityInfo.isReduceMotionEnabled()
-      .then((value) => {
-        if (initialPending) setOsReduceMotion(value);
-      })
-      .catch(() => {});
-    const subscription = AccessibilityInfo.addEventListener('reduceMotionChanged', (value) => {
-      initialPending = false;
-      setOsReduceMotion(value);
-    });
-    return () => {
-      initialPending = false;
-      subscription?.remove();
-    };
-  }, []);
-  useEffect(() => {
-    if (!loaded) return;
-    let active = true;
-    let request = 0;
-    const syncPermission = async () => {
-      if (Platform.OS === 'android') {
-        if (!storageOwnerReadyRef.current || !getSession() || REVIEW || DEMO) return;
-        const current = ++request;
-        const generation = sessionGeneration();
-        dispatch({ type: 'SETTING', key: 'screenTimeHistoryReady', value: false });
-        try {
-          const snapshot = await syncAndroidMeasurement();
-          if (active && current === request && generation === sessionGeneration()) {
-            dispatch({ type: 'SCREEN_TIME_SNAPSHOT', snapshot, now: Date.now() });
-            dispatch({ type: 'SETTING', key: 'screenTimeSyncError', value: snapshot.reportFailed });
-            // 하루 스크린타임 스냅샷 확정 — 측정값이 있을 때 스냅샷 dispatch당 1회
-            if (snapshot.minutes !== null)
-              captureProductEvent('screen_time_daily', { minutes: snapshot.minutes });
-          }
-        } catch {
-          const status = await screenTime.getAuthorizationStatus().catch(() => 'unavailable');
-          if (active && current === request && generation === sessionGeneration())
-            dispatch({
-              type: 'SCREEN_TIME_SNAPSHOT',
-              snapshot: {
-                approved: status === 'approved',
-                date: dayKey(),
-                minutes: null,
-                history: [],
-                unconfirmedDays: [],
-              },
-              now: Date.now(),
-            });
-        }
-        return;
-      }
-      if (Platform.OS !== 'ios') {
-        if (!REVIEW && !DEMO) {
-          dispatch({ type: 'SETTING', key: 'permission', value: false });
-          dispatch({ type: 'SETTING', key: 'screenTimeMeasurementReady', value: false });
-        }
-        dispatch({ type: 'SETTING', key: 'screenTimeHistoryReady', value: true });
-        return;
-      }
-      if (!storageOwnerReadyRef.current || !getSession() || REVIEW || DEMO) return;
-      const current = ++request;
-      const generation = sessionGeneration();
-      const isCurrent = () => active && current === request && generation === sessionGeneration();
-      let measured = false;
-      dispatch({ type: 'SETTING', key: 'screenTimeHistoryReady', value: false });
-      try {
-        const result = await syncIOSScreenTime(getSession()!.userId);
-        if (!isCurrent()) return;
-        dispatch({ type: 'SCREEN_TIME_SNAPSHOT', snapshot: result.snapshot, now: Date.now() });
-        measured = true;
-        // 하루 스크린타임 스냅샷 확정 — 측정값이 있을 때 스냅샷 dispatch당 1회
-        if (result.snapshot.minutes !== null)
-          captureProductEvent('screen_time_daily', { minutes: result.snapshot.minutes });
-        await reportScreenTime(result.authorization, result.timeline, generation);
-        if (isCurrent()) dispatch({ type: 'SETTING', key: 'screenTimeSyncError', value: false });
-      } catch {
-        if (isCurrent()) {
-          if (!measured)
-            dispatch({ type: 'SETTING', key: 'screenTimeMeasurementReady', value: false });
-          dispatch({ type: 'SETTING', key: 'screenTimeSyncError', value: true });
-          dispatch({ type: 'SETTING', key: 'screenTimeHistoryReady', value: true });
-        }
-      }
-    };
-    void syncPermission();
-    const unsubscribeReporting = subscribeScreenTimeReporting(() => void syncPermission());
-    let syncedDay = dayKey();
-    const dayChangeTimer = setInterval(() => {
-      const currentDay = dayKey();
-      if (currentDay === syncedDay) return;
-      syncedDay = currentDay;
-      void syncPermission();
-    }, 1000);
-    const usageTimer =
-      Platform.OS === 'android' || Platform.OS === 'ios'
-        ? setInterval(() => {
-            if (AppState.currentState === 'active') void syncPermission();
-          }, 60000)
-        : undefined;
-    const subscription = AppState.addEventListener('change', (nextState) => {
-      if (nextState === 'active') void syncPermission();
-    });
-    return () => {
-      active = false;
-      request++;
-      unsubscribeReporting();
-      clearInterval(usageTimer);
-      clearInterval(dayChangeTimer);
-      subscription.remove();
-    };
-  }, [loaded, hasServerSession, storageOwnerReady]);
-  const focusShieldOwner = getSession()?.userId;
-  useEffect(() => {
-    if (!loaded || !storageOwnerReady || (Platform.OS !== 'ios' && Platform.OS !== 'android'))
-      return;
-    let active = true;
-    let foreground = AppState.currentState === 'active';
-    let request = 0;
-    let retryDelay = 2000;
-    let retryTimer: ReturnType<typeof setTimeout> | undefined;
-    // 같은 사용자 ID의 회원 전환도 이전 재시도를 정리하고 새 인증 세대로 동기화한다.
-    const generation = authGeneration;
-    const current = () =>
-      active && generation === sessionGeneration() && focusShieldOwner === getSession()?.userId;
-    const clearRetry = () => {
-      clearTimeout(retryTimer);
-      retryTimer = undefined;
-    };
-    const retry = () => {
-      if (!current() || !foreground || !hasServerSession || Platform.OS !== 'ios') return;
-      clearRetry();
-      retryTimer = setTimeout(() => {
-        retryTimer = undefined;
-        void sync(false);
-      }, retryDelay);
-      retryDelay = Math.min(retryDelay * 2, 30000);
-    };
-    const sync = async (reportFailure = true) => {
-      if (!current()) return;
-      const sequence = ++request;
-      const latest = () => current() && sequence === request;
-      clearRetry();
-      const session = hasServerSession ? stateRef.current.session : null;
-      try {
-        const applied = await (Platform.OS === 'android'
-          ? syncAndroidFocus(session, stateRef.current.color, true)
-          : syncFocusShield(session, stateRef.current.color, true, latest));
-        if (!latest()) return;
-        if (applied) {
-          retryDelay = 2000;
-          return;
-        }
-        if (
-          reportFailure &&
-          session?.status === 'active' &&
-          (await shouldReportShieldFailure()) &&
-          latest()
-        )
-          notify('앱 차단을 적용하지 못했어요. 스크린타임 권한을 확인해 주세요.');
-        if (latest()) retry();
-      } catch {
-        if (!latest()) return;
-        if (reportFailure && (await shouldReportShieldFailure()) && latest())
-          notify('앱 차단 상태를 변경하지 못했어요. 다시 확인해 주세요.');
-        if (latest()) retry();
-      }
-    };
-    void sync();
-    const subscription = AppState.addEventListener('change', (next) => {
-      foreground = next === 'active';
-      if (foreground) void sync();
-      else clearRetry();
-    });
-    return () => {
-      active = false;
-      clearRetry();
-      subscription.remove();
-    };
-  }, [
+  useScreenTimeSync({
+    loaded,
+    hasServerSession,
+    storageOwnerReady,
+    storageOwnerReadyRef,
+    dispatch,
+    review: REVIEW,
+    demo: DEMO,
+  });
+  useFocusShieldSync({
     loaded,
     storageOwnerReady,
     hasServerSession,
     authGeneration,
-    focusShieldOwner,
-    state.settings.permission,
-    state.session?.id,
-    state.session?.version,
-    state.session?.status,
-    state.session?.subject,
-    state.color,
-  ]);
+    state,
+    stateRef,
+    notify,
+  });
   const liveActivityOwner = getSession()?.userId;
   useEffect(() => {
     if (!loaded || !hasServerSession || !storageOwnerReady || REVIEW || DEMO) return;
@@ -2516,11 +2164,13 @@ function Gromo() {
     transition.setValue(reduceMotion ? 1 : 0);
     // JS 드라이버: 네이티브 드라이버는 iOS 에서 전환 중 화면(도서관 JPEG 배경 등)이 다시 커밋되면
     // 중간 opacity 가 남아 화면이 뿌옇게 굳는다
-    Animated.timing(transition, {
+    const animation = Animated.timing(transition, {
       toValue: 1,
       duration: reduceMotion ? 0 : 160,
       useNativeDriver: false,
-    }).start();
+    });
+    animation.start();
+    return () => animation.stop();
   }, [route, loaded, reviewEpoch]);
   // 처리 본문은 매 렌더의 최신 상태(소속·상실 사유 등)를 보도록 ref 로 부른다 — 등록 당시 상태로 섬 고르기에 가지 않게
   // (GROMO-2366). 리스너는 지금처럼 화면이 바뀔 때마다 다시 걸어 다른 화면의 리스너와의 순서를 그대로 둔다.
@@ -2592,62 +2242,10 @@ function Gromo() {
     );
     return () => subscription.remove();
   }, [letterVisible]);
-  const islandAudioOnRef = useRef(islandAudioOn);
-  islandAudioOnRef.current = islandAudioOn;
-  // 곡 로드는 곡·섬이 바뀔 때만 한다. 재생/정지는 아래 volume effect가 islandAudioOn으로 따로 다루므로
-  // 일시정지 뒤 재개하거나 다른 멤버가 재생 상태만 바꿔도 곡을 처음으로 되감지 않는다
-  useEffect(() => {
-    if (previewAudio) return;
-    let cancelled = false;
-    try {
-      const source = bundledAudioSource(island.track);
-      if (source === null) {
-        player.pause();
-        return;
-      }
-      player.replace(source);
-      player.loop = true;
-      // 같은 섬은 같은 곡만 공유한다. 재생 지점은 기기마다 처음부터 돌고 서버 위치에 맞추지 않는다
-      Promise.resolve(player.seekTo(0))
-        .then(() => {
-          if (cancelled) return;
-          if (islandAudioOnRef.current) player.play();
-          else player.pause();
-        })
-        .catch(() => {});
-    } catch {}
-    return () => {
-      cancelled = true;
-    };
-  }, [island.track, island.id, previewAudio]);
-  useEffect(() => {
-    if (!island.playbackReset) return;
-    try {
-      player.pause();
-      player.seekTo(0).catch(() => {});
-    } catch {}
-  }, [island.id, island.playbackReset]);
-  useEffect(() => {
-    if (route !== 'product' || !islandAudioOn) setPreviewAudio(false);
-  }, [route, islandAudioOn]);
+  useIslandAudio({ island, state, route, previewAudio, setPreviewAudio, player, islandAudioOn });
+
   // GROMO-1839 시작·가입 화면만 세로로 고정하고 나머지는 기기 방향을 따른다
   useRouteOrientation(route, letterVisible && !layout.tablet);
-  useEffect(() => {
-    try {
-      player.volume = state.settings.sound ? (state.settings.volume ?? 0.55) : 0;
-      islandAudioOn ? player.play() : player.pause();
-    } catch {}
-  }, [islandAudioOn, state.settings.sound, state.settings.volume]);
-  useEffect(() => {
-    if (route === 'travel' || route === 'arrival') {
-      boatTravel.setValue(-180);
-      Animated.timing(boatTravel, {
-        toValue: 350,
-        duration: reduceMotion ? 1 : 3000,
-        useNativeDriver: true,
-      }).start();
-    }
-  }, [route]);
   useEffect(() => {
     if (!REVIEW || !loaded) return;
     (window as any).__gromoReview = {
@@ -2662,7 +2260,6 @@ function Gromo() {
         if (opts.state) dispatch({ type: 'LOAD', state: opts.state });
         setModal(null);
         setToast('');
-        setEmote(null);
         setPreviewAudio(false);
         setReviewEpoch((n) => n + 1);
         setHistory([]);
@@ -2700,13 +2297,6 @@ function Gromo() {
         notify(t('app.build.started', { building: buildingNames[b] }));
       },
     );
-  };
-  const openFacility = (b: Building, r: Route) => {
-    if (!island.buildings.includes(b)) {
-      notify(t('app.build.facilityLocked', { building: buildingNames[b] }));
-      return;
-    }
-    go(r);
   };
   const newQuest = () => {
     go('questEdit');
@@ -2747,19 +2337,6 @@ function Gromo() {
     // 확인한 준비 결과를 실제 정리에 넘긴다 — logout 이 다시 준비하면 그 실패는 여기서 못 본다.
     logout(preparation).catch(() => {});
     return true;
-  };
-  const send = () => {
-    if (!text.trim()) return;
-    dispatch({ type: 'MESSAGE', text, fail: failNext });
-    setFailNext(false);
-    setText('');
-    setTimeout(
-      () =>
-        mailRef.current?.scrollToEnd({
-          animated: !reduceMotion,
-        }),
-      100,
-    );
   };
   function render() {
     return (
@@ -2852,17 +2429,6 @@ function Gromo() {
       />
     );
   }
-  const immersive = [
-    'home',
-    'focusSetup',
-    'focus',
-    'focusVisit',
-    'visitIsland',
-    'visitIslandFocus',
-    'rest',
-    'arrival',
-    'travel',
-  ].includes(route);
   if (!loaded)
     return (
       <SafeAreaView style={[S.page, { alignItems: 'center', justifyContent: 'center' }]}>

@@ -1,0 +1,377 @@
+{
+  "excludedReason": "Overlapping automation and incomplete image readiness predicate. Replaced by serialized measurements with terrain/shop/portrait readiness on both versions.",
+  "data": {
+    "baseline": {
+      "ios-fresh-home-runs.json": {
+        "scenario": "process-cold, fresh app container, warm OS caches",
+        "readiness": "pink focus CTA + paper quest card in first matching screenshot; includes simctl launch and capture overhead",
+        "runs": [
+          {
+            "round": 1,
+            "pid": 8105,
+            "homeReadySeconds": 3.772648666985333,
+            "captures": 8,
+            "idleCpuPercent": 2.995713221845666,
+            "footprintExit": 0
+          },
+          {
+            "round": 2,
+            "pid": 8776,
+            "homeReadySeconds": 3.3008017919491976,
+            "captures": 7,
+            "idleCpuPercent": 2.496403805520192,
+            "footprintExit": 0
+          },
+          {
+            "round": 3,
+            "pid": 9500,
+            "homeReadySeconds": 4.594698624918237,
+            "captures": 9,
+            "idleCpuPercent": 2.7955122942096713,
+            "footprintExit": 0
+          },
+          {
+            "round": 4,
+            "pid": 10159,
+            "homeReadySeconds": 4.1163003330584615,
+            "captures": 9,
+            "idleCpuPercent": 2.6965473520876837,
+            "footprintExit": 0
+          },
+          {
+            "round": 5,
+            "pid": 10835,
+            "homeReadySeconds": 3.1329397920053452,
+            "captures": 7,
+            "idleCpuPercent": 3.095980256679607,
+            "footprintExit": 0
+          }
+        ]
+      },
+      "ios-home-runs.json": {
+        "scenario": "process-cold, persistent local DEMO data, warm OS caches",
+        "readiness": "pink focus CTA + paper quest card in first matching screenshot; includes simctl launch and capture overhead",
+        "runs": [
+          {
+            "round": 1,
+            "pid": 11404,
+            "homeReadySeconds": 3.2059075830038637,
+            "captures": 7,
+            "idleCpuPercent": 2.9962292207199757,
+            "footprintExit": 0
+          },
+          {
+            "round": 2,
+            "pid": 11956,
+            "homeReadySeconds": 5.080845332937315,
+            "captures": 9,
+            "idleCpuPercent": 3.0965395656686723,
+            "footprintExit": 0
+          },
+          {
+            "round": 3,
+            "pid": 12576,
+            "homeReadySeconds": 8.459715666947886,
+            "captures": 8,
+            "idleCpuPercent": 3.7950775154763305,
+            "footprintExit": 0
+          },
+          {
+            "round": 4,
+            "pid": 13274,
+            "homeReadySeconds": 6.9022025829181075,
+            "captures": 10,
+            "idleCpuPercent": 3.4952158212838604,
+            "footprintExit": 0
+          },
+          {
+            "round": 5,
+            "pid": 13966,
+            "homeReadySeconds": 5.876705250004306,
+            "captures": 9,
+            "idleCpuPercent": 3.1958617718650504,
+            "footprintExit": 0
+          }
+        ]
+      },
+      "android-fresh-home-runs.json": {
+        "scenario": "process-cold, fresh app container, warm OS caches; API 37 arm64 emulator",
+        "readiness": "pink focus CTA + paper quest card in first matching screenshot; includes adb launch and capture overhead",
+        "runs": [
+          {
+            "round": 1,
+            "pid": 10189,
+            "homeReadySeconds": 2.9521269591059536,
+            "captures": 6,
+            "idleCpuPercent": 11.731083015950812,
+            "amStart": "Starting: Intent { cmp=com.oneorthree.gromo/.MainActivity }\nStatus: ok\nLaunchState: COLD\nActivity: com.oneorthree.gromo/.MainActivity\nTotalTime: 520\nWaitTime: 522\nComplete"
+          },
+          {
+            "round": 2,
+            "pid": 10470,
+            "homeReadySeconds": 1.679480749880895,
+            "captures": 4,
+            "idleCpuPercent": 5.177672516858889,
+            "amStart": "Starting: Intent { cmp=com.oneorthree.gromo/.MainActivity }\nStatus: ok\nLaunchState: COLD\nActivity: com.oneorthree.gromo/.MainActivity\nTotalTime: 657\nWaitTime: 660\nComplete"
+          },
+          {
+            "round": 3,
+            "pid": 10718,
+            "homeReadySeconds": 2.735807958059013,
+            "captures": 5,
+            "idleCpuPercent": 7.154714058456195,
+            "amStart": "Starting: Intent { cmp=com.oneorthree.gromo/.MainActivity }\nStatus: ok\nLaunchState: COLD\nActivity: com.oneorthree.gromo/.MainActivity\nTotalTime: 604\nWaitTime: 606\nComplete"
+          },
+          {
+            "round": 4,
+            "pid": 10976,
+            "homeReadySeconds": 2.3800162500701845,
+            "captures": 5,
+            "idleCpuPercent": 7.5718528364620505,
+            "amStart": "Starting: Intent { cmp=com.oneorthree.gromo/.MainActivity }\nStatus: ok\nLaunchState: COLD\nActivity: com.oneorthree.gromo/.MainActivity\nTotalTime: 524\nWaitTime: 526\nComplete"
+          },
+          {
+            "round": 5,
+            "pid": 11246,
+            "homeReadySeconds": 2.295136917149648,
+            "captures": 5,
+            "idleCpuPercent": 8.9559714368923,
+            "amStart": "Starting: Intent { cmp=com.oneorthree.gromo/.MainActivity }\nStatus: ok\nLaunchState: COLD\nActivity: com.oneorthree.gromo/.MainActivity\nTotalTime: 428\nWaitTime: 433\nComplete"
+          }
+        ]
+      },
+      "android-home-runs.json": {
+        "scenario": "process-cold, persistent local DEMO data, warm OS caches; API 37 arm64 emulator",
+        "readiness": "pink focus CTA + paper quest card in first matching screenshot; includes adb launch and capture overhead",
+        "runs": [
+          {
+            "round": 1,
+            "pid": 11422,
+            "homeReadySeconds": 2.329238082980737,
+            "captures": 5,
+            "idleCpuPercent": 8.66323704855238,
+            "amStart": "Starting: Intent { cmp=com.oneorthree.gromo/.MainActivity }\nStatus: ok\nLaunchState: COLD\nActivity: com.oneorthree.gromo/.MainActivity\nTotalTime: 269\nWaitTime: 272\nComplete"
+          },
+          {
+            "round": 2,
+            "pid": 11559,
+            "homeReadySeconds": 1.2090759580023587,
+            "captures": 4,
+            "idleCpuPercent": 4.680106543951322,
+            "amStart": "Starting: Intent { cmp=com.oneorthree.gromo/.MainActivity }\nStatus: ok\nLaunchState: COLD\nActivity: com.oneorthree.gromo/.MainActivity\nTotalTime: 308\nWaitTime: 310\nComplete"
+          },
+          {
+            "round": 3,
+            "pid": 11693,
+            "homeReadySeconds": 1.2685401658527553,
+            "captures": 4,
+            "idleCpuPercent": 11.656826466002464,
+            "amStart": "Starting: Intent { cmp=com.oneorthree.gromo/.MainActivity }\nStatus: ok\nLaunchState: COLD\nActivity: com.oneorthree.gromo/.MainActivity\nTotalTime: 385\nWaitTime: 387\nComplete"
+          },
+          {
+            "round": 4,
+            "pid": 11823,
+            "homeReadySeconds": 2.02862466708757,
+            "captures": 4,
+            "idleCpuPercent": 4.679237695903078,
+            "amStart": "Starting: Intent { cmp=com.oneorthree.gromo/.MainActivity }\nStatus: ok\nLaunchState: COLD\nActivity: com.oneorthree.gromo/.MainActivity\nTotalTime: 289\nWaitTime: 292\nComplete"
+          },
+          {
+            "round": 5,
+            "pid": 11954,
+            "homeReadySeconds": 2.275520541938022,
+            "captures": 5,
+            "idleCpuPercent": 5.671395912705467,
+            "amStart": "Starting: Intent { cmp=com.oneorthree.gromo/.MainActivity }\nStatus: ok\nLaunchState: COLD\nActivity: com.oneorthree.gromo/.MainActivity\nTotalTime: 338\nWaitTime: 339\nComplete"
+          }
+        ]
+      }
+    },
+    "after": {
+      "ios-fresh-home-runs.json": {
+        "scenario": "process-cold, fresh app container, warm OS caches",
+        "readiness": "pink focus CTA + paper quest card in first matching screenshot; includes simctl launch and capture overhead",
+        "runs": [
+          {
+            "round": 1,
+            "pid": 52772,
+            "homeReadySeconds": 4.017281333217397,
+            "captures": 9,
+            "idleCpuPercent": 3.195152859813998,
+            "footprintExit": 0
+          },
+          {
+            "round": 2,
+            "pid": 53582,
+            "homeReadySeconds": 3.296509792096913,
+            "captures": 7,
+            "idleCpuPercent": 3.196199040145616,
+            "footprintExit": 0
+          },
+          {
+            "round": 3,
+            "pid": 54187,
+            "homeReadySeconds": 3.15314729209058,
+            "captures": 7,
+            "idleCpuPercent": 3.2953187526140355,
+            "footprintExit": 0
+          },
+          {
+            "round": 4,
+            "pid": 54850,
+            "homeReadySeconds": 4.219712916994467,
+            "captures": 9,
+            "idleCpuPercent": 2.796959378732857,
+            "footprintExit": 0
+          },
+          {
+            "round": 5,
+            "pid": 55540,
+            "homeReadySeconds": 3.8690179579425603,
+            "captures": 9,
+            "idleCpuPercent": 3.1953978682081483,
+            "footprintExit": 0
+          }
+        ]
+      },
+      "ios-home-runs.json": {
+        "scenario": "process-cold, persistent local DEMO data, warm OS caches",
+        "readiness": "pink focus CTA + paper quest card in first matching screenshot; includes simctl launch and capture overhead",
+        "runs": [
+          {
+            "round": 1,
+            "pid": 56138,
+            "homeReadySeconds": 3.225722375093028,
+            "captures": 7,
+            "idleCpuPercent": 3.4954941768483607,
+            "footprintExit": 0
+          },
+          {
+            "round": 2,
+            "pid": 56698,
+            "homeReadySeconds": 3.006851499900222,
+            "captures": 7,
+            "idleCpuPercent": 2.8972371824222884,
+            "footprintExit": 0
+          },
+          {
+            "round": 3,
+            "pid": 57266,
+            "homeReadySeconds": 3.1040121659170836,
+            "captures": 7,
+            "idleCpuPercent": 3.1939468982606565,
+            "footprintExit": 0
+          },
+          {
+            "round": 4,
+            "pid": 57798,
+            "homeReadySeconds": 3.0070962498430163,
+            "captures": 7,
+            "idleCpuPercent": 3.6947604446621574,
+            "footprintExit": 0
+          },
+          {
+            "round": 5,
+            "pid": 58350,
+            "homeReadySeconds": 3.092842624988407,
+            "captures": 7,
+            "idleCpuPercent": 3.39729443715068,
+            "footprintExit": 0
+          }
+        ]
+      },
+      "android-fresh-home-runs.json": {
+        "scenario": "process-cold, fresh app container, warm OS caches; API 37 arm64 emulator",
+        "readiness": "pink focus CTA + paper quest card in first matching screenshot; includes adb launch and capture overhead",
+        "runs": [
+          {
+            "round": 1,
+            "pid": 14136,
+            "homeReadySeconds": 4.133059334009886,
+            "captures": 4,
+            "idleCpuPercent": 15.977226926820546,
+            "amStart": "Starting: Intent { cmp=com.oneorthree.gromo/.MainActivity }\nStatus: ok\nLaunchState: COLD\nActivity: com.oneorthree.gromo/.MainActivity\nTotalTime: 1099\nWaitTime: 1102\nComplete"
+          },
+          {
+            "round": 2,
+            "pid": 14396,
+            "homeReadySeconds": 7.345311916898936,
+            "captures": 5,
+            "idleCpuPercent": 9.994311448521263,
+            "amStart": "Starting: Intent { cmp=com.oneorthree.gromo/.MainActivity }\nStatus: ok\nLaunchState: COLD\nActivity: com.oneorthree.gromo/.MainActivity\nTotalTime: 1734\nWaitTime: 1742\nComplete"
+          },
+          {
+            "round": 3,
+            "pid": 14647,
+            "homeReadySeconds": 7.196975790895522,
+            "captures": 5,
+            "idleCpuPercent": 20.216666841049754,
+            "amStart": "Starting: Intent { cmp=com.oneorthree.gromo/.MainActivity }\nStatus: ok\nLaunchState: COLD\nActivity: com.oneorthree.gromo/.MainActivity\nTotalTime: 1895\nWaitTime: 1898\nComplete"
+          },
+          {
+            "round": 4,
+            "pid": 14887,
+            "homeReadySeconds": 3.8293342920951545,
+            "captures": 5,
+            "idleCpuPercent": 5.665030310550564,
+            "amStart": "Starting: Intent { cmp=com.oneorthree.gromo/.MainActivity }\nStatus: ok\nLaunchState: COLD\nActivity: com.oneorthree.gromo/.MainActivity\nTotalTime: 756\nWaitTime: 758\nComplete"
+          },
+          {
+            "round": 5,
+            "pid": 15125,
+            "homeReadySeconds": 3.662607666803524,
+            "captures": 5,
+            "idleCpuPercent": 6.269077150026788,
+            "amStart": "Starting: Intent { cmp=com.oneorthree.gromo/.MainActivity }\nStatus: ok\nLaunchState: COLD\nActivity: com.oneorthree.gromo/.MainActivity\nTotalTime: 876\nWaitTime: 877\nComplete"
+          }
+        ]
+      },
+      "android-home-runs.json": {
+        "scenario": "process-cold, persistent local DEMO data, warm OS caches; API 37 arm64 emulator",
+        "readiness": "pink focus CTA + paper quest card in first matching screenshot; includes adb launch and capture overhead",
+        "runs": [
+          {
+            "round": 1,
+            "pid": 15302,
+            "homeReadySeconds": 2.1440536249428988,
+            "captures": 4,
+            "idleCpuPercent": 4.582479424624423,
+            "amStart": "Starting: Intent { cmp=com.oneorthree.gromo/.MainActivity }\nStatus: ok\nLaunchState: COLD\nActivity: com.oneorthree.gromo/.MainActivity\nTotalTime: 463\nWaitTime: 467\nComplete"
+          },
+          {
+            "round": 2,
+            "pid": 15426,
+            "homeReadySeconds": 1.2097069169394672,
+            "captures": 4,
+            "idleCpuPercent": 5.166158454496153,
+            "amStart": "Starting: Intent { cmp=com.oneorthree.gromo/.MainActivity }\nStatus: ok\nLaunchState: COLD\nActivity: com.oneorthree.gromo/.MainActivity\nTotalTime: 271\nWaitTime: 276\nComplete"
+          },
+          {
+            "round": 3,
+            "pid": 15562,
+            "homeReadySeconds": 3.7424877921584994,
+            "captures": 5,
+            "idleCpuPercent": 8.958875439910194,
+            "amStart": "Starting: Intent { cmp=com.oneorthree.gromo/.MainActivity }\nStatus: ok\nLaunchState: COLD\nActivity: com.oneorthree.gromo/.MainActivity\nTotalTime: 759\nWaitTime: 769\nComplete"
+          },
+          {
+            "round": 4,
+            "pid": 15696,
+            "homeReadySeconds": 1.2472058329731226,
+            "captures": 3,
+            "idleCpuPercent": 8.75972726331431,
+            "amStart": "Starting: Intent { cmp=com.oneorthree.gromo/.MainActivity }\nStatus: ok\nLaunchState: COLD\nActivity: com.oneorthree.gromo/.MainActivity\nTotalTime: 198\nWaitTime: 200\nComplete"
+          },
+          {
+            "round": 5,
+            "pid": 15816,
+            "homeReadySeconds": 1.4399010001216084,
+            "captures": 4,
+            "idleCpuPercent": 4.3761694962687185,
+            "amStart": "Starting: Intent { cmp=com.oneorthree.gromo/.MainActivity }\nStatus: ok\nLaunchState: COLD\nActivity: com.oneorthree.gromo/.MainActivity\nTotalTime: 284\nWaitTime: 285\nComplete"
+          }
+        ]
+      }
+    }
+  }
+}

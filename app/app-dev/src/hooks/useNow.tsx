@@ -1,3 +1,4 @@
+import { subscribeForegroundClock } from '@/utils/foregroundClock';
 import React, { useEffect, useState } from 'react';
 
 /**
@@ -8,18 +9,7 @@ export function useNow(intervalMs: number | null = 1000): number {
   const [, setTick] = useState(0);
   useEffect(() => {
     if (intervalMs == null) return;
-    let id: ReturnType<typeof setTimeout>;
-    const arm = () => {
-      id = setTimeout(
-        () => {
-          setTick((n) => n + 1);
-          arm();
-        },
-        intervalMs - (Date.now() % intervalMs),
-      );
-    };
-    arm();
-    return () => clearTimeout(id);
+    return subscribeForegroundClock(() => setTick((n) => n + 1), intervalMs);
   }, [intervalMs]);
   return Date.now();
 }

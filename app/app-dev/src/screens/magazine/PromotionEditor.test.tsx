@@ -1,21 +1,21 @@
+import { createPreviewEnvironment } from '@/navigation/previewEnvironment';
 // 우리 섬 홍보 쓰기(GROMO-2289 · C1·C2) — 지난 칸으로 열기 · 새로 꾸미기 · 5개 제한 · 신청(멱등 키·본문) · 오류 코드별 안내 ·
 // 게스트 → 회원 전환 · 접수 완료 발도장 · 고치기 · 자정 뒤 읽기 전용 · 07시 다시 열림 · 잔액 부족 · 섬장 아님 ·
 // 칸 위 손가락(끌기 · 두 손가락 크기·회전 · 손잡이 · 빈 곳 톡 · 테이프 붙이기) · 스크린리더 동작.
 // 서버 API(magazine.ts)는 목이다. 손가락은 touchDriver 로 판의 PanResponder 에 진짜 터치 모양 이벤트를 넣는다.
-import React from 'react';
-import { BackHandler, StyleSheet } from 'react-native';
-import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
+import { MAGAZINE_FRAMES, MAGAZINE_STICKERS, MAGAZINE_TAPES } from '@/constants/magazineAssets';
 import { applyLocalePref } from '@/i18n';
 import { ApiError } from '@/services/api/client';
-import * as api from '@/services/api/magazine';
 import type { PromotionEditor as EditorResponse } from '@/services/api/magazine';
-import { initialState, reducer } from '@/services/model';
+import * as api from '@/services/api/magazine';
 import { saveSession } from '@/services/api/session';
-import { CELL_ASPECT, PromotionLayout } from './layout';
-import { MAGAZINE_FRAMES, MAGAZINE_STICKERS, MAGAZINE_TAPES } from '@/constants/magazineAssets';
+import { initialState, reducer } from '@/services/model';
+import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
+import { BackHandler, StyleSheet } from 'react-native';
 import { EditorDriver, EditorStep, PromotionEditor } from './PromotionEditor';
-import { CANVAS_PAD } from './useStickerGestures';
+import { CELL_ASPECT, PromotionLayout } from './layout';
 import { createTouchDriver } from './touchDriver';
+import { CANVAS_PAD } from './useStickerGestures';
 
 jest.mock('@/services/api/magazine', () => ({
   ...jest.requireActual('@/services/api/magazine'),
@@ -161,7 +161,7 @@ async function bodyOf(screen: any) {
 
 async function open(over: Partial<EditorResponse> = {}, e = env(), step: EditorStep = 'stickers') {
   getEditor.mockResolvedValue(editorResponse(over));
-  const screen = await render(<PromotionEditor e={e} />);
+  const screen = await render(<PromotionEditor e={createPreviewEnvironment(e)} />);
   await ready(screen, step);
   return { screen, e };
 }
@@ -190,7 +190,7 @@ describe('여닫기', () => {
   it('섬장이 아니면 서버를 부르지 않고 안내만', async () => {
     const state = initialState(true);
     state.islands[0].members[0].role = 'host';
-    const screen = await render(<PromotionEditor e={env({ state })} />);
+    const screen = await render(<PromotionEditor e={createPreviewEnvironment(env({ state }))} />);
     expect(screen.getByText('섬장만 홍보를 쓸 수 있어요')).toBeTruthy();
     expect(getEditor).not.toHaveBeenCalled();
   });
@@ -199,7 +199,9 @@ describe('여닫기', () => {
     getEditor
       .mockRejectedValueOnce(new ApiError('SOCIAL_LOGIN_REQUIRED', '로그인', 403))
       .mockResolvedValueOnce(editorResponse());
-    const screen = await render(<PromotionEditor e={env({ conversion: { offer: () => true } })} />);
+    const screen = await render(
+      <PromotionEditor e={createPreviewEnvironment(env({ conversion: { offer: () => true } }))} />,
+    );
     await waitFor(() =>
       expect(screen.getByText('소셜 로그인을 하면 우리 섬을 잡지에 실을 수 있어요')).toBeTruthy(),
     );
@@ -218,7 +220,7 @@ describe('여닫기', () => {
       }),
     );
     getEditor.mockResolvedValue(editorResponse());
-    const screen = await render(<PromotionEditor e={env()} />);
+    const screen = await render(<PromotionEditor e={createPreviewEnvironment(env())} />);
     expect(screen.getByText('홍보 칸을 불러오고 있어요')).toBeTruthy();
     expect(screen.queryByTestId('frame-mag.frame-scallop')).toBeNull();
     await act(async () => finish(allAssets()));
@@ -229,7 +231,7 @@ describe('여닫기', () => {
   it('재료 조회가 실패하면 전부 보유로 열지 않고 다시 읽어 복구한다', async () => {
     getAssets.mockRejectedValueOnce(new Error('offline'));
     getEditor.mockResolvedValue(editorResponse());
-    const screen = await render(<PromotionEditor e={env()} />);
+    const screen = await render(<PromotionEditor e={createPreviewEnvironment(env())} />);
     await screen.findByTestId('promotion-retry');
     expect(screen.queryByTestId('frame-mag.frame-scallop')).toBeNull();
     await fireEvent.press(screen.getByTestId('promotion-retry'));
@@ -262,14 +264,18 @@ describe('여닫기', () => {
       } as any,
     );
     // 회관 확정 역할이 없으면 홈 스냅샷(주민)대로 안내만 — 서버를 부르지 않는다
-    const stale = await render(<PromotionEditor e={env({ state, islands: {} })} />);
+    const stale = await render(
+      <PromotionEditor e={createPreviewEnvironment(env({ state, islands: {} }))} />,
+    );
     expect(stale.getByText('섬장만 홍보를 쓸 수 있어요')).toBeTruthy();
     expect(getEditor).not.toHaveBeenCalled();
     await stale.unmount();
     // 회관 「섬 관리」가 관리 API 로 host 를 확정했다 — 입구와 같은 근거로 섬장이다
     mockLiveRole = 'host';
     getEditor.mockResolvedValue(editorResponse());
-    const screen = await render(<PromotionEditor e={env({ state, islands: {} })} />);
+    const screen = await render(
+      <PromotionEditor e={createPreviewEnvironment(env({ state, islands: {} }))} />,
+    );
     await ready(screen);
     expect(getEditor).toHaveBeenCalledWith(ISLAND);
   });
@@ -278,7 +284,9 @@ describe('여닫기', () => {
     const gate = new ApiError('SOCIAL_LOGIN_REQUIRED', '로그인', 403);
     getEditor.mockRejectedValue(gate);
     const offer = jest.fn(() => true);
-    const screen = await render(<PromotionEditor e={env({ conversion: { offer } })} />);
+    const screen = await render(
+      <PromotionEditor e={createPreviewEnvironment(env({ conversion: { offer } }))} />,
+    );
     await waitFor(() => expect(offer).toHaveBeenCalledWith(gate));
     expect(screen.getByText('소셜 로그인을 하면 우리 섬을 잡지에 실을 수 있어요')).toBeTruthy();
   });
@@ -762,7 +770,9 @@ describe('신청 창·잔액·비공개', () => {
       );
       const driver: { current: EditorDriver | null } = { current: null };
       const e = env();
-      const screen = await render(<PromotionEditor e={e} driver={driver} />);
+      const screen = await render(
+        <PromotionEditor e={createPreviewEnvironment(e)} driver={driver} />,
+      );
       await ready(screen);
       // 신청을 보내고 응답은 기다리지 않는다(누르기 act 가 겹치지 않게 대본 손잡이로 보낸다)
       await act(async () => {
@@ -806,7 +816,9 @@ describe('신청 창·잔액·비공개', () => {
         });
       const driver: { current: EditorDriver | null } = { current: null };
       const e = env();
-      const screen = await render(<PromotionEditor e={e} driver={driver} />);
+      const screen = await render(
+        <PromotionEditor e={createPreviewEnvironment(e)} driver={driver} />,
+      );
       await ready(screen);
       await act(async () => {
         await driver.current!.submit();
@@ -832,7 +844,9 @@ describe('신청 창·잔액·비공개', () => {
       getEditor.mockResolvedValueOnce(editorResponse());
       const driver: { current: EditorDriver | null } = { current: null };
       const e = env();
-      const screen = await render(<PromotionEditor e={e} driver={driver} />);
+      const screen = await render(
+        <PromotionEditor e={createPreviewEnvironment(e)} driver={driver} />,
+      );
       await ready(screen);
       await act(async () => {
         void driver.current!.submit();
@@ -885,7 +899,9 @@ describe('신청 창·잔액·비공개', () => {
         .mockReturnValueOnce(new Promise((resolve) => (succeed = resolve)));
       const driver: { current: EditorDriver | null } = { current: null };
       const e = env();
-      const screen = await render(<PromotionEditor e={e} driver={driver} />);
+      const screen = await render(
+        <PromotionEditor e={createPreviewEnvironment(e)} driver={driver} />,
+      );
       await ready(screen);
       await act(async () => {
         await driver.current!.submit(); // 23:59:30 — 응답 유실
@@ -935,7 +951,7 @@ describe('신청 창·잔액·비공개', () => {
             next: { ...next, appliedAt: 'x', editable: false },
           }),
         );
-      const screen = await render(<PromotionEditor e={env()} />);
+      const screen = await render(<PromotionEditor e={createPreviewEnvironment(env())} />);
       await ready(screen);
       const box = StyleSheet.flatten(screen.getByTestId('promotion-canvas').props.style);
       const cellW = box.width / (1 + 2 * CANVAS_PAD);
@@ -983,7 +999,7 @@ describe('신청 창·잔액·비공개', () => {
           next: { ...next, appliedAt: 'x', editable: false },
         }),
       );
-      const screen = await render(<PromotionEditor e={env()} />);
+      const screen = await render(<PromotionEditor e={createPreviewEnvironment(env())} />);
       await ready(screen); // 「올린 홍보글을 수정하시겠습니까?」 → [수정]
       // 고치다가 저장하지 않고 자정을 넘긴다
       await fireEvent.press(screen.getByTestId('promotion-back'));
@@ -1009,7 +1025,7 @@ describe('신청 창·잔액·비공개', () => {
         editorResponse({ window: { ...editorResponse().window, open: false, opensAt } }),
       );
       getEditor.mockResolvedValueOnce(editorResponse());
-      const screen = await render(<PromotionEditor e={env()} />);
+      const screen = await render(<PromotionEditor e={createPreviewEnvironment(env())} />);
       await ready(screen);
       await waitFor(() =>
         expect(screen.getAllByText('아침 7시에 다시 열려요').length).toBeGreaterThan(0),
@@ -1069,7 +1085,7 @@ describe('en 로케일', () => {
         next: { ...EXISTING.next!, body: 'Come focus with us' },
       }),
     );
-    const screen = await render(<PromotionEditor e={enEnv()} />);
+    const screen = await render(<PromotionEditor e={createPreviewEnvironment(enEnv())} />);
     await waitFor(() => expect(screen.getByText('Edit your posted promotion?')).toBeTruthy());
     noHangul(screen);
   });
@@ -1100,7 +1116,7 @@ describe('안드로이드 하드웨어 뒤로가기', () => {
   it('고치기 확인창이 떠 있으면 단계를 바꾸지 않고 회관으로', async () => {
     getEditor.mockResolvedValue(editorResponse(EXISTING));
     const e = env();
-    const screen = await render(<PromotionEditor e={e} />);
+    const screen = await render(<PromotionEditor e={createPreviewEnvironment(e)} />);
     await waitFor(() => expect(screen.getByText('올린 홍보글을 수정하시겠습니까?')).toBeTruthy());
     expect(await pressBack()).toBe(true);
     expect(e.back).toHaveBeenCalledTimes(1);

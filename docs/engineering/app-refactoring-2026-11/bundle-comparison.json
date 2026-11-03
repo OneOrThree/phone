@@ -1,0 +1,94 @@
+{
+  "baseline": {
+    "android": {
+      "bundleBytes": 7972888,
+      "assetCount": 109,
+      "assetBytes": 28839063,
+      "bundleGzipBytes": 3346081
+    },
+    "ios": {
+      "bundleBytes": 7966336,
+      "assetCount": 109,
+      "assetBytes": 28839063,
+      "bundleGzipBytes": 3339891
+    },
+    "web": {
+      "jsFiles": 6,
+      "jsBytes": 5214916,
+      "gzipJsBytes": 1285036
+    },
+    "iosApp": {
+      "logicalBytes": 370913132,
+      "mainBundleBytes": 9783635
+    },
+    "androidApk": {
+      "fileBytes": 291893122,
+      "sha256": "f128f61c881a9e826df4b59631978c32eeda64f0434688e7bddeab77dc4ce82d",
+      "logicalBytes": 308663412,
+      "groups": {
+        "other": {
+          "compressedBytes": 10935759,
+          "logicalBytes": 21931174
+        },
+        "assets": {
+          "compressedBytes": 8888512,
+          "logicalBytes": 9053939
+        },
+        "nativeLibraries": {
+          "compressedBytes": 53349608,
+          "logicalBytes": 53349608
+        },
+        "resources": {
+          "compressedBytes": 218189927,
+          "logicalBytes": 224328691
+        }
+      }
+    }
+  },
+  "after": {
+    "android": {
+      "bundleBytes": 7994724,
+      "assetCount": 109,
+      "assetBytes": 28656263,
+      "bundleGzipBytes": 3350577
+    },
+    "ios": {
+      "bundleBytes": 7981804,
+      "assetCount": 109,
+      "assetBytes": 28656263,
+      "bundleGzipBytes": 3344157
+    },
+    "web": {
+      "jsFiles": 6,
+      "jsBytes": 5264092,
+      "gzipJsBytes": 1297548
+    },
+    "iosApp": {
+      "logicalBytes": 367752817,
+      "mainBundleBytes": 9812987
+    },
+    "androidApk": {
+      "fileBytes": 291824954,
+      "sha256": "320104f884602c7e4bbd7b8ac22bbf1af09bdd2730e747c76dd585e9353ab4d7",
+      "logicalBytes": 308595349,
+      "groups": {
+        "other": {
+          "compressedBytes": 10935759,
+          "logicalBytes": 21931174
+        },
+        "assets": {
+          "compressedBytes": 8898284,
+          "logicalBytes": 9063759
+        },
+        "nativeLibraries": {
+          "compressedBytes": 53349640,
+          "logicalBytes": 53349640
+        },
+        "resources": {
+          "compressedBytes": 218112009,
+          "logicalBytes": 224250776
+        }
+      }
+    }
+  }
+}

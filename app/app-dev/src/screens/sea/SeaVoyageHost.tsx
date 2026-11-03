@@ -1,23 +1,22 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { AppState } from 'react-native';
 import { t } from '@/i18n';
-import { HarborCutscene } from '@/screens/world/HarborCutscene';
-import type { FocusFinishView } from '@/services/api/focusSessions';
-import { ApiError, uuid } from '@/services/api/client';
-import { getMyInventory } from '@/services/api/shop';
+import type { ScreenEnvironment } from '@/navigation/ScreenEnvironment';
 import { arriveWithOutcome } from '@/screens/island/Telescope';
-import { intentKeyPool } from '@/services/model';
-import { getSession, sessionGeneration } from '@/services/api/session';
-import { unknownOutcome } from '@/services/islandCommands';
-import { getTelescope } from '@/services/api/telescope';
-import type { MagazineToday } from '@/services/api/magazine';
 import {
   magazineUnread,
   markDelivered,
   sendReceipt,
   wasDelivered,
 } from '@/screens/magazine/useMagazineToday';
+import { HarborCutscene } from '@/screens/world/HarborCutscene';
+import { ApiError, uuid } from '@/services/api/client';
+import type { FocusFinishView } from '@/services/api/focusSessions';
+import type { MagazineToday } from '@/services/api/magazine';
+import { getSession, sessionGeneration } from '@/services/api/session';
+import { getMyInventory } from '@/services/api/shop';
+import { getTelescope } from '@/services/api/telescope';
+import { unknownOutcome } from '@/services/islandCommands';
 import type { State } from '@/services/model';
+import { intentKeyPool } from '@/services/model';
 import {
   openSeaRoom,
   seaParticipantsAt,
@@ -25,6 +24,8 @@ import {
   type SeaLiveMember,
   type SeaRoom,
 } from '@/services/seaRealtime';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { AppState } from 'react-native';
 import { SeaScreen } from './SeaScreen';
 import {
   SeaNotice,
@@ -85,7 +86,7 @@ const arrivalFrom = (detail: unknown): SeaArrival | null => {
  * - 오늘 고양이 잡지(GROMO-2314, `e.magazineToday`): 표류 중 아직 받지 않은 오늘 호면 펠리컨이 한 번 알리고(띄우는 순간 받음 SEA),
  *   받은 호(바다·섬 어디서든)는 내 뗏목 옆 물건으로 둔다. 둘 다 `seaMagazine`(인자 = 호 id)으로 펼친다. 꽂이는 바다에 없다.
  */
-export function SeaVoyageHost({ e }: { e: any }) {
+export function SeaVoyageHost({ e }: { e: ScreenEnvironment }) {
   const s: State = e.state;
   const selfId = getSession()?.userId ?? 'me';
   const session = s.session?.kind === 'sea' ? s.session : null;
@@ -145,7 +146,7 @@ export function SeaVoyageHost({ e }: { e: any }) {
   };
   const retryFinish = async () => {
     const pending = pendingFinish.current;
-    if (!pending) return;
+    if (!pending || !e.focus) return;
     try {
       // 명령 계층은 (세션, version) 당 키 하나를 실패해도 들고 있다 — 같은 키라 서버가 최초 정산을 재생한다
       settleFinish(
@@ -481,7 +482,9 @@ export function SeaVoyageHost({ e }: { e: any }) {
             );
           eRef.current.reset('home');
         } else {
-          await eRef.current.islands.visit(id);
+          const commands = eRef.current.islands;
+          if (!commands) throw new Error('stale voyage');
+          await commands.visit(id);
           if (stale()) return;
           eRef.current.dispatch({ type: 'SERVER_VISITING', islandId: id });
           eRef.current.replace('visitIsland', id);

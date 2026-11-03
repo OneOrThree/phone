@@ -1,13 +1,13 @@
+import { createPreviewEnvironment } from '@/navigation/previewEnvironment';
 // 낚시 화면에서 진행 중이던 내 집중 세션이 서버에 의해 강제 종료되면(강퇴 등) 실시간
 // focus.member.updated completed 이벤트로 이를 감지해, 계속 흐르는 타이머·원시 오류 토스트 없이
 // 안내와 함께 화면을 빠져나간다.
-import assert from 'node:assert/strict';
-import React from 'react';
-import { act, fireEvent, render } from '@testing-library/react-native';
 import { CurrentScreens } from '@/screens/island/CurrentScreens';
-import { initialState, type State } from '@/services/model';
 import { clearSession, saveSession } from '@/services/api/session';
 import type { IslandPresenceTransition } from '@/services/islandRealtime';
+import { initialState, type State } from '@/services/model';
+import { act, fireEvent, render } from '@testing-library/react-native';
+import assert from 'node:assert/strict';
 
 let onTransition: ((transition: IslandPresenceTransition) => void) | undefined;
 
@@ -140,7 +140,7 @@ const mount = async (state: State, extra: Record<string, unknown> = {}) => {
   const reset = jest.fn();
   const screen = await render(
     <CurrentScreens
-      e={{
+      e={createPreviewEnvironment({
         state,
         route: 'focus',
         now: Date.now(),
@@ -156,7 +156,7 @@ const mount = async (state: State, extra: Record<string, unknown> = {}) => {
         setText: jest.fn(),
         islands: {},
         ...extra,
-      }}
+      })}
     />,
   );
   return { screen, dispatch, notify, home, reset };

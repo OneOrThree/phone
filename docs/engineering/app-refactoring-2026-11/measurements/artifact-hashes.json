@@ -1,0 +1,26 @@
+[
+  {
+    "stage": "baseline",
+    "artifact": "Cattus.app/main.jsbundle",
+    "bytes": 9783635,
+    "sha256": "7effd1f38c6387be0e282f73c6017dce71f815cbd52219b9274784a98d98f6ac"
+  },
+  {
+    "stage": "baseline",
+    "artifact": "app-release.apk",
+    "bytes": 291893122,
+    "sha256": "f128f61c881a9e826df4b59631978c32eeda64f0434688e7bddeab77dc4ce82d"
+  },
+  {
+    "stage": "after",
+    "artifact": "Cattus.app/main.jsbundle",
+    "bytes": 9812987,
+    "sha256": "bbe9143fbbda590b93f82b41369b419ebfa6e7aed0d106a897718fc0f5a2fa08"
+  },
+  {
+    "stage": "after",
+    "artifact": "app-release.apk",
+    "bytes": 291824954,
+    "sha256": "320104f884602c7e4bbd7b8ac22bbf1af09bdd2730e747c76dd585e9353ab4d7"
+  }
+]

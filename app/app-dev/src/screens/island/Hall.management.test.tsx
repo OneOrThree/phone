@@ -1,15 +1,16 @@
-import assert from 'node:assert/strict';
-import React from 'react';
-import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react-native';
-import { Platform, StyleSheet } from 'react-native';
-import { currentIsland, initialState, joinRequests, reducer, viewIsland } from '@/services/model';
-import { Hall } from '@/screens/island/Hall';
-import { applyLocalePref } from '@/i18n';
-import { ApiError } from '@/services/api/client';
-import { useIslandManagement } from '@/screens/interiors/useIslandManagement';
-import * as magazine from '@/services/api/magazine';
 import { art } from '@/constants/art';
+import { applyLocalePref } from '@/i18n';
+import { createPreviewEnvironment } from '@/navigation/previewEnvironment';
+import { useIslandManagement } from '@/screens/interiors/useIslandManagement';
+import { Hall } from '@/screens/island/Hall';
+import { ApiError } from '@/services/api/client';
+import * as magazine from '@/services/api/magazine';
 import { fakeMemberLooksServer } from '@/services/memberLooks.testing';
+import type { Route } from '@/services/model';
+import { currentIsland, initialState, joinRequests, reducer, viewIsland } from '@/services/model';
+import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react-native';
+import assert from 'node:assert/strict';
+import { Platform, StyleSheet } from 'react-native';
 
 jest.mock('@/screens/interiors/useIslandManagement', () => ({
   ...jest.requireActual('@/screens/interiors/useIslandManagement'),
@@ -116,7 +117,11 @@ const management = (over: object = {}) => ({
   ...over,
 });
 
-const e = (route = 'manage', state = initialState(true)) => ({
+const leaveResult = (
+  currentIslandId: string | null,
+  nextLocation?: { islandId: string | null },
+) => ({ currentIslandId, nextLocation, items: [], nextCursor: null, lossReason: null });
+const e = (route: Route = 'manage', state = initialState(true)) => ({
   state,
   route,
   now: Date.now(),
@@ -145,7 +150,7 @@ afterEach(() => {
 test('실제 Hall manage는 서버 DTO를 그리고 저장·승인·강퇴 명령을 hook으로 보낸다', async () => {
   const api = management();
   managementMock.mockReturnValue(api);
-  const screen = await render(<Hall e={e()} />);
+  const screen = await render(<Hall e={createPreviewEnvironment(e())} />);
 
   assert.ok(screen.getByText('서버 섬'));
   await fireEvent.press(screen.getByTestId('hall-edit'));
@@ -180,7 +185,9 @@ test('실서버 member는 로컬 host 신청이 남아도 관리 CTA를 보지 �
   const localHostWithRequest = initialState(true);
   const request = joinRequests(currentIsland(localHostWithRequest))[0];
   assert.ok(request);
-  const member = await render(<Hall e={e('members', localHostWithRequest)} />);
+  const member = await render(
+    <Hall e={createPreviewEnvironment(e('members', localHostWithRequest))} />,
+  );
   assert.equal(member.queryByTestId('hall-edit'), null);
   assert.equal(member.queryByTestId(`hall-approve-${request.id}`), null);
   assert.equal(member.queryByTestId(`hall-reject-${request.id}`), null);
@@ -191,7 +198,7 @@ test('실제 오류 shape(role:null + error)는 권한 상실이 아니라 재�
   managementMock.mockReturnValue(
     management({ detail: null, role: null, error: new Error('네트워크 오류'), reload: retry }),
   );
-  const failed = await render(<Hall e={e()} />);
+  const failed = await render(<Hall e={createPreviewEnvironment(e())} />);
   assert.ok(failed.getByTestId('hall-management-error'));
   assert.equal(failed.queryByTestId('hall-management-forbidden'), null);
   await fireEvent.press(failed.getByTestId('hall-management-retry'));
@@ -205,7 +212,7 @@ test('방문자 관리 카드는 비활성 management snapshot 대신 기존 정
   const visitorState = initialState(true);
   visitorState.visitingIslandId = visitorState.islands.find((island) => !island.joined)?.id;
   const visiting = viewIsland(visitorState);
-  const visitor = await render(<Hall e={e('manage', visitorState)} />);
+  const visitor = await render(<Hall e={createPreviewEnvironment(e('manage', visitorState))} />);
   await waitFor(() => assert.ok(visitor.getByText(visiting.name)));
   assert.ok(visitor.getByText(visiting.intro));
   assert.equal(managementMock.mock.calls.at(-1)?.[0].active, false);
@@ -216,7 +223,7 @@ test('방문자 관리 카드는 비활성 management snapshot 대신 기존 정
 // 찍다가 jest 가 메모리 부족으로 죽는다(출력 없이 exit 137)
 test('홍보 쓰기 입구 — 내 섬 섬장에게만 회관 관리 카드에 있고 누르면 쓰기 화면으로 간다(홍보는 마을회관에서, 10/14)', async () => {
   const env = e();
-  const screen = await render(<Hall e={env} />);
+  const screen = await render(<Hall e={createPreviewEnvironment(env)} />);
   await fireEvent.press(await screen.findByTestId('hall-promotion-editor'));
   assert.equal(env.go.mock.calls.at(-1)?.[0], 'promotionEditor');
 });
@@ -225,14 +232,14 @@ test('홍보 쓰기 입구 — 섬장이 아닌 주민 · 방문자에게는 없
   const memberState = initialState(true);
   memberState.islands[0].members[0].role = 'host';
   managementMock.mockReturnValue(management({ role: 'member' }));
-  const member = await render(<Hall e={e('manage', memberState)} />);
+  const member = await render(<Hall e={createPreviewEnvironment(e('manage', memberState))} />);
   await waitFor(() => assert.ok(member.getByTestId('hall-invite')));
   expect(member.queryByTestId('hall-promotion-editor')).toBeNull();
   await member.unmount();
 
   const visitorState = initialState(true);
   visitorState.visitingIslandId = visitorState.islands.find((island) => !island.joined)?.id;
-  const visitor = await render(<Hall e={e('manage', visitorState)} />);
+  const visitor = await render(<Hall e={createPreviewEnvironment(e('manage', visitorState))} />);
   await waitFor(() => assert.ok(visitor.getByText(viewIsland(visitorState).name)));
   expect(visitor.queryByTestId('hall-promotion-editor')).toBeNull();
 });
@@ -261,13 +268,17 @@ test('홍보 쓰기 입구 — 실서버는 홈 스냅샷이 아니라 관리 AP
     );
   // 여기서 방장을 위임했다 — 홈 스냅샷은 아직 host, 관리 API 는 member → 입구가 없다
   managementMock.mockReturnValue(management({ role: 'member' }));
-  const handedOff = await render(<Hall e={e('manage', serverState('host'))} />);
+  const handedOff = await render(
+    <Hall e={createPreviewEnvironment(e('manage', serverState('host')))} />,
+  );
   await waitFor(() => assert.ok(handedOff.getByTestId('hall-invite')));
   expect(handedOff.queryByTestId('hall-promotion-editor')).toBeNull();
   await handedOff.unmount();
   // 다른 기기에서 방장을 위임받았다 — 홈 스냅샷은 아직 member, 관리 API 는 host → 입구가 있다
   managementMock.mockReturnValue(management({ role: 'host' }));
-  const received = await render(<Hall e={e('manage', serverState('member'))} />);
+  const received = await render(
+    <Hall e={createPreviewEnvironment(e('manage', serverState('member')))} />,
+  );
   await waitFor(() => expect(received.getByTestId('hall-promotion-editor')).toBeTruthy());
 });
 
@@ -283,7 +294,7 @@ test('홍보 쓰기 입구 — 방장 위임이 진행 중이면 막는다(끝�
   });
   managementMock.mockReturnValue(api);
   const env = e();
-  const screen = await render(<Hall e={env} />);
+  const screen = await render(<Hall e={createPreviewEnvironment(env)} />);
   const row = () => screen.getByTestId('hall-promotion-editor', { includeHiddenElements: true });
   await waitFor(() => expect(row().props.accessibilityState.disabled).toBe(false));
   // 카드의 주민 칸에서 바로 위임한다 — 패널 없이 카드에 머무는 길
@@ -312,7 +323,7 @@ test('review/demo 로컬 관리는 hook을 비활성화하고 기존 reducer 저
     assert.ok(island.members[0]);
     assert.ok(request);
     const local = e('manage', state);
-    const screen = await render(<Hall e={local} />);
+    const screen = await render(<Hall e={createPreviewEnvironment(local)} />);
 
     assert.equal(managementMock.mock.calls.at(-1)?.[0].active, false);
     await fireEvent.press(screen.getByTestId('hall-edit'));
@@ -348,7 +359,7 @@ test('서버 주민 후보는 로컬 목록과 달라도 위임 CTA와 transferH
   managementMock.mockReturnValue(api);
   const staleLocal = initialState(true);
   currentIsland(staleLocal).members = [];
-  const screen = await render(<Hall e={e('manage', staleLocal)} />);
+  const screen = await render(<Hall e={createPreviewEnvironment(e('manage', staleLocal))} />);
 
   assert.ok(screen.getByText('서버 섬'));
   await waitFor(() => assert.ok(screen.getByTestId('hall-edit')));
@@ -374,12 +385,12 @@ test('관리 명령 완료가 같은 활성 관리 route·세션 세대 전환 �
   });
   managementMock.mockReturnValue(api);
   const state = initialState(true);
-  const screen = await render(<Hall e={e('manage', state)} />);
+  const screen = await render(<Hall e={createPreviewEnvironment(e('manage', state))} />);
 
   await fireEvent.press(screen.getByTestId('hall-edit'));
   await fireEvent.press(screen.getByTestId('hall-save'));
   await waitFor(() => assert.equal(api.saveSettings.mock.calls.length, 1));
-  await screen.rerender(<Hall e={e('members', state)} />);
+  await screen.rerender(<Hall e={createPreviewEnvironment(e('members', state))} />);
   await act(async () => {
     releases[0]();
     await Promise.resolve();
@@ -390,7 +401,7 @@ test('관리 명령 완료가 같은 활성 관리 route·세션 세대 전환 �
   await fireEvent.press(screen.getByTestId('hall-save'));
   await waitFor(() => assert.equal(api.saveSettings.mock.calls.length, 2));
   mockSessionGeneration = 1;
-  await screen.rerender(<Hall e={e('members', state)} />);
+  await screen.rerender(<Hall e={createPreviewEnvironment(e('members', state))} />);
   await act(async () => {
     releases[1]();
     await Promise.resolve();
@@ -401,20 +412,24 @@ test('관리 명령 완료가 같은 활성 관리 route·세션 세대 전환 �
 
 test('서버 current 섬이 있으면 관리 hook 에 로컬 목업 섬 대신 그 id 를 넘긴다(GROMO-2138)', async () => {
   const state = { ...initialState(true), serverIslands: { currentIslandId: 'srv-1' } } as any;
-  await render(<Hall e={e('manage', state)} />);
+  await render(<Hall e={createPreviewEnvironment(e('manage', state))} />);
   assert.equal(managementMock.mock.calls.at(-1)[0].islandId, 'srv-1');
 });
 
 test('서버 모드인데 서버 섬 id 가 아직 없으면 소식·관리 조회를 보류하고, 도착하면 한 번 부른다(GROMO-2460)', async () => {
   const islands = {};
   const pending = { ...initialState(true), serverIslands: { currentIslandId: null } } as any;
-  const screen = await render(<Hall e={{ ...e('manage', pending), islands }} />);
+  const screen = await render(
+    <Hall e={createPreviewEnvironment({ ...e('manage', pending), islands })} />,
+  );
   await act(async () => {});
   assert.equal(managementMock.mock.calls.at(-1)[0].islandId, null);
   expect(getNewsMock).toHaveBeenCalledTimes(0);
 
   const arrived = { ...initialState(true), serverIslands: { currentIslandId: 'srv-1' } } as any;
-  await screen.rerender(<Hall e={{ ...e('manage', arrived), islands }} />);
+  await screen.rerender(
+    <Hall e={createPreviewEnvironment({ ...e('manage', arrived), islands })} />,
+  );
   await waitFor(() => expect(getNewsMock).toHaveBeenCalledTimes(1));
   assert.equal(getNewsMock.mock.calls[0][0], 'srv-1');
   assert.equal(managementMock.mock.calls.at(-1)[0].islandId, 'srv-1');
@@ -423,9 +438,9 @@ test('서버 모드인데 서버 섬 id 가 아직 없으면 소식·관리 조�
 test('서버 주민 탈퇴는 서버 섬 이름으로 확인하고 islands.leave 를 보낸다(4-06)', async () => {
   managementMock.mockReturnValue(management({ role: 'member', requests: null }));
   const state = { ...initialState(true), serverIslands: { currentIslandId: 'srv-1' } } as any;
-  const leave = jest.fn(async (_islandId: string) => ({ currentIslandId: null }));
+  const leave = jest.fn(async (_islandId: string) => leaveResult(null));
   const env = { ...e('manage', state), islands: { leave } };
-  const screen = await render(<Hall e={env} />);
+  const screen = await render(<Hall e={createPreviewEnvironment(env)} />);
 
   await fireEvent.press(screen.getByTestId('hall-leave'));
   // 목업 '소다 섬'이 아니라 서버 섬 이름으로 묻는다(H2)
@@ -440,9 +455,11 @@ test('서버 주민 탈퇴는 서버 섬 이름으로 확인하고 islands.leave
 });
 
 test('서버 섬 id 가 아직 없으면 로딩 화면만 보이고 카드·초대·탈퇴가 없다, 도착하면 카드가 그려진다(GROMO-2460)', async () => {
-  const leave = jest.fn(async (_islandId: string) => ({ currentIslandId: null }));
+  const leave = jest.fn(async (_islandId: string) => leaveResult(null));
   const pending = { ...initialState(true), serverIslands: { currentIslandId: null } } as any;
-  const screen = await render(<Hall e={{ ...e('manage', pending), islands: { leave } }} />);
+  const screen = await render(
+    <Hall e={createPreviewEnvironment({ ...e('manage', pending), islands: { leave } })} />,
+  );
 
   expect(screen.queryByTestId('hall-management-loading')).toBeTruthy();
   expect(screen.queryByTestId('hall-leave')).toBeNull();
@@ -450,7 +467,9 @@ test('서버 섬 id 가 아직 없으면 로딩 화면만 보이고 카드·초�
   expect(leave).toHaveBeenCalledTimes(0);
 
   const arrived = { ...initialState(true), serverIslands: { currentIslandId: 'srv-1' } } as any;
-  await screen.rerender(<Hall e={{ ...e('manage', arrived), islands: { leave } }} />);
+  await screen.rerender(
+    <Hall e={createPreviewEnvironment({ ...e('manage', arrived), islands: { leave } })} />,
+  );
   expect(screen.queryByTestId('hall-management-loading')).toBeNull();
   expect(screen.queryByTestId('hall-invite')).toBeTruthy();
 });
@@ -463,9 +482,9 @@ test.each([
 ])('탈퇴 응답의 다음 위치가 %s 간다(GROMO-2366)', async (_name, nextLocation, current, to) => {
   managementMock.mockReturnValue(management({ role: 'member', requests: null }));
   const state = { ...initialState(true), serverIslands: { currentIslandId: 'srv-1' } } as any;
-  const leave = jest.fn(async (_islandId: string) => ({ currentIslandId: current, nextLocation }));
+  const leave = jest.fn(async (_islandId: string) => leaveResult(current, nextLocation));
   const env = { ...e('manage', state), islands: { leave } };
-  const screen = await render(<Hall e={env} />);
+  const screen = await render(<Hall e={createPreviewEnvironment(env)} />);
 
   await fireEvent.press(screen.getByTestId('hall-leave'));
   await fireEvent.press(screen.getByTestId('hall-dialog-ok'));
@@ -479,9 +498,9 @@ test('혼자 남은 방장은 기본 섬 정보에서 삭제를 확인한 뒤 �
   // 로컬 목업 주민과 승인 대기 신청자가 남아 있어도 서버의 활성 주민만 센다.
   managementMock.mockReturnValue({ ...api, members: [api.members[0]] });
   const state = { ...initialState(true), serverIslands: { currentIslandId: 'srv-1' } } as any;
-  const leave = jest.fn(async (_islandId: string) => ({ currentIslandId: null }));
+  const leave = jest.fn(async (_islandId: string) => leaveResult(null));
   const env = { ...e('manage', state), islands: { leave } };
-  const screen = await render(<Hall e={env} />);
+  const screen = await render(<Hall e={createPreviewEnvironment(env)} />);
 
   await fireEvent.press(screen.getByTestId('hall-leave'));
   await waitFor(() => assert.ok(screen.getByText('삭제하고 나가기')));
@@ -498,16 +517,16 @@ test('혼자 남은 방장은 기본 섬 정보에서 삭제를 확인한 뒤 �
 });
 
 test('다른 주민이 있는 방장은 기본 섬 정보에서 탈퇴를 누르면 위임부터 안내한다', async () => {
-  const leave = asyncCommand();
+  const leave = jest.fn(async () => leaveResult(null));
   const screen = await render(
     <Hall
-      e={{
+      e={createPreviewEnvironment({
         ...e('manage', {
           ...initialState(true),
           serverIslands: { currentIslandId: 'srv-1' },
         } as any),
         islands: { leave },
-      }}
+      })}
     />,
   );
 
@@ -528,7 +547,7 @@ test('정보 수정 실패는 수정 패널 안에 사용자 문구 토스트로
     }),
   });
   managementMock.mockReturnValue(api);
-  const screen = await render(<Hall e={e()} />);
+  const screen = await render(<Hall e={createPreviewEnvironment(e())} />);
   await fireEvent.press(screen.getByTestId('hall-edit'));
   await fireEvent.press(screen.getByTestId('hall-save'));
   await waitFor(() =>
@@ -548,7 +567,7 @@ test('정원이 찬 뒤 승인하면 정원을 늘리라고 안내한다(H7)', a
     }),
   });
   managementMock.mockReturnValue(api);
-  const screen = await render(<Hall e={e()} />);
+  const screen = await render(<Hall e={createPreviewEnvironment(e())} />);
   await fireEvent.press(screen.getByTestId('hall-approve-r1'));
   await waitFor(() =>
     assert.ok(screen.getByText('정원이 가득 찼어요.\n정원을 늘린 뒤 승인해 주세요.')),
@@ -563,7 +582,7 @@ test('재조회 중에도 확정된 관리 카드를 유지하고 이름 없는 
       requests: [{ id: 'r2', applicantId: 'a2', name: null, status: 'pending', version: 1 }],
     }),
   );
-  const screen = await render(<Hall e={e()} />);
+  const screen = await render(<Hall e={createPreviewEnvironment(e())} />);
   assert.equal(screen.queryByTestId('hall-management-loading'), null);
   assert.ok(screen.getByText('서버 섬'));
   assert.ok(screen.getByLabelText('신청자 가입 승인'));
@@ -576,7 +595,7 @@ test('승인 처리 중에는 승인·거절을 다시 누를 수 없다(H20)', 
     answerRequest: jest.fn(() => new Promise<void>((resolve) => (finish = resolve))),
   });
   managementMock.mockReturnValue(api);
-  const screen = await render(<Hall e={e()} />);
+  const screen = await render(<Hall e={createPreviewEnvironment(e())} />);
   await fireEvent.press(screen.getByTestId('hall-approve-r1'));
   await fireEvent.press(screen.getByTestId('hall-approve-r1'));
   await fireEvent.press(screen.getByTestId('hall-reject-r1'));
@@ -585,7 +604,7 @@ test('승인 처리 중에는 승인·거절을 다시 누를 수 없다(H20)', 
 });
 
 test('확인 버튼 위험색은 강퇴·탈퇴에만 쓴다(H23)', async () => {
-  const screen = await render(<Hall e={e()} />);
+  const screen = await render(<Hall e={createPreviewEnvironment(e())} />);
   await fireEvent.press(screen.getByTestId('hall-member-u2'));
   await fireEvent.press(screen.getByTestId('hall-member-transfer'));
   const transferOk = screen.getByTestId('hall-dialog-ok');
@@ -616,7 +635,7 @@ test('신청자·주민 아바타는 각자의 고양이 색이고 색이 없으
       ],
     }),
   );
-  const screen = await render(<Hall e={e('manage', state)} />);
+  const screen = await render(<Hall e={createPreviewEnvironment(e('manage', state))} />);
   // RNTL 14 에는 UNSAFE 쿼리가 없다 — 렌더 트리를 훑어 Image source 를 모은다
   const all: unknown[] = [];
   const walk = (node: any) => {
@@ -656,7 +675,7 @@ describe('가입 신청·주민 아바타의 외양 조회(GROMO-2497)', () => {
         ],
       }),
     );
-    const screen = await render(<Hall e={e()} />);
+    const screen = await render(<Hall e={createPreviewEnvironment(e())} />);
     await waitFor(() => assert.deepEqual([...looks.asked].sort(), [APPLICANT, RESIDENT]));
     await waitFor(() => {
       const sources = screen.queryAllByTestId('cat-avatar-image').map((n) => n.props.source);
@@ -683,19 +702,21 @@ test('서버 주민이 머리를 입었으면 그 아바타에 합성 캔버스�
       ],
     }),
   );
-  const screen = await render(<Hall e={e('manage', initialState(true))} />);
+  const screen = await render(
+    <Hall e={createPreviewEnvironment(e('manage', initialState(true)))} />,
+  );
   assert.equal(screen.getAllByTestId('outfit-fit').length, 1);
 });
 
 test('섬 이름·소개 입력 길이는 서버 계약 50/200자와 같다(H24)', async () => {
-  const screen = await render(<Hall e={e()} />);
+  const screen = await render(<Hall e={createPreviewEnvironment(e())} />);
   await fireEvent.press(screen.getByTestId('hall-edit'));
   assert.equal(screen.getByTestId('hall-name').props.maxLength, 50);
   assert.equal(screen.getByTestId('hall-intro').props.maxLength, 200);
 });
 
 test('섬 이름·소개 칸은 현재 글자 수를 보여 주고 한도에 닿으면 안내한다(2-15)', async () => {
-  const screen = await render(<Hall e={e()} />);
+  const screen = await render(<Hall e={createPreviewEnvironment(e())} />);
   await fireEvent.press(screen.getByTestId('hall-edit'));
   assert.ok(screen.getByText('4/50')); // '서버 섬' 은 4자
   await fireEvent.changeText(screen.getByTestId('hall-name'), '가'.repeat(50));
@@ -748,7 +769,7 @@ function serverVisitor(approval = false, pending = false) {
 
 test('방문 회관은 서버 주민을 보여주고 즉시 가입 확정 후 방문을 종료한다', async () => {
   const env = serverVisitor();
-  const screen = await render(<Hall e={env} />);
+  const screen = await render(<Hall e={createPreviewEnvironment(env)} />);
   screen.getByText('실제 방문 섬');
   screen.getByText('방문 섬 방장');
   expect(screen.queryByTestId('hall-edit')).toBeNull();
@@ -769,7 +790,7 @@ test('회관의 승인제 신청은 중복 탭을 막고 회관에 남는다', a
         finish = resolve;
       }),
   );
-  const screen = await render(<Hall e={env} />);
+  const screen = await render(<Hall e={createPreviewEnvironment(env)} />);
   await fireEvent.press(screen.getByTestId('hall-join'));
   await fireEvent.press(screen.getByTestId('hall-join'));
   expect(env.islands.join).toHaveBeenCalledTimes(1);
@@ -781,7 +802,7 @@ test('회관의 승인제 신청은 중복 탭을 막고 회관에 남는다', a
 
 test('방문 응답으로 복구한 신청도 회관에서 서버 취소를 호출한다', async () => {
   const env = serverVisitor(true, true);
-  const screen = await render(<Hall e={env} />);
+  const screen = await render(<Hall e={createPreviewEnvironment(env)} />);
   screen.getByText('신청 취소');
   await fireEvent.press(screen.getByTestId('hall-join'));
   await screen.findByText('가입 신청을 취소했어요.');
@@ -792,7 +813,7 @@ test('방문 응답으로 복구한 신청도 회관에서 서버 취소를 호�
 test('방문 가입 실패는 회관에서 오류를 알리고 이동하지 않는다', async () => {
   const env = serverVisitor();
   env.islands.join.mockRejectedValue(new ApiError('GROUP_FULL', '가득 찼어요', 409));
-  const screen = await render(<Hall e={env} />);
+  const screen = await render(<Hall e={createPreviewEnvironment(env)} />);
   await fireEvent.press(screen.getByTestId('hall-join'));
   await screen.findByText('섬의 정원이 찼어요. 다른 섬을 선택해 주세요.');
   await waitFor(() =>
@@ -808,7 +829,7 @@ const withGreeting = (greeting: string, greetingIsDefault: boolean) =>
 const DEFAULT_GREETING = '서버 섬에 온 걸 환영해요! 같이 집중해요 🐟';
 
 test('인사말 입력은 섬장 편집 패널에만 있고 41번째 코드포인트는 입력되지 않는다(이모지 포함)', async () => {
-  const screen = await render(<Hall e={e()} />);
+  const screen = await render(<Hall e={createPreviewEnvironment(e())} />);
   await fireEvent.press(screen.getByTestId('hall-edit'));
   const input = screen.getByTestId('hall-greeting');
   expect(screen.getByText('인사말')).toBeTruthy();
@@ -831,7 +852,7 @@ test.each([
   ['세로', false],
 ])('%s 편집 패널의 이름·인사말 칸은 실제 터치 높이가 44pt 이상이다', async (_name, landscape) => {
   mockLandscape = landscape;
-  const screen = await render(<Hall e={e()} />);
+  const screen = await render(<Hall e={createPreviewEnvironment(e())} />);
   await fireEvent.press(screen.getByTestId('hall-edit'));
   for (const id of ['hall-name', 'hall-greeting']) {
     const style = StyleSheet.flatten(screen.getByTestId(id).props.style);
@@ -841,20 +862,20 @@ test.each([
 
 test('방장이 아닌 주민에게는 편집 연필도 인사말 칸도 없다', async () => {
   managementMock.mockReturnValue(management({ role: 'member', requests: null }));
-  const screen = await render(<Hall e={e()} />);
+  const screen = await render(<Hall e={createPreviewEnvironment(e())} />);
   expect(screen.queryByTestId('hall-edit')).toBeNull();
   expect(screen.queryByTestId('hall-greeting')).toBeNull();
 });
 
 test('섬장이 쓴 인사말은 칸에 채우고, 합성된 기본 문구는 빈 칸에 힌트만 둔다', async () => {
   managementMock.mockReturnValue(withGreeting('어서 와요 🐟', false));
-  const own = await render(<Hall e={e()} />);
+  const own = await render(<Hall e={createPreviewEnvironment(e())} />);
   await fireEvent.press(own.getByTestId('hall-edit'));
   expect(own.getByTestId('hall-greeting').props.value).toBe('어서 와요 🐟');
   await own.unmount();
 
   managementMock.mockReturnValue(withGreeting(DEFAULT_GREETING, true));
-  const synthesized = await render(<Hall e={e()} />);
+  const synthesized = await render(<Hall e={createPreviewEnvironment(e())} />);
   await fireEvent.press(synthesized.getByTestId('hall-edit'));
   // 합성 문구를 채워 저장하면 이름이 바뀌어도 안 따라가고 길면 40 을 넘는다 — 빈 칸 + 힌트
   expect(synthesized.getByTestId('hall-greeting').props.value).toBe('');
@@ -864,7 +885,7 @@ test('섬장이 쓴 인사말은 칸에 채우고, 합성된 기본 문구는 �
 });
 
 test('구서버(인사말 필드 없음)도 칸은 빈 채로 열린다', async () => {
-  const screen = await render(<Hall e={e()} />);
+  const screen = await render(<Hall e={createPreviewEnvironment(e())} />);
   await fireEvent.press(screen.getByTestId('hall-edit'));
   expect(screen.getByTestId('hall-greeting').props.value).toBe('');
 });
@@ -873,7 +894,7 @@ test('인사말은 바꾼 때만 저장 body 에 싣고, 지우면 빈 문자열
   // ① 안 바꾸면 키 자체가 없다 — 구서버(400)·게스트(403)에 걸리지 않는다
   const untouched = management();
   managementMock.mockReturnValue(untouched);
-  const first = await render(<Hall e={e()} />);
+  const first = await render(<Hall e={createPreviewEnvironment(e())} />);
   await fireEvent.press(first.getByTestId('hall-edit'));
   await fireEvent.changeText(first.getByTestId('hall-name'), '이름만 수정');
   await fireEvent.press(first.getByTestId('hall-save'));
@@ -884,7 +905,7 @@ test('인사말은 바꾼 때만 저장 body 에 싣고, 지우면 빈 문자열
   // ② 새로 쓰면 앞뒤 공백을 뗀 글을 싣는다
   const writing = withGreeting(DEFAULT_GREETING, true);
   managementMock.mockReturnValue(writing);
-  const second = await render(<Hall e={e()} />);
+  const second = await render(<Hall e={createPreviewEnvironment(e())} />);
   await fireEvent.press(second.getByTestId('hall-edit'));
   await fireEvent.changeText(second.getByTestId('hall-greeting'), '  어서 와요 🐟  ');
   await fireEvent.press(second.getByTestId('hall-save'));
@@ -901,7 +922,7 @@ test('인사말은 바꾼 때만 저장 body 에 싣고, 지우면 빈 문자열
   // ③ 쓴 인사말을 비우면 null 이 아니라 빈 문자열
   const clearing = withGreeting('어서 와요', false);
   managementMock.mockReturnValue(clearing);
-  const third = await render(<Hall e={e()} />);
+  const third = await render(<Hall e={createPreviewEnvironment(e())} />);
   await fireEvent.press(third.getByTestId('hall-edit'));
   await fireEvent.changeText(third.getByTestId('hall-greeting'), '');
   await fireEvent.press(third.getByTestId('hall-save'));
@@ -913,7 +934,7 @@ test('인사말은 앞뒤 공백만 달라졌으면 바뀐 것으로 보지 않�
   // 쓴 인사말 뒤에 공백만 덧붙인 경우
   const own = withGreeting('어서 와요', false);
   managementMock.mockReturnValue(own);
-  const first = await render(<Hall e={e()} />);
+  const first = await render(<Hall e={createPreviewEnvironment(e())} />);
   await fireEvent.press(first.getByTestId('hall-edit'));
   await fireEvent.changeText(first.getByTestId('hall-greeting'), '  어서 와요  ');
   await fireEvent.press(first.getByTestId('hall-save'));
@@ -924,7 +945,7 @@ test('인사말은 앞뒤 공백만 달라졌으면 바뀐 것으로 보지 않�
   // 안 쓴(기본) 상태에서 공백만 입력한 경우
   const unset = withGreeting(DEFAULT_GREETING, true);
   managementMock.mockReturnValue(unset);
-  const second = await render(<Hall e={e()} />);
+  const second = await render(<Hall e={createPreviewEnvironment(e())} />);
   await fireEvent.press(second.getByTestId('hall-edit'));
   await fireEvent.changeText(second.getByTestId('hall-greeting'), '   ');
   await fireEvent.press(second.getByTestId('hall-save'));
@@ -935,7 +956,7 @@ test('인사말은 앞뒤 공백만 달라졌으면 바뀐 것으로 보지 않�
   // 서버가 앞뒤 공백이 붙은 인사말을 줘도(편집 칸엔 그대로 채워진다) 손대지 않고 저장하면 안 바뀐 것이다
   const padded = withGreeting('  어서 와요  ', false);
   managementMock.mockReturnValue(padded);
-  const kept = await render(<Hall e={e()} />);
+  const kept = await render(<Hall e={createPreviewEnvironment(e())} />);
   await fireEvent.press(kept.getByTestId('hall-edit'));
   await fireEvent.press(kept.getByTestId('hall-save'));
   await waitFor(() => expect(padded.saveSettings).toHaveBeenCalledTimes(1));
@@ -945,7 +966,7 @@ test('인사말은 앞뒤 공백만 달라졌으면 바뀐 것으로 보지 않�
   // 글자가 달라지면 공백이 섞여 있어도 앞뒤를 뗀 글을 싣는다
   const edited = withGreeting('어서 와요', false);
   managementMock.mockReturnValue(edited);
-  const third = await render(<Hall e={e()} />);
+  const third = await render(<Hall e={createPreviewEnvironment(e())} />);
   await fireEvent.press(third.getByTestId('hall-edit'));
   await fireEvent.changeText(third.getByTestId('hall-greeting'), ' 어서 와요! ');
   await fireEvent.press(third.getByTestId('hall-save'));
@@ -957,7 +978,7 @@ test('인사말 저장이 실패하면 쓰던 글을 그대로 두고 패널도 
   const api = withGreeting('어서 와요', false);
   api.saveSettings.mockRejectedValueOnce(new ApiError('INTERNAL_ERROR', 'boom', 500));
   managementMock.mockReturnValue(api);
-  const screen = await render(<Hall e={e()} />);
+  const screen = await render(<Hall e={createPreviewEnvironment(e())} />);
   await fireEvent.press(screen.getByTestId('hall-edit'));
   await fireEvent.changeText(screen.getByTestId('hall-greeting'), '새 인사말');
   await fireEvent.press(screen.getByTestId('hall-save'));
@@ -978,7 +999,7 @@ test('목업(비서버) 로컬 관리 패널에는 인사말 칸이 없다', asy
   Object.defineProperty(Platform, 'OS', { configurable: true, value: 'web' });
   target.window = { location: { search: '?demo' } };
   try {
-    const screen = await render(<Hall e={e()} />);
+    const screen = await render(<Hall e={createPreviewEnvironment(e())} />);
     await fireEvent.press(screen.getByTestId('hall-edit'));
     expect(screen.getByTestId('hall-name')).toBeTruthy();
     expect(screen.queryByTestId('hall-greeting')).toBeNull();
@@ -993,7 +1014,7 @@ test('게스트 섬장의 인사말 저장(403 SOCIAL_LOGIN_REQUIRED)은 권한 
   const api = management({ saveSettings: jest.fn(async () => Promise.reject(gate)) });
   managementMock.mockReturnValue(api);
   const env = { ...e(), conversion: { offer: jest.fn((error: unknown) => error === gate) } };
-  const screen = await render(<Hall e={env} />);
+  const screen = await render(<Hall e={createPreviewEnvironment(env)} />);
   await fireEvent.press(screen.getByTestId('hall-edit'));
   await fireEvent.changeText(screen.getByTestId('hall-greeting'), '어서 와요');
   await fireEvent.press(screen.getByTestId('hall-save'));
@@ -1018,7 +1039,7 @@ test('섬 소식은 서버가 준 최신순 그대로 「섬 소식」 아래에
     newsItem('n2', '2026-10-23T03:00:00.000Z'),
     newsItem('n1', '2026-10-22T03:00:00.000Z'),
   ]);
-  const screen = await render(<Hall e={e('manage', state)} />);
+  const screen = await render(<Hall e={createPreviewEnvironment(e('manage', state))} />);
 
   await screen.findByText('섬 소식');
   expect(getNewsMock).toHaveBeenCalledWith(viewIsland(state).id, 20);
@@ -1039,7 +1060,7 @@ test('섬 소식은 모르는 kind 를 건너뛰고 화면은 그대로다(서�
     newsItem('c1', '2026-10-24T02:00:00.000Z', 'constructor'),
     newsItem('p1', '2026-10-23T03:00:00.000Z'),
   ]);
-  const screen = await render(<Hall e={e()} />);
+  const screen = await render(<Hall e={createPreviewEnvironment(e())} />);
 
   await screen.findByText('섬 소식');
   expect(screen.getAllByTestId(/^hall-news-/).map((row) => row.props.testID)).toEqual([
@@ -1050,7 +1071,7 @@ test('섬 소식은 모르는 kind 를 건너뛰고 화면은 그대로다(서�
 
 test('섬 소식이 0건이거나 아는 kind 가 하나도 없으면 칸을 그리지 않는다', async () => {
   getNewsMock.mockResolvedValue([newsItem('m1', '2026-10-24T03:00:00.000Z', 'MAGAZINE_ISSUED')]);
-  const screen = await render(<Hall e={e()} />);
+  const screen = await render(<Hall e={createPreviewEnvironment(e())} />);
 
   await waitFor(() => expect(getNewsMock).toHaveBeenCalledTimes(1));
   await act(async () => {});
@@ -1062,7 +1083,7 @@ test('비주민·떠난 주민의 403 FORBIDDEN 은 소식 칸만 숨기고 카�
   getNewsMock.mockRejectedValue(
     new ApiError('FORBIDDEN', '이 작업을 할 권한이 없어요.', 403, { field: 'islandId' }),
   );
-  const screen = await render(<Hall e={e()} />);
+  const screen = await render(<Hall e={createPreviewEnvironment(e())} />);
 
   await waitFor(() => expect(getNewsMock).toHaveBeenCalledTimes(1));
   await act(async () => {});
@@ -1077,7 +1098,7 @@ test('다른 섬을 구경 중인 방문자는 섬 소식을 부르지 않는다
   getNewsMock.mockResolvedValue([newsItem('n1', '2026-10-22T03:00:00.000Z')]);
   const visitorState = initialState(true);
   visitorState.visitingIslandId = visitorState.islands.find((island) => !island.joined)?.id;
-  const visitor = await render(<Hall e={e('manage', visitorState)} />);
+  const visitor = await render(<Hall e={createPreviewEnvironment(e('manage', visitorState))} />);
 
   await waitFor(() => assert.ok(visitor.getByText(viewIsland(visitorState).name)));
   await act(async () => {});
@@ -1088,7 +1109,7 @@ test('다른 섬을 구경 중인 방문자는 섬 소식을 부르지 않는다
 describe('정원 휠 — 숫자 state + t() 라벨(GROMO-2464)', () => {
   const pickCapacity = async (api: ReturnType<typeof management>, label: string) => {
     managementMock.mockReturnValue(api);
-    const screen = await render(<Hall e={e()} />);
+    const screen = await render(<Hall e={createPreviewEnvironment(e())} />);
     await fireEvent.press(screen.getByTestId('hall-edit'));
     await waitFor(() => assert.ok(screen.getByTestId('hall-capacity')));
     await fireEvent.press(screen.getByTestId('hall-capacity'));
