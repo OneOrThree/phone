@@ -170,6 +170,7 @@ export function createPreviewEnvironment(input: PreviewEnvironmentInput = {}): S
               acknowledge: unavailable,
               recover: unavailable,
               beginRecover: unavailable,
+              busy: () => false,
               ...focus,
             },
             focusCache,

@@ -496,7 +496,14 @@
     "start": "집중 시작",
     "resume": "집중 이어가기",
     "finishFailed": "집중을 마치지 못했어요.",
-    "resumeFailed": "집중을 이어가지 못했어요."
+    "resumeFailed": "집중을 이어가지 못했어요.",
+    "leave": {
+      "warnTitle": "집중이 멈췄어요!",
+      "warnBody": "{{count}}초 안에 돌아오면 이어서 집중할 수 있어요.",
+      "endTitle": "집중이 끝났어요",
+      "endBody": "여기까지 집중한 시간은 저장했어요.",
+      "ended": "집중이 이미 끝나 있었어요."
+    }
   },
   "board": {
     "quest": {

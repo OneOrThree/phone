@@ -19,6 +19,7 @@ import {
   t,
   type LocalePref,
 } from '@/i18n';
+import { useFocusLeaveFallback, type LeaveHandlers } from '@/screens/focus/focusLeave';
 import { BuildingTransitionOverlay } from '@/screens/island/BuildingTransitionOverlay';
 import { CurrentScreens as RedesignScreens } from '@/screens/island/CurrentScreens';
 import { useGowunFont } from '@/screens/island/sceneKit';
@@ -1185,6 +1186,32 @@ function Gromo() {
         }
       });
   };
+  // ── 실드 없이 앱을 나간 집중(GROMO-2635) ──
+  // 정본을 다시 읽어 맞춘다 — 서버가 이미 닫았으면(휴식 1시간 자동 종료는 결과창, 방치 종결 등 결과 없는 종료는 안내 한 줄)
+  const reconcileFocus = async (error?: unknown) => {
+    // 계정이 바뀐 뒤 늦게 온 실패는 새 계정과 무관하다
+    if (error instanceof ApiError && error.code === CLIENT_STALE_SESSION) return;
+    const recovered = await focus.recover().catch(() => undefined);
+    if (recovered === null) {
+      notify(t('focus.leave.ended'));
+      home();
+    } else if (recovered === 'focusResult') reset('focusResult');
+    else if (error) {
+      notify(errorTextOr(error, 'focus.finishFailed'));
+      if (recovered && recovered !== routeRef.current) reset(recovered);
+    }
+  };
+  const leaveHandlers = useRef<LeaveHandlers | null>(null);
+  leaveHandlers.current = {
+    resume: resumeSession,
+    finish: () => {
+      focus
+        .finish()
+        .then(() => reset('focusResult'))
+        .catch(reconcileFocus);
+    },
+    checkEnded: () => void reconcileFocus(),
+  };
   // ── 회원 전환(GROMO-2005) ──
   // 오케스트레이션은 services/memberConversion.ts — 친구·편지·구매의 403 SOCIAL_LOGIN_REQUIRED 를
   // 받은 호출부가 e.conversion.offer(error) 로 시트를 연다. 진행 중인 대기 확인은 취소로 정리한다.
@@ -1896,8 +1923,15 @@ function Gromo() {
         // GROMO-2009 집중 세션 복구 — 서버 정본의 진행 세션(active→낚시, paused→모닥불)과
         // 자동 종료 미확인 결과(→결과창)를 부팅 경로보다 우선한다. 실패하면 부팅 경로를 유지한다.
         if (recoverRead && sessionGeneration() === bootGen) {
-          const recovered = await recoverRead().catch(() => null);
+          const recovered = await recoverRead().catch(() => undefined);
           if (recovered && sessionGeneration() === bootGen) setRoute(recovered);
+          // GROMO-2635 저장본엔 서버 집중이 있었는데 서버엔 진행 세션도 결과도 없다 — 서버가 닫았다(방치 종결 등)
+          else if (
+            recovered === null &&
+            bootSaved?.session?.version != null &&
+            sessionGeneration() === bootGen
+          )
+            notify(t('focus.leave.ended'));
         }
       })
       .catch(() => notify(t('app.restoreFailed')))
@@ -2086,6 +2120,13 @@ function Gromo() {
     state,
     stateRef,
     notify,
+  });
+  useFocusLeaveFallback({
+    enabled: loaded && hasServerSession && !REVIEW && !DEMO,
+    stateRef,
+    pause: focus.pause,
+    busy: focus.busy,
+    handlers: leaveHandlers,
   });
   const liveActivityOwner = getSession()?.userId;
   useEffect(() => {

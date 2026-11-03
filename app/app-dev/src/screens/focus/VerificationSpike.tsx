@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { readAccountGuides, saveAccountGuides } from '@/services/accountGuides';
 import { getSession, sessionGeneration } from '@/services/api/session';
 import { captureProductEvent } from '@/services/posthog';
+import { duringSystemPrompt } from './focusLeave';
 import { VerificationIntro, type VerificationControlAnchor } from './VerificationIntro';
 import { Alert, Linking, Pressable, View } from 'react-native';
 import { Toggle, Txt } from '@/design-system/patterns';
@@ -191,7 +192,9 @@ export function VerificationToggle({
     setRequesting(true);
     try {
       let permission = await getPermission();
-      if (!permission.granted && permission.canAskAgain) permission = await requestPermission();
+      // 권한 창은 Android 에서 앱을 나간 것처럼 보인다 — 그동안 이탈 폴백을 멈춘다(GROMO-2635)
+      if (!permission.granted && permission.canAskAgain)
+        permission = await duringSystemPrompt(requestPermission);
       if (getSession()?.userId !== owner || sessionGeneration() !== generation) return;
       if (previewOnly && !measurementOn.current) return;
       if (permission.granted) {
