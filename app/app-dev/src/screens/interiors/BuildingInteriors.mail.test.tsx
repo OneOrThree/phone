@@ -1,18 +1,8 @@
-import assert from 'node:assert/strict';
-import React, { useState } from 'react';
-import { Linking, Platform, StyleSheet } from 'react-native';
-import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
-import { ApiError } from '@/services/api/client';
-import { clearSession, saveSession } from '@/services/api/session';
-import { initialState } from '@/services/model';
 import { art } from '@/constants/art';
-import {
-  markUserBlocked,
-  replaceBlockedUsers,
-  revalidateBlockedUsers,
-} from '@/services/blockedUsers';
-import { blockUser, getBlockedUsers } from '@/services/api/safety';
-import { InteriorRoute, InteriorScreen } from '@/screens/interiors/BuildingInteriors';
+import { createPreviewEnvironment } from '@/navigation/previewEnvironment';
+import { InteriorRoute } from '@/screens/interiors/BuildingInteriors';
+import { InteriorScreen } from '@/screens/interiors/InteriorScreen';
+import { ApiError } from '@/services/api/client';
 import {
   closeLetter,
   getLetter,
@@ -23,6 +13,18 @@ import {
   sendIslandMessage,
   sendLetter,
 } from '@/services/api/letters';
+import { blockUser, getBlockedUsers } from '@/services/api/safety';
+import { clearSession, saveSession } from '@/services/api/session';
+import {
+  markUserBlocked,
+  replaceBlockedUsers,
+  revalidateBlockedUsers,
+} from '@/services/blockedUsers';
+import { initialState } from '@/services/model';
+import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
+import assert from 'node:assert/strict';
+import { useState } from 'react';
+import { Linking, Platform, StyleSheet } from 'react-native';
 
 jest.mock('@/services/api/letters', () => ({
   // 시스템 편지 판별 헬퍼(isSystemLetter·isSystemLetterView)는 실제 구현을 쓴다.
@@ -217,7 +219,7 @@ const renderMail = async (e: any, conceptIndex = 0) => {
         width={402}
         height={874}
         reduceMotion
-        e={box.e}
+        e={box.e ? createPreviewEnvironment(box.e) : box.e}
       />
     );
   };
@@ -287,7 +289,7 @@ test('받은 편지 — 화면 묶음의 편지를 그리고 보낸 사람 이�
 
 test('우체통은 장면을 k배 키워 그려도 뒤로 동그라미는 1/k 로 줄여 다른 건물과 같은 화면 자리·크기다', async () => {
   screenMock.mockResolvedValue(screen([]));
-  const ui = await render(<InteriorRoute e={makeE()} />);
+  const ui = await render(<InteriorRoute e={createPreviewEnvironment(makeE())} />);
   const back = await ui.findByTestId('scene-back');
   // 402×874 창 → 316×686 시안을 k 배(작은 쪽 비율)로 키운다
   const k = Math.min(402 / 316, 874 / 686);

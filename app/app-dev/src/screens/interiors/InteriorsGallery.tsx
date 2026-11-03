@@ -1,20 +1,20 @@
-import React, { useEffect, useState } from 'react';
-import { Image, ImageSourcePropType, Platform, Pressable, Text, View } from 'react-native';
+import { InteriorScreen } from '@/screens/interiors/InteriorScreen';
+import { interiorArt } from '@/screens/interiors/assets';
+import { buildings } from '@/screens/interiors/catalog';
 import {
   BODY_FONT,
   GOWUN,
   INK,
-  InteriorScreen,
   OUTLINE,
   assetUri,
-  buildings,
   exact,
   gradient,
-  interiorArt,
   lh,
   useInteriorFonts,
   webOnly,
-} from '@/screens/interiors/BuildingInteriors';
+} from '@/screens/interiors/shared/styles';
+import React, { useEffect, useState } from 'react';
+import { Image, ImageSourcePropType, Platform, Pressable, Text, View } from 'react-native';
 
 // 원본 구경용 페이지(preview/concepts/building-interiors-3/index.html)를 RN으로 옮긴다.
 // 건물 탭 6개 + 시안 카드(제목·설명·폰 목업) 구조. 폰 안의 화면은 BuildingInteriors의 InteriorScreen을 그대로 쓴다.
