@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { request, uuid } from '@/services/api/client';
+import { ApiError, CLIENT_STALE_SESSION, request, uuid } from '@/services/api/client';
 import { metaContext } from '@/services/metaSdk';
 import { sessionGeneration } from '@/services/api/session';
 import type { Arrival, TelescopeItem } from '@/services/api/telescope';
@@ -54,6 +54,9 @@ export async function arriveFirstVoyage(
     new Promise<undefined>((resolve) => (timer = setTimeout(() => resolve(undefined), 1000))),
   ]);
   clearTimeout(timer);
+  // 기다리는 사이 로그아웃·계정 전환이 끝났으면 보내지 않는다 — 요청은 전송 시점의 토큰을 쓰므로 새 계정에 도착한다.
+  if (generation !== sessionGeneration())
+    throw new ApiError(CLIENT_STALE_SESSION, '로그인 정보가 바뀌었어요. 다시 시도해 주세요.', 0);
   return request(`/islands/${encodeURIComponent(intent.destination.islandId)}/intro-arrivals`, {
     method: 'POST',
     idempotencyKey: intent.key,
