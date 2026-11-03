@@ -49,7 +49,7 @@ flowchart LR
 
 우체통의 친구 편지는 Business → Data의 `/letters` 경로로 저장합니다. 섬 단체 채팅은 Business → Data 인가 → Realtime 저장 경로이며, 현재 앱은 REST로 발송하고 활성·전면 상태에서 10초마다 이력을 갱신합니다. 서버 STOMP 채팅 경로와 구분합니다.
 
-[백엔드 흐름 실험실](../backeend-lab.html#mailbox)을 로컬 브라우저로 열면 이 연결을 단계별로 볼 수 있습니다. 알림의 HTTP 이벤트 수신과 Data를 향한 제한된 조회 등 세부 연결은 각 서비스 README를 참고합니다. Link/MMP는 [별도 저장소](https://github.com/OneOrThree/mmp-custom)에서 관리합니다.
+알림의 HTTP 이벤트 수신과 Data를 향한 제한된 조회 등 세부 연결은 각 서비스 README를 참고합니다. Link/MMP는 [별도 저장소](https://github.com/OneOrThree/mmp-custom)에서 관리합니다.
 
 ### 서비스 분리 목표
 

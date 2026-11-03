@@ -14,7 +14,7 @@ React Native(Expo) 앱, Spring Boot 서버 4종, 백오피스를 한 저장소�
 | --- | --- |
 | 앱을 실행하고 싶어요 | [2.0 앱 시작하기](app/app-dev/README.md#로컬-실행) |
 | 서버 스모크 결과·실행 방법을 알고 싶어요 | [전체 실행 흐름](smoke/README.md#전체-실행-흐름) · [로그인 재시도 차트](smoke/server/login-retry.md) |
-| 서버 구성을 알고 싶어요 | [서버 전체 문서](server/README.md) · [백엔드 흐름 실험실](backeend-lab.html#mailbox) |
+| 서버 구성을 알고 싶어요 | [서버 전체 문서](server/README.md) |
 | 기능 정책·설계를 찾고 싶어요 | [문서 인덱스](docs/README.md) |
 | 제품 용어를 확인하고 싶어요 | [용어집](CONTEXT.md) |
 | 시스템의 목표 구조를 보고 싶어요 | [서비스 아키텍처](docs/architecture/service-architecture.md) |
@@ -46,7 +46,7 @@ flowchart LR
   fcm --> app
 ```
 
-데이터 소유권과 서비스별 실행 방법은 [서버 전체 문서](server/README.md)에서 확인합니다. [백엔드 흐름 실험실](backeend-lab.html#mailbox)은 친구 편지·섬 채팅·집중·이동·알림·배포 경로를 단계별로 보여 줍니다. 저장소를 받은 뒤 `backeend-lab.html`을 브라우저로 열면 됩니다. GitHub에서는 HTML이 실행되지 않습니다. 근거는 페이지에 표시한 main 커밋이며 실제 운영 상태 조회 결과는 아닙니다.
+데이터 소유권과 서비스별 실행 방법은 [서버 전체 문서](server/README.md)에서 확인합니다.
 
 ## 저장소 지도
 
