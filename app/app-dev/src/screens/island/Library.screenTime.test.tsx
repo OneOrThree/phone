@@ -1,16 +1,17 @@
-import React from 'react';
-import { Platform, ScrollView, StyleSheet } from 'react-native';
-import { cleanup, fireEvent, render, waitFor } from '@testing-library/react-native';
-import { Library } from './Library';
-import { dateKey, diaryRange, shortDate } from './library/diaryData';
-import { initialState } from '@/services/model';
 import { assets } from '@/constants/assets';
+import { createPreviewEnvironment } from '@/navigation/previewEnvironment';
 import {
   getFocusStatistics,
   getLibraryScreen,
   getScreenTimeStatistics,
   type MeasurementStatus,
 } from '@/services/api/records';
+import type { Route } from '@/services/model';
+import { initialState } from '@/services/model';
+import { cleanup, fireEvent, render, waitFor } from '@testing-library/react-native';
+import { Platform, ScrollView, StyleSheet } from 'react-native';
+import { Library } from './Library';
+import { dateKey, diaryRange, shortDate } from './library/diaryData';
 
 jest.mock('@/services/api/records', () => ({
   ...jest.requireActual('@/services/api/records'),
@@ -51,7 +52,7 @@ function environment({ permission = true, ready = true, neighbors = false } = {}
   state.settings.screenTimeMeasurementReady = ready;
   return {
     state,
-    route: 'diary',
+    route: 'diary' as const,
     tab: 'screen',
     detail: neighbors ? 'residents' : '',
     body: '',
@@ -64,7 +65,7 @@ function environment({ permission = true, ready = true, neighbors = false } = {}
 
 test('일기장의 뒤로는 기존 경로를 pop하고, 같은 일을 하던 책 덮기(×)는 두지 않는다', async () => {
   const e = environment();
-  const screen = await render(<Library e={e} />);
+  const screen = await render(<Library e={createPreviewEnvironment(e)} />);
   expect(screen.queryByLabelText('책 덮기')).toBeNull();
   await fireEvent.press(screen.getByLabelText('뒤로'));
   expect(e.back).toHaveBeenCalledTimes(1);
@@ -72,8 +73,8 @@ test('일기장의 뒤로는 기존 경로를 pop하고, 같은 일을 하던 �
 });
 
 test('도서관 방의 ‹ 는 건물 안과 같은 「섬으로 돌아가기」로 읽히고 섬으로 간다', async () => {
-  const e = { ...environment(), route: 'library' };
-  const screen = await render(<Library e={e} />);
+  const e = { ...environment(), route: 'library' as const };
+  const screen = await render(<Library e={createPreviewEnvironment(e)} />);
   expect(screen.queryByLabelText('닫기')).toBeNull();
   await fireEvent.press(screen.getByLabelText('섬으로 돌아가기'));
   expect(e.home).toHaveBeenCalledTimes(1);
@@ -82,7 +83,9 @@ test('도서관 방의 ‹ 는 건물 안과 같은 「섬으로 돌아가기」
 
 test('이웃 상세에서 목록으로 돌아가면 스크롤을 맨 위로 초기화한다', async () => {
   const scrollTo = jest.spyOn(ScrollView.prototype, 'scrollTo').mockImplementation(() => {});
-  const screen = await render(<Library e={environment({ neighbors: true })} />);
+  const screen = await render(
+    <Library e={createPreviewEnvironment(environment({ neighbors: true }))} />,
+  );
   await fireEvent.press(screen.getByTestId('diary-member-minji'));
   scrollTo.mockClear();
 
@@ -96,7 +99,7 @@ test('이웃 상세에서 목록으로 돌아가면 스크롤을 맨 위로 초�
 });
 
 test('주간은 월~일 범위를 직접 읽고(이번 주 조각 재사용 안 함, GROMO-2488) 진행 중 집중만 있는 날은 시간대 미제공을 표시한다', async () => {
-  const e = { ...environment(), tab: '', islands: [], now: Date.now() };
+  const e = { ...environment(), tab: '', islands: {}, now: Date.now() };
   const date = new Date(e.now + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
   const focus = {
     scope: 'me' as const,
@@ -122,7 +125,7 @@ test('주간은 월~일 범위를 직접 읽고(이번 주 조각 재사용 안 
   });
   (getFocusStatistics as jest.Mock).mockResolvedValue(focus);
   (getScreenTimeStatistics as jest.Mock).mockResolvedValue(usage);
-  const screen = await render(<Library e={e} />);
+  const screen = await render(<Library e={createPreviewEnvironment(e)} />);
   await waitFor(() => expect(screen.getByText('집중한 날')).toBeTruthy());
   expect(getLibraryScreen).toHaveBeenCalledTimes(1);
   // 월~일 주간은 `/screens/library` 의 일~토 이번 주 조각과 축이 달라 범위를 직접 묻는다
@@ -154,7 +157,7 @@ test.each(
 )(
   '권한 철회는 숨기되 서버 대기 상태에서도 오늘의 기기 측정값을 표시한다: %j',
   async ({ status, title, permission }) => {
-    const e = { ...environment({ permission, ready: permission }), tab: '', islands: [] };
+    const e = { ...environment({ permission, ready: permission }), tab: '', islands: {} };
     const usage = status
       ? {
           scope: 'me' as const,
@@ -173,7 +176,7 @@ test.each(
       missingFragments: usage ? ['focusStatistics'] : ['focusStatistics', 'screenTimeStatistics'],
     });
     if (usage) (getScreenTimeStatistics as jest.Mock).mockResolvedValue(usage);
-    const screen = await render(<Library e={e} />);
+    const screen = await render(<Library e={createPreviewEnvironment(e)} />);
     await fireEvent.press(screen.getByLabelText('일'));
     await fireEvent.press(screen.getByLabelText('폰 사용'));
     if (permission && status !== 'denied') {
@@ -204,7 +207,7 @@ test.each(['pending', 'unavailable'] as const)(
     const e = {
       ...environment(),
       tab: '',
-      islands: [],
+      islands: {},
       now: Date.parse('2026-09-22T12:00:00+09:00'),
     };
     const focus = {
@@ -240,7 +243,7 @@ test.each(['pending', 'unavailable'] as const)(
     (getFocusStatistics as jest.Mock).mockResolvedValue(focus);
     (getScreenTimeStatistics as jest.Mock).mockResolvedValue(usage);
 
-    const screen = await render(<Library e={e} />);
+    const screen = await render(<Library e={createPreviewEnvironment(e)} />);
     await fireEvent.press(screen.getByLabelText('폰 사용'));
     await waitFor(() => expect(screen.getByLabelText('9월 21일 월요일 90분')).toBeTruthy());
     expect(screen.getByLabelText('9월 22일 화요일 기록 없음')).toBeTruthy();
@@ -261,7 +264,7 @@ test.each(['ios', 'android'] as const)(
       const e = {
         ...environment(),
         tab: '',
-        islands: [],
+        islands: {},
         now: Date.parse('2026-09-22T12:00:00+09:00'),
       };
       e.state.screenMinutes = 777;
@@ -290,7 +293,7 @@ test.each(['ios', 'android'] as const)(
       });
       (getFocusStatistics as jest.Mock).mockResolvedValue(focus);
       (getScreenTimeStatistics as jest.Mock).mockResolvedValue(usage);
-      const screen = await render(<Library e={e} />);
+      const screen = await render(<Library e={createPreviewEnvironment(e)} />);
       await waitFor(() => expect(screen.queryByText('기록을 불러오지 못했어요')).toBeNull());
       await fireEvent.press(screen.getByLabelText('월'));
       await waitFor(() => expect(screen.getByText('폰 사용')).toBeTruthy());
@@ -305,58 +308,61 @@ test.each(['ios', 'android'] as const)(
   },
 );
 
-test.each(['집중', '폰 사용'])('일·주 %s는 선택하지 않은 통계를 조회하지 않는다', async (tab) => {
-  const e = { ...environment(), tab: '', islands: [] };
-  const focus = {
-    scope: 'me' as const,
-    totalSeconds: 600,
-    series: [],
-    records: [],
-    nextCursor: null,
-  };
-  const usage = {
-    scope: 'me' as const,
-    measurementStatus: 'authorized' as const,
-    totalMinutes: 10,
-    series: [],
-    updatedAt: null,
-  };
-  jest.mocked(getLibraryScreen).mockResolvedValue({
-    island: { id: e.state.islandId, name: '섬', role: 'owner' },
-    statisticsAvailability: 'available',
-    focusStatistics: focus,
-    screenTimeStatistics: usage,
-    fishEarnings: { members: [] },
-    missingFragments: [],
-  });
-  const selected = (tab === '집중' ? getFocusStatistics : getScreenTimeStatistics) as jest.Mock;
-  const other = (tab === '집중' ? getScreenTimeStatistics : getFocusStatistics) as jest.Mock;
-  // 들어올 때는 집중 탭이라 집중 주간(월~일 범위, GROMO-2488)을 한 번 읽는다. 탭을 고른 뒤부터는 고른 통계만 읽는다
-  (getFocusStatistics as jest.Mock).mockResolvedValue(focus);
-  (getScreenTimeStatistics as jest.Mock).mockResolvedValue(usage);
-  const screen = await render(<Library e={e} />);
-  await waitFor(() => expect(screen.getByText('집중한 날')).toBeTruthy());
-  if (tab === '폰 사용') await fireEvent.press(screen.getByLabelText(tab));
-  await waitFor(() =>
-    expect(screen.getByText(tab === '집중' ? '집중한 날' : '이번 주 폰 사용')).toBeTruthy(),
-  );
-  // 집중 탭은 진입부터 폰 사용 통계를 한 번도 부르지 않아야 하므로 기록을 지우지 않는다
-  if (tab === '폰 사용') other.mockClear();
-  other.mockRejectedValue(new Error('선택하지 않은 통계 장애'));
-  await fireEvent.press(screen.getByLabelText('이전 기간'));
-  await waitFor(() =>
-    expect(screen.getByText(tab === '집중' ? '집중한 날' : '이번 주 폰 사용')).toBeTruthy(),
-  );
-  expect(selected).toHaveBeenCalled();
-  expect(other).not.toHaveBeenCalled();
-  await fireEvent.press(screen.getByLabelText('일'));
-  await waitFor(() =>
-    expect(screen.getByText(tab === '집중' ? '시간대 기록 없음' : '이날의 폰 사용')).toBeTruthy(),
-  );
-  expect(selected).toHaveBeenCalled();
-  expect(other).not.toHaveBeenCalled();
-  expect(screen.queryByText('기록을 불러오지 못했어요')).toBeNull();
-});
+test.each(['집중', '폰 사용'] as const)(
+  '일·주 %s는 선택하지 않은 통계를 조회하지 않는다',
+  async (tab) => {
+    const e = { ...environment(), tab: '', islands: {} };
+    const focus = {
+      scope: 'me' as const,
+      totalSeconds: 600,
+      series: [],
+      records: [],
+      nextCursor: null,
+    };
+    const usage = {
+      scope: 'me' as const,
+      measurementStatus: 'authorized' as const,
+      totalMinutes: 10,
+      series: [],
+      updatedAt: null,
+    };
+    jest.mocked(getLibraryScreen).mockResolvedValue({
+      island: { id: e.state.islandId, name: '섬', role: 'owner' },
+      statisticsAvailability: 'available',
+      focusStatistics: focus,
+      screenTimeStatistics: usage,
+      fishEarnings: { members: [] },
+      missingFragments: [],
+    });
+    const selected = (tab === '집중' ? getFocusStatistics : getScreenTimeStatistics) as jest.Mock;
+    const other = (tab === '집중' ? getScreenTimeStatistics : getFocusStatistics) as jest.Mock;
+    // 들어올 때는 집중 탭이라 집중 주간(월~일 범위, GROMO-2488)을 한 번 읽는다. 탭을 고른 뒤부터는 고른 통계만 읽는다
+    (getFocusStatistics as jest.Mock).mockResolvedValue(focus);
+    (getScreenTimeStatistics as jest.Mock).mockResolvedValue(usage);
+    const screen = await render(<Library e={createPreviewEnvironment(e)} />);
+    await waitFor(() => expect(screen.getByText('집중한 날')).toBeTruthy());
+    if (tab === '폰 사용') await fireEvent.press(screen.getByLabelText(tab));
+    await waitFor(() =>
+      expect(screen.getByText(tab === '집중' ? '집중한 날' : '이번 주 폰 사용')).toBeTruthy(),
+    );
+    // 집중 탭은 진입부터 폰 사용 통계를 한 번도 부르지 않아야 하므로 기록을 지우지 않는다
+    if (tab === '폰 사용') other.mockClear();
+    other.mockRejectedValue(new Error('선택하지 않은 통계 장애'));
+    await fireEvent.press(screen.getByLabelText('이전 기간'));
+    await waitFor(() =>
+      expect(screen.getByText(tab === '집중' ? '집중한 날' : '이번 주 폰 사용')).toBeTruthy(),
+    );
+    expect(selected).toHaveBeenCalled();
+    expect(other).not.toHaveBeenCalled();
+    await fireEvent.press(screen.getByLabelText('일'));
+    await waitFor(() =>
+      expect(screen.getByText(tab === '집중' ? '시간대 기록 없음' : '이날의 폰 사용')).toBeTruthy(),
+    );
+    expect(selected).toHaveBeenCalled();
+    expect(other).not.toHaveBeenCalled();
+    expect(screen.queryByText('기록을 불러오지 못했어요')).toBeNull();
+  },
+);
 
 test('로컬 주간 집중 횟수는 선택 주의 세션만 센다', async () => {
   const e = { ...environment(), tab: '', now: Date.parse('2026-09-22T12:00:00+09:00') };
@@ -369,7 +375,7 @@ test('로컬 주간 집중 횟수는 선택 주의 세션만 센다', async () =
     fish: 1,
     contributed: true,
   }));
-  const screen = await render(<Library e={e} />);
+  const screen = await render(<Library e={createPreviewEnvironment(e)} />);
   expect(screen.getByText('1회')).toBeTruthy();
   expect(screen.queryByText('2회')).toBeNull();
   await fireEvent.press(screen.getByLabelText('이전 기간'));
@@ -380,34 +386,34 @@ test('내 일기장에는 이력이 비어 있어도 iOS 오늘 리포트를 표
   Platform.OS = 'ios';
   const e = environment();
   e.state.screenDays = {};
-  const screen = await render(<Library e={e} />);
+  const screen = await render(<Library e={createPreviewEnvironment(e)} />);
   expect(screen.getByTestId('today-screen-time-report')).toBeTruthy();
 });
 
-test.each([{ permission: false }, { ready: false }, { neighbors: true }])(
+test.each([{ permission: false }, { ready: false }, { neighbors: true }] as const)(
   '권한/선택 없음 또는 이웃 기록에 내 기기 사용량을 표시하지 않는다: %j',
   async (options) => {
     Platform.OS = 'ios';
-    const screen = await render(<Library e={environment(options)} />);
+    const screen = await render(<Library e={createPreviewEnvironment(environment(options))} />);
     expect(screen.queryByTestId('today-screen-time-report')).toBeNull();
   },
 );
 
 test('Android 기록은 iOS 리포트를 생성하지 않는다', async () => {
   Platform.OS = 'android';
-  const screen = await render(<Library e={environment()} />);
+  const screen = await render(<Library e={createPreviewEnvironment(environment())} />);
   expect(screen.queryByTestId('today-screen-time-report')).toBeNull();
 });
 
-test.each(['diary', 'stats'])(
+test.each(['diary', 'stats'] as const)(
   'Android %s 화면은 전날 수치를 숨기고 오늘 0분을 표시한다',
-  async (route) => {
+  async (route: Route) => {
     Platform.OS = 'android';
     const e = { ...environment(), route, now: Date.parse('2026-09-23T00:00:01+09:00') };
     e.state.screenDays = {};
     e.state.screenMinutes = 777;
     e.state.settings.screenTimeMeasurementDay = '2026-09-22';
-    const view = () => <Library e={e} />;
+    const view = () => <Library e={createPreviewEnvironment(e)} />;
     const screen = await render(view());
     expect(screen.queryByText('777분')).toBeNull();
     e.state.settings.screenTimeMeasurementDay = '2026-09-23';
@@ -417,13 +423,13 @@ test.each(['diary', 'stats'])(
   },
 );
 
-test.each([false, true])(
+test.each([false, true] as const)(
   '주간 폰 사용은 현재 기기 권한이 없으면 합산 보류 대신 설정을 안내한다: 서버=%s',
   async (server) => {
     const e = {
       ...environment({ permission: false, ready: false }),
       tab: '',
-      ...(server ? { islands: [] } : {}),
+      ...(server ? { islands: {} } : {}),
     };
     jest.mocked(getLibraryScreen).mockResolvedValue({
       island: { id: e.state.islandId, name: '섬', role: 'owner' },
@@ -439,7 +445,7 @@ test.each([false, true])(
       fishEarnings: { members: [] },
       missingFragments: ['focusStatistics'],
     });
-    const screen = await render(<Library e={e} />);
+    const screen = await render(<Library e={createPreviewEnvironment(e)} />);
     await fireEvent.press(screen.getByLabelText('폰 사용'));
     expect(screen.getByText('스크린타임 권한을 허용해 주세요')).toBeTruthy();
     expect(screen.queryByText('합산 보류')).toBeNull();
@@ -449,7 +455,9 @@ test.each([false, true])(
 );
 
 test('권한 허용 후 측정 앱 선택이 없으면 선택 안내로 구분한다', async () => {
-  const screen = await render(<Library e={environment({ ready: false })} />);
+  const screen = await render(
+    <Library e={createPreviewEnvironment(environment({ ready: false }))} />,
+  );
   expect(screen.getByText('측정할 앱을 선택해 주세요')).toBeTruthy();
   expect(screen.queryByText('합산 보류')).toBeNull();
 });
@@ -457,7 +465,7 @@ test('권한 허용 후 측정 앱 선택이 없으면 선택 안내로 구분�
 test('빈 집중 기록에서 집중 시작 버튼을 빼고 과거 날짜의 오늘 기록 이동은 유지한다', async () => {
   const e = { ...environment(), tab: '' };
   e.state.records = [];
-  const screen = await render(<Library e={e} />);
+  const screen = await render(<Library e={createPreviewEnvironment(e)} />);
   expect(screen.getAllByTestId(/^diary-weekday-/)).toHaveLength(7);
   await fireEvent.press(screen.getByLabelText('일'));
   expect(screen.getByText('이날은 기록이 없어요')).toBeTruthy();
@@ -473,38 +481,41 @@ test.each([
   { tab: '폰 사용', permission: true, ready: true },
   { tab: '폰 사용', permission: false, ready: false },
   { tab: '폰 사용', permission: true, ready: false },
-])('빈 주간 그래프도 월~일 7칸과 미래 날짜를 유지한다: %j', async ({ tab, permission, ready }) => {
-  const e = {
-    ...environment({ permission, ready }),
-    tab: '',
-    now: Date.parse('2026-09-22T12:00:00+09:00'),
-  };
-  e.state.records = [];
-  e.state.screenDays = {};
-  const screen = await render(<Library e={e} />);
-  if (tab === '폰 사용') await fireEvent.press(screen.getByLabelText(tab));
-  const labels = screen.getAllByTestId(/^diary-weekday-/);
-  // 2026-09-22(화)가 든 주는 09-21(월)~09-27(일)이다(GROMO-2488)
-  expect(labels.map((node) => node.props.children)).toEqual([
-    '월',
-    '화',
-    '수',
-    '목',
-    '금',
-    '토',
-    '일',
-  ]);
-  expect(labels.map((node) => node.props.testID)).toEqual(
-    [21, 22, 23, 24, 25, 26, 27].map((day) => `diary-weekday-2026-09-${day}`),
-  );
-  expect(screen.getByLabelText('9월 27일 일요일 기록 없음')).toBeTruthy();
-});
+] as const)(
+  '빈 주간 그래프도 월~일 7칸과 미래 날짜를 유지한다: %j',
+  async ({ tab, permission, ready }) => {
+    const e = {
+      ...environment({ permission, ready }),
+      tab: '',
+      now: Date.parse('2026-09-22T12:00:00+09:00'),
+    };
+    e.state.records = [];
+    e.state.screenDays = {};
+    const screen = await render(<Library e={createPreviewEnvironment(e)} />);
+    if (tab === '폰 사용') await fireEvent.press(screen.getByLabelText(tab));
+    const labels = screen.getAllByTestId(/^diary-weekday-/);
+    // 2026-09-22(화)가 든 주는 09-21(월)~09-27(일)이다(GROMO-2488)
+    expect(labels.map((node) => node.props.children)).toEqual([
+      '월',
+      '화',
+      '수',
+      '목',
+      '금',
+      '토',
+      '일',
+    ]);
+    expect(labels.map((node) => node.props.testID)).toEqual(
+      [21, 22, 23, 24, 25, 26, 27].map((day) => `diary-weekday-2026-09-${day}`),
+    );
+    expect(screen.getByLabelText('9월 27일 일요일 기록 없음')).toBeTruthy();
+  },
+);
 
 test('폰 사용 그래프는 7칸이지만 하루 평균과 측정 날짜는 오늘까지의 날짜로 계산한다', async () => {
   const e = { ...environment(), tab: '', now: Date.parse('2026-09-22T12:00:00+09:00') };
   // 09-20(일)은 월~일 주 밖이라 세지 않는다(GROMO-2488) — 이번 주는 21(월)·22(화) 두 날
   e.state.screenDays = { '2026-09-20': 30, '2026-09-21': 30, '2026-09-22': 60 };
-  const screen = await render(<Library e={e} />);
+  const screen = await render(<Library e={createPreviewEnvironment(e)} />);
   await fireEvent.press(screen.getByLabelText('폰 사용'));
   expect(screen.getAllByTestId(/^diary-weekday-/)).toHaveLength(7);
   expect(screen.getByText('1시간 30분')).toBeTruthy();
@@ -513,10 +524,10 @@ test('폰 사용 그래프는 7칸이지만 하루 평균과 측정 날짜는 �
   expect(screen.getByText('2 / 2일')).toBeTruthy();
 });
 
-test.each([0, 7])(
+test.each([0, 7] as const)(
   '일 집중 통계는 서버의 날짜별 실제 적립 물고기 %s마리를 표시한다',
   async (earnedFish) => {
-    const e = { ...environment(), tab: '', islands: [] };
+    const e = { ...environment(), tab: '', islands: {} };
     const focus = {
       scope: 'me' as const,
       totalSeconds: 600,
@@ -534,7 +545,7 @@ test.each([0, 7])(
       missingFragments: ['screenTimeStatistics'],
     });
     (getFocusStatistics as jest.Mock).mockResolvedValue(focus);
-    const screen = await render(<Library e={e} />);
+    const screen = await render(<Library e={createPreviewEnvironment(e)} />);
     await fireEvent.press(screen.getByLabelText('일'));
     await waitFor(() => expect(screen.getByText(`${earnedFish}마리`)).toBeTruthy());
     expect(screen.queryByText('999마리')).toBeNull();
@@ -542,7 +553,7 @@ test.each([0, 7])(
 );
 
 test('집중 기록 없이 체험 보상만 받은 날도 실제 적립 물고기를 표시한다', async () => {
-  const e = { ...environment(), tab: '', islands: [] };
+  const e = { ...environment(), tab: '', islands: {} };
   const focus = {
     scope: 'me' as const,
     totalSeconds: 0,
@@ -560,7 +571,7 @@ test('집중 기록 없이 체험 보상만 받은 날도 실제 적립 물고�
     missingFragments: ['screenTimeStatistics'],
   });
   (getFocusStatistics as jest.Mock).mockResolvedValue(focus);
-  const screen = await render(<Library e={e} />);
+  const screen = await render(<Library e={createPreviewEnvironment(e)} />);
   await fireEvent.press(screen.getByLabelText('일'));
   await waitFor(() => expect(screen.getByText('1마리')).toBeTruthy());
   expect(screen.queryByText('이날은 기록이 없어요')).toBeNull();
@@ -568,7 +579,7 @@ test('집중 기록 없이 체험 보상만 받은 날도 실제 적립 물고�
 
 test('이웃 상세는 날짜별 표 대신 월~일 주간 선그래프를 보이고 ‹ › 로 주를 옮긴다(GROMO-2488)', async () => {
   const e = environment({ neighbors: true });
-  const screen = await render(<Library e={e} />);
+  const screen = await render(<Library e={createPreviewEnvironment(e)} />);
   await fireEvent.press(screen.getByTestId('diary-member-minji'));
 
   expect(screen.queryByText('날짜별 기록')).toBeNull();
@@ -594,7 +605,9 @@ test('이웃 상세는 날짜별 표 대신 월~일 주간 선그래프를 보�
 });
 
 test('이웃 일기장은 내용이 짧으면 책을 내용 높이까지만 펼치고, 길면 끝까지 편다(GROMO-2412)', async () => {
-  const screen = await render(<Library e={environment({ neighbors: true })} />);
+  const screen = await render(
+    <Library e={createPreviewEnvironment(environment({ neighbors: true }))} />,
+  );
   const book = () => StyleSheet.flatten(screen.getByTestId('diary-book').props.style);
   const full = book().height;
   await fireEvent(screen.getByTestId('diary-scroll'), 'contentSizeChange', 300, 240);
@@ -605,7 +618,7 @@ test('이웃 일기장은 내용이 짧으면 책을 내용 높이까지만 펼�
 });
 
 test('내 일기장은 내용 높이와 관계없이 책을 끝까지 편다', async () => {
-  const screen = await render(<Library e={environment()} />);
+  const screen = await render(<Library e={createPreviewEnvironment(environment())} />);
   const book = () => StyleSheet.flatten(screen.getByTestId('diary-book').props.style);
   const full = book().height;
   await fireEvent(screen.getByTestId('diary-scroll'), 'contentSizeChange', 300, 240);
@@ -613,18 +626,20 @@ test('내 일기장은 내용 높이와 관계없이 책을 끝까지 편다', a
 });
 
 test('내 일기장으로 갔다 이웃 일기장으로 돌아오면 다시 잴 때까지 책을 끝까지 편다(GROMO-2412)', async () => {
-  const screen = await render(<Library e={environment({ neighbors: true })} />);
+  const screen = await render(
+    <Library e={createPreviewEnvironment(environment({ neighbors: true }))} />,
+  );
   const book = () => StyleSheet.flatten(screen.getByTestId('diary-book').props.style);
   const full = book().height;
   await fireEvent(screen.getByTestId('diary-scroll'), 'contentSizeChange', 300, 240);
   expect(book().height).toBeLessThan(full);
-  await screen.rerender(<Library e={environment()} />);
-  await screen.rerender(<Library e={environment({ neighbors: true })} />);
+  await screen.rerender(<Library e={createPreviewEnvironment(environment())} />);
+  await screen.rerender(<Library e={createPreviewEnvironment(environment({ neighbors: true }))} />);
   expect(book().height).toBe(full);
 });
 
 test('서버 이웃 일기장 — 털색을 안 준 이웃은 빈 상자이고 준 이웃만 그 색으로 그린다(GROMO-2497)', async () => {
-  const e = { ...environment({ neighbors: true }), islands: [] };
+  const e = { ...environment({ neighbors: true }), islands: {} };
   jest.mocked(getLibraryScreen).mockResolvedValue({
     island: { id: e.state.islandId, name: '섬', role: 'owner' },
     statisticsAvailability: 'available',
@@ -646,7 +661,7 @@ test('서버 이웃 일기장 — 털색을 안 준 이웃은 빈 상자이고 �
     nextCursor: null,
   });
   (getScreenTimeStatistics as jest.Mock).mockResolvedValue({ scope: 'island', members: [] });
-  const screen = await render(<Library e={e} />);
+  const screen = await render(<Library e={createPreviewEnvironment(e)} />);
   await waitFor(() => expect(screen.getByTestId('diary-member-u3')).toBeTruthy());
   expect(screen.getByTestId('diary-member-u2')).toBeTruthy();
   // 일기장 그림은 idle 자세(still="idle")다

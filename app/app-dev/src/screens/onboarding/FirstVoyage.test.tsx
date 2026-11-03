@@ -1,15 +1,16 @@
-import React, { useReducer } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { AccessibilityInfo, AppState } from 'react-native';
-import { act, fireEvent, render } from '@testing-library/react-native';
-import { initialState, reducer } from '@/services/model';
-import { ApiError, request } from '@/services/api/client';
-import { FIRST_VOYAGE_DONE, prepareFirstVoyage, readFirstVoyage } from '@/services/firstVoyage';
-import { useTelescope } from '@/screens/island/useTelescope';
-import type { TelescopeItem } from '@/services/api/telescope';
-import { OnboardingFlow } from './OnboardingFlow';
-import { Telescope } from '@/screens/island/Telescope';
 import { MotionContext } from '@/design-system/primitives';
+import { createPreviewEnvironment } from '@/navigation/previewEnvironment';
+import { Telescope } from '@/screens/island/Telescope';
+import { useTelescope } from '@/screens/island/useTelescope';
+import { ApiError, request } from '@/services/api/client';
+import type { TelescopeItem } from '@/services/api/telescope';
+import { FIRST_VOYAGE_DONE, prepareFirstVoyage, readFirstVoyage } from '@/services/firstVoyage';
+import { initialState, reducer } from '@/services/model';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { act, fireEvent, render } from '@testing-library/react-native';
+import { useReducer } from 'react';
+import { AccessibilityInfo, AppState } from 'react-native';
+import { OnboardingFlow } from './OnboardingFlow';
 
 jest.mock('@/services/api/client', () => ({
   ...jest.requireActual('@/services/api/client'),
@@ -88,7 +89,11 @@ function Harness({ telescope = false }: { telescope?: boolean }) {
   };
   return (
     <MotionContext.Provider value={true}>
-      {telescope ? <Telescope e={e} /> : <OnboardingFlow e={e} />}
+      {telescope ? (
+        <Telescope e={createPreviewEnvironment(e)} />
+      ) : (
+        <OnboardingFlow e={createPreviewEnvironment(e)} />
+      )}
     </MotionContext.Provider>
   );
 }

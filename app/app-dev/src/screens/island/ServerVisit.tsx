@@ -1,13 +1,14 @@
-import { t } from '@/i18n';
-import React, { useEffect, useRef, useState } from 'react';
-import { IslandSheet } from '@/screens/island/IslandSheet';
 import { Btn, Group, Row, Txt } from '@/design-system/patterns';
-import { islandErrorMessage } from '@/services/islandErrors';
+import { t } from '@/i18n';
+import type { ScreenEnvironment } from '@/navigation/ScreenEnvironment';
+import { IslandSheet } from '@/screens/island/IslandSheet';
 import { sessionGeneration } from '@/services/api/session';
+import { islandErrorMessage } from '@/services/islandErrors';
 import { pendingVisitRequest, type State } from '@/services/model';
+import { useEffect, useRef, useState } from 'react';
 
 /** 방문 공개 DTO만 표시한다. 주민 화면의 현재 섬·시설·지갑을 빌려오지 않는다. */
-export function ServerVisit({ e }: { e: any }) {
+export function ServerVisit({ e }: { e: ScreenEnvironment }) {
   const state: State = e.state;
   const id: string = e.detail || state.serverIslands?.visit?.island.id || '';
   const commands = e.islands;
@@ -29,6 +30,7 @@ export function ServerVisit({ e }: { e: any }) {
     };
   }, []);
   useEffect(() => {
+    if (!commands) return;
     let live = true;
     setLoading(true);
     setError('');
@@ -45,7 +47,7 @@ export function ServerVisit({ e }: { e: any }) {
     };
   }, [commands, id, reload]);
   const enter = async () => {
-    if (pending.current) return;
+    if (!commands || pending.current) return;
     pending.current = true;
     setWriting(true);
     setError('');

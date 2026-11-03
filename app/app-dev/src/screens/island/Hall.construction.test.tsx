@@ -1,14 +1,15 @@
-import assert from 'node:assert/strict';
-import React from 'react';
-import { cleanup, fireEvent, render, waitFor } from '@testing-library/react-native';
-import { Platform, StyleSheet } from 'react-native';
-import { costs, initialState, reducer } from '@/services/model';
+import { componentTokens } from '@/design-system/tokens';
+import { createPreviewEnvironment } from '@/navigation/previewEnvironment';
+import { useIslandManagement } from '@/screens/interiors/useIslandManagement';
 import { Hall } from '@/screens/island/Hall';
 import { useConstruction } from '@/screens/island/useConstruction';
-import { useIslandManagement } from '@/screens/interiors/useIslandManagement';
-import { getSession } from '@/services/api/session';
 import type { ConstructionOptions } from '@/services/api/home';
-import { componentTokens } from '@/design-system/tokens';
+import { getSession } from '@/services/api/session';
+import type { Route } from '@/services/model';
+import { costs, initialState, reducer } from '@/services/model';
+import { cleanup, fireEvent, render, waitFor } from '@testing-library/react-native';
+import assert from 'node:assert/strict';
+import { Platform, StyleSheet } from 'react-native';
 
 // GROMO — 마을회관 「목각 건물 고르기」 실서버 건설 패널 회귀 테스트.
 //
@@ -138,7 +139,7 @@ const construction = (over: object = {}) => ({
   ...over,
 });
 
-const e = (route = 'construction', state = initialState(true)) => ({
+const e = (route: Route = 'construction', state = initialState(true)) => ({
   state,
   route,
   now: Date.now(),
@@ -160,7 +161,7 @@ afterEach(cleanup);
 
 test('회관 책상(첫 화면)의 ‹ 는 섬으로 가니 「섬으로 돌아가기」로 읽는다', async () => {
   const env = e('hall');
-  const screen = await render(<Hall e={env} />);
+  const screen = await render(<Hall e={createPreviewEnvironment(env)} />);
   const back = screen.getByTestId('hall-back');
   expect(back.props.accessibilityLabel).toBe('섬으로 돌아가기');
   await fireEvent.press(back);
@@ -187,7 +188,7 @@ test.each(['done', 'none', 'collect', 'locked', 'build'] as const)(
         };
       constructionMock.mockReturnValue(construction({ options: null }));
       const env = e('construction', state);
-      const screen = await render(<Hall e={env} />);
+      const screen = await render(<Hall e={createPreviewEnvironment(env)} />);
       await fireEvent.press(
         screen.getByTestId(`hall-bld-${status === 'locked' ? 'shop' : 'library'}`),
       );
@@ -221,7 +222,7 @@ test('목표 선택 뒤 건설하기는 서버 조건이 충족될 때까지 흐
   const initialOptions = options({ selectedBuildingId: null });
   constructionMock.mockReturnValue(construction({ options: initialOptions, select, build }));
   const env = e();
-  const screen = await render(<Hall e={env} />);
+  const screen = await render(<Hall e={createPreviewEnvironment(env)} />);
   await fireEvent.press(screen.getByTestId('hall-bld-board'));
   assert.ok(screen.getByText('이 건물을 목표로 정하기'));
   await fireEvent.press(screen.getByTestId('hall-plan-action'));
@@ -229,7 +230,7 @@ test('목표 선택 뒤 건설하기는 서버 조건이 충족될 때까지 흐
 
   const selected = options();
   constructionMock.mockReturnValue(construction({ options: selected, select, build }));
-  await screen.rerender(<Hall e={env} />);
+  await screen.rerender(<Hall e={createPreviewEnvironment(env)} />);
   let button = screen.getByTestId('hall-plan-action');
   assert.ok(screen.getByText('건설하기'));
   assert.equal(button.props.accessibilityState.disabled, true);
@@ -244,14 +245,14 @@ test('목표 선택 뒤 건설하기는 서버 조건이 충족될 때까지 흐
   constructionMock.mockReturnValue(
     construction({ options: { ...selected, villagePoints: 1000 }, select, build }),
   );
-  await screen.rerender(<Hall e={env} />);
+  await screen.rerender(<Hall e={createPreviewEnvironment(env)} />);
   assert.equal(screen.getByTestId('hall-plan-action').props.accessibilityState.disabled, true);
 
   selected.items[0] = { ...selected.items[0], buildable: true, blockedReason: null };
   constructionMock.mockReturnValue(
     construction({ options: { ...selected, villagePoints: 1000 }, select, build }),
   );
-  await screen.rerender(<Hall e={env} />);
+  await screen.rerender(<Hall e={createPreviewEnvironment(env)} />);
   button = screen.getByTestId('hall-plan-action');
   assert.equal(button.props.accessibilityState.disabled, false);
   assert.equal(StyleSheet.flatten(button.props.style).opacity, 1);
@@ -260,7 +261,7 @@ test('목표 선택 뒤 건설하기는 서버 조건이 충족될 때까지 흐
 });
 
 test('잔액이 목표 원가의 일부만 찬 상태로 게시판 건설 패널을 열어도 렌더가 죽지 않는다', async () => {
-  const screen = await render(<Hall e={e()} />);
+  const screen = await render(<Hall e={createPreviewEnvironment(e())} />);
 
   // 「목각 건물 고르기」 그리드에서 게시판 카드를 눌러 청사진 패널을 연다.
   await fireEvent.press(screen.getByTestId('hall-bld-board'));
@@ -271,7 +272,7 @@ test('잔액이 목표 원가의 일부만 찬 상태로 게시판 건설 패널
 });
 
 test('건설 패널을 열고 닫아도 「목각 건물 고르기」 그리드의 transform 이 undefined 가 되지 않는다', async () => {
-  const screen = await render(<Hall e={e()} />);
+  const screen = await render(<Hall e={createPreviewEnvironment(e())} />);
 
   // 닫힌 상태(최초 렌더) — 그리드는 축소 애니메이션이 없다.
   const closedStyle = StyleSheet.flatten(screen.getByTestId('hall-bld-grid').props.style);
@@ -324,7 +325,7 @@ test('회관 청사진은 현재 주민 수가 달라도 목표 당시 주민과
       }),
     }),
   );
-  const screen = await render(<Hall e={e()} />);
+  const screen = await render(<Hall e={createPreviewEnvironment(e())} />);
   await fireEvent.press(screen.getByTestId('hall-bld-library'));
   assert.ok(screen.getByText('100마리 · 2명'));
   assert.ok(screen.getByText('목표 주민'));
@@ -348,7 +349,7 @@ test.each(['missing', 'empty', 'unselected'] as const)(
         }),
       }),
     );
-    const screen = await render(<Hall e={e()} />);
+    const screen = await render(<Hall e={createPreviewEnvironment(e())} />);
     await fireEvent.press(screen.getByTestId('hall-bld-library'));
     assert.ok(
       screen.getByText(
@@ -367,7 +368,7 @@ test('전부 완공해도 건물 그리드와 완료 도장을 유지한다', as
   constructionMock.mockReturnValue(
     construction({ options: options({ items: [], selectedBuildingId: null }) }),
   );
-  const screen = await render(<Hall e={e()} />);
+  const screen = await render(<Hall e={createPreviewEnvironment(e())} />);
   expect(screen.getByText('건설 현황')).toBeTruthy();
   expect(screen.getByTestId('hall-bld-grid')).toBeTruthy();
   expect(screen.queryByText('모든 건물을 지었어요')).toBeNull();
@@ -399,7 +400,7 @@ test.each([
       constructionMock.mockReturnValue(
         construction({ options: options({ items: [], selectedBuildingId: null }) }),
       );
-      const screen = await render(<Hall e={e()} />);
+      const screen = await render(<Hall e={createPreviewEnvironment(e())} />);
       const width = (b: string) =>
         StyleSheet.flatten(screen.getByTestId(`hall-bld-${b}`).props.style).width;
       expect(width('library')).toBe(cardW);
@@ -421,7 +422,7 @@ test('가로 3열(667)에서는 5장이 3+2 라 상점도 다른 카드와 같�
     constructionMock.mockReturnValue(
       construction({ options: options({ items: [], selectedBuildingId: null }) }),
     );
-    const screen = await render(<Hall e={e()} />);
+    const screen = await render(<Hall e={createPreviewEnvironment(e())} />);
     const width = (b: string) =>
       StyleSheet.flatten(screen.getByTestId(`hall-bld-${b}`).props.style).width;
     expect(width('library')).toBe(157);
@@ -433,7 +434,7 @@ test('가로 3열(667)에서는 5장이 3+2 라 상점도 다른 카드와 같�
 });
 
 test('미완공 카드는 유지하고 서버 옵션에서 빠진 완공 건물에만 도장을 표시한다', async () => {
-  const screen = await render(<Hall e={e()} />);
+  const screen = await render(<Hall e={createPreviewEnvironment(e())} />);
   expect(screen.queryByTestId('hall-completion-stamp-board')).toBeNull();
   expect(screen.queryByTestId('hall-completion-stamp-library')).toBeNull();
   for (const building of ['tower', 'mail', 'gram', 'shop']) {

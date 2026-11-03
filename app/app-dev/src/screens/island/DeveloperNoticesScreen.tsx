@@ -1,7 +1,8 @@
-import React, { useEffect, useRef, useState, useSyncExternalStore } from 'react';
-import { View } from 'react-native';
 import { Btn, C, Txt } from '@/design-system/patterns';
 import { semanticTokens } from '@/design-system/tokens';
+import { t } from '@/i18n';
+import { formatDate } from '@/i18n/format';
+import type { ScreenProps } from '@/navigation/ScreenEnvironment';
 import { IslandSheet, SheetGroup, SheetRow } from '@/screens/island/IslandSheet';
 import { ApiError } from '@/services/api/client';
 import {
@@ -10,8 +11,8 @@ import {
   type DeveloperNotice,
 } from '@/services/api/developerNotices';
 import { sessionGeneration, subscribeSession } from '@/services/api/session';
-import { t } from '@/i18n';
-import { formatDate } from '@/i18n/format';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { View } from 'react-native';
 
 type State = {
   generation: number;
@@ -22,7 +23,7 @@ type State = {
 };
 
 /** 목록과 상세 모두 서버에서 현재 게시 기간을 확인한다. 평문 공지를 HTML로 해석하지 않는다. */
-export function DeveloperNoticesScreen({ e }: any) {
+export function DeveloperNoticesScreen({ e }: ScreenProps) {
   const generation = useSyncExternalStore(subscribeSession, sessionGeneration, sessionGeneration);
   const id: string | null = e.route === 'developerNotice' ? e.detail : null;
   const [attempt, setAttempt] = useState(0);

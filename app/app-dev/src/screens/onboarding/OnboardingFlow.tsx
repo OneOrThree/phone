@@ -1,4 +1,24 @@
-import React, { useEffect, useRef, useState } from 'react';
+import { ISLAND_STAGE_ART, islandStage } from '@/constants/magazineAssets';
+import { Btn, Txt, k } from '@/design-system/patterns';
+import { componentTokens, primitiveTokens, semanticTokens } from '@/design-system/tokens';
+import { TextInput } from '@/design-system/typography';
+import { Ticking } from '@/hooks/useNow';
+import { errorTextOr, t } from '@/i18n';
+import type { ScreenEnvironment } from '@/navigation/ScreenEnvironment';
+import { useGowun } from '@/screens/island/sceneKit';
+import { visibleTelescopeItems } from '@/screens/island/telescopeDestinations';
+import { useTelescope } from '@/screens/island/useTelescope';
+import { seaAssets } from '@/screens/sea/seaAssets';
+import { seaClock } from '@/screens/sea/seaModel';
+import { updateProfile } from '@/services/api/account';
+import { ApiError, uuid } from '@/services/api/client';
+import { sessionGeneration } from '@/services/api/session';
+import type { TelescopeItem } from '@/services/api/telescope';
+import { colorName, colors, sessionRoute, type Color, type State } from '@/services/model';
+import { captureProductEvent } from '@/services/posthog';
+import { useAppLayout } from '@/utils/layout';
+import { stripNicknameWhitespace } from '@/utils/nickname';
+import { useEffect, useRef, useState } from 'react';
 import {
   AccessibilityInfo,
   Image,
@@ -10,24 +30,7 @@ import {
   StyleSheet,
   View,
 } from 'react-native';
-import { Btn, Txt, k } from '@/design-system/patterns';
-import { TextInput } from '@/design-system/typography';
-import { componentTokens, primitiveTokens, semanticTokens } from '@/design-system/tokens';
-import { useAppLayout } from '@/utils/layout';
-import { useGowun } from '@/screens/island/sceneKit';
-import { useTelescope } from '@/screens/island/useTelescope';
-import { visibleTelescopeItems } from '@/screens/island/telescopeDestinations';
-import { Ticking } from '@/hooks/useNow';
-import { seaClock } from '@/screens/sea/seaModel';
-import { seaAssets } from '@/screens/sea/seaAssets';
-import { updateProfile } from '@/services/api/account';
-import { sessionGeneration } from '@/services/api/session';
-import { ApiError, uuid } from '@/services/api/client';
-import { stripNicknameWhitespace } from '@/utils/nickname';
-import type { TelescopeItem } from '@/services/api/telescope';
-import { colorName, colors, sessionRoute, type Color, type State } from '@/services/model';
-import { errorTextOr, t } from '@/i18n';
-import { captureProductEvent } from '@/services/posthog';
+import { StoryRaft, storyCats } from './StoryRaft';
 import {
   firstStoryStep,
   nextStoryStep,
@@ -36,17 +39,21 @@ import {
   storySteps,
   type StoryStep,
 } from './story';
-import { StoryRaft, storyCats } from './StoryRaft';
-import { ISLAND_STAGE_ART, islandStage } from '@/constants/magazineAssets';
-import { useStoryLine } from './useStoryLine';
 import { useFirstVoyage } from './useFirstVoyage';
+import { useStoryLine } from './useStoryLine';
 
 const ui = componentTokens.onboarding;
 const { space } = primitiveTokens;
 const c = semanticTokens.color;
 
 /** character 라우트의 신규 계정 흐름. profile 완료와 story 완료를 별도로 보관한다. */
-export function OnboardingFlow({ e, previewItems }: { e: any; previewItems?: TelescopeItem[] }) {
+export function OnboardingFlow({
+  e,
+  previewItems,
+}: {
+  e: ScreenEnvironment;
+  previewItems?: TelescopeItem[];
+}) {
   const state: State = e.state;
   const firstVoyage = useFirstVoyage(e, !!previewItems);
   const layout = useAppLayout();
@@ -220,7 +227,7 @@ export function OnboardingFlow({ e, previewItems }: { e: any; previewItems?: Tel
     } catch (thrown) {
       if (!live()) return;
       const code = (thrown as { code?: string }).code;
-      if (code === 'STATE_CONFLICT') {
+      if (code === 'STATE_CONFLICT' && e.focus) {
         const restored = await e.focus.recover().catch(() => null);
         if (!live()) return;
         if (restored) {

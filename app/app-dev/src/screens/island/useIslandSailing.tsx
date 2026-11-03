@@ -1,12 +1,17 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { HarborCutscene } from '@/screens/world/HarborCutscene';
 import { t } from '@/i18n';
+import type { ScreenEnvironment } from '@/navigation/ScreenEnvironment';
+import { HarborCutscene } from '@/screens/world/HarborCutscene';
 import { sessionGeneration } from '@/services/api/session';
 import { islandErrorMessage } from '@/services/islandErrors';
 import { canSwitchIsland, type State } from '@/services/model';
+import { useEffect, useRef, useState } from 'react';
 
 /** 연출이 끝나면 할 화면 전환. 서버 요청이 끝난 뒤에 정해진다. */
 type Landing = () => void;
+type SailingEnvironment = Pick<ScreenEnvironment, 'state' | 'dispatch' | 'reset' | 'notify'> &
+  Partial<Pick<ScreenEnvironment, 'backOverride'>> & {
+    islands?: Pick<NonNullable<ScreenEnvironment['islands']>, 'switchCurrent'>;
+  };
 
 /**
  * 섬 사이 항해(GROMO-2261 뗏목 행선지 · GROMO-2266 망원경) — 서버 요청 → 4초 접안 장면 → 도착 처리.
@@ -20,7 +25,7 @@ type Landing = () => void;
  * 화면이 사라졌거나 세션 세대가 바뀌었으면 응답이 와도 연출·알림·이동을 하지 않는다(ServerVisit 과 같은 가드) —
  * 서버에는 이미 반영돼 ISLAND_SYNC 가 상태를 맞추고, 로그인·딥링크 같은 다른 이동을 홈으로 덮지 않는다.
  */
-export function useIslandSailing(e: any) {
+export function useIslandSailing(e: SailingEnvironment) {
   const s: State = e.state;
   const [voyage, setVoyage] = useState<{
     to: string;
@@ -43,11 +48,12 @@ export function useIslandSailing(e: any) {
   // busy 가 그대로인데 삼킴이 사라진다.
   const busy = pending || voyage !== null;
   useEffect(() => {
-    if (!busy || !e.backOverride) return;
+    const override = e.backOverride;
+    if (!busy || !override) return;
     const swallow = () => true;
-    e.backOverride.current = swallow;
+    override.current = swallow;
     return () => {
-      if (e.backOverride.current === swallow) e.backOverride.current = null;
+      if (override.current === swallow) override.current = null;
     };
   }, [busy, e.backOverride]);
 
@@ -107,7 +113,16 @@ export function useIslandSailing(e: any) {
  * (CurrentScreens 의 endServerVisit 와 같다). 뗏목 행선지의 「구경 끝내기」(GROMO-2259)와 망원경의 «항해를 그만두고 빼기»
  * (GROMO-2273)가 같이 쓴다.
  */
-export function endServerVisit(e: any) {
+export function endServerVisit(
+  e: Pick<ScreenEnvironment, 'dispatch' | 'reset'> & {
+    state: {
+      serverIslands?: Pick<
+        NonNullable<ScreenEnvironment['state']['serverIslands']>,
+        'currentIslandId'
+      > | null;
+    };
+  },
+) {
   e.dispatch({ type: 'END_VISIT' });
   e.reset(e.state.serverIslands?.currentIslandId ? 'home' : 'sea');
 }

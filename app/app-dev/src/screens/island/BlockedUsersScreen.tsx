@@ -1,16 +1,17 @@
-import React, { useCallback, useState } from 'react';
-import { View } from 'react-native';
 import { Btn, C, Txt } from '@/design-system/patterns';
+import { errorTextOr, t } from '@/i18n';
+import type { ScreenProps } from '@/navigation/ScreenEnvironment';
 import { IslandSheet, SheetGroup, SheetRow } from '@/screens/island/IslandSheet';
 import { unblockUser, type BlockedUser } from '@/services/api/safety';
-import { errorTextOr, t } from '@/i18n';
 import {
   markUserUnblocked,
   revalidateBlockedUsers,
   useBlockedUsers,
 } from '@/services/blockedUsers';
+import { useCallback, useState } from 'react';
+import { View } from 'react-native';
 
-export function BlockedUsersScreen({ e }: any) {
+export function BlockedUsersScreen({ e }: ScreenProps<'back' | 'home' | 'notify'>) {
   const blockedUsers = useBlockedUsers(true, true);
   const items = blockedUsers.users;
   const [actionError, setActionError] = useState('');
