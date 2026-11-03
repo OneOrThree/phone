@@ -10,6 +10,7 @@ import {
   captureAirbridgeEvent,
   identifyAirbridgeUser,
   resetAirbridgeUser,
+  onAirbridgeAttribution,
 } from '@/services/airbridge';
 
 // Catus / Catus의 공개 수집 토큰. 빌드 환경변수가 없어도 이 프로젝트로 보낸다.
@@ -89,6 +90,13 @@ export function initPostHog(): void {
       disableGeoip: true,
       // 기능 플래그를 쓰지 않으므로 시작 때 플래그 요청을 보내지 않는다
       preloadFeatureFlags: false,
+    });
+    onAirbridgeAttribution((properties) => {
+      // 설치 이벤트와 같은 PostHog 식별 체계로 광고 분류만 연결한다.
+      captureProductEvent('airbridge_install_attribution', {
+        ...properties,
+        attribution_schema_version: 1,
+      });
     });
   } catch {
     // Analytics must never prevent the app from starting.
