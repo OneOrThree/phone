@@ -19,6 +19,7 @@
 | 기능별 요구사항·정책·API 설계를 찾고 싶다 | [`prd/`](prd/) |
 | 팀 공통 규약을 확인하고 싶다 | [`conventions/`](conventions/) |
 | 부하 테스트를 실행하거나 결과를 해석하고 싶다 | [부하 테스트 README](../loadtest/README.md) |
+| 큰 API JSON 응답의 gzip 적용 근거와 확인된 성과를 알고 싶다 | [Business API 응답 압축 분석](engineering/api-response-compression.md) |
 
 ## 구조
 
