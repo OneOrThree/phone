@@ -211,6 +211,20 @@ describe('useFocusLeaveFallback', () => {
     expect(pause).toHaveBeenCalledTimes(1);
   });
 
+  it('재개 요청 중에 다시 나가면 요청이 끝난 뒤에도 나가 있을 때 휴식으로 바꾼다', async () => {
+    await mount();
+    await flush();
+    busy = true;
+    await act(async () => appListener!('background'));
+    expect(pause).not.toHaveBeenCalled();
+    // 재개가 끝나 다시 집중 중인데 앱은 여전히 밖이다
+    busy = false;
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 150)));
+    await flush();
+    expect(pause).toHaveBeenCalledTimes(1);
+    expect(mockSchedule).toHaveBeenCalledTimes(2);
+  });
+
   it('사용자가 누른 명령이 진행 중이거나 시스템 권한 창이 떠 있으면 나간 것으로 보지 않는다', async () => {
     await mount();
     await flush();

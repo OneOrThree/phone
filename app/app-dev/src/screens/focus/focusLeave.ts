@@ -74,6 +74,11 @@ export async function duringSystemPrompt<T>(work: () => Promise<T>): Promise<T> 
   }
 }
 
+// ponytail: 0.1초 간격으로 본다 — 집중 명령은 요청 시간 제한(15초) 안에 끝나 무한히 돌지 않는다
+const whenIdle = async (busy: () => boolean) => {
+  while (busy()) await new Promise((resolve) => setTimeout(resolve, 100));
+};
+
 // 나간 표시는 앱이 꺼져도 다음 실행이 이어 받도록 기기에 둔다. 세션 id 로 대조하므로 계정이 바뀌어도 남의 세션을 끝내지 않는다.
 const saveMark = (mark: LeaveMark) =>
   AsyncStorage.setItem(MARK_KEY, JSON.stringify(mark)).catch(() => {});
@@ -169,34 +174,43 @@ export function useFocusLeaveFallback({
       cancelLeaveNotifications();
       setDue({ mark: m, returnedAt: Date.now() });
     });
+    const leave = (seq: number, leftAt: number): Promise<unknown> => {
+      const state = stateRef.current,
+        session = state.session,
+        notify = state.settings.notifications !== false;
+      if (!leaveTarget(session, state.tutorial)) return Promise.resolve();
+      // 표시는 바로 단다 — 실드 확인 중에 'background' 가 또 와도 pause 를 두 번 보내지 않게
+      const m: LeaveMark = { sessionId: session.id, leftAt };
+      mark = m;
+      return Promise.all([focusShieldApplied(), screenOff()])
+        .then(async ([shielded, off]) => {
+          // 실드가 걸렸거나, 화면을 껐거나, 확인하는 사이 돌아왔으면 아무것도 하지 않는다
+          if (shielded || off || seq !== epoch) {
+            if (mark === m) mark = null;
+            return;
+          }
+          void saveMark(m);
+          if (notify) scheduleLeaveNotifications();
+          await pause();
+        })
+        .catch(() => {});
+    };
     const subscription = AppState.addEventListener('change', (next) => {
       if (next === 'background') {
-        const seq = ++epoch;
-        backgroundAt = Date.now();
-        const state = stateRef.current,
-          session = state.session,
-          notify = state.settings.notifications !== false;
+        const seq = ++epoch,
+          leftAt = Date.now();
+        backgroundAt = leftAt;
         // 판정 전에 또 나갔다 — 표시는 처음 것을 두고 알림만 다시 건다(복귀 때 이미 지웠다)
         if (mark) {
-          if (notify) scheduleLeaveNotifications();
+          if (stateRef.current.settings.notifications !== false) scheduleLeaveNotifications();
           return;
         }
-        if (systemPrompts > 0 || busy() || !leaveTarget(session, state.tutorial)) return;
-        // 표시는 바로 단다 — 실드 확인 중에 'background' 가 또 와도 pause 를 두 번 보내지 않게
-        const m: LeaveMark = { sessionId: session.id, leftAt: backgroundAt };
-        mark = m;
-        leaving = Promise.all([focusShieldApplied(), screenOff()])
-          .then(async ([shielded, off]) => {
-            // 실드가 걸렸거나, 화면을 껐거나, 확인하는 사이 돌아왔으면 아무것도 하지 않는다
-            if (shielded || off || seq !== epoch) {
-              if (mark === m) mark = null;
-              return;
-            }
-            void saveMark(m);
-            if (notify) scheduleLeaveNotifications();
-            await pause();
-          })
-          .catch(() => {});
+        if (systemPrompts > 0) return;
+        // 휴식·재개·종료 요청(자동 재개 포함)이 진행 중이면 끝난 뒤에도 여전히 나가 있을 때 판정한다 —
+        // 재개가 끝나 다시 집중 중이 됐는데 앱 밖이면 그대로 쌓이지 않게
+        leaving = busy()
+          ? whenIdle(busy).then(() => (alive && seq === epoch ? leave(seq, leftAt) : undefined))
+          : leave(seq, leftAt);
         return;
       }
       if (next !== 'active') return;
