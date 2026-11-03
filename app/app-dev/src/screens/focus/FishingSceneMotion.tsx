@@ -408,6 +408,9 @@ export function FishingFloatMotion({ spots, active }: { spots: FloatSpot[]; acti
                   borderRadius: tokens.radius,
                   borderWidth: Math.max(1, 1.8 * k),
                   borderColor: tokens.floatRing,
+                  // 잘라내지 않는 뷰의 테두리는 iOS 가 그림으로 그려 고리가 바뀌는 프레임마다 다시 만든다.
+                  // 안쪽을 자르면 Core Animation 테두리로 그린다. 고리는 자식이 없어 모양은 같다(티켓 2736).
+                  overflow: 'hidden',
                   opacity: p.interpolate({ inputRange: [0, 1], outputRange: [0.48, 0] }),
                   transform: [
                     { scaleX: p.interpolate({ inputRange: [0, 1], outputRange: [13 / 48, 1] }) },
