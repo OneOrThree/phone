@@ -1,3 +1,4 @@
+import { afterForegroundMs } from '@/utils/afterForegroundMs';
 import { FishingFocusHud } from '@/screens/focus/FishingFocusHud';
 import {
   clearVerificationResult,
@@ -201,43 +202,6 @@ const GOLDEN_TEST =
   new URLSearchParams(window.location.search).has('demo') &&
   new URLSearchParams(window.location.search).has('golden-test');
 
-const afterForegroundMs = (callback: () => void, durationMs: number) => {
-  let remainingMs = durationMs;
-  let startedAt: number | null = null;
-  let timer: ReturnType<typeof setTimeout> | null = null;
-  let stopped = false;
-  const isForeground = (state: string | null) => state !== 'background' && state !== 'inactive';
-  const clear = () => {
-    if (timer) clearTimeout(timer);
-    timer = null;
-    if (startedAt !== null) {
-      remainingMs = Math.max(0, remainingMs - (Date.now() - startedAt));
-      startedAt = null;
-    }
-  };
-  const start = () => {
-    if (stopped || timer || startedAt !== null) return;
-    startedAt = Date.now();
-    timer = setTimeout(() => {
-      timer = null;
-      startedAt = null;
-      stopped = true;
-      subscription.remove();
-      callback();
-    }, remainingMs);
-  };
-  const subscription = AppState.addEventListener('change', (state) => {
-    if (isForeground(state)) start();
-    else clear();
-  });
-  if (isForeground(AppState.currentState)) start();
-  return () => {
-    if (stopped) return;
-    stopped = true;
-    clear();
-    subscription.remove();
-  };
-};
 
 const buildingArt: Record<Building, string> = {
   hall: 'hall',
