@@ -17,7 +17,7 @@ import { Card } from '@/design-system/primitives';
 import { componentTokens, primitiveTokens, semanticTokens } from '@/design-system/tokens';
 import { errorTextOr, t } from '@/i18n';
 import { formatDuration } from '@/i18n/format';
-import { Flag } from '@/screens/cosmetics/Cosmetics';
+import { Flag } from '@/screens/cosmetics/Flag';
 import { IslandPopup, SheetGroup, SheetRow } from '@/screens/island/IslandSheet';
 import { endServerVisit, useIslandSailing } from '@/screens/island/useIslandSailing';
 import { useTelescope } from '@/screens/island/useTelescope';

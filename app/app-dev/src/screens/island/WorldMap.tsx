@@ -29,10 +29,9 @@ import {
   balance,
   isHost,
   buildingCost,
-  buildMinutes,
   todayFocusSeconds,
 } from '@/services/model';
-import { assets, cat } from '@/constants/assets';
+import { assets } from '@/constants/assets';
 import { t } from '@/i18n';
 import { formatDuration, ownCatName } from '@/i18n/format';
 import { Text } from '@/design-system/typography';
@@ -55,7 +54,7 @@ import { Grid, Point, onLand, nearestLand, landPath } from '@/utils/world-grid';
 import grids from '@/constants/world-v2.json';
 import legacyDoorCoords from '@/constants/legacy-doors.json';
 import { MotionContext } from '@/design-system/primitives';
-import { Btn, C, Txt, Pic } from '@/design-system/patterns';
+import { Btn, Txt } from '@/design-system/patterns';
 import { VillageScenery } from './VillageScenery';
 import { ServerBuildCard } from './ServerBuildCard';
 import { Ticking, useWakeAt } from '@/hooks/useNow';

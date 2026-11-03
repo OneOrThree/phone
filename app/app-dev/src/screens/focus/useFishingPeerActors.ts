@@ -10,7 +10,6 @@ import {
   DEFAULT_SPOT,
   fishingCatchPlacement,
   fishingGrid,
-  fishingPeerCatchVisible,
   LANDING,
   nearGram,
   nearRaft,

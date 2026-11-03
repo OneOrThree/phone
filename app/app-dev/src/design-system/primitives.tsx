@@ -1,6 +1,6 @@
 import { TextInput, Text } from '@/design-system/typography';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import React, { useRef, useEffect, PropsWithChildren, createContext, useContext } from 'react';
+import React, { useRef, createContext, useContext } from 'react';
 import {
   Animated,
   Pressable,
@@ -9,11 +9,9 @@ import {
   Image,
   StyleProp,
   ViewStyle,
-  AccessibilityInfo,
   Platform,
   useWindowDimensions,
 } from 'react-native';
-import * as Haptics from 'expo-haptics';
 import { cat, assets } from '@/constants/assets';
 import { C, componentTokens, semanticTokens } from '@/design-system/tokens';
 export { C } from '@/design-system/tokens';

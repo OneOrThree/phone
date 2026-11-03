@@ -17,12 +17,7 @@ import {
   objectScoreIndex,
   studyObjectScores,
 } from '@/services/studyVerification/studyObjects';
-import {
-  PALM_INPUT,
-  maxSigmoid,
-  rgbToFloat,
-  scoreTensorIndex,
-} from '@/services/studyVerification/palmScore';
+import { PALM_INPUT, maxSigmoid, scoreTensorIndex } from '@/services/studyVerification/palmScore';
 
 export { VerificationSession as VerificationSpike } from './VerificationSession';
 

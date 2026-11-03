@@ -79,9 +79,6 @@ import {
 } from '@/design-system/primitives';
 import { primitiveTokens, semanticTokens } from '@/design-system/tokens';
 import { assets, cat } from '@/constants/assets';
-import { Flag, BoatPortrait, IslandDecor, IslandPreview } from '@/screens/cosmetics/Cosmetics';
-import { IslandDiscovery } from '@/screens/discovery/IslandDiscovery';
-import { FocusSea, clock } from '@/screens/focus/FocusSea';
 import {
   initialState,
   demoState,
