@@ -1,0 +1,151 @@
+{
+  "method": "fresh install, 20 seconds settle, 60 seconds home idle; CLK_TCK=100; sum of surviving thread CPU deltas; one run per version",
+  "runs": [
+    {
+      "stage": "baseline",
+      "pid": 22016,
+      "elapsedSeconds": 60.16657266695984,
+      "samples": [
+        {
+          "elapsedSeconds": 10.02495333389379,
+          "cpuPercent": 4.289296774541531
+        },
+        {
+          "elapsedSeconds": 20.043673291802406,
+          "cpuPercent": 3.891502264303067
+        },
+        {
+          "elapsedSeconds": 30.070986166829243,
+          "cpuPercent": 5.187724776784367
+        },
+        {
+          "elapsedSeconds": 40.09869270888157,
+          "cpuPercent": 4.8630014303885005
+        },
+        {
+          "elapsedSeconds": 50.12274358398281,
+          "cpuPercent": 4.608686266603694
+        },
+        {
+          "elapsedSeconds": 60.14698762493208,
+          "cpuPercent": 5.652818427419687
+        }
+      ],
+      "threads": [
+        {
+          "name": "RenderThread",
+          "cpuPercent": 3.2742433425692123
+        },
+        {
+          "name": "neorthree.gromo",
+          "cpuPercent": 1.8614987531357956
+        },
+        {
+          "name": "mqt_v_js",
+          "cpuPercent": 0.2160668195604049
+        },
+        {
+          "name": "hwuiTask1",
+          "cpuPercent": 0.08310262290784803
+        },
+        {
+          "name": "hwuiTask0",
+          "cpuPercent": 0.06648209832627844
+        },
+        {
+          "name": "HeapTaskDaemon",
+          "cpuPercent": 0.03324104916313921
+        },
+        {
+          "name": "binder:22016_1",
+          "cpuPercent": 0.01662052458156961
+        },
+        {
+          "name": "binder:22016_2",
+          "cpuPercent": 0.01662052458156961
+        },
+        {
+          "name": "mqt_v_native",
+          "cpuPercent": 0.01662052458156961
+        },
+        {
+          "name": "FrescoDecodeExe",
+          "cpuPercent": 0.01662052458156961
+        }
+      ]
+    },
+    {
+      "stage": "after",
+      "pid": 22280,
+      "elapsedSeconds": 60.17644595797174,
+      "samples": [
+        {
+          "elapsedSeconds": 10.022287999978289,
+          "cpuPercent": 4.190659857319106
+        },
+        {
+          "elapsedSeconds": 20.043296999996528,
+          "cpuPercent": 3.7418993491945463
+        },
+        {
+          "elapsedSeconds": 30.067225000122562,
+          "cpuPercent": 6.086361478295854
+        },
+        {
+          "elapsedSeconds": 40.09925595810637,
+          "cpuPercent": 6.259467763248072
+        },
+        {
+          "elapsedSeconds": 50.124967416981235,
+          "cpuPercent": 5.845390333375819
+        },
+        {
+          "elapsedSeconds": 60.153143000090495,
+          "cpuPercent": 6.3005851581093575
+        }
+      ],
+      "threads": [
+        {
+          "name": "RenderThread",
+          "cpuPercent": 3.9882714271231654
+        },
+        {
+          "name": "neorthree.gromo",
+          "cpuPercent": 1.794722142205425
+        },
+        {
+          "name": "mqt_v_js",
+          "cpuPercent": 0.23264916658218468
+        },
+        {
+          "name": "hwuiTask0",
+          "cpuPercent": 0.06647119045205276
+        },
+        {
+          "name": "hwuiTask1",
+          "cpuPercent": 0.06647119045205276
+        },
+        {
+          "name": "HeapTaskDaemon",
+          "cpuPercent": 0.049853392839039584
+        },
+        {
+          "name": "binder:22280_1",
+          "cpuPercent": 0.03323559522602638
+        },
+        {
+          "name": "Jit thread pool",
+          "cpuPercent": 0.016617797613013192
+        },
+        {
+          "name": "binder:22280_2",
+          "cpuPercent": 0.01661779761301319
+        },
+        {
+          "name": "mqt_v_native",
+          "cpuPercent": 0.01661779761301319
+        }
+      ]
+    }
+  ]
+}
