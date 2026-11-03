@@ -453,6 +453,12 @@ function Gromo() {
     if (toastTimer.current) clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(() => setToast(''), 2400);
   };
+  useEffect(
+    () => () => {
+      if (toastTimer.current) clearTimeout(toastTimer.current);
+    },
+    [],
+  );
   const playback = useIslandPlayback({
     active: !REVIEW && !DEMO && hasServerSession && island.buildings.includes('gram'),
     islandId: state.serverIslands?.currentIslandId ?? null,
@@ -2158,11 +2164,13 @@ function Gromo() {
     transition.setValue(reduceMotion ? 1 : 0);
     // JS 드라이버: 네이티브 드라이버는 iOS 에서 전환 중 화면(도서관 JPEG 배경 등)이 다시 커밋되면
     // 중간 opacity 가 남아 화면이 뿌옇게 굳는다
-    Animated.timing(transition, {
+    const animation = Animated.timing(transition, {
       toValue: 1,
       duration: reduceMotion ? 0 : 160,
       useNativeDriver: false,
-    }).start();
+    });
+    animation.start();
+    return () => animation.stop();
   }, [route, loaded, reviewEpoch]);
   // 처리 본문은 매 렌더의 최신 상태(소속·상실 사유 등)를 보도록 ref 로 부른다 — 등록 당시 상태로 섬 고르기에 가지 않게
   // (GROMO-2366). 리스너는 지금처럼 화면이 바뀔 때마다 다시 걸어 다른 화면의 리스너와의 순서를 그대로 둔다.

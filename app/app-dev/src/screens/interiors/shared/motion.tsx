@@ -18,6 +18,7 @@ export function useEased(target: number, duration: number, reduceMotion: boolean
         easing: ease,
         useNativeDriver: false,
       }).start();
+    return () => v.stopAnimation();
   }, [target, duration, reduceMotion, v]);
   return v;
 }
@@ -34,6 +35,7 @@ export function useKeyframe(key: number, duration: number, reduceMotion: boolean
       easing: Easing.linear,
       useNativeDriver: false,
     }).start();
+    return () => t.stopAnimation();
   }, [key, duration, reduceMotion, t]);
   return t;
 }
@@ -48,6 +50,7 @@ export function reactStyle(t: Animated.Value) {
 // .artifact.reacting: @keyframes object-react .42s ease (45%에서 scale 1.025 · rotate -.5deg, 키프레임 구간마다 ease)
 export function useReact(reduceMotion: boolean, rotate = '0deg'): [any, () => void] {
   const t = useRef(new Animated.Value(0)).current;
+  useEffect(() => () => t.stopAnimation(), [t, reduceMotion]);
   const run = () => {
     if (reduceMotion) return;
     t.setValue(0);
