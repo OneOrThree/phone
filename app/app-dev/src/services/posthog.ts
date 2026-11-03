@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Platform } from 'react-native';
+import { Platform, TurboModuleRegistry } from 'react-native';
 import type PostHog from 'posthog-react-native';
 import {
   readAnalyticsDeviceProperties,
@@ -42,6 +42,11 @@ export function initPostHog(): void {
   try {
     const PostHogClient = require('posthog-react-native').default as typeof PostHog;
     const environment = analyticsEnvironment();
+    // 같은 OTA 런타임의 Android 2.3.0·2.3.1에는 Sentry가 없다. 이 바이너리는 기존 수집기를 유지한다.
+    const useLegacyAndroidCrashCapture =
+      Platform.OS === 'android' &&
+      environment === 'production' &&
+      !TurboModuleRegistry.get('RNSentry');
     let deviceProperties: AnalyticsDeviceProperties = {};
     const devicePropertiesReady = readAnalyticsDeviceProperties().then((properties) => {
       deviceProperties = properties;
@@ -65,10 +70,9 @@ export function initPostHog(): void {
           uncaughtExceptions: true,
           unhandledRejections: true,
           console: false,
-          // 네이티브 크래시는 Sentry(services/sentry.ts)가 전담한다 — 수집기 둘이 같은
-          // 시그널 핸들러를 다퉈 크래시 리포트가 유실되지 않도록 PostHog 네이티브 수집은 끈다.
-          nativeCrashes: false,
-          androidNdkCrashes: false,
+          // Sentry가 있는 앱에서는 수집기 둘이 같은 시그널 핸들러를 설치하지 않게 한다.
+          nativeCrashes: useLegacyAndroidCrashCapture,
+          androidNdkCrashes: useLegacyAndroidCrashCapture,
         },
       },
       before_send: (event) => {
