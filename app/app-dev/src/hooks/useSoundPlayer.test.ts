@@ -1,8 +1,9 @@
+import { assets } from '@/constants/assets';
+import { bundledAudioSource } from '@/constants/audio';
+import { useSoundPlayer } from '@/hooks/useSoundPlayer';
 import { renderHook } from '@testing-library/react-native';
 import { useAudioPlayer } from 'expo-audio';
 import { Platform } from 'react-native';
-import { assets } from '@/constants/assets';
-import { useSoundPlayer } from '@/hooks/useSoundPlayer';
 
 const audio = {
   replace: jest.fn(),
@@ -24,7 +25,7 @@ it('시작 때는 음원 없이 만들고, 고른 음원은 첫 재생 때 넣�
   const player = result.current;
   expect(useAudioPlayer).toHaveBeenCalledWith(null);
 
-  player.replace(assets['audio/rain.wav']);
+  player.replace(bundledAudioSource('rain'));
   player.loop = true;
   await player.seekTo(0);
   expect(audio.replace).not.toHaveBeenCalled();
@@ -36,7 +37,7 @@ it('시작 때는 음원 없이 만들고, 고른 음원은 첫 재생 때 넣�
   expect(audio.play).toHaveBeenCalledTimes(1);
 
   // 첫 재생 뒤에는 그대로 전달한다
-  player.replace(assets['audio/campfire.wav']);
+  player.replace(bundledAudioSource('campfire'));
   await player.seekTo(0);
   expect(audio.replace).toHaveBeenLastCalledWith(assets['audio/campfire.wav']);
   expect(audio.seekTo).toHaveBeenCalledWith(0);
@@ -66,7 +67,7 @@ it('네이티브 곡 교체 전에 멈춰 SDK의 로딩 완료 자동 재개를 
         nativePlaying = true;
       };
   });
-  result.current.replace(assets['audio/rain.wav']);
+  result.current.replace(bundledAudioSource('rain'));
   await rerender({ allowed: false });
   resumeWhenReady?.();
   expect(nativePlaying).toBe(false);
