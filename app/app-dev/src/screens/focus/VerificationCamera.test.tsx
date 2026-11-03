@@ -194,6 +194,23 @@ test('카메라 첫 프레임과 실제 3장 판정은 별개이며 2장 이상 
   expect(resizedDispose).toHaveBeenCalledTimes(7);
 });
 
+test('손 모델에는 리사이저의 float32 버퍼를 JS 변환 없이 그대로 넣고 실행한 뒤 해제한다', async () => {
+  await setup();
+  expect(jest.mocked(useResizer).mock.calls.find(([o]) => o.width === 192)![0]).toMatchObject({
+    channelOrder: 'rgb',
+    dataType: 'float32',
+  });
+  const buffer = new Float32Array([1, 0, 0.5]).buffer;
+  resized.getPixelBuffer.mockImplementation(() => buffer);
+  await sample(4);
+  expect(runSync).toHaveBeenCalledWith([buffer]);
+  expect(resizedDispose).toHaveBeenCalledTimes(1);
+  // 버퍼를 해제한 뒤에 모델을 돌리면 빈 메모리를 읽는다.
+  expect(runSync.mock.invocationCallOrder[0]).toBeLessThan(
+    resizedDispose.mock.invocationCallOrder[0]!,
+  );
+});
+
 test('추론 간격을 지켜도 건너뛴 원본 프레임을 해제한다', async () => {
   await setup();
   expect(jest.mocked(useFrameOutput).mock.calls.at(-1)![0]).toMatchObject({

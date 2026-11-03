@@ -1,13 +1,6 @@
-import { majorityPass, maxSigmoid, rgbToFloat, scoreTensorIndex } from './palmScore';
+import { majorityPass, maxSigmoid, scoreTensorIndex } from './palmScore';
 
 describe('palmScore', () => {
-  test('rgbToFloat scales 0~255 to 0~1', () => {
-    const out = new Float32Array(rgbToFloat(new Uint8Array([0, 255, 51])));
-    expect(out[0]).toBe(0);
-    expect(out[1]).toBe(1);
-    expect(out[2]).toBeCloseTo(0.2, 6);
-  });
-
   test('scoreTensorIndex picks the tensor whose last dim is 1', () => {
     expect(scoreTensorIndex([{ shape: [1, 2016, 18] }, { shape: [1, 2016, 1] }])).toBe(1);
     expect(scoreTensorIndex([{ shape: [1, 2016, 18] }])).toBe(-1);
