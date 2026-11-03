@@ -10,7 +10,7 @@
 | 영역 | 담당하는 일 |
 | --- | --- |
 | 요청 경계 | AT 검증, 신뢰할 수 있는 사용자 식별, 본문 제한, requestId |
-| 서비스 조합 | Data·Notification·Link의 내부 HTTP 호출과 오류 변환 |
+| 서비스 조합 | Data·Realtime·Notification·Link의 내부 HTTP 호출과 오류 변환 |
 | 공통 API 기반 | 응답 봉투, 요청 키·버전·커서 검증, 화면 조합 시간 예산 |
 | 기술 스택 | Java 17, Spring Boot 4.0.6, Redis, 독립 Gradle·Dockerfile |
 
@@ -20,10 +20,11 @@ Business에는 도메인 DB가 없습니다. 도메인 상태·명령 결과는 
 
 ```mermaid
 flowchart LR
-  app["GROMO 앱"] --> boundary["JWT·요청 검증"]
+  app["Cattus 앱"] --> boundary["JWT·요청 검증"]
   boundary --> compose["Business · 서비스 조합"]
   compose -->|"내부 HTTP"| data["Data · 상태 확정"]
   compose -->|"기기·설정·결과 확인"| notification["Notification"]
+  compose -->|"섬 채팅 저장·조회"| realtime["Realtime"]
   compose -->|"링크 발급·귀속"| link["Link / MMP"]
   boundary --> cache[("전용 Redis · 폐기 세션 표지")]
 ```
@@ -32,8 +33,9 @@ flowchart LR
 
 - 기존 위성 조합과 신규 API 공통 기반이 함께 있습니다. 파일 링크 미리보기는 GROMO-2682 에서 제거했습니다([결정 로그](../../docs/prd/fishcat/decision-log.md) RP-링크미리보기제거).
 - 알림 설정, 현재 세션 로그아웃 등 연결된 신규 경로의 세부 계약은 아래에 정리되어 있습니다.
-- 전체 BFF·인증 발급 이전은 완료되지 않았습니다. 기존 로그인·토큰 발급은 Data에 남아 있습니다.
-- 방장 위임은 명령 기반이 구현되어 있으나 Data의 활성화 플래그는 기본 false입니다.
+- 앱의 공개 인증 경로(`/auth/sessions` 등)와 화면 묶음(`/screens/*`)은 Business가 받습니다. 계정·세션 판정과 토큰 발급 정본은 Data의 내부 API에 있습니다.
+- 친구 편지는 `/letters`로 Data에 저장하고, 섬 채팅은 `/islands/{id}/messages`로 Data 인가 뒤 Realtime에 저장합니다. 우체통 화면과 섬 채팅 UI의 계약은 다릅니다.
+- 방장 위임 등 도메인 명령은 Data가 상태·멱등 결과를 확정합니다. 활성 조건은 각 도메인 계약과 현재 설정을 확인합니다.
 - 아래의 날짜·커밋을 명시한 검사 결과는 당시 기록입니다. 현재 운영 배포 완료를 뜻하지 않습니다.
 
 ## 빠른 검증

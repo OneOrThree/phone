@@ -13,7 +13,7 @@ Cattus는 집중 세션과 스크린타임을 기록하고, 캐릭터·아이템
 | Business API | 앱 요청 인증·조합 | 상류 HTTP, 폐기 세션 표지용 전용 Redis | [README](business-api/README.md) |
 | Data API | 계정·집중·섬·재화의 상태와 트랜잭션, 정산 | PostgreSQL, Redis, 선택적 outbox relay | [README](data-api/README.md) |
 | Notification | 기기·설정·예약 알림·발송·운영 관리 | 전용 PostgreSQL, Kafka, FCM | [README](notification/README.md) |
-| Realtime | 섬 채팅·읽음 위치·인스턴스 간 전파 | 전용 PostgreSQL, Redis Pub/Sub | [README](realtime/README.md) |
+| Realtime | 섬 채팅·집중 관전·응원·이동·바다 방 | 전용 PostgreSQL, Redis Pub/Sub | [README](realtime/README.md) |
 | Observability | 요청·쿼리·리소스·로그·트레이스 관측 | Prometheus, Grafana, Loki, Datadog | [README](observability/README.md) |
 | Scripts | 환경별 Compose, 서비스별 설정 생성, 데이터 이관 | Docker Compose, Python, Bash, PostgreSQL 도구 | [README](scripts/README.md) |
 
@@ -28,7 +28,8 @@ Cattus는 집중 세션과 스크린타임을 기록하고, 캐릭터·아이템
 ```mermaid
 flowchart LR
   app["Cattus 앱"] -->|"공개 API·인증 발급"| business["Business API"]
-  app -->|"WebSocket·채팅 REST"| realtime["Realtime"]
+  app -->|"WebSocket /ws/realtime"| realtime["Realtime"]
+  business -->|"섬 채팅 내부 REST"| realtime
   business -->|"내부 HTTP"| data
   business -->|"기기·설정·알림 확인"| notification["Notification"]
   business -->|"링크 발급·귀속"| link["Link / MMP · 별도 저장소"]
@@ -38,17 +39,21 @@ flowchart LR
   realtime -->|"집중 상태 조회·팬아웃"| redis
   realtime -->|"현재 멤버십 조회"| data
   realtime --> chatDb[("gromo_chat")]
-  data -.->|"outbox relay 활성 시"| kafka["Kafka"]
+  data -.->|"focus/rest · 기본 HTTP"| realtime
+  data -.->|"알림 outbox · 선택 Realtime transport"| kafka["Kafka"]
   kafka --> notification
+  kafka -.->|"Kafka transport 선택 시"| realtime
   notification --> notiDb[("알림 PostgreSQL")]
   notification --> fcm["FCM"]
 ```
 
-알림의 HTTP 이벤트 수신과 Data를 향한 제한된 조회 등 세부 연결은 각 서비스 README를 참고합니다. Link/MMP는 [별도 저장소](https://github.com/OneOrThree/mmp-custom)에서 관리합니다.
+우체통의 친구 편지는 Business → Data의 `/letters` 경로로 저장합니다. 섬 단체 채팅은 Business → Data 인가 → Realtime 저장 경로이며, 현재 앱은 REST로 발송하고 활성·전면 상태에서 10초마다 이력을 갱신합니다. 서버 STOMP 채팅 경로와 구분합니다.
+
+[백엔드 흐름 실험실](../backeend-lab.html#mailbox)을 로컬 브라우저로 열면 이 연결을 단계별로 볼 수 있습니다. 알림의 HTTP 이벤트 수신과 Data를 향한 제한된 조회 등 세부 연결은 각 서비스 README를 참고합니다. Link/MMP는 [별도 저장소](https://github.com/OneOrThree/mmp-custom)에서 관리합니다.
 
 ### 서비스 분리 목표
 
-목표는 **앱의 일반 API 진입점을 Business로 모으고, 코어 데이터 변경을 Data에 집중하는 구조**입니다. 현재 앱의 일반 API와 인증은 Business가 받고(루트 경로, 접두사 없음: `/auth/sessions`·`/me`·`/screens/*`·`/focus-sessions`), Data는 `/internal/**`로만 호출됩니다. Data의 공개 컨트롤러는 `/health` 하나입니다(`data-api/.../common/api/HealthController.java:13`). 실시간 이벤트의 일부는 기반만 준비되어 있습니다. 다음 그림은 구현 완료 현황이 아닌 Target-1 설계입니다.
+목표는 **앱의 일반 API 진입점을 Business로 모으고, 코어 데이터 변경을 Data에 집중하는 구조**입니다. 현재 앱의 일반 API와 인증은 Business가 받고(루트 경로, 접두사 없음: `/auth/sessions`·`/me`·`/screens/*`·`/focus-sessions`), Data는 `/internal/**`로만 호출됩니다. Data의 공개 컨트롤러는 `/health` 하나입니다(`data-api/.../common/api/HealthController.java:13`). Realtime은 focus/rest·응원·섬 소식·이동·바다 방을 제공하며 채널마다 인가 조건이 다릅니다. 다음 그림은 별도로 유지하는 Target-1 설계이며 현재 구현 목록은 위 연결과 각 서비스 README를 기준으로 확인합니다.
 
 [![Target-1 서비스 구성](../docs/architecture/diagrams/01-service-target1.svg)](../docs/architecture/service-architecture.md)
 
@@ -77,7 +82,7 @@ flowchart LR
 
 ## 5. 로컬에서 시작하기
 
-기본 앱 기능을 확인하려면 Data API부터 실행합니다. **저장소 루트 기준**입니다.
+내부 Data API를 먼저 실행하는 예시입니다. 앱의 공개 API를 쓰려면 Business와 서비스 간 인증 설정도 필요합니다. **저장소 루트 기준**입니다.
 
 ```bash
 docker compose -f server/scripts/docker-compose.local.yml up -d db
@@ -87,9 +92,11 @@ test -f src/main/resources/application-local.yml || cp src/main/resources/applic
 ./gradlew bootRun --args='--spring.profiles.active=local'
 ```
 
-API는 `http://localhost:8080`, Swagger UI는 `http://localhost:8080/swagger-ui/index.html`입니다. 채팅은 별도 DB·Redis, 위성 서비스는 서비스별 환경변수가 추가로 필요합니다. 각 README의 실행 절차를 이어서 확인합니다.
+Data 주소는 `http://localhost:8080`, Swagger UI는 `http://localhost:8080/swagger-ui/index.html`입니다. Business도 기본 포트가 8080이므로 호스트에서 함께 실행할 때는 포트를 구분합니다([Business 단독 Compose](business-api/compose.yml)는 8082에 바인딩). Realtime은 별도 DB·Redis, 각 서비스는 내부 인증 토큰과 환경변수가 필요합니다. 각 README의 실행 절차를 이어서 확인합니다.
 
 ## 6. 검증 · 배포
+
+운영 V2는 앱·Kafka·Redis·백오피스를 네 EC2 호스트로 나눕니다. 서버·Kafka·Redis는 release 발행 뒤 수동 CD, 백오피스는 main 머지 뒤 별도 승인·배포입니다. 현재 배치와 복구 절차는 [prod V2 파이프라인](../docs/engineering/prod-v2-pipeline.md)을 따릅니다.
 
 서비스 폴더에서 `./gradlew build`로 테스트·정적 검사·패키징을 수행합니다. 통합 테스트에는 실행 중인 Docker가 필요합니다.
 
