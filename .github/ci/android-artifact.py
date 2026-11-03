@@ -37,11 +37,13 @@ def identity():
 def verify(directory, expected):
     root = Path(directory)
     metadata = json.loads((root / 'metadata.json').read_text())
-    if metadata.get('schema') != 3:
-        raise ValueError('schema 3 이전 Android 산출물(dev 서버 빌드)이다. 새 CI 실행이 필요하다')
-    keys = {'schema', 'revision', 'run_id', 'run_attempt', 'version_code', 'sha256', 'publish', 'audience'}
+    if metadata.get('schema') != 4:
+        raise ValueError('schema 4 이전 Android 산출물(버전 이름 태그 전 빌드)이다. 새 CI 실행이 필요하다')
+    keys = {'schema', 'revision', 'run_id', 'run_attempt', 'version_code', 'version_name', 'sha256', 'publish', 'audience'}
     if set(metadata) != keys or type(metadata.get('publish')) is not bool:
         raise ValueError('Android 산출물 메타데이터 형식 오류')
+    if not re.fullmatch(r'\d+\.\d+\.\d+', str(metadata['version_name'])):
+        raise ValueError('Android 산출물 버전 이름 오류')
     # dev 서버 AAB 가 internal 에 올라가면 콘솔 승격 한 번으로 스토어에 나갈 수 있다.
     if metadata['audience'] != 'prod':
         raise ValueError('Android 산출물이 운영 빌드가 아니다')
@@ -73,14 +75,16 @@ def main():
             parser.error('--aab 필요')
         args.directory.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(args.aab, args.directory / 'app-release.aab')
-        metadata = {**expected, 'schema': 3, 'publish': os.environ.get('PUBLISH_ALLOWED') == 'true', 'version_code': int(os.environ['VERSION_CODE']),
-                    'audience': os.environ['GROMO_ANDROID_AUDIENCE'], 'sha256': checksum(args.directory / 'app-release.aab')}
+        metadata = {**expected, 'schema': 4, 'publish': os.environ.get('PUBLISH_ALLOWED') == 'true', 'version_code': int(os.environ['VERSION_CODE']),
+                    'version_name': os.environ['VERSION_NAME'], 'audience': os.environ['GROMO_ANDROID_AUDIENCE'],
+                    'sha256': checksum(args.directory / 'app-release.aab')}
         (args.directory / 'metadata.json').write_text(json.dumps(metadata, sort_keys=True) + '\n')
     metadata = verify(args.directory, expected)
     output = os.environ.get('GITHUB_OUTPUT')
     if output:
         with open(output, 'a') as file:
             file.write(f'version-code={metadata["version_code"]}\n')
+            file.write(f'version-name={metadata["version_name"]}\n')
             file.write(f'publish={str(metadata["publish"]).lower()}\n')
 
 

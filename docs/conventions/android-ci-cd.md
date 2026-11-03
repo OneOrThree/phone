@@ -20,7 +20,9 @@ versionCode는 `max(ANDROID_VERSION_CODE_BASE, build.gradle의 versionCode) + GI
 
 CI가 Play에 올린 뒤에는 `build.gradle` 값 그대로 로컬에서 올리면 Play가 거절한다. 로컬 업로드가 필요하면 최근 CI 값보다 높은 versionCode를 쓴다.
 
-main CI 산출물 `android-ci-<run_id>-<run_attempt>`에는 `app-release.aab`와 `metadata.json`이 들어간다. 메타데이터는 소스 SHA·CI run ID·attempt·versionCode·청중·AAB SHA-256을 연결한다. 14일 보관하며 만료된 경우 새 CI가 필요하다.
+버전 이름(versionName)은 git 태그로 정한다(GROMO-2731). Android CD가 Play internal 게시에 성공하면 「앱 버전 태그」 잡이 게시한 커밋에 `app-<버전>-android-<versionCode>` 주석 태그를 단다. 태그 메시지는 그때 운영 서버 태그(`server: catus-vX.Y.Z-V2`)다. main CI의 설정 잡은 그 태그 중 최대 버전의 patch + 1을 다음 버전으로 정해 Gradle에 넘긴다(`.github/ci/app-version.py`, `.github/ci/android-version-code.gradle`). `build.gradle`의 `versionName`은 하한이라, minor·major를 올릴 때만 PR로 고친다. 게시할 빌드는 진행 중인 Android CD가 끝나 직전 태그가 붙은 뒤에 버전을 정한다(최대 15분 대기). CD는 서명 전에 버전 이름이 직전 태그보다 큰지 확인하고, 같거나 낮으면 실패해 업로드하지 않는다. 같은 버전·versionCode 태그가 이미 있으면 같은 게시의 재실행으로 보고 통과한다.
+
+main CI 산출물 `android-ci-<run_id>-<run_attempt>`에는 `app-release.aab`와 `metadata.json`이 들어간다. 메타데이터(schema 4)는 소스 SHA·CI run ID·attempt·versionCode·버전 이름·청중·AAB SHA-256을 연결한다. 14일 보관하며 만료된 경우 새 CI가 필요하다.
 
 ## 서버 선행 게이트
 
