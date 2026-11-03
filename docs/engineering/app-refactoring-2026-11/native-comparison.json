@@ -1,0 +1,182 @@
+{
+  "baseline": {
+    "ios": {
+      "fresh": {
+        "homeReadySeconds": {
+          "n": 5,
+          "median": 3.647860625060275,
+          "min": 3.399126916890964,
+          "max": 3.8714373339898884
+        },
+        "idleCpuPercent": {
+          "n": 5,
+          "median": 3.094367078554878,
+          "min": 2.995748633294799,
+          "max": 3.2958354647034884
+        },
+        "memory": {
+          "n": 5,
+          "median": 178.0,
+          "min": 178.0,
+          "max": 179.0
+        },
+        "memoryUnit": "footprint MB"
+      },
+      "retained": {
+        "homeReadySeconds": {
+          "n": 5,
+          "median": 3.0998649999964982,
+          "min": 2.998069333145395,
+          "max": 3.319045665906742
+        },
+        "idleCpuPercent": {
+          "n": 5,
+          "median": 3.0952499906733517,
+          "min": 2.9947566925044065,
+          "max": 3.3956688668054245
+        },
+        "memory": {
+          "n": 5,
+          "median": 178.0,
+          "min": 178.0,
+          "max": 179.0
+        },
+        "memoryUnit": "footprint MB"
+      }
+    },
+    "android": {
+      "fresh": {
+        "homeReadySeconds": {
+          "n": 5,
+          "median": 2.506541416980326,
+          "min": 2.19450854184106,
+          "max": 2.7003163329791278
+        },
+        "idleCpuPercent": {
+          "n": 5,
+          "median": 7.861204333944513,
+          "min": 4.381755683788358,
+          "max": 13.148382517717039
+        },
+        "memory": {
+          "n": 5,
+          "median": 244.7509765625,
+          "min": 244.5927734375,
+          "max": 245.3798828125
+        },
+        "memoryUnit": "PSS MiB"
+      },
+      "retained": {
+        "homeReadySeconds": {
+          "n": 5,
+          "median": 2.10838570818305,
+          "min": 1.9397652498446405,
+          "max": 2.223835000069812
+        },
+        "idleCpuPercent": {
+          "n": 5,
+          "median": 4.382930276209067,
+          "min": 4.182702069568105,
+          "max": 7.464741382467753
+        },
+        "memory": {
+          "n": 5,
+          "median": 243.50390625,
+          "min": 242.6279296875,
+          "max": 243.8291015625
+        },
+        "memoryUnit": "PSS MiB"
+      }
+    }
+  },
+  "after": {
+    "ios": {
+      "fresh": {
+        "homeReadySeconds": {
+          "n": 5,
+          "median": 3.5712805408984423,
+          "min": 3.405484375078231,
+          "max": 3.9541328749619424
+        },
+        "idleCpuPercent": {
+          "n": 5,
+          "median": 3.294695279665986,
+          "min": 3.1935483804984637,
+          "max": 3.3944531241959
+        },
+        "memory": {
+          "n": 5,
+          "median": 178.0,
+          "min": 178.0,
+          "max": 179.0
+        },
+        "memoryUnit": "footprint MB"
+      },
+      "retained": {
+        "homeReadySeconds": {
+          "n": 5,
+          "median": 3.103610791033134,
+          "min": 3.0102636669762433,
+          "max": 3.7149615841917694
+        },
+        "idleCpuPercent": {
+          "n": 5,
+          "median": 3.2941446989602516,
+          "min": 2.99603099560932,
+          "max": 3.495547968006394
+        },
+        "memory": {
+          "n": 5,
+          "median": 178.0,
+          "min": 178.0,
+          "max": 179.0
+        },
+        "memoryUnit": "footprint MB"
+      }
+    },
+    "android": {
+      "fresh": {
+        "homeReadySeconds": {
+          "n": 5,
+          "median": 2.711254208115861,
+          "min": 2.2688048330601305,
+          "max": 3.17128066602163
+        },
+        "idleCpuPercent": {
+          "n": 5,
+          "median": 8.336564268707916,
+          "min": 4.283335913364864,
+          "max": 13.645297027825956
+        },
+        "memory": {
+          "n": 5,
+          "median": 244.8828125,
+          "min": 244.4609375,
+          "max": 245.060546875
+        },
+        "memoryUnit": "PSS MiB"
+      },
+      "retained": {
+        "homeReadySeconds": {
+          "n": 5,
+          "median": 2.152773959096521,
+          "min": 1.9093111669644713,
+          "max": 2.7747763749212027
+        },
+        "idleCpuPercent": {
+          "n": 5,
+          "median": 8.74833466778233,
+          "min": 4.282637491630651,
+          "max": 11.751200885731352
+        },
+        "memory": {
+          "n": 5,
+          "median": 243.52734375,
+          "min": 243.4580078125,
+          "max": 251.8779296875
+        },
+        "memoryUnit": "PSS MiB"
+      }
+    }
+  }
+}
