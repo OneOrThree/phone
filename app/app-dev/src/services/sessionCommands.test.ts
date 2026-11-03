@@ -23,6 +23,10 @@ import {
 import { ApiError } from '@/services/api/client';
 import type { FocusFinishView, FocusSessionView } from '@/services/api/focusSessions';
 import { captureProductEvent } from '@/services/posthog';
+import { markActivationStage } from '@/services/activationJourney';
+jest.mock('@/services/activationJourney', () => ({
+  markActivationStage: jest.fn().mockResolvedValue(undefined),
+}));
 
 jest.mock('@/services/api/session', () => ({ sessionGeneration: () => 0, getSession: () => null }));
 jest.mock('@/services/posthog', () => ({
@@ -877,4 +881,37 @@ test('finish(target) — 로컬에 대상과 다른 진행 세션이 있으면 �
   await assert.rejects(h.cmds.finish({ id: 'sea-1', version: 1 }), { code: 'STATE_CONFLICT' });
   assert.equal(h.calls.filter((c) => c.startsWith('finish')).length, 0);
   assert.equal(h.state().session?.id, 'sea-2');
+});
+
+test('광고 첫 집중은 항해를 제외하고 낚시섬 시작·유효 완료만 기록한다', async () => {
+  const mark = markActivationStage as jest.Mock;
+  mark.mockClear();
+  const sea = harness();
+  await sea.cmds.startSea('dest-island');
+  expect(mark.mock.calls.some(([, stage]) => stage === 'first_island_focus_started')).toBe(false);
+  expect(captureProductEvent).toHaveBeenCalledWith('focus_started', { focus_kind: 'sea' });
+  mark.mockClear();
+  const island = harness({ finish: async () => finish({ kind: 'island' }) });
+  island.join();
+  await island.cmds.start({ subject: '수학' });
+  expect(mark).toHaveBeenCalledWith(
+    undefined,
+    'first_island_focus_started',
+    expect.objectContaining({ prerequisite: 'island_arrived' }),
+  );
+  await island.cmds.finish();
+  expect(mark).toHaveBeenCalledWith(
+    undefined,
+    'first_island_focus_completed',
+    expect.objectContaining({
+      prerequisite: 'first_island_focus_started',
+      extra: { duration_seconds: 1500, focus_kind: 'island' },
+    }),
+  );
+  mark.mockClear();
+  const zero = harness({ finish: async () => finish({ kind: 'island', activeSeconds: 0 }) });
+  zero.join();
+  await zero.cmds.start({ subject: '수학' });
+  await zero.cmds.finish();
+  expect(mark.mock.calls.some(([, stage]) => stage === 'first_island_focus_completed')).toBe(false);
 });

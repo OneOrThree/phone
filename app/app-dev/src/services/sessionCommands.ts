@@ -37,6 +37,13 @@ function captureFocusLocationSummary(view: FocusFinishView): void {
   // 자동 종료 세션을 다음 날 복구해 발행해도, 대시보드가 수집 시각이 아닌 서버 완료 시각(completedAt)으로
   // 집계·완료일 귀속을 하도록 이벤트 시각을 완료 시각으로 덮어쓴다. 파싱 실패 시에만 수집 시각으로 둔다.
   const completedAt = new Date(view.completedAt);
+  if (view.kind === 'island' && seconds > 0) {
+    void markActivationStage(getSession()?.userId, 'first_island_focus_completed', {
+      prerequisite: 'first_island_focus_started',
+      extra: { duration_seconds: seconds, focus_kind: 'island' },
+      ...(Number.isNaN(completedAt.getTime()) ? {} : { timestamp: completedAt }),
+    });
+  }
   captureProductEvent(
     'focus_location_summary',
     {
@@ -277,7 +284,7 @@ export const createSessionCommands = (deps: SessionCommandDeps) => {
     }
     deps.dispatch({ type: 'SESSION_SYNC', session: latest ? sessionFromServer(latest) : null });
     scoped().keys.release(slot, destinationIslandId);
-    captureProductEvent('focus_started');
+    captureProductEvent('focus_started', { focus_kind: 'sea' });
     void markActivationStage(getSession()?.userId, 'first_focus_started', {
       prerequisite: 'island_arrived',
     });
@@ -376,7 +383,11 @@ export const createSessionCommands = (deps: SessionCommandDeps) => {
           alive(g);
           deps.dispatch({ type: 'SESSION_SYNC', session: sessionFromServer(view) });
           scoped().keys.release('start', raw);
-          captureProductEvent('focus_started');
+          captureProductEvent('focus_started', { focus_kind: 'island' });
+          void markActivationStage(getSession()?.userId, 'first_island_focus_started', {
+            prerequisite: 'island_arrived',
+            extra: { focus_kind: 'island' },
+          });
           void markActivationStage(getSession()?.userId, 'first_focus_started', {
             prerequisite: 'island_arrived',
           });
