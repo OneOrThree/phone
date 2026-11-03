@@ -13,10 +13,8 @@ import { useDeveloperLetter } from '@/screens/letter/useDeveloperLetter';
 import { useForceUpdateLetter } from '@/screens/letter/useForceUpdateLetter';
 import { isLetterReady, STORE_URLS, visibleAt } from '@/services/developerLetter';
 import { Btn as NativeButton, Overlay, Txt as NativeText } from '@/design-system/patterns';
-import {
-  CurrentScreens as RedesignScreens,
-  FocusBlockingIntro,
-} from '@/screens/island/CurrentScreens';
+import { CurrentScreens as RedesignScreens } from '@/screens/island/CurrentScreens';
+import { FocusBlockingIntro } from '@/screens/permissions/FocusBlockingIntro';
 import React, { useState, useReducer, useEffect, useMemo, useRef } from 'react';
 import {
   View,

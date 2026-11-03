@@ -1,11 +1,6 @@
-import { readAccountGuides } from '@/services/accountGuides';
-import assert from 'node:assert/strict';
-import * as SecureStore from 'expo-secure-store';
-import React from 'react';
-import { AppState, type AppStateStatus } from 'react-native';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import App from '@/App';
+import { applyLocalePref, getLocale } from '@/i18n';
+import { readAccountGuides } from '@/services/accountGuides';
 import type { Account } from '@/services/api/auth';
 import { ApiError } from '@/services/api/client';
 import {
@@ -17,12 +12,16 @@ import {
   saveSession,
   sessionGeneration,
 } from '@/services/api/session';
-import { applyLocalePref, getLocale } from '@/i18n';
-import { initialState, reducer, type Route } from '@/services/model';
 import {
   cancelBuildingTransition,
   createBuildingTransitionController,
 } from '@/services/buildingTransition';
+import { initialState, reducer, type Route } from '@/services/model';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import * as SecureStore from 'expo-secure-store';
+import assert from 'node:assert/strict';
+import { AppState, type AppStateStatus } from 'react-native';
 
 let captured: any;
 let mockFocusBlockingIntro: any;
@@ -78,6 +77,9 @@ jest.mock('@/screens/island/CurrentScreens', () => ({
     captured = e;
     return null;
   },
+}));
+
+jest.mock('@/screens/permissions/FocusBlockingIntro', () => ({
   FocusBlockingIntro: ({ e }: any) => {
     mockFocusBlockingIntro = e;
     return null;

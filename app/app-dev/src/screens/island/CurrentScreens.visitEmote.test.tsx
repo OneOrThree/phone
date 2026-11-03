@@ -1,9 +1,10 @@
+import { createPreviewEnvironment } from '@/navigation/previewEnvironment';
+import type { Route } from '@/services/model';
 // 낚시 구경 화면(GROMO-2259) — 방문자는 응원을 보내지도 받지도 않는다(2026-10-16 결정): FAB 없음, visitor 미전달.
-import React from 'react';
-import { act, fireEvent, render } from '@testing-library/react-native';
 import { CurrentScreens } from '@/screens/island/CurrentScreens';
-import { initialState, reducer, type State } from '@/services/model';
 import { clearSession, saveSession } from '@/services/api/session';
+import { initialState, reducer, type State } from '@/services/model';
+import { act, fireEvent, render } from '@testing-library/react-native';
 
 let presenceOpts: any;
 let mockFocusMembers: object[] = [];
@@ -129,9 +130,9 @@ const mount = async (state: State) => {
   // 같은 element 를 다시 넘기면 React 가 다시 그리지 않는다 — 재렌더가 필요하면 새로 만든다
   const element = () => (
     <CurrentScreens
-      e={{
+      e={createPreviewEnvironment({
         state,
-        route: 'visitIslandFocus',
+        route: 'visitIslandFocus' as const,
         detail: 'v1',
         now: Date.now(),
         dispatch: jest.fn(),
@@ -145,7 +146,7 @@ const mount = async (state: State) => {
         text: '',
         setText: jest.fn(),
         islands: {},
-      }}
+      })}
     />
   );
   const screen = await render(element());
@@ -236,7 +237,7 @@ test('다른 섬 방문 구경은 events 를 못 구독하므로 30초마다 스
 });
 
 // ‹ 는 목적지를 읽는다(DESIGN §7.14) — 내 낚시섬은 홈, 구경은 그 섬 지도로 가니 둘 다 「섬으로 돌아가기」다
-const focusVisitEnv = (state: State, route: string, detail: string, islands?: object) => ({
+const focusVisitEnv = (state: State, route: Route, detail: string, islands?: object) => ({
   state,
   route,
   detail,
@@ -256,7 +257,7 @@ const focusVisitEnv = (state: State, route: string, detail: string, islands?: ob
 
 test('내 낚시섬 구경(방문 아님)의 ‹ 는 「섬으로 돌아가기」로 읽히고 누르면 홈으로 간다', async () => {
   const e = focusVisitEnv(initialState(true), 'focusVisit', '');
-  const screen = await render(<CurrentScreens e={e} />);
+  const screen = await render(<CurrentScreens e={createPreviewEnvironment(e)} />);
   expect(screen.queryByLabelText('닫기')).toBeNull();
   await fireEvent.press(screen.getByLabelText('섬으로 돌아가기'));
   expect(e.home).toHaveBeenCalledTimes(1);
@@ -265,7 +266,7 @@ test('내 낚시섬 구경(방문 아님)의 ‹ 는 「섬으로 돌아가기�
 
 test('다른 섬 낚시 구경의 ‹ 도 「섬으로 돌아가기」이고 누르면 그 섬 지도로 간다', async () => {
   const e = focusVisitEnv(visitState('none'), 'visitIslandFocus', 'v1', {});
-  const screen = await render(<CurrentScreens e={e} />);
+  const screen = await render(<CurrentScreens e={createPreviewEnvironment(e)} />);
   expect(screen.queryByLabelText('돌아가기')).toBeNull();
   await fireEvent.press(screen.getByLabelText('섬으로 돌아가기'));
   expect(e.replace).toHaveBeenCalledWith('visitIsland', 'v1');

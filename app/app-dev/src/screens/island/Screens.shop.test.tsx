@@ -1,14 +1,16 @@
+import { createPreviewEnvironment } from '@/navigation/previewEnvironment';
+import type { Route } from '@/services/model';
 /**
  * 상점 구매 확정 시 서버에 닿지 못하면(연결 거부·타임아웃) 사용자에게 알려야 한다.
  * useShop 훅은 이미 useShop.test.tsx 가 검증한다 — 여기서는 화면의 구매 확인 핸들러만 고립해서 본다.
  */
-import assert from 'node:assert/strict';
-import React, { useMemo, useReducer, useRef, useState } from 'react';
-import { act, fireEvent, render } from '@testing-library/react-native';
-import { StyleSheet } from 'react-native';
 import { RedesignScreens } from '@/screens/island/Screens';
-import { initialState, reducer } from '@/services/model';
 import { ApiError } from '@/services/api/client';
+import { initialState, reducer } from '@/services/model';
+import { act, fireEvent, render } from '@testing-library/react-native';
+import assert from 'node:assert/strict';
+import { useMemo, useReducer, useRef, useState } from 'react';
+import { StyleSheet } from 'react-native';
 
 jest.mock('@/utils/layout', () => ({
   useAppLayout: () => ({
@@ -65,7 +67,7 @@ const baseShopApi = () => ({
 });
 
 // Screens.test.tsx 의 Harness 를 이 파일 전용으로 축약했다 — 'product'/'shop' 경로만 다룬다.
-function Harness({ route, detail, notify }: { route: string; detail?: string; notify: jest.Mock }) {
+function Harness({ route, detail, notify }: { route: Route; detail?: string; notify: jest.Mock }) {
   const [state, dispatch] = useReducer(reducer, undefined, () => {
     const s = initialState(false);
     s.serverIslands = {
@@ -99,7 +101,7 @@ function Harness({ route, detail, notify }: { route: string; detail?: string; no
   const [tab, setTab] = useState('');
   return (
     <RedesignScreens
-      e={{
+      e={createPreviewEnvironment({
         state,
         route,
         dispatch,
@@ -110,7 +112,7 @@ function Harness({ route, detail, notify }: { route: string; detail?: string; no
         back: jest.fn(),
         notify,
         confirm,
-        signOut: jest.fn(async () => {}),
+        signOut: jest.fn(async () => true),
         build: jest.fn(),
         text: '',
         setText: jest.fn(),
@@ -128,7 +130,14 @@ function Harness({ route, detail, notify }: { route: string; detail?: string; no
         setVisited: jest.fn(),
         guideStep: 0,
         setGuideStep: jest.fn(),
-        player: { addListener: () => ({ remove() {} }), replace() {}, play() {}, pause() {} },
+        player: {
+          addListener: () => ({ remove() {} }),
+          replace() {},
+          play() {
+            return true;
+          },
+          pause() {},
+        },
         previewAudio: false,
         setPreviewAudio: jest.fn(),
         walkTo: jest.fn(),
@@ -139,7 +148,7 @@ function Harness({ route, detail, notify }: { route: string; detail?: string; no
         homeError: false,
         retryHome: jest.fn(),
         friendsScreen: undefined,
-      }}
+      })}
     />
   );
 }

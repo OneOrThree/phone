@@ -1,10 +1,11 @@
+import { createPreviewEnvironment } from '@/navigation/previewEnvironment';
+import type { Route } from '@/services/model';
 // 방문자 화면(GROMO-2259): 집중 중 인원 · 오늘 집중 시간 · 하단 가입 버튼 · 주민 쪽 방문자 응원 알림.
-import React from 'react';
-import { fireEvent, render } from '@testing-library/react-native';
-import { CurrentScreens } from '@/screens/island/CurrentScreens';
-import { initialState, reducer, type State } from '@/services/model';
-import { clearSession, saveSession } from '@/services/api/session';
 import { applyLocalePref } from '@/i18n';
+import { CurrentScreens } from '@/screens/island/CurrentScreens';
+import { clearSession, saveSession } from '@/services/api/session';
+import { initialState, reducer, type State } from '@/services/model';
+import { fireEvent, render } from '@testing-library/react-native';
 
 let presenceOpts: any;
 let mockStatus = 'ready';
@@ -84,13 +85,17 @@ const visitState = (over: {
   return reducer(state, { type: 'SERVER_VISITING', islandId: 'v1' } as any) as State;
 };
 
-const mount = async (state: State, route = 'visitIsland', extra: Record<string, unknown> = {}) => {
+const mount = async (
+  state: State,
+  route: Route = 'visitIsland',
+  extra: Record<string, unknown> = {},
+) => {
   const go = jest.fn();
   const notify = jest.fn();
   const islands = { join: jest.fn().mockResolvedValue({ status: 'pending' }), cancel: jest.fn() };
   const screen = await render(
     <CurrentScreens
-      e={{
+      e={createPreviewEnvironment({
         state,
         route,
         detail: 'v1',
@@ -107,7 +112,7 @@ const mount = async (state: State, route = 'visitIsland', extra: Record<string, 
         setText: jest.fn(),
         islands,
         ...extra,
-      }}
+      })}
     />,
   );
   return { screen, go, notify, islands };

@@ -1,14 +1,16 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { saveSession, clearSession } from '@/services/api/session';
+import { createPreviewEnvironment } from '@/navigation/previewEnvironment';
+import { CurrentScreens } from '@/screens/island/CurrentScreens';
 import { saveAccountGuides } from '@/services/accountGuides';
 import * as homeApi from '@/services/api/home';
+import { getIslandNews } from '@/services/api/magazine';
+import { clearSession, saveSession } from '@/services/api/session';
+import type { Route } from '@/services/model';
+import { initialState, reducer } from '@/services/model';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 import assert from 'node:assert/strict';
 import React from 'react';
 import { AppState } from 'react-native';
-import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
-import { getIslandNews } from '@/services/api/magazine';
-import { CurrentScreens } from '@/screens/island/CurrentScreens';
-import { initialState, reducer } from '@/services/model';
 
 jest.mock('@/screens/interiors/BuildingInteriors', () => ({ InteriorRoute: () => null }));
 jest.mock('@/screens/island/useFriendsScreen', () => ({
@@ -89,7 +91,7 @@ const state = () =>
       lossReason: null,
     },
   });
-const env = (s: ReturnType<typeof state>, route: string) => ({
+const env = (s: ReturnType<typeof state>, route: Route) => ({
   state: s,
   route,
   islands: {},
@@ -103,14 +105,16 @@ const env = (s: ReturnType<typeof state>, route: string) => ({
 });
 
 test('시설 스냅샷 조회 전에는 로컬 완공 상태로 회관을 열지 않는다', async () => {
-  const screen = await render(<CurrentScreens e={env(state(), 'hall')} />);
+  const screen = await render(
+    <CurrentScreens e={createPreviewEnvironment(env(state(), 'hall'))} />,
+  );
   screen.getByText('시설 정보를 확인하고 있어요.');
   assert.equal(screen.queryByTestId('hall-open'), null);
 });
 
 test('시설 조회 실패는 재시도할 수 있고 주민 화면은 아직 열리지 않는다', async () => {
   const e = { ...env(state(), 'library'), homeError: true };
-  const screen = await render(<CurrentScreens e={e} />);
+  const screen = await render(<CurrentScreens e={createPreviewEnvironment(e)} />);
   await fireEvent.press(screen.getByText('다시 시도'));
   assert.equal(e.retryHome.mock.calls.length, 1);
   assert.equal(screen.queryByTestId('library-open'), null);
@@ -125,10 +129,10 @@ test('서버 완공 상태만 시설 진입을 연다', async () => {
       home: { island: { id: 'server', role: 'member' }, wallets: { villagePoints: 0 } },
     },
   });
-  const hall = await render(<CurrentScreens e={env(s, 'hall')} />);
+  const hall = await render(<CurrentScreens e={createPreviewEnvironment(env(s, 'hall'))} />);
   hall.getByTestId('hall-open');
   await hall.unmount();
-  const library = await render(<CurrentScreens e={env(s, 'library')} />);
+  const library = await render(<CurrentScreens e={createPreviewEnvironment(env(s, 'library'))} />);
   library.getByText('아직 도서관이 없어요');
   assert.equal(library.queryByTestId('library-open'), null);
 });
@@ -145,7 +149,9 @@ test('우체통이 없어도 채팅방은 섬 홈 위 시트로 열리고 내 �
       home: { island: { id: 'server', role: 'member' }, wallets: { villagePoints: 0 } },
     },
   });
-  const screen = await render(<CurrentScreens e={{ ...env(s, 'chat'), back: jest.fn() }} />);
+  const screen = await render(
+    <CurrentScreens e={createPreviewEnvironment({ ...env(s, 'chat'), back: jest.fn() })} />,
+  );
   screen.getByText('우리 섬 채팅방');
   screen.getByTestId('island-message-input');
   assert.equal(screen.queryByText('아직 우체통이 없어요'), null);
@@ -156,7 +162,7 @@ test('우체통이 없어도 채팅방은 섬 홈 위 시트로 열리고 내 �
 test('다른 섬 주민이어도 방문 중인 섬의 도서관에는 들어갈 수 없다', async () => {
   const s = state();
   s.visitingIslandId = 'visitor';
-  const screen = await render(<CurrentScreens e={env(s, 'library')} />);
+  const screen = await render(<CurrentScreens e={createPreviewEnvironment(env(s, 'library'))} />);
   screen.getByText('주민만 이용할 수 있어요');
   assert.equal(screen.queryByTestId('library-open'), null);
 });
@@ -170,18 +176,21 @@ const visiting = () =>
     { type: 'SERVER_VISITING', islandId: 'visitor' },
   );
 
-test.each(['manage', 'board'])('방문 %s를 닫으면 방문 섬 지도로 돌아간다', async (route) => {
-  const e = env(visiting(), route);
-  const screen = await render(<CurrentScreens e={e} />);
-  await fireEvent.press(screen.getByTestId(route === 'manage' ? 'hall-open' : 'visitor-board'));
-  expect(e.replace).toHaveBeenCalledWith('visitIsland', 'visitor');
-  expect(e.dispatch).not.toHaveBeenCalled();
-});
+test.each(['manage', 'board'] as const)(
+  '방문 %s를 닫으면 방문 섬 지도로 돌아간다',
+  async (route: Route) => {
+    const e = env(visiting(), route);
+    const screen = await render(<CurrentScreens e={createPreviewEnvironment(e)} />);
+    await fireEvent.press(screen.getByTestId(route === 'manage' ? 'hall-open' : 'visitor-board'));
+    expect(e.replace).toHaveBeenCalledWith('visitIsland', 'visitor');
+    expect(e.dispatch).not.toHaveBeenCalled();
+  },
+);
 
 test('방문 지도에서 귀환하면 방문만 종료하고 원래 서버 섬을 유지한다', async () => {
   const s = visiting();
   const e = env(s, 'visitIsland');
-  const screen = await render(<CurrentScreens e={e} />);
+  const screen = await render(<CurrentScreens e={createPreviewEnvironment(e)} />);
   await fireEvent.press(screen.getByTestId('visit-map'));
   expect(e.dispatch).toHaveBeenCalledWith({ type: 'END_VISIT' });
   expect(e.reset).toHaveBeenCalledWith('home');
@@ -198,7 +207,7 @@ test.each([
     s.serverIslands!.currentIslandId = null;
     s.serverIslands!.lossReason = lossReason;
     const e = env(s, 'visitIsland');
-    const screen = await render(<CurrentScreens e={e} />);
+    const screen = await render(<CurrentScreens e={createPreviewEnvironment(e)} />);
     await fireEvent.press(screen.getByTestId('visit-map'));
     expect(e.dispatch).toHaveBeenCalledWith({ type: 'END_VISIT' });
     expect(e.reset).toHaveBeenCalledWith(to);
@@ -209,7 +218,7 @@ test('방문 시설이 미완공이면 내 섬의 완공 여부와 무관하게 
   const s = visiting();
   s.serverIslands!.visit!.buildings = ['hall'];
   const e = env(s, 'board');
-  const screen = await render(<CurrentScreens e={e} />);
+  const screen = await render(<CurrentScreens e={createPreviewEnvironment(e)} />);
   screen.getByText('아직 게시판이 없어요');
   expect(screen.queryByTestId('visitor-board')).toBeNull();
   await fireEvent.press(screen.getByText('확인'));
@@ -217,11 +226,11 @@ test('방문 시설이 미완공이면 내 섬의 완공 여부와 무관하게 
 });
 
 // 전망대(GROMO-2269) — 주간 랭킹(tower)과 섬 이름 검색(explore)은 전망대를 지은 주민에게만 열린다.
-test.each(['tower', 'explore'])(
+test.each(['tower', 'explore'] as const)(
   '전망대를 짓지 않은 섬에서는 %s 입구가 잠겨 있다',
-  async (route) => {
+  async (route: Route) => {
     const screen = await render(
-      <CurrentScreens e={env(withBuildings(['hall', 'board']), route)} />,
+      <CurrentScreens e={createPreviewEnvironment(env(withBuildings(['hall', 'board']), route))} />,
     );
     screen.getByText('아직 전망대가 없어요');
     assert.equal(screen.queryByTestId(`redesign-${route}`), null);
@@ -231,21 +240,28 @@ test.each(['tower', 'explore'])(
 // 받침 있는 건물(전망대·축음기)은 «이» 가 아니라 «가» — 건물명 뒤 조사를 받침에 맞춘다(GROMO-2283)
 test('축음기를 짓지 않은 섬에서는 «아직 축음기가 없어요» 로 잠겨 있다', async () => {
   const screen = await render(
-    <CurrentScreens e={env(withBuildings(['hall', 'board']), 'sound')} />,
+    <CurrentScreens e={createPreviewEnvironment(env(withBuildings(['hall', 'board']), 'sound'))} />,
   );
   screen.getByText('아직 축음기가 없어요');
 });
 
-test.each(['tower', 'explore'])('전망대를 지은 섬에서는 %s 가 열린다', async (route) => {
-  const screen = await render(<CurrentScreens e={env(withBuildings(['hall', 'tower']), route)} />);
-  screen.getByTestId(`redesign-${route}`);
-  assert.equal(screen.queryByText('아직 전망대가 없어요'), null);
-});
+test.each(['tower', 'explore'] as const)(
+  '전망대를 지은 섬에서는 %s 가 열린다',
+  async (route: Route) => {
+    const screen = await render(
+      <CurrentScreens e={createPreviewEnvironment(env(withBuildings(['hall', 'tower']), route))} />,
+    );
+    screen.getByTestId(`redesign-${route}`);
+    assert.equal(screen.queryByText('아직 전망대가 없어요'), null);
+  },
+);
 
-test.each(['tower', 'explore'])(
+test.each(['tower', 'explore'] as const)(
   '전망대는 남의 섬을 방문 중이면 %s 가 열리지 않는다',
-  async (route) => {
-    const screen = await render(<CurrentScreens e={env(visiting(), route)} />);
+  async (route: Route) => {
+    const screen = await render(
+      <CurrentScreens e={createPreviewEnvironment(env(visiting(), route))} />,
+    );
     screen.getByText('주민만 이용할 수 있어요');
     assert.equal(screen.queryByTestId(`redesign-${route}`), null);
   },
@@ -264,12 +280,14 @@ test('주민 소식(홍보 토스트)은 서버 역할로 주민임을 확인한
       },
     });
   for (const s of [state(), withRole('host')]) {
-    const screen = await render(<CurrentScreens e={env(s, 'home')} />);
+    const screen = await render(<CurrentScreens e={createPreviewEnvironment(env(s, 'home'))} />);
     await act(async () => {});
     await screen.unmount();
   }
   assert.equal(news.mock.calls.length, 0);
-  const member = await render(<CurrentScreens e={env(withRole('member'), 'home')} />);
+  const member = await render(
+    <CurrentScreens e={createPreviewEnvironment(env(withRole('member'), 'home'))} />,
+  );
   await act(async () => {});
   assert.equal(news.mock.calls[0]?.[0], 'server');
   await member.unmount();
@@ -302,7 +320,9 @@ afterEach(async () => {
 
 test('로컬 우체통이 있어도 실제 섬에 없으면 설명이 나오지 않는다', async () => {
   await signInGuideUser();
-  const screen = await render(<CurrentScreens e={env(withBuildings(['hall']), 'mail')} />);
+  const screen = await render(
+    <CurrentScreens e={createPreviewEnvironment(env(withBuildings(['hall']), 'mail'))} />,
+  );
   expect(screen.getByText('아직 우체통이 없어요')).toBeTruthy();
   expect(screen.queryByTestId('building-guide')).toBeNull();
 });
@@ -313,7 +333,7 @@ test('미열람 신규 주민은 건물을 눌렀을 때만 설명을 보고 다
     .spyOn(homeApi, 'getConstructionOptions')
     .mockResolvedValue({ contributedCompletions: [] } as any);
   const home = env(withBuildings(['hall', 'mail']), 'home');
-  const screen = await render(<CurrentScreens e={home} />);
+  const screen = await render(<CurrentScreens e={createPreviewEnvironment(home)} />);
   await waitFor(() => expect(homeApi.getConstructionOptions).toHaveBeenCalled());
   expect(screen.queryByTestId('building-guide')).toBeNull();
   expect(screen.queryByTestId('building-completion-guide')).toBeNull();
@@ -327,7 +347,7 @@ test('미열람 신규 주민은 건물을 눌렀을 때만 설명을 보고 다
   await waitFor(() => expect(home.go).toHaveBeenCalledWith('mail'));
   expect(screen.queryByTestId('building-guide')).toBeNull();
   const next = env(withBuildings(['mail'], 'next-island'), 'home');
-  await screen.rerender(<CurrentScreens e={next} />);
+  await screen.rerender(<CurrentScreens e={createPreviewEnvironment(next)} />);
   await fireEvent.press(screen.getByTestId('enter-mail'));
   expect(next.go).toHaveBeenCalledWith('mail');
   expect(screen.queryByTestId('building-guide')).toBeNull();
@@ -340,14 +360,16 @@ test('이미 설명을 본 기여자는 완공 안내만 받고 이후 홈에서
     .spyOn(homeApi, 'getConstructionOptions')
     .mockResolvedValue({ contributedCompletions: ['mail'] } as any);
   const e = env(withBuildings(['hall', 'mail']), 'home');
-  const screen = await render(<CurrentScreens e={e} />);
+  const screen = await render(<CurrentScreens e={createPreviewEnvironment(e)} />);
   await waitFor(() => expect(screen.getByText(/우체통 공사가 끝났어/)).toBeTruthy());
   expect(screen.queryByText(/편지를 배달하는/)).toBeNull();
   await fireEvent.press(screen.getByText('확인'));
   await waitFor(() => expect(screen.queryByTestId('building-completion-guide')).toBeNull());
-  await screen.rerender(<CurrentScreens e={{ ...e, route: 'mail' }} />);
+  await screen.rerender(
+    <CurrentScreens e={createPreviewEnvironment({ ...e, route: 'mail' as const })} />,
+  );
   expect(screen.queryByTestId('building-guide')).toBeNull();
-  await screen.rerender(<CurrentScreens e={e} />);
+  await screen.rerender(<CurrentScreens e={createPreviewEnvironment(e)} />);
   expect(screen.queryByTestId('building-completion-guide')).toBeNull();
 });
 
@@ -359,12 +381,12 @@ test('construction_completed 는 완공 안내를 확인(ack)할 때만 building
     .mockResolvedValue({ contributedCompletions: ['mail'] } as any);
   const e = env(withBuildings(['hall', 'mail']), 'home');
   mockCapture.mockClear();
-  const screen = await render(<CurrentScreens e={e} />);
+  const screen = await render(<CurrentScreens e={createPreviewEnvironment(e)} />);
   await waitFor(() => expect(screen.getByText(/우체통 공사가 끝났어/)).toBeTruthy());
   // 안내가 뜨기만 한 상태(확인 전)에서는 발행하지 않는다 — 확인 전 강제 종료 후 재실행해도 중복 없음
   expect(mockCapture.mock.calls).toEqual([]);
   // 같은 완공이 유지되는 재렌더에서도 아직 발행하지 않는다
-  await screen.rerender(<CurrentScreens e={e} />);
+  await screen.rerender(<CurrentScreens e={createPreviewEnvironment(e)} />);
   expect(mockCapture.mock.calls).toEqual([]);
   // 확인(ack)하는 순간 정확히 1회 발행하고, 안내는 닫힌다
   await fireEvent.press(screen.getByText('확인'));
@@ -373,16 +395,16 @@ test('construction_completed 는 완공 안내를 확인(ack)할 때만 building
 });
 
 function NavigationHarness({ s, go }: { s: ReturnType<typeof state>; go: jest.Mock }) {
-  const [route, setRoute] = React.useState('home');
+  const [route, setRoute] = React.useState<Route>('home');
   return (
     <CurrentScreens
-      e={{
+      e={createPreviewEnvironment({
         ...env(s, route),
-        go: (next: string) => {
+        go: (next: Route) => {
           go(next);
           setRoute(next);
         },
-      }}
+      })}
     />
   );
 }
@@ -395,7 +417,7 @@ test.each([
   ['mail', 'mail'],
   ['tower', 'tower'],
   ['shop', 'shop'],
-])('%s 첫 설명은 섬 위에서 끝내고 내부 화면을 연다', async (building, route) => {
+] as const)('%s 첫 설명은 섬 위에서 끝내고 내부 화면을 연다', async (building, route: Route) => {
   await signInGuideUser();
   jest
     .spyOn(homeApi, 'getConstructionOptions')
@@ -447,7 +469,7 @@ test('이력 조회가 늦어도 내부 화면을 먼저 열지 않고 조회 �
       }),
   );
   const e = env(withBuildings(['mail']), 'home');
-  const screen = await render(<CurrentScreens e={e} />);
+  const screen = await render(<CurrentScreens e={createPreviewEnvironment(e)} />);
   await fireEvent.press(screen.getByTestId('enter-mail'));
   expect(screen.getByText('안내 이력을 확인하고 있어요.')).toBeTruthy();
   expect(e.go).not.toHaveBeenCalled();
@@ -463,7 +485,7 @@ test('설명 저장 중 섬을 옮기면 늦은 저장 결과로 건물을 열�
     .spyOn(homeApi, 'getConstructionOptions')
     .mockResolvedValue({ contributedCompletions: [] } as any);
   const e = env(withBuildings(['mail']), 'home');
-  const screen = await render(<CurrentScreens e={e} />);
+  const screen = await render(<CurrentScreens e={createPreviewEnvironment(e)} />);
   await fireEvent.press(screen.getByTestId('enter-mail'));
   await waitFor(() => expect(screen.getByTestId('building-guide')).toBeTruthy());
   let resolve!: () => void;
@@ -475,14 +497,14 @@ test('설명 저장 중 섬을 옮기면 늦은 저장 결과로 건물을 열�
   );
   await fireEvent.press(screen.getByText('안내 그만 보기'));
   const next = env(withBuildings(['mail'], 'next-island'), 'home');
-  await screen.rerender(<CurrentScreens e={next} />);
+  await screen.rerender(<CurrentScreens e={createPreviewEnvironment(next)} />);
   await act(async () => resolve());
   expect(screen.queryByTestId('building-guide')).toBeNull();
   expect(e.go).not.toHaveBeenCalled();
   expect(next.go).not.toHaveBeenCalled();
 });
 
-test.each(['닫기', '뒤로가기'])(
+test.each(['닫기', '뒤로가기'] as const)(
   '안내 이력이 손상돼도 %s로 진입 요청만 취소하고 섬에 남는다',
   async (action) => {
     await signInGuideUser();
@@ -492,7 +514,7 @@ test.each(['닫기', '뒤로가기'])(
       .spyOn(homeApi, 'getConstructionOptions')
       .mockResolvedValue({ contributedCompletions: [] } as any);
     const e = env(withBuildings(['mail']), 'home');
-    const screen = await render(<CurrentScreens e={e} />);
+    const screen = await render(<CurrentScreens e={createPreviewEnvironment(e)} />);
     expect(await fireEvent(screen.getByTestId('enter-mail'), 'press')).toBe(false);
     await waitFor(() => expect(screen.getByText('다시 시도')).toBeTruthy());
     if (action === '닫기') await fireEvent.press(screen.getByText('닫기'));
@@ -520,7 +542,7 @@ test('이력 조회 중 진입을 취소하면 늦은 조회 성공으로 안내
       }),
   );
   const e = env(withBuildings(['mail']), 'home');
-  const screen = await render(<CurrentScreens e={e} />);
+  const screen = await render(<CurrentScreens e={createPreviewEnvironment(e)} />);
   await fireEvent.press(screen.getByTestId('enter-mail'));
   await fireEvent.press(screen.getByText('닫기'));
   await act(async () => resolve(null));
