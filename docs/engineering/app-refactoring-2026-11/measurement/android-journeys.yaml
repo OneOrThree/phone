@@ -1,0 +1,38 @@
+appId: com.oneorthree.gromo
+---
+- repeat:
+    times: 5
+    commands:
+      - launchApp:
+          stopApp: true
+      - extendedWaitUntil:
+          visible: "오늘 퀘스트.*"
+          timeout: 20000
+      - tapOn: "상점, 구매 가능한 상품이 있어요"
+      - extendedWaitUntil:
+          visible: "강아지 상점"
+          timeout: 25000
+      - takeScreenshot: shop
+      - tapOn: "닫기"
+      - extendedWaitUntil:
+          visible: "오늘 퀘스트.*"
+          timeout: 20000
+      - tapOn: "집중 시작"
+      - extendedWaitUntil:
+          visible: "집중할 자리를 골라주세요!"
+          timeout: 25000
+      - takeScreenshot: focus
+      - tapOn:
+          id: "leave-fishing-arrival"
+      - extendedWaitUntil:
+          visible: "오늘 퀘스트.*"
+          timeout: 20000
+      - tapOn: "뗏목"
+      - extendedWaitUntil:
+          visible: "바다로 출항"
+          timeout: 25000
+      - tapOn: "바다로 출항"
+      - extendedWaitUntil:
+          visible: "망원경"
+          timeout: 25000
+      - takeScreenshot: sea

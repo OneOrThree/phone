@@ -1,0 +1,89 @@
+{
+  "scenario": "same process; home-shop-home-focus-arrival-home; 10 cycles over at least 12 minutes; local DEMO only",
+  "runs": [
+    {
+      "label": "start",
+      "elapsedSeconds": 0.04888254217803478,
+      "pid": 23234,
+      "footprintValue": 178.0,
+      "footprintUnit": "MB"
+    },
+    {
+      "label": "1",
+      "elapsedSeconds": 35.496440042043105,
+      "pid": 23234,
+      "footprintValue": 318.0,
+      "footprintUnit": "MB"
+    },
+    {
+      "label": "2",
+      "elapsedSeconds": 105.49772487510927,
+      "pid": 23234,
+      "footprintValue": 325.0,
+      "footprintUnit": "MB"
+    },
+    {
+      "label": "3",
+      "elapsedSeconds": 176.31443212507293,
+      "pid": 23234,
+      "footprintValue": 328.0,
+      "footprintUnit": "MB"
+    },
+    {
+      "label": "4",
+      "elapsedSeconds": 247.35672400007024,
+      "pid": 23234,
+      "footprintValue": 340.0,
+      "footprintUnit": "MB"
+    },
+    {
+      "label": "5",
+      "elapsedSeconds": 326.34496316709556,
+      "pid": 23234,
+      "footprintValue": 351.0,
+      "footprintUnit": "MB"
+    },
+    {
+      "label": "6",
+      "elapsedSeconds": 398.3456500831526,
+      "pid": 23234,
+      "footprintValue": 360.0,
+      "footprintUnit": "MB"
+    },
+    {
+      "label": "7",
+      "elapsedSeconds": 465.28565691714175,
+      "pid": 23234,
+      "footprintValue": 363.0,
+      "footprintUnit": "MB"
+    },
+    {
+      "label": "8",
+      "elapsedSeconds": 539.9615104170516,
+      "pid": 23234,
+      "footprintValue": 363.0,
+      "footprintUnit": "MB"
+    },
+    {
+      "label": "9",
+      "elapsedSeconds": 613.1363258750644,
+      "pid": 23234,
+      "footprintValue": 362.0,
+      "footprintUnit": "MB"
+    },
+    {
+      "label": "10",
+      "elapsedSeconds": 679.5792910000309,
+      "pid": 23234,
+      "footprintValue": 387.0,
+      "footprintUnit": "MB"
+    },
+    {
+      "label": "end",
+      "elapsedSeconds": 720.0754383751191,
+      "pid": 23234,
+      "footprintValue": 388.0,
+      "footprintUnit": "MB"
+    }
+  ]
+}

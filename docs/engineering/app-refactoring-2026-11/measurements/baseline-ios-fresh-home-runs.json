@@ -1,0 +1,56 @@
+{
+  "scenario": "process-cold, fresh app container, warm OS caches",
+  "readiness": "pink focus CTA + quest card + island terrain + shop roof + cat portrait in first matching screenshot; includes simctl launch and capture overhead",
+  "runs": [
+    {
+      "round": 1,
+      "pid": 87217,
+      "homeReadySeconds": 3.8714373339898884,
+      "captures": 9,
+      "idleCpuPercent": 3.2958354647034884,
+      "footprintExit": 0,
+      "memoryValue": 178.0,
+      "memoryUnit": "footprint MB"
+    },
+    {
+      "round": 2,
+      "pid": 87853,
+      "homeReadySeconds": 3.757973875151947,
+      "captures": 9,
+      "idleCpuPercent": 2.995748633294799,
+      "footprintExit": 0,
+      "memoryValue": 179.0,
+      "memoryUnit": "footprint MB"
+    },
+    {
+      "round": 3,
+      "pid": 88574,
+      "homeReadySeconds": 3.399126916890964,
+      "captures": 8,
+      "idleCpuPercent": 2.9972667424054604,
+      "footprintExit": 0,
+      "memoryValue": 179.0,
+      "memoryUnit": "footprint MB"
+    },
+    {
+      "round": 4,
+      "pid": 89235,
+      "homeReadySeconds": 3.647860625060275,
+      "captures": 8,
+      "idleCpuPercent": 3.2941901603146895,
+      "footprintExit": 0,
+      "memoryValue": 178.0,
+      "memoryUnit": "footprint MB"
+    },
+    {
+      "round": 5,
+      "pid": 89847,
+      "homeReadySeconds": 3.5652597087901086,
+      "captures": 8,
+      "idleCpuPercent": 3.094367078554878,
+      "footprintExit": 0,
+      "memoryValue": 178.0,
+      "memoryUnit": "footprint MB"
+    }
+  ]
+}
