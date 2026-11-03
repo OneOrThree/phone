@@ -127,3 +127,13 @@ server:
   tomcat:
     mbeanregistry:
       enabled: true
+
+# Meta Conversions API (GROMO-2741) — 기본값이 «꺼짐»이라 환경변수가 없어도 기동한다.
+meta:
+  capi:
+    enabled: ${META_CAPI_ENABLED:false}
+    # 데이터 세트는 앱 1092876403132413(집중할고양)에 연결돼 있다. 비밀이 아니라 기본값을 둔다.
+    dataset-id: ${META_CAPI_DATASET_ID:3280085542175094}
+    access-token: ${META_CAPI_ACCESS_TOKEN:}
+    api-version: ${META_CAPI_API_VERSION:v24.0}
+    test-event-code: ${META_CAPI_TEST_EVENT_CODE:}
