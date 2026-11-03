@@ -357,6 +357,8 @@ jobs:
           # PR/다른 브랜치에는 업로드 키를 주지 않는다. main 빌드만 심볼을 올린다.
           POSTHOG_CLI_API_KEY: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && secrets.POSTHOG_CLI_API_KEY || '' }}
           POSTHOG_CLI_PROJECT_ID: "669473"
+          # GROMO-2739 — main 빌드만 Sentry(cattus)에 JS 소스맵·ProGuard mapping·네이티브 심볼을 올린다. 비면 build.gradle 이 업로드를 건너뛴다.
+          SENTRY_AUTH_TOKEN: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && secrets.SENTRY_AUTH_TOKEN || '' }}
         run: ./gradlew -I "$GITHUB_WORKSPACE/.github/ci/android-version-code.gradle" :app:bundleRelease
 
       - name: AAB 확인 (일회용 서명)

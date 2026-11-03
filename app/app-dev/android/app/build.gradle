@@ -243,6 +243,36 @@ if (posthogUploadEnabled) {
     logger.lifecycle("PostHog: 업로드 인증 없음/수집 꺼짐 — 소스맵·네이티브 심볼 업로드 생략")
 }
 
+// GROMO-2739 — Sentry(cattus)에 JS 소스맵·ProGuard mapping·네이티브 심볼을 올린다. 없으면 크래시 스택이 압축 번들 위치와
+// 난독화된 이름으로만 보인다. 토큰이 없는 팀원/PR 빌드는 그대로 두고, 토큰이 있는 빌드는 업로드 실패를 숨기지 않는다.
+// 체크인된 네이티브 프로젝트라 app.config.js 의 Sentry config plugin 은 여기에 아무것도 넣지 않는다 — 이 블록이 정본이다.
+def sentryAuthToken = System.getenv("SENTRY_AUTH_TOKEN")?.trim()
+if (sentryAuthToken && System.getenv("SENTRY_DISABLE_AUTO_UPLOAD") != "true") {
+    // 조직·프로젝트는 iOS 업로드(scripts/sentry-xcode.sh)와 같은 파일을 읽는다. 토큰은 환경변수로만 받는다.
+    def sentryPropertiesFile = new File(projectRoot, "sentry.cattus.properties")
+    def sentryProperties = new Properties()
+    sentryPropertiesFile.withInputStream { sentryProperties.load(it) }
+    // JS 번들 소스맵: sentry.gradle 이 번들 작업 뒤에 sentry-cli 업로드를 붙인다. sentryCli 는 apply 전에 정해야 읽힌다.
+    project.ext.sentryCli = [sentryProperties: sentryPropertiesFile]
+    apply from: new File(projectRoot, "node_modules/@sentry/react-native/sentry.gradle")
+    // ProGuard mapping·NDK 심볼: Sentry Android Gradle Plugin. SDK 는 @sentry/react-native 가 이미 넣으므로 자동 설치·계측은 끈다.
+    apply plugin: "io.sentry.android.gradle"
+    sentry {
+        org = sentryProperties.getProperty("defaults.org")
+        projectName = sentryProperties.getProperty("defaults.project")
+        authToken = sentryAuthToken
+        includeProguardMapping = true
+        autoUploadProguardMapping = true
+        uploadNativeSymbols = true
+        autoUploadNativeSymbols = true
+        includeNativeSources = false
+        tracingInstrumentation { enabled = false }
+        autoInstallation { enabled = false }
+    }
+} else {
+    logger.lifecycle("Sentry: SENTRY_AUTH_TOKEN 없음 — 소스맵·mapping·네이티브 심볼 업로드 생략")
+}
+
 android {
   compileOptions { coreLibraryDesugaringEnabled true }
     ndkVersion rootProject.ext.ndkVersion
