@@ -134,6 +134,7 @@ import { clearStudyWidget } from '@/services/studyWidget';
 import { TERMS_VERSION } from '@/services/termsVersion';
 import { reconcileTutorial } from '@/services/tutorial';
 import { settleWithdrawalIntent } from '@/services/withdrawalIntent';
+import { subscribeForegroundClock } from '@/utils/foregroundClock';
 import { useAppLayout } from '@/utils/layout';
 import { useRouteOrientation } from '@/utils/orientation';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -2054,14 +2055,13 @@ function Gromo() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- flushSave 는 ref·notify 만 읽어 첫 렌더 것으로 충분하다
   }, []);
   useEffect(() => {
-    const id = setInterval(() => {
-      const now = Date.now();
+    const unsubscribe = subscribeForegroundClock((now) => {
       // 같은 분이면 같은 값이라 다시 그리지 않는다
       setClockMinute(Math.floor(now / 60000));
       // 할 일 없는 TICK 은 보내지 않는다 — App 을 매초 다시 그리지 않게(GROMO-2372)
       if (!tickIdle(stateRef.current, now)) dispatch({ type: 'TICK', now });
     }, 1000);
-    return () => clearInterval(id);
+    return unsubscribe;
   }, []);
   useScreenTimeSync({
     loaded,

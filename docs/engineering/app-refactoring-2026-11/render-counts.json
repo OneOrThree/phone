@@ -1,0 +1,136 @@
+{
+  "baseline": [
+    {
+      "test": "집중섬 지도를 끄는 동안에는 다시 그리지 않고, 손을 떼면 한 번만 같은 자리로 다시 배치한다",
+      "metric": "dragRenders",
+      "value": 0
+    },
+    {
+      "test": "집중섬 지도를 끄는 동안에는 다시 그리지 않고, 손을 떼면 한 번만 같은 자리로 다시 배치한다",
+      "metric": "mockMapRenders - dragRenders",
+      "value": 1
+    },
+    {
+      "test": "집중섬 지도를 두 손가락으로 집어도 손을 뗄 때 한 번만 다시 배치한다",
+      "metric": "pinchRenders",
+      "value": 0
+    },
+    {
+      "test": "집중섬 지도를 두 손가락으로 집어도 손을 뗄 때 한 번만 다시 배치한다",
+      "metric": "mockMapRenders - pinchRenders",
+      "value": 1
+    },
+    {
+      "test": "핀치 0.8배 중과 손을 뗀 뒤에도 과목·시간의 표시 크기는 고정이고 앵커만 섬을 따른다",
+      "metric": "mockMapRenders",
+      "value": 0
+    },
+    {
+      "test": "핀치 1.8배 중과 손을 뗀 뒤에도 과목·시간의 표시 크기는 고정이고 앵커만 섬을 따른다",
+      "metric": "mockMapRenders",
+      "value": 0
+    },
+    {
+      "test": "세로 화면에서도 섬을 아래로 끌어 위쪽 바다를 보고 과목·시간도 같이 옮긴다",
+      "metric": "mockMapRenders",
+      "value": 0
+    },
+    {
+      "test": "고양이가 건물까지 걷는 동안 지도 전체를 걸음마다 다시 그리지 않는다(GROMO-2371)",
+      "metric": "mockMapRenders",
+      "value": 1
+    },
+    {
+      "test": "지도를 끌고 집는 동안에는 지도를 다시 그리지 않고, 손을 떼면 한 번만 같은 자리로 다시 배치한다(GROMO-2373)",
+      "metric": "dragRenders",
+      "value": 0
+    },
+    {
+      "test": "지도를 끌고 집는 동안에는 지도를 다시 그리지 않고, 손을 떼면 한 번만 같은 자리로 다시 배치한다(GROMO-2373)",
+      "metric": "mockMapRenders - dragRenders",
+      "value": 1
+    },
+    {
+      "test": "지도를 끌고 집는 동안에는 지도를 다시 그리지 않고, 손을 떼면 한 번만 같은 자리로 다시 배치한다(GROMO-2373)",
+      "metric": "pinchRenders",
+      "value": 0
+    },
+    {
+      "test": "지도를 끌고 집는 동안에는 지도를 다시 그리지 않고, 손을 떼면 한 번만 같은 자리로 다시 배치한다(GROMO-2373)",
+      "metric": "mockMapRenders - pinchRenders",
+      "value": 1
+    },
+    {
+      "test": "홈에서 5초가 흘러도 섬 지도를 다시 그리지 않는다",
+      "metric": "mockMapRenders",
+      "value": 0
+    }
+  ],
+  "after": [
+    {
+      "test": "집중섬 지도를 끄는 동안에는 다시 그리지 않고, 손을 떼면 한 번만 같은 자리로 다시 배치한다",
+      "metric": "dragRenders",
+      "value": 0
+    },
+    {
+      "test": "집중섬 지도를 끄는 동안에는 다시 그리지 않고, 손을 떼면 한 번만 같은 자리로 다시 배치한다",
+      "metric": "mockMapRenders - dragRenders",
+      "value": 1
+    },
+    {
+      "test": "집중섬 지도를 두 손가락으로 집어도 손을 뗄 때 한 번만 다시 배치한다",
+      "metric": "pinchRenders",
+      "value": 0
+    },
+    {
+      "test": "집중섬 지도를 두 손가락으로 집어도 손을 뗄 때 한 번만 다시 배치한다",
+      "metric": "mockMapRenders - pinchRenders",
+      "value": 1
+    },
+    {
+      "test": "핀치 0.8배 중과 손을 뗀 뒤에도 과목·시간의 표시 크기는 고정이고 앵커만 섬을 따른다",
+      "metric": "mockMapRenders",
+      "value": 0
+    },
+    {
+      "test": "핀치 1.8배 중과 손을 뗀 뒤에도 과목·시간의 표시 크기는 고정이고 앵커만 섬을 따른다",
+      "metric": "mockMapRenders",
+      "value": 0
+    },
+    {
+      "test": "세로 화면에서도 섬을 아래로 끌어 위쪽 바다를 보고 과목·시간도 같이 옮긴다",
+      "metric": "mockMapRenders",
+      "value": 0
+    },
+    {
+      "test": "고양이가 건물까지 걷는 동안 지도 전체를 걸음마다 다시 그리지 않는다(GROMO-2371)",
+      "metric": "mockMapRenders",
+      "value": 1
+    },
+    {
+      "test": "지도를 끌고 집는 동안에는 지도를 다시 그리지 않고, 손을 떼면 한 번만 같은 자리로 다시 배치한다(GROMO-2373)",
+      "metric": "dragRenders",
+      "value": 0
+    },
+    {
+      "test": "지도를 끌고 집는 동안에는 지도를 다시 그리지 않고, 손을 떼면 한 번만 같은 자리로 다시 배치한다(GROMO-2373)",
+      "metric": "mockMapRenders - dragRenders",
+      "value": 1
+    },
+    {
+      "test": "지도를 끌고 집는 동안에는 지도를 다시 그리지 않고, 손을 떼면 한 번만 같은 자리로 다시 배치한다(GROMO-2373)",
+      "metric": "pinchRenders",
+      "value": 0
+    },
+    {
+      "test": "지도를 끌고 집는 동안에는 지도를 다시 그리지 않고, 손을 떼면 한 번만 같은 자리로 다시 배치한다(GROMO-2373)",
+      "metric": "mockMapRenders - pinchRenders",
+      "value": 1
+    },
+    {
+      "test": "홈에서 5초가 흘러도 섬 지도를 다시 그리지 않는다",
+      "metric": "mockMapRenders",
+      "value": 0
+    }
+  ]
+}
