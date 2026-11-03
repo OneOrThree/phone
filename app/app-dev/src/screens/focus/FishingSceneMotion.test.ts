@@ -1,7 +1,10 @@
-import { Animated, AppState } from 'react-native';
-import { act, renderHook } from '@testing-library/react-native';
+import React from 'react';
+import { Animated, AppState, StyleSheet } from 'react-native';
+import { act, render, renderHook } from '@testing-library/react-native';
 
+import { componentTokens } from '@/design-system/tokens';
 import {
+  FishingFloatMotion,
   fishingFishFlight,
   labBreath,
   labGlint,
@@ -84,6 +87,74 @@ test('낚시 시계: inactive 로 멈출 때 값을 0 으로 되돌리지 않고
     (AppState as any).currentState = prev;
     add.mockRestore();
     setValue.mockRestore();
+    loop.mockRestore();
+  }
+});
+
+test('찌 주변 반짝임은 테두리 없이 채운 막대로 그리고, 덮이면 그리지 않는다', async () => {
+  // 윗변 테두리는 iOS 가 프레임마다 테두리 그림을 다시 만든다(티켓 2736) — 테두리 속성이 다시 들어오면 실패한다.
+  const loop = jest
+    .spyOn(Animated, 'loop')
+    .mockImplementation(() => ({ start: jest.fn(), stop: jest.fn(), reset: jest.fn() }) as any);
+  const prev = AppState.currentState;
+  (AppState as any).currentState = 'active';
+  const spots = [{ key: 'me', x: 0, y: 0, face: 1, k: 1 }];
+  const glints = (tree: { toJSON: () => unknown }) => {
+    const found: Record<string, unknown>[] = [];
+    const walk = (node: any) => {
+      if (!node || typeof node !== 'object') return;
+      if (Array.isArray(node)) return node.forEach(walk);
+      const style = StyleSheet.flatten(node.props?.style) ?? {};
+      if (style.backgroundColor === componentTokens.fishingScene.glint) found.push(style);
+      walk(node.children);
+    };
+    walk(tree.toJSON());
+    return found;
+  };
+  try {
+    const shown = await render(React.createElement(FishingFloatMotion, { spots, active: true }));
+    const bars = glints(shown);
+    expect(bars).toHaveLength(6);
+    for (const bar of bars) {
+      expect(bar.borderTopWidth).toBeUndefined();
+      expect(bar.borderWidth).toBeUndefined();
+    }
+    const covered = await render(React.createElement(FishingFloatMotion, { spots, active: false }));
+    expect(glints(covered)).toHaveLength(0);
+  } finally {
+    (AppState as any).currentState = prev;
+    loop.mockRestore();
+  }
+});
+
+test('찌 물결 고리는 안쪽을 잘라 iOS 가 테두리를 그림으로 만들지 않게 한다', async () => {
+  // iOS React Native 는 잘라내지 않는 뷰의 보이는 테두리를 그림으로 그려, 고리가 커지고 흐려지는 프레임마다
+  // 다시 만든다(티켓 2736). overflow 가 빠지면 실패한다.
+  const loop = jest
+    .spyOn(Animated, 'loop')
+    .mockImplementation(() => ({ start: jest.fn(), stop: jest.fn(), reset: jest.fn() }) as any);
+  const prev = AppState.currentState;
+  (AppState as any).currentState = 'active';
+  try {
+    const shown = await render(
+      React.createElement(FishingFloatMotion, {
+        spots: [{ key: 'me', x: 0, y: 0, face: 1, k: 1 }],
+        active: true,
+      }),
+    );
+    const rings: Record<string, unknown>[] = [];
+    const walk = (node: any) => {
+      if (!node || typeof node !== 'object') return;
+      if (Array.isArray(node)) return node.forEach(walk);
+      const style = StyleSheet.flatten(node.props?.style) ?? {};
+      if (style.borderColor === componentTokens.fishingScene.floatRing) rings.push(style);
+      walk(node.children);
+    };
+    walk(shown.toJSON());
+    expect(rings).toHaveLength(3);
+    for (const ring of rings) expect(ring.overflow).toBe('hidden');
+  } finally {
+    (AppState as any).currentState = prev;
     loop.mockRestore();
   }
 });
