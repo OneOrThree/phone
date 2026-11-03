@@ -25,6 +25,11 @@ server:
   # 루트가 배선한 compose 가 SERVER_PORT=8080 을 준다. 기본값도 8080 으로 맞춰 두 값이 갈라지지 않게 한다.
   # ⚠️ 8082 로 두지 않는다 — 위성 배포에서 그 포트는 알림 서버 몫이다.
   port: ${SERVER_PORT:8080}
+  # 기존 응답 표본에서 큰 JSON만 압축한다. 이미지·바이너리는 대상에서 제외한다.
+  compression:
+    enabled: true
+    mime-types: application/json
+    min-response-size: 2KB
   tomcat:
     mbeanregistry:
       enabled: true
