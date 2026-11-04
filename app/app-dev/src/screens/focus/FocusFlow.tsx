@@ -1635,7 +1635,13 @@ export function FocusFlow({ e: environment }: any) {
       <View style={[StyleSheet.absoluteFill, { zIndex: 10 }]}>
         <View style={[StyleSheet.absoluteFill, { backgroundColor: '#493B3940' }]} />
         <View
-          onLayout={(ev) => setSetupHeight(ev.nativeEvent.layout.height)}
+          testID="focus-setup-card"
+          // 카드 높이로 카드 위치를 정하므로(anchorCard), 위치가 바뀔 때 Android 픽셀 반올림으로 생기는
+          // 1픽셀 미만 높이 흔들림까지 받으면 측정 → 재배치 → 재측정이 끝없이 돌아 앱이 꺼진다(GROMO-2750).
+          onLayout={(ev) => {
+            const height = ev.nativeEvent.layout.height;
+            setSetupHeight((prev) => (Math.abs(height - prev) < 1 ? prev : height));
+          }}
           style={[
             fiCard,
             {
