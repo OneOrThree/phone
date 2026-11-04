@@ -4,7 +4,7 @@ import Foundation
 import ManagedSettings
 
 final class DeviceActivityMonitorExtension: DeviceActivityMonitor {
-    private let defaults = UserDefaults(suiteName: "group.com.oneorthree.focuscat")
+    private let defaults = UserDefaults(suiteName: "group.com.oneorthree.gromo")
 
     private var today: String { Self.dayString(Date()) }
 

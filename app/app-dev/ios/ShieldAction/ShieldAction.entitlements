@@ -8,7 +8,7 @@
   <true/>
   <key>com.apple.security.application-groups</key>
   <array>
-    <string>group.com.oneorthree.focuscat</string>
+    <string>group.com.oneorthree.gromo</string>
   </array>
 </dict>
 </plist>
