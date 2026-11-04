@@ -5,6 +5,7 @@ import { useTelescope } from '@/screens/island/useTelescope';
 import { ApiError, request } from '@/services/api/client';
 import type { TelescopeItem } from '@/services/api/telescope';
 import { FIRST_VOYAGE_DONE, prepareFirstVoyage, readFirstVoyage } from '@/services/firstVoyage';
+import { metaContext } from '@/services/metaSdk';
 import { initialState, reducer } from '@/services/model';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { act, fireEvent, render } from '@testing-library/react-native';
@@ -47,6 +48,7 @@ jest.mock('@/utils/layout', () => ({
     insets: { top: 0, bottom: 0, left: 0, right: 0 },
   }),
 }));
+jest.mock('@/services/metaSdk', () => ({ metaContext: jest.fn() }));
 jest.mock('./StoryRaft', () => ({ StoryRaft: () => null, storyCats: {} }));
 const destination: TelescopeItem = {
   islandId: 'candidate',
@@ -101,6 +103,7 @@ beforeEach(async () => {
   jest.useFakeTimers();
   jest.clearAllMocks();
   mockGeneration = 1;
+  (metaContext as jest.Mock).mockReset().mockResolvedValue(undefined);
   dispatched = [];
   await AsyncStorage.clear();
   (useTelescope as jest.Mock).mockReturnValue({
@@ -142,6 +145,40 @@ test('첫 선택은 시간을 숨기고 한 명을 보여 준 뒤 5초 후 실�
   expect(startSea).not.toHaveBeenCalled();
   expect(reset).toHaveBeenCalledWith('home', undefined);
   expect(await AsyncStorage.getItem(FIRST_VOYAGE_DONE)).toBe('1');
+});
+
+describe.each([
+  [
+    'meta가 있으면 본문에 싣는다',
+    () => (metaContext as jest.Mock).mockResolvedValue({ anonId: 'a' }),
+    { meta: { anonId: 'a' } },
+  ],
+  [
+    'meta가 없으면 본문을 비운다',
+    () => (metaContext as jest.Mock).mockResolvedValue(undefined),
+    undefined,
+  ],
+  [
+    'meta가 던져도 도착은 간다',
+    () => (metaContext as jest.Mock).mockRejectedValue(new Error('x')),
+    undefined,
+  ],
+  [
+    'meta가 멈추면 1초 뒤 meta 없이 도착한다',
+    () => (metaContext as jest.Mock).mockReturnValue(new Promise(() => {})),
+    undefined,
+  ],
+])('도착 요청 본문: %s', (_name, arrange, body) => {
+  test('본문', async () => {
+    arrange();
+    const screen = await render(<Harness />);
+    await fireEvent.press(screen.getByTestId('onboarding-island-candidate'));
+    await fireEvent.press(screen.getByTestId('onboarding-continue'));
+    await elapse(5000);
+    await elapse(1000);
+    expect(request).toHaveBeenCalledTimes(1);
+    expect((request as jest.Mock).mock.calls[0][1].body).toEqual(body);
+  });
 });
 
 test('도착까지 남은 초를 5부터 1까지 실제로 센다', async () => {

@@ -1,6 +1,15 @@
 import { AppState, NativeModules, Platform } from 'react-native';
 
 const mockSyncTracking = jest.fn();
+const mockMetaContext = jest.fn();
+const mockAnonymousId = jest.fn();
+let mockAndroidModule: unknown;
+jest.mock('expo', () => ({ requireOptionalNativeModule: () => mockAndroidModule }));
+jest.mock('expo-application', () => ({
+  applicationId: 'com.oneorthree.focuscat',
+  nativeApplicationVersion: '2.3.8',
+  nativeBuildVersion: '778',
+}));
 const originalDev = __DEV__;
 const originalOS = Platform.OS;
 const originalState = AppState.currentState;
@@ -16,7 +25,15 @@ beforeEach(() => {
   delete process.env.EXPO_PUBLIC_META_ENABLED;
   delete process.env.EXPO_PUBLIC_DEMO;
   mockSyncTracking.mockReset().mockResolvedValue(true);
-  NativeModules.MetaAppEventsModule = { syncTracking: mockSyncTracking };
+  mockMetaContext
+    .mockReset()
+    .mockResolvedValue({ anonId: 'anon-1', advertiserTrackingEnabled: false });
+  mockAnonymousId.mockReset().mockResolvedValue('anon-2');
+  mockAndroidModule = { anonymousId: mockAnonymousId };
+  NativeModules.MetaAppEventsModule = {
+    syncTracking: mockSyncTracking,
+    metaContext: mockMetaContext,
+  };
   jest.isolateModules(() => {
     meta = require('./metaSdk');
   });
@@ -99,4 +116,54 @@ test('전경 복귀를 감시하고 구독 해제 때 감시를 제거한다', a
   expect(mockSyncTracking).toHaveBeenCalledTimes(2);
   stop();
   expect(remove).toHaveBeenCalledTimes(1);
+});
+
+describe('metaContext', () => {
+  const native = { anonId: 'anon-1', advertiserTrackingEnabled: false };
+  test('운영 iOS는 네이티브 값과 16칸 extinfo를 돌려준다', async () => {
+    process.env.EXPO_PUBLIC_ENV = 'prod';
+    const context = await meta.metaContext();
+    expect(context).toMatchObject(native);
+    expect(context?.extinfo).toHaveLength(16);
+    expect(context?.extinfo[0]).toBe('i2');
+    // Meta 예시 순서: [2] 빌드 번호, [3] 표시 버전
+    expect(context?.extinfo.slice(1, 4)).toEqual(['com.oneorthree.focuscat', '778', '2.3.8']);
+    expect(context?.extinfo[4]).not.toBe('');
+  });
+
+  test('운영 Android는 Expo 모듈 익명 ID를 쓰고 추적은 true', async () => {
+    Platform.OS = 'android';
+    process.env.EXPO_PUBLIC_ENV = 'prod';
+    const context = await meta.metaContext();
+    expect(context).toMatchObject({ anonId: 'anon-2', advertiserTrackingEnabled: true });
+    expect(context?.extinfo[0]).toBe('a2');
+    expect(context?.extinfo[4]).not.toBe('');
+    expect(mockMetaContext).not.toHaveBeenCalled();
+  });
+
+  test.each(['', 'dev'])('Android는 환경이 "%s"이면 undefined', async (env) => {
+    Platform.OS = 'android';
+    if (env) process.env.EXPO_PUBLIC_ENV = env;
+    await expect(meta.metaContext()).resolves.toBeUndefined();
+    expect(mockAnonymousId).not.toHaveBeenCalled();
+  });
+
+  test.each(['개발', '목업', '수집 중지'])('%s에서는 undefined', async (mode) => {
+    process.env.EXPO_PUBLIC_ENV = 'prod';
+    if (mode === '개발') Object.assign(globalThis, { __DEV__: true });
+    if (mode === '목업') process.env.EXPO_PUBLIC_DEMO = '1';
+    if (mode === '수집 중지') process.env.EXPO_PUBLIC_META_ENABLED = '0';
+    await expect(meta.metaContext()).resolves.toBeUndefined();
+    expect(mockMetaContext).not.toHaveBeenCalled();
+  });
+
+  test('브리지가 없거나 던지거나 null이면 undefined', async () => {
+    process.env.EXPO_PUBLIC_ENV = 'prod';
+    mockMetaContext.mockRejectedValueOnce(new Error('boom'));
+    await expect(meta.metaContext()).resolves.toBeUndefined();
+    mockMetaContext.mockResolvedValueOnce(null);
+    await expect(meta.metaContext()).resolves.toBeUndefined();
+    NativeModules.MetaAppEventsModule = { syncTracking: mockSyncTracking };
+    await expect(meta.metaContext()).resolves.toBeUndefined();
+  });
 });
