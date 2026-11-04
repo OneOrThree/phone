@@ -25,6 +25,7 @@ import com.oneorthree.business.common.request.CursorBoundary;
 import com.oneorthree.business.common.request.CursorScope;
 import com.oneorthree.business.common.request.SignedCursorCodec;
 import com.oneorthree.business.upstream.data.DataIslandClient;
+import com.oneorthree.business.upstream.data.dto.IntroArrivalCommand;
 import com.oneorthree.business.upstream.data.dto.InvitationResolved;
 import com.oneorthree.business.upstream.data.dto.IslandDiscoverPage;
 import com.oneorthree.business.upstream.data.dto.IslandInvitationIssued;
@@ -280,8 +281,9 @@ public class IslandMembershipUseCase {
     }
 
     /** 무인도 후보는 서버가 새 실제 섬 ID로 바꾸므로 요청 ID와 응답 ID의 일치를 요구하지 않는다. */
-    public IslandArrivalView introArrive(AccessTokenClaims claims, UUID islandId, UUID key, Deadline deadline) {
-        var arrival = relay(() -> data.introArriveAtIsland(claims.userId(), islandId, key, deadline));
+    public IslandArrivalView introArrive(AccessTokenClaims claims, UUID islandId, UUID key,
+            IntroArrivalCommand command, Deadline deadline) {
+        var arrival = relay(() -> data.introArriveAtIsland(claims.userId(), islandId, key, command, deadline));
         if (arrival == null || arrival.islandId() == null) {
             throw new UpstreamContractMismatchException("첫 항해 도착 응답에 실제 섬이 없습니다");
         }

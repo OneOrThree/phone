@@ -1,0 +1,322 @@
+[
+  {
+    "stage": "baseline",
+    "file": "android-home-4.png",
+    "sha256": "35a84f9b76cf2d3d5c1e392d426ab827c42e2a7c44d5f0f26c321a3060594f93",
+    "landPixels": 7924,
+    "shopRoofPixels": 632,
+    "portraitPixels": 71
+  },
+  {
+    "stage": "baseline",
+    "file": "android-fresh-home-4.png",
+    "sha256": "c25bcf2fb9158527b468af62840ef92404c5d0ca7e49655e5162a218f928ff53",
+    "landPixels": 7924,
+    "shopRoofPixels": 632,
+    "portraitPixels": 71
+  },
+  {
+    "stage": "baseline",
+    "file": "android-fresh-home-5.png",
+    "sha256": "0ec35371a94b8dd7da98b98dc5691ab8b49137c134ba9679374f31b164a85b5c",
+    "landPixels": 7924,
+    "shopRoofPixels": 632,
+    "portraitPixels": 71
+  },
+  {
+    "stage": "baseline",
+    "file": "android-home-5.png",
+    "sha256": "1fa669a7d2f596a9611a0aac951502b9682155c9c5d0f5ddb4b28b4f82597378",
+    "landPixels": 7924,
+    "shopRoofPixels": 632,
+    "portraitPixels": 71
+  },
+  {
+    "stage": "baseline",
+    "file": "fresh-home-1.png",
+    "sha256": "07d14c6ad57b752abfdd6013298dc850b4869557382159e70b96fe4db83a49fa",
+    "landPixels": 7935,
+    "shopRoofPixels": 628,
+    "portraitPixels": 73
+  },
+  {
+    "stage": "baseline",
+    "file": "fresh-home-3.png",
+    "sha256": "971d6b819f003a4085f80c7c6c147b84e7627aedb0d008e8ed288e0d387d01f0",
+    "landPixels": 7935,
+    "shopRoofPixels": 628,
+    "portraitPixels": 73
+  },
+  {
+    "stage": "baseline",
+    "file": "fresh-home-2.png",
+    "sha256": "61222af65fc18a310180637366d786e92d5033591a13e4dec60fb2aa9f23687f",
+    "landPixels": 7935,
+    "shopRoofPixels": 628,
+    "portraitPixels": 73
+  },
+  {
+    "stage": "baseline",
+    "file": "android-home-2.png",
+    "sha256": "00b2b59e45bc6661c3c09bbae4ac04ee86f17efcedfed6794c1ccdf7e37f9cb9",
+    "landPixels": 7924,
+    "shopRoofPixels": 632,
+    "portraitPixels": 71
+  },
+  {
+    "stage": "baseline",
+    "file": "android-fresh-home-2.png",
+    "sha256": "f921ea77437d1a18c535a347a426c5161888af2579b1c5505dbdef8dfbe0b3f2",
+    "landPixels": 7924,
+    "shopRoofPixels": 632,
+    "portraitPixels": 71
+  },
+  {
+    "stage": "baseline",
+    "file": "android-fresh-home-3.png",
+    "sha256": "f921ea77437d1a18c535a347a426c5161888af2579b1c5505dbdef8dfbe0b3f2",
+    "landPixels": 7924,
+    "shopRoofPixels": 632,
+    "portraitPixels": 71
+  },
+  {
+    "stage": "baseline",
+    "file": "android-home-3.png",
+    "sha256": "ef18bc663975640bee8a82b6b92582e9fa746ca48ab80590a02fc1dae2873d1e",
+    "landPixels": 7924,
+    "shopRoofPixels": 632,
+    "portraitPixels": 71
+  },
+  {
+    "stage": "baseline",
+    "file": "fresh-home-5.png",
+    "sha256": "f4af4dcd7c03d142083e90bfb5d8bf6014e19206e6a56f127c82f79710ef414e",
+    "landPixels": 7935,
+    "shopRoofPixels": 628,
+    "portraitPixels": 73
+  },
+  {
+    "stage": "baseline",
+    "file": "android-home-1.png",
+    "sha256": "b9a1e3ca3aef431479abe2b2caaf07203244d4701b700ae4490dd0f3c1ddb020",
+    "landPixels": 7924,
+    "shopRoofPixels": 632,
+    "portraitPixels": 71
+  },
+  {
+    "stage": "baseline",
+    "file": "android-fresh-home-1.png",
+    "sha256": "2e72fb7a7a102b8a18db66424f5fd895fc87314df85f96c163c961ec52ce67c3",
+    "landPixels": 7924,
+    "shopRoofPixels": 632,
+    "portraitPixels": 71
+  },
+  {
+    "stage": "baseline",
+    "file": "fresh-home-4.png",
+    "sha256": "cb870b080951f65006bbf90a699e883e16b2dad2137268507ef2da5069ebf470",
+    "landPixels": 7935,
+    "shopRoofPixels": 628,
+    "portraitPixels": 73
+  },
+  {
+    "stage": "baseline",
+    "file": "home-1.png",
+    "sha256": "7b682d1c917a493d3f8ad7a0a37498b5974d9aaab15f38a5937afb834af243dc",
+    "landPixels": 7935,
+    "shopRoofPixels": 628,
+    "portraitPixels": 73
+  },
+  {
+    "stage": "baseline",
+    "file": "home-2.png",
+    "sha256": "9fbd2106e5e33695d1613442c639a205ae6be07429cc78199418707932e63f43",
+    "landPixels": 7935,
+    "shopRoofPixels": 628,
+    "portraitPixels": 73
+  },
+  {
+    "stage": "baseline",
+    "file": "home-3.png",
+    "sha256": "a66f2e55544ac8955fdf1f793149b1bd902a370ad02fb228560343f7facae9ba",
+    "landPixels": 7935,
+    "shopRoofPixels": 628,
+    "portraitPixels": 73
+  },
+  {
+    "stage": "baseline",
+    "file": "home-4.png",
+    "sha256": "bf298aac1bb7b86a1a59cbc0b9f35783a420e454110a796903049325228e9052",
+    "landPixels": 7935,
+    "shopRoofPixels": 628,
+    "portraitPixels": 73
+  },
+  {
+    "stage": "baseline",
+    "file": "home-5.png",
+    "sha256": "3c8e10cbdbb6da3840ac150bb49749f5ac5e2c1d5d29ee314c578f6a0b797b96",
+    "landPixels": 7935,
+    "shopRoofPixels": 628,
+    "portraitPixels": 73
+  },
+  {
+    "stage": "after",
+    "file": "android-home-4.png",
+    "sha256": "6025c10fda55530e5f2a7d2f9c1a918557dadd83c2137629efa07e58794724b9",
+    "landPixels": 7924,
+    "shopRoofPixels": 632,
+    "portraitPixels": 71
+  },
+  {
+    "stage": "after",
+    "file": "android-fresh-home-4.png",
+    "sha256": "827e37b2b60fee26115160739ac5de13d35215972376632ebbebd81e5217b20a",
+    "landPixels": 7924,
+    "shopRoofPixels": 632,
+    "portraitPixels": 71
+  },
+  {
+    "stage": "after",
+    "file": "android-fresh-home-5.png",
+    "sha256": "0b6c21167ac35fdaaba0e27c0a29d26de651cebe75f00062a6a4ec57d546e2d3",
+    "landPixels": 7924,
+    "shopRoofPixels": 632,
+    "portraitPixels": 71
+  },
+  {
+    "stage": "after",
+    "file": "android-home-5.png",
+    "sha256": "a15cb332c21beedcb89320690eff349e02bb91785909971285c061169e0f8463",
+    "landPixels": 7924,
+    "shopRoofPixels": 632,
+    "portraitPixels": 71
+  },
+  {
+    "stage": "after",
+    "file": "fresh-home-1.png",
+    "sha256": "4e64d893b66b675b248a8c32d6447f94a0934fbe5a6453ec6f45e2c03597791b",
+    "landPixels": 7935,
+    "shopRoofPixels": 628,
+    "portraitPixels": 73
+  },
+  {
+    "stage": "after",
+    "file": "fresh-home-3.png",
+    "sha256": "74bd91eeca30c341ba0a410f4fe085cc1cbba27d4bb846924fbbbd4711220c03",
+    "landPixels": 7935,
+    "shopRoofPixels": 628,
+    "portraitPixels": 73
+  },
+  {
+    "stage": "after",
+    "file": "fresh-home-2.png",
+    "sha256": "9055770e86e91a23f6d892f21425db52bc5fc5579df86e889f03b3e3f3d9d77e",
+    "landPixels": 7935,
+    "shopRoofPixels": 628,
+    "portraitPixels": 73
+  },
+  {
+    "stage": "after",
+    "file": "android-home-2.png",
+    "sha256": "d4ea4d5cd38b553c7c3613f2896f57ecab5a9decb7c94584d025c2d5101460b6",
+    "landPixels": 7924,
+    "shopRoofPixels": 632,
+    "portraitPixels": 71
+  },
+  {
+    "stage": "after",
+    "file": "android-fresh-home-2.png",
+    "sha256": "786bf429a62b884731caa4fbef0dec23b0dedc9e3efaed11f08ddcf1a1febf2c",
+    "landPixels": 7924,
+    "shopRoofPixels": 632,
+    "portraitPixels": 71
+  },
+  {
+    "stage": "after",
+    "file": "android-fresh-home-3.png",
+    "sha256": "b3327d3faf694ee22d4cf4cd525cdeee710de847a25122e3a4abc992372c0b76",
+    "landPixels": 7924,
+    "shopRoofPixels": 632,
+    "portraitPixels": 71
+  },
+  {
+    "stage": "after",
+    "file": "android-home-3.png",
+    "sha256": "b5cfaeb5ee583d2872167f3cd00a7a4ff4969d772ca4d13e9beaf6cfffed76c4",
+    "landPixels": 7924,
+    "shopRoofPixels": 632,
+    "portraitPixels": 71
+  },
+  {
+    "stage": "after",
+    "file": "fresh-home-5.png",
+    "sha256": "a0736de26d6dba2fd044b5138414c9f4281d321dc235746113873c0583f3354f",
+    "landPixels": 7935,
+    "shopRoofPixels": 628,
+    "portraitPixels": 73
+  },
+  {
+    "stage": "after",
+    "file": "android-home-1.png",
+    "sha256": "fa95d108487c510094753e7e5f28601effe7c7d48e7a5d7a3e5dda2aa9ae5e59",
+    "landPixels": 7924,
+    "shopRoofPixels": 632,
+    "portraitPixels": 71
+  },
+  {
+    "stage": "after",
+    "file": "android-fresh-home-1.png",
+    "sha256": "4370b22a86de637a92298938a57afa4fef135be2bb2ab0b719e5b1f23572f65a",
+    "landPixels": 7924,
+    "shopRoofPixels": 632,
+    "portraitPixels": 71
+  },
+  {
+    "stage": "after",
+    "file": "fresh-home-4.png",
+    "sha256": "46621f85ee1db3da48985adb660cf0605d45cdaf24a3ed0c542dcea4b26449de",
+    "landPixels": 7935,
+    "shopRoofPixels": 628,
+    "portraitPixels": 73
+  },
+  {
+    "stage": "after",
+    "file": "home-1.png",
+    "sha256": "69d7182769e426b1a712ea7dd7625fcc3497d58b28c24a0931af83b0c20bd2a3",
+    "landPixels": 7935,
+    "shopRoofPixels": 628,
+    "portraitPixels": 73
+  },
+  {
+    "stage": "after",
+    "file": "home-2.png",
+    "sha256": "f7e00e6a5ca9021156b568f8c01328d8d53cc50f1ae8d7a4cc898e2a1133040d",
+    "landPixels": 7935,
+    "shopRoofPixels": 628,
+    "portraitPixels": 73
+  },
+  {
+    "stage": "after",
+    "file": "home-3.png",
+    "sha256": "06d42320a1e9fb36ad3763ce83ea33f3086edb5c8a6d55092fb8af5f28d4c53d",
+    "landPixels": 7988,
+    "shopRoofPixels": 597,
+    "portraitPixels": 69
+  },
+  {
+    "stage": "after",
+    "file": "home-4.png",
+    "sha256": "0c252a74b0c98c2177da3fe997ec6c458e72290a20653f55b530a33da0b5e760",
+    "landPixels": 7935,
+    "shopRoofPixels": 628,
+    "portraitPixels": 73
+  },
+  {
+    "stage": "after",
+    "file": "home-5.png",
+    "sha256": "69ffd7a0268e735e8178b8d021297ccc083c60faf94bf34d858028534c02dad0",
+    "landPixels": 7935,
+    "shopRoofPixels": 628,
+    "portraitPixels": 73
+  }
+]

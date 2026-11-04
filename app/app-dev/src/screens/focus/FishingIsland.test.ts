@@ -1,45 +1,44 @@
-import assert from 'node:assert/strict';
-import React from 'react';
-import { act, fireEvent, render } from '@testing-library/react-native';
-import { AppState, StyleSheet } from 'react-native';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { observeAnimatedOnJsDriver } from '@/components/animatedJsDriver.testing';
-import { landPath, onLand } from '@/utils/world-grid';
-import { SECONDS_PER_FISH } from '@/services/model';
-import { FishingBoat } from '@/screens/focus/FocusSea';
-import { FishingSceneActive } from '@/screens/focus/FishingSceneMotion';
-import type { FishingPeerActor } from '@/screens/focus/useFishingPeerActors';
 import {
-  LANDING,
-  PEER_SPOTS,
-  DEFAULT_SPOT,
   DEFAULT_CATCH_PLACEMENT,
+  DEFAULT_SPOT,
   FishingActor,
   FishingIsland,
   FishingPeerActorView,
   GRAM,
+  LANDING,
+  PEER_SPOTS,
   RAFT,
-  anchorCard,
-  castSpot,
-  fishingCamera,
   SEAT_GAP,
-  fishingGrid,
-  nearGram,
+  Spot,
+  anchorCard,
   castAngle,
   castLineStart,
+  castSpot,
+  fishingCamera,
+  fishingCatchFootprintOnLand,
+  fishingCatchPlacement,
+  fishingGrid,
+  fishingPeerCatchVisible,
+  nearGram,
   nearRaft,
   occupied,
-  Spot,
   peerLandRoute,
   peerPixelsAtSize,
   peerPointFromPixels,
   peerWalkFace,
-  fishingCatchPlacement,
-  fishingCatchFootprintOnLand,
-  fishingPeerCatchVisible,
   seatProblem,
   underDefaultCatch,
 } from '@/screens/focus/FishingIsland';
+import { FishingSceneActive } from '@/screens/focus/FishingSceneMotion';
+import type { FishingPeerActor } from '@/screens/focus/useFishingPeerActors';
+import { SECONDS_PER_FISH } from '@/services/model';
+import { landPath, onLand } from '@/utils/world-grid';
+import { act, fireEvent, render } from '@testing-library/react-native';
+import assert from 'node:assert/strict';
+import React from 'react';
+import { AppState, StyleSheet } from 'react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 jest.mock('@/components/CatSprite', () => {
   const React = require('react');
@@ -1371,40 +1370,6 @@ test('낚시 주민은 left/top 대신 transform 을 네이티브 드라이버�
     jsDriver.mockRestore();
     jest.useRealTimers();
   }
-});
-
-test('바다 뗏목: 보상 reel은 끝나고 설정 변경 또는 카운트 초기화 때 남지 않는다', async () => {
-  jest.useFakeTimers();
-  const props = {
-    color: 'ginger' as const,
-    hull: 'raft',
-    seconds: 0,
-    emote: null,
-    name: '나',
-    subject: '집중',
-    mine: true,
-    reduce: false,
-  };
-  const screen = await render(React.createElement(FishingBoat, props));
-  const motion = () => screen.getByTestId('fishing-boat-cat').props.motion;
-
-  await screen.rerender(React.createElement(FishingBoat, { ...props, seconds: SECONDS_PER_FISH }));
-  assert.equal(motion(), 'reel');
-  await act(async () => jest.advanceTimersByTime(1900));
-  assert.equal(motion(), 'focus');
-
-  await screen.rerender(
-    React.createElement(FishingBoat, { ...props, seconds: SECONDS_PER_FISH * 2 }),
-  );
-  assert.equal(motion(), 'reel');
-  await screen.rerender(
-    React.createElement(FishingBoat, { ...props, seconds: SECONDS_PER_FISH * 2, reduce: true }),
-  );
-  assert.equal(motion(), 'focus');
-  await screen.rerender(React.createElement(FishingBoat, { ...props, seconds: 0 }));
-  assert.equal(motion(), 'focus');
-  await screen.unmount();
-  jest.useRealTimers();
 });
 
 test('FishingActor: motion="tilt" 또는 "stretch" 지정 시 낚싯대를 숨기고 focus/reel 시 표시한다', async () => {

@@ -1,14 +1,15 @@
-import React, { useReducer } from 'react';
-import { act, fireEvent, render } from '@testing-library/react-native';
+import { ISLAND_STAGE_ART } from '@/constants/magazineAssets';
 import { MotionContext } from '@/design-system/primitives';
-import { initialState, reducer, type State } from '@/services/model';
+import { applyLocalePref } from '@/i18n';
+import { createPreviewEnvironment } from '@/navigation/previewEnvironment';
+import { useTelescope } from '@/screens/island/useTelescope';
 import { updateProfile } from '@/services/api/account';
 import { ApiError } from '@/services/api/client';
-import { useTelescope } from '@/screens/island/useTelescope';
-import { OnboardingFlow } from './OnboardingFlow';
-import { applyLocalePref } from '@/i18n';
-import { ISLAND_STAGE_ART } from '@/constants/magazineAssets';
 import type { TelescopeItem } from '@/services/api/telescope';
+import { initialState, reducer, type State } from '@/services/model';
+import { act, fireEvent, render } from '@testing-library/react-native';
+import { useReducer } from 'react';
+import { OnboardingFlow } from './OnboardingFlow';
 
 const mockCapture = jest.fn();
 jest.mock('@/services/posthog', () => ({
@@ -69,7 +70,7 @@ function Harness({
   return (
     <MotionContext.Provider value={true}>
       <OnboardingFlow
-        e={{
+        e={createPreviewEnvironment({
           state,
           dispatch,
           reset,
@@ -77,7 +78,7 @@ function Harness({
           back: jest.fn(),
           islands: {},
           focus: { startSea, recover },
-        }}
+        })}
       />
     </MotionContext.Provider>
   );

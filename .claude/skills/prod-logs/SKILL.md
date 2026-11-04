@@ -10,7 +10,7 @@ description: 운영 로그·지표·모니터를 조사할 때 쓴다(Datadog, �
 ## 어디를 보나
 
 - Datadog us5, 필터 `env:prod`. 서비스·호스트 이름 대응의 정본은 [파이프라인 지도](../../../docs/engineering/pipeline-map.md) 「모니터링 이름」 표다.
-- 운영 V2 서버 4종의 서비스 이름(`data-api`·`business-api`·`realtime`·`notification`)은 2026-10-31 이후의 이름이다. 그 전 기간은 이름이 다를 수 있으니 서비스 목록부터 본다(옛 이름은 미확인).
+- 운영 V2 서버 4종의 서비스 이름(`data-api`·`business-api`·`realtime`·`notification`)은 2026-10-31 이후의 이름이다. 그 전 기간(호스트 `catus-prod-V2`)의 서비스 이름은 `catus-app-prod-V2`·`catus-business-api-prod-V2`·`catus-realtime-prod-V2`·`catus-notification-prod-V2` 였다(`server/observability/datadog/README.md:50-57`). V2 전환 시기에 `env:prod` 로그가 `catus-*-dev` 서비스 이름으로 찍힌 적이 있다. 태그 오류로 보이며 원인은 확인하지 못했다.
 - 운영 V1 호스트 `catus-prod` 의 로그는 2026-10-29 23:49Z 에 멈췄다. 그 전 기간을 볼 때는 V1 호스트도 함께 본다.
 - Gromo 1.x 는 `gromo-*-prod`(호스트 `gromo-prod`), 앱 RUM 은 `cattus-app` 이다.
 - 모니터: `23468982`(운영 V2 ERROR 로그), `23469020`(없는 경로 404 — 앱이 서버보다 먼저 나간 신호), `23469271`(API 5xx).

@@ -15,6 +15,7 @@ import com.oneorthree.phone.group.repository.GroupAnnouncementRepository;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupQueryService;
 import com.oneorthree.phone.group.repository.GroupRepository;
+import com.oneorthree.phone.group.repository.FirstIslandArrivalRepository;
 import com.oneorthree.phone.group.repository.IslandArrivalRepository;
 import com.oneorthree.phone.group.repository.IslandGuestbookEntryRepository;
 import com.oneorthree.phone.group.repository.IslandJoinRequestRepository;
@@ -69,6 +70,7 @@ public class GroupMemberService {
     private final IslandGuestbookEntryRepository guestbookEntryRepository;
     private final IslandJoinRequestRepository joinRequestRepository;
     private final IslandArrivalRepository islandArrivalRepository;
+    private final FirstIslandArrivalRepository firstIslandArrivalRepository;
     private final IslandArrivalEvents islandArrivalEvents;
     private final TelescopePinRepository telescopePinRepository;
     private final TelescopeBucketRepository telescopeBucketRepository;
@@ -381,6 +383,8 @@ public class GroupMemberService {
         guestbookEntryRepository.deleteAllOfUser(userId);
         // 섬 도착 기록(GROMO-2260) — 개인 이동·방문 이력이다. 남의 판정 근거가 아니라 원문째 지운다.
         islandArrivalRepository.deleteAllOfUser(userId);
+        // 첫 섬 도착 광고 사건 ID(GROMO-2741)도 개인 이력이다.
+        firstIslandArrivalRepository.deleteAllOfUser(userId);
         // 주민 첫 도착 사건(GROMO-2302) params 의 이름·털색 사본.
         islandArrivalEvents.eraseWithdrawnUser(userId);
         // 망원경 핀(GROMO-2268)도 개인 목록이다 — 남의 판정 근거가 아니라 원문째 지운다.

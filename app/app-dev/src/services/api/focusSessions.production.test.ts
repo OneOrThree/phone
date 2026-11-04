@@ -4,7 +4,7 @@ const previousUrl = process.env.EXPO_PUBLIC_API_URL;
 const previousFlag = process.env.EXPO_PUBLIC_FOCUS_SEAT_ENABLED;
 const previousFetch = global.fetch;
 const PROD = 'https://catus-api-v2.oneorthree.world';
-const DEV = 'https://oneorthree.dev.mooo.com';
+const DEV = 'https://oneorthree-v2.dev.mooo.com';
 const input = {
   islandId: '019a2b3c-4d5e-7000-8000-000000000001',
   subject: '수학',

@@ -1,11 +1,13 @@
-import React from 'react';
-import { AppState, Linking, Platform, type AppStateStatus } from 'react-native';
-import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react-native';
-import { CurrentScreens, FocusBlockingIntro } from './CurrentScreens';
-import { initialState } from '@/services/model';
-import { screenTimeNative } from '@/services/ScreenTimeModule';
-import { screenTime } from '@/services/screenTime';
 import { applyLocalePref } from '@/i18n';
+import { createPreviewEnvironment } from '@/navigation/previewEnvironment';
+import { CurrentScreens } from '@/screens/island/CurrentScreens';
+import { FocusBlockingIntro } from '@/screens/permissions/FocusBlockingIntro';
+import { screenTimeNative } from '@/services/ScreenTimeModule';
+import type { Route } from '@/services/model';
+import { initialState } from '@/services/model';
+import { screenTime } from '@/services/screenTime';
+import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react-native';
+import { AppState, Linking, Platform, type AppStateStatus } from 'react-native';
 
 jest.mock('@/services/ScreenTimeModule', () => ({
   screenTimeNative: {
@@ -73,7 +75,7 @@ afterEach(async () => {
   jest.restoreAllMocks();
   Platform.OS = originalOS;
 });
-function environment(detail = '', route = 'permission') {
+function environment(detail = '', route: Route = 'permission') {
   return {
     state: initialState(true),
     route,
@@ -93,7 +95,7 @@ test('차단 미지원 Android는 측정 설정만 표시하고 차단 권한을
   native.supportsFocusShield = false;
   native.getAuthorizationStatus.mockResolvedValue('approved');
   const e = environment('settings');
-  const view = await render(<CurrentScreens e={e} />);
+  const view = await render(<CurrentScreens e={createPreviewEnvironment(e)} />);
   await view.findByText('2개 선택됨');
   expect(view.getByRole('switch', { name: '스크린타임 연결' })).toBeTruthy();
   for (const label of ['집중 중 허용', '허용 앱', '다른 앱 위에 표시', '집중 상태 알림']) {
@@ -113,7 +115,9 @@ test.each(['ios', 'android'] as const)(
     Platform.OS = os;
     applyLocalePref('en');
     native.getAuthorizationStatus.mockResolvedValue('approved');
-    const view = await render(<CurrentScreens e={environment('settings')} />);
+    const view = await render(
+      <CurrentScreens e={createPreviewEnvironment(environment('settings'))} />,
+    );
     await view.findByText('2 selected');
     expect(view.getByText('Manage App Permissions')).toBeTruthy();
     expect(view.getByRole('switch', { name: 'Connect Screen Time' })).toBeTruthy();
@@ -129,11 +133,13 @@ test.each([
   ['android', 'approved', 'permission'],
   ['ios', 'approved', 'screenTimeApps'],
   ['android', 'approved', 'screenTimeApps'],
-] as const)('en 로케일 — %s %s %s 화면은 한글이 없다', async (os, auth, route) => {
+] as const)('en 로케일 — %s %s %s 화면은 한글이 없다', async (os, auth, route: Route) => {
   Platform.OS = os;
   applyLocalePref('en');
   native.getAuthorizationStatus.mockResolvedValue(auth);
-  const view = await render(<CurrentScreens e={environment('', route)} />);
+  const view = await render(
+    <CurrentScreens e={createPreviewEnvironment(environment('', route))} />,
+  );
   await view.findAllByText(route === 'permission' ? 'Measurement permission' : 'Measured apps');
   expect(view.queryByText(/[가-힣]/)).toBeNull();
   expect(view.queryByLabelText(/[가-힣]/)).toBeNull();
@@ -142,7 +148,7 @@ test.each([
 test('차단 미지원 Android 측정 권한 안내에는 앱 차단 권한을 요구하지 않는다', async () => {
   Platform.OS = 'android';
   native.supportsFocusShield = false;
-  const view = await render(<CurrentScreens e={environment()} />);
+  const view = await render(<CurrentScreens e={createPreviewEnvironment(environment())} />);
   await view.findByText('선택한 앱의 사용 시간만 기록해요.');
   expect(view.queryByText(/집중 중 앱 차단/)).toBeNull();
 });
@@ -187,7 +193,7 @@ test('앱 차단 권한 요청 중에는 버튼을 다시 눌러도 중복 요�
 
 test('거절 화면에서 재요청해 승인되면 측정 앱 선택으로 이동한다', async () => {
   const e = environment('measured-apps');
-  const view = await render(<CurrentScreens e={e} />);
+  const view = await render(<CurrentScreens e={createPreviewEnvironment(e)} />);
   await view.findByText('권한 다시 요청하기');
   if (e.detail === 'settings') {
     expect(view.queryByText('시스템 설정')).toBeNull();
@@ -207,7 +213,7 @@ test('거절 화면에서 재요청해 승인되면 측정 앱 선택으로 이�
 test('요청 취소 후 notDetermined가 유지돼도 재시도 안내를 표시한다', async () => {
   native.getAuthorizationStatus.mockResolvedValue('notDetermined');
   const e = environment();
-  const view = await render(<CurrentScreens e={e} />);
+  const view = await render(<CurrentScreens e={createPreviewEnvironment(e)} />);
   await fireEvent.press(await view.findByText('스크린타임 연결하기'));
   await view.findByText('권한 다시 요청하기');
   expect(view.getByText('허용 창이 안 뜨면 시스템 설정에서 허용해 주세요.')).toBeTruthy();
@@ -218,7 +224,7 @@ test('요청 취소 후 notDetermined가 유지돼도 재시도 안내를 표시
 test('시스템 설정 열기 실패를 안내하고 재시도 경로를 유지한다', async () => {
   jest.mocked(Linking.openSettings).mockRejectedValueOnce(new Error('unavailable'));
   const e = environment();
-  const view = await render(<CurrentScreens e={e} />);
+  const view = await render(<CurrentScreens e={createPreviewEnvironment(e)} />);
   await fireEvent.press(await view.findByText('시스템 설정 열기'));
   await waitFor(() =>
     expect(e.notify).toHaveBeenCalledWith(expect.stringContaining('설정을 열지 못했어요')),
@@ -228,7 +234,7 @@ test('시스템 설정 열기 실패를 안내하고 재시도 경로를 유지�
 
 test('뗏목 권한 관리에서 재요청하고 승인 후 측정 앱과 허용 앱을 모두 연다', async () => {
   const e = environment('settings');
-  const view = await render(<CurrentScreens e={e} />);
+  const view = await render(<CurrentScreens e={createPreviewEnvironment(e)} />);
   await waitFor(() =>
     expect(
       view.getByRole('switch', { name: '스크린타임 연결' }).props.accessibilityState.disabled,
@@ -260,7 +266,9 @@ test('설정에는 예약 선택을 표시하고 측정 소비자에는 현재 �
     ...selection(2),
     pendingSelection: { ...selection(5), pending: true },
   });
-  const view = await render(<CurrentScreens e={environment('settings')} />);
+  const view = await render(
+    <CurrentScreens e={createPreviewEnvironment(environment('settings'))} />,
+  );
   await view.findByText('5개 선택됨 · 내일부터 적용');
   expect((await screenTime.getMeasurementSelectionCounts())?.applications).toBe(2);
 });
@@ -277,7 +285,7 @@ test('측정 앱 진입은 설명 화면 없이 피커를 열고 저장 뒤 돌�
     appliesImmediately: false,
   });
   const e = environment('settings', 'screenTimeApps');
-  const view = await render(<CurrentScreens e={e} />);
+  const view = await render(<CurrentScreens e={createPreviewEnvironment(e)} />);
   expect(view.queryByText('줄이고 싶은 앱을 골라주세요')).toBeNull();
   expect(view.queryByText('저장한 측정 대상')).toBeNull();
   expect(view.queryByLabelText('스크린타임 서버 전송 동의')).toBeNull();
@@ -292,7 +300,7 @@ test('시스템 설정에서 승인하고 복귀하면 권한 상태와 다음 �
     return { remove: jest.fn() };
   });
   const e = environment('board-first|board|');
-  const view = await render(<CurrentScreens e={e} />);
+  const view = await render(<CurrentScreens e={createPreviewEnvironment(e)} />);
   await view.findByText('권한 다시 요청하기');
   native.getAuthorizationStatus.mockResolvedValue('approved');
   await act(async () => onActive?.('active'));
@@ -308,7 +316,9 @@ test('연결 요청 중·취소 후에도 추가 버튼 없이 같은 스위치�
         resolve = r;
       }),
   );
-  const view = await render(<CurrentScreens e={environment('settings')} />);
+  const view = await render(
+    <CurrentScreens e={createPreviewEnvironment(environment('settings'))} />,
+  );
   const toggle = () => view.getByRole('switch', { name: '스크린타임 연결' });
   await waitFor(() => expect(toggle().props.accessibilityState.disabled).toBe(false));
   await fireEvent.press(toggle());
@@ -327,10 +337,10 @@ test('권한 허용 후 측정 앱 피커를 자동으로 한 번 열고 취소�
   native.getAuthorizationStatus.mockResolvedValue('approved');
   native.presentAppPicker.mockResolvedValue(null);
   const e = environment('settings-auto', 'screenTimeApps');
-  const view = await render(<CurrentScreens e={e} />);
+  const view = await render(<CurrentScreens e={createPreviewEnvironment(e)} />);
   await waitFor(() => expect(native.presentAppPicker).toHaveBeenCalledTimes(1));
   expect(e.back).toHaveBeenCalledTimes(1);
-  await view.rerender(<CurrentScreens e={{ ...e }} />);
+  await view.rerender(<CurrentScreens e={createPreviewEnvironment({ ...e })} />);
   expect(native.presentAppPicker).toHaveBeenCalledTimes(1);
 });
 
@@ -343,7 +353,9 @@ test.each([
   '알림 행 — 권한이 %s 면 부제 «%s» 를 보여 주고 읽는 이름에도 싣는다',
   async (permission, description) => {
     mockPushPermissionStatus.mockResolvedValue(permission);
-    const view = await render(<CurrentScreens e={environment('settings')} />);
+    const view = await render(
+      <CurrentScreens e={createPreviewEnvironment(environment('settings'))} />,
+    );
     await view.findByText(description);
     expect(view.getByText('알림')).toBeTruthy();
     expect(view.getByText('알림 권한')).toBeTruthy();
@@ -352,7 +364,9 @@ test.each([
 );
 
 test('알림 행 — 푸시 브리지가 없는 바이너리(unavailable)에서는 알림 섹션을 그리지 않는다', async () => {
-  const view = await render(<CurrentScreens e={environment('settings')} />);
+  const view = await render(
+    <CurrentScreens e={createPreviewEnvironment(environment('settings'))} />,
+  );
   await view.findByText('스크린타임 연결');
   await waitFor(() => expect(mockPushPermissionStatus).toHaveBeenCalled());
   expect(view.queryByText('알림')).toBeNull();
@@ -362,7 +376,9 @@ test('알림 행 — 푸시 브리지가 없는 바이너리(unavailable)에서�
 test('알림 행 — 아직 안 물음이면 눌러서 시스템 팝업을 띄우고 답으로 부제를 바꾸며, 정해진 뒤에는 시스템 설정을 연다', async () => {
   mockPushPermissionStatus.mockResolvedValue('undetermined');
   mockRequestPushPermission.mockResolvedValue('granted');
-  const view = await render(<CurrentScreens e={environment('settings')} />);
+  const view = await render(
+    <CurrentScreens e={createPreviewEnvironment(environment('settings'))} />,
+  );
 
   await fireEvent.press(await view.findByText('알림 권한'));
   await view.findByText('허용됨');
@@ -377,7 +393,7 @@ test('알림 행 — 아직 안 물음이면 눌러서 시스템 팝업을 띄�
 test('알림 행 — 거부 상태에서 누르면 팝업 없이 시스템 설정을 열고, 열지 못하면 안내한다', async () => {
   mockPushPermissionStatus.mockResolvedValue('denied');
   const e = environment('settings');
-  const view = await render(<CurrentScreens e={e} />);
+  const view = await render(<CurrentScreens e={createPreviewEnvironment(e)} />);
 
   await fireEvent.press(await view.findByText('알림 권한'));
   await waitFor(() => expect(Linking.openSettings).toHaveBeenCalledTimes(1));
@@ -397,7 +413,9 @@ test('알림 행 — 시스템 설정에서 돌아오면(앱 활성) 권한을 �
     return { remove: jest.fn() };
   });
   mockPushPermissionStatus.mockResolvedValue('denied');
-  const view = await render(<CurrentScreens e={environment('settings')} />);
+  const view = await render(
+    <CurrentScreens e={createPreviewEnvironment(environment('settings'))} />,
+  );
   await view.findByText('꺼짐');
 
   mockPushPermissionStatus.mockResolvedValue('granted');
@@ -408,7 +426,9 @@ test('알림 행 — 시스템 설정에서 돌아오면(앱 활성) 권한을 �
 test('en 로케일 — 알림 행은 한글 없이 영문으로 그린다', async () => {
   applyLocalePref('en');
   mockPushPermissionStatus.mockResolvedValue('denied');
-  const view = await render(<CurrentScreens e={environment('settings')} />);
+  const view = await render(
+    <CurrentScreens e={createPreviewEnvironment(environment('settings'))} />,
+  );
   await view.findByText('Off');
   expect(view.getByText('Notifications')).toBeTruthy();
   expect(view.getByText('Notification permission')).toBeTruthy();
@@ -452,7 +472,7 @@ test.each([
     mockPushPermissionStatus.mockResolvedValue('undetermined');
     mockRequestPushPermission.mockResolvedValue(answer);
     const e = environmentNotificationsOff();
-    const view = await render(<CurrentScreens e={e} />);
+    const view = await render(<CurrentScreens e={createPreviewEnvironment(e)} />);
 
     await fireEvent.press(await view.findByText('알림 권한'));
     await view.findByText(answer === 'granted' ? '허용됨' : '꺼짐');
@@ -465,7 +485,7 @@ test('알림 행 — 앱 설정 「알림」이 이미 켜져 있으면 팝업�
   mockPushPermissionStatus.mockResolvedValue('undetermined');
   mockRequestPushPermission.mockResolvedValue('granted');
   const e = environment('settings');
-  const view = await render(<CurrentScreens e={e} />);
+  const view = await render(<CurrentScreens e={createPreviewEnvironment(e)} />);
 
   await fireEvent.press(await view.findByText('알림 권한'));
   await view.findByText('허용됨');
@@ -477,7 +497,7 @@ test('알림 행 — 거부 상태에서 시스템 설정으로 나갔다가 허
   const returnToApp = captureAppActive();
   mockPushPermissionStatus.mockResolvedValue('denied');
   const e = environmentNotificationsOff();
-  const view = await render(<CurrentScreens e={e} />);
+  const view = await render(<CurrentScreens e={createPreviewEnvironment(e)} />);
 
   await fireEvent.press(await view.findByText('알림 권한'));
   await waitFor(() => expect(Linking.openSettings).toHaveBeenCalledTimes(1));
@@ -498,7 +518,7 @@ test('알림 행 — 시스템 설정에서 돌아와도 여전히 거부면 켜
   const returnToApp = captureAppActive();
   mockPushPermissionStatus.mockResolvedValue('denied');
   const e = environmentNotificationsOff();
-  const view = await render(<CurrentScreens e={e} />);
+  const view = await render(<CurrentScreens e={createPreviewEnvironment(e)} />);
 
   await fireEvent.press(await view.findByText('알림 권한'));
   await waitFor(() => expect(Linking.openSettings).toHaveBeenCalledTimes(1));
@@ -518,7 +538,7 @@ test('알림 행 — 앱 설정 「알림」이 이미 켜져 있으면 시스�
   const returnToApp = captureAppActive();
   mockPushPermissionStatus.mockResolvedValue('denied');
   const e = environment('settings');
-  const view = await render(<CurrentScreens e={e} />);
+  const view = await render(<CurrentScreens e={createPreviewEnvironment(e)} />);
 
   await fireEvent.press(await view.findByText('알림 권한'));
   await waitFor(() => expect(Linking.openSettings).toHaveBeenCalledTimes(1));
@@ -532,7 +552,7 @@ test('알림 행 — 앱 설정 「알림」이 이미 켜져 있으면 시스�
 test('알림 행 — 권한이 이미 허용인데 앱 설정 「알림」만 꺼져 있으면 시스템 설정을 열지 않고 바로 켠다', async () => {
   mockPushPermissionStatus.mockResolvedValue('granted');
   const e = environmentNotificationsOff();
-  const view = await render(<CurrentScreens e={e} />);
+  const view = await render(<CurrentScreens e={createPreviewEnvironment(e)} />);
 
   await fireEvent.press(await view.findByText('알림 권한'));
   await flushAsync();
@@ -543,7 +563,7 @@ test('알림 행 — 권한이 이미 허용인데 앱 설정 「알림」만 �
 test('알림 행 — 권한이 허용이고 앱 설정 「알림」도 켜져 있으면 끌 수 있게 시스템 설정을 연다', async () => {
   mockPushPermissionStatus.mockResolvedValue('granted');
   const e = environment('settings');
-  const view = await render(<CurrentScreens e={e} />);
+  const view = await render(<CurrentScreens e={createPreviewEnvironment(e)} />);
 
   await fireEvent.press(await view.findByText('알림 권한'));
   await waitFor(() => expect(Linking.openSettings).toHaveBeenCalledTimes(1));
@@ -553,7 +573,9 @@ test('알림 행 — 권한이 허용이고 앱 설정 「알림」도 켜져 �
 // ── 권한을 읽지 못했을 때(error) — 브리지는 있는데 네이티브가 던진 것이라 «브리지 없음»(unavailable)과 다르다 ──
 test('알림 행 — 권한을 읽지 못했으면(error) 행을 숨기지 않고 «확인하지 못했어요» 로 보이며 읽는 이름에도 싣는다', async () => {
   mockPushPermissionStatus.mockResolvedValue('error');
-  const view = await render(<CurrentScreens e={environment('settings')} />);
+  const view = await render(
+    <CurrentScreens e={createPreviewEnvironment(environment('settings'))} />,
+  );
   await view.findByText('확인하지 못했어요');
   expect(view.getByText('알림 권한')).toBeTruthy();
   expect(view.getByLabelText('알림 권한, 확인하지 못했어요')).toBeTruthy();
@@ -569,7 +591,9 @@ test.each([
     // 시트가 열릴 때는 못 읽고, 누를 때 다시 읽은 값이 fresh 다.
     mockPushPermissionStatus.mockResolvedValueOnce('error').mockResolvedValue(fresh);
     mockRequestPushPermission.mockResolvedValue('granted');
-    const view = await render(<CurrentScreens e={environment('settings')} />);
+    const view = await render(
+      <CurrentScreens e={createPreviewEnvironment(environment('settings'))} />,
+    );
     await fireEvent.press(await view.findByText('알림 권한'));
     await flushAsync();
 
@@ -583,7 +607,7 @@ test.each([
 test('알림 행 — 읽지 못했던(error) 권한이 허용으로 읽히면 꺼진 앱 설정 「알림」을 시스템 설정 없이 바로 켠다', async () => {
   mockPushPermissionStatus.mockResolvedValueOnce('error').mockResolvedValue('granted');
   const e = environmentNotificationsOff();
-  const view = await render(<CurrentScreens e={e} />);
+  const view = await render(<CurrentScreens e={createPreviewEnvironment(e)} />);
 
   await fireEvent.press(await view.findByText('알림 권한'));
   await view.findByText('허용됨');
@@ -595,7 +619,9 @@ test('알림 행 — 읽지 못했던(error) 권한이 허용으로 읽히면 �
 test('알림 행 — 권한을 읽지 못했으면(error) 앱이 활성으로 돌아올 때 다시 읽어 부제를 갱신한다', async () => {
   const returnToApp = captureAppActive();
   mockPushPermissionStatus.mockResolvedValueOnce('error').mockResolvedValue('denied');
-  const view = await render(<CurrentScreens e={environment('settings')} />);
+  const view = await render(
+    <CurrentScreens e={createPreviewEnvironment(environment('settings'))} />,
+  );
   await view.findByText('확인하지 못했어요');
 
   await returnToApp();
@@ -605,7 +631,9 @@ test('알림 행 — 권한을 읽지 못했으면(error) 앱이 활성으로 �
 test('en 로케일 — 권한을 읽지 못한 알림 행은 한글 없이 영문으로 그린다', async () => {
   applyLocalePref('en');
   mockPushPermissionStatus.mockResolvedValue('error');
-  const view = await render(<CurrentScreens e={environment('settings')} />);
+  const view = await render(
+    <CurrentScreens e={createPreviewEnvironment(environment('settings'))} />,
+  );
   await view.findByText("Couldn't check");
   expect(view.getByLabelText("Notification permission, Couldn't check")).toBeTruthy();
   expect(view.queryByText(/[가-힣]/)).toBeNull();
@@ -631,7 +659,7 @@ async function readRace() {
     .mockImplementationOnce(() => oldRead.promise)
     .mockImplementationOnce(() => returnRead.promise);
   const e = environmentNotificationsOff();
-  const view = await render(<CurrentScreens e={e} />);
+  const view = await render(<CurrentScreens e={createPreviewEnvironment(e)} />);
   await view.findByText('꺼짐');
   await returnToApp();
   await fireEvent.press(await view.findByText('알림 권한'));
@@ -688,7 +716,9 @@ test('알림 행 — 읽지 못한(error) 권한을 눌러 다시 읽는 사이 
     .mockResolvedValueOnce('error')
     .mockImplementationOnce(() => pressRead.promise)
     .mockImplementationOnce(() => newerRead.promise);
-  const view = await render(<CurrentScreens e={environment('settings')} />);
+  const view = await render(
+    <CurrentScreens e={createPreviewEnvironment(environment('settings'))} />,
+  );
   // fireEvent.press 는 핸들러(붙잡힌 읽기를 기다리는 changePush)가 끝나야 끝난다 — await 하지 않고 눌림의 act 만 끝나게 둔다.
   const pressing = fireEvent.press(await view.findByText('알림 권한'));
   await new Promise((done) => setTimeout(done, 0));
@@ -716,7 +746,7 @@ test('알림 행 — 돌아와 읽은 결과가 error 면 「나감」 표시를
     .mockResolvedValueOnce('error')
     .mockResolvedValue('granted');
   const e = environmentNotificationsOff();
-  const view = await render(<CurrentScreens e={e} />);
+  const view = await render(<CurrentScreens e={createPreviewEnvironment(e)} />);
   await view.findByText('꺼짐');
   await fireEvent.press(await view.findByText('알림 권한'));
   await waitFor(() => expect(Linking.openSettings).toHaveBeenCalledTimes(1));
@@ -769,7 +799,7 @@ test.each([
   async ({ permission, settingOff, label, hint }) => {
     mockPushPermissionStatus.mockResolvedValue(permission);
     const e = settingOff ? environmentNotificationsOff() : environment('settings');
-    const view = await render(<CurrentScreens e={e} />);
+    const view = await render(<CurrentScreens e={createPreviewEnvironment(e)} />);
     expect((await view.findByLabelText(label)).props.accessibilityHint).toBe(hint);
   },
 );
@@ -785,7 +815,7 @@ test.each([
     applyLocalePref('en');
     mockPushPermissionStatus.mockResolvedValue(permission);
     const e = settingOff ? environmentNotificationsOff() : environment('settings');
-    const view = await render(<CurrentScreens e={e} />);
+    const view = await render(<CurrentScreens e={createPreviewEnvironment(e)} />);
     const row = await view.findByLabelText(/^Notification permission, /);
     expect(row.props.accessibilityHint).toBe(hint);
   },

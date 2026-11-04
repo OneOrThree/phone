@@ -109,55 +109,20 @@ cd ..
 cp app/legacy/app-dev/.env.example app/legacy/app-dev/.env
 ```
 
-> `app/legacy/app-dev/.env.example`의 기본값은 팀 서버(`https://oneorthree.dev.mooo.com`)를 가리키며 `src/services/api.ts`의 기본값과 동일합니다. 백엔드를 직접 띄우지 않아도 바로 개발을 시작할 수 있습니다 (아래 3.2의 (A) 방식).
+> `app/legacy/app-dev/.env.example`의 `EXPO_PUBLIC_API_URL=`은 비어 있습니다. 값이 없으면 `src/services/apiBaseUrl.ts:1,11`의 폴백(`https://oneorthree.dev.mooo.com`)을 씁니다. 이 주소는 삭제된 옛 dev VM을 가리킵니다(`docs/engineering/dev-v2-pipeline.md:11`).
 
-### 3.2 백엔드 연결 모드 선택
+### 3.2 백엔드 연결 — 1.x 앱은 현행 서버와 끝까지 동작하지 않는다
 
-앱은 백엔드 API 서버(`server/data-api/`, Spring Boot)와 통신합니다. 아래 두 가지 중 하나를 선택하세요.
+동결된 1.x 앱은 `/api/v1/...` API를 호출합니다(예: `src/services/api.ts:160`의 `/api/v1/auth/refresh`). 현재 이 API를 서비스하는 서버는 없습니다.
 
-#### (A) 팀 서버 연결 — 기본, 추천
+- 옛 dev VM(`oneorthree.dev.mooo.com`)은 삭제되었습니다.
+- `server/data-api`의 컨트롤러는 `/internal/**`와 `/health`뿐입니다(`HealthController.java:13`). 1.x 로그인·세션 경로가 없습니다.
+- `/api/v1`로 남은 것은 호환용 `UserNotificationController`의 `/api/v1/users/me/device-token`·`/notification-settings`뿐입니다(`server/business-api/.../api/UserNotificationController.java:48`).
+- 2.0 앱의 API는 Business API 루트 경로입니다(nginx 라우트 `server/scripts/nginx-dev-2.0-routes.conf.example:10` → 8083).
 
-`app/legacy/app-dev/.env`의 `EXPO_PUBLIC_API_URL`을 팀 서버로 설정 (3.1 참고):
+따라서 화면·UI 작업도 서버 호출은 실패하거나 목(mock)으로만 확인할 수 있습니다. 1.x를 핫픽스할 때는 네이티브·UI 검증을 우선하고, 서버 연동 검증은 기대하지 않습니다. 서버 연동이 필요한 작업은 활성 2.0 앱(`app/app-dev/`)에서 합니다.
 
-```
-EXPO_PUBLIC_API_URL=https://oneorthree.dev.mooo.com
-```
-
-백엔드를 따로 설치/실행할 필요가 없습니다. 화면/UI 작업은 대부분 이 방식으로 충분합니다.
-
-#### (B) 로컬 백엔드 직접 실행 — 백엔드 코드를 수정/디버깅할 때
-
-백엔드(`server/data-api/`)는 Spring Boot(Java 17) + PostgreSQL이며, `server/scripts/`의 Docker Compose로 실행합니다.
-
-```bash
-# 프로젝트 루트에서 — compose 파일이 server/scripts/로 옮겨져 .env 자동 로딩이 안 되므로 --env-file 명시
-docker compose --env-file .env -f server/scripts/docker-compose.dev.yml up -d
-```
-
-- API 서버: `http://localhost:8080`
-- 루트 `.env` 파일에 `POSTGRES_DB` / `POSTGRES_USER` / `POSTGRES_PASSWORD` / `JWT_SECRET` 값이 필요합니다 (이미 존재).
-- 종료: `docker compose --env-file .env -f server/scripts/docker-compose.dev.yml down`
-
-**iOS 시뮬레이터**에서는 `app/legacy/app-dev/.env`를 아래처럼 설정:
-
-```
-EXPO_PUBLIC_API_URL=http://localhost:8080
-REACT_NATIVE_PACKAGER_HOSTNAME=localhost
-```
-
-**실기기**에서 연결하려면 Mac의 로컬 IP로 설정해야 합니다:
-
-```bash
-ifconfig | grep "inet " | grep -v 127.0.0.1
-# 결과 예: inet 172.16.102.49 ...
-```
-
-```
-EXPO_PUBLIC_API_URL=http://172.16.102.49:8080
-REACT_NATIVE_PACKAGER_HOSTNAME=172.16.102.49
-```
-
-> ⚠️ 이 IP는 맥북마다 다릅니다. 기존 `.env`에 남아있던 IP는 다른 개발자의 맥북 주소이므로 그대로 사용하면 안 됩니다.
+로컬 서버에 붙이려면 `EXPO_PUBLIC_API_URL`을 직접 정하되, 위 이유로 1.x 로그인 경로는 응답하지 않습니다. 시뮬레이터는 `http://localhost:<포트>`, 실기기는 Mac의 로컬 IP를 씁니다. IP는 맥마다 다르므로 남의 값을 복사하지 않습니다.
 
 ---
 
@@ -511,8 +476,7 @@ Gromo/
 
 - [ ] `app/legacy/app-dev/node_modules/` 존재 (`npm install` 완료)
 - [ ] `app/legacy/app-dev/ios/Pods/` 존재 (`pod install` 완료)
-- [ ] `app/legacy/app-dev/.env` 파일 생성 및 `EXPO_PUBLIC_API_URL` 설정 확인 (팀 서버 또는 로컬 백엔드)
-- [ ] (B) 로컬 백엔드 선택 시: `docker compose --env-file .env -f server/scripts/docker-compose.dev.yml ps`로 컨테이너 정상 동작 확인
+- [ ] `app/legacy/app-dev/.env` 파일 생성 및 `EXPO_PUBLIC_API_URL` 설정 확인 (3.2: 1.x 는 현행 서버와 끝까지 동작하지 않음)
 
 ### 빌드 준비
 

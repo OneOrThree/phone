@@ -1,0 +1,22 @@
+appId: com.oneorthree.focuscat
+---
+- extendedWaitUntil:
+    visible: "오늘 퀘스트.*"
+    timeout: 20000
+- tapOn: "상점, 구매 가능한 상품이 있어요"
+- extendedWaitUntil:
+    visible: "강아지 상점"
+    timeout: 25000
+- tapOn: "닫기"
+- extendedWaitUntil:
+    visible: "오늘 퀘스트.*"
+    timeout: 20000
+- tapOn: "집중 시작"
+- extendedWaitUntil:
+    visible: "집중할 자리를 골라주세요!"
+    timeout: 25000
+- tapOn:
+    id: "leave-fishing-arrival"
+- extendedWaitUntil:
+    visible: "오늘 퀘스트.*"
+    timeout: 20000

@@ -1,5 +1,7 @@
 import { currentFocusSession } from './api/focusSessions';
+import { Platform } from 'react-native';
 import { screenTime } from './screenTime';
+import { screenTimeNative } from './ScreenTimeModule';
 import { getSession, sessionGeneration } from './api/session';
 import type { Color, Session } from './model';
 
@@ -64,6 +66,16 @@ export function syncFocusShield(
     });
   })();
 }
+
+/**
+ * 집중 중 다른 앱이 실제로 막히는지(GROMO-2635). {@link syncFocusShield} 의 반환값은 «동기화 성공»이라 권한이 없어도 true 다.
+ * iOS 는 스크린타임 권한이 있어야 막고, Android 는 지금 바이너리가 차단을 지원하지 않는다(`supportsFocusShield=false`).
+ */
+export const focusShieldApplied = async (): Promise<boolean> =>
+  Platform.OS === 'ios'
+    ? (await screenTime.getAuthorizationStatus().catch(() => 'unavailable')) === 'approved'
+    : // ponytail: Android 차단을 켜는 바이너리가 나오면 다른 앱 위 표시 권한까지 봐야 한다
+      Platform.OS === 'android' && screenTimeNative?.supportsFocusShield === true;
 
 /** 차단 상태 변경 실패를 알릴지. 스크린타임 권한을 허용하지 않아 건너뛴 것은 실패가 아니다(GROMO-2515). */
 export const shouldReportShieldFailure = async () =>

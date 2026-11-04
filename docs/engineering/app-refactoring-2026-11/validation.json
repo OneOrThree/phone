@@ -1,0 +1,2690 @@
+{
+  "baseline": {
+    "suites": 267,
+    "tests": 4603,
+    "passedSuites": 267,
+    "passedTests": 4603,
+    "success": true,
+    "suiteResults": [
+      {
+        "file": "screens/island/Screens.test.tsx",
+        "status": "passed",
+        "tests": 179
+      },
+      {
+        "file": "App.sessionCommands.test.tsx",
+        "status": "passed",
+        "tests": 117
+      },
+      {
+        "file": "screens/interiors/BuildingInteriors.board.test.tsx",
+        "status": "passed",
+        "tests": 121
+      },
+      {
+        "file": "services/model.test.ts",
+        "status": "passed",
+        "tests": 122
+      },
+      {
+        "file": "services/push.test.ts",
+        "status": "passed",
+        "tests": 120
+      },
+      {
+        "file": "services/islandRealtime.test.ts",
+        "status": "passed",
+        "tests": 113
+      },
+      {
+        "file": "screens/island/WorldMap.movement.test.tsx",
+        "status": "passed",
+        "tests": 64
+      },
+      {
+        "file": "screens/island/Telescope.test.tsx",
+        "status": "passed",
+        "tests": 117
+      },
+      {
+        "file": "screens/island/WorldMap.test.tsx",
+        "status": "passed",
+        "tests": 69
+      },
+      {
+        "file": "screens/island/CurrentScreens.goldenFish.test.tsx",
+        "status": "passed",
+        "tests": 66
+      },
+      {
+        "file": "screens/focus/FishingIsland.test.ts",
+        "status": "passed",
+        "tests": 63
+      },
+      {
+        "file": "screens/sea/SeaVoyageHost.test.tsx",
+        "status": "passed",
+        "tests": 66
+      },
+      {
+        "file": "screens/interiors/useIslandManagement.test.tsx",
+        "status": "passed",
+        "tests": 45
+      },
+      {
+        "file": "screens/magazine/PromotionEditor.test.tsx",
+        "status": "passed",
+        "tests": 53
+      },
+      {
+        "file": "screens/island/Hall.management.test.tsx",
+        "status": "passed",
+        "tests": 52
+      },
+      {
+        "file": "services/islandCommands.test.ts",
+        "status": "passed",
+        "tests": 65
+      },
+      {
+        "file": "screens/interiors/useBoardNotices.test.tsx",
+        "status": "passed",
+        "tests": 51
+      },
+      {
+        "file": "services/api/session.test.ts",
+        "status": "passed",
+        "tests": 51
+      },
+      {
+        "file": "services/api/auth.test.ts",
+        "status": "passed",
+        "tests": 48
+      },
+      {
+        "file": "screens/focus/useFishingPeerActors.test.tsx",
+        "status": "passed",
+        "tests": 33
+      },
+      {
+        "file": "screens/island/CurrentScreens.screenTime.test.tsx",
+        "status": "passed",
+        "tests": 57
+      },
+      {
+        "file": "services/sessionCommands.test.ts",
+        "status": "passed",
+        "tests": 45
+      },
+      {
+        "file": "screens/interiors/Guestbook.test.tsx",
+        "status": "passed",
+        "tests": 46
+      },
+      {
+        "file": "services/api/client.test.ts",
+        "status": "passed",
+        "tests": 56
+      },
+      {
+        "file": "screens/interiors/BuildingInteriors.mail.test.tsx",
+        "status": "passed",
+        "tests": 29
+      },
+      {
+        "file": "screens/island/Hall.ledger.test.tsx",
+        "status": "passed",
+        "tests": 21
+      },
+      {
+        "file": "screens/island/CurrentScreens.routing.test.tsx",
+        "status": "passed",
+        "tests": 48
+      },
+      {
+        "file": "screens/interiors/useMailbox.test.tsx",
+        "status": "passed",
+        "tests": 37
+      },
+      {
+        "file": "screens/sea/SeaScreen.test.tsx",
+        "status": "passed",
+        "tests": 34
+      },
+      {
+        "file": "screens/focus/VerificationSetup.test.tsx",
+        "status": "passed",
+        "tests": 27
+      },
+      {
+        "file": "screens/island/useConstruction.test.tsx",
+        "status": "passed",
+        "tests": 20
+      },
+      {
+        "file": "screens/island/WorldMap.tileIsland.test.tsx",
+        "status": "passed",
+        "tests": 34
+      },
+      {
+        "file": "screens/island/Library.screenTime.test.tsx",
+        "status": "passed",
+        "tests": 41
+      },
+      {
+        "file": "services/movementSync.test.ts",
+        "status": "passed",
+        "tests": 32
+      },
+      {
+        "file": "services/seaRealtime.test.ts",
+        "status": "passed",
+        "tests": 31
+      },
+      {
+        "file": "screens/island/ServerBuildCard.test.tsx",
+        "status": "passed",
+        "tests": 21
+      },
+      {
+        "file": "screens/magazine/MagazineReader.test.tsx",
+        "status": "passed",
+        "tests": 29
+      },
+      {
+        "file": "screens/island/RaftDestinations.test.tsx",
+        "status": "passed",
+        "tests": 30
+      },
+      {
+        "file": "screens/island/CurrentScreens.facilities.test.tsx",
+        "status": "passed",
+        "tests": 36
+      },
+      {
+        "file": "screens/island/useShop.test.tsx",
+        "status": "passed",
+        "tests": 22
+      },
+      {
+        "file": "screens/island/ObservatorySearch.test.tsx",
+        "status": "passed",
+        "tests": 33
+      },
+      {
+        "file": "services/assets/repository.test.ts",
+        "status": "passed",
+        "tests": 28
+      },
+      {
+        "file": "services/mapAssets.test.ts",
+        "status": "passed",
+        "tests": 20
+      },
+      {
+        "file": "screens/focus/VerificationSession.test.tsx",
+        "status": "passed",
+        "tests": 23
+      },
+      {
+        "file": "screens/focus/VerificationCamera.test.tsx",
+        "status": "passed",
+        "tests": 23
+      },
+      {
+        "file": "config/kakaoAndroidConfig.test.js",
+        "status": "passed",
+        "tests": 7
+      },
+      {
+        "file": "screens/island/useFriendsScreen.test.tsx",
+        "status": "passed",
+        "tests": 25
+      },
+      {
+        "file": "services/memberConversion.test.ts",
+        "status": "passed",
+        "tests": 21
+      },
+      {
+        "file": "App.hardwareBack.test.tsx",
+        "status": "passed",
+        "tests": 16
+      },
+      {
+        "file": "screens/island/Hall.construction.test.tsx",
+        "status": "passed",
+        "tests": 19
+      },
+      {
+        "file": "components/CatSprite.test.tsx",
+        "status": "passed",
+        "tests": 22
+      },
+      {
+        "file": "services/api/islands.test.ts",
+        "status": "passed",
+        "tests": 28
+      },
+      {
+        "file": "i18n/index.test.ts",
+        "status": "passed",
+        "tests": 20
+      },
+      {
+        "file": "services/buildingIndicators.test.ts",
+        "status": "passed",
+        "tests": 19
+      },
+      {
+        "file": "screens/island/VisitorBoard.test.tsx",
+        "status": "passed",
+        "tests": 15
+      },
+      {
+        "file": "screens/island/Screens.friends.test.tsx",
+        "status": "passed",
+        "tests": 12
+      },
+      {
+        "file": "services/api/islandManagement.test.ts",
+        "status": "passed",
+        "tests": 19
+      },
+      {
+        "file": "utils/nav-path.test.ts",
+        "status": "passed",
+        "tests": 62
+      },
+      {
+        "file": "services/api/home.test.ts",
+        "status": "passed",
+        "tests": 13
+      },
+      {
+        "file": "services/api/telescope.test.ts",
+        "status": "passed",
+        "tests": 22
+      },
+      {
+        "file": "services/buildingTransition.test.ts",
+        "status": "passed",
+        "tests": 19
+      },
+      {
+        "file": "screens/island/CatInfoPopup.test.tsx",
+        "status": "passed",
+        "tests": 14
+      },
+      {
+        "file": "screens/island/Screens.wardrobe.test.tsx",
+        "status": "passed",
+        "tests": 11
+      },
+      {
+        "file": "design-system/patterns.test.tsx",
+        "status": "passed",
+        "tests": 23
+      },
+      {
+        "file": "screens/focus/FishingIsland.renderCount.test.tsx",
+        "status": "passed",
+        "tests": 15
+      },
+      {
+        "file": "screens/island/useLedgerScreen.test.tsx",
+        "status": "passed",
+        "tests": 13
+      },
+      {
+        "file": "services/legacyUserData.test.ts",
+        "status": "passed",
+        "tests": 16
+      },
+      {
+        "file": "screens/focus/RestGroup.test.ts",
+        "status": "passed",
+        "tests": 15
+      },
+      {
+        "file": "services/posthog.test.ts",
+        "status": "passed",
+        "tests": 24
+      },
+      {
+        "file": "screens/onboarding/OnboardingFlow.test.tsx",
+        "status": "passed",
+        "tests": 15
+      },
+      {
+        "file": "services/api/magazine.test.ts",
+        "status": "passed",
+        "tests": 23
+      },
+      {
+        "file": "screens/magazine/layout.test.ts",
+        "status": "passed",
+        "tests": 42
+      },
+      {
+        "file": "screens/onboarding/FirstVoyage.test.tsx",
+        "status": "passed",
+        "tests": 14
+      },
+      {
+        "file": "screens/focus/useIslandPresence.test.tsx",
+        "status": "passed",
+        "tests": 16
+      },
+      {
+        "file": "screens/island/IslandSheet.test.tsx",
+        "status": "passed",
+        "tests": 19
+      },
+      {
+        "file": "screens/island/useIslandChat.test.tsx",
+        "status": "passed",
+        "tests": 14
+      },
+      {
+        "file": "screens/island/CurrentScreens.visitGreeting.test.tsx",
+        "status": "passed",
+        "tests": 10
+      },
+      {
+        "file": "screens/magazine/MagazineDelivery.test.tsx",
+        "status": "passed",
+        "tests": 11
+      },
+      {
+        "file": "screens/island/TileTerrainCanvas.test.tsx",
+        "status": "passed",
+        "tests": 17
+      },
+      {
+        "file": "screens/island/IslandChatSheet.test.tsx",
+        "status": "passed",
+        "tests": 13
+      },
+      {
+        "file": "App.focusShield.test.tsx",
+        "status": "passed",
+        "tests": 15
+      },
+      {
+        "file": "services/customizationCatalog.test.ts",
+        "status": "passed",
+        "tests": 11
+      },
+      {
+        "file": "services/blockedUsers.test.ts",
+        "status": "passed",
+        "tests": 16
+      },
+      {
+        "file": "services/appDeepLink.test.ts",
+        "status": "passed",
+        "tests": 53
+      },
+      {
+        "file": "screens/island/CatInteractive.test.tsx",
+        "status": "passed",
+        "tests": 8
+      },
+      {
+        "file": "screens/island/DeveloperNoticesScreen.test.tsx",
+        "status": "passed",
+        "tests": 11
+      },
+      {
+        "file": "screens/island/Screens.shop.test.tsx",
+        "status": "passed",
+        "tests": 7
+      },
+      {
+        "file": "services/socialLogin.test.ts",
+        "status": "passed",
+        "tests": 23
+      },
+      {
+        "file": "services/nativeLifecycle.test.ts",
+        "status": "passed",
+        "tests": 22
+      },
+      {
+        "file": "components/CatOutfitLayers.test.tsx",
+        "status": "passed",
+        "tests": 7
+      },
+      {
+        "file": "screens/island/CurrentScreens.kicked.test.tsx",
+        "status": "passed",
+        "tests": 6
+      },
+      {
+        "file": "screens/island/useBuildingIndicators.test.tsx",
+        "status": "passed",
+        "tests": 9
+      },
+      {
+        "file": "utils/nav-path.fixture.test.ts",
+        "status": "passed",
+        "tests": 2
+      },
+      {
+        "file": "services/tutorial.test.ts",
+        "status": "passed",
+        "tests": 25
+      },
+      {
+        "file": "screens/island/useBoardHomeIndicator.test.ts",
+        "status": "passed",
+        "tests": 7
+      },
+      {
+        "file": "App.reduceMotion.test.tsx",
+        "status": "passed",
+        "tests": 8
+      },
+      {
+        "file": "services/api/quests.test.ts",
+        "status": "passed",
+        "tests": 10
+      },
+      {
+        "file": "services/api/records.test.ts",
+        "status": "passed",
+        "tests": 20
+      },
+      {
+        "file": "screens/island/CurrentScreens.visitEmote.test.tsx",
+        "status": "passed",
+        "tests": 8
+      },
+      {
+        "file": "screens/island/Telescope.arrivalKey.test.tsx",
+        "status": "passed",
+        "tests": 8
+      },
+      {
+        "file": "services/androidScreenTime.test.ts",
+        "status": "passed",
+        "tests": 19
+      },
+      {
+        "file": "services/screentimeSync.test.ts",
+        "status": "passed",
+        "tests": 14
+      },
+      {
+        "file": "screens/island/NpcGuide.test.tsx",
+        "status": "passed",
+        "tests": 18
+      },
+      {
+        "file": "App.forceUpdate.test.tsx",
+        "status": "passed",
+        "tests": 8
+      },
+      {
+        "file": "App.locale.test.tsx",
+        "status": "passed",
+        "tests": 3
+      },
+      {
+        "file": "services/studyWidget.test.ts",
+        "status": "passed",
+        "tests": 14
+      },
+      {
+        "file": "App.developerLetter.test.tsx",
+        "status": "passed",
+        "tests": 9
+      },
+      {
+        "file": "screens/island/CurrentScreens.visitHud.test.tsx",
+        "status": "passed",
+        "tests": 17
+      },
+      {
+        "file": "services/api/focusSessions.test.ts",
+        "status": "passed",
+        "tests": 13
+      },
+      {
+        "file": "services/api/deviceToken.test.ts",
+        "status": "passed",
+        "tests": 7
+      },
+      {
+        "file": "screens/island/useLibraryDiary.test.tsx",
+        "status": "passed",
+        "tests": 12
+      },
+      {
+        "file": "components/ConstructionBuildingSprite.test.tsx",
+        "status": "passed",
+        "tests": 8
+      },
+      {
+        "file": "screens/island/BlockedUsersScreen.test.tsx",
+        "status": "passed",
+        "tests": 11
+      },
+      {
+        "file": "services/api/magazineMock.test.ts",
+        "status": "passed",
+        "tests": 10
+      },
+      {
+        "file": "screens/island/WorldMap.renderCount.test.tsx",
+        "status": "passed",
+        "tests": 3
+      },
+      {
+        "file": "screens/letter/useDeveloperLetter.test.tsx",
+        "status": "passed",
+        "tests": 11
+      },
+      {
+        "file": "screens/focus/FiButton.test.tsx",
+        "status": "passed",
+        "tests": 12
+      },
+      {
+        "file": "screens/island/useIslandSearch.test.tsx",
+        "status": "passed",
+        "tests": 11
+      },
+      {
+        "file": "screens/island/HomeChatLog.test.tsx",
+        "status": "passed",
+        "tests": 13
+      },
+      {
+        "file": "components/UserSafetySheet.test.tsx",
+        "status": "passed",
+        "tests": 11
+      },
+      {
+        "file": "screens/focus/GoldenFishCutscene.test.tsx",
+        "status": "passed",
+        "tests": 6
+      },
+      {
+        "file": "services/api/letters.test.ts",
+        "status": "passed",
+        "tests": 10
+      },
+      {
+        "file": "services/api/notices.test.ts",
+        "status": "passed",
+        "tests": 10
+      },
+      {
+        "file": "components/catFit.test.ts",
+        "status": "passed",
+        "tests": 6
+      },
+      {
+        "file": "services/homeSnapshot.test.ts",
+        "status": "passed",
+        "tests": 12
+      },
+      {
+        "file": "components/AndroidAppPicker.test.tsx",
+        "status": "passed",
+        "tests": 9
+      },
+      {
+        "file": "screens/world/Sailing.test.tsx",
+        "status": "passed",
+        "tests": 26
+      },
+      {
+        "file": "screens/island/useIslandPlayback.test.tsx",
+        "status": "passed",
+        "tests": 7
+      },
+      {
+        "file": "services/api/friends.test.ts",
+        "status": "passed",
+        "tests": 8
+      },
+      {
+        "file": "screens/world/HarborCutscene.test.tsx",
+        "status": "passed",
+        "tests": 8
+      },
+      {
+        "file": "services/socialAnalytics.test.ts",
+        "status": "passed",
+        "tests": 7
+      },
+      {
+        "file": "screens/world/harborMotion.test.ts",
+        "status": "passed",
+        "tests": 12
+      },
+      {
+        "file": "App.audio.test.tsx",
+        "status": "passed",
+        "tests": 14
+      },
+      {
+        "file": "config/googleClientIds.test.js",
+        "status": "passed",
+        "tests": 5
+      },
+      {
+        "file": "screens/magazine/AdCell.test.tsx",
+        "status": "passed",
+        "tests": 13
+      },
+      {
+        "file": "design-system/tokens.test.ts",
+        "status": "passed",
+        "tests": 10
+      },
+      {
+        "file": "services/screenTimeReporting.test.ts",
+        "status": "passed",
+        "tests": 10
+      },
+      {
+        "file": "screens/letter/DeveloperLetter.test.tsx",
+        "status": "passed",
+        "tests": 11
+      },
+      {
+        "file": "services/assets/contracts.test.ts",
+        "status": "passed",
+        "tests": 34
+      },
+      {
+        "file": "services/liveActivityPush.test.ts",
+        "status": "passed",
+        "tests": 8
+      },
+      {
+        "file": "services/screenTimeWindow.test.ts",
+        "status": "passed",
+        "tests": 16
+      },
+      {
+        "file": "screens/sea/SeaArrivalResult.test.tsx",
+        "status": "passed",
+        "tests": 5
+      },
+      {
+        "file": "services/memberLookCache.test.ts",
+        "status": "passed",
+        "tests": 10
+      },
+      {
+        "file": "screens/interiors/BuildingInteriors.assets.test.tsx",
+        "status": "passed",
+        "tests": 5
+      },
+      {
+        "file": "screens/LoginScreen.test.tsx",
+        "status": "passed",
+        "tests": 8
+      },
+      {
+        "file": "screens/island/useTelescope.test.tsx",
+        "status": "passed",
+        "tests": 6
+      },
+      {
+        "file": "services/api/townHall.test.ts",
+        "status": "passed",
+        "tests": 6
+      },
+      {
+        "file": "services/movementStats.test.ts",
+        "status": "passed",
+        "tests": 8
+      },
+      {
+        "file": "services/api/shop.test.ts",
+        "status": "passed",
+        "tests": 9
+      },
+      {
+        "file": "components/ScreenTimeReportView.test.tsx",
+        "status": "passed",
+        "tests": 6
+      },
+      {
+        "file": "screens/island/ServerVisit.test.tsx",
+        "status": "passed",
+        "tests": 8
+      },
+      {
+        "file": "screens/island/WorldMap.tileIslandOff.test.tsx",
+        "status": "passed",
+        "tests": 2
+      },
+      {
+        "file": "App.screenTimeDaily.test.tsx",
+        "status": "passed",
+        "tests": 3
+      },
+      {
+        "file": "screens/island/TileFacilityDecoration.test.tsx",
+        "status": "passed",
+        "tests": 7
+      },
+      {
+        "file": "App.toastKeyboard.test.tsx",
+        "status": "passed",
+        "tests": 2
+      },
+      {
+        "file": "services/islandContext.test.ts",
+        "status": "passed",
+        "tests": 8
+      },
+      {
+        "file": "screens/letter/useForceUpdateLetter.test.tsx",
+        "status": "passed",
+        "tests": 16
+      },
+      {
+        "file": "services/tutorialExperience.test.ts",
+        "status": "passed",
+        "tests": 10
+      },
+      {
+        "file": "screens/island/HomeQuestIndicator.test.tsx",
+        "status": "passed",
+        "tests": 7
+      },
+      {
+        "file": "services/api/focusSessions.production.test.ts",
+        "status": "passed",
+        "tests": 7
+      },
+      {
+        "file": "App.clock.test.tsx",
+        "status": "passed",
+        "tests": 2
+      },
+      {
+        "file": "screens/island/useVisitorJoin.test.tsx",
+        "status": "passed",
+        "tests": 10
+      },
+      {
+        "file": "services/developerLetter.test.ts",
+        "status": "passed",
+        "tests": 31
+      },
+      {
+        "file": "components/village-motion/LibraryMotion.test.tsx",
+        "status": "passed",
+        "tests": 10
+      },
+      {
+        "file": "services/studyVerification/sessionResult.test.ts",
+        "status": "passed",
+        "tests": 8
+      },
+      {
+        "file": "components/village-motion/FireMotion.test.tsx",
+        "status": "passed",
+        "tests": 8
+      },
+      {
+        "file": "screens/island/useAccountGuides.test.tsx",
+        "status": "passed",
+        "tests": 4
+      },
+      {
+        "file": "components/village-motion/nightMotion.test.tsx",
+        "status": "passed",
+        "tests": 3
+      },
+      {
+        "file": "App.bootConcurrency.test.tsx",
+        "status": "passed",
+        "tests": 1
+      },
+      {
+        "file": "components/CatAvatar.test.tsx",
+        "status": "passed",
+        "tests": 7
+      },
+      {
+        "file": "assets/village-world/v1/nav.test.ts",
+        "status": "passed",
+        "tests": 10
+      },
+      {
+        "file": "services/unseenOutfits.test.ts",
+        "status": "passed",
+        "tests": 5
+      },
+      {
+        "file": "screens/focus/FocusResultSummary.test.tsx",
+        "status": "passed",
+        "tests": 5
+      },
+      {
+        "file": "services/api/rankings.test.ts",
+        "status": "passed",
+        "tests": 8
+      },
+      {
+        "file": "screens/island/IslandOcean.test.tsx",
+        "status": "passed",
+        "tests": 8
+      },
+      {
+        "file": "screens/island/Screens.shopBalance.test.tsx",
+        "status": "passed",
+        "tests": 1
+      },
+      {
+        "file": "services/api/islands.guestbook.test.ts",
+        "status": "passed",
+        "tests": 8
+      },
+      {
+        "file": "utils/island-layout.test.ts",
+        "status": "passed",
+        "tests": 15
+      },
+      {
+        "file": "hooks/useSoundPlayer.test.ts",
+        "status": "passed",
+        "tests": 7
+      },
+      {
+        "file": "screens/magazine/usePromotionNewsToast.test.tsx",
+        "status": "passed",
+        "tests": 8
+      },
+      {
+        "file": "services/islandBoot.test.ts",
+        "status": "passed",
+        "tests": 9
+      },
+      {
+        "file": "services/datadog.test.ts",
+        "status": "passed",
+        "tests": 6
+      },
+      {
+        "file": "components/village-motion/VillageHallMotion.test.tsx",
+        "status": "passed",
+        "tests": 4
+      },
+      {
+        "file": "App.confirmModal.test.tsx",
+        "status": "passed",
+        "tests": 4
+      },
+      {
+        "file": "services/api/account.test.ts",
+        "status": "passed",
+        "tests": 5
+      },
+      {
+        "file": "screens/island/useInviteShare.test.ts",
+        "status": "passed",
+        "tests": 6
+      },
+      {
+        "file": "utils/questWindowTz.test.ts",
+        "status": "passed",
+        "tests": 6
+      },
+      {
+        "file": "services/metaSdk.test.ts",
+        "status": "passed",
+        "tests": 13
+      },
+      {
+        "file": "screens/focus/FishingIsland.actorMotion.test.tsx",
+        "status": "passed",
+        "tests": 4
+      },
+      {
+        "file": "screens/focus/RestGroup.outfit.test.tsx",
+        "status": "passed",
+        "tests": 4
+      },
+      {
+        "file": "services/assets/nativeAdapter.test.ts",
+        "status": "passed",
+        "tests": 6
+      },
+      {
+        "file": "screens/island/IslandNamingModal.test.tsx",
+        "status": "passed",
+        "tests": 4
+      },
+      {
+        "file": "components/village-motion/VillageObservatoryMotion.test.tsx",
+        "status": "passed",
+        "tests": 3
+      },
+      {
+        "file": "services/airbridge.test.ts",
+        "status": "passed",
+        "tests": 8
+      },
+      {
+        "file": "screens/focus/FishingSceneMotion.test.ts",
+        "status": "passed",
+        "tests": 3
+      },
+      {
+        "file": "components/village-motion/VillageBoardIndicator.test.tsx",
+        "status": "passed",
+        "tests": 4
+      },
+      {
+        "file": "components/village-motion/ShopMotion.test.tsx",
+        "status": "passed",
+        "tests": 7
+      },
+      {
+        "file": "services/api/safety.test.ts",
+        "status": "passed",
+        "tests": 4
+      },
+      {
+        "file": "screens/island/BuildingTransitionOverlay.test.tsx",
+        "status": "passed",
+        "tests": 5
+      },
+      {
+        "file": "services/accountGuides.test.ts",
+        "status": "passed",
+        "tests": 6
+      },
+      {
+        "file": "screens/island/RaftDestinationScene.test.tsx",
+        "status": "passed",
+        "tests": 4
+      },
+      {
+        "file": "components/PolicyLink.test.tsx",
+        "status": "passed",
+        "tests": 7
+      },
+      {
+        "file": "screens/island/useIslandSailing.test.tsx",
+        "status": "passed",
+        "tests": 4
+      },
+      {
+        "file": "services/api/islands.focusRest.test.ts",
+        "status": "passed",
+        "tests": 3
+      },
+      {
+        "file": "screens/island/useIslandRankings.test.tsx",
+        "status": "passed",
+        "tests": 4
+      },
+      {
+        "file": "constants/magazineAssets.test.ts",
+        "status": "passed",
+        "tests": 13
+      },
+      {
+        "file": "services/analyticsDevice.test.ts",
+        "status": "passed",
+        "tests": 13
+      },
+      {
+        "file": "design-system/typography.test.tsx",
+        "status": "passed",
+        "tests": 2
+      },
+      {
+        "file": "services/restore.test.ts",
+        "status": "passed",
+        "tests": 6
+      },
+      {
+        "file": "utils/island-camera.test.ts",
+        "status": "passed",
+        "tests": 6
+      },
+      {
+        "file": "services/memberAppearance.test.ts",
+        "status": "passed",
+        "tests": 5
+      },
+      {
+        "file": "screens/island/tileFacilities.test.ts",
+        "status": "passed",
+        "tests": 16
+      },
+      {
+        "file": "assets/village-world/v1/tilemap.test.ts",
+        "status": "passed",
+        "tests": 9
+      },
+      {
+        "file": "components/catMotion.test.ts",
+        "status": "passed",
+        "tests": 7
+      },
+      {
+        "file": "screens/island/navDebugClock.test.ts",
+        "status": "passed",
+        "tests": 5
+      },
+      {
+        "file": "i18n/format.test.ts",
+        "status": "passed",
+        "tests": 7
+      },
+      {
+        "file": "services/liveActivity.test.ts",
+        "status": "passed",
+        "tests": 10
+      },
+      {
+        "file": "screens/island/HomeNavigationHud.test.tsx",
+        "status": "passed",
+        "tests": 4
+      },
+      {
+        "file": "services/onboardingRestore.test.ts",
+        "status": "passed",
+        "tests": 8
+      },
+      {
+        "file": "utils/worldCoords.test.ts",
+        "status": "passed",
+        "tests": 8
+      },
+      {
+        "file": "services/PostHogAnalyticsProvider.test.tsx",
+        "status": "passed",
+        "tests": 2
+      },
+      {
+        "file": "services/assets/channelClient.test.ts",
+        "status": "passed",
+        "tests": 3
+      },
+      {
+        "file": "services/activationJourney.test.ts",
+        "status": "passed",
+        "tests": 5
+      },
+      {
+        "file": "utils/village-world.test.ts",
+        "status": "passed",
+        "tests": 4
+      },
+      {
+        "file": "screens/world/DepartureStory.test.tsx",
+        "status": "passed",
+        "tests": 4
+      },
+      {
+        "file": "components/village-motion/RaftWaterMotion.test.tsx",
+        "status": "passed",
+        "tests": 5
+      },
+      {
+        "file": "services/studyVerification/focusDetection.test.ts",
+        "status": "passed",
+        "tests": 9
+      },
+      {
+        "file": "services/studyVerification/studyObjects.test.ts",
+        "status": "passed",
+        "tests": 9
+      },
+      {
+        "file": "services/airbridgeBuildConfig.test.ts",
+        "status": "passed",
+        "tests": 7
+      },
+      {
+        "file": "i18n/customization.test.ts",
+        "status": "passed",
+        "tests": 3
+      },
+      {
+        "file": "components/VideoCutscene.test.tsx",
+        "status": "passed",
+        "tests": 2
+      },
+      {
+        "file": "screens/island/library/diaryData.test.ts",
+        "status": "passed",
+        "tests": 3
+      },
+      {
+        "file": "screens/island/memberGate.test.ts",
+        "status": "passed",
+        "tests": 4
+      },
+      {
+        "file": "services/api/playback.test.ts",
+        "status": "passed",
+        "tests": 1
+      },
+      {
+        "file": "screens/island/useConstructionAnnouncements.test.tsx",
+        "status": "passed",
+        "tests": 2
+      },
+      {
+        "file": "services/screenTimeFlow.test.ts",
+        "status": "passed",
+        "tests": 49
+      },
+      {
+        "file": "screens/island/CoastalAtlas.test.tsx",
+        "status": "passed",
+        "tests": 1
+      },
+      {
+        "file": "utils/world-grid.test.ts",
+        "status": "passed",
+        "tests": 3
+      },
+      {
+        "file": "screens/onboarding/StoryRaft.test.tsx",
+        "status": "passed",
+        "tests": 18
+      },
+      {
+        "file": "services/firstVoyage.test.ts",
+        "status": "passed",
+        "tests": 2
+      },
+      {
+        "file": "config/metroConfig.test.js",
+        "status": "passed",
+        "tests": 2
+      },
+      {
+        "file": "components/RouteTransitionShield.test.tsx",
+        "status": "passed",
+        "tests": 4
+      },
+      {
+        "file": "screens/island/sceneKit.test.ts",
+        "status": "passed",
+        "tests": 2
+      },
+      {
+        "file": "services/verificationNativeConfig.test.ts",
+        "status": "passed",
+        "tests": 2
+      },
+      {
+        "file": "utils/orientation.test.ts",
+        "status": "passed",
+        "tests": 3
+      },
+      {
+        "file": "services/api/developerNotices.test.ts",
+        "status": "passed",
+        "tests": 4
+      },
+      {
+        "file": "screens/sea/SeaPreview.test.tsx",
+        "status": "passed",
+        "tests": 1
+      },
+      {
+        "file": "constants/cat-idle-atlases.test.ts",
+        "status": "passed",
+        "tests": 6
+      },
+      {
+        "file": "screens/island/ConstructionMotionPreview.test.tsx",
+        "status": "passed",
+        "tests": 1
+      },
+      {
+        "file": "services/screenTime.test.ts",
+        "status": "passed",
+        "tests": 3
+      },
+      {
+        "file": "screens/island/constructionProgress.test.ts",
+        "status": "passed",
+        "tests": 3
+      },
+      {
+        "file": "services/studyVerification/palmScore.test.ts",
+        "status": "passed",
+        "tests": 7
+      },
+      {
+        "file": "config/metaAndroidBuildConfig.test.js",
+        "status": "passed",
+        "tests": 4
+      },
+      {
+        "file": "components/village-motion/VillageNotificationBadge.test.tsx",
+        "status": "passed",
+        "tests": 1
+      },
+      {
+        "file": "services/routeTransition.test.ts",
+        "status": "passed",
+        "tests": 2
+      },
+      {
+        "file": "screens/island/VillageScenery.test.tsx",
+        "status": "passed",
+        "tests": 1
+      },
+      {
+        "file": "services/api/screenTime.test.ts",
+        "status": "passed",
+        "tests": 2
+      },
+      {
+        "file": "services/withdrawalIntent.test.ts",
+        "status": "passed",
+        "tests": 6
+      },
+      {
+        "file": "services/ScreenTimeModule.test.ts",
+        "status": "passed",
+        "tests": 3
+      },
+      {
+        "file": "screens/cosmetics/Cosmetics.test.tsx",
+        "status": "passed",
+        "tests": 1
+      },
+      {
+        "file": "utils/orientation.lock.test.tsx",
+        "status": "passed",
+        "tests": 1
+      },
+      {
+        "file": "hooks/useFocusTutorialViewed.test.ts",
+        "status": "passed",
+        "tests": 1
+      },
+      {
+        "file": "services/loginProviders.test.ts",
+        "status": "passed",
+        "tests": 7
+      },
+      {
+        "file": "utils/sha256.test.ts",
+        "status": "passed",
+        "tests": 2
+      },
+      {
+        "file": "utils/codePoints.test.ts",
+        "status": "passed",
+        "tests": 2
+      },
+      {
+        "file": "services/termsVersion.test.ts",
+        "status": "passed",
+        "tests": 1
+      },
+      {
+        "file": "screens/focus/catchAssets.test.ts",
+        "status": "passed",
+        "tests": 7
+      }
+    ]
+  },
+  "after": {
+    "suites": 267,
+    "tests": 4580,
+    "passedSuites": 267,
+    "passedTests": 4580,
+    "success": true,
+    "suiteResults": [
+      {
+        "file": "screens/interiors/BuildingInteriors.board.test.tsx",
+        "status": "passed",
+        "tests": 121
+      },
+      {
+        "file": "App.sessionCommands.test.tsx",
+        "status": "passed",
+        "tests": 117
+      },
+      {
+        "file": "screens/island/WorldMap.test.tsx",
+        "status": "passed",
+        "tests": 69
+      },
+      {
+        "file": "screens/island/WorldMap.movement.test.tsx",
+        "status": "passed",
+        "tests": 64
+      },
+      {
+        "file": "screens/island/CurrentScreens.screenTime.test.tsx",
+        "status": "passed",
+        "tests": 57
+      },
+      {
+        "file": "App.hardwareBack.test.tsx",
+        "status": "passed",
+        "tests": 16
+      },
+      {
+        "file": "screens/island/Screens.test.tsx",
+        "status": "passed",
+        "tests": 179
+      },
+      {
+        "file": "screens/island/CurrentScreens.goldenFish.test.tsx",
+        "status": "passed",
+        "tests": 66
+      },
+      {
+        "file": "screens/interiors/BuildingInteriors.mail.test.tsx",
+        "status": "passed",
+        "tests": 29
+      },
+      {
+        "file": "screens/island/WorldMap.tileIsland.test.tsx",
+        "status": "passed",
+        "tests": 34
+      },
+      {
+        "file": "screens/island/CurrentScreens.routing.test.tsx",
+        "status": "passed",
+        "tests": 48
+      },
+      {
+        "file": "screens/island/CurrentScreens.visitGreeting.test.tsx",
+        "status": "passed",
+        "tests": 10
+      },
+      {
+        "file": "screens/magazine/PromotionEditor.test.tsx",
+        "status": "passed",
+        "tests": 53
+      },
+      {
+        "file": "screens/focus/RestGroup.test.ts",
+        "status": "passed",
+        "tests": 15
+      },
+      {
+        "file": "screens/island/Screens.friends.test.tsx",
+        "status": "passed",
+        "tests": 12
+      },
+      {
+        "file": "screens/onboarding/OnboardingFlow.test.tsx",
+        "status": "passed",
+        "tests": 15
+      },
+      {
+        "file": "App.locale.test.tsx",
+        "status": "passed",
+        "tests": 3
+      },
+      {
+        "file": "screens/focus/FishingIsland.renderCount.test.tsx",
+        "status": "passed",
+        "tests": 15
+      },
+      {
+        "file": "screens/island/Hall.ledger.test.tsx",
+        "status": "passed",
+        "tests": 21
+      },
+      {
+        "file": "screens/sea/SeaScreen.test.tsx",
+        "status": "passed",
+        "tests": 34
+      },
+      {
+        "file": "services/api/magazineMock.test.ts",
+        "status": "passed",
+        "tests": 10
+      },
+      {
+        "file": "screens/magazine/MagazineDelivery.test.tsx",
+        "status": "passed",
+        "tests": 11
+      },
+      {
+        "file": "screens/magazine/MagazineReader.test.tsx",
+        "status": "passed",
+        "tests": 29
+      },
+      {
+        "file": "screens/focus/FiButton.test.tsx",
+        "status": "passed",
+        "tests": 12
+      },
+      {
+        "file": "screens/island/Screens.shopBalance.test.tsx",
+        "status": "passed",
+        "tests": 1
+      },
+      {
+        "file": "screens/world/Sailing.test.tsx",
+        "status": "passed",
+        "tests": 26
+      },
+      {
+        "file": "components/CatSprite.test.tsx",
+        "status": "passed",
+        "tests": 22
+      },
+      {
+        "file": "App.developerLetter.test.tsx",
+        "status": "passed",
+        "tests": 9
+      },
+      {
+        "file": "screens/island/CurrentScreens.kicked.test.tsx",
+        "status": "passed",
+        "tests": 6
+      },
+      {
+        "file": "App.clock.test.tsx",
+        "status": "passed",
+        "tests": 2
+      },
+      {
+        "file": "screens/island/Hall.construction.test.tsx",
+        "status": "passed",
+        "tests": 19
+      },
+      {
+        "file": "screens/focus/useFishingPeerActors.test.tsx",
+        "status": "passed",
+        "tests": 33
+      },
+      {
+        "file": "screens/island/Telescope.test.tsx",
+        "status": "passed",
+        "tests": 117
+      },
+      {
+        "file": "screens/island/CurrentScreens.visitHud.test.tsx",
+        "status": "passed",
+        "tests": 17
+      },
+      {
+        "file": "screens/island/CurrentScreens.facilities.test.tsx",
+        "status": "passed",
+        "tests": 36
+      },
+      {
+        "file": "screens/focus/RestGroup.outfit.test.tsx",
+        "status": "passed",
+        "tests": 4
+      },
+      {
+        "file": "screens/focus/FishingIsland.actorMotion.test.tsx",
+        "status": "passed",
+        "tests": 4
+      },
+      {
+        "file": "screens/island/ObservatorySearch.test.tsx",
+        "status": "passed",
+        "tests": 33
+      },
+      {
+        "file": "screens/interiors/BuildingInteriors.assets.test.tsx",
+        "status": "passed",
+        "tests": 5
+      },
+      {
+        "file": "screens/sea/SeaVoyageHost.test.tsx",
+        "status": "passed",
+        "tests": 66
+      },
+      {
+        "file": "screens/focus/FishingIsland.test.ts",
+        "status": "passed",
+        "tests": 62
+      },
+      {
+        "file": "App.focusShield.test.tsx",
+        "status": "passed",
+        "tests": 15
+      },
+      {
+        "file": "screens/island/CatInfoPopup.test.tsx",
+        "status": "passed",
+        "tests": 14
+      },
+      {
+        "file": "screens/focus/FocusResultSummary.test.tsx",
+        "status": "passed",
+        "tests": 5
+      },
+      {
+        "file": "screens/island/CurrentScreens.visitEmote.test.tsx",
+        "status": "passed",
+        "tests": 8
+      },
+      {
+        "file": "screens/island/ServerBuildCard.test.tsx",
+        "status": "passed",
+        "tests": 21
+      },
+      {
+        "file": "screens/interiors/Guestbook.test.tsx",
+        "status": "passed",
+        "tests": 46
+      },
+      {
+        "file": "App.audio.test.tsx",
+        "status": "passed",
+        "tests": 14
+      },
+      {
+        "file": "screens/sea/SeaPreview.test.tsx",
+        "status": "passed",
+        "tests": 1
+      },
+      {
+        "file": "screens/island/memberGate.test.ts",
+        "status": "passed",
+        "tests": 4
+      },
+      {
+        "file": "screens/focus/FishingSceneMotion.test.ts",
+        "status": "passed",
+        "tests": 3
+      },
+      {
+        "file": "screens/island/HomeNavigationHud.test.tsx",
+        "status": "passed",
+        "tests": 4
+      },
+      {
+        "file": "App.confirmModal.test.tsx",
+        "status": "passed",
+        "tests": 4
+      },
+      {
+        "file": "screens/island/NpcGuide.test.tsx",
+        "status": "passed",
+        "tests": 18
+      },
+      {
+        "file": "screens/island/RaftDestinations.test.tsx",
+        "status": "passed",
+        "tests": 30
+      },
+      {
+        "file": "screens/island/CatInteractive.test.tsx",
+        "status": "passed",
+        "tests": 8
+      },
+      {
+        "file": "screens/island/DeveloperNoticesScreen.test.tsx",
+        "status": "passed",
+        "tests": 11
+      },
+      {
+        "file": "screens/island/Screens.wardrobe.test.tsx",
+        "status": "passed",
+        "tests": 11
+      },
+      {
+        "file": "screens/island/Hall.management.test.tsx",
+        "status": "passed",
+        "tests": 52
+      },
+      {
+        "file": "screens/island/WorldMap.tileIslandOff.test.tsx",
+        "status": "passed",
+        "tests": 2
+      },
+      {
+        "file": "screens/island/WorldMap.renderCount.test.tsx",
+        "status": "passed",
+        "tests": 3
+      },
+      {
+        "file": "App.forceUpdate.test.tsx",
+        "status": "passed",
+        "tests": 8
+      },
+      {
+        "file": "screens/island/Library.screenTime.test.tsx",
+        "status": "passed",
+        "tests": 41
+      },
+      {
+        "file": "assets/village-world/v1/nav.test.ts",
+        "status": "passed",
+        "tests": 10
+      },
+      {
+        "file": "screens/island/Screens.shop.test.tsx",
+        "status": "passed",
+        "tests": 7
+      },
+      {
+        "file": "App.screenTimeDaily.test.tsx",
+        "status": "passed",
+        "tests": 3
+      },
+      {
+        "file": "screens/island/BlockedUsersScreen.test.tsx",
+        "status": "passed",
+        "tests": 11
+      },
+      {
+        "file": "screens/onboarding/StoryRaft.test.tsx",
+        "status": "passed",
+        "tests": 18
+      },
+      {
+        "file": "App.reduceMotion.test.tsx",
+        "status": "passed",
+        "tests": 8
+      },
+      {
+        "file": "components/UserSafetySheet.test.tsx",
+        "status": "passed",
+        "tests": 11
+      },
+      {
+        "file": "components/CatAvatar.test.tsx",
+        "status": "passed",
+        "tests": 7
+      },
+      {
+        "file": "screens/island/useFriendsScreen.test.tsx",
+        "status": "passed",
+        "tests": 25
+      },
+      {
+        "file": "screens/island/IslandChatSheet.test.tsx",
+        "status": "passed",
+        "tests": 13
+      },
+      {
+        "file": "screens/focus/VerificationSession.test.tsx",
+        "status": "passed",
+        "tests": 23
+      },
+      {
+        "file": "App.bootConcurrency.test.tsx",
+        "status": "passed",
+        "tests": 1
+      },
+      {
+        "file": "screens/island/IslandSheet.test.tsx",
+        "status": "passed",
+        "tests": 19
+      },
+      {
+        "file": "App.toastKeyboard.test.tsx",
+        "status": "passed",
+        "tests": 2
+      },
+      {
+        "file": "screens/letter/DeveloperLetter.test.tsx",
+        "status": "passed",
+        "tests": 11
+      },
+      {
+        "file": "screens/island/IslandNamingModal.test.tsx",
+        "status": "passed",
+        "tests": 4
+      },
+      {
+        "file": "screens/island/Telescope.arrivalKey.test.tsx",
+        "status": "passed",
+        "tests": 8
+      },
+      {
+        "file": "screens/island/ConstructionMotionPreview.test.tsx",
+        "status": "passed",
+        "tests": 1
+      },
+      {
+        "file": "screens/world/HarborCutscene.test.tsx",
+        "status": "passed",
+        "tests": 8
+      },
+      {
+        "file": "screens/island/VillageScenery.test.tsx",
+        "status": "passed",
+        "tests": 1
+      },
+      {
+        "file": "screens/LoginScreen.test.tsx",
+        "status": "passed",
+        "tests": 8
+      },
+      {
+        "file": "screens/island/RaftDestinationScene.test.tsx",
+        "status": "passed",
+        "tests": 4
+      },
+      {
+        "file": "design-system/patterns.test.tsx",
+        "status": "passed",
+        "tests": 23
+      },
+      {
+        "file": "screens/island/VisitorBoard.test.tsx",
+        "status": "passed",
+        "tests": 15
+      },
+      {
+        "file": "screens/island/HomeChatLog.test.tsx",
+        "status": "passed",
+        "tests": 13
+      },
+      {
+        "file": "screens/sea/SeaArrivalResult.test.tsx",
+        "status": "passed",
+        "tests": 5
+      },
+      {
+        "file": "screens/onboarding/FirstVoyage.test.tsx",
+        "status": "passed",
+        "tests": 14
+      },
+      {
+        "file": "screens/focus/GoldenFishCutscene.test.tsx",
+        "status": "passed",
+        "tests": 6
+      },
+      {
+        "file": "config/kakaoAndroidConfig.test.js",
+        "status": "passed",
+        "tests": 7
+      },
+      {
+        "file": "components/village-motion/ShopMotion.test.tsx",
+        "status": "passed",
+        "tests": 7
+      },
+      {
+        "file": "components/village-motion/VillageObservatoryMotion.test.tsx",
+        "status": "passed",
+        "tests": 3
+      },
+      {
+        "file": "screens/island/HomeQuestIndicator.test.tsx",
+        "status": "passed",
+        "tests": 7
+      },
+      {
+        "file": "screens/world/harborMotion.test.ts",
+        "status": "passed",
+        "tests": 12
+      },
+      {
+        "file": "screens/island/ServerVisit.test.tsx",
+        "status": "passed",
+        "tests": 8
+      },
+      {
+        "file": "screens/world/DepartureStory.test.tsx",
+        "status": "passed",
+        "tests": 4
+      },
+      {
+        "file": "components/VideoCutscene.test.tsx",
+        "status": "passed",
+        "tests": 2
+      },
+      {
+        "file": "config/metroConfig.test.js",
+        "status": "passed",
+        "tests": 2
+      },
+      {
+        "file": "components/village-motion/VillageHallMotion.test.tsx",
+        "status": "passed",
+        "tests": 4
+      },
+      {
+        "file": "hooks/useSoundPlayer.test.ts",
+        "status": "passed",
+        "tests": 7
+      },
+      {
+        "file": "components/village-motion/nightMotion.test.tsx",
+        "status": "passed",
+        "tests": 3
+      },
+      {
+        "file": "screens/island/CoastalAtlas.test.tsx",
+        "status": "passed",
+        "tests": 1
+      },
+      {
+        "file": "services/assets/repository.test.ts",
+        "status": "passed",
+        "tests": 28
+      },
+      {
+        "file": "services/airbridgeBuildConfig.test.ts",
+        "status": "passed",
+        "tests": 7
+      },
+      {
+        "file": "services/islandRealtime.test.ts",
+        "status": "passed",
+        "tests": 113
+      },
+      {
+        "file": "services/push.test.ts",
+        "status": "passed",
+        "tests": 120
+      },
+      {
+        "file": "config/metaAndroidBuildConfig.test.js",
+        "status": "passed",
+        "tests": 4
+      },
+      {
+        "file": "utils/nav-path.test.ts",
+        "status": "passed",
+        "tests": 62
+      },
+      {
+        "file": "services/posthog.test.ts",
+        "status": "passed",
+        "tests": 24
+      },
+      {
+        "file": "screens/island/IslandOcean.test.tsx",
+        "status": "passed",
+        "tests": 8
+      },
+      {
+        "file": "services/assets/contracts.test.ts",
+        "status": "passed",
+        "tests": 34
+      },
+      {
+        "file": "screens/interiors/useIslandManagement.test.tsx",
+        "status": "passed",
+        "tests": 45
+      },
+      {
+        "file": "screens/island/TileTerrainCanvas.test.tsx",
+        "status": "passed",
+        "tests": 17
+      },
+      {
+        "file": "constants/cat-idle-atlases.test.ts",
+        "status": "passed",
+        "tests": 6
+      },
+      {
+        "file": "screens/magazine/AdCell.test.tsx",
+        "status": "passed",
+        "tests": 13
+      },
+      {
+        "file": "services/blockedUsers.test.ts",
+        "status": "passed",
+        "tests": 16
+      },
+      {
+        "file": "components/CatOutfitLayers.test.tsx",
+        "status": "passed",
+        "tests": 7
+      },
+      {
+        "file": "components/village-motion/FireMotion.test.tsx",
+        "status": "passed",
+        "tests": 8
+      },
+      {
+        "file": "screens/magazine/usePromotionNewsToast.test.tsx",
+        "status": "passed",
+        "tests": 8
+      },
+      {
+        "file": "services/studyWidget.test.ts",
+        "status": "passed",
+        "tests": 14
+      },
+      {
+        "file": "components/ConstructionBuildingSprite.test.tsx",
+        "status": "passed",
+        "tests": 8
+      },
+      {
+        "file": "screens/island/useConstruction.test.tsx",
+        "status": "passed",
+        "tests": 20
+      },
+      {
+        "file": "screens/island/useShop.test.tsx",
+        "status": "passed",
+        "tests": 22
+      },
+      {
+        "file": "screens/focus/VerificationCamera.test.tsx",
+        "status": "passed",
+        "tests": 23
+      },
+      {
+        "file": "screens/interiors/useBoardNotices.test.tsx",
+        "status": "passed",
+        "tests": 51
+      },
+      {
+        "file": "components/village-motion/LibraryMotion.test.tsx",
+        "status": "passed",
+        "tests": 10
+      },
+      {
+        "file": "utils/village-world.test.ts",
+        "status": "passed",
+        "tests": 4
+      },
+      {
+        "file": "components/AndroidAppPicker.test.tsx",
+        "status": "passed",
+        "tests": 9
+      },
+      {
+        "file": "services/mapAssets.test.ts",
+        "status": "passed",
+        "tests": 20
+      },
+      {
+        "file": "services/api/auth.test.ts",
+        "status": "passed",
+        "tests": 48
+      },
+      {
+        "file": "i18n/index.test.ts",
+        "status": "passed",
+        "tests": 20
+      },
+      {
+        "file": "screens/island/useTelescope.test.tsx",
+        "status": "passed",
+        "tests": 6
+      },
+      {
+        "file": "screens/island/useIslandPlayback.test.tsx",
+        "status": "passed",
+        "tests": 7
+      },
+      {
+        "file": "services/api/focusSessions.production.test.ts",
+        "status": "passed",
+        "tests": 7
+      },
+      {
+        "file": "components/village-motion/RaftWaterMotion.test.tsx",
+        "status": "passed",
+        "tests": 5
+      },
+      {
+        "file": "screens/magazine/layout.test.ts",
+        "status": "passed",
+        "tests": 42
+      },
+      {
+        "file": "services/screentimeSync.test.ts",
+        "status": "passed",
+        "tests": 14
+      },
+      {
+        "file": "components/village-motion/VillageBoardIndicator.test.tsx",
+        "status": "passed",
+        "tests": 4
+      },
+      {
+        "file": "screens/island/sceneKit.test.ts",
+        "status": "passed",
+        "tests": 2
+      },
+      {
+        "file": "services/appDeepLink.test.ts",
+        "status": "passed",
+        "tests": 53
+      },
+      {
+        "file": "services/api/safety.test.ts",
+        "status": "passed",
+        "tests": 4
+      },
+      {
+        "file": "services/api/islands.test.ts",
+        "status": "passed",
+        "tests": 28
+      },
+      {
+        "file": "screens/island/useIslandChat.test.tsx",
+        "status": "passed",
+        "tests": 14
+      },
+      {
+        "file": "services/model.test.ts",
+        "status": "passed",
+        "tests": 122
+      },
+      {
+        "file": "screens/island/TileFacilityDecoration.test.tsx",
+        "status": "passed",
+        "tests": 7
+      },
+      {
+        "file": "screens/interiors/useMailbox.test.tsx",
+        "status": "passed",
+        "tests": 37
+      },
+      {
+        "file": "screens/island/useInviteShare.test.ts",
+        "status": "passed",
+        "tests": 6
+      },
+      {
+        "file": "services/tutorial.test.ts",
+        "status": "passed",
+        "tests": 25
+      },
+      {
+        "file": "services/socialLogin.test.ts",
+        "status": "passed",
+        "tests": 23
+      },
+      {
+        "file": "screens/focus/useIslandPresence.test.tsx",
+        "status": "passed",
+        "tests": 16
+      },
+      {
+        "file": "services/androidScreenTime.test.ts",
+        "status": "passed",
+        "tests": 19
+      },
+      {
+        "file": "screens/island/useAccountGuides.test.tsx",
+        "status": "passed",
+        "tests": 4
+      },
+      {
+        "file": "services/airbridge.test.ts",
+        "status": "passed",
+        "tests": 8
+      },
+      {
+        "file": "services/nativeLifecycle.test.ts",
+        "status": "passed",
+        "tests": 22
+      },
+      {
+        "file": "utils/nav-path.fixture.test.ts",
+        "status": "passed",
+        "tests": 2
+      },
+      {
+        "file": "screens/letter/useForceUpdateLetter.test.tsx",
+        "status": "passed",
+        "tests": 16
+      },
+      {
+        "file": "screens/island/useIslandRankings.test.tsx",
+        "status": "passed",
+        "tests": 4
+      },
+      {
+        "file": "utils/world-grid.test.ts",
+        "status": "passed",
+        "tests": 3
+      },
+      {
+        "file": "components/PolicyLink.test.tsx",
+        "status": "passed",
+        "tests": 7
+      },
+      {
+        "file": "screens/island/useConstructionAnnouncements.test.tsx",
+        "status": "passed",
+        "tests": 2
+      },
+      {
+        "file": "services/api/deviceToken.test.ts",
+        "status": "passed",
+        "tests": 7
+      },
+      {
+        "file": "constants/magazineAssets.test.ts",
+        "status": "passed",
+        "tests": 13
+      },
+      {
+        "file": "services/api/islandManagement.test.ts",
+        "status": "passed",
+        "tests": 19
+      },
+      {
+        "file": "i18n/customization.test.ts",
+        "status": "passed",
+        "tests": 3
+      },
+      {
+        "file": "screens/island/BuildingTransitionOverlay.test.tsx",
+        "status": "passed",
+        "tests": 5
+      },
+      {
+        "file": "services/api/rankings.test.ts",
+        "status": "passed",
+        "tests": 8
+      },
+      {
+        "file": "services/api/islands.guestbook.test.ts",
+        "status": "passed",
+        "tests": 8
+      },
+      {
+        "file": "services/api/friends.test.ts",
+        "status": "passed",
+        "tests": 8
+      },
+      {
+        "file": "components/RouteTransitionShield.test.tsx",
+        "status": "passed",
+        "tests": 4
+      },
+      {
+        "file": "services/api/magazine.test.ts",
+        "status": "passed",
+        "tests": 23
+      },
+      {
+        "file": "screens/island/useIslandSearch.test.tsx",
+        "status": "passed",
+        "tests": 11
+      },
+      {
+        "file": "screens/letter/useDeveloperLetter.test.tsx",
+        "status": "passed",
+        "tests": 11
+      },
+      {
+        "file": "screens/island/useVisitorJoin.test.tsx",
+        "status": "passed",
+        "tests": 10
+      },
+      {
+        "file": "services/sessionCommands.test.ts",
+        "status": "passed",
+        "tests": 45
+      },
+      {
+        "file": "services/api/quests.test.ts",
+        "status": "passed",
+        "tests": 10
+      },
+      {
+        "file": "services/api/home.test.ts",
+        "status": "passed",
+        "tests": 13
+      },
+      {
+        "file": "screens/island/useLedgerScreen.test.tsx",
+        "status": "passed",
+        "tests": 13
+      },
+      {
+        "file": "utils/island-layout.test.ts",
+        "status": "passed",
+        "tests": 15
+      },
+      {
+        "file": "services/api/focusSessions.test.ts",
+        "status": "passed",
+        "tests": 13
+      },
+      {
+        "file": "services/api/telescope.test.ts",
+        "status": "passed",
+        "tests": 22
+      },
+      {
+        "file": "services/PostHogAnalyticsProvider.test.tsx",
+        "status": "passed",
+        "tests": 2
+      },
+      {
+        "file": "screens/island/useLibraryDiary.test.tsx",
+        "status": "passed",
+        "tests": 12
+      },
+      {
+        "file": "services/seaRealtime.test.ts",
+        "status": "passed",
+        "tests": 31
+      },
+      {
+        "file": "components/village-motion/VillageNotificationBadge.test.tsx",
+        "status": "passed",
+        "tests": 1
+      },
+      {
+        "file": "services/islandCommands.test.ts",
+        "status": "passed",
+        "tests": 65
+      },
+      {
+        "file": "services/api/letters.test.ts",
+        "status": "passed",
+        "tests": 10
+      },
+      {
+        "file": "services/api/islands.focusRest.test.ts",
+        "status": "passed",
+        "tests": 3
+      },
+      {
+        "file": "components/ScreenTimeReportView.test.tsx",
+        "status": "passed",
+        "tests": 6
+      },
+      {
+        "file": "screens/island/useBuildingIndicators.test.tsx",
+        "status": "passed",
+        "tests": 9
+      },
+      {
+        "file": "services/api/session.test.ts",
+        "status": "passed",
+        "tests": 51
+      },
+      {
+        "file": "design-system/typography.test.tsx",
+        "status": "passed",
+        "tests": 2
+      },
+      {
+        "file": "services/api/notices.test.ts",
+        "status": "passed",
+        "tests": 10
+      },
+      {
+        "file": "services/liveActivityPush.test.ts",
+        "status": "passed",
+        "tests": 8
+      },
+      {
+        "file": "services/screenTimeReporting.test.ts",
+        "status": "passed",
+        "tests": 10
+      },
+      {
+        "file": "services/assets/channelClient.test.ts",
+        "status": "passed",
+        "tests": 3
+      },
+      {
+        "file": "services/api/playback.test.ts",
+        "status": "passed",
+        "tests": 1
+      },
+      {
+        "file": "services/tutorialExperience.test.ts",
+        "status": "passed",
+        "tests": 10
+      },
+      {
+        "file": "screens/island/useIslandSailing.test.tsx",
+        "status": "passed",
+        "tests": 4
+      },
+      {
+        "file": "components/catMotion.test.ts",
+        "status": "passed",
+        "tests": 7
+      },
+      {
+        "file": "services/withdrawalIntent.test.ts",
+        "status": "passed",
+        "tests": 6
+      },
+      {
+        "file": "services/api/shop.test.ts",
+        "status": "passed",
+        "tests": 9
+      },
+      {
+        "file": "services/islandBoot.test.ts",
+        "status": "passed",
+        "tests": 9
+      },
+      {
+        "file": "services/api/records.test.ts",
+        "status": "passed",
+        "tests": 20
+      },
+      {
+        "file": "services/api/account.test.ts",
+        "status": "passed",
+        "tests": 5
+      },
+      {
+        "file": "services/api/townHall.test.ts",
+        "status": "passed",
+        "tests": 6
+      },
+      {
+        "file": "services/assets/nativeAdapter.test.ts",
+        "status": "passed",
+        "tests": 6
+      },
+      {
+        "file": "services/legacyUserData.test.ts",
+        "status": "passed",
+        "tests": 16
+      },
+      {
+        "file": "screens/island/useBoardHomeIndicator.test.ts",
+        "status": "passed",
+        "tests": 7
+      },
+      {
+        "file": "services/ScreenTimeModule.test.ts",
+        "status": "passed",
+        "tests": 3
+      },
+      {
+        "file": "config/googleClientIds.test.js",
+        "status": "passed",
+        "tests": 5
+      },
+      {
+        "file": "services/api/client.test.ts",
+        "status": "passed",
+        "tests": 56
+      },
+      {
+        "file": "services/verificationNativeConfig.test.ts",
+        "status": "passed",
+        "tests": 2
+      },
+      {
+        "file": "hooks/useFocusTutorialViewed.test.ts",
+        "status": "passed",
+        "tests": 1
+      },
+      {
+        "file": "services/buildingIndicators.test.ts",
+        "status": "passed",
+        "tests": 19
+      },
+      {
+        "file": "services/datadog.test.ts",
+        "status": "passed",
+        "tests": 6
+      },
+      {
+        "file": "screens/island/tileFacilities.test.ts",
+        "status": "passed",
+        "tests": 16
+      },
+      {
+        "file": "services/unseenOutfits.test.ts",
+        "status": "passed",
+        "tests": 5
+      },
+      {
+        "file": "services/activationJourney.test.ts",
+        "status": "passed",
+        "tests": 5
+      },
+      {
+        "file": "services/islandContext.test.ts",
+        "status": "passed",
+        "tests": 8
+      },
+      {
+        "file": "services/metaSdk.test.ts",
+        "status": "passed",
+        "tests": 13
+      },
+      {
+        "file": "utils/sha256.test.ts",
+        "status": "passed",
+        "tests": 2
+      },
+      {
+        "file": "services/api/screenTime.test.ts",
+        "status": "passed",
+        "tests": 2
+      },
+      {
+        "file": "services/developerLetter.test.ts",
+        "status": "passed",
+        "tests": 31
+      },
+      {
+        "file": "utils/orientation.lock.test.tsx",
+        "status": "passed",
+        "tests": 1
+      },
+      {
+        "file": "utils/questWindowTz.test.ts",
+        "status": "passed",
+        "tests": 6
+      },
+      {
+        "file": "utils/orientation.test.ts",
+        "status": "passed",
+        "tests": 3
+      },
+      {
+        "file": "services/buildingTransition.test.ts",
+        "status": "passed",
+        "tests": 19
+      },
+      {
+        "file": "services/restore.test.ts",
+        "status": "passed",
+        "tests": 6
+      },
+      {
+        "file": "services/movementSync.test.ts",
+        "status": "passed",
+        "tests": 32
+      },
+      {
+        "file": "services/screenTimeFlow.test.ts",
+        "status": "passed",
+        "tests": 49
+      },
+      {
+        "file": "services/studyVerification/studyObjects.test.ts",
+        "status": "passed",
+        "tests": 9
+      },
+      {
+        "file": "assets/village-world/v1/tilemap.test.ts",
+        "status": "passed",
+        "tests": 9
+      },
+      {
+        "file": "screens/island/library/diaryData.test.ts",
+        "status": "passed",
+        "tests": 3
+      },
+      {
+        "file": "services/screenTime.test.ts",
+        "status": "passed",
+        "tests": 3
+      },
+      {
+        "file": "screens/island/navDebugClock.test.ts",
+        "status": "passed",
+        "tests": 5
+      },
+      {
+        "file": "utils/afterForegroundMs.test.ts",
+        "status": "passed",
+        "tests": 3
+      },
+      {
+        "file": "services/accountGuides.test.ts",
+        "status": "passed",
+        "tests": 6
+      },
+      {
+        "file": "services/memberConversion.test.ts",
+        "status": "passed",
+        "tests": 21
+      },
+      {
+        "file": "services/routeTransition.test.ts",
+        "status": "passed",
+        "tests": 2
+      },
+      {
+        "file": "services/memberAppearance.test.ts",
+        "status": "passed",
+        "tests": 5
+      },
+      {
+        "file": "services/screenTimeWindow.test.ts",
+        "status": "passed",
+        "tests": 16
+      },
+      {
+        "file": "services/studyVerification/sessionResult.test.ts",
+        "status": "passed",
+        "tests": 8
+      },
+      {
+        "file": "services/onboardingRestore.test.ts",
+        "status": "passed",
+        "tests": 8
+      },
+      {
+        "file": "services/studyVerification/palmScore.test.ts",
+        "status": "passed",
+        "tests": 7
+      },
+      {
+        "file": "services/customizationCatalog.test.ts",
+        "status": "passed",
+        "tests": 11
+      },
+      {
+        "file": "design-system/tokens.test.ts",
+        "status": "passed",
+        "tests": 10
+      },
+      {
+        "file": "i18n/format.test.ts",
+        "status": "passed",
+        "tests": 7
+      },
+      {
+        "file": "utils/island-camera.test.ts",
+        "status": "passed",
+        "tests": 6
+      },
+      {
+        "file": "services/liveActivity.test.ts",
+        "status": "passed",
+        "tests": 10
+      },
+      {
+        "file": "services/firstVoyage.test.ts",
+        "status": "passed",
+        "tests": 2
+      },
+      {
+        "file": "services/socialAnalytics.test.ts",
+        "status": "passed",
+        "tests": 7
+      },
+      {
+        "file": "services/studyVerification/focusDetection.test.ts",
+        "status": "passed",
+        "tests": 9
+      },
+      {
+        "file": "utils/foregroundClock.test.ts",
+        "status": "passed",
+        "tests": 3
+      },
+      {
+        "file": "services/analyticsDevice.test.ts",
+        "status": "passed",
+        "tests": 13
+      },
+      {
+        "file": "services/homeSnapshot.test.ts",
+        "status": "passed",
+        "tests": 12
+      },
+      {
+        "file": "services/memberLookCache.test.ts",
+        "status": "passed",
+        "tests": 10
+      },
+      {
+        "file": "services/movementStats.test.ts",
+        "status": "passed",
+        "tests": 8
+      },
+      {
+        "file": "services/loginProviders.test.ts",
+        "status": "passed",
+        "tests": 7
+      },
+      {
+        "file": "utils/codePoints.test.ts",
+        "status": "passed",
+        "tests": 2
+      },
+      {
+        "file": "utils/worldCoords.test.ts",
+        "status": "passed",
+        "tests": 8
+      },
+      {
+        "file": "services/termsVersion.test.ts",
+        "status": "passed",
+        "tests": 1
+      },
+      {
+        "file": "components/catFit.test.ts",
+        "status": "passed",
+        "tests": 6
+      },
+      {
+        "file": "services/api/developerNotices.test.ts",
+        "status": "passed",
+        "tests": 4
+      },
+      {
+        "file": "screens/island/constructionProgress.test.ts",
+        "status": "passed",
+        "tests": 3
+      },
+      {
+        "file": "screens/focus/catchAssets.test.ts",
+        "status": "passed",
+        "tests": 7
+      }
+    ]
+  }
+}

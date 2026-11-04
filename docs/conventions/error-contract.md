@@ -6,9 +6,8 @@
 > 2.0 앱이 받는 공개 오류는 Business API 의 중첩 봉투(`{"error": {code, message, field, retryable}, "requestId": …}`)이고,
 > Business 는 Data 의 도메인 `code` 를 그대로 싣는다. 최상위 `{code, message}` 는 data-api 와 1.x 표면의 모양이다.
 >
-> 2026-11-02 기준 낡은 곳: data-api 에는 `JwtFilter`·`RequestSizeLimitFilter` 가 없다(앱 인증은 Business API
-> `config/AccessTokenFilter`, 내부 인증은 data-api `config/InternalAuthFilter` — 거부 본문 없음). §1 「범위」·§4·§5 의 필터 서술은
-> 옛 구조다. 챌린지 도메인은 2.0 에서 은퇴해 `CHALLENGE_*`·`BET_*` 코드는 없다.
+> 남은 차이: 이 문서의 최상위 `{code, message}` 모양은 data-api 와 realtime 의 것이다. data-api 에는 `JwtFilter`·`RequestSizeLimitFilter` 가 없다.
+> 내부 인증은 data-api `config/InternalAuthFilter.java:54` 이고 거부 본문이 없다(§1 표). 챌린지 도메인은 2.0 에서 은퇴해 `CHALLENGE_*`·`BET_*` 코드는 없다.
 
 ---
 
@@ -26,9 +25,14 @@
 | `message` | 사람이 읽는 문구. enum 에 적힌 문장 그대로 | 화면에 그대로 뜰 수 있다 |
 
 **범위** — `DispatcherServlet` 이 라우팅하는 응답은 `GlobalExceptionHandler` 가, 그 **앞**의 필터 체인이
-직접 쓰는 응답(`JwtFilter` 401 · `RequestSizeLimitFilter` 413)은 필터 자신이 같은 봉투를 손으로 맞춘다.
-필터 쪽은 종전 모양 `{"error": "…"}` 의 `error` 필드를 **별칭으로 남긴 채** `code`·`message` 를 더한다 —
-읽는 소비자는 확인된 바 없지만 빼면 계약 변경이다.
+직접 쓰는 응답은 필터가 자기 서비스의 봉투로 쓴다.
+
+| 서비스 | 필터 | 응답 |
+| --- | --- | --- |
+| business-api | `config/AccessTokenFilter.java:61` | 401 `UNAUTHORIZED`, `writeFilterError(…ApiErrorCode.UNAUTHORIZED…)` (`:196`) — 중첩 봉투 |
+| business-api | `config/RequestEnvelopeFilter.java:38` | 본문 256 KiB 상한(`:49`) 초과 시 413 `REQUEST_TOO_LARGE`(`:151`, `common/api/ApiErrorCode.java:97`) — 중첩 봉투 |
+| data-api | `config/InternalAuthFilter.java:54` | `deny()`(`:248-251`)가 상태 코드와 `X-Internal-Deny-Reason` 헤더만 쓴다. 본문 없음 |
+| realtime | `config/JwtFilter.java:32` | 401 본문 `{code, message}` 를 손으로 쓴다(`:65-69`) |
 
 재시도 힌트가 필요한 실패만 필드를 **더한다** — `RetryAfterErrorResponse.retryAfterMs`
 (`RESULT_CLAIM_HELD` · `RATE_LIMITED`). 값은 **상대 지연(ms)**이지 절대 시각이 아니다. 봉투를 바꾸지 않고 상속으로
@@ -107,8 +111,8 @@ common/exception/CommonErrorCode    ← 도메인에 속하지 않는 실패(검
 
 | 상황 | 상태 | code |
 | --- | --- | --- |
-| 토큰 없음·검증 실패 (필터) | 401 | `UNAUTHORIZED` — `error` 별칭 동반 |
-| 요청 본문 상한 초과 (필터) | 413 | `PAYLOAD_TOO_LARGE` — `error` 별칭 동반 |
+| 토큰 없음·검증 실패 (필터) | 401 | `UNAUTHORIZED` — business-api `AccessTokenFilter`, realtime `JwtFilter`. data-api 는 본문 없음 |
+| 요청 본문 상한 초과 (필터) | 413 | `REQUEST_TOO_LARGE` — business-api `RequestEnvelopeFilter` (`:151`) |
 | `@Valid` 실패 · 깨진 JSON | 400 | `INVALID_REQUEST` (검증 실패는 DTO 애노테이션의 문구) |
 | 파라미터 누락 · 타입 불일치 | 400 | `INVALID_PARAMETER` (문구에 파라미터 이름) |
 | 타임존 id 해석 실패 | 400 | `INVALID_TIMEZONE` |
@@ -137,9 +141,9 @@ common/exception/CommonErrorCode    ← 도메인에 속하지 않는 실패(검
 ## 5. 봉투 밖으로 새는 것 — 없다 (2026-09-09)
 
 `GlobalExceptionHandler.handleUnexpected(Exception)` 이 catch-all 이라 스프링 기본 `/error` 바디로
-새는 경로는 더 이상 없다. 핸들러가 닿지 않는 필터 체인의 두 응답(`JwtFilter` 401 · `RequestSizeLimitFilter`
-413)도 같은 봉투를 직접 쓴다 — 이 둘은 `@RestControllerAdvice` 가 구조적으로 볼 수 없는 자리라
-**핸들러를 고쳐서는 절대 봉투에 들어오지 않는다**. 새 필터가 응답을 직접 쓰면 `JwtFilter.envelope()` 를 쓴다. `UnhandledEnvelopeTest` 가 종전에 새던 일곱 경로(검증 실패·깨진 JSON·
+새는 경로는 더 이상 없다. 핸들러가 닿지 않는 필터 체인의 응답(business-api `AccessTokenFilter` 401 · `RequestEnvelopeFilter`
+413, realtime `JwtFilter` 401)은 필터가 봉투를 직접 쓴다 — 이 응답들은 `@RestControllerAdvice` 가 구조적으로 볼 수 없는 자리라
+**핸들러를 고쳐서는 절대 봉투에 들어오지 않는다**. business-api 의 새 필터가 응답을 직접 쓰면 `ApiResponses.writeFilterError`(`business-api/.../common/api/ApiResponses.java:47`)를 쓴다. `UnhandledEnvelopeTest` 가 종전에 새던 일곱 경로(검증 실패·깨진 JSON·
 파라미터 누락·405·404·`EntityNotFound`·catch-all)를 실제 디스패치로 고정한다.
 
 **남은 것은 «코드가 맞는가»이지 «봉투에 실리는가»가 아니다** — 숨기지 않고 적는다.

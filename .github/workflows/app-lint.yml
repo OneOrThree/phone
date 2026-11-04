@@ -26,7 +26,7 @@ on:
       - 'scripts/assets-cdn/**'
       - 'assets-cdn/**'
   pull_request:
-    branches: [main] # main 대상 PR만 — 릴리즈 PR(main→release)은 이미 검사된 코드라 제외 (data-api-ci.dev.yml과 동일 패턴)
+    branches: [main] # main 대상 PR만 — 릴리즈 PR(main→release)은 이미 검사된 코드라 제외 (data-api-ci.dev-v2.yml과 동일 패턴)
     paths:
       - 'app/app-dev/**'
       - '!app/app-dev/**/*.md'

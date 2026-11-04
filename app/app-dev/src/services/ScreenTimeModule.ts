@@ -79,6 +79,8 @@ export type AndroidMeasurement = import('./screentimeSync').ScreenTimeSnapshot &
 type AndroidMethods = {
   supportsFocusShield?: boolean;
   supportsGeneralPush?: boolean;
+  /** 화면이 켜져 있는지(GROMO-2635). 이 함수가 없는 옛 바이너리는 undefined 다. */
+  isScreenInteractive?(): Promise<boolean>;
   openUsageAccessSettings(): Promise<boolean>;
   getUsageSnapshot(): Promise<AndroidUsageSnapshot>;
   getAndroidMeasurement(): Promise<AndroidMeasurement>;

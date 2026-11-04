@@ -9,6 +9,7 @@ import re
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 
 
 SPEC = importlib.util.spec_from_file_location("agent_harness", Path(__file__).with_name("check-agent-harness.py"))
@@ -16,7 +17,8 @@ harness = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(harness)
 
 
-GUARD = '[ -f "$CLAUDE_PROJECT_DIR/.claude/prod-impact.py" ] || exit 0; '
+def guard_for(script):
+    return f'[ -f "$CLAUDE_PROJECT_DIR/{script}" ] || exit 0; '
 
 # ── 문서 센서용 임시 저장소 ────────────────────────────────────────────────────────────────────
 # 센서는 `git ls-files` 의 추적 파일만 본다. 그래서 임시 트리마다 `git init` + `git add -A`(커밋은 필요 없다)를 한다.
@@ -133,9 +135,9 @@ def write_files(root, files):
 
 
 def hook_command(script):
-    """등록 명령. 운영 영향 훅만 스크립트가 없으면 조용히 끝나는 존재 가드를 앞에 둔다."""
+    """등록 명령. 존재 가드가 필요한 훅은 자기 스크립트를 검사하는 가드를 앞에 둔다."""
     run = f'python3 "$CLAUDE_PROJECT_DIR/{script}" --hook'
-    return GUARD + run if script in harness.GUARD_REQUIRED else run
+    return guard_for(script) + run if script in harness.GUARD_REQUIRED else run
 
 
 def hook_group(script, matcher):
@@ -235,6 +237,7 @@ class AgentHarnessTest(unittest.TestCase):
 
     def test_braced_project_directory_and_quoted_paths_are_supported(self):
         self.settings["hooks"]["PreToolUse"][0]["hooks"][0]["command"] = (
+            '[ -f "${CLAUDE_PROJECT_DIR}/.claude/pr-gate.py" ] || exit 0; '
             'python3 "${CLAUDE_PROJECT_DIR}/.claude/pr-gate.py" --hook'
         )
         extra = self.root / ".claude/extra hook.py"
@@ -435,6 +438,27 @@ class AgentHarnessTest(unittest.TestCase):
                     with self.assertRaisesRegex(ValueError, "게이트 연결.*prod-impact"):
                         harness.validate_settings(self.root)
 
+    def test_pr_gate_and_jira_gate_require_the_existence_guard(self):
+        """두 게이트도 가드가 없으면 스크립트 없는 체크아웃에서 Bash·createJiraIssue 를 막는다 — 가드 없는 모양은 등록으로 치지 않는다."""
+        for script, event_index, name in ((".claude/pr-gate.py", 0, "pr-gate"), (".claude/jira_gate.py", None, "jira_gate")):
+            path = f'"$CLAUDE_PROJECT_DIR/{script}"'
+            run = f"python3 {path} --hook"
+            variants = {
+                "가드 없음": run,
+                "&& 로 이음": f"[ -f {path} ] && {run}",
+                "다른 파일 검사": f'[ -f "$CLAUDE_PROJECT_DIR/.claude/prod-impact.py" ] || exit 0; {run}',
+            }
+            for variant, command in variants.items():
+                with self.subTest(gate=name, variant=variant):
+                    settings = json.loads(json.dumps(self.settings))
+                    groups = settings["hooks"]["PreToolUse"]
+                    group = groups[0] if event_index == 0 else next(
+                        g for g in groups if script in g["hooks"][0]["command"])
+                    group["hooks"][0]["command"] = command
+                    (self.root / ".claude/settings.json").write_text(json.dumps(settings), encoding="utf-8")
+                    with self.assertRaisesRegex(ValueError, f"게이트 연결.*{name}"):
+                        harness.validate_settings(self.root)
+
     def test_every_prod_ask_rule_is_required(self):
         self.assertGreaterEqual(len(harness.PROD_ASK_RULES), 4)
         for rule in harness.PROD_ASK_RULES:
@@ -452,7 +476,7 @@ class AgentHarnessTest(unittest.TestCase):
                     harness.validate_settings(self.root)
 
     def test_core_ask_rules_stay_in_the_contract(self):
-        for rule in ("Bash(gh workflow run *prod*)", "Bash(gh workflow run *Catus*)", "Bash(gh workflow run *android-cd*)",
+        for rule in ("Bash(gh workflow run *prod*)", "Bash(gh workflow run *Cattus*)", "Bash(gh workflow run *android-cd*)",
                      "Bash(gh workflow run *Android CD*)",
                      "Bash(gh api *dispatches*)", "Bash(gh api *pending_deployments*)"):
             self.assertIn(rule, harness.PROD_ASK_RULES)
@@ -533,6 +557,7 @@ class DocumentSensorTest(unittest.TestCase):
         message = self.assert_violations(harness.check_document_paths, make_repo(self, files), "문서 경로", 1)
         self.assertIn("app/app-dev/CLAUDE.md:1", message)
 
+    @patch.dict(harness.STALE_IN_SERVER_DOCS, {("경로", "server/observability/README.md"): ("docs/stale.md",)}, clear=True)
     def test_known_stale_server_paths_are_excused_only_for_that_doc_and_token(self):
         (_, doc), tokens = next(item for item in harness.STALE_IN_SERVER_DOCS.items() if item[0][0] == "경로")
         files = {doc: "".join(f"`{token}`\n" for token in tokens), "scripts/x.sh": "", "docs/README.md": "# docs\n"}
@@ -543,6 +568,15 @@ class DocumentSensorTest(unittest.TestCase):
         self.assert_violations(harness.check_document_paths, make_repo(self, extra), "docs/zzz-gone.md", 1)
 
     # ── 2 워크플로 언급 ─────────────────────────────────────────────────────────────────────
+    def test_removed_workflow_requires_inventory_and_historical_marker(self):
+        inventory = "# 지도\n\n## 2-2 V1 워크플로와 V2 대응\n| V1 파일 | 상태 | 대체 |\n| --- | --- | --- |\n| `removed-ci.yml` | 제거됨 | `a-ci.yml` |\n\n## 2-3 GitHub에 등록됐지만 파일이 없는 워크플로\n"
+        root = make_repo(self, {harness.PIPELINE_MAP: inventory, "CLAUDE.md": "# C\n옛 `removed-ci.yml`은 제거했다.\n"})
+        harness.check_workflow_mentions(root)
+        (root / "CLAUDE.md").write_text("# C\n`removed-ci.yml`을 실행한다.\n")
+        self.assert_violations(harness.check_workflow_mentions, root, "removed-ci.yml", 1)
+        (root / "CLAUDE.md").write_text("# C\n옛 `typo-ci.yml`은 제거했다.\n")
+        self.assert_violations(harness.check_workflow_mentions, root, "typo-ci.yml", 1)
+
     def test_retired_workflow_needs_a_marker_unless_it_is_in_the_v1_section(self):
         for word in ("RETIRED", "retired", "V1", "은퇴", "꺼진", "꺼져", "옛", "legacy", "disabled"):
             with self.subTest(marker=word):
@@ -593,6 +627,7 @@ class DocumentSensorTest(unittest.TestCase):
             with self.subTest(plain=stem):
                 self.assertFalse(harness.WORKFLOW_SHAPE.search(stem))
 
+    @patch.dict(harness.STALE_IN_SERVER_DOCS, {("은퇴", "server/observability/README.md"): ("old-ci.yml",)}, clear=True)
     def test_known_stale_server_workflow_mentions_are_excused_only_for_that_doc_and_name(self):
         (_, doc), names = next(item for item in harness.STALE_IN_SERVER_DOCS.items() if item[0][0] == "은퇴")
         retired = {f".github/workflows/{name}": "# RETIRED: 대체\n" for name in names}

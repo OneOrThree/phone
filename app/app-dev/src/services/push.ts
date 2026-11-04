@@ -604,8 +604,11 @@ export function refreshPush(): void {
  */
 export type PushPermission = 'granted' | 'denied' | 'undetermined' | 'unavailable' | 'error';
 
-/** {@link startPushSync} 와 같은 바이너리 판정 — 그 밖에서는 expo-notifications 를 불러오는 자리에서 던지므로 불러오지 않는다. */
-function bridgedNotifications(): NotificationsModule | undefined {
+/**
+ * {@link startPushSync} 와 같은 바이너리 판정 — 그 밖에서는 expo-notifications 를 불러오는 자리에서 던지므로 불러오지 않는다.
+ * 앱이 직접 예약하는 로컬 알림(집중 이탈, GROMO-2635)도 이 판정을 거친다.
+ */
+export function bridgedNotifications(): NotificationsModule | undefined {
   return (Platform.OS === 'ios' && NativeModules.FCMTokenModule) ||
     (Platform.OS === 'android' && screenTimeNative?.supportsGeneralPush)
     ? (require('expo-notifications') as NotificationsModule)

@@ -10,12 +10,7 @@ import {
 import { useResizer } from 'react-native-vision-camera-resizer';
 import { useTensorflowModel } from 'react-native-fast-tflite';
 import { createSynchronizable, scheduleOnRN } from 'react-native-worklets';
-import {
-  PALM_INPUT,
-  maxSigmoid,
-  rgbToFloat,
-  scoreTensorIndex,
-} from '@/services/studyVerification/palmScore';
+import { PALM_INPUT, maxSigmoid, scoreTensorIndex } from '@/services/studyVerification/palmScore';
 import {
   LIVE_SAMPLE_MS,
   LIVE_STALE_MS,
@@ -107,11 +102,12 @@ function LiveVerificationCamera({
   onError,
 }: Omit<Props, 'active'>) {
   const model = useTensorflowModel(require('../../assets/ml/palm_detection_lite.tflite'), []);
+  // 손 모델 입력은 float32 RGB 0~1 이다. 리사이저가 GPU 에서 바로 그 형식으로 내보내 JS 변환을 하지 않는다(티켓 2737).
   const resize = useResizer({
     width: PALM_INPUT,
     height: PALM_INPUT,
     channelOrder: 'rgb',
-    dataType: 'uint8',
+    dataType: 'float32',
     scaleMode: 'contain',
     pixelLayout: 'interleaved',
   });
@@ -277,13 +273,13 @@ function LiveVerificationCamera({
         if (now - previous.lastAt < PREVIEW_SAMPLE_MS) return;
         samples.setBlocking({ ...previous, lastAt: now });
         const resized = resizer.resize(frame);
-        let input: ArrayBuffer;
+        let outputs: ArrayBuffer[];
         try {
-          input = rgbToFloat(new Uint8Array(resized.getPixelBuffer()));
+          // 버퍼가 살아 있을 때 그대로 넣는다. 판정마다 192×192×3 값을 JS 로 나누던 변환은 하지 않는다.
+          outputs = tflite.runSync([resized.getPixelBuffer()]);
         } finally {
           resized.dispose();
         }
-        const outputs = tflite.runSync([input]);
         const score = maxSigmoid(new Float32Array(outputs[scoreIdx]!));
         const recent = now - previous.lastAt >= PREVIEW_STALE_MS ? [] : previous.scores;
         const scores = [...recent, score].slice(-MEASUREMENT_BATCH_SIZE);

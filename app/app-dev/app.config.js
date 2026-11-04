@@ -2,7 +2,7 @@
 // 가입자는 2.0에서 새 계정이 된다 — 1.x 미이관 정책과 같은 방향으로 수용한 결정이다.
 const kakaoNativeAppKey = '1280641e9b639a279b7406f24b059703';
 const { withLegacyAndroidKakao } = require('./kakaoAndroidConfig');
-// iOS 스토어 버전(1.0.2)은 아래 version(2.0.1, Android 용)과 다르다 — 이유는 iosStoreVersionConfig.js
+// iOS 스토어 버전은 아래 version(Android 용)과 따로 관리한다 — 이유와 현재 값은 iosStoreVersionConfig.js
 const { withIosStoreVersion } = require('./iosStoreVersionConfig');
 const { withIosMeta } = require('./metaIosConfig');
 // GROMO-2215·2226 — 구글 클라이언트 id 정본은 src/config/googleClientIds.json 이다(socialLogin.ts 와 같은 파일).
@@ -21,7 +21,7 @@ module.exports = {
     locales: { ko: './locales/ko.json', en: './locales/en.json' },
     slug: 'focuscat',
     owner: 'oneorthree',
-    version: '2.3.0',
+    version: '2.3.2',
     runtimeVersion: '2.0.0',
     updates: {
       url: 'https://u.expo.dev/b791fb8b-1f6c-4e6f-88f6-84ef0a99c79d',
@@ -53,11 +53,11 @@ module.exports = {
       associatedDomains: [
         'applinks:link.oneorthree.world',
         'applinks:catus-api-v2.oneorthree.world',
-        'applinks:oneorthree.dev.mooo.com',
+        'applinks:oneorthree-v2.dev.mooo.com',
       ],
       // GROMO-2523·2544 푸시·Meta SDK가 든 바이너리만 새 JS OTA를 받게 iOS 런타임을 분리한다.
       // 체크인된 ios/Cattus/Supporting/Expo.plist 의 EXUpdatesRuntimeVersion 과 같은 값이어야 한다.
-      runtimeVersion: '2.0.0-push-meta-assets-ai-focus-v1',
+      runtimeVersion: '2.0.0-push-meta-assets-ai-focus-meta-events-v1',
       infoPlist: {
         CFBundleLocalizations: ['ko', 'en'],
         NSSupportsLiveActivities: true,
@@ -73,7 +73,7 @@ module.exports = {
       package: 'com.oneorthree.gromo',
       versionCode: 379,
       // 집중 차단 기능이 있는 기존 Android OTA와 네이티브 구성을 분리한다.
-      runtimeVersion: '2.0.1-android-push-assets-ai-focus-v1',
+      runtimeVersion: '2.0.1-android-push-assets-ai-focus-meta-events-v1',
       permissions: [
         'android.permission.PACKAGE_USAGE_STATS',
         'android.permission.POST_NOTIFICATIONS',
@@ -87,7 +87,7 @@ module.exports = {
       intentFilters: [
         'link.oneorthree.world',
         'catus-api-v2.oneorthree.world',
-        'oneorthree.dev.mooo.com',
+        'oneorthree-v2.dev.mooo.com',
       ].map((host) => ({
         action: 'VIEW',
         autoVerify: true,
@@ -130,8 +130,9 @@ module.exports = {
       // prebuild 전용 입력 — 체크인된 ios/Cattus/Info.plist 가 실제 스킴 정본이다(위 주석)
       ['@react-native-google-signin/google-signin', { iosUrlScheme: googleIosUrlScheme }],
       '@xmartlabs/react-native-line',
-      // 크래시·오류 수집(services/sentry.ts). org/project/authToken 은 빌드 env(SENTRY_*)로 넘겨
-      // 소스맵을 올린다 — 여기 토큰을 적으면 앱 패키지에 노출되므로 적지 않는다.
+      // 크래시·오류 수집(services/sentry.ts). 네이티브 프로젝트가 체크인돼 있어 이 config plugin 은 prebuild 때만 쓰이고
+      // 빌드에는 아무것도 넣지 않는다. 소스맵·mapping·dSYM 업로드는 android/app/build.gradle 과 scripts/sentry-xcode.sh 가
+      // SENTRY_AUTH_TOKEN 이 있을 때 한다(GROMO-2739). 토큰을 여기 적으면 앱 패키지에 노출되므로 적지 않는다.
       '@sentry/react-native',
       // GROMO-2380 고운돋움을 앱에 넣어 첫 화면부터 글꼴을 기다리지 않는다(웹만 useFonts 로 불러온다).
       // iOS는 글꼴 파일 속 가족 이름(Gowun Dodum), 안드로이드는 아래 등록 이름(Gowun)으로 찾는다 — sceneKit 의 GOWUN

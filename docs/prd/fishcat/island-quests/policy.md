@@ -15,8 +15,8 @@
 | Q06 | ~~같은 island·occurrence 보상 정산은1회~~ → **GROMO-1991**: 같은 회차에서 **각 주민의 달성 보상과 전원 보너스는 각각 1회**(도메인 유일 (island, occurrence, kind, claimed_by), V83). claim/지갑/원장/receipt/outbox 단일 Data TX 는 그대로다 | 원본 원자 처리. 요청키와 도메인 지급 유일성은 별도 |
 | Q07 | 회차 정의·보상 revision·판정 cohort를 명시 저장. 과거 결과는 원본5개 밖 | 기술 기반. snapshot을 언제 확정할지는 QQ01/02 |
 | Q08 | 생성/수정/claim UUID Idempotency-Key 필수. claim만 expectedVersion 필수 | 공통1750. 새로운 PATCH 낙관락 입력을 원본에 몰래 추가하지 않음 |
-| Q09 | claimDisplay/ack는 기존 결과 모달 표시 리스이며 보상 지급이 아니다 | 기존 ChallengeResultAckService. 호출해 정산을 대신하지 않음 |
-| Q10 | 기존 챌린지·내기·coin 원장은 변경 없이 유지. 조회/claim이 FocusService.recordCompletion을 재호출하지 않음 | 중복 통계/개인 보상 방지 |
+| Q09 | claimDisplay/ack는 기존 결과 모달 표시 리스이며 보상 지급이 아니다 | ~~기존 ChallengeResultAckService~~ — 1.x 챌린지 결과 모달은 v0 리베이스에서 퇴역했다(클래스 없음, 역사 기록). 퀘스트 claim 과 별개 |
+| Q10 | ~~기존 챌린지·내기·coin 원장은 변경 없이 유지. 조회/claim이 FocusService.recordCompletion을 재호출하지 않음~~ 1.x 챌린지·내기·coin 원장은 v0 리베이스에서 퇴역했다(`server/data-api/docs/db/v0-rebase/manifest.json:12-18` `group_challenge*`, `:7`·`:44` `currency_transactions`·`user_wallets`). 퀘스트는 참조·이관하지 않고 섬 통장 원장으로만 지급한다 | 중복 통계/개인 보상 방지 |
 
 ## 결정 대기와 출시 조건
 

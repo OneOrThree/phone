@@ -1,19 +1,20 @@
-import {
-  ObservatoryFrame,
-  ObservatoryLedger,
-  ObservatoryHeading,
-  ObservatoryRow,
-} from '@/screens/island/ObservatoryLayout';
-import React, { useEffect, useState } from 'react';
-import Svg, { Circle, Path } from 'react-native-svg';
-import { AccessibilityInfo, ActivityIndicator, Platform, StyleSheet, View } from 'react-native';
 import { Badge, Btn, Txt } from '@/design-system/patterns';
 import { componentTokens, primitiveTokens, semanticTokens } from '@/design-system/tokens';
 import { errorTextOr, t } from '@/i18n';
+import type { ScreenEnvironment } from '@/navigation/ScreenEnvironment';
 import { SearchField, st } from '@/screens/island/IslandSheet';
+import {
+  ObservatoryFrame,
+  ObservatoryHeading,
+  ObservatoryLedger,
+  ObservatoryRow,
+} from '@/screens/island/ObservatoryLayout';
 import { useIslandSearch } from '@/screens/island/useIslandSearch';
 import { useTelescopePin, type TelescopePin } from '@/screens/island/useTelescopePin';
 import type { IslandSummary } from '@/services/api/islands';
+import React, { useEffect, useState } from 'react';
+import { AccessibilityInfo, ActivityIndicator, Platform, StyleSheet, View } from 'react-native';
+import Svg, { Circle, Path } from 'react-native-svg';
 import { GOWUN } from './sceneKit';
 
 const { space } = primitiveTokens;
@@ -51,7 +52,7 @@ export function ObservatorySearch({
   localResults,
   pinController,
 }: {
-  e: any;
+  e: ScreenEnvironment;
   pinController?: TelescopePin;
   ranking?: React.ReactNode;
   localResults?: (query: string) => React.ReactNode;

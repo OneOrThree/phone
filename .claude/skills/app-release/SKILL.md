@@ -37,7 +37,7 @@ disable-model-invocation: true
      EXPO_PUBLIC_API_URL=https://catus-api-v2.oneorthree.world EXPO_PUBLIC_APPLE_LOGIN_ENABLED=1 \
      ./testflight.sh
    ```
-4. 빌드 번호는 Fastfile 이 정한다(그 마케팅 버전의 TestFlight 최대 + 1).
+4. 버전 이름과 빌드 번호는 Fastfile 이 정한다. 버전 이름은 `app-*-ios-*` 태그 중 최대의 patch + 1(하한 pbxproj 값), 빌드 번호는 그 버전의 TestFlight 최대 + 1 이다. 업로드가 끝나면 Fastfile 이 그 커밋에 `app-<버전>-ios-<빌드>` 태그를 단다(GROMO-2731).
 
 완료 조건: TestFlight 업로드가 끝났고, 빌드 번호와 빌드한 커밋(HEAD)을 적었다.
 
@@ -48,9 +48,10 @@ disable-model-invocation: true
 
 - main 의 앱 머지 → Android CI(운영 V2 서버용 AAB) → Android CD → Play internal 자동 게시. Android CD 는 2026-11-02 18:08 KST 에 다시 켜졌다.
 - 프로덕션은 Play 콘솔에서 internal 출시를 승격한다.
+- 버전 이름은 게시마다 끝자리가 하나씩 오른다. CI 가 `app-*-android-*` 태그 중 최대의 patch + 1 로 정하고, CD 가 게시 뒤 그 커밋에 태그를 단다. 직전 태그 이하의 버전은 CD 가 게시 전에 막는다(GROMO-2731). minor·major 는 `android/app/build.gradle` 의 `versionName`(하한)을 PR 로 올린다.
 - versionCode 규칙, `server-gate` 로 막혔을 때의 재실행, 게시 재시도는 android-ci-cd.md 를 따른다.
 
-완료 조건: Android CD 실행이 success 이고, versionCode 와 그 Android CI 실행의 커밋을 적었다.
+완료 조건: Android CD 실행이 success 이고, 버전 이름·versionCode 와 그 Android CI 실행의 커밋을 적었다.
 
 ## 4. OTA
 
@@ -61,7 +62,7 @@ disable-model-invocation: true
 
 ## 5. 출시 기록
 
-스토어 업로드가 끝나면 출시한 커밋에 주석 태그를 단다. 1.x 의 `app-1.1.0-7` 과 같은 방식이다.
+스토어 업로드가 끝나면 출시한 커밋에 주석 태그를 단다. 1.x 의 `app-1.1.0-7` 과 같은 방식이다. Android CD(「앱 버전 태그」 잡)와 fastlane `beta` 는 이 태그를 스스로 단다. 아래는 그 자동 단계가 실패했을 때만 손으로 한다 — 다음 버전 계산이 이 태그에 기대므로 빠뜨리지 않는다.
 
 ```sh
 gh api -H 'Accept: application/vnd.github.raw+json' 'repos/{owner}/{repo}/contents/prod-V2/app.json?ref=deployment-status' --jq .message

@@ -1,10 +1,26 @@
+import { assets } from '@/constants/assets';
+import { useAudioPlayer, type AudioSource, type AudioStatus } from 'expo-audio';
 import { useEffect, useMemo, useRef } from 'react';
 import { Image, Platform } from 'react-native';
-import { useAudioPlayer, type AudioSource, type AudioStatus } from 'expo-audio';
-import { assets } from '@/constants/assets';
+export interface SoundPlayer {
+  readonly playbackAllowed: boolean;
+  replace(source: AudioSource): void;
+  play(): boolean;
+  pause(): void;
+  seekTo(seconds: number): Promise<void>;
+  volume: number;
+  loop: boolean;
+  addListener(
+    event: 'playbackStatusUpdate',
+    callback: (status: Pick<AudioStatus, 'didJustFinish'>) => void,
+  ): { remove(): void };
+}
 // Browsers reject an in-flight play() promise when a quick track change pauses it.
 // Handle that expected cancellation here; native playback uses Expo Audio directly.
-export function useSoundPlayer(onError: (message: string) => void, playbackAllowed: boolean) {
+export function useSoundPlayer(
+  onError: (message: string) => void,
+  playbackAllowed: boolean,
+): SoundPlayer {
   // 미리듣기와 늦게 끝난 seek 콜백도 호출 시점의 집중·음소거 조건을 따른다.
   const allowedRef = useRef(playbackAllowed);
   allowedRef.current = playbackAllowed;
@@ -61,7 +77,7 @@ export function useSoundPlayer(onError: (message: string) => void, playbackAllow
   }, [audio]);
   const errorRef = useRef(onError);
   errorRef.current = onError;
-  const web = useRef<{ element: HTMLAudioElement; player: any } | null>(null);
+  const web = useRef<{ element: HTMLAudioElement; player: SoundPlayer } | null>(null);
   if (Platform.OS === 'web' && !web.current) {
     const el = new Audio();
     el.preload = 'auto';
@@ -71,10 +87,22 @@ export function useSoundPlayer(onError: (message: string) => void, playbackAllow
         get playbackAllowed() {
           return allowedRef.current;
         },
-        replace(source: any) {
+        replace(source: AudioSource) {
           el.pause();
+          const assetId =
+            typeof source === 'number'
+              ? source
+              : typeof source === 'object'
+                ? source?.assetId
+                : undefined;
           el.src =
-            typeof source === 'string' ? source : (Image.resolveAssetSource(source)?.uri ?? '');
+            typeof source === 'string'
+              ? source
+              : typeof assetId === 'number'
+                ? (Image.resolveAssetSource(assetId)?.uri ?? '')
+                : typeof source === 'object'
+                  ? (source?.uri ?? '')
+                  : '';
           el.load();
         },
         play() {

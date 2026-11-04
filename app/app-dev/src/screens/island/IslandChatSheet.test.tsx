@@ -1,13 +1,14 @@
-import assert from 'node:assert/strict';
-import React, { useState } from 'react';
-import { AppState } from 'react-native';
-import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
-import { ApiError } from '@/services/api/client';
-import { initialState } from '@/services/model';
+import { art } from '@/constants/art';
+import { createPreviewEnvironment } from '@/navigation/previewEnvironment';
 import { IslandChatSheet } from '@/screens/island/IslandChatSheet';
 import type { IslandChat } from '@/screens/island/useIslandChat';
-import { art } from '@/constants/art';
+import { ApiError } from '@/services/api/client';
 import { fakeMemberLooksServer } from '@/services/memberLooks.testing';
+import { initialState } from '@/services/model';
+import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
+import assert from 'node:assert/strict';
+import { useState } from 'react';
+import { AppState } from 'react-native';
 
 jest.mock('@/utils/layout', () => ({
   useAppLayout: () => ({
@@ -49,7 +50,7 @@ const chatOf = (over: Partial<IslandChat> = {}): IslandChat => ({
 // e.text·e.setText 는 앱이 들고 있는 입력 초안이다 — 테스트에서도 상태로 들고 다시 그린다
 function Harness({ e: base, chat }: { e: any; chat: IslandChat }) {
   const [text, setText] = useState<string>(base.text ?? '');
-  return <IslandChatSheet e={{ ...base, text, setText }} chat={chat} />;
+  return <IslandChatSheet e={createPreviewEnvironment({ ...base, text, setText })} chat={chat} />;
 }
 
 const env = (over: Record<string, unknown> = {}) => ({
@@ -169,7 +170,7 @@ test('시트를 닫은 뒤 늦은 전송 성공은 공용 입력 초안을 지�
   // Harness 대신 직접 그린다 — 공용 setText(편지 쓰기와 공유) 가 늦은 응답에 불리는지 본다
   const ui = await render(
     <IslandChatSheet
-      e={{ ...env({ text: '같이 해요' }), text: '같이 해요', setText }}
+      e={createPreviewEnvironment({ ...env({ text: '같이 해요' }), text: '같이 해요', setText })}
       chat={chatOf({ sendMessage: sendMessage as any })}
     />,
   );

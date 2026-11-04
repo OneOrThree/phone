@@ -7,6 +7,7 @@ import com.oneorthree.business.common.http.InternalHttpClient;
 import com.oneorthree.business.upstream.data.dto.CurrentIsland;
 import com.oneorthree.business.upstream.data.dto.DeveloperNotices;
 import com.oneorthree.business.upstream.data.dto.InvitationResolved;
+import com.oneorthree.business.upstream.data.dto.IntroArrivalCommand;
 import com.oneorthree.business.upstream.data.dto.IslandArrival;
 import com.oneorthree.business.upstream.data.dto.IslandCreated;
 import com.oneorthree.business.upstream.data.dto.IslandDiscoverPage;
@@ -351,13 +352,15 @@ public class DataIslandClient {
     }
 
     /** 첫 항해 체험 도착 — 명령 키는 Data가 무인도 중복 생성까지 막는 데 사용한다. */
-    public IslandArrival introArriveAtIsland(UUID userId, UUID islandId, UUID key, Deadline deadline) {
+    public IslandArrival introArriveAtIsland(UUID userId, UUID islandId, UUID key, IntroArrivalCommand command,
+            Deadline deadline) {
         return http.exchange(
                 InternalCall.to(HttpMethod.POST,
                                 userPath(PATH_ISLAND_INTRO_ARRIVALS, userId)
                                         .replace("{islandId}", islandId.toString()))
                         .onBehalfOf(userId)
                         .idempotencyKey(key.toString())
+                        .body(command)
                         .idempotentCommand()
                         .build(),
                 deadline,

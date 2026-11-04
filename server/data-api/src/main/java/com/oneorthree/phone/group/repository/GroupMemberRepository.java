@@ -232,7 +232,7 @@ public interface GroupMemberRepository extends JpaRepository<GroupMember, UUID> 
     List<GroupMember> findActiveOwnerMembershipsByUserId(@Param("userId") UUID userId);
 
     /**
-     * 멀티 그룹 상한(MAX_JOINED_GROUPS) 검사용 — findByUser(내 그룹 목록)와 같은 모수(활성만).
+     * 계정당 소속 상한({@code IslandInputPolicy.MAX_JOINED_ISLANDS}) 검사용 — findByUser(내 그룹 목록)와 같은 모수(활성만).
      *
      * @param user 참여를 시도하는 유저
      * @return 현재 속한 그룹 수. 모수를 목록과 같게 두는 것이 핵심이다 — 갈리면 "목록엔 N개인데 더는

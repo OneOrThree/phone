@@ -1,15 +1,16 @@
-import React, { useEffect, useState } from 'react';
-import { Platform } from 'react-native';
+import { Toggle, Txt } from '@/design-system/patterns';
+import { t } from '@/i18n';
+import type { ScreenProps } from '@/navigation/ScreenEnvironment';
+import { SheetRow } from '@/screens/island/IslandSheet';
 import { getSession } from '@/services/api/session';
 import {
   getScreenTimeReportingConsent,
   setScreenTimeReportingConsent,
 } from '@/services/screenTimeReporting';
-import { Toggle, Txt } from '@/design-system/patterns';
-import { SheetRow } from '@/screens/island/IslandSheet';
-import { t } from '@/i18n';
+import { useEffect, useState } from 'react';
+import { Platform } from 'react-native';
 
-export function ScreenTimeSharingSettings({ e }: any) {
+export function ScreenTimeSharingSettings({ e }: ScreenProps) {
   const [enabled, setEnabled] = useState(false);
   const [busy, setBusy] = useState(true);
   const owner = getSession()?.userId;

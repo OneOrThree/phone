@@ -60,7 +60,7 @@ nginx·인증서는 Infra 소유다. `nginx-satellites.include.conf.example`과 
 
 공동 CD 진입 전에 push의 실제 변경 경로와 위성 CI의 경로 필터로 선행 배포 필요 여부를 정한다. 위성 대상이면 같은 main SHA·원본 workflow·최신 실행 시도의 CI와 CD 성공을 기다린다. 등록 지연이나 누락을 시간 경과만으로 성공 처리하지 않는다. 이 대기는 `dev-vm-deploy` 잠금을 잡기 전에 수행한다.
 
-공동 CD는 이미지·토큰·프로파일·DB 사전 검사 후 nginx와 Data·Realtime·Business·Notification 및 Data DB 관측 연결을 중지하고 실제 중지 상태를 확인한다. DB·Redis·Kafka는 유지한다. DB 전환, 두 새 컨테이너의 digest·readiness, 기존 위성 복원을 검증한 뒤 nginx를 재개한다. 실패한 동일 공동 CD job의 재실행과 기록·백업 경로는 [개발 배포 실행 문서](../../../../server/scripts/README.md#catus-v0-전환과-datarealtime-동시-교체)를 따른다. 일반 ops·위성 배포는 미완료 공동 전환을 우회하지 못한다.
+공동 CD는 이미지·토큰·프로파일·DB 사전 검사 후 nginx와 Data·Realtime·Business·Notification 및 Data DB 관측 연결을 중지하고 실제 중지 상태를 확인한다. DB·Redis·Kafka는 유지한다. DB 전환, 두 새 컨테이너의 digest·readiness, 기존 위성 복원을 검증한 뒤 nginx를 재개한다. 실패한 동일 공동 CD job의 재실행과 기록·백업 경로는 [개발 배포 실행 문서](../../../../server/scripts/README.md#cattus-v0-전환과-datarealtime-동시-교체)를 따른다. 일반 ops·위성 배포는 미완료 공동 전환을 우회하지 못한다.
 
 ## 검증
 

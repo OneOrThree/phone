@@ -207,7 +207,7 @@ focus 창/target 수학적 범위와 screen0분 허용·title길이는 승인한
 
 ## 3. 기존 구현과 새 저장 경계
 
-기존 GroupChallengeService:437은 OWNER만생성,활성 4개·repeatDays·창간격제약과CTI4조합을사용한다. `:532`의createBetOnChallengeCreation은기존 내기배선이다. 기존 정책 `docs/prd/gromo/challenge/policy.md`는수정없음/개인참가비·payout을갖고새5계약과동일하지않다. GroupBetJudge:48의focus창 5분관용·screen미계측정산미달성도새정책으로자동 채택하지않는다. ChallengeResultAckService:25의claimDisplay는결과모달표시 선점이며지급수단이아니다.
+~~기존 GroupChallengeService:437은 OWNER만생성,활성 4개·repeatDays·창간격제약과CTI4조합을사용한다. `:532`의createBetOnChallengeCreation은기존 내기배선이다. 기존 정책 `docs/prd/gromo/challenge/policy.md`는수정없음/개인참가비·payout을갖고새5계약과동일하지않다. GroupBetJudge:48의focus창 5분관용·screen미계측정산미달성도새정책으로자동 채택하지않는다. ChallengeResultAckService:25의claimDisplay는결과모달표시 선점이며지급수단이아니다.~~ **역사 기록** — 위 클래스는 v0 리베이스에서 퇴역해 코드에 없다(`manifest.json:12-18`). 퀘스트는 챌린지와 별개인 신규 기능이며 `quest/service/IslandQuestService.java` 와 `island_quest_*`(`V0__baseline.sql:959-1013`)로 구현됐다.
 
 논리저장단위(물리테이블/마이그레이션번호는구현조정자소유):
 
@@ -220,7 +220,7 @@ focus 창/target 수학적 범위와 screen0분 허용·title길이는 승인한
 | 공용지갑/원장 | ownerType=island,ownerId=islandId,currency=village_points(섬 통장·섬 물고기 — 2026-09-18 D1, 식별자 개명 미결). 기존경제정본재사용;임의별도balance컬럼금지 |
 | receipt/outbox | actor+operation/key/fingerprint,contractVersion,원 결과·사건ID. 선언적UIclaim과별개 |
 
-현재main에는위공동퀘스트회차/claim지갑연결이없다. 기존 챌린지ID를새questID로사용하거나두기능을동시에생성하는자동이관은범위 밖이다. 원래내기장부를수정/삭제하지않는다.
+~~현재main에는위공동퀘스트회차/claim지갑연결이없다.~~ **구현됨** — 회차·claim·섬 통장 지급은 `IslandQuestService` 와 `island_quest_*` 테이블에 있다. 기존 챌린지ID를새questID로사용하거나두기능을동시에생성하는자동이관은범위 밖이다. 원래내기장부를수정/삭제하지않는다.
 
 ## 4. 계산과 version
 

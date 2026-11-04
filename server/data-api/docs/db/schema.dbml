@@ -529,6 +529,26 @@ Table island_arrivals [note: '섬 도착 기록 — 이 사람이 이 섬에 «�
   }
 }
 
+Table first_island_arrivals [note: '계정의 첫 섬 도착 사건과 Meta Conversions API 전송 상태 — 첫 항해 체험(intro-arrivals)이 island_arrivals 행이 하나도 없는 계정에 처음 도착을 만들 때 1회 기록한다. 전송 작업이 PENDING 행을 한 건씩 보내고, 종료 상태가 되면 anon_id·extinfo·client_ip 를 지운다. 탈퇴 시 애플리케이션이 지운다. GROMO-2741, V10'] {
+  user_id     uuid        [pk, note: 'FK → users.id (ON DELETE CASCADE) — 사용자 행은 소프트 삭제라 사실상 발동하지 않는다. 탈퇴하면 애플리케이션이 먼저 지운다']
+  event_id    uuid        [not null, unique, note: 'Meta 이벤트 중복 제거 ID — 무작위 UUID']
+  island_id   uuid        [not null, note: '첫 도착한 섬']
+  occurred_at timestamptz [not null, note: '도착 기록의 first_arrived_at — Meta event_time']
+  anon_id     varchar(128) [note: 'Meta SDK 설치 익명 ID — 종료 상태가 되면 NULL']
+  advertiser_tracking_enabled boolean [note: 'iOS ATT 허용 여부 (Android 는 true)']
+  extinfo     jsonb       [note: '16칸 기기 정보 배열 — 종료 상태가 되면 NULL']
+  client_ip   varchar(45) [note: 'Business 가 신뢰한 호출자 IP — 종료 상태가 되면 NULL']
+  send_status varchar(16) [not null, note: 'PENDING|SENT|FAILED|EXPIRED|SKIPPED (CHECK). 메타 값이 없으면 처음부터 SKIPPED']
+  attempts    integer     [not null, default: 0, note: '재시도 횟수 — 5xx·타임아웃마다 1 증가']
+  next_attempt_at timestamptz [note: 'PENDING 의 다음 시도 시각']
+  sent_at     timestamptz [note: 'SENT 가 된 시각']
+  last_error  varchar(200) [note: '오류 코드·fbtrace_id 만 — 사용자 값 금지']
+
+  indexes {
+    next_attempt_at [name: 'first_island_arrivals_due_idx', note: 'PENDING 행만의 부분 인덱스 — 전송 작업의 다음 차례 조회']
+  }
+}
+
 Table island_guestbook_entries [note: '섬 방명록 — 유저·섬·KST 하루 1개(결정 N6), 개수 제한 없이 보관하며 섬장이 지운 글은 deleted_at으로 숨긴다. GROMO-2262·2304, V113'] {
   id         uuid        [pk]
   island_id  uuid        [not null, note: 'FK → islands.id (ON DELETE CASCADE) — 섬 행은 소프트 삭제라 사실상 발동하지 않는다. 섬이 닫히면 IslandPurgeService 가 먼저 지운다']
@@ -1294,6 +1314,7 @@ Ref: guest_device_claims.user_id > users.id [delete: cascade]
 Ref: island_appearances.island_id - islands.id [delete: restrict]
 Ref: island_arrivals.island_id > islands.id [delete: cascade]
 Ref: island_arrivals.user_id > users.id [delete: cascade]
+Ref: first_island_arrivals.user_id - users.id [delete: cascade]
 Ref: island_construction_contributions.island_id > island_construction_states.island_id [delete: restrict]
 Ref: island_construction_contributions.user_id > users.id [delete: restrict]
 Ref: island_construction_states.island_id > islands.id [delete: restrict]

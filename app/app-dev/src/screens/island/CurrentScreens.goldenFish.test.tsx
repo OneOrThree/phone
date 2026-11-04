@@ -1,15 +1,16 @@
-import assert from 'node:assert/strict';
-import React, { useReducer, useState } from 'react';
-import { AccessibilityInfo, AppState, type AppStateEvent, type AppStateStatus } from 'react-native';
-import { act, fireEvent, render, userEvent } from '@testing-library/react-native';
-import { CurrentScreens } from '@/screens/island/CurrentScreens';
-import { applyLocalePref, t } from '@/i18n';
-import { initialState, reducer, type State } from '@/services/model';
-import { clearSession, saveSession } from '@/services/api/session';
-import { ApiError } from '@/services/api/client';
-import type { GoldenFishEvent } from '@/services/islandRealtime';
 import { assets } from '@/constants/assets';
+import { applyLocalePref, t } from '@/i18n';
+import { createPreviewEnvironment } from '@/navigation/previewEnvironment';
 import { DEFAULT_SPOT } from '@/screens/focus/FishingIsland';
+import { CurrentScreens } from '@/screens/island/CurrentScreens';
+import { ApiError } from '@/services/api/client';
+import { clearSession, saveSession } from '@/services/api/session';
+import type { GoldenFishEvent } from '@/services/islandRealtime';
+import { initialState, reducer, type State } from '@/services/model';
+import { act, fireEvent, render, userEvent } from '@testing-library/react-native';
+import assert from 'node:assert/strict';
+import { useReducer, useState } from 'react';
+import { AccessibilityInfo, AppState, type AppStateEvent, type AppStateStatus } from 'react-native';
 
 let onGoldenFish: ((event: GoldenFishEvent) => void) | undefined;
 let presenceActive: boolean | undefined;
@@ -301,7 +302,7 @@ const screenElement = (
   overrides: Record<string, unknown> = {},
 ) => (
   <CurrentScreens
-    e={{
+    e={createPreviewEnvironment({
       state,
       route,
       now: Date.now(),
@@ -316,7 +317,7 @@ const screenElement = (
       text: '',
       setText: jest.fn(),
       ...overrides,
-    }}
+    })}
   />
 );
 

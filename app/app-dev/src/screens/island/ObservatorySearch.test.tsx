@@ -1,18 +1,18 @@
+import { createPreviewEnvironment } from '@/navigation/previewEnvironment';
 /**
  * 전망대 섬 찾기(GROMO-2269, 서버 모드 explore) — 디바운스 서버 검색 · 로딩/빈 결과/오류(재시도) · 행 상태(소속됨/신청 중) ·
  * 확인창 → 망원경에 넣기 → 토스트(+밀려난 섬 한 줄) · 실패 문구. searchIslands·pinToTelescope 는 목, 타이머는 가짜다.
  */
-import React from 'react';
-import { AccessibilityInfo, Platform, StyleSheet } from 'react-native';
-import { act, fireEvent, render, within } from '@testing-library/react-native';
-import { semanticTokens } from '@/design-system/tokens';
 import { Txt } from '@/design-system/patterns';
+import { semanticTokens } from '@/design-system/tokens';
+import { applyLocalePref } from '@/i18n';
 import { ObservatorySearch } from '@/screens/island/ObservatorySearch';
 import { SEARCH_DEBOUNCE_MS } from '@/screens/island/useIslandSearch';
-import { applyLocalePref } from '@/i18n';
 import { ApiError, CLIENT_STALE_SESSION } from '@/services/api/client';
 import { discoverIslands, searchIslands, type IslandSummary } from '@/services/api/islands';
 import { pinToTelescope } from '@/services/api/telescope';
+import { act, fireEvent, render, within } from '@testing-library/react-native';
+import { AccessibilityInfo, Platform, StyleSheet } from 'react-native';
 
 jest.mock('@/services/api/islands', () => ({
   ...jest.requireActual('@/services/api/islands'),
@@ -91,7 +91,7 @@ function env() {
 
 /** 열고 검색어를 쳐서 디바운스까지 진행한다. */
 async function search(query: string, e = env()) {
-  const screen = await render(<ObservatorySearch e={e} />);
+  const screen = await render(<ObservatorySearch e={createPreviewEnvironment(e)} />);
   await type(screen, query);
   return { screen, e };
 }
@@ -103,7 +103,7 @@ const type = async (screen: any, query: string) => {
 };
 
 test('처음에는 입력칸만 보이고 서버를 부르지 않는다(공개 섬 탐색 discover 도 없다)', async () => {
-  const screen = await render(<ObservatorySearch e={env()} />);
+  const screen = await render(<ObservatorySearch e={createPreviewEnvironment(env())} />);
   await act(async () => {
     jest.advanceTimersByTime(SEARCH_DEBOUNCE_MS * 3);
   });
@@ -118,7 +118,7 @@ test('처음에는 입력칸만 보이고 서버를 부르지 않는다(공개 �
 test('입력이 300ms 멈춘 뒤 searchIslands 를 부르고 결과 행(이름 · 소개 · 주민 n/max)을 그린다', async () => {
   searchMock.mockResolvedValue(page([island('i1', { name: '단풍섬', intro: '같이 집중해요' })]));
   const e = env();
-  const screen = await render(<ObservatorySearch e={e} />);
+  const screen = await render(<ObservatorySearch e={createPreviewEnvironment(e)} />);
   await fireEvent.changeText(screen.getByLabelText('섬 이름'), ' 단풍 ');
   await act(async () => {
     jest.advanceTimersByTime(SEARCH_DEBOUNCE_MS - 1);
@@ -463,7 +463,7 @@ test('영어 로케일 — 안내·배지·확인창·토스트가 모두 번역
   );
   pinMock.mockResolvedValue(pinned('i1', { islandId: 'old', name: 'Breeze' }));
   const e = env();
-  const screen = await render(<ObservatorySearch e={e} />);
+  const screen = await render(<ObservatorySearch e={createPreviewEnvironment(e)} />);
   screen.getByText('Observatory');
   await fireEvent.changeText(screen.getByLabelText('Island name'), 'm');
   screen.getByLabelText('Clear search'); // 입력이 있으면 지우기 버튼의 읽는 이름도 번역된다
@@ -485,7 +485,7 @@ test('영어 로케일 — 안내·배지·확인창·토스트가 모두 번역
 
 test('뒤로·닫기는 e.back · e.home 이다', async () => {
   const e = env();
-  const screen = await render(<ObservatorySearch e={e} />);
+  const screen = await render(<ObservatorySearch e={createPreviewEnvironment(e)} />);
   await fireEvent.press(screen.getByLabelText('뒤로'));
   expect(e.back).toHaveBeenCalledTimes(1);
   await fireEvent.press(screen.getByLabelText('닫기'));
@@ -494,7 +494,9 @@ test('뒤로·닫기는 e.back · e.home 이다', async () => {
 
 test('랭킹 안에서 바로 검색하고 검색어를 지우면 같은 화면의 랭킹으로 돌아온다', async () => {
   searchMock.mockResolvedValue(page([island('inline', { name: '단풍섬' })]));
-  const screen = await render(<ObservatorySearch e={env()} ranking={<Txt>주간 랭킹 내용</Txt>} />);
+  const screen = await render(
+    <ObservatorySearch e={createPreviewEnvironment(env())} ranking={<Txt>주간 랭킹 내용</Txt>} />,
+  );
   expect(screen.getByText('주간 랭킹 내용')).toBeTruthy();
   await type(screen, '단풍');
   expect(screen.queryByText('주간 랭킹 내용')).toBeNull();

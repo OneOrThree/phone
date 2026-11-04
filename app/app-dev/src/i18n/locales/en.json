@@ -505,7 +505,17 @@
     "start": "Start Focus",
     "resume": "Resume Focus",
     "finishFailed": "Couldn't finish the focus session.",
-    "resumeFailed": "Couldn't resume the focus session."
+    "resumeFailed": "Couldn't resume the focus session.",
+    "leave": {
+      "warnTitle": "Your focus is paused!",
+      "warnBody": {
+        "one": "Come back within {{count}} second to keep focusing.",
+        "other": "Come back within {{count}} seconds to keep focusing."
+      },
+      "endTitle": "Focus session ended",
+      "endBody": "We saved the time you focused so far.",
+      "ended": "Your focus session had already ended."
+    }
   },
   "board": {
     "quest": {

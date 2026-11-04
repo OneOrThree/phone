@@ -1,6 +1,6 @@
 # server/data-api/ — Spring Boot backend
 
-**Catus 2.0의 내부 API와 데이터 정본**을 담당한다. 루트 `CLAUDE.md` 규칙을 함께 따른다.
+**Cattus 2.0의 내부 API와 데이터 정본**을 담당한다. 루트 `CLAUDE.md` 규칙을 함께 따른다.
 아래 명령은 `server/data-api/`에서 실행한다.
 
 ## Stack
@@ -90,7 +90,7 @@ Enforced by `config/checkstyle/checkstyle.xml` (Google Java Style, modified):
 - `./gradlew checkstyleMain checkstyleTest` — style checks.
 - `./gradlew spotbugsMain` — static analysis.
 - `./gradlew jacocoTestReport` — coverage report.
-- Local helper: `./test-local.sh` spins up a throwaway `postgres:16-alpine` container, runs the tests, then tears it down.
+- Local gate: `./norm.sh` runs Checkstyle → SpotBugs → test + bootJar like CI (what `/back-check` runs, `.claude/commands/back-check.md:12`). It starts no host DB: tests bring their own PostgreSQL via Testcontainers, and the datasource is pinned to a dead port `127.0.0.1:1` (`norm.sh:5-8,38`). `test-local.sh` starts a host Postgres (`test-local.sh:5-11`) that the tests do not use.
 
 ## Docs
 
@@ -147,9 +147,9 @@ whitelist (GROMO-735).
 - `server/scripts/docker-compose.observability.yml` overlays Prometheus + Grafana +
   Loki/Promtail on the dev stack; configs live in `server/observability/`
   (see its README).
-- Dev Datadog은 `server/scripts/docker-compose.datadog.yml`과 수동
-  `ops-datadog.dev.yml`로 관리한다. Catus prod 실행 구성은 아래 Deploy 안내의
-  Infra 경로에서 확인한다.
+- Datadog runs on the four V2 prod EC2 instances and is managed in Infra
+  `prod/catus-v2`. The three dev V2 VMs have no Agent.
+  `server/scripts/docker-compose.datadog.yml` is a legacy reference.
 - OpenMetrics 수집 목록(`com.datadoghq.ad.checks` 라벨의 `metrics`)은 `.*`가 아니라 대시보드가 쓰는 이름만 적은
   큐레이트 목록이다(GROMO-2196, 출처 Datadog 대시보드 «CATUS · PROD 통합 관측»·«CATUS · DEV 통합 관측»).
   라벨은 서비스마다 다른 파일에 있다. Data API(`gromo`)는 `server/data-api/Dockerfile`, Realtime은
@@ -162,12 +162,9 @@ whitelist (GROMO-735).
 
 - **Dev**: `main` push에서 `data-api-ci.dev-v2.yml`이 GAR 이미지를 발행하고
   `cd-auto.dev-v2.yml`이 배포한다. 절차는 `docs/engineering/dev-v2-pipeline.md`를 따른다.
-- **Prod**: 현행은 `prod-ci-V2.yml`·`prod-cd-V2.yml`이며 절차는
-  `docs/engineering/prod-v2-pipeline.md`를 따른다. 꺼진 기존 경로는 다음과 같다.
-  Catus 2.0은 루트의 `prod-ci.yml`로 변경 서비스 이미지를 발행하고,
-  `prod-cd.yml`로 수동 SSM 배포·버전 지정 롤백을 수행한다. 실행 구성은 Infra의
-  `prod/catus/runtime` 소유이며 기존 Gromo 1.x 운영과 분리한다. 선행 조건과 실행 절차는
-  `docs/prd/fishcat/server-separation/deployment.md`의 「Catus 2.0 운영 발행·배포」를 따른다.
+- **Prod**: `prod-ci-V2.yml` publishes images and `prod-cd-V2.yml` deploys them.
+  Follow `docs/engineering/prod-v2-pipeline.md`; runtime configuration is owned by
+  Infra `prod/catus-v2`.
 
 ## Recommended skills & tools (backend workflow)
 

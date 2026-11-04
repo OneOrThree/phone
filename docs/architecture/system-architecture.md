@@ -109,7 +109,7 @@ Business 컨테이너 한도는 2 GiB이며 전용 Redis 캐시는 192 MiB를 �
 | ~~**`LINK_CAPABILITY_KEY`**(§3 비공개 가입 자격 서명)~~ → A23: 불필요 | **A23(2026-09-13)**: 비공개 가입 검증은 가입 트랜잭션 안에서 링크 행 잠금·재검증이라 서명 자격이 없다(링크 HLD §2). #745 가 남긴 data-api `link.capability-key` 는 링크 구현 PR 이 지운다(링크 LLD §9.1). 원문: ~~**링크 서버(발급) 와 data-api(검증) 양쪽** — HMAC 공유 비밀 또는 링크 서버 개인키/Data 공개키 쌍. 없으면 Data 는 자격의 발급자를 확인할 수 없어 **가입을 전부 실패시키거나, 서명을 안 보고 클라이언트가 준 `groupId`·`inviterId`·`membershipEpoch` 를 믿어 비공개 그룹 가입이 우회**된다. **회전은 구·신 키 병행 검증 기간을 두고**(자격 만료보다 긴 창) 그 뒤 구 키를 폐기한다~~ |
 | ~~**`LINK_PROXY_SECRET`**(§2.1 의 프록시 전용 공유 시크릿)~~ → A23: 불필요 | **A23(2026-09-13)**: 같은 홉이라 현행 `X-Real-IP` 규칙만 쓴다(링크 HLD §2·§5). #745 의 business-api `link.proxy-secret` 은 링크 구현 PR 이 걷어낸다(링크 LLD §9.1·§9.2). 원문: ~~**nginx·링크 서버·Business API** — 서비스 토큰과 별개다. 운영 Business는 기본값 없이 참조하므로 env 생성 전에 필수 검증한다(A22 ㋯). 이게 없으면 legacy `/l/match` 프록시가 신뢰 가능한 전달 IP 를 못 실어 링크 서버가 Vercel 이 본 EC2 주소로 해시하고, **정상 클릭도 `matched:false`** 가 된다~~ |
 
-**런타임 시크릿 공급 경로(A22 ㋯):** prod 는 Secrets Manager(`gromo/prod/env` JSON), **dev 도 Secrets Manager(`gromo/dev/env`)** 이다. 현 `data-api-cd.dev.yml:79-90` 은 AWS OIDC 자격으로 JSON 을 읽어 `.github/scripts/write-compose-env.py` 를 통해 checkout 밖의 `dev.env` 로 쓴다. 같은 워크플로의 GCP 메타데이터 호출(`:92-98`)은 **GAR 이미지 pull 인증용**이다.
+**런타임 시크릿 공급 경로(A22 ㋯):** V1 에서는 prod 가 Secrets Manager(`gromo/prod/env` JSON), dev 가 `gromo/dev/env` 였다(V1 워크플로는 삭제됨). 현행 prod V2 env 는 `OneOrThree/cattus-infra` 의 `prod/catus-v2/runtime/env_writer-V2.py` 가 만들고, dev V2 는 `.github/scripts/v2/dev/dev-env-V2.py` 가 만든다. 서비스별로 나갈 키는 `.github/scripts/write-compose-env.py` 의 허용목록이 정한다.
 
 **Target-1 최초 배포 전에 공급 경로 전체를 수정한다.** 현 `write-compose-env.py:44-57` 은 `REQUIRED_KEYS` 와 Grafana 키만 출력해, JSON 에 `NOTI_DB_*`·`SVC_TOKEN_*` 를 추가해도 env 파일에는 나타나지 않는다. 구현 순서는 다음과 같다.
 
@@ -178,7 +178,7 @@ server/.github/workflows/
 
 ## 6. dev 전용 차이
 
-- Cloudflare 없음(`oneorthree.dev.mooo.com` 직행) — **dev 에 nginx 가 있는지 미확인**(compose 엔 `app`·`db` 뿐, CD 헬스체크는 `localhost:8080`). Target-1 에서 dev 도 nginx 를 두어 경로 규칙을 prod 와 같게 한다(§2.1).
+- (옛 dev VM 기록) `oneorthree.dev.mooo.com` 직행이었고 VM 은 삭제되었다([dev V2 파이프라인](../engineering/dev-v2-pipeline.md)). 현행 dev V2(`oneorthree-v2.dev.mooo.com`)는 `catus-dev-v2-app` 에 nginx 가 있고 배포가 `nginx -t` 와 HTTPS `/health` 를 확인한다. dev V2 앞단의 Cloudflare 여부는 그 문서에 기록이 없다.
 - DB 는 컨테이너 Postgres 에 database 2개. `docker-entrypoint-initdb.d` 는 **데이터 디렉터리가 비어 있을 때만** 돌고 dev 는 `postgres_dev_data` named volume 을 영속하므로, **기존 dev 호스트를 Target-1 로 올릴 때는 init 스크립트가 실행되지 않는다** — 배포 절차에 일회성 `CREATE DATABASE gromo_notification` + 유저·권한 생성(또는 매 기동 시 도는 멱등 초기화 잡)을 포함한다. 빠뜨리면 notification 이 DB 연결 단계에서 기동 실패.
 - Datadog 오버레이는 현행(`docker-compose.datadog.yml`), 서비스 3개에 `-javaagent` 동일 주입.
 
