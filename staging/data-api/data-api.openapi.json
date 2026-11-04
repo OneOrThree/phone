@@ -1196,6 +1196,15 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IntroArrivalRequest"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "OK",
@@ -7741,6 +7750,34 @@
           "expiresAt": {
             "type": "string",
             "format": "date-time"
+          }
+        }
+      },
+      "IntroArrivalRequest": {
+        "type": "object",
+        "properties": {
+          "meta": {
+            "$ref": "#/components/schemas/Meta"
+          },
+          "clientIp": {
+            "type": "string"
+          }
+        }
+      },
+      "Meta": {
+        "type": "object",
+        "properties": {
+          "anonId": {
+            "type": "string"
+          },
+          "advertiserTrackingEnabled": {
+            "type": "boolean"
+          },
+          "extinfo": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         }
       },
