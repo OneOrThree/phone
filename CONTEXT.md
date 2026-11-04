@@ -21,7 +21,7 @@ _Avoid_: Catus, GroMo, Gromo, fishcat, focuscat, 같이숲(모두 2.0 제품을 
 2.0 전의 동결된 앱이다. 스토어 1.1.0까지 나갔고, 2.0 기능을 넣지 않는다.
 
 **바꾸지 않는 식별자**:
-제품 이름이 바뀌기 전의 이름이 남은 식별자다. 문장의 제품명과 달라도 그대로 둔다: `GROMO-####`, Jira 프로젝트 키 `GROMO`, Android 앱 `com.oneorthree.gromo`, iOS 앱 `com.oneorthree.focuscat`, scheme `gromo`, slug `focuscat`, `gromo_chat`, `gromo-dev-app`, `gromo/dev/env`, `docs/prd/fishcat/`, `catus-*` 호스트·태그·시크릿·버킷, 코드 패키지 `group`.
+제품 이름이 바뀌기 전의 이름이 남은 식별자다. 문장의 제품명과 달라도 그대로 둔다: `GROMO-####`, Jira 프로젝트 키 `GROMO`, 스토어 앱 `com.oneorthree.gromo`(Android, iOS 는 2.3.0 부터 App Store id6774498679), iOS 프로젝트·TestFlight 레인의 번들 `com.oneorthree.focuscat`(스토어에 공개된 적 없음, gromo 로 전환 예정), scheme `gromo`, slug `focuscat`, `gromo_chat`, `gromo-dev-app`, `gromo/dev/env`, `docs/prd/fishcat/`, `catus-*` 호스트·태그·시크릿·버킷, 코드 패키지 `group`.
 
 ## 섬과 주민
 

@@ -24,6 +24,8 @@ disable-model-invocation: true
 
 ## 2. iOS 운영 빌드
 
+스토어 앱은 1.x 와 같은 App Store 앱이다(번들 `com.oneorthree.gromo`, id6774498679, 2.3.0 부터). 저장소의 Fastfile `APP_ID`·Appfile·Cattus.xcodeproj 는 아직 `com.oneorthree.focuscat` 이라, 그대로 올리면 공개된 적 없는 다른 App Store 앱으로 간다. 레인을 gromo 로 바꾸기 전에는 빌드 번들부터 확인한다.
+
 1. 최신 main 의 깨끗한 워크트리를 만들고 `cd app/app-dev && npm ci` 를 돌린다.
 2. 준비물을 둔다. 깨끗한 워크트리에는 gitignore 된 파일이 없다.
    - App Store Connect 키: `ios/fastlane/.env`(양식 `ios/fastlane/.env.example`) 또는 환경변수 `ASC_KEY_ID`·`ASC_ISSUER_ID`·`ASC_KEY_PATH`.
