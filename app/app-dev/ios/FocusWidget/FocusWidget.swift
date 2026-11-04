@@ -246,7 +246,7 @@ private struct HomeProvider: TimelineProvider {
         completion(Timeline(entries: entries, policy: .after(now.addingTimeInterval(6 * 3600))))
     }
     private func read() -> HomeSnapshot? {
-        guard let data = UserDefaults(suiteName: "group.com.oneorthree.focuscat")?.data(forKey: "gromo:widget:home") else { return nil }
+        guard let data = UserDefaults(suiteName: "group.com.oneorthree.gromo")?.data(forKey: "gromo:widget:home") else { return nil }
         return try? JSONDecoder().decode(HomeSnapshot.self, from: data)
     }
 }

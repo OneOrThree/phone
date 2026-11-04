@@ -97,7 +97,7 @@
 
 ### 소스맵·네이티브 심볼
 
-Metro의 `getPostHogExpoConfig`가 debug ID를 넣습니다. iOS Bundle 단계는 PostHog의 Hermes 업로드 스크립트를 호출하며 마지막 빌드 단계에서 dSYM을 올립니다. Android는 JS 소스맵 업로드와 `com.posthog.android` 1.5.0 플러그인의 R8 mapping·NDK 심볼 업로드를 연결했습니다. 플러그인의 전이 의존성 때문에 Expo의 Kotlin 버전이 바뀌지 않게 제외 규칙을 둡니다.
+Metro의 `getPostHogExpoConfig`가 debug ID를 넣습니다. iOS Bundle 단계는 PostHog의 Hermes 업로드 스크립트를 호출합니다. 네이티브 크래시는 Sentry가 받으므로 iOS dSYM은 PostHog에 올리지 않습니다(티켓 2746). Android는 JS 소스맵 업로드와 `com.posthog.android` 1.5.0 플러그인의 R8 mapping·NDK 심볼 업로드를 연결했습니다. 플러그인의 전이 의존성 때문에 Expo의 Kotlin 버전이 바뀌지 않게 제외 규칙을 둡니다.
 
 업로드 CLI 0.18.10은 devDependency로 고정했습니다. **빌드 머신마다** 아래 인증을 `app/app-dev/.env.posthog`(gitignore, 권한 0600)에 두거나 CI 환경변수로 제공해야 합니다. `EXPO_PUBLIC_*`에 비밀 키를 넣으면 안 됩니다.
 

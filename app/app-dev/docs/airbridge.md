@@ -1,6 +1,6 @@
 # iOS·Android Airbridge 연동
 
-앱 이름은 `catus`, Android 패키지는 `com.oneorthree.gromo`, iOS Bundle ID는 `com.oneorthree.focuscat`이다. 기존 Airbridge React Native SDK 4.11.0(iOS SDK 4.11.1)을 재사용한다. 두 플랫폼이 같은 로그인·집중 완료 이벤트와 사용자 식별 흐름을 사용한다.
+앱 이름은 `catus`, Android 패키지는 `com.oneorthree.gromo`다. iOS 스토어 앱의 Bundle ID도 `com.oneorthree.gromo`다(2.3.0 부터 1.x 와 같은 App Store 앱 id6774498679). 저장소의 iOS 프로젝트는 아직 `com.oneorthree.focuscat` 이다. 기존 Airbridge React Native SDK 4.11.0(iOS SDK 4.11.1)을 재사용한다. 두 플랫폼이 같은 로그인·집중 완료 이벤트와 사용자 식별 흐름을 사용한다.
 
 ## 빌드 설정
 
@@ -49,7 +49,7 @@ Xcode의 `[Airbridge] Generate app configuration` 단계가 같은 `.env` 로딩
 
 ## 딥링크
 
-Airbridge에 두 플랫폼의 URI 스킴 `gromo://`, iOS App ID `P6Z68QUK9M.com.oneorthree.focuscat`, Android 패키지 `com.oneorthree.gromo`와 사용자 제공 Play 앱 서명 SHA-256을 등록했다. `catus.airbridge.io`와 `catus.abr.ge`의 AASA·assetlinks 공개 응답도 확인한다. 인증서가 변경되면 대시보드 등록값도 갱신해야 한다.
+Airbridge에 두 플랫폼의 URI 스킴 `gromo://`, iOS App ID `P6Z68QUK9M.com.oneorthree.gromo`, Android 패키지 `com.oneorthree.gromo`와 사용자 제공 Play 앱 서명 SHA-256을 등록했다(2026-11-04 공개 AASA 에는 gromo App ID 하나만 실려 있다 — focuscat 번들 빌드는 유니버설 링크를 받지 못한다). `catus.airbridge.io`와 `catus.abr.ge`의 AASA·assetlinks 공개 응답도 확인한다. 인증서가 변경되면 대시보드 등록값도 갱신해야 한다.
 
 - Android: MainActivity의 두 HTTP intent-filter가 App Links를 수신하고 `onResume`에서 SDK에 전달한다. `onNewIntent`는 최신 intent를 유지한다.
 - iOS: Associated Domains에 두 호스트를 등록하고 AppDelegate의 URL·Universal Link 콜백에서 SDK를 호출한다. 기기용 배포 프로파일에는 Associated Domains capability가 포함돼야 한다.
@@ -57,4 +57,4 @@ Airbridge에 두 플랫폼의 URI 스킴 `gromo://`, iOS App ID `P6Z68QUK9M.com.
 
 추적 링크 생성 시 앱 내 목적지 예시는 `gromo://home`, `gromo://friends`, `gromo://focus`다. 섬은 `gromo://group?g=<UUID>`, 잡지는 `gromo://magazine?issue=<UUID>`를 사용한다. 기존 로그인·온보딩 중 링크 보관과 사용자 세션 검사를 그대로 거친다. 임의 외부 URL을 앱 내부 화면으로 실행하지 않는다.
 
-iOS는 사용자 확인 기준 미출시이므로 Airbridge 스토어 주소 `https://apps.apple.com/app/id0`을 유지한다. 출시 후 실제 App Store 주소를 입력해야 미설치 사용자의 스토어 이동을 검증할 수 있다. 설치 상태의 스킴 진입 테스트, OS 연결 파일 검증, 실제 광고 링크의 설치 후 지연 이동은 서로 다른 검증 항목이다.
+iOS 2.3.0 이 2026-11-03 21:40 KST 에 공개돼 Airbridge iOS 스토어 주소는 `https://apps.apple.com/app/id6774498679` 다. 대시보드에 출시 전 자리표시자 `https://apps.apple.com/app/id0` 이 남아 있으면 미설치 사용자의 스토어 이동이 막히므로 이 주소로 바꾼다. 설치 상태의 스킴 진입 테스트, OS 연결 파일 검증, 실제 광고 링크의 설치 후 지연 이동은 서로 다른 검증 항목이다.

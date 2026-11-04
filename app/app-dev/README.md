@@ -263,9 +263,9 @@ Meta 앱 `1092876403132413`의 iOS 기본 설치·실행 이벤트를 공식 `FB
 
 첫 전경 실행에서 ATT를 처리한 뒤 SDK를 초기화하므로 첫 실행도 수집합니다. 광고 ID는 허용된 경우에만 사용하고, 설정 앱에서 허용 상태가 바뀌면 복귀 시 반영합니다. 네이티브 SDK 추가로 새 iOS 바이너리가 필요해 그때 iOS OTA 런타임을 올렸습니다(당시 `2.0.0-push-meta`, 현재 값은 `app.config.js`). Android 런타임은 바꾸지 않았습니다.
 
-`first_island_arrival`(GROMO-2742)은 앱 SDK가 아니라 서버가 Conversions API로 보냅니다. 앱은 첫 항해 도착 요청(`arriveFirstVoyage`)에 Meta 설치 익명 ID·ATT 허용 여부·extinfo(`metaContext`)를 `meta`로 실어 보내고, 얻지 못하면 빼고 보냅니다. iOS는 `MetaAppEventsModule.metaContext`, Android는 로컬 Expo 모듈 `modules/meta-app-events`(`MetaAppEvents.anonymousId`)를 쓰며 Android는 `EXPO_PUBLIC_ENV=prod`일 때만 보냅니다. 네이티브 변경이라 두 OTA 런타임에 `-meta-events-v1`을 붙였습니다.
+`first_island_arrival`(GROMO-2742)은 서버가 Conversions API로 보내고, iOS는 같은 이벤트를 Meta SDK로도 한 번 기록합니다(GROMO-2749 — iOS14+ SKAN 전환값·AEM은 기기 SDK 이벤트만 쓰기 때문). 서버가 첫 도착 응답에 내려 준 `firstArrivalEventId`를 SDK 기록의 `event_id`로 써서 Meta가 둘을 한 이벤트로 합칩니다. 앱은 첫 항해 도착 요청(`arriveFirstVoyage`)에 Meta 설치 익명 ID·ATT 허용 여부·extinfo(`metaContext`)를 `meta`로 실어 보내고, 얻지 못하면 빼고 보냅니다. iOS는 `MetaAppEventsModule.metaContext`, Android는 로컬 Expo 모듈 `modules/meta-app-events`(`MetaAppEvents.metaContext`)를 쓰며 Android는 `EXPO_PUBLIC_ENV=prod`일 때만 보냅니다. Android 추적 허용 값은 Meta SDK가 읽는 기기 광고 추적 제한 설정(`AttributionIdentifiers.isTrackingLimited`)을 따르고, 읽지 못하면 false입니다(GROMO-2743). 네이티브 변경이라 iOS·Android 런타임에 `-meta-events-v2`를 붙였습니다.
 
-Meta 콘솔 iOS 번들 ID는 `com.oneorthree.focuscat`, Store ID는 `6813004121`입니다. Store ID는 Meta가 App Store에 최소 24시간 공개된 앱만 검증할 수 있어 공개 후 등록해야 합니다. 운영용 새 바이너리에서 실제 설치·실행 이벤트 수신 확인이 필요합니다.
+iOS 2.3.0 은 1.x 와 같은 App Store 앱(번들 `com.oneorthree.gromo`, Store ID `6774498679`)에 업데이트로 2026-11-03 21:40 KST 에 공개됐습니다. Meta 콘솔의 iOS 번들 ID·Store ID 는 이 값으로 맞춥니다. Meta 는 App Store 에 최소 24시간 공개된 앱만 Store ID 를 검증하므로 2026-11-04 21:40 KST 이후 등록할 수 있습니다. `com.oneorthree.focuscat`(Store ID `6813004121`)은 스토어에 공개된 적이 없습니다. 운영용 새 바이너리에서 실제 설치·실행 이벤트 수신 확인이 필요합니다.
 
 ### 이미지 CDN 시범 캐시
 

@@ -38,8 +38,10 @@ test('isBelowMinVersion 은 자리별 숫자로 비교하고 형식 오류는 �
   expect(isBelowMinVersion(undefined, '2.0.0')).toBe(false);
 });
 
-test('스토어 주소에 id0 이 없다', () => {
+test('스토어 주소는 실제로 공개된 스토어 앱을 가리킨다', () => {
   expect(STORE_URLS.ios).not.toMatch(/id0(\D|$)/);
+  // 공개된 적 없는 focuscat 앱(id6813004121)은 App Store 에서 404 다.
+  expect(STORE_URLS.ios).toContain('id6774498679');
   expect(STORE_URLS.android).toContain('com.oneorthree.gromo');
 });
 

@@ -66,6 +66,8 @@ export type Arrival = {
   arrivedBefore: boolean;
   membershipStatus: 'none' | 'pending' | 'active';
   currentIslandId: string | null;
+  /** 첫 항해 체험이 계정의 첫 도착을 만들었을 때만 온다 — 서버 CAPI 와 같은 Meta event_id(GROMO-2748). */
+  firstArrivalEventId?: string;
 };
 
 /** 망원경에 넣은 곳 — 전망대(검색·랭킹)는 `observatory`, 잡지는 `magazine`(E4-5). */

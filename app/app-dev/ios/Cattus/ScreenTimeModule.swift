@@ -8,7 +8,7 @@ import React
 import SwiftUI
 import UIKit
 
-private let appGroupID = "group.com.oneorthree.focuscat"
+private let appGroupID = "group.com.oneorthree.gromo"
 private let authorizationWasApprovedKey = "gromo:screentime:authorizationWasApproved"
 
 @objc(ScreenTimeModule)

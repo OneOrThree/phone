@@ -3,7 +3,7 @@ opt_out_usage
 
 require "shellwords"
 
-APP_ID = "com.oneorthree.focuscat".freeze
+APP_ID = "com.oneorthree.gromo".freeze
 IOS_DIR = File.expand_path("..", __dir__).freeze
 HERMES_CLI_PATH = File.expand_path("../node_modules/hermes-compiler/hermesc/osx-bin/hermesc", IOS_DIR).freeze
 PRODUCTION_API_URL = "https://catus-api-v2.oneorthree.world".freeze

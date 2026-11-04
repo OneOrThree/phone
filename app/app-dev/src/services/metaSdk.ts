@@ -7,6 +7,7 @@ import { isMockMode } from '@/services/demoMode';
 type MetaAppEventsModule = {
   syncTracking(requestPermission: boolean): Promise<boolean>;
   metaContext?(): Promise<{ anonId: string; advertiserTrackingEnabled: boolean } | null>;
+  logEvent?(name: string, eventId: string): Promise<boolean>;
 };
 let permissionSync: Promise<void> | undefined;
 
@@ -59,20 +60,38 @@ function buildExtinfo(): string[] {
 export async function metaContext(): Promise<MetaContext | undefined> {
   if (!enabled()) return undefined;
   try {
-    if (Platform.OS === 'ios') {
-      const meta = NativeModules.MetaAppEventsModule as MetaAppEventsModule | undefined;
-      const native = await meta?.metaContext?.();
-      if (!native?.anonId) return undefined;
-      return { ...native, extinfo: buildExtinfo() };
-    }
-    const anonId = await requireOptionalNativeModule<{ anonymousId(): Promise<string | null> }>(
-      'MetaAppEvents',
-    )?.anonymousId();
-    return anonId
-      ? { anonId, advertiserTrackingEnabled: true, extinfo: buildExtinfo() }
-      : undefined;
+    // iOS는 ATT 허용 여부, Android는 기기 광고 추적 제한 설정(GROMO-2743)을 네이티브가 준다.
+    const native =
+      Platform.OS === 'ios'
+        ? await (
+            NativeModules.MetaAppEventsModule as MetaAppEventsModule | undefined
+          )?.metaContext?.()
+        : await requireOptionalNativeModule<Pick<MetaAppEventsModule, 'metaContext'>>(
+            'MetaAppEvents',
+          )?.metaContext?.();
+    if (!native?.anonId) return undefined;
+    // 값이 없으면 허용을 가정하지 않는다.
+    return {
+      anonId: native.anonId,
+      advertiserTrackingEnabled: native.advertiserTrackingEnabled === true,
+      extinfo: buildExtinfo(),
+    };
   } catch {
     return undefined;
+  }
+}
+
+/**
+ * iOS 맞춤 앱 이벤트를 Meta SDK로 한 번 기록한다(GROMO-2749). 서버 CAPI 와 같은 event_id 라 Meta 가 하나로 합치고,
+ * 기기 SDK 기록이라 iOS14+ SKAN·AEM 대상이 된다. Android 는 서버 CAPI 만 쓴다. 기록하지 못하면 false.
+ */
+export async function logMetaEvent(name: string, eventId: string): Promise<boolean> {
+  if (Platform.OS !== 'ios' || !enabled()) return false;
+  try {
+    const meta = NativeModules.MetaAppEventsModule as MetaAppEventsModule | undefined;
+    return (await meta?.logEvent?.(name, eventId)) === true;
+  } catch {
+    return false;
   }
 }
 

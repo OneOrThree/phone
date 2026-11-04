@@ -49,15 +49,18 @@ module.exports = {
       // GROMO-1839 iPadOS 18 이하는 멀티태스킹을 지원하면 화면 방향 잠금을 무시하므로
       // 시작·가입 화면의 세로 고정을 위해 전체 화면을 요구한다. iPadOS 26은 Expo 패치로 대응한다
       requireFullScreen: true,
-      bundleIdentifier: 'com.oneorthree.focuscat',
+      bundleIdentifier: 'com.oneorthree.gromo',
       associatedDomains: [
         'applinks:link.oneorthree.world',
         'applinks:catus-api-v2.oneorthree.world',
         'applinks:oneorthree-v2.dev.mooo.com',
       ],
       // GROMO-2523·2544 푸시·Meta SDK가 든 바이너리만 새 JS OTA를 받게 iOS 런타임을 분리한다.
+      // gromo 번들 바이너리는 Google 클라이언트 스킴이 focuscat 바이너리와 달라 같은 OTA 를 받으면
+      // 로그인 탭에서 크래시하므로 런타임을 또 가른다(옛 focuscat 빌드는 2.0.0-push-meta-assets-ai-focus-meta-events-v1).
+      // 스토어 2.3.0·2.3.1(2.0.0-gromo-push-meta-assets-*)은 카메라 네이티브 모듈이 없어 AI 집중 인증 JS 를 받으면 안 된다 — 값을 공유하지 않는다.
       // 체크인된 ios/Cattus/Supporting/Expo.plist 의 EXUpdatesRuntimeVersion 과 같은 값이어야 한다.
-      runtimeVersion: '2.0.0-push-meta-assets-ai-focus-meta-events-v1',
+      runtimeVersion: '2.0.0-gromo-push-meta-assets-ai-focus-meta-events-v2',
       infoPlist: {
         CFBundleLocalizations: ['ko', 'en'],
         NSSupportsLiveActivities: true,
@@ -66,14 +69,14 @@ module.exports = {
       },
       entitlements: {
         'com.apple.developer.family-controls': true,
-        'com.apple.security.application-groups': ['group.com.oneorthree.focuscat'],
+        'com.apple.security.application-groups': ['group.com.oneorthree.gromo'],
       },
     },
     android: {
       package: 'com.oneorthree.gromo',
       versionCode: 379,
       // 집중 차단 기능이 있는 기존 Android OTA와 네이티브 구성을 분리한다.
-      runtimeVersion: '2.0.1-android-push-assets-ai-focus-meta-events-v1',
+      runtimeVersion: '2.0.1-android-push-assets-ai-focus-meta-events-v2',
       permissions: [
         'android.permission.PACKAGE_USAGE_STATS',
         'android.permission.POST_NOTIFICATIONS',
