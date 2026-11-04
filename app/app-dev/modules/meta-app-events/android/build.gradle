@@ -14,4 +14,5 @@ android {
 
 dependencies {
   implementation 'com.facebook.android:facebook-core:19.0.0'
+  testImplementation 'junit:junit:4.13.2'
 }
