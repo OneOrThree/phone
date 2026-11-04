@@ -7,6 +7,7 @@ import { isMockMode } from '@/services/demoMode';
 type MetaAppEventsModule = {
   syncTracking(requestPermission: boolean): Promise<boolean>;
   metaContext?(): Promise<{ anonId: string; advertiserTrackingEnabled: boolean } | null>;
+  logEvent?(name: string, eventId: string): Promise<boolean>;
 };
 let permissionSync: Promise<void> | undefined;
 
@@ -77,6 +78,20 @@ export async function metaContext(): Promise<MetaContext | undefined> {
     };
   } catch {
     return undefined;
+  }
+}
+
+/**
+ * iOS 맞춤 앱 이벤트를 Meta SDK로 한 번 기록한다(GROMO-2749). 서버 CAPI 와 같은 event_id 라 Meta 가 하나로 합치고,
+ * 기기 SDK 기록이라 iOS14+ SKAN·AEM 대상이 된다. Android 는 서버 CAPI 만 쓴다. 기록하지 못하면 false.
+ */
+export async function logMetaEvent(name: string, eventId: string): Promise<boolean> {
+  if (Platform.OS !== 'ios' || !enabled()) return false;
+  try {
+    const meta = NativeModules.MetaAppEventsModule as MetaAppEventsModule | undefined;
+    return (await meta?.logEvent?.(name, eventId)) === true;
+  } catch {
+    return false;
   }
 }
 

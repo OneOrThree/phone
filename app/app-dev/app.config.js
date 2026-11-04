@@ -60,7 +60,7 @@ module.exports = {
       // 로그인 탭에서 크래시하므로 런타임을 또 가른다(옛 focuscat 빌드는 2.0.0-push-meta-assets-ai-focus-meta-events-v1).
       // 스토어 2.3.0·2.3.1(2.0.0-gromo-push-meta-assets-*)은 카메라 네이티브 모듈이 없어 AI 집중 인증 JS 를 받으면 안 된다 — 값을 공유하지 않는다.
       // 체크인된 ios/Cattus/Supporting/Expo.plist 의 EXUpdatesRuntimeVersion 과 같은 값이어야 한다.
-      runtimeVersion: '2.0.0-gromo-push-meta-assets-ai-focus-meta-events-v1',
+      runtimeVersion: '2.0.0-gromo-push-meta-assets-ai-focus-meta-events-v2',
       infoPlist: {
         CFBundleLocalizations: ['ko', 'en'],
         NSSupportsLiveActivities: true,
