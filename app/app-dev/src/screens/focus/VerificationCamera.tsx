@@ -39,8 +39,9 @@ export type { VerificationDetection } from '@/services/studyVerification/focusDe
 export const PREVIEW_SAMPLE_MS = LIVE_SAMPLE_MS;
 export const PREVIEW_STALE_MS = LIVE_STALE_MS;
 const PREVIEW_RESOLUTION = { width: 640, height: 480 };
-const PALM_MODEL: number = require('../../assets/ml/palm_detection_lite.tflite');
-const OBJECT_MODEL: number = require('../../assets/ml/efficientdet_lite0_int8.tflite');
+// 모델 require 는 카메라를 실제로 그릴 때만 평가한다 — 모듈 최상위에 두면 이 파일을 import 만 하는 화면·테스트도 .tflite 를 읽는다.
+const palmModelModule = (): number => require('../../assets/ml/palm_detection_lite.tflite');
+const objectModelModule = (): number => require('../../assets/ml/efficientdet_lite0_int8.tflite');
 type ModelSources = { palm: ModelSource; object: ModelSource };
 type Samples = {
   lastAt: number;
@@ -101,7 +102,7 @@ function CameraPreview({ output }: { output: ReturnType<typeof usePreviewOutput>
  */
 function useModelSources(): ModelSources | null {
   const [sources, setSources] = useState<ModelSources | null>(() =>
-    Platform.OS === 'android' ? null : { palm: PALM_MODEL, object: OBJECT_MODEL },
+    Platform.OS === 'android' ? null : { palm: palmModelModule(), object: objectModelModule() },
   );
   useEffect(() => {
     if (Platform.OS !== 'android') return;
@@ -114,7 +115,7 @@ function useModelSources(): ModelSources | null {
           ({ localUri }) => (localUri ? { url: localUri } : module),
           () => module,
         );
-    Promise.all([toFile(PALM_MODEL), toFile(OBJECT_MODEL)]).then(([palm, object]) => {
+    Promise.all([toFile(palmModelModule()), toFile(objectModelModule())]).then(([palm, object]) => {
       if (alive) setSources({ palm, object });
     });
     return () => {
