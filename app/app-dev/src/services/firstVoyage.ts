@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ApiError, CLIENT_STALE_SESSION, request, uuid } from '@/services/api/client';
 import { logMetaEvent, metaContext } from '@/services/metaSdk';
+import { captureProductEvent } from '@/services/posthog';
 import { sessionGeneration } from '@/services/api/session';
 import type { Arrival, TelescopeItem } from '@/services/api/telescope';
 
@@ -69,7 +70,14 @@ export async function arriveFirstVoyage(
   // 계정 첫 도착이면 서버 CAPI 와 같은 event_id 로 Meta SDK 에도 기록한다 — SKAN·AEM 은 기기 SDK 이벤트만 쓴다
   // (GROMO-2749). 기록 실패가 도착을 막지 않는다.
   // ponytail: SDK 가 아직 시작 전이면 이번 기록은 버린다(서버 CAPI 는 그대로 나감). 놓치는 일이 잦으면 대기열을 둔다.
-  if (arrival.firstArrivalEventId)
-    void logMetaEvent('first_island_arrival', arrival.firstArrivalEventId).catch(() => undefined);
+  if (arrival.firstArrivalEventId) {
+    // Google Ads 는 앱 분석 SDK 포스트백만 받는다 — 같은 도착을 PostHog·Airbridge 로도 보낸다(GROMO-2753).
+    // SDK 기록 성공 여부(meta_sdk_logged)를 PostHog 에 남겨 기기에서 Meta 기록이 되는지 본다.
+    void logMetaEvent('first_island_arrival', arrival.firstArrivalEventId)
+      .catch(() => false)
+      .then((logged) =>
+        captureProductEvent('first_island_arrival', { meta_sdk_logged: logged ? 1 : 0 }),
+      );
+  }
   return arrival;
 }
