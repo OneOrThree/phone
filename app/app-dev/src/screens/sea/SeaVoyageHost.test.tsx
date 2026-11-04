@@ -1,21 +1,22 @@
+import { createPreviewEnvironment } from '@/navigation/previewEnvironment';
+import type { Route } from '@/services/model';
 // 바다 항해 호스트(GROMO-2310) — 세션 정본 → SeaScreen 어댑터: 남은 분 → 정박 문구, 그만두기 확인 1회 → 감속·휴식 컷신 → 표류,
 // 내리기 → seaArrival 라우트 인자, 한마디 잠금·게스트. 바다 방 STOMP·연출·API 는 목이다.
-import React from 'react';
-import { act, fireEvent, render } from '@testing-library/react-native';
-import { AccessibilityInfo, AppState, BackHandler } from 'react-native';
-import { ApiError } from '@/services/api/client';
-import { updateSeaRemark } from '@/services/api/focusSessions';
-import { getMyInventory } from '@/services/api/shop';
-import { sendFriendRequest } from '@/services/api/friends';
-import { sessionGeneration } from '@/services/api/session';
-import { openSeaRoom } from '@/services/seaRealtime';
-import { arriveAtIsland, getTelescope } from '@/services/api/telescope';
-import * as magazineApi from '@/services/api/magazine';
-import type { MagazineReceipt, MagazineToday } from '@/services/api/magazine';
-import { resetMagazineToday } from '@/screens/magazine/useMagazineToday';
-import { SeaVoyageHost } from './SeaVoyageHost';
 import { FriendActionContext } from '@/screens/island/CatInfoPopup';
 import type { FriendsScreenState } from '@/screens/island/useFriendsScreen';
+import { resetMagazineToday } from '@/screens/magazine/useMagazineToday';
+import { ApiError } from '@/services/api/client';
+import { updateSeaRemark } from '@/services/api/focusSessions';
+import { sendFriendRequest } from '@/services/api/friends';
+import type { MagazineReceipt, MagazineToday } from '@/services/api/magazine';
+import * as magazineApi from '@/services/api/magazine';
+import { sessionGeneration } from '@/services/api/session';
+import { getMyInventory } from '@/services/api/shop';
+import { arriveAtIsland, getTelescope } from '@/services/api/telescope';
+import { openSeaRoom } from '@/services/seaRealtime';
+import { act, fireEvent, render } from '@testing-library/react-native';
+import { AccessibilityInfo, AppState, BackHandler } from 'react-native';
+import { SeaVoyageHost } from './SeaVoyageHost';
 
 jest.mock('@/components/CatSprite', () => ({ CatSprite: () => null }));
 jest.mock('react-native-safe-area-context', () => ({
@@ -92,21 +93,25 @@ const seaSession = (over: Record<string, unknown> = {}) => ({
   destinationIslandName: '별고래섬',
   ...over,
 });
-const env = (over: Record<string, unknown> = {}) => ({
-  state: { name: '나냥', color: 'black', session: seaSession() } as any,
-  route: 'sea',
-  detail: '',
-  now: Date.now(),
-  focus: { finish: jest.fn(), recover: jest.fn(async (): Promise<string | null> => null) },
-  notify: jest.fn(),
-  replace: jest.fn(),
-  go: jest.fn(),
-  home: jest.fn(),
-  backOverride: { current: null as null | (() => boolean) },
-  conversion: { offer: jest.fn(() => false) },
-  friendsScreen: { refresh: jest.fn() },
-  ...over,
-});
+const env = (over: Record<string, unknown> = {}) => {
+  const value = {
+    state: { name: '나냥', color: 'black', session: seaSession() } as any,
+    route: 'sea' as const,
+    detail: '',
+    now: Date.now(),
+    focus: { finish: jest.fn(), recover: jest.fn(async (): Promise<Route | null> => null) },
+    notify: jest.fn(),
+    replace: jest.fn(),
+    go: jest.fn(),
+    home: jest.fn(),
+    backOverride: { current: null as null | (() => boolean) },
+    conversion: { offer: jest.fn(() => false) },
+    friendsScreen: { refresh: jest.fn() },
+    ...over,
+  };
+  value.state = { settings: {}, ...value.state };
+  return value;
+};
 
 let mockAppStateChange: (next: string) => void = () => {};
 beforeEach(() => {
@@ -135,7 +140,7 @@ test('표류 중 남의 뗏목을 누르면 정보창이 뜨고, 친구 요청�
   const e = env({ state: { name: '나냥', color: 'black', session: null } });
   const screen = await render(
     <FriendActionContext.Provider value={{ friendsScreen, conversion: e.conversion }}>
-      <SeaVoyageHost e={e} />
+      <SeaVoyageHost e={createPreviewEnvironment(e)} />
     </FriendActionContext.Provider>,
   );
   await act(async () =>
@@ -160,11 +165,13 @@ test('표류 중 남의 뗏목을 누르면 정보창이 뜨고, 친구 요청�
 
 test('남은 분이 줄다가 목표 시간에 닿으면 「○○ 앞 정박 중」과 [섬에 내리기]로 바뀐다', async () => {
   const e = env();
-  const screen = await render(<SeaVoyageHost e={e} />);
+  const screen = await render(<SeaVoyageHost e={createPreviewEnvironment(e)} />);
   expect(screen.getByText('별고래섬까지 2분')).toBeTruthy();
   expect(screen.getByLabelText('집중 마치기')).toBeTruthy();
   expect(screen.queryByLabelText('휴식')).toBeNull();
-  await screen.rerender(<SeaVoyageHost e={{ ...e, now: e.now + 101_000 }} />);
+  await screen.rerender(
+    <SeaVoyageHost e={createPreviewEnvironment({ ...e, now: e.now + 101_000 })} />,
+  );
   expect(screen.getByText('별고래섬 앞 정박 중')).toBeTruthy();
   expect(screen.getByLabelText('섬에 내리기')).toBeTruthy();
 });
@@ -172,7 +179,7 @@ test('남은 분이 줄다가 목표 시간에 닿으면 「○○ 앞 정박 �
 test('그만두기는 확인창을 한 번 거쳐 finish 하고, 감속·휴식 컷신 뒤 표류(망원경 버튼)로 남는다', async () => {
   const e = env();
   e.focus.finish.mockResolvedValue({ recordId: 'sea-1', arrived: false, activeSeconds: 1700 });
-  const screen = await render(<SeaVoyageHost e={e} />);
+  const screen = await render(<SeaVoyageHost e={createPreviewEnvironment(e)} />);
   await fireEvent.press(screen.getByLabelText('집중 마치기'));
   expect(screen.getByText('별고래섬 항해를 그만둘까요?')).toBeTruthy();
   expect(screen.getByText('지금까지 28분은 기록에 남아요')).toBeTruthy();
@@ -184,7 +191,7 @@ test('그만두기는 확인창을 한 번 거쳐 finish 하고, 감속·휴식 
   expect(e.backOverride.current?.()).toBe(true);
   // 실제 앱에서는 finish 가 세션을 닫는다
   const ended = { ...e, state: { ...e.state, session: null } };
-  await screen.rerender(<SeaVoyageHost e={ended} />);
+  await screen.rerender(<SeaVoyageHost e={createPreviewEnvironment(ended)} />);
   expect(screen.getByTestId('abandon-cutscene')).toBeTruthy();
   await fireEvent.press(screen.getByTestId('abandon-cutscene'));
   await fireEvent.press(screen.getByLabelText('망원경'));
@@ -196,12 +203,14 @@ test('항해 중단 컷신 동안 장면 점유 신호를 보내고 끝나면 �
   const setSceneGuideOpen = jest.fn();
   const e = env({ setSceneGuideOpen });
   e.focus.finish.mockResolvedValue({ recordId: 'sea-1', arrived: false, activeSeconds: 1700 });
-  const screen = await render(<SeaVoyageHost e={e} />);
+  const screen = await render(<SeaVoyageHost e={createPreviewEnvironment(e)} />);
   expect(setSceneGuideOpen).not.toHaveBeenCalledWith(true);
   await fireEvent.press(screen.getByLabelText('집중 마치기'));
   await fireEvent.press(screen.getByLabelText('집중 마치기'));
   expect(setSceneGuideOpen).toHaveBeenLastCalledWith(true);
-  await screen.rerender(<SeaVoyageHost e={{ ...e, state: { ...e.state, session: null } }} />);
+  await screen.rerender(
+    <SeaVoyageHost e={createPreviewEnvironment({ ...e, state: { ...e.state, session: null } })} />,
+  );
   await fireEvent.press(screen.getByTestId('abandon-cutscene'));
   expect(screen.getByLabelText('망원경')).toBeTruthy();
   expect(setSceneGuideOpen).toHaveBeenLastCalledWith(false);
@@ -211,12 +220,12 @@ test('항해 결과창이 떠 있는 동안 setSceneGuideOpen(true), 떠나면 f
   const setSceneGuideOpen = jest.fn();
   const finish = { recordId: 'sea-1', islandId: 'dest', arrived: true, activeSeconds: 1800 };
   const e = env({
-    route: 'seaArrival',
+    route: 'seaArrival' as const,
     detail: JSON.stringify({ finish, destinationName: '별고래섬' }),
     state: { name: '나냥', color: 'black', session: null },
     setSceneGuideOpen,
   });
-  const screen = await render(<SeaVoyageHost e={e} />);
+  const screen = await render(<SeaVoyageHost e={createPreviewEnvironment(e)} />);
   expect(setSceneGuideOpen).toHaveBeenLastCalledWith(true);
   await screen.unmount();
   expect(setSceneGuideOpen).toHaveBeenLastCalledWith(false);
@@ -225,12 +234,14 @@ test('항해 결과창이 떠 있는 동안 setSceneGuideOpen(true), 떠나면 f
 test('권한 미리보기의 로컬 항해도 서버 연결 없이 종료하고 표류 화면으로 돌아온다', async () => {
   const dispatch = jest.fn();
   const e = env({ focus: undefined, focusBlockingIntroPreview: true, dispatch });
-  const screen = await render(<SeaVoyageHost e={e} />);
+  const screen = await render(<SeaVoyageHost e={createPreviewEnvironment(e)} />);
   await fireEvent.press(screen.getByLabelText('집중 마치기'));
   await fireEvent.press(screen.getByLabelText('집중 마치기'));
   expect(dispatch).toHaveBeenCalledWith({ type: 'SESSION_SYNC', session: null });
   expect(openSeaRoom).not.toHaveBeenCalled();
-  await screen.rerender(<SeaVoyageHost e={{ ...e, state: { ...e.state, session: null } }} />);
+  await screen.rerender(
+    <SeaVoyageHost e={createPreviewEnvironment({ ...e, state: { ...e.state, session: null } })} />,
+  );
   expect(screen.getByTestId('abandon-cutscene')).toBeTruthy();
   await fireEvent.press(screen.getByTestId('abandon-cutscene'));
   expect(screen.getByLabelText('망원경')).toBeTruthy();
@@ -243,7 +254,7 @@ test('부팅 소속 조회가 실패해도 바다에 머물고 망원경을 누�
     islandBootError: true,
     islands: { sync },
   });
-  const screen = await render(<SeaVoyageHost e={e} />);
+  const screen = await render(<SeaVoyageHost e={createPreviewEnvironment(e)} />);
   expect(sync).not.toHaveBeenCalled();
   await fireEvent.press(screen.getByLabelText('망원경'));
   expect(sync).toHaveBeenCalledTimes(1);
@@ -263,7 +274,7 @@ test('소속 재조회 중 계정이 바뀌면 늦은 응답으로 망원경을 
     islandBootError: true,
     islands: { sync },
   });
-  const screen = await render(<SeaVoyageHost e={e} />);
+  const screen = await render(<SeaVoyageHost e={createPreviewEnvironment(e)} />);
   await fireEvent.press(screen.getByLabelText('망원경'));
   expect(sync).toHaveBeenCalledTimes(1);
   expect(e.go).not.toHaveBeenCalled();
@@ -275,7 +286,7 @@ test('정박 중 [섬에 내리기]는 finish 결과(arrived)를 seaArrival 라�
   });
   const finish = { recordId: 'sea-1', islandId: 'dest', arrived: true, activeSeconds: 1800 };
   e.focus.finish.mockResolvedValue(finish);
-  const screen = await render(<SeaVoyageHost e={e} />);
+  const screen = await render(<SeaVoyageHost e={createPreviewEnvironment(e)} />);
   await fireEvent.press(screen.getByLabelText('섬에 내리기'));
   await act(async () => {});
   expect(e.replace).toHaveBeenCalledWith(
@@ -287,11 +298,11 @@ test('정박 중 [섬에 내리기]는 finish 결과(arrived)를 seaArrival 라�
 test('seaArrival 라우트는 넘겨받은 결과로 결과창을 띄운다(내용은 GROMO-2311)', async () => {
   const finish = { recordId: 'sea-1', islandId: 'dest', arrived: true, activeSeconds: 1800 };
   const e = env({
-    route: 'seaArrival',
+    route: 'seaArrival' as const,
     detail: JSON.stringify({ finish, destinationName: '별고래섬' }),
     state: { name: '나냥', color: 'black', session: null },
   });
-  const screen = await render(<SeaVoyageHost e={e} />);
+  const screen = await render(<SeaVoyageHost e={createPreviewEnvironment(e)} />);
   expect(screen.getByTestId('sea-arrival-result')).toBeTruthy();
   expect(screen.getByText('별고래섬')).toBeTruthy();
 });
@@ -305,7 +316,7 @@ test('목적지 이름 — 서버 이름이 없으면 망원경이 넘긴 이름
       session: seaSession({ destinationIslandName: undefined }),
     },
   });
-  const a = await render(<SeaVoyageHost e={passed} />);
+  const a = await render(<SeaVoyageHost e={createPreviewEnvironment(passed)} />);
   expect(a.getByText('건넨섬까지 2분')).toBeTruthy();
   await a.unmount();
   const recovered = env({
@@ -315,13 +326,13 @@ test('목적지 이름 — 서버 이름이 없으면 망원경이 넘긴 이름
       session: seaSession({ destinationIslandName: undefined }),
     },
   });
-  const b = await render(<SeaVoyageHost e={recovered} />);
+  const b = await render(<SeaVoyageHost e={createPreviewEnvironment(recovered)} />);
   expect(await b.findByText('목록섬까지 2분')).toBeTruthy();
 });
 
 test('바다 방 구성원과 이모트가 화면에 이어지고 내 이모트는 방에 보낸다', async () => {
   const e = env({ state: { name: '나냥', color: 'black', session: null } });
-  const screen = await render(<SeaVoyageHost e={e} />);
+  const screen = await render(<SeaVoyageHost e={createPreviewEnvironment(e)} />);
   await act(async () =>
     mockRoomOpts.onMembers([
       {
@@ -353,7 +364,7 @@ test.each([
   '이모트가 나가지 못하면 이유(%s)별 문구를 패널에 띄우고 패널은 열어 둔다 (GROMO-2484)',
   async (reason, text) => {
     const e = env({ state: { name: '나냥', color: 'black', session: null } });
-    const screen = await render(<SeaVoyageHost e={e} />);
+    const screen = await render(<SeaVoyageHost e={createPreviewEnvironment(e)} />);
     mockRoom.sendEmote.mockReturnValueOnce(reason);
     await fireEvent.press(screen.getByLabelText('이모트'));
     await fireEvent.press(screen.getByLabelText('응원'));
@@ -365,7 +376,7 @@ test.each([
 
 test('표류 중 한마디 — 저장하면 내 말풍선에 뜨고, 5분 잠금(409)은 토스트, 게스트(403)는 회원 전환', async () => {
   const e = env({ state: { name: '나냥', color: 'black', session: null } });
-  const screen = await render(<SeaVoyageHost e={e} />);
+  const screen = await render(<SeaVoyageHost e={createPreviewEnvironment(e)} />);
   const write = async (text: string) => {
     await fireEvent.press(screen.getByLabelText('＋ 한마디 쓰기'));
     await fireEvent.changeText(screen.getByLabelText('한마디 쓰기'), text);
@@ -397,23 +408,27 @@ test('다른 화면에 갔다가 돌아와도(재마운트) 경과는 세션을 
       session: seaSession({ syncedAt: synced, seconds: 1500 }),
     },
   });
-  const first = await render(<SeaVoyageHost e={e} />);
+  const first = await render(<SeaVoyageHost e={createPreviewEnvironment(e)} />);
   expect(first.getByText('별고래섬까지 3분')).toBeTruthy(); // 1800 − (1500 + 120) = 180초
   await first.unmount();
-  const again = await render(<SeaVoyageHost e={{ ...e, now: e.now + 60_000 }} />);
+  const again = await render(
+    <SeaVoyageHost e={createPreviewEnvironment({ ...e, now: e.now + 60_000 })} />,
+  );
   expect(again.getByText('별고래섬까지 2분')).toBeTruthy();
 });
 
 test('포그라운드 복귀·바다 방 재연결 때 세션 정본을 다시 읽고, 다른 기기에서 끝났으면 표류로 바뀐다', async () => {
   const e = env();
-  const screen = await render(<SeaVoyageHost e={e} />);
+  const screen = await render(<SeaVoyageHost e={createPreviewEnvironment(e)} />);
   await act(async () => mockAppStateChange('active'));
   expect(e.focus.recover).toHaveBeenCalledTimes(1);
   expect(mockRoom.reconnect).toHaveBeenCalledTimes(1); // 바다 방이 쉬고 있으면 바로 다시 붙는다
   await act(async () => mockRoomOpts.onReconnect());
   expect(e.focus.recover).toHaveBeenCalledTimes(2);
   // recover 가 current=null 로 SESSION_SYNC 하면 세션이 사라진다 → 표류
-  await screen.rerender(<SeaVoyageHost e={{ ...e, state: { ...e.state, session: null } }} />);
+  await screen.rerender(
+    <SeaVoyageHost e={createPreviewEnvironment({ ...e, state: { ...e.state, session: null } })} />,
+  );
   expect(screen.getByLabelText('망원경')).toBeTruthy();
   expect(screen.queryByTestId('sea-focus-clock')).toBeNull();
   // 표류(세션 없음)에서도 복귀하면 다시 읽고, 다른 기기가 섬 집중을 시작했으면 그 화면으로 간다
@@ -425,7 +440,7 @@ test('포그라운드 복귀·바다 방 재연결 때 세션 정본을 다시 �
 
 test('App 공용 뒤로가기 — 항해 중에는 홈으로 가지 않고 삼키며, 표류 중에는 App 기본 처리에 맡긴다', async () => {
   const e = env();
-  const screen = await render(<SeaVoyageHost e={e} />);
+  const screen = await render(<SeaVoyageHost e={createPreviewEnvironment(e)} />);
   let handled: boolean | undefined;
   await act(async () => {
     handled = e.backOverride.current?.();
@@ -433,7 +448,9 @@ test('App 공용 뒤로가기 — 항해 중에는 홈으로 가지 않고 삼�
   expect(handled).toBe(true);
   expect(e.notify).toHaveBeenCalledWith('진행 중인 집중은 [집중 마치기]로 마칠 수 있어요');
   expect(e.home).not.toHaveBeenCalled();
-  await screen.rerender(<SeaVoyageHost e={{ ...e, state: { ...e.state, session: null } }} />);
+  await screen.rerender(
+    <SeaVoyageHost e={createPreviewEnvironment({ ...e, state: { ...e.state, session: null } })} />,
+  );
   expect(e.backOverride.current?.()).toBe(false);
   await screen.unmount();
   expect(e.backOverride.current).toBeNull();
@@ -443,7 +460,7 @@ test('내 참가자가 adrift 로 오면(다른 기기가 항해를 끝냄) 세�
   let done!: () => void;
   const e = env();
   e.focus.recover.mockImplementation(() => new Promise<null>((r) => (done = () => r(null))));
-  const screen = await render(<SeaVoyageHost e={e} />);
+  const screen = await render(<SeaVoyageHost e={createPreviewEnvironment(e)} />);
   const adriftMe = {
     userId: 'me',
     name: '나냥',
@@ -456,7 +473,9 @@ test('내 참가자가 adrift 로 오면(다른 기기가 항해를 끝냄) 세�
   await act(async () => mockRoomOpts.onMembers([adriftMe])); // 재조회 중 연타는 무시
   expect(e.focus.recover).toHaveBeenCalledTimes(1);
   await act(async () => done());
-  await screen.rerender(<SeaVoyageHost e={{ ...e, state: { ...e.state, session: null } }} />);
+  await screen.rerender(
+    <SeaVoyageHost e={createPreviewEnvironment({ ...e, state: { ...e.state, session: null } })} />,
+  );
   expect(screen.queryByTestId('sea-focus-clock')).toBeNull();
   expect(screen.getByLabelText('망원경')).toBeTruthy();
   // 로컬 세션과 서버 상태가 같으면(표류 = 세션 없음) 더 부르지 않는다
@@ -475,7 +494,7 @@ test('저장한 한마디는 서버 확인 전 임시값 — 다른 기기에서
     anchorMs: 0,
     ...(message ? { message } : {}),
   });
-  const screen = await render(<SeaVoyageHost e={e} />);
+  const screen = await render(<SeaVoyageHost e={createPreviewEnvironment(e)} />);
   await act(async () => mockRoomOpts.onMembers([me('옛 한마디')]));
   mockRemark.mockResolvedValueOnce({ remark: '내 새 한마디' });
   await fireEvent.press(screen.getByLabelText('＋ 한마디 쓰기'));
@@ -503,7 +522,7 @@ test('표류 정리로 방이 비었을 때 고친 한마디 — 저장 뒤 늦�
     anchorMs: 0,
     message,
   });
-  const screen = await render(<SeaVoyageHost e={e} />);
+  const screen = await render(<SeaVoyageHost e={createPreviewEnvironment(e)} />);
   await act(async () => mockRoomOpts.onMembers([me('옛 한마디')]));
   await act(async () => mockRoomOpts.onMembers([])); // sea.room.left{adrift} — 방을 버려 내 서버 값도 모른다
   mockRemark.mockResolvedValueOnce({ remark: '내 새 한마디' });
@@ -530,7 +549,7 @@ test('종료 응답을 잃으면 확인 중으로 두고, 재연결·복귀 때 
   e.focus.finish
     .mockRejectedValueOnce(new ApiError('CLIENT_NETWORK_ERROR', '유실', 0))
     .mockResolvedValueOnce(done);
-  const screen = await render(<SeaVoyageHost e={e} />);
+  const screen = await render(<SeaVoyageHost e={createPreviewEnvironment(e)} />);
   await fireEvent.press(screen.getByLabelText('섬에 내리기'));
   await act(async () => {});
   expect(e.notify).toHaveBeenCalledWith('항해 결과를 확인하고 있어요. 연결되면 이어서 처리해요.');
@@ -549,7 +568,7 @@ test('종료 재시도가 세션 없음(STATE_CONFLICT)이면 정본을 맞추�
   e.focus.finish
     .mockRejectedValueOnce(new ApiError('UPSTREAM_TIMEOUT', '지연', 504))
     .mockRejectedValueOnce(new ApiError('STATE_CONFLICT', '없어요', 409));
-  const screen = await render(<SeaVoyageHost e={e} />);
+  const screen = await render(<SeaVoyageHost e={createPreviewEnvironment(e)} />);
   await fireEvent.press(screen.getByLabelText('집중 마치기'));
   await fireEvent.press(screen.getByLabelText('집중 마치기'));
   await act(async () => {});
@@ -562,7 +581,7 @@ test('종료 재시도가 세션 없음(STATE_CONFLICT)이면 정본을 맞추�
 
 test('내 참가자의 서버 sessionId 가 로컬 세션과 다르면(다른 기기가 새로 출항) 세션을 다시 읽는다', async () => {
   const e = env();
-  await render(<SeaVoyageHost e={e} />);
+  await render(<SeaVoyageHost e={createPreviewEnvironment(e)} />);
   const me = (sessionId: string) => ({
     userId: 'me',
     name: '나냥',
@@ -581,7 +600,7 @@ test('내 참가자의 서버 sessionId 가 로컬 세션과 다르면(다른 �
 test('복구 결과가 섬 집중(focus·rest)이면 그 화면으로 옮기고, sea 면 그대로 둔다', async () => {
   const e = env();
   e.focus.recover.mockResolvedValueOnce('focus').mockResolvedValueOnce('sea');
-  await render(<SeaVoyageHost e={e} />);
+  await render(<SeaVoyageHost e={createPreviewEnvironment(e)} />);
   await act(async () => mockAppStateChange('active'));
   expect(e.replace).toHaveBeenCalledWith('focus');
   await act(async () => mockAppStateChange('active'));
@@ -593,14 +612,14 @@ test('세션이 다른 목적지로 바뀌면 옛 이름(라우트 인자·목�
   const noName = (over: Record<string, unknown>) =>
     seaSession({ destinationIslandName: undefined, ...over });
   const e = env({ detail: '건넨섬', state: { name: '나냥', color: 'black', session: noName({}) } });
-  const screen = await render(<SeaVoyageHost e={e} />);
+  const screen = await render(<SeaVoyageHost e={createPreviewEnvironment(e)} />);
   expect(screen.getByText('건넨섬까지 2분')).toBeTruthy();
   expect(mockGet).not.toHaveBeenCalled();
   const next = {
     ...e,
     state: { ...e.state, session: noName({ id: 'sea-2', islandId: 'dest-b' }) },
   };
-  await screen.rerender(<SeaVoyageHost e={next} />);
+  await screen.rerender(<SeaVoyageHost e={createPreviewEnvironment(next)} />);
   expect(screen.queryByText(/건넨섬/)).toBeNull();
   expect(await screen.findByText('새목적섬까지 2분')).toBeTruthy();
   expect(mockGet).toHaveBeenCalledTimes(1);
@@ -611,7 +630,7 @@ test('종료 유실 뒤 재시도가 409 로 확정 실패하고 새 세션이 �
   e.focus.finish
     .mockRejectedValueOnce(new ApiError('CLIENT_NETWORK_ERROR', '유실', 0))
     .mockRejectedValueOnce(new ApiError('STATE_CONFLICT', '없어요', 409));
-  const screen = await render(<SeaVoyageHost e={e} />);
+  const screen = await render(<SeaVoyageHost e={createPreviewEnvironment(e)} />);
   const stop = async () => {
     await fireEvent.press(screen.getByLabelText('집중 마치기'));
     await fireEvent.press(screen.getByLabelText('집중 마치기'));
@@ -624,7 +643,7 @@ test('종료 유실 뒤 재시도가 409 로 확정 실패하고 새 세션이 �
   await act(async () => mockAppStateChange('active'));
   expect(e.focus.finish).toHaveBeenCalledTimes(2);
   const renewed = { ...e, state: { ...e.state, session: seaSession({ id: 'sea-2' }) } };
-  await screen.rerender(<SeaVoyageHost e={renewed} />);
+  await screen.rerender(<SeaVoyageHost e={createPreviewEnvironment(renewed)} />);
   await act(async () => mockAppStateChange('active'));
   await act(async () => mockRoomOpts.onReconnect());
   expect(e.focus.finish).toHaveBeenCalledTimes(2);
@@ -634,12 +653,12 @@ test('종료 유실 뒤 재시도가 409 로 확정 실패하고 새 세션이 �
 test('종료 유실 대기 중 세션이 다른 id 로 바뀌면 재연결·복귀 때 finish 를 다시 보내지 않는다', async () => {
   const e = env();
   e.focus.finish.mockRejectedValueOnce(new ApiError('CLIENT_NETWORK_ERROR', '유실', 0));
-  const screen = await render(<SeaVoyageHost e={e} />);
+  const screen = await render(<SeaVoyageHost e={createPreviewEnvironment(e)} />);
   await fireEvent.press(screen.getByLabelText('집중 마치기'));
   await fireEvent.press(screen.getByLabelText('집중 마치기'));
   await act(async () => {});
   const renewed = { ...e, state: { ...e.state, session: seaSession({ id: 'sea-2' }) } };
-  await screen.rerender(<SeaVoyageHost e={renewed} />);
+  await screen.rerender(<SeaVoyageHost e={createPreviewEnvironment(renewed)} />);
   await act(async () => mockRoomOpts.onReconnect());
   await act(async () => mockAppStateChange('active'));
   expect(e.focus.finish).toHaveBeenCalledTimes(1);
@@ -649,7 +668,7 @@ test('종료 유실 대기 중 세션이 다른 id 로 바뀌면 재연결·복�
 describe('결과창 [섬 둘러보기] (GROMO-2311)', () => {
   const arrivalEnv = (extra: Record<string, unknown> = {}): any =>
     env({
-      route: 'seaArrival',
+      route: 'seaArrival' as const,
       detail: JSON.stringify({
         finish: {
           recordId: 'r',
@@ -668,7 +687,7 @@ describe('결과창 [섬 둘러보기] (GROMO-2311)', () => {
     });
 
   test('seaReward 의 남은 시간을 보여 준다', async () => {
-    const screen = await render(<SeaVoyageHost e={arrivalEnv()} />);
+    const screen = await render(<SeaVoyageHost e={createPreviewEnvironment(arrivalEnv())} />);
     expect(screen.getByText('다음 단계까지 12분')).toBeTruthy();
   });
 
@@ -680,7 +699,7 @@ describe('결과창 [섬 둘러보기] (GROMO-2311)', () => {
       currentIslandId: 'dest',
     });
     const e = arrivalEnv();
-    const screen = await render(<SeaVoyageHost e={e} />);
+    const screen = await render(<SeaVoyageHost e={createPreviewEnvironment(e)} />);
     await fireEvent.press(screen.getByLabelText('섬 둘러보기'));
     await act(async () => {});
     expect(e.notify).toHaveBeenCalledWith(expect.stringContaining('환영해요!'));
@@ -704,7 +723,7 @@ describe('결과창 [섬 둘러보기] (GROMO-2311)', () => {
         ),
     );
     const e = arrivalEnv();
-    const screen = await render(<SeaVoyageHost e={e} />);
+    const screen = await render(<SeaVoyageHost e={createPreviewEnvironment(e)} />);
     await fireEvent.press(screen.getByLabelText('섬 둘러보기'));
     expect(e.dispatch).toHaveBeenCalledWith(expect.objectContaining({ type: 'SHOP_SYNC' }));
     expect(e.reset).toHaveBeenCalledTimes(1);
@@ -717,7 +736,7 @@ describe('결과창 [섬 둘러보기] (GROMO-2311)', () => {
     member();
     (getMyInventory as jest.Mock).mockRejectedValueOnce(new Error('x'));
     const e = arrivalEnv();
-    const screen = await render(<SeaVoyageHost e={e} />);
+    const screen = await render(<SeaVoyageHost e={createPreviewEnvironment(e)} />);
     await fireEvent.press(screen.getByLabelText('섬 둘러보기'));
     expect(e.reset).toHaveBeenCalledTimes(1);
     expect(e.dispatch).not.toHaveBeenCalled();
@@ -728,7 +747,7 @@ describe('결과창 [섬 둘러보기] (GROMO-2311)', () => {
     let resolve!: (v: unknown) => void;
     (getMyInventory as jest.Mock).mockImplementationOnce(() => new Promise((r) => (resolve = r)));
     const e = arrivalEnv();
-    const screen = await render(<SeaVoyageHost e={e} />);
+    const screen = await render(<SeaVoyageHost e={createPreviewEnvironment(e)} />);
     await fireEvent.press(screen.getByLabelText('섬 둘러보기'));
     expect(e.reset).toHaveBeenCalledTimes(1);
     await act(async () => resolve({ clothes: [], decor: [], hulls: [], equipped: {} }));
@@ -738,7 +757,7 @@ describe('결과창 [섬 둘러보기] (GROMO-2311)', () => {
   test('인벤토리 대기 중 화면을 떠나면(언마운트) 응답이 와도 dispatch·이동을 하지 않는다', async () => {
     member();
     const e = arrivalEnv();
-    const screen = await render(<SeaVoyageHost e={e} />);
+    const screen = await render(<SeaVoyageHost e={createPreviewEnvironment(e)} />);
     // 재조회가 나가는 순간 사용자가 뒤로가기로 떠난다
     (getMyInventory as jest.Mock).mockImplementationOnce(() => {
       screen.unmount();
@@ -759,7 +778,7 @@ describe('결과창 [섬 둘러보기] (GROMO-2311)', () => {
       currentIslandId: null,
     });
     const e = arrivalEnv();
-    const screen = await render(<SeaVoyageHost e={e} />);
+    const screen = await render(<SeaVoyageHost e={createPreviewEnvironment(e)} />);
     await fireEvent.press(screen.getByLabelText('섬 둘러보기'));
     await act(async () => {});
     expect(e.notify).not.toHaveBeenCalled();
@@ -772,9 +791,9 @@ describe('결과창 [섬 둘러보기] (GROMO-2311)', () => {
 test('호스트 구독 콜백은 첫 렌더가 아니라 최신 e 를 쓴다(App 의 e·replace 는 렌더마다 새로 만든다)', async () => {
   const e = env();
   e.focus.recover.mockResolvedValue('focus');
-  const screen = await render(<SeaVoyageHost e={e} />);
+  const screen = await render(<SeaVoyageHost e={createPreviewEnvironment(e)} />);
   const next = { ...e, replace: jest.fn(), notify: jest.fn() };
-  await screen.rerender(<SeaVoyageHost e={next} />);
+  await screen.rerender(<SeaVoyageHost e={createPreviewEnvironment(next)} />);
   await act(async () => mockAppStateChange('active'));
   expect(next.replace).toHaveBeenCalledWith('focus');
   expect(e.replace).not.toHaveBeenCalled();
@@ -790,12 +809,12 @@ test('종료 응답을 잃은 뒤 복구가 로컬 세션을 지웠으면(없음
   e.focus.finish
     .mockRejectedValueOnce(new ApiError('CLIENT_NETWORK_ERROR', '유실', 0))
     .mockResolvedValueOnce(done);
-  const screen = await render(<SeaVoyageHost e={e} />);
+  const screen = await render(<SeaVoyageHost e={createPreviewEnvironment(e)} />);
   await fireEvent.press(screen.getByLabelText('섬에 내리기'));
   await act(async () => {});
   // App 쪽 recover() 가 current=null 로 세션을 지웠다
   const cleared = { ...e, state: { ...e.state, session: null } };
-  await screen.rerender(<SeaVoyageHost e={cleared} />);
+  await screen.rerender(<SeaVoyageHost e={createPreviewEnvironment(cleared)} />);
   await act(async () => mockAppStateChange('active'));
   expect(e.focus.finish).toHaveBeenCalledTimes(2);
   expect(e.focus.finish).toHaveBeenLastCalledWith({ id: 'sea-1', version: 1 });
@@ -809,12 +828,12 @@ test('종료 응답을 잃은 뒤 복구가 로컬 세션을 지웠으면(없음
 test('대기 중인 종료가 «다른» 진행 세션을 가리키게 되면 재시도를 버리고 정본만 읽는다', async () => {
   const e = env();
   e.focus.finish.mockRejectedValueOnce(new ApiError('CLIENT_NETWORK_ERROR', '유실', 0));
-  const screen = await render(<SeaVoyageHost e={e} />);
+  const screen = await render(<SeaVoyageHost e={createPreviewEnvironment(e)} />);
   await fireEvent.press(screen.getByLabelText('집중 마치기'));
   await fireEvent.press(screen.getByLabelText('집중 마치기'));
   await act(async () => {});
   const other = { ...e, state: { ...e.state, session: seaSession({ id: 'sea-2' }) } };
-  await screen.rerender(<SeaVoyageHost e={other} />);
+  await screen.rerender(<SeaVoyageHost e={createPreviewEnvironment(other)} />);
   await act(async () => mockAppStateChange('active'));
   expect(e.focus.finish).toHaveBeenCalledTimes(1);
   expect(e.focus.recover).toHaveBeenCalledTimes(1);
@@ -853,10 +872,14 @@ describe('바다 고양이 잡지(GROMO-2314) — 펠리컨 배달 B1 · 뗏목 
 
   test('운영진의 편지(e.letterOpen)가 떠 있는 동안은 배달도 받음 기록도 없고, 닫히면 뜬다(GROMO-2615)', async () => {
     const today = { issue, receipt: null };
-    const screen = await render(<SeaVoyageHost e={drift(today, { letterOpen: true })} />);
+    const screen = await render(
+      <SeaVoyageHost e={createPreviewEnvironment(drift(today, { letterOpen: true }))} />,
+    );
     expect(screen.queryByTestId('sea-magazine-delivery')).toBeNull();
     expect(putReceipt).not.toHaveBeenCalled();
-    await screen.rerender(<SeaVoyageHost e={drift(today, { letterOpen: false })} />);
+    await screen.rerender(
+      <SeaVoyageHost e={createPreviewEnvironment(drift(today, { letterOpen: false }))} />,
+    );
     expect(screen.getByTestId('sea-magazine-delivery')).toBeTruthy();
     expect(putReceipt).toHaveBeenCalledWith('iss-20', { place: 'SEA' });
   });
@@ -864,15 +887,21 @@ describe('바다 고양이 잡지(GROMO-2314) — 펠리컨 배달 B1 · 뗏목 
   test('배달이 진행 중인 동안만 setSceneGuideOpen(true), 편지가 떠 있거나 끝나면 false 로 돌린다(GROMO-2615)', async () => {
     const setSceneGuideOpen = jest.fn();
     const today = { issue, receipt: null };
-    const screen = await render(<SeaVoyageHost e={drift(today, { setSceneGuideOpen })} />);
+    const screen = await render(
+      <SeaVoyageHost e={createPreviewEnvironment(drift(today, { setSceneGuideOpen }))} />,
+    );
     expect(setSceneGuideOpen).toHaveBeenLastCalledWith(true);
     // 편지가 뜨면 배달이 보류라 신호도 내린다 — 편지와 서로 기다리는 교착이 없다
     await screen.rerender(
-      <SeaVoyageHost e={drift(today, { setSceneGuideOpen, letterOpen: true })} />,
+      <SeaVoyageHost
+        e={createPreviewEnvironment(drift(today, { setSceneGuideOpen, letterOpen: true }))}
+      />,
     );
     expect(setSceneGuideOpen).toHaveBeenLastCalledWith(false);
     await screen.rerender(
-      <SeaVoyageHost e={drift(today, { setSceneGuideOpen, letterOpen: false })} />,
+      <SeaVoyageHost
+        e={createPreviewEnvironment(drift(today, { setSceneGuideOpen, letterOpen: false }))}
+      />,
     );
     expect(setSceneGuideOpen).toHaveBeenLastCalledWith(true);
     await screen.unmount();
@@ -888,11 +917,13 @@ describe('바다 고양이 잡지(GROMO-2314) — 펠리컨 배달 B1 · 뗏목 
   ])('%s에는 배달과 잡지 물건을 숨기고 수령을 소비하지 않는다', async (_, progress) => {
     const state = { name: '나냥', color: 'black', session: null, ...progress };
     const e = drift({ issue, receipt: null }, { state });
-    const screen = await render(<SeaVoyageHost e={e} />);
+    const screen = await render(<SeaVoyageHost e={createPreviewEnvironment(e)} />);
     expect(screen.queryByTestId('sea-magazine-delivery')).toBeNull();
     expect(putReceipt).not.toHaveBeenCalled();
     await screen.rerender(
-      <SeaVoyageHost e={{ ...e, magazineToday: { issue, receipt: receipt() } }} />,
+      <SeaVoyageHost
+        e={createPreviewEnvironment({ ...e, magazineToday: { issue, receipt: receipt() } })}
+      />,
     );
     expect(screen.queryByTestId('sea-magazine-object')).toBeNull();
     expect(putReceipt).not.toHaveBeenCalled();
@@ -907,33 +938,37 @@ describe('바다 고양이 잡지(GROMO-2314) — 펠리컨 배달 B1 · 뗏목 
       { issue, receipt: null },
       { state: { name: '나냥', color: 'black', session: null, tutorial: { step: 21 } } },
     );
-    const screen = await render(<SeaVoyageHost e={e} />);
+    const screen = await render(<SeaVoyageHost e={createPreviewEnvironment(e)} />);
     expect(screen.queryByTestId('sea-magazine-delivery')).toBeNull();
     expect(putReceipt).not.toHaveBeenCalled();
     const completed = { ...e, state: { ...e.state, ...progress } };
-    await screen.rerender(<SeaVoyageHost e={completed} />);
+    await screen.rerender(<SeaVoyageHost e={createPreviewEnvironment(completed)} />);
     expect(screen.getByTestId('sea-magazine-delivery')).toBeTruthy();
     expect(putReceipt).toHaveBeenCalledTimes(1);
     expect(putReceipt).toHaveBeenCalledWith('iss-20', { place: 'SEA' });
     await screen.unmount();
-    const again = await render(<SeaVoyageHost e={completed} />);
+    const again = await render(<SeaVoyageHost e={createPreviewEnvironment(completed)} />);
     expect(again.queryByTestId('sea-magazine-delivery')).toBeNull();
     expect(putReceipt).toHaveBeenCalledTimes(1);
   });
 
   test('다른 창 뒤에서 기다리던 배달도 튜토리얼 미완료로 바뀌면 수령 없이 거둔다', async () => {
     const e = drift(null);
-    const screen = await render(<SeaVoyageHost e={e} />);
+    const screen = await render(<SeaVoyageHost e={createPreviewEnvironment(e)} />);
     await fireEvent.press(screen.getByLabelText('내 뗏목'));
-    await screen.rerender(<SeaVoyageHost e={{ ...e, magazineToday: { issue, receipt: null } }} />);
+    await screen.rerender(
+      <SeaVoyageHost
+        e={createPreviewEnvironment({ ...e, magazineToday: { issue, receipt: null } })}
+      />,
+    );
     expect(putReceipt).not.toHaveBeenCalled();
     await screen.rerender(
       <SeaVoyageHost
-        e={{
+        e={createPreviewEnvironment({
           ...e,
           state: { ...e.state, focusGuideDone: false, tutorial: { step: 0 } },
           magazineToday: { issue, receipt: null },
-        }}
+        })}
       />,
     );
     await fireEvent.press(screen.getByLabelText('닫기'));
@@ -943,7 +978,9 @@ describe('바다 고양이 잡지(GROMO-2314) — 펠리컨 배달 B1 · 뗏목 
 
   test('표류 중 아직 받지 않은 오늘 호면 펠리컨이 화면 전체로 뜨고, 띄우는 순간 받음(SEA)을 한 번 보내고 스크린리더에 알린다', async () => {
     const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility');
-    const screen = await render(<SeaVoyageHost e={drift({ issue, receipt: null })} />);
+    const screen = await render(
+      <SeaVoyageHost e={createPreviewEnvironment(drift({ issue, receipt: null }))} />,
+    );
     expect(screen.getByTestId('sea-magazine-delivery')).toBeTruthy();
     await fireEvent.press(screen.getByTestId('sea-magazine-cutscene'));
     expect(screen.getByText('고양이 잡지 왔어요!')).toBeTruthy();
@@ -956,25 +993,33 @@ describe('바다 고양이 잡지(GROMO-2314) — 펠리컨 배달 B1 · 뗏목 
   });
 
   test('항해 중에는 펠리컨도 잡지 물건도 없고 받음도 보내지 않는다', async () => {
-    const a = await render(<SeaVoyageHost e={env({ magazineToday: { issue, receipt: null } })} />);
+    const a = await render(
+      <SeaVoyageHost
+        e={createPreviewEnvironment(env({ magazineToday: { issue, receipt: null } }))}
+      />,
+    );
     expect(a.queryByTestId('sea-magazine-delivery')).toBeNull();
     expect(putReceipt).not.toHaveBeenCalled();
     await a.unmount();
     const b = await render(
-      <SeaVoyageHost e={env({ magazineToday: { issue, receipt: receipt() } })} />,
+      <SeaVoyageHost
+        e={createPreviewEnvironment(env({ magazineToday: { issue, receipt: receipt() } }))}
+      />,
     );
     expect(b.queryByTestId('sea-magazine-object')).toBeNull();
   });
 
   test('「나중에 읽기」는 나중에(SEA)를 적고 닫는다 — 받은 호는 뗏목 옆 물건(빨간 점)으로 남고 다시 알리지 않는다', async () => {
     const e = drift({ issue, receipt: null });
-    const screen = await render(<SeaVoyageHost e={e} />);
+    const screen = await render(<SeaVoyageHost e={createPreviewEnvironment(e)} />);
     await fireEvent.press(screen.getByTestId('sea-magazine-cutscene'));
     await fireEvent.press(screen.getByLabelText('나중에 읽기'));
     expect(putReceipt).toHaveBeenLastCalledWith('iss-20', { place: 'SEA', deferred: true });
     expect(screen.queryByTestId('sea-magazine-delivery')).toBeNull();
     await screen.rerender(
-      <SeaVoyageHost e={{ ...e, magazineToday: { issue, receipt: receipt() } }} />,
+      <SeaVoyageHost
+        e={createPreviewEnvironment({ ...e, magazineToday: { issue, receipt: receipt() } })}
+      />,
     );
     expect(screen.queryByTestId('sea-magazine-delivery')).toBeNull();
     expect(screen.getByLabelText('고양이 잡지 20호, 아직 안 읽음')).toBeTruthy();
@@ -984,7 +1029,9 @@ describe('바다 고양이 잡지(GROMO-2314) — 펠리컨 배달 B1 · 뗏목 
 
   test('안드로이드 뒤로가기도 「나중에 읽기」와 같다', async () => {
     const add = jest.spyOn(BackHandler, 'addEventListener');
-    const screen = await render(<SeaVoyageHost e={drift({ issue, receipt: null })} />);
+    const screen = await render(
+      <SeaVoyageHost e={createPreviewEnvironment(drift({ issue, receipt: null }))} />,
+    );
     const handler = add.mock.calls.at(-1)?.[1] as () => boolean;
     let handled = false;
     await act(async () => {
@@ -997,7 +1044,7 @@ describe('바다 고양이 잡지(GROMO-2314) — 펠리컨 배달 B1 · 뗏목 
 
   test('App 의 뒤로가기(backOverride)가 먼저 불려도 떠 있는 펠리컨은 「나중에 읽기」로 닫는다', async () => {
     const e = drift({ issue, receipt: null });
-    const screen = await render(<SeaVoyageHost e={e} />);
+    const screen = await render(<SeaVoyageHost e={createPreviewEnvironment(e)} />);
     let handled = false;
     await act(async () => {
       handled = e.backOverride.current!();
@@ -1011,7 +1058,7 @@ describe('바다 고양이 잡지(GROMO-2314) — 펠리컨 배달 B1 · 뗏목 
 
   test('[잡지 펼치기]는 오늘 호로 바다 잡지(seaMagazine)를 연다', async () => {
     const e = drift({ issue, receipt: null });
-    const screen = await render(<SeaVoyageHost e={e} />);
+    const screen = await render(<SeaVoyageHost e={createPreviewEnvironment(e)} />);
     await fireEvent.press(screen.getByTestId('sea-magazine-cutscene'));
     await fireEvent.press(screen.getByLabelText('잡지 펼치기'));
     expect(e.go).toHaveBeenCalledWith('seaMagazine', 'iss-20');
@@ -1022,7 +1069,7 @@ describe('바다 고양이 잡지(GROMO-2314) — 펠리컨 배달 B1 · 뗏목 
       issue,
       receipt: receipt({ place: 'ISLAND', openedAt: '2026-10-20T02:00:00Z' }),
     });
-    const screen = await render(<SeaVoyageHost e={e} />);
+    const screen = await render(<SeaVoyageHost e={createPreviewEnvironment(e)} />);
     expect(screen.queryByTestId('sea-magazine-delivery')).toBeNull();
     expect(putReceipt).not.toHaveBeenCalled();
     expect(screen.queryByTestId('sea-magazine-object-dot')).toBeNull();
@@ -1032,9 +1079,13 @@ describe('바다 고양이 잡지(GROMO-2314) — 펠리컨 배달 B1 · 뗏목 
 
   test('다른 창(유저 카드)이 열려 있으면 받음을 적지 않고 기다렸다가, 닫힌 뒤 펠리컨을 띄우며 받음을 한 번 적는다', async () => {
     const e = drift(null);
-    const screen = await render(<SeaVoyageHost e={e} />);
+    const screen = await render(<SeaVoyageHost e={createPreviewEnvironment(e)} />);
     await fireEvent.press(screen.getByLabelText('내 뗏목'));
-    await screen.rerender(<SeaVoyageHost e={{ ...e, magazineToday: { issue, receipt: null } }} />);
+    await screen.rerender(
+      <SeaVoyageHost
+        e={createPreviewEnvironment({ ...e, magazineToday: { issue, receipt: null } })}
+      />,
+    );
     expect(screen.queryByTestId('sea-magazine-delivery')).toBeNull();
     expect(putReceipt).not.toHaveBeenCalled();
     // 아직 뜨지 않았다 — 뒤로가기는 펠리컨을 건드리지 않는다
@@ -1048,11 +1099,13 @@ describe('바다 고양이 잡지(GROMO-2314) — 펠리컨 배달 B1 · 뗏목 
   test('펠리컨이 떠 있는 채 07:01 재조회로 호가 바뀌면 새 호로 다시 떠서 받음(SEA)과 알림을 새 호에 한 번 더 남긴다', async () => {
     const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility');
     const e = drift({ issue, receipt: null });
-    const screen = await render(<SeaVoyageHost e={e} />);
+    const screen = await render(<SeaVoyageHost e={createPreviewEnvironment(e)} />);
     expect(putReceipt).toHaveBeenCalledTimes(1);
     const next = { ...issue, issueId: 'iss-21', issueNo: 21, issueDate: '2026-10-21' };
     await screen.rerender(
-      <SeaVoyageHost e={{ ...e, magazineToday: { issue: next, receipt: null } }} />,
+      <SeaVoyageHost
+        e={createPreviewEnvironment({ ...e, magazineToday: { issue: next, receipt: null } })}
+      />,
     );
     expect(screen.getByTestId('sea-magazine-delivery')).toBeTruthy();
     expect(putReceipt).toHaveBeenCalledTimes(2);
@@ -1063,13 +1116,15 @@ describe('바다 고양이 잡지(GROMO-2314) — 펠리컨 배달 B1 · 뗏목 
   test('펠리컨이 뜬 뒤 다른 기기에서 항해를 시작했다 끝내 다시 표류가 돼도 같은 호의 펠리컨은 다시 뜨지 않는다', async () => {
     const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility');
     const e = drift({ issue, receipt: null });
-    const screen = await render(<SeaVoyageHost e={e} />);
+    const screen = await render(<SeaVoyageHost e={createPreviewEnvironment(e)} />);
     expect(screen.getByTestId('sea-magazine-delivery')).toBeTruthy();
     await screen.rerender(
-      <SeaVoyageHost e={{ ...e, state: { ...e.state, session: seaSession() } }} />,
+      <SeaVoyageHost
+        e={createPreviewEnvironment({ ...e, state: { ...e.state, session: seaSession() } })}
+      />,
     );
     expect(screen.queryByTestId('sea-magazine-delivery')).toBeNull();
-    await screen.rerender(<SeaVoyageHost e={e} />);
+    await screen.rerender(<SeaVoyageHost e={createPreviewEnvironment(e)} />);
     expect(screen.queryByTestId('sea-magazine-delivery')).toBeNull();
     expect(putReceipt).toHaveBeenCalledTimes(1);
     expect(announce).toHaveBeenCalledTimes(1);
@@ -1079,12 +1134,12 @@ describe('바다 고양이 잡지(GROMO-2314) — 펠리컨 배달 B1 · 뗏목 
     const e = env({ magazineToday: { issue, receipt: null } });
     e.state.focusGuideDone = true;
     e.focus.finish.mockResolvedValue({ recordId: 'sea-1', arrived: false, activeSeconds: 1700 });
-    const screen = await render(<SeaVoyageHost e={e} />);
+    const screen = await render(<SeaVoyageHost e={createPreviewEnvironment(e)} />);
     await fireEvent.press(screen.getByLabelText('집중 마치기'));
     await fireEvent.press(screen.getByLabelText('집중 마치기'));
     await act(async () => {});
     const ended = { ...e, state: { ...e.state, session: null } };
-    await screen.rerender(<SeaVoyageHost e={ended} />);
+    await screen.rerender(<SeaVoyageHost e={createPreviewEnvironment(ended)} />);
     expect(screen.getByTestId('abandon-cutscene')).toBeTruthy();
     expect(putReceipt).not.toHaveBeenCalled();
     await fireEvent.press(screen.getByTestId('abandon-cutscene'));
@@ -1094,7 +1149,9 @@ describe('바다 고양이 잡지(GROMO-2314) — 펠리컨 배달 B1 · 뗏목 
   });
 
   test('펠리컨 배달은 영상이 끝난 뒤에야 말풍선과 버튼을 보여 준다', async () => {
-    const screen = await render(<SeaVoyageHost e={drift({ issue, receipt: null })} />);
+    const screen = await render(
+      <SeaVoyageHost e={createPreviewEnvironment(drift({ issue, receipt: null }))} />,
+    );
     expect(screen.getByTestId('sea-magazine-cutscene')).toBeTruthy();
     expect(screen.queryByTestId('sea-magazine-open')).toBeNull();
     await fireEvent.press(screen.getByTestId('sea-magazine-cutscene'));
@@ -1104,7 +1161,9 @@ describe('바다 고양이 잡지(GROMO-2314) — 펠리컨 배달 B1 · 뗏목 
 
   test('지난 호뿐이면(오늘 호 발행 전) 펠리컨·물건 모두 없다', async () => {
     const screen = await render(
-      <SeaVoyageHost e={drift({ issue: { ...issue, current: false }, receipt: null })} />,
+      <SeaVoyageHost
+        e={createPreviewEnvironment(drift({ issue: { ...issue, current: false }, receipt: null }))}
+      />,
     );
     expect(screen.queryByTestId('sea-magazine-delivery')).toBeNull();
     expect(screen.queryByTestId('sea-magazine-object')).toBeNull();
@@ -1120,15 +1179,17 @@ test('한마디 저장 응답의 잠금(lockedUntil − changedAt)을 입력창 
     changedAt: '2026-10-18T00:00:00Z',
     lockedUntil: '2026-10-18T00:05:00Z',
   });
-  const screen = await render(<SeaVoyageHost e={e} />);
+  const screen = await render(<SeaVoyageHost e={createPreviewEnvironment(e)} />);
   await fireEvent.press(screen.getByLabelText('＋ 한마디 쓰기'));
   await fireEvent.changeText(screen.getByLabelText('한마디 쓰기'), '안녕');
   await fireEvent.press(screen.getByLabelText('한마디 띄우기'));
   await act(async () => {});
-  await screen.rerender(<SeaVoyageHost e={{ ...e, now: Date.now() }} />);
+  await screen.rerender(<SeaVoyageHost e={createPreviewEnvironment({ ...e, now: Date.now() })} />);
   await fireEvent.press(screen.getByLabelText('＋ 한마디 쓰기'));
   expect(screen.getByText('5분 뒤에 다시 쓸 수 있어요')).toBeTruthy();
   expect(screen.queryByLabelText('한마디 쓰기')).toBeNull();
-  await screen.rerender(<SeaVoyageHost e={{ ...e, now: Date.now() + 301_000 }} />);
+  await screen.rerender(
+    <SeaVoyageHost e={createPreviewEnvironment({ ...e, now: Date.now() + 301_000 })} />,
+  );
   expect(screen.getByLabelText('한마디 쓰기')).toBeTruthy();
 });

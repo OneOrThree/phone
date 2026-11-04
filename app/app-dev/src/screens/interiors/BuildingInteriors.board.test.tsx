@@ -1,47 +1,48 @@
-import assert from 'node:assert/strict';
-import React, { useState } from 'react';
-import { PixelRatio, Platform, StyleSheet } from 'react-native';
-import { act, fireEvent, render, waitFor, within } from '@testing-library/react-native';
-import { applyLocalePref } from '@/i18n';
-import { loadHomeSnapshot } from '@/services/homeSnapshot';
-import { ApiError } from '@/services/api/client';
-import { clearSession, saveSession } from '@/services/api/session';
-import {
-  createNotice as postNotice,
-  createNoticeComment as postComment,
-  deleteNotice as delNotice,
-  deleteNoticeComment as delComment,
-  getBoard,
-  getNotice,
-  listNotices,
-  updateNotice as patchNotice,
-} from '@/services/api/notices';
-import { initialState } from '@/services/model';
 import { art } from '@/constants/art';
+import { applyLocalePref } from '@/i18n';
+import { createPreviewEnvironment } from '@/navigation/previewEnvironment';
+import { InteriorScreen } from '@/screens/interiors/InteriorScreen';
+import { Board } from '@/screens/interiors/board/Board';
 import {
-  Board,
-  buildings,
-  InteriorScreen,
   focusBoardModal,
   handleBoardModalKeydown,
   restoreBoardModalOpener,
   setBoardBackgroundInert,
   syncBoardModalFocus,
-  type Concept,
-} from '@/screens/interiors/BuildingInteriors';
+} from '@/screens/interiors/board/modalFocus';
+import { buildings } from '@/screens/interiors/catalog';
+import { type Concept } from '@/screens/interiors/types';
 import { HOME_QUEST_LIST_DETAIL } from '@/screens/island/HomeQuestIndicator';
+import { ApiError } from '@/services/api/client';
 import {
   getConstructionOptions,
   startConstruction,
   type ConstructionOptions,
 } from '@/services/api/home';
 import { getGuestbook, myIslands } from '@/services/api/islands';
+import {
+  deleteNoticeComment as delComment,
+  deleteNotice as delNotice,
+  getBoard,
+  getNotice,
+  listNotices,
+  updateNotice as patchNotice,
+  createNoticeComment as postComment,
+  createNotice as postNotice,
+} from '@/services/api/notices';
+import { clearSession, saveSession } from '@/services/api/session';
+import { loadHomeSnapshot } from '@/services/homeSnapshot';
+import { initialState } from '@/services/model';
+import { act, fireEvent, render, waitFor, within } from '@testing-library/react-native';
+import assert from 'node:assert/strict';
+import React, { useState } from 'react';
+import { PixelRatio, Platform, StyleSheet } from 'react-native';
 
 import {
-  claimQuest as postClaim,
-  createQuest as postQuest,
   getQuestProgress,
   updateQuest as patchQuest,
+  claimQuest as postClaim,
+  createQuest as postQuest,
 } from '@/services/api/quests';
 
 jest.mock('@/services/homeSnapshot', () => ({ loadHomeSnapshot: jest.fn() }));
@@ -316,7 +317,7 @@ const renderBoard = async (
         sceneHeight={size.sceneHeight}
         reduceMotion
         showToast={() => {}}
-        e={box.e}
+        e={box.e ? createPreviewEnvironment(box.e) : box.e}
         higherModalOpen={box.higherModalOpen}
       />
     );

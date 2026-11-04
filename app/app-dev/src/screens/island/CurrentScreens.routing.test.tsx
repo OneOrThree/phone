@@ -1,18 +1,18 @@
+import { createPreviewEnvironment } from '@/navigation/previewEnvironment';
 // `CurrentScreensContent`(CurrentScreens.tsx)는 'arrival'·'travel'·'focusTravel'·'fishingArrival'·
 // 'focusSetup'·'focus'·'rest'·'focusResult'·'returnTravel' 9개 라우트를 Screens.tsx 의
 // `RedesignScreens`에 닿기 전에 `Travel`·`FocusFlow`로 먼저 가로채고, 'manage'·'members' 는 `Hall` 로 보낸다.
 // GROMO-2463 에서 지운 hall·stats·ledger·construction·board·quest·notice·mail 분기도 같다.
 // 옛 번역 안 된 `Screens.tsx` 분기는 GROMO-2254 에서 지웠다 — 이 가로채기가 지워지면 그 라우트가
 // `RedesignScreens` 의 기본 화면으로 떨어지므로 여기서 고정한다(GROMO-2252).
-import React from 'react';
-import { fireEvent, render } from '@testing-library/react-native';
+import { applyLocalePref } from '@/i18n';
 import { CurrentScreens } from '@/screens/island/CurrentScreens';
 import { RedesignScreens } from '@/screens/island/Screens';
-import { initialState, reducer, type Route, type State } from '@/services/model';
-import { applyLocalePref } from '@/i18n';
+import { getMagazineIssue, putMagazineReceipt } from '@/services/api/magazine';
 import { clearSession, saveSession } from '@/services/api/session';
 import { getTelescope } from '@/services/api/telescope';
-import { getMagazineIssue, putMagazineReceipt } from '@/services/api/magazine';
+import { initialState, reducer, type Route, type State } from '@/services/model';
+import { fireEvent, render } from '@testing-library/react-native';
 
 jest.mock('@/screens/world/DepartureStory', () => ({
   DepartureStory: ({ destination, onComplete }: any) => {
@@ -223,7 +223,7 @@ const withGramophone = (state: State): State =>
 
 const screenOf = (route: Route, state: State, extra: object = {}) => (
   <CurrentScreens
-    e={{
+    e={createPreviewEnvironment({
       state,
       route,
       now: Date.now(),
@@ -240,7 +240,7 @@ const screenOf = (route: Route, state: State, extra: object = {}) => (
       setGuideStep: jest.fn(),
       islands: {},
       ...extra,
-    }}
+    })}
   />
 );
 const mount = async (route: Route, state: State = serverFocusState(), extra: object = {}) =>
@@ -432,7 +432,7 @@ test('로컬 방문 중에도 뗏목 라우트는 막히지 않고 뗏목 장면
   state.visitingIslandId = 'cloud';
   const screen = await render(
     <CurrentScreens
-      e={{
+      e={createPreviewEnvironment({
         state,
         route: 'raft',
         now: Date.now(),
@@ -447,7 +447,7 @@ test('로컬 방문 중에도 뗏목 라우트는 막히지 않고 뗏목 장면
         text: '',
         setText: jest.fn(),
         setGuideStep: jest.fn(),
-      }}
+      })}
     />,
   );
   expect(screen.queryByText('주민만 이용할 수 있어요')).toBeNull();

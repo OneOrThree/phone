@@ -53,8 +53,8 @@ class UnnecessaryRunRegressionTests(unittest.TestCase):
                         ['docs/architecture/system-architecture.md', 'server/realtime/CLAUDE.md'],
                         ['.github/scripts/dev-image-retention.py', '.github/workflows/ops-smoke.dev.yml']):
             self.assertFalse(any(satellite.plan(changed).values()))
-        for name, service in [('data-api-ci.dev', 'data-api'), ('realtime-ci.dev', 'realtime')]:
-            self.assertFalse(paths.matches_paths([f'server/{service}/README.md'], workflow(name)['on'].get('push', workflow(name)['on']['pull_request'])['paths']))
+        for name, service in [('data-api-ci.dev-v2', 'data-api')]:
+            self.assertFalse(paths.matches_paths([f'server/{service}/README.md'], workflow(name)['on']['push']['paths']))
 
     def test_verified_publication_decision_is_required_before_credentials(self):
         cd = workflow('app-android-cd')['jobs']

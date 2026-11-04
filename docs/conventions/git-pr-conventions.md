@@ -111,7 +111,7 @@ Claude Code 에서는 `.claude/pr-gate.py` 훅이 위 규칙을 어긴 `gh pr cr
 네 가지가 **같은 커밋**에서 동시에 성립해야 한다:
 
 1. 미답변 루트 리뷰 스레드 **0**
-2. 리뷰어 판정이 깨끗함 — **최신 head 커밋**에 대한 판정만 친다. codex 는 head push 뒤에 붙은 PR 본문 👍 리액션, 또는 codex 요약 코멘트(`<!-- codex-review-state:v1 … -->`)의 `code_review.commit_sha` 가 head SHA 와 같고 `status: completed`·`has_any_findings: false` 인 것. `status: failed`(사용 한도 초과 등)는 판정이 아니다. `@claude` 는 `**Claude finished` 로 시작하는 코멘트의 산문
+2. 리뷰어 판정이 깨끗함 — **최신 head 커밋**에 대한 판정만 친다. codex 는 codex 요약 코멘트(`<!-- codex-review-state:v1 … -->`)의 `code_review.commit_sha` 가 head SHA 와 같고 `status: completed`·`has_any_findings: false` 인 것. 요약 코멘트가 없는 PR 에서만 head push 뒤에 붙은 PR 본문 👍 리액션을 판정으로 친다 — push 중에 끝난 옛 커밋 리뷰의 👍 도 head push 뒤에 붙을 수 있다. `status: failed`(사용 한도 초과 등)는 판정이 아니다. `@claude` 는 `**Claude finished` 로 시작하는 코멘트의 산문
 3. CI **전부 통과** — 「실패 0」 ≠ 「전부 통과」. 대기·취소가 남아 있으면 아니다
 4. `mergeStateStatus` = `CLEAN`
 

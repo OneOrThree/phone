@@ -137,9 +137,9 @@ gradle.taskGraph.whenReady { taskGraph ->
         )
     }
     // dev 청중은 dev 주소만. 운영 주소 박힌 dev 빌드도 막음
-    if (includesReleaseArtifactTask && devAudience && apiUrl != "https://oneorthree.dev.mooo.com") {
+    if (includesReleaseArtifactTask && devAudience && apiUrl != "https://oneorthree-v2.dev.mooo.com") {
         throw new GradleException(
-            "Android dev release 차단: GROMO_ANDROID_AUDIENCE=dev 이면 EXPO_PUBLIC_API_URL은 https://oneorthree.dev.mooo.com 이어야 합니다."
+            "Android dev release 차단: GROMO_ANDROID_AUDIENCE=dev 이면 EXPO_PUBLIC_API_URL은 https://oneorthree-v2.dev.mooo.com 이어야 합니다."
         )
     }
     // GROMO-2226 — JS 의 Google 클라이언트 행은 EXPO_PUBLIC_ENV 로 고른다. 청중과 어긋나면 빈 prod 행(dev 청중) 또는 dev 행(운영)이 실린다.
@@ -234,11 +234,43 @@ if (posthogUploadEnabled) {
     extensions.extraProperties.set("posthog.dotenvFile", posthogDotenv)
     apply plugin: "com.posthog.android"
     posthog {
-        uploadNativeSymbols.set(true)
+        // 네이티브 크래시는 Sentry 가 받는다(GROMO-2687, posthog.ts 의 nativeCrashes=false). PostHog 의 .so 심볼은 쓰이지 않고,
+        // 다른 빌드가 같은 디버그 ID 를 다른 내용으로 먼저 올렸으면 content_hash_mismatch 로 릴리스 빌드가 실패한다(GROMO-2667).
+        uploadNativeSymbols.set(false)
     }
     apply from: new File(projectRoot, "node_modules/posthog-react-native/tooling/posthog.gradle")
 } else {
     logger.lifecycle("PostHog: 업로드 인증 없음/수집 꺼짐 — 소스맵·네이티브 심볼 업로드 생략")
+}
+
+// GROMO-2739 — Sentry(cattus)에 JS 소스맵·ProGuard mapping·네이티브 심볼을 올린다. 없으면 크래시 스택이 압축 번들 위치와
+// 난독화된 이름으로만 보인다. 토큰이 없는 팀원/PR 빌드는 그대로 두고, 토큰이 있는 빌드는 업로드 실패를 숨기지 않는다.
+// 체크인된 네이티브 프로젝트라 app.config.js 의 Sentry config plugin 은 여기에 아무것도 넣지 않는다 — 이 블록이 정본이다.
+def sentryAuthToken = System.getenv("SENTRY_AUTH_TOKEN")?.trim()
+if (sentryAuthToken && System.getenv("SENTRY_DISABLE_AUTO_UPLOAD") != "true") {
+    // 조직·프로젝트는 iOS 업로드(scripts/sentry-xcode.sh)와 같은 파일을 읽는다. 토큰은 환경변수로만 받는다.
+    def sentryPropertiesFile = new File(projectRoot, "sentry.cattus.properties")
+    def sentryProperties = new Properties()
+    sentryPropertiesFile.withInputStream { sentryProperties.load(it) }
+    // JS 번들 소스맵: sentry.gradle 이 번들 작업 뒤에 sentry-cli 업로드를 붙인다. sentryCli 는 apply 전에 정해야 읽힌다.
+    project.ext.sentryCli = [sentryProperties: sentryPropertiesFile]
+    apply from: new File(projectRoot, "node_modules/@sentry/react-native/sentry.gradle")
+    // ProGuard mapping·NDK 심볼: Sentry Android Gradle Plugin. SDK 는 @sentry/react-native 가 이미 넣으므로 자동 설치·계측은 끈다.
+    apply plugin: "io.sentry.android.gradle"
+    sentry {
+        org = sentryProperties.getProperty("defaults.org")
+        projectName = sentryProperties.getProperty("defaults.project")
+        authToken = sentryAuthToken
+        includeProguardMapping = true
+        autoUploadProguardMapping = true
+        uploadNativeSymbols = true
+        autoUploadNativeSymbols = true
+        includeNativeSources = false
+        tracingInstrumentation { enabled = false }
+        autoInstallation { enabled = false }
+    }
+} else {
+    logger.lifecycle("Sentry: SENTRY_AUTH_TOKEN 없음 — 소스맵·mapping·네이티브 심볼 업로드 생략")
 }
 
 android {
@@ -260,7 +292,7 @@ android {
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 379
-        versionName "2.3.0"
+        versionName "2.3.2"
         // dev 청중(팀 dev 서버 빌드)은 OTA 를 끈다 — 운영과 같은 채널·runtime 이라 켜 두면
         // 운영 OTA 를 받아 운영 API 가 박힌 JS 로 바뀐다. iOS dev 빌드는 Fastfile beta_dev 가 같은 일을 한다.
         manifestPlaceholders += [expoUpdatesEnabled: System.getenv("GROMO_ANDROID_AUDIENCE") == "dev" ? "false" : "true"]

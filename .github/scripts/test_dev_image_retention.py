@@ -190,47 +190,5 @@ class RetentionTests(unittest.TestCase):
         self.assertEqual(retention.load_history(self.path)['data-api'], [image_id(20), image_id(1)])
 
 
-class WorkflowTests(unittest.TestCase):
-    def test_cleanup_precedes_wait_and_smoke_and_only_success_records_history(self):
-        workflow = yaml.load((ROOT / '.github/workflows/ops-smoke.dev.yml').read_text(), Loader=yaml.BaseLoader)
-        job = workflow['jobs']['execute']
-        self.assertEqual(job['runs-on'], ['self-hosted', 'dev'])
-        self.assertEqual(job['concurrency']['group'], 'dev-vm-deploy')
-        self.assertGreaterEqual(int(job['timeout-minutes']), 15)
-        steps = job['steps']
-        wait = next(i for i, step in enumerate(steps) if 'sleep 300' in step.get('run', ''))
-        smoke = next(i for i, step in enumerate(steps) if step.get('id') == 'smoke')
-        cleanup = next(i for i, step in enumerate(steps) if 'dev-image-retention.py --apply' in step.get('run', ''))
-        record = next(i for i, step in enumerate(steps) if '--record-success' in step.get('run', ''))
-        self.assertLess(cleanup, wait)
-        self.assertLess(wait, smoke)
-        self.assertLess(smoke, record)
-        self.assertIn("steps.smoke.outcome == 'success'", steps[record]['if'])
-        self.assertIn('success()', steps[record]['if'])
-        self.assertEqual(steps[cleanup]['env']['DEPLOY_ENV'], 'dev')
-
-    def test_readiness_gate_sleeps_only_after_all_services_are_healthy(self):
-        workflow = yaml.load((ROOT / '.github/workflows/ops-smoke.dev.yml').read_text(), Loader=yaml.BaseLoader)
-        script = next(step['run'] for step in workflow['jobs']['execute']['steps'] if 'sleep 300' in step.get('run', ''))
-        with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
-            for name, text in {
-                'docker': '#!/bin/sh\nprintf "%s\\n" "$TEST_STATE"\n',
-                'sleep': '#!/bin/sh\nprintf "%s" "$1" > "$TEST_SLEEP"\n',
-            }.items():
-                path = root / name
-                path.write_text(text)
-                path.chmod(0o700)
-            marker = root / 'slept'
-            env = {**os.environ, 'PATH': temp + os.pathsep + os.environ['PATH'], 'TEST_SLEEP': str(marker)}
-            for state in ['true healthy', 'true starting', 'true unhealthy', 'false healthy', 'true none']:
-                marker.unlink(missing_ok=True)
-                result = subprocess.run(['bash', '-c', script], env={**env, 'TEST_STATE': state}, capture_output=True)
-                self.assertEqual(result.returncode == 0, state == 'true healthy')
-                self.assertEqual(marker.exists(), state == 'true healthy')
-                if marker.exists():
-                    self.assertEqual(marker.read_text(), '300')
-
-
 if __name__ == '__main__':
     unittest.main()

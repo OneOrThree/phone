@@ -1,12 +1,12 @@
-import assert from 'node:assert/strict';
-import React from 'react';
-import { Platform, StyleSheet } from 'react-native';
-import { fireEvent, render, waitFor, within } from '@testing-library/react-native';
+import { createPreviewEnvironment } from '@/navigation/previewEnvironment';
+import { Hall } from '@/screens/island/Hall';
 import { ApiError } from '@/services/api/client';
-import { initialState, dayKey } from '@/services/model';
 import type { LedgerPage, TownHallScreen } from '@/services/api/townHall';
 import { getLedger, getTownHall } from '@/services/api/townHall';
-import { Hall } from '@/screens/island/Hall';
+import { dayKey, initialState } from '@/services/model';
+import { fireEvent, render, waitFor, within } from '@testing-library/react-native';
+import assert from 'node:assert/strict';
+import { Platform, StyleSheet } from 'react-native';
 
 jest.mock('@/services/api/townHall', () => ({
   getTownHall: jest.fn(),
@@ -70,7 +70,7 @@ const screenBody = (ledger: Partial<LedgerPage>, village = 1240): TownHallScreen
 
 const e = (state = initialState(true)) => ({
   state,
-  route: 'ledger',
+  route: 'ledger' as const,
   now: Date.now(),
   go: jest.fn(),
   back: jest.fn(),
@@ -104,7 +104,7 @@ test('서버 월 합계·지갑을 그대로 표시한다 — 보이는 rows 합
       1240,
     ),
   );
-  const screen = await render(<Hall e={e()} />);
+  const screen = await render(<Hall e={createPreviewEnvironment(e())} />);
 
   await waitFor(() => assert.ok(screen.getByText('+9,999')));
   assert.ok(screen.getByText('−150'));
@@ -139,7 +139,7 @@ const descendants = (node: any): any[] =>
 
 test('세 장짜리 책은 장부 그림 한 장이다 — 「공동 가계부」 팻말·옛 책 View·책갈피 SVG 가 없다(GROMO-2487)', async () => {
   townHallMock.mockResolvedValue(screenBody({}));
-  const screen = await render(<Hall e={e()} />);
+  const screen = await render(<Hall e={createPreviewEnvironment(e())} />);
   await waitFor(() => assert.ok(screen.getByTestId('ledger-tab-잔액')));
 
   assert.equal(screen.queryByTestId('ledger-heading'), null);
@@ -167,7 +167,7 @@ test('세 장짜리 책은 장부 그림 한 장이다 — 「공동 가계부�
 
 test('포스트잇 세 장은 모두 책 그림 앞 층이고, 펼친 장은 종이 윗변에·나머지는 제 색 단면에 걸친다(GROMO-2487)', async () => {
   townHallMock.mockResolvedValue(screenBody({}));
-  const screen = await render(<Hall e={e()} />);
+  const screen = await render(<Hall e={createPreviewEnvironment(e())} />);
   await waitFor(() => assert.ok(screen.getByTestId('ledger-tab-잔액')));
 
   // 포스트잇은 책 몸통(그림·종이를 품은 상자)의 형제다 — 둘의 zIndex 가 앞뒤를 정한다
@@ -235,7 +235,7 @@ test('포스트잇과 누르는 자리(hitSlop 2)는 바깥 상자 안에 든다
       Object.assign(mockLayout, layout);
       townHallMock.mockResolvedValue(screenBody({}));
       ledgerMock.mockResolvedValue(page({}));
-      const screen = await render(<Hall e={e()} />);
+      const screen = await render(<Hall e={createPreviewEnvironment(e())} />);
       await waitFor(() => assert.ok(screen.getByTestId('ledger-tab-잔액')));
       const frame = style(screen.getByTestId('ledger-book'));
       const bodyTop = () => onScreen(screen, 'ledger-book-body').top;
@@ -288,7 +288,7 @@ test('가로 화면은 책을 세로 폰 폭(360)으로 크게 두고 아래를 
     for (const layout of layouts) {
       Object.assign(mockLayout, layout);
       townHallMock.mockResolvedValue(screenBody({ items: [entry('e1')] }));
-      const screen = await render(<Hall e={e()} />);
+      const screen = await render(<Hall e={createPreviewEnvironment(e())} />);
       await waitFor(() => assert.ok(screen.getByTestId('ledger-amount-e1')));
       const at = `${layout.width}×${layout.height}`;
       const frame = style(screen.getByTestId('ledger-book'));
@@ -344,7 +344,7 @@ test('가로 화면은 책을 세로 폰 폭(360)으로 크게 두고 아래를 
 test('월 이동 ‹ › 는 버튼 상자 자체가 44×44 이상이고 그 줄도 44 이상이다 — hitSlop 은 부모 경계를 못 넘는다(GROMO-2487)', async () => {
   townHallMock.mockResolvedValue(screenBody({}));
   ledgerMock.mockResolvedValue(page({}));
-  const screen = await render(<Hall e={e()} />);
+  const screen = await render(<Hall e={createPreviewEnvironment(e())} />);
   await waitFor(() => assert.ok(screen.getByTestId('ledger-prev')));
 
   for (const testID of ['ledger-prev', 'ledger-next']) {
@@ -400,7 +400,7 @@ test('포스트잇을 누르면 그 장이 펼쳐진다 — 잔액 → 적립 �
           }),
     ),
   );
-  const screen = await render(<Hall e={e()} />);
+  const screen = await render(<Hall e={createPreviewEnvironment(e())} />);
   const selected = (label: string) =>
     screen.getByTestId(`ledger-tab-${label}`).props.accessibilityState?.selected;
 
@@ -467,7 +467,7 @@ test('거래내역 장(적립·지출)을 펼치면 feature_used(ledger/open) �
       }),
     ),
   );
-  const screen = await render(<Hall e={e()} />);
+  const screen = await render(<Hall e={createPreviewEnvironment(e())} />);
   await waitFor(() => assert.ok(screen.getByTestId('ledger-balance')));
   mockCapture.mockClear();
 
@@ -502,7 +502,7 @@ test('잔액·합계·거래 금액은 줄높이가 글자보다 커서 고운�
     screenBody({ earnedTotal: 34, items: [entry('e1', { amount: 1234567 })] }),
   );
   ledgerMock.mockResolvedValue(page({ earnedTotal: 34, items: [entry('e1', { amount: 34 })] }));
-  const screen = await render(<Hall e={e()} />);
+  const screen = await render(<Hall e={createPreviewEnvironment(e())} />);
   await waitFor(() => assert.ok(screen.getByTestId('ledger-amount-e1')));
 
   const roomy = (testID: string) => {
@@ -556,7 +556,7 @@ test.each([
       }),
     );
     try {
-      const screen = await render(<Hall e={e()} />);
+      const screen = await render(<Hall e={createPreviewEnvironment(e())} />);
       await waitFor(() => assert.ok(screen.getByTestId('ledger-amount-large-earn')));
       for (const [id, sign] of [
         ['large-earn', '+'],
@@ -617,7 +617,7 @@ test('spend 는 양수 amount 를 −로, earn 은 +로 그리고 reason 라벨�
       ],
     }),
   );
-  const screen = await render(<Hall e={e()} />);
+  const screen = await render(<Hall e={createPreviewEnvironment(e())} />);
 
   // 잔액 장(무필터): reason 라벨과 접힌 줄의 entryCount 보조 표시
   await waitFor(() => assert.ok(screen.getByText('집중 적립 · 480회')));
@@ -640,7 +640,7 @@ test('spend 는 양수 amount 를 −로, earn 은 +로 그리고 reason 라벨�
 test('로딩·빈 달·실패 재시도·더 보기는 서로 다른 상태다', async () => {
   // 실패 → error + retry, retry 로 같은 scope 를 다시 읽는다
   townHallMock.mockRejectedValueOnce(new ApiError('CLIENT_NETWORK_ERROR', '네트워크', 0));
-  const screen = await render(<Hall e={e()} />);
+  const screen = await render(<Hall e={createPreviewEnvironment(e())} />);
   await waitFor(() => assert.ok(screen.getByTestId('ledger-error')));
   assert.equal(screen.queryByTestId('ledger-empty'), null);
 
@@ -672,7 +672,7 @@ test('리뷰·데모 모크 모드는 로컬 원장을 그리고 API 를 한 번
       { id: 'l2', text: '도서관 공사 시작 −40마리', at: Date.now() },
       { id: 'l1', text: '수빈 · 집중 +12마리', at: Date.now() },
     ];
-    const screen = await render(<Hall e={e(state)} />);
+    const screen = await render(<Hall e={createPreviewEnvironment(e(state))} />);
 
     // 로컬 원장의 제목이 그대로 보인다 — 서버 reason 라벨이 아니다
     assert.ok(screen.getByText('수빈 · 집중'));
@@ -688,7 +688,7 @@ test('리뷰·데모 모크 모드는 로컬 원장을 그리고 API 를 한 번
 test('방문자는 조회도 장부 UI도 없다 — 빈 장부로 위장하지 않는다', async () => {
   const state = initialState(true);
   state.visitingIslandId = 'strawberry';
-  const screen = await render(<Hall e={e(state)} />);
+  const screen = await render(<Hall e={createPreviewEnvironment(e(state))} />);
 
   assert.ok(screen.getByTestId('ledger-member-only'));
   assert.equal(townHallMock.mock.calls.length, 0);

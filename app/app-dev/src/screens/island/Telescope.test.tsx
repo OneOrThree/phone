@@ -1,17 +1,17 @@
+import { createPreviewEnvironment } from '@/navigation/previewEnvironment';
 // 망원경 화면(GROMO-2266 · 2273) — 파노라마·말풍선·버튼 상태·가입·항해·돌아가기·카운트다운·핀 표시(찜 리본·잡지 칸 미리보기·빼기).
 // API(getTelescope·arriveAtIsland)와 도착 장면(HarborCutscene)은 목이다. 빼기는 실제 unpinFromTelescope 를 거치고 서버 요청(request)만 목이다 —
 // 성공하면 실제처럼 onTelescopeChanged 구독자에게 알려, 화면이 따로 부르지 않아도 열린 목록이 구독으로 다시 읽는다(useTelescope 는 실제).
-import React from 'react';
-import { AccessibilityInfo, Animated, Platform, StyleSheet } from 'react-native';
-import { act, fireEvent, render, within } from '@testing-library/react-native';
 import { ISLAND_ART_ASPECT, ISLAND_STAGE_ART } from '@/constants/magazineAssets';
 import { componentTokens, semanticTokens } from '@/design-system/tokens';
+import { applyLocalePref } from '@/i18n';
 import { Telescope, telescopeSeaTiles } from '@/screens/island/Telescope';
 import { raftTelescope, telescopeSea } from '@/screens/sea/seaAssets';
-import { applyLocalePref } from '@/i18n';
 import { ApiError, request } from '@/services/api/client';
 import { arriveAtIsland, getTelescope, type TelescopeItem } from '@/services/api/telescope';
 import { initialState, reducer } from '@/services/model';
+import { act, fireEvent, render, within } from '@testing-library/react-native';
+import { AccessibilityInfo, Animated, Platform, StyleSheet } from 'react-native';
 
 jest.mock('@/screens/onboarding/useFirstVoyage', () => ({
   useFirstVoyage: () => ({ eligible: false, pending: false, scene: null }),
@@ -186,7 +186,7 @@ function env(over: { session?: boolean; islands?: boolean } = {}) {
 
 async function open(items: TelescopeItem[], e = env()) {
   mockGet.mockImplementation(async () => wire(items));
-  const screen = await render(<Telescope e={e} />);
+  const screen = await render(<Telescope e={createPreviewEnvironment(e)} />);
   await screen.findAllByTestId(/^telescope-island-/);
   return { screen, e };
 }
@@ -210,7 +210,7 @@ test('목록에서 빠진 섬의 승인 대기 신청도 망원경에서 확인�
     type: 'ISLAND_REQUEST',
     request: { id: 'request-1', islandId: 'not-in-bucket', status: 'cancelled', version: 2 },
   });
-  await screen.rerender(<Telescope e={e} />);
+  await screen.rerender(<Telescope e={createPreviewEnvironment(e)} />);
   expect(screen.queryByLabelText('가입 신청 확인')).toBeNull();
 });
 
@@ -218,7 +218,7 @@ test('잡지 등에서 직접 망원경에 들어와도 부팅 동기화 성공 
   const e = { ...env(), islandBootError: true };
   e.islands!.sync.mockRejectedValueOnce(new Error('offline')).mockResolvedValue(undefined);
   mockGet.mockResolvedValue(wire([item('synced-island')]));
-  const screen = await render(<Telescope e={e} />);
+  const screen = await render(<Telescope e={createPreviewEnvironment(e)} />);
   await screen.findByLabelText('다시 시도');
   expect(screen.getByText('섬을 불러오지 못했어요.')).toBeTruthy();
   expect(mockGet).not.toHaveBeenCalled();
@@ -537,7 +537,7 @@ describe('파노라마 바다(GROMO-2414) — 섬을 밀면 바다도 같이 밀
         .mockResolvedValueOnce(wire([item('r1'), item('r2'), item('r3'), item('r4')], 1))
         .mockResolvedValueOnce(wire([], 1))
         .mockResolvedValueOnce(wire([item('r5'), item('r6'), item('r7')], 30));
-      const screen = await render(<Telescope e={env()} />);
+      const screen = await render(<Telescope e={createPreviewEnvironment(env())} />);
       await screen.findByTestId('telescope-island-r1');
       const seaX = () =>
         flat(screen.getByTestId('telescope-sea', { includeHiddenElements: true })).transform[0]
@@ -736,7 +736,9 @@ describe('가입', () => {
 describe('항해하기(바다 항해 집중, GROMO-2310)', () => {
   test('권한 미리보기는 서버 연결 없이 항해를 시작하고 목적지와 한마디를 유지한다', async () => {
     const e = { ...env({ islands: false }), focus: undefined, focusBlockingIntroPreview: true };
-    const screen = await render(<Telescope e={e} previewItems={[item('r1')]} />);
+    const screen = await render(
+      <Telescope e={createPreviewEnvironment(e)} previewItems={[item('r1')]} />,
+    );
     await press(screen, 'r1');
     await fireEvent.press(screen.getByLabelText('항해하기'));
     await fireEvent.changeText(screen.getByLabelText('한마디 (선택)'), '영어 공부');
@@ -1022,7 +1024,7 @@ describe('카운트다운', () => {
     mockGet
       .mockResolvedValueOnce(wire([item('r1')], 2))
       .mockResolvedValueOnce(wire([item('r2')], 60));
-    const screen = await render(<Telescope e={env()} />);
+    const screen = await render(<Telescope e={createPreviewEnvironment(env())} />);
     await screen.findByText('2분 뒤 새 섬');
     expect(mockGet).toHaveBeenCalledTimes(1);
     await act(async () => {
@@ -1046,7 +1048,7 @@ describe('카운트다운', () => {
       .mockResolvedValueOnce(wire([item('r1')], 1))
       .mockRejectedValueOnce(new ApiError('CLIENT_NETWORK_ERROR', 'x', 0))
       .mockResolvedValueOnce(wire([item('r2')], 30));
-    const screen = await render(<Telescope e={env()} />);
+    const screen = await render(<Telescope e={createPreviewEnvironment(env())} />);
     await screen.findByText('1분 뒤 새 섬');
     await act(async () => {
       jest.advanceTimersByTime(60_000);
@@ -1066,7 +1068,7 @@ describe('카운트다운', () => {
     mockGet
       .mockResolvedValueOnce(wire([item('r1')], 30))
       .mockResolvedValueOnce(wire([item('r2')], 45));
-    const screen = await render(<Telescope e={env()} />);
+    const screen = await render(<Telescope e={createPreviewEnvironment(env())} />);
     await screen.findByText('30분 뒤 새 섬');
     // 10분 건너뛰고 첫 틱(1분) — 11분이 흐른 셈이다
     jest.setSystemTime(Date.now() + 10 * 60_000);
@@ -1087,7 +1089,7 @@ describe('카운트다운', () => {
 
   test('서버가 0 이하를 줘도 최소 1분으로 시작해 다시 읽기 고리에 갇히지 않는다', async () => {
     mockGet.mockImplementation(async () => wire([item('r1')], 0));
-    const screen = await render(<Telescope e={env()} />);
+    const screen = await render(<Telescope e={createPreviewEnvironment(env())} />);
     await screen.findByText('1분 뒤 새 섬');
     expect(mockGet).toHaveBeenCalledTimes(1);
   });
@@ -1097,7 +1099,7 @@ describe('로딩·빈 목록·오류', () => {
   test('불러오는 동안 로딩 안내, 빈 목록은 안내 문구(카운트다운은 그대로)', async () => {
     let resolve!: (v: unknown) => void;
     mockGet.mockReturnValue(new Promise((r) => (resolve = r)));
-    const screen = await render(<Telescope e={env()} />);
+    const screen = await render(<Telescope e={createPreviewEnvironment(env())} />);
     screen.getByText('섬을 찾고 있어요');
     expect(screen.queryByText(/뒤 새 섬/)).toBeNull();
     await act(async () => resolve(wire([], 12)));
@@ -1113,7 +1115,7 @@ describe('로딩·빈 목록·오류', () => {
         new ApiError('CLIENT_NETWORK_ERROR', '네트워크에 연결할 수 없어요.', 0),
       )
       .mockResolvedValueOnce(wire([item('r1')]));
-    const screen = await render(<Telescope e={env()} />);
+    const screen = await render(<Telescope e={createPreviewEnvironment(env())} />);
     await screen.findByText('네트워크에 연결할 수 없어요.');
     expect(screen.queryByText('지금은 보이는 섬이 없어요')).toBeNull();
     await fireEvent.press(screen.getByLabelText('다시 시도'));
@@ -1122,7 +1124,9 @@ describe('로딩·빈 목록·오류', () => {
   });
 
   test('서버 연결이 없는 목업 모드는 호출 없이 빈 목록이다', async () => {
-    const screen = await render(<Telescope e={env({ islands: false })} />);
+    const screen = await render(
+      <Telescope e={createPreviewEnvironment(env({ islands: false }))} />,
+    );
     screen.getByText('지금은 보이는 섬이 없어요');
     expect(mockGet).not.toHaveBeenCalled();
   });
@@ -1146,7 +1150,7 @@ test('뒤로 버튼은 e.back 을 부르고, 말풍선이 열려 있으면 뒤�
 test('영어 — 말풍선 정보·버튼·카운트다운이 번역된다', async () => {
   applyLocalePref('en');
   mockGet.mockImplementation(async () => wire([item('r1', { name: 'Maple', intro: 'Hi' })], 37));
-  const screen = await render(<Telescope e={env()} />);
+  const screen = await render(<Telescope e={createPreviewEnvironment(env())} />);
   await screen.findByText('Islands change in 37 min');
   await press(screen, 'r1');
   screen.getByText('Residents 3/15');
@@ -1195,7 +1199,7 @@ describe('큰 글자·배치', () => {
       if (state === '로딩') mockGet.mockReturnValue(new Promise(() => {}));
       else if (state === '빈 목록') mockGet.mockResolvedValue(wire([], 12));
       else mockGet.mockRejectedValue(networkError());
-      const screen = await render(<Telescope e={env()} />);
+      const screen = await render(<Telescope e={createPreviewEnvironment(env())} />);
       const card = flat((await screen.findByText(label)).parent);
       const page = semanticTokens.spacing.page;
       expect(card.marginLeft).toBe(47 + page);
@@ -1230,7 +1234,7 @@ describe('큰 글자·배치', () => {
     async (scale, grows) => {
       mockFontScale = scale;
       mockGet.mockRejectedValueOnce(networkError());
-      const screen = await render(<Telescope e={env()} />);
+      const screen = await render(<Telescope e={createPreviewEnvironment(env())} />);
       await screen.findByText('네트워크에 연결할 수 없어요.');
       const retry = screen.getByLabelText('다시 시도');
       // 보통 글자에서는 작은 버튼의 38pt 모양을 그대로 둔다(터치 영역은 부모 44pt)
@@ -1276,13 +1280,13 @@ describe('큰 글자·배치', () => {
     try {
       mockGet.mockRejectedValueOnce(networkError()).mockRejectedValueOnce(networkError());
       const e = env();
-      const screen = await render(<Telescope e={e} />);
+      const screen = await render(<Telescope e={createPreviewEnvironment(e)} />);
       const text = await screen.findByText('네트워크에 연결할 수 없어요.');
       // 안드로이드용 live region 도 같이 걸려 있다
       expect(text.props.accessibilityLiveRegion).toBe('polite');
       expect(announce).toHaveBeenCalledTimes(1);
       expect(announce).toHaveBeenLastCalledWith('네트워크에 연결할 수 없어요.');
-      await screen.rerender(<Telescope e={e} />);
+      await screen.rerender(<Telescope e={createPreviewEnvironment(e)} />);
       expect(announce).toHaveBeenCalledTimes(1);
       // 다시 시도가 또 실패하면 오류 상태로 새로 바뀐 것이라 한 번 더 읽는다
       await fireEvent.press(screen.getByLabelText('다시 시도'));
@@ -1300,7 +1304,7 @@ describe('큰 글자·배치', () => {
     const os = jest.replaceProperty(Platform, 'OS', 'android');
     try {
       mockGet.mockRejectedValueOnce(networkError());
-      const failed = await render(<Telescope e={env()} />);
+      const failed = await render(<Telescope e={createPreviewEnvironment(env())} />);
       const text = await failed.findByText('네트워크에 연결할 수 없어요.');
       expect(text.props.accessibilityLiveRegion).toBe('polite');
       await failed.unmount();
@@ -1375,7 +1379,7 @@ describe('핀 표시 · 빼기 (GROMO-2273)', () => {
         ),
       );
     jest.useFakeTimers();
-    const screen = await render(<Telescope e={env()} />);
+    const screen = await render(<Telescope e={createPreviewEnvironment(env())} />);
     await screen.findByTestId('telescope-island-p1');
     expect(ribbonIds(screen)).toEqual(['telescope-ribbon-p1']);
     await act(async () => {
@@ -1450,7 +1454,9 @@ describe('핀 표시 · 빼기 (GROMO-2273)', () => {
     process.env.EXPO_PUBLIC_DEMO = '1';
     process.env.EXPO_PUBLIC_MAGAZINE_MOCK = 'telescope';
     try {
-      const screen = await render(<Telescope e={env({ islands: false })} />);
+      const screen = await render(
+        <Telescope e={createPreviewEnvironment(env({ islands: false }))} />,
+      );
       await fireEvent.press(await screen.findByTestId('telescope-island-mock-island-별고래섬'));
       for (const label of ['항해하기', '바로 가입', '망원경에서 빼기'])
         expect(disabled(screen, label)).toBe(true);
@@ -1485,7 +1491,7 @@ describe('핀 표시 · 빼기 (GROMO-2273)', () => {
       const after = EIGHT().map((i) => (i.islandId === pinned ? item('r9') : i));
       mockGet.mockResolvedValueOnce(wire(EIGHT())).mockResolvedValueOnce(wire(after));
       const e = env();
-      const screen = await render(<Telescope e={e} />);
+      const screen = await render(<Telescope e={createPreviewEnvironment(e)} />);
       await screen.findByTestId('telescope-island-p1');
       await press(screen, pinned);
       await fireEvent.press(removeButton(screen));

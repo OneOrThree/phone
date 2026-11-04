@@ -80,6 +80,54 @@ class IslandMembershipContractTest extends UpstreamTestBase {
         assertThat(forwarded.header("X-User-Id")).isEqualTo(USER.toString());
     }
 
+    private static final String EXT = "[\"i2\",\"com.oneorthree.focuscat\",\"2.3.8\",\"778\",\"17.5.1\",\"iPhone15,2\","
+            + "\"ko_KR\",\"KST\",\"\",\"393\",\"852\",\"3\",\"\",\"\",\"\",\"Asia/Seoul\"]";
+    private static final String INTRO_OK = "{\"islandId\":\"" + OTHER + "\",\"arrivedBefore\":false,"
+            + "\"membershipStatus\":\"active\",\"currentIslandId\":\"" + OTHER + "\"}";
+
+    private String introWith(String body) throws Exception {
+        String path = "POST " + INTERNAL + "/islands/" + ISLAND + "/intro-arrivals";
+        DATA.on(path, request -> ok(INTRO_OK));
+        mockMvc.perform(write(post("/islands/" + ISLAND + "/intro-arrivals"), body))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.islandId").value(OTHER.toString()))
+                .andExpect(jsonPath("$.data.firstArrivalEventId").doesNotExist());
+        var received = DATA.receivedFor(path);
+        return received.get(received.size() - 1).body();
+    }
+
+    @Test
+    @DisplayName("첫 항해 도착의 올바른 meta 는 신뢰한 클라이언트 IP 와 함께 상류로 전달된다")
+    void introArrivalForwardsValidMetaAndClientIp() throws Exception {
+        String forwarded = introWith("{\"meta\":{\"anonId\":\"XZ-anon_1\",\"advertiserTrackingEnabled\":true,"
+                + "\"extinfo\":" + EXT + "}}");
+        assertThat(forwarded).contains("\"anonId\":\"XZ-anon_1\"", "\"advertiserTrackingEnabled\":true",
+                "\"clientIp\":\"", "\"i2\"", "\"Asia/Seoul\"");
+    }
+
+    @Test
+    @DisplayName("형식이 틀린 meta 는 버리고 도착은 그대로 처리한다")
+    void introArrivalDropsInvalidMetaButStillArrives() throws Exception {
+        String badExt = "[\"i2\"]";
+        String forwarded = introWith("{\"meta\":{\"anonId\":\"a\",\"advertiserTrackingEnabled\":true,"
+                + "\"extinfo\":" + badExt + "}}");
+        assertThat(forwarded).doesNotContain("anonId");
+        assertThat(introWith("{\"meta\":{\"anonId\":\"한글\",\"advertiserTrackingEnabled\":true,"
+                + "\"extinfo\":" + EXT + "}}")).doesNotContain("anonId");
+        assertThat(introWith("{not json")).doesNotContain("anonId");
+        assertThat(introWith("{\"meta\":{\"anonId\":\"a\",\"advertiserTrackingEnabled\":true,\"extinfo\":"
+                + EXT.replace("\"17.5.1\"", "\"\"") + "}}")).doesNotContain("anonId");
+        // NUL 같은 제어 문자는 Data 의 jsonb 저장을 깨 도착까지 되돌리므로 meta 째 버린다.
+        assertThat(introWith("{\"meta\":{\"anonId\":\"a\",\"advertiserTrackingEnabled\":true,\"extinfo\":"
+                + EXT.replace("\"Asia/Seoul\"", "\"Asia\\u0000Seoul\"") + "}}")).doesNotContain("anonId");
+    }
+
+    @Test
+    @DisplayName("본문이 없는 첫 항해 도착은 전과 똑같이 본문 없이 상류로 간다")
+    void introArrivalWithoutBodyForwardsNoBody() throws Exception {
+        assertThat(introWith("")).isNullOrEmpty();
+    }
+
     @Test
     @DisplayName("주체는 서명된 세션에서만 오고 공격자가 넣은 X-User-Id 는 버려진다")
     void forwardsOnlyTheSignedSubjectAndNeverTheAttackerHeader() throws Exception {

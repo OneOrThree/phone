@@ -29,7 +29,7 @@ Steps:
      `git fetch origin main` 을 먼저 하고(낡은 로컬 ref 는 가드를 무력화한다),
      `origin/main` 의 마이그레이션 폴더를 다시 훑어 번호가 찼으면 다음 빈 번호로 바꾼다.
 4. Update `server/data-api/docs/db/schema.dbml` (DBML — the canonical schema doc,
-   **tracked** via the `docs/db/` whitelist, GROMO-735; commit it with the migration)
+   **tracked** via the `.gitignore` whitelist for its `db/` folder, GROMO-735; commit it with the migration)
    to reflect the new columns/tables so it stays in sync with the current DB state.
 5. If the change affects JPA entities, point out which `<domain>/repository/domain/` entities
    and repositories need updating (or update them if I asked for the full change),
@@ -39,8 +39,8 @@ Steps:
      (`ddl-auto: update`); dev/prod/loadtest apply migrations automatically on boot
      with `ddl-auto: validate`;
    - `server/data-api/docs/db/test-{rebase-v0,deploy-v0,backoffice-bridge-integration,compare-schema-dbml}.py`
-     4종은 지금 PR CI 에서 돌지 않는다(꺼진 `data-api-ci.dev.yml` 의 `db-tools` 잡에만 있다. CI 복구는 별도 작업).
-     그래서 마이그레이션 PR 은 머지 전에 저장소 루트에서 로컬로 돌린다
+     4종은 PR CI 의 `migration-immutable.yml` `db-tools` 잡(DB 전환 도구 검사)이 돌린다.
+     미리 보려면 저장소 루트에서 로컬로 돌린다
      (`backoffice-bridge-integration` 은 Docker 가 필요하다):
      `for t in rebase-v0 deploy-v0 backoffice-bridge-integration compare-schema-dbml; do python3 server/data-api/docs/db/test-$t.py || break; done`;
    - the PR must flag this DB-schema change in the "DB 변경 (백엔드)" section of

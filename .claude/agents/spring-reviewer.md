@@ -45,7 +45,7 @@ model: sonnet
 - 엔티티 PK 는 UUID v7(`@GeneratedUuidV7`, `JpaRepository<Entity, UUID>`)이 기본이다.
   사용자 id 는 UUID 다 — `Long` 으로 받거나 비교하는 코드를 지적한다.
 - data-api 스키마 변경은 `src/main/resources/db/v0/` 에 새 파일로만 더한다(번호 = 그 폴더 최댓값 + 1, 중복 금지).
-  적용한 파일을 고치거나 동결된 `db/migration` 에 파일을 더하면 Blocker 다. `docs/db/schema.dbml` 이 같이 바뀌었는지 본다.
+  적용한 파일을 고치거나 동결된 `db/migration` 에 파일을 더하면 Blocker 다. `server/data-api/docs/db/schema.dbml` 이 같이 바뀌었는지 본다.
 
 ### 3. 보안·인증
 사용자 id 는 UUID 다. 서비스마다 요청자를 얻는 길이 다르다.

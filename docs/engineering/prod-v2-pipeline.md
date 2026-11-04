@@ -1,14 +1,14 @@
 # prod V2 파이프라인
 
-AWS EC2 4대로 나눈 운영 V2의 CI/CD 현행 정리다. 2026-10-31 코드와 Infra `main`을 대조해 썼다. 실제 판정은 워크플로와 `.github/scripts/v2/prod/catus-runtime-V2.py`가 정본이다.
+AWS EC2 4대로 나눈 운영 V2의 CI/CD 현행 정리다. 2026-11-02 구 서버 종료와 워크플로 정리를 반영했다. 실제 판정은 워크플로와 `.github/scripts/v2/prod/catus-runtime-V2.py`가 정본이다.
 
 - DB 마이그레이션이 든 배포는 [DB 전환이 든 V2 배포](../prd/fishcat/server-separation/deployment.md#db-전환이-든-v2-배포)를 따른다.
 - 관측 스택을 켜는 절차는 [서버 로그 관측 rollout](../architecture/server-log-observability/rollout.md)을 따른다.
 - dev는 [dev V2 파이프라인](dev-v2-pipeline.md)을 본다.
 
-기존 워크플로 `prod-ci.yml`, `prod-cd.yml`은 `disabled_manually`다. 백오피스는 `backoffice-cd.prod-V2.yml`이 main 머지로 발행·배포한다(아래 「백오피스」).
+구 운영 워크플로 `prod-ci.yml`, `prod-cd.yml`은 제거했다. 백오피스는 `backoffice-cd.prod-V2.yml`이 main 머지로 발행·배포한다(아래 「백오피스」).
 
-꺼진 것은 배포 워크플로뿐이다. 2026-10-31 기준 기존 EC2 `catus-prod`, `catus-backoffice-prod`는 켜져 있다. 운영 DB `catus-prod-db`와 서버 시크릿 원본도 기존 서버와 V2가 함께 쓴다. 기존 서버 종료 일정은 정해지지 않았다.
+구 Gromo 1.x·Cattus·백오피스 서버는 2026-11-02 종료했다. 기존 네트워크·RDS `catus-prod-db`·서버 시크릿 원본은 운영 V2가 사용하므로 유지한다.
 
 ## 구성
 
@@ -18,10 +18,10 @@ AWS EC2 4대로 나눈 운영 V2의 CI/CD 현행 정리다. 2026-10-31 코드와
 | `catus-kafka-prod-V2` | m6g.medium | 부팅 20 GiB + 데이터 30 GiB | Kafka 3.8.1 |
 | `catus-redis-prod-V2` | m6g.medium | 부팅 20 GiB + 데이터 20 GiB | Redis 7.4.11 두 개 |
 | `catus-backoffice-prod-V2` | t4g.small | 부팅 20 GiB + 데이터 10 GiB | 백오피스 |
-| RDS `catus-prod-db` | db.t4g.small | 20 GiB | 운영 DB. 운영 V1과 공유 |
+| RDS `catus-prod-db` | db.t4g.small | 20 GiB | 운영 V1 종료 후에도 V2가 사용하는 기존 DB |
 | RDS `catus-prod-db-v2` | db.t4g.small | 20 GiB, 최대 50 GiB | 전용 DB로 만들어 뒀지만 아직 쓰지 않음 |
 
-공개 주소는 `catus-api-v2.oneorthree.world`, `backoffice-v2.oneorthree.world`다.
+공개 주소는 `catus-api-v2.oneorthree.world`, `backoffice-v2.oneorthree.world`다. `backoffice.oneorthree.world`는 Cloudflare의 프록시 켠 `AAAA 100::`와 Redirect Rule로 V2 백오피스 주소에 302 이동한다. 더미 AAAA가 서버에 직접 라우팅하는 것은 아니다. V2 DNS·nginx·로그인 Origin은 유지한다.
 
 ### 파일 소유권
 
@@ -209,4 +209,32 @@ EC2별 CI/CD 설계안과 비교했다.
 | DB 변경 | 호환 마이그레이션 적용 | 기본 중단, `allow_migration` 승인 시 통과 |
 | 일부 서비스 실패 | 호환되는 이전 조합 복구 | 같다. 호환 여부는 사람이 승격 전에 검토한다 |
 
-Infra `README-V2.md`는 Kafka·Redis 구성을 `server/scripts/runtime-V2/`로 적지만 실제 위치는 `server/scripts/v2/prod/`다.
+Infra `README-V2.md`가 Kafka·Redis 구성 위치로 적은 `runtime-V2/` 폴더는 이 저장소에 없다. 실제 위치는 `server/scripts/v2/prod/`다.
+
+## 구 서버 정리 (2026-11-02)
+
+구 dev·운영 서버 종료에 따라 아래 workflow 14개를 제거했다. 이름에 V2가 없는 공용
+`be-gradle.yml`·`satellite-check.yml`과 release 계약 검사 `satellite-ci.prod.yml`은 계속 사용한다.
+
+| 구분 | 제거한 파일 |
+| --- | --- |
+| 제거한 V1 구 dev CI | `data-api-ci.dev.yml`, `realtime-ci.dev.yml`, `satellite-ci.dev.yml` |
+| 제거한 V1 구 dev CD·스모크 | `data-api-cd.dev.yml`, `satellite-cd.dev.yml`, `ops-smoke.dev.yml` |
+| 제거한 V1 구 운영 CI/CD | `prod-ci.yml`, `prod-cd.yml` |
+| 제거한 V1 구 dev 제어·상태 | `ops-datadog.dev.yml`, `ops-kafka.dev.yml`, `ops-monitor.dev.yml`, `ops-redeploy.dev.yml`, `ops-stack.dev.yml` |
+| 제거한 V1 구 배지 감시 | `ops-deployment-badges.yml` |
+
+`cd-auto.dev-v2.yml`이 호출하는 `deployment-badges.py`는 유지한다. `loadtest.yml`도 유지하지만,
+현재 등록된 러너에는 `loadtest` 라벨이 없어 실행 전 별도 러너 준비가 필요하다.
+
+- DNS `api`, `catus-api`, `focuscat-api`, `link`는 삭제했다. 구 주소의 API·초대 링크는 제공하지 않는다.
+- 운영 V2 EC2 4대에서 Datadog Agent가 `healthy`이고 자체 health 검사가 PASS인 것을 확인했다.
+  이 점검은 Datadog 웹 화면의 최신 로그·APM 수신까지 확인한 것은 아니다.
+- 구 배포 S3 `catus-prod-deploy-artifacts-808715036056`는 객체·이전 버전과 버킷을 삭제했다.
+- 구 로그 S3 `catus-prod-logs-808715036056`는 객체·이전 버전 5,187개가 삭제됐으며 빈 버킷은 유지한다.
+- 구 백오피스 백업 S3 `catus-backoffice-prod-backups-808715036056`는 객체 7개와 버킷을 유지한다.
+  V2 S3 3개는 별도이며 유지한다. 기존 S3 삭제 내역을 데이터 이전·복구 완료로 해석하지 않는다.
+- Terraform `dev`, `prod/gromo`, `prod/catus`, `prod/backoffice`, `prod/catus-v2` 원격 state는
+  refresh 전용 plan으로 최신화했다. 관리 대상 중 누락된 기존 자원이 없어 추가 import는 없었다.
+  정리 전 IaC 브랜치를 apply하면 삭제된 자원이 다시 생성될 수 있다.
+- 앱 dev 주소 전환은 별도 미완료 작업이다. Android CI·TestFlight·앱의 기존 dev 주소를 이 변경에서 바꾸지 않았다.

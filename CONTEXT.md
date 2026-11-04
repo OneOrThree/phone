@@ -216,7 +216,7 @@ GCP VM 3대(`catus-dev-v2-app`·`catus-dev-v2-data`·`catus-dev-v2-redis`)에서
 _Avoid_: dev, 개발 서버(단독으로 쓰면 옛 dev VM과 섞인다)
 
 **옛 dev VM**:
-dev V2 전에 쓰던 개발 서버 VM `gromo-dev-app`이다. 주소는 `oneorthree.dev.mooo.com`이고, 지금도 `dev` 라벨 러너를 겸한다. Datadog의 `env:dev`는 이 VM이다.
+dev V2 전에 쓰던 개발 서버 VM `gromo-dev-app`이다. 주소는 `oneorthree.dev.mooo.com`이었다. 2026-11-02에 VM·디스크·GitHub 러너 등록을 삭제했다(`docs/engineering/dev-v2-pipeline.md:11`). 삭제 전에는 `dev` 라벨 러너를 겸했고 Datadog의 `env:dev`는 이 VM이었다. 지금 `env:dev`로 보이는 로그는 옛 기록이다.
 
 **운영 V2**:
 AWS EC2 4대에서 도는 지금의 운영 환경이다. 공개 주소는 `catus-api-v2.oneorthree.world`다.
@@ -251,7 +251,7 @@ CI/CD 세대 이름이다. V2는 dev V2·운영 V2를 배포하는 지금의 파
 _Avoid_: 단독 「V2」(파이프라인 세대·제품 2.0·Flyway V2·호스트 이름이 섞인다)
 
 **Flyway 번호**:
-DB 스키마 변경 파일의 순번이다. 서비스와 폴더마다 따로 센다. data-api는 `db/v0`이 현행이고 `db/migration`은 동결된 과거 기록이라, `db/v0`의 `V9`가 `db/migration`의 `V138`보다 새것이다.
+DB 스키마 변경 파일의 순번이다. 서비스와 폴더마다 따로 센다. data-api는 `db/v0`이 현행이고 `db/migration`은 동결된 과거 기록이라, `db/v0`의 번호가 작아도 `db/migration`의 어느 번호보다 새것이다.
 
 ## 2.0 에 없는 개념
 

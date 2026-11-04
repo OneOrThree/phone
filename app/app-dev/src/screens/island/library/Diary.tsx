@@ -1,36 +1,37 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { Image, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
-import { art, NavBtn, Seg } from '@/design-system/patterns';
-import { Button } from '@/design-system/primitives';
-import { componentTokens, semanticTokens } from '@/design-system/tokens';
 import { CatAvatar } from '@/components/CatAvatar';
 import { appearanceOutfit } from '@/components/CatOutfitLayers';
 import ScreenTimeReportView from '@/components/ScreenTimeReportView';
-import { displayIsland, dayKey, earnedBy, islandFocusRecord, type State } from '@/services/model';
-import { getSession } from '@/services/api/session';
-import { useLibraryDiary } from '@/screens/island/useLibraryDiary';
+import { NavBtn, Seg, art } from '@/design-system/patterns';
+import { Button } from '@/design-system/primitives';
+import { componentTokens, semanticTokens } from '@/design-system/tokens';
+import type { ScreenEnvironment } from '@/navigation/ScreenEnvironment';
 import { T, fill, hm } from '@/screens/island/sceneKit';
+import { useLibraryDiary } from '@/screens/island/useLibraryDiary';
+import { getSession } from '@/services/api/session';
+import { dayKey, displayIsland, earnedBy, islandFocusRecord, type State } from '@/services/model';
 import { useAppLayout } from '@/utils/layout';
+import React, { useEffect, useRef, useState } from 'react';
+import { Image, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { WeekLineChart } from './WeekLineChart';
 import {
+  DAY,
   dateKey,
   dateStart,
-  DAY,
   datesBetween,
   diaryRange,
   localFocusByDay,
   longDate,
-  recordsOnDay,
   recordsInRange,
+  recordsOnDay,
   shiftDate,
   shortDate,
   timetableRows,
+  weekRange,
   weekday,
   weekdays,
-  weekRange,
   type DiaryRecord,
   type Period,
 } from './diaryData';
-import { WeekLineChart } from './WeekLineChart';
 
 const D = componentTokens.diary;
 const C = semanticTokens.color;
@@ -38,7 +39,7 @@ const S = semanticTokens.spacing;
 const F = semanticTokens.typography;
 
 // 기존 장면 엔진의 경로 계약을 유지한다. 서버 통계와 로컬 시연 데이터를 섞지 않는다.
-export function Diary({ e, font }: { e: any; font?: string }) {
+export function Diary({ e, font }: { e: ScreenEnvironment; font?: string }) {
   const state: State = e.state;
   const island = displayIsland(state);
   const server = !!e.islands;

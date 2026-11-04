@@ -312,9 +312,7 @@ class RealHttpTests(unittest.TestCase):
                 try:
                     directory, fake, rows = Path(temporary), FakeTime(), []
                     device = str(uuid.uuid4())
-                    marker = directory / 'last-request'
-                    env = {'BASE_URL': f'http://127.0.0.1:{server.server_port}',
-                           'SMOKE_GUEST_LAST_REQUEST_FILE': str(marker)}
+                    env = {'BASE_URL': f'http://127.0.0.1:{server.server_port}'}
                     config = login.settings({'SMOKE_HTTP_TIMEOUT': '0.05'})
                     request = login.CurlRequest(directory, env, device, config)
                     result = login.run_login('main', config, request, lambda _: True, rows.append,
@@ -325,7 +323,6 @@ class RealHttpTests(unittest.TestCase):
                     self.assertEqual(fake.waits, [5])
                     self.assertEqual(json.loads((directory / 'body.json').read_text())['data']['userId'], USER)
                     self.assertIn('secret-bootstrap', (directory / 'headers').read_text())
-                    self.assertGreaterEqual(int(marker.read_text()), int(time.time()) - 2)
                     for secret in (device, 'secret-access', 'secret-refresh', 'secret-bootstrap', USER):
                         self.assertNotIn(secret, json.dumps(rows))
                 finally:

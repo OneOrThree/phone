@@ -1,0 +1,66 @@
+[
+  {
+    "event": "start",
+    "platform": "ios",
+    "stage": "baseline",
+    "mode": "fresh",
+    "time": 1793673738.7060869,
+    "loadavg": [8.5732421875, 12.2734375, 11.74853515625]
+  },
+  {
+    "event": "start",
+    "platform": "ios",
+    "stage": "baseline",
+    "mode": "retained",
+    "time": 1793673839.205296,
+    "loadavg": [6.50830078125, 10.5498046875, 11.13330078125]
+  },
+  {
+    "event": "start",
+    "platform": "ios",
+    "stage": "after",
+    "mode": "fresh",
+    "time": 1793673930.88252,
+    "loadavg": [6.12548828125, 9.31982421875, 10.59228515625]
+  },
+  {
+    "event": "start",
+    "platform": "ios",
+    "stage": "after",
+    "mode": "retained",
+    "time": 1793674031.521535,
+    "loadavg": [5.8359375, 8.376953125, 10.0859375]
+  },
+  {
+    "event": "start",
+    "platform": "android",
+    "stage": "baseline",
+    "mode": "fresh",
+    "time": 1793674124.141131,
+    "loadavg": [4.6845703125, 7.29052734375, 9.4892578125]
+  },
+  {
+    "event": "start",
+    "platform": "android",
+    "stage": "baseline",
+    "mode": "retained",
+    "time": 1793674220.4567301,
+    "loadavg": [8.3974609375, 7.591796875, 9.36083984375]
+  },
+  {
+    "event": "start",
+    "platform": "android",
+    "stage": "after",
+    "mode": "fresh",
+    "time": 1793674307.1846569,
+    "loadavg": [8.39501953125, 7.880859375, 9.294921875]
+  },
+  {
+    "event": "start",
+    "platform": "android",
+    "stage": "after",
+    "mode": "retained",
+    "time": 1793674405.045912,
+    "loadavg": [10.25244140625, 8.55078125, 9.39306640625]
+  }
+]

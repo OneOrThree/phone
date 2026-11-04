@@ -4,7 +4,7 @@
 > §2 의 「서버 축 = KST 고정」과 정면 충돌하므로 영향 조사를 마쳤고(≈272 파일 — 요약은 [제품 결정 로그](../prd/fishcat/decision-log.md) D8) 전환 계획을 **§7 에 세웠다(GROMO-1930)**.
 > **실제 컷오버 전까지 현재 KST 가 authoritative 하다 — 이 문서의 KST 규약이 현행이며 코드·마이그레이션을 지금 고치지 않는다.**
 
-> **범위(2026-11-02)** — §3·§4 의 앱 쪽 정본·분류표는 동결된 1.x 앱(`app/legacy/app-dev`)의 인벤토리다. 2.0 앱(`app/app-dev`)의 날짜 축 분류는 아직 없다(미조사). §7 의 리그·챌린지 절차는 대상 코드와 테이블이 V0 에서 은퇴해 지금은 없다 — 해당 절 머리에 표시했다.
+> **범위(2026-11-02)** — §3·§4 의 앱 쪽 정본·분류표는 동결된 1.x 앱(`app/legacy/app-dev`)의 인벤토리다. 2.0 앱(`app/app-dev`)의 분류는 §4.1 에 있다. §7 의 리그·챌린지 절차는 대상 코드와 테이블이 V0 에서 은퇴해 지금은 없다 — 해당 절 머리에 표시했다.
 
 앱이 "오늘"이라고 부르는 날짜에는 **축이 세 개** 있다. 어떤 값을 어느 축에서 뽑느냐를
 틀리면 **비KST 기기**에서 하루씩 어긋난 화면이 나온다 — 오늘 칸을 비켜 찍힌 마커,
@@ -261,9 +261,38 @@ GROMO-1254 의 스크린타임 연속 달성일 수정 초안이 실제로 여�
 
 ---
 
+## 4.1 앱 2.0 분류표 (`app/app-dev/src`, 8136cec2f 기준)
+
+경로는 `app/app-dev/src` 기준이다. 같은 부류의 반복 호출은 모듈 단위로 묶었다. 라인 번호는 측정일 기준이라 어긋날 수 있다.
+서버 축이 KST 인지 UTC 인지는 행에 적었다. 별도 표시가 없으면 KST 다. 러너 TZ 는 `jest.config.js:2` 가 `Asia/Seoul` 로 고정한다.
+
+| 부류 | 위치 | 이유 |
+| --- | --- | --- |
+| 서버 축 (KST) | `services/model.ts:501-519` — `KST_OFFSET_MS`·`kstDate`·`dayKey`·`kstDayStart`; `:1148-1154` `weekStart`(일요일); `:1342-1346` `periodBounds` | 앱 전체의 KST 날짜 키와 날 경계. `kstDayStart` 는 KST 자정 시각이다 |
+| 서버 축 (KST) | `services/model.ts` 의 `joinedDay`·`boardCompletedDay`·`createdDay`·스크린타임 측정일·`todayFocusSeconds`·`focusTotal` | 서버 날짜 라벨과 로컬 진행 계산이 같은 KST 날에 묶인다 |
+| 서버 축 (KST) | `App.tsx:1165-1169,1212-1217,1976-1977,2292` · `screens/interiors/BuildingInteriors.tsx:4992-4993` | 홈 스냅샷 요청의 `date` 와 `timezone: 'Asia/Seoul'` |
+| 서버 축 (KST) | `App.tsx:2337-2342` | KST 날짜가 바뀌면 재동기화하는 타이머 |
+| 서버 축 (KST) | `services/screentimeSync.ts:42,78,97,116` · `services/iosScreenTimeSync.ts:43` · `services/studyWidget.ts:51-53` | KST 날짜 키로 장부·스냅샷·위젯 "오늘" 을 센다 |
+| 서버 축 (UTC·KST 둘) | `services/screenTimeWindow.ts:7-9,49,96-97` · `services/androidScreenTime.ts:29-31` · `services/screenTimeReporting.ts:115` | 하루를 UTC·KST 두 축으로 관측해 보고 마감을 정한다 |
+| 서버 축 (KST↔UTC) | `utils/questWindowTz.ts:13,27-30,41-42` · `services/api/quests.ts` 어댑터 | 퀘스트 창 계약은 UTC. API 경계에서만 KST 벽시계와 변환한다 |
+| 서버 축 (UTC) | `services/api/rankings.ts:62-66` `utcWeekStart` · `services/buildingIndicators.ts:60-66` `week` | 랭킹 주와 도서관 "봤음" 키는 UTC 일요일 앵커다 |
+| 서버 축 (KST·UTC) | `services/api/records.ts:272,291` · `screens/island/library/diaryData.ts:15-18` `dateKey`·`dateStart` | 통계 GET 은 `timezone: 'Asia/Seoul'`. 일기 범위 키는 UTC 또는 KST |
+| 서버 축 (KST) | `screens/island/Hall.tsx:302,342` · `screens/island/useLedgerScreen.ts` | 장부 월은 서버 KST 월을 따른다 |
+| 서버 축 (KST) | `screens/magazine/useMagazineToday.ts:77-85` · `usePromotionEditor.ts:23` · `usePromotionNewsToast.ts` | 매거진 발행(07:00)과 홍보 신청 마감(00:00)이 KST 다 |
+| 서버 축 (KST) | `screens/island/useLibraryDiary.ts:109` · `screens/island/library/Diary.tsx:218` | `useLibraryDiary.ts:109` 는 인라인 `+9h` 오프셋이다. 헬퍼 교체와 별도 전환 지점이다 |
+| 서버 축 (목) | `services/api/magazineMock.ts:53-55` · `model.ts` 의 `rounds[dayKey]` | 서버 로직을 따라 한 목·로컬 진행 |
+| 기기 로컬 | `screens/island/WorldMap.tsx:546-548` `localDayNight` | 낮·밤은 의도적으로 기기 시각(`getHours()`)을 쓴다 |
+| 코스메틱 | `model.ts:507-515` `kstMonthDay`·`kstHourMinute` · `screens/island/Screens.tsx:193` `md`/`hm` · `BuildingInteriors.tsx:3838,7612` `dayLabel`·`letterTime` · `IslandChatSheet.tsx:21` `chatTime` | "M/D"·"HH:MM"·"오늘/어제" 라벨. 표시만 한다 |
+| 코스메틱 | `screens/island/library/Diary.tsx:877` · `CurrentScreens.tsx:253` · `i18n/format.ts:17` `formatDate` | 세션 시각·날짜 문자열 표시. `formatDate` 는 기기 로컬 날짜다 |
+| 코스메틱 | `model.ts:637-732` 의 `Date.now()-86400000` 시드 | 목 픽스처 |
+
+확인 필요: 서버 퀘스트 회차는 UTC 날짜(`IslandQuestService.java:133`)인데 앱 로컬·목의 `rounds[dayKey]` 는 KST 날짜 키다. 어긋나는지는 확인하지 않았다.
+
+---
+
 ## 5. 테스트 관행 — 3층
 
-러너 TZ 가 `Asia/Seoul` 고정(`app/jest.config.js:3`)이라 **값만으로는 로컬과 KST 가 안 갈린다.**
+러너 TZ 가 `Asia/Seoul` 고정(`app/app-dev/jest.config.js`)이라 **값만으로는 로컬과 KST 가 안 갈린다.**
 그래서 축 테스트는 세 층을 겹쳐 쓴다.
 
 ### 층 1 — 러너 TZ 고정
@@ -342,7 +371,7 @@ jest.mock('@/utils/localDate', () => ({
 > 실측이 다르다. 호출부는 실제 코드 호출 기준 티켓과 같은 7파일이며, `ZonePolicy.KST` 를 javadoc 에서만
 > 언급하는 3파일까지 합한 언급 파일이 10개다(7→10 으로 늘어난 게 아니라 집계 기준 차이 — §7.1). 그 외 실측은
 > 자체 리터럴 21클래스+정본 · 크론 25 · 앱 `+09:00` 4곳+자체 KST 상수 6곳+`'Asia/Seoul'` 인라인 잔여+앱 2.0
-> `kstClock` 자체 오프셋 1곳(§7.1 표)다.
+> 인라인 `+9h` 자체 오프셋 2곳(§7.1 표)다.
 
 ### 7.1 KST 침투 인벤토리 — 상수 하나로 안 바뀌는 지점들
 
@@ -374,16 +403,11 @@ javadoc 예시 문자열 1건뿐이고, 테스트 `FocusSessionContractTest.java
 
 | 위치 | 내용 |
 | --- | --- |
-| `services/model.ts:326-327` | `KST_OFFSET_MS` + `kstDate` — 소비처 `:328`(dayKey) · `:334`(kstMonthDay — "M/D") · `:338`(kstHourMinute — "HH:MM") · `:343`(kstDayStart) · `:705`(weekStart — **일요일** 00:00 앵커) · `:854`·`:864`·`:868`(periodBounds) |
-| `screens/island/Screens.tsx:44-47,116-117,1835` | model.ts KST 계열 실사용 — `dayKey`+`kstDayStart`(:1835 오늘 경계 합산) · `kstMonthDay`/`kstHourMinute` 를 `md`/`hm` 으로 바인딩해 기록·공지·구매내역 시각 표시(`:2310,:2328,:2970,:3323,:3334,:3973-3976`) |
-| `screens/island/Hall.tsx` | `dayKey`(:25 import) 실사용 — 가계부 월 필터 `:146,:153` · 내역 날짜 라벨 `:548` |
-| `screens/island/Library.tsx` | `dayKey`·`kstDayStart`·`periodBounds`(:9,:11,:12 import) 실사용 — `md` 헬퍼 `:20` · 기간 경계 `:236` · 스크린타임 일 경계 `:245,:272` · 라벨 `:251,:256` |
-| `screens/island/WorldMap.tsx` | `dayKey`·`kstDayStart`(:25,:26 import) 실사용 — 오늘 집계 창 `:550` |
-| `screens/island/CurrentScreens.tsx:18-19,89,536` | `dayKey`(:18 import) 실사용 — 결과창 퀘스트 회차 키 `:536` · `toLocaleDateString` 의 `timeZone: 'Asia/Seoul'` 리터럴 `:89` |
-| `screens/interiors/BuildingInteriors.tsx:35,38` | model.ts KST 계열 실사용 — `dayKey`·`kstDayStart` import → 공지 작성일 `:3655,:3658`(:3652 주석의 「Asia/Seoul」은 이 코드를 가리킴) · 퀘스트 라운드 키 `:3705` · 이펙트 deps `:3789` · 편지 시각 `:6207,:6210` · 채팅 시각 `:6220` |
-| `screens/interiors/BuildingInteriors.tsx:6201-6203` | **`kstClock` — model.ts 를 안 거치는 자체 인라인 KST 오프셋**: `new Date(at + 9 * 3600000)`(:6202) + `getUTCHours`/`getUTCMinutes`. 헬퍼 교체와 별도로 고쳐야 하는 독립 전환 지점 |
-| `services/model.test.ts:1134,1153` | KST 동작을 단언하는 테스트 — 전환 시 함께 갱신 |
-| 주석만 | `screens/island/Screens.tsx:115,1834` |
+| `services/model.ts:501-502` | `KST_OFFSET_MS` + `kstDate` — 소비처 `:503`(dayKey) · `:508`(kstMonthDay — "M/D") · `:512`(kstHourMinute — "HH:MM") · `:516`(kstDayStart) · `:1149`(weekStart — **일요일** 00:00 앵커) · `:1342,:1346`(periodBounds) |
+| `screens/island/**`·`screens/interiors/BuildingInteriors.tsx`·`App.tsx` | model.ts KST 계열 실사용 — 대표 위치와 부류는 §4.1 |
+| `screens/island/useLibraryDiary.ts:109`·`screens/island/library/Diary.tsx:877` | **model.ts 를 안 거치는 자체 인라인 KST 오프셋**(`+ 9 * 60 * 60 * 1000`·`+ 9 * 3600000`). 헬퍼 교체와 별도로 고쳐야 하는 독립 전환 지점 |
+| `screens/island/CurrentScreens.tsx:253` | `toLocaleDateString` 의 `timeZone: 'Asia/Seoul'` 리터럴 |
+| `services/model.test.ts` | KST 동작을 단언하는 테스트 — 전환 시 함께 갱신 |
 | `jest.config.js:2` | `process.env.TZ = 'Asia/Seoul'` — 러너 고정(§5 층1) |
 
 **앱 1.x (`app/legacy/app-dev`, 동결)**
@@ -545,7 +569,7 @@ DAY 는 자정 경계 9h 어긋남, WEEK 은 UTC 일요일 15:00~24:00 구간에
 | 3 (정리) | 전환 가드(이중키 조회·양쪽 허용값) 제거 — 롤아웃 완료·레거시 종료 후 | UTC |
 
 **Phase 2 는 한 이미지로 묶는다** — 「같은 날」로는 부족하다. `main` push 마다 dev 가 자동 배포되고
-(`data-api-ci.dev.yml` → `data-api-cd.dev.yml`), prod 는 `release` push 단위로 나가므로, Phase 2 항목을 PR 여러 개로 쪼개
+(`data-api-ci.dev-v2.yml` → `cd-auto.dev-v2.yml`), prod 는 `release` push 단위로 나가므로, Phase 2 항목을 PR 여러 개로 쪼개
 순차 병합하면 그 사이마다 「`ZonePolicy` 는 UTC · `LeagueScheduler` zone 은 KST」 같은 반쪽 상태가
 실제로 배포된다(§1 명제 2). **Phase 2 의 서버 변경은 PR 하나 · `release` 배포 하나**로 낸다.
 

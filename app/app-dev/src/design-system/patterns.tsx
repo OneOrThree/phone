@@ -6,13 +6,9 @@ import {
   Animated,
   ScrollView,
   Image,
-  Switch,
-  Modal,
   KeyboardAvoidingView,
   Keyboard,
-  Platform,
   StyleSheet,
-  PanResponder,
   type ImageSourcePropType,
 } from 'react-native';
 import Svg, { Path, Line, Circle, Polyline } from 'react-native-svg';

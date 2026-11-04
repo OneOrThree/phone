@@ -9,8 +9,8 @@ name: Android CI
 #
 # 잡 분리 이유: 키(Play·업로드)를 다루는 잡엔 의존성 코드(npm·pip·Gradle)가 안 돎.
 # GitHub-hosted 는 잡마다 새 VM → 악성 의존성이 남긴 프로세스·env 변조가 키 잡에 못 닿음.
-# - server-gate: 운영에 없는 서버 코드가 main 에 있으면 여기서 실패해 Play 까지 가지 않는다(GROMO-2684).
-# - settings: SDK 공개 설정만 전달하고 CI run_number로 versionCode를 고정한다.
+# - server-gate: 운영에 없는 서버 코드가 main 에 있으면 경고를 남긴다(GROMO-2684). 지금은 막지 않는다(continue-on-error).
+# - settings: SDK 공개 설정만 전달하고 CI run_number로 versionCode를, app-*-android-* 태그로 버전 이름을 정한다(GROMO-2731).
 # - build: AWS·Play·서명 키 없음. npm ci + Gradle, 일회용 키 서명. main만 PostHog 분석 업로드 키 사용.
 # - 업로드 키·Play 키는 별도 Android CD에서만 사용한다.
 # 네이티브 컴파일·XML 검사는 app-android-build.yml 담당.
@@ -114,8 +114,11 @@ jobs:
   server-gate:
     name: 운영 서버 선행 확인
     needs: change-plan
-    # main 산출물은 CD 수동 실행으로도 게시할 수 있어 publish 값과 무관하게 본다. 막히면 Android CI 가 실패로 끝난다.
+    # main 산출물은 CD 수동 실행으로도 게시할 수 있어 publish 값과 무관하게 본다.
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && needs.change-plan.outputs.build == 'true'
+    # 2026-11-02 임시로 막지 않는다 — 앱이 쓰지 않는 서버 변경(#1551 application.yml)에도 막혀 첫 Play 업로드가 밀렸다.
+    # 결과는 잡 경고로만 남는다. 앱이 실제로 필요로 하는 API 만 보는 게이트가 생기면 이 줄을 지워 다시 막는다.
+    continue-on-error: true
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -133,18 +136,21 @@ jobs:
 
   settings:
     name: 빌드 버전·SDK 공개 설정
-    needs: [quality-gate, manual-quality, manual-native, server-gate]
+    needs: [change-plan, quality-gate, manual-quality, manual-native, server-gate]
     if: >-
       !cancelled() && github.ref == 'refs/heads/main' && needs.server-gate.result == 'success' &&
       ((github.event_name == 'push' && needs.quality-gate.result == 'success') ||
        (github.event_name == 'workflow_dispatch' && needs.manual-quality.result == 'success' && needs.manual-native.result == 'success'))
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # 버전 이름을 정하기 전에 진행 중인 Android CD 를 최대 15분 기다린다.
+    timeout-minutes: 25
     permissions:
       contents: read
+      actions: read
       id-token: write
     outputs:
       code: ${{ steps.version.outputs.code }}
+      name: ${{ steps.name.outputs.name }}
       posthog-project-token: ${{ steps.posthog.outputs.posthog-project-token }}
       posthog-host: ${{ steps.posthog.outputs.posthog-host }}
       posthog-cli-host: ${{ steps.posthog.outputs.posthog-cli-host }}
@@ -155,6 +161,28 @@ jobs:
             .github/ci
             app/app-dev/android/app/build.gradle
           sparse-checkout-cone-mode: false
+
+      - name: 버전 이름 — 직전 앱 태그의 다음 patch
+        id: name
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PUBLISH: ${{ needs.change-plan.outputs.publish }}
+        run: |
+          set -euo pipefail
+          # 게시할 빌드는 진행 중인 Android CD 가 끝나 직전 게시 태그가 붙은 뒤에 정한다. 같은 버전을 두 번 쓰지 않게.
+          # 15분이 지나도 안 끝나면 그냥 정한다 — 겹치면 CD 의 게시 전 검사가 막는다.
+          if [ "$PUBLISH" = true ]; then
+            for _ in $(seq 1 45); do
+              busy=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/app-android-cd.yml/runs?per_page=30" \
+                --jq '[.workflow_runs[] | select(.status != "completed")] | length' || echo '?')
+              [ "$busy" = 0 ] && break
+              echo "Android CD ${busy}건 진행 중 — 끝난 뒤 버전을 정한다"; sleep 20
+            done
+          fi
+          floor=$(sed -n 's/^ *versionName "\([0-9.]*\)".*/\1/p' app/app-dev/android/app/build.gradle)
+          name=$(python3 .github/ci/app-version.py next --platform android --floor "$floor")
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          echo "versionName=$name (app-*-android-* 태그 최대의 다음 patch, 하한 build.gradle $floor)"
 
       - name: AWS 인증
         uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
@@ -322,11 +350,15 @@ jobs:
         env:
           # 브랜치 검증 빌드는 안 올림. 값 무관
           GROMO_VERSION_CODE: ${{ needs.settings.outputs.code || '1' }}
+          # main 은 앱 태그로 정한 버전 이름. 브랜치 검증 빌드는 비워 build.gradle 값
+          GROMO_VERSION_NAME: ${{ needs.settings.outputs.name }}
           # JS 번들 production. 잡 전체에 걸면 npm ci 가 devDependencies(patch-package) 빼서 깨짐
           NODE_ENV: production
           # PR/다른 브랜치에는 업로드 키를 주지 않는다. main 빌드만 심볼을 올린다.
           POSTHOG_CLI_API_KEY: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && secrets.POSTHOG_CLI_API_KEY || '' }}
           POSTHOG_CLI_PROJECT_ID: "669473"
+          # GROMO-2739 — main 빌드만 Sentry(cattus)에 JS 소스맵·ProGuard mapping·네이티브 심볼을 올린다. 비면 build.gradle 이 업로드를 건너뛴다.
+          SENTRY_AUTH_TOKEN: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && secrets.SENTRY_AUTH_TOKEN || '' }}
         run: ./gradlew -I "$GITHUB_WORKSPACE/.github/ci/android-version-code.gradle" :app:bundleRelease
 
       - name: AAB 확인 (일회용 서명)
@@ -346,6 +378,7 @@ jobs:
           SOURCE_RUN_ID: ${{ github.run_id }}
           SOURCE_ATTEMPT: ${{ github.run_attempt }}
           VERSION_CODE: ${{ needs.settings.outputs.code }}
+          VERSION_NAME: ${{ needs.settings.outputs.name }}
           PUBLISH_ALLOWED: ${{ needs.change-plan.outputs.publish }}
         run: python3 .github/ci/android-artifact.py pack --aab app/app-dev/android/app/build/outputs/bundle/release/app-release.aab
       - name: 독립 CD용 AAB·메타데이터 게시
@@ -364,6 +397,6 @@ jobs:
           {
             echo "## Android CI — build"
             echo "- 이벤트: ${{ github.event_name }} · 서버: ${EXPO_PUBLIC_API_URL}"
-            echo "- versionCode: ${{ needs.settings.outputs.code || '1 (브랜치 검증, 안 올림)' }}"
+            echo "- versionCode: ${{ needs.settings.outputs.code || '1 (브랜치 검증, 안 올림)' }} · 버전 이름: ${{ needs.settings.outputs.name || 'build.gradle 값' }}"
             echo "- 결과: ${{ job.status }}"
           } >> "$GITHUB_STEP_SUMMARY"

@@ -1,5 +1,12 @@
 # Cattus
 
+## 바로가기
+
+| 구분 | 내용 |
+| --- | --- |
+| 프로젝트 | [제품과 시스템](#제품과-시스템) · [저장소 지도](#저장소-지도) · [문서 찾아가기](#문서-찾아가기) |
+| 개발·운영 | [로컬에서 시작하기](#로컬에서-시작하기) · [변경에 참여하기](#변경에-참여하기) · [운영 V2 배포](#운영-v2-배포) |
+
 [![서버 스모크 스냅샷](https://github.com/OneOrThree/phone/actions/workflows/ops-smoke.dev-v2.yml/badge.svg?branch=main)](https://github.com/OneOrThree/phone/actions/workflows/ops-smoke.dev-v2.yml)
 [![dev 서버 배포](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FOneOrThree%2Fphone%2Fdeployment-status%2Fdev.json)](https://github.com/OneOrThree/phone/tree/deployment-status)
 [![운영 V2 서버 태그](https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2FOneOrThree%2Fphone%2Fdeployment-status%2Fprod-V2%2Fapp.json)](https://github.com/OneOrThree/phone/actions/workflows/prod-cd-V2.yml)
@@ -23,7 +30,7 @@ React Native(Expo) 앱, Spring Boot 서버 4종, 백오피스를 한 저장소�
 
 ## 제품과 시스템
 
-앱의 HTTP 요청은 Business API가 받습니다. 섬·집중·물고기 같은 제품 데이터와 규칙은 Data API가 가지고, Business API가 내부 API로 부릅니다. Realtime은 웹소켓으로 채팅과 접속 상태를 나르고, Notification은 Kafka로 받은 알림 사건을 FCM 푸시로 보냅니다. 용어는 [용어집](CONTEXT.md)을 따릅니다.
+앱의 HTTP 요청은 Business API가 받습니다. 섬·집중·물고기 같은 제품 데이터와 규칙은 Data API가 가지고, Business API가 내부 API로 부릅니다. Realtime은 채팅 저장과 웹소켓 기반 섬 이동·집중 관전·바다 방을 맡고, Notification은 알림 사건을 받아 발송 조건을 확인한 뒤 FCM 푸시를 요청합니다. 우체통의 친구 편지는 Data에, 섬 단체 채팅은 Realtime에 저장됩니다. 용어는 [용어집](CONTEXT.md)을 따릅니다.
 
 ```mermaid
 flowchart LR
@@ -31,17 +38,22 @@ flowchart LR
   app -->|"웹소켓 /ws/realtime"| realtime["Realtime"]
   business -->|"내부 HTTP"| data["Data API"]
   business --> notification["Notification"]
+  business -->|"섬 채팅 내부 REST"| realtime
   realtime -->|"현재 멤버십 조회"| data
   data --> coreDb[("코어 PostgreSQL")]
-  data -.-> kafka["Kafka"]
+  data -->|"집중 presence"| redis[("Shared Redis")]
+  data -.->|"focus/rest outbox · 기본 HTTP"| realtime
+  data -.->|"알림 outbox"| kafka["Kafka"]
   kafka --> notification
   realtime --> chatDb[("채팅 PostgreSQL")]
-  realtime --> redis[("Redis")]
+  realtime --> redis
+  business --> bizRedis[("Business Redis · 폐기 sid")]
+  notification --> notiDb[("알림 PostgreSQL")]
   notification --> fcm["FCM"]
   fcm --> app
 ```
 
-현재 구현과 Target-1 목표 구조의 차이, 데이터 소유권, 서비스별 실행 방법은 [서버 전체 문서](server/README.md)에서 확인합니다.
+데이터 소유권과 서비스별 실행 방법은 [서버 전체 문서](server/README.md)에서 확인합니다.
 
 ## 저장소 지도
 
@@ -82,7 +94,7 @@ test -f src/main/resources/application-local.yml || cp src/main/resources/applic
 ./gradlew bootRun --args='--spring.profiles.active=local'
 ```
 
-API는 `http://localhost:8080`, Swagger UI는 `http://localhost:8080/swagger-ui/index.html`에서 확인합니다. 다른 서버의 실행 조건은 [서버 README](server/README.md)에 연결되어 있습니다.
+이 명령은 내부 Data API만 실행합니다. 주소는 `http://localhost:8080`, Swagger UI는 `http://localhost:8080/swagger-ui/index.html`입니다. 앱의 공개 API는 Business가 받으므로 앱 연동에는 [Business API 실행 설정](server/business-api/README.md#빠른-검증)과 서비스 간 토큰이 추가로 필요합니다. 호스트에서 두 서비스를 함께 실행할 때는 포트를 구분합니다.
 
 </details>
 
@@ -108,6 +120,9 @@ API는 `http://localhost:8080`, Swagger UI는 `http://localhost:8080/swagger-ui/
 브랜치 이름과 커밋·PR 형식(담당자·라벨·머지 조건 포함)은 [docs/conventions/git-pr-conventions.md](docs/conventions/git-pr-conventions.md), 지라 티켓 양식은 [docs/conventions/jira-ticket-template.md](docs/conventions/jira-ticket-template.md), 리뷰 언어와 심각도 표기는 [AGENTS.md](AGENTS.md)를 따릅니다. 앱과 서버는 툴링을 공유하지 않으므로 변경한 서비스 디렉터리에서 해당 검증 명령을 실행합니다.
 
 ## 운영 V2 배포
+
+2026-11-02 구 dev·운영 서버를 종료했습니다. 구 워크플로우 14개 제거와 DNS·S3·Datadog 상태는 [구 서버 정리](docs/engineering/prod-v2-pipeline.md#구-서버-정리-2026-11-02)에 기록합니다. 기존 백오피스 주소는 운영 V2 주소로 이동합니다.
+
 
 운영 V2는 AWS EC2 4대(서버 4종·Kafka·Redis·백오피스)에서 돕니다. 서버 4종·Kafka·Redis는 main → release 승격 PR(merge commit) 뒤 release push에서 태그와 산출물이 발행되고, 사람이 release에서 CD를 실행하고 환경 `catus-production-V2`의 승인 1회를 거쳐야 운영에 반영됩니다. 백오피스는 release를 거치지 않고, main 머지에서 승인 1회 뒤 바로 배포됩니다. 경로별 흐름은 [파이프라인 지도](docs/engineering/pipeline-map.md), 절차와 복구는 [prod V2 파이프라인](docs/engineering/prod-v2-pipeline.md)을 따릅니다.
 

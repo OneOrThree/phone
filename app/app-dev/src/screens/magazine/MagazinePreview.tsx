@@ -1,19 +1,20 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { ScrollView, useWindowDimensions, View } from 'react-native';
-import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
-import { semanticTokens } from '@/design-system/tokens';
-import { T } from '@/screens/island/sceneKit';
 import { MAGAZINE_FRAMES } from '@/constants/magazineAssets';
-import { AdCell, AdCellData } from './AdCell';
-import { CELL_ASPECT, PromotionLayout } from './layout';
-import { EditorDriver, PromotionEditor } from './PromotionEditor';
-import { createTouchDriver } from './touchDriver';
-import { CANVAS_PAD } from './useStickerGestures';
-import { demoState } from '@/services/model';
+import { semanticTokens } from '@/design-system/tokens';
+import { createPreviewEnvironment } from '@/navigation/previewEnvironment';
 import { FinalIsland } from '@/screens/island/WorldMap';
+import { T } from '@/screens/island/sceneKit';
+import { demoState } from '@/services/model';
+import { useEffect, useRef, useState } from 'react';
+import { ScrollView, View, useWindowDimensions } from 'react-native';
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
+import { AdCell, AdCellData } from './AdCell';
 import { MagazineHomeLayer } from './MagazineDelivery';
 import { MagazineReader } from './MagazineReader';
+import { EditorDriver, PromotionEditor } from './PromotionEditor';
+import { CELL_ASPECT, PromotionLayout } from './layout';
+import { createTouchDriver } from './touchDriver';
 import { useMagazineToday } from './useMagazineToday';
+import { CANVAS_PAD } from './useStickerGestures';
 
 /**
  * 개발 전용 — 틀 11개 × 글(짧은 글 · 60자 한글 · 띄어쓰기 없는 60자 · 이모지 섞인 60자) × 스티커·테이프를
@@ -228,7 +229,7 @@ export function MagazineEditorPreview() {
   return (
     <SafeAreaProvider>
       <View style={{ flex: 1 }}>
-        <PromotionEditor e={e} driver={driver} />
+        <PromotionEditor e={createPreviewEnvironment(e)} driver={driver} />
         <View
           pointerEvents="none"
           style={{ position: 'absolute', left: 0, right: 0, top: 44, alignItems: 'center' }}
@@ -283,7 +284,13 @@ export function MagazineHomePreview() {
       <View style={{ flex: 1 }}>
         {route.name === 'magazine' ? (
           <MagazineReader
-            e={{ state, detail: route.id, go, back: () => go('home') }}
+            e={createPreviewEnvironment({
+              state,
+              detail: route.id ?? '',
+              go,
+              replace: go,
+              back: () => go('home'),
+            })}
             background={background}
           />
         ) : (

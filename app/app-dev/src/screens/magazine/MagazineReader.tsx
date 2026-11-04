@@ -1,3 +1,21 @@
+import { ISLAND_STAGE_ART, MAGAZINE_UI, islandStage } from '@/constants/magazineAssets';
+import { Btn } from '@/design-system/patterns';
+import { componentTokens, primitiveTokens, semanticTokens } from '@/design-system/tokens';
+import { t } from '@/i18n';
+import { formatDate, formatDuration, islandTitle } from '@/i18n/format';
+import type { ScreenEnvironment } from '@/navigation/ScreenEnvironment';
+import { T, useGowun } from '@/screens/island/sceneKit';
+import { pinErrorText } from '@/screens/island/useTelescopePin';
+import { ApiError } from '@/services/api/client';
+import type {
+  MagazineCell,
+  MagazineEditorial,
+  MagazineIsland,
+  MagazineIssue,
+  MagazinePlace,
+} from '@/services/api/magazine';
+import { pinToTelescope } from '@/services/api/telescope';
+import { useAppLayout } from '@/utils/layout';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   AccessibilityInfo,
@@ -12,27 +30,10 @@ import {
   type NativeScrollEvent,
   type NativeSyntheticEvent,
 } from 'react-native';
-import { Btn } from '@/design-system/patterns';
-import { componentTokens, primitiveTokens, semanticTokens } from '@/design-system/tokens';
-import { ApiError } from '@/services/api/client';
-import type {
-  MagazineCell,
-  MagazineEditorial,
-  MagazineIsland,
-  MagazineIssue,
-  MagazinePlace,
-} from '@/services/api/magazine';
-import { pinToTelescope } from '@/services/api/telescope';
-import { pinErrorText } from '@/screens/island/useTelescopePin';
-import { t } from '@/i18n';
-import { formatDate, formatDuration, islandTitle } from '@/i18n/format';
-import { T, useGowun } from '@/screens/island/sceneKit';
-import { ISLAND_STAGE_ART, MAGAZINE_UI, islandStage } from '@/constants/magazineAssets';
-import { useAppLayout } from '@/utils/layout';
 import { AdCell } from './AdCell';
 import { CELL_ASPECT } from './layout';
-import { magazineApi } from './usePromotionEditor';
 import { cachedMagazineToday, sendReceipt } from './useMagazineToday';
+import { magazineApi } from './usePromotionEditor';
 import { CANVAS_PAD, layoutBleed } from './useStickerGestures';
 
 const R = componentTokens.magazineReader;
@@ -141,7 +142,8 @@ export function MagazineReader({
   place = 'ISLAND',
   background,
 }: {
-  e: any;
+  e: Pick<ScreenEnvironment, 'back' | 'notify' | 'replace'> &
+    Partial<Pick<ScreenEnvironment, 'detail'>>;
   /** 내 섬 섬장이면 끝 쪽에 「우리 섬도 실어 볼까요?」 안내 — 쓰기 입구는 마을회관에만 있다(10/14). */
   host?: boolean;
   /** 펼친 곳 — 받음·읽음 기록과 칸 오른쪽 아래 자리가 갈린다. */

@@ -1,5 +1,12 @@
 # Realtime
 
+## 바로가기
+
+| 구분 | 내용 |
+| --- | --- |
+| 실시간 계약 | [역할과 구현 범위](#1-역할과-구현-범위) · [채팅 전달 구조](#2-채팅-전달-구조) · [채팅 계약](#3-채팅-계약) · [데이터 소유권과 현재 제약](#4-데이터-소유권과-현재-제약) |
+| 개발·운영 | [실행 · 검증](#5-실행--검증) · [연결 종료·메모리 예산](#동시-연결-종료와-메모리-예산-gromo-2417) · [코드 탐색](#6-코드-탐색) |
+
 > 같은 섬의 주민이 대화하고 읽은 위치를 이어가는 실시간 서버입니다.
 
 [서버 전체 보기](../README.md) · [채팅 DB 스키마](docs/db/schema.dbml) · [실시간 이벤트 설계](../../docs/prd/fishcat/realtime-events/high-level-design.md)
@@ -8,7 +15,9 @@
 
 Realtime은 WebSocket/STOMP 채팅, 메시지 이력, 읽음 위치와 Redis를 통한 다중 인스턴스 전파를 담당합니다. Data API와 코드를 공유하지 않는 Java 17·Spring Boot 4.0.6 독립 프로젝트이며, 채팅 데이터는 별도 `gromo_chat` DB에 보관합니다.
 
-**현재 사용할 수 있는 주 도메인은 채팅입니다.** `/ws/realtime` 연결 경로와 신규 이벤트 라우터 기반은 있지만, 새 섬 이벤트 채널은 인가·스냅샷·권한 회수 구현이 준비되기 전까지 닫혀 있습니다. `DisabledRealtimeDelivery`는 새 이벤트 전달을 거절합니다.
+`/ws/realtime`에서 채팅 외에 섬의 `focus`·`rest`·`emotes`·`events`, 이동 채널과 바다 방을 제공합니다. `focus/rest` 관전은 전달 직전 JWT·폐기 sid를 확인하고, 응원은 수신 대상·차단 관계, 섬 소식은 현재 주민·차단 관계를 추가 검사합니다. `playback`·`messages` 섬 채널과 `/user/queue/events`는 닫혀 있습니다.
+
+현재 앱의 섬 단체 채팅은 Business 공개 REST `/islands/{id}/messages`를 사용합니다. `useIslandChat`이 진입·전면 복귀와 활성 상태의 10초 주기로 이력을 갱신합니다. 아래 STOMP 채팅은 별도의 서버 제공 경로입니다. 우체통 친구 편지(`/letters`)는 Data에 저장됩니다.
 
 ## 2. 채팅 전달 구조
 
@@ -17,9 +26,9 @@ flowchart LR
   sender["보내는 앱"] -->|"STOMP CONNECT·SEND"| auth["JWT·멤버십·집중 상태 검사"]
   auth --> message["메시지 저장 · 중복 판정"]
   message --> db[("gromo_chat")]
-  message -->|"새 메시지"| redis[("Redis · chat:fanout")]
-  redis --> nodeA["Realtime 인스턴스 A"]
-  redis --> nodeB["Realtime 인스턴스 B"]
+  message -->|"새 메시지 · 로컬 전달"| nodeA["Realtime 인스턴스 A"]
+  message -->|"새 메시지 · 다른 인스턴스 전파"| redis[("Redis · chat:fanout")]
+  redis --> nodeB["Realtime 인스턴스 B · 구성 시"]
   nodeA --> outbound["전달 직전 권한 재검사"]
   nodeB --> outbound
   outbound --> receiver["섬 채팅 구독자"]
@@ -61,9 +70,10 @@ CONNECT는 JWT 인증을 담당합니다. 집중 중에도 연결은 유지할 �
 | `chat:fanout` | Realtime의 인스턴스 간 Pub/Sub |
 | `presence:focus:{userId}` | Data가 쓰고 Realtime이 읽는 집중 상태 |
 
-- 현재 멤버십 조회는 요청자의 AT로 Data의 `GET /api/v1/groups`를 호출합니다. 신규 내부 인가 계약으로의 전환은 별도 작업입니다.
-- 멤버십 캐시 기본 TTL은 120초입니다. 탈퇴·강퇴 반영은 캐시 만료까지 지연될 수 있습니다.
-- dev overlay의 Redis에는 서비스별 ACL이 적용되지 않았습니다. presence 읽기 전용은 현재 코드 규칙이며, 배포 권한으로 강제되는 상태와 구분해야 합니다.
+- `REALTIME_AUTHORIZATION_CLIENT_ENABLED=true`이면 [현재 인가 클라이언트](src/main/java/com/oneorthree/realtime/membership/client/RealtimeMembershipAuthorizationClient.java)가 서비스 인증으로 Data의 현재 멤버십을 확인합니다. 사용자·sid·auth generation·섬별 허용 캐시는 기본 30초이며 `REALTIME_AUTHORIZATION_CACHE_TTL_SECONDS=0`이면 끕니다. 꺼진 분기는 기존 Redis 멤버십 캐시(기본 120초)와 Data의 `/internal/users/{userId}/islands` 조회를 사용합니다.
+- 전달 직전 [허용 캐시](src/main/java/com/oneorthree/realtime/config/OutboundAuthzCache.java)는 멤버십·차단 판정을 재사용합니다. JWT·폐기 sid·집중 상태는 계속 검사하며, `chat.websocket.outbound.authz-cache-ttl-seconds` 기본값은 30초입니다. 캐시 무효화는 수신한 사건과 로컬 JVM에 의존하므로 여러 인스턴스에서 즉시 반영된다고 가정하지 않습니다.
+- 섬 이동은 `REALTIME_MOVEMENT_MULTI_INSTANCE_ENABLED=true`가 기본입니다. [MovementCluster](src/main/java/com/oneorthree/realtime/movement/stomp/MovementCluster.java)가 Redis 소유자 리스로 섬별 방을 한 JVM에 모으고 명령·프레임을 전용 Pub/Sub로 중계합니다. 리스 상실 시 방을 버리고 새 소유자 FullState로 재동기화합니다. OFF이면 인스턴스마다 독립 방이 생깁니다.
+- 운영 V2 Redis는 서비스별 ACL 파일을 마운트합니다. Shared는 384MB, Business는 128MB이며 둘 다 noeviction·AOF입니다([실행 정의](../scripts/v2/prod/redis-V2.yml)). 과거 dev overlay 설정과 구분합니다.
 - Redis는 Realtime의 필수 의존성입니다. readiness에 DB·Redis를 포함합니다.
 
 ## 5. 실행 · 검증

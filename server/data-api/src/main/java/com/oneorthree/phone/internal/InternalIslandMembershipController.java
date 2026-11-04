@@ -2,6 +2,7 @@ package com.oneorthree.phone.internal;
 
 import com.oneorthree.phone.internal.dto.CreateIslandCommandRequest;
 import com.oneorthree.phone.internal.dto.CurrentIslandView;
+import com.oneorthree.phone.internal.dto.IntroArrivalRequest;
 import com.oneorthree.phone.internal.dto.IslandArrivalView;
 import com.oneorthree.phone.internal.dto.IslandCreatedView;
 import com.oneorthree.phone.internal.dto.IslandDiscoverPageView;
@@ -147,8 +148,9 @@ public class InternalIslandMembershipController {
     /** 로컬 최초 항해 체험의 도착. 횟수 제한 없이 현재 망원경 목적지와 이동 가드를 검증한다. */
     @PostMapping("/islands/{islandId}/intro-arrivals")
     public IslandArrivalView introArrive(@PathVariable UUID userId, @PathVariable UUID islandId,
-                                         @RequestHeader("Idempotency-Key") UUID idempotencyKey) {
-        return introVoyageService.arrive(userId, islandId, idempotencyKey);
+                                         @RequestHeader("Idempotency-Key") UUID idempotencyKey,
+                                         @RequestBody(required = false) IntroArrivalRequest body) {
+        return introVoyageService.arrive(userId, islandId, idempotencyKey, body);
     }
 
     /** 현재 섬 이동 (LLD §3.6). */

@@ -39,7 +39,7 @@ export function initDatadog(): void {
                   propagatorTypes: [dd.PropagatorType.DATADOG],
                 },
                 {
-                  match: 'oneorthree.dev.mooo.com',
+                  match: 'oneorthree-v2.dev.mooo.com',
                   propagatorTypes: [dd.PropagatorType.DATADOG],
                 },
               ],

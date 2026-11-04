@@ -178,7 +178,7 @@ test('OS·SDK 중복 링크는 한 번만 이동하고 이후 다시 탭한 링�
 test.each([
   ['https://link.oneorthree.world/l/abcdefgh?g=ignored', 'abcdefgh'],
   ['https://catus-api-v2.oneorthree.world/l/abcdefgh?g=ignored', 'abcdefgh'],
-  ['https://oneorthree.dev.mooo.com/l/abcdefgh', 'abcdefgh'],
+  ['https://oneorthree-v2.dev.mooo.com/l/abcdefgh', 'abcdefgh'],
   ['gromo://join?g=ignored&s=abcdefgh', 'abcdefgh'],
   // Infra V2 nginx 초대 랜딩의 «앱에서 열기» 버튼이 쓰는 주소(prod/catus-v2/runtime/nginx.conf-V2.template).
   ['gromo://join?s=abcdefgh', 'abcdefgh'],
@@ -187,6 +187,8 @@ test.each([
 });
 test.each([
   'https://link.oneorthree.world.evil.com/l/abcdefgh',
+  // 삭제한 옛 dev VM 호스트(GROMO-2661)는 더는 초대 호스트가 아니다.
+  'https://oneorthree.dev.mooo.com/l/abcdefgh',
   'https://link.oneorthree.world/l/abcdefgh/extra',
   'https://link.oneorthree.world/l/invalid',
   // 운영 V2 호스트는 앱 API 도 서빙한다. /l/<슬러그> 만 초대이고 같은 호스트의 다른 경로는 초대가 아니다.
@@ -209,7 +211,7 @@ test.each([
 
 // 초대 URL 을 받는 호스트는 파서·iOS Associated Domains·Android App Links·expo 설정이 같아야 한다.
 // 한 곳만 빠지면 OS 가 링크를 앱으로 넘기지 않거나, 넘겨도 앱이 버린다.
-test.each(['link.oneorthree.world', 'catus-api-v2.oneorthree.world', 'oneorthree.dev.mooo.com'])(
+test.each(['link.oneorthree.world', 'catus-api-v2.oneorthree.world', 'oneorthree-v2.dev.mooo.com'])(
   '초대 호스트 %s를 파서와 네이티브·expo 설정이 함께 받는다',
   (host) => {
     const read = (file: string) => readFileSync(path.join(__dirname, '../..', file), 'utf8');

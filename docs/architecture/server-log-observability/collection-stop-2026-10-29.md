@@ -70,7 +70,7 @@
 
 - 증거 원본은 조정자 임시 폴더에 있어 팀원이 열 수 없다. 핵심 발췌를 문서 끝 «부록 A»에 붙였다. 비밀 값과 개인 계정명은 제외했다.
 - GitHub: `Data API CI` run 40849669595, job 123372233174, `Satellite Dev CD` run 40850676594.
-- 코드: `.github/scripts/deploy-core-dev.py`(`QUIESCE_SERVICES`, `stop()`, `restore()`, `deploy()`), `.github/workflows/data-api-cd.dev.yml`.
+- 코드: `.github/scripts/deploy-core-dev.py`(`QUIESCE_SERVICES`, `stop()`, `restore()`, `deploy()`), `data-api-cd.dev.yml`.
 
 ## 5. 운영 절차
 
@@ -84,7 +84,7 @@
 4. 공동 배포 job이 같은 시각에 돌고 있지 않은지 `gh run list`로 확인한다(경합 방지).
 5. 복구 경로를 고른다(아래 비교). 이 문서는 `server/scripts/README.md` 와 GROMO-2561(nginx 중지 시간 초과 수정)의 절차를 대체하지 않는다.
 6. nginx 가 `failed` 인 점: 스크립트의 nginx 시작은 `sudo -n <NGINX_SYSTEMCTL> start nginx` 뒤 `systemctl is-active` 만 확인한다(`.github/scripts/deploy-core-dev.py` `deploy()`). systemd 는 `failed` 유닛을 `start` 로 다시 시작할 수 있어 `reset-failed` 는 상태 표시 정리용이며 보통 필수가 아니다. 다만 시작 횟수 제한(`StartLimitBurst`)에 걸려 있으면 `reset-failed` 가 필요하다. 이는 코드와 systemd 일반 동작에 근거한 판단이고 이 VM 에서 실행해 확인하지 않았다(미검증). 러너 sudoers 허용 범위가 `reset-failed` 를 포함하는지도 확인 전이다. 복구 경로(`--recovery-only`)는 별개다: `deploy-core-dev.py:197-198` 이 nginx `ActiveState` 가 `inactive` 가 아니면 «새 이미지로 재개하려면 nginx가 완전히 중지되어 있어야 합니다.» 로 중단한다. 지금 nginx 는 `failed` 라 복구 경로는 시작 전에 막힌다. `systemctl reset-failed nginx` 등으로 `inactive` 로 만든 뒤 실행해야 하며, 러너 sudoers 허용 여부는 확인 전이고 이 VM 에서 미검증이다. 티켓 2561 수정이 이 문제를 다루는지는 저장소에서 확인하지 못했다(2561 수정 범위 미확인).
-7. 재개 명령은 저장소 경로만 쓴다: workflow `Dev Datadog (APM + Observability)`(`.github/workflows/ops-datadog.dev.yml`)의 입력 `action: up` 또는 `restart`. 앱·nginx 복구는 workflow `Data·Realtime Dev CD`(`.github/workflows/data-api-cd.dev.yml`)를 `workflow_dispatch` 로 실행하며 입력은 `image_digest`(Data), `realtime_image_digest`(Realtime), `image_revision`(main 40자 SHA, 미완료 current DB 복구 전용)이다. 이 경로는 `--recovery-only` 로 돈다(`data-api-cd.dev.yml:125-127`). `ops-redeploy.dev.yml` 은 SM 시크릿 재적용용이라 이 복구와 다르다. 이번 조사에서는 실행하지 않았다. 선행 조건: 위 6번대로 nginx 가 `inactive` 여야 이 복구 경로가 시작된다.
+7. 재개 명령은 저장소 경로만 쓴다: workflow `Dev Datadog (APM + Observability)`(`ops-datadog.dev.yml`)의 입력 `action: up` 또는 `restart`. 앱·nginx 복구는 workflow `Data·Realtime Dev CD`(`data-api-cd.dev.yml`)를 `workflow_dispatch` 로 실행하며 입력은 `image_digest`(Data), `realtime_image_digest`(Realtime), `image_revision`(main 40자 SHA, 미완료 current DB 복구 전용)이다. 이 경로는 `--recovery-only` 로 돈다(`data-api-cd.dev.yml:125-127`). `ops-redeploy.dev.yml` 은 SM 시크릿 재적용용이라 이 복구와 다르다. 이번 조사에서는 실행하지 않았다. 선행 조건: 위 6번대로 nginx 가 `inactive` 여야 이 복구 경로가 시작된다.
 
 #### 복구 경로 비교
 
@@ -154,7 +154,7 @@ json-file 로테이션(위 표)에 밀려난 구간은 어느 경우에도 복�
 
 ### 유휴 서비스 — 빈 결과는 수집 실패가 아니다
 
-복구 뒤 1시간 이상 로그가 없는 서비스는 `docker logs --since 1h` 이 비어 «최신 원본 시각»을 못 구한다. 근거: dev 저트래픽 구간에는 앱이 idle 이고 `/health` 는 로그를 남기지 않는다(`.github/workflows/ops-datadog.dev.yml:188-190`). 요청 단위 access log 도 앱에 없다(`server/data-api/src/main/resources/logback-spring.xml:123` 가 TODO 로 남아 있음).
+복구 뒤 1시간 이상 로그가 없는 서비스는 `docker logs --since 1h` 이 비어 «최신 원본 시각»을 못 구한다. 근거: dev 저트래픽 구간에는 앱이 idle 이고 `/health` 는 로그를 남기지 않는다(`ops-datadog.dev.yml:188-190`). 요청 단위 access log 도 앱에 없다(`server/data-api/src/main/resources/logback-spring.xml:123` 가 TODO 로 남아 있음).
 
 - 원본 결과가 비어 있으면 그 서비스는 **판정 불가**로 기록한다. 통과도 실패도 아니다. `--since` 를 늘려(예: 1h) 마지막 줄이 있으면 그 시각으로 비교하고, 없으면 판정 불가 그대로 둔다.
 - 검증용 로그를 만들어야 할 때의 절차(**이번에 실행하지 않는다**, 재개 승인 뒤에만):

@@ -1,14 +1,17 @@
-import React, { useReducer } from 'react';
+import { MotionContext } from '@/design-system/primitives';
+import { createPreviewEnvironment } from '@/navigation/previewEnvironment';
+import { Telescope } from '@/screens/island/Telescope';
+import { useTelescope } from '@/screens/island/useTelescope';
+import { ApiError, request } from '@/services/api/client';
+import type { TelescopeItem } from '@/services/api/telescope';
+import { FIRST_VOYAGE_DONE, prepareFirstVoyage, readFirstVoyage } from '@/services/firstVoyage';
+import { metaContext } from '@/services/metaSdk';
+import { initialState, reducer } from '@/services/model';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { act, fireEvent, render } from '@testing-library/react-native';
-import { initialState, reducer } from '@/services/model';
-import { ApiError, request } from '@/services/api/client';
-import { FIRST_VOYAGE_DONE, prepareFirstVoyage, readFirstVoyage } from '@/services/firstVoyage';
-import { useTelescope } from '@/screens/island/useTelescope';
-import type { TelescopeItem } from '@/services/api/telescope';
+import { useReducer } from 'react';
+import { AccessibilityInfo, AppState } from 'react-native';
 import { OnboardingFlow } from './OnboardingFlow';
-import { Telescope } from '@/screens/island/Telescope';
-import { MotionContext } from '@/design-system/primitives';
 
 jest.mock('@/services/api/client', () => ({
   ...jest.requireActual('@/services/api/client'),
@@ -45,6 +48,7 @@ jest.mock('@/utils/layout', () => ({
     insets: { top: 0, bottom: 0, left: 0, right: 0 },
   }),
 }));
+jest.mock('@/services/metaSdk', () => ({ metaContext: jest.fn() }));
 jest.mock('./StoryRaft', () => ({ StoryRaft: () => null, storyCats: {} }));
 const destination: TelescopeItem = {
   islandId: 'candidate',
@@ -87,7 +91,11 @@ function Harness({ telescope = false }: { telescope?: boolean }) {
   };
   return (
     <MotionContext.Provider value={true}>
-      {telescope ? <Telescope e={e} /> : <OnboardingFlow e={e} />}
+      {telescope ? (
+        <Telescope e={createPreviewEnvironment(e)} />
+      ) : (
+        <OnboardingFlow e={createPreviewEnvironment(e)} />
+      )}
     </MotionContext.Provider>
   );
 }
@@ -95,6 +103,7 @@ beforeEach(async () => {
   jest.useFakeTimers();
   jest.clearAllMocks();
   mockGeneration = 1;
+  (metaContext as jest.Mock).mockReset().mockResolvedValue(undefined);
   dispatched = [];
   await AsyncStorage.clear();
   (useTelescope as jest.Mock).mockReturnValue({
@@ -136,6 +145,108 @@ test('첫 선택은 시간을 숨기고 한 명을 보여 준 뒤 5초 후 실�
   expect(startSea).not.toHaveBeenCalled();
   expect(reset).toHaveBeenCalledWith('home', undefined);
   expect(await AsyncStorage.getItem(FIRST_VOYAGE_DONE)).toBe('1');
+});
+
+describe.each([
+  [
+    'meta가 있으면 본문에 싣는다',
+    () => (metaContext as jest.Mock).mockResolvedValue({ anonId: 'a' }),
+    { meta: { anonId: 'a' } },
+  ],
+  [
+    'meta가 없으면 본문을 비운다',
+    () => (metaContext as jest.Mock).mockResolvedValue(undefined),
+    undefined,
+  ],
+  [
+    'meta가 던져도 도착은 간다',
+    () => (metaContext as jest.Mock).mockRejectedValue(new Error('x')),
+    undefined,
+  ],
+  [
+    'meta가 멈추면 1초 뒤 meta 없이 도착한다',
+    () => (metaContext as jest.Mock).mockReturnValue(new Promise(() => {})),
+    undefined,
+  ],
+])('도착 요청 본문: %s', (_name, arrange, body) => {
+  test('본문', async () => {
+    arrange();
+    const screen = await render(<Harness />);
+    await fireEvent.press(screen.getByTestId('onboarding-island-candidate'));
+    await fireEvent.press(screen.getByTestId('onboarding-continue'));
+    await elapse(5000);
+    await elapse(1000);
+    expect(request).toHaveBeenCalledTimes(1);
+    expect((request as jest.Mock).mock.calls[0][1].body).toEqual(body);
+  });
+});
+
+test('도착까지 남은 초를 5부터 1까지 실제로 센다', async () => {
+  const screen = await render(<Harness />);
+  await fireEvent.press(screen.getByTestId('onboarding-island-candidate'));
+  await fireEvent.press(screen.getByTestId('onboarding-continue'));
+  expect(screen.getByText('5초 뒤 도착해.')).toBeTruthy();
+  for (const left of [4, 3, 2, 1]) {
+    await elapse(1000);
+    expect(screen.getByText(`${left}초 뒤 도착해.`)).toBeTruthy();
+  }
+  expect(request).not.toHaveBeenCalled();
+  await elapse(1000);
+  expect(screen.queryByText(/초 뒤 도착해/)).toBeNull();
+  expect(request).toHaveBeenCalled();
+});
+
+test('화면 읽기는 남은 초를 처음 한 번만 읽고 매초 다시 읽지 않는다', async () => {
+  // 프리셋의 jest.fn 구현을 지우지 않도록 원래 구현을 보관했다가 되돌린다.
+  const isEnabled = AccessibilityInfo.isScreenReaderEnabled as unknown as jest.Mock;
+  const original = isEnabled.getMockImplementation();
+  isEnabled.mockImplementation(() => Promise.resolve(true));
+  try {
+    const screen = await render(<Harness />);
+    await fireEvent.press(screen.getByTestId('onboarding-island-candidate'));
+    await fireEvent.press(screen.getByTestId('onboarding-continue'));
+    await elapse(0);
+    await elapse(4000);
+    expect(screen.getByText('1초 뒤 도착해.').props.accessibilityLiveRegion).toBe('none');
+    const reads = (AccessibilityInfo.announceForAccessibility as jest.Mock).mock.calls.filter(
+      ([text]) => /초 뒤 도착해/.test(text),
+    );
+    expect(reads).toEqual([['5초 뒤 도착해.']]);
+  } finally {
+    isEnabled.mockImplementation(original);
+  }
+});
+
+test('백그라운드에 간 동안은 남은 초가 멈췄다가 돌아오면 이어서 센다', async () => {
+  // RN jest 프리셋의 addEventListener 는 이미 jest.fn 이라 spyOn·mockRestore 를 쓰면 구현이 지워진다.
+  const addListener = AppState.addEventListener as unknown as jest.Mock;
+  const original = addListener.getMockImplementation();
+  const listeners: ((state: string) => void)[] = [];
+  addListener.mockImplementation((type: string, fn: (state: string) => void) => {
+    listeners.push(fn);
+    return original ? original(type, fn) : { remove: jest.fn() };
+  });
+  const appState = (state: string) => act(async () => listeners.forEach((fn) => fn(state)));
+  try {
+    const screen = await render(<Harness />);
+    await fireEvent.press(screen.getByTestId('onboarding-island-candidate'));
+    await fireEvent.press(screen.getByTestId('onboarding-continue'));
+    await elapse(1500);
+    expect(screen.getByText('4초 뒤 도착해.')).toBeTruthy();
+    await appState('background');
+    await elapse(10000);
+    expect(screen.getByText('4초 뒤 도착해.')).toBeTruthy();
+    expect(request).not.toHaveBeenCalled();
+    await appState('active');
+    await elapse(500);
+    expect(screen.getByText('3초 뒤 도착해.')).toBeTruthy();
+    await elapse(2999);
+    expect(request).not.toHaveBeenCalled();
+    await elapse(1);
+    expect(request).toHaveBeenCalled();
+  } finally {
+    addListener.mockImplementation(original);
+  }
 });
 
 test('무인도 첫 도착이면 홈 이름 짓기 모달 트리거(ISLAND_NAMING)를 띄운다', async () => {

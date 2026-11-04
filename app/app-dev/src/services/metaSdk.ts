@@ -1,26 +1,89 @@
-import { AppState, NativeModules, Platform } from 'react-native';
+import * as Application from 'expo-application';
+import * as Device from 'expo-device';
+import { AppState, Dimensions, NativeModules, PixelRatio, Platform } from 'react-native';
+import { requireOptionalNativeModule } from 'expo';
 import { isMockMode } from '@/services/demoMode';
 
 type MetaAppEventsModule = {
   syncTracking(requestPermission: boolean): Promise<boolean>;
+  metaContext?(): Promise<{ anonId: string; advertiserTrackingEnabled: boolean } | null>;
 };
 let permissionSync: Promise<void> | undefined;
 
-/** Android SDK는 별도 네이티브 연결(2545)이 담당한다. 개발·dev·목업에서는 수집하지 않는다. */
+/**
+ * 개발·목업·수집 중지에서는 수집하지 않는다.
+ * iOS는 환경 값이 비어 있어도 운영으로 본다. Android release는 토큰만 있으면 dev 서버를 봐도 SDK가 켜지므로
+ * 앱 이벤트는 EXPO_PUBLIC_ENV가 명시적으로 prod일 때만 보낸다(Android CI가 prod를 넣는다).
+ */
 function enabled(): boolean {
   const environment = process.env.EXPO_PUBLIC_ENV?.trim().toLowerCase();
+  const prod = environment === 'prod' || environment === 'production';
   return (
-    Platform.OS === 'ios' &&
+    (Platform.OS === 'ios' || Platform.OS === 'android') &&
     !__DEV__ &&
-    (!environment || environment === 'prod' || environment === 'production') &&
+    (prod || (Platform.OS === 'ios' && !environment)) &&
     process.env.EXPO_PUBLIC_META_ENABLED !== '0' &&
     !isMockMode()
   );
 }
 
+export type MetaContext = {
+  anonId: string;
+  advertiserTrackingEnabled: boolean;
+  extinfo: string[];
+};
+
+/** Meta Conversions API의 앱 extinfo(16칸). 모르는 칸은 ''. */
+function buildExtinfo(): string[] {
+  const ios = Platform.OS === 'ios';
+  const window = Dimensions.get('window');
+  const ratio = PixelRatio.get();
+  const intl = Intl.DateTimeFormat().resolvedOptions();
+  const info = Array<string>(16).fill('');
+  info[0] = ios ? 'i2' : 'a2';
+  info[1] = Application.applicationId ?? '';
+  // Meta 문서 예시 순서: [2] 짧은 버전 = 빌드 번호("771"), [3] 긴 버전 = 표시 버전("Version 7.7.1").
+  info[2] = Application.nativeBuildVersion ?? '';
+  info[3] = Application.nativeApplicationVersion ?? '';
+  info[4] = Device.osVersion ?? String(Platform.Version);
+  info[5] = (ios ? Device.modelId : Device.modelName) ?? '';
+  info[6] = intl.locale.replace('-', '_');
+  info[9] = String(Math.round(window.width * ratio));
+  info[10] = String(Math.round(window.height * ratio));
+  info[11] = String(ratio);
+  info[15] = intl.timeZone ?? '';
+  return info;
+}
+
+/** 서버가 Meta로 첫 섬 도착 이벤트를 보낼 때 쓰는 매칭 값. 수집 조건이 아니거나 못 얻으면 undefined. */
+export async function metaContext(): Promise<MetaContext | undefined> {
+  if (!enabled()) return undefined;
+  try {
+    // iOS는 ATT 허용 여부, Android는 기기 광고 추적 제한 설정(GROMO-2743)을 네이티브가 준다.
+    const native =
+      Platform.OS === 'ios'
+        ? await (
+            NativeModules.MetaAppEventsModule as MetaAppEventsModule | undefined
+          )?.metaContext?.()
+        : await requireOptionalNativeModule<Pick<MetaAppEventsModule, 'metaContext'>>(
+            'MetaAppEvents',
+          )?.metaContext?.();
+    if (!native?.anonId) return undefined;
+    // 값이 없으면 허용을 가정하지 않는다.
+    return {
+      anonId: native.anonId,
+      advertiserTrackingEnabled: native.advertiserTrackingEnabled === true,
+      extinfo: buildExtinfo(),
+    };
+  } catch {
+    return undefined;
+  }
+}
+
 /** 첫 전경 실행에서 ATT를 처리하고, 설정 앱에서 돌아올 때도 허용 상태를 맞춘다. */
 export function syncMetaTracking(): Promise<void> {
-  if (!enabled() || AppState.currentState !== 'active') return Promise.resolve();
+  if (Platform.OS !== 'ios' || !enabled() || AppState.currentState !== 'active')
+    return Promise.resolve();
   if (permissionSync) return permissionSync;
   permissionSync = (async () => {
     try {
@@ -37,7 +100,7 @@ export function syncMetaTracking(): Promise<void> {
 }
 
 export function startMetaTracking(): () => void {
-  if (!enabled()) return () => {};
+  if (Platform.OS !== 'ios' || !enabled()) return () => {};
   void syncMetaTracking();
   const subscription = AppState.addEventListener('change', (next) => {
     if (next === 'active') void syncMetaTracking();

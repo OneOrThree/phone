@@ -20,13 +20,17 @@ versionCode는 `max(ANDROID_VERSION_CODE_BASE, build.gradle의 versionCode) + GI
 
 CI가 Play에 올린 뒤에는 `build.gradle` 값 그대로 로컬에서 올리면 Play가 거절한다. 로컬 업로드가 필요하면 최근 CI 값보다 높은 versionCode를 쓴다.
 
-main CI 산출물 `android-ci-<run_id>-<run_attempt>`에는 `app-release.aab`와 `metadata.json`이 들어간다. 메타데이터는 소스 SHA·CI run ID·attempt·versionCode·청중·AAB SHA-256을 연결한다. 14일 보관하며 만료된 경우 새 CI가 필요하다.
+버전 이름(versionName)은 git 태그로 정한다(GROMO-2731). Android CD가 Play internal 게시에 성공하면 「앱 버전 태그」 잡이 게시한 커밋에 `app-<버전>-android-<versionCode>` 주석 태그를 단다. 태그 메시지는 그때 운영 서버 태그(`server: catus-vX.Y.Z-V2`)다. main CI의 설정 잡은 그 태그 중 최대 버전의 patch + 1을 다음 버전으로 정해 Gradle에 넘긴다(`.github/ci/app-version.py`, `.github/ci/android-version-code.gradle`). `build.gradle`의 `versionName`은 하한이라, minor·major를 올릴 때만 PR로 고친다. 게시할 빌드는 진행 중인 Android CD가 끝나 직전 태그가 붙은 뒤에 버전을 정한다(최대 15분 대기). CD는 서명 전에 버전 이름이 직전 태그보다 큰지 확인하고, 같거나 낮으면 실패해 업로드하지 않는다. 같은 버전·versionCode 태그가 이미 있으면 같은 게시의 재실행으로 보고 통과한다.
+
+main CI 산출물 `android-ci-<run_id>-<run_attempt>`에는 `app-release.aab`와 `metadata.json`이 들어간다. 메타데이터(schema 4)는 소스 SHA·CI run ID·attempt·versionCode·버전 이름·청중·AAB SHA-256을 연결한다. 14일 보관하며 만료된 경우 새 CI가 필요하다.
 
 ## 서버 선행 게이트
 
-main CI는 `server-gate` 잡에서 `.github/scripts/app-server-gate.py`를 실행한다. 운영 V2에 배포되지 않은 서버 실행 코드가 main에 있으면 이 잡이 실패하고 AAB와 CD는 실행되지 않는다. Play 콘솔의 프로덕션 승격에는 별도 검사가 없으므로 internal 게시도 같은 조건을 지킨다.
+main CI는 `server-gate` 잡에서 `.github/scripts/app-server-gate.py`를 실행한다. 운영 V2에 배포되지 않은 서버 실행 코드가 main에 있으면 이 잡이 실패한다.
 
-막혔다면 서버를 release로 승격·배포한 뒤 실패한 Android CI를 다시 실행한다. 다음 앱 변경 push에서도 미게시 변경이 함께 게시된다. PR과 main 외 브랜치의 수동 실행은 게시하지 않으므로 게이트를 실행하지 않는다.
+2026-11-02부터 이 잡은 `continue-on-error`라 실패해도 AAB와 CD가 이어진다. 앱이 쓰지 않는 서버 변경에도 막혀 첫 Play 업로드가 밀렸기 때문이다. 결과는 실행 요약의 잡 경고로 본다. Play 콘솔에서 프로덕션으로 승격하기 전에 이 잡의 결과를 직접 확인한다. 앱이 실제로 부르는 API만 보는 게이트가 생기면 다시 막는다.
+
+PR과 main 외 브랜치의 수동 실행은 게시하지 않으므로 게이트를 실행하지 않는다.
 
 ## 독립 CD와 신뢰 경계
 

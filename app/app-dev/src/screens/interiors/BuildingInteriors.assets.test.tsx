@@ -1,9 +1,8 @@
-import { AppState } from 'react-native';
-import React from 'react';
-import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
-import { InteriorScreen } from './BuildingInteriors';
-import { getAssetRepository } from '@/services/assets/repository';
+import { InteriorScreen } from '@/screens/interiors/InteriorScreen';
 import { PackLease } from '@/services/assets/contracts';
+import { getAssetRepository } from '@/services/assets/repository';
+import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
+import { AppState } from 'react-native';
 jest.mock('@/services/assets/repository', () => ({ getAssetRepository: jest.fn() }));
 jest.mock('react-native-safe-area-context', () => ({
   ...jest.requireActual('react-native-safe-area-context'),

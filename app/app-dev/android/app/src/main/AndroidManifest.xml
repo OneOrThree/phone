@@ -79,7 +79,7 @@
         <action android:name="android.intent.action.VIEW"/>
         <category android:name="android.intent.category.DEFAULT"/>
         <category android:name="android.intent.category.BROWSABLE"/>
-        <data android:scheme="https" android:host="oneorthree.dev.mooo.com" android:pathPrefix="/l/"/>
+        <data android:scheme="https" android:host="oneorthree-v2.dev.mooo.com" android:pathPrefix="/l/"/>
       </intent-filter>
     </activity>
     <activity android:name="com.kakao.sdk.auth.AuthCodeHandlerActivity" android:exported="true">

@@ -27,8 +27,8 @@ Follow these in every task. An earlier approval, an open ticket or "keep going" 
 1. Start a production deploy only when the owner asks for that deploy. This covers running or rerunning a production CD (`prod-cd-V2`, `kafka-cd.prod-V2`, `redis-cd.prod-V2`, `backoffice-cd.prod-V2`, `app-android-cd`) and approving a production environment.
 2. Keep load tests off AWS. Run no load, stress, limit or soak test against AWS or anything hosted there, from any machine, and create no test data for one (permanent since 2026-10-29). For performance work, use saved results, read-only logs and metrics, and isolated local runs.
 3. Reach `main` and `release` only through PRs. Commit and push on your work branch only. Never force-push.
-4. Use the V2 workflows. A workflow file whose first line is `# RETIRED:` is a V1 record: do not run it.
-5. Treat the production fingerprint inputs as production. Changing one byte under `.github/scripts/catus-plan.py` `SHARED` (`.github/actions/ci-jar/`, `.github/scripts/ci-jar.py`, `.github/scripts/catus-*`, `.github/scripts/v2/prod/catus-runtime-V2.py`, `.github/workflows/prod-ci.yml`, `.github/workflows/be-gradle.yml`, `.dockerignore`, `server/gradle/`) rebuilds and redeploys all four servers at the next release. Change them only when the ticket is about them.
+4. Use the V2 workflows. The 14 V1 workflows were removed after the old servers shut down; their replacements are recorded in the pipeline map.
+5. Treat the production fingerprint inputs as production. Changing one byte under `.github/scripts/catus-plan.py` `SHARED` (`.github/actions/ci-jar/`, `.github/scripts/ci-jar.py`, `.github/scripts/catus-*`, `.github/scripts/v2/prod/catus-runtime-V2.py`, `.github/workflows/prod-ci-V2.yml`, `.github/workflows/be-gradle.yml`, `.dockerignore`, `server/gradle*`) rebuilds and redeploys all four servers at the next release. Change them only when the ticket is about them.
 6. Treat a backoffice code merge as a production deploy. A merge to `main` that touches `backoffice/**` (except `.md`) starts `backoffice-cd.prod-V2`, which deploys to production after one approval. There is no dev backoffice.
 
 ## Repository map
@@ -42,7 +42,7 @@ Follow these in every task. An earlier approval, an open ticket or "keep going" 
 | `server/realtime/` | STOMP chat and presence over WebSocket, with its own database `gromo_chat`. |
 | `server/notification/` | Push notifications: takes notification events from Kafka and sends them through FCM. |
 | `server/scripts/` | Compose files for local runs, the old dev VM and the Gromo 1.x production host (`server/scripts/README.md`). The V2 runtime files are in `server/scripts/v2/` (`dev/`, `prod/`); the rest of the V2 runtime lives in the Infra repository. |
-| `server/observability/` | Monitoring settings: Prometheus, Grafana and Loki for the old dev VM, and Datadog. |
+| `server/observability/` | Monitoring settings: Prometheus, Grafana and Loki for the old dev VM, and Datadog. Production V2 Agents are managed by Infra; dev V2 has no running Agent. |
 | `backoffice/` | Operators' web: notices, operators' letters, minimum app versions, the cat magazine, policies, release status. |
 | `smoke/` | Server smoke cases. `ops-smoke.dev-v2` runs them after a dev V2 deploy. |
 | `assets-cdn/`, `scripts/assets-cdn/` | Image CDN packs and their publisher (dev CDN only). |
@@ -51,7 +51,7 @@ Follow these in every task. An earlier approval, an open ticket or "keep going" 
 | `.github/` | Workflows and CI scripts. |
 | `.claude/` | Hooks, commands and agents for Claude Code. |
 
-Local-only, gitignored folders: `doc/` (owner's planning scratch), `logs/`, `server/data-api/docs/` except `docs/db/`, `app/app-dev/.docs/`, `app/legacy/app-dev/.docs/`. Put anything for teammates in `docs/`.
+Local-only, gitignored folders: `doc/` (owner's planning scratch), `logs/`, `server/data-api/docs/` except its `db/` folder, `app/app-dev/.docs/`, `app/legacy/app-dev/.docs/`. Put anything for teammates in `docs/`.
 
 ## Language
 
@@ -92,8 +92,10 @@ The map is [docs/engineering/pipeline-map.md](docs/engineering/pipeline-map.md):
 - `.github/scripts/app-server-gate.py` blocks app releases until the latest `prod-cd-V2` run on `release` has succeeded; a run that is waiting for approval, rejected, failed or cancelled keeps the block. When the owner has you start a production CD, ask for its approval at once.
 - `release` is protected (since 2026-11-02): changes arrive only by PR, and every review conversation must be resolved before the merge.
 - Android: since 2026-11-02 18:08 KST `app-android-cd` is enabled again. An app merge to `main` builds an AAB for production V2 and publishes it to the Play internal track.
-- iOS: the dev TestFlight upload on `main` push is skipped because the repository variable `IOS_DEV_RUNNERS` is unset. `ios/testflight.sh --dev` builds still point at the old dev VM `oneorthree.dev.mooo.com` (ticket 2661).
-- A new environment key goes into the per-service filter of `.github/scripts/write-compose-env.py` in the same PR; `.github/scripts/test_config_contract.py` fails otherwise (V2 renders through the same filter). dev V2 Realtime takes its keys from `rtkeys` in `.github/scripts/v2/dev/dev-env-V2.py`.
+- iOS: the dev TestFlight upload on `main` push is skipped because the repository variable `IOS_DEV_RUNNERS` is unset. `ios/testflight.sh --dev` builds point at dev V2 `oneorthree-v2.dev.mooo.com` (ticket 2661).
+- A new dev environment key goes into the per-service filter of `.github/scripts/write-compose-env.py` in the same PR; `.github/scripts/test_config_contract.py` fails otherwise (dev V2 renders through the same filter). dev V2 Realtime takes its keys from `rtkeys` in `.github/scripts/v2/dev/dev-env-V2.py`. Production V2 env keys live in the Infra repository `OneOrThree/cattus-infra` (`prod/catus-v2/runtime/env_writer-V2.py`); this repository's filter is not their source.
+
+The old `gromo-dev-app` VM, disk and runner registration were deleted on 2026-11-02. The V2 build runner remains.
 
 ## Key docs
 

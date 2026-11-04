@@ -327,7 +327,7 @@ def run_hook():
 _GOOD = """### 🎯 목표
 초대 링크 만료 정책을 서버에 적용해 만료된 링크로 가입하는 구멍을 막는다.
 ### ✅ 완료 조건
-- [ ] POST /api/groups/{id}/invite 가 201 과 링크를 반환한다
+- [ ] POST /islands/{islandId}/invitations 가 200 과 링크를 반환한다
 - [ ] 만료 링크 재사용 시 409 를 검증하는 테스트가 있다
 ### 📦 산출물
 - 유형: PR
@@ -367,12 +367,12 @@ _FIXTURES = [
      _GOOD.replace("만료 링크 재사용 시 409 를 검증하는 테스트가 있다", "그렇게 되도록 처리한다 1건"),
      {DOMAIN_FIELD: {"id": "1"}}, ["완료 조건이 애매하다: 「그렇게 되도록"]),
     ("통과 — 한국어 비코드(단위·툴)", "경쟁사 벤치마킹",
-     _GOOD.replace("- [ ] POST /api/groups/{id}/invite 가 201 과 링크를 반환한다", "- [ ] 경쟁사 3곳 벤치마킹 리포트를 작성한다")
+     _GOOD.replace("- [ ] POST /islands/{islandId}/invitations 가 200 과 링크를 반환한다", "- [ ] 경쟁사 3곳 벤치마킹 리포트를 작성한다")
           .replace("- [ ] 만료 링크 재사용 시 409 를 검증하는 테스트가 있다", "- [ ] 카피 초안을 슬랙에 공유해 피드백을 받는다")
           .replace("유형: PR", "유형: 조사 리포트").replace("남길 위치: server/data-api — OneOrThree/phone PR", "남길 위치: 지라 코멘트"),
      {DOMAIN_FIELD: {"id": "1"}}, []),
     ("통과 — 비코드 완료 조건", "온보딩 시안 제작",
-     _GOOD.replace("- [ ] POST /api/groups/{id}/invite 가 201 과 링크를 반환한다", "- [ ] 시안 3종이 Figma 온보딩 v2 페이지에 올라가 있다")
+     _GOOD.replace("- [ ] POST /islands/{islandId}/invitations 가 200 과 링크를 반환한다", "- [ ] 시안 3종이 Figma 온보딩 v2 페이지에 올라가 있다")
           .replace("- [ ] 만료 링크 재사용 시 409 를 검증하는 테스트가 있다", "- [ ] 선택안 링크가 지라 코멘트로 남아 있다")
           .replace("유형: PR", "유형: 디자인 시안").replace("남길 위치: server/data-api — OneOrThree/phone PR", "남길 위치: https://www.figma.com/file/abc"),
      {DOMAIN_FIELD: {"id": "1"}}, []),

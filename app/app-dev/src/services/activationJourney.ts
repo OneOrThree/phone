@@ -13,7 +13,9 @@ export type ActivationStage =
   | 'profile_ready'
   | 'island_arrived'
   | 'first_focus_started'
-  | 'first_focus_completed';
+  | 'first_focus_completed'
+  | 'first_island_focus_started'
+  | 'first_island_focus_completed';
 
 const key = (userId: string) => `gromo:activation:v1:${encodeURIComponent(userId)}`;
 // 계정별 직렬 쓰기 — 동시 발행이 서로의 저장을 덮지 않게 한다(accountGuides 와 같은 방식).

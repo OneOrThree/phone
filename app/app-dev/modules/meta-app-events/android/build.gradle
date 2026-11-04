@@ -1,0 +1,18 @@
+// Meta 맞춤 앱 이벤트(GROMO-2742) 로컬 Expo 모듈. SDK 초기화는 앱(facebook-core)이 담당한다.
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+android {
+  namespace "com.oneorthree.gromo.metaevents"
+  defaultConfig {
+    versionCode 1
+    versionName "1.0.0"
+  }
+}
+
+dependencies {
+  implementation 'com.facebook.android:facebook-core:19.0.0'
+  testImplementation 'junit:junit:4.13.2'
+}

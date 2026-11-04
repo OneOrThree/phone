@@ -1,7 +1,8 @@
 /** GROMO-2138 — 서버 모드 주민 화면 가드는 로컬 목업 섬이 아니라 서버 current·홈 스냅샷으로 판정한다. */
+import { friendsSnapshotForSync } from '@/screens/island/CurrentScreens';
+import { memberGate } from '@/screens/island/navigation/routePolicies';
+import { State, initialState, reducer } from '@/services/model';
 import assert from 'node:assert/strict';
-import { friendsSnapshotForSync, memberGate } from '@/screens/island/CurrentScreens';
-import { initialState, reducer, State } from '@/services/model';
 
 jest.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }),

@@ -12,34 +12,19 @@
 
 ```mermaid
 flowchart TD
-    A["main에 병합 / 수동 실행"] --> B["자동: 해당 커밋의 배포 완료 대기<br/>수동: 현재 배포된 서버 선택"]
-    B --> C{"검사할 서버 배포가 있음?"}
-    C -->|"자동 실행인데 배포 대상 없음"| S["미실행으로 기록"]
-    C -->|"있음 / 수동 실행"| D["이전 게스트 요청 후<br/>3,601초가 지날 때까지 대기"]
-    D --> E["서버 변경 잠금 획득<br/>실제 커밋·이미지 확인"]
-    E -->|"후속 커밋으로 이미 교체됨"| S
-    E -->|"검사 대상 일치"| F{"네 서비스가 모두 정상?"}
-    E -->|"버전을 확인할 수 없음"| X["실패로 기록"]
-    F -->|"아니오"| X
-    F -->|"예"| G["5분 기다림"]
-    G --> H["컨테이너·Redis 내부 검사 3개"]
-    H --> I["공개 API 검사 12개<br/>로그인만 5초 뒤 최대 두 번 재시도<br/>진행 세션·테스트 관계 정리"]
-    I -->|"모두 통과"| J["검사 중 서버 버전이<br/>바뀌지 않았는지 확인"]
-    I -->|"실패 또는 건너뛴 검사 있음"| X
-    J --> K["TC별 결과·실제 버전 보고<br/>로그인 시도 횟수·최초 오류 표시"]
-    S --> K
-    X --> K
-    classDef good fill:#dcfce7,stroke:#16a34a,color:#14532d;
-    classDef wait fill:#e0f2fe,stroke:#0284c7,color:#0c4a6e;
-    classDef bad fill:#fee2e2,stroke:#dc2626,color:#7f1d1d;
-    class D,E,G wait;
-    class J,K good;
-    class X bad;
+    A["Auto CD 실제 배포 완료 / 수동 실행"] --> B["dev V2 배포 잠금 획득"]
+    B --> C["IAP SSH로 실제 SHA·digest 확인"]
+    C -->|"후속 배포로 교체됨"| S["미실행으로 보고"]
+    C -->|"대상 일치"| D["네 서비스 healthy 확인 후 5분 대기"]
+    D --> E["내부 health·Redis 및 공개 API·WebSocket 15개 검사"]
+    E --> F["결과·인증 진단·실제 버전 기록"]
+    F --> G["최종 보고·배지"]
+    S --> G
 ```
 
-배포 대기·게스트 요청 제한 창 대기는 서버 변경 잠금을 잡지 않는다. 내부 검사에 실패해도 공개 API 검사를 진행해 결과를 함께 남긴다.
+dev V2는 `catus-dev-v2-deploy` 잠금 안에서 검사하며 공개 API 요청은 호스티드 러너, 내부 docker 명령은 IAP SSH로 실행한다. 구 고정 IP 러너의 실행 간 3,601초 대기는 사용하지 않는다.
 배포 대기·버전 확인·정리 실패도 전체 실패이며, 「미실행」은 15개 TC 통과와 구분한다.
-실제 서비스 버전이 일치하고 전체 검사가 통과한 뒤에만 성공 이미지 이력을 갱신한다.
+실제 서비스 버전과 전체 검사 결과를 보고한다. 구 dev의 이미지 정리·성공 이미지 이력 workflow는 제거했다.
 
 [로그인 AS IS / TO BE](server/login-retry.md) · [실행·재시도 설정](server/README.md#로그인이-늦을-때) · [TC 명세](server/TCL.md) · [검증 기록](server/verification.md)
 
@@ -56,7 +41,7 @@ flowchart TD
 
 ### 1-2. 환경
 
-현행은 dev V2다. `ops-smoke.dev-v2.yml`이 호스티드 러너에서 공개 API를 검사하고, `docker` 호출(health·Redis·DB 준비)만 `SMOKE_DOCKER`로 IAP SSH를 거쳐 VM에 보낸다. 기존 `ops-smoke.dev.yml`은 꺼져 있고, 이 문서의 나머지 dev 설명은 기존 경로 기록이다.
+현행은 dev V2다. `ops-smoke.dev-v2.yml`이 호스티드 러너에서 공개 API를 검사하고, `docker` 호출(health·Redis·DB 준비)만 `SMOKE_DOCKER`로 IAP SSH를 거쳐 VM에 보낸다. 구 서버와 `ops-smoke.dev.yml`은 2026-11-02 제거했고, 이 문서의 나머지 dev 설명은 기존 경로 기록이다.
 
 | 항목 | 기존 dev | dev V2 |
 |---|---|---|
@@ -88,7 +73,7 @@ smoke/                      ← 레포 phone. 플랫폼별 폴더. GitHub 없이
     TCL.md                  ← SMOKE-SERVER TC 명세 (정본, 도메인별 구분)
     login-retry.md          ← 로그인 AS IS / TO BE 차트
     guest_login.py          ← 고정 5초 대기·최대 두 번 재시도·진단
-    guest-budget.py         ← 실행 간 제한 창 대기·부모/자식 요청 횟수 공유
+    guest-budget.py         ← 한 실행 안의 부모/자식 요청 횟수 공유
     run.sh                  ← 001~007·009·010·015·016 실행. curl+jq. results.tsv 출력
     stomp-connect.mjs       ← 007·010 전용 (Node ≥22 내장 WebSocket, 패키지 의존성 0)
     core-flow.sh            ← 014 핵심 사용자 흐름
@@ -102,15 +87,15 @@ smoke/                      ← 레포 phone. 플랫폼별 폴더. GitHub 없이
   web/
     README.md               ← SMOKE-WEB (대상 미정, 자리만)
 .github/workflows/
-  ops-smoke.dev.yml         ← main push + workflow_dispatch. 배포 완료 뒤 smoke/server/ 호출
+  ops-smoke.dev-v2.yml      ← Auto CD 요청 또는 workflow_dispatch. IAP SSH로 내부 검사
 ```
 
 - `.github/` 안에 두지 않는다. `.github/scripts/`는 GitHub 컨텍스트 없이는 못 도는 접착제 전용. 스모크는 로컬 Nginx 프로필(GROMO-2216)에도 때려보는 도구여야 한다.
 - 레포는 phone: 러너가 phone에 등록, CD가 phone에, 검사 대상이 business-api 계약. Infra 레포는 Terraform 전용.
-- 워크플로:
+- 구 dev 워크플로 기록(폐기됨; 현행은 [dev V2](../docs/engineering/dev-v2-pipeline.md#스모크배지)):
   - main 병합으로 발생한 `push`에서 한 번 실행한다. 매일 정기 실행과 서비스별 중복 호출은 없다. `workflow_dispatch`는 수동 재현용이다.
   - `wait-deploy`: 해당 SHA의 실제 GitHub main push 실행 기록에서 Data·Realtime CI(내부 CD 포함)와 Satellite CI·별도 CD 완료를 기다린다. 경로 필터를 자체 재현하지 않으며, 실행 등록을 최소 120초 관찰하고 신규 대상이 나타나면 관찰 시간을 다시 센다. 배포 대기 제한은 180분이다. Satellite는 원본 CI id/attempt에 연결된 완료 상태를 확인해 옛 결과로 통과하지 않는다.
-  - `guest-budget`: 동일 러너에 기록한 마지막 스모크 게스트 생성 요청부터 3,601초가 지난 뒤 다음 검사를 허용한다. 자동·수동 실행에 동일하게 적용하며, 이 대기는 배포 잠금을 잡지 않는다. 제한 창 안의 연속 병합은 대기열에 남는다.
+  - `guest-budget`: 실행 사이에 제한 창을 기다리던 단계는 제거했다. GitHub-hosted 러너는 실행 사이에 파일을 보존하지 않고 러너 IP도 매번 달라 대기가 동작하지 않았다. 한 실행 안의 요청 횟수 상한(`RequestBudget`)은 유지한다.
   - `execute`: `[self-hosted, dev]` 러너에서 공개 BASE_URL·WS·전용 fixture·health·Redis 전체 15개를 실행한다. 배포 대기는 잠금 없이 하고 검사 중에만 `dev-vm-deploy` 잠금을 잡는다.
   - 검사 대상은 실행 시점에 배포된 dev 버전이다. 선행 배포 완료 후 실행 잠금을 얻기 전에 다음 병합의 배포가 완료될 수 있으므로, 특정 커밋만 격리해 검증하는 결과는 아니다. Data·Realtime의 현재 deploy 조건은 main push이며 정상 CI에서 배포를 선택적으로 생략하지 않는다.
   - `report`: TC 누락·FAIL·SKIP·정리 실패·배포 선행 실패는 비정상 exit으로 판정한다. summary와 TSV를 남기고 workflow 상태로 배지를 표시한다.
@@ -166,4 +151,4 @@ CD만 재실행해 성공해도 이미 종료된 스모크는 자동 재실행�
 
 기본 세트는 2분, 014는 실제 집중 1분을 포함해 3분을 목표로 한다. 단건 HTTP·웹소켓·이벤트 시간 제한과 정리 결과를 함께 기록한다. 실패한 서비스를 자동 재배포하거나 기존 DB를 되돌리지 않는다. 통과 여부뿐 아니라 실패 TC·HTTP 상태·소요 시간·재현 명령·환경 차단 조건을 PR에 남긴다.
 
-자동 실행은 항상 전체 15개다. 로컬 명령의 기본 공개 모드는 9개이며 내부 DB 설정이 있으면 전체 모드를 선택한다. 전체 실행은 정상 흐름에서 게스트 로그인 4곳, 014 실패 후 015 독립 준비까지 최대 5곳을 사용한다. 각 로그인은 같은 기기 UUID로 5초 뒤 최대 두 번 더 요청하고 총 40초 안에 끝낸다. 실제 요청은 재시도를 포함해 부모·자식 전체 10회 이하이며, 아직 시작하지 않은 로그인의 첫 요청 몫을 남겨 둔다. 429·인증·응답 계약 오류는 즉시 실패한다. [AS IS / TO BE](server/login-retry.md)와 [설정·판정](server/README.md#로그인이-늦을-때)을 따른다. Actions는 실행 사이에 마지막 생성 요청부터 기존 IP 제한 창(기본 1시간)을 기다려 스모크끼리 한도를 소진하지 않게 한다. 로컬 직접 실행은 이 대기를 자동 적용하지 않으며 같은 IP의 다른 트래픽이나 변경된 제한 설정으로 429가 발생하면 FAIL로 기록한다. 공개 제한을 해제하거나 우회하지 않는다. 요청 시각 파일은 `runner.tool_cache/phone-smoke/guest-last-request`에 보존한다(자격 정보 없음).
+자동 실행은 항상 전체 15개다. 로컬 명령의 기본 공개 모드는 9개이며 내부 DB 설정이 있으면 전체 모드를 선택한다. 전체 실행은 정상 흐름에서 게스트 로그인 4곳, 014 실패 후 015 독립 준비까지 최대 5곳을 사용한다. 각 로그인은 같은 기기 UUID로 5초 뒤 최대 두 번 더 요청하고 총 40초 안에 끝낸다. 실제 요청은 재시도를 포함해 부모·자식 전체 10회 이하이며, 아직 시작하지 않은 로그인의 첫 요청 몫을 남겨 둔다. 429·인증·응답 계약 오류는 즉시 실패한다. [AS IS / TO BE](server/login-retry.md)와 [설정·판정](server/README.md#로그인이-늦을-때)을 따른다. 실행 사이의 제한 창 대기는 없다. 같은 IP의 다른 트래픽이나 변경된 제한 설정으로 429가 발생하면 FAIL로 기록한다. 공개 제한을 해제하거나 우회하지 않는다.

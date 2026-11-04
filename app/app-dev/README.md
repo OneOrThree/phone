@@ -116,9 +116,11 @@ iOS·Android [세션 리플레이](https://us.posthog.com/project/669473/replay)
 
 Android CI의 main 릴리스는 AWS Secrets Manager `gromo/prod/android`의 `POSTHOG_PROJECT_TOKEN`과 `POSTHOG_REGION`을 읽어 위 SDK 환경변수에 적용합니다. `POSTHOG_REGION`은 `US`·`US Cloud` 또는 US PostHog 주소(예: `https://us.i.posthog.com`)로 지정할 수 있으며 수집 호스트로 변환됩니다. CLI 프로젝트 ID `669473`과 업로드 인증이 US Catus 프로젝트용이므로 EU 등 다른 리전은 거부합니다. 두 값이 없거나 유효하지 않으면 릴리스 빌드를 중단합니다. 심볼·소스맵 업로드 인증은 별도의 GitHub secret `POSTHOG_CLI_API_KEY`를 사용하며, 이 개인 API 키는 앱에 포함하지 않습니다. CI는 `npm ci`로 설치한 고정 버전 `posthog-cli`를 사용합니다.
 
+크래시·오류는 Sentry(org `oneorthree`, 프로젝트 `cattus`, `src/services/sentry.ts`)가 받습니다. 크래시 스택을 원본 코드로 읽도록 Release 빌드가 JS 소스맵·Android ProGuard mapping·네이티브 심볼·iOS dSYM을 Sentry에 올립니다(GROMO-2739). 업로드 대상은 `sentry.cattus.properties`, 인증은 조직 토큰(`org:ci`) `SENTRY_AUTH_TOKEN` 하나입니다. Android는 `android/app/build.gradle`이 환경변수만 읽으며 CI는 main 빌드에만 같은 이름의 GitHub secret을 넘깁니다. iOS는 `scripts/sentry-xcode.sh`가 환경변수 또는 `~/.config/sentry/cattus.env`(`SENTRY_AUTH_TOKEN=…` 한 줄)를 읽습니다. 토큰이 없으면 업로드만 건너뛰고, 토큰이 있는데 업로드가 실패하면 빌드를 멈춥니다. 급하게 업로드 없이 빌드해야 하면 `SENTRY_DISABLE_AUTO_UPLOAD=true`를 줍니다.
+
 ### 첫 섬·집중, 섬·친구, 오류 대시보드
 
-[Catus · 첫 섬과 집중](https://us.posthog.com/project/669473/dashboard/2220995)은 로그인 → 첫 섬 도착 → 첫 실제 집중 → 다른 날 재집중과 집중 습관·장소별 집중을 보는 9개 지표로 구성합니다. [섬과 친구](https://us.posthog.com/project/669473/dashboard/2234114)의 6개 지표와 [오류와 수집 상태](https://us.posthog.com/project/669473/dashboard/2234116)의 4개 지표, [섬 성장과 경제](https://us.posthog.com/project/669473/dashboard/2236458)의 6개 지표는 별도 대시보드에서 확인합니다. 성장·경제·장소별 집중 카드 8개는 게시·SQL 검증을 마쳤으며 필요한 이벤트는 아직 미계측입니다. 각 카드에는 집계 대상과 데이터의 의미를 짧게 설명합니다. 저장된 정의·상세 집계 기준·이벤트 구현 상태는 [analytics/README.md](analytics/README.md)에서 연결합니다.
+[Cattus · 첫 섬과 집중](https://us.posthog.com/project/669473/dashboard/2220995)은 로그인 → 첫 섬 도착 → 첫 실제 집중 → 다른 날 재집중과 집중 습관·장소별 집중을 보는 9개 지표로 구성합니다. [섬과 친구](https://us.posthog.com/project/669473/dashboard/2234114)의 6개 지표와 [오류와 수집 상태](https://us.posthog.com/project/669473/dashboard/2234116)의 4개 지표, [섬 성장과 경제](https://us.posthog.com/project/669473/dashboard/2236458)의 6개 지표는 별도 대시보드에서 확인합니다. 성장·경제·장소별 집중 카드 8개는 게시·SQL 검증을 마쳤으며 필요한 이벤트는 아직 미계측입니다. 각 카드에는 집계 대상과 데이터의 의미를 짧게 설명합니다. 저장된 정의·상세 집계 기준·이벤트 구현 상태는 [analytics/README.md](analytics/README.md)에서 연결합니다.
 
 최초 여정 카드 4개는 분석 정의만 준비된 상태이며 신규 `activation_step` 발행은 아직 구현하지 않았습니다. 기존의 일반 섬 가입·집중 이벤트를 최초 여정으로 간주하지 않습니다. 오류 카드 3개는 새 운영 빌드 적용과 수신 확인이 필요합니다. 이 준비 상태는 각 대시보드 상단에 안내합니다. JS 오류·운영 네이티브 크래시 자동 수집과 소스맵/심볼 업로드를 연결했으며 새 네이티브 빌드에 적용됩니다. 인증 파일과 플랫폼별 범위는 [계측 문서](analytics/README.md)를 따릅니다.
 
@@ -209,7 +211,7 @@ EXPO_PUBLIC_API_URL=https://catus-api-v2.oneorthree.world EXPO_PUBLIC_APPLE_LOGI
 
 ### dev 서버 빌드
 
-팀 dev 서버(`https://oneorthree.dev.mooo.com`)를 바라보는 TestFlight 빌드는 `--dev`로 올립니다(인자는 없음 또는 정확히 `--dev`만 받고, 그 외는 오타로 보고 멈춥니다). 서버 주소는 스크립트와 Fastlane `beta_dev` lane이 직접 고정하므로 `EXPO_PUBLIC_API_URL`을 넘길 필요가 없고, 운영 주소를 넘겨도 dev 주소로 덮어씁니다. Xcode Release gate는 `GROMO_IOS_AUDIENCE=dev`일 때만 dev 주소를 허용합니다(그 외에는 여전히 운영 주소만). 테스트 노트 첫 줄에 "dev 서버" 표기가 붙고, 그 노트를 달기 위해 Apple 처리 완료를 기다리므로 운영 빌드보다 5~15분 더 걸립니다.
+팀 dev 서버(`https://oneorthree-v2.dev.mooo.com`)를 바라보는 TestFlight 빌드는 `--dev`로 올립니다(인자는 없음 또는 정확히 `--dev`만 받고, 그 외는 오타로 보고 멈춥니다). 서버 주소는 스크립트와 Fastlane `beta_dev` lane이 직접 고정하므로 `EXPO_PUBLIC_API_URL`을 넘길 필요가 없고, 운영 주소를 넘겨도 dev 주소로 덮어씁니다. Xcode Release gate는 `GROMO_IOS_AUDIENCE=dev`일 때만 dev 주소를 허용합니다(그 외에는 여전히 운영 주소만). 테스트 노트 첫 줄에 "dev 서버" 표기가 붙고, 그 노트를 달기 위해 Apple 처리 완료를 기다리므로 운영 빌드보다 5~15분 더 걸립니다.
 
 운영 빌드와 같은 번들 id로 올라가므로 운영 쪽에 섞이지 않게 lane이 몇 가지를 더 고정합니다: Datadog RUM 환경명 `EXPO_PUBLIC_ENV=dev`, PostHog 수집 끔(빈 토큰), OTA 업데이트(expo-updates) 끔 — 운영과 같은 채널·runtime을 쓰기 때문에 켜 두면 운영 OTA를 받아 운영 API가 박힌 JS로 바뀝니다(빌드 중 `Expo.plist`를 잠시 바꾸고 끝나면 원복). 저장된 로그인 세션은 아직 서버별로 분리하지 않아, 운영 빌드 위에 dev 빌드를 덮어 설치하면 첫 실행에서 운영 세션이 dev 서버에 거절돼 다시 로그인하게 됩니다. `bundle exec fastlane beta_dev`를 직접 부르면 `release-config.sh`를 거치지 않으므로 Datadog 값이 비어 lane이 막습니다 — 평소에는 `./testflight.sh --dev`를 쓰세요.
 
@@ -218,7 +220,7 @@ cd ios
 ./testflight.sh --dev
 ```
 
-App Store Connect API 키는 `ASC_KEY_ID`·`ASC_ISSUER_ID`·`ASC_KEY_PATH` 환경변수가 이미 있으면 그대로 쓰고(CI 러너), 없을 때만 `ios/fastlane/.env`를 읽습니다(양식 `ios/fastlane/.env.example`). 1.x legacy 폴더의 설정은 더 이상 읽지 않습니다. main 머지 시 이 dev 빌드를 자동으로 올리는 워크플로는 `.github/workflows/app-ios-testflight-dev.yml` 이고, 러너 맥 등록·푸시 설정 파일 배치는 `docs/conventions/ios-testflight-dev-runner.md` 를 따릅니다.
+App Store Connect API 키는 `ASC_KEY_ID`·`ASC_ISSUER_ID`·`ASC_KEY_PATH` 환경변수가 이미 있으면 그대로 쓰고(CI 러너), 없을 때만 `ios/fastlane/.env`를 읽습니다(양식 `ios/fastlane/.env.example`). 1.x legacy 폴더의 설정은 더 이상 읽지 않습니다. main 머지 시 이 dev 빌드를 자동으로 올리는 워크플로는 `.github/workflows/app-ios-testflight-dev.yml` 이고(2026-11-02 현재 레포 변수 `IOS_DEV_RUNNERS` 가 없어 main push 실행은 건너뛴다), 러너 맥 등록·푸시 설정 파일 배치는 `docs/conventions/ios-testflight-dev-runner.md` 를 따릅니다.
 
 ### 푸시 설정 파일 `GoogleService-Info.plist` (GROMO-2523)
 
@@ -260,6 +262,8 @@ FCM 설정은 `android/credentials/{dev|prod}/google-services.json`에서 해당
 Meta 앱 `1092876403132413`의 iOS 기본 설치·실행 이벤트를 공식 `FBSDKCoreKit`으로 기록합니다. SDK 설정은 `src/config/metaApp.json`·`metaIosConfig.js`와 체크인된 `Info.plist`에 있으며 App Secret은 넣지 않습니다. `src/services/metaSdk.ts`가 운영 환경을 확인한 뒤 `MetaAppEventsModule`을 호출합니다. 개발 빌드·dev 환경·목업·웹·Android에서는 이 경로를 사용하지 않습니다. Android SDK는 별도 네이티브 연결(2545)이 담당합니다. `EXPO_PUBLIC_META_ENABLED=0`으로 iOS 운영 수집을 끌 수 있습니다.
 
 첫 전경 실행에서 ATT를 처리한 뒤 SDK를 초기화하므로 첫 실행도 수집합니다. 광고 ID는 허용된 경우에만 사용하고, 설정 앱에서 허용 상태가 바뀌면 복귀 시 반영합니다. 네이티브 SDK 추가로 새 iOS 바이너리가 필요해 그때 iOS OTA 런타임을 올렸습니다(당시 `2.0.0-push-meta`, 현재 값은 `app.config.js`). Android 런타임은 바꾸지 않았습니다.
+
+`first_island_arrival`(GROMO-2742)은 앱 SDK가 아니라 서버가 Conversions API로 보냅니다. 앱은 첫 항해 도착 요청(`arriveFirstVoyage`)에 Meta 설치 익명 ID·ATT 허용 여부·extinfo(`metaContext`)를 `meta`로 실어 보내고, 얻지 못하면 빼고 보냅니다. iOS는 `MetaAppEventsModule.metaContext`, Android는 로컬 Expo 모듈 `modules/meta-app-events`(`MetaAppEvents.metaContext`)를 쓰며 Android는 `EXPO_PUBLIC_ENV=prod`일 때만 보냅니다. Android 추적 허용 값은 Meta SDK가 읽는 기기 광고 추적 제한 설정(`AttributionIdentifiers.isTrackingLimited`)을 따르고, 읽지 못하면 false입니다(GROMO-2743). 네이티브 변경이라 iOS 런타임에 `-meta-events-v1`, Android 런타임에 `-meta-events-v2`를 붙였습니다.
 
 Meta 콘솔 iOS 번들 ID는 `com.oneorthree.focuscat`, Store ID는 `6813004121`입니다. Store ID는 Meta가 App Store에 최소 24시간 공개된 앱만 검증할 수 있어 공개 후 등록해야 합니다. 운영용 새 바이너리에서 실제 설치·실행 이벤트 수신 확인이 필요합니다.
 

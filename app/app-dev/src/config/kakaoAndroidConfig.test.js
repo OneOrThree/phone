@@ -142,7 +142,9 @@ test('Android CI builds the prod V2 AAB and independent CD publishes only verifi
   expect(gradle).toMatch(
     /!devAudience\s*&&\s*System\.getenv\("GROMO_LEGACY_SESSION_MIGRATION_READY"\)/,
   );
-  expect(gradle).toMatch(/devAudience\s*&&\s*apiUrl\s*!=\s*"https:\/\/oneorthree\.dev\.mooo\.com"/);
+  expect(gradle).toMatch(
+    /devAudience\s*&&\s*apiUrl\s*!=\s*"https:\/\/oneorthree-v2\.dev\.mooo\.com"/,
+  );
   // 입력 선언은 번들 태스크에만. PostHog 정리 태스크는 Delete 라 inputs 가 붙으면 main 빌드만 실패한다
   expect(gradle).toContain('tasks.matching { it.name ==~ /createBundle\\w*JsAndAssets/ }');
   expect(gradle).not.toContain('it.name.startsWith("createBundle")');
@@ -230,10 +232,16 @@ test('Android CI builds the prod V2 AAB and independent CD publishes only verifi
   expect(cd).toContain('branches: [main]');
   expect(cd).not.toMatch(/^\s+workflow_call:/m);
   expect(cd).toContain('ci-run-id:');
-  // Play·서명 키는 Secrets Manager 에서만. 분석 업로드 키 하나만 main 빌드에 허용한다.
-  expect(ci.match(/\bsecrets\.[A-Za-z_][A-Za-z0-9_]*/g)).toEqual(['secrets.POSTHOG_CLI_API_KEY']);
+  // Play·서명 키는 Secrets Manager 에서만. 분석(PostHog)·크래시(Sentry, GROMO-2739) 업로드 키만 main 빌드에 허용한다.
+  expect(ci.match(/\bsecrets\.[A-Za-z_][A-Za-z0-9_]*/g)).toEqual([
+    'secrets.POSTHOG_CLI_API_KEY',
+    'secrets.SENTRY_AUTH_TOKEN',
+  ]);
   expect(build).toContain(
     "POSTHOG_CLI_API_KEY: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && secrets.POSTHOG_CLI_API_KEY || '' }}",
+  );
+  expect(build).toContain(
+    "SENTRY_AUTH_TOKEN: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && secrets.SENTRY_AUTH_TOKEN || '' }}",
   );
   for (const keyJob of [settings, sign]) {
     expect(keyJob).not.toMatch(/secrets\./);

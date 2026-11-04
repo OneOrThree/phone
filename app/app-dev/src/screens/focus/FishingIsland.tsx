@@ -1,15 +1,34 @@
-import { FocusEmoteBubble } from './FocusEmoteBubble';
-import * as Haptics from 'expo-haptics';
+import type { Outfit } from '@/components/CatOutfitLayers';
+import { CatMotionInput, CatSprite } from '@/components/CatSprite';
+import { art } from '@/constants/art';
+import { assets } from '@/constants/assets';
+import land from '@/constants/fishing-island.json';
+import { C, MotionContext } from '@/design-system/primitives';
 import { componentTokens, semanticTokens } from '@/design-system/tokens';
-import { IslandOcean } from '@/screens/island/IslandOcean';
-import { NATIVE, useMapGesture, viewportShift } from '@/screens/island/mapGesture';
-import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { Text } from '@/design-system/typography';
 import { t } from '@/i18n';
 import {
-  Animated,
+  FishingCatchMotion,
+  FishingFloatMotion,
+  FishingSceneActive,
+  LAB_CAT_PX,
+  useFishingPose,
+} from '@/screens/focus/FishingSceneMotion';
+import { catchAssetPath } from '@/screens/focus/catchAssets';
+import { IslandOcean } from '@/screens/island/IslandOcean';
+import { NATIVE, useMapGesture, viewportShift } from '@/screens/island/mapGesture';
+import { Color, SECONDS_PER_FISH } from '@/services/model';
+import { afterForegroundMs } from '@/utils/afterForegroundMs';
+import { keepLabelInView } from '@/utils/island-camera';
+import { useAppLayout } from '@/utils/layout';
+import { Grid, Point, landPath, nearestLand, waterAt } from '@/utils/world-grid';
+import * as Haptics from 'expo-haptics';
+import React, { useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import {
   AccessibilityInfo,
-  Easing,
+  Animated,
   AppState,
+  Easing,
   Image,
   PanResponder,
   Platform,
@@ -21,25 +40,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Ellipse, Path } from 'react-native-svg';
-import { Text } from '@/design-system/typography';
-import { assets } from '@/constants/assets';
-import { art } from '@/constants/art';
-import { C, MotionContext } from '@/design-system/primitives';
-import { CatSprite, CatMotionInput } from '@/components/CatSprite';
-import type { Outfit } from '@/components/CatOutfitLayers';
-import { Color, SECONDS_PER_FISH } from '@/services/model';
-import { Grid, Point, landPath, nearestLand, waterAt } from '@/utils/world-grid';
-import { useAppLayout } from '@/utils/layout';
-import { keepLabelInView } from '@/utils/island-camera';
-import land from '@/constants/fishing-island.json';
-import { catchAssetPath } from '@/screens/focus/catchAssets';
-import {
-  FishingCatchMotion,
-  FishingFloatMotion,
-  FishingSceneActive,
-  LAB_CAT_PX,
-  useFishingPose,
-} from '@/screens/focus/FishingSceneMotion';
+import { FocusEmoteBubble } from './FocusEmoteBubble';
 
 // v2 시안 낚시섬(focus-island-flow): 좌표는 지도 가로·세로 % (0~100). 지도는 섬 그림(1536×1024) 비율 그대로.
 // 땅 격자는 시안 land_mask 에서 온 50×50 칸. 나무·바위 칸('2')은 그림에서 뽑았다(scripts/build-focus-mask.py).
@@ -48,43 +49,6 @@ export const INK = componentTokens.nameplate.ink,
   OUTLINE = componentTokens.nameplate.outline,
   ME = componentTokens.nameplate.me;
 
-const afterForegroundMs = (callback: () => void, durationMs: number) => {
-  let remainingMs = durationMs;
-  let startedAt: number | null = null;
-  let timer: ReturnType<typeof setTimeout> | null = null;
-  let stopped = false;
-  const isForeground = (state: string | null) => state !== 'background' && state !== 'inactive';
-  const clear = () => {
-    if (timer) clearTimeout(timer);
-    timer = null;
-    if (startedAt !== null) {
-      remainingMs = Math.max(0, remainingMs - (Date.now() - startedAt));
-      startedAt = null;
-    }
-  };
-  const start = () => {
-    if (stopped || timer || startedAt !== null) return;
-    startedAt = Date.now();
-    timer = setTimeout(() => {
-      timer = null;
-      startedAt = null;
-      stopped = true;
-      subscription.remove();
-      callback();
-    }, remainingMs);
-  };
-  const subscription = AppState.addEventListener('change', (state) => {
-    if (isForeground(state)) start();
-    else clear();
-  });
-  if (isForeground(AppState.currentState)) start();
-  return () => {
-    if (stopped) return;
-    stopped = true;
-    clear();
-    subscription.remove();
-  };
-};
 // 도착 지점 바다 위 뗏목 한 대. 고양이는 뗏목 바로 위쪽의 가장 가까운 땅에 내려 선다.
 export const RAFT = { x: 37.8, y: 91.8 };
 const FISHING_MAP_ASPECT = 1536 / 1024;

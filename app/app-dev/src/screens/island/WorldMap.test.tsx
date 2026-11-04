@@ -191,6 +191,23 @@ test('방문 섬에는 서버 미읽음 상태가 있어도 내 편지 배지와
   expect(screen.queryByLabelText('우체통, 친구에게 받은 새 편지가 있어요')).toBeNull();
 });
 
+test('우체통을 짓지 않은 섬에는 서버 미읽음 상태가 있어도 펠리컨 우체통과 배지를 그리지 않는다 (GROMO-2700)', async () => {
+  const state = initialState(true);
+  const island = state.islands.find((item) => item.id === state.islandId)!;
+  island.buildings = island.buildings.filter((b) => b !== 'mail');
+  const home = () => (
+    <FinalIsland state={state} go={jest.fn()} build={jest.fn()} showMailboxLetters />
+  );
+  const screen = await render(home());
+  expect(screen.queryByTestId('mailbox-pelican', { includeHiddenElements: true })).toBeNull();
+  expect(screen.queryByTestId('mailbox-new-indicator', { includeHiddenElements: true })).toBeNull();
+
+  island.buildings = [...island.buildings, 'mail'];
+  await screen.rerender(home());
+  expect(screen.getByTestId('mailbox-pelican', { includeHiddenElements: true })).toBeTruthy();
+  expect(screen.getByTestId('mailbox-new-indicator', { includeHiddenElements: true })).toBeTruthy();
+});
+
 test('방문 섬에는 내 섬 게시판과 도서관 알림을 표시하지 않는다', async () => {
   const state = initialState(true);
   const visited = state.islands.find((island) => island.id === 'cloud')!;

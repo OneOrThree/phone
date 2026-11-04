@@ -408,6 +408,9 @@ export function FishingFloatMotion({ spots, active }: { spots: FloatSpot[]; acti
                   borderRadius: tokens.radius,
                   borderWidth: Math.max(1, 1.8 * k),
                   borderColor: tokens.floatRing,
+                  // 잘라내지 않는 뷰의 테두리는 iOS 가 그림으로 그려 고리가 바뀌는 프레임마다 다시 만든다.
+                  // 안쪽을 자르면 Core Animation 테두리로 그린다. 고리는 자식이 없어 모양은 같다(티켓 2736).
+                  overflow: 'hidden',
                   opacity: p.interpolate({ inputRange: [0, 1], outputRange: [0.48, 0] }),
                   transform: [
                     { scaleX: p.interpolate({ inputRange: [0, 1], outputRange: [13 / 48, 1] }) },
@@ -418,6 +421,8 @@ export function FishingFloatMotion({ spots, active }: { spots: FloatSpot[]; acti
             ))}
             {glints.map((alpha, n) =>
               alpha ? (
+                // 반짝임은 테두리가 아니라 채운 막대로 그린다. 윗변에만 테두리를 주면 iOS 가 테두리를
+                // 그림으로 만들어, opacity 가 바뀌는 프레임마다 다시 그린다(iPhone 15 실측 메인 스레드의 절반, 티켓 2736).
                 <Animated.View
                   key={`g${n}`}
                   style={{
@@ -425,9 +430,8 @@ export function FishingFloatMotion({ spots, active }: { spots: FloatSpot[]; acti
                     left: -spot.face * (420 + ((n * 61) % 300) - 746) * k - 15 * k,
                     top: (230 + ((n * 29) % 86) - 301) * k - 1.5 * k,
                     width: 30 * k,
-                    height: Math.max(2, 3 * k),
-                    borderTopWidth: Math.max(1, 2 * k),
-                    borderColor: tokens.glint,
+                    height: Math.max(1, 2 * k),
+                    backgroundColor: tokens.glint,
                     borderRadius: tokens.radius,
                     opacity: alpha,
                   }}

@@ -5,7 +5,7 @@
 | 제품 | 적용 범위 | 앱 코드 | 문서 |
 | --- | --- | --- | --- |
 | GROMO 1.x | 스토어 1.1.0까지의 기존 제품과 호환 유지 | `app/legacy/app-dev/` | [`gromo/`](gromo/) |
-| Catus 2.0 | 현재 개발 중인 2.0 제품과 1.x→2.0 전환 계약 | `app/app-dev/` | [`fishcat/`](fishcat/) |
+| Cattus 2.0 | 현재 개발 중인 2.0 제품과 1.x→2.0 전환 계약 | `app/app-dev/` | [`fishcat/`](fishcat/) |
 
 ## 분류 원칙
 

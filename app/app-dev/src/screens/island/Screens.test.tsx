@@ -1,10 +1,35 @@
+import { createPreviewEnvironment } from '@/navigation/previewEnvironment';
+import type { Route } from '@/services/model';
 /**
  * GROMO-2006 화면 통합 회귀 — `e.islands` 서버 명령이 있을 때 Screens가
  * 로컬 성공 action을 부르지 않고 서버 콜백만으로 loading/error/retry/pending/cancel을 그리는지 고정한다.
  * api 목은 App 의 orchestration 과 같이 dispatch 로 스냅샷을 돌려준다.
  */
+import { RouteTransitionShield } from '@/components/RouteTransitionShield';
+import { art } from '@/constants/art';
+import { semanticTokens } from '@/design-system/tokens';
+import { applyLocalePref } from '@/i18n';
+import { RedesignScreens } from '@/screens/island/Screens';
+import { seaAssets, telescopeSea } from '@/screens/sea/seaAssets';
+import { updateProfile, withdrawAccount } from '@/services/api/account';
+import { ApiError } from '@/services/api/client';
+import { discoverIslands, searchIslands, type IslandSummary } from '@/services/api/islands';
+import { FEEDBACK_KAKAO_URL } from '@/services/api/safety';
+import {
+  clearLocalDataOwner,
+  clearSession,
+  getLastSessionUserId,
+  rememberLocalDataOwner,
+  saveSession,
+} from '@/services/api/session';
+import { pinToTelescope } from '@/services/api/telescope';
+import { buildingNames, initialState, reducer } from '@/services/model';
+import { createRouteTransitionShield } from '@/services/routeTransition';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { act, cleanup, fireEvent, render, waitFor, within } from '@testing-library/react-native';
+import * as SecureStore from 'expo-secure-store';
 import assert from 'node:assert/strict';
-import React, { useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import {
   AccessibilityInfo,
   AppState,
@@ -16,29 +41,6 @@ import {
   View,
   type AppStateStatus,
 } from 'react-native';
-import { seaAssets, telescopeSea } from '@/screens/sea/seaAssets';
-import { act, cleanup, fireEvent, render, waitFor, within } from '@testing-library/react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as SecureStore from 'expo-secure-store';
-import { RedesignScreens } from '@/screens/island/Screens';
-import { art } from '@/constants/art';
-import { semanticTokens } from '@/design-system/tokens';
-import { buildingNames, initialState, reducer } from '@/services/model';
-import { ApiError } from '@/services/api/client';
-import { createRouteTransitionShield } from '@/services/routeTransition';
-import { RouteTransitionShield } from '@/components/RouteTransitionShield';
-import { updateProfile, withdrawAccount } from '@/services/api/account';
-import {
-  clearLocalDataOwner,
-  clearSession,
-  getLastSessionUserId,
-  rememberLocalDataOwner,
-  saveSession,
-} from '@/services/api/session';
-import { discoverIslands, searchIslands, type IslandSummary } from '@/services/api/islands';
-import { pinToTelescope } from '@/services/api/telescope';
-import { applyLocalePref } from '@/i18n';
-import { FEEDBACK_KAKAO_URL } from '@/services/api/safety';
 
 const mockCapture = jest.fn();
 jest.mock('@/services/posthog', () => ({
@@ -258,7 +260,7 @@ function Harness({
   ).current;
   const home = useRef(jest.fn()).current;
   const reset = useRef(jest.fn()).current;
-  const signOut = useRef(jest.fn(async () => {})).current;
+  const signOut = useRef(jest.fn(async () => true)).current;
   const confirm = useRef(jest.fn((_title, _body, ok) => ok())).current;
   const setLocalePref = useRef(jest.fn()).current;
   useEffect(() => {
@@ -276,7 +278,7 @@ function Harness({
   }, []);
   const screens = (
     <RedesignScreens
-      e={{
+      e={createPreviewEnvironment({
         // App 과 같다 — 화면은 OS 값을 합친 state, 설정 토글은 저장값(savedSettings)을 읽는다
         state: osReduceMotion
           ? { ...state, settings: { ...state.settings, reduceMotion: true } }
@@ -319,7 +321,9 @@ function Harness({
         player: soundPlayer ?? {
           addListener: () => ({ remove() {} }),
           replace() {},
-          play() {},
+          play() {
+            return true;
+          },
           pause() {},
         },
         previewAudio: false,
@@ -336,7 +340,7 @@ function Harness({
         playback,
         localePref,
         setLocalePref,
-      }}
+      })}
     />
   );
   return flow ? (
@@ -2341,9 +2345,9 @@ test('서버 첫 생성은 소속 없음 확인 뒤 guide로 진입한다', asyn
   assert.equal(exposed.reset.mock.calls.at(-1)[0], 'guide');
 });
 
-test.each(['joinIsland', 'approval'])(
+test.each(['joinIsland', 'approval'] as const)(
   '서버 첫 소속 확인 카드 %s는 첫 안내를 연다',
-  async (route) => {
+  async (route: Route) => {
     let exposed: any;
     const screen = await render(
       <Harness
@@ -2604,7 +2608,7 @@ test('승인 완료·현재 섬 없음에서도 명시적으로 입장하고 서
 describe('en', () => {
   test.each(['mainIsland', 'currentIsland'] as const)(
     'en 섬 선택은 제목·버튼·오류를 번역한다: %s',
-    async (route) => {
+    async (route: Route) => {
       mockLocales.mockReturnValue([{ languageCode: 'en', languageTag: 'en-US' }]);
       applyLocalePref('system');
       const screen = await render(
@@ -2756,7 +2760,7 @@ describe('en', () => {
 
 test.each(['mainIsland', 'currentIsland'] as const)(
   '%s 최초 동기화의 선택을 따르고 직접 고른 뒤에는 선택을 유지한다',
-  async (route) => {
+  async (route: Route) => {
     const membership = {
       items: [
         islandSummary({ id: 'a', name: '서버 A' }),
@@ -2932,7 +2936,7 @@ test('전망대는 화면 읽기가 켜지면 공동 순위를 유지한 오름�
   }
 });
 
-test.each([57, null])(
+test.each([57, null] as const)(
   '전망대는 내 섬 순위(%s)와 주간 제목·안내 요약을 표시하지 않는다',
   async (myRank) => {
     const mine = islandSummary({ id: 'mine', name: '우리 섬', membershipStatus: 'active' });
@@ -2984,7 +2988,7 @@ test.each([
   [semanticTokens.typography.largeTextThreshold - 0.01, true],
   [semanticTokens.typography.largeTextThreshold, true],
   [3, true],
-])(
+] as const)(
   '전망대 순위 «소속됨» 배지 — 글자 배율 %s 에서 이름 아래 줄에 유지되는가: %s',
   async (scale, stacked) => {
     mockFontScale = scale;
@@ -3114,7 +3118,7 @@ test('서버가 없는 모드의 explore 는 로컬 목업 필터 그대로다(�
   expect(mockDiscover).not.toHaveBeenCalled();
 });
 
-test.each([true, false])(
+test.each([true, false] as const)(
   '영어 계정의 현재 섬 설명은 소속 %s 상태에서도 번역한다',
   async (joined) => {
     applyLocalePref('en');
@@ -3226,7 +3230,7 @@ test('신규 계정은 여섯 고양이 선택으로 진입하고 출항 완료 
   expect(screen.queryByLabelText('닉네임')).toBeNull();
 });
 
-test.each([false, true])(
+test.each([false, true] as const)(
   '음원 미리듣기는 재생 허용 %s일 때만 음원과 버튼 상태를 바꾼다',
   async (allowed) => {
     const player = {
@@ -3746,17 +3750,17 @@ describe('설정 「알림」 토글', () => {
   });
 });
 
-test.each(['wardrobe', 'profile', 'settings'])(
+test.each(['wardrobe', 'profile', 'settings'] as const)(
   '소속 섬이 있어도 바다에서 연 %s 시트는 바다 배경을 유지한다',
-  async (route) => {
+  async (route: Route) => {
     const screen = await render(<Harness route={route} full fromSea />);
     expect(screen.getByTestId('island-sheet-backdrop').props.source).toBe(seaAssets.background);
   },
 );
 
-test.each(['wardrobe', 'profile', 'settings'])(
+test.each(['wardrobe', 'profile', 'settings'] as const)(
   '섬에서 연 %s 시트는 기존 부두 배경을 유지한다',
-  async (route) => {
+  async (route: Route) => {
     const screen = await render(<Harness route={route} full />);
     expect(screen.getByTestId('island-sheet-backdrop').props.source).toBe(art['bldbg/dock']);
   },

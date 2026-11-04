@@ -1,0 +1,6702 @@
+[
+  {
+    "file": "scripts/audit-code-quality.cjs",
+    "area": "scripts/audit-code-quality.cjs"
+  },
+  {
+    "file": "scripts/optimize-png.py",
+    "area": "scripts/optimize-png.py"
+  },
+  {
+    "file": "src/app/routePolicy.ts",
+    "area": "src/app"
+  },
+  {
+    "file": "src/app/useIslandAudio.ts",
+    "area": "src/app"
+  },
+  {
+    "file": "src/app/useScreenTimeSync.ts",
+    "area": "src/app"
+  },
+  {
+    "file": "src/hooks/useSystemReduceMotion.ts",
+    "area": "src/hooks"
+  },
+  {
+    "file": "src/navigation/ScreenEnvironment.ts",
+    "area": "src/navigation"
+  },
+  {
+    "file": "src/navigation/previewEnvironment.ts",
+    "area": "src/navigation"
+  },
+  {
+    "file": "src/screens/cosmetics/Flag.tsx",
+    "area": "src/screens/cosmetics"
+  },
+  {
+    "file": "src/screens/focus/EmoteFab.tsx",
+    "area": "src/screens/focus"
+  },
+  {
+    "file": "src/screens/focus/FishingCatInfo.tsx",
+    "area": "src/screens/focus"
+  },
+  {
+    "file": "src/screens/focus/FocusFlow.tsx",
+    "area": "src/screens/focus"
+  },
+  {
+    "file": "src/screens/focus/FocusVisit.tsx",
+    "area": "src/screens/focus"
+  },
+  {
+    "file": "src/screens/focus/FocusVolume.tsx",
+    "area": "src/screens/focus"
+  },
+  {
+    "file": "src/screens/focus/RewardModal.tsx",
+    "area": "src/screens/focus"
+  },
+  {
+    "file": "src/screens/friends/FriendScreens.tsx",
+    "area": "src/screens/friends"
+  },
+  {
+    "file": "src/screens/interiors/InteriorScreen.tsx",
+    "area": "src/screens/interiors"
+  },
+  {
+    "file": "src/screens/interiors/artifactRegistry.tsx",
+    "area": "src/screens/interiors"
+  },
+  {
+    "file": "src/screens/interiors/assets.tsx",
+    "area": "src/screens/interiors"
+  },
+  {
+    "file": "src/screens/interiors/board/Board.tsx",
+    "area": "src/screens/interiors"
+  },
+  {
+    "file": "src/screens/interiors/board/BoardControls.tsx",
+    "area": "src/screens/interiors"
+  },
+  {
+    "file": "src/screens/interiors/board/QuestCard.tsx",
+    "area": "src/screens/interiors"
+  },
+  {
+    "file": "src/screens/interiors/board/boardData.tsx",
+    "area": "src/screens/interiors"
+  },
+  {
+    "file": "src/screens/interiors/board/boardModel.tsx",
+    "area": "src/screens/interiors"
+  },
+  {
+    "file": "src/screens/interiors/board/modalFocus.ts",
+    "area": "src/screens/interiors"
+  },
+  {
+    "file": "src/screens/interiors/board/types.ts",
+    "area": "src/screens/interiors"
+  },
+  {
+    "file": "src/screens/interiors/catalog.tsx",
+    "area": "src/screens/interiors"
+  },
+  {
+    "file": "src/screens/interiors/hall/Construction.tsx",
+    "area": "src/screens/interiors"
+  },
+  {
+    "file": "src/screens/interiors/hall/HallDesk.tsx",
+    "area": "src/screens/interiors"
+  },
+  {
+    "file": "src/screens/interiors/hall/IslandManagement.tsx",
+    "area": "src/screens/interiors"
+  },
+  {
+    "file": "src/screens/interiors/hall/Ledger.tsx",
+    "area": "src/screens/interiors"
+  },
+  {
+    "file": "src/screens/interiors/hall/artifacts.tsx",
+    "area": "src/screens/interiors"
+  },
+  {
+    "file": "src/screens/interiors/hall/hallStyles.tsx",
+    "area": "src/screens/interiors"
+  },
+  {
+    "file": "src/screens/interiors/mail/MailHome.tsx",
+    "area": "src/screens/interiors"
+  },
+  {
+    "file": "src/screens/interiors/observatory/Observatory.tsx",
+    "area": "src/screens/interiors"
+  },
+  {
+    "file": "src/screens/interiors/shared/Art.tsx",
+    "area": "src/screens/interiors"
+  },
+  {
+    "file": "src/screens/interiors/shared/NavScale.tsx",
+    "area": "src/screens/interiors"
+  },
+  {
+    "file": "src/screens/interiors/shared/SceneControls.tsx",
+    "area": "src/screens/interiors"
+  },
+  {
+    "file": "src/screens/interiors/shared/Scroll.tsx",
+    "area": "src/screens/interiors"
+  },
+  {
+    "file": "src/screens/interiors/shared/motion.tsx",
+    "area": "src/screens/interiors"
+  },
+  {
+    "file": "src/screens/interiors/shared/sceneGeometry.ts",
+    "area": "src/screens/interiors"
+  },
+  {
+    "file": "src/screens/interiors/shared/styles.tsx",
+    "area": "src/screens/interiors"
+  },
+  {
+    "file": "src/screens/interiors/shared/typography.tsx",
+    "area": "src/screens/interiors"
+  },
+  {
+    "file": "src/screens/interiors/shop/ShopGram.tsx",
+    "area": "src/screens/interiors"
+  },
+  {
+    "file": "src/screens/interiors/types.ts",
+    "area": "src/screens/interiors"
+  },
+  {
+    "file": "src/screens/island/HomeScreens.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/VisitIsland.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/VisitScreens.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/membership/BoatScreens.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/membership/MembershipScreens.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/navigation/CurrentScreenRouter.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/navigation/ScreenClock.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/navigation/ScreenFallback.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/navigation/routePolicies.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/navigation/screenParts.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/navigation/useScreenState.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/music/SoundScreen.tsx",
+    "area": "src/screens/music"
+  },
+  {
+    "file": "src/screens/observatory/ObservatoryScreens.tsx",
+    "area": "src/screens/observatory"
+  },
+  {
+    "file": "src/screens/onboarding/EntryScreens.tsx",
+    "area": "src/screens/onboarding"
+  },
+  {
+    "file": "src/screens/permissions/AppPermissionManager.tsx",
+    "area": "src/screens/permissions"
+  },
+  {
+    "file": "src/screens/permissions/FocusBlockingIntro.tsx",
+    "area": "src/screens/permissions"
+  },
+  {
+    "file": "src/screens/permissions/MeasuredAppPicker.tsx",
+    "area": "src/screens/permissions"
+  },
+  {
+    "file": "src/screens/permissions/ScreenTimePermission.tsx",
+    "area": "src/screens/permissions"
+  },
+  {
+    "file": "src/screens/permissions/screenTimeHelp.tsx",
+    "area": "src/screens/permissions"
+  },
+  {
+    "file": "src/screens/settings/SettingsScreens.tsx",
+    "area": "src/screens/settings"
+  },
+  {
+    "file": "src/screens/shared/ScreenSheet.tsx",
+    "area": "src/screens/shared"
+  },
+  {
+    "file": "src/screens/shop/ShopScreens.tsx",
+    "area": "src/screens/shop"
+  },
+  {
+    "file": "src/screens/wardrobe/WardrobeScreen.tsx",
+    "area": "src/screens/wardrobe"
+  },
+  {
+    "file": "src/services/model/catalog.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/model/fixtures.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/model/focusPolicy.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/model/intentKeyPool.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/model/islandPolicy.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/model/reducer.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/model/routes.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/model/time.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/model/types.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/utils/afterForegroundMs.test.ts",
+    "area": "src/utils"
+  },
+  {
+    "file": "src/utils/afterForegroundMs.ts",
+    "area": "src/utils"
+  },
+  {
+    "file": "src/utils/foregroundClock.test.ts",
+    "area": "src/utils"
+  },
+  {
+    "file": "src/utils/foregroundClock.ts",
+    "area": "src/utils"
+  },
+  {
+    "file": ".env.example",
+    "area": "app-config"
+  },
+  {
+    "file": ".eslintignore",
+    "area": "app-config"
+  },
+  {
+    "file": ".eslintrc.js",
+    "area": "app-config"
+  },
+  {
+    "file": ".gitignore",
+    "area": "app-config"
+  },
+  {
+    "file": ".prettierignore",
+    "area": "app-config"
+  },
+  {
+    "file": ".prettierrc.js",
+    "area": "app-config"
+  },
+  {
+    "file": "AGENTS.md",
+    "area": "app-config"
+  },
+  {
+    "file": "CLAUDE.md",
+    "area": "app-config"
+  },
+  {
+    "file": "DESIGN.md",
+    "area": "app-config"
+  },
+  {
+    "file": "README.md",
+    "area": "app-config"
+  },
+  {
+    "file": "airbridge.gradle",
+    "area": "app-config"
+  },
+  {
+    "file": "airbridge.json",
+    "area": "app-config"
+  },
+  {
+    "file": "analytics/README.md",
+    "area": "analytics/README.md"
+  },
+  {
+    "file": "analytics/posthog-dashboard.json",
+    "area": "analytics/posthog-dashboard.json"
+  },
+  {
+    "file": "analytics/posthog-focus-location-additions.json",
+    "area": "analytics/posthog-focus-location-additions.json"
+  },
+  {
+    "file": "analytics/posthog-focus-verification-additions.json",
+    "area": "analytics/posthog-focus-verification-additions.json"
+  },
+  {
+    "file": "analytics/posthog-growth-dashboard.json",
+    "area": "analytics/posthog-growth-dashboard.json"
+  },
+  {
+    "file": "analytics/posthog-growth-metric-contract.md",
+    "area": "analytics/posthog-growth-metric-contract.md"
+  },
+  {
+    "file": "analytics/posthog-growth-publication-verification.json",
+    "area": "analytics/posthog-growth-publication-verification.json"
+  },
+  {
+    "file": "analytics/posthog-health-dashboard.json",
+    "area": "analytics/posthog-health-dashboard.json"
+  },
+  {
+    "file": "analytics/posthog-metric-definitions.md",
+    "area": "analytics/posthog-metric-definitions.md"
+  },
+  {
+    "file": "analytics/posthog-social-dashboard.json",
+    "area": "analytics/posthog-social-dashboard.json"
+  },
+  {
+    "file": "android/.gitignore",
+    "area": "android/.gitignore"
+  },
+  {
+    "file": "android/app/build.gradle",
+    "area": "android/app"
+  },
+  {
+    "file": "android/app/proguard-rules.pro",
+    "area": "android/app"
+  },
+  {
+    "file": "android/app/src/debug/AndroidManifest.xml",
+    "area": "android/app"
+  },
+  {
+    "file": "android/app/src/debugOptimized/AndroidManifest.xml",
+    "area": "android/app"
+  },
+  {
+    "file": "android/app/src/main/AndroidManifest.xml",
+    "area": "android/app"
+  },
+  {
+    "file": "android/app/src/main/java/com/oneorthree/gromo/MainActivity.kt",
+    "area": "android/app"
+  },
+  {
+    "file": "android/app/src/main/java/com/oneorthree/gromo/MainApplication.kt",
+    "area": "android/app"
+  },
+  {
+    "file": "android/app/src/main/res/drawable-hdpi/splashscreen_logo.png",
+    "area": "android/app"
+  },
+  {
+    "file": "android/app/src/main/res/drawable-mdpi/splashscreen_logo.png",
+    "area": "android/app"
+  },
+  {
+    "file": "android/app/src/main/res/drawable-xhdpi/splashscreen_logo.png",
+    "area": "android/app"
+  },
+  {
+    "file": "android/app/src/main/res/drawable-xxhdpi/splashscreen_logo.png",
+    "area": "android/app"
+  },
+  {
+    "file": "android/app/src/main/res/drawable-xxxhdpi/splashscreen_logo.png",
+    "area": "android/app"
+  },
+  {
+    "file": "android/app/src/main/res/drawable/ic_launcher_background.xml",
+    "area": "android/app"
+  },
+  {
+    "file": "android/app/src/main/res/drawable/rn_edit_text_material.xml",
+    "area": "android/app"
+  },
+  {
+    "file": "android/app/src/main/res/font/gowun_dodum.ttf",
+    "area": "android/app"
+  },
+  {
+    "file": "android/app/src/main/res/font/xml_gowun.xml",
+    "area": "android/app"
+  },
+  {
+    "file": "android/app/src/main/res/mipmap-hdpi/ic_launcher.webp",
+    "area": "android/app"
+  },
+  {
+    "file": "android/app/src/main/res/mipmap-hdpi/ic_launcher_round.webp",
+    "area": "android/app"
+  },
+  {
+    "file": "android/app/src/main/res/mipmap-mdpi/ic_launcher.webp",
+    "area": "android/app"
+  },
+  {
+    "file": "android/app/src/main/res/mipmap-mdpi/ic_launcher_round.webp",
+    "area": "android/app"
+  },
+  {
+    "file": "android/app/src/main/res/mipmap-xhdpi/ic_launcher.webp",
+    "area": "android/app"
+  },
+  {
+    "file": "android/app/src/main/res/mipmap-xhdpi/ic_launcher_round.webp",
+    "area": "android/app"
+  },
+  {
+    "file": "android/app/src/main/res/mipmap-xxhdpi/ic_launcher.webp",
+    "area": "android/app"
+  },
+  {
+    "file": "android/app/src/main/res/mipmap-xxhdpi/ic_launcher_round.webp",
+    "area": "android/app"
+  },
+  {
+    "file": "android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.webp",
+    "area": "android/app"
+  },
+  {
+    "file": "android/app/src/main/res/mipmap-xxxhdpi/ic_launcher_round.webp",
+    "area": "android/app"
+  },
+  {
+    "file": "android/app/src/main/res/values-ko/strings.xml",
+    "area": "android/app"
+  },
+  {
+    "file": "android/app/src/main/res/values/colors.xml",
+    "area": "android/app"
+  },
+  {
+    "file": "android/app/src/main/res/values/strings.xml",
+    "area": "android/app"
+  },
+  {
+    "file": "android/app/src/main/res/values/styles.xml",
+    "area": "android/app"
+  },
+  {
+    "file": "android/build.gradle",
+    "area": "android/build.gradle"
+  },
+  {
+    "file": "android/gradle.properties",
+    "area": "android/gradle.properties"
+  },
+  {
+    "file": "android/gradle/wrapper/gradle-wrapper.jar",
+    "area": "android/gradle"
+  },
+  {
+    "file": "android/gradle/wrapper/gradle-wrapper.properties",
+    "area": "android/gradle"
+  },
+  {
+    "file": "android/gradlew",
+    "area": "android/gradlew"
+  },
+  {
+    "file": "android/gradlew.bat",
+    "area": "android/gradlew.bat"
+  },
+  {
+    "file": "android/settings.gradle",
+    "area": "android/settings.gradle"
+  },
+  {
+    "file": "app.config.js",
+    "area": "app-config"
+  },
+  {
+    "file": "babel.config.js",
+    "area": "app-config"
+  },
+  {
+    "file": "docs/airbridge.md",
+    "area": "docs/airbridge.md"
+  },
+  {
+    "file": "docs/meta-sdk.md",
+    "area": "docs/meta-sdk.md"
+  },
+  {
+    "file": "index.native.ts",
+    "area": "app-config"
+  },
+  {
+    "file": "index.web.ts",
+    "area": "app-config"
+  },
+  {
+    "file": "ios/.gitignore",
+    "area": "ios/.gitignore"
+  },
+  {
+    "file": "ios/Cattus.xcodeproj/project.pbxproj",
+    "area": "ios/Cattus.xcodeproj"
+  },
+  {
+    "file": "ios/Cattus.xcodeproj/xcshareddata/xcschemes/Cattus.xcscheme",
+    "area": "ios/Cattus.xcodeproj"
+  },
+  {
+    "file": "ios/Cattus.xcworkspace/contents.xcworkspacedata",
+    "area": "ios/Cattus.xcworkspace"
+  },
+  {
+    "file": "ios/Cattus/AppDelegate.swift",
+    "area": "ios/Cattus"
+  },
+  {
+    "file": "ios/Cattus/Cattus-Bridging-Header.h",
+    "area": "ios/Cattus"
+  },
+  {
+    "file": "ios/Cattus/Cattus.entitlements",
+    "area": "ios/Cattus"
+  },
+  {
+    "file": "ios/Cattus/FCMTokenModule.m",
+    "area": "ios/Cattus"
+  },
+  {
+    "file": "ios/Cattus/FCMTokenModule.swift",
+    "area": "ios/Cattus"
+  },
+  {
+    "file": "ios/Cattus/Images.xcassets/AppIcon.appiconset/App-Icon-1024x1024@1x.png",
+    "area": "ios/Cattus"
+  },
+  {
+    "file": "ios/Cattus/Images.xcassets/AppIcon.appiconset/Contents.json",
+    "area": "ios/Cattus"
+  },
+  {
+    "file": "ios/Cattus/Images.xcassets/Contents.json",
+    "area": "ios/Cattus"
+  },
+  {
+    "file": "ios/Cattus/Info.plist",
+    "area": "ios/Cattus"
+  },
+  {
+    "file": "ios/Cattus/LiveActivityModule.m",
+    "area": "ios/Cattus"
+  },
+  {
+    "file": "ios/Cattus/LiveActivityModule.swift",
+    "area": "ios/Cattus"
+  },
+  {
+    "file": "ios/Cattus/MetaAppEventsModule.m",
+    "area": "ios/Cattus"
+  },
+  {
+    "file": "ios/Cattus/MetaAppEventsModule.swift",
+    "area": "ios/Cattus"
+  },
+  {
+    "file": "ios/Cattus/PrivacyInfo.xcprivacy",
+    "area": "ios/Cattus"
+  },
+  {
+    "file": "ios/Cattus/ScreenTimeModule.m",
+    "area": "ios/Cattus"
+  },
+  {
+    "file": "ios/Cattus/ScreenTimeModule.swift",
+    "area": "ios/Cattus"
+  },
+  {
+    "file": "ios/Cattus/ScreenTimeReportUIView.swift",
+    "area": "ios/Cattus"
+  },
+  {
+    "file": "ios/Cattus/ScreenTimeReportViewManager.m",
+    "area": "ios/Cattus"
+  },
+  {
+    "file": "ios/Cattus/ScreenTimeReportViewManager.swift",
+    "area": "ios/Cattus"
+  },
+  {
+    "file": "ios/Cattus/SplashScreen.storyboard",
+    "area": "ios/Cattus"
+  },
+  {
+    "file": "ios/Cattus/Supporting/Expo.plist",
+    "area": "ios/Cattus"
+  },
+  {
+    "file": "ios/Cattus/Supporting/en.lproj/InfoPlist.strings",
+    "area": "ios/Cattus"
+  },
+  {
+    "file": "ios/Cattus/Supporting/ko.lproj/InfoPlist.strings",
+    "area": "ios/Cattus"
+  },
+  {
+    "file": "ios/CattusScreenTimeMonitor/CattusScreenTimeMonitor.entitlements",
+    "area": "ios/CattusScreenTimeMonitor"
+  },
+  {
+    "file": "ios/CattusScreenTimeMonitor/DeviceActivityMonitorExtension.swift",
+    "area": "ios/CattusScreenTimeMonitor"
+  },
+  {
+    "file": "ios/CattusScreenTimeMonitor/Info.plist",
+    "area": "ios/CattusScreenTimeMonitor"
+  },
+  {
+    "file": "ios/FocusWidget/CatArt/cat-black-focus.png",
+    "area": "ios/FocusWidget"
+  },
+  {
+    "file": "ios/FocusWidget/CatArt/cat-black-idle.png",
+    "area": "ios/FocusWidget"
+  },
+  {
+    "file": "ios/FocusWidget/CatArt/cat-black-loaf.png",
+    "area": "ios/FocusWidget"
+  },
+  {
+    "file": "ios/FocusWidget/CatArt/cat-black-reading.png",
+    "area": "ios/FocusWidget"
+  },
+  {
+    "file": "ios/FocusWidget/CatArt/cat-black-rest.png",
+    "area": "ios/FocusWidget"
+  },
+  {
+    "file": "ios/FocusWidget/CatArt/cat-black-tilt.png",
+    "area": "ios/FocusWidget"
+  },
+  {
+    "file": "ios/FocusWidget/CatArt/cat-calico-focus.png",
+    "area": "ios/FocusWidget"
+  },
+  {
+    "file": "ios/FocusWidget/CatArt/cat-calico-idle.png",
+    "area": "ios/FocusWidget"
+  },
+  {
+    "file": "ios/FocusWidget/CatArt/cat-calico-loaf.png",
+    "area": "ios/FocusWidget"
+  },
+  {
+    "file": "ios/FocusWidget/CatArt/cat-calico-reading.png",
+    "area": "ios/FocusWidget"
+  },
+  {
+    "file": "ios/FocusWidget/CatArt/cat-calico-rest.png",
+    "area": "ios/FocusWidget"
+  },
+  {
+    "file": "ios/FocusWidget/CatArt/cat-calico-tilt.png",
+    "area": "ios/FocusWidget"
+  },
+  {
+    "file": "ios/FocusWidget/CatArt/cat-cream-focus.png",
+    "area": "ios/FocusWidget"
+  },
+  {
+    "file": "ios/FocusWidget/CatArt/cat-cream-idle.png",
+    "area": "ios/FocusWidget"
+  },
+  {
+    "file": "ios/FocusWidget/CatArt/cat-cream-loaf.png",
+    "area": "ios/FocusWidget"
+  },
+  {
+    "file": "ios/FocusWidget/CatArt/cat-cream-reading.png",
+    "area": "ios/FocusWidget"
+  },
+  {
+    "file": "ios/FocusWidget/CatArt/cat-cream-rest.png",
+    "area": "ios/FocusWidget"
+  },
+  {
+    "file": "ios/FocusWidget/CatArt/cat-cream-tilt.png",
+    "area": "ios/FocusWidget"
+  },
+  {
+    "file": "ios/FocusWidget/CatArt/cat-ginger-focus.png",
+    "area": "ios/FocusWidget"
+  },
+  {
+    "file": "ios/FocusWidget/CatArt/cat-ginger-idle.png",
+    "area": "ios/FocusWidget"
+  },
+  {
+    "file": "ios/FocusWidget/CatArt/cat-ginger-loaf.png",
+    "area": "ios/FocusWidget"
+  },
+  {
+    "file": "ios/FocusWidget/CatArt/cat-ginger-reading.png",
+    "area": "ios/FocusWidget"
+  },
+  {
+    "file": "ios/FocusWidget/CatArt/cat-ginger-rest.png",
+    "area": "ios/FocusWidget"
+  },
+  {
+    "file": "ios/FocusWidget/CatArt/cat-ginger-tilt.png",
+    "area": "ios/FocusWidget"
+  },
+  {
+    "file": "ios/FocusWidget/CatArt/cat-gray-focus.png",
+    "area": "ios/FocusWidget"
+  },
+  {
+    "file": "ios/FocusWidget/CatArt/cat-gray-idle.png",
+    "area": "ios/FocusWidget"
+  },
+  {
+    "file": "ios/FocusWidget/CatArt/cat-gray-loaf.png",
+    "area": "ios/FocusWidget"
+  },
+  {
+    "file": "ios/FocusWidget/CatArt/cat-gray-reading.png",
+    "area": "ios/FocusWidget"
+  },
+  {
+    "file": "ios/FocusWidget/CatArt/cat-gray-rest.png",
+    "area": "ios/FocusWidget"
+  },
+  {
+    "file": "ios/FocusWidget/CatArt/cat-gray-tilt.png",
+    "area": "ios/FocusWidget"
+  },
+  {
+    "file": "ios/FocusWidget/CatArt/cat-white-focus.png",
+    "area": "ios/FocusWidget"
+  },
+  {
+    "file": "ios/FocusWidget/CatArt/cat-white-idle.png",
+    "area": "ios/FocusWidget"
+  },
+  {
+    "file": "ios/FocusWidget/CatArt/cat-white-loaf.png",
+    "area": "ios/FocusWidget"
+  },
+  {
+    "file": "ios/FocusWidget/CatArt/cat-white-reading.png",
+    "area": "ios/FocusWidget"
+  },
+  {
+    "file": "ios/FocusWidget/CatArt/cat-white-rest.png",
+    "area": "ios/FocusWidget"
+  },
+  {
+    "file": "ios/FocusWidget/CatArt/cat-white-tilt.png",
+    "area": "ios/FocusWidget"
+  },
+  {
+    "file": "ios/FocusWidget/FocusWidget.entitlements",
+    "area": "ios/FocusWidget"
+  },
+  {
+    "file": "ios/FocusWidget/FocusWidget.swift",
+    "area": "ios/FocusWidget"
+  },
+  {
+    "file": "ios/FocusWidget/Info.plist",
+    "area": "ios/FocusWidget"
+  },
+  {
+    "file": "ios/FocusWidget/en.lproj/InfoPlist.strings",
+    "area": "ios/FocusWidget"
+  },
+  {
+    "file": "ios/FocusWidget/en.lproj/Localizable.strings",
+    "area": "ios/FocusWidget"
+  },
+  {
+    "file": "ios/FocusWidget/ko.lproj/InfoPlist.strings",
+    "area": "ios/FocusWidget"
+  },
+  {
+    "file": "ios/FocusWidget/ko.lproj/Localizable.strings",
+    "area": "ios/FocusWidget"
+  },
+  {
+    "file": "ios/Gemfile",
+    "area": "ios/Gemfile"
+  },
+  {
+    "file": "ios/Gemfile.lock",
+    "area": "ios/Gemfile.lock"
+  },
+  {
+    "file": "ios/Podfile",
+    "area": "ios/Podfile"
+  },
+  {
+    "file": "ios/Podfile.lock",
+    "area": "ios/Podfile.lock"
+  },
+  {
+    "file": "ios/Podfile.properties.json",
+    "area": "ios/Podfile.properties.json"
+  },
+  {
+    "file": "ios/Shared/FocusActivityAttributes.swift",
+    "area": "ios/Shared"
+  },
+  {
+    "file": "ios/Shared/ReportPalette.swift",
+    "area": "ios/Shared"
+  },
+  {
+    "file": "ios/Shared/ShieldPalette.swift",
+    "area": "ios/Shared"
+  },
+  {
+    "file": "ios/ShieldAction/Info.plist",
+    "area": "ios/ShieldAction"
+  },
+  {
+    "file": "ios/ShieldAction/ShieldAction.entitlements",
+    "area": "ios/ShieldAction"
+  },
+  {
+    "file": "ios/ShieldAction/ShieldActionExtension.swift",
+    "area": "ios/ShieldAction"
+  },
+  {
+    "file": "ios/ShieldConfiguration/Info.plist",
+    "area": "ios/ShieldConfiguration"
+  },
+  {
+    "file": "ios/ShieldConfiguration/ShieldConfiguration.entitlements",
+    "area": "ios/ShieldConfiguration"
+  },
+  {
+    "file": "ios/ShieldConfiguration/ShieldConfigurationExtension.swift",
+    "area": "ios/ShieldConfiguration"
+  },
+  {
+    "file": "ios/fastlane/.env.example",
+    "area": "ios/fastlane"
+  },
+  {
+    "file": "ios/fastlane/Appfile",
+    "area": "ios/fastlane"
+  },
+  {
+    "file": "ios/fastlane/Fastfile",
+    "area": "ios/fastlane"
+  },
+  {
+    "file": "ios/release-config.sh",
+    "area": "ios/release-config.sh"
+  },
+  {
+    "file": "ios/screentimereport/CompactActivityReport.swift",
+    "area": "ios/screentimereport"
+  },
+  {
+    "file": "ios/screentimereport/CompactActivityView.swift",
+    "area": "ios/screentimereport"
+  },
+  {
+    "file": "ios/screentimereport/HomeUsageReport.swift",
+    "area": "ios/screentimereport"
+  },
+  {
+    "file": "ios/screentimereport/HomeUsageView.swift",
+    "area": "ios/screentimereport"
+  },
+  {
+    "file": "ios/screentimereport/Info.plist",
+    "area": "ios/screentimereport"
+  },
+  {
+    "file": "ios/screentimereport/README.md",
+    "area": "ios/screentimereport"
+  },
+  {
+    "file": "ios/screentimereport/RemainingActivityReport.swift",
+    "area": "ios/screentimereport"
+  },
+  {
+    "file": "ios/screentimereport/RemainingActivityView.swift",
+    "area": "ios/screentimereport"
+  },
+  {
+    "file": "ios/screentimereport/TotalActivityReport.swift",
+    "area": "ios/screentimereport"
+  },
+  {
+    "file": "ios/screentimereport/TotalActivityView.swift",
+    "area": "ios/screentimereport"
+  },
+  {
+    "file": "ios/screentimereport/screentimereport.entitlements",
+    "area": "ios/screentimereport"
+  },
+  {
+    "file": "ios/screentimereport/screentimereport.swift",
+    "area": "ios/screentimereport"
+  },
+  {
+    "file": "ios/scripts/airbridge-config.sh",
+    "area": "ios/scripts"
+  },
+  {
+    "file": "ios/testflight.sh",
+    "area": "ios/testflight.sh"
+  },
+  {
+    "file": "iosStoreVersionConfig.js",
+    "area": "app-config"
+  },
+  {
+    "file": "jest.config.js",
+    "area": "app-config"
+  },
+  {
+    "file": "jest.setup.js",
+    "area": "app-config"
+  },
+  {
+    "file": "kakaoAndroidConfig.js",
+    "area": "app-config"
+  },
+  {
+    "file": "locales/en.json",
+    "area": "locales/en.json"
+  },
+  {
+    "file": "locales/ko.json",
+    "area": "locales/ko.json"
+  },
+  {
+    "file": "meta.gradle",
+    "area": "app-config"
+  },
+  {
+    "file": "metaIosConfig.js",
+    "area": "app-config"
+  },
+  {
+    "file": "metro.config.js",
+    "area": "app-config"
+  },
+  {
+    "file": "modules/catus-asset-cache/.gitignore",
+    "area": "modules/catus-asset-cache"
+  },
+  {
+    "file": "modules/catus-asset-cache/README.md",
+    "area": "modules/catus-asset-cache"
+  },
+  {
+    "file": "modules/catus-asset-cache/android/build.gradle",
+    "area": "modules/catus-asset-cache"
+  },
+  {
+    "file": "modules/catus-asset-cache/android/src/main/java/com/oneorthree/catusassetcache/AssetCacheStore.kt",
+    "area": "modules/catus-asset-cache"
+  },
+  {
+    "file": "modules/catus-asset-cache/android/src/main/java/com/oneorthree/catusassetcache/CatusAssetCacheModule.kt",
+    "area": "modules/catus-asset-cache"
+  },
+  {
+    "file": "modules/catus-asset-cache/android/src/test/java/com/oneorthree/catusassetcache/AssetCacheStoreTest.kt",
+    "area": "modules/catus-asset-cache"
+  },
+  {
+    "file": "modules/catus-asset-cache/expo-module.config.json",
+    "area": "modules/catus-asset-cache"
+  },
+  {
+    "file": "modules/catus-asset-cache/index.test.ts",
+    "area": "modules/catus-asset-cache"
+  },
+  {
+    "file": "modules/catus-asset-cache/index.ts",
+    "area": "modules/catus-asset-cache"
+  },
+  {
+    "file": "modules/catus-asset-cache/ios/AssetCacheStore.swift",
+    "area": "modules/catus-asset-cache"
+  },
+  {
+    "file": "modules/catus-asset-cache/ios/CatusAssetCache.podspec",
+    "area": "modules/catus-asset-cache"
+  },
+  {
+    "file": "modules/catus-asset-cache/ios/CatusAssetCacheModule.swift",
+    "area": "modules/catus-asset-cache"
+  },
+  {
+    "file": "modules/catus-asset-cache/tests/AssetCacheStoreTests.swift",
+    "area": "modules/catus-asset-cache"
+  },
+  {
+    "file": "modules/catus-asset-cache/tests/run-kotlin-tests.py",
+    "area": "modules/catus-asset-cache"
+  },
+  {
+    "file": "modules/screen-time/android/build.gradle",
+    "area": "modules/screen-time"
+  },
+  {
+    "file": "modules/screen-time/android/src/main/AndroidManifest.xml",
+    "area": "modules/screen-time"
+  },
+  {
+    "file": "modules/screen-time/android/src/main/java/com/oneorthree/gromo/screentime/FocusPalette.kt",
+    "area": "modules/screen-time"
+  },
+  {
+    "file": "modules/screen-time/android/src/main/java/com/oneorthree/gromo/screentime/FocusRemoteDelivery.kt",
+    "area": "modules/screen-time"
+  },
+  {
+    "file": "modules/screen-time/android/src/main/java/com/oneorthree/gromo/screentime/FocusSessionState.kt",
+    "area": "modules/screen-time"
+  },
+  {
+    "file": "modules/screen-time/android/src/main/java/com/oneorthree/gromo/screentime/ForegroundAppTracker.kt",
+    "area": "modules/screen-time"
+  },
+  {
+    "file": "modules/screen-time/android/src/main/java/com/oneorthree/gromo/screentime/MeasurementLedger.kt",
+    "area": "modules/screen-time"
+  },
+  {
+    "file": "modules/screen-time/android/src/main/java/com/oneorthree/gromo/screentime/ScreenTimeModule.kt",
+    "area": "modules/screen-time"
+  },
+  {
+    "file": "modules/screen-time/android/src/main/java/com/oneorthree/gromo/screentime/UsageSessionCalculator.kt",
+    "area": "modules/screen-time"
+  },
+  {
+    "file": "modules/screen-time/android/src/main/res/drawable-nodpi/cat_black_focus.png",
+    "area": "modules/screen-time"
+  },
+  {
+    "file": "modules/screen-time/android/src/main/res/drawable-nodpi/cat_calico_focus.png",
+    "area": "modules/screen-time"
+  },
+  {
+    "file": "modules/screen-time/android/src/main/res/drawable-nodpi/cat_cream_focus.png",
+    "area": "modules/screen-time"
+  },
+  {
+    "file": "modules/screen-time/android/src/main/res/drawable-nodpi/cat_ginger_focus.png",
+    "area": "modules/screen-time"
+  },
+  {
+    "file": "modules/screen-time/android/src/main/res/drawable-nodpi/cat_gray_focus.png",
+    "area": "modules/screen-time"
+  },
+  {
+    "file": "modules/screen-time/android/src/main/res/drawable-nodpi/cat_white_focus.png",
+    "area": "modules/screen-time"
+  },
+  {
+    "file": "modules/screen-time/android/src/main/res/drawable/ic_focus_notification.xml",
+    "area": "modules/screen-time"
+  },
+  {
+    "file": "modules/screen-time/android/src/main/res/layout/notification_focus.xml",
+    "area": "modules/screen-time"
+  },
+  {
+    "file": "modules/screen-time/android/src/test/java/com/oneorthree/gromo/screentime/AndroidStateTest.kt",
+    "area": "modules/screen-time"
+  },
+  {
+    "file": "modules/screen-time/expo-module.config.json",
+    "area": "modules/screen-time"
+  },
+  {
+    "file": "modules/study-widget/android/build.gradle",
+    "area": "modules/study-widget"
+  },
+  {
+    "file": "modules/study-widget/android/src/main/AndroidManifest.xml",
+    "area": "modules/study-widget"
+  },
+  {
+    "file": "modules/study-widget/android/src/main/java/com/oneorthree/gromo/widget/StudyWidgetModule.kt",
+    "area": "modules/study-widget"
+  },
+  {
+    "file": "modules/study-widget/android/src/main/java/com/oneorthree/gromo/widget/StudyWidgetProvider.kt",
+    "area": "modules/study-widget"
+  },
+  {
+    "file": "modules/study-widget/android/src/main/res/drawable-nodpi/cat_black_idle.png",
+    "area": "modules/study-widget"
+  },
+  {
+    "file": "modules/study-widget/android/src/main/res/drawable-nodpi/cat_black_loaf.png",
+    "area": "modules/study-widget"
+  },
+  {
+    "file": "modules/study-widget/android/src/main/res/drawable-nodpi/cat_black_reading.png",
+    "area": "modules/study-widget"
+  },
+  {
+    "file": "modules/study-widget/android/src/main/res/drawable-nodpi/cat_black_tilt.png",
+    "area": "modules/study-widget"
+  },
+  {
+    "file": "modules/study-widget/android/src/main/res/drawable-nodpi/cat_calico_idle.png",
+    "area": "modules/study-widget"
+  },
+  {
+    "file": "modules/study-widget/android/src/main/res/drawable-nodpi/cat_calico_loaf.png",
+    "area": "modules/study-widget"
+  },
+  {
+    "file": "modules/study-widget/android/src/main/res/drawable-nodpi/cat_calico_reading.png",
+    "area": "modules/study-widget"
+  },
+  {
+    "file": "modules/study-widget/android/src/main/res/drawable-nodpi/cat_calico_tilt.png",
+    "area": "modules/study-widget"
+  },
+  {
+    "file": "modules/study-widget/android/src/main/res/drawable-nodpi/cat_cream_idle.png",
+    "area": "modules/study-widget"
+  },
+  {
+    "file": "modules/study-widget/android/src/main/res/drawable-nodpi/cat_cream_loaf.png",
+    "area": "modules/study-widget"
+  },
+  {
+    "file": "modules/study-widget/android/src/main/res/drawable-nodpi/cat_cream_reading.png",
+    "area": "modules/study-widget"
+  },
+  {
+    "file": "modules/study-widget/android/src/main/res/drawable-nodpi/cat_cream_tilt.png",
+    "area": "modules/study-widget"
+  },
+  {
+    "file": "modules/study-widget/android/src/main/res/drawable-nodpi/cat_ginger_idle.png",
+    "area": "modules/study-widget"
+  },
+  {
+    "file": "modules/study-widget/android/src/main/res/drawable-nodpi/cat_ginger_loaf.png",
+    "area": "modules/study-widget"
+  },
+  {
+    "file": "modules/study-widget/android/src/main/res/drawable-nodpi/cat_ginger_reading.png",
+    "area": "modules/study-widget"
+  },
+  {
+    "file": "modules/study-widget/android/src/main/res/drawable-nodpi/cat_ginger_tilt.png",
+    "area": "modules/study-widget"
+  },
+  {
+    "file": "modules/study-widget/android/src/main/res/drawable-nodpi/cat_gray_idle.png",
+    "area": "modules/study-widget"
+  },
+  {
+    "file": "modules/study-widget/android/src/main/res/drawable-nodpi/cat_gray_loaf.png",
+    "area": "modules/study-widget"
+  },
+  {
+    "file": "modules/study-widget/android/src/main/res/drawable-nodpi/cat_gray_reading.png",
+    "area": "modules/study-widget"
+  },
+  {
+    "file": "modules/study-widget/android/src/main/res/drawable-nodpi/cat_gray_tilt.png",
+    "area": "modules/study-widget"
+  },
+  {
+    "file": "modules/study-widget/android/src/main/res/drawable-nodpi/cat_white_idle.png",
+    "area": "modules/study-widget"
+  },
+  {
+    "file": "modules/study-widget/android/src/main/res/drawable-nodpi/cat_white_loaf.png",
+    "area": "modules/study-widget"
+  },
+  {
+    "file": "modules/study-widget/android/src/main/res/drawable-nodpi/cat_white_reading.png",
+    "area": "modules/study-widget"
+  },
+  {
+    "file": "modules/study-widget/android/src/main/res/drawable-nodpi/cat_white_tilt.png",
+    "area": "modules/study-widget"
+  },
+  {
+    "file": "modules/study-widget/android/src/main/res/drawable/widget_study_bg.xml",
+    "area": "modules/study-widget"
+  },
+  {
+    "file": "modules/study-widget/android/src/main/res/drawable/widget_study_chip_bg.xml",
+    "area": "modules/study-widget"
+  },
+  {
+    "file": "modules/study-widget/android/src/main/res/drawable/widget_study_dot.xml",
+    "area": "modules/study-widget"
+  },
+  {
+    "file": "modules/study-widget/android/src/main/res/layout/widget_study.xml",
+    "area": "modules/study-widget"
+  },
+  {
+    "file": "modules/study-widget/android/src/main/res/values/widget_palette.xml",
+    "area": "modules/study-widget"
+  },
+  {
+    "file": "modules/study-widget/android/src/main/res/values/widget_study.xml",
+    "area": "modules/study-widget"
+  },
+  {
+    "file": "modules/study-widget/android/src/main/res/xml/widget_study_info.xml",
+    "area": "modules/study-widget"
+  },
+  {
+    "file": "modules/study-widget/expo-module.config.json",
+    "area": "modules/study-widget"
+  },
+  {
+    "file": "package-lock.json",
+    "area": "app-config"
+  },
+  {
+    "file": "package.json",
+    "area": "app-config"
+  },
+  {
+    "file": "patches/expo-screen-orientation+57.0.2.patch",
+    "area": "patches/expo-screen-orientation+57.0.2.patch"
+  },
+  {
+    "file": "scripts/airbridge-build-config.cjs",
+    "area": "scripts/airbridge-build-config.cjs"
+  },
+  {
+    "file": "scripts/airbridge-ios-build-config.cjs",
+    "area": "scripts/airbridge-ios-build-config.cjs"
+  },
+  {
+    "file": "scripts/build-facility-crops.py",
+    "area": "scripts/build-facility-crops.py"
+  },
+  {
+    "file": "scripts/build-focus-mask.py",
+    "area": "scripts/build-focus-mask.py"
+  },
+  {
+    "file": "scripts/build-focus-ocean.py",
+    "area": "scripts/build-focus-ocean.py"
+  },
+  {
+    "file": "scripts/build-island-ocean.py",
+    "area": "scripts/build-island-ocean.py"
+  },
+  {
+    "file": "scripts/build-nav-fixture.cjs",
+    "area": "scripts/build-nav-fixture.cjs"
+  },
+  {
+    "file": "scripts/build-phone-gallery.py",
+    "area": "scripts/build-phone-gallery.py"
+  },
+  {
+    "file": "scripts/build-tile-atlas.py",
+    "area": "scripts/build-tile-atlas.py"
+  },
+  {
+    "file": "scripts/capture-phone-screens.cjs",
+    "area": "scripts/capture-phone-screens.cjs"
+  },
+  {
+    "file": "scripts/firebase-plist-xcode.sh",
+    "area": "scripts/firebase-plist-xcode.sh"
+  },
+  {
+    "file": "scripts/gen-localized-stamp.py",
+    "area": "scripts/gen-localized-stamp.py"
+  },
+  {
+    "file": "scripts/generate-night-village-motion.py",
+    "area": "scripts/generate-night-village-motion.py"
+  },
+  {
+    "file": "scripts/generate-report-palette.cjs",
+    "area": "scripts/generate-report-palette.cjs"
+  },
+  {
+    "file": "scripts/make-audio-loop.sh",
+    "area": "scripts/make-audio-loop.sh"
+  },
+  {
+    "file": "scripts/meta-build-config.cjs",
+    "area": "scripts/meta-build-config.cjs"
+  },
+  {
+    "file": "scripts/ota-update.sh",
+    "area": "scripts/ota-update.sh"
+  },
+  {
+    "file": "scripts/posthog-xcode.sh",
+    "area": "scripts/posthog-xcode.sh"
+  },
+  {
+    "file": "scripts/requirements-night-motion.txt",
+    "area": "scripts/requirements-night-motion.txt"
+  },
+  {
+    "file": "scripts/requirements-tile-atlas.txt",
+    "area": "scripts/requirements-tile-atlas.txt"
+  },
+  {
+    "file": "scripts/review-all-buttons.cjs",
+    "area": "scripts/review-all-buttons.cjs"
+  },
+  {
+    "file": "scripts/review-cat-motion.cjs",
+    "area": "scripts/review-cat-motion.cjs"
+  },
+  {
+    "file": "scripts/review-current-v2.cjs",
+    "area": "scripts/review-current-v2.cjs"
+  },
+  {
+    "file": "scripts/review-first-user.cjs",
+    "area": "scripts/review-first-user.cjs"
+  },
+  {
+    "file": "scripts/review-journeys.cjs",
+    "area": "scripts/review-journeys.cjs"
+  },
+  {
+    "file": "scripts/review-last-island-recovery.cjs",
+    "area": "scripts/review-last-island-recovery.cjs"
+  },
+  {
+    "file": "scripts/review-v2-journeys.cjs",
+    "area": "scripts/review-v2-journeys.cjs"
+  },
+  {
+    "file": "scripts/review-village-world.cjs",
+    "area": "scripts/review-village-world.cjs"
+  },
+  {
+    "file": "scripts/serve-map-assets.cjs",
+    "area": "scripts/serve-map-assets.cjs"
+  },
+  {
+    "file": "scripts/source-art/island-ocean/README.md",
+    "area": "scripts/source-art"
+  },
+  {
+    "file": "scripts/source-art/island-ocean/day.png",
+    "area": "scripts/source-art"
+  },
+  {
+    "file": "scripts/source-art/island-ocean/focus-cutout.png",
+    "area": "scripts/source-art"
+  },
+  {
+    "file": "scripts/source-art/island-ocean/focus-mask-overrides.json",
+    "area": "scripts/source-art"
+  },
+  {
+    "file": "scripts/source-art/island-ocean/home-cutout.png",
+    "area": "scripts/source-art"
+  },
+  {
+    "file": "scripts/source-art/island-ocean/night.png",
+    "area": "scripts/source-art"
+  },
+  {
+    "file": "scripts/test-island-ocean.py",
+    "area": "scripts/test-island-ocean.py"
+  },
+  {
+    "file": "src/App.audio.test.tsx",
+    "area": "src/App.audio.test.tsx"
+  },
+  {
+    "file": "src/App.bootConcurrency.test.tsx",
+    "area": "src/App.bootConcurrency.test.tsx"
+  },
+  {
+    "file": "src/App.clock.test.tsx",
+    "area": "src/App.clock.test.tsx"
+  },
+  {
+    "file": "src/App.confirmModal.test.tsx",
+    "area": "src/App.confirmModal.test.tsx"
+  },
+  {
+    "file": "src/App.developerLetter.test.tsx",
+    "area": "src/App.developerLetter.test.tsx"
+  },
+  {
+    "file": "src/App.focusShield.test.tsx",
+    "area": "src/App.focusShield.test.tsx"
+  },
+  {
+    "file": "src/App.forceUpdate.test.tsx",
+    "area": "src/App.forceUpdate.test.tsx"
+  },
+  {
+    "file": "src/App.hardwareBack.test.tsx",
+    "area": "src/App.hardwareBack.test.tsx"
+  },
+  {
+    "file": "src/App.locale.test.tsx",
+    "area": "src/App.locale.test.tsx"
+  },
+  {
+    "file": "src/App.reduceMotion.test.tsx",
+    "area": "src/App.reduceMotion.test.tsx"
+  },
+  {
+    "file": "src/App.screenTimeDaily.test.tsx",
+    "area": "src/App.screenTimeDaily.test.tsx"
+  },
+  {
+    "file": "src/App.sessionCommands.test.tsx",
+    "area": "src/App.sessionCommands.test.tsx"
+  },
+  {
+    "file": "src/App.toastKeyboard.test.tsx",
+    "area": "src/App.toastKeyboard.test.tsx"
+  },
+  {
+    "file": "src/App.tsx",
+    "area": "src/App.tsx"
+  },
+  {
+    "file": "src/assets/audio/README.md",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/audio/campfire.m4a",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/audio/forest-wind.m4a",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/audio/rain.m4a",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/audio/waves.m4a",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/backgrounds/campfire/day.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/backgrounds/fishing-island/day.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/backgrounds/fishing/day.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/backgrounds/island/README.md",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/backgrounds/island/base/day.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/backgrounds/island/base/night.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/backgrounds/island/growth/00-start/day.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/backgrounds/island/growth/01-village-hall/day.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/backgrounds/island/growth/02-notice-board/day.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/backgrounds/island/growth/03-gramophone/day.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/backgrounds/island/growth/03a-observatory-first/day.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/backgrounds/island/growth/03b-mailbox-first/day.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/backgrounds/island/growth/04-library/day.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/backgrounds/island/growth/04-observatory-and-mailbox/day.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/backgrounds/island/growth/05-final-shop/day.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/backgrounds/island/growth/05-mailbox/day.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/backgrounds/island/growth/06-observatory/day.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/backgrounds/island/growth/07-shop/day.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/backgrounds/island/growth/07-shop/night.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/backgrounds/island/layers/day/campfire-on.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/backgrounds/island/layers/day/gramophone.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/backgrounds/island/layers/day/hall.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/backgrounds/island/layers/day/library.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/backgrounds/island/layers/day/mailbox.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/backgrounds/island/layers/day/notice-board.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/backgrounds/island/layers/day/observatory.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/backgrounds/island/layers/day/shop.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/backgrounds/island/layers/night/campfire-on.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/backgrounds/island/layers/night/gramophone.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/backgrounds/island/layers/night/hall.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/backgrounds/island/layers/night/library.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/backgrounds/island/layers/night/mailbox.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/backgrounds/island/layers/night/notice-board.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/backgrounds/island/layers/night/observatory.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/backgrounds/island/layers/night/shop.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/backgrounds/island/ocean/day.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/backgrounds/island/ocean/focus-day.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/backgrounds/island/ocean/home-day.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/backgrounds/island/ocean/home-mask.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/backgrounds/island/ocean/home-night.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/backgrounds/island/ocean/night.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/backgrounds/island/placement.json",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/backgrounds/island/source.json",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/backgrounds/island/world.json",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/backgrounds/rest/day.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/boats/cabinboat/day.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/boats/cabinboat/layers/back-day.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/boats/cabinboat/layers/back-night.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/boats/cabinboat/layers/front-day.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/boats/cabinboat/layers/front-night.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/boats/cabinboat/sailing/back-day.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/boats/cabinboat/sailing/back-night.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/boats/cabinboat/sailing/day.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/boats/cabinboat/sailing/front-day.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/boats/cabinboat/sailing/front-night.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/boats/cabinboat/sailing/night.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/boats/raft/day.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/boats/raft/layers/back-day.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/boats/raft/layers/back-night.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/boats/raft/layers/front-day.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/boats/raft/layers/front-night.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/boats/raft/sailing/back-day.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/boats/raft/sailing/back-night.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/boats/raft/sailing/day.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/boats/raft/sailing/front-day.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/boats/raft/sailing/front-night.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/boats/raft/sailing/night.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/boats/sailboat/day.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/boats/sailboat/layers/back-day.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/boats/sailboat/layers/back-night.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/boats/sailboat/layers/front-day.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/boats/sailboat/layers/front-night.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/boats/sailboat/layers/hull-day.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/boats/sailboat/layers/hull-night.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/boats/sailboat/layers/mast-sail-day.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/boats/sailboat/layers/mast-sail-night.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/boats/sailboat/sailing/back-day.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/boats/sailboat/sailing/back-night.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/boats/sailboat/sailing/day.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/boats/sailboat/sailing/front-day.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/boats/sailboat/sailing/front-night.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/boats/sailboat/sailing/night.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/buildings/README.md",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/buildings/gramophone/day.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/buildings/gramophone/meta.json",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/buildings/gramophone/night.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/buildings/hall/day.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/buildings/hall/meta.json",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/buildings/hall/night.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/buildings/library/day.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/buildings/library/meta.json",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/buildings/library/night.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/buildings/mailbox/day.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/buildings/mailbox/meta.json",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/buildings/mailbox/night.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/buildings/notice-board/day.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/buildings/notice-board/meta.json",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/buildings/notice-board/night.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/buildings/observatory/day.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/buildings/observatory/meta.json",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/buildings/observatory/night.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/buildings/shop/day.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/buildings/shop/layers/back-day.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/buildings/shop/layers/back-night.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/buildings/shop/layers/counter-front-day.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/buildings/shop/layers/counter-front-night.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/buildings/shop/meta.json",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/buildings/shop/night.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/black/avatar.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/black/blink/blink-frame-0.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/black/blink/blink-frame-1.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/black/blink/blink-frame-2.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/black/fishing/fishing-frame-0.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/black/fishing/fishing-frame-1.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/black/fishing/fishing-frame-2.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/black/fishing/fishing-frame-3.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/black/fishing/reel-frame-0.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/black/fishing/reel-frame-1.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/black/fishing/reel-frame-2.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/black/fishing/reel-frame-3.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/black/idle.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/black/idle/idle-atlas.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/black/loaf/loaf.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/black/poses/reading.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/black/reading/atlas.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/black/side.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/black/tilt/tilt-frame-0.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/black/tilt/tilt-frame-1.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/black/tilt/tilt-frame-2.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/black/tilt/tilt-frame-3.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/black/walking/walking-frame-0.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/black/walking/walking-frame-1.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/black/walking/walking-frame-2.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/black/walking/walking-frame-3.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/black/walking/walking-frame-4.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/black/walking/walking-frame-5.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/calico/avatar.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/calico/blink/blink-frame-0.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/calico/blink/blink-frame-1.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/calico/blink/blink-frame-2.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/calico/fishing/fishing-frame-0.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/calico/fishing/fishing-frame-1.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/calico/fishing/fishing-frame-2.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/calico/fishing/fishing-frame-3.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/calico/fishing/reel-frame-0.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/calico/fishing/reel-frame-1.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/calico/fishing/reel-frame-2.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/calico/fishing/reel-frame-3.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/calico/idle.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/calico/idle/idle-atlas.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/calico/loaf/loaf.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/calico/poses/reading.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/calico/reading/atlas.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/calico/side.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/calico/tilt/tilt-frame-0.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/calico/tilt/tilt-frame-1.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/calico/tilt/tilt-frame-2.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/calico/tilt/tilt-frame-3.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/calico/walking/walking-frame-0.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/calico/walking/walking-frame-1.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/calico/walking/walking-frame-2.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/calico/walking/walking-frame-3.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/calico/walking/walking-frame-4.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/calico/walking/walking-frame-5.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/cream/avatar.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/cream/blink/blink-frame-0.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/cream/blink/blink-frame-1.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/cream/blink/blink-frame-2.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/cream/fishing/fishing-frame-0.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/cream/fishing/fishing-frame-1.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/cream/fishing/fishing-frame-2.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/cream/fishing/fishing-frame-3.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/cream/fishing/reel-frame-0.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/cream/fishing/reel-frame-1.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/cream/fishing/reel-frame-2.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/cream/fishing/reel-frame-3.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/cream/idle.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/cream/idle/idle-atlas.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/cream/loaf/loaf.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/cream/poses/reading.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/cream/reading/atlas.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/cream/side.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/cream/tilt/tilt-frame-0.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/cream/tilt/tilt-frame-1.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/cream/tilt/tilt-frame-2.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/cream/tilt/tilt-frame-3.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/cream/walking/walking-frame-0.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/cream/walking/walking-frame-1.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/cream/walking/walking-frame-2.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/cream/walking/walking-frame-3.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/cream/walking/walking-frame-4.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/cream/walking/walking-frame-5.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/ginger/avatar.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/ginger/blink/blink-frame-0.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/ginger/blink/blink-frame-1.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/ginger/blink/blink-frame-2.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/ginger/fishing/fishing-frame-0.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/ginger/fishing/fishing-frame-1.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/ginger/fishing/fishing-frame-2.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/ginger/fishing/fishing-frame-3.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/ginger/fishing/reel-frame-0.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/ginger/fishing/reel-frame-1.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/ginger/fishing/reel-frame-2.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/ginger/fishing/reel-frame-3.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/ginger/idle.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/ginger/idle/idle-atlas.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/ginger/loaf/loaf.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/ginger/poses/reading.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/ginger/reading/atlas.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/ginger/side.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/ginger/tilt/tilt-frame-0.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/ginger/tilt/tilt-frame-1.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/ginger/tilt/tilt-frame-2.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/ginger/tilt/tilt-frame-3.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/ginger/walking/walking-frame-0.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/ginger/walking/walking-frame-1.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/ginger/walking/walking-frame-2.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/ginger/walking/walking-frame-3.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/ginger/walking/walking-frame-4.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/ginger/walking/walking-frame-5.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/gray/avatar.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/gray/blink/blink-frame-0.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/gray/blink/blink-frame-1.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/gray/blink/blink-frame-2.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/gray/fishing/fishing-frame-0.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/gray/fishing/fishing-frame-1.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/gray/fishing/fishing-frame-2.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/gray/fishing/fishing-frame-3.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/gray/fishing/reel-frame-0.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/gray/fishing/reel-frame-1.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/gray/fishing/reel-frame-2.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/gray/fishing/reel-frame-3.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/gray/idle.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/gray/idle/idle-atlas.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/gray/loaf/loaf.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/gray/poses/reading.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/gray/reading/atlas.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/gray/side.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/gray/tilt/tilt-frame-0.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/gray/tilt/tilt-frame-1.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/gray/tilt/tilt-frame-2.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/gray/tilt/tilt-frame-3.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/gray/walking/walking-frame-0.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/gray/walking/walking-frame-1.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/gray/walking/walking-frame-2.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/gray/walking/walking-frame-3.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/gray/walking/walking-frame-4.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/gray/walking/walking-frame-5.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/idle-motion.md",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/white/avatar.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/white/blink/blink-frame-0.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/white/blink/blink-frame-1.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/white/blink/blink-frame-2.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/white/fishing/fishing-frame-0.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/white/fishing/fishing-frame-1.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/white/fishing/fishing-frame-2.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/white/fishing/fishing-frame-3.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/white/fishing/reel-frame-0.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/white/fishing/reel-frame-1.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/white/fishing/reel-frame-2.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/white/fishing/reel-frame-3.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/white/idle.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/white/idle/idle-atlas.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/white/loaf/loaf.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/white/poses/reading.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/white/reading/atlas.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/white/side.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/white/tilt/tilt-frame-0.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/white/tilt/tilt-frame-1.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/white/tilt/tilt-frame-2.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/white/tilt/tilt-frame-3.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/white/walking/walking-frame-0.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/white/walking/walking-frame-1.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/white/walking/walking-frame-2.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/white/walking/walking-frame-3.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/white/walking/walking-frame-4.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/cat/white/walking/walking-frame-5.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/dog/npc/idle.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/mongdol/meta.json",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/mongdol/npc/idle.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/parrot/npc/idle.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/pelican/meta.json",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/pelican/npc/idle.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/characters/pelican/npc/on-mailbox.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/fonts/gowun-dodum.ttf",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/icon.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/interiors/avatars/black.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/interiors/avatars/calico.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/interiors/avatars/cream.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/interiors/avatars/ginger.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/interiors/avatars/gray.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/interiors/avatars/white.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/interiors/board-three-papers-v5.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/interiors/buildings/gramophone.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/interiors/buildings/hall.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/interiors/buildings/library.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/interiors/buildings/mailbox.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/interiors/buildings/noticeboard.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/interiors/buildings/observatory.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/interiors/buildings/shop.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/interiors/gram-cute-v1.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/interiors/hall-cute-v1.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/interiors/mail-cute-v1.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/interiors/observatory-cute-v1.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/interiors/shop-cute-v1.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/interiors/ui/board-sheet-notice-detail-v3.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/interiors/ui/board-sheet-notice-v2.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/interiors/ui/board-sheet-quest-v2.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/interiors/ui/letter-envelope-v1.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/login/kakao_login_medium_wide.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/login/line_login_logo_3x.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ml/LICENSE",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ml/README.md",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ml/efficientdet_lite0_int8.tflite",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ml/palm_detection_lite.tflite",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/customization/head/duck.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/cutscenes/abandon.mp4",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/cutscenes/arrival.mp4",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/cutscenes/departure.mp4",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/cutscenes/golden-fish.mp4",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/cutscenes/pelican-mail.mp4",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/harbor/README.md",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/harbor/camera-ocean-prompt.txt",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/harbor/island-dock.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/harbor/magazine-deck-prompts.json",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/harbor/magazine-deck.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/harbor/ocean-camera.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/harbor/ocean.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/harbor/pelican-flight-down.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/harbor/pelican-flight-prompts.json",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/harbor/pelican-flight-up.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/harbor/prompts.json",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/interiors/ui/blueprint-ready-stamp-v3.en.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/interiors/ui/blueprint-ready-stamp-v3.ko.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/interiors/ui/ledger-book-v2.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/interiors/ui/letter-envelope.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/interiors/ui/tab-blue.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/interiors/ui/tab-pink.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/interiors/ui/tab-yellow.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/magazine/frame/frame-catear.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/magazine/frame/frame-cloud.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/magazine/frame/frame-envelope.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/magazine/frame/frame-grid.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/magazine/frame/frame-lifering.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/magazine/frame/frame-notebook.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/magazine/frame/frame-polaroid.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/magazine/frame/frame-scallop.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/magazine/frame/frame-ticket.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/magazine/frame/frame-wave.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/magazine/frame/frame-woodsign.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/magazine/island/island-houses-0.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/magazine/island/island-houses-1.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/magazine/island/island-houses-3.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/magazine/island/island-houses-5.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/magazine/sticker/book.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/magazine/sticker/bottle.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/magazine/sticker/bow.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/magazine/sticker/campfire.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/magazine/sticker/cat-black-book.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/magazine/sticker/cat-black-peek.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/magazine/sticker/cat-calico-raft.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/magazine/sticker/cat-calico-wave.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/magazine/sticker/cat-cream-booknap.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/magazine/sticker/cat-cream-coffee.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/magazine/sticker/cat-cream-heart.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/magazine/sticker/cat-ginger-face.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/magazine/sticker/cat-ginger-fish.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/magazine/sticker/cat-gray-bottle.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/magazine/sticker/cat-gray-cheer.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/magazine/sticker/cat-gray-headphone.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/magazine/sticker/cat-white-pencil.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/magazine/sticker/cat-white-sleep.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/magazine/sticker/clock.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/magazine/sticker/cloud.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/magazine/sticker/crown.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/magazine/sticker/dog.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/magazine/sticker/drink.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/magazine/sticker/fish-basket.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/magazine/sticker/fish.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/magazine/sticker/heart.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/magazine/sticker/lantern.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/magazine/sticker/lighthouse.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/magazine/sticker/mailbox.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/magazine/sticker/map.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/magazine/sticker/mongdol.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/magazine/sticker/moon.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/magazine/sticker/palm-island.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/magazine/sticker/paw.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/magazine/sticker/pelican.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/magazine/sticker/pencil.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/magazine/sticker/sailboat.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/magazine/sticker/seagull.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/magazine/sticker/shell.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/magazine/sticker/sparkle.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/magazine/sticker/star.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/magazine/sticker/telescope.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/magazine/sticker/tomato-timer.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/magazine/sticker/turtle.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/magazine/sticker/whale.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/magazine/tape/tape-blue.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/magazine/tape/tape-bluestripe.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/magazine/tape/tape-cream.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/magazine/tape/tape-mint.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/magazine/tape/tape-paw.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/magazine/tape/tape-pink.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/magazine/tape/tape-pinkdots.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/magazine/tape/tape-yellowcheck.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/magazine/ui/banner-ranking.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/magazine/ui/close.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/magazine/ui/cover.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/magazine/ui/editor-cat.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/magazine/ui/icon-telescope.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/magazine/ui/medal-1.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/magazine/ui/medal-2.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/magazine/ui/medal-3.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/magazine/ui/page.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/magazine/ui/stamp.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/magazine/ui/tag-new.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/onboarding/cat-black.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/onboarding/cat-calico.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/onboarding/cat-cream.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/onboarding/cat-ginger.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/onboarding/cat-gray.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/onboarding/cat-white.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/onboarding/island-houses-0.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/onboarding/island-houses-1.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/onboarding/island-houses-3.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/onboarding/island-houses-5.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/onboarding/lying-black.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/onboarding/lying-calico.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/onboarding/lying-white.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/onboarding/raft.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/onboarding/scope-black.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/raft/destinations-landscape.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/raft/destinations.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/sea/destination-island.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/sea/far-sea.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/sea/raft-telescope/black.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/sea/raft-telescope/calico.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/sea/raft-telescope/cream.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/sea/raft-telescope/ginger.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/sea/raft-telescope/gray.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/sea/raft-telescope/white.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/sea/seagulls.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ota/sea/telescope-sea.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/props/boat-lantern/day.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/props/campfire/layers/front-stones-day.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/props/campfire/layers/front-stones-night.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/props/dock/layers/back-day.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/props/dock/layers/back-night.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/props/dock/layers/front-day.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/props/dock/layers/front-night.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/props/fishing/catch/pile-large.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/props/fishing/catch/pile-medium.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/props/fishing/catch/pile-small.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/props/fishing/catch/single.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/props/fishing/fishing-rod.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/props/music-player/day.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/props/rest/reading-chair.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/redesign/avatar-black.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/redesign/avatar-calico.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/redesign/avatar-cream.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/redesign/avatar-ginger.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/redesign/avatar-gray.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/redesign/avatar-white.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/redesign/bld-hall.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/redesign/bld-mailbox.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/redesign/bld-notice-board.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/redesign/bld-observatory.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/redesign/bld-shop.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/redesign/bldbg-board.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/redesign/bldbg-dock.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/redesign/bldbg-fire.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/redesign/bldbg-gram.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/redesign/bldbg-hall.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/redesign/bldbg-mail.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/redesign/bldbg-shop.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/redesign/bldbg-tower.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/redesign/boat-cabinboat.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/redesign/boat-raft.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/redesign/boat-sailboat.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/redesign/cat-black-phone.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/redesign/cat-black-sitting.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/redesign/cat-black.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/redesign/dog.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/redesign/emote-cheer.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/redesign/emote-hearts.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/redesign/emote-hello.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/redesign/emote-laugh.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/redesign/emote-sleepy.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/redesign/fish-gold.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/redesign/fish.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/redesign/gram.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/redesign/home-00-start.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/redesign/home-01-village-hall.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/redesign/home-05-final-shop-nocat.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/redesign/home-05-final-shop.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/redesign/island-whole-warm.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/redesign/island-whole.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/redesign/lbldbg-board.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/redesign/lbldbg-dock.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/redesign/lbldbg-fire.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/redesign/lbldbg-gram.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/redesign/lbldbg-hall.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/redesign/lbldbg-mail.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/redesign/lbldbg-shop.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/redesign/lbldbg-tower.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/redesign/parrot.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/redesign/qb-board.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/redesign/qb-note-butter.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/redesign/qb-note-peach.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/redesign/qb-pin-pink.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/redesign/qb-pin-sky.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/redesign/scarf-cat.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/redesign/sea-group.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/redesign/welcome.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/--bg1.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/--bg10.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/--bg11.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/--bg12.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/--bg13.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/--bg14.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/--bg16.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/--bg21.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/--bg22.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/--bg23.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/--bg24.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/--bg25.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/--bg26.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/--bg27.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/--bg28.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/--bg6.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/--bg7.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/--bg8.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/--bg9.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/L-bldbg-board.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/L-bldbg-dock.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/L-bldbg-gram.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/L-bldbg-hall.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/L-bldbg-mail.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/L-bldbg-shop.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/L-bldbg-tower.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/L-hall-room-blur.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/L-hall-room.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/L-home-00-start-nocat.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/L-home-00-start.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/L-home-01-village-hall.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/L-home-02-notice-board.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/L-home-05-final-shop-nocat.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/L-home-05-final-shop.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/L-lib-room-blur.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/L-lib-room.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/L-rest-scene.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/L-sail.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/L-welcome.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/avatar-black.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/avatar-calico.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/avatar-cream.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/avatar-ginger.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/avatar-gray.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/avatar-white.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/bld-gramophone.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/bld-hall.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/bld-library.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/bld-mailbox.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/bld-notice-board.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/bld-observatory.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/bld-shop.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/bldbg-board.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/bldbg-dock.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/bldbg-gram.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/bldbg-hall.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/bldbg-mail.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/bldbg-shop.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/bldbg-tower.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/boat-raft-cat-scarf.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/boat-raft-cat.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/boat-raft.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/cat-black-sitting.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/cat-black.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/dog.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/emote-cheer.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/emote-hearts.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/emote-hello.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/emote-laugh.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/emote-sleepy.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/fish-few.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/fish.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/fishing-island.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/hall-black.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/hall-calico.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/hall-cream.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/hall-ginger.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/hall-gramophone.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/hall-gray.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/hall-library.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/hall-mailbox.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/hall-observatory.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/hall-room-blur.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/hall-room.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/hall-shop.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/hall-white.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/home-00-start.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/home-01-village-hall.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/home-02-notice-board.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/home-05-final-shop-nocat.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/home-05-final-shop.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/island-whole-warm.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/island-whole.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/lib-page.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/lib-room-blur.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/lib-room.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/old-44.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/parrot.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/rest-scene.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/scarf-cat.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/sea-tile.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/reference-v2/welcome.jpg",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ui/construction-complete.md",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ui/construction-complete.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ui/crown.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ui/emotes/cheer.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ui/emotes/hearts.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ui/emotes/hello.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ui/emotes/laugh.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ui/emotes/question.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ui/emotes/sleepy.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ui/quest-board/butter-note.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/ui/quest-board/wood-board.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/README.md",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/bridge.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/bush.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/construction/effects-atlas-night.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/construction/effects-atlas.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/construction/hall-board-gram-library-atlas-night.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/construction/hall-board-gram-library-atlas.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/construction/mail-tower-shop-atlas-night.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/construction/mail-tower-shop-atlas.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/dock.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/facility/board-day.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/facility/board-night.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/facility/gram-day.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/facility/gram-night.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/facility/mail-day.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/facility/mail-night.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/facility/outline/board-day.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/facility/outline/board-night.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/facility/outline/gram-day.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/facility/outline/gram-night.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/facility/outline/hall-day.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/facility/outline/hall-night.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/facility/outline/library-day.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/facility/outline/library-night.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/facility/outline/mail-day.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/facility/outline/mail-night.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/facility/outline/mail-pelican.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/facility/outline/shop-day.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/facility/outline/shop-night.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/facility/outline/tower-day.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/facility/outline/tower-night.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/facility/terrain/fire-day.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/facility/terrain/fire-night.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/facility/terrain/raft-day.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/facility/terrain/raft-night.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/fire.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/flowers.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/gramophone.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/grass.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/hall.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/library.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/mailbox.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/map.json",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/motion/fire-smoke/frame-0.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/motion/fire-smoke/frame-1.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/motion/fire-smoke/frame-2.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/motion/fire-smoke/frame-3.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/motion/fire/frame-0.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/motion/fire/frame-1.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/motion/fire/frame-2.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/motion/fire/frame-3.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/motion/hall/frame-0.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/motion/hall/frame-1.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/motion/hall/frame-2.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/motion/hall/frame-3.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/motion/hall/night-frame-0.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/motion/hall/night-frame-1.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/motion/hall/night-frame-2.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/motion/hall/night-frame-3.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/motion/library/frame-0.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/motion/library/frame-1.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/motion/library/frame-2.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/motion/library/frame-3.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/motion/library/night-frame-0.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/motion/library/night-frame-1.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/motion/library/night-frame-2.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/motion/library/night-frame-3.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/motion/observatory/frame-0.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/motion/observatory/frame-1.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/motion/observatory/frame-2.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/motion/observatory/frame-3.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/motion/observatory/night-frame-0.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/motion/observatory/night-frame-1.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/motion/observatory/night-frame-2.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/motion/observatory/night-frame-3.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/motion/shop/frame-0.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/motion/shop/frame-1.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/motion/shop/frame-2.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/motion/shop/frame-3.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/motion/shop/night-frame-0.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/motion/shop/night-frame-1.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/motion/shop/night-frame-2.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/motion/shop/night-frame-3.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/notice-board.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/observatory.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/pine.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/road-base.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/road-board.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/road-gram.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/road-hall.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/road-library.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/road-mail.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/road-shop.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/road-tower.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/shop.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/terrain.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/tree.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/ui/wooden-name-sign.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/v1/checks/dock-raft@1x.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/v1/home.map.json",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/v1/nav.json",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/v1/nav.test.ts",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/v1/tilemap.json",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/v1/tilemap.test.ts",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/v1/tileset-night@2x.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/v1/tileset.json",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/assets/village-world/v1/tileset@2x.png",
+    "area": "src/assets"
+  },
+  {
+    "file": "src/components/AndroidAppPicker.test.tsx",
+    "area": "src/components"
+  },
+  {
+    "file": "src/components/AndroidAppPicker.tsx",
+    "area": "src/components"
+  },
+  {
+    "file": "src/components/CatAvatar.test.tsx",
+    "area": "src/components"
+  },
+  {
+    "file": "src/components/CatAvatar.tsx",
+    "area": "src/components"
+  },
+  {
+    "file": "src/components/CatOutfitLayers.test.tsx",
+    "area": "src/components"
+  },
+  {
+    "file": "src/components/CatOutfitLayers.tsx",
+    "area": "src/components"
+  },
+  {
+    "file": "src/components/CatSprite.test.tsx",
+    "area": "src/components"
+  },
+  {
+    "file": "src/components/CatSprite.tsx",
+    "area": "src/components"
+  },
+  {
+    "file": "src/components/ConstructionBuildingSprite.test.tsx",
+    "area": "src/components"
+  },
+  {
+    "file": "src/components/ConstructionBuildingSprite.tsx",
+    "area": "src/components"
+  },
+  {
+    "file": "src/components/PolicyLink.test.tsx",
+    "area": "src/components"
+  },
+  {
+    "file": "src/components/PolicyLink.tsx",
+    "area": "src/components"
+  },
+  {
+    "file": "src/components/ProviderLogo.tsx",
+    "area": "src/components"
+  },
+  {
+    "file": "src/components/RouteTransitionShield.test.tsx",
+    "area": "src/components"
+  },
+  {
+    "file": "src/components/RouteTransitionShield.tsx",
+    "area": "src/components"
+  },
+  {
+    "file": "src/components/ScreenTimeReportView.test.tsx",
+    "area": "src/components"
+  },
+  {
+    "file": "src/components/ScreenTimeReportView.tsx",
+    "area": "src/components"
+  },
+  {
+    "file": "src/components/UserSafetySheet.test.tsx",
+    "area": "src/components"
+  },
+  {
+    "file": "src/components/UserSafetySheet.tsx",
+    "area": "src/components"
+  },
+  {
+    "file": "src/components/VideoCutscene.test.tsx",
+    "area": "src/components"
+  },
+  {
+    "file": "src/components/VideoCutscene.tsx",
+    "area": "src/components"
+  },
+  {
+    "file": "src/components/animatedJsDriver.testing.ts",
+    "area": "src/components"
+  },
+  {
+    "file": "src/components/catFit.test.ts",
+    "area": "src/components"
+  },
+  {
+    "file": "src/components/catFit.ts",
+    "area": "src/components"
+  },
+  {
+    "file": "src/components/catMotion.test.ts",
+    "area": "src/components"
+  },
+  {
+    "file": "src/components/catMotion.ts",
+    "area": "src/components"
+  },
+  {
+    "file": "src/components/constructionBuildingMotion.ts",
+    "area": "src/components"
+  },
+  {
+    "file": "src/components/village-motion/FireMotion.test.tsx",
+    "area": "src/components"
+  },
+  {
+    "file": "src/components/village-motion/FireMotion.tsx",
+    "area": "src/components"
+  },
+  {
+    "file": "src/components/village-motion/LibraryMotion.test.tsx",
+    "area": "src/components"
+  },
+  {
+    "file": "src/components/village-motion/LibraryMotion.tsx",
+    "area": "src/components"
+  },
+  {
+    "file": "src/components/village-motion/RaftWaterMotion.test.tsx",
+    "area": "src/components"
+  },
+  {
+    "file": "src/components/village-motion/RaftWaterMotion.tsx",
+    "area": "src/components"
+  },
+  {
+    "file": "src/components/village-motion/ShopMotion.test.tsx",
+    "area": "src/components"
+  },
+  {
+    "file": "src/components/village-motion/ShopMotion.tsx",
+    "area": "src/components"
+  },
+  {
+    "file": "src/components/village-motion/VillageBoardIndicator.test.tsx",
+    "area": "src/components"
+  },
+  {
+    "file": "src/components/village-motion/VillageBoardIndicator.tsx",
+    "area": "src/components"
+  },
+  {
+    "file": "src/components/village-motion/VillageHallMotion.test.tsx",
+    "area": "src/components"
+  },
+  {
+    "file": "src/components/village-motion/VillageHallMotion.tsx",
+    "area": "src/components"
+  },
+  {
+    "file": "src/components/village-motion/VillageNotificationBadge.test.tsx",
+    "area": "src/components"
+  },
+  {
+    "file": "src/components/village-motion/VillageNotificationBadge.tsx",
+    "area": "src/components"
+  },
+  {
+    "file": "src/components/village-motion/VillageObservatoryMotion.test.tsx",
+    "area": "src/components"
+  },
+  {
+    "file": "src/components/village-motion/VillageObservatoryMotion.tsx",
+    "area": "src/components"
+  },
+  {
+    "file": "src/components/village-motion/VillageThemeTint.tsx",
+    "area": "src/components"
+  },
+  {
+    "file": "src/components/village-motion/nightMotion.test.tsx",
+    "area": "src/components"
+  },
+  {
+    "file": "src/config/googleClientIds.json",
+    "area": "src/config"
+  },
+  {
+    "file": "src/config/googleClientIds.md",
+    "area": "src/config"
+  },
+  {
+    "file": "src/config/googleClientIds.test.js",
+    "area": "src/config"
+  },
+  {
+    "file": "src/config/kakaoAndroidConfig.test.js",
+    "area": "src/config"
+  },
+  {
+    "file": "src/config/metaAndroidBuildConfig.test.js",
+    "area": "src/config"
+  },
+  {
+    "file": "src/config/metaApp.json",
+    "area": "src/config"
+  },
+  {
+    "file": "src/config/metroConfig.test.js",
+    "area": "src/config"
+  },
+  {
+    "file": "src/constants/art.ts",
+    "area": "src/constants"
+  },
+  {
+    "file": "src/constants/assets.ts",
+    "area": "src/constants"
+  },
+  {
+    "file": "src/constants/audio.ts",
+    "area": "src/constants"
+  },
+  {
+    "file": "src/constants/cat-idle-atlases.test.ts",
+    "area": "src/constants"
+  },
+  {
+    "file": "src/constants/cat-idle-atlases.ts",
+    "area": "src/constants"
+  },
+  {
+    "file": "src/constants/fishing-island.json",
+    "area": "src/constants"
+  },
+  {
+    "file": "src/constants/legacy-doors.json",
+    "area": "src/constants"
+  },
+  {
+    "file": "src/constants/legal.ts",
+    "area": "src/constants"
+  },
+  {
+    "file": "src/constants/magazineAssets.test.ts",
+    "area": "src/constants"
+  },
+  {
+    "file": "src/constants/magazineAssets.ts",
+    "area": "src/constants"
+  },
+  {
+    "file": "src/constants/motion-metrics.json",
+    "area": "src/constants"
+  },
+  {
+    "file": "src/constants/referenceArt.ts",
+    "area": "src/constants"
+  },
+  {
+    "file": "src/constants/village-assets.ts",
+    "area": "src/constants"
+  },
+  {
+    "file": "src/constants/world-v2.json",
+    "area": "src/constants"
+  },
+  {
+    "file": "src/design-system/README.md",
+    "area": "src/design-system"
+  },
+  {
+    "file": "src/design-system/patterns.test.tsx",
+    "area": "src/design-system"
+  },
+  {
+    "file": "src/design-system/patterns.tsx",
+    "area": "src/design-system"
+  },
+  {
+    "file": "src/design-system/primitives.tsx",
+    "area": "src/design-system"
+  },
+  {
+    "file": "src/design-system/tokens.test.ts",
+    "area": "src/design-system"
+  },
+  {
+    "file": "src/design-system/tokens.ts",
+    "area": "src/design-system"
+  },
+  {
+    "file": "src/design-system/typography.test.tsx",
+    "area": "src/design-system"
+  },
+  {
+    "file": "src/design-system/typography.tsx",
+    "area": "src/design-system"
+  },
+  {
+    "file": "src/hooks/useAssetPack.ts",
+    "area": "src/hooks"
+  },
+  {
+    "file": "src/hooks/useFocusTutorialViewed.test.ts",
+    "area": "src/hooks"
+  },
+  {
+    "file": "src/hooks/useFocusTutorialViewed.ts",
+    "area": "src/hooks"
+  },
+  {
+    "file": "src/hooks/useNow.tsx",
+    "area": "src/hooks"
+  },
+  {
+    "file": "src/hooks/useSoundPlayer.test.ts",
+    "area": "src/hooks"
+  },
+  {
+    "file": "src/hooks/useSoundPlayer.ts",
+    "area": "src/hooks"
+  },
+  {
+    "file": "src/i18n/customization.test.ts",
+    "area": "src/i18n"
+  },
+  {
+    "file": "src/i18n/customization.ts",
+    "area": "src/i18n"
+  },
+  {
+    "file": "src/i18n/format.test.ts",
+    "area": "src/i18n"
+  },
+  {
+    "file": "src/i18n/format.ts",
+    "area": "src/i18n"
+  },
+  {
+    "file": "src/i18n/index.test.ts",
+    "area": "src/i18n"
+  },
+  {
+    "file": "src/i18n/index.ts",
+    "area": "src/i18n"
+  },
+  {
+    "file": "src/i18n/locales/en.json",
+    "area": "src/i18n"
+  },
+  {
+    "file": "src/i18n/locales/ko.json",
+    "area": "src/i18n"
+  },
+  {
+    "file": "src/screens/LoginScreen.test.tsx",
+    "area": "src/screens/LoginScreen.test.tsx"
+  },
+  {
+    "file": "src/screens/LoginScreen.tsx",
+    "area": "src/screens/LoginScreen.tsx"
+  },
+  {
+    "file": "src/screens/character/CatMotionPreview.tsx",
+    "area": "src/screens/character"
+  },
+  {
+    "file": "src/screens/focus/FiButton.test.tsx",
+    "area": "src/screens/focus"
+  },
+  {
+    "file": "src/screens/focus/FishingFocusHud.tsx",
+    "area": "src/screens/focus"
+  },
+  {
+    "file": "src/screens/focus/FishingIsland.actorMotion.test.tsx",
+    "area": "src/screens/focus"
+  },
+  {
+    "file": "src/screens/focus/FishingIsland.renderCount.test.tsx",
+    "area": "src/screens/focus"
+  },
+  {
+    "file": "src/screens/focus/FishingIsland.test.ts",
+    "area": "src/screens/focus"
+  },
+  {
+    "file": "src/screens/focus/FishingIsland.tsx",
+    "area": "src/screens/focus"
+  },
+  {
+    "file": "src/screens/focus/FishingSceneMotion.test.ts",
+    "area": "src/screens/focus"
+  },
+  {
+    "file": "src/screens/focus/FishingSceneMotion.tsx",
+    "area": "src/screens/focus"
+  },
+  {
+    "file": "src/screens/focus/FocusEmoteBubble.tsx",
+    "area": "src/screens/focus"
+  },
+  {
+    "file": "src/screens/focus/FocusResultSummary.test.tsx",
+    "area": "src/screens/focus"
+  },
+  {
+    "file": "src/screens/focus/FocusResultSummary.tsx",
+    "area": "src/screens/focus"
+  },
+  {
+    "file": "src/screens/focus/GoldenFishCutscene.test.tsx",
+    "area": "src/screens/focus"
+  },
+  {
+    "file": "src/screens/focus/GoldenFishCutscene.tsx",
+    "area": "src/screens/focus"
+  },
+  {
+    "file": "src/screens/focus/RestCampfireMotion.tsx",
+    "area": "src/screens/focus"
+  },
+  {
+    "file": "src/screens/focus/RestGroup.outfit.test.tsx",
+    "area": "src/screens/focus"
+  },
+  {
+    "file": "src/screens/focus/RestGroup.test.ts",
+    "area": "src/screens/focus"
+  },
+  {
+    "file": "src/screens/focus/RestGroup.tsx",
+    "area": "src/screens/focus"
+  },
+  {
+    "file": "src/screens/focus/VerificationCamera.test.tsx",
+    "area": "src/screens/focus"
+  },
+  {
+    "file": "src/screens/focus/VerificationCamera.tsx",
+    "area": "src/screens/focus"
+  },
+  {
+    "file": "src/screens/focus/VerificationIntro.tsx",
+    "area": "src/screens/focus"
+  },
+  {
+    "file": "src/screens/focus/VerificationResultSummary.tsx",
+    "area": "src/screens/focus"
+  },
+  {
+    "file": "src/screens/focus/VerificationSession.test.tsx",
+    "area": "src/screens/focus"
+  },
+  {
+    "file": "src/screens/focus/VerificationSession.tsx",
+    "area": "src/screens/focus"
+  },
+  {
+    "file": "src/screens/focus/VerificationSpike.tsx",
+    "area": "src/screens/focus"
+  },
+  {
+    "file": "src/screens/focus/catchAssets.test.ts",
+    "area": "src/screens/focus"
+  },
+  {
+    "file": "src/screens/focus/catchAssets.ts",
+    "area": "src/screens/focus"
+  },
+  {
+    "file": "src/screens/focus/useFishingPeerActors.test.tsx",
+    "area": "src/screens/focus"
+  },
+  {
+    "file": "src/screens/focus/useFishingPeerActors.ts",
+    "area": "src/screens/focus"
+  },
+  {
+    "file": "src/screens/focus/useIslandPresence.test.tsx",
+    "area": "src/screens/focus"
+  },
+  {
+    "file": "src/screens/focus/useIslandPresence.ts",
+    "area": "src/screens/focus"
+  },
+  {
+    "file": "src/screens/interiors/BuildingInteriors.assets.test.tsx",
+    "area": "src/screens/interiors"
+  },
+  {
+    "file": "src/screens/interiors/BuildingInteriors.board.test.tsx",
+    "area": "src/screens/interiors"
+  },
+  {
+    "file": "src/screens/interiors/BuildingInteriors.mail.test.tsx",
+    "area": "src/screens/interiors"
+  },
+  {
+    "file": "src/screens/interiors/BuildingInteriors.tsx",
+    "area": "src/screens/interiors"
+  },
+  {
+    "file": "src/screens/interiors/Guestbook.test.tsx",
+    "area": "src/screens/interiors"
+  },
+  {
+    "file": "src/screens/interiors/Guestbook.tsx",
+    "area": "src/screens/interiors"
+  },
+  {
+    "file": "src/screens/interiors/InteriorsGallery.tsx",
+    "area": "src/screens/interiors"
+  },
+  {
+    "file": "src/screens/interiors/useBoardNotices.test.tsx",
+    "area": "src/screens/interiors"
+  },
+  {
+    "file": "src/screens/interiors/useBoardNotices.ts",
+    "area": "src/screens/interiors"
+  },
+  {
+    "file": "src/screens/interiors/useIslandManagement.test.tsx",
+    "area": "src/screens/interiors"
+  },
+  {
+    "file": "src/screens/interiors/useIslandManagement.ts",
+    "area": "src/screens/interiors"
+  },
+  {
+    "file": "src/screens/interiors/useMailbox.test.tsx",
+    "area": "src/screens/interiors"
+  },
+  {
+    "file": "src/screens/interiors/useMailbox.ts",
+    "area": "src/screens/interiors"
+  },
+  {
+    "file": "src/screens/island/BlockedUsersScreen.test.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/BlockedUsersScreen.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/BuildingTransitionOverlay.test.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/BuildingTransitionOverlay.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/CatInfoPopup.test.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/CatInfoPopup.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/CatInteractive.test.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/CoastalAtlas.test.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/CoastalAtlas.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/ConstructionMotionPreview.test.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/ConstructionMotionPreview.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/CurrentScreens.facilities.test.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/CurrentScreens.goldenFish.test.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/CurrentScreens.kicked.test.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/CurrentScreens.routing.test.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/CurrentScreens.screenTime.test.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/CurrentScreens.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/CurrentScreens.visitEmote.test.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/CurrentScreens.visitGreeting.test.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/CurrentScreens.visitHud.test.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/DestinationMarker.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/DeveloperNoticesScreen.test.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/DeveloperNoticesScreen.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/Hall.construction.test.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/Hall.ledger.test.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/Hall.management.test.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/Hall.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/HomeChatLog.test.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/HomeChatLog.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/HomeNavigationHud.test.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/HomeNavigationHud.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/HomeQuestIndicator.test.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/HomeQuestIndicator.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/ImageTerrainFacilities.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/IslandChatSheet.test.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/IslandChatSheet.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/IslandNamingModal.test.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/IslandNamingModal.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/IslandOcean.test.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/IslandOcean.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/IslandSheet.test.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/IslandSheet.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/Library.screenTime.test.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/Library.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/NpcGuide.test.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/NpcGuide.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/ObservatoryIslandPortrait.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/ObservatoryLayout.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/ObservatoryPodium.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/ObservatoryScenery.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/ObservatorySearch.test.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/ObservatorySearch.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/RaftDestinationScene.test.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/RaftDestinationScene.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/RaftDestinations.test.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/RaftDestinations.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/ScreenTimeSharingSettings.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/Screens.friends.test.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/Screens.shop.test.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/Screens.shopBalance.test.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/Screens.test.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/Screens.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/Screens.wardrobe.test.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/ServerBuildCard.test.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/ServerBuildCard.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/ServerIslandPicker.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/ServerVisit.test.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/ServerVisit.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/Telescope.arrivalKey.test.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/Telescope.test.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/Telescope.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/TileFacilityDecoration.test.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/TileFacilityDecoration.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/TileTerrainCanvas.test.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/TileTerrainCanvas.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/TileTerrainFacilities.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/VillageScenery.test.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/VillageScenery.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/VisitorBoard.test.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/VisitorBoard.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/WebFacilitySignText.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/WorldMap.movement.test.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/WorldMap.renderCount.test.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/WorldMap.test.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/WorldMap.tileIsland.test.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/WorldMap.tileIslandOff.test.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/WorldMap.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/constructionProgress.test.ts",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/constructionProgress.ts",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/library/Diary.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/library/WeekLineChart.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/library/diaryData.test.ts",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/library/diaryData.ts",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/mapGesture.ts",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/memberGate.test.ts",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/navDebugClock.test.ts",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/navDebugClock.ts",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/sceneKit.test.ts",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/sceneKit.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/telescopeDestinations.ts",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/tileFacilities.test.ts",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/tileFacilities.ts",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/useAccountGuides.test.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/useAccountGuides.ts",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/useBoardHomeIndicator.test.ts",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/useBoardHomeIndicator.ts",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/useBuildingIndicators.test.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/useBuildingIndicators.ts",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/useConstruction.test.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/useConstruction.ts",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/useConstructionAnnouncements.test.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/useConstructionAnnouncements.ts",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/useFriendsScreen.test.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/useFriendsScreen.ts",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/useInviteShare.test.ts",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/useInviteShare.ts",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/useIslandChat.test.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/useIslandChat.ts",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/useIslandPlayback.test.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/useIslandPlayback.ts",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/useIslandRankings.test.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/useIslandRankings.ts",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/useIslandSailing.test.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/useIslandSailing.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/useIslandSearch.test.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/useIslandSearch.ts",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/useLedgerScreen.test.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/useLedgerScreen.ts",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/useLibraryDiary.test.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/useLibraryDiary.ts",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/useShop.test.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/useShop.ts",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/useTelescope.test.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/useTelescope.ts",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/useTelescopePin.ts",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/useVisitorJoin.test.tsx",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/island/useVisitorJoin.ts",
+    "area": "src/screens/island"
+  },
+  {
+    "file": "src/screens/letter/DeveloperLetter.test.tsx",
+    "area": "src/screens/letter"
+  },
+  {
+    "file": "src/screens/letter/DeveloperLetter.tsx",
+    "area": "src/screens/letter"
+  },
+  {
+    "file": "src/screens/letter/useDeveloperLetter.test.tsx",
+    "area": "src/screens/letter"
+  },
+  {
+    "file": "src/screens/letter/useDeveloperLetter.ts",
+    "area": "src/screens/letter"
+  },
+  {
+    "file": "src/screens/letter/useForceUpdateLetter.test.tsx",
+    "area": "src/screens/letter"
+  },
+  {
+    "file": "src/screens/letter/useForceUpdateLetter.ts",
+    "area": "src/screens/letter"
+  },
+  {
+    "file": "src/screens/magazine/AdCell.test.tsx",
+    "area": "src/screens/magazine"
+  },
+  {
+    "file": "src/screens/magazine/AdCell.tsx",
+    "area": "src/screens/magazine"
+  },
+  {
+    "file": "src/screens/magazine/MagazineDelivery.test.tsx",
+    "area": "src/screens/magazine"
+  },
+  {
+    "file": "src/screens/magazine/MagazineDelivery.tsx",
+    "area": "src/screens/magazine"
+  },
+  {
+    "file": "src/screens/magazine/MagazinePreview.tsx",
+    "area": "src/screens/magazine"
+  },
+  {
+    "file": "src/screens/magazine/MagazineRack.tsx",
+    "area": "src/screens/magazine"
+  },
+  {
+    "file": "src/screens/magazine/MagazineReader.test.tsx",
+    "area": "src/screens/magazine"
+  },
+  {
+    "file": "src/screens/magazine/MagazineReader.tsx",
+    "area": "src/screens/magazine"
+  },
+  {
+    "file": "src/screens/magazine/PromotionEditor.test.tsx",
+    "area": "src/screens/magazine"
+  },
+  {
+    "file": "src/screens/magazine/PromotionEditor.tsx",
+    "area": "src/screens/magazine"
+  },
+  {
+    "file": "src/screens/magazine/StickerDrawer.tsx",
+    "area": "src/screens/magazine"
+  },
+  {
+    "file": "src/screens/magazine/layout.test.ts",
+    "area": "src/screens/magazine"
+  },
+  {
+    "file": "src/screens/magazine/layout.ts",
+    "area": "src/screens/magazine"
+  },
+  {
+    "file": "src/screens/magazine/touchDriver.ts",
+    "area": "src/screens/magazine"
+  },
+  {
+    "file": "src/screens/magazine/useIslandNews.ts",
+    "area": "src/screens/magazine"
+  },
+  {
+    "file": "src/screens/magazine/useMagazineToday.ts",
+    "area": "src/screens/magazine"
+  },
+  {
+    "file": "src/screens/magazine/usePromotionEditor.ts",
+    "area": "src/screens/magazine"
+  },
+  {
+    "file": "src/screens/magazine/usePromotionNewsToast.test.tsx",
+    "area": "src/screens/magazine"
+  },
+  {
+    "file": "src/screens/magazine/usePromotionNewsToast.ts",
+    "area": "src/screens/magazine"
+  },
+  {
+    "file": "src/screens/magazine/useStickerGestures.ts",
+    "area": "src/screens/magazine"
+  },
+  {
+    "file": "src/screens/onboarding/FirstVoyage.test.tsx",
+    "area": "src/screens/onboarding"
+  },
+  {
+    "file": "src/screens/onboarding/FirstVoyageScene.tsx",
+    "area": "src/screens/onboarding"
+  },
+  {
+    "file": "src/screens/onboarding/OnboardingFlow.test.tsx",
+    "area": "src/screens/onboarding"
+  },
+  {
+    "file": "src/screens/onboarding/OnboardingFlow.tsx",
+    "area": "src/screens/onboarding"
+  },
+  {
+    "file": "src/screens/onboarding/OnboardingPreview.tsx",
+    "area": "src/screens/onboarding"
+  },
+  {
+    "file": "src/screens/onboarding/README.md",
+    "area": "src/screens/onboarding"
+  },
+  {
+    "file": "src/screens/onboarding/StoryRaft.test.tsx",
+    "area": "src/screens/onboarding"
+  },
+  {
+    "file": "src/screens/onboarding/StoryRaft.tsx",
+    "area": "src/screens/onboarding"
+  },
+  {
+    "file": "src/screens/onboarding/story.ts",
+    "area": "src/screens/onboarding"
+  },
+  {
+    "file": "src/screens/onboarding/useFirstVoyage.tsx",
+    "area": "src/screens/onboarding"
+  },
+  {
+    "file": "src/screens/onboarding/useStoryLine.ts",
+    "area": "src/screens/onboarding"
+  },
+  {
+    "file": "src/screens/sea/README.md",
+    "area": "src/screens/sea"
+  },
+  {
+    "file": "src/screens/sea/SeaArrivalResult.test.tsx",
+    "area": "src/screens/sea"
+  },
+  {
+    "file": "src/screens/sea/SeaArrivalResult.tsx",
+    "area": "src/screens/sea"
+  },
+  {
+    "file": "src/screens/sea/SeaDeparture.tsx",
+    "area": "src/screens/sea"
+  },
+  {
+    "file": "src/screens/sea/SeaMagazineDelivery.tsx",
+    "area": "src/screens/sea"
+  },
+  {
+    "file": "src/screens/sea/SeaPreview.test.tsx",
+    "area": "src/screens/sea"
+  },
+  {
+    "file": "src/screens/sea/SeaPreview.tsx",
+    "area": "src/screens/sea"
+  },
+  {
+    "file": "src/screens/sea/SeaRaft.tsx",
+    "area": "src/screens/sea"
+  },
+  {
+    "file": "src/screens/sea/SeaScene.tsx",
+    "area": "src/screens/sea"
+  },
+  {
+    "file": "src/screens/sea/SeaScreen.test.tsx",
+    "area": "src/screens/sea"
+  },
+  {
+    "file": "src/screens/sea/SeaScreen.tsx",
+    "area": "src/screens/sea"
+  },
+  {
+    "file": "src/screens/sea/SeaVoyageHost.test.tsx",
+    "area": "src/screens/sea"
+  },
+  {
+    "file": "src/screens/sea/SeaVoyageHost.tsx",
+    "area": "src/screens/sea"
+  },
+  {
+    "file": "src/screens/sea/SeaVoyagePreparation.tsx",
+    "area": "src/screens/sea"
+  },
+  {
+    "file": "src/screens/sea/seaAssets.ts",
+    "area": "src/screens/sea"
+  },
+  {
+    "file": "src/screens/sea/seaModel.ts",
+    "area": "src/screens/sea"
+  },
+  {
+    "file": "src/screens/sea/seaRemark.ts",
+    "area": "src/screens/sea"
+  },
+  {
+    "file": "src/screens/sea/seaRewardCatalog.ts",
+    "area": "src/screens/sea"
+  },
+  {
+    "file": "src/screens/world/DepartureStory.test.tsx",
+    "area": "src/screens/world"
+  },
+  {
+    "file": "src/screens/world/DepartureStory.tsx",
+    "area": "src/screens/world"
+  },
+  {
+    "file": "src/screens/world/HarborCutscene.test.tsx",
+    "area": "src/screens/world"
+  },
+  {
+    "file": "src/screens/world/HarborCutscene.tsx",
+    "area": "src/screens/world"
+  },
+  {
+    "file": "src/screens/world/HarborPreview.tsx",
+    "area": "src/screens/world"
+  },
+  {
+    "file": "src/screens/world/PelicanDeliveryArt.tsx",
+    "area": "src/screens/world"
+  },
+  {
+    "file": "src/screens/world/Sailing.test.tsx",
+    "area": "src/screens/world"
+  },
+  {
+    "file": "src/screens/world/WorldViews.tsx",
+    "area": "src/screens/world"
+  },
+  {
+    "file": "src/screens/world/__fixtures__/harbor-footprints.json",
+    "area": "src/screens/world"
+  },
+  {
+    "file": "src/screens/world/harborMotion.test.ts",
+    "area": "src/screens/world"
+  },
+  {
+    "file": "src/screens/world/harborMotion.ts",
+    "area": "src/screens/world"
+  },
+  {
+    "file": "src/services/PostHogAnalyticsProvider.test.tsx",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/PostHogAnalyticsProvider.tsx",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/ScreenTimeModule.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/ScreenTimeModule.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/accountGuides.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/accountGuides.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/activationJourney.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/activationJourney.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/airbridge.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/airbridge.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/airbridgeBuildConfig.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/analyticsDevice.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/analyticsDevice.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/androidScreenTime.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/androidScreenTime.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/api/account.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/api/account.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/api/auth.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/api/auth.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/api/client.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/api/client.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/api/developerNotices.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/api/developerNotices.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/api/deviceToken.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/api/deviceToken.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/api/focusSessions.production.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/api/focusSessions.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/api/focusSessions.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/api/friends.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/api/friends.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/api/home.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/api/home.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/api/islandManagement.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/api/islandManagement.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/api/islands.focusRest.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/api/islands.guestbook.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/api/islands.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/api/islands.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/api/letters.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/api/letters.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/api/magazine.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/api/magazine.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/api/magazineMock.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/api/magazineMock.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/api/notices.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/api/notices.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/api/playback.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/api/playback.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/api/quests.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/api/quests.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/api/rankings.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/api/rankings.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/api/records.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/api/records.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/api/safety.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/api/safety.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/api/screenTime.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/api/screenTime.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/api/session.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/api/session.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/api/shop.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/api/shop.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/api/telescope.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/api/telescope.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/api/townHall.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/api/townHall.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/appDeepLink.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/appDeepLink.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/assets/__fixtures__/publisherManifest.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/assets/channelClient.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/assets/channelClient.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/assets/contracts.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/assets/contracts.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/assets/nativeAdapter.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/assets/nativeAdapter.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/assets/policy.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/assets/repository.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/assets/repository.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/blockedUsers.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/blockedUsers.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/buildingIndicators.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/buildingIndicators.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/buildingTransition.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/buildingTransition.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/customizationCatalog.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/customizationCatalog.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/datadog.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/datadog.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/demoMode.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/developerLetter.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/developerLetter.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/firstVoyage.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/firstVoyage.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/focusShield.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/homeSnapshot.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/homeSnapshot.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/iosHomeWidget.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/iosScreenTimeSync.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/islandBoot.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/islandBoot.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/islandCommands.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/islandCommands.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/islandContext.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/islandErrors.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/islandRealtime.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/islandRealtime.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/legacyUserData.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/legacyUserData.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/liveActivity.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/liveActivity.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/liveActivityPush.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/liveActivityPush.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/loginProviders.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/loginProviders.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/mapAssets.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/mapAssets.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/memberAppearance.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/memberAppearance.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/memberConversion.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/memberConversion.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/memberLookCache.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/memberLookCache.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/memberLooks.testing.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/memberLooks.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/metaSdk.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/metaSdk.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/model.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/model.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/movementStats.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/movementStats.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/movementSync.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/movementSync.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/nativeLifecycle.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/onboardingRestore.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/posthog.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/posthog.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/push.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/push.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/restore.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/restore.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/routeTransition.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/routeTransition.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/screenTime.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/screenTime.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/screenTimeEvents.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/screenTimeFlow.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/screenTimeFlow.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/screenTimeReporting.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/screenTimeReporting.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/screenTimeWindow.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/screenTimeWindow.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/screentimeSync.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/screentimeSync.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/seaRealtime.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/seaRealtime.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/sentry.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/sessionCommands.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/sessionCommands.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/socialAnalytics.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/socialAnalytics.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/socialLogin.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/socialLogin.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/studyVerification/cadence.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/studyVerification/focusDetection.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/studyVerification/focusDetection.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/studyVerification/palmScore.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/studyVerification/palmScore.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/studyVerification/sessionResult.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/studyVerification/sessionResult.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/studyVerification/studyObjects.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/studyVerification/studyObjects.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/studyVerification/types.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/studyWidget.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/studyWidget.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/termsVersion.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/termsVersion.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/tutorial.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/tutorial.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/tutorialExperience.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/tutorialExperience.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/unseenOutfits.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/unseenOutfits.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/verificationNativeConfig.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/withdrawalIntent.test.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/services/withdrawalIntent.ts",
+    "area": "src/services"
+  },
+  {
+    "file": "src/utils/codePoints.test.ts",
+    "area": "src/utils"
+  },
+  {
+    "file": "src/utils/codePoints.ts",
+    "area": "src/utils"
+  },
+  {
+    "file": "src/utils/island-camera.test.ts",
+    "area": "src/utils"
+  },
+  {
+    "file": "src/utils/island-camera.ts",
+    "area": "src/utils"
+  },
+  {
+    "file": "src/utils/island-layout.test.ts",
+    "area": "src/utils"
+  },
+  {
+    "file": "src/utils/island-layout.ts",
+    "area": "src/utils"
+  },
+  {
+    "file": "src/utils/layout.ts",
+    "area": "src/utils"
+  },
+  {
+    "file": "src/utils/nav-path.fixture.test.ts",
+    "area": "src/utils"
+  },
+  {
+    "file": "src/utils/nav-path.test.ts",
+    "area": "src/utils"
+  },
+  {
+    "file": "src/utils/nav-path.ts",
+    "area": "src/utils"
+  },
+  {
+    "file": "src/utils/nickname.ts",
+    "area": "src/utils"
+  },
+  {
+    "file": "src/utils/orientation.lock.test.tsx",
+    "area": "src/utils"
+  },
+  {
+    "file": "src/utils/orientation.test.ts",
+    "area": "src/utils"
+  },
+  {
+    "file": "src/utils/orientation.ts",
+    "area": "src/utils"
+  },
+  {
+    "file": "src/utils/questWindowTz.test.ts",
+    "area": "src/utils"
+  },
+  {
+    "file": "src/utils/questWindowTz.ts",
+    "area": "src/utils"
+  },
+  {
+    "file": "src/utils/scrollEnd.ts",
+    "area": "src/utils"
+  },
+  {
+    "file": "src/utils/sha256.test.ts",
+    "area": "src/utils"
+  },
+  {
+    "file": "src/utils/sha256.ts",
+    "area": "src/utils"
+  },
+  {
+    "file": "src/utils/village-world.test.ts",
+    "area": "src/utils"
+  },
+  {
+    "file": "src/utils/village-world.ts",
+    "area": "src/utils"
+  },
+  {
+    "file": "src/utils/world-grid.test.ts",
+    "area": "src/utils"
+  },
+  {
+    "file": "src/utils/world-grid.ts",
+    "area": "src/utils"
+  },
+  {
+    "file": "src/utils/worldCoords.test.ts",
+    "area": "src/utils"
+  },
+  {
+    "file": "src/utils/worldCoords.ts",
+    "area": "src/utils"
+  },
+  {
+    "file": "test-evidence/GROMO-2059/README.md",
+    "area": "test-evidence/GROMO-2059"
+  },
+  {
+    "file": "test-evidence/GROMO-2059/web-after.png",
+    "area": "test-evidence/GROMO-2059"
+  },
+  {
+    "file": "test-evidence/GROMO-2059/web-before.png",
+    "area": "test-evidence/GROMO-2059"
+  },
+  {
+    "file": "tsconfig.json",
+    "area": "app-config"
+  }
+]
