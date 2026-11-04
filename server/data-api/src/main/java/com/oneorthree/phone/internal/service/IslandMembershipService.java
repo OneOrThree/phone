@@ -274,7 +274,7 @@ public class IslandMembershipService {
                         membershipStatus = IslandSummaries.statusOf(false, latest);
                     }
                     IslandArrivalView view = new IslandArrivalView(islandId, !first, membershipStatus,
-                            member ? islandId : liveCurrentIsland(userId));
+                            member ? islandId : liveCurrentIsland(userId), null);
                     // 도착은 가입·이탈이 아니다 — island.members.updated 로 방송하지 않는다(switch 와 같다). 주민 첫
                     // 도착만 그 섬 events 채널에 소식 하나를 낸다(GROMO-2302). receipt 에도 담아 재생이 같은 봉투를 돌려준다.
                     List<EventEnvelope> events = new ArrayList<>();

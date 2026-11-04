@@ -80,6 +80,18 @@ class IslandMembershipContractTest extends UpstreamTestBase {
         assertThat(forwarded.header("X-User-Id")).isEqualTo(USER.toString());
     }
 
+    @Test
+    @DisplayName("첫 항해 도착 응답의 firstArrivalEventId 는 상류가 줄 때만 그대로 내려간다")
+    void introArrivalPassesFirstArrivalEventIdThrough() throws Exception {
+        String path = "POST " + INTERNAL + "/islands/" + ISLAND + "/intro-arrivals";
+        DATA.on(path, request -> ok("{\"islandId\":\"" + OTHER + "\",\"arrivedBefore\":false,"
+                + "\"membershipStatus\":\"active\",\"currentIslandId\":\"" + OTHER + "\","
+                + "\"firstArrivalEventId\":\"" + ISLAND + "\"}"));
+        mockMvc.perform(write(post("/islands/" + ISLAND + "/intro-arrivals"), ""))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.firstArrivalEventId").value(ISLAND.toString()));
+    }
+
     private static final String EXT = "[\"i2\",\"com.oneorthree.focuscat\",\"2.3.8\",\"778\",\"17.5.1\",\"iPhone15,2\","
             + "\"ko_KR\",\"KST\",\"\",\"393\",\"852\",\"3\",\"\",\"\",\"\",\"Asia/Seoul\"]";
     private static final String INTRO_OK = "{\"islandId\":\"" + OTHER + "\",\"arrivedBefore\":false,"

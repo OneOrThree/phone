@@ -328,7 +328,12 @@ class OnboardingIslandIntegrationTest {
                 Boolean.class, user)).isTrue();
         // 같은 키 재시도와 재설치 뒤 새 키 모두 행을 늘리거나 바꾸지 않는다.
         assertThat(intro.arrive(user, candidate, key, meta("anon-1"))).isEqualTo(arrival);
-        intro.arrive(user, arrival.islandId(), UUID.randomUUID(), meta("anon-2"));
+        // 첫 도착 응답은 행의 event_id 를 싣고, 같은 키 재시도(위 isEqualTo)도 같은 값을 재생한다. 새 키 도착은 싣지 않는다.
+        assertThat(arrival.firstArrivalEventId())
+                .isEqualTo(jdbc.queryForObject("select event_id from first_island_arrivals where user_id=?",
+                        UUID.class, user));
+        assertThat(intro.arrive(user, arrival.islandId(), UUID.randomUUID(), meta("anon-2"))
+                .firstArrivalEventId()).isNull();
         assertThat(count("select count(*) from first_island_arrivals where user_id=?", user)).isEqualTo(1);
         assertThat(jdbc.queryForObject("select anon_id from first_island_arrivals where user_id=?", String.class,
                 user)).isEqualTo("anon-1");
@@ -373,8 +378,10 @@ class OnboardingIslandIntegrationTest {
         UUID destination = islands.create(owner, new CreateIslandCommandRequest("친구 섬", null, false, 5),
                 UUID.randomUUID()).id();
         UUID user = user();
-        intro.arrive(user, destination, UUID.randomUUID(), null);
+        var arrival = intro.arrive(user, destination, UUID.randomUUID(), null);
         var row = jdbc.queryForMap("select * from first_island_arrivals where user_id=?", user);
+        // 메타가 없어 SKIPPED 여도 SDK 로그용 사건 ID 는 내려간다.
+        assertThat(arrival.firstArrivalEventId()).isEqualTo(row.get("event_id"));
         assertThat(row.get("send_status")).isEqualTo("SKIPPED");
         assertThat(row.get("anon_id")).isNull();
         assertThat(row.get("next_attempt_at")).isNull();
@@ -398,7 +405,7 @@ class OnboardingIslandIntegrationTest {
         islands.create(user, new CreateIslandCommandRequest("내 섬", null, false, 5), UUID.randomUUID());
         assertThat(count("select count(*) from island_arrivals where user_id=?", user)).isEqualTo(1);
         UUID candidate = telescope.list(user).items().get(0).islandId();
-        intro.arrive(user, candidate, UUID.randomUUID(), meta("anon-3"));
+        assertThat(intro.arrive(user, candidate, UUID.randomUUID(), meta("anon-3")).firstArrivalEventId()).isNull();
         assertThat(count("select count(*) from first_island_arrivals where user_id=?", user)).isZero();
     }
 
