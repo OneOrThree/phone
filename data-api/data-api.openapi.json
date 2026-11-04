@@ -7797,6 +7797,10 @@
           "currentIslandId": {
             "type": "string",
             "format": "uuid"
+          },
+          "firstArrivalEventId": {
+            "type": "string",
+            "format": "uuid"
           }
         }
       },
