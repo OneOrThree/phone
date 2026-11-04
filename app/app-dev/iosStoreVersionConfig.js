@@ -5,7 +5,7 @@ const { withInfoPlist, withXcodeProject } = require('expo/config-plugins');
 // iOS Cattus 앱(com.oneorthree.focuscat)은 여기서 따로 정한다.
 // prebuild 가 Info.plist 와 pbxproj 를 다시 쓸 때 Expo 의 withVersion 이 app.config version 으로 되돌리므로
 // 이 플러그인이 마지막에 IOS_STORE_VERSION 으로 덮어쓴다(앱 설정의 플러그인은 Expo 기본 플러그인보다 뒤에 실행된다).
-const IOS_STORE_VERSION = '2.3.0';
+const IOS_STORE_VERSION = '2.3.1';
 
 function applyIosShortVersion(infoPlist) {
   infoPlist.CFBundleShortVersionString = IOS_STORE_VERSION;
