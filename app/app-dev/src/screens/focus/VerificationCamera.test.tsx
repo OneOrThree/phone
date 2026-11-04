@@ -1,4 +1,6 @@
 import { act, render } from '@testing-library/react-native';
+import { Platform } from 'react-native';
+import { Asset } from 'expo-asset';
 import { useCamera, useFrameOutput, type Frame } from 'react-native-vision-camera';
 import { useResizer } from 'react-native-vision-camera-resizer';
 import { useTensorflowModel } from 'react-native-fast-tflite';
@@ -11,6 +13,7 @@ import { PREVIEW_SAMPLE_MS, PREVIEW_STALE_MS, VerificationCamera } from './Verif
 
 jest.mock('../../assets/ml/palm_detection_lite.tflite', () => 1);
 jest.mock('../../assets/ml/efficientdet_lite0_int8.tflite', () => 2);
+jest.mock('expo-asset', () => ({ Asset: { fromModule: jest.fn() } }));
 jest.mock('react-native-vision-camera', () => ({
   useCamera: jest.fn(),
   usePreviewOutput: jest.fn(() => ({})),
@@ -114,6 +117,43 @@ test('측정 OFF에서는 미리보기 출력만 연결하고 모델·리사이�
   const error = new Error('preview unavailable');
   await act(async () => jest.mocked(useCamera).mock.calls.at(-1)![0].onError!(error));
   expect(screen.onError).toHaveBeenCalledWith(error);
+});
+
+test('iOS 는 번들 require 값을 그대로 모델에 넘기고 expo-asset 을 거치지 않는다', async () => {
+  await setup();
+  expect(jest.mocked(useTensorflowModel).mock.calls.map(([source]) => source)).toEqual(
+    expect.arrayContaining([1, 2]),
+  );
+  expect(Asset.fromModule).not.toHaveBeenCalled();
+});
+
+test('Android 는 expo-asset 이 복사한 file:// 경로로 두 모델을 불러온다(릴리스 raw 리소스 이름은 못 읽는다)', async () => {
+  const originalOS = Platform.OS;
+  Platform.OS = 'android';
+  try {
+    jest.mocked(Asset.fromModule).mockImplementation(
+      (module) =>
+        ({
+          downloadAsync: async () => ({
+            localUri: `file:///data/user/0/com.oneorthree.gromo/cache/ExponentAsset-${String(module)}.tflite`,
+          }),
+        }) as unknown as Asset,
+    );
+    const screen = await setup();
+    expect(Asset.fromModule).toHaveBeenCalledWith(1);
+    expect(Asset.fromModule).toHaveBeenCalledWith(2);
+    const sources = jest.mocked(useTensorflowModel).mock.calls.map(([source]) => source);
+    expect(sources).toEqual(
+      expect.arrayContaining([
+        { url: 'file:///data/user/0/com.oneorthree.gromo/cache/ExponentAsset-1.tflite' },
+        { url: 'file:///data/user/0/com.oneorthree.gromo/cache/ExponentAsset-2.tflite' },
+      ]),
+    );
+    expect(sources.filter((source) => typeof source === 'number')).toEqual([]);
+    expect(screen.getByTestId('native-camera')).toBeTruthy();
+  } finally {
+    Platform.OS = originalOS;
+  }
 });
 
 test('측정과 미리보기가 모두 OFF이면 카메라도 구성하지 않는다', async () => {
