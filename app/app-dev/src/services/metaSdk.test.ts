@@ -2,6 +2,7 @@ import { AppState, NativeModules, Platform } from 'react-native';
 
 const mockSyncTracking = jest.fn();
 const mockMetaContext = jest.fn();
+const mockLogEvent = jest.fn();
 const mockAndroidContext = jest.fn();
 let mockAndroidModule: unknown;
 jest.mock('expo', () => ({ requireOptionalNativeModule: () => mockAndroidModule }));
@@ -32,9 +33,11 @@ beforeEach(() => {
     .mockReset()
     .mockResolvedValue({ anonId: 'anon-2', advertiserTrackingEnabled: true });
   mockAndroidModule = { metaContext: mockAndroidContext };
+  mockLogEvent.mockReset().mockResolvedValue(true);
   NativeModules.MetaAppEventsModule = {
     syncTracking: mockSyncTracking,
     metaContext: mockMetaContext,
+    logEvent: mockLogEvent,
   };
   jest.isolateModules(() => {
     meta = require('./metaSdk');
@@ -184,5 +187,38 @@ describe('metaContext', () => {
     await expect(meta.metaContext()).resolves.toBeUndefined();
     NativeModules.MetaAppEventsModule = { syncTracking: mockSyncTracking };
     await expect(meta.metaContext()).resolves.toBeUndefined();
+  });
+});
+
+// GROMO-2749: iOS 만 Meta SDK 로 맞춤 이벤트를 기록한다(Android 는 서버 CAPI 만).
+describe('logMetaEvent', () => {
+  test('운영 iOS는 이름과 event_id 로 네이티브 기록을 부른다', async () => {
+    process.env.EXPO_PUBLIC_ENV = 'prod';
+    await expect(meta.logMetaEvent('first_island_arrival', 'evt-1')).resolves.toBe(true);
+    expect(mockLogEvent).toHaveBeenCalledWith('first_island_arrival', 'evt-1');
+  });
+
+  test.each(['Android', '웹', '개발', 'dev 서버', '수집 중지'])(
+    '%s에서는 부르지 않는다',
+    async (mode) => {
+      process.env.EXPO_PUBLIC_ENV = 'prod';
+      if (mode === 'Android') Platform.OS = 'android';
+      if (mode === '웹') Platform.OS = 'web';
+      if (mode === '개발') Object.assign(globalThis, { __DEV__: true });
+      if (mode === 'dev 서버') process.env.EXPO_PUBLIC_ENV = 'dev';
+      if (mode === '수집 중지') process.env.EXPO_PUBLIC_META_ENABLED = '0';
+      await expect(meta.logMetaEvent('first_island_arrival', 'evt-1')).resolves.toBe(false);
+      expect(mockLogEvent).not.toHaveBeenCalled();
+    },
+  );
+
+  test('SDK 시작 전(false)·브리지 없음·예외는 false', async () => {
+    process.env.EXPO_PUBLIC_ENV = 'prod';
+    mockLogEvent.mockResolvedValueOnce(false);
+    await expect(meta.logMetaEvent('first_island_arrival', 'evt-1')).resolves.toBe(false);
+    mockLogEvent.mockRejectedValueOnce(new Error('boom'));
+    await expect(meta.logMetaEvent('first_island_arrival', 'evt-1')).resolves.toBe(false);
+    NativeModules.MetaAppEventsModule = { syncTracking: mockSyncTracking };
+    await expect(meta.logMetaEvent('first_island_arrival', 'evt-1')).resolves.toBe(false);
   });
 });

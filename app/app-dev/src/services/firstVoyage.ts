@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ApiError, CLIENT_STALE_SESSION, request, uuid } from '@/services/api/client';
-import { metaContext } from '@/services/metaSdk';
+import { logMetaEvent, metaContext } from '@/services/metaSdk';
 import { sessionGeneration } from '@/services/api/session';
 import type { Arrival, TelescopeItem } from '@/services/api/telescope';
 
@@ -57,10 +57,19 @@ export async function arriveFirstVoyage(
   // 기다리는 사이 로그아웃·계정 전환이 끝났으면 보내지 않는다 — 요청은 전송 시점의 토큰을 쓰므로 새 계정에 도착한다.
   if (generation !== sessionGeneration())
     throw new ApiError(CLIENT_STALE_SESSION, '로그인 정보가 바뀌었어요. 다시 시도해 주세요.', 0);
-  return request(`/islands/${encodeURIComponent(intent.destination.islandId)}/intro-arrivals`, {
-    method: 'POST',
-    idempotencyKey: intent.key,
-    generation,
-    ...(meta ? { body: { meta } } : {}),
-  });
+  const arrival = await request<Arrival>(
+    `/islands/${encodeURIComponent(intent.destination.islandId)}/intro-arrivals`,
+    {
+      method: 'POST',
+      idempotencyKey: intent.key,
+      generation,
+      ...(meta ? { body: { meta } } : {}),
+    },
+  );
+  // 계정 첫 도착이면 서버 CAPI 와 같은 event_id 로 Meta SDK 에도 기록한다 — SKAN·AEM 은 기기 SDK 이벤트만 쓴다
+  // (GROMO-2749). 기록 실패가 도착을 막지 않는다.
+  // ponytail: SDK 가 아직 시작 전이면 이번 기록은 버린다(서버 CAPI 는 그대로 나감). 놓치는 일이 잦으면 대기열을 둔다.
+  if (arrival.firstArrivalEventId)
+    void logMetaEvent('first_island_arrival', arrival.firstArrivalEventId).catch(() => undefined);
+  return arrival;
 }
