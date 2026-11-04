@@ -59,18 +59,22 @@ function buildExtinfo(): string[] {
 export async function metaContext(): Promise<MetaContext | undefined> {
   if (!enabled()) return undefined;
   try {
-    if (Platform.OS === 'ios') {
-      const meta = NativeModules.MetaAppEventsModule as MetaAppEventsModule | undefined;
-      const native = await meta?.metaContext?.();
-      if (!native?.anonId) return undefined;
-      return { ...native, extinfo: buildExtinfo() };
-    }
-    const anonId = await requireOptionalNativeModule<{ anonymousId(): Promise<string | null> }>(
-      'MetaAppEvents',
-    )?.anonymousId();
-    return anonId
-      ? { anonId, advertiserTrackingEnabled: true, extinfo: buildExtinfo() }
-      : undefined;
+    // iOS는 ATT 허용 여부, Android는 기기 광고 추적 제한 설정(GROMO-2743)을 네이티브가 준다.
+    const native =
+      Platform.OS === 'ios'
+        ? await (
+            NativeModules.MetaAppEventsModule as MetaAppEventsModule | undefined
+          )?.metaContext?.()
+        : await requireOptionalNativeModule<Pick<MetaAppEventsModule, 'metaContext'>>(
+            'MetaAppEvents',
+          )?.metaContext?.();
+    if (!native?.anonId) return undefined;
+    // 값이 없으면 허용을 가정하지 않는다.
+    return {
+      anonId: native.anonId,
+      advertiserTrackingEnabled: native.advertiserTrackingEnabled === true,
+      extinfo: buildExtinfo(),
+    };
   } catch {
     return undefined;
   }

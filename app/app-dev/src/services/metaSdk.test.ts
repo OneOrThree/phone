@@ -2,7 +2,7 @@ import { AppState, NativeModules, Platform } from 'react-native';
 
 const mockSyncTracking = jest.fn();
 const mockMetaContext = jest.fn();
-const mockAnonymousId = jest.fn();
+const mockAndroidContext = jest.fn();
 let mockAndroidModule: unknown;
 jest.mock('expo', () => ({ requireOptionalNativeModule: () => mockAndroidModule }));
 jest.mock('expo-application', () => ({
@@ -28,8 +28,10 @@ beforeEach(() => {
   mockMetaContext
     .mockReset()
     .mockResolvedValue({ anonId: 'anon-1', advertiserTrackingEnabled: false });
-  mockAnonymousId.mockReset().mockResolvedValue('anon-2');
-  mockAndroidModule = { anonymousId: mockAnonymousId };
+  mockAndroidContext
+    .mockReset()
+    .mockResolvedValue({ anonId: 'anon-2', advertiserTrackingEnabled: true });
+  mockAndroidModule = { metaContext: mockAndroidContext };
   NativeModules.MetaAppEventsModule = {
     syncTracking: mockSyncTracking,
     metaContext: mockMetaContext,
@@ -131,7 +133,7 @@ describe('metaContext', () => {
     expect(context?.extinfo[4]).not.toBe('');
   });
 
-  test('운영 Android는 Expo 모듈 익명 ID를 쓰고 추적은 true', async () => {
+  test('운영 Android는 Expo 모듈의 익명 ID와 추적 허용 값을 쓴다', async () => {
     Platform.OS = 'android';
     process.env.EXPO_PUBLIC_ENV = 'prod';
     const context = await meta.metaContext();
@@ -141,11 +143,28 @@ describe('metaContext', () => {
     expect(mockMetaContext).not.toHaveBeenCalled();
   });
 
+  // GROMO-2743: 광고 추적을 제한한 기기를 허용으로 보내지 않는다.
+  test.each([
+    ['추적 제한 기기', false],
+    ['값 없음', undefined],
+  ])('운영 Android의 %s은 추적 허용 false', async (_, value) => {
+    Platform.OS = 'android';
+    process.env.EXPO_PUBLIC_ENV = 'prod';
+    mockAndroidContext.mockResolvedValueOnce({
+      anonId: 'anon-2',
+      advertiserTrackingEnabled: value,
+    });
+    await expect(meta.metaContext()).resolves.toMatchObject({
+      anonId: 'anon-2',
+      advertiserTrackingEnabled: false,
+    });
+  });
+
   test.each(['', 'dev'])('Android는 환경이 "%s"이면 undefined', async (env) => {
     Platform.OS = 'android';
     if (env) process.env.EXPO_PUBLIC_ENV = env;
     await expect(meta.metaContext()).resolves.toBeUndefined();
-    expect(mockAnonymousId).not.toHaveBeenCalled();
+    expect(mockAndroidContext).not.toHaveBeenCalled();
   });
 
   test.each(['개발', '목업', '수집 중지'])('%s에서는 undefined', async (mode) => {
