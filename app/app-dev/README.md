@@ -265,7 +265,7 @@ Meta 앱 `1092876403132413`의 iOS 기본 설치·실행 이벤트를 공식 `FB
 
 `first_island_arrival`(GROMO-2742)은 앱 SDK가 아니라 서버가 Conversions API로 보냅니다. 앱은 첫 항해 도착 요청(`arriveFirstVoyage`)에 Meta 설치 익명 ID·ATT 허용 여부·extinfo(`metaContext`)를 `meta`로 실어 보내고, 얻지 못하면 빼고 보냅니다. iOS는 `MetaAppEventsModule.metaContext`, Android는 로컬 Expo 모듈 `modules/meta-app-events`(`MetaAppEvents.metaContext`)를 쓰며 Android는 `EXPO_PUBLIC_ENV=prod`일 때만 보냅니다. Android 추적 허용 값은 Meta SDK가 읽는 기기 광고 추적 제한 설정(`AttributionIdentifiers.isTrackingLimited`)을 따르고, 읽지 못하면 false입니다(GROMO-2743). 네이티브 변경이라 iOS 런타임에 `-meta-events-v1`, Android 런타임에 `-meta-events-v2`를 붙였습니다.
 
-Meta 콘솔 iOS 번들 ID는 `com.oneorthree.focuscat`, Store ID는 `6813004121`입니다. Store ID는 Meta가 App Store에 최소 24시간 공개된 앱만 검증할 수 있어 공개 후 등록해야 합니다. 운영용 새 바이너리에서 실제 설치·실행 이벤트 수신 확인이 필요합니다.
+iOS 2.3.0 은 1.x 와 같은 App Store 앱(번들 `com.oneorthree.gromo`, Store ID `6774498679`)에 업데이트로 2026-11-03 21:40 KST 에 공개됐습니다. Meta 콘솔의 iOS 번들 ID·Store ID 는 이 값으로 맞춥니다. Meta 는 App Store 에 최소 24시간 공개된 앱만 Store ID 를 검증하므로 2026-11-04 21:40 KST 이후 등록할 수 있습니다. `com.oneorthree.focuscat`(Store ID `6813004121`)은 스토어에 공개된 적이 없습니다. 운영용 새 바이너리에서 실제 설치·실행 이벤트 수신 확인이 필요합니다.
 
 ### 이미지 CDN 시범 캐시
 
