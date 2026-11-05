@@ -1,0 +1,7 @@
+[
+  {
+    "file": "app/app-dev/src/components/CatOutfitLayers.tsx",
+    "expression": "fetch(url)",
+    "reason": "캐릭터 의상 자산 수신. 공용 서버 API 경로 대조 대상에서 제외"
+  }
+]
