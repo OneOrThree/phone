@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ApiError, CLIENT_STALE_SESSION, request, uuid } from '@/services/api/client';
 import { logMetaEvent, metaContext } from '@/services/metaSdk';
+import { captureProductEvent } from '@/services/posthog';
 import { sessionGeneration } from '@/services/api/session';
 import type { Arrival, TelescopeItem } from '@/services/api/telescope';
 
@@ -47,11 +48,11 @@ export async function arriveFirstVoyage(
   intent: FirstVoyageIntent,
   generation = sessionGeneration(),
 ): Promise<Arrival> {
-  // 서버가 Meta로 첫 도착 이벤트를 보낼 매칭 값(GROMO-2742). 실패·지연이 도착을 막지 않게 1초로 끊는다.
+  // 서버가 Meta로 첫 도착 이벤트를 보낼 매칭 값. SDK 초기화를 기다리되 도착을 막지 않게 3초로 끊는다.
   let timer: ReturnType<typeof setTimeout> | undefined;
   const meta = await Promise.race([
     metaContext().catch(() => undefined),
-    new Promise<undefined>((resolve) => (timer = setTimeout(() => resolve(undefined), 1000))),
+    new Promise<undefined>((resolve) => (timer = setTimeout(() => resolve(undefined), 3000))),
   ]);
   clearTimeout(timer);
   // 기다리는 사이 로그아웃·계정 전환이 끝났으면 보내지 않는다 — 요청은 전송 시점의 토큰을 쓰므로 새 계정에 도착한다.
@@ -68,8 +69,18 @@ export async function arriveFirstVoyage(
   );
   // 계정 첫 도착이면 서버 CAPI 와 같은 event_id 로 Meta SDK 에도 기록한다 — SKAN·AEM 은 기기 SDK 이벤트만 쓴다
   // (GROMO-2749). 기록 실패가 도착을 막지 않는다.
-  // ponytail: SDK 가 아직 시작 전이면 이번 기록은 버린다(서버 CAPI 는 그대로 나감). 놓치는 일이 잦으면 대기열을 둔다.
-  if (arrival.firstArrivalEventId)
-    void logMetaEvent('first_island_arrival', arrival.firstArrivalEventId).catch(() => undefined);
+  if (arrival.firstArrivalEventId) {
+    // Google Ads 는 앱 분석 SDK 포스트백만 받는다 — 같은 도착을 PostHog·Airbridge 로도 보낸다(GROMO-2753).
+    // SDK 기록 성공 여부(meta_sdk_logged)를 PostHog 에 남겨 기기에서 Meta 기록이 되는지 본다.
+    void logMetaEvent('first_island_arrival', arrival.firstArrivalEventId)
+      .catch(() => false)
+      .then((logged) =>
+        captureProductEvent('first_island_arrival', { meta_sdk_logged: logged ? 1 : 0 }),
+      );
+    // 광고 세트가 최적화하는 표준 「등록 완료」도 같은 사건 ID로 기록한다. 과거 사건을 재생하지 않는다.
+    void logMetaEvent('fb_mobile_complete_registration', arrival.firstArrivalEventId).catch(
+      () => false,
+    );
+  }
   return arrival;
 }

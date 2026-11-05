@@ -337,7 +337,8 @@ public class TelescopeService {
         return new TelescopeItemView(island.getId(), island.getName(), IslandSummaries.introOf(island),
                 (int) memberCount, maxMembers, IslandSummaries.approvalRequiredFor(island, kicked),
                 membershipStatus, slot, sailingMinutes,
-                average.isPresent() ? average.getAsInt() : null, memberCount >= maxMembers, arrivedBefore,
+                average.isPresent() ? average.getAsInt() : null,
+                !island.isWebLobby() && memberCount >= maxMembers, arrivedBefore,
                 pinnedFrom, pinnedAt, magazineCell, buildingCount);
     }
 }

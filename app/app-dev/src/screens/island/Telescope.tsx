@@ -1,3 +1,4 @@
+import { sharedWebIslandId, usesSharedWebIsland } from '@/services/webIsland';
 import { ISLAND_ART_ASPECT, ISLAND_STAGE_ART, islandStage } from '@/constants/magazineAssets';
 import { Badge, Btn, NavBtn, Pic, Txt } from '@/design-system/patterns';
 import { Card } from '@/design-system/primitives';
@@ -14,6 +15,7 @@ import { AdCell } from '@/screens/magazine/AdCell';
 import { useFirstVoyage } from '@/screens/onboarding/useFirstVoyage';
 import { SeaVoyagePreparation } from '@/screens/sea/SeaVoyagePreparation';
 import { RAFT_TELESCOPE_ASPECT, raftTelescope, telescopeSea } from '@/screens/sea/seaAssets';
+import { SeaNotice } from '@/screens/sea/seaModel';
 import { saveSeaRemark } from '@/screens/sea/seaRemark';
 import { ApiError, CLIENT_STALE_SESSION, uuid } from '@/services/api/client';
 import type { MagazineCell } from '@/services/api/magazine';
@@ -441,7 +443,11 @@ function IslandBubble({
       {isMagazinePin(item) && <MagazinePreview cell={item.magazineCell} />}
       <SheetGroup>
         <SheetRow
-          title={t('telescope.residents', { count: item.memberCount, max: item.maxMembers })}
+          title={
+            usesSharedWebIsland() && item.islandId === sharedWebIslandId()
+              ? `${item.memberCount}마리 · 정원 제한 없음`
+              : t('telescope.residents', { count: item.memberCount, max: item.maxMembers })
+          }
         />
         <SheetRow title={averageText(item.averageFocusMinutesPerDay)} />
         {!firstVoyage && (
@@ -714,7 +720,10 @@ export function Telescope({
     const route = view ? sessionRoute(view) : 'sea';
     try {
       if (remark && route === 'sea' && !previewItems)
-        await saveSeaRemark(e, remark).catch(() => e.notify(t('openSea.remarkFailed')));
+        await saveSeaRemark(e, remark).catch((thrown) =>
+          // 내용 거절(금칙어 등)은 바다에서 같은 글로 다시 써도 거절되므로 그 이유를 알린다
+          e.notify(thrown instanceof SeaNotice ? thrown.message : t('openSea.remarkFailed')),
+        );
       if (!alive()) return;
       // 라우트 인자는 목적지 이름 — 서버가 세션에 이름을 싣기 전(T1)에도 항해 화면이 섬 이름을 쓴다
       enter(

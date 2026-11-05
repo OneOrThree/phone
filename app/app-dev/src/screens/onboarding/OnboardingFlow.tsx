@@ -39,6 +39,8 @@ import {
   storySteps,
   type StoryStep,
 } from './story';
+import { WebIslandEntry } from '@/screens/web-demo/WebIslandEntry';
+import { usesSharedWebIsland } from '@/services/webIsland';
 import { useFirstVoyage } from './useFirstVoyage';
 import { useStoryLine } from './useStoryLine';
 
@@ -74,7 +76,8 @@ export function OnboardingFlow({
   const latest = useRef(e);
   latest.current = e;
   const list = useTelescope({
-    active: !previewItems && !!e.islands && ['scope', 'ready'].includes(step),
+    active:
+      !usesSharedWebIsland() && !previewItems && !!e.islands && ['scope', 'ready'].includes(step),
     beforeLoad: e.islandBootError ? e.islands?.sync : undefined,
   });
   const items = visibleTelescopeItems(previewItems ?? list.items);
@@ -87,9 +90,12 @@ export function OnboardingFlow({
         : 'readyJoined'
       : step;
   const firstLine = firstVoyage.eligible && ['invite', 'scope', 'depart'].includes(lineKey);
-  const line = storyHasLine(step)
-    ? t(firstLine ? `firstVoyage.${lineKey}` : `onboardingStory.${lineKey}`, { name })
-    : '';
+  const line =
+    usesSharedWebIsland() && step === 'invite'
+      ? '웹에서 만난 고양이들이 기다리는 섬으로 가 볼까요?'
+      : storyHasLine(step)
+        ? t(firstLine ? `firstVoyage.${lineKey}` : `onboardingStory.${lineKey}`, { name })
+        : '';
   const typing = useStoryLine(step, line);
   const scroll = useRef<ScrollView>(null);
   const width = Math.min(layout.width, ui.maxWidth);
@@ -303,6 +309,7 @@ export function OnboardingFlow({
           : 'start'
         : 'enterSea';
 
+  if (usesSharedWebIsland() && scopeStep) return <WebIslandEntry e={e} />;
   if (firstVoyage.scene) return firstVoyage.scene;
 
   if (step === 'choose')
@@ -598,11 +605,15 @@ export function OnboardingFlow({
               <Btn
                 id="onboarding-continue"
                 dynamicHeight
-                title={t(
-                  firstVoyage.eligible && step === 'ready'
-                    ? 'firstVoyage.start'
-                    : `onboardingStory.${ctaText}`,
-                )}
+                title={
+                  usesSharedWebIsland() && step === 'invite'
+                    ? '함께 집중하는 섬으로'
+                    : t(
+                        firstVoyage.eligible && step === 'ready'
+                          ? 'firstVoyage.start'
+                          : `onboardingStory.${ctaText}`,
+                      )
+                }
                 disabled={
                   pending ||
                   firstVoyage.pending ||

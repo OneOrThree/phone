@@ -35,7 +35,7 @@
 | realtime | `config/JwtFilter.java:32` | 401 본문 `{code, message}` 를 손으로 쓴다(`:65-69`) |
 
 재시도 힌트가 필요한 실패만 필드를 **더한다** — `RetryAfterErrorResponse.retryAfterMs`
-(`RESULT_CLAIM_HELD` · `RATE_LIMITED`). 값은 **상대 지연(ms)**이지 절대 시각이 아니다. 봉투를 바꾸지 않고 상속으로
+(`RESULT_CLAIM_HELD` · `RATE_LIMITED` · `SEA_REMARK_LOCKED`). 값은 **상대 지연(ms)**이지 절대 시각이 아니다. 봉투를 바꾸지 않고 상속으로
 늘리는 것이 규칙이다 — 앱이 `code` 로 분기하고 있어 모양을 갈아 끼우면 기존 경로가 통째로 흔들린다.
 
 **`code` 문자열은 계약이다.** 앱이 분기하는 코드가 2026-09-09 실측으로 27종이다(`NOT_FOUND`·

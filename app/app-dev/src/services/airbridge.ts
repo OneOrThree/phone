@@ -103,6 +103,11 @@ export function captureAirbridgeEvent(
           { duration_seconds: properties?.duration_seconds },
         );
         break;
+      case 'first_island_arrival':
+        // 가입 후 첫 섬 도착(첫 항해 체험) — Google Ads 인앱 액션 전환의 출처(GROMO-2753).
+        // Core 플랜은 맞춤 이벤트가 없어 표준 「Complete Tutorial」로 보낸다.
+        client.trackEvent('airbridge.completeTutorial', { action: 'first_island_arrival' });
+        break;
     }
   } catch {
     // 계측 실패가 로그인·집중 완료 처리를 막지 않도록 한다.

@@ -20,6 +20,7 @@
  *
  * 가입의 `origin: 'telescope'` 는 `islands.ts joinIsland` 가 맡는다 — 즉시 가입이어도 현재 섬을 옮기지 않는다.
  */
+import { sharedWebIslandId, usesSharedWebIsland } from '../webIsland';
 import { ApiError, request } from './client';
 import { CLIENT_CONTRACT_ERROR } from './home';
 import { readMagazineCell, type MagazineCell } from './magazine';
@@ -135,7 +136,9 @@ function validateTelescope(raw: unknown): Telescope {
 }
 
 export async function getTelescope(): Promise<Telescope> {
-  return validateTelescope(await request<unknown>('/me/telescope'));
+  const result = validateTelescope(await request<unknown>('/me/telescope'));
+  if (!usesSharedWebIsland()) return result;
+  return { ...result, items: result.items.filter((item) => item.islandId === sharedWebIslandId()) };
 }
 
 /**

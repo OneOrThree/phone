@@ -164,7 +164,7 @@ describe.each([
     undefined,
   ],
   [
-    'meta가 멈추면 1초 뒤 meta 없이 도착한다',
+    'meta가 멈추면 3초 뒤 meta 없이 도착한다',
     () => (metaContext as jest.Mock).mockReturnValue(new Promise(() => {})),
     undefined,
   ],
@@ -175,7 +175,9 @@ describe.each([
     await fireEvent.press(screen.getByTestId('onboarding-island-candidate'));
     await fireEvent.press(screen.getByTestId('onboarding-continue'));
     await elapse(5000);
-    await elapse(1000);
+    await elapse(2999);
+    if (_name.includes('멈추면')) expect(request).not.toHaveBeenCalled();
+    await elapse(1);
     expect(request).toHaveBeenCalledTimes(1);
     expect((request as jest.Mock).mock.calls[0][1].body).toEqual(body);
   });

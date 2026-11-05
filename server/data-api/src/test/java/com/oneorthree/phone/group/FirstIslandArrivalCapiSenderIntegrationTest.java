@@ -44,7 +44,7 @@ class FirstIslandArrivalCapiSenderIntegrationTest {
     private static final List<String> BODIES = new CopyOnWriteArrayList<>();
     private static final List<String> PATHS = new CopyOnWriteArrayList<>();
     private static volatile int stubStatus = 200;
-    private static volatile String stubBody = "{\"events_received\":1}";
+    private static volatile String stubBody = "{\"events_received\":2}";
 
     private static HttpServer start() {
         try {
@@ -100,7 +100,7 @@ class FirstIslandArrivalCapiSenderIntegrationTest {
         BODIES.clear();
         PATHS.clear();
         stubStatus = 200;
-        stubBody = "{\"events_received\":1}";
+        stubBody = "{\"events_received\":2}";
     }
 
     private UUID pendingRow() {
@@ -134,22 +134,37 @@ class FirstIslandArrivalCapiSenderIntegrationTest {
         JsonNode root = OutboxEnvelopeCodec.fromJson(BODIES.get(0), JsonNode.class);
         assertThat(root.path("access_token").asText()).isEqualTo("secret-token");
         assertThat(root.path("test_event_code").asText()).isEqualTo("TEST777");
-        JsonNode e = root.path("data").get(0);
-        assertThat(root.path("data").size()).isEqualTo(1);
-        assertThat(e.path("event_name").asText()).isEqualTo("first_island_arrival");
-        assertThat(e.path("event_time").asLong())
-                .isEqualTo(((Timestamp) before.get("occurred_at")).toInstant().getEpochSecond());
-        assertThat(e.path("event_id").asText()).isEqualTo(before.get("event_id").toString());
-        assertThat(e.path("action_source").asText()).isEqualTo("app");
-        assertThat(e.path("user_data").path("anon_id").asText()).isEqualTo("anon-xyz");
-        assertThat(e.path("user_data").path("client_ip_address").asText()).isEqualTo("198.51.100.9");
-        assertThat(e.path("app_data").path("advertiser_tracking_enabled").asInt()).isZero();
-        assertThat(e.path("app_data").path("application_tracking_enabled").asInt()).isEqualTo(1);
-        assertThat(e.path("app_data").path("extinfo").size()).isEqualTo(16);
-        assertThat(e.path("app_data").path("extinfo").get(0).asText()).isEqualTo("a2");
+        // 같은 사건을 맞춤 이름과 표준 「등록 완료」 두 이름으로 보낸다(GROMO-2755). 나머지 값은 둘이 같다.
+        assertThat(root.path("data").size()).isEqualTo(2);
+        assertThat(root.path("data").get(0).path("event_name").asText()).isEqualTo("first_island_arrival");
+        assertThat(root.path("data").get(1).path("event_name").asText()).isEqualTo("fb_mobile_complete_registration");
+        for (JsonNode e : root.path("data")) {
+            assertThat(e.path("event_time").asLong())
+                    .isEqualTo(((Timestamp) before.get("occurred_at")).toInstant().getEpochSecond());
+            assertThat(e.path("event_id").asText()).isEqualTo(before.get("event_id").toString());
+            assertThat(e.path("action_source").asText()).isEqualTo("app");
+            assertThat(e.path("user_data").path("anon_id").asText()).isEqualTo("anon-xyz");
+            assertThat(e.path("user_data").path("client_ip_address").asText()).isEqualTo("198.51.100.9");
+            assertThat(e.path("app_data").path("advertiser_tracking_enabled").asInt()).isZero();
+            assertThat(e.path("app_data").path("application_tracking_enabled").asInt()).isEqualTo(1);
+            assertThat(e.path("app_data").path("extinfo").size()).isEqualTo(16);
+            assertThat(e.path("app_data").path("extinfo").get(0).asText()).isEqualTo("a2");
+        }
         // 종료 상태는 다시 보내지 않는다.
         sender.sendDue();
         assertThat(BODIES).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("200 이어도 보낸 두 이름 중 하나만 접수되면 SENT 가 아니라 FAILED 로 남는다")
+    void partialReceiptFails() {
+        UUID user = pendingRow();
+        stubBody = "{\"events_received\":1}";
+        sender.sendDue();
+        var after = row(user);
+        assertThat(after.get("send_status")).isEqualTo("FAILED");
+        assertThat(after.get("sent_at")).isNull();
+        assertThat(after.get("anon_id")).isNull();
     }
 
     @Test

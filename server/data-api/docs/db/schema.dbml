@@ -439,8 +439,8 @@ Table focus_reward_policy_approvals [note: 'V6: 승인자 서비스 토큰으로
   approval_id uuid [pk]
   expected_revision integer [not null]
   policy_snapshot jsonb [not null]
-  policy_digest char(64) [not null]
-  request_digest char(64) [not null]
+  policy_digest character(64) [not null]
+  request_digest character(64) [not null]
   approved_by varchar(30) [not null]
   approved_at timestamptz [not null, default: `now()`]
   revoked_at timestamptz
@@ -454,8 +454,8 @@ Table focus_reward_policy_publications [note: 'V6: 새 revision 발행의 전후
   previous_revision integer [not null]
   before_policy jsonb [not null]
   after_policy jsonb [not null]
-  request_digest char(64) [not null]
-  approved_digest char(64) [not null]
+  request_digest character(64) [not null]
+  approved_digest character(64) [not null]
   approved_by varchar(30) [not null]
   actor varchar(30) [not null]
   published_at timestamptz [not null, default: `now()`]
@@ -481,6 +481,8 @@ Table islands [note: '스터디/챌린지 그룹'] {
   is_private       boolean               [not null, default: false, note: 'true면 이름 검색에서 제외되고 초대 링크(groupId)로만 참여 (V17)']
 
   status           group_status          [not null, default: 'WAITING', note: '챌린지 진행중 여부 파악']
+
+  web_lobby        boolean               [not null, default: false, note: '웹 공용 섬만 정원 제한 없음. 공개 생성·수정 API로 설정 불가']
 
   max_members      integer               [not null, note: '섬 정원 1~15, 미입력 기본 15 (GROMO-1993 정책). 방장을 포함한 현재 주민만 세고 승인 대기 신청·NPC 는 세지 않는다. 계정당 소속 섬 상한(10)과는 다른 축']
 
@@ -1414,3 +1416,10 @@ Table magazine_review_snapshots {
   actor varchar(16) [not null]
   created_at timestamptz [not null]
 }
+
+Table web_island_pools [note: '웹 입장 배정. main 한 곳에서 시작하고 추후 분리한다'] {
+  id varchar(255) [pk]
+  island_id uuid
+}
+
+Ref: web_island_pools.island_id > islands.id

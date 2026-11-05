@@ -134,7 +134,18 @@ public class MainIslandService implements MainIslandNamePort {
      */
     @Transactional(propagation = Propagation.MANDATORY)
     public void onMembershipRevoked(GroupMember member) {
-        UUID userId = member.getUser().getId();
+        onMembershipRevoked(member, member.getUser().getId(), true);
+    }
+
+    /**
+     * {@link #onMembershipRevoked(GroupMember)} 와 같되 이전 알림을 낼지 고른다 — 운영 정리(GROMO-2763)만 끈다.
+     *
+     * @param member         이탈 마킹이 <b>이미 끝난</b> 멤버십 행
+     * @param userId         그 멤버십의 사용자
+     * @param notifyTransfer 옮겼을 때 이전 알림을 낼지. 강퇴는 이 값과 무관하게 내지 않는다
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void onMembershipRevoked(GroupMember member, UUID userId, boolean notifyTransfer) {
         UUID revokedIslandId = member.getGroup().getId();
         // ⚠️ 어떤 «읽기»보다 먼저다. 회수 경로는 users 를 공유로만 잡아 같은 사람의 두 섬 회수가 나란히
         // 도는데, 아래 판정·후보 선택이 그 사이에 끼면 이미 떠난 섬이 메인으로 박힌다. READ COMMITTED 는
@@ -159,7 +170,7 @@ public class MainIslandService implements MainIslandNamePort {
                 row -> row.moveTo(island),
                 () -> mainIslands.save(new UserMainIsland(userId, island)));
         // 강퇴는 이전 알림을 내지 않는다(GROMO-2315, 10/20 결정) — 강퇴 알림 1건만 간다(IslandKickedEvent).
-        if (!member.isKicked()) {
+        if (notifyTransfer && !member.isKicked()) {
             events.publishEvent(new MainIslandTransferredEvent(userId, moved.islandId(), moved.name(), Instant.now()));
         }
     }

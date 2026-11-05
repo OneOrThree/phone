@@ -3,10 +3,6 @@ package com.oneorthree.phone.internal.service;
 import com.oneorthree.phone.construction.service.IslandFacilityQueryService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.oneorthree.phone.common.support.BannedWords;
-import com.oneorthree.phone.construction.repository.IslandConstructionStateRepository;
-import com.oneorthree.phone.construction.repository.IslandWalletRepository;
-import com.oneorthree.phone.construction.repository.domain.IslandConstructionState;
-import com.oneorthree.phone.construction.repository.domain.IslandWallet;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
@@ -103,8 +99,6 @@ public class IslandMembershipService {
     private final IslandStateEvents islandStateEvents;
     private final IslandArrivalEvents islandArrivalEvents;
     private final PublicCommandService publicCommands;
-    private final IslandWalletRepository islandWalletRepository;
-    private final IslandConstructionStateRepository islandConstructionStateRepository;
     private final IslandFacilityQueryService facilityQueries;
     private final IslandMovementGuards movementGuards;
     private final BannedWords bannedWords;
@@ -150,10 +144,9 @@ public class IslandMembershipService {
                             .build());
                     groupMemberRepository.save(GroupMember.builder()
                             .user(user).group(island).role(GroupMemberRole.OWNER).build());
-                    // 섬 생성과 함께 0원 공동 지갑·빈 건설 상태를 만든다(GROMO-1767) — 지갑 부재로
-                    // 건설 조회가 깨지는 섬이 생기지 않게 한다.
-                    islandWalletRepository.save(IslandWallet.empty(island.getId()));
-                    islandConstructionStateRepository.save(IslandConstructionState.empty(island.getId()));
+                    // 섬 생성과 함께 0원 공동 지갑·빈 건설 상태(GROMO-1767)와 완공 마을회관을 만든다 — 항해 정착과
+                    // 같은 시드다(GROMO-2763). 회관 없이 생긴 섬은 건물 트리의 뿌리가 없어 아무것도 지을 수 없다.
+                    onboardingIslands.seedNewIsland(island.getId(), userId, clock.instant());
                     context.moveTo(island.getId());
                     // 만든 섬에서 출발한다 — 처음부터 «가 본 섬» 이다(GROMO-2260).
                     arrivals.recordArrival(userId, island.getId(), clock.instant(), true);
