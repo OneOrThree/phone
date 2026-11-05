@@ -630,6 +630,46 @@
         }
       }
     },
+    "/internal/users/{userId}/web-island": {
+      "post": {
+        "tags": [
+          "internal-island-membership-controller"
+        ],
+        "operationId": "enterWebIsland",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/IslandCreatedView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/internal/users/{userId}/telescope/pins": {
       "post": {
         "tags": [
@@ -3157,6 +3197,37 @@
               "*/*": {
                 "schema": {
                   "$ref": "#/components/schemas/IslandFocusAverageSnapshotView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/admin/hall-less-islands/cleanup": {
+      "post": {
+        "tags": [
+          "internal-hall-less-island-cleanup-controller"
+        ],
+        "operationId": "cleanup",
+        "parameters": [
+          {
+            "name": "dryRun",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": true
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/HallLessIslandCleanupView"
                 }
               }
             }
@@ -7326,6 +7397,25 @@
           }
         }
       },
+      "IslandCreatedView": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "membershipStatus": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "currentIslandId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
       "TelescopePinCommandRequest": {
         "type": "object",
         "properties": {
@@ -7620,25 +7710,6 @@
           "approvalRequired",
           "name"
         ]
-      },
-      "IslandCreatedView": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "membershipStatus": {
-            "type": "string"
-          },
-          "role": {
-            "type": "string"
-          },
-          "currentIslandId": {
-            "type": "string",
-            "format": "uuid"
-          }
-        }
       },
       "TutorialExperienceRewardView": {
         "type": "object",
@@ -8885,6 +8956,90 @@
           "inserted": {
             "type": "integer",
             "format": "int32"
+          }
+        }
+      },
+      "HallLessIslandCleanupView": {
+        "type": "object",
+        "properties": {
+          "dryRun": {
+            "type": "boolean"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/Summary"
+          },
+          "outcomes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Outcome"
+            }
+          }
+        }
+      },
+      "Outcome": {
+        "type": "object",
+        "properties": {
+          "islandId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "result": {
+            "type": "string"
+          },
+          "error": {
+            "type": "string"
+          }
+        }
+      },
+      "Summary": {
+        "type": "object",
+        "properties": {
+          "islandCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "islandIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "residents": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "residentsWithAnotherIsland": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "residentsGoingToSea": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "activeIslandFocusSessions": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "activeSeaVoyages": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "walletFish": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "pendingJoinRequests": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "upcomingPromotions": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "onboardingReservations": {
+            "type": "integer",
+            "format": "int64"
           }
         }
       },
