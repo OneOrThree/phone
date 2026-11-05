@@ -76,7 +76,7 @@ printf 'cleanup=%s\\n' "$MAIN_CREATED_ISLAND_ID"
         self.assertIn('019 FAIL',self.run_flow('wrong-replay')[0])
 
     def test_prod_and_reused_device_refused_before_network(self):
-        for url,device in [('https://catus-api-v2.oneorthree.world',''),('https://oneorthree.dev.mooo.com','existing')]:
+        for url,device in [('https://catus-api-v2.oneorthree.world',''),('https://oneorthree.dev.mooo.com',''),('https://oneorthree-v2.dev.mooo.com','existing')]:
             env={'PATH':__import__('os').environ['PATH'],'BASE_URL':url,'SMOKE_DEVICE_ID':device,'SMOKE_FIRST_VOYAGE_ENABLED':'1'}
             result=subprocess.run(['bash',str(ROOT/'smoke/server/run.sh')],env=env,capture_output=True,text=True)
             self.assertEqual(result.returncode,2)

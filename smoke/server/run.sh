@@ -5,7 +5,7 @@ source "$HERE/lib.sh"
 : "${BASE_URL:?BASE_URL is required}"
 if [[ "${SMOKE_FIRST_VOYAGE_ENABLED:-0}" == 1 ]]; then
   # 운영 주소·기존 고정 기기를 거절하고 이 실행이 발급한 신규 게스트만 쓴다.
-  if [[ "$BASE_URL" != 'https://oneorthree.dev.mooo.com' || -n "${SMOKE_DEVICE_ID:-}" ]]; then
+  if [[ "$BASE_URL" != 'https://oneorthree-v2.dev.mooo.com' || -n "${SMOKE_DEVICE_ID:-}" ]]; then
     echo '첫 항해 검사는 dev 주소·새 기기 게스트에서만 실행합니다' >&2
     exit 2
   fi
