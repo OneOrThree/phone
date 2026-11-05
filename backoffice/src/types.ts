@@ -23,6 +23,14 @@ export interface MagazineSnapshot {
     layout: { v: number; frameId: string; stickers: { assetId: string; x: number; y: number; scale: number; rotation: number }[]; tape: { assetId: string; x: number; y: number; rotation: number } | null }; moderation: string; card: MagazineCard | null }[];
 }
 export type NoticeType = 'patch' | 'force';
+export interface MagazineContentCell {
+  promotionId: string; card: MagazineCard | null; body: string;
+  layout: MagazineSnapshot['cells'][number]['layout']; moderation: string;
+}
+export interface MagazineContentPage {
+  issueId: string; issueDate: string; issueNo: number; promotionCount: number;
+  editorial: MagazineSnapshot['editorial']; cells: MagazineContentCell[]; nextCursor: string | null;
+}
 export interface ContentItem {
   id: string;
   kind: ContentKind;

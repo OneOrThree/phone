@@ -8,13 +8,15 @@ import { FocusPolicyPanel } from './FocusPolicyPanel';
 import { MonitoringLinks } from './MonitoringLinks';
 import { ReleaseStatus } from './ReleaseStatus';
 import { confirmEditorLeave } from './navigation';
+import magazineTips from './magazineTips.ko.json';
+import type { MagazineContentPage, MagazineContentCell } from './types';
 
 const ANNOUNCEMENT_KIND = 'ADMIN_ANNOUNCEMENT';
 const CHANNELS: { kind: ContentKind; name: string; description: string; icon: string }[] = [
   { kind: 'fcm', name: 'FCM 알림', description: '수신자를 확인하고 운영 공지 알림을 발송합니다.', icon: 'bell' },
   { kind: 'notice', name: '개발자 공지', description: '앱에 표시할 소식과 게시 기간을 관리합니다.', icon: 'notice' },
   { kind: 'construction', name: '건설 정책', description: '건물별 물고기 비용과 공사 시간을 검토하고 적용합니다.', icon: 'notice' },
-  { kind: 'magazine', name: '잡지', description: '발행일의 콘텐츠를 검토하고 게시합니다.', icon: 'book' },
+  { kind: 'magazine', name: '잡지', description: '매일 아침 자동 발행된 잡지를 날짜별로 읽습니다.', icon: 'book' },
 ];
 const STATUS: Record<ContentStatus, string> = { draft: '작성 중', review: '검토 대기', approved: '승인됨', publishing: '처리 중', published: '게시됨', failed: '처리 실패', uncertain: '결과 확인 필요', cancelled: '취소됨', withdrawn: '노출 종료', closed: '발송 종료' };
 const ACTIONS: Record<string, string> = { create: '초안 생성', update: '내용 수정', edit: '내용 수정', review: '검토 요청', approve: '승인', publish: '발송·게시 요청', published: '요청 완료', failed: '처리 실패', cancel: '발행 전 취소·보관', 'cancel-delivery': '남은 알림 발송 취소', withdraw: '공지 노출 종료', archive: '운영 목록 보관' };
@@ -96,6 +98,43 @@ function ReadableValue({ value, depth = 0 }: { value: unknown; depth?: number })
   if (Array.isArray(value)) return <div className="snapshot-cells">{value.map((entry, index) => <section className="snapshot-cell" key={index}><ReadableValue value={entry} depth={depth + 1} /></section>)}</div>;
   return <dl className="snapshot-fields">{Object.entries(value).map(([key, entry]) => <div key={key}><dt>{({ title: '제목', body: '본문', content: '내용', type: '유형', label: '이름', name: '이름', value: '값', rank: '순위', nickname: '닉네임', focusMinutes: '집중 시간(분)', minIosVersion: 'iOS 최소 버전', minAndroidVersion: 'Android 최소 버전' } as Record<string, string>)[key] ?? key}</dt><dd><ReadableValue value={entry} depth={depth + 1} /></dd></div>)}</dl>;
 }
+function MagazineHistoryEntry({ item }: { item: HistoryItem }) {
+  const [open, setOpen] = useState(false);
+  return <li><details onToggle={event => setOpen(event.currentTarget.open)}>
+    <summary><strong>{item.issueDate} · 제 {item.issueNo}호</strong><span>발행됨 · 내용 보기</span><time>{readableDate(item.publishedAt)}</time></summary>
+    {open && <div className="history-details">
+      <p className="field-hint">수령 {item.receiptCount ?? 0}명 · 열람 {item.openedCount ?? 0}명 · {item.status === 'PUBLISHED' ? '알림 생성 완료' : item.status === 'NOTIFICATION_EXPIRED' ? '알림 생성 기간 종료' : '알림 생성 대기'}</p>
+      <PublishedMagazine issueId={item.id} />
+    </div>}
+  </details></li>;
+}
+function PublishedMagazine({ issueId }: { issueId: string }) {
+  const [page, setPage] = useState<MagazineContentPage | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const activeRequest = useRef<AbortController | null>(null);
+  async function load(cursor = '') {
+    activeRequest.current?.abort();
+    const controller = new AbortController();
+    activeRequest.current = controller;
+    setLoading(true); setError('');
+    try {
+      const next = await request<MagazineContentPage>(`/api/history/magazine/${encodeURIComponent(issueId)}${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`, { signal: controller.signal });
+      if (controller.signal.aborted) return;
+      setPage(previous => cursor && previous ? { ...next, cells: [...previous.cells, ...next.cells.filter(cell => !previous.cells.some(existing => existing.promotionId === cell.promotionId))] } : next);
+    } catch (cause) {
+      if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : '잡지 내용을 불러오지 못했습니다.');
+    } finally { if (!controller.signal.aborted) setLoading(false); }
+  }
+  useEffect(() => { void load(); return () => activeRequest.current?.abort(); }, [issueId]);
+  return <>
+    {page && <><MagazineReview snapshot={page} published />
+      <p className="field-hint">발행 당시 홍보 {page.promotionCount}칸 · 현재 {page.cells.length}칸 불러옴. 섬 삭제 등으로 정리된 홍보는 남아 있지 않을 수 있습니다.</p></>}
+    {error && <p role="alert" className="error-message">{error}</p>}
+    {loading && <p role="status">잡지 내용을 불러오는 중…</p>}
+    {!loading && (page?.nextCursor || error) && <button className="button secondary" onClick={() => void load(page?.nextCursor ?? '')}>{error ? '다시 시도' : '섬 홍보 더 보기'}</button>}
+  </>;
+}
 function HistoryPanel({ kind }: { kind: ContentKind }) {
   const [items, setItems] = useState<HistoryItem[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -117,11 +156,11 @@ function HistoryPanel({ kind }: { kind: ContentKind }) {
   const label = kind === 'fcm' ? '알림 발송 원장' : kind === 'notice' ? '개발자 공지 게시 이력' : '잡지 발행 이력';
   return <section className="history-panel" aria-label={label}>
     <div className="section-heading"><div><h2>{label}</h2><p className="field-hint">운영 서비스의 실제 기록을 읽기 전용으로 표시합니다. 초안 목록과는 별개입니다.</p></div><button className="button secondary" disabled={loading} onClick={() => void load()}>새로고침</button></div>
-    {kind === 'magazine' && <p className="field-hint">수신·열람 건수는 DB에 남아 있는 최근 7호의 기록입니다. 과거 전체 누적 수치가 아닙니다.</p>}
+    {kind === 'magazine' && <p className="field-hint">매일 오전 7시(KST)에 자동 발행합니다. 날짜를 눌러 그날의 내용을 읽을 수 있습니다. 수신·열람 건수는 최근 7호에 남아 있는 기록입니다.</p>}
     {kind === 'fcm' && <p className="field-hint">수신자별 알림 한 건씩 표시합니다. SENT는 발송 서버 처리 상태이며 기기 화면 표시까지 보장하지 않습니다.</p>}
     {error && <p role="alert" className="error-message">{error}</p>}
     <p className="list-caption">{total === undefined ? `${items.length}건 불러옴` : `전체 ${total}건 중 ${items.length}건 불러옴`}</p>
-    {items.length ? <ol className="history-list">{items.map(item => <li key={item.id}><details><summary><strong>{item.title || item.notificationKind || item.id}</strong><span>{item.kind === 'notice' ? `${forces(item) ? '강제 업데이트 · ' + minSummary(item) : '패치노트'} · ` : ''}{item.status || '기록됨'}</span><time>{readableDate(item.publishedAt || item.createdAt)}</time></summary><div className="history-details"><ReadableValue value={item} /></div></details></li>)}</ol> : !loading && !error && <p className="list-empty">이 환경의 기록이 없습니다.</p>}
+    {items.length ? <ol className="history-list">{items.map(item => item.kind === 'magazine' ? <MagazineHistoryEntry key={item.id} item={item} /> : <li key={item.id}><details><summary><strong>{item.title || item.notificationKind || item.id}</strong><span>{item.kind === 'notice' ? `${forces(item) ? '강제 업데이트 · ' + minSummary(item) : '패치노트'} · ` : ''}{item.status || '기록됨'}</span><time>{readableDate(item.publishedAt || item.createdAt)}</time></summary><div className="history-details"><ReadableValue value={item} /></div></details></li>)}</ol> : !loading && !error && <p className="list-empty">이 환경의 기록이 없습니다.</p>}
     {loading && <p role="status" className="list-loading">운영 이력을 불러오는 중…</p>}
     {nextCursor && <button className="button secondary" disabled={loading} onClick={() => void load(nextCursor)}>이전 기록 더 보기</button>}
   </section>;
@@ -170,14 +209,14 @@ function FcmCatalogPanel() {
   </section>;
 }
 function IslandSummary({ card }: { card: MagazineCard }) {
-  return <div className="island-summary"><strong>{card.name}</strong><span>멤버 {card.memberCount}/{card.maxMembers}명 · 건물 {card.buildingCount}개</span><span>하루 평균 집중 {card.averageFocusMinutesPerDay === null ? '집계 전' : `${card.averageFocusMinutesPerDay}분`}</span></div>;
+  return <div className="island-summary"><strong>{card.name}</strong><span>주민 {card.memberCount}/{card.maxMembers}명 · 건물 {card.buildingCount}개</span><span>하루 평균 집중 {card.averageFocusMinutesPerDay === null ? '집계 전' : `${card.averageFocusMinutesPerDay}분`}</span></div>;
 }
-function MagazineReview({ snapshot }: { snapshot: MagazineSnapshot }) {
+function MagazineReview({ snapshot, published = false }: { snapshot: Pick<MagazineSnapshot, 'issueDate' | 'issueNo' | 'editorial'> & { cells: MagazineContentCell[] }; published?: boolean }) {
   return <article className="magazine-preview">
     <div className="magazine-masthead"><Icon name="book" /><span>고양이 잡지</span></div>
     <div className="magazine-date">{snapshot.issueDate} · 제 {snapshot.issueNo}호</div>
     <h4>{snapshot.editorial?.note?.type === 'TIP' ? '오늘의 팁' : '편집부의 한마디'}</h4>
-    <p className="prewrap">{snapshot.editorial?.note?.type === 'TIP' ? `몽돌 집중 팁 · 번호 ${snapshot.editorial.note.tipNo ?? '미지정'} (앱 문구로 표시)` : snapshot.editorial?.note?.body || '등록된 문구가 없습니다.'}</p>
+    <p className="prewrap">{snapshot.editorial?.note?.type === 'TIP' ? magazineTips[snapshot.editorial.note.tipNo ?? -1] ?? '집중 팁 문구를 찾을 수 없습니다.' : snapshot.editorial?.note?.body || '등록된 문구가 없습니다.'}</p>
     <div className="magazine-rule" /><h4>집중 랭킹</h4>
     {snapshot.editorial?.ranking?.length ? <ol className="ranking-list">{snapshot.editorial.ranking.map(entry => <li key={entry.island.islandId}><span className="rank-number">{entry.rank}</span><IslandSummary card={entry.island} /></li>)}</ol> : <p className="field-hint">집계된 랭킹이 없습니다.</p>}
     <div className="magazine-rule" /><h4>새로운 섬</h4>
@@ -186,13 +225,13 @@ function MagazineReview({ snapshot }: { snapshot: MagazineSnapshot }) {
     {snapshot.cells?.length ? snapshot.cells.map(cell => {
       const hidden = !cell.card || ['HIDDEN', 'REMOVED'].includes(cell.moderation);
       return <section className={`promotion-cell ${hidden ? 'excluded' : ''}`} key={cell.promotionId}>
-        {hidden && <span className="badge">게시 제외 · {!cell.card ? '닫힌 섬' : cell.moderation === 'REMOVED' ? '삭제됨' : '숨김'}</span>}
+        {hidden && <span className="badge">{published ? '현재 앱에서 숨김' : '게시 제외'} · {!cell.card ? '닫힌 섬' : cell.moderation === 'REMOVED' ? '삭제됨' : '숨김'}</span>}
         {cell.card && <IslandSummary card={cell.card} />}
         <p className="prewrap">{cell.body}</p>
-        <span className="field-hint">틀: {cell.layout.frameId} · 스티커 {cell.layout.stickers.length}개 · 테이프 {cell.layout.tape ? '있음' : '없음'}</span>
+        <span className="field-hint">{!published && <>틀: {cell.layout.frameId} · </>}스티커 {cell.layout.stickers.length}개 · 테이프 {cell.layout.tape ? '있음' : '없음'}</span>
       </section>;
     }) : <p className="field-hint">이 발행일에 등록된 섬 소식이 없습니다.</p>}
-    <p className="field-hint">게시할 데이터의 검토 화면입니다. 앱 화면과 배치는 다를 수 있습니다.</p>
+    <p className="field-hint">{published ? '발행된 내용입니다. 앱과 배치는 다를 수 있으며, 숨김 상태는 현재 기준입니다.' : '게시할 데이터의 검토 화면입니다. 앱 화면과 배치는 다를 수 있습니다.'}</p>
   </article>;
 }
 function ContentPreview({ draft }: { draft: Draft }) {
@@ -330,7 +369,7 @@ export default function App() {
   }
   function changeChannel(next: ContentKind) {
     if (busy || !mayLeave()) return;
-    setPanel(null); setChannel(next); setView(next === 'fcm' ? 'catalog' : 'workflow');
+    setPanel(null); setChannel(next); setView(next === 'fcm' ? 'catalog' : next === 'magazine' ? 'history' : 'workflow');
     setPolicyOpen(false); setPolicyDirty(false); setSelected(null); setDraft(null); setSearch(''); setFilter('all'); setError(''); setArchivedView(false);
   }
   function createDraft() {
