@@ -51,9 +51,10 @@ Time Profiler 의 호출 경로에서 해당 스레드 시간을 가장 많이 �
 | `RCTAddContourEffectToLayer` | 56.0% |
 | `RCTGetBorderImage` | 53.0% |
 
-iOS React Native 는 테두리를 두 가지로 그린다. 네 변의 두께·색·모서리가 같고 뷰가 안쪽을 잘라낼 때(`overflow: 'hidden'`)만
-Core Animation 테두리(`CALayer.borderWidth`)를 쓰고, 나머지는 테두리를 그림으로 만들어 붙인다
-(`RCTViewComponentView.mm` 의 `useCoreAnimationBorderRendering`). 그림 테두리는 뷰 속성이 바뀔 때마다 다시 만든다.
+iOS React Native 0.86의 `RCTViewComponentView.mm` `useCoreAnimationBorderRendering` 조건을 확인했다.
+네 변의 색·두께·스타일·모서리가 같고 스타일이 solid이며, 두께가 0이거나 뷰가 안쪽을 잘라내거나 테두리 색이 투명할 때
+Core Animation 테두리(`CALayer.borderWidth`)를 쓴다. 아래의 보이는 테두리는 두께가 0도, 투명하지도 않아
+`overflow: 'hidden'` 조건이 필요했다. 나머지는 테두리를 그림으로 만들어 붙이며 뷰 속성이 바뀔 때마다 다시 만든다.
 네이티브 드라이버가 opacity·크기를 프레임마다 바꾸는 뷰라면 프레임마다 그림을 다시 만든다.
 
 `FishingFloatMotion`(`app/app-dev/src/screens/focus/FishingSceneMotion.tsx`)에 이런 뷰가 두 종류 있었다.
@@ -87,7 +88,8 @@ JS 로 도는 일은 두 가지가 크다. Time Profiler 는 Hermes 안의 JS �
 
 ## 3. 개선 전후 (GROMO-2736 · GROMO-2737)
 
-기준은 2026-11-03 밤의 main `b0940c786` 이다. 고친 빌드는 그 위에 각 티켓의 커밋만 올렸다. 모두 60초, 케이블을 꽂은 채로 쟀다.
+기준은 2026-11-03 밤의 main `b0940c786` 이다. §1 오전 기준 `239efc3f4`와 다르므로 전후 비교에는 이 절의 수치만 쓴다.
+고친 빌드는 그 위에 각 티켓의 커밋만 올렸다. 모두 60초, 케이블을 꽂은 채로 쟀다.
 
 적용한 변경은 [PR #1576](https://github.com/OneOrThree/phone/pull/1576)·[PR #1577](https://github.com/OneOrThree/phone/pull/1577)의 커밋 목록과 측정 표로 연결한다.
 
@@ -109,7 +111,7 @@ JS 로 도는 일은 두 가지가 크다. Time Profiler 는 Hermes 안의 JS �
 
 - 집중 화면 앱 CPU 가 약 40% 에서 18.5% 로 절반 아래가 됐다. 홈 걷기(20.6%)와 비슷한 수준이다.
 - 고친 빌드는 발열 상태가 Fair 로 더 따뜻할 때 쟀는데도 낮게 나왔다.
-- 남은 메인 스레드의 대부분(76%)은 네이티브 드라이버 애니메이션 진행(`stepAnimations`) 자체다.
+- 개선 후 메인 스레드 중 `stepAnimations` 비중 약 76%는 [PR #1576의 측정 기록](https://github.com/OneOrThree/phone/pull/1576)에 있다. 원본 trace는 이 저장소에 포함하지 않았다.
 - 반짝임·고리는 찌 둘레의 옅은 선이라 캡처에서 잘 보이지 않는다. 바꾸기 전후 낚시섬 집중 화면 캡처에서 달라진 곳은 없었다.
 
 ### 3.2 집중 전 미리보기 (GROMO-2737)
@@ -119,7 +121,7 @@ JS 로 도는 일은 두 가지가 크다. Time Profiler 는 Hermes 안의 JS �
 | 고치기 전 | 2 | 71.0% · 74.5% | 85.3% · 85.3% | 12.1% · 12.2% |
 | 손 모델 입력 float32 | 2 | 71.0% · 75.1% | 84.1% · 84.4% | 13.3% · 13.0% |
 
-- 손 모델 입력 변환을 없애도 CPU 는 측정 오차 안에서 같았다. 40% 를 넘는 남은 상위는 여전히 JS 실행(`hermesvm`)이다.
+- 손 모델 입력 변환을 없애도 CPU 감소는 관측하지 못했다. 프레임 스레드의 약 84%는 여전히 JS 실행(`hermesvm`)이다.
   가장 유력한 원인은 물체 결과 검사다(§2.2).
 - 고친 빌드에서 손과 노트북·키보드를 비추면 «집중 확인 완료», 손을 빼면 «손이 보이지 않아요.» 가 나왔다.
 
@@ -142,16 +144,24 @@ JS 로 도는 일은 두 가지가 크다. Time Profiler 는 Hermes 안의 JS �
 
 ## 5. 다시 재는 법
 
-1. 측정 빌드 — 레포 파일 두 개를 잠깐 바꾸고 빌드 뒤 되돌린다.
-   - `app/app-dev/ios/Cattus/Supporting/Expo.plist` 의 `EXUpdatesEnabled` 를 false 로(OTA 가 JS 를 바꾸지 않게).
-   - 2026-11-03 오전 빌드(`239efc3f4`)에서는 pbxproj 의 Release 검문이 옛 dev VM 주소만 허용해 dev V2 주소로 바꿨다(티켓 2661 로 이후 해소).
+1. 측정 빌드 — 별도 작업트리에서 레포 파일 두 개를 잠깐 바꾸고 빌드 뒤 되돌린다.
+   - `app/app-dev/ios/Cattus/Supporting/Expo.plist` 의 `EXUpdatesEnabled` 를 false 로 바꾸는 것은 필수다. 켜 두면 운영 OTA가 측정 JS와 API 주소를 바꿀 수 있다.
    - `b0940c786` 에서는 `app/app-dev/ios/Podfile.lock` 의 확인값 두 줄(ExpoModulesCore · hermes-engine)이 이 Mac 의
      `pod install` 결과(`Pods/Manifest.lock`)와 달라 «The sandbox is not in sync with the Podfile.lock» 로 빌드가 멈췄다.
-     빌드하는 동안만 `Pods/Manifest.lock` 을 `Podfile.lock` 에 덮어쓰고 끝나면 되돌렸다.
+     빌드하는 동안만 `Pods/Manifest.lock` 을 `Podfile.lock` 에 덮어쓰고 끝나면 되돌렸다. 임시 두 파일을 커밋하지 않는다.
+   - 옛 빌드 참고: 오전 빌드(`239efc3f4`)는 pbxproj의 Release 검문이 옛 개발 서버 주소만 허용해 dev V2 주소로 바꿨다. 티켓 2661에서 해소했다.
 
    ```bash
    export DEVELOPER_DIR=/Applications/Xcode-26.6.0.app/Contents/Developer
    cd app/app-dev/ios && source ./release-config.sh
+   PERF_BACKUP_DIR=$(mktemp -d)
+   cp Cattus/Supporting/Expo.plist "$PERF_BACKUP_DIR/Expo.plist"
+   cp Podfile.lock "$PERF_BACKUP_DIR/Podfile.lock"
+   # 임시 편집 전에 복구를 예약한다. EXIT 때 원래 파일 내용으로 돌아간다.
+   trap 'cp "$PERF_BACKUP_DIR/Expo.plist" Cattus/Supporting/Expo.plist; cp "$PERF_BACKUP_DIR/Podfile.lock" Podfile.lock' EXIT
+   /usr/libexec/PlistBuddy -c 'Set :EXUpdatesEnabled false' Cattus/Supporting/Expo.plist
+   # Podfile.lock 우회가 필요한 해당 기준 빌드에서만 아래 줄을 실행한다.
+   # cp Pods/Manifest.lock Podfile.lock
    export EXPO_PUBLIC_API_URL=https://oneorthree-v2.dev.mooo.com GROMO_IOS_AUDIENCE=dev EXPO_PUBLIC_ENV=dev
    export EXPO_PUBLIC_APPLE_LOGIN_ENABLED=1 EXPO_PUBLIC_POSTHOG_PROJECT_TOKEN=   # 빈 값
    export GROMO_IOS_CREDENTIALS_DIR=$HOME/.gromo/ios-credentials AIRBRIDGE_APP_TOKEN=<app-dev/.env 값>
@@ -159,7 +169,13 @@ JS 로 도는 일은 두 가지가 크다. Time Profiler 는 Hermes 안의 JS �
      -destination id=<UDID> -allowProvisioningUpdates -allowProvisioningDeviceRegistration \
      -authenticationKeyPath <ASC 키> -authenticationKeyID <id> -authenticationKeyIssuerID <issuer> build
    xcrun devicectl device install app --device <UDID> <DerivedData>/Build/Products/Release-iphoneos/Cattus.app
+   cp "$PERF_BACKUP_DIR/Expo.plist" Cattus/Supporting/Expo.plist
+   cp "$PERF_BACKUP_DIR/Podfile.lock" Podfile.lock
+   trap - EXIT
    ```
+
+   위 명령은 로컬 빌드·설치이며 TestFlight 업로드 명령이 아니다. 당시 PostHog 토큰은 비웠지만 Airbridge·Datadog·Sentry의
+   실제 전송 여부는 측정 기록에서 확인하지 못했다. 재측정 때는 별도 계측 설정과 전송 대상을 확인하고 그 조건을 기록한다.
 
 2. 폰 설정: 설정 → 개발자 → «UI 자동화 사용» 켬, 방해 금지 모드 켬(알림 배너가 XCUITest 를 끊는다), 자동 잠금 끔.
 3. 측정 당시에는 별도 XCUITest 러너가 `PERF_READY`를 찍은 뒤 기록을 붙였다. **러너 소스·실행 스크립트는 저장소에 없으며,
