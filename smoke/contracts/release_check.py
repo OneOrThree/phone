@@ -16,7 +16,7 @@ def command(args):
     except (OSError,subprocess.SubprocessError):raise ValueError('배포 검증 근거 조회 실패 (원문 생략)') from None
 
 
-def verify(evidence,production,app_tree,run):
+def verify(evidence,production,app_tree,run,trees=None):
     if (evidence.get('environment')!='dev' or evidence.get('appTree')!=app_tree or
         evidence.get('appRevision')!=run.get('head_sha') or
         run.get('status')!='completed' or run.get('conclusion')!='success' or run.get('head_branch')!='main' or
@@ -26,7 +26,11 @@ def verify(evidence,production,app_tree,run):
         set(evidence.get('services',{}))!=SERVICES):raise ValueError('운영 서비스 배포 근거 누락')
     for name in SERVICES:
         revision=evidence['services'][name].get('revision','')
-        if not re.fullmatch('[0-9a-f]{40}',revision) or production['service_revisions'][name]!=revision:
+        deployed=production['service_revisions'][name]
+        if not re.fullmatch('[0-9a-f]{40}',revision) or not re.fullmatch('[0-9a-f]{40}',deployed):
+            raise ValueError('서버 소스 SHA 형식 오류')
+        same=deployed==revision or (trees is not None and trees.get((name,revision)) and trees.get((name,revision))==trees.get((name,deployed)))
+        if not same:
             raise ValueError('검증한 dev 서버와 운영 서비스 소스 버전이 다릅니다: '+name)
 
 
@@ -46,7 +50,15 @@ def check(env=None,execute=command):
     with tempfile.TemporaryDirectory(prefix='phone-compat-') as d:
         execute(['gh','run','download',run_id,'--repo',REPO,'--name','smoke-results','--dir',d])
         evidence=json.loads((Path(d)/'compatibility-dev.json').read_text())
-    verify(evidence,production,app_tree,run)
+    trees={}
+    for name in SERVICES:
+        for revision in (evidence.get('services',{}).get(name,{}).get('revision',''),production.get('service_revisions',{}).get(name,'')):
+            if not re.fullmatch('[0-9a-f]{40}',revision):raise ValueError('서버 소스 SHA 오류')
+            execute(['git','fetch','--quiet','origin',revision])
+            tree=execute(['git','rev-parse',revision+':server/'+name]).strip()
+            if not re.fullmatch('[0-9a-f]{40}',tree):raise ValueError('서버 소스 트리 확인 실패')
+            trees[name,revision]=tree
+    verify(evidence,production,app_tree,run,trees)
     # 같은 보호된 실행 안에서 실제 운영 응답도 확인한 후 CD 상태를 재검사한다.
     import importlib.util
     import sys

@@ -21,3 +21,10 @@ class ReleaseTest(unittest.TestCase):
    with self.assertRaises(ValueError):r.verify(e,p,'tree',run)
  def test_no_run_id_never_queries(self):
   with self.assertRaises(ValueError):r.check({},lambda args:self.fail('조회되면 안 됨'))
+
+ def test_release_merge_commit_accepts_identical_service_tree(self):
+  self.p['service_revisions']['data-api']='c'*40
+  trees={('data-api','b'*40):'tree',('data-api','c'*40):'tree'}
+  r.verify(self.e,self.p,'tree',self.run,trees)
+  trees['data-api','c'*40]='changed'
+  with self.assertRaises(ValueError):r.verify(self.e,self.p,'tree',self.run,trees)

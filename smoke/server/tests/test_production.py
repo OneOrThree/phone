@@ -10,6 +10,7 @@ class ProductionTest(unittest.TestCase):
   self.calls=[]
   def send(method,path,token):
    self.calls.append((method,path))
+   path=path.split('?')[0]
    if path==bad:return 404,{}
    payload={'/me':{'id':'11111111-1111-4111-8111-111111111111','name':None,'catColor':None,'mainIslandId':None},'/me/islands':{'items':[],'currentIslandId':None},'/me/telescope':{'items':[]},'/screens/home':{'buildings':[],'members':{'items':[]},'wallets':{'fish':0,'villagePoints':0}}}
    if method=='POST':return 400,{'error':{'code':'INVALID_PARAMETER','field':'islandId'}}

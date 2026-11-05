@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """전용 계정의 운영 조회와 데이터 변경 없는 intro 경로 검증."""
 import json
+from datetime import datetime
+from zoneinfo import ZoneInfo
 import os
 from pathlib import Path
 import stat
@@ -39,7 +41,8 @@ def check(env=None,send=request):
   uuid.UUID(user)
  except (OSError,KeyError,TypeError,AttributeError):raise ValueError('APP_PROD_SMOKE_FIXTURE에 전용 운영 계정 정보가 필요합니다') from None
  for path in ['/me','/me/islands','/me/telescope','/screens/home']:
-  status,payload=send('GET',path,token)
+  actual=path+'?date='+datetime.now(ZoneInfo('Asia/Seoul')).date().isoformat()+'&timezone=Asia/Seoul' if path=='/screens/home' else path
+  status,payload=send('GET',actual,token)
   if status!=200:raise ValueError('운영 조회 실패: '+path+' HTTP '+str(status))
   contract('GET',path,payload,required=True)
   if path=='/me' and payload['data']['id']!=user:raise ValueError('테스트 계정 불일치')

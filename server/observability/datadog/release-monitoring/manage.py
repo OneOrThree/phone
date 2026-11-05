@@ -16,7 +16,7 @@ def definitions(recipient):
    group='.by("@app_version,@http_route")' if grouped else ''
    scope='앱 버전·API별' if grouped else '전체 요청'
    monitors.append({'name':f'[운영] 앱 API {code} 오류 증가 — {scope}','type':'log alert',
-    'query':f'logs("env:prod service:business-api @event:business_request @status_code:{filter_}").index("*").rollup("count"){group}.last("5m") > {threshold}',
+    'query':f'logs("env:prod service:business-api @status_code:{filter_}").index("*").rollup("count"){group}.last("5m") > {threshold}',
     'message':f'5분간 오류 5건 이상. 운영 배포·새 앱 버전·라우팅을 확인하세요. 404는 의도된 리소스 부재와 API 누락을 구분하세요. {recipient}',
     'tags':[TAG,'env:prod','scope:release-safety',f'error-kind:{code}',f'grouping:{"version-route" if grouped else "all"}'],
     'options':{'thresholds':{'critical':threshold},'notify_no_data':False,'include_tags':True,'enable_logs_sample':False}})
