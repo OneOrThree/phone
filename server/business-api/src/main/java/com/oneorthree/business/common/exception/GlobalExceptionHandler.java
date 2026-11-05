@@ -50,7 +50,10 @@ public class GlobalExceptionHandler {
             return responses.error(request, ApiErrorCode.UPSTREAM_CONTRACT_ERROR, null, null);
         }
         var result = responses.error(request, mapped, defaultField(mapped), null);
-        if (mapped.isRetryable() && error.getRetryAfterMs() != null && error.getRetryAfterMs() > 0) {
+        // 바다 한마디 잠금은 재시도 대상이 아니지만(retryable=false) 남은 시간을 실어 보낸다 — 응답이 유실된 성공 뒤
+        // 다시 누른 앱이 이 헤더로 잠금을 맞춘다(GROMO-2759).
+        boolean carriesRetryAfter = mapped.isRetryable() || mapped == ApiErrorCode.SEA_REMARK_LOCKED;
+        if (carriesRetryAfter && error.getRetryAfterMs() != null && error.getRetryAfterMs() > 0) {
             long millis = error.getRetryAfterMs();
             long seconds = millis / 1000 + (millis % 1000 == 0 ? 0 : 1);
             HttpHeaders headers = new HttpHeaders();
