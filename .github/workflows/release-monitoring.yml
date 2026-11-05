@@ -1,0 +1,30 @@
+name: 운영 앱 API 오류 모니터 설정
+on:
+  workflow_dispatch:
+    inputs:
+      execute:
+        description: 실제 수신처와 로그 필드를 확인한 뒤 Datadog에 적용
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: phone-release-monitors
+  cancel-in-progress: false
+jobs:
+  configure:
+    runs-on: ubuntu-latest
+    environment: catus-production-V2
+    steps:
+      - uses: actions/checkout@v4
+      - name: 출시 오류 모니터 계획 또는 적용
+        env:
+          DD_SITE: ${{ vars.DD_SITE || 'us5.datadoghq.com' }}
+          DD_RELEASE_ALERT_RECIPIENT: ${{ vars.DD_RELEASE_ALERT_RECIPIENT }}
+          DD_API_KEY: ${{ secrets.DD_API_KEY }}
+          DD_APP_KEY: ${{ secrets.DD_APP_KEY }}
+          EXECUTE: ${{ inputs.execute }}
+        run: |
+          flags=()
+          if [ "$EXECUTE" = true ]; then flags+=(--execute); fi
+          python3 server/observability/datadog/release-monitoring/manage.py "${flags[@]}"
