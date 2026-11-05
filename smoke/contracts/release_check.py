@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """GitHub의 특정 dev 실행 근거와 현재 운영 서비스 소스를 대조한다."""
 import json
+import hashlib
 import os
 from pathlib import Path
 import re
@@ -57,7 +58,9 @@ def check(env=None,execute=command):
             execute(['git','fetch','--quiet','origin',revision])
             tree=execute(['git','rev-parse',revision+':server/'+name]).strip()
             if not re.fullmatch('[0-9a-f]{40}',tree):raise ValueError('서버 소스 트리 확인 실패')
-            trees[name,revision]=tree
+            shared=execute(['git','ls-tree','-r',revision,'--','.dockerignore','.github/actions/ci-jar',
+                            '.github/scripts/ci-jar.py','.github/scripts/v2/prod/catus-runtime-V2.py'])
+            trees[name,revision]=hashlib.sha256((tree+'\n'+shared).encode()).hexdigest()
     verify(evidence,production,app_tree,run,trees)
     # 같은 보호된 실행 안에서 실제 운영 응답도 확인한 후 CD 상태를 재검사한다.
     import importlib.util
