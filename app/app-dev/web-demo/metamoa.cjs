@@ -10,7 +10,17 @@ async function main() {
     );
     return;
   }
-  if (!['--status', '--sync-status', '--update', '--event'].includes(action))
+  if (
+    ![
+      '--status',
+      '--sync-status',
+      '--update',
+      '--event',
+      '--character-png',
+      '--character-glb',
+      '--character-status',
+    ].includes(action)
+  )
     throw new Error(
       '사용법: node web-demo/metamoa.cjs [--status | --sync-status | --update | --event]',
     );
@@ -21,10 +31,25 @@ async function main() {
     '--sync-status': 'sync-status',
     '--update': 'update',
     '--event': 'events',
+    '--character-png': 'character',
+    '--character-glb': 'character',
+    '--character-status': 'character',
   }[action];
   const writes = action === '--update' || action === '--event';
+  const binary = action === '--character-png' || action === '--character-glb';
+  const contentType = action === '--character-png' ? 'image/png' : 'model/gltf-binary';
   let body;
-  if (writes) {
+  if (binary) {
+    const chunks = [];
+    let size = 0;
+    for await (const chunk of process.stdin) {
+      size += chunk.byteLength;
+      if (size > (action === '--character-png' ? 1024 * 1024 : 4 * 1024 * 1024))
+        throw new Error('캐릭터 파일이 너무 큽니다.');
+      chunks.push(chunk);
+    }
+    body = Buffer.concat(chunks);
+  } else if (writes) {
     let input = '';
     for await (const chunk of process.stdin) {
       input += chunk;
@@ -33,10 +58,10 @@ async function main() {
     body = JSON.stringify(JSON.parse(input));
   }
   const response = await fetch(`https://try.oneorthree.world/service-api/metamoa/${path}`, {
-    method: writes ? 'POST' : 'GET',
+    method: binary ? 'PUT' : writes ? 'POST' : 'GET',
     headers: {
       Authorization: `Bearer ${process.env.METAMOA_ADMIN_KEY}`,
-      'Content-Type': 'application/json',
+      'Content-Type': binary ? contentType : 'application/json',
     },
     body,
     redirect: 'error',
@@ -46,7 +71,7 @@ async function main() {
   const data = await response.json();
   // 응답의 명시된 비밀이 아닌 상태 필드만 표시한다.
   const safe = Object.fromEntries(
-    ['ok', 'submitted', 'id', 'status', 'space_id', 'last_sync']
+    ['ok', 'submitted', 'id', 'status', 'space_id', 'last_sync', 'upload_id']
       .filter((key) => data[key] !== undefined)
       .map((key) => [key, data[key]]),
   );

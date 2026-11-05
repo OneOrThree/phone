@@ -190,6 +190,41 @@ export async function metamoaAdmin(request, env) {
     );
   if (!env.METAMOA_KEY || !SAFE_ID.test(env.METAMOA_SPACE_ID || ''))
     return json({ error: 'awaiting_owner_verification' }, 409);
+  if (path === 'character' && ['GET', 'PUT'].includes(request.method)) {
+    let response;
+    if (request.method === 'GET') {
+      response = await metamoaFetch(env, `/space/${env.METAMOA_SPACE_ID}/character`);
+    } else {
+      const type = request.headers.get('Content-Type');
+      const limit =
+        type === 'image/png' ? 1024 * 1024 : type === 'model/gltf-binary' ? 4 * 1024 * 1024 : 0;
+      if (!limit || !request.body) return json({ error: 'invalid_character' }, 400);
+      const reader = request.body.getReader();
+      const chunks = [];
+      let size = 0;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        size += value.byteLength;
+        if (size > limit) {
+          await reader.cancel();
+          return json({ error: 'character_too_large' }, 413);
+        }
+        chunks.push(value);
+      }
+      if (!size) return json({ error: 'empty_character' }, 400);
+      response = await fetch(`${API}/space/${env.METAMOA_SPACE_ID}/character`, {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${env.METAMOA_KEY}`, 'Content-Type': type },
+        body: new Blob(chunks, { type }),
+        redirect: 'error',
+        signal: AbortSignal.timeout(20000),
+      });
+    }
+    if (!response.ok) return json({ error: 'character_rejected', status: response.status }, 502);
+    const data = await response.json();
+    return json({ status: data.status, upload_id: data.upload_id || null }, response.status);
+  }
   let target, body;
   if (path === 'update' && request.method === 'POST') {
     body = await request.json();

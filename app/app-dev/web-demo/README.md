@@ -115,6 +115,9 @@ node web-demo/metamoa.cjs --status
 node web-demo/metamoa.cjs --sync-status
 node web-demo/metamoa.cjs --update < update.json
 node web-demo/metamoa.cjs --event < event.json
+# 캐릭터 게시를 선택한 경우: 기존 512×512 투명 PNG(176KB).
+node web-demo/metamoa.cjs --character-png < src/assets/ota/onboarding/cat-cream.png
+node web-demo/metamoa.cjs --character-status
 ```
 
 독립 검사: `node --test web-demo/api-worker.test.mjs web-demo/metamoa-worker.test.mjs`. 외부 서버에 요청하지 않고 인증·중복·만료·봇 제외·전송 간격·키 비노출을 확인한다.

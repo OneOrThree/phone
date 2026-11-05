@@ -131,3 +131,46 @@ test('관리 API 인증·승인 전 차단과 응답 키 제거를 확인한다'
     globalThis.fetch = original;
   }
 });
+
+test('캐릭터는 관리 인증 뒤 원본 바이너리를 전달하고 검사 상태만 반환한다', async () => {
+  const env = {
+    METAMOA_ADMIN_KEY: 'test-admin',
+    METAMOA_KEY: 'test-space',
+    METAMOA_SPACE_ID: 'cattus',
+  };
+  const original = globalThis.fetch;
+  let called = false;
+  globalThis.fetch = async (url, init) => {
+    called = true;
+    assert.equal(url, 'https://metamoa.com/api/space/cattus/character');
+    assert.equal(init.method, 'PUT');
+    assert.equal(init.headers['Content-Type'], 'image/png');
+    assert.equal(init.headers.Authorization, 'Bearer test-space');
+    assert.equal(await init.body.text(), 'local-binary-fixture');
+    return Response.json(
+      { status: 'checking', upload_id: 'chr_test', token: 'must-not-leak' },
+      { status: 202 },
+    );
+  };
+  try {
+    const request = new Request('https://try.oneorthree.world/service-api/metamoa/character', {
+      method: 'PUT',
+      headers: { Authorization: 'Bearer test-admin', 'Content-Type': 'image/png' },
+      body: 'local-binary-fixture',
+    });
+    const response = await metamoaAdmin(request, env);
+    assert.equal(called, true);
+    assert.equal(response.status, 202);
+    assert.deepEqual(await response.json(), { status: 'checking', upload_id: 'chr_test' });
+    called = false;
+    const oversized = new Request(request.url, {
+      method: 'PUT',
+      headers: request.headers,
+      body: new Uint8Array(1024 * 1024 + 1),
+    });
+    assert.equal((await metamoaAdmin(oversized, env)).status, 413);
+    assert.equal(called, false);
+  } finally {
+    globalThis.fetch = original;
+  }
+});
