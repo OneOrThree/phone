@@ -21,7 +21,7 @@ Release 빌드를 올려 Xcode Instruments 로 쟀고, 같은 날 밤 개선 전
 | 손가락 확대(사람) | 1 | 24.8% | — | — | 43 fps | 2.0 ms/s |
 
 - 화면 갱신(fps)은 앱이 새 화면을 내보낸 횟수다. 움직이는 것이 적으면 낮은 게 정상이라 «가만히 14 fps» 는 문제가 아니다.
-- 끊김은 1초당 늦게 나온 화면 시간의 합(Hitches)이다. 모든 장면이 5 ms/s 아래라 사람 눈에 띄는 끊김은 없었다.
+- 끊김은 1초당 늦게 나온 화면 시간의 합(Hitches)이다. 측정한 장면의 값은 모두 5 ms/s 아래였다. 평균값만으로 개별 끊김의 체감 여부를 단정하지 않는다.
 - 지도 끌기는 손가락이 계속 움직이는데도 27 fps 라 개선 후보다(티켓 없음, §7).
 
 ### 낚시섬 집중·AI집중측정 (빌드 `239efc3f4`, 60초)
@@ -33,7 +33,8 @@ Release 빌드를 올려 Xcode Instruments 로 쟀고, 같은 날 밤 개선 전
 | 집중 · AI 켬 · 미리보기 열림 | 2 | 39.2% · 42.3% | 29.5% · 32.2% | 6.8% · 7.1% | Nominal · Fair |
 | 집중 전 미리보기(0.3초마다 판정) | 1 (+20초 시험 1) | 75.0% (시험 63.1%) | 0.6% | 73.2% | Fair |
 
-- 집중 중 AI집중측정(20초마다 3장)이 더하는 CPU 는 약 3%p 다. 비싼 것은 AI 가 아니라 집중 화면 자체(§2.1)와 집중 전 미리보기(§2.2)다.
+- AI를 켜고 미리보기를 닫은 장면에서 이름 없는 스레드는 2.5% → 5.4%로 2.9%p 높았다. 앱 전체 CPU는 37.9% → 37.0%였다.
+  각 1회이고 발열 상태도 달라 AI의 추가 CPU 비용은 확정하지 못했다. 집중 화면 자체(§2.1)와 집중 전 미리보기(§2.2)를 각각 분석했다.
 - 이름 없는 스레드는 카메라 프레임 처리·모델 추론이 도는 곳이다(Time Profiler 에 프로세스 이름 `cattus` 로 묶여 나온다).
 - 발열 상태는 iOS 의 4단계(Nominal · Fair · Serious · Critical)다. 미리보기 60초 뒤 Fair 로 올라 이어진 측정에도 남았다.
 
@@ -60,7 +61,7 @@ Core Animation 테두리(`CALayer.borderWidth`)를 쓰고, 나머지는 테두�
 - 물빛 반짝임 6개: 윗변에만 테두리(`borderTopWidth`)를 줬다. 네 변이 같지 않다.
 - 물결 고리 3개: 네 변이 같은 테두리지만 안쪽을 잘라내지 않는다.
 
-AI 를 꺼도 집중 중 CPU 가 홈 대기의 4배였던 이유다. 집중은 몇 시간씩 이어지므로 배터리 영향이 가장 크다.
+AI를 꺼도 집중 중 CPU가 홈 대기의 약 4배였던 원인으로 보았다. 집중은 오래 이어질 수 있어 먼저 개선했다. 배터리 영향은 재지 않았다.
 처음에는 반짝임만 원인으로 보고 고쳤는데, 다시 재 보니 메인 스레드의 33%가 아직 `RCTGetBorderImage` 였다. 그래서 고리를 찾았다(§3).
 
 ### 2.2 집중 전 미리보기 75% — 카메라 프레임 스레드의 JS 실행 (GROMO-2737)
@@ -81,12 +82,22 @@ JS 로 도는 일은 두 가지가 크다. Time Profiler 는 Hermes 안의 JS �
   출력 19,206 위치 × 90 종류 = 1,728,540개 값을 하나씩 정상 확률인지 검사한다. 판정에 쓰는 것은 그중 3종류(노트북·키보드·책)다.
   반복 횟수가 손 모델 변환의 약 16배라 지금 가장 유력한 원인이다.
 
-미리보기는 집중 시작 전에 잠깐 켜는 화면이고, 집중 중 AI집중측정(20초마다 3장)이 더하는 CPU 는 약 3%p 다. 그래서 물체 결과 검사는
-고치지 않고 후보로만 남긴다(§7).
+미리보기는 집중 시작 전에 잠깐 켜는 화면이고, 집중 중에는 20초마다 3장을 판정한다. 두 장면의 CPU 사용을 구분했으며,
+주기 판정의 추가 비용은 이번 표본만으로 확정하지 못했다. 물체 결과 검사는 후속 개선 후보로 남긴다(§7).
 
 ## 3. 개선 전후 (GROMO-2736 · GROMO-2737)
 
 기준은 2026-11-03 밤의 main `b0940c786` 이다. 고친 빌드는 그 위에 각 티켓의 커밋만 올렸다. 모두 60초, 케이블을 꽂은 채로 쟀다.
+
+적용한 변경은 [PR #1576](https://github.com/OneOrThree/phone/pull/1576)·[PR #1577](https://github.com/OneOrThree/phone/pull/1577)의 커밋 목록과 측정 표로 연결한다.
+
+| 측정 빌드 | 기준 위에 적용한 변경 |
+| --- | --- |
+| 반짝임만 막대로 | `4f176799f` |
+| 반짝임 + 물결 고리 | `4f176799f` + `c50706308` |
+| 손 모델 입력 float32 | `23310d637` |
+
+위 값은 코드 변경의 SHA다. 개발 서명·OTA 끄기 등 임시 설정을 포함한 측정 바이너리의 해시나 원본 trace의 보존 위치는 이 문서에 없다.
 
 ### 3.1 집중 · AI 끔 (GROMO-2736)
 
@@ -151,15 +162,21 @@ JS 로 도는 일은 두 가지가 크다. Time Profiler 는 Hermes 안의 JS �
    ```
 
 2. 폰 설정: 설정 → 개발자 → «UI 자동화 사용» 켬, 방해 금지 모드 켬(알림 배너가 XCUITest 를 끊는다), 자동 잠금 끔.
-3. 러너가 `PERF_READY` 를 찍으면 기록을 붙인다.
+3. 측정 당시에는 별도 XCUITest 러너가 `PERF_READY`를 찍은 뒤 기록을 붙였다. **러너 소스·실행 스크립트는 저장소에 없으며,
+   현재 문서만으로 같은 자동 조작을 재현할 수 없다.** 러너를 보유한 경우 그 실행 환경에서 아래 기록 명령을 사용한다.
+   러너 없이 확인하려면 앱을 열고 §4의 장면에 진입한 뒤 기록을 시작하고, 걷기·끌기·집중 동작을 수동으로 수행한다.
+   수동 조작은 별도 조건으로 기록하며 위 자동 조작 결과와 같은 조건의 전후 비교로 쓰지 않는다.
 
    ```bash
    PID=$(xcrun devicectl device info processes --device <UDID> | grep '/Cattus.app/Cattus *$' | awk '{print $1}')
    DEVELOPER_DIR=/Applications/Xcode-26.6.0.app/Contents/Developer xcrun xctrace record \
      --instrument 'Time Profiler' --instrument 'Thermal State' \
      --device <UDID> --attach "$PID" --time-limit 64s --output a0.trace
-   xcrun xctrace export --input a0.trace --xpath '//table[@schema="time-profile"]' > a0-time-profile.xml
+   DEVELOPER_DIR=/Applications/Xcode-27.2.0.app/Contents/Developer xcrun xctrace export \
+     --input a0.trace --xpath '//table[@schema="time-profile"]' > a0-time-profile.xml
    ```
+
+   Xcode 설치 폴더 이름이 다르면 각 명령의 경로를 실제 26.6·27.2 설치 경로로 바꾼다.
 
 4. 폰 남은 공간은 `uvx pymobiledevice3 lockdown get com.apple.disk_usage` 의 `AmountDataAvailable` 로 본다(`devicectl` 은 알려 주지 않는다).
 
