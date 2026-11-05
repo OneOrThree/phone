@@ -1613,8 +1613,11 @@ export function FocusFlow({ e: environment }: any) {
     spots = [...fishingPeerSpots, ...(seated ? [mine] : [])];
   const focusing = activeFocus,
     mySubject = r === 'focusSetup' ? null : (s.session?.subject ?? result?.subject ?? null);
+  // 체험 완료 기록(focusGuideDone)은 기기에만 남아 재설치·새 기기에서는 사라진다. 진행 중인 튜토리얼이
+  // 없으면 첫 집중 체험을 마친 계정으로 보고 안내한다 — 기록을 잃은 계정에는 다시 보여도 된다.
+  const tutorialDone = s.focusGuideDone || !s.tutorial || s.tutorial.step >= 22;
   const verificationIntro =
-    s.focusGuideDone && !experience && !dialog && !catInfo && !leg && !voyage && !goldenCutscene
+    tutorialDone && !experience && !dialog && !catInfo && !leg && !voyage && !goldenCutscene
       ? 'automatic'
       : undefined;
   // 집중 준비 모달은 누른 곳(내 고양이) 위에 붙인다. 위가 좁으면 아래 → 오른쪽 → 왼쪽.
