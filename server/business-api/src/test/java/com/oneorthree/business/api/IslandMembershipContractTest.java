@@ -67,6 +67,23 @@ class IslandMembershipContractTest extends UpstreamTestBase {
     // ---------------------------------------------------------------- 주체
 
     @Test
+    void webIslandUsesAuthenticatedUserAndCommandKey() throws Exception {
+        String path = "POST " + INTERNAL + "/web-island";
+        DATA.on(path, request -> ok(CREATED.replace("host", "member")));
+        mockMvc.perform(write(post("/me/web-island"), ""))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.id").value(ISLAND.toString()))
+                .andExpect(jsonPath("$.data.role").value("member"));
+        var forwarded = DATA.receivedFor(path).get(0);
+        assertThat(forwarded.header("X-User-Id")).isEqualTo(USER.toString());
+        assertThat(forwarded.header("Idempotency-Key")).isEqualTo(KEY);
+        mockMvc.perform(auth(post("/me/web-island"))).andExpect(status().isBadRequest());
+        mockMvc.perform(post("/me/web-island").header("Idempotency-Key", KEY))
+                .andExpect(status().isUnauthorized());
+        assertThat(DATA.receivedFor(path)).hasSize(1);
+    }
+
+    @Test
     @DisplayName("첫 항해 도착은 명령 키를 전달하고 무인도의 실제 섬 ID를 허용한다")
     void introductoryArrivalForwardsKeyAndAllowsMaterializedIsland() throws Exception {
         String path = "POST " + INTERNAL + "/islands/" + ISLAND + "/intro-arrivals";

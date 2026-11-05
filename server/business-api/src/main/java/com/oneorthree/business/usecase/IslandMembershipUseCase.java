@@ -90,6 +90,7 @@ public class IslandMembershipUseCase {
             Map.entry("ALREADY_MEMBER", new PublicFailure(ApiErrorCode.STATE_CONFLICT, "islandId")),
             // GROMO-2315 부터 Data 는 내지 않는다(강퇴자 신청은 pending) — 따로 배포되는 동안의 구 Data 응답용으로 남긴다.
             Map.entry("KICKED_CANNOT_REJOIN", new PublicFailure(ApiErrorCode.FORBIDDEN, "islandId")),
+            Map.entry("ONBOARDING_REQUIRED", new PublicFailure(ApiErrorCode.INVALID_REQUEST, null)),
             Map.entry("ROOM_FULL", new PublicFailure(ApiErrorCode.STATE_CONFLICT, "islandId")),
             // 남의 요청은 범위 밖 — 「없다」와 같은 404 로 접어 소유 정보를 새지 않는다(LLD §3.8).
             Map.entry("JOIN_REQUEST_NOT_FOUND", new PublicFailure(ApiErrorCode.NOT_FOUND, "requestId")),
@@ -108,6 +109,11 @@ public class IslandMembershipUseCase {
     private final DataIslandClient data;
     private final SignedCursorCodec codec;
     private final SecureRandom seeds = new SecureRandom();
+
+    /** 웹 사용자를 서버가 선택한 공용 섬에 배정한다. */
+    public IslandCreatedView enterWebIsland(AccessTokenClaims claims, UUID key, Deadline deadline) {
+        return IslandCreatedView.from(relay(() -> data.enterWebIsland(claims.userId(), key, deadline)));
+    }
 
     /** 섬 생성 (LLD §3.1). */
     public IslandCreatedView create(AccessTokenClaims claims, String name, String intro,

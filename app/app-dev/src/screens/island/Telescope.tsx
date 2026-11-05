@@ -1,3 +1,4 @@
+import { sharedWebIslandId, usesSharedWebIsland } from '@/services/webIsland';
 import { ISLAND_ART_ASPECT, ISLAND_STAGE_ART, islandStage } from '@/constants/magazineAssets';
 import { Badge, Btn, NavBtn, Pic, Txt } from '@/design-system/patterns';
 import { Card } from '@/design-system/primitives';
@@ -441,7 +442,11 @@ function IslandBubble({
       {isMagazinePin(item) && <MagazinePreview cell={item.magazineCell} />}
       <SheetGroup>
         <SheetRow
-          title={t('telescope.residents', { count: item.memberCount, max: item.maxMembers })}
+          title={
+            usesSharedWebIsland() && item.islandId === sharedWebIslandId()
+              ? `${item.memberCount}마리 · 정원 제한 없음`
+              : t('telescope.residents', { count: item.memberCount, max: item.maxMembers })
+          }
         />
         <SheetRow title={averageText(item.averageFocusMinutesPerDay)} />
         {!firstVoyage && (

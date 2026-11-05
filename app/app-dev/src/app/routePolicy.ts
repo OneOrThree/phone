@@ -3,6 +3,7 @@ import type { Route } from '@/services/model';
 export const titles: Record<Route, string> = {
   login: 'GROMO',
   character: '내 고양이',
+  webIsland: '함께 집중할고양',
   createIsland: '새 섬 만들기',
   joinIsland: '섬 찾기',
   approval: '가입 승인 대기',
@@ -72,6 +73,7 @@ export const titles: Record<Route, string> = {
 export const DEEP_LINK_HOLD_ROUTES: Route[] = [
   'login',
   'character',
+  'webIsland',
   'createIsland',
   'joinIsland',
   'approval',
@@ -99,6 +101,7 @@ export const SEA_HUD_ROUTES: Route[] = [
 export const NO_ISLAND_ROUTES: Route[] = [
   'login',
   'character',
+  'webIsland',
   'createIsland',
   'joinIsland',
   'approval',
