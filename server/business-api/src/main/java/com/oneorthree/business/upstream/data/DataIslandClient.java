@@ -198,6 +198,14 @@ public class DataIslandClient {
                         .build(), deadline, new ParameterizedTypeReference<JsonNode>() { });
     }
 
+    /** 웹 전용 섬 배정 — 자격은 검증된 호출자만 전달한다. */
+    public IslandCreated enterWebIsland(UUID userId, UUID key, Deadline deadline) {
+        return http.exchange(InternalCall.to(HttpMethod.POST,
+                        "/internal/users/" + userId + "/web-island")
+                .onBehalfOf(userId).idempotencyKey(key.toString()).idempotentCommand().build(),
+                deadline, new ParameterizedTypeReference<IslandCreated>() { });
+    }
+
     /** 섬 생성 (GROMO-1759, LLD §3.1). 생성자가 방장이 되고 현재 섬이 새 섬으로 옮겨진다. */
     public IslandCreated createIsland(UUID userId, String name, String intro, boolean approvalRequired,
             Integer maxMembers, UUID key, Deadline deadline) {

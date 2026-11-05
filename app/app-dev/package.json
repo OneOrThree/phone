@@ -43,7 +43,8 @@
     "gen:facility-crops:check": "python3 scripts/build-facility-crops.py --check",
     "gen:localized-stamp": "python3 scripts/gen-localized-stamp.py",
     "gen:localized-stamp:check": "python3 scripts/gen-localized-stamp.py --check",
-    "postinstall": "patch-package"
+    "postinstall": "patch-package",
+    "build:web:demo": "node web-demo/build.cjs"
   },
   "dependencies": {
     "@datadog/mobile-react-native": "^3.8.0",

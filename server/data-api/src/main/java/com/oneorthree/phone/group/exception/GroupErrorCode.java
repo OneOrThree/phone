@@ -13,6 +13,7 @@ import org.springframework.http.HttpStatus;
 @Getter
 public enum GroupErrorCode implements ErrorCode {
 
+    ONBOARDING_REQUIRED(HttpStatus.BAD_REQUEST, "고양이와 이름을 먼저 골라 주세요."),
     CANNOT_TRANSFER_SELF(HttpStatus.CONFLICT, "자기 자신에게 방장을 위임할 수 없습니다."),
     // 섬 정보 수정의 빈 이름(GROMO-1802, 섬 관리 LLD §2) — 형식 오류(400)가 아니라 값 범위 위반 422 다.
     // 요청 본문 파서 안에서 던지면 읽기 실패 400 으로 접히므로 서비스가 이 코드로 거절한다.

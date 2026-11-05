@@ -26,6 +26,7 @@ import {
 } from '@/services/api/islandManagement';
 import { getSession, sessionGeneration } from '@/services/api/session';
 import { isMockMode } from '@/services/demoMode';
+import { sharedWebIslandId, usesSharedWebIsland } from '@/services/webIsland';
 import type { Route } from '@/services/model';
 import {
   Building,
@@ -2966,7 +2967,9 @@ export function Hall({ e }: ScreenProps) {
             ),
           )}
         </View>,
-        `${residents.length} / ${liveManagement ? (management.detail?.maxMembers ?? 0) : capacityOf(i)}명`,
+        usesSharedWebIsland() && liveIslandId === sharedWebIslandId()
+          ? `${residents.length}명 · 정원 제한 없음`
+          : `${residents.length} / ${liveManagement ? (management.detail?.maxMembers ?? 0) : capacityOf(i)}명`,
       )}
       {news.length > 0 &&
         section(

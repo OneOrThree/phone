@@ -1,0 +1,50 @@
+{
+  "project_id": 669473,
+  "name": "Cattus · 웹 사용자",
+  "publication_status": "published_verified",
+  "dashboard_id": 2305307,
+  "url": "https://us.posthog.com/project/669473/dashboard/2305307",
+  "description": "익명 브라우저 기준. 같은 방문에서 진입→체험→집중→완료를 순서대로 관측하며 스토어 클릭은 실제 설치와 구분합니다. QA 방문은 제외합니다.",
+  "queries": [
+    {
+      "name": "날짜별 방문과 재방문",
+      "insight_id": 13693198,
+      "query": {
+        "kind": "HogQLQuery",
+        "query": "SELECT toDate(toTimeZone(timestamp, 'Asia/Seoul')) AS day, uniqExact(distinct_id) AS visitors, uniqExact(properties.$session_id) AS visits, uniqExactIf(distinct_id, properties.returning_visitor = true) AS returning_visitors FROM events WHERE event = 'web_demo_landing_viewed' AND properties.analytics_excluded = 0 AND timestamp >= now() - INTERVAL 28 DAY GROUP BY day ORDER BY day"
+      }
+    },
+    {
+      "name": "같은 방문의 집중 전환",
+      "insight_id": 13693199,
+      "query": {
+        "kind": "HogQLQuery",
+        "query": "WITH visits AS (SELECT distinct_id, properties.$session_id AS visit, minIf(timestamp, event = 'web_demo_landing_viewed') AS landing, minIf(timestamp, event = 'web_demo_experience_started') AS experience, minIf(timestamp, event = 'web_demo_focus_started') AS focus, minIf(timestamp, event = 'web_demo_focus_completed') AS completed FROM events WHERE properties.app_surface = 'web_demo' AND properties.analytics_excluded = 0 AND timestamp >= now() - INTERVAL 28 DAY GROUP BY distinct_id, visit HAVING landing > toDateTime(0)) SELECT count() AS landed, countIf(experience >= landing) AS experienced, countIf(experience >= landing AND focus >= experience) AS focused, countIf(experience >= landing AND focus >= experience AND completed >= focus) AS completed FROM visits"
+      }
+    },
+    {
+      "name": "유입 경로별 체험과 스토어 클릭",
+      "insight_id": 13693200,
+      "query": {
+        "kind": "HogQLQuery",
+        "query": "SELECT coalesce(nullIf(toString(properties.utm_source), ''), nullIf(toString(properties.referrer_host), ''), 'direct') AS source, uniqExactIf(distinct_id, event = 'web_demo_landing_viewed') AS visitors, uniqExactIf(distinct_id, event = 'web_demo_experience_started') AS experienced, uniqExactIf(distinct_id, event = 'web_demo_store_clicked') AS store_clickers FROM events WHERE properties.app_surface = 'web_demo' AND properties.analytics_excluded = 0 AND timestamp >= now() - INTERVAL 28 DAY GROUP BY source ORDER BY visitors DESC"
+      }
+    },
+    {
+      "name": "익명 방문자의 이동 순서",
+      "insight_id": 13693201,
+      "query": {
+        "kind": "HogQLQuery",
+        "query": "SELECT timestamp, distinct_id, properties.$session_id AS visit, event, properties.screen AS screen, properties.previous_screen AS previous_screen, properties.platform AS store, properties.duration_seconds AS focus_seconds FROM events WHERE properties.app_surface = 'web_demo' AND properties.analytics_excluded = 0 AND timestamp >= now() - INTERVAL 28 DAY ORDER BY timestamp DESC LIMIT 500"
+      }
+    },
+    {
+      "name": "마지막 화면과 탭 전환",
+      "insight_id": 13693202,
+      "query": {
+        "kind": "HogQLQuery",
+        "query": "SELECT properties.last_screen AS screen, count() AS hidden_or_left, uniqExact(distinct_id) AS visitors, countIf(properties.focus_in_progress = true) AS during_focus, avg(toFloat(properties.active_seconds)) AS average_visible_seconds FROM events WHERE event = 'web_demo_visit_paused' AND properties.analytics_excluded = 0 AND timestamp >= now() - INTERVAL 28 DAY GROUP BY screen ORDER BY hidden_or_left DESC"
+      }
+    }
+  ]
+}

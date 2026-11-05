@@ -64,6 +64,27 @@ beforeEach(async () => {
   await SecureStore.deleteItemAsync('gromo.guestDeviceId');
 });
 
+test('웹 게스트는 브라우저 복구 ID를 재사용하고 명시 로그아웃 뒤 회전한다', async () => {
+  const platform = Platform.OS;
+  Platform.OS = 'web';
+  await AsyncStorage.multiRemove(['gromo.guestDeviceId', 'gromo.guestDeviceIdRotationPending']);
+  stub([session('WEB', 'web-guest')]);
+  try {
+    await guestLogin();
+    const first = header(calls[0], 'X-Device-Id');
+    assert.equal(await AsyncStorage.getItem('gromo.guestDeviceId'), first);
+    await guestLogin();
+    assert.equal(header(calls[1], 'X-Device-Id'), first);
+    await logout();
+    await guestLogin();
+    const guestCalls = calls.filter((call) => call.url.endsWith('/auth/sessions/guest'));
+    assert.notEqual(header(guestCalls.at(-1)!, 'X-Device-Id'), first);
+  } finally {
+    Platform.OS = platform;
+    await AsyncStorage.multiRemove(['gromo.guestDeviceId', 'gromo.guestDeviceIdRotationPending']);
+  }
+});
+
 test('게스트 시작 — 기기 UUID를 보내고 세션을 보안 저장소에서 복원한다', async () => {
   stub([session('GUEST', 'guest-1')]);
 

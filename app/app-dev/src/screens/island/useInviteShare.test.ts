@@ -8,7 +8,10 @@ import { ApiError } from '@/services/api/client';
 
 jest.mock('@/services/api/islands', () => ({ issueInvitation: jest.fn() }));
 jest.mock('@/services/api/session', () => ({ sessionGeneration: jest.fn(() => 1) }));
-jest.mock('@/services/demoMode', () => ({ isMockMode: jest.fn(() => false) }));
+jest.mock('@/services/demoMode', () => ({
+  isMockMode: jest.fn(() => false),
+  isPublicWebDemo: jest.fn(() => false),
+}));
 
 const issued = { code: 'ABC123', url: 'https://link.example/l/ABC123?g=island', expiresAt: null };
 const issue = jest.mocked(issueInvitation);

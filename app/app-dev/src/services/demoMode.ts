@@ -8,7 +8,11 @@ const hasWebParam = (name: string) =>
   typeof window !== 'undefined' &&
   new URLSearchParams(window.location.search).has(name);
 
-export const isReviewMode = () => hasWebParam('review');
-export const isDemoMode = () => hasWebParam('demo') || process.env.EXPO_PUBLIC_DEMO === '1';
+/** 공개 웹 서비스 전용 빌드. 리뷰 쿼리로 목업에 들어갈 수 없다. */
+export const isPublicWebDemo = () =>
+  Platform.OS === 'web' && process.env.EXPO_PUBLIC_WEB_DEMO === '1';
+export const isReviewMode = () => !isPublicWebDemo() && hasWebParam('review');
+export const isDemoMode = () =>
+  !isPublicWebDemo() && (hasWebParam('demo') || process.env.EXPO_PUBLIC_DEMO === '1');
 /** review 또는 demo — 서버를 부르지 않고 로컬 목업 데이터로 그리는 경로 */
 export const isMockMode = () => isReviewMode() || isDemoMode();
