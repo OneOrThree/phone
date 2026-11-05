@@ -153,19 +153,19 @@ TC는 아래 도메인별로 구분한다. 식별자는 기존 번호를 유지�
 | 식별자 | SMOKE-SERVER-014 |
 | 목적 | 홈에서 집중으로 섬 통장을 적립하고 건설 비용을 차감한다. 게스트 구매는 소셜 로그인 필요로 거절되고 잔액·주문·소유가 유지됨을 확인한다 |
 | 연결 요구사항 | focus-rest-session, island-construction, island-shop, bff-screens, 인증·게스트 계정 정책. 사용자 선택에 따라 회원 구매·장착 성공은 이번 TC에서 제외 |
-| 사전 조건 | 신규 전용 게스트·단독 섬·방장 권한·진행 중 세션 없음. guarded SQL로 상점·도서관 완공과 회관 건설에 충분한 섬 통장 잔액 준비. 계정의 게스트 상태 유지. 활성 보상·회관 비용 정책 존재 |
-| 입력값 | 홈·지갑·건설 옵션 조회 → 집중 시작·정책 시간 실제 대기·종료 → 회관 목표·착공 → 개인 상품 조회·구매 요청 → 지갑·개인 주문·인벤토리·홈 재조회 |
-| 기대 결과 | 집중 후 B1 > B0. 건설 후 B2 = B1 − 조회한 회관 비용. 구매는 HTTP 403·SOCIAL_LOGIN_REQUIRED. B3 = B2, 지갑 version·개인 주문·인벤토리 변화 없음. 홈 최종 잔액·회관 착공 반영. 세션 종료 후 current=null |
+| 사전 조건 | 신규 전용 게스트·단독 섬·방장 권한·진행 중 세션 없음. guarded SQL로 상점·도서관 완공과 게시판 건설에 충분한 섬 통장 잔액 준비. 계정의 게스트 상태 유지. 활성 보상·게시판 비용 정책 존재 |
+| 입력값 | 홈·지갑·건설 옵션 조회 → 집중 시작·정책 시간 실제 대기·종료 → 게시판 목표·착공 → 개인 상품 조회·구매 요청 → 지갑·개인 주문·인벤토리·홈 재조회 |
+| 기대 결과 | 집중 후 B1 > B0. 건설 후 B2 = B1 − 조회한 게시판 비용. 구매는 HTTP 403·SOCIAL_LOGIN_REQUIRED. B3 = B2, 지갑 version·개인 주문·인벤토리 변화 없음. 홈 최종 잔액·게시판 착공 반영. 세션 종료 후 current=null |
 
 #### 단계별 입력·판정
 
 | 단계 | API·동작 | 기대 결과 |
 |---|---|---|
-| 초기 상태 | 홈·shop/wallets·construction-options 조회 | 상점·도서관 준비, 회관 미건설·선택 가능, B0 확보 |
+| 초기 상태 | 홈·shop/wallets·construction-options 조회 | 기본 회관·상점·도서관 준비, 게시판 미건설·선택 가능, B0 확보 |
 | 집중·적립 | POST /focus-sessions → 현재 정책 secondsPerFish+2초 실제 대기 → 최신 version으로 finish → 지갑 조회 | active·유효 집중 시간 확인, earnedFish > 0, B1 > B0, current=null |
-| 건설 | 회관 목표 PUT → 옵션/version 재조회 → constructions POST → 지갑 조회 | 회관 BUILDING, B2 = B1 − 비용. 완공 대기는 제외 |
+| 건설 | 게시판 목표 PUT → 옵션/version 재조회 → constructions POST → 지갑 조회 | 게시판 BUILDING, B2 = B1 − 비용. 완공 대기는 제외 |
 | 게스트 구매 | 상품·지갑 version 확인 → shop/orders POST | 403 SOCIAL_LOGIN_REQUIRED. 활성 상품이 없으면 문법상 유효한 smoke-guest-denied ID·revision 1로 회원 gate가 먼저 적용됨을 확인 |
-| 무변경·최종 조회 | 지갑·개인 주문·인벤토리·홈·건설 옵션 조회 | B3 = B2·지갑 version 유지, 주문·인벤토리의 data 내용이 요청 전후 동일, 홈 잔액·회관 착공 일치 |
+| 무변경·최종 조회 | 지갑·개인 주문·인벤토리·홈·건설 옵션 조회 | B3 = B2·지갑 version 유지, 주문·인벤토리의 data 내용이 요청 전후 동일, 홈 잔액·게시판 착공 일치 |
 
 #### 데이터 준비·정리
 
