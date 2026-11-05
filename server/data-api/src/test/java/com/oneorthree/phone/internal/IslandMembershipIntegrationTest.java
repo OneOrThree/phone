@@ -226,6 +226,20 @@ class IslandMembershipIntegrationTest {
     }
 
     @Test
+    @DisplayName("POST /islands 로 만든 섬은 완공 마을회관을 함께 받고 완공 안내는 띄우지 않는다(GROMO-2763)")
+    void createdIslandStartsWithACompletedHall() {
+        UUID islandId = islands.create(newUser(), new CreateIslandCommandRequest("회관섬", null, false, null),
+                UUID.randomUUID()).id();
+
+        assertThat(count("select count(*) from island_facilities where island_id=? and building_id='hall'"
+                + " and status='COMPLETED'", islandId)).isEqualTo(1);
+        assertThat(count("select count(*) from island_facilities where island_id=?", islandId)).isEqualTo(1);
+        assertThat(count("select count(*) from construction_guide_recipients where island_id=?", islandId)).isZero();
+        assertThat(jdbc.queryForObject("select jsonb_exists(building_themes, 'hall') from island_appearances"
+                + " where island_id=?", Boolean.class, islandId)).isTrue();
+    }
+
+    @Test
     @DisplayName("마지막 주민이 나간 섬은 발견·검색·내 섬에서 사라지고 직접 조회·가입도 막힌다")
     void lastResidentLeaveHidesIslandAcrossDiscoveryAndAccess() {
         UUID host = newUser();

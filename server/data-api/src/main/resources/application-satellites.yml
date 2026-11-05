@@ -298,6 +298,9 @@ internal:
         optional: true
         allow:
           - 'POST /internal/admin/island-focus-averages/snapshots'
+          # GROMO-2763 마을회관 없는 섬 일회성 정리 — 기본 dry-run. 절차는
+          # docs/prd/fishcat/island-membership/hall-less-island-cleanup.md.
+          - 'POST /internal/admin/hall-less-islands/cleanup'
 outbox:
   relay:
     enabled: ${OUTBOX_RELAY_ENABLED:false}
