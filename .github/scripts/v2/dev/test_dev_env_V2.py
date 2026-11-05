@@ -21,10 +21,10 @@ class EnvTest(unittest.TestCase):
                            CHAT_DB_USERNAME='catus_realtime_v2',
                            SVC_TOKEN_CONSOLE_TO_NOTI='member-1:console-token',
                            BUSINESS_REDIS_LEGACY_HOST='old', BUSINESS_REDIS_LEGACY_PASSWORD='legacy')
-        self.config = {'environment':'dev-v2', 'project':'oneorthree2', 'hosts': {
+        self.config = {'environment':'dev-v2', 'project':'project-cd783bdb-e03f-4e17-b74', 'hosts': {
             role: {'name':f'catus-dev-v2-{role}', 'id':str(i), 'private_ip':f'10.30.0.{i}'}
             for i, role in enumerate(('app','data','redis'), 7)}}
-        self.images = {service: f'asia-northeast3-docker.pkg.dev/oneorthree2/{service}/{service}@sha256:' + 'a'*64
+        self.images = {service: f'asia-northeast3-docker.pkg.dev/project-cd783bdb-e03f-4e17-b74/{service}/{service}@sha256:' + 'a'*64
                        for service in ('data-api', 'realtime', 'business-api', 'notification')}
 
     def test_replaces_old_addresses_and_splits_roles(self):
@@ -49,10 +49,17 @@ class EnvTest(unittest.TestCase):
         with self.assertRaises(ValueError): m.generate(self.secret, self.config, self.images)
 
     def test_wrong_target_and_registry_rejected(self):
+        self.config['project'] = 'oneorthree2'
+        with self.assertRaises(ValueError): m.generate(self.secret, self.config, self.images)
+        self.config['project'] = 'project-cd783bdb-e03f-4e17-b74'
         self.config['hosts']['data']['name'] = 'gromo-dev-app'
         with self.assertRaises(ValueError): m.generate(self.secret, self.config, self.images)
         self.config['hosts']['data']['name'] = 'catus-dev-v2-data'
         self.images['data-api'] = 'prod.example/image@sha256:' + 'a'*64
+        with self.assertRaises(ValueError): m.generate(self.secret, self.config, self.images)
+
+    def test_old_project_image_is_rejected(self):
+        self.images['data-api'] = 'asia-northeast3-docker.pkg.dev/oneorthree2/data-api/data-api@sha256:' + 'a'*64
         with self.assertRaises(ValueError): m.generate(self.secret, self.config, self.images)
 
 
