@@ -50,6 +50,7 @@ class IslandPurgeGuardTest {
 
     /** purge 가 지우지 않는 섬 참조 표 → 남기는 사유. 남기는 표와 그 사유의 정본이다. */
     private static final Map<String, String> KEPT = Map.ofEntries(
+            entry("web_island_pools", "운영 배정은 닫힌 섬을 유지해 입장을 차단한다 — 자동 재생성하지 않고 운영자가 재배정한다"),
             entry("group_members", "이탈 마킹으로 소속이 이미 끊겼고, 정산과 지난 주 랭킹 분모(경계 시점 소속 판정)의 증거다"),
             entry("island_join_requests", "섬 종결이 ISLAND_CLOSED 로 닫는다 — 신청은 공동 기록이 아니라 신청자의 기록이다"),
             entry("focus_session_details", "개인 집중 기록이라 정책이 유지한다 — 가상 무인도 목적지를 위해 island_id FK 는 없다"),
