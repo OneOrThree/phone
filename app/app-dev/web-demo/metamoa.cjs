@@ -1,100 +1,91 @@
-const fs = require('node:fs');
-const path = require('node:path');
-
 const draft = require('./submission.json');
-const api = 'https://metamoa.com/api/submit';
-const receipt = path.resolve(__dirname, '../.env.metamoa');
 
+// 이 도구는 서버 환경 변수를 주입받아 관리 API만 호출한다. 키를 파일로 쓰거나 출력하지 않는다.
 async function main() {
-  const args = process.argv.slice(2);
-  if (args.some((arg) => !['--submit', '--agree', '--status'].includes(arg))) {
-    throw new Error('사용법: node web-demo/metamoa.cjs [--submit --agree | --status]');
-  }
-  if (args.includes('--status')) {
-    if (args.length !== 1) throw new Error('--status는 단독으로 사용합니다.');
-    const values = Object.fromEntries(
-      fs
-        .readFileSync(receipt, 'utf8')
-        .trim()
-        .split('\n')
-        .map((line) => {
-          const i = line.indexOf('=');
-          return [line.slice(0, i), line.slice(i + 1)];
-        }),
-    );
-    if (!values.METAMOA_REQUEST_KEY || !values.METAMOA_SUBMISSION_ID)
-      throw new Error('접수 정보가 없습니다.');
-    const response = await fetch(`${api}/${encodeURIComponent(values.METAMOA_SUBMISSION_ID)}`, {
-      headers: { Authorization: `Bearer ${values.METAMOA_REQUEST_KEY}` },
-      signal: AbortSignal.timeout(15000),
-    });
-    if (!response.ok) throw new Error(`결과 조회 실패: HTTP ${response.status}`);
-    const result = await response.json();
+  const [action, eventId] = process.argv.slice(2);
+  if (!action) {
+    console.log(JSON.stringify({ ...draft, api_hookup: true }, null, 2));
     console.log(
-      JSON.stringify({ id: values.METAMOA_SUBMISSION_ID, status: result.status }, null, 2),
+      '미제출. 등록은 소유자의 약관 동의를 받은 뒤 서버 비밀 환경 변수 저장과 함께 실행합니다.',
     );
     return;
   }
-  if (!args.includes('--submit')) {
-    console.log(JSON.stringify(draft, null, 2));
-    console.log(
-      '미제출. 소유자가 실제 등록과 약관·개인정보처리방침 동의를 승인한 뒤에만 --submit --agree로 실행합니다.',
+  if (
+    ![
+      '--status',
+      '--sync-status',
+      '--update',
+      '--event',
+      '--events',
+      '--delete-event',
+      '--character-png',
+      '--character-glb',
+      '--character-status',
+    ].includes(action)
+  )
+    throw new Error(
+      '사용법: node web-demo/metamoa.cjs [--status | --sync-status | --update | --event | --events | --delete-event ID | --character-png | --character-glb | --character-status]',
     );
-    console.log('https://metamoa.com/terms\nhttps://metamoa.com/privacy');
-    return;
-  }
-  if (!args.includes('--agree'))
-    throw new Error('소유자의 약관·개인정보처리방침 동의를 확인한 후 --agree가 필요합니다.');
-  if (fs.existsSync(receipt))
-    throw new Error('.env.metamoa 접수 기록이 있습니다. 중복 제출하지 말고 결과를 조회하세요.');
-  const site = await fetch(draft.url, { signal: AbortSignal.timeout(15000) });
-  if (!site.ok || !(await site.text()).includes('집중할고양'))
-    throw new Error('공개 체험판 주소를 먼저 점검하세요.');
-  const picture = await fetch(draft.og_image, {
-    method: 'HEAD',
-    signal: AbortSignal.timeout(15000),
-  });
-  if (!picture.ok || !picture.headers.get('content-type')?.startsWith('image/'))
-    throw new Error('대표 이미지가 열리지 않습니다.');
-  // 요청 전에 파일을 독점 생성한다. 응답 유실 때도 자동 재제출하지 않는다.
-  const fd = fs.openSync(receipt, 'wx', 0o600);
-  fs.writeSync(fd, 'METAMOA_SUBMISSION_PENDING=1\n');
-  fs.fsyncSync(fd);
-  try {
-    const response = await fetch(api, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...draft, agree: true }),
-      signal: AbortSignal.timeout(30000),
-    });
-    const raw = await response.text();
-    // 키가 있는 원문은 권한 600 환경 파일에만 보관한다. 오류 응답도 콘솔에 찍지 않는다.
-    fs.writeSync(fd, `METAMOA_RECEIPT_BASE64=${Buffer.from(raw).toString('base64')}\n`);
-    fs.fsyncSync(fd);
-    if (!response.ok)
-      throw new Error(`접수 실패: HTTP ${response.status}. 환경 파일의 응답을 확인하세요.`);
-    const result = JSON.parse(raw);
-    if (
-      typeof result.id !== 'string' ||
-      !/^[A-Za-z0-9_-]+$/.test(result.id) ||
-      typeof result.request_key !== 'string' ||
-      !/^mm_req_[A-Za-z0-9_-]+$/.test(result.request_key)
-    ) {
-      throw new Error(
-        '접수 응답 형식이 예상과 다릅니다. 보관된 응답을 확인하고 재제출하지 마세요.',
-      );
+  if (!process.env.METAMOA_ADMIN_KEY)
+    throw new Error('서버 환경 변수 METAMOA_ADMIN_KEY가 필요합니다.');
+  if (action === '--delete-event' && !/^[1-9][0-9]*$/.test(eventId || ''))
+    throw new Error('삭제할 이벤트 ID가 필요합니다.');
+  const path = {
+    '--status': 'status',
+    '--sync-status': 'sync-status',
+    '--update': 'update',
+    '--event': 'events',
+    '--events': 'events',
+    '--delete-event': `events/${eventId}`,
+    '--character-png': 'character',
+    '--character-glb': 'character',
+    '--character-status': 'character',
+  }[action];
+  const writes = action === '--update' || action === '--event';
+  const binary = action === '--character-png' || action === '--character-glb';
+  const contentType = action === '--character-png' ? 'image/png' : 'model/gltf-binary';
+  let body;
+  if (binary) {
+    const chunks = [];
+    let size = 0;
+    for await (const chunk of process.stdin) {
+      size += chunk.byteLength;
+      if (size > (action === '--character-png' ? 1024 * 1024 : 4 * 1024 * 1024))
+        throw new Error('캐릭터 파일이 너무 큽니다.');
+      chunks.push(chunk);
     }
-    fs.writeSync(
-      fd,
-      `METAMOA_SUBMISSION_ID=${result.id}\nMETAMOA_REQUEST_KEY=${result.request_key}\n`,
-    );
-    fs.fsyncSync(fd);
-    console.log(`등록 요청 접수 완료: ${result.id}. 키는 .env.metamoa에만 보관했습니다.`);
-  } finally {
-    fs.closeSync(fd);
+    body = Buffer.concat(chunks);
+  } else if (writes) {
+    let input = '';
+    for await (const chunk of process.stdin) {
+      input += chunk;
+      if (input.length > 8192) throw new Error('입력이 너무 큽니다.');
+    }
+    body = JSON.stringify(JSON.parse(input));
   }
+  const response = await fetch(`https://try.oneorthree.world/service-api/metamoa/${path}`, {
+    method: action === '--delete-event' ? 'DELETE' : binary ? 'PUT' : writes ? 'POST' : 'GET',
+    headers: {
+      Authorization: `Bearer ${process.env.METAMOA_ADMIN_KEY}`,
+      'Content-Type': binary ? contentType : 'application/json',
+    },
+    body,
+    redirect: 'error',
+    signal: AbortSignal.timeout(20000),
+  });
+  if (!response.ok) throw new Error(`관리 API 실패: HTTP ${response.status}`);
+  const data = response.status === 204 ? { ok: true } : await response.json();
+  // 응답의 명시된 비밀이 아닌 상태 필드만 표시한다.
+  const safe = Object.fromEntries(
+    ['ok', 'submitted', 'id', 'status', 'space_id', 'last_sync', 'upload_id', 'events']
+      .filter((key) => data[key] !== undefined)
+      .map((key) => [key, data[key]]),
+  );
+  console.log(JSON.stringify(safe, null, 2));
 }
-main().catch((error) => {
-  console.error(error.message);
+main().catch(() => {
+  console.error(
+    '메타모아 명령 실패. 서버 환경 변수·HTTP 상태를 확인하세요. 비밀값은 출력하지 않습니다.',
+  );
   process.exitCode = 1;
 });

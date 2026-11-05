@@ -77,6 +77,7 @@ import {
 import { trackDatadogView } from '@/services/datadog';
 import { isDemoMode, isPublicWebDemo, isReviewMode } from '@/services/demoMode';
 import { observeWebDemo } from '@/services/webDemoAnalytics';
+import { startWebMetamoaPresence } from '@/services/webMetamoaPresence';
 import { STORE_URLS, isLetterReady, visibleAt } from '@/services/developerLetter';
 import { loadHomeSnapshot, type HomeSnapshot } from '@/services/homeSnapshot';
 import { updateIOSHomeWidget } from '@/services/iosHomeWidget';
@@ -290,6 +291,7 @@ function Gromo() {
     [focusBlockingPermissionBusy, setFocusBlockingPermissionBusy] = useState(false),
     [reviewEpoch, setReviewEpoch] = useState(0);
   const guideStep = state.tutorial?.step ?? 0;
+  useEffect(() => startWebMetamoaPresence(), []);
   useFocusTutorialViewed(guideStep);
   const tutorialOwner = getSession()?.userId;
   const tutorialGeneration = sessionGeneration();
