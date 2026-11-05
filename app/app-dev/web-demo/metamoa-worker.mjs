@@ -93,16 +93,19 @@ export class MetamoaPresence {
         if (!this.env.METAMOA_KEY || !SAFE_ID.test(this.env.METAMOA_SPACE_ID || ''))
           return json({ enabled: false });
         const last = await this.ctx.storage.get('last_attempt');
-        if (last && now - last < 10 * 60_000) return json({ skipped: true });
+        if (last && now - last < 9 * 60_000) return json({ skipped: true });
         const count = this.sql.exec('SELECT COUNT(*) AS count FROM visitors').one().count;
         if (count > 100000) return json({ error: 'count_out_of_range' }, 503);
         await this.ctx.storage.put('last_attempt', now);
-        const response = await metamoaFetch(
-          this.env,
-          `/live/${this.env.METAMOA_SPACE_ID}`,
-          'POST',
-          { count },
-        );
+        let response;
+        try {
+          response = await metamoaFetch(this.env, `/live/${this.env.METAMOA_SPACE_ID}`, 'POST', {
+            count,
+          });
+        } catch {
+          await this.ctx.storage.put('last_sync', { at: now, count, status: 0 });
+          return json({ error: 'sync_transport_failed' }, 502);
+        }
         await this.ctx.storage.put('last_sync', { at: now, count, status: response.status });
         return json(
           { ok: response.status === 204, status: response.status, count },
@@ -227,7 +230,9 @@ export async function metamoaAdmin(request, env) {
   }
   let target, body;
   if (path === 'update' && request.method === 'POST') {
-    body = await request.json();
+    body = await request.json().catch(() => null);
+    if (!body || typeof body !== 'object' || Array.isArray(body))
+      return json({ error: 'invalid_update' }, 400);
     if (
       typeof body.text !== 'string' ||
       !body.text.trim() ||
@@ -240,22 +245,46 @@ export async function metamoaAdmin(request, env) {
   } else if (path === 'events' && ['POST', 'GET'].includes(request.method)) {
     target = `/space/${env.METAMOA_SPACE_ID}/events`;
     if (request.method === 'POST') {
-      const value = await request.json();
+      const value = await request.json().catch(() => null);
+      if (!value || typeof value !== 'object' || Array.isArray(value))
+        return json({ error: 'invalid_event' }, 400);
       body = Object.fromEntries(
         ['title', 'desc', 'starts_at', 'ends_at', 'daily_from', 'daily_to', 'url']
           .filter((k) => value[k] !== undefined)
           .map((k) => [k, value[k]]),
       );
+      const iso = (v) =>
+        typeof v === 'string' &&
+        /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})$/.test(v) &&
+        Number.isFinite(Date.parse(v));
+      const time = (v) => typeof v === 'string' && /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(v);
+      let validUrl = body.url === undefined;
+      if (typeof body.url === 'string') {
+        try {
+          const url = new URL(body.url);
+          validUrl =
+            url.origin === 'https://try.oneorthree.world' && !url.username && !url.password;
+        } catch {
+          /* 허용된 공개 웹 주소만 전달한다. */
+        }
+      }
       if (
         typeof body.title !== 'string' ||
         !body.title.trim() ||
         Array.from(body.title).length > 30 ||
-        !Number.isFinite(Date.parse(body.starts_at)) ||
-        !Number.isFinite(Date.parse(body.ends_at))
+        !iso(body.starts_at) ||
+        !iso(body.ends_at) ||
+        Date.parse(body.ends_at) <= Date.parse(body.starts_at) ||
+        Date.parse(body.ends_at) - Date.parse(body.starts_at) > 31 * 86400000 ||
+        (body.desc !== undefined &&
+          (typeof body.desc !== 'string' || Array.from(body.desc).length > 40)) ||
+        ((body.daily_from !== undefined || body.daily_to !== undefined) &&
+          (!time(body.daily_from) || !time(body.daily_to))) ||
+        !validUrl
       )
         return json({ error: 'invalid_event' }, 400);
     }
-  } else if (/^events\/[a-zA-Z0-9_-]+$/.test(path) && request.method === 'DELETE') {
+  } else if (/^events\/[1-9][0-9]*$/.test(path) && request.method === 'DELETE') {
     target = `/space/${env.METAMOA_SPACE_ID}/${path}`;
   } else return json({ error: 'not_found' }, 404);
   const response = await metamoaFetch(env, target, request.method, body);
@@ -263,6 +292,20 @@ export async function metamoaAdmin(request, env) {
   if (!response.ok) return json({ error: 'metamoa_rejected', status: response.status }, 502);
   if (response.status === 204) return new Response(null, { status: 204 });
   const data = await response.json();
+  if (path === 'events' && request.method === 'GET') {
+    if (!Array.isArray(data.events)) return json({ error: 'invalid_event_list' }, 502);
+    return json({
+      events: data.events
+        .filter((event) => event && Number.isSafeInteger(event.id) && event.id > 0)
+        .map((event) =>
+          Object.fromEntries(
+            ['id', 'title', 'starts_at', 'ends_at']
+              .filter((key) => event[key] !== undefined)
+              .map((key) => [key, event[key]]),
+          ),
+        ),
+    });
+  }
   return json(
     { ok: true, id: data.id || data.event?.id || null, status: response.status },
     response.status,

@@ -81,7 +81,7 @@ test('실제 인증 성공 heartbeat만 해시로 집계하고 실패·봇·검�
   assert.equal(seen.length, 1);
 });
 
-test('공간 키 없이는 전송하지 않고 승인 후 숫자만 보내며 10분 중복을 막는다', async () => {
+test('공간 키 없이는 전송하지 않고 승인 후 숫자만 보내며 중복 실행을 막는다', async () => {
   const original = globalThis.fetch;
   const sent = [];
   globalThis.fetch = async (url, init) => {
@@ -170,6 +170,133 @@ test('캐릭터는 관리 인증 뒤 원본 바이너리를 전달하고 검사 
     });
     assert.equal((await metamoaAdmin(oversized, env)).status, 413);
     assert.equal(called, false);
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test('지연된 cron 다음 정각도 전송하고 9분 이내 중복과 네트워크 실패를 기록한다', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalNow = Date.now;
+  let now = 1000000;
+  Date.now = () => now;
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls++;
+    return new Response(null, { status: 204 });
+  };
+  try {
+    const counter = new MetamoaPresence(context(), {
+      METAMOA_KEY: 'test',
+      METAMOA_SPACE_ID: 'cattus',
+    });
+    await counter.fetch(req('sync', 'POST'));
+    now += 9 * 60000 - 1;
+    await counter.fetch(req('sync', 'POST'));
+    assert.equal(calls, 1);
+    now += 30001;
+    await counter.fetch(req('sync', 'POST'));
+    assert.equal(calls, 2);
+    now += 10 * 60000;
+    globalThis.fetch = async () => {
+      throw new Error('private transport detail');
+    };
+    assert.equal((await counter.fetch(req('sync', 'POST'))).status, 502);
+    assert.deepEqual((await (await counter.fetch(req('status'))).json()).last_sync, {
+      at: now,
+      count: 0,
+      status: 0,
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+    Date.now = originalNow;
+  }
+});
+
+test('이벤트 목록에서 관리용 필드만 반환하고 ID로 삭제한다', async () => {
+  const env = { METAMOA_ADMIN_KEY: 'admin', METAMOA_KEY: 'space', METAMOA_SPACE_ID: 'cattus' };
+  const original = globalThis.fetch;
+  globalThis.fetch = async (_url, init) =>
+    init.method === 'DELETE'
+      ? Response.json({ ok: true })
+      : Response.json({
+          events: [
+            {
+              id: 123,
+              title: '함께 집중',
+              starts_at: '2026-11-06T10:00:00+09:00',
+              ends_at: '2026-11-06T11:00:00+09:00',
+              secret: 'must-not-leak',
+            },
+          ],
+          key: 'must-not-leak',
+        });
+  const make = (path, method = 'GET') =>
+    new Request('https://try.oneorthree.world/service-api/metamoa/' + path, {
+      method,
+      headers: { Authorization: 'Bearer admin' },
+    });
+  try {
+    const list = await metamoaAdmin(make('events'), env);
+    const body = await list.text();
+    assert.equal(body.includes('must-not-leak'), false);
+    assert.equal(JSON.parse(body).events[0].id, 123);
+    assert.equal((await metamoaAdmin(make('events/123', 'DELETE'), env)).status, 200);
+    assert.equal((await metamoaAdmin(make('events/bad', 'DELETE'), env)).status, 404);
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+test('잘못된 JSON과 이벤트 시간·소개·외부 URL은 제공자 호출 전에 거절한다', async () => {
+  const env = { METAMOA_ADMIN_KEY: 'admin', METAMOA_KEY: 'space', METAMOA_SPACE_ID: 'cattus' };
+  const original = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls++;
+    return Response.json({ event: { id: 1 } }, { status: 201 });
+  };
+  const make = (path, body) =>
+    new Request('https://try.oneorthree.world/service-api/metamoa/' + path, {
+      method: 'POST',
+      headers: { Authorization: 'Bearer admin' },
+      body,
+    });
+  const valid = {
+    title: '함께 집중',
+    starts_at: '2026-11-06T10:00:00+09:00',
+    ends_at: '2026-11-06T11:00:00+09:00',
+  };
+  try {
+    for (const path of ['events', 'update'])
+      for (const body of ['null', '{'])
+        assert.equal((await metamoaAdmin(make(path, body), env)).status, 400);
+    for (const extra of [
+      { ends_at: valid.starts_at },
+      { starts_at: '2026-11-06T10:00:00' },
+      { desc: 'a'.repeat(41) },
+      { desc: 123 },
+      { daily_from: '25:00', daily_to: '26:00' },
+      { url: 'https://example.com/' },
+      { url: 'javascript:alert(1)' },
+      { ends_at: '2027-01-01T11:00:00+09:00' },
+    ]) {
+      assert.equal(
+        (await metamoaAdmin(make('events', JSON.stringify({ ...valid, ...extra })), env)).status,
+        400,
+      );
+    }
+    assert.equal(calls, 0);
+    assert.equal(
+      (
+        await metamoaAdmin(
+          make('events', JSON.stringify({ ...valid, url: 'https://try.oneorthree.world/' })),
+          env,
+        )
+      ).status,
+      201,
+    );
+    assert.equal(calls, 1);
   } finally {
     globalThis.fetch = original;
   }

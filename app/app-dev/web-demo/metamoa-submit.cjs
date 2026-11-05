@@ -13,7 +13,7 @@ async function main() {
     throw new Error('공개 웹 배포 상태를 먼저 확인하세요.');
   const listed = spawnSync(
     'npx',
-    ['--yes', 'wrangler', 'secret', 'list', '--name', 'cattus-web-api'],
+    ['--yes', 'wrangler@4.157.0', 'secret', 'list', '--name', 'cattus-web-api'],
     { encoding: 'utf8', env: cliEnv },
   );
   if (listed.status !== 0) throw new Error('서버 비밀 환경 변수 저장 권한을 먼저 확인하세요.');
@@ -22,7 +22,7 @@ async function main() {
       '기존 신청 또는 불확실한 신청이 있습니다. 중복 제출하지 말고 상태를 확인하세요.',
     );
   const save = (values) =>
-    spawnSync('npx', ['--yes', 'wrangler', 'secret', 'bulk', '--name', 'cattus-web-api'], {
+    spawnSync('npx', ['--yes', 'wrangler@4.157.0', 'secret', 'bulk', '--name', 'cattus-web-api'], {
       input: JSON.stringify(values),
       env: cliEnv,
       encoding: 'utf8',

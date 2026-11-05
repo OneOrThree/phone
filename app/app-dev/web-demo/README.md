@@ -105,7 +105,7 @@ Worker 소스는 `api-worker.mjs`와 `metamoa-worker.mjs`, 구성은 `wrangler.j
 
 - 로그인한 활성 웹 탭은 2분에 한 번 기존 `/me` 인증 조회에 `X-Metamoa-Presence: 1`을 붙인다. 네이티브·로그아웃·숨긴 탭·자동화·`analytics_test=1` 방문은 보내지 않는다.
 - 서버가 인증한 성공 응답만 집계한다. 사용자 ID는 salt를 사용한 HMAC으로 바꿔 내부 저장소에 넣고 5분이 지나면 제외·삭제한다. 탭과 프록시 인스턴스가 달라도 같은 계정은 한 명이다. 이름·입력·채팅·토큰·IP는 저장하지 않는다.
-- 10분 cron은 `POST https://metamoa.com/api/live/<id>`에 `{count}`만 전송한다. 키가 없으면 보내지 않으며 중복 cron은 마지막 시도 뒤 10분 이내에 보내지 않는다. 집계는 최근 5분 활성 웹 계정 수이며 모바일 앱 전체 인원이 아니다.
+- 10분 cron은 `POST https://metamoa.com/api/live/<id>`에 `{count}`만 전송한다. 키가 없으면 보내지 않으며 중복 cron은 마지막 시도 뒤 9분 이내에 보내지 않아 정각 실행의 지연을 허용한다. 네트워크 실패는 `last_sync.status=0`으로 기록한다. 집계는 최근 5분 활성 웹 계정 수이며 모바일 앱 전체 인원이 아니다.
 - `/service-api/metamoa/status`, `sync-status`, `update`, `events`는 독립된 관리 키로 인증한다. 공간 키 자체를 클라이언트에 반환하는 경로는 없다.
 
 ```sh
@@ -115,9 +115,13 @@ node web-demo/metamoa.cjs --status
 node web-demo/metamoa.cjs --sync-status
 node web-demo/metamoa.cjs --update < update.json
 node web-demo/metamoa.cjs --event < event.json
+node web-demo/metamoa.cjs --events
+node web-demo/metamoa.cjs --delete-event 123
 # 캐릭터 게시를 선택한 경우: 기존 512×512 투명 PNG(176KB).
 node web-demo/metamoa.cjs --character-png < src/assets/ota/onboarding/cat-cream.png
 node web-demo/metamoa.cjs --character-status
 ```
 
 독립 검사: `node --test web-demo/api-worker.test.mjs web-demo/metamoa-worker.test.mjs`. 외부 서버에 요청하지 않고 인증·중복·만료·봇 제외·전송 간격·키 비노출을 확인한다.
+
+신청 응답 뒤 서버 저장에 실패하면 실행 프로세스를 유지하고 저장만 다시 시도한다. 프로세스까지 종료됐으면 `PENDING`을 지우거나 재신청하지 말고 메타모아 운영자에게 기존 신청의 키 복구를 요청한다. 공간 키와 공간 ID는 `WRANGLER_LOG_SANITIZE=true WRANGLER_SEND_METRICS=false npx --yes wrangler@4.157.0 secret put METAMOA_KEY --name cattus-web-api` 및 같은 방식의 `METAMOA_SPACE_ID` 입력으로 서버에 저장한다. 비밀을 명령행 인자·파일에 넣지 않는다.
