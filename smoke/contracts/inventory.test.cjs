@@ -25,6 +25,15 @@ test('모르는 경로·옵션을 GET으로 추정하지 않음',t=>{
   const file=fixture(t,'api.ts',`import {request} from './client'; request(runtimeUrl);request('/me',dynamicOptions);request('/me',{...opts});`);
   assert.equal(extractApp([file]).unresolved.length,3);
 });
+test('method를 바꾸지 않는 조건부 전개만 허용한다',t=>{
+  const file=fixture(t,'api.ts',`import {request} from './client';
+    request('/safe',{method:'POST', ...(meta ? {body:meta} : {})});
+    request('/unsafe',{method:'POST', ...(flag ? {method:'DELETE'} : {})});
+    request('/unknown',{method:'POST', ...dynamic});`);
+  const found=extractApp([file]);
+  assert.deepEqual(found.endpoints.map(e=>[e.method,e.path]),[['POST','/safe']]);
+  assert.equal(found.unresolved.length,2);
+});
 test('서버 클래스 접두·빈 메서드 매핑·본문 consumes 해석',t=>{
   const file=fixture(t,'Controller.java',`@RequestMapping("/me/settings") public class Controller {
   @GetMapping public void get() {} @PatchMapping(consumes="application/json") public void update() {}

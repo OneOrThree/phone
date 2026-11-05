@@ -3,5 +3,10 @@
     "file": "app/app-dev/src/components/CatOutfitLayers.tsx",
     "expression": "fetch(url)",
     "reason": "캐릭터 의상 자산 수신. 공용 서버 API 경로 대조 대상에서 제외"
+  },
+  {
+    "file": "app/app-dev/src/services/webDemoAnalytics.ts",
+    "expression": "fetch(endpoint, {\n            method: 'POST',\n            headers: { 'Content-Type': 'application/json' },\n            body: JSON.stringify({ api_key: token, ...event }),\n            keepalive: true,\n            credentials: 'omit',\n            referrerPolicy: 'no-referrer',\n          })",
+    "reason": "웹 데모의 PostHog 외부 이벤트 전송. 서버 API 경로 대조 대상에서 제외"
   }
 ]

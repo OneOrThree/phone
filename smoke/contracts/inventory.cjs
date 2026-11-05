@@ -59,6 +59,14 @@ function extractApp(names) {
     }
     return null;
   }
+  // 전개된 객체가 method를 바꾸지 않는다는 사실을 증명할 때만 허용한다.
+  function cannotSetMethod(node) {
+    node = resolve(node);
+    if (node && ts.isConditionalExpression(node)) return cannotSetMethod(node.whenTrue) && cannotSetMethod(node.whenFalse);
+    if (!node || !ts.isObjectLiteralExpression(node)) return false;
+    return node.properties.every(p => ts.isSpreadAssignment(p) ? cannotSetMethod(p.expression) :
+      p.name && !ts.isComputedPropertyName(p.name) && p.name.getText().replace(/['"]/g, '') !== 'method');
+  }
   for (const name of names) {
     const source = program.getSourceFile(name);
     if (source.parseDiagnostics.length) {
@@ -80,7 +88,7 @@ function extractApp(names) {
           const options = resolve(node.arguments[1]);
           let method = 'GET';
           if (options) {
-            if (!ts.isObjectLiteralExpression(options) || options.properties.some(ts.isSpreadAssignment)) method = null;
+            if (!ts.isObjectLiteralExpression(options) || options.properties.some(p => ts.isSpreadAssignment(p) && !cannotSetMethod(p.expression))) method = null;
             else {
               const prop = options.properties.find(p => p.name?.getText().replace(/['"]/g, '') === 'method');
               if (prop) method = route(prop.initializer);
