@@ -724,7 +724,7 @@ Table construction_buildings [note: '건물 종류 정본. id는 기존 API·시
   id            varchar(30)  [pk, note: '소문자 계약 ID']
   display_name  varchar(100) [not null, note: '빈 문자열·공백만 허용하지 않음']
   display_order integer      [not null, note: '오름차순 표시. 동순위는 id 순']
-  funding       varchar(20)  [not null, note: 'WALLET_TOTAL / RESIDENT_SPLIT']
+  funding       varchar(20)  [not null, note: 'WALLET_TOTAL / RESIDENT_SPLIT — V11(GROMO-2761) 이후 7개 건물 모두 WALLET_TOTAL(섬 잔액이 가격 이상이면 착공). RESIDENT_SPLIT 은 되돌림용으로 CHECK·판정 코드에 남는다']
 }
 
 Table construction_building_prerequisites [note: '건물별 직접 선행 관계. 선행 건물이 모두 COMPLETED여야 선택 가능'] {
@@ -762,7 +762,7 @@ Table island_construction_states [note: '섬 건설 상태/목표 (GROMO-1767, �
   updated_at         timestamptz
 }
 
-Table island_construction_contributions [note: '목표 epoch 의 «대상 주민 명단 + 주민별 기여» (GROMO-1767·1999, P-D04) — 「물고기 잔액과 주민별 누적 획득 기록은 구분한다」. 목표를 고를 때 그 시점의 활성 주민을 amount=0 으로 심으므로 «행이 있으면 대상, 없으면 대상 아님»이다(기획 정본 「목표 선택 시점의 주민으로 대상을 고정한다」). 그래서 별도 cohort 표가 없다. 같은 epoch 안에서는 사용자당 1행에 amount 누적'] {
+Table island_construction_contributions [note: '목표 epoch 의 «대상 주민 명단 + 주민별 기여» (GROMO-1767·1999, P-D04) — V11(GROMO-2761) 이후 RESIDENT_SPLIT 건물이 없어 착공 판정에 쓰지 않고 기록만 남긴다(되돌림용). 「물고기 잔액과 주민별 누적 획득 기록은 구분한다」. 목표를 고를 때 그 시점의 활성 주민을 amount=0 으로 심으므로 «행이 있으면 대상, 없으면 대상 아님»이다(기획 정본 「목표 선택 시점의 주민으로 대상을 고정한다」). 그래서 별도 cohort 표가 없다. 같은 epoch 안에서는 사용자당 1행에 amount 누적'] {
   island_id  uuid    [not null, note: 'FK → island_construction_states.island_id ON DELETE RESTRICT']
   epoch      bigint  [not null, note: 'island_construction_states.target_epoch 스냅샷 — 목표가 바뀌면 새 epoch 행부터 다시']
   user_id    uuid    [not null, note: 'FK → users.id ON DELETE RESTRICT']

@@ -440,6 +440,9 @@ public class IslandConstructionService {
      * <p>분모 n 은 <b>대상 인원</b>이다 — 「목표 선택 시점의 주민으로 대상을 고정한다. …
      * 탈퇴하거나 강퇴된 주민은 대상에서 제외한다」라, 고정된 명단에서 떠난 사람을 뺀 수다.
      * 대상이 한 명도 남지 않으면 판정할 몫이 없으므로 충족으로 보지 않는다.
+     *
+     * <p>V11(GROMO-2761) 뒤로 모든 건물이 「섬 통장 합산」이라 각자 몫 분기는 타지 않는다 — 모금 방식만
+     * 되돌리면 다시 쓰도록 판정과 {@code residentProgress} 를 남겨 둔다.
      */
     private static boolean funded(ConstructionBuilding building, int cost, int balance,
                                   List<UUID> targetIds, Map<UUID, Integer> contributed,

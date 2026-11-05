@@ -24,6 +24,7 @@ import com.oneorthree.phone.construction.dto.IslandLayoutView;
 import com.oneorthree.phone.outbox.support.OutboxTestPostgres;
 import com.oneorthree.phone.user.repository.UserRepository;
 import com.oneorthree.phone.user.repository.domain.User;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -101,17 +102,23 @@ class IslandConstructionIntegrationTest {
     @Autowired
     PlatformTransactionManager transactionManager;
 
+    @AfterEach
+    void restoreWalletFunding() {
+        // residentSplit 으로 바꾼 모금 방식을 V11 상태로 되돌린다 — 이 컨텍스트 전용 DB 라 다른 클래스와 무관하다.
+        jdbc.update("UPDATE construction_buildings SET funding = 'WALLET_TOTAL'");
+    }
+
     @Test
-    @DisplayName("V2 건물 행은 기존 API ID·순서·모금 방식·선행 그래프를 보존한다")
+    @DisplayName("V2 건물 행은 기존 API ID·순서·선행 그래프를 보존하고, V11 뒤 모금 방식은 전부 섬 통장이다")
     void migrationSeedsBuildingContract() {
         assertThat(buildings.findAllOrdered()).containsExactly(
                 new ConstructionBuilding("hall", "회관", Funding.WALLET_TOTAL, Set.of()),
                 new ConstructionBuilding("board", "게시판", Funding.WALLET_TOTAL, Set.of("hall")),
-                new ConstructionBuilding("gram", "방송기", Funding.RESIDENT_SPLIT, Set.of("board")),
-                new ConstructionBuilding("library", "도서관", Funding.RESIDENT_SPLIT, Set.of("board")),
-                new ConstructionBuilding("mail", "우체통", Funding.RESIDENT_SPLIT, Set.of("board")),
-                new ConstructionBuilding("tower", "전망대", Funding.RESIDENT_SPLIT, Set.of("board")),
-                new ConstructionBuilding("shop", "상점", Funding.RESIDENT_SPLIT,
+                new ConstructionBuilding("gram", "방송기", Funding.WALLET_TOTAL, Set.of("board")),
+                new ConstructionBuilding("library", "도서관", Funding.WALLET_TOTAL, Set.of("board")),
+                new ConstructionBuilding("mail", "우체통", Funding.WALLET_TOTAL, Set.of("board")),
+                new ConstructionBuilding("tower", "전망대", Funding.WALLET_TOTAL, Set.of("board")),
+                new ConstructionBuilding("shop", "상점", Funding.WALLET_TOTAL,
                         Set.of("gram", "library", "mail", "tower")));
         assertThat(buildings.findById("HALL")).isEmpty();
     }
@@ -223,6 +230,7 @@ class IslandConstructionIntegrationTest {
     @Test
     @DisplayName("각자 몫 건물은 소비된 목표의 기여 명단을 보존한다")
     void splitCompletionKeepsConsumedTargetContributors() {
+        residentSplit("gram");
         Fixture f = fundedIsland(2000, "gram");
         completeFacility(f, "hall");
         completeFacility(f, "board");
@@ -549,6 +557,7 @@ class IslandConstructionIntegrationTest {
     @Test
     @DisplayName("「각자 몫」건물은 지금 목표가 아니면 STATE_CONFLICT — 다른 목표의 epoch 기여를 못 쓴다")
     void residentSplitRejectsWhenTargetDiffers() {
+        residentSplit("gram");
         Fixture f = fundedIsland(3000, "library");
         // gram 의 선행(board 완공)까지 채워 선행 가드가 아니라 목표 가드만 남긴다.
         completeFacility(f, "board");
@@ -567,6 +576,7 @@ class IslandConstructionIntegrationTest {
     @Test
     @DisplayName("「각자 몫」건물은 목표 epoch 아래 전원 몫을 채우면 BUILDING 을 접수한다")
     void residentSplitStartsWhenTargetMatches() {
+        residentSplit("gram");
         Fixture f = fundedIsland(1360, "gram");
         completeFacility(f, "board");
 
@@ -652,11 +662,52 @@ class IslandConstructionIntegrationTest {
         assertThat(count("island_facilities", f.islandId)).isEqualTo(1);
     }
 
+    // ---------------------------------------------------------------- 섬 통장 (GROMO-2761)
+
+    @Test
+    @DisplayName("섬 통장 건물은 주민별 몫 없이 잔액이 가격에 닿으면 방장이 목표 건물을 착공한다 — residentProgress 는 null")
+    void walletFundedBuildingStartsOnBalanceAlone() {
+        SharedFixture f = sharedIsland();
+        completeFacility(new Fixture(f.islandId, f.ownerId), "hall");
+        completeFacility(new Fixture(f.islandId, f.ownerId), "board");
+        service.setTarget(f.islandId, f.ownerId, "gram", 0, UUID.randomUUID());
+        // 방장 혼자 1359 — 주민은 0 이고 잔액은 가격 1360 에 1 모자란다.
+        tx().executeWithoutResult(status ->
+                walletService.contribute(f.islandId, f.ownerId, 1359, "own-" + f.islandId));
+
+        var waiting = service.options(f.islandId, f.ownerId);
+        assertThat(waiting.residentProgress()).isNull();
+        assertThat(waiting.items()).filteredOn(item -> item.id().equals("gram")).singleElement()
+                .satisfies(item -> assertThat(item.blockedReason()).isEqualTo("INSUFFICIENT_FUNDS"));
+        assertThatThrownBy(() -> service.start(f.islandId, f.ownerId, "gram", waiting.islandVersion(), 1,
+                UUID.randomUUID()))
+                .isInstanceOf(ConstructionException.class)
+                .extracting("errorCode").isEqualTo(ConstructionErrorCode.INSUFFICIENT_FUNDS);
+
+        // 1마리만 더 모이면 주민 몫이 0 이어도 착공한다 — 409 가 아니다.
+        tx().executeWithoutResult(status ->
+                walletService.contribute(f.islandId, f.ownerId, 1, "own2-" + f.islandId));
+        var ready = service.options(f.islandId, f.ownerId);
+        assertThat(ready.residentProgress()).isNull();
+        assertThat(service.options(f.islandId, f.memberId).residentProgress()).isNull();
+        assertThat(ready.items()).filteredOn(item -> item.id().equals("gram")).singleElement()
+                .satisfies(item -> {
+                    assertThat(item.buildable()).isTrue();
+                    assertThat(item.blockedReason()).isNull();
+                });
+        ConstructionStartedView view = service.start(f.islandId, f.ownerId, "gram", ready.islandVersion(), 1,
+                UUID.randomUUID());
+        assertThat(view.status()).isEqualTo("BUILDING");
+        assertThat(view.spent().amount()).isEqualTo(1360);
+        assertThat(balance(f.islandId)).isZero();
+    }
+
     // ---------------------------------------------------------------- 목표 선택 당시 대상 주민
 
     @Test
     @DisplayName("주민별 준비량은 착공 판정과 같은 몫이며 방장·주민 모두 남은 수량을 조회한다")
     void optionsExposeEachResidentsRemainingShare() {
+        residentSplit("gram");
         SharedFixture f = sharedIsland();
         completeFacility(new Fixture(f.islandId, f.ownerId), "hall");
         completeFacility(new Fixture(f.islandId, f.ownerId), "board");
@@ -689,6 +740,7 @@ class IslandConstructionIntegrationTest {
     @Test
     @DisplayName("총액 1마리·대상 2명이면 각자 1마리를 채우고 착공은 총액 1마리만 차감한다")
     void oneFishPriceStillRequiresOneFishFromEachResident() {
+        residentSplit("gram");
         // 테스트 DB 에만 새 비용 revision 을 발행한다. 운영/dev 정책에는 손대지 않는다.
         int revision = 10001;
         jdbc.update("INSERT INTO construction_cost_policies (revision, building_id, cost, build_seconds) "
@@ -731,6 +783,7 @@ class IslandConstructionIntegrationTest {
     @Test
     @DisplayName("대상은 목표 선택 당시의 주민으로 고정된다 — 뒤에 가입한 주민은 몫을 지지 않는다")
     void targetCohortIsPinnedAtSelection() {
+        residentSplit("gram");
         SharedFixture f = sharedIsland();
         completeFacility(new Fixture(f.islandId, f.ownerId), "hall");
         completeFacility(new Fixture(f.islandId, f.ownerId), "board");
@@ -761,6 +814,7 @@ class IslandConstructionIntegrationTest {
     @Test
     @DisplayName("탈퇴·강퇴한 주민은 대상에서 빠진다 — 남은 대상 인원으로 몫을 다시 나눈다")
     void leavingResidentDropsOutOfTheTarget() {
+        residentSplit("gram");
         SharedFixture f = sharedIsland();
         completeFacility(new Fixture(f.islandId, f.ownerId), "hall");
         completeFacility(new Fixture(f.islandId, f.ownerId), "board");
@@ -785,6 +839,7 @@ class IslandConstructionIntegrationTest {
     @Test
     @DisplayName("목표 선택 뒤 탈퇴→재가입한 주민은 옛 epoch 대상에서 빠진다 — 옛 기여도 인정되지 않는다")
     void rejoinedResidentDoesNotReviveOldEpoch() {
+        residentSplit("gram");
         SharedFixture f = sharedIsland();
         completeFacility(new Fixture(f.islandId, f.ownerId), "hall");
         completeFacility(new Fixture(f.islandId, f.ownerId), "board");
@@ -815,6 +870,7 @@ class IslandConstructionIntegrationTest {
     @Test
     @DisplayName("목표를 실제로 바꾸면 새 epoch 대상에 재가입 주민이 다시 포함된다")
     void retargetSeedsRejoinedResidentIntoNewCohort() {
+        residentSplit("gram", "library");
         SharedFixture f = sharedIsland();
         completeFacility(new Fixture(f.islandId, f.ownerId), "hall");
         completeFacility(new Fixture(f.islandId, f.ownerId), "board");
@@ -887,6 +943,16 @@ class IslandConstructionIntegrationTest {
     }
 
     // ---------------------------------------------------------------- 시설
+
+    /**
+     * V11 뒤 운영 데이터에는 「각자 몫 n빵」 건물이 없다. 되돌림에 대비해 남긴 RESIDENT_SPLIT 판정을
+     * 이 컨텍스트 DB 에서만 켜서 검증한다 — {@link #restoreWalletFunding} 이 테스트마다 되돌린다.
+     */
+    private void residentSplit(String... buildingIds) {
+        for (String id : buildingIds) {
+            jdbc.update("UPDATE construction_buildings SET funding = 'RESIDENT_SPLIT' WHERE id = ?", id);
+        }
+    }
 
     /** 완공 시설 행을 직접 심는다 — 선행 조건만 채우면 되는 테스트용. */
     private void completeFacility(Fixture f, String buildingId) {
