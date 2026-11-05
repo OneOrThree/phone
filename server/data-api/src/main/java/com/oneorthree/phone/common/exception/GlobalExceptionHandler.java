@@ -53,17 +53,18 @@ public class GlobalExceptionHandler {
 
 
     /**
-     * 계정당 시간 한도 초과(GROMO-1934) → 429 {@code RATE_LIMITED} + 상대 지연.
+     * 남은 시간을 아는 실패 → 에러코드의 상태 + 상대 지연 — 계정당 시간 한도(GROMO-1934, 429 {@code RATE_LIMITED}) ·
+     * 바다 한마디 잠금(GROMO-2759, 409 {@code SEA_REMARK_LOCKED}).
      *
      * <p>이 핸들러가 없어도 {@link #handleDomain} 이 같은 상태·코드를 돌려준다(지연만 빠진다). Business 는
      * 본문의 {@code retryAfterMs} 로 공개 {@code Retry-After} 를 만든다. 내부 응답에도
      * 초 단위(올림) {@code Retry-After} 헤더를 같이 싣는다.
      *
-     * @param e 한도 초과 예외 — 윈도가 끝날 때까지 남은 밀리초를 들고 있다
-     * @return 429 {@link RetryAfterErrorResponse}
+     * @param e 남은 밀리초를 들고 있는 실패
+     * @return 에러코드의 상태 + {@link RetryAfterErrorResponse}
      */
-    @ExceptionHandler(RateLimitedException.class)
-    public ResponseEntity<RetryAfterErrorResponse> handleRateLimited(RateLimitedException e) {
+    @ExceptionHandler(RetryAfterException.class)
+    public ResponseEntity<RetryAfterErrorResponse> handleRetryAfter(RetryAfterException e) {
         long seconds = (e.getRetryAfterMs() + 999) / 1000;
         return ResponseEntity.status(e.getErrorCode().getStatus())
                 .header(HttpHeaders.RETRY_AFTER, Long.toString(seconds))

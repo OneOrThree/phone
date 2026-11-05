@@ -16,6 +16,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -318,6 +319,29 @@ class FocusSessionContractTest extends UpstreamTestBase {
         mockMvc.perform(auth(put("/me/sea-remark")).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"remark\":\"안녕\"}"))
                 .andExpect(status().is(status)).andExpect(jsonPath("$.error.code").value(code));
+    }
+
+    /**
+     * 한마디 잠금은 Data 의 남은 시간(retryAfterMs)을 초 단위 올림 Retry-After 로 싣는다 — retryable 은 그대로 false 다.
+     * 남은 시간이 없는 옛 Data 응답에는 헤더가 없다(GROMO-2759).
+     */
+    @Test
+    void seaRemarkLockedForwardsRemainingTimeAsRetryAfter() throws Exception {
+        DATA.on(DATA_SEA_REMARK, request -> new MockUpstream.Response(409,
+                "{\"code\":\"SEA_REMARK_LOCKED\",\"message\":\"private detail\",\"retryAfterMs\":125500}"));
+        mockMvc.perform(auth(put("/me/sea-remark")).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"remark\":\"안녕\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("SEA_REMARK_LOCKED"))
+                .andExpect(jsonPath("$.error.retryable").value(false))
+                .andExpect(header().string("Retry-After", "126"));
+
+        DATA.on(DATA_SEA_REMARK, request -> error(409, "SEA_REMARK_LOCKED"));
+        mockMvc.perform(auth(put("/me/sea-remark")).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"remark\":\"안녕\"}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("SEA_REMARK_LOCKED"))
+                .andExpect(header().doesNotExist("Retry-After"));
     }
 
     @Test

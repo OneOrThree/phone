@@ -408,6 +408,22 @@ test('표류 중 한마디 — 저장하면 내 말풍선에 뜨고, 5분 잠금
   expect(mockRoom.reconnect).toHaveBeenCalledTimes(1);
 });
 
+test.each(['BANNED_WORD', 'INVALID_REQUEST'])(
+  '한마디가 내용 때문에 거절되면(400 %s) 연결 실패 대신 내용 문구를 패널에 띄우고 패널은 열어 둔다 (GROMO-2760)',
+  async (code) => {
+    const e = env({ state: { name: '나냥', color: 'black', session: null } });
+    const screen = await render(<SeaVoyageHost e={createPreviewEnvironment(e)} />);
+    mockRemark.mockRejectedValueOnce(new ApiError(code, '거절', 400));
+    await fireEvent.press(screen.getByLabelText('＋ 한마디 쓰기'));
+    await fireEvent.changeText(screen.getByLabelText('한마디 쓰기'), '나쁜 말');
+    await fireEvent.press(screen.getByLabelText('한마디 띄우기'));
+    await act(async () => {});
+    expect(screen.getByText('사용할 수 없는 표현이 포함돼 있어요.')).toBeTruthy();
+    expect(screen.queryByText('연결이 원활하지 않아요. 다시 눌러 시도해 주세요.')).toBeNull();
+    expect(screen.getByLabelText('한마디 쓰기')).toBeTruthy();
+  },
+);
+
 test('다른 화면에 갔다가 돌아와도(재마운트) 경과는 세션을 받은 시각부터 이어 센다', async () => {
   const synced = Date.now() - 120_000; // 2분 전에 받은 세션(1700초)
   const e = env({
@@ -1201,6 +1217,27 @@ test('한마디 저장 응답의 잠금(lockedUntil − changedAt)을 입력창 
     <SeaVoyageHost e={createPreviewEnvironment({ ...e, now: Date.now() + 301_000 })} />,
   );
   expect(screen.getByLabelText('한마디 쓰기')).toBeTruthy();
+});
+
+// 앞 테스트의 잠금(5분)이 모듈에 남아 있어 그 뒤 시각으로 연다
+test('잠금 409 에 남은 시간(Retry-After)이 오면 그 분을 토스트로 알리고 입력창을 그만큼 잠근다 (GROMO-2760)', async () => {
+  const e = env({
+    state: { name: '나냥', color: 'black', session: null },
+    now: Date.now() + 301_000,
+  });
+  mockRemark.mockRejectedValueOnce(
+    new ApiError('SEA_REMARK_LOCKED', '잠김', 409, { retryAfterMs: 121_000 }),
+  );
+  const screen = await render(<SeaVoyageHost e={createPreviewEnvironment(e)} />);
+  await fireEvent.press(screen.getByLabelText('＋ 한마디 쓰기'));
+  await fireEvent.changeText(screen.getByLabelText('한마디 쓰기'), '다시');
+  await fireEvent.press(screen.getByLabelText('한마디 띄우기'));
+  await act(async () => {});
+  expect(e.notify).toHaveBeenCalledWith('3분 뒤에 다시 쓸 수 있어요');
+  await screen.rerender(<SeaVoyageHost e={createPreviewEnvironment({ ...e, now: Date.now() })} />);
+  await fireEvent.press(screen.getByLabelText('＋ 한마디 쓰기'));
+  expect(screen.getByText('3분 뒤에 다시 쓸 수 있어요')).toBeTruthy();
+  expect(screen.queryByLabelText('한마디 쓰기')).toBeNull();
 });
 
 test('이전 인증 결과와 측정 ON 설정이 있어도 바다에서는 측정·인증 결과를 사용하지 않는다', async () => {
