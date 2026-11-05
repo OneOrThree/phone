@@ -5,7 +5,7 @@ GROMO-2752. 앱과 같은 온보딩·게스트 계정·섬 탐색·집중 기록
 - 대표 주소: https://try.oneorthree.world/
 - PostHog: https://us.posthog.com/project/669473/dashboard/2305307
 - 메타모아 검토 화면: https://metamoa.com/submit
-- **미제출**. 소유자가 “등록해줘”라고 지시하기 전에는 제출하지 않는다.
+- 소유자가 등록·API 연결을 요청했다. **약관·개인정보처리방침 동의 전에는 미제출**이며 이메일은 보내지 않는다.
 
 ## 웹과 앱의 범위
 
@@ -34,7 +34,7 @@ Google 인증은 별도 같은 출처 팝업의 공식 Google 버튼으로 실�
 1. 서버 변경 PR·검사·승격 후 소유자가 요청한 운영 배포로 Data API와 Business API를 반영한다. 기존 운영 DB의 수동 변경·Terraform은 필요 없다.
 2. 서버 배포 성공 후 `WEB_SHARED_ISLAND_ENABLED=1 npm run build:web:demo`로 생성한 웹을 기존 Vercel 프로젝트에 배포한다. 서버가 준비되기 전에는 이 플래그를 켠 웹을 공개하지 않는다.
 3. 실제 게스트 한 명의 온보딩·웹 섬 입장·집중·새로고침을 확인한다. AWS 부하 시험이나 다수 운영 계정 생성은 하지 않는다.
-4. 메타모아 제출은 별도의 “등록해줘” 지시를 기다린다.
+4. 메타모아 제출은 소유자의 약관·개인정보처리방침 동의 뒤 실행한다.
 
 새 웹 섬 변경의 검증은 로컬 Testcontainers DB·모의 상류·클라이언트 테스트다. 16명 입장/동시 최초 입장/멱등/강퇴/진행 집중 보존, 공개·내부 API의 호출자 바인딩, 기존 가입·망원경 회귀를 확인했다. Checkstyle·SpotBugs·TypeScript 검사를 통과했다. V0~V11 실제 스키마와 DBML의 드리프트는 0건이다(기존 보상 정책의 `char(64)` 표기 4곳도 PostgreSQL 표현 `character(64)`로 문서만 맞춤).
 
@@ -88,8 +88,33 @@ Worker 소스는 `api-worker.mjs`, 독립 검사 명령은 `node --test web-demo
 
 ## 메타모아 신청
 
-검토 내용은 `submission.json`. 브라우저 양식에 주소·공간 이름·한 줄 소개·한국·한국어를 입력했다. 대표 이미지도 자동으로 불러왔다. 약관 동의와 신청하기는 실행하지 않았다. API 스크립트도 기본 실행은 dry-run이며 `--submit --agree`가 모두 있어야 POST한다. 접수 키는 제출 후 `.env.metamoa`에만 보관하며 중복 제출하지 않는다.
+신청 정보는 `submission.json`이며 `api_hookup=true`, 한국·한국어, 이메일 없음이다. 메타모아는 사람이 승인한다. 등록 동의와 승인·소유자 확인·공간 키 발급은 서로 다른 단계다. 웹훅은 사용하지 않고 인증된 결과 조회 API를 사용한다.
+
+1. 소유자가 https://metamoa.com/terms · https://metamoa.com/privacy 동의를 명시해야 한다.
+2. Cloudflare CLI로 기존 계정에 로그인한다. OAuth 자격은 macOS Keychain으로 보호하며 Worker 스크립트 쓰기와 계정 조회 권한만 요청한다.
+3. 동의 확인 뒤 `node web-demo/metamoa-submit.cjs --agree`를 실행한다. 신청 전 서버에 진행 표시를 저장해 중복 POST를 막고, 응답 `request_key`를 메모리에서 Cloudflare Worker의 비밀 환경 변수로 직접 보낸다. 로컬 `.env`·코드·채팅·로그에 쓰지 않는다. 저장 실패 시 프로세스를 종료하지 않고 Enter로 저장만 재시도한다.
+4. 서버 환경 변수 `METAMOA_ADMIN_KEY`를 가진 운영 작업에서 `node web-demo/metamoa.cjs --status`로 결과를 본다. `pending`이면 승인 대기다. 승인 뒤 `https://metamoa.com/owner?id=<id>`에서 소유자 확인한다.
+5. 사이트 확인 코드를 메타 태그 또는 루트 HTML 파일에 넣어 배포하고 소유자 확인을 완료한다. 발급된 공간 키는 서버 비밀 환경 변수 **`METAMOA_KEY`에만** 저장한다. 확인 코드는 재검증에 필요하므로 계속 유지한다.
+6. `METAMOA_SPACE_ID`를 설정하면 cron이 접속자 수를 전송한다. 업데이트·이벤트는 실제 내용과 일정이 정해졌을 때 관리 API로 보낸다. 임의 소식·이벤트를 자동 생성하지 않는다.
+
+### 서버 구성
+
+Worker 소스는 `api-worker.mjs`와 `metamoa-worker.mjs`, 구성은 `wrangler.jsonc`다. 기존 `try.oneorthree.world/service-api/*` 라우트를 유지한다. Durable Object `MetamoaPresence`는 이 Worker의 내부 바인딩으로만 접근한다.
+
+서버 비밀 환경 변수: `METAMOA_REQUEST_KEY`, `METAMOA_SUBMISSION_ID`, `METAMOA_KEY`, `METAMOA_SPACE_ID`, `METAMOA_ADMIN_KEY`, `METAMOA_PRESENCE_SALT`. 공개 웹 빌드에 넣는 값은 없다. 관리 키와 salt는 독립된 암호학적 난수다. Worker 코드를 교체할 때 기존 `secret_text` 바인딩을 보존한다.
+
+- 로그인한 활성 웹 탭은 2분에 한 번 기존 `/me` 인증 조회에 `X-Metamoa-Presence: 1`을 붙인다. 네이티브·로그아웃·숨긴 탭·자동화·`analytics_test=1` 방문은 보내지 않는다.
+- 서버가 인증한 성공 응답만 집계한다. 사용자 ID는 salt를 사용한 HMAC으로 바꿔 내부 저장소에 넣고 5분이 지나면 제외·삭제한다. 탭과 프록시 인스턴스가 달라도 같은 계정은 한 명이다. 이름·입력·채팅·토큰·IP는 저장하지 않는다.
+- 10분 cron은 `POST https://metamoa.com/api/live/<id>`에 `{count}`만 전송한다. 키가 없으면 보내지 않으며 중복 cron은 마지막 시도 뒤 10분 이내에 보내지 않는다. 집계는 최근 5분 활성 웹 계정 수이며 모바일 앱 전체 인원이 아니다.
+- `/service-api/metamoa/status`, `sync-status`, `update`, `events`는 독립된 관리 키로 인증한다. 공간 키 자체를 클라이언트에 반환하는 경로는 없다.
 
 ```sh
 node web-demo/metamoa.cjs
+# 아래 명령은 관리 키를 서버 환경 변수로 주입받아 실행한다.
+node web-demo/metamoa.cjs --status
+node web-demo/metamoa.cjs --sync-status
+node web-demo/metamoa.cjs --update < update.json
+node web-demo/metamoa.cjs --event < event.json
 ```
+
+독립 검사: `node --test web-demo/api-worker.test.mjs web-demo/metamoa-worker.test.mjs`. 외부 서버에 요청하지 않고 인증·중복·만료·봇 제외·전송 간격·키 비노출을 확인한다.

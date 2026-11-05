@@ -5,5 +5,5 @@
   "region": "kr",
   "langs": ["ko"],
   "og_image": "https://try.oneorthree.world/og.jpg",
-  "api_hookup": false
+  "api_hookup": true
 }
