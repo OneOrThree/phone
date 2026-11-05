@@ -8,7 +8,7 @@ focus_journey() {
     seconds=$("${SMOKE_DOCKER:-docker}" exec "$SMOKE_DB_CONTAINER" psql -U "$SMOKE_DB_USER" -d "$SMOKE_DB_NAME" -X -q -t -A -c 'SELECT seconds_per_fish FROM focus_reward_policies ORDER BY revision DESC LIMIT 1' | tr -d '[:space:]') || { record 020 FAIL "$stage"; return; }
   fi
   if [[ ! "$seconds" =~ ^[0-9]+$ ]] || (( seconds < 1 || seconds > 150 )); then record 020 FAIL "$stage"; return; fi
-  stage='초기 지갑' 
+  stage='초기 지갑'
   if ! smoke_request GET "/islands/$ISLAND_ID/shop/wallets" '' "$TOKEN" || ! smoke_ok; then record 020 FAIL "$stage"; return; fi
   before=$(jq -er '.data.villagePoints | numbers' "$SMOKE_BODY_FILE") || { record 020 FAIL "$stage"; return; }
   body=$(jq -nc --arg id "$ISLAND_ID" '{islandId:$id,subject:"smoke"}')
