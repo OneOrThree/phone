@@ -67,6 +67,23 @@ class IslandMembershipContractTest extends UpstreamTestBase {
     // ---------------------------------------------------------------- 주체
 
     @Test
+    void webIslandUsesAuthenticatedUserAndCommandKey() throws Exception {
+        String path = "POST " + INTERNAL + "/web-island";
+        DATA.on(path, request -> ok(CREATED.replace("host", "member")));
+        mockMvc.perform(write(post("/me/web-island"), ""))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.id").value(ISLAND.toString()))
+                .andExpect(jsonPath("$.data.role").value("member"));
+        var forwarded = DATA.receivedFor(path).get(0);
+        assertThat(forwarded.header("X-User-Id")).isEqualTo(USER.toString());
+        assertThat(forwarded.header("Idempotency-Key")).isEqualTo(KEY);
+        mockMvc.perform(auth(post("/me/web-island"))).andExpect(status().isBadRequest());
+        mockMvc.perform(post("/me/web-island").header("Idempotency-Key", KEY))
+                .andExpect(status().isUnauthorized());
+        assertThat(DATA.receivedFor(path)).hasSize(1);
+    }
+
+    @Test
     @DisplayName("첫 항해 도착은 명령 키를 전달하고 무인도의 실제 섬 ID를 허용한다")
     void introductoryArrivalForwardsKeyAndAllowsMaterializedIsland() throws Exception {
         String path = "POST " + INTERNAL + "/islands/" + ISLAND + "/intro-arrivals";
@@ -78,6 +95,66 @@ class IslandMembershipContractTest extends UpstreamTestBase {
         var forwarded = DATA.receivedFor(path).get(0);
         assertThat(forwarded.header("Idempotency-Key")).isEqualTo(KEY);
         assertThat(forwarded.header("X-User-Id")).isEqualTo(USER.toString());
+    }
+
+    @Test
+    @DisplayName("첫 항해 도착 응답의 firstArrivalEventId 는 상류가 줄 때만 그대로 내려간다")
+    void introArrivalPassesFirstArrivalEventIdThrough() throws Exception {
+        String path = "POST " + INTERNAL + "/islands/" + ISLAND + "/intro-arrivals";
+        DATA.on(path, request -> ok("{\"islandId\":\"" + OTHER + "\",\"arrivedBefore\":false,"
+                + "\"membershipStatus\":\"active\",\"currentIslandId\":\"" + OTHER + "\","
+                + "\"firstArrivalEventId\":\"" + ISLAND + "\"}"));
+        mockMvc.perform(write(post("/islands/" + ISLAND + "/intro-arrivals"), ""))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.firstArrivalEventId").value(ISLAND.toString()));
+    }
+
+    private static final String EXT = "[\"i2\",\"com.oneorthree.focuscat\",\"2.3.8\",\"778\",\"17.5.1\",\"iPhone15,2\","
+            + "\"ko_KR\",\"KST\",\"\",\"393\",\"852\",\"3\",\"\",\"\",\"\",\"Asia/Seoul\"]";
+    private static final String INTRO_OK = "{\"islandId\":\"" + OTHER + "\",\"arrivedBefore\":false,"
+            + "\"membershipStatus\":\"active\",\"currentIslandId\":\"" + OTHER + "\"}";
+
+    private String introWith(String body) throws Exception {
+        String path = "POST " + INTERNAL + "/islands/" + ISLAND + "/intro-arrivals";
+        DATA.on(path, request -> ok(INTRO_OK));
+        mockMvc.perform(write(post("/islands/" + ISLAND + "/intro-arrivals"), body))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.islandId").value(OTHER.toString()))
+                .andExpect(jsonPath("$.data.firstArrivalEventId").doesNotExist());
+        var received = DATA.receivedFor(path);
+        return received.get(received.size() - 1).body();
+    }
+
+    @Test
+    @DisplayName("첫 항해 도착의 올바른 meta 는 신뢰한 클라이언트 IP 와 함께 상류로 전달된다")
+    void introArrivalForwardsValidMetaAndClientIp() throws Exception {
+        String forwarded = introWith("{\"meta\":{\"anonId\":\"XZ-anon_1\",\"advertiserTrackingEnabled\":true,"
+                + "\"extinfo\":" + EXT + "}}");
+        assertThat(forwarded).contains("\"anonId\":\"XZ-anon_1\"", "\"advertiserTrackingEnabled\":true",
+                "\"clientIp\":\"", "\"i2\"", "\"Asia/Seoul\"");
+    }
+
+    @Test
+    @DisplayName("형식이 틀린 meta 는 버리고 도착은 그대로 처리한다")
+    void introArrivalDropsInvalidMetaButStillArrives() throws Exception {
+        String badExt = "[\"i2\"]";
+        String forwarded = introWith("{\"meta\":{\"anonId\":\"a\",\"advertiserTrackingEnabled\":true,"
+                + "\"extinfo\":" + badExt + "}}");
+        assertThat(forwarded).doesNotContain("anonId");
+        assertThat(introWith("{\"meta\":{\"anonId\":\"한글\",\"advertiserTrackingEnabled\":true,"
+                + "\"extinfo\":" + EXT + "}}")).doesNotContain("anonId");
+        assertThat(introWith("{not json")).doesNotContain("anonId");
+        assertThat(introWith("{\"meta\":{\"anonId\":\"a\",\"advertiserTrackingEnabled\":true,\"extinfo\":"
+                + EXT.replace("\"17.5.1\"", "\"\"") + "}}")).doesNotContain("anonId");
+        // NUL 같은 제어 문자는 Data 의 jsonb 저장을 깨 도착까지 되돌리므로 meta 째 버린다.
+        assertThat(introWith("{\"meta\":{\"anonId\":\"a\",\"advertiserTrackingEnabled\":true,\"extinfo\":"
+                + EXT.replace("\"Asia/Seoul\"", "\"Asia\\u0000Seoul\"") + "}}")).doesNotContain("anonId");
+    }
+
+    @Test
+    @DisplayName("본문이 없는 첫 항해 도착은 전과 똑같이 본문 없이 상류로 간다")
+    void introArrivalWithoutBodyForwardsNoBody() throws Exception {
+        assertThat(introWith("")).isNullOrEmpty();
     }
 
     @Test

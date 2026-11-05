@@ -46,6 +46,7 @@ jobs:
       revision: ${{ steps.source.outputs.revision }}
       artifact-name: ${{ steps.source.outputs.artifact-name }}
       version-code: ${{ steps.artifact.outputs.version-code }}
+      version-name: ${{ steps.artifact.outputs.version-name }}
       publish: ${{ steps.artifact.outputs.publish }}
       has-artifact: ${{ steps.source.outputs.has-artifact }}
     steps:
@@ -74,6 +75,14 @@ jobs:
           SOURCE_RUN_ID: ${{ steps.source.outputs.run-id }}
           SOURCE_ATTEMPT: ${{ steps.source.outputs.attempt }}
         run: python3 .github/ci/android-artifact.py verify --directory android-ci-input
+      - name: 직전 앱 태그보다 큰 버전인지 확인
+        # GROMO-2731 — 같거나 낮은 버전 이름이 internal 에 다시 올라가지 않게 서명·업로드 전에 막는다.
+        # 같은 버전·versionCode 태그가 이미 있으면 같은 게시의 재실행이라 통과한다.
+        if: steps.source.outputs.has-artifact == 'true' && (steps.artifact.outputs.publish == 'true' || github.event_name == 'workflow_dispatch')
+        env:
+          VERSION_NAME: ${{ steps.artifact.outputs.version-name }}
+          VERSION_CODE: ${{ steps.artifact.outputs.version-code }}
+        run: python3 .github/ci/app-version.py check --platform android --version "$VERSION_NAME" --build "$VERSION_CODE"
 
   sign:
     name: 업로드 키 재서명
@@ -249,8 +258,8 @@ jobs:
           releaseFiles: aab/app-release.aab
           track: internal
           status: ${{ vars.PLAY_INTERNAL_RELEASE_STATUS || 'completed' }}
-          # 릴리스 이름 50자 제한 → 커밋 8자
-          releaseName: dev ${{ needs.source.outputs.version-code }} (${{ steps.rev.outputs.short }})
+          # 릴리스 이름 50자 제한 → 버전 이름 · versionCode (커밋 8자)
+          releaseName: prod ${{ needs.source.outputs.version-name }} · ${{ needs.source.outputs.version-code }} (${{ steps.rev.outputs.short }})
 
       - name: 업로드 확인 (internal 트랙 재조회)
         id: verify
@@ -329,6 +338,34 @@ jobs:
           {
             echo "## Android CD — Play 내부 테스트"
             echo "- 패키지: \`com.oneorthree.gromo\` · 트랙: internal"
-            echo "- versionCode: ${{ needs.source.outputs.version-code }} · 커밋: \`${{ needs.source.outputs.revision }}\`"
+            echo "- 버전 이름: ${{ needs.source.outputs.version-name }} · versionCode: ${{ needs.source.outputs.version-code }} · 커밋: \`${{ needs.source.outputs.revision }}\`"
             echo "- 결과: ${{ job.status }}"
           } >> "$GITHUB_STEP_SUMMARY"
+
+  tag:
+    # GROMO-2731 — 게시한 커밋에 출시 기록 태그(app-release 5절). 다음 CI 가 이 태그로 버전 이름을 정한다.
+    # 쓰기 권한은 서드파티 액션이 없는 이 잡에만 준다.
+    name: 앱 버전 태그
+    needs: [source, play-internal]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: app-<버전>-android-<versionCode> 태그
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: app-${{ needs.source.outputs.version-name }}-android-${{ needs.source.outputs.version-code }}
+          REVISION: ${{ needs.source.outputs.revision }}
+        run: |
+          set -euo pipefail
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" > /dev/null 2>&1; then
+            echo "이미 있다(재실행): $TAG"; exit 0
+          fi
+          # 태그 메시지에 지금 운영 서버 태그를 남긴다. 못 읽어도 태그는 단다 — 다음 버전 계산이 이 태그에 기댄다.
+          server=$(gh api -H 'Accept: application/vnd.github.raw+json' \
+            "repos/$GITHUB_REPOSITORY/contents/prod-V2/app.json?ref=deployment-status" --jq .message || echo '확인 실패')
+          object=$(gh api -X POST "repos/$GITHUB_REPOSITORY/git/tags" -f tag="$TAG" -f message="server: $server" \
+            -f object="$REVISION" -f type=commit --jq .sha)
+          gh api -X POST "repos/$GITHUB_REPOSITORY/git/refs" -f ref="refs/tags/$TAG" -f sha="$object" > /dev/null
+          echo "- 앱 태그: \`$TAG\` (server: $server)" >> "$GITHUB_STEP_SUMMARY"

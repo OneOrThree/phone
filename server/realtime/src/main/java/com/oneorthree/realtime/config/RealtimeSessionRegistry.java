@@ -39,13 +39,16 @@ public class RealtimeSessionRegistry implements MeterBinder {
     /**
      * 세션 하나가 들 수 있는 구독 수.
      *
-     * <p>근거는 <b>계정당 소속 상한</b>이다({@code GroupService.MAX_JOINED_GROUPS} = 10,
-     * {@code IslandMovementGuards} 가 같은 값을 되읽는다). 한 섬이 쓰는 목적지는 일곱
+     * <p>근거는 <b>계정당 소속 상한</b>이다. 지금 상한은 data-api {@code IslandInputPolicy.MAX_JOINED_ISLANDS} = 3 이고
+     * 가입 때 {@code IslandMovementGuards} 가 이 값으로 막는다. 한 섬이 쓰는 목적지는 일곱
      * ({@code focus}·{@code rest}·{@code emotes}·{@code events}(GROMO-2302)·채팅 {@code /topic/groups/{id}}·이동
      * {@code movement}·{@code movement/snapshot}, GROMO-2247)이고 개인 큐가 둘({@code errors}·{@code duplicates})이라,
-     * 섬 쪽 최대는 10 × 7 + 2 = 72 이고, 바다가 세션당 둘({@code /user/queue/sea}·{@code /topic/sea/rooms/{roomId}},
-     * GROMO-2300)을 더해 <b>이론상 최대는 74</b> 다. 96 은 거기에 약 30% 여유를 둔 값이다 — 화면 전환 중 옛 구독과
-     * 새 구독이 잠깐 겹치는 창을 덮는다.
+     * 섬 쪽 최대는 3 × 7 + 2 = 23 이고, 바다가 세션당 둘({@code /user/queue/sea}·{@code /topic/sea/rooms/{roomId}},
+     * GROMO-2300)을 더해 <b>이론상 최대는 25</b> 다.
+     *
+     * <p>96 은 옛 소속 상한 10 으로 잡은 값(10 × 7 + 2 + 2 = 74 에 약 30% 여유)을 그대로 둔 것이다. 25 보다 넉넉해
+     * 화면 전환 중 옛 구독과 새 구독이 잠깐 겹치는 창을 덮고, 아래 비소속 관전도 소속 상한에 묶이지 않아 25 근처로
+     * 줄이지 않는다.
      *
      * <p>비소속 관전이 열려 있어 한 세션으로 여러 섬을 «둘러보는» 흐름은 소속 상한에 묶이지 않는다.
      * 그 경우에도 <b>UNSUBSCRIBE 가 자리를 돌려주므로</b>, 섬을 떠날 때 구독을 해지하는 정상 클라이언트는

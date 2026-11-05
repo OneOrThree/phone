@@ -1,4 +1,4 @@
-name: Catus kafka CI V2
+name: Cattus kafka CI V2
 'on':
   pull_request:
     branches:

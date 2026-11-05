@@ -7,6 +7,7 @@ import com.oneorthree.business.common.http.InternalHttpClient;
 import com.oneorthree.business.upstream.data.dto.CurrentIsland;
 import com.oneorthree.business.upstream.data.dto.DeveloperNotices;
 import com.oneorthree.business.upstream.data.dto.InvitationResolved;
+import com.oneorthree.business.upstream.data.dto.IntroArrivalCommand;
 import com.oneorthree.business.upstream.data.dto.IslandArrival;
 import com.oneorthree.business.upstream.data.dto.IslandCreated;
 import com.oneorthree.business.upstream.data.dto.IslandDiscoverPage;
@@ -197,6 +198,14 @@ public class DataIslandClient {
                         .build(), deadline, new ParameterizedTypeReference<JsonNode>() { });
     }
 
+    /** 웹 전용 섬 배정 — 자격은 검증된 호출자만 전달한다. */
+    public IslandCreated enterWebIsland(UUID userId, UUID key, Deadline deadline) {
+        return http.exchange(InternalCall.to(HttpMethod.POST,
+                        "/internal/users/" + userId + "/web-island")
+                .onBehalfOf(userId).idempotencyKey(key.toString()).idempotentCommand().build(),
+                deadline, new ParameterizedTypeReference<IslandCreated>() { });
+    }
+
     /** 섬 생성 (GROMO-1759, LLD §3.1). 생성자가 방장이 되고 현재 섬이 새 섬으로 옮겨진다. */
     public IslandCreated createIsland(UUID userId, String name, String intro, boolean approvalRequired,
             Integer maxMembers, UUID key, Deadline deadline) {
@@ -351,13 +360,15 @@ public class DataIslandClient {
     }
 
     /** 첫 항해 체험 도착 — 명령 키는 Data가 무인도 중복 생성까지 막는 데 사용한다. */
-    public IslandArrival introArriveAtIsland(UUID userId, UUID islandId, UUID key, Deadline deadline) {
+    public IslandArrival introArriveAtIsland(UUID userId, UUID islandId, UUID key, IntroArrivalCommand command,
+            Deadline deadline) {
         return http.exchange(
                 InternalCall.to(HttpMethod.POST,
                                 userPath(PATH_ISLAND_INTRO_ARRIVALS, userId)
                                         .replace("{islandId}", islandId.toString()))
                         .onBehalfOf(userId)
                         .idempotencyKey(key.toString())
+                        .body(command)
                         .idempotentCommand()
                         .build(),
                 deadline,

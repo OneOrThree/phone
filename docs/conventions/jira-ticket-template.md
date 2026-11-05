@@ -52,9 +52,9 @@ summary 는 **동사형 한 줄**, 80자 이내, 대괄호 접두 없음 (`[BE]`
 
 | ❌ 이렇게 쓰지 않는다 | ✅ 이렇게 쓴다 |
 | --- | --- |
-| 잘 동작하게 한다 | `POST /api/groups/{id}/invite` 가 201 + 링크를 반환한다 |
+| 잘 동작하게 한다 | `POST /islands/{islandId}/invitations` 가 201 + 링크를 반환한다 |
 | 테스트 추가 | 만료 링크 재사용 시 409 를 검증하는 테스트가 있다 |
-| 문서화 | `docs/prd/invite/policy.md` 에 만료 정책 D 항목이 추가돼 있다 |
+| 문서화 | `docs/prd/fishcat/link-attribution/policy.md` 에 만료 정책 D 항목이 추가돼 있다 |
 | 디자인 정리 | Figma 「온보딩 v2」 페이지에 시안 3종이 올라가 있고 링크가 티켓 코멘트에 있다 |
 | 조사한다 | 후보 3개의 지연·비용 비교표가 `docs/engineering/<주제>/research.md` 에 있다 |
 
@@ -63,10 +63,10 @@ summary 는 **동사형 한 줄**, 80자 이내, 대괄호 접두 없음 (`[BE]`
 | `유형:` | `남길 위치:` 예 |
 | --- | --- |
 | `PR` | `server/data-api — OneOrThree/phone PR` |
-| `문서` | `docs/prd/invite/policy.md` |
+| `문서` | `docs/prd/fishcat/link-attribution/policy.md` |
 | `조사 리포트` | `docs/engineering/<주제>/research.md` 또는 Confluence 링크 |
 | `디자인 시안` | Figma 파일·페이지 링크 |
-| `설정 변경` | `server/scripts/docker-compose.dev.yml` · AWS Secrets `gromo/dev/env` |
+| `설정 변경` | `server/scripts/v2/dev/redis/shared.yml` · AWS Secrets `catus/dev/env-v2` |
 | `데이터 작업` | `V<N>__desc.sql` 마이그레이션 · 스크립트 경로 |
 | `기타(무엇인지)` | 괄호 안에 무엇인지 적는다 — `기타(슬랙 공지)` |
 

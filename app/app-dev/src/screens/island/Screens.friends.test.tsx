@@ -1,10 +1,7 @@
+import { createPreviewEnvironment } from '@/navigation/previewEnvironment';
 /** 친구 목록·검색 줄의 고양이 그림 — 서버가 catColor 를 안 주면 색을 추측하지 않는 빈 상자, 주면 그 색(GROMO-2391·2497). */
-import assert from 'node:assert/strict';
-import React, { useMemo, useReducer, useRef, useState } from 'react';
-import { fireEvent, render, waitFor } from '@testing-library/react-native';
-import { RedesignScreens } from '@/screens/island/Screens';
-import { initialState, reducer } from '@/services/model';
 import { art } from '@/constants/art';
+import { RedesignScreens } from '@/screens/island/Screens';
 import { useFriendsScreen } from '@/screens/island/useFriendsScreen';
 import {
   cancelFriendRequest,
@@ -14,6 +11,10 @@ import {
 } from '@/services/api/friends';
 import { blockUser, getBlockedUsers } from '@/services/api/safety';
 import { replaceBlockedUsers } from '@/services/blockedUsers';
+import { initialState, reducer } from '@/services/model';
+import { fireEvent, render, waitFor } from '@testing-library/react-native';
+import assert from 'node:assert/strict';
+import { useMemo, useReducer, useRef, useState } from 'react';
 
 jest.mock('@/services/api/friends', () => ({
   ...jest.requireActual('@/services/api/friends'),
@@ -62,7 +63,11 @@ const friend = (userId: string, nickname: string, catColor?: string | null) => (
   mainIslandName: null,
   catColor,
 });
-const screenState = (friends: ReturnType<typeof friend>[]) => ({
+const screenState = (
+  friends: ReturnType<typeof friend>[],
+): import('@/screens/island/useFriendsScreen').FriendsScreenState & {
+  data: import('@/services/api/friends').FriendsScreen;
+} => ({
   status: 'ready',
   error: null,
   data: { friends, friendRequests: [], sentFriendRequests: [] },
@@ -75,10 +80,15 @@ const screenState = (friends: ReturnType<typeof friend>[]) => ({
   searchStatus: 'idle',
   searchError: null,
   searchItems: [],
+  unfilteredSentFriendRequests: [],
 });
 
 // Screens.test.tsx 의 Harness 를 이 파일 전용으로 축약했다 — 'product'/'shop' 경로만 다룬다.
-function Harness({ friendsScreen }: { friendsScreen: unknown }) {
+function Harness({
+  friendsScreen,
+}: {
+  friendsScreen: import('@/screens/island/useFriendsScreen').FriendsScreenState;
+}) {
   const [state, dispatch] = useReducer(reducer, undefined, () => {
     const s = initialState(false);
     return s;
@@ -88,9 +98,9 @@ function Harness({ friendsScreen }: { friendsScreen: unknown }) {
   const [tab, setTab] = useState('');
   return (
     <RedesignScreens
-      e={{
+      e={createPreviewEnvironment({
         state,
-        route: 'friends',
+        route: 'friends' as const,
         dispatch,
         go: jest.fn(),
         replace: jest.fn(),
@@ -99,7 +109,7 @@ function Harness({ friendsScreen }: { friendsScreen: unknown }) {
         back: jest.fn(),
         notify: jest.fn(),
         confirm,
-        signOut: jest.fn(async () => {}),
+        signOut: jest.fn(async () => true),
         build: jest.fn(),
         text: '',
         setText: jest.fn(),
@@ -117,7 +127,14 @@ function Harness({ friendsScreen }: { friendsScreen: unknown }) {
         setVisited: jest.fn(),
         guideStep: 0,
         setGuideStep: jest.fn(),
-        player: { addListener: () => ({ remove() {} }), replace() {}, play() {}, pause() {} },
+        player: {
+          addListener: () => ({ remove() {} }),
+          replace() {},
+          play() {
+            return true;
+          },
+          pause() {},
+        },
         previewAudio: false,
         setPreviewAudio: jest.fn(),
         walkTo: jest.fn(),
@@ -128,7 +145,7 @@ function Harness({ friendsScreen }: { friendsScreen: unknown }) {
         homeError: false,
         retryHome: jest.fn(),
         friendsScreen,
-      }}
+      })}
     />
   );
 }
@@ -184,7 +201,16 @@ test('받은·보낸 요청과 검색 결과 줄도 털색이 없으면 빈 상�
         ...screenState([]),
         query: '구름',
         searchStatus: 'ready',
-        searchItems: [{ userId: 'u9', nickname: '구름', relation: 'NONE', catColor: null }],
+        searchItems: [
+          {
+            userId: 'u9',
+            nickname: '구름',
+            relation: 'NONE',
+            tierLevel: null,
+            occupation: null,
+            catColor: null,
+          },
+        ],
       }}
     />,
   );
@@ -216,7 +242,16 @@ test('요청·친구가 0건이어도 검색어로 찾은 결과 행은 보인�
         ...screenState([]),
         query: '구름',
         searchStatus: 'ready',
-        searchItems: [{ userId: 'u9', nickname: '구름', relation: 'NONE', catColor: 'gray' }],
+        searchItems: [
+          {
+            userId: 'u9',
+            nickname: '구름',
+            relation: 'NONE',
+            tierLevel: null,
+            occupation: null,
+            catColor: 'gray',
+          },
+        ],
       }}
     />,
   );
@@ -259,11 +294,15 @@ test('검색 뒤 친구 관리를 닫았다 열면 입력과 검색 결과 영�
   const getMock = jest.mocked(getFriendsScreen);
   const searchMock = jest.mocked(searchFriends);
   getMock.mockReset().mockResolvedValue(screenState([]).data);
-  searchMock
-    .mockReset()
-    .mockResolvedValue([
-      { userId: 'old', nickname: '이전결과', relation: 'NONE', tierLevel: null, occupation: null },
-    ]);
+  searchMock.mockReset().mockResolvedValue([
+    {
+      userId: 'old',
+      nickname: '이전결과',
+      relation: 'NONE',
+      tierLevel: null,
+      occupation: null,
+    },
+  ]);
   const screen = await render(<LiveHarness open />);
   await screen.findByText('아직 친구가 없어요');
   await fireEvent.changeText(screen.getByPlaceholderText('닉네임으로 친구 찾기'), 'ㅊㅊ');
@@ -339,11 +378,15 @@ test('친구 줄 ··· 메뉴에는 차단하기와 친구 삭제가 함께 있
 
 test('검색 결과 줄 ··· 로 차단하면 차단 API 뒤 그 줄이 사라지고, 보낸 요청이 없으면 취소하지 않는다', async () => {
   const screen = await renderBlockScreen();
-  jest
-    .mocked(searchFriends)
-    .mockResolvedValue([
-      { userId: 'u-new', nickname: '구름', relation: 'NONE', tierLevel: null, occupation: null },
-    ]);
+  jest.mocked(searchFriends).mockResolvedValue([
+    {
+      userId: 'u-new',
+      nickname: '구름',
+      relation: 'NONE',
+      tierLevel: null,
+      occupation: null,
+    },
+  ]);
   await search(screen, '구름');
   assert.ok(screen.getByText('친구 요청'));
 

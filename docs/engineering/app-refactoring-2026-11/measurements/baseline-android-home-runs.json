@@ -1,0 +1,56 @@
+{
+  "scenario": "process-cold, persistent local DEMO data, warm OS caches; API 37 arm64 emulator",
+  "readiness": "pink focus CTA + quest card + island terrain + shop roof + cat portrait in first matching screenshot; includes adb launch and capture overhead",
+  "runs": [
+    {
+      "round": 1,
+      "pid": 19255,
+      "homeReadySeconds": 2.10838570818305,
+      "captures": 5,
+      "idleCpuPercent": 4.183778201610325,
+      "amStart": "Starting: Intent { cmp=com.oneorthree.gromo/.MainActivity }\nStatus: ok\nLaunchState: COLD\nActivity: com.oneorthree.gromo/.MainActivity\nTotalTime: 308\nWaitTime: 309\nComplete",
+      "memoryValue": 243.0869140625,
+      "memoryUnit": "PSS MiB"
+    },
+    {
+      "round": 2,
+      "pid": 19391,
+      "homeReadySeconds": 2.223835000069812,
+      "captures": 5,
+      "idleCpuPercent": 7.464741382467753,
+      "amStart": "Starting: Intent { cmp=com.oneorthree.gromo/.MainActivity }\nStatus: ok\nLaunchState: COLD\nActivity: com.oneorthree.gromo/.MainActivity\nTotalTime: 301\nWaitTime: 314\nComplete",
+      "memoryValue": 243.50390625,
+      "memoryUnit": "PSS MiB"
+    },
+    {
+      "round": 3,
+      "pid": 19525,
+      "homeReadySeconds": 2.139788582921028,
+      "captures": 5,
+      "idleCpuPercent": 6.773479682638422,
+      "amStart": "Starting: Intent { cmp=com.oneorthree.gromo/.MainActivity }\nStatus: ok\nLaunchState: COLD\nActivity: com.oneorthree.gromo/.MainActivity\nTotalTime: 346\nWaitTime: 353\nComplete",
+      "memoryValue": 242.6279296875,
+      "memoryUnit": "PSS MiB"
+    },
+    {
+      "round": 4,
+      "pid": 19660,
+      "homeReadySeconds": 2.0942065420094877,
+      "captures": 5,
+      "idleCpuPercent": 4.182702069568105,
+      "amStart": "Starting: Intent { cmp=com.oneorthree.gromo/.MainActivity }\nStatus: ok\nLaunchState: COLD\nActivity: com.oneorthree.gromo/.MainActivity\nTotalTime: 335\nWaitTime: 338\nComplete",
+      "memoryValue": 243.8291015625,
+      "memoryUnit": "PSS MiB"
+    },
+    {
+      "round": 5,
+      "pid": 19793,
+      "homeReadySeconds": 1.9397652498446405,
+      "captures": 5,
+      "idleCpuPercent": 4.382930276209067,
+      "amStart": "Starting: Intent { cmp=com.oneorthree.gromo/.MainActivity }\nStatus: ok\nLaunchState: COLD\nActivity: com.oneorthree.gromo/.MainActivity\nTotalTime: 228\nWaitTime: 229\nComplete",
+      "memoryValue": 243.71875,
+      "memoryUnit": "PSS MiB"
+    }
+  ]
+}

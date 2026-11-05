@@ -1,0 +1,153 @@
+{
+ "_source": "OneOrThree/phone 2026-11-02 21:50 KST 무렵의 실제 응답. PR #1543(머지 106ea4a85, data-api 문서만 바꿈). 키는 where_is.py 가 부르는 gh api 경로, --jq 를 쓰는 호출은 jq 뒤 출력이다.",
+ "responses": {
+  "repos/{owner}/{repo}/pulls/1543": {
+   "number": 1543,
+   "state": "closed",
+   "merged_at": "2026-11-02T11:06:07Z",
+   "merge_commit_sha": "106ea4a85ebe8b1e76725b7e87a96593914ddf8b",
+   "base": {
+    "ref": "main"
+   },
+   "title": "[CHORE] GROMO-2690 동결 경로를 가리키는 명령을 지우고 마이그레이션·백엔드 도구 안내를 현행으로 고친다"
+  },
+  "repos/{owner}/{repo}/pulls/1543/files?per_page=100": ".claude/agents/spring-reviewer.md\n.claude/commands/back-check.md\n.claude/commands/back-endpoint.md\n.claude/commands/back-migration.md\n.claude/commands/back-skeleton.md\n.claude/commands/jira-assign.md\n.claude/commands/jira-impl.md\n.claude/commands/jira-sync.md\n.claude/pr-gate.py\ndocs/conventions/backend-layering.md\nserver/data-api/CLAUDE.md\nserver/data-api/README.md\nserver/data-api/docs/db/README.md\n",
+  "repos/{owner}/{repo}/contents/state.json?ref=deployment-status": {
+   "dev/business-api": {
+    "environment": "dev",
+    "finished_at": "2026-11-02T05:35:47.704449+00:00",
+    "result": "success",
+    "revision": "8045104e157c3d0f272c455a026d5578f9651ad8",
+    "service": "business-api"
+   },
+   "dev/data-api": {
+    "environment": "dev",
+    "finished_at": "2026-11-02T11:36:40.088145+00:00",
+    "result": "success",
+    "revision": "106ea4a85ebe8b1e76725b7e87a96593914ddf8b",
+    "service": "data-api"
+   },
+   "dev/notification": {
+    "environment": "dev",
+    "finished_at": "2026-11-02T03:36:36.748127+00:00",
+    "result": "success",
+    "revision": "a90436595631645468d7cc5a7cc5971a7af44b1d",
+    "service": "notification"
+   },
+   "dev/realtime": {
+    "environment": "dev",
+    "finished_at": "2026-11-02T11:36:40.088145+00:00",
+    "result": "success",
+    "revision": "106ea4a85ebe8b1e76725b7e87a96593914ddf8b",
+    "service": "realtime"
+   },
+   "prod/catus": {
+    "environment": "prod",
+    "finished_at": "2026-10-29T19:29:48.287606+00:00",
+    "infra_revision": "583aeffcbf5cf0c536301d8d5ee89363737e8343",
+    "release_id": "3113601a803f7c92b1b85ca137802dc8ae436aed-40936771577-1",
+    "result": "success",
+    "revision": "3113601a803f7c92b1b85ca137802dc8ae436aed",
+    "service": "catus",
+    "version": "catus-v2.2.1"
+   }
+  },
+  "repos/{owner}/{repo}/contents/prod-V2/app.json?ref=deployment-status": {
+   "schemaVersion": 1,
+   "label": "app prod V2",
+   "message": "catus-v2.0.5-V2",
+   "color": "green"
+  },
+  "repos/{owner}/{repo}/git/ref/tags/catus-v2.0.5-V2": {
+   "ref": "refs/tags/catus-v2.0.5-V2",
+   "object": {
+    "type": "commit",
+    "sha": "ed6beb309915095e860dcee7d739d2fee0984006"
+   }
+  },
+  "repos/{owner}/{repo}/commits?sha=deployment-status&path=prod-V2/app.json&per_page=1": "2026-11-02T06:38:37Z\n",
+  "repos/{owner}/{repo}/actions/workflows/prod-cd-V2.yml/runs?branch=release&per_page=1": {
+   "workflow_runs": [
+    {
+     "status": "completed",
+     "conclusion": "success",
+     "created_at": "2026-11-02T07:25:05Z"
+    }
+   ]
+  },
+  "repos/{owner}/{repo}/contents/prod-V2/backoffice.json?ref=deployment-status": {
+   "schemaVersion": 1,
+   "label": "backoffice prod V2",
+   "message": "backoffice-v1.0.8-V2",
+   "color": "green"
+  },
+  "repos/{owner}/{repo}/git/ref/tags/backoffice-v1.0.8-V2": {
+   "ref": "refs/tags/backoffice-v1.0.8-V2",
+   "object": {
+    "type": "commit",
+    "sha": "bce2452b1791108fdfdacc3ed034eac0de066664"
+   }
+  },
+  "repos/{owner}/{repo}/commits?sha=deployment-status&path=prod-V2/backoffice.json&per_page=1": "2026-11-02T07:52:42Z\n",
+  "repos/{owner}/{repo}/actions/workflows/backoffice-cd.prod-V2.yml/runs?branch=main&per_page=1": {
+   "workflow_runs": [
+    {
+     "status": "completed",
+     "conclusion": "success",
+     "created_at": "2026-11-02T07:49:08Z"
+    }
+   ]
+  },
+  "repos/{owner}/{repo}/contents/prod-V2/kafka.json?ref=deployment-status": {
+   "schemaVersion": 1,
+   "label": "kafka prod V2",
+   "message": "kafka-v1.0.3-V2",
+   "color": "green"
+  },
+  "repos/{owner}/{repo}/git/ref/tags/kafka-v1.0.3-V2": {
+   "ref": "refs/tags/kafka-v1.0.3-V2",
+   "object": {
+    "type": "commit",
+    "sha": "ed6beb309915095e860dcee7d739d2fee0984006"
+   }
+  },
+  "repos/{owner}/{repo}/commits?sha=deployment-status&path=prod-V2/kafka.json&per_page=1": "2026-11-02T07:24:31Z\n",
+  "repos/{owner}/{repo}/actions/workflows/kafka-cd.prod-V2.yml/runs?branch=release&per_page=1": {
+   "workflow_runs": [
+    {
+     "status": "completed",
+     "conclusion": "success",
+     "created_at": "2026-11-02T07:22:26Z"
+    }
+   ]
+  },
+  "repos/{owner}/{repo}/contents/prod-V2/redis.json?ref=deployment-status": {
+   "schemaVersion": 1,
+   "label": "redis prod V2",
+   "message": "redis-v1.0.4-V2",
+   "color": "green"
+  },
+  "repos/{owner}/{repo}/git/ref/tags/redis-v1.0.4-V2": {
+   "ref": "refs/tags/redis-v1.0.4-V2",
+   "object": {
+    "type": "commit",
+    "sha": "ed6beb309915095e860dcee7d739d2fee0984006"
+   }
+  },
+  "repos/{owner}/{repo}/commits?sha=deployment-status&path=prod-V2/redis.json&per_page=1": "2026-11-02T08:10:31Z\n",
+  "repos/{owner}/{repo}/actions/workflows/redis-cd.prod-V2.yml/runs?branch=release&per_page=1": {
+   "workflow_runs": [
+    {
+     "status": "completed",
+     "conclusion": "success",
+     "created_at": "2026-11-02T08:09:03Z"
+    }
+   ]
+  },
+  "repos/{owner}/{repo}/compare/106ea4a85ebe8b1e76725b7e87a96593914ddf8b...106ea4a85ebe8b1e76725b7e87a96593914ddf8b?per_page=1": "identical\n",
+  "repos/{owner}/{repo}/compare/106ea4a85ebe8b1e76725b7e87a96593914ddf8b...8045104e157c3d0f272c455a026d5578f9651ad8?per_page=1": "behind\n",
+  "repos/{owner}/{repo}/compare/106ea4a85ebe8b1e76725b7e87a96593914ddf8b...a90436595631645468d7cc5a7cc5971a7af44b1d?per_page=1": "behind\n",
+  "repos/{owner}/{repo}/compare/106ea4a85ebe8b1e76725b7e87a96593914ddf8b...ed6beb309915095e860dcee7d739d2fee0984006?per_page=1": "diverged\n",
+  "repos/{owner}/{repo}/compare/106ea4a85ebe8b1e76725b7e87a96593914ddf8b...bce2452b1791108fdfdacc3ed034eac0de066664?per_page=1": "behind\n"
+ }
+}

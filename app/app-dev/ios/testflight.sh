@@ -42,7 +42,7 @@ if [[ "$AUDIENCE" == "prod" ]]; then
   python3 ../../../.github/scripts/app-server-gate.py
 else
   # dev 빌드는 서버 주소를 여기서 고정한다 — 운영 주소를 실수로 넘겨도 dev lane 이 다시 덮어쓴다
-  export EXPO_PUBLIC_API_URL="https://oneorthree.dev.mooo.com"
+  export EXPO_PUBLIC_API_URL="https://oneorthree-v2.dev.mooo.com"
   export GROMO_IOS_AUDIENCE="dev"
 fi
 export EXPO_PUBLIC_APPLE_LOGIN_ENABLED=1

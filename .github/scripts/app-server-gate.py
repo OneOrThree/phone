@@ -34,8 +34,12 @@ class GateError(Exception):
 
 
 def fetch_json(url, accept='application/vnd.github+json'):
+    headers = {'Accept': accept, 'User-Agent': 'app-server-gate'}
+    # 공용 러너 IP 는 비인증 한도(시간당 60회)를 금방 넘겨 CI 는 토큰을 준다. 로컬은 토큰 없이 돈다.
+    if os.environ.get('GH_TOKEN'):
+        headers['Authorization'] = f'Bearer {os.environ["GH_TOKEN"]}'
     try:
-        request = urllib.request.Request(url, headers={'Accept': accept, 'User-Agent': 'app-server-gate'})
+        request = urllib.request.Request(url, headers=headers)
         with urllib.request.urlopen(request, timeout=10) as response:
             return json.load(response)
     except Exception as first:

@@ -1,13 +1,15 @@
 import { applyLocalePref } from '@/i18n';
+import { createPreviewEnvironment } from '@/navigation/previewEnvironment';
+import type { Route } from '@/services/model';
+import { raftArtSize } from './navigation/useScreenState';
 /** 옷장(GROMO-2311) — 슬롯별 장착·해제, 퇴역 항목, 옛 서버 인벤토리. useShop 은 목이다. */
-import assert from 'node:assert/strict';
-import React, { useMemo, useReducer, useRef, useState } from 'react';
-import { act, fireEvent, render } from '@testing-library/react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { StyleSheet } from 'react-native';
-import { RedesignScreens, raftArtSize } from '@/screens/island/Screens';
-import { resetUnseenOutfitsForTest } from '@/services/unseenOutfits';
+import { RedesignScreens } from '@/screens/island/Screens';
 import { initialState, reducer, type State } from '@/services/model';
+import { resetUnseenOutfitsForTest } from '@/services/unseenOutfits';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { act, fireEvent, render } from '@testing-library/react-native';
+import { useMemo, useReducer, useRef, useState } from 'react';
+import { StyleSheet } from 'react-native';
 
 jest.mock('@/utils/layout', () => ({
   useAppLayout: () => ({
@@ -244,7 +246,7 @@ function Harness({
 }: {
   equipped?: Record<string, string>;
   color?: State['color'];
-  route?: string;
+  route?: Route;
   detail?: string;
   notify?: jest.Mock;
 }) {
@@ -283,7 +285,7 @@ function Harness({
   const [tab, setTab] = useState('');
   return (
     <RedesignScreens
-      e={{
+      e={createPreviewEnvironment({
         state,
         route,
         dispatch,
@@ -294,7 +296,7 @@ function Harness({
         back: jest.fn(),
         notify,
         confirm,
-        signOut: jest.fn(async () => {}),
+        signOut: jest.fn(async () => true),
         build: jest.fn(),
         text: '',
         setText: jest.fn(),
@@ -312,7 +314,14 @@ function Harness({
         setVisited: jest.fn(),
         guideStep: 0,
         setGuideStep: jest.fn(),
-        player: { addListener: () => ({ remove() {} }), replace() {}, play() {}, pause() {} },
+        player: {
+          addListener: () => ({ remove() {} }),
+          replace() {},
+          play() {
+            return true;
+          },
+          pause() {},
+        },
         previewAudio: false,
         setPreviewAudio: jest.fn(),
         walkTo: jest.fn(),
@@ -323,7 +332,7 @@ function Harness({
         homeError: false,
         retryHome: jest.fn(),
         friendsScreen: undefined,
-      }}
+      })}
     />
   );
 }

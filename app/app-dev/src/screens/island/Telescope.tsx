@@ -1,3 +1,31 @@
+import { sharedWebIslandId, usesSharedWebIsland } from '@/services/webIsland';
+import { ISLAND_ART_ASPECT, ISLAND_STAGE_ART, islandStage } from '@/constants/magazineAssets';
+import { Badge, Btn, NavBtn, Pic, Txt } from '@/design-system/patterns';
+import { Card } from '@/design-system/primitives';
+import { componentTokens, primitiveTokens, semanticTokens } from '@/design-system/tokens';
+import { errorTextOr, t } from '@/i18n';
+import { formatDuration } from '@/i18n/format';
+import type { ScreenEnvironment } from '@/navigation/ScreenEnvironment';
+import { Flag } from '@/screens/cosmetics/Flag';
+import { IslandPopup, SheetGroup, SheetRow } from '@/screens/island/IslandSheet';
+import { visibleTelescopeItems } from '@/screens/island/telescopeDestinations';
+import { endServerVisit, useIslandSailing } from '@/screens/island/useIslandSailing';
+import { useTelescope } from '@/screens/island/useTelescope';
+import { AdCell } from '@/screens/magazine/AdCell';
+import { useFirstVoyage } from '@/screens/onboarding/useFirstVoyage';
+import { SeaVoyagePreparation } from '@/screens/sea/SeaVoyagePreparation';
+import { RAFT_TELESCOPE_ASPECT, raftTelescope, telescopeSea } from '@/screens/sea/seaAssets';
+import { SeaNotice } from '@/screens/sea/seaModel';
+import { saveSeaRemark } from '@/screens/sea/seaRemark';
+import { ApiError, CLIENT_STALE_SESSION, uuid } from '@/services/api/client';
+import type { MagazineCell } from '@/services/api/magazine';
+import { isTelescopeMock } from '@/services/api/magazineMock';
+import { getSession, sessionGeneration } from '@/services/api/session';
+import { arriveAtIsland, unpinFromTelescope, type TelescopeItem } from '@/services/api/telescope';
+import { unknownOutcome } from '@/services/islandCommands';
+import { islandErrorMessage } from '@/services/islandErrors';
+import { intentKeyPool, serverVisit, sessionRoute, type Route, type State } from '@/services/model';
+import { useAppLayout } from '@/utils/layout';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AccessibilityInfo,
@@ -11,31 +39,6 @@ import {
   View,
   type ImageStyle,
 } from 'react-native';
-import { ISLAND_ART_ASPECT, ISLAND_STAGE_ART, islandStage } from '@/constants/magazineAssets';
-import { Badge, Btn, NavBtn, Pic, Txt } from '@/design-system/patterns';
-import { Card } from '@/design-system/primitives';
-import { componentTokens, primitiveTokens, semanticTokens } from '@/design-system/tokens';
-import { errorTextOr, t } from '@/i18n';
-import { formatDuration } from '@/i18n/format';
-import { Flag } from '@/screens/cosmetics/Cosmetics';
-import { IslandPopup, SheetGroup, SheetRow } from '@/screens/island/IslandSheet';
-import { endServerVisit, useIslandSailing } from '@/screens/island/useIslandSailing';
-import { useTelescope } from '@/screens/island/useTelescope';
-import { visibleTelescopeItems } from '@/screens/island/telescopeDestinations';
-import { ApiError, CLIENT_STALE_SESSION, uuid } from '@/services/api/client';
-import { getSession, sessionGeneration } from '@/services/api/session';
-import { useFirstVoyage } from '@/screens/onboarding/useFirstVoyage';
-import type { MagazineCell } from '@/services/api/magazine';
-import { arriveAtIsland, unpinFromTelescope, type TelescopeItem } from '@/services/api/telescope';
-import { unknownOutcome } from '@/services/islandCommands';
-import { islandErrorMessage } from '@/services/islandErrors';
-import { SeaVoyagePreparation } from '@/screens/sea/SeaVoyagePreparation';
-import { RAFT_TELESCOPE_ASPECT, raftTelescope, telescopeSea } from '@/screens/sea/seaAssets';
-import { saveSeaRemark } from '@/screens/sea/seaRemark';
-import { intentKeyPool, serverVisit, sessionRoute, type Route, type State } from '@/services/model';
-import { useAppLayout } from '@/utils/layout';
-import { AdCell } from '@/screens/magazine/AdCell';
-import { isTelescopeMock } from '@/services/api/magazineMock';
 
 const { space } = primitiveTokens;
 const { color, stroke, size } = semanticTokens;
@@ -151,16 +154,30 @@ type IntentKeys = ReturnType<typeof intentKeyPool>;
  * `Idempotency-Key` 는 현재 섬 이동(switchCurrent)과 같은 의도 키 풀·UUID 생성기로 만든다 — 섬당 의도 하나, 실패(결과 불명 포함)로
  * 끝나면 키를 그대로 둬 같은 섬으로의 재시도가 같은 키로 나가고, 도착 POST 응답을 받으면 바로 해제한다(아래 주석).
  */
-export async function arrive(e: any, keys: IntentKeys, islandId: string): Promise<boolean> {
+type ArrivalEnvironment = Partial<Pick<ScreenEnvironment, 'dispatch'>> & {
+  state?: {
+    serverIslands?: Pick<
+      NonNullable<ScreenEnvironment['state']['serverIslands']>,
+      'memberships'
+    > | null;
+  };
+} & { islands?: Pick<NonNullable<ScreenEnvironment['islands']>, 'sync'> };
+export async function arrive(
+  e: ArrivalEnvironment,
+  keys: IntentKeys,
+  islandId: string,
+): Promise<boolean> {
   return (await arriveWithOutcome(e, keys, islandId)).member;
 }
 
 /** `arrive` + 서버가 준 `arrivedBefore`(결과를 모르는 채 소속으로 확인된 경우엔 true — 환영을 띄우지 않는다). */
 export async function arriveWithOutcome(
-  e: any,
+  e: ArrivalEnvironment,
   keys: IntentKeys,
   islandId: string,
 ): Promise<{ member: boolean; arrivedBefore: boolean }> {
+  const commands = e.islands;
+  if (!commands) throw new Error('서버 섬 명령이 필요합니다.');
   const key = keys.key('arrive', islandId);
   // 복구 상태를 반영하기 전에 같은 로그인인지 본다 — 재조회 중 로그아웃·계정 전환이 있었으면 이전 계정 값을 쓰지 않는다
   const generation = sessionGeneration();
@@ -174,7 +191,7 @@ export async function arriveWithOutcome(
     if (!unknownOutcome(thrown)) throw thrown;
     let my;
     try {
-      my = await e.islands.sync();
+      my = await commands.sync();
     } catch {
       my = null;
     }
@@ -189,7 +206,7 @@ export async function arriveWithOutcome(
   // 소속 스냅샷은 홈 진입 뒤 기존 재조회 경로가 맞춘다
   let syncError: unknown = null;
   try {
-    await e.islands.sync();
+    await commands.sync();
   } catch (thrown) {
     syncError = thrown;
   }
@@ -212,7 +229,7 @@ export async function arriveWithOutcome(
           lossReason: null,
         },
       });
-    await e.islands.sync().catch(() => {});
+    await commands.sync().catch(() => {});
   }
   return { member: true, arrivedBefore };
 }
@@ -426,7 +443,11 @@ function IslandBubble({
       {isMagazinePin(item) && <MagazinePreview cell={item.magazineCell} />}
       <SheetGroup>
         <SheetRow
-          title={t('telescope.residents', { count: item.memberCount, max: item.maxMembers })}
+          title={
+            usesSharedWebIsland() && item.islandId === sharedWebIslandId()
+              ? `${item.memberCount}마리 · 정원 제한 없음`
+              : t('telescope.residents', { count: item.memberCount, max: item.maxMembers })
+          }
         />
         <SheetRow title={averageText(item.averageFocusMinutesPerDay)} />
         {!firstVoyage && (
@@ -498,7 +519,13 @@ function IslandBubble({
  *   지금 구경 중인 섬은 «항해 중»이라(서버에는 항해 상태가 없어 앱이 거친다) 「항해를 그만둘까요?」 확인 뒤에 빼고 구경도 끝낸다.
  *   리본·[빼기]는 목록의 `slot` 만 본다 — 넣었다는 상태를 로컬에 따로 들지 않는다(목록이 정본).
  */
-export function Telescope({ e, previewItems }: { e: any; previewItems?: TelescopeItem[] }) {
+export function Telescope({
+  e,
+  previewItems,
+}: {
+  e: ScreenEnvironment;
+  previewItems?: TelescopeItem[];
+}) {
   const s: State = e.state;
   const firstVoyage = useFirstVoyage(e, !!previewItems);
   const L = useAppLayout();
@@ -661,9 +688,14 @@ export function Telescope({ e, previewItems }: { e: any; previewItems?: Telescop
       unlock();
       return;
     }
-    let view: Awaited<ReturnType<typeof e.focus.startSea>>;
+    const commands = e.focus;
+    if (!commands) {
+      unlock();
+      return;
+    }
+    let view: Awaited<ReturnType<typeof commands.startSea>>;
     try {
-      view = await e.focus.startSea(item.islandId);
+      view = await commands.startSea(item.islandId);
     } catch (thrown) {
       unlock();
       if (!alive()) return;
@@ -676,7 +708,7 @@ export function Telescope({ e, previewItems }: { e: any; previewItems?: Telescop
       }
       // 다른 기기가 먼저 출항·집중을 시작했다 — 다시 눌러도 계속 충돌하므로 정본을 읽어 그 진행 세션 화면으로 간다
       if ((thrown as { code?: string })?.code === 'STATE_CONFLICT') {
-        const route = await e.focus.recover().catch(() => null);
+        const route = await commands.recover().catch(() => null);
         if (!alive()) return;
         if (route === 'sea' || route === 'focus' || route === 'rest') return enter(route);
       }
@@ -688,7 +720,10 @@ export function Telescope({ e, previewItems }: { e: any; previewItems?: Telescop
     const route = view ? sessionRoute(view) : 'sea';
     try {
       if (remark && route === 'sea' && !previewItems)
-        await saveSeaRemark(e, remark).catch(() => e.notify(t('openSea.remarkFailed')));
+        await saveSeaRemark(e, remark).catch((thrown) =>
+          // 내용 거절(금칙어 등)은 바다에서 같은 글로 다시 써도 거절되므로 그 이유를 알린다
+          e.notify(thrown instanceof SeaNotice ? thrown.message : t('openSea.remarkFailed')),
+        );
       if (!alive()) return;
       // 라우트 인자는 목적지 이름 — 서버가 세션에 이름을 싣기 전(T1)에도 항해 화면이 섬 이름을 쓴다
       enter(
@@ -708,13 +743,14 @@ export function Telescope({ e, previewItems }: { e: any; previewItems?: Telescop
   };
 
   const join = async (item: TelescopeItem) => {
-    if (joiningRef.current) return;
+    const commands = e.islands;
+    if (!commands || joiningRef.current) return;
     joiningRef.current = true;
     setJoiningId(item.islandId);
     const gen = sessionGeneration();
     const alive = () => mounted.current && sessionGeneration() === gen;
     try {
-      const result = await e.islands.join(item.islandId, {
+      const result = await commands.join(item.islandId, {
         showApproval: false,
         origin: 'telescope',
       });

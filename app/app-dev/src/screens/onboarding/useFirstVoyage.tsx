@@ -1,8 +1,8 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { getSession, sessionGeneration } from '@/services/api/session';
-import { ApiError } from '@/services/api/client';
-import { unknownOutcome } from '@/services/islandCommands';
+import { usesSharedWebIsland } from '@/services/webIsland';
 import { errorTextOr } from '@/i18n';
+import type { ScreenEnvironment } from '@/navigation/ScreenEnvironment';
+import { ApiError } from '@/services/api/client';
+import { getSession, sessionGeneration } from '@/services/api/session';
 import type { TelescopeItem } from '@/services/api/telescope';
 import {
   arriveFirstVoyage,
@@ -12,10 +12,12 @@ import {
   readFirstVoyage,
   type FirstVoyageIntent,
 } from '@/services/firstVoyage';
+import { unknownOutcome } from '@/services/islandCommands';
+import { useEffect, useRef, useState } from 'react';
 import { FirstVoyageScene } from './FirstVoyageScene';
 
 /** 첫 대화 망원경과 재실행 뒤 일반 망원경이 같은 설치 단위 체험을 사용한다. */
-export function useFirstVoyage(e: any, preview = false) {
+export function useFirstVoyage(e: ScreenEnvironment, preview = false) {
   const owner = getSession()?.userId ?? 'local';
   const generation = sessionGeneration();
   const [eligible, setEligible] = useState<boolean | null>(null);
@@ -36,7 +38,7 @@ export function useFirstVoyage(e: any, preview = false) {
     setError('');
     setUnavailable(false);
     lock.current = null;
-    if (e.focusBlockingIntroPreview) setEligible(false);
+    if (usesSharedWebIsland() || e.focusBlockingIntroPreview) setEligible(false);
     else if (preview) setEligible(true);
     else
       readFirstVoyage(owner)
@@ -96,6 +98,8 @@ export function useFirstVoyage(e: any, preview = false) {
       }
       const result = await arriveFirstVoyage(intent, generation);
       if (!alive()) return;
+      const commands = latest.current.islands;
+      if (!commands) throw new Error('서버 섬 명령이 필요합니다.');
       const member = result.membershipStatus === 'active';
       if (member) {
         // 도착은 이미 확정됐다. 목록 재조회 실패로 소속 없는 바다 가드에 되돌아가지 않도록 현재 섬을 먼저 맞춘다.
@@ -107,8 +111,8 @@ export function useFirstVoyage(e: any, preview = false) {
             lossReason: null,
           },
         });
-        await latest.current.islands.sync().catch(() => {});
-      } else await latest.current.islands.visit(result.islandId);
+        await commands.sync().catch(() => {});
+      } else await commands.visit(result.islandId);
       if (!alive()) return;
       await completeFirstVoyage(owner);
       if (!alive()) return;

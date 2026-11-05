@@ -58,7 +58,7 @@
 			<string>GoogleSignIn</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>com.googleusercontent.apps.263851348176-8ochua7scca7h6ldmdk7v3iqc9uoit50</string>
+				<string>com.googleusercontent.apps.263851348176-tj06i9gefqie95rvqmbci2p7ptf25po4</string>
 			</array>
 		</dict>
 		<dict>
@@ -72,16 +72,16 @@
 		<dict>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>fb1092876403132413</string>
+				<string>fb4481407905460714</string>
 			</array>
 		</dict>
 	</array>
 	<key>CFBundleVersion</key>
-	<string>9</string>
+	<string>12</string>
 	<key>FacebookAppID</key>
-	<string>1092876403132413</string>
+	<string>4481407905460714</string>
 	<key>FacebookClientToken</key>
-	<string>50e64f9a226f67663ddcfd3ea0e03cb4</string>
+	<string>8cdaacb4a2ca1095e6b97f21230d6013</string>
 	<key>FacebookDisplayName</key>
 	<string>cattus</string>
 	<key>FacebookAutoInitEnabled</key>
@@ -140,10 +140,6 @@
 	<key>UIAppFonts</key>
 	<array>
 		<string>gowun-dodum.ttf</string>
-	</array>
-	<key>UIBackgroundModes</key>
-	<array>
-		<string>audio</string>
 	</array>
 	<key>UILaunchStoryboardName</key>
 	<string>SplashScreen</string>

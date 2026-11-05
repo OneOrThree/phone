@@ -149,6 +149,22 @@ class GateTest(unittest.TestCase):
     def test_git_failure_blocks(self):
         self.assertEqual(run(git=failing_git)[0], 1)
 
+    def test_fetch_sends_ci_token_only_when_present(self):
+        from unittest import mock
+        seen = []
+
+        def urlopen(request, timeout):
+            seen.append(request.headers)
+            return io.BytesIO(b'{}')
+
+        with mock.patch.object(gate.urllib.request, 'urlopen', urlopen):
+            with mock.patch.dict(gate.os.environ, {'GH_TOKEN': 'token'}):
+                gate.fetch_json(gate.RECORD_URL)
+            with mock.patch.dict(gate.os.environ, clear=True):
+                gate.fetch_json(gate.RECORD_URL)
+        self.assertEqual(seen[0]['Authorization'], 'Bearer token')
+        self.assertNotIn('Authorization', seen[1])
+
     def test_allow_server_gap_passes_with_reason_and_skips_lookup(self):
         code, out, _ = run(env={'ALLOW_SERVER_GAP': '서버 변경 없음 확인'}, fetch=failing_api, git=failing_git)
         self.assertEqual(code, 0)

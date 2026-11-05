@@ -1,0 +1,39 @@
+======================================================================
+Cattus [23234]: 64-bit    Footprint: 178 MB (16384 bytes per page)
+======================================================================
+
+  Dirty      Clean  Reclaimable    Regions    Category
+    ---        ---          ---        ---    ---
+  49 MB        0 B          0 B         42    untagged (VM_ALLOCATE)
+  41 MB        0 B        12 MB         14    MALLOC_SMALL
+  39 MB        0 B          0 B          2    MALLOC_LARGE
+  29 MB        0 B       560 KB         90    ImageIO
+9263 KB      16 KB          0 B       1000    __DATA
+3248 KB      32 KB          0 B        995    __DATA_CONST
+2512 KB        0 B          0 B         17    dyld private memory
+1856 KB        0 B          0 B         51    CoreAnimation
+1795 KB        0 B          0 B          1    page table
+ 560 KB        0 B        32 KB          9    MALLOC metadata
+ 498 KB        0 B          0 B       1130    unused dyld shared cache area
+ 432 KB        0 B        32 KB         18    stack
+ 304 KB        0 B          0 B         16    CG raster data
+ 176 KB        0 B          0 B          1    MALLOC_TINY
+ 155 KB        0 B          0 B         14    __DATA_DIRTY
+  68 KB        0 B          0 B          4    __TPRO_CONST
+  32 KB        0 B          0 B          1    __AUTH_CONST
+  32 KB        0 B          0 B          1    Activity Tracing
+  32 KB        0 B          0 B          1    MALLOC_NANO
+  16 KB        0 B          0 B          1    Foundation
+  16 KB        0 B          0 B          1    os_alloc_once
+    0 B        0 B       288 KB          5    SQLite page cache
+    0 B      24 MB          0 B       1028    __TEXT
+    0 B      18 MB          0 B         62    mapped file
+    0 B    2704 KB          0 B         38    __LINKEDIT
+    0 B        0 B          0 B          1    __FONT_DATA
+    0 B        0 B          0 B          3    IOSurface
+    ---        ---          ---        ---    ---
+ 178 MB      45 MB        13 MB       4548    TOTAL
+
+Auxiliary data:
+    phys_footprint: 179 MB
+    phys_footprint_peak: 180 MB

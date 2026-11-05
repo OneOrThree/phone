@@ -1,4 +1,4 @@
-name: Catus kafka CD V2
+name: Cattus kafka CD V2
 'on':
   workflow_dispatch:
     inputs:

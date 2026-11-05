@@ -19,6 +19,7 @@
  *    코드가 `HTTP_401` 로 뭉개져 화면 분기가 통째로 빠진다.
  */
 import { Platform } from 'react-native';
+import { isPublicWebDemo } from '@/services/demoMode';
 import {
   clearRejectedSession,
   getAccessToken,
@@ -28,7 +29,7 @@ import {
   sessionGeneration,
 } from './session';
 
-export const DEV_API_URL = 'https://oneorthree.dev.mooo.com';
+export const DEV_API_URL = 'https://oneorthree-v2.dev.mooo.com';
 export const PRODUCTION_API_URL = 'https://catus-api-v2.oneorthree.world';
 export const LOCAL_WEB_API_URL = 'http://localhost:8080';
 
@@ -49,7 +50,11 @@ export function resolveApiUrl(
   return configuredUrl ?? DEV_API_URL;
 }
 
-export const API_URL: string = resolveApiUrl(Platform.OS, process.env.EXPO_PUBLIC_API_URL, __DEV__);
+// 공개 웹만 자기 출처의 프록시를 사용한다. 개발·리뷰 웹의 운영 API 차단은 유지한다.
+export const API_URL: string =
+  isPublicWebDemo() && typeof window !== 'undefined'
+    ? `${window.location.origin}/service-api`
+    : resolveApiUrl(Platform.OS, process.env.EXPO_PUBLIC_API_URL, __DEV__);
 
 /**
  * 백엔드 무응답 시 무한 로딩 방지(레거시 주석: "로그인 스피너가 멈추지 않는 문제").
@@ -64,8 +69,8 @@ export const CLIENT_NETWORK_ERROR = 'CLIENT_NETWORK_ERROR';
 export const CLIENT_STALE_SESSION = 'CLIENT_STALE_SESSION';
 
 /**
- * 앱 버전·플랫폼 헤더(GROMO-2642) — 서버가 사용자별 앱 버전을 기록한다. iOS 와 Android 는 버전 트랙이
- * 다르므로(1.0.x / 2.0.x) 두 헤더를 항상 함께 보낸다. 웹·버전 미상이면 둘 다 보내지 않는다.
+ * 앱 버전·플랫폼 헤더(GROMO-2642) — 서버가 사용자별 앱 버전을 기록한다. 같은 버전 문자열이 iOS·Android
+ * 에 따로 있을 수 있어 플랫폼 없이는 빌드를 가릴 수 없으므로 두 헤더를 항상 함께 보낸다. 웹·버전 미상이면 둘 다 보내지 않는다.
  * 호출 시점에 읽어 테스트가 값을 바꿀 수 있다(비용은 네이티브 상수 조회 한 번).
  * STOMP CONNECT 도 같은 헤더를 쓴다(`islandRealtime.realtimeClientOptions`, GROMO-2655).
  */

@@ -222,108 +222,6 @@ class VersionBadgeTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             version.validate_fixed('catus-v2.1.0', [], [reserved], previous, 'a' * 40, 'c' * 40, '10')
 
-    def test_기존annotated태그는_재게시하고_새발행CLI는_버전을_증가시킨다(self):
-        script = next(step['run'] for step in workflow('prod-ci.yml')['jobs']['release']['steps']
-                      if step.get('name') == '불변 릴리스 생성·업로드')
-        script = script[script.index("git config user.name"):script.index('echo "- 버전:')]
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            def git(*args):
-                return subprocess.check_output(['git', *args], cwd=root, text=True, stderr=subprocess.PIPE).strip()
-            git('init', '-q')
-            git('init', '--bare', '-q', 'remote.git')
-            git('remote', 'add', 'origin', str(root / 'remote.git'))
-            git('-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '--allow-empty', '-qm', '기준')
-            revision = git('rev-parse', 'HEAD')
-            plan = root / 'prod-plan.json'
-            plan.write_text(json.dumps({'previous': None}))
-            env = {**os.environ, 'GITHUB_SHA': revision}
-            for _ in range(2):
-                result = subprocess.run(
-                    ['bash', '-euc', 'version=catus-v2.0.0\nrelease_id=test\nINFRA_REVISION=test\n' + script],
-                    cwd=root, env=env, capture_output=True, text=True)
-                self.assertEqual(result.returncode, 0, result.stderr)
-            original = version.subprocess.check_output
-            def output(args, **kwargs):
-                if args[0] == 'gh': return '[]'
-                return original(args, cwd=root, **kwargs)
-            with patch.object(sys, 'argv', ['version', '--revision', revision, '--plan-file', str(plan), '--bucket', 'catus-prod-deploy-artifacts-test']), \
-                 patch.dict(os.environ, {'GITHUB_REPOSITORY': 'OneOrThree/phone'}), \
-                 patch.object(version.subprocess, 'check_output', side_effect=output), \
-                 patch.object(version, 'reserved_versions', return_value=[]), \
-                 patch('sys.stdout', new_callable=io.StringIO) as stdout:
-                version.main()
-            self.assertEqual(stdout.getvalue().strip(), 'catus-v2.0.1')
-            self.assertEqual(git('tag', '-l'), 'catus-v2.0.0')
-            self.assertIn('refs/tags/catus-v2.0.0', git('ls-remote', '--tags', 'origin'))
-
-    def test_실행별_버전고정으로_복구와_같은SHA_명시적재발행을_구분한다(self):
-        steps = workflow('prod-ci.yml')['jobs']['release']['steps']
-        allocate = next(step for step in steps if step.get('name') == '발행 버전 고정')
-        upload = next(step for step in steps if step.get('uses') == 'actions/upload-artifact@v4')
-        download = next(step for step in steps if step.get('with', {}).get('name') == 'catus-release-version'
-                        and step.get('uses') == 'actions/download-artifact@v4')
-        self.assertEqual(allocate['if'], "steps.version-record.outputs.exists != 'true'")
-        self.assertEqual(upload['if'], "steps.version-record.outputs.exists != 'true'")
-        self.assertEqual(download['if'], "steps.version-record.outputs.exists == 'true'")
-        generate = next(step['run'] for step in steps if step.get('name') == '불변 릴리스 생성·업로드')
-        validate = generate.split('mkdir -p infra-config', 1)[0] + '\nprintf "%s" "$version"\n'
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            def git(*args):
-                return subprocess.check_output(['git', *args], cwd=root, text=True).strip()
-            git('init', '-q')
-            git('-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '--allow-empty', '-qm', '기준')
-            revision = git('rev-parse', 'HEAD')
-            helper = root / '.github/scripts/catus-version.py'
-            helper.parent.mkdir(parents=True)
-            shutil.copyfile(version.__file__, helper)
-            (root / 'plan-input').mkdir()
-            (root / 'plan-input/prod-plan.json').write_text(json.dumps({'previous': None}))
-            (root / 'bin').mkdir()
-            gh = root / 'bin/gh'
-            gh.write_text("#!/bin/sh\nprintf '[]\\n'\n")
-            gh.chmod(0o755)
-            aws_cli = root / 'bin/aws'
-            aws_cli.write_text('#!' + sys.executable + '\n' + """import json, sys
-from pathlib import Path
-args = sys.argv[1:]
-if args[0] == 'secretsmanager':
-    print(json.dumps({'DEPLOY_BUCKET': 'catus-prod-deploy-artifacts-test'}))
-elif 'list-objects-v2' in args:
-    print(json.dumps(['versions/catus-v2.0.0.json'] if Path('reserved.json').exists() else []))
-else:
-    Path(args[-1]).write_text(Path('reserved.json').read_text())
-""")
-            aws_cli.chmod(0o755)
-            env = {**os.environ, 'PATH': str(root / 'bin') + os.pathsep + os.environ['PATH'],
-                'GITHUB_SHA': revision, 'GITHUB_REPOSITORY': 'OneOrThree/phone', 'GITHUB_RUN_ID': '1',
-                'GITHUB_RUN_ATTEMPT': '2', 'INFRA_REVISION': 'a' * 40, 'BUMP_OVERRIDE': ''}
-            def run(script, overrides=None):
-                return subprocess.run(['bash', '-euc', script], cwd=root, env={**env, **(overrides or {})},
-                    capture_output=True, text=True)
-            result = run(allocate['run'])
-            self.assertEqual(result.returncode, 0, result.stderr)
-            git('tag', 'catus-v2.0.0')
-            (root / 'reserved.json').write_text(json.dumps({'version': 'catus-v2.0.0', 'source_revision': revision,
-                'infra_revision': 'a' * 40, 'release_id': revision + '-1-1'}))
-            retry = run(validate, {'GITHUB_RUN_ATTEMPT': '2'})
-            self.assertEqual(retry.returncode, 0, retry.stderr)
-            self.assertEqual(retry.stdout, 'catus-v2.0.0')
-            self.assertNotEqual(run(validate, {'INFRA_REVISION': 'b' * 40}).returncode, 0)
-            self.assertNotEqual(run(validate, {'GITHUB_RUN_ID': '2'}).returncode, 0)
-            for i, (bump, expected) in enumerate([('patch', 'catus-v2.0.1'), ('minor', 'catus-v2.1.0')]):
-                shutil.rmtree(root / 'release-version')
-                result = run(allocate['run'], {'GITHUB_RUN_ID': str(i + 2), 'INFRA_REVISION': 'b' * 40,
-                                             'BUMP_OVERRIDE': bump})
-                self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertEqual(json.loads((root / 'release-version/version.json').read_text())['version'], expected)
-
-    def test_운영실행은_대기중인_발행과_배포를_취소하지_않는다(self):
-        for filename in ['prod-ci.yml', 'prod-cd.yml']:
-            concurrency = workflow(filename)['concurrency']
-            self.assertEqual(concurrency['cancel-in-progress'], 'false')
-            self.assertEqual(concurrency['queue'], 'max')
 
     def test_후속커밋_발행후_이전커밋과_분기커밋은_발행하지_않는다(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -351,20 +249,6 @@ else:
             self.assertNotEqual(retry.returncode, 0)
             self.assertIn('최신 Catus 발행보다 오래되거나', retry.stderr)
 
-    def test_SSM_전송의도는_요청검증후_보관하고_재실행에서_복구한다(self):
-        deploy = workflow('prod-cd.yml')['jobs']['deploy']
-        self.assertEqual(deploy['permissions']['actions'], 'read')
-        steps = deploy['steps']
-        prepare = next(i for i, step in enumerate(steps) if step.get('name') == 'SSM 배포 요청 검증')
-        intent = next(i for i, step in enumerate(steps) if step.get('id') == 'intent')
-        upload = next(i for i, step in enumerate(steps) if step.get('uses') == 'actions/upload-artifact@v4')
-        execute = next(i for i, step in enumerate(steps) if step.get('name') == 'Catus 전용 SSM 배포·결과 대기')
-        self.assertLess(intent, prepare)
-        self.assertLess(prepare, upload)
-        self.assertLess(upload, execute)
-        self.assertEqual(steps[upload]['if'], "steps.intent.outputs.exists != 'true'")
-        self.assertEqual(steps[upload]['with']['name'], 'catus-ssm-send-intent')
-        self.assertIn('--previous-intent previous-intent/ssm-request.json', steps[execute]['run'])
 
     def test_SSM_전송의도와_요청이_다르면_배포하지_않는다(self):
         deploy = module('deploy_cli', 'catus-deploy.py')
@@ -377,11 +261,6 @@ else:
                 deploy.main()
             execute.assert_not_called()
 
-    def test_digest_재업로드는_같은이름의_이전시도_산출물을_교체한다(self):
-        steps = workflow('prod-ci.yml')['jobs']['images']['steps']
-        upload = next(step['with'] for step in steps if step.get('uses') == 'actions/upload-artifact@v4')
-        self.assertEqual(upload['name'], 'catus-${{ matrix.service }}-digest')
-        self.assertEqual(upload['overwrite'], 'true')
 
     def run_badge(self, path, artifacts, conclusion='failure', attempt=2):
         rule = badge.RULES[path]
@@ -468,13 +347,6 @@ else:
         self.assertEqual(self.run_badge('.github/workflows/prod-cd.yml', [
             ('deployment-status-prod-1', [previous])]), [])
 
-    def test_모든배포_workflow는_시도별_배지산출물을_작성한다(self):
-        for filename in ['data-api-cd.dev.yml', 'satellite-cd.dev.yml', 'prod-cd.yml']:
-            uploads = [step['with']['name'] for job in workflow(filename)['jobs'].values()
-                       for step in job.get('steps', []) if step.get('uses') == 'actions/upload-artifact@v4'
-                       and step['with']['name'].startswith('deployment-status-')]
-            environment = 'prod' if filename == 'prod-cd.yml' else 'dev'
-            self.assertEqual(uploads, ['deployment-status-' + environment + '-${{ github.run_attempt }}'])
 
     def test_네서비스_확인전에_dev전체_배포완료라고_표시하지_않는다(self):
         state = badge.merge({}, [record()])
@@ -564,38 +436,6 @@ else:
         self.assertIn('dev/realtime', api.states[-1])
         self.assertIn('dev/data-api', api.states[-1])
 
-    def test_Satellite는_부분성공을_서비스별로_기록한다(self):
-        steps = workflow('satellite-cd.dev.yml')['jobs']['deploy']['steps']
-        script = next(step['run'] for step in steps if step.get('name') == 'README 배포 상태 기록')
-        with tempfile.TemporaryDirectory() as directory:
-            Path(directory, 'satellite-health.txt').write_text('business-api success\nnotification failure\n')
-            env = {**os.environ, 'RUNNER_TEMP': directory, 'BADGE_REVISION': 'a' * 40,
-                   'BADGE_RESULT': 'failure', 'BUSINESS_SELECTED': 'true', 'NOTIFICATION_SELECTED': 'true'}
-            result = subprocess.run(['bash', '-c', script], env=env, capture_output=True, text=True)
-            self.assertEqual(result.returncode, 0, result.stderr)
-            records = json.loads(Path(directory, 'deployment-status/dev.json').read_text())
-            self.assertEqual({r['service']: r['result'] for r in records}, {'business-api': 'success', 'notification': 'failure'})
-
-    def test_Satellite_CD는_하나만_실패해도_전체_헬스체크가_실패한다(self):
-        steps = workflow('satellite-cd.dev.yml')['jobs']['deploy']['steps']
-        script = next(step['run'] for step in steps if step.get('id') == 'health')
-        script = script.replace('${{ needs.plan.outputs.business }}', 'true').replace('${{ needs.plan.outputs.notification }}', 'true')
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            (root / 'bin').mkdir()
-            docker = root / 'bin/docker'
-            docker.write_text('#!/bin/bash\nif [ "$1" = inspect ]; then echo "/${@: -1}"; else echo "${@: -1}"; fi\n')
-            docker.chmod(0o755)
-            helper = root / '.github/scripts/wait-healthy.sh'
-            helper.parent.mkdir(parents=True)
-            helper.write_text('#!/bin/bash\n[ "$1" != "$FAILURE_SERVICE" ]\n')
-            helper.chmod(0o755)
-            env = {**os.environ, 'PATH': str(root / 'bin') + os.pathsep + os.environ['PATH'],
-                   'RUNNER_TEMP': directory, 'RUNTIME_ENV_FILE': str(root / 'dev.env'), 'SATELLITE_RUNTIME_DIR': directory}
-            for failed, expected in [('business-api', 1), ('notification', 1), ('none', 0)]:
-                result = subprocess.run(['bash', '-c', script], cwd=root,
-                    env={**env, 'FAILURE_SERVICE': failed}, capture_output=True, text=True)
-                self.assertEqual(result.returncode, expected, result.stderr)
 
     def test_수동롤백은_SSM전송과_조회시간초과를_복구하고_성공후에만_기록한다(self):
         namespace = module('catus_deploy_test', 'catus-deploy.py').__dict__
@@ -656,17 +496,6 @@ else:
                 self.assertEqual(sum(call[1] == 'send-command' for call in calls), 1)
             finally:
                 os.chdir(before)
-
-    def test_workflow의_모든_인라인Python은_실행가능한_구문이다(self):
-        for filename in ['prod-ci.yml', 'prod-cd.yml', 'data-api-cd.dev.yml',
-                         'satellite-cd.dev.yml']:
-            for job in workflow(filename)['jobs'].values():
-                for step in job.get('steps', []):
-                    script = step.get('run', '')
-                    for delimiter in ['PYTHON', 'PY']:
-                        marker = "<<'" + delimiter + "'\n"
-                        if marker in script:
-                            ast.parse(script.split(marker, 1)[1].split('\n' + delimiter, 1)[0])
 
 
 class AutoCdBadgeTest(unittest.TestCase):

@@ -16,6 +16,7 @@ import com.oneorthree.business.api.dto.MyIslandsResponse;
 import com.oneorthree.business.auth.AccessTokenClaims;
 import com.oneorthree.business.common.api.ApiErrorCode;
 import com.oneorthree.business.common.api.PublicApiException;
+import com.oneorthree.business.common.http.ClientIpResolver;
 import com.oneorthree.business.common.request.CommandKeys;
 import com.oneorthree.business.common.validation.PublicIds;
 import com.oneorthree.business.config.UpstreamConfigProperties;
@@ -63,6 +64,14 @@ public class IslandMembershipController {
     // 같게 둔다 — 여기서 더 느슨하게 받으면 초과분이 400/422 로 갈리는 경계가 상류와 어긋난다.
     private static final int CODE_MAX = 32;
     private static final int TOKEN_MAX = 64;
+
+    /** 웹에서 같은 공용 섬으로 입장한다. 목적지나 정원은 요청 본문으로 받지 않는다. */
+    @PostMapping("/me/web-island")
+    public IslandCreatedView enterWebIsland(HttpServletRequest request) {
+        AccessTokenClaims claims = sessions.requireSession(request);
+        return islands.enterWebIsland(claims, CommandKeys.required(request), properties.deadline());
+    }
+
     /** 섬 생성 본문의 화이트리스트 — password 는 없다(LLD §1). maxMembers 는 GROMO-1993 에서 열었다. */
     private static final Set<String> CREATE_KEYS = Set.of("name", "intro", "approvalRequired", "maxMembers");
     /** 가입 본문의 화이트리스트 — {@code origin} 은 GROMO-2260 에서 열었다. */
@@ -80,6 +89,7 @@ public class IslandMembershipController {
     private static final int MEMBERS_MAX = 15;
 
     private final IslandMembershipUseCase islands;
+    private final ClientIpResolver clientIpResolver;
     private final SettingsSessionGuard sessions;
     private final UpstreamConfigProperties properties;
 
@@ -268,10 +278,13 @@ public class IslandMembershipController {
 
     /** 첫 항해 화면 체험의 도착. 최초 여부는 앱 로컬 정책이고 서버는 사용 횟수를 제한하지 않는다. */
     @PostMapping("/islands/{islandId}/intro-arrivals")
-    public IslandArrivalView introArrive(@PathVariable String islandId, HttpServletRequest request) {
+    public IslandArrivalView introArrive(@PathVariable String islandId,
+            @RequestBody(required = false) String body, HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
         UUID key = CommandKeys.required(request);
-        return islands.introArrive(claims, PublicIds.uuid(islandId, "islandId"), key, properties.deadline());
+        // 선택 본문 meta(Meta Conversions API 용) — 틀려도 도착은 처리하고 meta 만 버린다 (GROMO-2741).
+        var command = IntroArrivalMetas.parse(body, clientIpResolver.resolve(request));
+        return islands.introArrive(claims, PublicIds.uuid(islandId, "islandId"), key, command, properties.deadline());
     }
 
     /**

@@ -15,6 +15,10 @@ import java.util.UUID;
 /** 섬 도착 기록 (GROMO-2260, V112). */
 public interface IslandArrivalRepository extends JpaRepository<IslandArrival, IslandArrival.Key> {
 
+    /** 이 계정에 도착 기록이 한 행이라도 있는가 — 첫 섬 도착 사건 판정(GROMO-2741). */
+    boolean existsByUserId(UUID userId);
+
+
     /**
      * 도착을 기록한다 — 처음이면 first=last=now 로 넣고, 이미 있으면 last 만 갱신한다. {@code asMember} 면
      * {@code member_arrived_at} 도 덮는다(주민으로서 마지막 도착, GROMO-2302) — 방문자 도착은 그 값을 건드리지 않는다.

@@ -40,9 +40,9 @@
 | `group/service/GroupService.java:745~746` | `getGroupSettings` | 권한 설정 **조회** |
 | `group/service/GroupService.java:787~788` | `updateGroupSettings` | 멤버별 공지권한 부여/회수 |
 | `group/service/GroupService.java:573~574` | `renewGroupCode` (@Deprecated) | 참가 코드 재발급 |
-| `group/service/GroupChallengeService.java:446~447` | `createChallenge` | 챌린지 생성 |
-| `group/service/GroupChallengeService.java:746~747` | `deleteChallenge` | 챌린지 삭제 |
-| `group/service/GroupChallengeService.java:791~792` | `endChallenge` | 챌린지 종료 |
+| ~~`group/service/GroupChallengeService.java:446~447`~~ (퇴역·삭제됨, 역사 기록) | `createChallenge` | 챌린지 생성 |
+| ~~`group/service/GroupChallengeService.java:746~747`~~ (퇴역·삭제됨, 역사 기록) | `deleteChallenge` | 챌린지 삭제 |
+| ~~`group/service/GroupChallengeService.java:791~792`~~ (퇴역·삭제됨, 역사 기록) | `endChallenge` | 챌린지 종료 |
 | `group/service/GroupBetQueryService.java:208~209` | `getDeletionPreview` | 삭제 미리보기 |
 | `group/service/GroupMemberService.java:79~81` | `transferOwnerAndRecord` | 방장 위임 |
 | `group/service/GroupMemberService.java:111~113` | `kickMember` | 주민 강퇴 |
@@ -225,11 +225,12 @@ C-2·C-3·C-4 를 닫았다 — 목표 선택을 주민에게 여는 C-3 도 채
 **작성/수정과 보상 수령(claim)은 다른 권한이다.** QQ04 가 *"원본 claim 은 주민 요청·서버 판정이며
 관리자만으로 임의 축소하지 않는다"* 로 claim 을 이미 주민 쪽에 묶어 놨다. 열려 있는 것은 **작성/수정**뿐이다.
 
-선례가 직접적이다 — 퀘스트는 기존 챌린지의 후신이고, `createChallenge` 는 **방장만**이다
+~~선례가 직접적이다 — 퀘스트는 기존 챌린지의 후신이고, `createChallenge` 는 **방장만**이다
 (`GroupChallengeService.java:446~447`, 실패 `NOT_OWNER`). 퀘스트 `low-level-design.md:209` 가 그 줄을 명시로 인용한다.
 삭제·종료도 같은 게이트다(`:746~747`, `:791~792`). **서버에 퀘스트 구현은 없다** — DTO 필드
 (`focus/dto/session/FocusFinishView.java:21` `questProgress`)와 이벤트 이름
-(`realtime/event/RealtimeEventType.java:12` `QUEST_PROGRESS_UPDATED`)만 예약돼 있고 생산 로직이 없다.
+(`realtime/event/RealtimeEventType.java:12` `QUEST_PROGRESS_UPDATED`)만 예약돼 있고 생산 로직이 없다.~~
+**현재:** 퀘스트는 챌린지와 별개인 신규 기능이다(챌린지는 퇴역했고 OWNER 검사는 선례로만 참고). 작성·수정 방장만은 D3([결정 로그](../decision-log.md))로 확정·구현됐다 — `quest/service/IslandQuestService.java:555` 가 OWNER 가 아니면 거절한다.
 
 | 선택지 | 결과 | 구현 비용 |
 |---|---|---|
@@ -237,7 +238,7 @@ C-2·C-3·C-4 를 닫았다 — 목표 선택을 주민에게 여는 C-3 도 채
 | Q-2. 주민 누구나 | 참여감은 높지만 활성 4개 상한(기존 제약)을 누가 소진할지 경쟁이 생긴다 | 계열 C — 0. 되돌릴 수 없음 |
 | Q-3. 섬 단위 스코프 설정 | 섬마다 | 계열 B' — `groups` 컬럼 1개 |
 
-**추천: Q-1 (방장만).** 근거 — ① 기존 챌린지가 이미 방장만이고 퀘스트가 그 자리를 대신한다.
+**추천: Q-1 (방장만).** 근거 — ① ~~기존 챌린지가 이미 방장만이고 퀘스트가 그 자리를 대신한다.~~ (챌린지는 퇴역 — 선례로만 참고, 확정은 D3)
 넓히는 건 언제든 되지만 좁히면 쓰던 사람이 잃는다. ② 퀘스트 작성은 **보상 지급 의무를 섬 지갑에 만든다**
 (Q05: owner=섬, currency=village_points) — 4.2/4.3 과 같은 「공동 재화를 쓰는 행동」 범주다.
 ③ QQ04 가 요구하는 *"새 공통 권한 질문 답과 일치시켜야 함"* 을, 공동 소비 3행을 같은 값으로 두어 만족시킨다.

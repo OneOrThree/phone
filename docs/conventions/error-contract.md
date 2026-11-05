@@ -1,8 +1,13 @@
 # 백엔드 에러 응답 계약
 
-> 이 문서는 GROMO-1657(공통 응답·예외 규약 통일)에서 확정한 **현재 상태**다. 계약을 지키는 테스트는
+> 이 문서는 GROMO-1657(공통 응답·예외 규약 통일)에서 확정한 **data-api 의 봉투**다. 계약을 지키는 테스트는
 > `server/data-api/src/test/java/com/oneorthree/phone/common/exception/ErrorContractTest.java` 이고,
-> 앱 쪽 분기는 `app/legacy/app-dev/src/services/groupApi.ts` 의 `groupErrorCode()` 가 대표다.
+> 앱 쪽 분기는 `app/app-dev/src/services/api/client.ts` 의 `ApiError`(`code` 로 분기)가 대표다.
+> 2.0 앱이 받는 공개 오류는 Business API 의 중첩 봉투(`{"error": {code, message, field, retryable}, "requestId": …}`)이고,
+> Business 는 Data 의 도메인 `code` 를 그대로 싣는다. 최상위 `{code, message}` 는 data-api 와 1.x 표면의 모양이다.
+>
+> 남은 차이: 이 문서의 최상위 `{code, message}` 모양은 data-api 와 realtime 의 것이다. data-api 에는 `JwtFilter`·`RequestSizeLimitFilter` 가 없다.
+> 내부 인증은 data-api `config/InternalAuthFilter.java:54` 이고 거부 본문이 없다(§1 표). 챌린지 도메인은 2.0 에서 은퇴해 `CHALLENGE_*`·`BET_*` 코드는 없다.
 
 ---
 
@@ -20,12 +25,17 @@
 | `message` | 사람이 읽는 문구. enum 에 적힌 문장 그대로 | 화면에 그대로 뜰 수 있다 |
 
 **범위** — `DispatcherServlet` 이 라우팅하는 응답은 `GlobalExceptionHandler` 가, 그 **앞**의 필터 체인이
-직접 쓰는 응답(`JwtFilter` 401 · `RequestSizeLimitFilter` 413)은 필터 자신이 같은 봉투를 손으로 맞춘다.
-필터 쪽은 종전 모양 `{"error": "…"}` 의 `error` 필드를 **별칭으로 남긴 채** `code`·`message` 를 더한다 —
-읽는 소비자는 확인된 바 없지만 빼면 계약 변경이다.
+직접 쓰는 응답은 필터가 자기 서비스의 봉투로 쓴다.
+
+| 서비스 | 필터 | 응답 |
+| --- | --- | --- |
+| business-api | `config/AccessTokenFilter.java:61` | 401 `UNAUTHORIZED`, `writeFilterError(…ApiErrorCode.UNAUTHORIZED…)` (`:196`) — 중첩 봉투 |
+| business-api | `config/RequestEnvelopeFilter.java:38` | 본문 256 KiB 상한(`:49`) 초과 시 413 `REQUEST_TOO_LARGE`(`:151`, `common/api/ApiErrorCode.java:97`) — 중첩 봉투 |
+| data-api | `config/InternalAuthFilter.java:54` | `deny()`(`:248-251`)가 상태 코드와 `X-Internal-Deny-Reason` 헤더만 쓴다. 본문 없음 |
+| realtime | `config/JwtFilter.java:32` | 401 본문 `{code, message}` 를 손으로 쓴다(`:65-69`) |
 
 재시도 힌트가 필요한 실패만 필드를 **더한다** — `RetryAfterErrorResponse.retryAfterMs`
-(`RESULT_CLAIM_HELD` · `RATE_LIMITED`). 값은 **상대 지연(ms)**이지 절대 시각이 아니다. 봉투를 바꾸지 않고 상속으로
+(`RESULT_CLAIM_HELD` · `RATE_LIMITED` · `SEA_REMARK_LOCKED`). 값은 **상대 지연(ms)**이지 절대 시각이 아니다. 봉투를 바꾸지 않고 상속으로
 늘리는 것이 규칙이다 — 앱이 `code` 로 분기하고 있어 모양을 갈아 끼우면 기존 경로가 통째로 흔들린다.
 
 **`code` 문자열은 계약이다.** 앱이 분기하는 코드가 2026-09-09 실측으로 27종이다(`NOT_FOUND`·
@@ -86,7 +96,7 @@ common/exception/CommonErrorCode    ← 도메인에 속하지 않는 실패(검
 
 | 실패의 성격 | 상태 | 예 |
 | --- | --- | --- |
-| 지목한 대상이 없다 — **무엇**이 없는지 코드에 담는다 | 404 | `GROUP_NOT_FOUND`·`CHALLENGE_NOT_FOUND`·`TARGET_USER_NOT_FOUND`·`BET_NOT_FOUND`. `NOT_FOUND` 는 그룹 **안의** 것(공지·멤버십)에만 남았다(GROMO-1725) |
+| 지목한 대상이 없다 — **무엇**이 없는지 코드에 담는다 | 404 | `GROUP_NOT_FOUND`(섬)·`TARGET_USER_NOT_FOUND`·`QUEST_NOT_FOUND`·`LETTER_NOT_FOUND`·`PRODUCT_NOT_FOUND`. 섬 도메인의 `NOT_FOUND` 는 섬 **안의** 것(공지·멤버십)에만 남았다(GROMO-1725) |
 | 요청자 본인의 계정이 없다(재로그인이 답) | 404 | `USER_NOT_FOUND` — 대상 부재와 **코드를 가른다**(GROMO-1247). 요청자 조회는 전 도메인이 `UserQueryService.getCaller*` 를 쓴다(GROMO-1725); `getTarget*` 은 지목 대상 전용 |
 | 입력이 틀렸다 | 400 | `NICKNAME_INVALID`, `INVALID_DATE_RANGE` |
 | 권한이 없다 | 403 | `NOT_OWNER`, `GUEST_FORBIDDEN` |
@@ -101,8 +111,8 @@ common/exception/CommonErrorCode    ← 도메인에 속하지 않는 실패(검
 
 | 상황 | 상태 | code |
 | --- | --- | --- |
-| 토큰 없음·검증 실패 (필터) | 401 | `UNAUTHORIZED` — `error` 별칭 동반 |
-| 요청 본문 상한 초과 (필터) | 413 | `PAYLOAD_TOO_LARGE` — `error` 별칭 동반 |
+| 토큰 없음·검증 실패 (필터) | 401 | `UNAUTHORIZED` — business-api `AccessTokenFilter`, realtime `JwtFilter`. data-api 는 본문 없음 |
+| 요청 본문 상한 초과 (필터) | 413 | `REQUEST_TOO_LARGE` — business-api `RequestEnvelopeFilter` (`:151`) |
 | `@Valid` 실패 · 깨진 JSON | 400 | `INVALID_REQUEST` (검증 실패는 DTO 애노테이션의 문구) |
 | 파라미터 누락 · 타입 불일치 | 400 | `INVALID_PARAMETER` (문구에 파라미터 이름) |
 | 타임존 id 해석 실패 | 400 | `INVALID_TIMEZONE` |
@@ -120,20 +130,20 @@ common/exception/CommonErrorCode    ← 도메인에 속하지 않는 실패(검
 | `@LoginUser` 배선 오류 | 500 | `LOGIN_USER_RESOLUTION_FAILED` |
 | 그 외 전부 (catch-all) | 500 | `INTERNAL_ERROR` — 고정 문구, 원인은 로그로만 |
 
-없는 경로에 `NOT_FOUND` 를 쓰지 않는 이유: 앱이 그 문자열을 「그룹이 사라짐」으로 해석하는 분기가
-17곳이다. 오타 난 경로에 그 코드를 주면 엉뚱한 안내가 뜬다.
+없는 경로에 `NOT_FOUND` 를 쓰지 않는 이유: 앱은 그 문자열을 대상(섬·편지·방명록 글 등)이 사라진 것으로 읽고
+상태를 다시 맞춘다(1.x 실측 17곳, 2.0 은 `sessionCommands.ts`·`islandCommands.ts`·`Guestbook.tsx` 등). 오타 난 경로에 그 코드를 주면 엉뚱한 안내가 뜬다.
 
 **같은 404 라도 탈출구가 다르면 코드를 가른다.** 대상 부재는 화면에서 처리할 일이고, 본인 계정 부재는
-재로그인만이 답이다 — 한 코드로 뭉치면 앱이 멀쩡한 방장을 로그아웃시킨다.
+재로그인만이 답이다 — 한 코드로 뭉치면 앱이 멀쩡한 섬장을 로그아웃시킨다.
 
 ---
 
 ## 5. 봉투 밖으로 새는 것 — 없다 (2026-09-09)
 
 `GlobalExceptionHandler.handleUnexpected(Exception)` 이 catch-all 이라 스프링 기본 `/error` 바디로
-새는 경로는 더 이상 없다. 핸들러가 닿지 않는 필터 체인의 두 응답(`JwtFilter` 401 · `RequestSizeLimitFilter`
-413)도 같은 봉투를 직접 쓴다 — 이 둘은 `@RestControllerAdvice` 가 구조적으로 볼 수 없는 자리라
-**핸들러를 고쳐서는 절대 봉투에 들어오지 않는다**. 새 필터가 응답을 직접 쓰면 `JwtFilter.envelope()` 를 쓴다. `UnhandledEnvelopeTest` 가 종전에 새던 일곱 경로(검증 실패·깨진 JSON·
+새는 경로는 더 이상 없다. 핸들러가 닿지 않는 필터 체인의 응답(business-api `AccessTokenFilter` 401 · `RequestEnvelopeFilter`
+413, realtime `JwtFilter` 401)은 필터가 봉투를 직접 쓴다 — 이 응답들은 `@RestControllerAdvice` 가 구조적으로 볼 수 없는 자리라
+**핸들러를 고쳐서는 절대 봉투에 들어오지 않는다**. business-api 의 새 필터가 응답을 직접 쓰면 `ApiResponses.writeFilterError`(`business-api/.../common/api/ApiResponses.java:47`)를 쓴다. `UnhandledEnvelopeTest` 가 종전에 새던 일곱 경로(검증 실패·깨진 JSON·
 파라미터 누락·405·404·`EntityNotFound`·catch-all)를 실제 디스패치로 고정한다.
 
 **남은 것은 «코드가 맞는가»이지 «봉투에 실리는가»가 아니다** — 숨기지 않고 적는다.

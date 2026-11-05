@@ -1,6 +1,6 @@
 # server/data-api/ — Spring Boot backend
 
-**Catus 2.0의 내부 API와 데이터 정본**을 담당한다. 루트 `CLAUDE.md` 규칙을 함께 따른다.
+**Cattus 2.0의 내부 API와 데이터 정본**을 담당한다. 루트 `CLAUDE.md` 규칙을 함께 따른다.
 아래 명령은 `server/data-api/`에서 실행한다.
 
 ## Stack
@@ -90,7 +90,7 @@ Enforced by `config/checkstyle/checkstyle.xml` (Google Java Style, modified):
 - `./gradlew checkstyleMain checkstyleTest` — style checks.
 - `./gradlew spotbugsMain` — static analysis.
 - `./gradlew jacocoTestReport` — coverage report.
-- Local helper: `./test-local.sh` spins up a throwaway `postgres:16-alpine` container, runs the tests, then tears it down.
+- Local gate: `./norm.sh` runs Checkstyle → SpotBugs → test + bootJar like CI (what `/back-check` runs, `.claude/commands/back-check.md:12`). It starts no host DB: tests bring their own PostgreSQL via Testcontainers, and the datasource is pinned to a dead port `127.0.0.1:1` (`norm.sh:5-8,38`). `test-local.sh` starts a host Postgres (`test-local.sh:5-11`) that the tests do not use.
 
 ## Docs
 
@@ -105,12 +105,12 @@ whitelist (GROMO-735).
 스키마 실행 정본은 **Flyway `src/main/resources/db/v0/`**이며,
 `docs/db/schema.dbml`은 그 구조를 문서화한다.
 
-- **새 스키마 변경**: `db/v0/`의 가장 큰 숫자 버전 다음에
-  `V<N+1>__<desc>.sql`을 추가하고 `schema.dbml`을 함께 갱신한다. 첫 후속 변경은
-  `V1__*.sql`이다. 적용한 마이그레이션은 수정하지 않고 새 버전으로 보정한다.
-- **V0와 과거 체인**: `db/v0/V0__baseline.sql`은 빈 DB의 시작점이다.
-  `db/migration/V1`~`V138`은 과거 이행 테스트·전환 검증용 불변 자료이며,
-  새 마이그레이션을 추가하거나 애플리케이션 실행 경로로 선택하지 않는다.
+- **New schema change**: add `V<N+1>__<desc>.sql` to `db/v0/`, where N is the highest numeric
+  version in that folder (compare numbers, not strings), and update `schema.dbml` in the same
+  change. Never edit an applied migration; correct it with a new version.
+- **V0 and the frozen chain**: `db/v0/V0__baseline.sql` is the starting point for an empty DB.
+  `db/migration` is frozen history kept for migration-transition tests and verification;
+  never add files there or select it as an application path.
 - **기존 dev/prod DB 전환 또는 복구 작업**: 먼저 [DB 전환 절차](docs/db/README.md)를
   읽는다. `rebase-v0.py`의 대상·이력·스키마 검증, 읽기 전용 계획, 전체 백업,
   writer 중지와 명시적 전환 절차를 따른다. `baseline-on-migrate`는 꺼져 있으며
@@ -147,9 +147,9 @@ whitelist (GROMO-735).
 - `server/scripts/docker-compose.observability.yml` overlays Prometheus + Grafana +
   Loki/Promtail on the dev stack; configs live in `server/observability/`
   (see its README).
-- Dev Datadog은 `server/scripts/docker-compose.datadog.yml`과 수동
-  `ops-datadog.dev.yml`로 관리한다. Catus prod 실행 구성은 아래 Deploy 안내의
-  Infra 경로에서 확인한다.
+- Datadog runs on the four V2 prod EC2 instances and is managed in Infra
+  `prod/catus-v2`. The three dev V2 VMs have no Agent.
+  `server/scripts/docker-compose.datadog.yml` is a legacy reference.
 - OpenMetrics 수집 목록(`com.datadoghq.ad.checks` 라벨의 `metrics`)은 `.*`가 아니라 대시보드가 쓰는 이름만 적은
   큐레이트 목록이다(GROMO-2196, 출처 Datadog 대시보드 «CATUS · PROD 통합 관측»·«CATUS · DEV 통합 관측»).
   라벨은 서비스마다 다른 파일에 있다. Data API(`gromo`)는 `server/data-api/Dockerfile`, Realtime은
@@ -162,12 +162,9 @@ whitelist (GROMO-735).
 
 - **Dev**: `main` push에서 `data-api-ci.dev-v2.yml`이 GAR 이미지를 발행하고
   `cd-auto.dev-v2.yml`이 배포한다. 절차는 `docs/engineering/dev-v2-pipeline.md`를 따른다.
-- **Prod**: 현행은 `prod-ci-V2.yml`·`prod-cd-V2.yml`이며 절차는
-  `docs/engineering/prod-v2-pipeline.md`를 따른다. 꺼진 기존 경로는 다음과 같다.
-  Catus 2.0은 루트의 `prod-ci.yml`로 변경 서비스 이미지를 발행하고,
-  `prod-cd.yml`로 수동 SSM 배포·버전 지정 롤백을 수행한다. 실행 구성은 Infra의
-  `prod/catus/runtime` 소유이며 기존 Gromo 1.x 운영과 분리한다. 선행 조건과 실행 절차는
-  `docs/prd/fishcat/server-separation/deployment.md`의 「Catus 2.0 운영 발행·배포」를 따른다.
+- **Prod**: `prod-ci-V2.yml` publishes images and `prod-cd-V2.yml` deploys them.
+  Follow `docs/engineering/prod-v2-pipeline.md`; runtime configuration is owned by
+  Infra `prod/catus-v2`.
 
 ## Recommended skills & tools (backend workflow)
 
@@ -177,12 +174,11 @@ The fast path for working in `server/data-api/`:
 - `superpowers:test-driven-development` — default for new logic (JUnit 5 + Testcontainers).
 - `superpowers:systematic-debugging` — for test failures / unexpected behavior.
 - `/back-check` — local CI gate (Checkstyle + SpotBugs + tests) before pushing.
-- `/back-endpoint <설명>` — scaffold a Controller→Service→Repository→DTO + test slice.
 - `/back-migration <설명>` — scaffold the next Flyway `V<N+1>__<desc>.sql` in `src/main/resources/db/v0/`.
 - `spring-reviewer` (subagent) — focused Java/JPA/security/convention review of the diff.
 - `/code-review` — repo-wide correctness + cleanup pass on the diff before a PR.
 - `/security-review` — run when touching auth / `InternalAuthFilter` / endpoints / secrets.
-- `/verify` — confirm a change actually runs before claiming it's done.
+- `superpowers:verification-before-completion` — run the verification commands and read their output before claiming a change works.
 - **Serena symbol tools** (Java LSP is enabled): `get_symbols_overview`, `find_symbol`,
   `find_referencing_symbols` — navigate/refactor Java by symbol instead of reading whole
   files (token-cheap; ideal for tracing service→repository call paths).

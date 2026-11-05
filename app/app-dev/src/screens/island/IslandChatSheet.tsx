@@ -1,18 +1,19 @@
+import type { ScreenEnvironment } from '@/navigation/ScreenEnvironment';
 // 우리 섬 채팅방 — 섬 홈 위 아래 시트(GROMO-2499). 우체통 건물 안에서 꺼내 우체통이 없는 섬에서도 연다.
 // 서버 모드는 useIslandChat(CurrentScreens 가 한 번 켜서 넘긴다), 목업 모드는 로컬 상태(island.messages)를 그린다.
 // 뒤의 섬 홈(FinalIsland)은 부르는 쪽이 깔고 스크린리더에서 숨긴다.
-import React, { useEffect, useRef } from 'react';
-import { ScrollView, View } from 'react-native';
-import { Btn, C, Txt, k } from '@/design-system/patterns';
-import { TextInput } from '@/design-system/typography';
-import { componentTokens, semanticTokens } from '@/design-system/tokens';
-import { IslandSheet, Avatar, sheetInput } from '@/screens/island/IslandSheet';
 import { appearanceOutfit, type Outfit } from '@/components/CatOutfitLayers';
+import { Btn, C, Txt, k } from '@/design-system/patterns';
+import { componentTokens, semanticTokens } from '@/design-system/tokens';
+import { TextInput } from '@/design-system/typography';
+import { t } from '@/i18n';
+import { Avatar, IslandSheet, sheetInput } from '@/screens/island/IslandSheet';
+import type { IslandChat } from '@/screens/island/useIslandChat';
 import { ApiError } from '@/services/api/client';
 import { useMemberLooks } from '@/services/memberLooks';
 import { currentIsland, dayKey, type State } from '@/services/model';
-import type { IslandChat } from '@/screens/island/useIslandChat';
-import { t } from '@/i18n';
+import { useEffect, useRef } from 'react';
+import { ScrollView, View } from 'react-native';
 
 const BUBBLE = componentTokens.islandChatBubble;
 const stroke = semanticTokens.stroke;
@@ -38,7 +39,7 @@ type Row = {
   failed: boolean;
 };
 
-export function IslandChatSheet({ e, chat }: { e: any; chat: IslandChat }) {
+export function IslandChatSheet({ e, chat }: { e: ScreenEnvironment; chat: IslandChat }) {
   const server = !!e.islands;
   const state: State = e.state;
   const island = currentIsland(state);

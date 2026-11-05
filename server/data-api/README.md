@@ -1,5 +1,12 @@
 # Data API
 
+## 바로가기
+
+| 구분 | 내용 |
+| --- | --- |
+| 서버 이해 | [역할과 구현 범위](#1-역할과-구현-범위) · [데이터 처리 구조](#2-데이터-처리-구조) · [코드 탐색](#3-코드-탐색) |
+| 개발·데이터 | [로컬 실행](#4-로컬-실행) · [스키마 · 검증](#5-스키마--검증) |
+
 > 집중 기록부터 섬 활동과 보상까지, GROMO의 핵심 상태를 확정하는 서버입니다.
 
 [서버 전체 보기](../README.md) · [Business API](../business-api/README.md) · [DB 스키마](docs/db/schema.dbml) · [도메인 계층 규칙](../../docs/conventions/backend-layering.md)
@@ -91,7 +98,7 @@ test -f src/main/resources/application-local.yml || cp src/main/resources/applic
 | ci | 기본적으로 Flyway 비활성, Hibernate `create-drop` |
 | dev · staging · prod | Flyway 적용, Hibernate `validate` |
 
-변경 이력은 [Flyway 마이그레이션](src/main/resources/db/migration), 스키마 문서는 [DBML](docs/db/schema.dbml)로 관리합니다. 이미 적용한 마이그레이션을 수정하지 않고 새 버전을 추가합니다.
+변경 이력은 [Flyway 마이그레이션](src/main/resources/db/v0), 스키마 문서는 [DBML](docs/db/schema.dbml)로 관리합니다. 새 파일은 `db/v0`에 추가하고 번호는 그 폴더의 가장 큰 번호 + 1로 정합니다. 이미 적용한 마이그레이션을 수정하지 않고 새 버전을 추가합니다. `db/migration`은 동결된 과거 이행 자료이므로 새 파일을 두지 않습니다.
 
 서비스 폴더에서 실행합니다. 테스트 DB는 Testcontainers가 준비합니다.
 
@@ -104,6 +111,7 @@ test -f src/main/resources/application-local.yml || cp src/main/resources/applic
 dev·loadtest·prod의 관리 포트는 `9091`입니다. 배포 시 호스트에 공개하지 않고 내부 수집기가 접근합니다. 지표·로그 분석은 [관측 README](../observability/README.md), 배포 구성은 [Scripts README](../scripts/README.md)를 참고합니다.
 
 운영자 수동 작업(섬별 7일 평균 스냅샷 수동 실행·정리, 주간 섬 랭킹 재계산)은 [섬 랭킹 운영 런북](../../docs/prd/fishcat/island-rankings/ops-runbook.md)에 있습니다.
+마을회관 없는 섬 일회성 정리(GROMO-2763, 기본 dry-run)는 [마을회관 없는 섬 정리 런북](../../docs/prd/fishcat/island-membership/hall-less-island-cleanup.md)에 있습니다.
 
 
 ### 망원경 무인도 출현과 정착

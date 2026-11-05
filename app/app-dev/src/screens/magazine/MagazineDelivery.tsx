@@ -1,13 +1,14 @@
-import React, { useEffect, useState } from 'react';
-import { Image, Pressable, View } from 'react-native';
+import { MAGAZINE_UI } from '@/constants/magazineAssets';
 import { Btn } from '@/design-system/patterns';
 import { componentTokens, primitiveTokens, semanticTokens } from '@/design-system/tokens';
 import { t } from '@/i18n';
-import type { MagazineToday } from '@/services/api/magazine';
-import { MAGAZINE_UI } from '@/constants/magazineAssets';
 import { GuideBox } from '@/screens/island/NpcGuide';
 import { FOCUS_BUTTON_SIZE, focusButtonInset } from '@/screens/island/WorldMap';
+import type { MagazineToday } from '@/services/api/magazine';
+import type { Route } from '@/services/model';
 import { useAppLayout } from '@/utils/layout';
+import { useEffect, useState } from 'react';
+import { Image, Pressable, View } from 'react-native';
 import { MagazineRack } from './MagazineRack';
 import { magazineUnread, markDelivered, sendReceipt, wasDelivered } from './useMagazineToday';
 
@@ -33,7 +34,7 @@ export function MagazineHomeLayer({
   today: MagazineToday | null;
   hasMailbox: boolean;
   blocked: boolean;
-  go: (route: string, id?: string) => void;
+  go: (route: Route, id?: string) => void;
   /** 펠리컨 안내창이 뜨고 지는 것을 알린다 — 홈 채팅 줄이 그동안 비킨다(GROMO-2501). */
   onPromptChange?: (showing: boolean) => void;
 }) {

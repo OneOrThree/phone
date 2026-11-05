@@ -10,14 +10,6 @@ export const PALM_INPUT = 192;
 /** 손 점수 커트라인. 이 값 이상이면 그 프레임에 손이 있다고 본다. */
 export const HAND_SCORE = 0.5;
 
-/** 리사이저가 준 RGB uint8(0~255)을 모델이 먹는 float32(0~1)로 바꾼다. */
-export function rgbToFloat(rgb: Uint8Array): ArrayBuffer {
-  'worklet';
-  const out = new Float32Array(rgb.length);
-  for (let i = 0; i < rgb.length; i++) out[i] = rgb[i]! / 255;
-  return out.buffer;
-}
-
 /** 출력 텐서 중 점수 텐서([1, 2016, 1])의 인덱스. 없으면 -1. */
 export function scoreTensorIndex(outputs: readonly { shape: number[] }[]): number {
   'worklet';

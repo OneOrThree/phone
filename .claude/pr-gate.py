@@ -5,7 +5,8 @@
 (제목·본문을 명시해야 검사가 된다) · `--reviewer` · 제목 형식 · 세션 링크 · 구현 티켓 외의 전체 키를
 PR 이 열리기 전에 막는다. 사용자 확인창은 뜨지 않는다 — 위반 목록이 Claude 에게 돌아가고 고쳐서 다시 연다.
 규칙을 지킨 명령은 무출력으로 통과한다. 변수·서브셸(`$VAR`·`$(…)`·백틱)이 든 값은 검사를 건너뛴다(문서가 최후 방어).
-따옴표가 안 맞아 파싱이 안 되는 명령과 `$'…'`(ANSI-C 인용)는 게이트가 읽을 수 없으므로 거부한다 — 통과가 아니다.
+`gh pr create` 인데 따옴표가 안 맞아 파싱이 안 되는 명령과 `$'…'`(ANSI-C 인용)가 든 명령은 게이트가 읽을 수 없으므로 거부한다 — 통과가 아니다.
+`gh pr create` 가 아닌 명령은 `$'…'` 가 있어도 검사 대상이 아니다.
 
     python3 .claude/pr-gate.py --hook       # stdin: 훅 JSON
     python3 .claude/pr-gate.py --selftest   # 내장 픽스처
@@ -157,7 +158,8 @@ def check_command(command, cwd=None):
     """위반 사유 목록. 비어 있으면 통과. None 이면 검사 대상이 아니거나 파싱 불가."""
     if "gh" not in command or not any(w in command for w in CREATE_WORDS):
         return None
-    if _ANSI_C_QUOTE.search(command):
+    # `gh pr list --search newest $'x'` 처럼 create 가 아닌 명령까지 막지 않도록 `gh pr create` 일 때만 거절한다.
+    if _ANSI_C_QUOTE.search(command) and _LOOSE_CREATE.search(command):
         return ["`$'…'`(ANSI-C 인용)은 게이트가 파싱할 수 없다 — 일반 따옴표로 다시 쓴다"]
     try:
         tokens = shlex.split(command)
@@ -312,6 +314,9 @@ _FIXTURES = [
     ("전역 -R 중간자리", _OK.replace("gh pr create", "gh pr -R OneOrThree/phone create") + " --draft", ["--draft"]),
     ("표준 입력 본문", _OK.replace("--body '## Jira\n- [GROMO-1885](x)\n티켓 455 참고'", "--body-file -"), ["표준 입력"]),
     ("ANSI-C 인용 우회", "gh pr create --title $'it\\'s a trap' --draft --assignee alice --label bug", ["ANSI-C"]),
+    ("ANSI-C 인용 — gh pr create 는 계속 거절", "gh pr create --title $'a' --body 'b' --assignee @me --label bug", ["ANSI-C"]),
+    ("ANSI-C 인용 — create 아닌 gh 명령은 검사 대상 아님", "gh pr list --search newest $'x'", None),
+    ("ANSI-C 인용 — gh 아닌 명령은 검사 대상 아님", "ls high new$'x'", None),
     ("따옴표 불일치", "gh pr create --title 'broken --draft --assignee alice --label bug", ["파싱할 수 없다"]),
     ("따옴표 불일치 — 무관한 명령", "echo 'broken && ls", None),
     ("gh pr new 별칭", _OK.replace("gh pr create", "gh pr new") + " --draft", ["--draft"]),

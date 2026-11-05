@@ -1,3 +1,22 @@
+import { art } from '@/constants/art';
+import {
+  DEFAULT_FRAME_ID,
+  MAGAZINE_FRAMES,
+  MAGAZINE_UI,
+  StickerTab,
+} from '@/constants/magazineAssets';
+import { Btn, CharCount, Chevron, Overlay, Txt } from '@/design-system/patterns';
+import { componentTokens, primitiveTokens, semanticTokens } from '@/design-system/tokens';
+import { t } from '@/i18n';
+import { formatNumber } from '@/i18n/format';
+import type { ScreenEnvironment } from '@/navigation/ScreenEnvironment';
+import { managedIslandRole } from '@/screens/interiors/useIslandManagement';
+import { mockFlags } from '@/services/api/magazineMock';
+import { isMockMode } from '@/services/demoMode';
+import { State, capacityOf, currentIsland, isHost, serverHome } from '@/services/model';
+import { captureProductEvent } from '@/services/posthog';
+import { clampCodePoints } from '@/utils/codePoints';
+import { useAppLayout } from '@/utils/layout';
 import React, { useEffect, useRef, useState } from 'react';
 import {
   AccessibilityActionEvent,
@@ -10,25 +29,8 @@ import {
   ScrollView,
   View,
 } from 'react-native';
-import { Btn, CharCount, Chevron, Overlay, Txt } from '@/design-system/patterns';
-import { componentTokens, primitiveTokens, semanticTokens } from '@/design-system/tokens';
-import { t } from '@/i18n';
-import { formatNumber } from '@/i18n/format';
-import { art } from '@/constants/art';
-import {
-  DEFAULT_FRAME_ID,
-  MAGAZINE_FRAMES,
-  MAGAZINE_UI,
-  StickerTab,
-} from '@/constants/magazineAssets';
-import { managedIslandRole } from '@/screens/interiors/useIslandManagement';
-import { mockFlags } from '@/services/api/magazineMock';
-import { isMockMode } from '@/services/demoMode';
-import { captureProductEvent } from '@/services/posthog';
-import { State, capacityOf, currentIsland, isHost, serverHome } from '@/services/model';
-import { clampCodePoints } from '@/utils/codePoints';
-import { useAppLayout } from '@/utils/layout';
 import { AdCell, AdCellData } from './AdCell';
+import { StickerDrawer, assetName } from './StickerDrawer';
 import {
   BODY_MAX,
   CELL_ASPECT,
@@ -42,7 +44,6 @@ import {
   layoutProblem,
   setTape,
 } from './layout';
-import { StickerDrawer, assetName } from './StickerDrawer';
 import { EditorProblem, usePromotionEditor } from './usePromotionEditor';
 import { CANVAS_PAD, handlePoint, itemBox, useStickerGestures } from './useStickerGestures';
 
@@ -142,7 +143,8 @@ export function PromotionEditor({
   e,
   driver,
 }: {
-  e: any;
+  e: Pick<ScreenEnvironment, 'state' | 'back' | 'notify'> &
+    Partial<Pick<ScreenEnvironment, 'islands' | 'conversion'>>;
   driver?: React.MutableRefObject<EditorDriver | null>;
 }) {
   const state: State = e.state;
@@ -501,7 +503,7 @@ export function PromotionEditor({
             <Btn
               id="promotion-login"
               title={t('magazine.editor.login')}
-              onPress={() => e.conversion.offer(error)}
+              onPress={() => e.conversion?.offer(error)}
             />
           ) : null}
         </>,

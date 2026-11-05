@@ -496,7 +496,14 @@
     "start": "집중 시작",
     "resume": "집중 이어가기",
     "finishFailed": "집중을 마치지 못했어요.",
-    "resumeFailed": "집중을 이어가지 못했어요."
+    "resumeFailed": "집중을 이어가지 못했어요.",
+    "leave": {
+      "warnTitle": "집중이 멈췄어요!",
+      "warnBody": "{{count}}초 안에 돌아오면 이어서 집중할 수 있어요.",
+      "endTitle": "집중이 끝났어요",
+      "endBody": "여기까지 집중한 시간은 저장했어요.",
+      "ended": "집중이 이미 끝나 있었어요."
+    }
   },
   "board": {
     "quest": {
@@ -1273,7 +1280,7 @@
     "peerName": "두부",
     "peerMessage": "같이 집중해요!",
     "destination": "{{name}} 항해 중",
-    "sailing": "조금만 가면 도착해.",
+    "sailing": "{{seconds}}초 뒤 도착해.",
     "chooseAgain": "다른 섬 고르기"
   },
   "onboardingStory": {
@@ -1286,7 +1293,7 @@
     "selectedCat": "{{color}} 고양이와 함께할까요?",
     "silence": "...",
     "hello": "안녕?",
-    "name": "너는 이름이 뭐야?",
+    "name": "너는 닉네임이 뭐야?",
     "greet": "그래, 반가워.\n{{name}}...",
     "resolve": "계속 이렇게\n누워 있을 순 없지.",
     "settle": "이제 머물 섬을\n찾아보려고.",
@@ -1300,10 +1307,10 @@
     "depart": "좋아, 출발!\n도착하면 알려줄게.",
     "skip": "건너뛰기",
     "next": "화면을 누르면 이야기가 이어져요",
-    "nameLabel": "이름",
-    "namePlaceholder": "이름을 알려줘",
-    "nameCta": "이 이름으로 할게요",
-    "nameEmpty": "이름을 입력해 주세요.",
+    "nameLabel": "닉네임",
+    "namePlaceholder": "닉네임을 알려줘",
+    "nameCta": "이 닉네임으로 할게요",
+    "nameEmpty": "닉네임을 입력해 주세요.",
     "scopeCta": "망원경 보기",
     "start": "집중하고 출발하기",
     "enterSea": "함께 집중하기",

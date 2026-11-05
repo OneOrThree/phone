@@ -1,5 +1,5 @@
 <resources>
   <string name="app_name">cattus</string>
-  <string name="expo_runtime_version">2.0.1-android-push-assets-ai-focus-v1</string>
-  <string name="facebook_app_id" translatable="false">1092876403132413</string>
+  <string name="expo_runtime_version">2.0.1-android-push-assets-ai-focus-meta-events-v4</string>
+  <string name="facebook_app_id" translatable="false">4481407905460714</string>
 </resources>

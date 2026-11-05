@@ -29,10 +29,11 @@ def fingerprint(revision):
     shared = tree(SHARED)
     result = {}
     for service in SERVICES:
-        own = tree((f'server/{service}',))
+        # ls-tree는 제외 pathspec을 지원하지 않으므로 출력에서 .md 항목만 걸러낸다(문서 변경은 재배포 사유가 아니다).
+        own = b'\0'.join(e for e in tree((f'server/{service}',)).split(b'\0') if not e.endswith(b'.md'))
         if not own:
             raise ValueError(f'{service} 소스가 커밋에 없습니다')
-        result[service] = hashlib.sha256(b'dev-v2-build-input-v2\0' + shared + tree(BUILD_INPUTS[service]) + own).hexdigest()
+        result[service] = hashlib.sha256(b'dev-v2-build-input-v3\0' + shared + tree(BUILD_INPUTS[service]) + own).hexdigest()
     return result
 
 

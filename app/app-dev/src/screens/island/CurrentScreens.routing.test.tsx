@@ -1,26 +1,26 @@
-import { useCameraPermissions } from 'expo-camera';
-import { Alert } from 'react-native';
+import { createPreviewEnvironment } from '@/navigation/previewEnvironment';
 import { VerificationSession } from '@/screens/focus/VerificationSession';
 import {
   clearVerificationResult,
   openVerificationCapture,
 } from '@/services/studyVerification/sessionResult';
+import { useCameraPermissions } from 'expo-camera';
+import { Alert } from 'react-native';
 // `CurrentScreensContent`(CurrentScreens.tsx)는 'arrival'·'travel'·'focusTravel'·'fishingArrival'·
 // 'focusSetup'·'focus'·'rest'·'focusResult'·'returnTravel' 9개 라우트를 Screens.tsx 의
 // `RedesignScreens`에 닿기 전에 `Travel`·`FocusFlow`로 먼저 가로채고, 'manage'·'members' 는 `Hall` 로 보낸다.
 // GROMO-2463 에서 지운 hall·stats·ledger·construction·board·quest·notice·mail 분기도 같다.
 // 옛 번역 안 된 `Screens.tsx` 분기는 GROMO-2254 에서 지웠다 — 이 가로채기가 지워지면 그 라우트가
 // `RedesignScreens` 의 기본 화면으로 떨어지므로 여기서 고정한다(GROMO-2252).
-import React from 'react';
-import { fireEvent, render, waitFor, within } from '@testing-library/react-native';
+import { applyLocalePref } from '@/i18n';
 import { CurrentScreens } from '@/screens/island/CurrentScreens';
 import { RedesignScreens } from '@/screens/island/Screens';
-import { initialState, reducer, type Route, type State } from '@/services/model';
-import { applyLocalePref } from '@/i18n';
-import { clearSession, saveSession } from '@/services/api/session';
 import { readAccountGuides, saveAccountGuides } from '@/services/accountGuides';
-import { getTelescope } from '@/services/api/telescope';
 import { getMagazineIssue, putMagazineReceipt } from '@/services/api/magazine';
+import { clearSession, saveSession } from '@/services/api/session';
+import { getTelescope } from '@/services/api/telescope';
+import { initialState, reducer, type Route, type State } from '@/services/model';
+import { fireEvent, render, waitFor, within } from '@testing-library/react-native';
 
 jest.mock('@/screens/focus/VerificationSession', () => ({
   VerificationSession: jest.fn(() => null),
@@ -235,7 +235,7 @@ const withGramophone = (state: State): State =>
 
 const screenOf = (route: Route, state: State, extra: object = {}) => (
   <CurrentScreens
-    e={{
+    e={createPreviewEnvironment({
       state,
       route,
       now: Date.now(),
@@ -252,7 +252,7 @@ const screenOf = (route: Route, state: State, extra: object = {}) => (
       setGuideStep: jest.fn(),
       islands: {},
       ...extra,
-    }}
+    })}
   />
 );
 const mount = async (route: Route, state: State = serverFocusState(), extra: object = {}) =>
@@ -445,7 +445,7 @@ test('로컬 방문 중에도 뗏목 라우트는 막히지 않고 뗏목 장면
   state.visitingIslandId = 'cloud';
   const screen = await render(
     <CurrentScreens
-      e={{
+      e={createPreviewEnvironment({
         state,
         route: 'raft',
         now: Date.now(),
@@ -460,7 +460,7 @@ test('로컬 방문 중에도 뗏목 라우트는 막히지 않고 뗏목 장면
         text: '',
         setText: jest.fn(),
         setGuideStep: jest.fn(),
-      }}
+      })}
     />,
   );
   expect(screen.queryByText('주민만 이용할 수 있어요')).toBeNull();
@@ -703,12 +703,24 @@ test('입장 안내를 본 로컬 기록이 있으면 집중 화면에서도 안
   expect(screen.queryByTestId('verification-intro')).toBeNull();
 });
 
-test('첫 집중 체험이 끝나지 않았으면 집중 화면에서도 카메라 안내를 자동 표시하지 않는다', async () => {
+// 예전에는 체험 완료 기록(focusGuideDone)이 없으면 막았지만, 그 기록은 기기에만 남아 재설치·새 기기에서
+// 사라진다. 이제는 진행 중인 튜토리얼로 가른다 — 4단계는 집중 화면에서도 카메라 버튼이 보이는 단계다.
+test('튜토리얼이 진행 중이면 집중 화면에서도 카메라 안내를 자동 표시하지 않는다', async () => {
   const state = serverFocusState();
-  state.focusGuideDone = false;
-  const screen = await mount('focus', state, { guideStep: 99 });
+  state.tutorial = { step: 4 };
+  const screen = await mount('focus', state, { guideStep: 4 });
   await waitFor(() => expect(screen.getByRole('button', { name: '카메라 인증' })).toBeEnabled());
   expect(screen.queryByTestId('verification-intro')).toBeNull();
+});
+
+test('재설치·새 기기로 들어온 기존 계정은 완료 기록이 없어도 집중섬 도착에서 카메라 안내를 본다', async () => {
+  const state = serverFocusState();
+  state.session = null;
+  state.tutorialEnrollment = 'existing';
+  expect(state.tutorial).toBeUndefined();
+  expect(state.focusGuideDone).toBeUndefined();
+  const screen = await mount('fishingArrival', state);
+  await waitFor(() => expect(screen.getByTestId('verification-intro')).toBeTruthy());
 });
 
 test('과목·집중시간은 지도 안에 붙고 미리보기 토글은 지도 좌표를 바꾸지 않는다', async () => {

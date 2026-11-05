@@ -1,4 +1,4 @@
-name: Catus redis CI V2
+name: Cattus redis CI V2
 'on':
   pull_request:
     branches:

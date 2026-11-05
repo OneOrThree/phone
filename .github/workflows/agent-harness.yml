@@ -1,29 +1,11 @@
 name: Agent Harness
 
+# 모든 PR 과 모든 main push 에서 돈다 — paths 필터가 없다. 하네스 문서·스킬·워크플로 지도는 어느 경로의 변경으로도 어긋날 수 있다
+# (새 워크플로를 넣으면 pipeline-map.md 를 고쳐야 하고, 문서가 가리키는 파일은 다른 PR 이 지울 수 있다). 실행은 몇 초다.
 on:
   pull_request:
-    paths:
-      - '.claude/**'
-      - '**/AGENTS.md'
-      - '**/CLAUDE.md'
-      - 'server/norm.sh'
-      - 'server/data-api/norm.sh'
-      - '.github/scripts/check-agent-harness.py'
-      - '.github/scripts/test_agent_harness.py'
-      - '.github/scripts/test_data_api_norm.py'
-      - '.github/workflows/agent-harness.yml'
   push:
     branches: [main]
-    paths:
-      - '.claude/**'
-      - '**/AGENTS.md'
-      - '**/CLAUDE.md'
-      - 'server/norm.sh'
-      - 'server/data-api/norm.sh'
-      - '.github/scripts/check-agent-harness.py'
-      - '.github/scripts/test_agent_harness.py'
-      - '.github/scripts/test_data_api_norm.py'
-      - '.github/workflows/agent-harness.yml'
 
 permissions:
   contents: read
@@ -42,9 +24,21 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: 설정과 PR · Jira 게이트 자체 검사
+      - name: 설정 · 게이트 · 문서 · 스킬 · 워크플로 지도 검사
         run: python3 .github/scripts/check-agent-harness.py
       - name: 검증 스크립트 회귀 검사
         run: python3 -m unittest discover -s .github/scripts -p 'test_agent_harness.py' -v
       - name: Data API 로컬 검증 진입점 검사
         run: python3 -m unittest discover -s .github/scripts -p 'test_data_api_norm.py' -v
+      # 새 스킬의 scripts/ 가 test_*.py 를 두면 이 단계에 자동으로 걸린다. 테스트가 없는 폴더는 건너뛴다 —
+      # Python 3.12 의 unittest 는 테스트가 0개면 exit 5 로 끝난다. 하나라도 실패하면 단계가 실패한다.
+      - name: 스킬 스크립트 테스트
+        run: |
+          status=0
+          for dir in .claude/skills/*/scripts; do
+            compgen -G "$dir/test_*.py" > /dev/null || continue
+            echo "::group::$dir"
+            python3 -m unittest discover -s "$dir" -v || status=1
+            echo "::endgroup::"
+          done
+          exit "$status"

@@ -8,7 +8,7 @@
       <string>applinks:catus.abr.ge</string>
       <string>applinks:link.oneorthree.world</string>
       <string>applinks:catus-api-v2.oneorthree.world</string>
-      <string>applinks:oneorthree.dev.mooo.com</string>
+      <string>applinks:oneorthree-v2.dev.mooo.com</string>
     </array>
     <key>aps-environment</key>
     <string>$(APS_ENVIRONMENT)</string>
@@ -22,7 +22,7 @@
     <true/>
     <key>com.apple.security.application-groups</key>
     <array>
-      <string>group.com.oneorthree.focuscat</string>
+      <string>group.com.oneorthree.gromo</string>
     </array>
   </dict>
 </plist>

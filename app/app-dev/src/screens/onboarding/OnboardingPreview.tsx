@@ -1,16 +1,17 @@
-import React, { useEffect, useReducer, useRef, useState } from 'react';
+import { Btn, Txt } from '@/design-system/patterns';
+import { MotionContext } from '@/design-system/primitives';
+import { primitiveTokens as p } from '@/design-system/tokens';
+import { applyLocalePref } from '@/i18n';
+import { createPreviewEnvironment } from '@/navigation/previewEnvironment';
+import { LoginScreen } from '@/screens/LoginScreen';
+import { Telescope } from '@/screens/island/Telescope';
+import { SeaScreen } from '@/screens/sea/SeaScreen';
+import type { TelescopeItem } from '@/services/api/telescope';
+import { colors, initialState, reducer, type Route } from '@/services/model';
+import { useEffect, useReducer, useRef, useState } from 'react';
 import { Platform, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { MotionContext } from '@/design-system/primitives';
-import { LoginScreen } from '@/screens/LoginScreen';
-import { SeaScreen } from '@/screens/sea/SeaScreen';
-import { Telescope } from '@/screens/island/Telescope';
-import { initialState, reducer, colors, type Route } from '@/services/model';
-import type { TelescopeItem } from '@/services/api/telescope';
 import { OnboardingFlow } from './OnboardingFlow';
-import { applyLocalePref } from '@/i18n';
-import { Btn, Txt } from '@/design-system/patterns';
-import { primitiveTokens as p } from '@/design-system/tokens';
 
 // ?onboarding 는 API·인증 저장소에 쓰지 않는 실제 RN 화면의 검토 진입점이다.
 const destinations: TelescopeItem[] = ['별빛섬', '무인도', '별고래섬'].map((name, i) => ({
@@ -74,7 +75,14 @@ export function OnboardingPreviewScene({
       targetMinutes: items.find((i) => i.islandId === islandId)!.sailingMinutes,
     };
     dispatch({ type: 'SESSION_SYNC', session });
-    return session;
+    return {
+      ...session,
+      startedAt: new Date(session.startedAt).toISOString(),
+      serverNow: new Date(session.syncedAt).toISOString(),
+      activeSeconds: 0,
+      restStartedAt: null,
+      version: 1,
+    };
   };
   const self = {
     userId: 'self',
@@ -114,7 +122,7 @@ export function OnboardingPreviewScene({
           ) : route === 'telescope' ? (
             <Telescope
               previewItems={items}
-              e={{
+              e={createPreviewEnvironment({
                 state,
                 dispatch,
                 reset,
@@ -122,12 +130,12 @@ export function OnboardingPreviewScene({
                 back: () => reset('sea'),
                 focus: { startSea },
                 onFirstVoyageArrival,
-              }}
+              })}
             />
           ) : route === 'character' ? (
             <OnboardingFlow
               previewItems={items}
-              e={{
+              e={createPreviewEnvironment({
                 state,
                 now,
                 dispatch,
@@ -138,7 +146,7 @@ export function OnboardingPreviewScene({
                   startSea,
                 },
                 onFirstVoyageArrival,
-              }}
+              })}
             />
           ) : (
             <SeaScreen

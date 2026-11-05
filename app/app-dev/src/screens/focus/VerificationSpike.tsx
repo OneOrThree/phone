@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { readAccountGuides, saveAccountGuides } from '@/services/accountGuides';
 import { getSession, sessionGeneration } from '@/services/api/session';
 import { captureProductEvent } from '@/services/posthog';
+import { duringSystemPrompt } from './focusLeave';
 import { VerificationIntro, type VerificationControlAnchor } from './VerificationIntro';
 import { Alert, Linking, Pressable, View } from 'react-native';
 import { Toggle, Txt } from '@/design-system/patterns';
@@ -17,12 +18,7 @@ import {
   objectScoreIndex,
   studyObjectScores,
 } from '@/services/studyVerification/studyObjects';
-import {
-  PALM_INPUT,
-  maxSigmoid,
-  rgbToFloat,
-  scoreTensorIndex,
-} from '@/services/studyVerification/palmScore';
+import { PALM_INPUT, maxSigmoid, scoreTensorIndex } from '@/services/studyVerification/palmScore';
 
 export { VerificationSession as VerificationSpike } from './VerificationSession';
 
@@ -196,7 +192,9 @@ export function VerificationToggle({
     setRequesting(true);
     try {
       let permission = await getPermission();
-      if (!permission.granted && permission.canAskAgain) permission = await requestPermission();
+      // 권한 창은 Android 에서 앱을 나간 것처럼 보인다 — 그동안 이탈 폴백을 멈춘다(GROMO-2635)
+      if (!permission.granted && permission.canAskAgain)
+        permission = await duringSystemPrompt(requestPermission);
       if (getSession()?.userId !== owner || sessionGeneration() !== generation) return;
       if (previewOnly && !measurementOn.current) return;
       if (permission.granted) {
@@ -231,6 +229,21 @@ export function VerificationToggle({
   };
   const busy = requesting || (!!intro && !checked && !(inSession && on));
   const ui = componentTokens.verificationSetup;
+  // 두 라벨은 각 컨트롤 가운데 아래에 붙는다. 두 컨트롤의 중심 간격(스위치 46/2 + 간격 + 버튼 44/2)보다
+  // 넓으면 큰 글씨·영어·태블릿에서 서로 겹치므로, 폭을 버튼 + 간격으로 묶고 한 줄 안에서 줄여 맞춘다.
+  const controlLabel = {
+    kind: 'meta',
+    numberOfLines: 1,
+    adjustsFontSizeToFit: true,
+    maxFontSizeMultiplier: semanticTokens.typography.largeTextThreshold,
+    style: {
+      position: 'absolute',
+      top: semanticTokens.size.tapMin,
+      width: ui.buttonSize + semanticTokens.spacing.control,
+      textAlign: 'center',
+      color: primitiveTokens.color.black,
+    },
+  } as const;
   return (
     <>
       <View
@@ -255,18 +268,7 @@ export function VerificationToggle({
             disabled={requesting || (!!intro && !checked && !on)}
             activeColor={C.pink}
           />
-          <Txt
-            kind="meta"
-            style={{
-              position: 'absolute',
-              top: semanticTokens.size.tapMin,
-              width: ui.buttonSize * 2,
-              textAlign: 'center',
-              color: primitiveTokens.color.black,
-            }}
-          >
-            {t('verification.switchLabel')}
-          </Txt>
+          <Txt {...controlLabel}>{t('verification.switchLabel')}</Txt>
         </View>
         <View
           style={{
@@ -305,18 +307,7 @@ export function VerificationToggle({
               <Circle cx={12} cy={13} r={3.5} stroke={C.ink} strokeWidth={2} />
             </Svg>
           </Pressable>
-          <Txt
-            kind="meta"
-            style={{
-              position: 'absolute',
-              top: semanticTokens.size.tapMin,
-              width: ui.buttonSize * 2,
-              textAlign: 'center',
-              color: primitiveTokens.color.black,
-            }}
-          >
-            {t('verification.intro.previewLabel')}
-          </Txt>
+          <Txt {...controlLabel}>{t('verification.intro.previewLabel')}</Txt>
         </View>
       </View>
       {intro && introOpen && <VerificationIntro anchor={introAnchor} onClose={consumeIntro} />}

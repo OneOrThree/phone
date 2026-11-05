@@ -1,4 +1,16 @@
 {
+  "permissions": {
+    "ask": [
+      "Bash(gh workflow run *prod*)",
+      "Bash(gh workflow run *Cattus*)",
+      "Bash(gh workflow run *android-cd*)",
+      "Bash(gh workflow run *Android CD*)",
+      "Bash(gh api *dispatches*)",
+      "Bash(gh api *pending_deployments*)",
+      "Bash(rtk gh api *dispatches*)",
+      "Bash(rtk gh api *pending_deployments*)"
+    ]
+  },
   "hooks": {
     "PostToolUse": [
       {
@@ -11,6 +23,17 @@
             "statusMessage": "팀 규칙: 새 브랜치 자동 push"
           }
         ]
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -f \"$CLAUDE_PROJECT_DIR/.claude/prod-impact.py\" ] || exit 0; python3 \"$CLAUDE_PROJECT_DIR/.claude/prod-impact.py\" --hook",
+            "timeout": 10,
+            "statusMessage": "운영 영향 검사"
+          }
+        ]
       }
     ],
     "PreToolUse": [
@@ -19,9 +42,20 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/pr-gate.py\" --hook",
+            "command": "[ -f \"$CLAUDE_PROJECT_DIR/.claude/pr-gate.py\" ] || exit 0; python3 \"$CLAUDE_PROJECT_DIR/.claude/pr-gate.py\" --hook",
             "timeout": 10,
             "statusMessage": "PR 게이트: gh pr create 규칙 검사"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ -f \"$CLAUDE_PROJECT_DIR/.claude/prod-impact.py\" ] || exit 0; python3 \"$CLAUDE_PROJECT_DIR/.claude/prod-impact.py\" --hook",
+            "timeout": 10,
+            "statusMessage": "운영 영향 검사"
           }
         ]
       },
@@ -30,7 +64,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/jira_gate.py\" --hook",
+            "command": "[ -f \"$CLAUDE_PROJECT_DIR/.claude/jira_gate.py\" ] || exit 0; python3 \"$CLAUDE_PROJECT_DIR/.claude/jira_gate.py\" --hook",
             "timeout": 10,
             "statusMessage": "지라 게이트: 티켓 양식 검사"
           }

@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Platform } from 'react-native';
+import { Platform, TurboModuleRegistry } from 'react-native';
 import type PostHog from 'posthog-react-native';
 import { readAnalyticsDeviceProperties } from './analyticsDevice';
 
@@ -54,6 +54,7 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
+  jest.restoreAllMocks();
   Object.assign(globalThis, { __DEV__: originalDev });
   Platform.OS = originalOS;
   process.env = { ...originalEnv };
@@ -191,6 +192,7 @@ test.each(['ios', 'android', 'web'] as const)(
   '%s 오류 자동 수집과 네이티브 범위를 구분한다',
   (os) => {
     Platform.OS = os;
+    jest.spyOn(TurboModuleRegistry, 'get').mockReturnValue({});
     if (os === 'web')
       Object.defineProperty(window, 'location', { value: { search: '' }, configurable: true });
     loadAnalytics();
@@ -211,6 +213,16 @@ test.each(['ios', 'android', 'web'] as const)(
     expect(options.before_send(null)).toBeNull();
   },
 );
+
+test('Sentry 네이티브 모듈이 없는 기존 Android에서는 PostHog 크래시 수집을 유지한다', () => {
+  Platform.OS = 'android';
+  jest.spyOn(TurboModuleRegistry, 'get').mockReturnValue(null);
+  loadAnalytics();
+  const options = (mockConstructor.mock.calls[0] as unknown as [string, any])[1];
+  expect(options.errorTracking.autocapture.nativeCrashes).toBe(true);
+  expect(options.errorTracking.autocapture.androidNdkCrashes).toBe(true);
+  expect(TurboModuleRegistry.get).toHaveBeenCalledWith('RNSentry');
+});
 
 test.each(['dev', 'staging'])('%s의 JS 오류는 개발 태그를 붙이고 네이티브 수집은 끈다', (env) => {
   process.env.EXPO_PUBLIC_ENV = env;

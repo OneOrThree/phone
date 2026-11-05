@@ -21,7 +21,8 @@ test('EXPO_PUBLIC_* 값이 다르면 Metro 캐시를 나눠 쓰고 같으면 함
 // 번들 태스크가 UP-TO-DATE 로 건너뛰면 Metro 까지 가지 않는다. Xcode 번들 단계는 alwaysOutOfDate 라 해당하지 않는다.
 test('Android JS 번들 태스크는 EXPO_PUBLIC_* 값과 .env 파일을 입력으로 선언한다', () => {
   const gradle = fs.readFileSync(path.join(__dirname, '../../android/app/build.gradle'), 'utf8');
-  expect(gradle).toMatch(/tasks\.matching \{ it\.name\.startsWith\("createBundle"\) \}/);
+  // 번들 태스크 이름 끝까지 맞춘다. PostHog 정리 태스크(Delete)에 입력이 붙으면 main 빌드가 실패한다(GROMO-2667).
+  expect(gradle).toContain('tasks.matching { it.name ==~ /createBundle\\w*JsAndAssets/ }');
   expect(gradle).toContain('inputs.property("expoPublicEnv"');
   expect(gradle).toContain('includes: [".env*"]');
 });

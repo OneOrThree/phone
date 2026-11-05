@@ -48,12 +48,12 @@ test('Android uses the 2.0 Kakao app identity and OAuth callback scheme', () => 
   );
 });
 
-test('iOS uses the 2.0 Kakao key and callback scheme for the focuscat bundle', () => {
+test('iOS uses the 2.0 Kakao key and callback scheme for the gromo bundle', () => {
   const iosKey = '1280641e9b639a279b7406f24b059703';
   const kakaoPlugin = appConfig.plugins.find(([name]) => name === '@react-native-kakao/core');
   const plist = fs.readFileSync(path.join(appDevRoot, 'ios/Cattus/Info.plist'), 'utf8');
 
-  expect(appConfig.ios.bundleIdentifier).toBe('com.oneorthree.focuscat');
+  expect(appConfig.ios.bundleIdentifier).toBe('com.oneorthree.gromo');
   expect(kakaoPlugin[1].nativeAppKey).toBe(iosKey);
   expect(plist).toContain(`<string>kakao${iosKey}</string>`);
   expect(fs.readFileSync(path.join(appDevRoot, 'index.native.ts'), 'utf8')).toMatch(
@@ -97,8 +97,8 @@ test('iOS dev TestFlight lane pins the team dev server and keeps the production 
   const posthog = fs.readFileSync(path.join(appDevRoot, 'src/services/posthog.ts'), 'utf8');
 
   // dev 주소는 앱 코드(client.ts)와 lane 이 같은 값을 써야 한다
-  expect(client).toContain("DEV_API_URL = 'https://oneorthree.dev.mooo.com'");
-  expect(fastfile).toContain('DEV_API_URL = "https://oneorthree.dev.mooo.com"');
+  expect(client).toContain("DEV_API_URL = 'https://oneorthree-v2.dev.mooo.com'");
+  expect(fastfile).toContain('DEV_API_URL = "https://oneorthree-v2.dev.mooo.com"');
   // dev lane 은 환경변수를 믿지 않고 서버 주소·청중·RUM 환경명을 직접 고정한다(||= 아님)
   expect(fastfile).toContain('lane :beta_dev');
   expect(fastfile).toContain('ENV["EXPO_PUBLIC_API_URL"] = DEV_API_URL');
@@ -117,14 +117,14 @@ test('iOS dev TestFlight lane pins the team dev server and keeps the production 
   expect(posthog).toContain('if (client || !projectToken || !host) return;');
   // Xcode gate 는 dev 청중일 때만 dev 주소를 허용하고, 그때 운영 주소는 막는다
   expect(xcode).toContain('${GROMO_IOS_AUDIENCE:-prod}');
-  expect(xcode).toContain('https://oneorthree.dev.mooo.com');
+  expect(xcode).toContain('https://oneorthree-v2.dev.mooo.com');
   // 실행 스크립트의 --dev 도 같은 주소를 고정하고 dev lane 을 부른다
   expect(testflight).toContain('--dev');
-  expect(testflight).toContain('export EXPO_PUBLIC_API_URL="https://oneorthree.dev.mooo.com"');
+  expect(testflight).toContain('export EXPO_PUBLIC_API_URL="https://oneorthree-v2.dev.mooo.com"');
   expect(testflight).toContain('fastlane beta_dev');
 });
 
-test('Android CI builds the dev AAB and independent CD publishes only verified main CI artifacts', () => {
+test('Android CI builds the prod V2 AAB and independent CD publishes only verified main CI artifacts', () => {
   const gradle = fs.readFileSync(path.join(appDevRoot, 'android/app/build.gradle'), 'utf8');
   const ci = fs.readFileSync(
     path.join(appDevRoot, '../../.github/workflows/app-android-ci.yml'),
@@ -142,15 +142,27 @@ test('Android CI builds the dev AAB and independent CD publishes only verified m
   expect(gradle).toMatch(
     /!devAudience\s*&&\s*System\.getenv\("GROMO_LEGACY_SESSION_MIGRATION_READY"\)/,
   );
-  expect(gradle).toMatch(/devAudience\s*&&\s*apiUrl\s*!=\s*"https:\/\/oneorthree\.dev\.mooo\.com"/);
-  // CI 가 dev 주소·청중·RUM 환경명 고정
-  expect(ci).toContain('EXPO_PUBLIC_API_URL: https://oneorthree.dev.mooo.com');
-  expect(ci).toContain('GROMO_ANDROID_AUDIENCE: dev');
-  expect(ci).toContain('EXPO_PUBLIC_ENV: dev');
-  // dev AAB는 PR·main 모두 빈 토큰으로 수집을 끈다. 뒤 스텝도 운영 토큰을 다시 넣지 않는다.
-  expect(ci).toContain('EXPO_PUBLIC_POSTHOG_PROJECT_TOKEN: ""');
-  expect(ci).toContain('echo "EXPO_PUBLIC_POSTHOG_PROJECT_TOKEN="');
-  expect(ci).not.toContain('echo "EXPO_PUBLIC_POSTHOG_PROJECT_TOKEN=$PROJECT_TOKEN"');
+  expect(gradle).toMatch(
+    /devAudience\s*&&\s*apiUrl\s*!=\s*"https:\/\/oneorthree-v2\.dev\.mooo\.com"/,
+  );
+  // 입력 선언은 번들 태스크에만. PostHog 정리 태스크는 Delete 라 inputs 가 붙으면 main 빌드만 실패한다
+  expect(gradle).toContain('tasks.matching { it.name ==~ /createBundle\\w*JsAndAssets/ }');
+  expect(gradle).not.toContain('it.name.startsWith("createBundle")');
+  // CI 가 운영 V2 주소·청중·RUM 환경명 고정
+  expect(ci).toContain('EXPO_PUBLIC_API_URL: https://catus-api-v2.oneorthree.world');
+  expect(ci).toContain('GROMO_ANDROID_AUDIENCE: prod');
+  expect(ci).toContain('EXPO_PUBLIC_ENV: prod');
+  // 운영 이미지 CDN 이 없어 꺼진 값으로 고정한다. 저장소 변수의 dev CDN 을 받지 않는다.
+  expect(ci).toContain('EXPO_PUBLIC_IMAGE_ASSETS_ENABLED: "false"');
+  expect(ci).toContain('EXPO_PUBLIC_IMAGE_ASSETS_URL: ""');
+  expect(ci).not.toContain('IMAGE_ASSETS_DEV');
+  // 운영 Firebase 파일로 빌드한다. dev 파일로 폴백하지 않는다.
+  expect(ci).toContain('.project_info.project_id == "catus-prod"');
+  expect(ci).not.toContain('ANDROID_FIREBASE_DEV_JSON');
+  // 게시 빌드만 운영 토큰을 넣는다. PR·검증 빌드는 빈 토큰으로 수집을 끈다.
+  expect(ci).toContain(
+    "EXPO_PUBLIC_POSTHOG_PROJECT_TOKEN: ${{ needs.settings.outputs.posthog-project-token || '' }}",
+  );
   // 잡 하나의 본문 (2칸 들여쓰기 잡 이름 기준)
   const job = (workflow, name) => {
     const m = workflow.match(new RegExp(`\\n  ${name}:\\n([\\s\\S]*?)(?=\\n  [a-z-]+:\\n|$)`));
@@ -220,10 +232,16 @@ test('Android CI builds the dev AAB and independent CD publishes only verified m
   expect(cd).toContain('branches: [main]');
   expect(cd).not.toMatch(/^\s+workflow_call:/m);
   expect(cd).toContain('ci-run-id:');
-  // Play·서명 키는 Secrets Manager 에서만. 분석 업로드 키 하나만 main 빌드에 허용한다.
-  expect(ci.match(/\bsecrets\.[A-Za-z_][A-Za-z0-9_]*/g)).toEqual(['secrets.POSTHOG_CLI_API_KEY']);
+  // Play·서명 키는 Secrets Manager 에서만. 분석(PostHog)·크래시(Sentry, GROMO-2739) 업로드 키만 main 빌드에 허용한다.
+  expect(ci.match(/\bsecrets\.[A-Za-z_][A-Za-z0-9_]*/g)).toEqual([
+    'secrets.POSTHOG_CLI_API_KEY',
+    'secrets.SENTRY_AUTH_TOKEN',
+  ]);
   expect(build).toContain(
     "POSTHOG_CLI_API_KEY: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && secrets.POSTHOG_CLI_API_KEY || '' }}",
+  );
+  expect(build).toContain(
+    "SENTRY_AUTH_TOKEN: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && secrets.SENTRY_AUTH_TOKEN || '' }}",
   );
   for (const keyJob of [settings, sign]) {
     expect(keyJob).not.toMatch(/secrets\./);
@@ -249,7 +267,7 @@ test('iOS release gate script allows only the matching audience/API URL pair', (
     'Check iOS release Apple audience readiness',
   );
   const prodUrl = 'https://catus-api-v2.oneorthree.world';
-  const devUrl = 'https://oneorthree.dev.mooo.com';
+  const devUrl = 'https://oneorthree-v2.dev.mooo.com';
   // SRCROOT 는 .xcode.env 없는 빈 ios/ 폴더. 그 옆 src/config/googleClientIds.json 은 GROMO-2226 가드가 읽는다(기본: prod 채움).
   const run = (
     audience,
@@ -358,7 +376,7 @@ test('운영 빌드 경로(TestFlight 스크립트·fastlane beta·Android relea
     expect(betaLane.indexOf(pin)).toBeGreaterThan(betaGuard);
   expect(fastfile.slice(fastfile.indexOf('lane :beta_dev do'))).not.toContain('IMAGE_ASSETS');
 
-  // Android release — 운영 청중만 막는다. dev 청중(CI 의 dev AAB)은 CDN 값을 그대로 받는다.
+  // Android release — 운영 청중만 막는다. dev 청중(로컬 dev 서버 빌드)은 CDN 값을 그대로 받는다.
   expect(gradle).toMatch(
     /includesReleaseArtifactTask && !devAudience &&\s*\n\s*\(System\.getenv\("EXPO_PUBLIC_IMAGE_ASSETS_ENABLED"\) == "true" \|\| System\.getenv\("EXPO_PUBLIC_IMAGE_ASSETS_URL"\)\)\) \{\s*\n\s*throw new GradleException\(\s*\n\s*"Android release 차단: 운영 이미지 CDN/,
   );

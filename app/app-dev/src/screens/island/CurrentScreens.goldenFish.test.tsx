@@ -1,15 +1,22 @@
-import assert from 'node:assert/strict';
-import React, { useReducer, useState } from 'react';
-import { AccessibilityInfo, AppState, type AppStateEvent, type AppStateStatus } from 'react-native';
-import { act, fireEvent, render, userEvent } from '@testing-library/react-native';
-import { CurrentScreens } from '@/screens/island/CurrentScreens';
-import { applyLocalePref, t } from '@/i18n';
-import { initialState, reducer, type State } from '@/services/model';
-import { clearSession, saveSession } from '@/services/api/session';
-import { ApiError } from '@/services/api/client';
-import type { GoldenFishEvent } from '@/services/islandRealtime';
 import { assets } from '@/constants/assets';
+import { applyLocalePref, t } from '@/i18n';
+import { createPreviewEnvironment } from '@/navigation/previewEnvironment';
 import { DEFAULT_SPOT } from '@/screens/focus/FishingIsland';
+import { CurrentScreens } from '@/screens/island/CurrentScreens';
+import { ApiError } from '@/services/api/client';
+import { clearSession, saveSession } from '@/services/api/session';
+import type { GoldenFishEvent } from '@/services/islandRealtime';
+import { initialState, reducer, type State } from '@/services/model';
+import { act, fireEvent, render, userEvent } from '@testing-library/react-native';
+import assert from 'node:assert/strict';
+import { useReducer, useState } from 'react';
+import {
+  AccessibilityInfo,
+  AppState,
+  StyleSheet,
+  type AppStateEvent,
+  type AppStateStatus,
+} from 'react-native';
 
 let onGoldenFish: ((event: GoldenFishEvent) => void) | undefined;
 let presenceActive: boolean | undefined;
@@ -301,7 +308,7 @@ const screenElement = (
   overrides: Record<string, unknown> = {},
 ) => (
   <CurrentScreens
-    e={{
+    e={createPreviewEnvironment({
       state,
       route,
       now: Date.now(),
@@ -316,7 +323,7 @@ const screenElement = (
       text: '',
       setText: jest.fn(),
       ...overrides,
-    }}
+    })}
   />
 );
 
@@ -363,6 +370,27 @@ test('튜토리얼 할 일 입력은 입력 완료 전까지 단계를 바꾸거
   await fireEvent.press(screen.getByText('입력 완료'));
   expect(setGuideStep).toHaveBeenCalledWith(8);
   expect(start).not.toHaveBeenCalled();
+  await screen.unmount();
+});
+
+test('집중 준비 카드는 1픽셀 미만 높이 흔들림으로 다시 배치되지 않는다(GROMO-2750)', async () => {
+  const state = focusedState();
+  state.session = null;
+  const screen = await render(screenElement(state, 'focusSetup'));
+  const card = () => screen.getByTestId('focus-setup-card', { includeHiddenElements: true });
+  const layout = (height: number) =>
+    fireEvent(card(), 'layout', { nativeEvent: { layout: { x: 0, y: 0, width: 330, height } } });
+  const top = () => StyleSheet.flatten(card().props.style).top as number;
+  // 내 고양이(150, 200) 위에 붙는 자리 — top = 200 - 640×0.077 - 10 - 높이 라서 높이가 곧 위치다.
+  await layout(50);
+  expect(top()).toBeCloseTo(90.72);
+  // Android 픽셀 반올림 흔들림(1픽셀 미만)은 무시해 측정 → 재배치 반복을 끊는다.
+  await layout(50.38);
+  await layout(49.62);
+  expect(top()).toBeCloseTo(90.72);
+  // 1픽셀 이상 바뀌면 새 높이로 다시 배치한다.
+  await layout(52);
+  expect(top()).toBeCloseTo(88.72);
   await screen.unmount();
 });
 

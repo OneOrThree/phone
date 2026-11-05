@@ -1,5 +1,20 @@
 # Observability
 
+## 바로가기
+
+| 구분 | 내용 |
+| --- | --- |
+| 구성 | [수집 구조](#1-수집-구조) · [무엇을 확인하나](#2-무엇을-확인하나) · [설정 파일 지도](#3-설정-파일-지도) · [스크레이프 대상 / 포트](#스크레이프-대상--포트) |
+| 실행 | [dev 실행과 운영](#4-dev-실행과-운영) · [실행 명령](#실행) · [로컬(비-dev)에서 볼 때](#로컬비-dev에서-볼-때) · [보안 메모](#보안-메모) |
+| 로그 | [로그 수집기](#로그-수집기-gromo-2555) · [S3·Nginx·canary](#원본-로그-s3-보관--nginx--canary-gromo-2556) |
+| 대시보드 | [한 화면 구성](#한-화면-구성) · [느린 쿼리 Top N](#쿼리-부하-l3-옵션--느린-쿼리-top-n) · [전체 컴포넌트 부하 대시보드](#전체-컴포넌트-부하-대시보드) |
+
+> 2026-11-02 기준 운영 V2 4대에는 Datadog Agent가 실행 중이며, dev V2 3대에는 Agent가 없습니다.
+> 구 dev의 Datadog·Kafka·관측 토글 workflow는 제거했습니다. 현행 운영 관측 설정은 Infra
+> `prod/catus-v2/runtime/`, 배포는 [prod V2](../../docs/engineering/prod-v2-pipeline.md)를 따릅니다.
+> 아래 OSS overlay 구성은 로컬 재현·과거 구 dev 구조 설명입니다.
+
+
 > 요청이 느려진 이유를 트래픽·DB·리소스·로그에서 함께 찾는 GROMO 관측 설정입니다.
 
 [서버 전체 보기](../README.md) · [실행·배포 도구](../scripts/README.md) · [Datadog 상세](datadog/README.md) · [부하 테스트](../../loadtest/README.md)
@@ -48,7 +63,7 @@ flowchart LR
 
 ## 4. dev 실행과 운영
 
-dev 서버의 **로그·트래픽·쿼리 부하를 한 화면에서 실시간** 확인. Prometheus + Grafana + Loki 셀프호스트를
+옛 dev VM(`gromo-dev-app`, V1 — dev V2 가 아니다)의 **로그·트래픽·쿼리 부하를 한 화면에서 실시간** 확인. Prometheus + Grafana + Loki 셀프호스트를
 docker-compose overlay 로 기존 dev 스택 위에 얹는다. 무료(컨테이너 비용뿐). 수집층은 GROMO-588(Actuator+micrometer).
 
 ## 실행
@@ -57,7 +72,7 @@ docker-compose overlay 로 기존 dev 스택 위에 얹는다. 무료(컨테이�
 
 ```bash
 # 저장소 루트에서 실행
-# dev VM 에는 영구 env 파일이 없다(GROMO-2224). 평소엔 Actions 의 ops-monitor.dev 를 쓴다.
+# 옛 dev VM 에는 영구 env 파일이 없다(GROMO-2224). 평소엔 Actions 의 ops-monitor.dev(V1) 를 쓴다.
 # 수동이 꼭 필요하면 SM 을 읽을 수 있는 AWS 자격으로 임시 env 를 만들고, 쓰고 나면 지운다:
 #   RUNTIME_ENV_FILE=$(.github/scripts/dev-env.sh)   # 떠 있는 data-api 이미지 기준
 #   ... 아래 명령 ...;  rm -rf "$(dirname "$RUNTIME_ENV_FILE")"
@@ -85,7 +100,7 @@ docker compose --env-file "$RUNTIME_ENV_FILE" \
 > `down`은 병합된 기본 앱·DB까지 종료하므로 관측만 중지할 때는 위 `stop`을 사용합니다.
 
 > ⚠️ 반드시 `-f` 두 개로 실행. 그래야 dev 의 `app-network`·`app`·`db` 와 같은 프로젝트/네트워크를 공유해
-> `data-api:9091`·`db:5432` 를 서비스명으로 스크레이프한다. `data-api-cd.dev.yml` 은 `up -d --no-deps data-api` 만 하므로 배포와 간섭 없음.
+> `data-api:9091`·`db:5432` 를 서비스명으로 스크레이프한다. 꺼진 V1 `data-api-cd.dev.yml` 은 `up -d --no-deps data-api` 만 했으므로 배포와 간섭이 없었다.
 
 ## 한 화면 구성
 

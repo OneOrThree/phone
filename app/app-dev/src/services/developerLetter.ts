@@ -108,7 +108,8 @@ export function isBelowMinVersion(
   return false;
 }
 
+// iOS 는 1.x 와 같은 App Store 앱(번들 com.oneorthree.gromo)에 2.3.0 부터 업데이트로 나간다.
 export const STORE_URLS = {
-  ios: 'https://apps.apple.com/app/id6813004121',
+  ios: 'https://apps.apple.com/app/id6774498679',
   android: 'https://play.google.com/store/apps/details?id=com.oneorthree.gromo',
 };

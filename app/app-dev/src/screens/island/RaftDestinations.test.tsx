@@ -1,11 +1,12 @@
+import { applyLocalePref } from '@/i18n';
+import { createPreviewEnvironment } from '@/navigation/previewEnvironment';
+import { RaftDestinations } from '@/screens/island/RaftDestinations';
+import { ApiError } from '@/services/api/client';
+import { initialState, reducer } from '@/services/model';
+import { act, fireEvent, render as renderNative } from '@testing-library/react-native';
 import React from 'react';
 import { StyleSheet } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { act, fireEvent, render as renderNative } from '@testing-library/react-native';
-import { RaftDestinations } from '@/screens/island/RaftDestinations';
-import { initialState, reducer } from '@/services/model';
-import { applyLocalePref } from '@/i18n';
-import { ApiError } from '@/services/api/client';
 
 const render = (ui: React.ReactElement) =>
   renderNative(ui, {
@@ -94,7 +95,7 @@ function env(visitingId: string | null = null) {
 }
 
 async function renderMembers(e: any) {
-  const screen = await render(<RaftDestinations e={e} />);
+  const screen = await render(<RaftDestinations e={createPreviewEnvironment(e)} />);
   await fireEvent.press(screen.getByLabelText('소속 섬으로'));
   return screen;
 }
@@ -106,7 +107,7 @@ async function pressSea(screen: any) {
 
 test('두 목적지를 표시하고 임시 메뉴는 제거한다', async () => {
   const e = env();
-  const screen = await render(<RaftDestinations e={e} />);
+  const screen = await render(<RaftDestinations e={createPreviewEnvironment(e)} />);
   expect(screen.getByText('어디로 떠나볼까요?')).toBeTruthy();
   expect(screen.getByLabelText('집중하러 가기')).toBeTruthy();
   expect(screen.getByLabelText('바다로 출항')).toBeTruthy();
@@ -239,7 +240,7 @@ test('가입하지 않은 섬을 구경하다 떠날 때 확인창은 방문당 
   expect(screen.queryByText('어느 섬으로 갈까요?')).toBeNull();
   // 리듀서가 매 액션마다 상태를 깊은 복사한다 — 방문 중 다른 액션이 끼어도 다시 묻지 않는다
   await act(async () => e.dispatch({ type: 'TRAVEL_FROM', name: '구경섬' }));
-  await screen.rerender(<RaftDestinations e={e} />);
+  await screen.rerender(<RaftDestinations e={createPreviewEnvironment(e)} />);
   await fireEvent.press(screen.getByLabelText('소속 섬으로'));
   await fireEvent.press(screen.getByText('하나섬으로'));
   expect(e.confirm).toHaveBeenCalledTimes(1);
@@ -490,14 +491,14 @@ test('마지막 목적지는 저장본 복원 뒤에도 선택 상태로 보인�
   const e = env();
   const chosen = reducer(e.state, { type: 'RAFT_DESTINATION', destination: 'sea' });
   e.state = reducer(initialState(true), { type: 'LOAD', state: chosen });
-  const screen = await render(<RaftDestinations e={e} />);
+  const screen = await render(<RaftDestinations e={createPreviewEnvironment(e)} />);
   expect(screen.getByLabelText('바다로 출항').props.accessibilityState.selected).toBe(true);
 });
 
 test('영어에서도 두 목적지와 소속 섬 선택 창을 연다', async () => {
   applyLocalePref('en');
   try {
-    const screen = await render(<RaftDestinations e={env()} />);
+    const screen = await render(<RaftDestinations e={createPreviewEnvironment(env())} />);
     expect(screen.getByText('Where shall we sail?')).toBeTruthy();
     expect(screen.getByLabelText('Start focusing')).toBeTruthy();
     await fireEvent.press(screen.getByLabelText('My islands'));
@@ -536,7 +537,7 @@ test('현재 섬의 도착 이력 동기화가 늦어도 홈으로 돌아갈 길
 
 test('바다 출항은 출항 영상이 끝나기 전에는 머물고 뒤로가기를 막은 뒤 먼바다로 이어진다', async () => {
   const e = env();
-  const screen = await render(<RaftDestinations e={e} />);
+  const screen = await render(<RaftDestinations e={createPreviewEnvironment(e)} />);
   await pressSea(screen);
   expect(e.reset).not.toHaveBeenCalled();
   expect(screen.queryByText('어디로 떠나볼까요?')).toBeNull();

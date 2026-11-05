@@ -1,4 +1,24 @@
-import React, { useEffect, useRef, useState } from 'react';
+import { ISLAND_STAGE_ART, islandStage } from '@/constants/magazineAssets';
+import { Btn, Txt, k } from '@/design-system/patterns';
+import { componentTokens, primitiveTokens, semanticTokens } from '@/design-system/tokens';
+import { TextInput } from '@/design-system/typography';
+import { Ticking } from '@/hooks/useNow';
+import { errorTextOr, t } from '@/i18n';
+import type { ScreenEnvironment } from '@/navigation/ScreenEnvironment';
+import { useGowun } from '@/screens/island/sceneKit';
+import { visibleTelescopeItems } from '@/screens/island/telescopeDestinations';
+import { useTelescope } from '@/screens/island/useTelescope';
+import { seaAssets } from '@/screens/sea/seaAssets';
+import { seaClock } from '@/screens/sea/seaModel';
+import { updateProfile } from '@/services/api/account';
+import { ApiError, uuid } from '@/services/api/client';
+import { sessionGeneration } from '@/services/api/session';
+import type { TelescopeItem } from '@/services/api/telescope';
+import { colorName, colors, sessionRoute, type Color, type State } from '@/services/model';
+import { captureProductEvent } from '@/services/posthog';
+import { useAppLayout } from '@/utils/layout';
+import { stripNicknameWhitespace } from '@/utils/nickname';
+import { useEffect, useRef, useState } from 'react';
 import {
   AccessibilityInfo,
   Image,
@@ -10,24 +30,7 @@ import {
   StyleSheet,
   View,
 } from 'react-native';
-import { Btn, Txt, k } from '@/design-system/patterns';
-import { TextInput } from '@/design-system/typography';
-import { componentTokens, primitiveTokens, semanticTokens } from '@/design-system/tokens';
-import { useAppLayout } from '@/utils/layout';
-import { useGowun } from '@/screens/island/sceneKit';
-import { useTelescope } from '@/screens/island/useTelescope';
-import { visibleTelescopeItems } from '@/screens/island/telescopeDestinations';
-import { Ticking } from '@/hooks/useNow';
-import { seaClock } from '@/screens/sea/seaModel';
-import { seaAssets } from '@/screens/sea/seaAssets';
-import { updateProfile } from '@/services/api/account';
-import { sessionGeneration } from '@/services/api/session';
-import { ApiError, uuid } from '@/services/api/client';
-import { stripNicknameWhitespace } from '@/utils/nickname';
-import type { TelescopeItem } from '@/services/api/telescope';
-import { colorName, colors, sessionRoute, type Color, type State } from '@/services/model';
-import { errorTextOr, t } from '@/i18n';
-import { captureProductEvent } from '@/services/posthog';
+import { StoryRaft, storyCats } from './StoryRaft';
 import {
   firstStoryStep,
   nextStoryStep,
@@ -36,17 +39,23 @@ import {
   storySteps,
   type StoryStep,
 } from './story';
-import { StoryRaft, storyCats } from './StoryRaft';
-import { ISLAND_STAGE_ART, islandStage } from '@/constants/magazineAssets';
-import { useStoryLine } from './useStoryLine';
+import { WebIslandEntry } from '@/screens/web-demo/WebIslandEntry';
+import { usesSharedWebIsland } from '@/services/webIsland';
 import { useFirstVoyage } from './useFirstVoyage';
+import { useStoryLine } from './useStoryLine';
 
 const ui = componentTokens.onboarding;
 const { space } = primitiveTokens;
 const c = semanticTokens.color;
 
 /** character 라우트의 신규 계정 흐름. profile 완료와 story 완료를 별도로 보관한다. */
-export function OnboardingFlow({ e, previewItems }: { e: any; previewItems?: TelescopeItem[] }) {
+export function OnboardingFlow({
+  e,
+  previewItems,
+}: {
+  e: ScreenEnvironment;
+  previewItems?: TelescopeItem[];
+}) {
   const state: State = e.state;
   const firstVoyage = useFirstVoyage(e, !!previewItems);
   const layout = useAppLayout();
@@ -67,7 +76,8 @@ export function OnboardingFlow({ e, previewItems }: { e: any; previewItems?: Tel
   const latest = useRef(e);
   latest.current = e;
   const list = useTelescope({
-    active: !previewItems && !!e.islands && ['scope', 'ready'].includes(step),
+    active:
+      !usesSharedWebIsland() && !previewItems && !!e.islands && ['scope', 'ready'].includes(step),
     beforeLoad: e.islandBootError ? e.islands?.sync : undefined,
   });
   const items = visibleTelescopeItems(previewItems ?? list.items);
@@ -80,9 +90,12 @@ export function OnboardingFlow({ e, previewItems }: { e: any; previewItems?: Tel
         : 'readyJoined'
       : step;
   const firstLine = firstVoyage.eligible && ['invite', 'scope', 'depart'].includes(lineKey);
-  const line = storyHasLine(step)
-    ? t(firstLine ? `firstVoyage.${lineKey}` : `onboardingStory.${lineKey}`, { name })
-    : '';
+  const line =
+    usesSharedWebIsland() && step === 'invite'
+      ? '웹에서 만난 고양이들이 기다리는 섬으로 가 볼까요?'
+      : storyHasLine(step)
+        ? t(firstLine ? `firstVoyage.${lineKey}` : `onboardingStory.${lineKey}`, { name })
+        : '';
   const typing = useStoryLine(step, line);
   const scroll = useRef<ScrollView>(null);
   const width = Math.min(layout.width, ui.maxWidth);
@@ -220,7 +233,7 @@ export function OnboardingFlow({ e, previewItems }: { e: any; previewItems?: Tel
     } catch (thrown) {
       if (!live()) return;
       const code = (thrown as { code?: string }).code;
-      if (code === 'STATE_CONFLICT') {
+      if (code === 'STATE_CONFLICT' && e.focus) {
         const restored = await e.focus.recover().catch(() => null);
         if (!live()) return;
         if (restored) {
@@ -296,6 +309,7 @@ export function OnboardingFlow({ e, previewItems }: { e: any; previewItems?: Tel
           : 'start'
         : 'enterSea';
 
+  if (usesSharedWebIsland() && scopeStep) return <WebIslandEntry e={e} />;
   if (firstVoyage.scene) return firstVoyage.scene;
 
   if (step === 'choose')
@@ -591,11 +605,15 @@ export function OnboardingFlow({ e, previewItems }: { e: any; previewItems?: Tel
               <Btn
                 id="onboarding-continue"
                 dynamicHeight
-                title={t(
-                  firstVoyage.eligible && step === 'ready'
-                    ? 'firstVoyage.start'
-                    : `onboardingStory.${ctaText}`,
-                )}
+                title={
+                  usesSharedWebIsland() && step === 'invite'
+                    ? '함께 집중하는 섬으로'
+                    : t(
+                        firstVoyage.eligible && step === 'ready'
+                          ? 'firstVoyage.start'
+                          : `onboardingStory.${ctaText}`,
+                      )
+                }
                 disabled={
                   pending ||
                   firstVoyage.pending ||

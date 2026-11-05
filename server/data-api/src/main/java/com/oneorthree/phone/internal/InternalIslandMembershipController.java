@@ -2,6 +2,7 @@ package com.oneorthree.phone.internal;
 
 import com.oneorthree.phone.internal.dto.CreateIslandCommandRequest;
 import com.oneorthree.phone.internal.dto.CurrentIslandView;
+import com.oneorthree.phone.internal.dto.IntroArrivalRequest;
 import com.oneorthree.phone.internal.dto.IslandArrivalView;
 import com.oneorthree.phone.internal.dto.IslandCreatedView;
 import com.oneorthree.phone.internal.dto.IslandDiscoverPageView;
@@ -13,6 +14,7 @@ import com.oneorthree.phone.internal.dto.TelescopePinCommandRequest;
 import com.oneorthree.phone.internal.dto.TelescopePinView;
 import com.oneorthree.phone.internal.dto.TelescopeView;
 import com.oneorthree.phone.internal.service.IslandMembershipService;
+import com.oneorthree.phone.internal.service.WebIslandEntryService;
 import com.oneorthree.phone.internal.service.IntroVoyageService;
 import com.oneorthree.phone.internal.service.TelescopePinService;
 import com.oneorthree.phone.internal.service.TelescopeService;
@@ -58,9 +60,17 @@ import java.util.UUID;
 public class InternalIslandMembershipController {
 
     private final IslandMembershipService islandMembershipService;
+    private final WebIslandEntryService webIslands;
     private final IntroVoyageService introVoyageService;
     private final TelescopeService telescopeService;
     private final TelescopePinService telescopePinService;
+
+    /** 웹 전용 공용 섬 배정. 호출자 ID는 내부 인증 필터가 검증한다. */
+    @PostMapping("/web-island")
+    public IslandCreatedView enterWebIsland(@PathVariable UUID userId,
+                                            @RequestHeader("Idempotency-Key") UUID key) {
+        return webIslands.enter(userId, key);
+    }
 
     /** 섬 생성 (LLD §3.1). */
     @PostMapping("/islands")
@@ -147,8 +157,9 @@ public class InternalIslandMembershipController {
     /** 로컬 최초 항해 체험의 도착. 횟수 제한 없이 현재 망원경 목적지와 이동 가드를 검증한다. */
     @PostMapping("/islands/{islandId}/intro-arrivals")
     public IslandArrivalView introArrive(@PathVariable UUID userId, @PathVariable UUID islandId,
-                                         @RequestHeader("Idempotency-Key") UUID idempotencyKey) {
-        return introVoyageService.arrive(userId, islandId, idempotencyKey);
+                                         @RequestHeader("Idempotency-Key") UUID idempotencyKey,
+                                         @RequestBody(required = false) IntroArrivalRequest body) {
+        return introVoyageService.arrive(userId, islandId, idempotencyKey, body);
     }
 
     /** 현재 섬 이동 (LLD §3.6). */
