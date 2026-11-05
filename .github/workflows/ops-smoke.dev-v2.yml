@@ -28,7 +28,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    # 같은 잠금으로 보호된 dev V2 CD가 끝난 뒤 전체 15개를 검사한다.
+    # 같은 잠금으로 보호된 dev V2 CD가 끝난 뒤 전체 17개를 검사한다.
     concurrency:
       group: catus-dev-v2-deploy
       cancel-in-progress: false
@@ -65,6 +65,12 @@ jobs:
         if: steps.target.outputs.state == 'matched'
         with:
           node-version: '22'
+      - name: API 목록 생성기 준비
+        if: steps.target.outputs.state == 'matched'
+        run: npm ci --ignore-scripts --prefix smoke/contracts
+      - name: 앱 API·서버 경로 대조
+        if: steps.target.outputs.state == 'matched'
+        run: node smoke/contracts/report.cjs "$RUNNER_TEMP/smoke-results/api-coverage"
       - name: dev V2 서비스 준비 확인 후 5분 안정화 대기
         if: steps.target.outputs.state == 'matched'
         run: |
@@ -79,11 +85,13 @@ jobs:
           done
           echo 'dev V2 서비스 healthy 확인 — 스모크 전 300초 대기'
           sleep 300
-      - name: 공개 API·실시간·핵심 게스트 흐름·인프라 15개 검사
+      - name: 공개 API·첫 항해·핵심 게스트 흐름·인프라 검사
         id: smoke
         if: steps.target.outputs.state == 'matched'
         env:
           SMOKE_CORE_ENABLED: '1'
+          SMOKE_FIRST_VOYAGE_ENABLED: '1'
+          SMOKE_CONTRACTS_ENABLED: '1'
           SMOKE_BASIC_ONLY: '0'
           TMPDIR: ${{ runner.temp }}
           SMOKE_AUTH_DIAGNOSTICS_FILE: ${{ runner.temp }}/smoke-results/api/auth-attempts.jsonl
@@ -110,6 +118,13 @@ jobs:
       - name: 검사 중 버전 유지 확인
         if: success() && steps.smoke.outcome == 'success'
         run: python3 .github/scripts/smoke-target.py verify
+      - name: 앱 소스·실제 서버 이미지·dev 시나리오 결과 연결
+        if: success() && steps.smoke.outcome == 'success'
+        run: >-
+          python3 smoke/contracts/evidence.py
+          --results "$RUNNER_TEMP/smoke-results"
+          --inventory "$RUNNER_TEMP/smoke-results/api-coverage/inventory.json"
+          --revision "$GITHUB_SHA"
       - uses: actions/upload-artifact@v4
         if: always()
         with:

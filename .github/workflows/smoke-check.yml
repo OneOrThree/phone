@@ -5,6 +5,9 @@ on:
     branches: [main, release]
     paths:
       - 'smoke/server/**'
+      - 'smoke/contracts/**'
+      - 'app/app-dev/src/**'
+      - 'server/business-api/src/main/java/**'
       - '.github/workflows/smoke-check.yml'
       - '.github/workflows/ops-smoke.dev-v2.yml'
       - '.github/scripts/report-smoke.py'
@@ -42,3 +45,42 @@ jobs:
           bash smoke/server/tests/api-runner.sh
           bash smoke/server/tests/friendship-guards.sh
           bash smoke/server/tests/seed-guards.sh
+
+  api-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci --ignore-scripts
+        working-directory: smoke/contracts
+      - run: node --test smoke/contracts/inventory.test.cjs
+      - name: 앱 API 목록·서버 경로·시나리오 등록표
+        run: node smoke/contracts/report.cjs "$RUNNER_TEMP/api-coverage"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: api-coverage
+          path: ${{ runner.temp }}/api-coverage/
+
+  seed-sql:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: smoke-test-only
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: 기본 회관과 사용한 fixture 거절 검증
+        env:
+          SMOKE_SEED_TEST_COMMAND: '["docker","exec","-i","${{ job.services.postgres.id }}","psql","-U","postgres","-d","postgres","-X","-q","-t","-A","-v","ON_ERROR_STOP=1"]'
+        run: python3 -m unittest discover -s smoke/server/tests -p 'test_seed_fixture_db.py' -v

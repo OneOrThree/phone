@@ -24,7 +24,12 @@ BEGIN
       OR EXISTS (SELECT 1 FROM island_wallet_transactions WHERE island_id=f.island_id)
       OR EXISTS (SELECT 1 FROM shop_orders WHERE island_id=f.island_id)
       OR EXISTS (SELECT 1 FROM owned_products WHERE user_id=f.user_id)
-      OR EXISTS (SELECT 1 FROM island_facilities WHERE island_id=f.island_id)
+      OR NOT EXISTS (SELECT 1 FROM island_facilities WHERE island_id=f.island_id
+          AND building_id='hall' AND status='COMPLETED' AND cost=0 AND cost_revision=0
+          AND started_by IS NULL AND started_at IS NULL AND completes_at IS NULL AND completed_at IS NOT NULL)
+      OR EXISTS (SELECT 1 FROM island_facilities WHERE island_id=f.island_id
+          AND NOT (building_id='hall' AND status='COMPLETED' AND cost=0 AND cost_revision=0
+          AND started_by IS NULL AND started_at IS NULL AND completes_at IS NULL AND completed_at IS NOT NULL))
       OR NOT EXISTS (SELECT 1 FROM island_wallets WHERE island_id=f.island_id AND balance=0) THEN
     RAISE EXCEPTION '이미 사용한 fixture는 변경하지 않는다';
   END IF;
@@ -36,22 +41,22 @@ BEGIN
     SELECT revision INTO STRICT price_revision FROM construction_cost_policy_publication WHERE singleton;
     INSERT INTO island_facilities(island_id,building_id,status,cost,cost_revision,started_by,started_at,completes_at,completed_at)
       VALUES(f.island_id,'library','COMPLETED',0,price_revision,f.user_id,now(),now(),now());
-    UPDATE island_appearances SET building_themes='{"library":"default"}'::jsonb,
+    UPDATE island_appearances SET building_themes=COALESCE(building_themes,'{}'::jsonb) || '{"library":"default"}'::jsonb,
       version=version+1,updated_at=now() WHERE island_id=f.island_id;
     RETURN;
   END IF;
   SELECT revision INTO STRICT price_revision FROM construction_cost_policy_publication WHERE singleton;
   SELECT greatest(10000, cost+100) INTO funding FROM construction_cost_policies
-      WHERE revision=price_revision AND building_id='hall';
-  IF funding IS NULL THEN RAISE EXCEPTION '회관 비용 정책 없음'; END IF;
+      WHERE revision=price_revision AND building_id='board';
+  IF funding IS NULL THEN RAISE EXCEPTION '게시판 비용 정책 없음'; END IF;
   UPDATE island_wallets SET balance=funding, version=version+1, updated_at=now() WHERE island_id=f.island_id;
   INSERT INTO island_wallet_transactions(id,island_id,amount,type,idempotency_key)
     VALUES(gen_random_uuid(),f.island_id,funding,'CONTRIBUTION','smoke-fixture:'||f.island_id);
-  -- 상점/통계 잠금 해제만 fixture로 준비. 회관 착공은 API로 검증한다.
+  -- 상점/통계 잠금 해제만 fixture로 준비. 기본 완공 회관은 보존하고 게시판 착공은 API로 검증한다.
   INSERT INTO island_facilities(island_id,building_id,status,cost,cost_revision,started_by,started_at,completes_at,completed_at)
     SELECT f.island_id,b,'COMPLETED',0,price_revision,f.user_id,now(),now(),now()
     FROM unnest(ARRAY['shop','library']) b;
-  UPDATE island_appearances SET building_themes='{"shop":"default","library":"default"}'::jsonb,
+  UPDATE island_appearances SET building_themes=COALESCE(building_themes,'{}'::jsonb) || '{"shop":"default","library":"default"}'::jsonb,
     version=version+1,updated_at=now() WHERE island_id=f.island_id;
 END $$;
 SELECT json_build_object('secondsPerFish',seconds_per_fish,'policyRevision',revision,
