@@ -76,7 +76,7 @@ module.exports = {
       package: 'com.oneorthree.gromo',
       versionCode: 379,
       // 집중 차단 기능이 있는 기존 Android OTA와 네이티브 구성을 분리한다.
-      runtimeVersion: '2.0.1-android-push-assets-ai-focus-meta-events-v2',
+      runtimeVersion: '2.0.1-android-push-assets-ai-focus-meta-events-v3',
       permissions: [
         'android.permission.PACKAGE_USAGE_STATS',
         'android.permission.POST_NOTIFICATIONS',

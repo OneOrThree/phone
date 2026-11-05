@@ -1,5 +1,6 @@
 package com.oneorthree.gromo.metaevents
 
+import android.os.Bundle
 import com.facebook.FacebookSdk
 import com.facebook.appevents.AppEventsLogger
 import com.facebook.internal.AttributionIdentifiers
@@ -20,6 +21,12 @@ internal fun trackingEnabled(advertiserId: String?, trackingLimited: Boolean): B
 class MetaAppEventsModule : Module() {
   override fun definition() = ModuleDefinition {
     Name("MetaAppEvents")
+    AsyncFunction("logEvent") { name: String, eventId: String ->
+      if (!FacebookSdk.isInitialized()) return@AsyncFunction false
+      val context = appContext.reactContext ?: throw Exceptions.ReactContextLost()
+      AppEventsLogger.newLogger(context).logEvent(name, Bundle().apply { putString("event_id", eventId) })
+      true
+    }
     AsyncFunction("metaContext") {
       if (!FacebookSdk.isInitialized()) return@AsyncFunction null
       val context = appContext.reactContext ?: throw Exceptions.ReactContextLost()

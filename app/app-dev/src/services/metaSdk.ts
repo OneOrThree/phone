@@ -5,11 +5,19 @@ import { requireOptionalNativeModule } from 'expo';
 import { isMockMode } from '@/services/demoMode';
 
 type MetaAppEventsModule = {
-  syncTracking(requestPermission: boolean): Promise<boolean>;
-  metaContext?(): Promise<{ anonId: string; advertiserTrackingEnabled: boolean } | null>;
+  syncTracking?(requestPermission: boolean): Promise<boolean>;
+  metaContext?(): Promise<
+    { anonId: string; advertiserTrackingEnabled: boolean } | null | undefined | false
+  >;
   logEvent?(name: string, eventId: string): Promise<boolean>;
 };
 let permissionSync: Promise<void> | undefined;
+
+function nativeModule(): MetaAppEventsModule | undefined | null {
+  return Platform.OS === 'ios'
+    ? NativeModules.MetaAppEventsModule
+    : requireOptionalNativeModule<MetaAppEventsModule>('MetaAppEvents');
+}
 
 /**
  * 개발·목업·수집 중지에서는 수집하지 않는다.
@@ -61,15 +69,13 @@ export async function metaContext(): Promise<MetaContext | undefined> {
   if (!enabled()) return undefined;
   try {
     // iOS는 ATT 허용 여부, Android는 기기 광고 추적 제한 설정(GROMO-2743)을 네이티브가 준다.
-    const native =
-      Platform.OS === 'ios'
-        ? await (
-            NativeModules.MetaAppEventsModule as MetaAppEventsModule | undefined
-          )?.metaContext?.()
-        : await requireOptionalNativeModule<Pick<MetaAppEventsModule, 'metaContext'>>(
-            'MetaAppEvents',
-          )?.metaContext?.();
-    if (!native?.anonId) return undefined;
+    const meta = nativeModule();
+    let native = await meta?.metaContext?.();
+    if (native == null || native === false) {
+      await syncMetaTracking();
+      native = await meta?.metaContext?.();
+    }
+    if (!native || !native.anonId) return undefined;
     // 값이 없으면 허용을 가정하지 않는다.
     return {
       anonId: native.anonId,
@@ -82,14 +88,19 @@ export async function metaContext(): Promise<MetaContext | undefined> {
 }
 
 /**
- * iOS 맞춤 앱 이벤트를 Meta SDK로 한 번 기록한다(GROMO-2749). 서버 CAPI 와 같은 event_id 라 Meta 가 하나로 합치고,
- * 기기 SDK 기록이라 iOS14+ SKAN·AEM 대상이 된다. Android 는 서버 CAPI 만 쓴다. 기록하지 못하면 false.
+ * iOS·Android 앱 이벤트를 Meta SDK로 기록한다. 서버 CAPI 와 같은 이름·event_id 로 중복을 제거한다.
+ * SDK 시작 전이면 초기화를 기다려 한 번 더 기록하고, 기록하지 못하면 false.
  */
 export async function logMetaEvent(name: string, eventId: string): Promise<boolean> {
-  if (Platform.OS !== 'ios' || !enabled()) return false;
+  if (!enabled()) return false;
   try {
-    const meta = NativeModules.MetaAppEventsModule as MetaAppEventsModule | undefined;
-    return (await meta?.logEvent?.(name, eventId)) === true;
+    const meta = nativeModule();
+    let logged = await meta?.logEvent?.(name, eventId);
+    if (logged == null || logged === false) {
+      await syncMetaTracking();
+      logged = await meta?.logEvent?.(name, eventId);
+    }
+    return logged === true;
   } catch {
     return false;
   }
@@ -104,7 +115,13 @@ export function syncMetaTracking(): Promise<void> {
     try {
       const meta = NativeModules.MetaAppEventsModule as MetaAppEventsModule | undefined;
       // 구 바이너리에서도 브리지 누락이 앱 부팅을 중단하지 않게 한다.
-      await meta?.syncTracking(true);
+      let started = await meta?.syncTracking?.(true);
+      for (let retry = 0; started === false && retry < 3; retry += 1) {
+        if (AppState.currentState !== 'active') break;
+        await new Promise<void>((resolve) => setTimeout(resolve, 1500));
+        if (AppState.currentState !== 'active' || !enabled()) break;
+        started = await meta?.syncTracking?.(true);
+      }
     } catch {
       // 권한·광고 SDK 실패가 앱 조작을 막지 않게 한다. 다음 전경 복귀 때 재시도한다.
     }

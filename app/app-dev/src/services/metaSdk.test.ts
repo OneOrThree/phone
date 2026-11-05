@@ -4,6 +4,7 @@ const mockSyncTracking = jest.fn();
 const mockMetaContext = jest.fn();
 const mockLogEvent = jest.fn();
 const mockAndroidContext = jest.fn();
+const mockAndroidLogEvent = jest.fn();
 let mockAndroidModule: unknown;
 jest.mock('expo', () => ({ requireOptionalNativeModule: () => mockAndroidModule }));
 jest.mock('expo-application', () => ({
@@ -32,7 +33,8 @@ beforeEach(() => {
   mockAndroidContext
     .mockReset()
     .mockResolvedValue({ anonId: 'anon-2', advertiserTrackingEnabled: true });
-  mockAndroidModule = { metaContext: mockAndroidContext };
+  mockAndroidLogEvent.mockReset().mockResolvedValue(true);
+  mockAndroidModule = { metaContext: mockAndroidContext, logEvent: mockAndroidLogEvent };
   mockLogEvent.mockReset().mockResolvedValue(true);
   NativeModules.MetaAppEventsModule = {
     syncTracking: mockSyncTracking,
@@ -51,6 +53,7 @@ afterEach(() => {
   NativeModules.MetaAppEventsModule = originalModule;
   process.env = { ...originalEnv };
   jest.restoreAllMocks();
+  jest.useRealTimers();
 });
 
 test.each(['개발', 'dev 서버', 'staging', '목업', '웹', 'Android', '수집 중지'])(
@@ -183,14 +186,14 @@ describe('metaContext', () => {
     process.env.EXPO_PUBLIC_ENV = 'prod';
     mockMetaContext.mockRejectedValueOnce(new Error('boom'));
     await expect(meta.metaContext()).resolves.toBeUndefined();
-    mockMetaContext.mockResolvedValueOnce(null);
+    mockMetaContext.mockResolvedValue(null);
     await expect(meta.metaContext()).resolves.toBeUndefined();
     NativeModules.MetaAppEventsModule = { syncTracking: mockSyncTracking };
     await expect(meta.metaContext()).resolves.toBeUndefined();
   });
 });
 
-// GROMO-2749: iOS 만 Meta SDK 로 맞춤 이벤트를 기록한다(Android 는 서버 CAPI 만).
+// iOS·Android 모두 서버와 같은 이름·event_id 로 기록한다.
 describe('logMetaEvent', () => {
   test('운영 iOS는 이름과 event_id 로 네이티브 기록을 부른다', async () => {
     process.env.EXPO_PUBLIC_ENV = 'prod';
@@ -198,11 +201,11 @@ describe('logMetaEvent', () => {
     expect(mockLogEvent).toHaveBeenCalledWith('first_island_arrival', 'evt-1');
   });
 
-  test.each(['Android', '웹', '개발', 'dev 서버', '수집 중지'])(
+  test.each(['웹', '개발', 'dev 서버', '목업', '수집 중지'])(
     '%s에서는 부르지 않는다',
     async (mode) => {
       process.env.EXPO_PUBLIC_ENV = 'prod';
-      if (mode === 'Android') Platform.OS = 'android';
+      if (mode === '목업') process.env.EXPO_PUBLIC_DEMO = '1';
       if (mode === '웹') Platform.OS = 'web';
       if (mode === '개발') Object.assign(globalThis, { __DEV__: true });
       if (mode === 'dev 서버') process.env.EXPO_PUBLIC_ENV = 'dev';
@@ -214,7 +217,7 @@ describe('logMetaEvent', () => {
 
   test('SDK 시작 전(false)·브리지 없음·예외는 false', async () => {
     process.env.EXPO_PUBLIC_ENV = 'prod';
-    mockLogEvent.mockResolvedValueOnce(false);
+    mockLogEvent.mockResolvedValue(false);
     await expect(meta.logMetaEvent('first_island_arrival', 'evt-1')).resolves.toBe(false);
     mockLogEvent.mockRejectedValueOnce(new Error('boom'));
     await expect(meta.logMetaEvent('first_island_arrival', 'evt-1')).resolves.toBe(false);
@@ -222,3 +225,132 @@ describe('logMetaEvent', () => {
     await expect(meta.logMetaEvent('first_island_arrival', 'evt-1')).resolves.toBe(false);
   });
 });
+
+test('초기화 false는 1.5초마다 최대 3회 재시도하며 진행 중 요청을 공유한다', async () => {
+  jest.useFakeTimers();
+  mockSyncTracking.mockResolvedValue(false);
+  const pending = meta.syncMetaTracking();
+  await jest.advanceTimersByTimeAsync(1499);
+  expect(mockSyncTracking).toHaveBeenCalledTimes(1);
+  expect(meta.syncMetaTracking()).toBe(pending);
+  await jest.advanceTimersByTimeAsync(1);
+  expect(mockSyncTracking).toHaveBeenCalledTimes(2);
+  await jest.advanceTimersByTimeAsync(3000);
+  await pending;
+  expect(mockSyncTracking).toHaveBeenCalledTimes(4);
+  expect(jest.getTimerCount()).toBe(0);
+});
+
+test('초기화 재시도에서 성공하면 기다림을 끝낸다', async () => {
+  jest.useFakeTimers();
+  mockSyncTracking.mockResolvedValueOnce(false);
+  const pending = meta.syncMetaTracking();
+  await jest.advanceTimersByTimeAsync(1500);
+  await pending;
+  expect(mockSyncTracking).toHaveBeenCalledTimes(2);
+  expect(jest.getTimerCount()).toBe(0);
+});
+
+test('재시도 대기 중 백그라운드로 가면 멈추고 다음 전경 실행에서 다시 시작한다', async () => {
+  jest.useFakeTimers();
+  mockSyncTracking.mockResolvedValueOnce(false);
+  const pending = meta.syncMetaTracking();
+  await jest.advanceTimersByTimeAsync(500);
+  AppState.currentState = 'background';
+  await jest.advanceTimersByTimeAsync(1000);
+  await pending;
+  expect(mockSyncTracking).toHaveBeenCalledTimes(1);
+  AppState.currentState = 'active';
+  await meta.syncMetaTracking();
+  expect(mockSyncTracking).toHaveBeenCalledTimes(2);
+});
+
+test('재시도 예외는 삼키고 추가 타이머를 만들지 않는다', async () => {
+  jest.useFakeTimers();
+  mockSyncTracking.mockResolvedValueOnce(false).mockRejectedValueOnce(new Error('boom'));
+  const pending = meta.syncMetaTracking();
+  await jest.advanceTimersByTimeAsync(1500);
+  await expect(pending).resolves.toBeUndefined();
+  expect(mockSyncTracking).toHaveBeenCalledTimes(2);
+  expect(jest.getTimerCount()).toBe(0);
+});
+
+test.each([null, undefined, false])(
+  '매칭 값이 %s이면 초기화를 기다린 뒤 한 번 다시 읽는다',
+  async (value) => {
+    jest.useFakeTimers();
+    mockMetaContext.mockResolvedValueOnce(value);
+    mockSyncTracking.mockResolvedValueOnce(false);
+    const pending = meta.metaContext();
+    await jest.advanceTimersByTimeAsync(1499);
+    expect(mockMetaContext).toHaveBeenCalledTimes(1);
+    await jest.advanceTimersByTimeAsync(1);
+    await expect(pending).resolves.toMatchObject({
+      anonId: 'anon-1',
+      advertiserTrackingEnabled: false,
+    });
+    expect(mockMetaContext).toHaveBeenCalledTimes(2);
+  },
+);
+
+test.each([null, undefined, false])(
+  '이벤트 기록이 %s이면 초기화를 기다린 뒤 한 번 다시 기록한다',
+  async (value) => {
+    jest.useFakeTimers();
+    mockLogEvent.mockResolvedValueOnce(value);
+    mockSyncTracking.mockResolvedValueOnce(false);
+    const pending = meta.logMetaEvent('first_island_arrival', 'evt-1');
+    await jest.advanceTimersByTimeAsync(1499);
+    expect(mockLogEvent).toHaveBeenCalledTimes(1);
+    await jest.advanceTimersByTimeAsync(1);
+    await expect(pending).resolves.toBe(true);
+    expect(mockLogEvent.mock.calls).toEqual([
+      ['first_island_arrival', 'evt-1'],
+      ['first_island_arrival', 'evt-1'],
+    ]);
+  },
+);
+
+test('다시 미시작이어도 매칭 값과 이벤트를 계속 호출하지 않는다', async () => {
+  mockMetaContext.mockResolvedValue(null);
+  mockLogEvent.mockResolvedValue(false);
+  await expect(meta.metaContext()).resolves.toBeUndefined();
+  await expect(meta.logMetaEvent('first_island_arrival', 'evt-1')).resolves.toBe(false);
+  expect(mockMetaContext).toHaveBeenCalledTimes(2);
+  expect(mockLogEvent).toHaveBeenCalledTimes(2);
+});
+
+test('운영 Android는 Expo logEvent로 두 이름을 보내고 iOS 브리지는 부르지 않는다', async () => {
+  Platform.OS = 'android';
+  process.env.EXPO_PUBLIC_ENV = 'prod';
+  for (const name of ['first_island_arrival', 'fb_mobile_complete_registration']) {
+    await expect(meta.logMetaEvent(name, 'evt-1')).resolves.toBe(true);
+    expect(mockAndroidLogEvent).toHaveBeenCalledWith(name, 'evt-1');
+  }
+  expect(mockLogEvent).not.toHaveBeenCalled();
+  expect(mockSyncTracking).not.toHaveBeenCalled();
+});
+
+test('Android 미시작은 한 번 재호출하고 구 바이너리·예외는 false를 반환한다', async () => {
+  Platform.OS = 'android';
+  process.env.EXPO_PUBLIC_ENV = 'prod';
+  mockAndroidLogEvent.mockResolvedValueOnce(false);
+  await expect(meta.logMetaEvent('first_island_arrival', 'evt-1')).resolves.toBe(true);
+  expect(mockAndroidLogEvent).toHaveBeenCalledTimes(2);
+  mockAndroidLogEvent.mockRejectedValueOnce(new Error('boom'));
+  await expect(meta.logMetaEvent('first_island_arrival', 'evt-1')).resolves.toBe(false);
+  mockAndroidModule = { metaContext: mockAndroidContext };
+  await expect(meta.logMetaEvent('first_island_arrival', 'evt-1')).resolves.toBe(false);
+  mockAndroidModule = null;
+  await expect(meta.logMetaEvent('first_island_arrival', 'evt-1')).resolves.toBe(false);
+});
+
+test.each(['', 'dev', 'staging'])(
+  'Android 환경이 "%s"이면 이벤트를 기록하지 않는다',
+  async (environment) => {
+    Platform.OS = 'android';
+    process.env.EXPO_PUBLIC_ENV = environment;
+    await expect(meta.logMetaEvent('first_island_arrival', 'evt-1')).resolves.toBe(false);
+    expect(mockAndroidLogEvent).not.toHaveBeenCalled();
+  },
+);
