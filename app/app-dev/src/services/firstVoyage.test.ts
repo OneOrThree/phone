@@ -19,6 +19,10 @@ jest.mock('@/services/api/session', () => ({
   sessionGeneration: () => mockGeneration,
 }));
 jest.mock('@/services/metaSdk', () => ({ metaContext: jest.fn(), logMetaEvent: jest.fn() }));
+jest.mock('@/services/posthog', () => ({ captureProductEvent: jest.fn() }));
+const { captureProductEvent } = jest.requireMock('@/services/posthog') as {
+  captureProductEvent: jest.Mock;
+};
 const destination = { islandId: 'candidate', name: '무인도' } as TelescopeItem;
 beforeEach(async () => {
   await AsyncStorage.clear();
@@ -77,11 +81,18 @@ test('응답에 firstArrivalEventId 가 있을 때만 SDK 에 first_island_arriv
   });
   expect(logMetaEvent).toHaveBeenCalledTimes(1);
   expect(logMetaEvent).toHaveBeenCalledWith('first_island_arrival', 'evt-1');
+  // GROMO-2753: 같은 도착을 PostHog·Airbridge(Google Ads 전환) 로도 보내고 SDK 기록 결과를 남긴다.
+  await new Promise(setImmediate);
+  expect(captureProductEvent).toHaveBeenCalledTimes(1);
+  expect(captureProductEvent).toHaveBeenCalledWith('first_island_arrival', { meta_sdk_logged: 1 });
 
   (logMetaEvent as jest.Mock).mockClear();
+  captureProductEvent.mockClear();
   (request as jest.Mock).mockResolvedValueOnce({ islandId: 'island-1' });
   await arriveFirstVoyage(intent, 7);
+  await new Promise(setImmediate);
   expect(logMetaEvent).not.toHaveBeenCalled();
+  expect(captureProductEvent).not.toHaveBeenCalled();
 });
 
 test('SDK 기록이 실패해도 도착 결과는 그대로 돌려준다', async () => {
@@ -92,4 +103,7 @@ test('SDK 기록이 실패해도 도착 결과는 그대로 돌려준다', async
   });
   (logMetaEvent as jest.Mock).mockRejectedValueOnce(new Error('boom'));
   await expect(arriveFirstVoyage(intent, 7)).resolves.toMatchObject({ islandId: 'island-1' });
+  // SDK 기록이 실패해도 Airbridge·PostHog 이벤트는 나가고 실패를 0 으로 남긴다(GROMO-2753).
+  await new Promise(setImmediate);
+  expect(captureProductEvent).toHaveBeenCalledWith('first_island_arrival', { meta_sdk_logged: 0 });
 });
