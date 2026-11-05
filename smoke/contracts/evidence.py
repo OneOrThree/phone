@@ -6,6 +6,7 @@ import hashlib
 import json
 from pathlib import Path
 import re
+import subprocess
 
 EXPECTED = {f'SMOKE-SERVER-{n:03}' for n in [*range(1, 11), *range(14, 20)]}
 SERVICES = {'data-api', 'business-api', 'realtime', 'notification'}
@@ -48,4 +49,5 @@ if __name__ == '__main__':
     parser.add_argument('--revision',required=True)
     args=parser.parse_args()
     evidence=build(args.results,json.loads(args.inventory.read_text()),args.revision)
+    evidence['appTree']=subprocess.check_output(['git','rev-parse',args.revision+':app/app-dev'],text=True).strip()
     (args.results/'compatibility-dev.json').write_text(json.dumps(evidence,indent=2)+'\n')

@@ -48,7 +48,7 @@ def failing_git(*args):
 
 def run(env=None, fetch=None, git=None):
     out, err = io.StringIO(), io.StringIO()
-    code = gate.main(env if env is not None else {}, fetch or api(), git or git_with([]), out, err)
+    code = gate.main(env if env is not None else {}, fetch or api(), git or git_with([]), out, err, compatibility=lambda env: None)
     return code, out.getvalue(), err.getvalue()
 
 

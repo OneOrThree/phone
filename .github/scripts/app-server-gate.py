@@ -6,6 +6,7 @@
 표준 라이브러리만 쓴다.
 """
 import json
+import importlib.util
 import os
 import re
 import subprocess
@@ -92,11 +93,21 @@ def server_changes(sha, git=run_git):
     return [name for name in files if SERVER_RUNTIME.match(name)]
 
 
-def main(env=None, fetch=fetch_json, git=run_git, out=sys.stdout, err=sys.stderr):
+def release_check(env):
+    spec=importlib.util.spec_from_file_location('release_check',ROOT/'smoke/contracts/release_check.py')
+    module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+    try:module.check(env)
+    except (ValueError,KeyError,IndexError,OSError,TypeError):raise GateError('dev 검증과 운영 서비스 버전 대조 실패. APP_COMPATIBILITY_RUN_ID·배포 기록을 확인하세요.') from None
+
+
+def main(env=None, fetch=fetch_json, git=run_git, out=sys.stdout, err=sys.stderr, compatibility=release_check):
     env = os.environ if env is None else env
     reason = env.get('ALLOW_SERVER_GAP', '').strip()
     if reason:
         print(f'app-server-gate: 서버 선행 검사를 건너뜁니다. 사유: {reason}', file=out)
+        try:compatibility(env)
+        except GateError as error:
+            print(str(error),file=err);return 1
         return 0
     tag = None
     try:
@@ -115,6 +126,9 @@ def main(env=None, fetch=fetch_json, git=run_git, out=sys.stdout, err=sys.stderr
               '조치: 서버를 먼저 release 로 승격·배포한 뒤 다시 실행하세요. 의도한 예외라면 '
               'ALLOW_SERVER_GAP="사유" 를 설정하세요.', file=err)
         return 1
+    try:compatibility(env)
+    except GateError as error:
+        print(str(error),file=err);return 1
     print(f'app-server-gate: 통과 (운영 {tag}, 커밋 {sha[:7]})', file=out)
     return 0
 
