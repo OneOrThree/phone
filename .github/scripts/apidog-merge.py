@@ -53,7 +53,7 @@ DOMAINS = {
     "섬": ["island-membership", "island-management", "island-host-transfer", "host-transfer",
           "island-construction", "island-rankings", "island-records", "playback",
           "island", "island-join", "island-layout", "island-economy",
-          "realtime-membership-authorization"],
+          "realtime-membership-authorization", "hall-less-island-cleanup"],
     "섬 소통": ["island-notice", "island-guestbook", "island-mailbox", "letter"],
     "홍보·잡지": ["island-promotion", "magazine"],
     "퀘스트": ["island-quest"],
