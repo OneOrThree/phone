@@ -46,12 +46,15 @@ node smoke/contracts/report.cjs /tmp/phone-api-coverage
 `SMOKE_FIRST_VOYAGE_ENABLED=1`로 선택하며 dev V2 자동 smoke에서 활성화한다.
 정리 대상 소속을 조회할 수 없는 실패는 수동 확인이 필요하다. 신규 게스트·명령 기록은 dev DB에 남는다.
 
-첫 항해 후 집중·보상·건설은 기존 별도 TC014가 독립 fixture로 검사한다.
-같은 신규 사용자가 모든 기능을 연속 통과하는 단일 E2E 테스트와는 구분한다.
+TC020은 TC019의 **같은 신규 사용자·섬**에서 집중 시작, 같은 키 재요청, 중복 시작 거부,
+휴식 중 시간 정지, 재개, 오래된 버전 거절, 실제 시간 경과, 종료 재요청과 보상 중복 방지를 확인한다.
+정책의 `seconds_per_fish`에 스케줄러 대기 65초를 더 기다린다. TC014는 별도 fixture로 건설·구매를 검사한다.
+정확한 보상 경계와 휴식 적립·중복 적립은 `FocusSessionActivationIntegrationTest`의 격리 DB 테스트가 담당한다.
+앱 재실행 상태·응답 유실 복구는 `sessionCommands.test.ts`에서 검사하며 실제 모바일 UI 재시작 E2E는 아니다.
 
 ## 소스·실행 결과 연결
 
-dev V2는 전체 16개 TC 성공과 검사 전후 실제 이미지 일치를 확인한 뒤
+dev V2는 전체 17개 TC 성공과 검사 전후 실제 이미지 일치를 확인한 뒤
 `compatibility-dev.json`을 `smoke-results` 산출물에 저장한다.
 
 - 앱 테스트 소스 커밋, API 입력 소스 해시

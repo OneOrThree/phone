@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # run.sh의 신규 main 게스트를 재사용한다. 추가 로그인·DB seed·운영 요청은 없다.
 first_voyage() {
+  FIRST_VOYAGE_OK=0
   local destination key response_id confirmed replay_id
   local stage='신규 게스트의 무소속 확인'
   if ! req GET /me/islands '' "$TOKEN" || ! jq -e '.data.items == [] and .data.currentIslandId == null' "$SMOKE_BODY_FILE" >/dev/null; then
@@ -34,5 +35,6 @@ first_voyage() {
   if ! req GET "/screens/home?date=$(TZ=Asia/Seoul date +%F)&timezone=Asia/Seoul" '' "$TOKEN" || ! jq -e '.data | (.buildings|type)=="array" and (.members.items|type)=="array" and (.wallets|has("fish") and has("villagePoints")) and ((.missingFragments // [])|length)==0' "$SMOKE_BODY_FILE" >/dev/null; then
     record 019 FAIL "$stage"; return
   fi
+  FIRST_VOYAGE_OK=1
   record 019 PASS '신규 게스트→무인도→실제 섬 도착→동일 키 재전송→단일 소속→홈'
 }

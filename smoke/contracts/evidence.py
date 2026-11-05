@@ -8,7 +8,7 @@ from pathlib import Path
 import re
 import subprocess
 
-EXPECTED = {f'SMOKE-SERVER-{n:03}' for n in [*range(1, 11), *range(14, 20)]}
+EXPECTED = {f'SMOKE-SERVER-{n:03}' for n in [*range(1, 11), *range(14, 21)]}
 SERVICES = {'data-api', 'business-api', 'realtime', 'notification'}
 
 

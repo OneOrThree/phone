@@ -28,7 +28,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    # 같은 잠금으로 보호된 dev V2 CD가 끝난 뒤 전체 15개를 검사한다.
+    # 같은 잠금으로 보호된 dev V2 CD가 끝난 뒤 전체 17개를 검사한다.
     concurrency:
       group: catus-dev-v2-deploy
       cancel-in-progress: false

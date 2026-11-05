@@ -2,7 +2,7 @@
 
 입력 소스 SHA-256: `c3c1afa983ad81714524716daebfdbb421a449dea70e0832f382ad0014b7259a`
 
-API 122개 / 서버 경로 미일치 0개 / 미해석 0개 / 시나리오 등록 11개
+API 122개 / 서버 경로 미일치 0개 / 미해석 0개 / 시나리오 등록 13개
 
 **정적 분석 결과다. 서버 경로 일치·시나리오 등록은 테스트 실행 성공을 의미하지 않는다.**
 
@@ -20,15 +20,15 @@ API 122개 / 서버 경로 미일치 0개 / 미해석 0개 / 시나리오 등록
 | POST | `/blocks` | 일치 | 미등록 | NOT_RUN | app/app-dev/src/services/api/safety.ts:25 |
 | GET | `/customization/catalog` | 일치 | 미등록 | NOT_RUN | app/app-dev/src/services/customizationCatalog.ts:241 |
 | POST | `/focus-sessions/{}/acknowledge` | 일치 | 미등록 | NOT_RUN | app/app-dev/src/services/api/focusSessions.ts:226 |
-| POST | `/focus-sessions/{}/finish` | 일치 | focus-reward-construction | NOT_RUN | app/app-dev/src/services/api/focusSessions.ts:215 |
+| POST | `/focus-sessions/{}/finish` | 일치 | first-voyage-focus-reward, focus-reward-construction | NOT_RUN | app/app-dev/src/services/api/focusSessions.ts:215 |
 | PUT | `/focus-sessions/{}/live-activity` | 일치 | 미등록 | NOT_RUN | app/app-dev/src/services/liveActivityPush.ts:36 |
-| POST | `/focus-sessions/{}/pause` | 일치 | 미등록 | NOT_RUN | app/app-dev/src/services/api/focusSessions.ts:193 |
-| POST | `/focus-sessions/{}/resume` | 일치 | 미등록 | NOT_RUN | app/app-dev/src/services/api/focusSessions.ts:204 |
+| POST | `/focus-sessions/{}/pause` | 일치 | first-voyage-focus-reward | NOT_RUN | app/app-dev/src/services/api/focusSessions.ts:193 |
+| POST | `/focus-sessions/{}/resume` | 일치 | first-voyage-focus-reward | NOT_RUN | app/app-dev/src/services/api/focusSessions.ts:204 |
 | POST | `/focus-sessions/{}/tutorial-reward` | 일치 | 미등록 | NOT_RUN | app/app-dev/src/services/api/focusSessions.ts:41 |
-| GET | `/focus-sessions/current` | 일치 | focus-reward-construction | NOT_RUN | app/app-dev/src/services/api/focusSessions.ts:128 |
+| GET | `/focus-sessions/current` | 일치 | first-voyage-focus-reward, focus-reward-construction | NOT_RUN | app/app-dev/src/services/api/focusSessions.ts:128 |
 | GET | `/focus-sessions/pending-result` | 일치 | 미등록 | NOT_RUN | app/app-dev/src/services/api/focusSessions.ts:133 |
 | POST | `/focus-sessions/sea` | 일치 | 미등록 | NOT_RUN | app/app-dev/src/services/api/focusSessions.ts:164 |
-| POST | `/focus-sessions` | 일치 | focus-reward-construction | NOT_RUN | app/app-dev/src/services/api/focusSessions.ts:147 |
+| POST | `/focus-sessions` | 일치 | first-voyage-focus-reward, focus-reward-construction | NOT_RUN | app/app-dev/src/services/api/focusSessions.ts:147 |
 | DELETE | `/friends/{}` | 일치 | 미등록 | NOT_RUN | app/app-dev/src/services/api/friends.ts:117 |
 | POST | `/friends/requests/{}/accept` | 일치 | 미등록 | NOT_RUN | app/app-dev/src/services/api/friends.ts:98 |
 | POST | `/friends/requests/{}/cancel` | 일치 | 미등록 | NOT_RUN | app/app-dev/src/services/api/friends.ts:110 |
@@ -84,7 +84,7 @@ API 122개 / 서버 경로 미일치 0개 / 미해석 0개 / 시나리오 등록
 | POST | `/islands/{}/shop/orders` | 일치 | 미등록 | NOT_RUN | app/app-dev/src/services/api/shop.ts:175 |
 | GET | `/islands/{}/shop/products/{}` | 일치 | 미등록 | NOT_RUN | app/app-dev/src/services/api/shop.ts:155 |
 | GET | `/islands/{}/shop/products` | 일치 | 미등록 | NOT_RUN | app/app-dev/src/services/api/shop.ts:151 |
-| GET | `/islands/{}/shop/wallets` | 일치 | focus-reward-construction | NOT_RUN | app/app-dev/src/services/api/shop.ts:159 |
+| GET | `/islands/{}/shop/wallets` | 일치 | first-voyage-focus-reward, focus-reward-construction | NOT_RUN | app/app-dev/src/services/api/shop.ts:159 |
 | GET | `/islands/{}/statistics/focus` | 일치 | 미등록 | NOT_RUN | app/app-dev/src/services/api/records.ts:270 |
 | GET | `/islands/{}/statistics/screen-time` | 일치 | 미등록 | NOT_RUN | app/app-dev/src/services/api/records.ts:289 |
 | POST | `/islands/{}/tutorial-reward` | 일치 | 미등록 | NOT_RUN | app/app-dev/src/services/api/focusSessions.ts:28 |

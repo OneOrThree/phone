@@ -21,8 +21,8 @@ class EvidenceTest(unittest.TestCase):
 
     def write(self,missing=False,failed=False):
         (self.directory/'targets.json').write_text(json.dumps(self.targets))
-        rows=[case+'\tPASS' for case in sorted(evidence.EXPECTED) if not missing or not case.endswith('019')]
-        if failed:rows.append('SMOKE-SERVER-019\tFAIL')
+        rows=[case+'\tPASS' for case in sorted(evidence.EXPECTED) if not missing or not case.endswith('020')]
+        if failed:rows.append('SMOKE-SERVER-020\tFAIL')
         (self.directory/'results.tsv').write_text('id\tstatus\n'+'\n'.join(rows)+'\n')
 
     def test_exact_sources_and_results_recorded_as_dev_only(self):
@@ -30,10 +30,10 @@ class EvidenceTest(unittest.TestCase):
         self.assertEqual(result['environment'],'dev')
         self.assertEqual(result['appRevision'],'a'*40)
         self.assertEqual(result['services'],self.targets['services'])
-        self.assertEqual(len(result['passedCases']),16)
+        self.assertEqual(len(result['passedCases']),17)
         self.assertEqual(len(result['results'][0]['sha256']),64)
 
-    def test_missing_first_voyage_and_any_failure_reject(self):
+    def test_missing_focus_journey_and_any_failure_reject(self):
         for missing,failed in [(True,False),(False,True)]:
             self.write(missing,failed)
             with self.assertRaises(ValueError):evidence.build(self.directory,self.inventory,'a'*40)
