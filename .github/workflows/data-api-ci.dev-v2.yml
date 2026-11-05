@@ -49,7 +49,7 @@ jobs:
   images:
     if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main'
     needs: [data, realtime]
-    runs-on: ${{ fromJSON('["self-hosted", "ci", "spot"]') }}
+    runs-on: ${{ fromJSON('["self-hosted", "gcp", "dev-v2"]') }}
     timeout-minutes: 40
     strategy:
       fail-fast: false
@@ -72,7 +72,7 @@ jobs:
           build-args: JAR_SOURCE=prebuilt
           platforms: linux/amd64
           push: true
-          tags: asia-northeast3-docker.pkg.dev/oneorthree2/${{ matrix.service }}/${{ matrix.service }}:dev-v2-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          tags: asia-northeast3-docker.pkg.dev/project-cd783bdb-e03f-4e17-b74/${{ matrix.service }}/${{ matrix.service }}:dev-v2-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           labels: org.opencontainers.image.revision=${{ github.sha }}
       - name: 이미지 정보 기록
         env:
@@ -83,7 +83,7 @@ jobs:
           import json,os,re
           s=os.environ['SERVICE']; d=os.environ['DIGEST']
           if not re.fullmatch(r'sha256:[0-9a-f]{64}', d): raise SystemExit('이미지 digest 오류')
-          image=f'asia-northeast3-docker.pkg.dev/oneorthree2/{s}/{s}@{d}'
+          image=f'asia-northeast3-docker.pkg.dev/project-cd783bdb-e03f-4e17-b74/{s}/{s}@{d}'
           open(f'{s}-dev-v2-image.json','w').write(json.dumps({'service':s,'image':image,'revision':os.environ['GITHUB_SHA']}))
           PY
       - uses: actions/upload-artifact@v4

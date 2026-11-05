@@ -11,7 +11,7 @@ import subprocess
 import tarfile
 
 ROOT = Path(__file__).resolve().parents[4]
-BUCKET = 'gs://catus-dev-v2-deploy-263851348176'
+BUCKET = 'gs://catus-dev-v2-deploy-201721380114'
 
 
 def module(name, file):
@@ -121,11 +121,11 @@ def deploy(infra_uri, core_run, satellite_run, force=False):
         return
     config = runtime.aws_secret('catus/dev/cicd-v2')
     host = config.get('hosts', {}).get('app', {})
-    if (config.get('environment') != 'dev-v2' or config.get('project') != 'oneorthree2'
+    if (config.get('environment') != 'dev-v2' or config.get('project') != 'project-cd783bdb-e03f-4e17-b74'
         or config.get('zone') != 'asia-northeast3-a' or host.get('name') != 'catus-dev-v2-app'):
         raise ValueError('dev V2 앱 대상 오류')
     actual = json.loads(runtime.command(['gcloud','compute','instances','describe','catus-dev-v2-app',
-                 '--project=oneorthree2','--zone=asia-northeast3-a','--format=json']))
+                 '--project=project-cd783bdb-e03f-4e17-b74','--zone=asia-northeast3-a','--format=json']))
     if (str(actual.get('id')) != str(host.get('id')) or actual.get('status') != 'RUNNING'
         or len(actual.get('networkInterfaces', [])) != 1
         or actual['networkInterfaces'][0].get('networkIP') != host.get('private_ip')):

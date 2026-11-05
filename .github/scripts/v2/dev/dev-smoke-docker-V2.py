@@ -35,7 +35,7 @@ def remote_command(args, auth):
 
 def main(args):
     auth = os.environ.get(AUTH) if AUTH in args else None
-    ssh = ['gcloud', 'compute', 'ssh', host_for(args), '--project=oneorthree2', '--zone=asia-northeast3-a',
+    ssh = ['gcloud', 'compute', 'ssh', host_for(args), '--project=project-cd783bdb-e03f-4e17-b74', '--zone=asia-northeast3-a',
            '--tunnel-through-iap', '--ssh-key-expire-after=1h', '--quiet', '--command', remote_command(args, auth)]
     if not auth: return subprocess.run(ssh).returncode
     return subprocess.run(ssh, input=(auth + '\n').encode() + sys.stdin.buffer.read()).returncode
