@@ -5,7 +5,7 @@ GROMO-2752. 앱과 같은 온보딩·게스트 계정·섬 탐색·집중 기록
 - 대표 주소: https://try.oneorthree.world/
 - PostHog: https://us.posthog.com/project/669473/dashboard/2305307
 - 메타모아 검토 화면: https://metamoa.com/submit
-- 소유자가 등록·API 연결을 요청했다. **약관·개인정보처리방침 동의 전에는 미제출**이며 이메일은 보내지 않는다.
+- 2026-11-05 소유자의 약관·개인정보처리방침 동의를 받은 뒤 등록 신청을 접수했다. 현재 **심사 대기(pending)**이며 이메일은 보내지 않았다. 신청 조회 키는 Cloudflare 서버 비밀 환경 변수에만 저장했다.
 
 ## 웹과 앱의 범위
 
@@ -125,3 +125,5 @@ node web-demo/metamoa.cjs --character-status
 독립 검사: `node --test web-demo/api-worker.test.mjs web-demo/metamoa-worker.test.mjs`. 외부 서버에 요청하지 않고 인증·중복·만료·봇 제외·전송 간격·키 비노출을 확인한다.
 
 신청 응답 뒤 서버 저장에 실패하면 실행 프로세스를 유지하고 저장만 다시 시도한다. 프로세스까지 종료됐으면 `PENDING`을 지우거나 재신청하지 말고 메타모아 운영자에게 기존 신청의 키 복구를 요청한다. 공간 키와 공간 ID는 `WRANGLER_LOG_SANITIZE=true WRANGLER_SEND_METRICS=false npx --yes wrangler@4.157.0 secret put METAMOA_KEY --name cattus-web-api` 및 같은 방식의 `METAMOA_SPACE_ID` 입력으로 서버에 저장한다. 비밀을 명령행 인자·파일에 넣지 않는다.
+
+Cloudflare Workers 외부 요청은 `redirect: manual`을 쓴다. 지원하지 않는 `error` 모드는 요청 전에 예외가 발생한다. 3xx는 호출자가 실패로 처리하며 다른 호스트로 키를 전달하지 않는다. 근거: https://developers.cloudflare.com/workers/runtime-apis/request/
