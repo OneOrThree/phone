@@ -301,3 +301,45 @@ test('잘못된 JSON과 이벤트 시간·소개·외부 URL은 제공자 호출
     globalThis.fetch = original;
   }
 });
+
+test('Workers가 지원하는 수동 리다이렉트로 조회하고 다른 호스트의 3xx를 거절한다', async () => {
+  const env = {
+    METAMOA_ADMIN_KEY: 'admin',
+    METAMOA_REQUEST_KEY: 'test-request',
+    METAMOA_SUBMISSION_ID: 'cattus',
+    METAMOA_KEY: 'test-space',
+    METAMOA_SPACE_ID: 'cattus',
+  };
+  const original = globalThis.fetch;
+  let calls = 0;
+  let redirect = false;
+  globalThis.fetch = async (url, init) => {
+    calls++;
+    assert.equal(new URL(url).origin, 'https://metamoa.com');
+    assert.equal(init.redirect, 'manual');
+    if (redirect)
+      return new Response(null, {
+        status: 302,
+        headers: { Location: 'https://other.example/private' },
+      });
+    return Response.json({ status: 'pending' });
+  };
+  const request = (path, method = 'GET', body) =>
+    new Request('https://try.oneorthree.world/service-api/metamoa/' + path, {
+      method,
+      headers: { Authorization: 'Bearer admin', 'Content-Type': 'image/png' },
+      body,
+    });
+  try {
+    assert.equal((await (await metamoaAdmin(request('status'), env)).json()).status, 'pending');
+    redirect = true;
+    for (const r of [request('status'), request('character', 'PUT', 'fixture')]) {
+      const response = await metamoaAdmin(r, env);
+      assert.equal(response.status, 502);
+      assert.equal((await response.text()).includes('other.example'), false);
+    }
+    assert.equal(calls, 3);
+  } finally {
+    globalThis.fetch = original;
+  }
+});

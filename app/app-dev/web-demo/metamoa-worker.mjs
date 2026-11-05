@@ -130,6 +130,7 @@ export function scheduledMetamoa(_controller, env, ctx) {
   );
 }
 
+// Workers는 redirect:error를 지원하지 않는다. 수동 응답의 비정상 상태를 호출자가 거절해 키를 다른 호스트로 전달하지 않는다.
 async function metamoaFetch(env, path, method = 'GET', body, requestKey = false) {
   return fetch(API + path, {
     method,
@@ -138,7 +139,7 @@ async function metamoaFetch(env, path, method = 'GET', body, requestKey = false)
       'Content-Type': 'application/json',
     },
     body: body === undefined ? undefined : JSON.stringify(body),
-    redirect: 'error',
+    redirect: 'manual',
     signal: AbortSignal.timeout(15000),
   });
 }
@@ -220,7 +221,7 @@ export async function metamoaAdmin(request, env) {
         method: 'PUT',
         headers: { Authorization: `Bearer ${env.METAMOA_KEY}`, 'Content-Type': type },
         body: new Blob(chunks, { type }),
-        redirect: 'error',
+        redirect: 'manual',
         signal: AbortSignal.timeout(20000),
       });
     }
