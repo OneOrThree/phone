@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""TSV 전체 15개를 판정한다. workflow exit 상태가 main 전용 Actions 배지가 된다."""
+"""TSV 전체 16개를 판정한다. workflow exit 상태가 main 전용 Actions 배지가 된다."""
 import csv
 import json
 import os
@@ -7,7 +7,7 @@ from pathlib import Path
 import re
 import sys
 
-EXPECTED = {f'SMOKE-SERVER-{n:03}' for n in [*range(1, 11), *range(14, 19)]}
+EXPECTED = {f'SMOKE-SERVER-{n:03}' for n in [*range(1, 11), *range(14, 20)]}
 
 
 def login_summary(directory):
