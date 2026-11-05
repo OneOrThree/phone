@@ -77,9 +77,9 @@ class GateTest(unittest.TestCase):
         self.assertEqual([c[0] for c in fetch.calls], [gate.LATEST_RUN_URL, gate.RECORD_URL])
         self.assertEqual(fetch.calls[1], (gate.RECORD_URL, gate.RAW))
         self.assertIn('ref=deployment-status', gate.RECORD_URL)
-        self.assertEqual(git.calls[0], ('fetch', '--quiet', 'origin', f'refs/tags/{TAG}:refs/tags/{TAG}'))
-        self.assertEqual(git.calls[1], ('rev-parse', '--verify', f'refs/tags/{TAG}^{{commit}}'))
-        self.assertEqual(git.calls[2], ('diff', '--name-only', '--no-renames', f'{SHA}...HEAD'))
+        self.assertEqual(git.calls[1], ('fetch', '--quiet', 'origin', f'refs/tags/{TAG}:refs/tags/{TAG}'))
+        self.assertEqual(git.calls[2], ('rev-parse', '--verify', f'refs/tags/{TAG}^{{commit}}'))
+        self.assertEqual(git.calls[3], ('diff', '--name-only', '--no-renames', f'{SHA}...HEAD'))
         self.assertNotIn(('fetch', '--quiet', 'origin', 'release'), git.calls)
         self.assertIn(TAG, out)
 
@@ -89,7 +89,7 @@ class GateTest(unittest.TestCase):
         code, _, err = run(fetch=api('catus-v2.0.2-V2'), git=git)
         self.assertEqual(code, 1)
         self.assertIn('catus-v2.0.2-V2', err)
-        self.assertEqual(git.calls[1], ('rev-parse', '--verify', 'refs/tags/catus-v2.0.2-V2^{commit}'))
+        self.assertEqual(git.calls[2], ('rev-parse', '--verify', 'refs/tags/catus-v2.0.2-V2^{commit}'))
 
     def test_untrusted_latest_deploy_run_blocks_before_record_and_git(self):
         for latest in ({'status': 'completed', 'conclusion': 'failure'}, {'status': 'in_progress', 'conclusion': None},
@@ -97,7 +97,8 @@ class GateTest(unittest.TestCase):
             git, fetch = git_with([]), api(latest=latest)
             code, _, err = run(fetch=fetch, git=git)
             self.assertEqual(code, 1, latest)
-            self.assertEqual(git.calls, [])
+            self.assertEqual(len(git.calls), 1)
+            self.assertEqual(git.calls[0][0], 'status')
             self.assertEqual([c[0] for c in fetch.calls], [gate.LATEST_RUN_URL])
             self.assertIn('운영 상태를 확인할 수 없', err)
             self.assertIn('ALLOW_SERVER_GAP', err)
@@ -111,7 +112,8 @@ class GateTest(unittest.TestCase):
             git = git_with([])
             code, _, err = run(fetch=api(bad), git=git)
             self.assertEqual(code, 1, bad)
-            self.assertEqual(git.calls, [])
+            self.assertEqual(len(git.calls), 1)
+            self.assertEqual(git.calls[0][0], 'status')
             self.assertIn('ALLOW_SERVER_GAP', err)
 
     def test_tag_resolution_failure_blocks_and_names_tag(self):
@@ -166,9 +168,26 @@ class GateTest(unittest.TestCase):
         self.assertNotIn('Authorization', seen[1])
 
     def test_allow_server_gap_passes_with_reason_and_skips_lookup(self):
-        code, out, _ = run(env={'ALLOW_SERVER_GAP': '서버 변경 없음 확인'}, fetch=failing_api, git=failing_git)
+        code, out, _ = run(env={'ALLOW_SERVER_GAP': '서버 변경 없음 확인'}, fetch=failing_api, git=git_with([]))
         self.assertEqual(code, 0)
         self.assertIn('서버 변경 없음 확인', out)
+
+    def test_dirty_app_blocks_before_bypass_or_network(self):
+        for status in (' M app/app-dev/App.tsx', 'M  app/app-dev/App.tsx', '?? app/app-dev/new.ts'):
+            with self.subTest(status=status):
+                calls = []
+                def git(*args):
+                    calls.append(args)
+                    return status
+                code, _, err = run(env={'ALLOW_SERVER_GAP': '예외'}, fetch=failing_api, git=git)
+                self.assertEqual(code, 1)
+                self.assertIn('커밋되지 않은 변경', err)
+                self.assertEqual(calls, [('status', '--porcelain', '--untracked-files=all', '--', 'app/app-dev')])
+
+    def test_git_status_failure_blocks_even_with_bypass(self):
+        code, _, err = run(env={'ALLOW_SERVER_GAP': '예외'}, fetch=failing_api, git=failing_git)
+        self.assertEqual(code, 1)
+        self.assertIn('앱 소스 상태를 확인할 수 없어', err)
 
     def test_blank_allow_value_is_ignored(self):
         for blank in ('', '  ', '\t'):

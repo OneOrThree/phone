@@ -25,6 +25,8 @@ TC020은 첫 항해 사용자의 집중 시작부터 휴식·재개·종료·보
 
 앱 출시 스크립트의 기존 `app-server-gate.py` 끝에서 `release_check.py`를 호출한다.
 `ALLOW_SERVER_GAP`은 이전 소스 비교의 예외이며 새 호환성·운영 API 검사까지 건너뛰지 않는다.
+`app/app-dev`에 Git이 감지하는 미커밋 수정이나 미추적 파일이 있거나 상태 조회에 실패하면
+어떤 예외 설정이 있어도 먼저 중단한다. 검증 기준인 HEAD와 빌드할 앱 소스가 달라지는 일을 막기 위함이다.
 
 1. `APP_COMPATIBILITY_RUN_ID`로 특정 main dev smoke 성공 실행을 선택한다.
 2. GitHub API로 실행 워크플로·브랜치·성공·head SHA를 확인하고 `smoke-results` 산출물을 받는다.

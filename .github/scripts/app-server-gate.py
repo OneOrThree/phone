@@ -106,6 +106,15 @@ def release_check(env):
 
 def main(env=None, fetch=fetch_json, git=run_git, out=sys.stdout, err=sys.stderr, compatibility=release_check):
     env = os.environ if env is None else env
+    try:
+        dirty = git('status', '--porcelain', '--untracked-files=all', '--', 'app/app-dev')
+    except GateError as error:
+        print(f'app-server-gate: 앱 소스 상태를 확인할 수 없어 출시를 차단합니다. {error}', file=err)
+        return 1
+    if dirty:
+        print('app-server-gate: app/app-dev에 커밋되지 않은 변경이 있어 출시를 차단합니다. '
+              '변경을 커밋하거나 정리한 뒤 다시 실행하세요.', file=err)
+        return 1
     reason = env.get('ALLOW_SERVER_GAP', '').strip()
     if reason:
         print(f'app-server-gate: 서버 선행 검사를 건너뜁니다. 사유: {reason}', file=out)
