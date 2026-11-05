@@ -47,6 +47,13 @@ def check(env=None,execute=command):
         execute(['gh','run','download',run_id,'--repo',REPO,'--name','smoke-results','--dir',d])
         evidence=json.loads((Path(d)/'compatibility-dev.json').read_text())
     verify(evidence,production,app_tree,run)
+    # 같은 보호된 실행 안에서 실제 운영 응답도 확인한 후 CD 상태를 재검사한다.
+    import importlib.util
+    import sys
+    sys.path.insert(0,str(Path(__file__).parent))
+    from production import check as production_check
+    production_check(env)
+
     after=json.loads(execute(['gh','api',f'repos/{REPO}/actions/workflows/prod-cd-V2.yml/runs?branch=release&per_page=1']))['workflow_runs'][0]
     assert_current(after)
     return production
