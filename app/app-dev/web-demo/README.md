@@ -75,9 +75,15 @@ Worker 소스는 `api-worker.mjs`, 독립 검사 명령은 `node --test web-demo
 | 컷신 MP4                  | H.264 1080×1920 CRF 26 | 원본 대비 SSIM 0.98 이상. 소리 트랙은 원래 없다.                                                                                   |
 | 고운돋움 TTF              | WOFF2                  | 글리프가 같다. expo-font 웹 로더가 `format()` 없이 `@font-face`를 만들어 주소만 바꾼다.                                            |
 
-10% 넘게 줄지 않은 파일은 원본을 쓴다. 바꾼 파일은 새 내용의 해시로 이름을 정하고, JS 번들의 `uri:"/assets/…"` 문자열과 번들 이름·`index.html` 참조를 함께 옮긴다. 번들이 없는 파일을 가리키면 빌드가 실패한다. 원본 파일도 배포 폴더에 남긴다. 배포 직전에 열려 있던 탭이 옛 번들로 원본을 요청할 수 있기 때문이다.
+10% 넘게 줄지 않은 파일은 원본을 쓴다. 이 기준과 보고서의 전후 크기는 파일 크기다. 전송 크기와는 다르다. 예를 들어 TTF는 서버가 brotli로 보내 지금도 981KB만 전송된다.
 
-필요한 도구는 `brew install webp ffmpeg woff2`로 설치한다. 없으면 빌드가 설치 명령을 알리고 멈춘다. 첫 빌드는 인코딩에 약 2분이 걸린다. 결과는 `build/.web-asset-cache`에 남아 다음 빌드부터는 바뀐 파일만 인코딩한다. 파일별 전후 크기는 배포 폴더 밖의 `build/web-demo-assets.json`에 쓴다. 주소 교체 검사는 `node --test web-demo/optimize-assets.test.mjs`다.
+바꾼 파일은 새 내용의 해시로 이름을 정하고, JS 번들의 `uri:"/assets/…"` 문자열과 번들 이름·`index.html` 참조를 함께 옮긴다. 새 파일마다 번들에서 원래 주소를 찾지 못하거나, 번들이 없는 파일을 가리키거나, 소스맵이 있으면 빌드가 실패한다.
+
+원본 파일도 배포 폴더에 남긴다. 배포 직전에 열려 있던 탭이 옛 번들로 원본을 요청할 수 있기 때문이다. 이 보호는 바로 앞 배포 하나에만 해당한다. 배포 폴더는 매번 새로 만들어서, 두 번 전 배포의 파일은 남지 않는다. 그보다 오래 열린 탭은 새로고침해야 한다.
+
+`format()`이 없어도 된다는 전제는 expo-font의 `ExpoFontLoader.web.js`가 `@font-face{…src:url(…)…}`를 만드는 현재 구현에 기댄다. expo를 올리면 공개 웹에서 고운돋움이 `loaded`인지 다시 확인한다.
+
+필요한 도구는 `brew install webp ffmpeg woff2`로 설치한다. 없으면 빌드가 설치 명령을 알리고 멈춘다. 첫 빌드는 인코딩에 약 2분이 걸린다. 결과는 `build/.web-asset-cache`에 남아 다음 빌드부터는 바뀐 파일만 인코딩한다. 캐시 키에는 원본 내용·인코더 인자·cwebp와 ffmpeg 버전이 들어간다. 캐시는 정리하지 않고 쌓이며, 지워도 다음 빌드가 다시 만든다. 파일별 전후 크기는 배포 폴더 밖의 `build/web-demo-assets.json`에 쓴다. 주소 교체 검사는 `node --test web-demo/optimize-assets.test.mjs`다.
 
 ## 웹 분석
 

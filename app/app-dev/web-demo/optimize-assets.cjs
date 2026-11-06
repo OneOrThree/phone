@@ -35,14 +35,20 @@ const ASSET_URI = /"(\/assets\/[^"]+)"/g;
 const HASHED_ASSET = /\.[0-9a-f]{32}\.[a-z0-9]+$/i;
 
 const md5 = (data) => crypto.createHash('md5').update(data).digest('hex');
-// 캐시 키는 원본 내용과 실제 인코더 인자다. 설정을 바꾸면 다시 인코딩한다.
-const cacheKey = (data, args) =>
-  crypto.createHash('sha256').update(data).update(JSON.stringify(args)).digest('hex');
+// 캐시 키는 원본 내용·실제 인코더 인자·인코더 버전이다. 설정이나 도구 버전을 바꾸면 다시 인코딩한다.
+const cacheKey = (data, args, version) =>
+  crypto
+    .createHash('sha256')
+    .update(data)
+    .update(JSON.stringify([args, version]))
+    .digest('hex');
 
+/** 도구가 없으면 설치 명령을 알리고 멈춘다. 있으면 버전 출력의 첫 줄을 돌려준다. */
 function requireTool(name, args, hint) {
-  const result = spawnSync(name, args, { stdio: 'ignore' });
+  const result = spawnSync(name, args, { encoding: 'utf8' });
   if (result.error)
     throw new Error(`${name}이(가) 필요합니다. ${hint}로 설치한 뒤 다시 빌드하세요.`);
+  return `${result.stdout}`.split('\n')[0].trim();
 }
 
 function run(cmd, args) {
@@ -79,20 +85,19 @@ function walk(dir) {
 
 function plan(file) {
   const ext = path.extname(file).toLowerCase();
-  if (ext === '.mp4') return { mode: 'h264', outExt: '.mp4', args: VIDEO };
-  if (ext === '.ttf' || ext === '.otf') return { mode: 'woff2', outExt: '.woff2', args: FONT };
+  if (ext === '.mp4') return { mode: 'h264', tool: 'ffmpeg', outExt: '.mp4', args: VIDEO };
+  if (ext === '.ttf' || ext === '.otf')
+    return { mode: 'woff2', tool: 'woff2_compress', outExt: '.woff2', args: FONT };
   return EXACT_PIXELS.test(path.basename(file))
-    ? { mode: 'webp-lossless', outExt: '.webp', args: LOSSLESS_WEBP }
-    : { mode: 'webp', outExt: '.webp', args: LOSSY_WEBP };
+    ? { mode: 'webp-lossless', tool: 'cwebp', outExt: '.webp', args: LOSSLESS_WEBP }
+    : { mode: 'webp', tool: 'cwebp', outExt: '.webp', args: LOSSY_WEBP };
 }
 
-async function encode(file, cacheDir) {
-  const input = fs.readFileSync(file);
-  const { mode, outExt, args } = plan(file);
-  const cached = path.join(cacheDir, cacheKey(input, args) + outExt);
-  if (!fs.existsSync(cached)) {
-    // 내용이 같은 원본 둘이 동시에 인코딩될 수 있어 임시 이름을 작업마다 따로 둔다.
-    const temp = path.join(cacheDir, `${crypto.randomUUID()}.tmp`);
+// 인코딩 결과를 임시 파일에 쓴 뒤 캐시 이름으로 옮긴다. 실패하면 임시 파일을 지워 캐시에 남기지 않는다.
+async function produce(file, { mode, outExt, args }, cached, cacheDir) {
+  const temp = path.join(cacheDir, `${crypto.randomUUID()}.tmp`);
+  const fontInput = temp + path.extname(file);
+  try {
     if (mode === 'h264')
       await run('ffmpeg', [
         '-hide_banner',
@@ -106,12 +111,28 @@ async function encode(file, cacheDir) {
       ]);
     else if (mode === 'woff2') {
       // woff2_compress는 입력 옆에 같은 이름의 .woff2를 쓴다.
-      fs.copyFileSync(file, temp + path.extname(file));
-      await run('woff2_compress', [temp + path.extname(file)]);
-      fs.rmSync(temp + path.extname(file));
+      fs.copyFileSync(file, fontInput);
+      await run('woff2_compress', [fontInput]);
     } else await run('cwebp', ['-quiet', ...args, file, '-o', temp + outExt]);
     fs.renameSync(temp + outExt, cached);
+  } finally {
+    fs.rmSync(temp + outExt, { force: true });
+    fs.rmSync(fontInput, { force: true });
   }
+}
+
+async function encode(file, { cacheDir, versions, inflight }) {
+  const input = fs.readFileSync(file);
+  const job = plan(file);
+  const cached = path.join(cacheDir, cacheKey(input, job.args, versions[job.tool]) + job.outExt);
+  // 내용이 같은 원본(예: 같은 그림을 두 경로에서 require)은 한 번만 인코딩한다.
+  if (!inflight.has(cached))
+    inflight.set(
+      cached,
+      fs.existsSync(cached) ? Promise.resolve() : produce(file, job, cached, cacheDir),
+    );
+  await inflight.get(cached);
+  const { mode, outExt } = job;
   return { file, mode, outExt, before: input.length, output: fs.readFileSync(cached) };
 }
 
@@ -126,18 +147,28 @@ function rewriteReferences(outDir, replacements) {
     for (const [from, to] of renames) text = text.split(from).join(to);
     return text;
   };
-  let rewritten = 0;
+  // 소스맵은 옛 번들 이름을 담고 있어 이름을 바꾸면 어긋난다. 지금 export는 소스맵을 내지 않는다.
+  if (fs.readdirSync(jsDir).some((file) => file.endsWith('.map')))
+    throw new Error('소스맵이 있는 웹 번들은 에셋 주소를 바꿀 수 없습니다.');
+  const found = new Set();
   for (let round = 0, changed = true; changed; round++) {
     if (round > 10) throw new Error('JS 번들 이름 바꾸기가 끝나지 않습니다(순환 참조).');
     changed = false;
-    for (const name of fs.readdirSync(jsDir).filter((file) => file.endsWith('.js'))) {
+    // 이름순으로 처리해 실행마다 결과가 같게 한다.
+    const bundles = fs
+      .readdirSync(jsDir)
+      .filter((file) => file.endsWith('.js'))
+      .sort();
+    for (const name of bundles) {
       const file = path.join(jsDir, name);
       const text = fs.readFileSync(file, 'utf8');
+      if (text.includes('sourceMappingURL='))
+        throw new Error(`소스맵을 가리키는 번들은 이름을 바꿀 수 없습니다: ${name}`);
       const next = rewriteNames(
         text.replace(ASSET_URI, (match, uri) => {
           const to = replacements.get(uri);
           if (!to) return match;
-          rewritten++;
+          found.add(uri);
           return `"${to}"`;
         }),
       );
@@ -150,15 +181,24 @@ function rewriteReferences(outDir, replacements) {
       changed = true;
     }
   }
-  if (rewritten !== replacements.size)
+  // 새 파일마다 번들에서 원래 주소를 적어도 한 번 찾아 바꿨어야 한다. 못 찾으면 원본을 계속 받게 된다.
+  const unused = [...replacements.keys()].filter((uri) => !found.has(uri));
+  if (unused.length)
     throw new Error(
-      `번들의 에셋 참조 ${rewritten}곳을 바꿨지만 새 파일은 ${replacements.size}개입니다.`,
+      `번들에서 찾지 못한 에셋 참조 ${unused.length}개: ${unused.slice(0, 5).join(', ')}`,
     );
   for (const html of fs.readdirSync(outDir).filter((file) => file.endsWith('.html'))) {
     const file = path.join(outDir, html);
     fs.writeFileSync(file, rewriteNames(fs.readFileSync(file, 'utf8')));
   }
-  return renames;
+  // 한 번들이 여러 라운드에 걸쳐 이름이 바뀔 수 있다(원래 → 중간 → 최종). 원래 이름 → 최종 이름으로 돌려준다.
+  const intermediate = new Set(renames.values());
+  const final = (name) => (renames.has(name) ? final(renames.get(name)) : name);
+  return new Map(
+    [...renames.keys()]
+      .filter((name) => !intermediate.has(name))
+      .map((name) => [name, final(name)]),
+  );
 }
 
 /** 번들과 루트 HTML이 가리키는 에셋·번들이 모두 실제 파일인지 확인하고, 없는 것의 목록을 돌려준다. */
@@ -186,16 +226,20 @@ function findMissingReferences(outDir) {
  * 원본 파일은 지우지 않는다. 배포 직전에 열려 있던 탭이 옛 번들로 원본을 요청할 수 있다.
  */
 async function optimizeWebAssets(outDir, { cacheDir, reportPath } = {}) {
-  requireTool('cwebp', ['-version'], '`brew install webp`');
-  requireTool('ffmpeg', ['-version'], '`brew install ffmpeg`');
-  requireTool('woff2_compress', [], '`brew install woff2`');
+  const versions = {
+    cwebp: requireTool('cwebp', ['-version'], '`brew install webp`'),
+    ffmpeg: requireTool('ffmpeg', ['-version'], '`brew install ffmpeg`'),
+    // woff2_compress에는 버전 옵션이 없다. 글리프를 바꾸지 않는 무손실 변환이라 버전 차이의 영향이 없다.
+    woff2_compress: requireTool('woff2_compress', [], '`brew install woff2`'),
+  };
   cacheDir ??= path.join(outDir, '..', '.web-asset-cache');
   fs.mkdirSync(cacheDir, { recursive: true });
 
   const started = Date.now();
   const targets = walk(path.join(outDir, 'assets')).filter((file) => TARGET.test(file));
+  const context = { cacheDir, versions, inflight: new Map() };
   const encoded = await pool(targets, Math.max(1, os.availableParallelism() - 1), (file) =>
-    encode(file, cacheDir),
+    encode(file, context),
   );
 
   const replacements = new Map();

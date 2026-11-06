@@ -10,8 +10,9 @@ const hash = (text) => crypto.createHash('md5').update(text).digest('hex');
 const A = '/assets/src/assets/a.' + hash('a') + '.png';
 const B = '/assets/src/assets/b.' + hash('b') + '.png';
 const A_WEBP = '/assets/src/assets/a.' + hash('a-webp') + '.webp';
-const CHUNK = `index-${hash('chunk')}.js`;
-const MAIN = `index-${hash('main')}.js`;
+// 이름순으로 main이 분할 번들보다 먼저 처리되게 해, main 이름이 두 번 바뀌는 경우를 만든다.
+const MAIN = `index-${'1'.repeat(32)}.js`;
+const CHUNK = `index-${'2'.repeat(32)}.js`;
 
 // expo export 결과와 같은 배치의 작은 폴더를 만든다: 번들 하나, 분할 번들 하나, HTML, 에셋.
 function fixture() {
@@ -49,12 +50,44 @@ test('교체 대상 주소만 바꾸고 바뀐 번들의 이름과 HTML 참조�
   assert.deepEqual(findMissingReferences(out), []);
 });
 
-test('번들에 없는 주소를 바꾸라고 하면 실패한다', () => {
+test('번들에 없는 주소를 바꾸라고 하면 그 주소를 알리며 실패한다', () => {
   const out = fixture();
+  const none = '/assets/src/assets/none.' + hash('none') + '.png';
   assert.throws(
-    () => rewriteReferences(out, new Map([['/assets/src/assets/none.png', A_WEBP]])),
-    /에셋 참조 0곳/,
+    () =>
+      rewriteReferences(
+        out,
+        new Map([
+          [A, A_WEBP],
+          [none, A_WEBP],
+        ]),
+      ),
+    (error) => error.message.includes('찾지 못한 에셋 참조 1개') && error.message.includes(none),
   );
+});
+
+test('같은 주소가 번들에 두 번 나와도 모두 바꾸고, 여러 번 바뀐 번들은 최종 이름을 돌려준다', () => {
+  const out = fixture();
+  const js = path.join(out, '_expo/static/js/web');
+  fs.appendFileSync(path.join(js, CHUNK), `e.exports={uri:"${A}"};`);
+  const renames = rewriteReferences(out, new Map([[A, A_WEBP]]));
+  assert.deepEqual([...renames.keys()].sort(), [CHUNK, MAIN].sort());
+  assert.deepEqual(fs.readdirSync(js).sort(), [...renames.values()].sort());
+  for (const name of fs.readdirSync(js))
+    assert.ok(!fs.readFileSync(path.join(js, name), 'utf8').includes(A), name);
+  const main = fs.readFileSync(path.join(js, renames.get(MAIN)), 'utf8');
+  assert.ok(main.includes(renames.get(CHUNK)), '이름이 바뀐 분할 번들을 가리킨다');
+  assert.ok(fs.readFileSync(path.join(out, 'index.html'), 'utf8').includes(renames.get(MAIN)));
+  assert.deepEqual(findMissingReferences(out), []);
+});
+
+test('소스맵이 있는 번들은 이름을 바꾸지 않고 실패한다', () => {
+  const out = fixture();
+  fs.appendFileSync(
+    path.join(out, '_expo/static/js/web', MAIN),
+    `\n//# sourceMappingURL=${MAIN}.map`,
+  );
+  assert.throws(() => rewriteReferences(out, new Map([[A, A_WEBP]])), /소스맵/);
 });
 
 test('번들이 가리키는 에셋이 없으면 찾아낸다', () => {
