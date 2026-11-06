@@ -450,6 +450,7 @@ export const createSessionCommands = (deps: SessionCommandDeps) => {
             });
           }
           // 별점 요청은 실제로 집중한 완료만 센다 — 0초 완료나 도착하지 못하고 멈춘 항해 뒤에는 묻지 않는다.
+          // 서버가 끝낸 결과의 복구(beginRecover)는 앱을 켠 직후라 흐름을 끊으므로 세지 않는다.
           if (result.activeSeconds > 0 && result.arrived !== false) void countFocusCompletion();
           return result;
         }),

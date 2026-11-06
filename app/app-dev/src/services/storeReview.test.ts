@@ -14,6 +14,7 @@ const storeReview = (available = true): StoreReviewMock => ({
 });
 
 let count: typeof import('./storeReview').countFocusCompletion;
+let appState: { currentState: string };
 
 beforeEach(() => {
   // 테스트마다 모듈 캐시와 메모리 저장소를 새로 — 한 테스트 안에서는 같은 저장소가 이어진다.
@@ -21,6 +22,8 @@ beforeEach(() => {
   jest.useFakeTimers();
   mockNative = null;
   ({ countFocusCompletion: count } = require('./storeReview'));
+  ({ AppState: appState } = require('react-native'));
+  appState.currentState = 'active';
 });
 
 afterEach(() => {
@@ -41,6 +44,22 @@ test('세 번째 완료에서 한 번만 별점창을 띄우고, 그 뒤 완료�
   expect(native.requestReview).toHaveBeenCalledTimes(1);
 
   await count();
+  await count();
+  jest.runAllTimers();
+  expect(native.requestReview).toHaveBeenCalledTimes(1);
+});
+
+test('지연 사이 앱이 백그라운드로 가면 묻지 않고, 다음 완료에서 다시 묻는다', async () => {
+  const native = (mockNative = storeReview());
+
+  await count();
+  await count();
+  await count();
+  appState.currentState = 'background';
+  jest.runAllTimers();
+  expect(native.requestReview).not.toHaveBeenCalled();
+
+  appState.currentState = 'active';
   await count();
   jest.runAllTimers();
   expect(native.requestReview).toHaveBeenCalledTimes(1);
