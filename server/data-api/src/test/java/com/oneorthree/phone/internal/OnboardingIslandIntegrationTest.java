@@ -321,7 +321,9 @@ class OnboardingIslandIntegrationTest {
         assertThat(row.get("client_ip")).isEqualTo("203.0.113.7");
         assertThat(row.get("advertiser_tracking_enabled")).isEqualTo(true);
         assertThat(row.get("extinfo").toString()).contains("i2", "17.5.1");
-        assertThat(row.get("next_attempt_at")).isNotNull();
+        // iOS 는 기기 SDK 건이 먼저 닿도록 서버 전송을 10분 뒤로 잡는다(GROMO-2754).
+        assertThat(jdbc.queryForObject("select next_attempt_at - occurred_at >= interval '9 minutes' "
+                + "from first_island_arrivals where user_id=?", Boolean.class, user)).isTrue();
         assertThat(row.get("island_id")).isEqualTo(arrival.islandId());
         assertThat(jdbc.queryForObject("select f.occurred_at = a.first_arrived_at from first_island_arrivals f "
                 + "join island_arrivals a on a.user_id=f.user_id and a.island_id=f.island_id where f.user_id=?",
@@ -340,6 +342,19 @@ class OnboardingIslandIntegrationTest {
         // 탈퇴하면 지운다
         withdrawal.withdraw(user);
         assertThat(count("select count(*) from first_island_arrivals where user_id=?", user)).isZero();
+    }
+
+    @Test
+    @DisplayName("Android 첫 도착은 서버 전송을 미루지 않는다 — 기기 SDK 기록이 없어 CAPI 가 유일하다(GROMO-2754)")
+    void androidFirstArrivalIsSentWithoutDelay() {
+        UUID user = user();
+        UUID candidate = telescope.list(user).items().get(0).islandId();
+        List<String> ext = new ArrayList<>(meta("anon-1").meta().extinfo());
+        ext.set(0, "a2");
+        intro.arrive(user, candidate, UUID.randomUUID(),
+                new IntroArrivalRequest(new IntroArrivalRequest.Meta("anon-1", true, ext), "203.0.113.7"));
+        assertThat(jdbc.queryForObject("select send_status = 'PENDING' and next_attempt_at - occurred_at < "
+                + "interval '1 minute' from first_island_arrivals where user_id=?", Boolean.class, user)).isTrue();
     }
 
     @Test

@@ -21,6 +21,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -31,6 +32,11 @@ import java.util.UUID;
 @Service
 @RequiredArgsConstructor
 public class IntroVoyageService {
+    /**
+     * iOS 는 기기 Meta SDK 가 같은 event_id 로 먼저 기록해야 SKAN·AEM 에 남는다(GROMO-2749). Meta 는 같은 event_id 를 먼저
+     * 온 쪽으로 합치므로 서버 CAPI 는 SDK 배치 전송보다 늦게 보낸다(GROMO-2754). Android 는 SDK 기록이 없어 바로 보낸다.
+     */
+    static final Duration IOS_CAPI_DELAY = Duration.ofMinutes(10);
     private final PublicCommandService commands;
     private final UserQueryService users;
     private final UserIslandContextLockService contexts;
@@ -80,13 +86,16 @@ public class IntroVoyageService {
                         var m = meta == null ? null : meta.meta();
                         boolean send = m != null && m.valid();
                         Instant now = clock.instant();
+                        // iOS(extinfo[0]=i2)는 SDK 건이 먼저 닿도록 첫 전송을 뒤로 잡는다. SKIPPED 는 전송 시각이 없다.
+                        Instant firstAttempt = !send ? null
+                                : "i2".equals(m.extinfo().get(0)) ? now.plus(IOS_CAPI_DELAY) : now;
                         // IP 는 열 길이(45) 안일 때만 남긴다 — 넘치는 값이 INSERT 를 깨 도착까지 되돌리지 않게.
                         String ip = send && meta.clientIp() != null && meta.clientIp().length() <= 45
                                 ? meta.clientIp() : null;
                         int inserted = firstArrivals.insertIfAbsent(userId, eventId, islandId, at,
                                 send ? m.anonId() : null, send ? m.advertiserTrackingEnabled() : null,
                                 send ? InternalJson.tree(m.extinfo()).toString() : null,
-                                ip, send ? "PENDING" : "SKIPPED", send ? now : null);
+                                ip, send ? "PENDING" : "SKIPPED", firstAttempt);
                         // 이번 호출이 첫 도착 행을 만든 경우만 사건 ID 를 응답(과 receipt)에 싣는다. SKIPPED 여도 SDK 로그용으로 내린다.
                         if (inserted == 1) {
                             arrival = arrival.withFirstArrivalEventId(eventId);
