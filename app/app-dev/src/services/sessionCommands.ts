@@ -22,6 +22,7 @@ import {
   startSeaFocusSession as apiStartSea,
 } from '@/services/api/focusSessions';
 import { getTelescope as apiTelescope } from '@/services/api/telescope';
+import { countFocusCompletion } from '@/services/storeReview';
 import { intentKeyPool, RecordItem, Route, Session, sessionRoute, State } from '@/services/model';
 import { captureProductEvent } from '@/services/posthog';
 import { markActivationStage } from '@/services/activationJourney';
@@ -448,6 +449,8 @@ export const createSessionCommands = (deps: SessionCommandDeps) => {
               ...(Number.isNaN(completedAt.getTime()) ? {} : { timestamp: completedAt }),
             });
           }
+          // 별점 요청은 실제로 집중한 완료만 센다 — 0초 완료나 도착하지 못하고 멈춘 항해 뒤에는 묻지 않는다.
+          if (result.activeSeconds > 0 && result.arrived !== false) void countFocusCompletion();
           return result;
         }),
       ),
