@@ -3,7 +3,9 @@ const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 
 const root = path.resolve(__dirname, '..');
-const out = path.join(root, 'build/web-demo');
+const target = path.join(root, 'build/web-demo');
+// 중간 폴더에서 만들고 끝까지 성공했을 때만 target으로 옮긴다. 실패·중단된 빌드가 헤더 없이 배포되지 않게 한다.
+const out = `${target}.partial`;
 const site = new URL(process.env.WEB_DEMO_SITE_URL || 'https://try.oneorthree.world/');
 if (
   site.protocol !== 'https:' ||
@@ -39,6 +41,7 @@ Object.assign(env, {
 });
 if (!env.EXPO_PUBLIC_WEB_DEMO_POSTHOG_TOKEN)
   throw new Error('공개 PostHog 프로젝트 토큰을 확인하세요.');
+fs.rmSync(target, { recursive: true, force: true });
 fs.rmSync(out, { recursive: true, force: true });
 execFileSync(
   process.execPath,
@@ -139,4 +142,5 @@ fs.writeFileSync(
   path.join(out, '_headers'),
   '/*\n' + headers.map(({ key, value }) => `  ${key}: ${value}`).join('\n') + '\n',
 );
-console.log(`공개 체험판: ${out}\n대표 주소: ${site.href}\n메타모아에는 제출하지 않았습니다.`);
+fs.renameSync(out, target);
+console.log(`공개 체험판: ${target}\n대표 주소: ${site.href}\n메타모아에는 제출하지 않았습니다.`);

@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import { findMissingReferences, rewriteReferences } from './optimize-assets.cjs';
+import { findMissingReferences, pool, rewriteReferences } from './optimize-assets.cjs';
 
 const hash = (text) => crypto.createHash('md5').update(text).digest('hex');
 const A = '/assets/src/assets/a.' + hash('a') + '.png';
@@ -94,4 +94,31 @@ test('번들이 가리키는 에셋이 없으면 찾아낸다', () => {
   const out = fixture();
   fs.rmSync(path.join(out, B));
   assert.deepEqual(findMissingReferences(out), [B]);
+});
+
+test('바꾼 옛 주소가 다른 따옴표나 이스케이프로 남아 있으면 실패한다', () => {
+  for (const leftover of [`'${A}'`, '`' + A + '`', `"${A.replaceAll('/', '\\/')}"`]) {
+    const out = fixture();
+    fs.appendFileSync(path.join(out, '_expo/static/js/web', CHUNK), `x=${leftover};`);
+    assert.throws(
+      () => rewriteReferences(out, new Map([[A, A_WEBP]])),
+      (error) =>
+        error.message.includes('바꾸지 못한 옛 에셋 주소 1개') && error.message.includes(A),
+      leftover,
+    );
+  }
+});
+
+test('작업 하나가 실패하면 새 작업을 시작하지 않고, 돌던 작업이 끝난 뒤 첫 오류를 던진다', async () => {
+  const started = [];
+  const finished = [];
+  const work = async (item) => {
+    started.push(item);
+    await new Promise((resolve) => setTimeout(resolve, item === 'slow' ? 30 : 1));
+    if (item === 'bad') throw new Error('bad');
+    finished.push(item);
+  };
+  await assert.rejects(pool(['bad', 'slow', 'a', 'b', 'c'], 2, work), /bad/);
+  assert.deepEqual(started, ['bad', 'slow']);
+  assert.deepEqual(finished, ['slow'], '이미 돌던 작업은 끝까지 기다린다');
 });

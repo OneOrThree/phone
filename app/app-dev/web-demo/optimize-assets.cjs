@@ -63,16 +63,28 @@ function run(cmd, args) {
   });
 }
 
+/**
+ * items를 limit개씩 동시에 처리한다. 하나가 실패하면 새 작업을 시작하지 않고,
+ * 이미 돌고 있는 작업(인코더 자식 프로세스와 임시 파일 정리)이 끝난 뒤 첫 오류를 던진다.
+ */
 async function pool(items, limit, work) {
   const results = new Array(items.length);
   let next = 0;
+  let failed = false;
+  let failure;
   const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
-    while (next < items.length) {
+    while (!failed && next < items.length) {
       const index = next++;
-      results[index] = await work(items[index]);
+      try {
+        results[index] = await work(items[index]);
+      } catch (error) {
+        if (!failed) failure = error;
+        failed = true;
+      }
     }
   });
   await Promise.all(workers);
+  if (failed) throw failure;
   return results;
 }
 
@@ -126,11 +138,10 @@ async function encode(file, { cacheDir, versions, inflight }) {
   const job = plan(file);
   const cached = path.join(cacheDir, cacheKey(input, job.args, versions[job.tool]) + job.outExt);
   // 내용이 같은 원본(예: 같은 그림을 두 경로에서 require)은 한 번만 인코딩한다.
+  // 빈 캐시 파일은 쓰다 만 것으로 보고 다시 인코딩한다.
+  const reusable = fs.existsSync(cached) && fs.statSync(cached).size > 0;
   if (!inflight.has(cached))
-    inflight.set(
-      cached,
-      fs.existsSync(cached) ? Promise.resolve() : produce(file, job, cached, cacheDir),
-    );
+    inflight.set(cached, reusable ? Promise.resolve() : produce(file, job, cached, cacheDir));
   await inflight.get(cached);
   const { mode, outExt } = job;
   return { file, mode, outExt, before: input.length, output: fs.readFileSync(cached) };
@@ -187,10 +198,29 @@ function rewriteReferences(outDir, replacements) {
     throw new Error(
       `번들에서 찾지 못한 에셋 참조 ${unused.length}개: ${unused.slice(0, 5).join(', ')}`,
     );
-  for (const html of fs.readdirSync(outDir).filter((file) => file.endsWith('.html'))) {
-    const file = path.join(outDir, html);
-    fs.writeFileSync(file, rewriteNames(fs.readFileSync(file, 'utf8')));
+  const htmlFiles = fs
+    .readdirSync(outDir)
+    .filter((file) => file.endsWith('.html'))
+    .map((file) => path.join(outDir, file));
+  for (const file of htmlFiles) fs.writeFileSync(file, rewriteNames(fs.readFileSync(file, 'utf8')));
+  // 바꾼 옛 주소가 다른 형태(작은따옴표·템플릿 문자열·`\/` 이스케이프)로 남아 있으면 그 화면은 원본을 계속 받는다.
+  const leftovers = new Set();
+  const texts = [
+    ...fs
+      .readdirSync(jsDir)
+      .filter((file) => file.endsWith('.js'))
+      .map((file) => path.join(jsDir, file)),
+    ...htmlFiles,
+  ];
+  for (const file of texts) {
+    const text = fs.readFileSync(file, 'utf8').replaceAll('\\/', '/');
+    for (const [uri] of text.matchAll(/\/assets\/[^"'`\s)]+/g))
+      if (replacements.has(uri)) leftovers.add(uri);
   }
+  if (leftovers.size)
+    throw new Error(
+      `바꾸지 못한 옛 에셋 주소 ${leftovers.size}개가 남았습니다: ${[...leftovers].slice(0, 5).join(', ')}`,
+    );
   // 한 번들이 여러 라운드에 걸쳐 이름이 바뀔 수 있다(원래 → 중간 → 최종). 원래 이름 → 최종 이름으로 돌려준다.
   const intermediate = new Set(renames.values());
   const final = (name) => (renames.has(name) ? final(renames.get(name)) : name);
@@ -234,6 +264,9 @@ async function optimizeWebAssets(outDir, { cacheDir, reportPath } = {}) {
   };
   cacheDir ??= path.join(outDir, '..', '.web-asset-cache');
   fs.mkdirSync(cacheDir, { recursive: true });
+  // 앞선 빌드가 중단(Ctrl-C)돼 남긴 임시 파일을 지운다. 캐시 이름은 `.tmp`를 포함하지 않는다.
+  for (const name of fs.readdirSync(cacheDir).filter((file) => file.includes('.tmp')))
+    fs.rmSync(path.join(cacheDir, name), { force: true });
 
   const started = Date.now();
   const targets = walk(path.join(outDir, 'assets')).filter((file) => TARGET.test(file));
@@ -284,7 +317,13 @@ const formatSummary = (summary) => {
   return `웹 에셋 ${summary.files}개 중 ${summary.replaced}개 교체: ${mb(summary.before)} → ${mb(summary.after)} (${summary.seconds}초)`;
 };
 
-module.exports = { optimizeWebAssets, rewriteReferences, findMissingReferences, formatSummary };
+module.exports = {
+  optimizeWebAssets,
+  rewriteReferences,
+  findMissingReferences,
+  pool,
+  formatSummary,
+};
 
 if (require.main === module) {
   const [outDir, reportPath] = process.argv.slice(2);
@@ -295,8 +334,9 @@ if (require.main === module) {
   optimizeWebAssets(path.resolve(outDir), { reportPath }).then(
     (summary) => console.log(formatSummary(summary)),
     (error) => {
+      // process.exit 대신 종료 코드만 정해, 돌던 인코더가 끝나고 임시 파일이 정리된 뒤 끝나게 한다.
       console.error(error.message);
-      process.exit(1);
+      process.exitCode = 1;
     },
   );
 }
