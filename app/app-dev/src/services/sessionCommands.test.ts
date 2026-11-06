@@ -24,9 +24,11 @@ import { ApiError } from '@/services/api/client';
 import type { FocusFinishView, FocusSessionView } from '@/services/api/focusSessions';
 import { captureProductEvent } from '@/services/posthog';
 import { markActivationStage } from '@/services/activationJourney';
+import { countFocusCompletion } from '@/services/storeReview';
 jest.mock('@/services/activationJourney', () => ({
   markActivationStage: jest.fn().mockResolvedValue(undefined),
 }));
+jest.mock('@/services/storeReview', () => ({ countFocusCompletion: jest.fn() }));
 
 jest.mock('@/services/api/session', () => ({ sessionGeneration: () => 0, getSession: () => null }));
 jest.mock('@/services/posthog', () => ({
@@ -293,6 +295,24 @@ test('finish — 섬/바다 집중 장소 요약(focus_location_summary)을 발�
   });
   // 복구일이 아닌 서버 완료 시각으로 집계되도록 이벤트 시각을 completedAt 으로 넘긴다
   assert.deepEqual(summary[2], { timestamp: new Date('2026-09-22T01:00:00Z') });
+});
+
+test('finish — 실제로 집중한 완료만 별점 요청 횟수로 센다(0초·도착 못 한 항해는 빼고)', async () => {
+  const counted = countFocusCompletion as jest.Mock;
+  const cases: [Partial<FocusFinishView>, number][] = [
+    [{ activeSeconds: 600 }, 1],
+    [{ activeSeconds: 900, kind: 'sea', arrived: true }, 1],
+    [{ activeSeconds: 0 }, 0],
+    [{ activeSeconds: 900, kind: 'sea', arrived: false }, 0],
+  ];
+  for (const [over, expected] of cases) {
+    counted.mockClear();
+    const h = harness({ finish: async () => finish(over) });
+    h.join();
+    await h.cmds.start({ subject: '수학' });
+    await h.cmds.finish();
+    assert.equal(counted.mock.calls.length, expected, JSON.stringify(over));
+  }
 });
 
 test('멱등 재시도 — 응답 유실·retryable 실패는 같은 키·같은 body 로 다시 보낸다', async () => {
