@@ -4,6 +4,17 @@ import type { Color } from '@/services/model';
 export const seaAssets = {
   background: require('@/assets/ota/sea/far-sea.jpg'),
   gulls: require('@/assets/ota/sea/seagulls.png'),
+  // 바다 움직임(GROMO-2785): 원화에서 구름·밝은 물빛 줄을 떼어 낸 바탕, 떼어 낸 물빛 줄, 구름 네 모양, 갈매기 날개 위·아래
+  base: require('@/assets/ota/sea/far-sea-base.jpg'),
+  foam: require('@/assets/ota/sea/far-sea-foam.png'),
+  clouds: [
+    require('@/assets/ota/sea/cloud-1.png'),
+    require('@/assets/ota/sea/cloud-2.png'),
+    require('@/assets/ota/sea/cloud-3.png'),
+    require('@/assets/ota/sea/cloud-4.png'),
+  ] as ImageSourcePropType[],
+  gullUp: require('@/assets/ota/sea/gull-up.png'),
+  gullDown: require('@/assets/ota/sea/gull-down.png'),
   destination: require('@/assets/ota/sea/destination-island.png'),
   raftBack: require('@/assets/boats/raft/layers/back-day.png'),
   raftFront: require('@/assets/boats/raft/layers/front-day.png'),
