@@ -2,6 +2,7 @@ package com.oneorthree.phone.internal;
 
 import com.oneorthree.phone.content.service.DeveloperNoticeService;
 import com.oneorthree.phone.internal.dto.ContentHistoryPage;
+import com.oneorthree.phone.internal.dto.MagazineContentPage;
 import com.oneorthree.phone.internal.service.ContentHistoryService;
 import com.oneorthree.phone.internal.service.MagazineReviewService;
 import com.oneorthree.phone.internal.service.ConstructionPolicyAdminService;
@@ -49,7 +50,7 @@ public class InternalContentAdminController {
                 "serverVersion", serverVersion(), "infraRevision", infraRevision(), "schemaVersion", schemaVersion(),
                 "capabilities", java.util.List.of("content.publication.v1", "content.history.v1",
                         "content.notice.withdraw.v1", "content.app-requirements.v1",
-                        "construction.policy.v1", "focus.policy.v1"));
+                        "construction.policy.v1", "focus.policy.v1", "content.magazine-read.v1"));
     }
 
     /** 배포 커밋 SHA(OBS_VERSION). 없으면 unknown. */
@@ -120,6 +121,14 @@ public class InternalContentAdminController {
             @RequestParam(required = false) Integer limit, HttpServletRequest request) {
         requireEnvironment(request);
         return history.magazines(cursor, limit);
+    }
+
+    @GetMapping("/history/magazines/{issueId}")
+    public MagazineContentPage magazineContent(@PathVariable UUID issueId,
+            @RequestParam(required = false) String cursor, @RequestParam(required = false) Integer limit,
+            HttpServletRequest request) {
+        requireEnvironment(request);
+        return history.magazineContent(issueId, cursor, limit);
     }
 
     @PutMapping("/notices/{publicationId}")
