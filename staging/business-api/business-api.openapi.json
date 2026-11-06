@@ -401,6 +401,26 @@
         }
       }
     },
+    "/me/web-island": {
+      "post": {
+        "tags": [
+          "island-membership-controller"
+        ],
+        "operationId": "enterWebIsland",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/IslandCreatedView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/me/telescope/pins": {
       "post": {
         "tags": [
@@ -4218,6 +4238,31 @@
           }
         }
       },
+      "IslandCreatedView": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "membershipStatus": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "currentIslandId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "currentIslandId",
+          "id",
+          "membershipStatus",
+          "role"
+        ]
+      },
       "EvictedPinView": {
         "type": "object",
         "properties": {
@@ -4420,31 +4465,6 @@
           "createdAt",
           "id",
           "receiverId"
-        ]
-      },
-      "IslandCreatedView": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "membershipStatus": {
-            "type": "string"
-          },
-          "role": {
-            "type": "string"
-          },
-          "currentIslandId": {
-            "type": "string",
-            "format": "uuid"
-          }
-        },
-        "required": [
-          "currentIslandId",
-          "id",
-          "membershipStatus",
-          "role"
         ]
       },
       "TutorialExperienceView": {
@@ -4714,6 +4734,10 @@
             "type": "string"
           },
           "currentIslandId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "firstArrivalEventId": {
             "type": "string",
             "format": "uuid"
           }
