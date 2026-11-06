@@ -64,6 +64,21 @@ vercel deploy --prod --yes --scope joejaeyoungs-projects --cwd build/web-demo
 
 Worker 소스는 `api-worker.mjs`, 독립 검사 명령은 `node --test web-demo/api-worker.test.mjs`다. 배포 시 Worker 모듈 업로드 후 위 경로의 기존 route만 유지한다. 다른 DNS·라우트·서버 설정은 수정하지 않는다. 인증은 로그인된 Cloudflare 브라우저 세션을 사용하며 키를 저장소에 보관하지 않는다.
 
+## 에셋 압축 (GROMO-2787)
+
+`build:web:demo`는 `expo export` 뒤에 `optimize-assets.cjs`로 `build/web-demo/assets`의 파일을 웹용으로 다시 압축한다. 네이티브 앱의 원본 에셋(`src/assets`)과 OTA는 바뀌지 않는다.
+
+| 원본                      | 웹 결과물              | 기준                                                                                                                               |
+| ------------------------- | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| PNG·JPEG                  | 손실 WebP 품질 85      | 투명도는 무손실이다. 해상도를 유지해 번들의 width·height가 그대로다. 스프라이트 시트도 프레임 사이 투명 여백이 있어 같은 방식이다. |
+| 이름에 `tileset`이 든 PNG | 무손실 WebP            | 맞붙여 그리는 타일의 이음매를 막는다. 지금 웹 번들에는 없다.                                                                       |
+| 컷신 MP4                  | H.264 1080×1920 CRF 26 | 원본 대비 SSIM 0.98 이상. 소리 트랙은 원래 없다.                                                                                   |
+| 고운돋움 TTF              | WOFF2                  | 글리프가 같다. expo-font 웹 로더가 `format()` 없이 `@font-face`를 만들어 주소만 바꾼다.                                            |
+
+10% 넘게 줄지 않은 파일은 원본을 쓴다. 바꾼 파일은 새 내용의 해시로 이름을 정하고, JS 번들의 `uri:"/assets/…"` 문자열과 번들 이름·`index.html` 참조를 함께 옮긴다. 번들이 없는 파일을 가리키면 빌드가 실패한다. 원본 파일도 배포 폴더에 남긴다. 배포 직전에 열려 있던 탭이 옛 번들로 원본을 요청할 수 있기 때문이다.
+
+필요한 도구는 `brew install webp ffmpeg woff2`로 설치한다. 없으면 빌드가 설치 명령을 알리고 멈춘다. 첫 빌드는 인코딩에 약 2분이 걸린다. 결과는 `build/.web-asset-cache`에 남아 다음 빌드부터는 바뀐 파일만 인코딩한다. 파일별 전후 크기는 배포 폴더 밖의 `build/web-demo-assets.json`에 쓴다. 주소 교체 검사는 `node --test web-demo/optimize-assets.test.mjs`다.
+
 ## 웹 분석
 
 `web_demo_*`, `app_surface=web_demo`는 기존 대시보드와 이어지는 계측 이름이다. 실제 서비스 전환 뒤에도 같은 이름을 사용한다. 모바일 SDK는 공개 웹에서 초기화하지 않고 별도 웹 계측을 사용한다.

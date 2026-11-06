@@ -45,6 +45,13 @@ execFileSync(
   [require.resolve('expo/bin/cli'), 'export', '--platform', 'web', '--output-dir', out],
   { cwd: root, env, stdio: 'inherit' },
 );
+// 이미지·동영상·글꼴을 웹용으로 줄이고 번들 참조를 새 파일로 옮긴다. index.html의 번들 이름도 여기서 바뀐다.
+// 압축 결과는 build/.web-asset-cache에 남겨 다음 빌드에서 다시 쓰고, 파일별 전후 크기는 배포 폴더 밖에 기록한다.
+execFileSync(
+  process.execPath,
+  [path.join(__dirname, 'optimize-assets.cjs'), out, path.join(root, 'build/web-demo-assets.json')],
+  { cwd: root, stdio: 'inherit' },
+);
 const csp = [
   "default-src 'self'",
   "script-src 'self' 'wasm-unsafe-eval' https://accounts.google.com/gsi/client",
