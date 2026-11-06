@@ -35,8 +35,8 @@ import java.util.UUID;
  * 창은 {@code [D-7 07:00 KST, D 07:00 KST)}, 분자는 그 창 안의 섬 집중 초 합
  * ({@link FocusSessionDetailRepository#sumIslandActiveSeconds} — <b>끝난(COMPLETED) 세션의 ACTIVE 구간만</b>,
  * 휴식·진행 중 세션은 빠진다), 분모는 <b>지금</b>의 주민 수({@link GroupMemberRepository#countByGroupIdIn})와
- * 7일이다. 값은 {@code round(초 ÷ 60 ÷ 주민 수 ÷ 7)} 이다. 주간 섬 랭킹({@code IslandRankingsService})은 초 단위·
- * 고정 분모라 <b>값이 다르다</b> — 계약이 수용한 차이다.
+ * 7일이다. 값은 {@code round(초 ÷ 60 ÷ 주민 수 ÷ 7)} 이다. 전망대 섬 랭킹({@code IslandRankingsService})도 이 행을
+ * 그대로 읽는다(GROMO-2769) — 같은 섬은 망원경·잡지·전망대에서 같은 숫자다.
  *
  * <p>값은 «그 순간의 정확한 평균» 이 아니라 표시용 근사다. 받아들인 치우침 셋:
  * <ul>
