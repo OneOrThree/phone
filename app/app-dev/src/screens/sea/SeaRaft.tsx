@@ -12,7 +12,7 @@ export function SeaRaft({
   size,
   reduceMotion = false,
   outfit,
-  floatSeed,
+  float,
 }: {
   color: Color;
   focusing: boolean;
@@ -20,8 +20,11 @@ export function SeaRaft({
   reduceMotion?: boolean;
   /** 카탈로그 그림으로 고양이 위에 겹칠 머리·목·신발(GROMO-2311). */
   outfit?: Outfit;
-  /** 물 위에서 둥실거리고 물결 고리가 퍼지는 뗏목(GROMO-2785) — 바다 장면만 준다(나는 0, 남은 1부터). 없으면 정지 그림. */
-  floatSeed?: number;
+  /**
+   * 물 위에서 둥실거리고 물결 고리가 퍼지는 뗏목(GROMO-2785) — 바다 장면만 준다. seed 는 뗏목 번호(나는 0, 남은 1부터),
+   * running 은 장면이 계산한 「움직여도 되는지」(동작 줄이기·백그라운드·안 보이는 페이지면 false). 없으면 정지 그림.
+   */
+  float?: { seed: number; running: boolean };
 }) {
   const catSize = size * 0.49;
   // 같은 발 위치를 기준으로 독서/식빵 포즈를 교체한다. 앞뒤 판자는 기존 레이어다.
@@ -82,15 +85,15 @@ export function SeaRaft({
   );
   return (
     <View pointerEvents="none" style={{ width: size, height: size }}>
-      {floatSeed === undefined ? (
-        layers
-      ) : (
+      {float ? (
         <>
-          <RaftRipples size={size} seed={floatSeed} reduceMotion={reduceMotion} />
-          <RaftFloat size={size} seed={floatSeed} reduceMotion={reduceMotion}>
+          <RaftRipples size={size} seed={float.seed} running={float.running} />
+          <RaftFloat size={size} seed={float.seed} running={float.running}>
             {layers}
           </RaftFloat>
         </>
+      ) : (
+        layers
       )}
     </View>
   );

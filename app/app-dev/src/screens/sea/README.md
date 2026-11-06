@@ -36,7 +36,7 @@ https://www.figma.com/design/XzlUvx1LGl5OZt6wHr2WRg/new-design?node-id=1357-1347
 - 수면 반짝임(`SeaGlints`): 여덟 개가 수평선 아래 아무 데나 반짝였다 사라진다.
 - 뗏목(`SeaRaft floatSeed`): `RaftFloat` 가 뗏목마다 다른 주기·위상(`raftRhythm`)으로 상하 ±1.6~1.8%·기울기 −1.6~1.4도로 띄우고 그림자를 같이 움직이며, `RaftRipples` 가 물가에 고리 셋(2.7초)을 퍼뜨린다. 바다 장면만 `floatSeed` 를 주고 정보창 등의 뗏목은 정지 그림이다.
 - 표류 자리(`DRIFT_PEER_SLOTS`): 맨 뒤 칸을 앞으로 당기고(0.78, 0.29, 58) 세 번째 칸을 왼쪽으로(x 0.62) 옮겼다.
-- 멈춤: 동작 줄이기·백그라운드(`useSeaRunning`)·안 보이는 페이지(`reduceMotion || index !== visiblePage`)에서는 멈추고, 그때 하늘은 원화 구름 둘과 정지 갈매기 그림이다.
+- 멈춤: 장면이 `useSeaRunning`(동작 줄이기 아님 + 앱이 앞) 을 한 번 계산해 `running` 으로 내리고, 안 보이는 페이지의 뗏목은 `running && index === visiblePage` 로 끈다. 멈춘 장면은 원화 구름 둘·정지 갈매기·바탕+첫 물빛 줄(=지금 바다 그림)이다. 보간 노드는 `useMemo` 로 한 번만 만들고 구름 x 는 리스너 없이 `stopAnimation` 으로만 읽는다(프레임마다 브리지를 타지 않게).
 
 ## 참가자 카드와 가로 탐색 (2365)
 

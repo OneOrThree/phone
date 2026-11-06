@@ -1,7 +1,7 @@
 // GROMO-2785 바다 움직임 — 동작 줄이기·백그라운드에서 멈추고, 표류 자리가 시안 값이며, 뗏목마다 박자가 다르다.
 import React from 'react';
 import { Animated, AppState } from 'react-native';
-import { render } from '@testing-library/react-native';
+import { render, renderHook } from '@testing-library/react-native';
 import {
   RaftFloat,
   RaftRipples,
@@ -10,6 +10,8 @@ import {
   SeaSkyMotion,
   SeaWaterMotion,
   seaCover,
+  startPhasedLoop,
+  useSeaRunning,
 } from './SeaMotion';
 import { DRIFT_PEER_SLOTS } from './SeaScene';
 
@@ -17,11 +19,14 @@ type AppStateMutable = { currentState: string | null };
 const setAppState = (state: string) => {
   (AppState as unknown as AppStateMutable).currentState = state;
 };
+const valueOf = (value: Animated.Value) =>
+  (value as unknown as { __getValue: () => number }).__getValue();
 
 let previousAppState: string | null;
 let timingStart: jest.Mock;
 let timingStop: jest.Mock;
 let timing: jest.SpyInstance;
+let loopStart: jest.Mock;
 let loop: jest.SpyInstance;
 
 beforeEach(() => {
@@ -34,8 +39,9 @@ beforeEach(() => {
     stop: timingStop,
     reset: jest.fn(),
   } as unknown as Animated.CompositeAnimation);
+  loopStart = jest.fn();
   loop = jest.spyOn(Animated, 'loop').mockReturnValue({
-    start: jest.fn(),
+    start: loopStart,
     stop: jest.fn(),
     reset: jest.fn(),
   } as unknown as Animated.CompositeAnimation);
@@ -49,27 +55,50 @@ afterEach(() => {
 
 const size = { width: 402, height: 874 };
 
-test('물빛 줄 두 장은 앱이 앞에 있을 때만 돌고, 동작 줄이기면 첫 장만 그대로 보인다', async () => {
-  const screen = await render(<SeaWaterMotion {...size} />);
+test('useSeaRunning — 동작 줄이기가 아니고 앱이 앞에 있을 때만 참', async () => {
+  expect((await renderHook(() => useSeaRunning(false))).result.current).toBe(true);
+  expect((await renderHook(() => useSeaRunning(true))).result.current).toBe(false);
+  setAppState('background');
+  expect((await renderHook(() => useSeaRunning(false))).result.current).toBe(false);
+});
+
+test('위상 시계 — 첫 바퀴는 phase 에서 짧게 돌고, 끝나면 0 으로 되돌린 뒤 전체 바퀴를 반복한다', () => {
+  const clock = new Animated.Value(0);
+  const stop = startPhasedLoop(clock, 1000, 0.25);
+  expect(valueOf(clock)).toBe(0.25);
+  expect(timing).toHaveBeenLastCalledWith(clock, expect.objectContaining({ duration: 750 }));
+  expect(loopStart).not.toHaveBeenCalled();
+
+  const onLeadDone = timingStart.mock.calls[0][0] as (r: { finished: boolean }) => void;
+  onLeadDone({ finished: true });
+  expect(valueOf(clock)).toBe(0);
+  expect(loopStart).toHaveBeenCalledTimes(1);
+
+  // 멈춘 뒤 늦게 온 완료는 되살리지 않는다
+  stop();
+  onLeadDone({ finished: true });
+  expect(loopStart).toHaveBeenCalledTimes(1);
+});
+
+test('물빛 줄 두 장은 running 일 때만 돌고, 멈추면 첫 장만 그대로 보인다(지금 바다 그림)', async () => {
+  const screen = await render(<SeaWaterMotion {...size} running />);
   expect(screen.getByTestId('sea-water-foam-0')).toBeTruthy();
   expect(screen.getByTestId('sea-water-foam-1')).toBeTruthy();
   expect(timingStart).toHaveBeenCalled();
 
   timingStart.mockClear();
-  await screen.rerender(<SeaWaterMotion {...size} reduceMotion />);
+  await screen.rerender(<SeaWaterMotion {...size} running={false} />);
   expect(timingStop).toHaveBeenCalled();
   expect(timingStart).not.toHaveBeenCalled();
   expect(screen.getByTestId('sea-water-foam-0')).toHaveStyle({ opacity: 1 });
   expect(screen.getByTestId('sea-water-foam-1')).toHaveStyle({ opacity: 0 });
 });
 
-test('백그라운드면 바다·하늘·반짝임이 돌지 않고, 하늘은 지금 앱의 정지 갈매기와 원화 구름 둘만 보인다', async () => {
-  setAppState('background');
+test('멈추면 하늘·반짝임이 돌지 않고, 하늘은 지금 앱의 정지 갈매기와 원화 구름 둘만 보인다', async () => {
   const screen = await render(
     <>
-      <SeaWaterMotion {...size} />
-      <SeaSkyMotion {...size} />
-      <SeaGlints {...size} />
+      <SeaSkyMotion {...size} running={false} />
+      <SeaGlints {...size} running={false} />
     </>,
   );
   expect(timingStart).not.toHaveBeenCalled();
@@ -81,11 +110,11 @@ test('백그라운드면 바다·하늘·반짝임이 돌지 않고, 하늘은 �
   expect(screen.queryByTestId('sea-glints')).toBeNull();
 });
 
-test('앱이 앞에 있으면 구름 넷이 흐르고 갈매기 한 마리가 기다렸다 지나가며 반짝임이 켜진다', async () => {
+test('running 이면 구름 넷이 흐르고 갈매기 한 마리가 기다렸다 지나가며 반짝임 여덟이 켜진다', async () => {
   const screen = await render(
     <>
-      <SeaSkyMotion {...size} />
-      <SeaGlints {...size} />
+      <SeaSkyMotion {...size} running />
+      <SeaGlints {...size} running />
     </>,
   );
   expect(screen.getByTestId('sea-sky-cloud-3')).toBeTruthy();
@@ -96,11 +125,11 @@ test('앱이 앞에 있으면 구름 넷이 흐르고 갈매기 한 마리가 �
   expect(timing.mock.calls.length).toBeGreaterThanOrEqual(4 + 1 + 8);
 });
 
-test('뗏목은 둥실거림·그림자·물결 고리 셋을 그리고, 동작 줄이기면 고리가 없고 흔들림이 없다', async () => {
+test('뗏목은 둥실거림·그림자·물결 고리 셋을 그리고, 멈추면 고리가 없고 흔들림이 없다', async () => {
   const screen = await render(
     <>
-      <RaftRipples size={100} seed={1} />
-      <RaftFloat size={100} seed={1}>
+      <RaftRipples size={100} seed={1} running />
+      <RaftFloat size={100} seed={1} running>
         {null}
       </RaftFloat>
     </>,
@@ -108,12 +137,13 @@ test('뗏목은 둥실거림·그림자·물결 고리 셋을 그리고, 동작 
   expect(screen.getByTestId('raft-ripples-0')).toBeTruthy();
   expect(screen.getByTestId('raft-ripples-2')).toBeTruthy();
   expect(screen.getByTestId('raft-float-shadow')).toBeTruthy();
-  expect(loop).toHaveBeenCalled();
+  // 고리 셋은 시계 하나, 둥실거림·기울기는 시계 둘 — 뗏목당 루프 3개
+  expect(loop).toHaveBeenCalledTimes(3);
 
   await screen.rerender(
     <>
-      <RaftRipples size={100} seed={1} reduceMotion />
-      <RaftFloat size={100} seed={1} reduceMotion>
+      <RaftRipples size={100} seed={1} running={false} />
+      <RaftFloat size={100} seed={1} running={false}>
         {null}
       </RaftFloat>
     </>,

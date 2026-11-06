@@ -8,10 +8,12 @@
  * - 수면 반짝임(`SeaGlints`): 작은 빛이 여기저기 반짝였다 사라진다.
  * - 뗏목(`RaftFloat`·`RaftRipples`): 뗏목마다 다른 주기·위상으로 위아래로 뜨고 살짝 기울며, 물가에 물결 고리가 퍼진다.
  *
- * 모두 `Animated` + `useNativeDriver` 라 JS 스레드를 쓰지 않고 OTA 로 나간다. 동작 줄이기·백그라운드·안 보이는 페이지에서는
- * 멈춘다(`useSeaRunning`). 움직이는 뷰는 작은 조각(물빛 줄·구름·갈매기·뗏목)뿐이고 바탕은 다시 그리지 않는다(티켓 2736 교훈).
+ * 모두 `Animated` + `useNativeDriver` 라 JS 스레드를 쓰지 않고 OTA 로 나간다. 장면(`SeaScene`)이 `useSeaRunning` 으로
+ * 「동작 줄이기가 아니고 앱이 앞에 있다」를 한 번 계산해 `running` 으로 내리고, 안 보이는 페이지는 그 값을 끈다.
+ * 움직이는 뷰는 작은 조각(물빛 줄·구름·갈매기·뗏목)뿐이고 바탕은 다시 그리지 않는다(티켓 2736 교훈). 보간 노드는
+ * `useMemo` 로 한 번만 만든다 — 렌더마다 새로 만들면 네이티브 그래프에서 떼었다 다시 붙인다.
  */
-import React, { memo, useCallback, useEffect, useRef, useState } from 'react';
+import React, { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, AppState, Easing, Image, StyleSheet, View, type ImageStyle } from 'react-native';
 import { seaAssets } from './seaAssets';
 
@@ -26,7 +28,7 @@ export function seaCover(width: number, height: number) {
   return { fw, fh, ox: (width - fw) / 2, oy: (height - fh) / 2 };
 }
 
-/** 동작 줄이기가 아니고 앱이 앞에 있을 때만 true — 움직임은 전부 이 값으로 켜고 끈다. */
+/** 동작 줄이기가 아니고 앱이 앞에 있을 때만 true — 장면이 한 번 계산해 모든 움직임에 내린다. */
 export function useSeaRunning(reduceMotion: boolean) {
   const [appState, setAppState] = useState(AppState.currentState);
   useEffect(() => {
@@ -52,26 +54,22 @@ function sampled(value: Animated.Value, steps: number, fn: (t: number) => number
 const deg = (value: Animated.AnimatedInterpolation<number>) =>
   value.interpolate({ inputRange: [-10, 10], outputRange: ['-10deg', '10deg'] });
 
-/** 0 → 1 을 period 초마다 반복하는 시계. phase(0~1)에서 시작해 첫 바퀴만 짧다 — CSS 의 음수 animation-delay. */
-function startPhasedLoop(value: Animated.Value, periodMs: number, phase = 0) {
+const linear = (value: Animated.Value, toValue: number, duration: number) =>
+  Animated.timing(value, { toValue, duration, easing: Easing.linear, useNativeDriver: true });
+
+/**
+ * 0 → 1 을 period 마다 반복하는 시계. phase(0~1)에서 시작해 첫 바퀴만 짧다 — CSS 의 음수 animation-delay.
+ * 두 번째 바퀴부터는 `Animated.loop` 이 매 바퀴 값을 되돌린다 — 되돌리는 곳이 생성자 초기값이라 시계는 늘 0 으로 만든다.
+ */
+export function startPhasedLoop(value: Animated.Value, periodMs: number, phase = 0) {
   value.setValue(phase);
-  const full = Animated.loop(
-    Animated.timing(value, {
-      toValue: 1,
-      duration: periodMs,
-      easing: Easing.linear,
-      useNativeDriver: true,
-    }),
-  );
-  const lead = Animated.timing(value, {
-    toValue: 1,
-    duration: periodMs * (1 - phase),
-    easing: Easing.linear,
-    useNativeDriver: true,
-  });
+  const full = Animated.loop(linear(value, 1, periodMs));
+  const lead = linear(value, 1, periodMs * (1 - phase));
   let stopped = false;
   lead.start(({ finished }) => {
-    if (finished && !stopped) full.start();
+    if (!finished || stopped) return;
+    value.setValue(0);
+    full.start();
   });
   return () => {
     stopped = true;
@@ -80,16 +78,16 @@ function startPhasedLoop(value: Animated.Value, periodMs: number, phase = 0) {
   };
 }
 
-/** running 일 때만 phase 위상의 시계를 돌리고, 아니면 still(정지 장면 값)에 둔다. */
-function useLoopClock(running: boolean, periodMs: number, phase = 0, still = 0) {
-  const clock = useRef(new Animated.Value(still)).current;
+/** running 일 때만 phase 위상의 시계를 돌리고, 아니면 0(정지 장면)에 둔다. */
+function useLoopClock(running: boolean, periodMs: number, phase = 0) {
+  const clock = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     if (!running) {
-      clock.setValue(still);
+      clock.setValue(0);
       return;
     }
     return startPhasedLoop(clock, periodMs, phase);
-  }, [clock, running, periodMs, phase, still]);
+  }, [clock, running, periodMs, phase]);
   return clock;
 }
 
@@ -99,6 +97,8 @@ const swing = (t: number, from: number, to: number) =>
 // CSS ease-out(cubic-bezier(0,0,.58,1)) 근사
 const easeOut = (x: number) => 1 - (1 - x) * (1 - x);
 
+type SceneProps = { width: number; height: number; running: boolean; testID?: string };
+
 // ---------------------------------------------------------------- 물
 
 const FOAM = { periodMs: 5500, amp: 1.6, swayPeriodMs: 5500 / 0.6 };
@@ -106,37 +106,40 @@ const FOAM = { periodMs: 5500, amp: 1.6, swayPeriodMs: 5500 / 0.6 };
 /**
  * 바다 바탕 + 물빛 줄 두 장. width·height 는 장면 크기(cover 로 원화를 맞춘다).
  * 물빛 줄은 수평선을 기준점으로 커지며 다가온다 — 먼 줄은 덜, 가까운 줄은 더 움직인다.
+ * 멈추면 바탕 + 첫 물빛 줄 = 지금 앱의 바다 그림이다.
  */
 export const SeaWaterMotion = memo(function SeaWaterMotionView({
   width,
   height,
-  reduceMotion = false,
+  running,
   testID = 'sea-water',
-}: {
-  width: number;
-  height: number;
-  reduceMotion?: boolean;
-  testID?: string;
-}) {
-  const running = useSeaRunning(reduceMotion);
+}: SceneProps) {
   const { fw, fh, ox, oy } = seaCover(width, height);
   const scale = width / 402;
   const clock = useLoopClock(running, FOAM.periodMs);
   const sway = useLoopClock(running, FOAM.swayPeriodMs);
   const rect: ImageStyle = { position: 'absolute', left: ox, top: oy, width: fw, height: fh };
-  const layers = [0, 1].map((i) => {
-    const u = (t: number) => (t + i / 2) % 1;
-    return {
-      opacity: running ? sampled(clock, 48, (t) => Math.sin(Math.PI * u(t)) ** 2) : i === 0 ? 1 : 0,
-      translateY: sampled(clock, 48, (t) => (u(t) - 0.5) * 0.016 * fh * FOAM.amp),
-      scale: sampled(clock, 48, (t) => 1 + (u(t) - 0.5) * 0.022 * FOAM.amp),
-      translateX: sampled(
-        sway,
-        32,
-        (t) => Math.sin((t + i * 0.3 * 0.6) * 2 * Math.PI) * 3 * scale * FOAM.amp,
-      ),
-    };
-  });
+  const layers = useMemo(
+    () =>
+      [0, 1].map((i) => {
+        const u = (t: number) => (t + i / 2) % 1;
+        return {
+          opacity: sampled(clock, 48, (t) => Math.sin(Math.PI * u(t)) ** 2),
+          transform: [
+            {
+              translateX: sampled(
+                sway,
+                32,
+                (t) => Math.sin((t + i * 0.3 * 0.6) * 2 * Math.PI) * 3 * scale * FOAM.amp,
+              ),
+            },
+            { translateY: sampled(clock, 48, (t) => (u(t) - 0.5) * 0.016 * fh * FOAM.amp) },
+            { scale: sampled(clock, 48, (t) => 1 + (u(t) - 0.5) * 0.022 * FOAM.amp) },
+          ],
+        };
+      }),
+    [clock, sway, fh, scale],
+  );
   return (
     <View testID={testID} pointerEvents="none" style={[StyleSheet.absoluteFill, { width, height }]}>
       <Image source={seaAssets.base} style={rect} accessible={false} />
@@ -146,20 +149,7 @@ export const SeaWaterMotion = memo(function SeaWaterMotionView({
           testID={`${testID}-foam-${i}`}
           source={seaAssets.foam}
           accessible={false}
-          style={[
-            rect,
-            {
-              transformOrigin: ['50%', `${SEA_ART.horizon * 100}%`, 0],
-              opacity: layer.opacity,
-              transform: running
-                ? [
-                    { translateX: layer.translateX },
-                    { translateY: layer.translateY },
-                    { scale: layer.scale },
-                  ]
-                : [],
-            },
-          ]}
+          style={[rect, styles.foam, running ? layer : { opacity: i === 0 ? 1 : 0 }]}
         />
       ))}
     </View>
@@ -177,9 +167,9 @@ const CLOUD_SHAPES = [
 ];
 /** 화면 한 폭을 가로지르는 데 걸리는 초(속도 1 기준). */
 const CLOUD_CROSS_S = 120;
-type Cloud = { shape: number; y: number; s: number; v: number; flip: boolean; orig: boolean };
-/** 처음 구름: 원화 자리 둘 + 왼쪽 밖에서 기다리는 둘. x0 는 원화 폭 대비 시작 x. */
-const INITIAL_CLOUDS: (Cloud & { x0: number })[] = [
+type Cloud = { shape: number; y: number; s: number; v: number; flip: boolean };
+/** 처음 구름: 원화 자리 둘 + 왼쪽 밖에서 기다리는 둘. x0 는 원화 폭 대비 시작 x, orig 는 멈춘 장면에도 보이는 원화 구름. */
+const INITIAL_CLOUDS: (Cloud & { x0: number; orig: boolean })[] = [
   { shape: 0, x0: 0.0449, y: 0.0352, s: 1, v: 1, flip: false, orig: true },
   { shape: 1, x0: 0.7324, y: 0.0866, s: 1, v: 0.8, flip: false, orig: true },
   { shape: 3, x0: -0.55, y: 0.02, s: 0.8, v: 0.9, flip: true, orig: false },
@@ -199,16 +189,10 @@ const GULL = { gapMs: 12000, flyMs: 8000, flapHz: 2.6, widthPt: 32, aspect: 142 
 export const SeaSkyMotion = memo(function SeaSkyMotionView({
   width,
   height,
-  reduceMotion = false,
+  running,
   testID = 'sea-sky',
-}: {
-  width: number;
-  height: number;
-  reduceMotion?: boolean;
-  testID?: string;
-}) {
-  const running = useSeaRunning(reduceMotion);
-  const { fw, fh, ox, oy } = seaCover(width, height);
+}: SceneProps) {
+  const cover = useMemo(() => seaCover(width, height), [width, height]);
   const scale = width / 402;
   return (
     <View testID={testID} pointerEvents="none" style={[StyleSheet.absoluteFill, { width, height }]}>
@@ -219,7 +203,7 @@ export const SeaSkyMotion = memo(function SeaSkyMotionView({
           initial={initial}
           running={running}
           width={width}
-          cover={{ fw, fh, ox, oy }}
+          cover={cover}
         />
       ))}
       {running ? (
@@ -231,12 +215,7 @@ export const SeaSkyMotion = memo(function SeaSkyMotionView({
           resizeMode="contain"
           style={[
             styles.abs,
-            {
-              left: width * 0.16,
-              top: height * 0.08,
-              width: 56 * scale,
-              height: 26 * scale,
-            },
+            { left: width * 0.16, top: height * 0.08, width: 56 * scale, height: 26 * scale },
           ]}
           accessible={false}
         />
@@ -245,80 +224,68 @@ export const SeaSkyMotion = memo(function SeaSkyMotionView({
   );
 });
 
-function CloudDrift({
+const CloudDrift = memo(function CloudDriftView({
   initial,
   running,
   width,
   cover,
   testID,
 }: {
-  initial: Cloud & { x0: number };
+  initial: Cloud & { x0: number; orig: boolean };
   running: boolean;
   width: number;
   cover: { fw: number; fh: number; ox: number; oy: number };
   testID: string;
 }) {
   const [cloud, setCloud] = useState<Cloud>(initial);
-  const x = useRef(new Animated.Value(cover.ox + initial.x0 * cover.fw)).current;
-  // 지금 x 를 JS 에서도 안다 — 다시 돌 때 그 자리에서 이어 가고, 나가면 새 구름을 왼쪽 밖에 둔다
-  const xNow = useRef(cover.ox + initial.x0 * cover.fw);
-  useEffect(() => {
-    const id = x.addListener(({ value }) => {
-      xNow.current = value;
-    });
-    return () => x.removeListener(id);
-  }, [x]);
+  const startX = cover.ox + initial.x0 * cover.fw;
+  const x = useRef(new Animated.Value(startX)).current;
+  // 지금 x 를 JS 에서도 안다 — 다시 돌 때 그 자리에서 이어 가고, 나가면 새 구름을 왼쪽 밖에 둔다.
+  // 리스너를 달면 프레임마다 브리지를 타므로, 멈출 때 stopAnimation 으로 한 번만 받는다.
+  const xNow = useRef(startX);
 
   useEffect(() => {
-    if (!running) return;
-    let current: Animated.CompositeAnimation | null = null;
+    if (!running) {
+      // 멈춘 장면은 원화 구름이 원래 자리 — 흐르던 구름은 버린다
+      setCloud(initial);
+      xNow.current = startX;
+      x.setValue(startX);
+      return;
+    }
     let alive = true;
     const run = (c: Cloud) => {
-      const from = xNow.current;
       const speed = (width / CLOUD_CROSS_S) * c.v; // px/s
-      current = Animated.timing(x, {
-        toValue: width,
-        duration: Math.max(1, ((width - from) / speed) * 1000),
-        easing: Easing.linear,
-        useNativeDriver: true,
-      });
-      current.start(({ finished }) => {
-        if (!finished || !alive) return;
-        // 다른 모양·높이·크기로, 가끔 뒤집어서 왼쪽 밖에 다시 둔다. 작을수록 멀다 → 느리고 옅게
-        let shape = c.shape;
-        while (shape === c.shape) shape = Math.floor(Math.random() * CLOUD_SHAPES.length);
-        const s = 0.65 + Math.random() * 0.45;
-        const next: Cloud = {
-          shape,
-          s,
-          v: 0.55 + s * 0.5,
-          flip: Math.random() < 0.5,
-          orig: false,
-          y: 0,
-        };
-        const { h } = cloudSize(next, cover.fw);
-        const room = SEA_ART.horizon - 0.012 - h / cover.fh;
-        next.y = 0.012 + Math.random() * Math.max(0, room - 0.012);
-        const { w: nw } = cloudSize(next, cover.fw);
-        xNow.current = -nw - Math.random() * width * 0.4;
-        x.setValue(xNow.current);
-        setCloud(next);
-        run(next);
-      });
+      linear(x, width, Math.max(1, ((width - xNow.current) / speed) * 1000)).start(
+        ({ finished }) => {
+          if (!finished || !alive) return;
+          // 다른 모양·높이·크기로, 가끔 뒤집어서 왼쪽 밖에 다시 둔다. 작을수록 멀다 → 느리고 옅게
+          let shape = c.shape;
+          while (shape === c.shape) shape = Math.floor(Math.random() * CLOUD_SHAPES.length);
+          const s = 0.65 + Math.random() * 0.45;
+          const next: Cloud = { shape, s, v: 0.55 + s * 0.5, flip: Math.random() < 0.5, y: 0 };
+          const { w, h } = cloudSize(next, cover.fw);
+          const room = SEA_ART.horizon - 0.012 - h / cover.fh;
+          next.y = 0.012 + Math.random() * Math.max(0, room - 0.012);
+          xNow.current = -w - Math.random() * width * 0.4;
+          x.setValue(xNow.current);
+          setCloud(next);
+          run(next);
+        },
+      );
     };
     run(cloud);
     return () => {
       alive = false;
-      current?.stop();
+      x.stopAnimation((value) => {
+        xNow.current = value;
+      });
     };
     // 구름이 바뀔 때는 run 안에서 이어 돌린다 — cloud 를 deps 에 넣으면 같은 구름을 두 번 돌린다
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [running, width, cover.fw, cover.fh, x]);
+  }, [running, width, cover.fw, cover.fh, startX, x]);
 
-  // 멈추면 원화 구름만 원래 자리에
-  if (!running && !cloud.orig) return null;
+  if (!running && !initial.orig) return null;
   const { w, h } = cloudSize(cloud, cover.fw);
-  const left = running ? 0 : cover.ox + initial.x0 * cover.fw;
   return (
     <Animated.Image
       testID={testID}
@@ -327,7 +294,7 @@ function CloudDrift({
       style={[
         styles.abs,
         {
-          left,
+          left: running ? 0 : startX,
           top: cover.oy + cloud.y * cover.fh,
           width: w,
           height: h,
@@ -337,9 +304,9 @@ function CloudDrift({
       ]}
     />
   );
-}
+});
 
-function GullFlight({
+const GullFlight = memo(function GullFlightView({
   width,
   height,
   scale,
@@ -361,15 +328,7 @@ function GullFlight({
     const fly = () => {
       progress.setValue(0);
       setY0(0.05 + Math.random() * 0.08);
-      current = Animated.sequence([
-        Animated.delay(GULL.gapMs),
-        Animated.timing(progress, {
-          toValue: 1,
-          duration: GULL.flyMs,
-          easing: Easing.linear,
-          useNativeDriver: true,
-        }),
-      ]);
+      current = Animated.sequence([Animated.delay(GULL.gapMs), linear(progress, 1, GULL.flyMs)]);
       current.start(({ finished }) => {
         if (finished && alive) fly();
       });
@@ -381,19 +340,26 @@ function GullFlight({
     };
   }, [progress]);
   const flap = useLoopClock(true, 1000 / GULL.flapHz);
-  const x = progress.interpolate({ inputRange: [0, 1], outputRange: [-bw, width + bw] });
-  const y = sampled(
-    progress,
-    48,
-    (u) => y0 * height + Math.sin(u * Math.PI * 2.5) * 5 * scale - u * 0.02 * height,
+  const path = useMemo(
+    () => ({
+      x: progress.interpolate({ inputRange: [0, 1], outputRange: [-bw, width + bw] }),
+      y: sampled(
+        progress,
+        48,
+        (u) => y0 * height + Math.sin(u * Math.PI * 2.5) * 5 * scale - u * 0.02 * height,
+      ),
+    }),
+    [progress, bw, width, height, scale, y0],
   );
   // 날개 위(길게 0.6)·아래(짧게). 아래일 때 몸이 1.5px 뜬다
-  const up = flap.interpolate({ inputRange: [0, 0.6, 0.6001, 1], outputRange: [1, 1, 0, 0] });
-  const down = flap.interpolate({ inputRange: [0, 0.6, 0.6001, 1], outputRange: [0, 0, 1, 1] });
-  const lift = flap.interpolate({
-    inputRange: [0, 0.6, 0.6001, 1],
-    outputRange: [0, 0, -1.5, -1.5],
-  });
+  const wings = useMemo(
+    () => ({
+      up: flap.interpolate({ inputRange: [0, 0.6, 0.6001, 1], outputRange: [1, 1, 0, 0] }),
+      down: flap.interpolate({ inputRange: [0, 0.6, 0.6001, 1], outputRange: [0, 0, 1, 1] }),
+      lift: flap.interpolate({ inputRange: [0, 0.6, 0.6001, 1], outputRange: [0, 0, -1.5, -1.5] }),
+    }),
+    [flap],
+  );
   return (
     <Animated.View
       testID={testID}
@@ -402,23 +368,23 @@ function GullFlight({
         {
           width: bw,
           height: bh,
-          transform: [{ translateX: x }, { translateY: y }, { translateY: lift }],
+          transform: [{ translateX: path.x }, { translateY: path.y }, { translateY: wings.lift }],
         },
       ]}
     >
       <Animated.Image
         source={seaAssets.gullUp}
-        style={[StyleSheet.absoluteFill, { width: bw, height: bh, opacity: up }]}
+        style={[StyleSheet.absoluteFill, { width: bw, height: bh, opacity: wings.up }]}
         accessible={false}
       />
       <Animated.Image
         source={seaAssets.gullDown}
-        style={[StyleSheet.absoluteFill, { width: bw, height: bh, opacity: down }]}
+        style={[StyleSheet.absoluteFill, { width: bw, height: bh, opacity: wings.down }]}
         accessible={false}
       />
     </Animated.View>
   );
-}
+});
 
 // ---------------------------------------------------------------- 수면 반짝임
 
@@ -428,15 +394,9 @@ const GLINT_COUNT = 8;
 export const SeaGlints = memo(function SeaGlintsView({
   width,
   height,
-  reduceMotion = false,
+  running,
   testID = 'sea-glints',
-}: {
-  width: number;
-  height: number;
-  reduceMotion?: boolean;
-  testID?: string;
-}) {
-  const running = useSeaRunning(reduceMotion);
+}: SceneProps) {
   if (!running) return null;
   return (
     <View testID={testID} pointerEvents="none" style={[StyleSheet.absoluteFill, { width, height }]}>
@@ -447,26 +407,36 @@ export const SeaGlints = memo(function SeaGlintsView({
   );
 });
 
-function Glint({ n, width, height }: { n: number; width: number; height: number }) {
+type Spot = { left: number; top: number; w: number; h: number; ms: number };
+const placeGlint = (width: number, height: number): Spot => {
+  const yN = 0.2 + Math.random() * 0.78,
+    depth = (yN - 0.17) / 0.83,
+    w = (6 + 16 * depth) * 1.1 * (width / 402);
+  return {
+    left: Math.random() * width,
+    top: yN * height,
+    w,
+    h: Math.max(1.5, w / 6),
+    ms: 1200 + Math.random() * 900,
+  };
+};
+
+const Glint = memo(function GlintView({
+  n,
+  width,
+  height,
+}: {
+  n: number;
+  width: number;
+  height: number;
+}) {
   const progress = useRef(new Animated.Value(0)).current;
-  const place = useCallback(() => {
-    const yN = 0.2 + Math.random() * 0.78,
-      depth = (yN - 0.17) / 0.83,
-      w = (6 + 16 * depth) * 1.1 * (width / 402);
-    return {
-      left: Math.random() * width,
-      top: yN * height,
-      w,
-      h: Math.max(1.5, w / 6),
-      ms: 1200 + Math.random() * 900,
-    };
-  }, [width, height]);
-  const [spot, setSpot] = useState(place);
+  const [spot, setSpot] = useState<Spot>(() => placeGlint(width, height));
   useEffect(() => {
     let alive = true;
     let current: Animated.CompositeAnimation | null = null;
     const once = (delayMs: number) => {
-      const next = place();
+      const next = placeGlint(width, height);
       setSpot(next);
       progress.setValue(0);
       current = Animated.sequence([
@@ -488,9 +458,14 @@ function Glint({ n, width, height }: { n: number; width: number; height: number 
       alive = false;
       current?.stop();
     };
-  }, [n, place, progress]);
-  const opacity = progress.interpolate({ inputRange: [0, 0.35, 1], outputRange: [0, 1, 0] });
-  const scale = progress.interpolate({ inputRange: [0, 0.35, 1], outputRange: [0.4, 1, 0.7] });
+  }, [n, width, height, progress]);
+  const fade = useMemo(
+    () => ({
+      opacity: progress.interpolate({ inputRange: [0, 0.35, 1], outputRange: [0, 1, 0] }),
+      scale: progress.interpolate({ inputRange: [0, 0.35, 1], outputRange: [0.4, 1, 0.7] }),
+    }),
+    [progress],
+  );
   return (
     <Animated.View
       style={[
@@ -500,8 +475,8 @@ function Glint({ n, width, height }: { n: number; width: number; height: number 
           top: spot.top,
           width: spot.w,
           height: spot.h,
-          opacity,
-          transform: [{ scale }],
+          opacity: fade.opacity,
+          transform: [{ scale: fade.scale }],
         },
       ]}
     >
@@ -514,7 +489,7 @@ function Glint({ n, width, height }: { n: number; width: number; height: number 
       />
     </Animated.View>
   );
-}
+});
 
 // ---------------------------------------------------------------- 뗏목
 
@@ -529,27 +504,31 @@ export function raftRhythm(seed: number) {
  * 뗏목 상자 안에서 그림 층을 위아래로 띄우고 살짝 기울인다. 그림자는 뗏목 뒤에서 같은 박자로 커졌다 작아진다.
  * size 는 뗏목 상자 한 변, seed 는 뗏목 번호(나는 0, 남은 1부터).
  */
-export function RaftFloat({
+export const RaftFloat = memo(function RaftFloatView({
   size,
   seed,
-  reduceMotion = false,
+  running,
   children,
   testID = 'raft-float',
 }: {
   size: number;
   seed: number;
-  reduceMotion?: boolean;
+  running: boolean;
   children: React.ReactNode;
   testID?: string;
 }) {
-  const running = useSeaRunning(reduceMotion);
   const { p1, p2, phase1, phase2 } = raftRhythm(seed);
   const bob = useLoopClock(running, p1 * 1000, phase1);
   const roll = useLoopClock(running, p2 * 1000, phase2);
-  const translateY = sampled(bob, 32, (t) => swing(t, -0.016, 0.018) * size);
-  const rotate = deg(sampled(roll, 32, (t) => swing(t, -1.6, 1.4)));
-  const shadowScale = sampled(bob, 32, (t) => swing(t, 1.04, 0.94));
-  const shadowOpacity = sampled(bob, 32, (t) => swing(t, 0.8, 1));
+  const motion = useMemo(
+    () => ({
+      translateY: sampled(bob, 32, (t) => swing(t, -0.016, 0.018) * size),
+      rotate: deg(sampled(roll, 32, (t) => swing(t, -1.6, 1.4))),
+      shadowScale: sampled(bob, 32, (t) => swing(t, 1.04, 0.94)),
+      shadowOpacity: sampled(bob, 32, (t) => swing(t, 0.8, 1)),
+    }),
+    [bob, roll, size],
+  );
   return (
     <>
       <Animated.View
@@ -563,18 +542,23 @@ export function RaftFloat({
             height: size * 0.16,
             borderRadius: size * 0.37,
           },
-          running ? { opacity: shadowOpacity, transform: [{ scale: shadowScale }] } : null,
+          running
+            ? { opacity: motion.shadowOpacity, transform: [{ scale: motion.shadowScale }] }
+            : null,
         ]}
       />
       <Animated.View
         testID={testID}
-        style={[StyleSheet.absoluteFill, running ? { transform: [{ translateY }] } : null]}
+        style={[
+          StyleSheet.absoluteFill,
+          running ? { transform: [{ translateY: motion.translateY }] } : null,
+        ]}
       >
         <Animated.View
           style={[
             StyleSheet.absoluteFill,
-            { transformOrigin: ['50%', '80%', 0] },
-            running ? { transform: [{ rotate }] } : null,
+            styles.roll,
+            running ? { transform: [{ rotate: motion.rotate }] } : null,
           ]}
         >
           {children}
@@ -582,80 +566,82 @@ export function RaftFloat({
       </Animated.View>
     </>
   );
-}
+});
 
-const RIPPLE_PERIOD_MS = 2700;
+const RIPPLE = { periodMs: 2700, rings: 3 };
 
-/** 뗏목이 물에 닿은 곳(약 76~83%)에서 하얀 물결 고리 셋이 차례로 퍼진다. 흔들리지 않는 물 위라 뗏목 밖(형제)에 둔다. */
-export function RaftRipples({
+/**
+ * 뗏목이 물에 닿은 곳(약 76~83%)에서 하얀 물결 고리 셋이 차례로 퍼진다. 흔들리지 않는 물 위라 뗏목 밖(형제)에 둔다.
+ * 시계는 뗏목당 하나 — 고리 j 는 1/3 씩 어긋난 진행(시안 animation-delay −j·0.9s)이다.
+ */
+export const RaftRipples = memo(function RaftRipplesView({
   size,
   seed,
-  reduceMotion = false,
+  running,
   testID = 'raft-ripples',
 }: {
   size: number;
   seed: number;
-  reduceMotion?: boolean;
+  running: boolean;
   testID?: string;
 }) {
-  const running = useSeaRunning(reduceMotion);
+  // CSS animation-delay −(seed·0.4)s → 시계 위상. 고리 사이 −j·0.9s 는 2.7s 의 j/3 이라 아래 u 에서 더한다
+  const clock = useLoopClock(
+    running,
+    RIPPLE.periodMs,
+    ((seed * 400) % RIPPLE.periodMs) / RIPPLE.periodMs,
+  );
+  const rings = useMemo(
+    () =>
+      Array.from({ length: RIPPLE.rings }, (_, j) => {
+        // 톱니(u 가 1→0 으로 돌아가는 곳)는 60 단계 중 정확히 샘플 점에 떨어지고 그때 투명도가 0 이라 보이지 않는다
+        const u = (t: number) => (t + j / RIPPLE.rings) % 1;
+        return {
+          opacity: sampled(clock, 60, (t) => {
+            const p = u(t);
+            return p < 0.2 ? 0.85 * easeOut(p / 0.2) : 0.85 * (1 - easeOut((p - 0.2) / 0.8));
+          }),
+          scaleX: sampled(clock, 60, (t) => 0.72 + (1.23 - 0.72) * easeOut(u(t))),
+          scaleY: sampled(clock, 60, (t) => 0.7 + (1.15 - 0.7) * easeOut(u(t))),
+        };
+      }),
+    [clock],
+  );
   if (!running) return null;
   return (
     <>
-      {[0, 1, 2].map((j) => (
-        <Ripple key={j} j={j} seed={seed} size={size} testID={`${testID}-${j}`} />
-      ))}
+      {rings.map((ring, j) => {
+        const w = size * (0.86 + j * 0.06),
+          h = size * 0.16;
+        return (
+          <Animated.View
+            key={j}
+            testID={`${testID}-${j}`}
+            pointerEvents="none"
+            style={[
+              styles.ripple,
+              {
+                left: (size - w) / 2,
+                top: size * (0.76 + j * 0.035),
+                width: w,
+                height: h,
+                borderRadius: h,
+                borderBottomWidth: Math.max(1, size / 70),
+                opacity: ring.opacity,
+                transform: [{ scaleX: ring.scaleX }, { scaleY: ring.scaleY }],
+              },
+            ]}
+          />
+        );
+      })}
     </>
   );
-}
-
-function Ripple({
-  j,
-  seed,
-  size,
-  testID,
-}: {
-  j: number;
-  seed: number;
-  size: number;
-  testID: string;
-}) {
-  // CSS animation-delay -(j·0.9 + seed·0.4)s → 시계 위상
-  const delay = j * 0.9 + seed * 0.4;
-  const clock = useLoopClock(
-    true,
-    RIPPLE_PERIOD_MS,
-    ((delay * 1000) % RIPPLE_PERIOD_MS) / RIPPLE_PERIOD_MS,
-  );
-  const opacity = sampled(clock, 40, (p) =>
-    p < 0.2 ? 0.85 * easeOut(p / 0.2) : 0.85 * (1 - easeOut((p - 0.2) / 0.8)),
-  );
-  const scaleX = sampled(clock, 20, (p) => 0.72 + (1.23 - 0.72) * easeOut(p));
-  const scaleY = sampled(clock, 20, (p) => 0.7 + (1.15 - 0.7) * easeOut(p));
-  const w = size * (0.86 + j * 0.06),
-    h = size * 0.16;
-  return (
-    <Animated.View
-      testID={testID}
-      pointerEvents="none"
-      style={[
-        styles.ripple,
-        {
-          left: (size - w) / 2,
-          top: size * (0.76 + j * 0.035),
-          width: w,
-          height: h,
-          borderRadius: h,
-          borderBottomWidth: Math.max(1, size / 70),
-          opacity,
-          transform: [{ scaleX }, { scaleY }],
-        },
-      ]}
-    />
-  );
-}
+});
 
 const styles = StyleSheet.create({
+  abs: { position: 'absolute' },
+  foam: { transformOrigin: ['50%', `${SEA_ART.horizon * 100}%`, 0] },
+  roll: { transformOrigin: ['50%', '80%', 0] },
   shadow: { position: 'absolute', backgroundColor: 'rgba(0, 70, 90, 0.22)' },
   // 잘라내지 않는 뷰의 테두리는 iOS 가 그림으로 그려 프레임마다 다시 만든다 — 안쪽을 잘라 Core Animation 테두리로(티켓 2736)
   ripple: {
@@ -670,5 +656,4 @@ const styles = StyleSheet.create({
     borderRadius: 2,
     backgroundColor: 'rgba(255, 255, 255, 0.7)',
   },
-  abs: { position: 'absolute' },
 });

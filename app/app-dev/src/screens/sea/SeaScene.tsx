@@ -13,7 +13,7 @@ import { art } from '@/constants/art';
 import { MAGAZINE_UI } from '@/constants/magazineAssets';
 import { useGowun } from '@/screens/island/sceneKit';
 import { SeaRaft } from './SeaRaft';
-import { SeaGlints, SeaSkyMotion, SeaWaterMotion } from './SeaMotion';
+import { SeaGlints, SeaSkyMotion, SeaWaterMotion, useSeaRunning } from './SeaMotion';
 import { SeaParticipant, seaClock, seaPeerPages } from './seaModel';
 
 type Props = {
@@ -59,6 +59,8 @@ export function SeaScene({
   children,
 }: Props) {
   const insets = useScreenInsets();
+  // 바다 움직임(GROMO-2785)은 동작 줄이기가 아니고 앱이 앞에 있을 때만 — 한 번 계산해 모든 층과 뗏목에 내린다
+  const running = useSeaRunning(reduceMotion);
   // 이름표·말풍선·집중 시간 글자는 고운돋움(DESIGN.md 그림 장면 위 화면 규칙)
   const font = { fontFamily: useGowun() };
   const [bounds, setBounds] = useState({ width: 402, height: 788 });
@@ -132,9 +134,9 @@ export function SeaScene({
       onLayout={(event) => setBounds(event.nativeEvent.layout)}
     >
       {/* 바다 움직임(GROMO-2785) — 물빛 줄·반짝임은 수면, 구름·갈매기는 하늘. 뗏목은 그 위 ScrollView 안에서 둥실거린다 */}
-      <SeaWaterMotion width={bounds.width} height={bounds.height} reduceMotion={reduceMotion} />
-      <SeaGlints width={bounds.width} height={bounds.height} reduceMotion={reduceMotion} />
-      <SeaSkyMotion width={bounds.width} height={bounds.height} reduceMotion={reduceMotion} />
+      <SeaWaterMotion width={bounds.width} height={bounds.height} running={running} />
+      <SeaGlints width={bounds.width} height={bounds.height} running={running} />
+      <SeaSkyMotion width={bounds.width} height={bounds.height} running={running} />
       <ScrollView
         ref={scroll}
         testID="sea-participants"
@@ -211,7 +213,10 @@ export function SeaScene({
                       outfit={person.outfit}
                       size={compact ? compactRaft : size * sizeScale}
                       reduceMotion={reduceMotion || index !== visiblePage}
-                      floatSeed={index * peerSlots.length + slot + 1}
+                      float={{
+                        seed: index * peerSlots.length + slot + 1,
+                        running: running && index === visiblePage,
+                      }}
                     />
                     <Text numberOfLines={1} style={[styles.name, font]}>
                       {person.name}
@@ -300,7 +305,7 @@ export function SeaScene({
               outfit={self.outfit}
               size={selfRaft}
               reduceMotion={reduceMotion}
-              floatSeed={0}
+              float={{ seed: 0, running }}
             />
             <Text style={[styles.name, styles.me, font]}>{ownCatName(self.name)}</Text>
             {focusing && (
