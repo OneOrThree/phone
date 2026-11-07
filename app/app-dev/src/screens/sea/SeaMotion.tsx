@@ -1,30 +1,66 @@
 /**
- * 바다 화면 움직임(GROMO-2785) — 11/06 HTML 시안(https://claude.ai/artifact/4qUun4tBhsqZj6ZuzqhxVX)을 그대로 옮겼다.
+ * 바다 화면 움직임(GROMO-2785 표류 · GROMO-2789 망원경) — 11/06·11/07 HTML 시안을 그대로 옮겼다
+ * (표류 https://claude.ai/artifact/4qUun4tBhsqZj6ZuzqhxVX, 망원경 https://claude.ai/artifact/C5wEHW6q7PK3uvJ7Q54Vwj).
  *
- * - 물(`SeaWaterMotion`): 바탕 그림은 두고, 떼어 낸 밝은 물빛 줄 두 장이 반 박자 어긋나 수평선 쪽에서 앞으로 밀려오며
- *   나타났다 사라진다(투명도 sin² 라 두 장의 합이 늘 1). 그림 전체를 흔들면 어지러웠다(오스카).
- * - 하늘(`SeaSkyMotion`): 구름 네 모양이 각자 속도로 오른쪽으로 흐르고, 나가면 다른 모양·높이·크기로 다시 들어온다.
+ * - 물(`SeaWaterMotion`·`SeaWaterTile`): 바탕 그림은 두고, 떼어 낸 밝은 물빛 줄 두 장이 반 박자 어긋나 수평선 쪽에서
+ *   앞으로 밀려오며 나타났다 사라진다(투명도 sin² 라 두 장의 합이 늘 1). 그림 전체를 흔들면 어지러웠다(오스카).
+ * - 하늘(`SeaSkyMotion`): 구름이 각자 속도로 오른쪽으로 흐르고, 나가면 다른 모양·높이·크기로 다시 들어온다.
  *   갈매기는 평소엔 없다가 간격마다 한 마리가 왼쪽에서 나타나 날개를 퍼덕이며 오른쪽으로 지나간다.
  * - 수면 반짝임(`SeaGlints`): 작은 빛이 여기저기 반짝였다 사라진다.
  * - 뗏목(`RaftFloat`·`RaftRipples`): 뗏목마다 다른 주기·위상으로 위아래로 뜨고 살짝 기울며, 물가에 물결 고리가 퍼진다.
+ * - 섬 발치(`ShoreRipples`): 섬은 땅이라 흔들지 않고 모래톱에 물결 띠만 퍼진다(망원경).
  *
- * 모두 `Animated` + `useNativeDriver` 라 JS 스레드를 쓰지 않고 OTA 로 나간다. 장면(`SeaScene`)이 `useSeaRunning` 으로
+ * 그림(크기·수평선·바탕·물빛 줄)과 구름 배치는 `SeaArt`·`SkyConfig` 로 받는다 — 표류(`DRIFT_*`)와 망원경(`TELESCOPE_*`)이
+ * 같은 코드로 돈다. 모두 `Animated` + `useNativeDriver` 라 JS 스레드를 쓰지 않고 OTA 로 나간다. 장면이 `useSeaRunning` 으로
  * 「동작 줄이기가 아니고 앱이 앞에 있다」를 한 번 계산해 `running` 으로 내리고, 안 보이는 페이지는 그 값을 끈다.
  * 움직이는 뷰는 작은 조각(물빛 줄·구름·갈매기·뗏목)뿐이고 바탕은 다시 그리지 않는다(티켓 2736 교훈). 보간 노드는
  * `useMemo` 로 한 번만 만든다 — 렌더마다 새로 만들면 네이티브 그래프에서 떼었다 다시 붙인다.
  */
 import React, { memo, useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, AppState, Easing, Image, StyleSheet, View, type ImageStyle } from 'react-native';
+import {
+  Animated,
+  AppState,
+  Easing,
+  Image,
+  StyleSheet,
+  View,
+  type ImageSourcePropType,
+  type ImageStyle,
+} from 'react-native';
 import { seaAssets } from './seaAssets';
 
-/** 바다 원화(far-sea) 크기와 수평선 위치 — cover 로 맞춘 자리를 모든 층이 같이 쓴다. */
-export const SEA_ART = { width: 1024, height: 1536, horizon: 266 / 1536 };
+/** 바다 원화 한 장 — 크기·수평선 위치·바탕(구름·물빛 줄을 뺀 것)·물빛 줄. cover 로 맞춘 자리를 모든 층이 같이 쓴다. */
+export type SeaArt = {
+  width: number;
+  height: number;
+  /** 수평선의 세로 위치(높이 대비 0~1) */
+  horizon: number;
+  base: ImageSourcePropType;
+  foam: ImageSourcePropType;
+};
+/** 표류·항해 바다(far-sea). */
+export const DRIFT_SEA_ART: SeaArt = {
+  width: 1024,
+  height: 1536,
+  horizon: 266 / 1536,
+  base: seaAssets.base,
+  foam: seaAssets.foam,
+};
+/** 망원경 바다(telescope-sea, GROMO-2789). */
+export const TELESCOPE_SEA_ART: SeaArt = {
+  width: 1024,
+  height: 1536,
+  horizon: 545 / 1536,
+  base: seaAssets.telescopeBase,
+  foam: seaAssets.telescopeFoam,
+};
+export const SEA_ART = DRIFT_SEA_ART;
 
 /** 원화를 화면에 cover 로 맞춘 사각형(앱 Image resizeMode="cover" 와 같다). */
-export function seaCover(width: number, height: number) {
-  const scale = Math.max(width / SEA_ART.width, height / SEA_ART.height);
-  const fw = SEA_ART.width * scale,
-    fh = SEA_ART.height * scale;
+export function seaCover(width: number, height: number, art: SeaArt = DRIFT_SEA_ART) {
+  const scale = Math.max(width / art.width, height / art.height);
+  const fw = art.width * scale,
+    fh = art.height * scale;
   return { fw, fh, ox: (width - fw) / 2, oy: (height - fh) / 2 };
 }
 
@@ -103,23 +139,23 @@ type SceneProps = { width: number; height: number; running: boolean; testID?: st
 
 const FOAM = { periodMs: 5500, amp: 1.6, swayPeriodMs: 5500 / 0.6 };
 
+type FoamLayer = {
+  opacity: Animated.AnimatedInterpolation<number>;
+  transform: (
+    | { translateX: Animated.AnimatedInterpolation<number> }
+    | { translateY: Animated.AnimatedInterpolation<number> }
+    | { scale: Animated.AnimatedInterpolation<number> }
+  )[];
+};
+
 /**
- * 바다 바탕 + 물빛 줄 두 장. width·height 는 장면 크기(cover 로 원화를 맞춘다).
- * 물빛 줄은 수평선을 기준점으로 커지며 다가온다 — 먼 줄은 덜, 가까운 줄은 더 움직인다.
- * 멈추면 바탕 + 첫 물빛 줄 = 지금 앱의 바다 그림이다.
+ * 물빛 줄 두 장의 움직임(시계 둘 + 보간 노드). fh 는 cover 로 맞춘 원화 높이, scale 은 화면 폭 / 402.
+ * 한 장면의 모든 타일이 같은 값을 나눠 쓴다(망원경 파노라마는 그림을 여러 장 이어 깐다).
  */
-export const SeaWaterMotion = memo(function SeaWaterMotionView({
-  width,
-  height,
-  running,
-  testID = 'sea-water',
-}: SceneProps) {
-  const { fw, fh, ox, oy } = seaCover(width, height);
-  const scale = width / 402;
+export function useSeaWater(running: boolean, fh: number, scale: number): FoamLayer[] {
   const clock = useLoopClock(running, FOAM.periodMs);
   const sway = useLoopClock(running, FOAM.swayPeriodMs);
-  const rect: ImageStyle = { position: 'absolute', left: ox, top: oy, width: fw, height: fh };
-  const layers = useMemo(
+  return useMemo(
     () =>
       [0, 1].map((i) => {
         const u = (t: number) => (t + i / 2) % 1;
@@ -140,43 +176,143 @@ export const SeaWaterMotion = memo(function SeaWaterMotionView({
       }),
     [clock, sway, fh, scale],
   );
+}
+
+/**
+ * 바다 그림 한 장 = 바탕 + 물빛 줄 두 장. 물빛 줄은 수평선을 기준점으로 커지며 다가온다 — 먼 줄은 덜, 가까운 줄은 더
+ * 움직인다. 멈추면 바탕 + 첫 물빛 줄 = 원래 바다 그림이다. mirror 는 파노라마 홀수 장(좌우 반전).
+ */
+export const SeaWaterTile = memo(function SeaWaterTileView({
+  art,
+  layers,
+  running,
+  left,
+  top,
+  width,
+  height,
+  mirror = false,
+  testID = 'sea-water-tile',
+}: {
+  art: SeaArt;
+  layers: FoamLayer[];
+  running: boolean;
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+  mirror?: boolean;
+  testID?: string;
+}) {
+  const fill: ImageStyle = { position: 'absolute', left: 0, top: 0, width, height };
   return (
-    <View testID={testID} pointerEvents="none" style={[StyleSheet.absoluteFill, { width, height }]}>
-      <Image source={seaAssets.base} style={rect} accessible={false} />
+    <View
+      testID={testID}
+      pointerEvents="none"
+      style={[
+        styles.abs,
+        { left, top, width, height, transform: mirror ? [{ scaleX: -1 }] : undefined },
+      ]}
+    >
+      <Image source={art.base} style={fill} accessible={false} />
       {layers.map((layer, i) => (
         <Animated.Image
           key={i}
           testID={`${testID}-foam-${i}`}
-          source={seaAssets.foam}
+          source={art.foam}
           accessible={false}
-          style={[rect, styles.foam, running ? layer : { opacity: i === 0 ? 1 : 0 }]}
+          style={[
+            fill,
+            { transformOrigin: ['50%', `${art.horizon * 100}%`, 0] },
+            running ? layer : i === 0 ? styles.shown : styles.hidden,
+          ]}
         />
       ))}
     </View>
   );
 });
 
+/** 장면 하나를 cover 로 채우는 바다(표류·항해). width·height 는 장면 크기. */
+export const SeaWaterMotion = memo(function SeaWaterMotionView({
+  width,
+  height,
+  running,
+  art = DRIFT_SEA_ART,
+  testID = 'sea-water',
+}: SceneProps & { art?: SeaArt }) {
+  const { fw, fh, ox, oy } = seaCover(width, height, art);
+  const layers = useSeaWater(running, fh, width / 402);
+  return (
+    <View testID={testID} pointerEvents="none" style={[StyleSheet.absoluteFill, { width, height }]}>
+      <SeaWaterTile
+        art={art}
+        layers={layers}
+        running={running}
+        left={ox}
+        top={oy}
+        width={fw}
+        height={fh}
+        testID={`${testID}-tile`}
+      />
+    </View>
+  );
+});
+
 // ---------------------------------------------------------------- 하늘
 
-/** 구름 모양 넷 — 원화 두 개와 그걸로 만든 납작한 구름·몽실한 구름. w 는 원화 폭(1024) 대비, a 는 가로/세로. */
-const CLOUD_SHAPES = [
-  { source: seaAssets.clouds[0], w: 334 / 1024, a: 334 / 139 },
-  { source: seaAssets.clouds[1], w: 232 / 1024, a: 232 / 78 },
-  { source: seaAssets.clouds[2], w: 343 / 1024, a: 343 / 84 },
-  { source: seaAssets.clouds[3], w: 213 / 1024, a: 213 / 139 },
-];
+/** 구름 모양 하나 — w 는 원화 폭 대비, a 는 가로/세로. */
+type CloudShape = { source: ImageSourcePropType; w: number; a: number };
+type Cloud = { shape: number; y: number; s: number; v: number; flip: boolean };
+/** 처음 구름 — x0 는 원화 폭 대비 시작 x, orig 는 멈춘 장면에도 보이는 원화 구름. */
+type InitialCloud = Cloud & { x0: number; orig: boolean };
+export type SkyConfig = {
+  art: SeaArt;
+  shapes: CloudShape[];
+  clouds: InitialCloud[];
+  /** 갈매기가 나는 높이(화면 높이 대비) — base + 0~range */
+  gullBand: { base: number; range: number };
+  /** 멈춘 장면의 갈매기 정지 그림 자리(화면 대비). 없으면 멈추면 갈매기가 없다 */
+  stillGulls?: { x: number; y: number };
+};
+
+/** 표류 하늘 — 원화 구름 둘과 그걸로 만든 납작한 구름·몽실한 구름. */
+export const DRIFT_SKY: SkyConfig = {
+  art: DRIFT_SEA_ART,
+  shapes: [
+    { source: seaAssets.clouds[0], w: 334 / 1024, a: 334 / 139 },
+    { source: seaAssets.clouds[1], w: 232 / 1024, a: 232 / 78 },
+    { source: seaAssets.clouds[2], w: 343 / 1024, a: 343 / 84 },
+    { source: seaAssets.clouds[3], w: 213 / 1024, a: 213 / 139 },
+  ],
+  clouds: [
+    { shape: 0, x0: 0.0449, y: 0.0352, s: 1, v: 1, flip: false, orig: true },
+    { shape: 1, x0: 0.7324, y: 0.0866, s: 1, v: 0.8, flip: false, orig: true },
+    { shape: 3, x0: -0.55, y: 0.02, s: 0.8, v: 0.9, flip: true, orig: false },
+    { shape: 2, x0: -1.05, y: 0.105, s: 0.75, v: 0.7, flip: false, orig: false },
+  ],
+  gullBand: { base: 0.05, range: 0.08 },
+  stillGulls: { x: 0.16, y: 0.08 },
+};
+/** 망원경 하늘(GROMO-2789) — 망원경 그림의 구름 셋 + 왼쪽 밖에서 기다리는 하나. 멈추면 지금처럼 갈매기가 없다. */
+export const TELESCOPE_SKY: SkyConfig = {
+  art: TELESCOPE_SEA_ART,
+  shapes: [
+    { source: seaAssets.telescopeClouds[0], w: 0.3428, a: 351 / 169 },
+    { source: seaAssets.telescopeClouds[1], w: 0.1367, a: 140 / 63 },
+    { source: seaAssets.telescopeClouds[2], w: 0.2637, a: 270 / 127 },
+  ],
+  clouds: [
+    { shape: 0, x0: 0.0273, y: 0.0638, s: 1, v: 1, flip: false, orig: true },
+    { shape: 1, x0: 0.5049, y: 0.2174, s: 1, v: 0.7, flip: false, orig: true },
+    { shape: 2, x0: 0.709, y: 0.1738, s: 1, v: 0.85, flip: false, orig: true },
+    { shape: 1, x0: -0.6, y: 0.12, s: 1.3, v: 0.8, flip: true, orig: false },
+  ],
+  gullBand: { base: 0.06, range: 0.16 },
+};
+
 /** 화면 한 폭을 가로지르는 데 걸리는 초(속도 1 기준). */
 const CLOUD_CROSS_S = 120;
-type Cloud = { shape: number; y: number; s: number; v: number; flip: boolean };
-/** 처음 구름: 원화 자리 둘 + 왼쪽 밖에서 기다리는 둘. x0 는 원화 폭 대비 시작 x, orig 는 멈춘 장면에도 보이는 원화 구름. */
-const INITIAL_CLOUDS: (Cloud & { x0: number; orig: boolean })[] = [
-  { shape: 0, x0: 0.0449, y: 0.0352, s: 1, v: 1, flip: false, orig: true },
-  { shape: 1, x0: 0.7324, y: 0.0866, s: 1, v: 0.8, flip: false, orig: true },
-  { shape: 3, x0: -0.55, y: 0.02, s: 0.8, v: 0.9, flip: true, orig: false },
-  { shape: 2, x0: -1.05, y: 0.105, s: 0.75, v: 0.7, flip: false, orig: false },
-];
-const cloudSize = (c: Cloud, fw: number) => {
-  const shape = CLOUD_SHAPES[c.shape];
+const cloudSize = (c: Cloud, shapes: CloudShape[], fw: number) => {
+  const shape = shapes[c.shape];
   const w = shape.w * c.s * fw;
   return { w, h: w / shape.a };
 };
@@ -184,22 +320,24 @@ const cloudSize = (c: Cloud, fw: number) => {
 const GULL = { gapMs: 12000, flyMs: 8000, flapHz: 2.6, widthPt: 32, aspect: 142 / 160 };
 
 /**
- * 구름 넷 + 갈매기 한 마리. 멈추면(동작 줄이기·백그라운드) 원화 구름 둘과 지금 앱의 갈매기 정지 그림이 제자리에 있다.
+ * 구름 + 갈매기 한 마리. 멈추면(동작 줄이기·백그라운드) 원화 구름과 정지 갈매기 그림(있으면)이 제자리에 있다.
  */
 export const SeaSkyMotion = memo(function SeaSkyMotionView({
   width,
   height,
   running,
+  sky = DRIFT_SKY,
   testID = 'sea-sky',
-}: SceneProps) {
-  const cover = useMemo(() => seaCover(width, height), [width, height]);
+}: SceneProps & { sky?: SkyConfig }) {
+  const cover = useMemo(() => seaCover(width, height, sky.art), [width, height, sky.art]);
   const scale = width / 402;
   return (
     <View testID={testID} pointerEvents="none" style={[StyleSheet.absoluteFill, { width, height }]}>
-      {INITIAL_CLOUDS.map((initial, i) => (
+      {sky.clouds.map((initial, i) => (
         <CloudDrift
           key={i}
           testID={`${testID}-cloud-${i}`}
+          sky={sky}
           initial={initial}
           running={running}
           width={width}
@@ -207,31 +345,46 @@ export const SeaSkyMotion = memo(function SeaSkyMotionView({
         />
       ))}
       {running ? (
-        <GullFlight testID={`${testID}-gull`} width={width} height={height} scale={scale} />
-      ) : (
-        <Image
-          testID={`${testID}-gulls-still`}
-          source={seaAssets.gulls}
-          resizeMode="contain"
-          style={[
-            styles.abs,
-            { left: width * 0.16, top: height * 0.08, width: 56 * scale, height: 26 * scale },
-          ]}
-          accessible={false}
+        <GullFlight
+          testID={`${testID}-gull`}
+          width={width}
+          height={height}
+          scale={scale}
+          band={sky.gullBand}
         />
+      ) : (
+        sky.stillGulls && (
+          <Image
+            testID={`${testID}-gulls-still`}
+            source={seaAssets.gulls}
+            resizeMode="contain"
+            style={[
+              styles.abs,
+              {
+                left: width * sky.stillGulls.x,
+                top: height * sky.stillGulls.y,
+                width: 56 * scale,
+                height: 26 * scale,
+              },
+            ]}
+            accessible={false}
+          />
+        )
       )}
     </View>
   );
 });
 
 const CloudDrift = memo(function CloudDriftView({
+  sky,
   initial,
   running,
   width,
   cover,
   testID,
 }: {
-  initial: Cloud & { x0: number; orig: boolean };
+  sky: SkyConfig;
+  initial: InitialCloud;
   running: boolean;
   width: number;
   cover: { fw: number; fh: number; ox: number; oy: number };
@@ -260,11 +413,11 @@ const CloudDrift = memo(function CloudDriftView({
           if (!finished || !alive) return;
           // 다른 모양·높이·크기로, 가끔 뒤집어서 왼쪽 밖에 다시 둔다. 작을수록 멀다 → 느리고 옅게
           let shape = c.shape;
-          while (shape === c.shape) shape = Math.floor(Math.random() * CLOUD_SHAPES.length);
+          while (shape === c.shape) shape = Math.floor(Math.random() * sky.shapes.length);
           const s = 0.65 + Math.random() * 0.45;
           const next: Cloud = { shape, s, v: 0.55 + s * 0.5, flip: Math.random() < 0.5, y: 0 };
-          const { w, h } = cloudSize(next, cover.fw);
-          const room = SEA_ART.horizon - 0.012 - h / cover.fh;
+          const { w, h } = cloudSize(next, sky.shapes, cover.fw);
+          const room = sky.art.horizon - 0.012 - h / cover.fh;
           next.y = 0.012 + Math.random() * Math.max(0, room - 0.012);
           xNow.current = -w - Math.random() * width * 0.4;
           x.setValue(xNow.current);
@@ -282,19 +435,19 @@ const CloudDrift = memo(function CloudDriftView({
     };
     // 구름이 바뀔 때는 run 안에서 이어 돌린다 — cloud 를 deps 에 넣으면 같은 구름을 두 번 돌린다
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [running, width, cover.fw, cover.fh, startX, x]);
+  }, [running, width, cover.fw, cover.fh, startX, x, sky]);
 
   if (!running && !initial.orig) return null;
-  const { w, h } = cloudSize(cloud, cover.fw);
+  const { w, h } = cloudSize(cloud, sky.shapes, cover.fw);
   return (
     <Animated.Image
       testID={testID}
-      source={CLOUD_SHAPES[cloud.shape].source}
+      source={sky.shapes[cloud.shape].source}
       accessible={false}
       style={[
         styles.abs,
+        running ? styles.atOrigin : { left: startX },
         {
-          left: running ? 0 : startX,
           top: cover.oy + cloud.y * cover.fh,
           width: w,
           height: h,
@@ -310,24 +463,26 @@ const GullFlight = memo(function GullFlightView({
   width,
   height,
   scale,
+  band,
   testID,
 }: {
   width: number;
   height: number;
   scale: number;
+  band: SkyConfig['gullBand'];
   testID: string;
 }) {
   const bw = GULL.widthPt * scale,
     bh = bw * GULL.aspect;
   const progress = useRef(new Animated.Value(0)).current;
-  const [y0, setY0] = useState(0.08);
+  const [y0, setY0] = useState(band.base);
   // 기다림(안 보임, 왼쪽 밖) → 한 번 가로지름 → 새 높이로 다시 기다림
   useEffect(() => {
     let alive = true;
     let current: Animated.CompositeAnimation | null = null;
     const fly = () => {
       progress.setValue(0);
-      setY0(0.05 + Math.random() * 0.08);
+      setY0(band.base + Math.random() * band.range);
       current = Animated.sequence([Animated.delay(GULL.gapMs), linear(progress, 1, GULL.flyMs)]);
       current.start(({ finished }) => {
         if (finished && alive) fly();
@@ -338,7 +493,7 @@ const GullFlight = memo(function GullFlightView({
       alive = false;
       current?.stop();
     };
-  }, [progress]);
+  }, [progress, band]);
   const flap = useLoopClock(true, 1000 / GULL.flapHz);
   const path = useMemo(
     () => ({
@@ -389,28 +544,32 @@ const GullFlight = memo(function GullFlightView({
 // ---------------------------------------------------------------- 수면 반짝임
 
 const GLINT_COUNT = 8;
+/** 반짝임이 뜨는 세로 구간(화면 높이 대비) — horizon 에서 멀수록(아래로) 크다. */
+export type GlintZone = { horizon: number; from: number; to: number };
+const DRIFT_GLINT_ZONE: GlintZone = { horizon: 0.17, from: 0.2, to: 0.98 };
 
 /** 수평선 아래 아무 데나 빛이 반짝였다 사라진다 — 가까울수록 크다. 멈추면 아무것도 없다. */
 export const SeaGlints = memo(function SeaGlintsView({
   width,
   height,
   running,
+  zone = DRIFT_GLINT_ZONE,
   testID = 'sea-glints',
-}: SceneProps) {
+}: SceneProps & { zone?: GlintZone }) {
   if (!running) return null;
   return (
     <View testID={testID} pointerEvents="none" style={[StyleSheet.absoluteFill, { width, height }]}>
       {Array.from({ length: GLINT_COUNT }, (_, n) => (
-        <Glint key={n} n={n} width={width} height={height} />
+        <Glint key={n} n={n} width={width} height={height} zone={zone} />
       ))}
     </View>
   );
 });
 
 type Spot = { left: number; top: number; w: number; h: number; ms: number };
-const placeGlint = (width: number, height: number): Spot => {
-  const yN = 0.2 + Math.random() * 0.78,
-    depth = (yN - 0.17) / 0.83,
+export const placeGlint = (width: number, height: number, zone: GlintZone): Spot => {
+  const yN = zone.from + Math.random() * (zone.to - zone.from),
+    depth = (yN - zone.horizon) / (1 - zone.horizon),
     w = (6 + 16 * depth) * 1.1 * (width / 402);
   return {
     left: Math.random() * width,
@@ -425,18 +584,20 @@ const Glint = memo(function GlintView({
   n,
   width,
   height,
+  zone,
 }: {
   n: number;
   width: number;
   height: number;
+  zone: GlintZone;
 }) {
   const progress = useRef(new Animated.Value(0)).current;
-  const [spot, setSpot] = useState<Spot>(() => placeGlint(width, height));
+  const [spot, setSpot] = useState<Spot>(() => placeGlint(width, height, zone));
   useEffect(() => {
     let alive = true;
     let current: Animated.CompositeAnimation | null = null;
     const once = (delayMs: number) => {
-      const next = placeGlint(width, height);
+      const next = placeGlint(width, height, zone);
       setSpot(next);
       progress.setValue(0);
       current = Animated.sequence([
@@ -458,7 +619,7 @@ const Glint = memo(function GlintView({
       alive = false;
       current?.stop();
     };
-  }, [n, width, height, progress]);
+  }, [n, width, height, zone, progress]);
   const fade = useMemo(
     () => ({
       opacity: progress.interpolate({ inputRange: [0, 0.35, 1], outputRange: [0, 1, 0] }),
@@ -502,18 +663,25 @@ export function raftRhythm(seed: number) {
 
 /**
  * 뗏목 상자 안에서 그림 층을 위아래로 띄우고 살짝 기울인다. 그림자는 뗏목 뒤에서 같은 박자로 커졌다 작아진다.
- * size 는 뗏목 상자 한 변, seed 는 뗏목 번호(나는 0, 남은 1부터).
+ * size 는 뗏목 상자 폭(height 가 없으면 정사각형), seed 는 뗏목 번호(나는 0, 남은 1부터). amplitude 는 흔들림 배율
+ * (망원경 고양이는 크고 화면에 고정이라 0.7), shadow=false 면 그림자를 두지 않는다.
  */
 export const RaftFloat = memo(function RaftFloatView({
   size,
+  height = size,
   seed,
   running,
+  amplitude = 1,
+  shadow = true,
   children,
   testID = 'raft-float',
 }: {
   size: number;
+  height?: number;
   seed: number;
   running: boolean;
+  amplitude?: number;
+  shadow?: boolean;
   children: React.ReactNode;
   testID?: string;
 }) {
@@ -522,31 +690,33 @@ export const RaftFloat = memo(function RaftFloatView({
   const roll = useLoopClock(running, p2 * 1000, phase2);
   const motion = useMemo(
     () => ({
-      translateY: sampled(bob, 32, (t) => swing(t, -0.016, 0.018) * size),
-      rotate: deg(sampled(roll, 32, (t) => swing(t, -1.6, 1.4))),
+      translateY: sampled(bob, 32, (t) => swing(t, -0.016, 0.018) * height * amplitude),
+      rotate: deg(sampled(roll, 32, (t) => swing(t, -1.6, 1.4) * amplitude)),
       shadowScale: sampled(bob, 32, (t) => swing(t, 1.04, 0.94)),
       shadowOpacity: sampled(bob, 32, (t) => swing(t, 0.8, 1)),
     }),
-    [bob, roll, size],
+    [bob, roll, height, amplitude],
   );
   return (
     <>
-      <Animated.View
-        testID={`${testID}-shadow`}
-        style={[
-          styles.shadow,
-          {
-            left: size * 0.14,
-            width: size * 0.74,
-            top: size * 0.74,
-            height: size * 0.16,
-            borderRadius: size * 0.37,
-          },
-          running
-            ? { opacity: motion.shadowOpacity, transform: [{ scale: motion.shadowScale }] }
-            : null,
-        ]}
-      />
+      {shadow && (
+        <Animated.View
+          testID={`${testID}-shadow`}
+          style={[
+            styles.shadow,
+            {
+              left: size * 0.14,
+              width: size * 0.74,
+              top: height * 0.74,
+              height: height * 0.16,
+              borderRadius: size * 0.37,
+            },
+            running
+              ? { opacity: motion.shadowOpacity, transform: [{ scale: motion.shadowScale }] }
+              : null,
+          ]}
+        />
+      )}
       <Animated.View
         testID={testID}
         style={[
@@ -569,20 +739,45 @@ export const RaftFloat = memo(function RaftFloatView({
 });
 
 const RIPPLE = { periodMs: 2700, rings: 3 };
+/** 물결 고리 자리(뗏목 상자 대비): top·width 는 [기준, 고리마다 더함], height 는 상자 높이 대비, stroke 는 폭 ÷ 값. */
+export type RippleShape = {
+  top: [number, number];
+  width: [number, number];
+  height: number;
+  stroke: number;
+};
+/** 표류 뗏목(정사각 상자) — 물에 닿은 곳 약 76~83%. */
+export const DRIFT_RIPPLES: RippleShape = {
+  top: [0.76, 0.035],
+  width: [0.86, 0.06],
+  height: 0.16,
+  stroke: 70,
+};
+/** 망원경 든 고양이 뗏목(600×471 그림, GROMO-2789). */
+export const TELESCOPE_RIPPLES: RippleShape = {
+  top: [0.78, 0.04],
+  width: [0.62, 0.05],
+  height: 0.2,
+  stroke: 90,
+};
 
 /**
- * 뗏목이 물에 닿은 곳(약 76~83%)에서 하얀 물결 고리 셋이 차례로 퍼진다. 흔들리지 않는 물 위라 뗏목 밖(형제)에 둔다.
+ * 뗏목이 물에 닿은 곳에서 하얀 물결 고리 셋이 차례로 퍼진다. 흔들리지 않는 물 위라 뗏목 밖(형제)에 둔다.
  * 시계는 뗏목당 하나 — 고리 j 는 1/3 씩 어긋난 진행(시안 animation-delay −j·0.9s)이다.
  */
 export const RaftRipples = memo(function RaftRipplesView({
   size,
+  height = size,
   seed,
   running,
+  shape = DRIFT_RIPPLES,
   testID = 'raft-ripples',
 }: {
   size: number;
+  height?: number;
   seed: number;
   running: boolean;
+  shape?: RippleShape;
   testID?: string;
 }) {
   // CSS animation-delay −(seed·0.4)s → 시계 위상. 고리 사이 −j·0.9s 는 2.7s 의 j/3 이라 아래 u 에서 더한다
@@ -611,8 +806,8 @@ export const RaftRipples = memo(function RaftRipplesView({
   return (
     <>
       {rings.map((ring, j) => {
-        const w = size * (0.86 + j * 0.06),
-          h = size * 0.16;
+        const w = size * (shape.width[0] + j * shape.width[1]),
+          h = height * shape.height;
         return (
           <Animated.View
             key={j}
@@ -622,11 +817,77 @@ export const RaftRipples = memo(function RaftRipplesView({
               styles.ripple,
               {
                 left: (size - w) / 2,
-                top: size * (0.76 + j * 0.035),
+                top: height * (shape.top[0] + j * shape.top[1]),
                 width: w,
                 height: h,
                 borderRadius: h,
-                borderBottomWidth: Math.max(1, size / 70),
+                borderBottomWidth: Math.max(1, size / shape.stroke),
+                opacity: ring.opacity,
+                transform: [{ scaleX: ring.scaleX }, { scaleY: ring.scaleY }],
+              },
+            ]}
+          />
+        );
+      })}
+    </>
+  );
+});
+
+// ---------------------------------------------------------------- 섬 발치
+
+const SHORE = { periodMs: 3200, rings: 2 };
+
+/**
+ * 섬 발치 물결(GROMO-2789) — 섬은 땅이라 흔들지 않고 모래톱에 물결 띠 둘이 반 박자 어긋나 퍼진다. 섬 그림 상자
+ * (width×height) 뒤에 둔다. 멈추면 아무것도 없다.
+ */
+export const ShoreRipples = memo(function ShoreRipplesView({
+  width,
+  height,
+  running,
+  testID = 'shore-ripples',
+}: SceneProps) {
+  const clock = useLoopClock(running, SHORE.periodMs);
+  const rings = useMemo(
+    () =>
+      Array.from({ length: SHORE.rings }, (_, j) => {
+        const u = (t: number) => (t + j / SHORE.rings) % 1;
+        return {
+          opacity: sampled(clock, 40, (t) => {
+            const p = u(t);
+            return p < 0.25 ? 0.7 * easeOut(p / 0.25) : 0.7 * (1 - easeOut((p - 0.25) / 0.75));
+          }),
+          scaleX: sampled(clock, 40, (t) => 0.9 + (1.08 - 0.9) * easeOut(u(t))),
+          scaleY: sampled(clock, 40, (t) => 0.8 + (1.1 - 0.8) * easeOut(u(t))),
+        };
+      }),
+    [clock],
+  );
+  if (!running) return null;
+  // 시안: 126×70 상자에 118×22(아래 2px)·128×22(아래 −2px)
+  const geometry = [
+    { w: width * (118 / 126), bottom: height * (2 / 70) },
+    { w: width * (128 / 126), bottom: -height * (2 / 70) },
+  ];
+  return (
+    <>
+      {rings.map((ring, j) => {
+        const { w, bottom } = geometry[j],
+          h = height * (22 / 70);
+        return (
+          <Animated.View
+            key={j}
+            testID={`${testID}-${j}`}
+            pointerEvents="none"
+            style={[
+              styles.ripple,
+              styles.shore,
+              {
+                left: (width - w) / 2,
+                bottom,
+                width: w,
+                height: h,
+                borderRadius: h,
                 opacity: ring.opacity,
                 transform: [{ scaleX: ring.scaleX }, { scaleY: ring.scaleY }],
               },
@@ -640,7 +901,10 @@ export const RaftRipples = memo(function RaftRipplesView({
 
 const styles = StyleSheet.create({
   abs: { position: 'absolute' },
-  foam: { transformOrigin: ['50%', `${SEA_ART.horizon * 100}%`, 0] },
+  atOrigin: { left: 0 },
+  shown: { opacity: 1 },
+  hidden: { opacity: 0 },
+  shore: { borderBottomWidth: 2 },
   roll: { transformOrigin: ['50%', '80%', 0] },
   shadow: { position: 'absolute', backgroundColor: 'rgba(0, 70, 90, 0.22)' },
   // 잘라내지 않는 뷰의 테두리는 iOS 가 그림으로 그려 프레임마다 다시 만든다 — 안쪽을 잘라 Core Animation 테두리로(티켓 2736)

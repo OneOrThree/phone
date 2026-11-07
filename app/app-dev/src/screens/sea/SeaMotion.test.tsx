@@ -3,15 +3,21 @@ import React from 'react';
 import { Animated, AppState } from 'react-native';
 import { render, renderHook } from '@testing-library/react-native';
 import {
+  placeGlint,
   RaftFloat,
   RaftRipples,
   raftRhythm,
   SeaGlints,
   SeaSkyMotion,
   SeaWaterMotion,
+  SeaWaterTile,
   seaCover,
+  ShoreRipples,
   startPhasedLoop,
+  TELESCOPE_SEA_ART,
+  TELESCOPE_SKY,
   useSeaRunning,
+  useSeaWater,
 } from './SeaMotion';
 import { DRIFT_PEER_SLOTS } from './SeaScene';
 
@@ -82,16 +88,16 @@ test('위상 시계 — 첫 바퀴는 phase 에서 짧게 돌고, 끝나면 0 �
 
 test('물빛 줄 두 장은 running 일 때만 돌고, 멈추면 첫 장만 그대로 보인다(지금 바다 그림)', async () => {
   const screen = await render(<SeaWaterMotion {...size} running />);
-  expect(screen.getByTestId('sea-water-foam-0')).toBeTruthy();
-  expect(screen.getByTestId('sea-water-foam-1')).toBeTruthy();
+  expect(screen.getByTestId('sea-water-tile-foam-0')).toBeTruthy();
+  expect(screen.getByTestId('sea-water-tile-foam-1')).toBeTruthy();
   expect(timingStart).toHaveBeenCalled();
 
   timingStart.mockClear();
   await screen.rerender(<SeaWaterMotion {...size} running={false} />);
   expect(timingStop).toHaveBeenCalled();
   expect(timingStart).not.toHaveBeenCalled();
-  expect(screen.getByTestId('sea-water-foam-0')).toHaveStyle({ opacity: 1 });
-  expect(screen.getByTestId('sea-water-foam-1')).toHaveStyle({ opacity: 0 });
+  expect(screen.getByTestId('sea-water-tile-foam-0')).toHaveStyle({ opacity: 1 });
+  expect(screen.getByTestId('sea-water-tile-foam-1')).toHaveStyle({ opacity: 0 });
 });
 
 test('멈추면 하늘·반짝임이 돌지 않고, 하늘은 지금 앱의 정지 갈매기와 원화 구름 둘만 보인다', async () => {
@@ -181,4 +187,87 @@ test('바다 원화는 cover 로 맞춘다 — 세로가 긴 화면은 폭을 �
   expect(tall.ox).toBeCloseTo(-90.33, 1);
   expect(tall.oy).toBe(0);
   expect(seaCover(1024, 600)).toMatchObject({ fw: 1024, fh: 1536, ox: 0, oy: -468 });
+});
+
+// ---------------------------------------------------------------- 망원경(GROMO-2789)
+
+test('망원경 바다 — 수평선이 545/1536 이라 cover 자리가 표류와 같고 수평선만 다르다', () => {
+  const drift = seaCover(402, 874),
+    tele = seaCover(402, 874, TELESCOPE_SEA_ART);
+  expect(tele).toEqual(drift);
+  expect(TELESCOPE_SEA_ART.horizon).toBeCloseTo(545 / 1536);
+});
+
+test('파노라마 타일 — 홀수 장은 좌우 반전이고 모든 장이 같은 물빛 줄 시계를 쓴다', async () => {
+  function Tiles({ running }: { running: boolean }) {
+    const layers = useSeaWater(running, 874, 1);
+    return (
+      <>
+        <SeaWaterTile
+          art={TELESCOPE_SEA_ART}
+          layers={layers}
+          running={running}
+          left={0}
+          top={0}
+          width={582}
+          height={874}
+          testID="t0"
+        />
+        <SeaWaterTile
+          art={TELESCOPE_SEA_ART}
+          layers={layers}
+          running={running}
+          left={582}
+          top={0}
+          width={582}
+          height={874}
+          mirror
+          testID="t1"
+        />
+      </>
+    );
+  }
+  const screen = await render(<Tiles running />);
+  expect(screen.getByTestId('t1')).toHaveStyle({ transform: [{ scaleX: -1 }] });
+  expect(screen.getByTestId('t0')).not.toHaveStyle({ transform: expect.anything() });
+  // 시계 둘(물빛 줄·좌우 흔들림)뿐 — 타일마다 새로 돌리지 않는다
+  expect(loop).toHaveBeenCalledTimes(2);
+  await screen.rerender(<Tiles running={false} />);
+  expect(screen.getByTestId('t1-foam-0')).toHaveStyle({ opacity: 1 });
+  expect(screen.getByTestId('t1-foam-1')).toHaveStyle({ opacity: 0 });
+});
+
+test('망원경 하늘 — 멈추면 원화 구름 셋만 제자리이고 갈매기는 없다(지금 화면 그대로)', async () => {
+  const screen = await render(<SeaSkyMotion {...size} running={false} sky={TELESCOPE_SKY} />);
+  expect(screen.getByTestId('sea-sky-cloud-2')).toBeTruthy();
+  expect(screen.queryByTestId('sea-sky-cloud-3')).toBeNull();
+  expect(screen.queryByTestId('sea-sky-gulls-still')).toBeNull();
+  expect(screen.queryByTestId('sea-sky-gull')).toBeNull();
+  await screen.rerender(<SeaSkyMotion {...size} running sky={TELESCOPE_SKY} />);
+  expect(screen.getByTestId('sea-sky-cloud-3')).toBeTruthy();
+  expect(screen.getByTestId('sea-sky-gull')).toBeTruthy();
+});
+
+test('섬 발치 물결 — 돌 때만 띠 둘이 시계 하나로 퍼지고, 멈추면 없다', async () => {
+  const screen = await render(<ShoreRipples width={126} height={70} running />);
+  expect(screen.getByTestId('shore-ripples-0')).toBeTruthy();
+  expect(screen.getByTestId('shore-ripples-1')).toBeTruthy();
+  expect(loop).toHaveBeenCalledTimes(1);
+  await screen.rerender(<ShoreRipples width={126} height={70} running={false} />);
+  expect(screen.queryByTestId('shore-ripples-0')).toBeNull();
+});
+
+test('반짝임 자리 — 정해 준 구간 안에만 뜨고 수평선에서 멀수록 크다', () => {
+  const zone = { horizon: 0.35, from: 0.47, to: 0.98 };
+  for (let i = 0; i < 50; i += 1) {
+    const spot = placeGlint(402, 874, zone);
+    expect(spot.top).toBeGreaterThanOrEqual(0.47 * 874);
+    expect(spot.top).toBeLessThanOrEqual(0.98 * 874);
+  }
+  jest.spyOn(Math, 'random').mockReturnValueOnce(0).mockReturnValueOnce(0);
+  const far = placeGlint(402, 874, zone);
+  jest.spyOn(Math, 'random').mockReturnValueOnce(1).mockReturnValueOnce(0);
+  const near = placeGlint(402, 874, zone);
+  expect(near.w).toBeGreaterThan(far.w);
+  jest.restoreAllMocks();
 });
