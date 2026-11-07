@@ -11,6 +11,8 @@ if (
   room.protocol !== "wss:" ||
   room.username ||
   room.password ||
+  room.search ||
+  room.hash ||
   room.pathname !== "/island-room" ||
   !room.hostname.endsWith(".workers.dev")
 )
@@ -90,10 +92,6 @@ const config = {
     "/google-login.html",
   ].map((source) => ({ source, destination: "/", permanent: false })),
 };
-await writeFile(
-  resolve(dir, "vercel.json"),
-  JSON.stringify(config, null, 2) + "\n",
-);
 const revision = execFileSync(
   "git",
   ["rev-parse", process.env.SOURCE_REVISION || "HEAD"],
@@ -113,6 +111,18 @@ execFileSync(
     resolve(root, "../app-dev/src/design-system/tokens.ts"),
   ],
   { cwd: root, stdio: "pipe" },
+);
+if (
+  execFileSync(
+    "git",
+    ["ls-files", "--others", "--exclude-standard", "--", root],
+    { cwd: root, encoding: "utf8" },
+  ).trim()
+)
+  throw new Error("아직 커밋하지 않은 웹 파일이 있습니다.");
+await writeFile(
+  resolve(dir, "vercel.json"),
+  JSON.stringify(config, null, 2) + "\n",
 );
 await writeFile(
   resolve(dir, "version.json"),

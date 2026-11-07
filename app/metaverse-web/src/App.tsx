@@ -1008,8 +1008,9 @@ export function App() {
             </div>
           </dl>
           <div className="notice">
-            로컬 체험용 섬이에요. 같은 주소를 다른 브라우저에서 열면 함께 걸을
-            수 있어요. 앱 계정·물고기·집중 기록에는 반영되지 않아요.
+            체험용 섬이에요. 같은 주소로 들어온 이웃과 함께 걸을 수 있어요.
+            새로고침하거나 연결이 끊기면 현재 집중과 자리 예약이 끝나요. 앱
+            계정·물고기·집중 기록에는 반영되지 않아요.
           </div>
           <button className="wide primary" onClick={() => setPanel(null)}>
             산책하러 가기
