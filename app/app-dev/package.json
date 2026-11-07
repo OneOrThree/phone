@@ -43,7 +43,9 @@
     "gen:facility-crops:check": "python3 scripts/build-facility-crops.py --check",
     "gen:localized-stamp": "python3 scripts/gen-localized-stamp.py",
     "gen:localized-stamp:check": "python3 scripts/gen-localized-stamp.py --check",
-    "postinstall": "patch-package"
+    "postinstall": "patch-package",
+    "web:3d": "npm --prefix ../metaverse-web run dev",
+    "build:web:3d": "npm --prefix ../metaverse-web run build"
   },
   "dependencies": {
     "@datadog/mobile-react-native": "^3.8.0",
