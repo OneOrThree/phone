@@ -2822,7 +2822,7 @@ test('이전 계정의 늦은 체험 완료 콜백은 새 계정의 완료 이�
 });
 
 test.each(['island', 'sea'])(
-  '%s 집중 안내를 열면 해당 계정의 열람 이력을 저장한다',
+  '%s 출발 전에는 차단 안내를 열거나 열람 이력을 소비하지 않는다',
   async (kind) => {
     const owner = `blocking-intro-${kind}`;
     await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: owner });
@@ -2834,11 +2834,9 @@ test.each(['island', 'sea'])(
       if (kind === 'sea') captured.beforeSeaVoyage(jest.fn());
       else captured.go('focusTravel');
     });
-    expect(mockFocusBlockingIntro).toBeDefined();
-    expect(captured.state.focusBlockingIntro).toBe('seen');
-    expect((await readAccountGuides(owner)).focusBlockingIntro).toBe('seen');
-    await act(async () => mockFocusBlockingIntro.onClose());
-    mockFocusBlockingIntro = undefined;
+    expect(mockFocusBlockingIntro).toBeUndefined();
+    expect(captured.state.focusBlockingIntro).toBe('pending');
+    expect((await readAccountGuides(owner)).screenTimeGuideAcknowledgedVersion).toBeUndefined();
     const prepare = jest.fn();
     await act(async () => captured.beforeSeaVoyage(prepare));
     expect(prepare).toHaveBeenCalledTimes(1);

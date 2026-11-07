@@ -1,3 +1,4 @@
+import { syncFocusShield } from '@/services/focusShield';
 import { outfitOf } from '@/components/CatOutfitLayers';
 import {
   BUNDLED_AUDIO_TRACK_IDS,
@@ -1617,9 +1618,19 @@ export function FocusFlow({ e: environment }: any) {
   // 없으면 첫 집중 체험을 마친 계정으로 보고 안내한다 — 기록을 잃은 계정에는 다시 보여도 된다.
   const tutorialDone = s.focusGuideDone || !s.tutorial || s.tutorial.step >= 22;
   const verificationIntro =
-    tutorialDone && !experience && !dialog && !catInfo && !leg && !voyage && !goldenCutscene
-      ? 'automatic'
+    tutorialDone && !experience
+      ? !e.routeTransitionShielded &&
+        !e.letterOpen &&
+        r === 'fishingArrival' &&
+        !dialog &&
+        !catInfo &&
+        !leg &&
+        !voyage &&
+        !goldenCutscene
+        ? 'automatic'
+        : 'onPress'
       : undefined;
+
   // 집중 준비 모달은 누른 곳(내 고양이) 위에 붙인다. 위가 좁으면 아래 → 오른쪽 → 왼쪽.
   const setup = (toScreen: (p: Point) => Point, size: number) => {
     const { x, y } = toScreen(mine),
@@ -2004,9 +2015,25 @@ export function FocusFlow({ e: environment }: any) {
               title={t('focusFlow.spot.backToMainIsland')}
               id="leave-fishing-arrival"
               onPress={returnFromArrival}
+              style={{ flexShrink: 1 }}
+              multiline
             />
             {Platform.OS !== 'web' && !experience && (
               <VerificationToggle
+                onBlockingConfigured={async () => {
+                  if (!(await syncFocusShield(s.session, s.color, true)))
+                    throw new Error('shield setup failed');
+                }}
+                onAndroidSetup={() => e.go('permission', 'measured-apps')}
+                onMeasurementReady={(minutes, days) => {
+                  e.dispatch({ type: 'SCREEN_TIME_UNCONFIRMED', days });
+                  e.dispatch({ type: 'SETTING', key: 'screenTimeMeasurementReady', value: true });
+                  e.dispatch({ type: 'SETTING', key: 'screenTimeHistoryReady', value: true });
+                  e.dispatch({ type: 'SCREEN_TIME', value: minutes });
+                }}
+                onBlockingPermissionChange={(approved) =>
+                  e.dispatch({ type: 'SETTING', key: 'permission', value: approved })
+                }
                 onPreviewChange={setVerificationPreviewOpen}
                 intro={verificationIntro}
                 on={s.settings.studyVerification === true}
@@ -2116,6 +2143,20 @@ export function FocusFlow({ e: environment }: any) {
                 }}
               >
                 <VerificationToggle
+                  onBlockingConfigured={async () => {
+                    if (!(await syncFocusShield(s.session, s.color, true)))
+                      throw new Error('shield setup failed');
+                  }}
+                  onAndroidSetup={() => e.go('permission', 'measured-apps')}
+                  onMeasurementReady={(minutes, days) => {
+                    e.dispatch({ type: 'SCREEN_TIME_UNCONFIRMED', days });
+                    e.dispatch({ type: 'SETTING', key: 'screenTimeMeasurementReady', value: true });
+                    e.dispatch({ type: 'SETTING', key: 'screenTimeHistoryReady', value: true });
+                    e.dispatch({ type: 'SCREEN_TIME', value: minutes });
+                  }}
+                  onBlockingPermissionChange={(approved) =>
+                    e.dispatch({ type: 'SETTING', key: 'permission', value: approved })
+                  }
                   onPreviewChange={setVerificationPreviewOpen}
                   inSession
                   intro={verificationIntro}
