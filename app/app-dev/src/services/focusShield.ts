@@ -4,6 +4,7 @@ import { screenTime } from './screenTime';
 import { screenTimeNative } from './ScreenTimeModule';
 import { getSession, sessionGeneration } from './api/session';
 import type { Color, Session } from './model';
+import { syncAndroidFocus } from './androidScreenTime';
 
 let queue: Promise<unknown> = Promise.resolve();
 let revision = 0;
@@ -15,6 +16,7 @@ export function syncFocusShield(
   verifyServer = false,
   isCurrent: () => boolean = () => true,
 ): Promise<boolean> {
+  if (Platform.OS === 'android') return syncAndroidFocus(session, color, verifyServer, isCurrent);
   const request = ++revision;
   const generation = sessionGeneration();
   const owner = getSession()?.userId;
@@ -79,13 +81,21 @@ export function syncFocusShield(
  * iOS는 현재 적용된 실드를 읽는다. 측정용 승인만으로 차단 중이라고 판단하지 않는다.
  */
 export const focusShieldApplied = async (): Promise<boolean> =>
-  Platform.OS === 'ios'
-    ? await screenTime.isFocusShieldActive().catch(() => false)
-    : // ponytail: Android 차단을 켜는 바이너리가 나오면 다른 앱 위 표시 권한까지 봐야 한다
-      Platform.OS === 'android' && screenTimeNative?.supportsFocusShield === true;
+  (Platform.OS === 'ios' || Platform.OS === 'android') &&
+  (await screenTime.isFocusShieldActive().catch(() => false));
 
 /** 차단 상태 변경 실패를 알릴지. 스크린타임 권한을 허용하지 않아 건너뛴 것은 실패가 아니다(GROMO-2515). */
-export const shouldReportShieldFailure = async () =>
-  Platform.OS === 'ios' &&
-  (await screenTime.getAuthorizationStatus().catch(() => 'unavailable')) === 'approved' &&
-  (await screenTime.getAllowedSelectionCounts().catch(() => null)) !== null;
+export const shouldReportShieldFailure = async () => {
+  if (Platform.OS === 'android') {
+    const owner = getSession()?.userId;
+    const access = owner
+      ? await screenTimeNative?.getAndroidFocusAccess?.(owner).catch(() => null)
+      : null;
+    return !!(access?.consented && access.configured && access.enabled);
+  }
+  return (
+    Platform.OS === 'ios' &&
+    (await screenTime.getAuthorizationStatus().catch(() => 'unavailable')) === 'approved' &&
+    (await screenTime.getAllowedSelectionCounts().catch(() => null)) !== null
+  );
+};

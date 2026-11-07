@@ -5,6 +5,7 @@ import { syncIOSScreenTime } from '@/services/iosScreenTimeSync';
 import { dayKey, type Action, type State } from '@/services/model';
 import { captureProductEvent } from '@/services/posthog';
 import { screenTime } from '@/services/screenTime';
+import { screenTimeNative } from '@/services/ScreenTimeModule';
 import { reportScreenTime, subscribeScreenTimeReporting } from '@/services/screenTimeReporting';
 import { useEffect, type Dispatch, type RefObject } from 'react';
 import { AppState, Platform } from 'react-native';
@@ -162,7 +163,7 @@ export function useFocusShieldSync({
       retryTimer = undefined;
     };
     const retry = () => {
-      if (!current() || !foreground || !hasServerSession || Platform.OS !== 'ios') return;
+      if (!current() || !foreground || !hasServerSession) return;
       clearRetry();
       retryTimer = setTimeout(() => {
         retryTimer = undefined;
@@ -178,7 +179,7 @@ export function useFocusShieldSync({
       const session = hasServerSession ? stateRef.current.session : null;
       try {
         const applied = await (Platform.OS === 'android'
-          ? syncAndroidFocus(session, stateRef.current.color, true)
+          ? syncAndroidFocus(session, stateRef.current.color, true, latest)
           : syncFocusShield(session, stateRef.current.color, true, latest));
         if (!latest()) return;
         if (applied) {
@@ -201,6 +202,20 @@ export function useFocusShieldSync({
       }
     };
     void sync();
+    // 앱 밖에서 임대가 만료된 뒤 비허용 앱을 열면 네이티브가 정본 확인을 요청한다.
+    const nativeSubscription =
+      Platform.OS === 'android'
+        ? screenTimeNative?.addListener?.('onFocusReturnCheck', () => {
+            void sync(false);
+          })
+        : undefined;
+    const refreshTimer =
+      Platform.OS === 'android'
+        ? setInterval(() => {
+            if (foreground && current() && stateRef.current.session?.status === 'active')
+              void sync(false);
+          }, 45_000)
+        : undefined;
     const subscription = AppState.addEventListener('change', (next) => {
       foreground = next === 'active';
       if (foreground) void sync();
@@ -210,6 +225,8 @@ export function useFocusShieldSync({
       active = false;
       clearRetry();
       subscription.remove();
+      nativeSubscription?.remove();
+      clearInterval(refreshTimer);
     };
   }, [
     loaded,

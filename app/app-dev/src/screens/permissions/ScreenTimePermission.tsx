@@ -1,3 +1,4 @@
+import { screenTimeNative } from '@/services/ScreenTimeModule';
 import { ScreenTimeSetupIntro } from './ScreenTimeSetupIntro';
 import { Btn, C, Group, Pic, Row, Txt } from '@/design-system/patterns';
 import { t } from '@/i18n';
@@ -17,7 +18,10 @@ import { Sheet } from '../shared/ScreenSheet';
 import { ScreenTimePermissionHelp, openScreenTimeSettings } from './screenTimeHelp';
 
 export function ScreenTimePermission({ e }: ScreenProps) {
-  if (Platform.OS === 'ios')
+  if (
+    Platform.OS === 'ios' ||
+    (Platform.OS === 'android' && screenTimeNative?.getAndroidFocusAccess)
+  )
     return (
       <ScreenTimeSetupIntro
         onClose={e.back}

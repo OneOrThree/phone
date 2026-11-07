@@ -1,0 +1,4 @@
+<resources>
+  <string name="focus_return_label">Focus with Cattus</string>
+  <string name="focus_return_description">During focus, Cattus detects which app opens and returns you to your ongoing focus screen if that app is not allowed. App identifiers are processed on this device only. Screen contents, messages and typing are not read or shared. You can turn this service off here at any time.</string>
+</resources>
