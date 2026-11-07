@@ -73,10 +73,10 @@ test('두 설정을 마친 사용자의 측정 목록 수정은 허용 목록을
   expect(native.presentAllowedAppManager).not.toHaveBeenCalled();
 });
 
-test('기록 화면에서 재진입해도 중단된 허용 앱 단계부터 이어간다', async () => {
+test('기록 화면은 허용 목록이 미설정이어도 측정 목록을 먼저 수정할 수 있다', async () => {
   native.getMeasurementSelectionCounts.mockResolvedValue(selected);
   await expect(run('measurement')).resolves.toBe(true);
-  expect(native.presentAppPicker).not.toHaveBeenCalled();
+  expect(native.presentAppPicker).toHaveBeenCalledTimes(1);
   expect(native.presentAllowedAppManager).toHaveBeenCalledTimes(1);
 });
 

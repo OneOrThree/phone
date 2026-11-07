@@ -37,7 +37,7 @@ export async function configureIOSScreenTime({
     await activate();
     if (!current()) return false;
   }
-  if (!measurement || (mode === 'measurement' && allowed !== null)) {
+  if (!measurement || mode === 'measurement') {
     const picked = await screenTime.presentAppPicker();
     if (!current() || !picked) return false;
     if (picked.appliesImmediately) {
