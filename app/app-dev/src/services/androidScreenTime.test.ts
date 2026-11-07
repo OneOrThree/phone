@@ -10,6 +10,7 @@ function setup(now = '2026-10-12T02:00:00Z') {
     getAndroidMeasurement: jest.fn(),
     syncAndroidFocus: jest.fn().mockResolvedValue(true),
     endAndroidFocus: jest.fn().mockResolvedValue(undefined),
+    expireAndroidFocus: jest.fn().mockResolvedValue(undefined),
   };
   const auth = {
     getSession: jest.fn(() => ({ userId: 'owner' })),
@@ -220,11 +221,15 @@ test('서버 확인 성공만 최대 2분의 단조 시계 임대를 전달한�
     remainingMs: 120_000,
   });
 });
-test('서버 조회 실패는 이전 복귀 임대도 해제한다', async () => {
+test('서버 조회 실패는 비활성화하면서 다음 앱 전환의 재확인 후보를 보존한다', async () => {
   const { mod, native, currentFocusSession } = setup();
   currentFocusSession.mockRejectedValue(new Error('OFFLINE'));
   await expect(mod.syncAndroidFocus(focusing, 'black')).rejects.toThrow('OFFLINE');
-  expect(native.endAndroidFocus).toHaveBeenCalledTimes(1);
+  expect(native.expireAndroidFocus).toHaveBeenCalledTimes(1);
+  expect(native.endAndroidFocus).not.toHaveBeenCalled();
+  currentFocusSession.mockResolvedValue(serverFocus());
+  await mod.syncAndroidFocus(focusing, 'black');
+  expect(native.syncAndroidFocus).toHaveBeenCalledTimes(1);
 });
 test('서버 확인 중 계정이 바뀌면 새 계정의 임대를 건드리지 않는다', async () => {
   const { mod, native, currentFocusSession, auth } = setup();

@@ -17,6 +17,8 @@ internal class FocusReturnLease(private val now: () -> Long) {
     clear()
   }
   @Synchronized fun clear() { session = null; version = -1; until = 0 }
+  // 일시적인 서비스 중단은 재확인 후보만 남긴다. 종료·철회 뒤에는 후보를 새로 만들지 않는다.
+  @Synchronized fun expire() { until = 0 }
   @Synchronized fun reset() { clear(); owner = null }
   @Synchronized fun apply(account: String, id: String, nextVersion: Long, remainingMs: Long): Boolean {
     if (!connected || account.isBlank() || account != owner || id.isBlank() || nextVersion < 0) return false

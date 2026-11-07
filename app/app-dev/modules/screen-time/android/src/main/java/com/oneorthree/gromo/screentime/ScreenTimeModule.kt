@@ -160,6 +160,7 @@ class ScreenTimeModule : Module() {
         applied
       }
     }
+    AsyncFunction("expireAndroidFocus") { FocusReturnAccess.lease.expire() }
     AsyncFunction("endAndroidFocus") { FocusReturnAccess.lease.clear(); clearFocusActivity() }
     AsyncFunction("isFocusShieldActive") { FocusReturnAccess.active(context) }
     AsyncFunction("getAllowedSelectionCounts") {

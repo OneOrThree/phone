@@ -71,7 +71,7 @@ class FocusReturnService : AccessibilityService() {
     lastReturn = now
     foregroundPackage = null
     // 시스템이 연결한 접근성 서비스의 Activity 시작 권한으로 기존 작업을 앞으로 가져온다.
-    runCatching { startActivity(intent) }.onFailure { FocusReturnAccess.lease.clear() }
+    runCatching { startActivity(intent) }.onFailure { FocusReturnAccess.lease.expire() }
   }
 
   private fun interactive(): Boolean =
@@ -93,7 +93,7 @@ class FocusReturnService : AccessibilityService() {
     return packageManager.getLaunchIntentForPackage(pkg) == null
   }
 
-  override fun onInterrupt() { foregroundPackage = null; FocusReturnAccess.lease.clear() }
+  override fun onInterrupt() { foregroundPackage = null; FocusReturnAccess.lease.expire() }
   override fun onUnbind(intent: Intent?): Boolean { disconnect(); return super.onUnbind(intent) }
   override fun onDestroy() { disconnect(); super.onDestroy() }
   private fun disconnect() {
