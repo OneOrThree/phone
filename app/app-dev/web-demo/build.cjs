@@ -55,6 +55,15 @@ execFileSync(
   [path.join(__dirname, 'optimize-assets.cjs'), out, path.join(root, 'build/web-demo-assets.json')],
   { cwd: root, stdio: 'inherit' },
 );
+// 아래 1년 immutable 캐시는 /assets·/_expo/static 아래 파일 이름에 내용 해시가 있어야 안전하다. 없으면 멈춘다.
+const unhashed = ['assets', '_expo/static'].flatMap((dir) =>
+  fs
+    .readdirSync(path.join(out, dir), { recursive: true, withFileTypes: true })
+    .filter((entry) => entry.isFile() && !/[.-][0-9a-f]{32}\.[A-Za-z0-9]+$/.test(entry.name))
+    .map((entry) => path.relative(out, path.join(entry.parentPath, entry.name))),
+);
+if (unhashed.length)
+  throw new Error(`1년 캐시 경로에 해시 없는 파일이 있습니다: ${unhashed.slice(0, 5).join(', ')}`);
 const csp = [
   "default-src 'self'",
   "script-src 'self' 'wasm-unsafe-eval' https://accounts.google.com/gsi/client",

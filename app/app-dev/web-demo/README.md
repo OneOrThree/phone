@@ -64,6 +64,29 @@ vercel deploy --prod --yes --scope joejaeyoungs-projects --cwd build/web-demo
 
 Worker 소스는 `api-worker.mjs`, 독립 검사 명령은 `node --test web-demo/api-worker.test.mjs`다. 배포 시 Worker 모듈 업로드 후 위 경로의 기존 route만 유지한다. 다른 DNS·라우트·서버 설정은 수정하지 않는다. 인증은 로그인된 Cloudflare 브라우저 세션을 사용하며 키를 저장소에 보관하지 않는다.
 
+배포는 저장소에 커밋된 코드로만 한다. 2026-11-05 배포는 커밋되지 않은 `build.cjs` 변경(아래 캐시 규칙)으로 만들어졌다. 그래서 11-07 main 배포에서 그 규칙이 빠져, 에셋 캐시가 1년에서 매번 재확인으로 바뀌었다(GROMO-2787).
+
+### 캐시 규칙
+
+`build.cjs`가 `vercel.json`과 `_headers`에 경로별 `Cache-Control`을 쓴다.
+
+| 경로                                                               | `Cache-Control`                                    | 이유                                                                                                                          |
+| ------------------------------------------------------------------ | -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `/`, `/index(.html)`, `/experience(.html)`, `/google-login(.html)` | `public, max-age=0, must-revalidate, no-transform` | HTML은 매번 다시 확인해 새 번들 이름을 바로 받는다. `no-transform`은 Cloudflare가 방문 통계 스크립트를 HTML에 넣지 않게 한다. |
+| `/_expo/static/*`, `/assets/*`                                     | `public, max-age=31536000, immutable`              | 파일 이름에 내용 해시가 있다. 해시 없는 파일이 있으면 빌드가 멈춘다.                                                          |
+
+보안 헤더(`/(.*)`)에는 `Cache-Control`을 넣지 않는다. 같은 키가 두 규칙에 겹치면 Vercel에서 어느 쪽이 이길지 정해져 있지 않고, Pages는 값을 쉼표로 합친다.
+
+1년 캐시는 이미 받아 간 브라우저에서 서버 쪽으로 무를 수 없다.
+
+| 계층            | 되돌리는 방법                                                                                                                                                                                  |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 브라우저        | 파일 이름을 바꾸는 것이 유일한 방법이다. HTML은 `max-age=0`이라, 새 HTML이 새 이름을 가리키면 다음 방문부터 적용된다.                                                                          |
+| Cloudflare 엣지 | 대시보드 Caching → Purge에서 URL이나 호스트 단위로 지운다. 이름을 바꿨다면 옛 사본은 쓰이지 않아 선택 사항이다.                                                                                |
+| Vercel          | 규칙을 되돌리려면 코드를 되돌려 다시 빌드·배포한다. 급하면 이전 배포를 대표 주소에 다시 연결한다. 이때 HTML과 번들·에셋은 같은 배포의 것이어야 한다. 원본 유지는 바로 앞 배포 하나만 보호한다. |
+
+이름이 곧 내용이라, 1년 사본이 남아도 틀린 내용은 아니다. 문제가 되는 것은 해시 없는 파일이 같은 이름으로 내용만 바뀌어 나간 경우뿐이다. 빌드의 해시 검사가 이를 막는다.
+
 ## 에셋 압축 (GROMO-2787)
 
 `build:web:demo`는 `expo export` 뒤에 `optimize-assets.cjs`로 `build/web-demo/assets`의 파일을 웹용으로 다시 압축한다. 네이티브 앱의 원본 에셋(`src/assets`)과 OTA는 바뀌지 않는다.
@@ -95,6 +118,8 @@ Worker 소스는 `api-worker.mjs`, 독립 검사 명령은 `node --test web-demo
 배포 뒤에는 대표 주소에서 다음을 확인한다.
 
 - `.webp`는 `content-type: image/webp`, `.woff2`는 `font/woff2`로 응답한다(`curl -I`).
+- `Cache-Control`이 위 캐시 규칙과 같다. HTML은 `max-age=0, must-revalidate, no-transform`, `/_expo/static`·`/assets`는 `max-age=31536000, immutable`이다(`curl -I`).
+- HTML에 `cloudflareinsights`가 없다(`curl -s https://try.oneorthree.world/ | grep -c cloudflareinsights`가 0).
 - 브라우저 개발자 도구의 네트워크 탭에서 첫 화면이 받는 글꼴이 `.woff2`이고, `document.fonts`에서 고운돋움이 `loaded`다.
 - 섬 화면의 이미지가 `.webp`로 받아지고 깨진 이미지가 없다.
 
