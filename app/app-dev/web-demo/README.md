@@ -87,6 +87,36 @@ Worker 소스는 `api-worker.mjs`, 독립 검사 명령은 `node --test web-demo
 
 이름이 곧 내용이라, 1년 사본이 남아도 틀린 내용은 아니다. 문제가 되는 것은 해시 없는 파일이 같은 이름으로 내용만 바뀌어 나간 경우뿐이다. 빌드의 해시 검사가 이를 막는다.
 
+## 첫 로딩 (GROMO-2788)
+
+`index.web.ts`는 루트 화면을 `import()`로 나눈다. 연 주소에 맞는 화면 코드만 받는다.
+
+| 주소                            | 받는 JS                                          |
+| ------------------------------- | ------------------------------------------------ |
+| `/`(소개)                       | 진입·공통 번들과 `PublicWebDemo-<해시>.js`       |
+| `/experience.html`(체험 iframe) | 같은 진입·공통 번들과 `App-<해시>.js`            |
+| `/google-login.html`            | 같은 진입·공통 번들과 `GoogleWebLogin-<해시>.js` |
+
+- 조건에는 `process.env.EXPO_PUBLIC_WEB_DEMO`를 직접 쓴다. 빌드 때 상수로 바뀌어, 공개 빌드에서는 검토용 미리보기(`?harbor` 등)와 PostHog 초기화 코드가 번들에서 빠진다. 함수로 감싸면 빠지지 않는다. `build.cjs`는 두 가지를 검사해 어긋나면 멈춘다. 공개 빌드에 진입·공통·런타임과 `App`·`PublicWebDemo`·`GoogleWebLogin` 말고 다른 번들이 있는지(`allowedBundles`), 어느 JS에든 검토용 미리보기 이름(`HarborPreview` 등 7개)이 들어 있는지다. 정상적인 새 `import()` 분할이면 `allowedBundles`에 이름을 더한다.
+- 나눈 번들을 받지 못하면(배포 직후 어긋남·회선 끊김) 1초 뒤 한 번 더 받는다. 그래도 실패하면 흰 화면 대신 「다시 불러오기」를 보인다(`src/app/LazyRoot.tsx`, 웹 전용). 번들을 받지 못한 경우는 연결 확인 안내를, 받은 화면이 그리다 실패한 경우는 중립 문구를 쓴다. `screen_load_failed` 이벤트에는 `error_kind`(`chunk`·`render`)와 `error_name`만 남긴다.
+- `build.cjs`가 `App-<해시>.js`를 하나로 찾아 HTML에 넣는다. 못 찾으면 빌드가 멈춘다.
+  - 소개 화면에는 `<meta name="cattus-app-bundle">`로 넣는다. `PublicWebDemo`가 load 뒤에 `<link rel="prefetch">`로 미리 받아 둔다. 실행은 하지 않는다. 데이터 절약 모드와 2G 회선에서는 받지 않는다.
+  - 체험 화면에는 `<link rel="preload" as="script">`로 넣어, 진입 번들과 동시에 받는다. Expo 런타임이 같은 출처 번들을 `crossorigin` 없이 `<script src>`로 불러와 이 preload를 그대로 쓴다. Expo SDK를 올리면 체험 화면에서 `App-<해시>.js`가 한 번만 받아지는지 네트워크 탭에서 확인한다.
+- 웹 음원 플레이어(`useSoundPlayer`)는 첫 `play()` 전에는 음원 주소를 넣지 않는다. Chromium은 주소를 넣고 `load()`를 부르면 `preload="none"`도 무시하고 파일을 받는다.
+
+1.6Mbps·150ms 회선을 흉내 내 로컬에서 운영과 같은 캐시 헤더로 쟀다(2026-11-07).
+
+| 단계                                                |    전 |    후 |
+| --------------------------------------------------- | ----: | ----: |
+| 소개 화면 「웹에서 시작하기」가 보일 때까지         | 6.0초 | 3.2초 |
+| 시작하기 → 체험 앱 표시(소개 화면에서 15초 머문 뒤) | 0.3초 | 1.1초 |
+| 체험 화면 직접 진입 → 앱 표시                       | 6.0초 | 6.2초 |
+| 체험 화면의 재생 전 음원 요청                       | 710KB |  없음 |
+
+시작하기가 늦어진 0.8초는, 소개 화면이 더 이상 앱 코드를 실행하지 않아 체험 화면에서 처음 컴파일하는 비용이다.
+
+측정할 때는 Playwright의 `route()`를 쓰지 않는다. `route()`를 켜면 HTTP 캐시가 꺼져 미리 받은 번들을 쓰지 못한다.
+
 ## 에셋 압축 (GROMO-2787)
 
 `build:web:demo`는 `expo export` 뒤에 `optimize-assets.cjs`로 `build/web-demo/assets`의 파일을 웹용으로 다시 압축한다. 네이티브 앱의 원본 에셋(`src/assets`)과 OTA는 바뀌지 않는다.

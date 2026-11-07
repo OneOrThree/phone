@@ -80,7 +80,12 @@ export function useSoundPlayer(
   const web = useRef<{ element: HTMLAudioElement; player: SoundPlayer } | null>(null);
   if (Platform.OS === 'web' && !web.current) {
     const el = new Audio();
-    el.preload = 'auto';
+    el.preload = 'none';
+    // 첫 재생 전에는 음원을 받지 않는다(GROMO-2788). 네이티브처럼 replace()는 주소만 기억하고 첫 play()에서 넣는다.
+    // 주소를 넣고 load()를 부르면 Chromium은 preload='none'도 무시하고 파일을 받는다. 그래서 공개 웹 첫 화면에서
+    // 아무도 듣지 않는 음원(파도, 710KB)이 글꼴·그림과 대역폭을 나눠 썼다.
+    let pending = '';
+    let started = false;
     web.current = {
       element: el,
       player: {
@@ -95,7 +100,7 @@ export function useSoundPlayer(
               : typeof source === 'object'
                 ? source?.assetId
                 : undefined;
-          el.src =
+          const uri =
             typeof source === 'string'
               ? source
               : typeof assetId === 'number'
@@ -103,10 +108,19 @@ export function useSoundPlayer(
                 : typeof source === 'object'
                   ? (source?.uri ?? '')
                   : '';
+          if (!started) {
+            pending = uri;
+            return;
+          }
+          el.src = uri;
           el.load();
         },
         play() {
           if (!allowedRef.current) return false;
+          if (!started) {
+            started = true;
+            if (pending) el.src = pending;
+          }
           el.play().catch((e: DOMException) => {
             if (e.name !== 'AbortError' && e.name !== 'NotAllowedError')
               errorRef.current('음원을 불러오지 못했어요. 다시 선택해 주세요.');
@@ -117,7 +131,8 @@ export function useSoundPlayer(
           el.pause();
         },
         seekTo(seconds: number) {
-          el.currentTime = Math.max(0, seconds);
+          // 음원을 넣기 전에는 되감을 것이 없다(첫 재생은 처음부터 시작한다)
+          if (started) el.currentTime = Math.max(0, seconds);
           return Promise.resolve();
         },
         get volume() {

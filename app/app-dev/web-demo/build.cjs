@@ -109,10 +109,58 @@ html { height: 100dvh; }
 <link rel="canonical" href="${escape(site.href)}" />
 </head>`,
   );
-fs.writeFileSync(path.join(out, 'index.html'), html);
+// 체험 앱(App)은 index.web.ts에서 import()로 나눈 번들이다(GROMO-2788). 소개 화면은 그 주소를 meta로 받아
+// 화면을 다 그린 뒤 미리 받아 두고, 체험 화면은 진입 번들과 동시에 받도록 preload한다.
+const jsDir = path.join(out, '_expo/static/js/web');
+// 공개 빌드에는 소개·체험·Google 로그인 화면 번들만 있어야 한다. 검토용 미리보기 번들이나 이름이 보이면
+// index.web.ts의 EXPO_PUBLIC_WEB_DEMO 상수 분기가 깨진 것이다(함수로 감싸면 빠지지 않는다).
+// index는 진입 번들과 Sentry가 나눠 받는 작은 번들, __common·__expo-metro-runtime은 Expo가 만드는 번들이다.
+const allowedBundles = [
+  'App',
+  'PublicWebDemo',
+  'GoogleWebLogin',
+  'index',
+  '__common',
+  '__expo-metro-runtime',
+];
+const reviewOnly = [
+  'HarborPreview',
+  'OnboardingPreview',
+  'SeaPreview',
+  'ConstructionMotionPreview',
+  'CatMotionPreview',
+  'InteriorsGalleryReview',
+  'MagazinePreview',
+];
+const bundles = fs.readdirSync(jsDir);
+const unexpected = bundles.filter(
+  (file) => !allowedBundles.some((name) => new RegExp(`^${name}-[0-9a-f]{32}\\.js$`).test(file)),
+);
+if (unexpected.length)
+  throw new Error(
+    `공개 빌드에 예상하지 못한 JS 번들이 있습니다: ${unexpected.join(', ')}. ` +
+      '검토용 미리보기라면 index.web.ts의 EXPO_PUBLIC_WEB_DEMO 분기를 확인하고, ' +
+      '정상적인 새 import() 분할이면 web-demo/build.cjs의 allowedBundles에 이름을 더하세요.',
+  );
+const leaked = reviewOnly.filter((name) =>
+  bundles.some((file) => fs.readFileSync(path.join(jsDir, file), 'utf8').includes(name)),
+);
+if (leaked.length)
+  throw new Error(`공개 빌드에 검토용 미리보기 코드가 들어 있습니다: ${leaked.join(', ')}`);
+const appBundles = fs.readdirSync(jsDir).filter((file) => /^App-[0-9a-f]{32}\.js$/.test(file));
+if (appBundles.length !== 1)
+  throw new Error(`체험 앱 번들(App-<해시>.js)을 하나로 찾지 못했습니다: ${appBundles.join(', ')}`);
+const appBundle = `/_expo/static/js/web/${appBundles[0]}`;
+fs.writeFileSync(
+  path.join(out, 'index.html'),
+  html.replace('</head>', `<meta name="cattus-app-bundle" content="${appBundle}" />\n</head>`),
+);
 fs.writeFileSync(
   path.join(out, 'experience.html'),
-  html.replace('</head>', '<meta name="robots" content="noindex" /></head>'),
+  html.replace(
+    '</head>',
+    `<link rel="preload" as="script" href="${appBundle}" />\n<meta name="robots" content="noindex" /></head>`,
+  ),
 );
 fs.writeFileSync(
   path.join(out, 'google-login.html'),
