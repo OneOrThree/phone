@@ -139,13 +139,16 @@ type SceneProps = { width: number; height: number; running: boolean; testID?: st
 
 const FOAM = { periodMs: 5500, amp: 1.6, swayPeriodMs: 5500 / 0.6 };
 
+type FoamTransform = (
+  | { translateX: Animated.AnimatedInterpolation<number> | Animated.AnimatedMultiplication<number> }
+  | { translateY: Animated.AnimatedInterpolation<number> }
+  | { scale: Animated.AnimatedInterpolation<number> }
+)[];
 type FoamLayer = {
   opacity: Animated.AnimatedInterpolation<number>;
-  transform: (
-    | { translateX: Animated.AnimatedInterpolation<number> }
-    | { translateY: Animated.AnimatedInterpolation<number> }
-    | { scale: Animated.AnimatedInterpolation<number> }
-  )[];
+  transform: FoamTransform;
+  /** 좌우 반전한 타일용 — 좌우 흔들림만 부호를 뒤집어 이음매에서 양쪽 줄이 같이 움직인다 */
+  mirrored: FoamTransform;
 };
 
 /**
@@ -159,18 +162,20 @@ export function useSeaWater(running: boolean, fh: number, scale: number): FoamLa
     () =>
       [0, 1].map((i) => {
         const u = (t: number) => (t + i / 2) % 1;
+        const translateX = sampled(
+          sway,
+          32,
+          (t) => Math.sin((t + i * 0.3 * 0.6) * 2 * Math.PI) * 3 * scale * FOAM.amp,
+        );
+        const translateY = sampled(clock, 48, (t) => (u(t) - 0.5) * 0.016 * fh * FOAM.amp);
+        const scaleBy = sampled(clock, 48, (t) => 1 + (u(t) - 0.5) * 0.022 * FOAM.amp);
         return {
           opacity: sampled(clock, 48, (t) => Math.sin(Math.PI * u(t)) ** 2),
-          transform: [
-            {
-              translateX: sampled(
-                sway,
-                32,
-                (t) => Math.sin((t + i * 0.3 * 0.6) * 2 * Math.PI) * 3 * scale * FOAM.amp,
-              ),
-            },
-            { translateY: sampled(clock, 48, (t) => (u(t) - 0.5) * 0.016 * fh * FOAM.amp) },
-            { scale: sampled(clock, 48, (t) => 1 + (u(t) - 0.5) * 0.022 * FOAM.amp) },
+          transform: [{ translateX }, { translateY }, { scale: scaleBy }],
+          mirrored: [
+            { translateX: Animated.multiply(translateX, -1) },
+            { translateY },
+            { scale: scaleBy },
           ],
         };
       }),
@@ -223,7 +228,11 @@ export const SeaWaterTile = memo(function SeaWaterTileView({
           style={[
             fill,
             { transformOrigin: ['50%', `${art.horizon * 100}%`, 0] },
-            running ? layer : i === 0 ? styles.shown : styles.hidden,
+            running
+              ? { opacity: layer.opacity, transform: mirror ? layer.mirrored : layer.transform }
+              : i === 0
+                ? styles.shown
+                : styles.hidden,
           ]}
         />
       ))}
@@ -841,17 +850,30 @@ const SHORE = { periodMs: 3200, rings: 2 };
  * 섬 발치 물결(GROMO-2789) — 섬은 땅이라 흔들지 않고 모래톱에 물결 띠 둘이 반 박자 어긋나 퍼진다. 섬 그림 상자
  * (width×height) 뒤에 둔다. 멈추면 아무것도 없다.
  */
+/** 섬 발치 물결 시계 하나 — 장면이 만들어 모든 섬 칸이 나눠 쓴다(섬마다 루프를 돌리지 않게). */
+export function useShoreClock(running: boolean) {
+  return useLoopClock(running, SHORE.periodMs);
+}
+
 export const ShoreRipples = memo(function ShoreRipplesView({
   width,
   height,
   running,
+  clock: shared,
+  phase = 0,
   testID = 'shore-ripples',
-}: SceneProps) {
-  const clock = useLoopClock(running, SHORE.periodMs);
+}: SceneProps & {
+  /** 장면이 나눠 주는 시계(`useShoreClock`). 없으면 제 시계를 돈다 */
+  clock?: Animated.Value;
+  /** 섬마다 박자를 어긋내는 위상(0~1) — 시계를 나눠 쓸 때 `index % 3 / 3` */
+  phase?: number;
+}) {
+  const own = useLoopClock(running && !shared, SHORE.periodMs);
+  const clock = shared ?? own;
   const rings = useMemo(
     () =>
       Array.from({ length: SHORE.rings }, (_, j) => {
-        const u = (t: number) => (t + j / SHORE.rings) % 1;
+        const u = (t: number) => (t + phase + j / SHORE.rings) % 1;
         return {
           opacity: sampled(clock, 40, (t) => {
             const p = u(t);
@@ -861,7 +883,7 @@ export const ShoreRipples = memo(function ShoreRipplesView({
           scaleY: sampled(clock, 40, (t) => 0.8 + (1.1 - 0.8) * easeOut(u(t))),
         };
       }),
-    [clock],
+    [clock, phase],
   );
   if (!running) return null;
   // 시안: 126×70 상자에 118×22(아래 2px)·128×22(아래 −2px)

@@ -1,6 +1,6 @@
 // GROMO-2785 바다 움직임 — 동작 줄이기·백그라운드에서 멈추고, 표류 자리가 시안 값이며, 뗏목마다 박자가 다르다.
 import React from 'react';
-import { Animated, AppState } from 'react-native';
+import { Animated, AppState, StyleSheet } from 'react-native';
 import { render, renderHook } from '@testing-library/react-native';
 import {
   placeGlint,
@@ -18,6 +18,7 @@ import {
   TELESCOPE_SKY,
   useSeaRunning,
   useSeaWater,
+  useShoreClock,
 } from './SeaMotion';
 import { DRIFT_PEER_SLOTS } from './SeaScene';
 
@@ -230,6 +231,11 @@ test('파노라마 타일 — 홀수 장은 좌우 반전이고 모든 장이 �
   const screen = await render(<Tiles running />);
   expect(screen.getByTestId('t1')).toHaveStyle({ transform: [{ scaleX: -1 }] });
   expect(screen.getByTestId('t0')).not.toHaveStyle({ transform: expect.anything() });
+  // 반전 장의 좌우 흔들림은 부호를 뒤집은 노드 — 이음매에서 양쪽 줄이 같은 방향으로 움직인다
+  const style = (id: string) => StyleSheet.flatten(screen.getByTestId(id).props.style) as any;
+  expect(style('t0-foam-0').transform[0].translateX).not.toBe(
+    style('t1-foam-0').transform[0].translateX,
+  );
   // 시계 둘(물빛 줄·좌우 흔들림)뿐 — 타일마다 새로 돌리지 않는다
   expect(loop).toHaveBeenCalledTimes(2);
   await screen.rerender(<Tiles running={false} />);
@@ -248,13 +254,46 @@ test('망원경 하늘 — 멈추면 원화 구름 셋만 제자리이고 갈매
   expect(screen.getByTestId('sea-sky-gull')).toBeTruthy();
 });
 
-test('섬 발치 물결 — 돌 때만 띠 둘이 시계 하나로 퍼지고, 멈추면 없다', async () => {
+test('섬 발치 물결 — 돌 때만 띠 둘이 퍼지고, 멈추면 없다. 섬 여럿이 시계 하나를 나눠 쓰면 루프도 하나다', async () => {
   const screen = await render(<ShoreRipples width={126} height={70} running />);
   expect(screen.getByTestId('shore-ripples-0')).toBeTruthy();
   expect(screen.getByTestId('shore-ripples-1')).toBeTruthy();
   expect(loop).toHaveBeenCalledTimes(1);
   await screen.rerender(<ShoreRipples width={126} height={70} running={false} />);
   expect(screen.queryByTestId('shore-ripples-0')).toBeNull();
+
+  loop.mockClear();
+  function Shore() {
+    const clock = useShoreClock(true);
+    return (
+      <>
+        {[0, 1, 2, 3].map((i) => (
+          <ShoreRipples
+            key={i}
+            width={126}
+            height={70}
+            running
+            clock={clock}
+            phase={(i % 3) / 3}
+            testID={`s${i}`}
+          />
+        ))}
+      </>
+    );
+  }
+  const shared = await render(<Shore />);
+  expect(shared.getByTestId('s3-1')).toBeTruthy();
+  expect(loop).toHaveBeenCalledTimes(1);
+});
+
+test('반짝임 — 같은 zone 으로 다시 그리면 자리를 새로 잡지 않고, zone 이 바뀌면 다시 잡는다', async () => {
+  const zone = { horizon: 0.35, from: 0.47, to: 0.98 };
+  const screen = await render(<SeaGlints {...size} running zone={zone} />);
+  const made = timing.mock.calls.length;
+  await screen.rerender(<SeaGlints {...size} running zone={zone} />);
+  expect(timing.mock.calls.length).toBe(made);
+  await screen.rerender(<SeaGlints {...size} running zone={{ ...zone }} />);
+  expect(timing.mock.calls.length).toBeGreaterThan(made);
 });
 
 test('반짝임 자리 — 정해 준 구간 안에만 뜨고 수평선에서 멀수록 크다', () => {

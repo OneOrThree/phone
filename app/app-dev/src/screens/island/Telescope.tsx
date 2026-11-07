@@ -26,6 +26,7 @@ import {
   TELESCOPE_SKY,
   useSeaRunning,
   useSeaWater,
+  useShoreClock,
 } from '@/screens/sea/SeaMotion';
 import { RAFT_TELESCOPE_ASPECT, raftTelescope, telescopeSea } from '@/screens/sea/seaAssets';
 import { SeaNotice } from '@/screens/sea/seaModel';
@@ -294,8 +295,8 @@ function IslandCell({
 }: {
   item: TelescopeItem;
   index: number;
-  /** 섬 발치 물결을 돌릴지(GROMO-2789) — 장면이 계산한 running */
-  motion: boolean;
+  /** 섬 발치 물결(GROMO-2789) — 장면이 계산한 running 과 나눠 쓰는 시계 */
+  motion: { running: boolean; clock: Animated.Value };
   /** 큰 글자 — 이름 알약이 두 줄까지 늘어난다(보통은 한 줄 말줄임). */
   largeText: boolean;
   /** 항해·이동 요청 중에는 눌리지 않는다 — 말풍선을 열었다 닫으며 뒤로가기 삼킴을 흩트리지 않게. */
@@ -335,7 +336,9 @@ function IslandCell({
         <ShoreRipples
           width={ART_W}
           height={ART_H}
-          running={motion}
+          running={motion.running}
+          clock={motion.clock}
+          phase={(index % 3) / 3}
           testID={`telescope-shore-${item.islandId}`}
         />
         <Image
@@ -618,6 +621,13 @@ export function Telescope({
   const reduceMotion = useContext(MotionContext);
   const running = useSeaRunning(reduceMotion);
   const water = useSeaWater(running, sea.height, sceneW / 402);
+  const shoreClock = useShoreClock(running);
+  const shore = useMemo(() => ({ running, clock: shoreClock }), [running, shoreClock]);
+  // 반짝임은 섬 띠 아래 수면(수평선 + 12% ~ 98%)에만. 객체를 매 렌더 새로 만들면 반짝임이 처음부터 다시 돈다
+  const glintZone = useMemo(() => {
+    const horizon = horizonY / sceneH;
+    return { horizon, from: Math.max(0, Math.min(0.98, horizon + 0.12)), to: 0.98 };
+  }, [horizonY, sceneH]);
   // 파노라마가 사라지면(빈 목록·로딩·오류 카드) 바다를 처음 자리로 돌린다 — 다시 생긴 파노라마는 스크롤 0 에서 시작하는데
   // 바다만 옛 오프셋에 남으면 섬과 어긋나고 첫 드래그에 튄다. 사라질 때의 정리에서 맞추므로 새 ScrollView 가 붙기 전이다
   const panoramaShown = list.status === 'ready' && items.length > 0;
@@ -900,11 +910,7 @@ export function Telescope({
           width={sceneW}
           height={sceneH}
           running={running}
-          zone={{
-            horizon: horizonY / sceneH,
-            from: Math.min(0.98, horizonY / sceneH + 0.12),
-            to: 0.98,
-          }}
+          zone={glintZone}
         />
         {/* 가로 화면에서는 섬 띠 뒤에 깔려 가리므로 세로일 때만 둔다 */}
         {sceneW <= sceneH && (
@@ -1031,7 +1037,7 @@ export function Telescope({
                     largeText={largeText}
                     disabled={sail.busy || firstVoyage.pending || firstVoyage.eligible === null}
                     hideTime={firstVoyage.eligible !== false}
-                    motion={running}
+                    motion={shore}
                     onPress={() => setSelectedId(item.islandId)}
                   />
                 ))}
