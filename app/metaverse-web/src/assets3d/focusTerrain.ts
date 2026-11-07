@@ -9,7 +9,9 @@ import { fbm, noise2, smooth } from "./geometry";
 import { GROUND_Y, material, SEA_LEVEL } from "./palette";
 import {
   bankHeight,
+  FRIEND_SEATS_DIRT,
   focusPathDistance,
+  ISLET,
   nearestSeat,
   plungeCut,
   POND,
@@ -59,6 +61,9 @@ function ringRadii() {
     while (out[out.length - 1] < to - 1e-6)
       out.push(Math.min(to, out[out.length - 1] + metres / RX));
   };
+  // 가운데 작은 섬의 물가 비탈은 촘촘하게(10cm) 잘라 물가선이 각지지 않게 한다.
+  push((ISLET.flat - 0.1) / RX, 0.3);
+  push((ISLET.foot + 0.1) / RX, 0.1);
   push(9.9 / RX, 0.3);
   push(11.85 / RZ, 0.055);
   push(1, 0.25);
@@ -168,9 +173,16 @@ function paint(
     }
     c.lerp(tmp, smooth(POND.bank + 0.1, POND.bank - 0.25, r));
   }
-  // 가운데 작은 섬: 물 위로 나온 부분은 이끼 낀 풀
-  if (r < 2.2 && y > POND_LEVEL + 0.01)
+  // 가운데 작은 섬: 물 위로 나온 부분은 이끼 낀 풀, 친구 의자 아래는 다져진 흙
+  if (r < ISLET.foot && y > POND_LEVEL + 0.01) {
     c.copy(colors.moss).lerp(colors.grassDeep, smooth(0.4, 0.9, n2));
+    c.lerp(colors.grassLight, smooth(0.55, 0.8, n1) * 0.35);
+    const worn = 1 - smooth(0.42, 0.78 + n2 * 0.2, FRIEND_SEATS_DIRT(x, z));
+    if (worn > 0) {
+      tmp.copy(colors.dirt).lerp(colors.dirtDark, 0.35);
+      c.lerp(tmp, worn * 0.85);
+    }
+  }
   // 물길과 소: 돌 바닥
   const cut = Math.min(plungeCut(x, z), streamCut(x, z));
   if (cut < GROUND_Y + 0.015) {

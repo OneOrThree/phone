@@ -4,7 +4,7 @@ import { COMPANION_ROUTES, IslandCompanions } from "../src/companion-motion";
 import { pathTo, walkable, type IslandId } from "../src/world";
 
 for (const island of ["home", "focus"] as IslandId[]) {
-  test(`${island} 봇은 지형 위 산책로를 돌고 낚시 의자를 쓰지 않는다`, () => {
+  test(`${island} 산책 친구는 지형 위 산책로를 돌고 낚시 의자를 쓰지 않는다`, () => {
     for (const { points } of COMPANION_ROUTES[island]) {
       for (let i = 0; i < points.length; i++) {
         assert.ok(walkable(points[i], island));

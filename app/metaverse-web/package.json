@@ -19,6 +19,7 @@
     "test:visual": "node tests/visual-qa.mjs",
     "test:controls": "node tests/controls-qa.mjs",
     "test:welcome": "node tests/welcome-qa.mjs",
+    "test:fishing": "node tests/fishing-qa.mjs",
     "test:worker": "node tests/worker-qa.mjs",
     "test:optimization": "node tests/optimization-qa.mjs",
     "prepare:deploy": "node scripts/prepare-deploy.mjs",

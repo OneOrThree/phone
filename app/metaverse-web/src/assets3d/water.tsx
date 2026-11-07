@@ -13,10 +13,12 @@ import {
   Vector2,
   Vector3,
 } from "three";
-import { FOCUS_SEATS } from "../layout";
+import { castSpot, FOCUS_SEATS } from "../layout";
 import { material } from "./palette";
 import {
   FALL_LIP,
+  FRIEND_FLOATS,
+  ISLET,
   PLUNGE,
   POND,
   POND_LEVEL,
@@ -32,6 +34,9 @@ import {
 export const waterTime = { value: 0 };
 const SUN = new Vector3(-18, 34, 20).normalize();
 const f = (n: number) => n.toFixed(4);
+// 찌 둘레 잔물결 자리: 물가 의자 30석과 작은 섬 집중 친구의 찌(의자 앞 3.5m).
+const FLOAT_SPOTS = [...FOCUS_SEATS.map(castSpot), ...FRIEND_FLOATS];
+const FLOAT_COUNT = FLOAT_SPOTS.length;
 
 const noiseGLSL = /* glsl */ `
 float hash(vec2 p) {
@@ -81,7 +86,7 @@ uniform vec3 uBank;
 uniform vec3 uSun;
 uniform vec2 uCenter;
 uniform vec2 uInflow;
-uniform vec2 uFloats[${FOCUS_SEATS.length}];
+uniform vec2 uFloats[${FLOAT_COUNT}];
 varying vec3 vWorld;
 #include <fog_pars_fragment>
 ${noiseGLSL}
@@ -90,8 +95,8 @@ float depthAt(vec2 p) {
 ${
   kind === 0
     ? `  float d = 0.06 + 0.95 * (1.0 - smoothstep(7.2, ${f(POND.radius - 0.06)}, r));
-  // 가운데 작은 섬
-  d = min(d, mix(-0.24, 0.7, smoothstep(0.69, 2.35, r)));
+  // 가운데 작은 섬(pond.ts isletHeight와 같은 단면)
+  d = min(d, mix(${f(POND_LEVEL - ISLET.top)}, ${f(POND_LEVEL - ISLET.floor)}, smoothstep(${f(ISLET.flat)}, ${f(ISLET.foot)}, r)));
   return d;`
     : `  return 0.02 + 0.28 * (1.0 - smoothstep(${f(PLUNGE.radius * 0.45)}, ${f(PLUNGE.radius + 0.3)}, r));`
 }
@@ -124,7 +129,7 @@ ${
   g += normalize(dv + 1e-4) * ring * 0.09;
   foam += (1.0 - smoothstep(0.1, 1.15, di)) * smoothstep(0.45, 0.75, noise(p * 4.0 + vec2(0.0, t * 0.9)));
   // 찌 둘레의 잔물결(찌가 있든 없든 의자 앞 수면이 숨 쉬듯 흔들린다)
-  for (int i = 0; i < ${FOCUS_SEATS.length}; i++) {
+  for (int i = 0; i < ${FLOAT_COUNT}; i++) {
     vec2 q = p - uFloats[i];
     float dq = length(q);
     if (dq < 0.9) {
@@ -206,23 +211,13 @@ function shareTime(m: ShaderMaterial) {
 
 let pondMaterial: ShaderMaterial | null = null;
 let poolMaterial: ShaderMaterial | null = null;
-// 찌가 떨어지는 자리(의자 앞 3.5m). catPose.ts의 FOCUS_CAST와 같은 반경이다.
-const FLOAT_RADIUS = 13.2 - 3.5;
 function pondShader() {
   pondMaterial ??= shareTime(
     new ShaderMaterial({
       uniforms: waterUniforms({
         uCenter: { value: new Vector2(POND.x, POND.z) },
         uInflow: { value: new Vector2(streamX(STREAM_Z1), STREAM_Z1 + 0.1) },
-        uFloats: {
-          value: FOCUS_SEATS.map((s) => {
-            const r = Math.hypot(s.x, s.z);
-            return new Vector2(
-              (s.x / r) * FLOAT_RADIUS,
-              (s.z / r) * FLOAT_RADIUS,
-            );
-          }),
-        },
+        uFloats: { value: FLOAT_SPOTS.map((p) => new Vector2(p.x, p.z)) },
       }),
       vertexShader: flatVertex,
       fragmentShader: pondFragment(0),
@@ -239,7 +234,7 @@ function poolShader() {
       uniforms: waterUniforms({
         uCenter: { value: new Vector2(PLUNGE.x, PLUNGE.z) },
         uInflow: { value: new Vector2(FALL_LIP.x, FALL_LIP.z + 0.6) },
-        uFloats: { value: FOCUS_SEATS.map(() => new Vector2(999, 999)) },
+        uFloats: { value: FLOAT_SPOTS.map(() => new Vector2(999, 999)) },
       }),
       vertexShader: flatVertex,
       fragmentShader: pondFragment(1),

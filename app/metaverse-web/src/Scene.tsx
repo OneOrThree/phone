@@ -4,7 +4,7 @@ import { Cat } from "./Cat";
 import { Companions } from "./Companions";
 import { CameraOcclusion } from "./CameraOcclusion";
 import { Island, Ocean } from "./Island";
-import { FocusSeats } from "./FocusSeats";
+import { FocusSeats, FriendChairs } from "./FocusSeats";
 import { FocusIsland } from "./FocusIsland";
 import type { IslandId } from "./focus-session";
 import { LabelLayer } from "./Label";
@@ -87,6 +87,7 @@ export function Scene({
             ) : (
               <>
                 <FocusIsland reduced={sim.reducedMotion} />
+                <FriendChairs />
                 <FocusSeats
                   occupied={occupied}
                   activeSeatId={activeSeatId}

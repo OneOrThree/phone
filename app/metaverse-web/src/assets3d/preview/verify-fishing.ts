@@ -46,12 +46,19 @@ const vertex = new Vector3(),
 const skin = rig.mesh.geometry.getAttribute("skinIndex");
 const weight = rig.mesh.geometry.getAttribute("skinWeight");
 const count = rig.mesh.geometry.getAttribute("position").count;
-// 낚시 소품(rod·float)에만 묶인 정점은 몸통 검사에서 뺀다.
+// 낚시 소품(낚싯대·찌·물결 고리·물고기)에만 묶인 정점은 몸통 검사에서 뺀다.
+const PROPS: number[] = [
+  BONE.rod,
+  BONE.float,
+  BONE.ripple,
+  BONE.fish,
+  BONE.fishTail,
+];
 const isProp = (i: number) =>
   [0, 1, 2, 3].every((k) => {
     const w = weight.getComponent(i, k);
     const b = skin.getComponent(i, k);
-    return w === 0 || b === BONE.rod || b === BONE.float;
+    return w === 0 || PROPS.includes(b);
   });
 const isTail = (i: number) =>
   [0, 1, 2, 3].some(
