@@ -26,8 +26,8 @@
 
 서버 최초 판정은 재설치·새 요청 키에도 기존 도착을 신규로 분류하지 않는다. 앱은 계정별 AsyncStorage 표지와 직렬 처리로 동일 receipt의 동시 응답·재시도 중복을 억제한다. 개발·목업·SDK 미포함 바이너리는 전환을 발행하지 않는다.
 
-SDK 호출 성공은 Google 수신 확인이 아니다. SDK 호출과 로컬 표지 저장 사이에 앱 종료·저장 실패가 발생하면 중복 가능성이 있고, 응답을 받기 전에 앱이 영구 이탈하면 누락될 수 있다. 종단 간 exactly-once 전송이나 Meta 서버 CAPI와 같은 전달 보장은 하지 않는다. 기존 사용자 전환을 소급 생성하지 않는다.
+SDK 호출 성공은 Google 수신 확인이 아니다. SDK 호출과 로컬 표지 저장 사이에 앱 종료·저장 실패가 발생하면 중복 가능성이 있고, 응답을 받기 전에 앱이 영구 이탈하면 누락될 수 있다. 종단 간 exactly-once 전송이나 Meta 서버 CAPI와 같은 전달 보장은 하지 않는다. 로컬 표지 읽기 실패 또는 로그인 사용자 식별자 부재 시에는 전환을 건너뛰므로 누락될 수 있다. 기존 사용자 전환을 소급 생성하지 않는다.
 
-이 변경은 기존 서버 최초 판정·receipt 재생 계약을 재사용한다. 최종 앱 변경의 관련 Jest 56개와 타입 검사가 통과했으며, 중복 억제·계정 전환·환경 제한 및 기존 PostHog 동작을 검증했다. Google Ads/Airbridge 콘솔 설정, 운영 배포, 실제 이벤트 수신은 별도 검증이 필요하다. 이 문서 작성 시 해당 설정은 적용하지 않았다.
+이 변경은 기존 서버 최초 판정·receipt 재생 계약을 재사용한다. 최종 앱 변경의 관련 Jest 58개와 타입 검사가 통과했으며, 중복 억제·계정 전환·환경 제한 및 기존 PostHog 동작을 검증했다. Google Ads/Airbridge 콘솔 설정, 운영 배포, 실제 이벤트 수신은 별도 검증이 필요하다. 이 문서 작성 시 해당 설정은 적용하지 않았다.
 
 공식 근거: [Airbridge Google Ads 연동](https://help.airbridge.io/en/guides/google-ads), [캠페인 최적화](https://help.airbridge.io/en/guides/google-ads-aap-for-engagement), [표준 이벤트](https://help.airbridge.io/en/guides/airbridge-event-types).

@@ -162,3 +162,13 @@ test.each(['ios', 'android'])(
     });
   },
 );
+
+test('PostHog 전용 옵션은 Airbridge 재발행을 제외하고 다음 일반 이벤트는 보낸다', () => {
+  const { initAirbridge } = require('./airbridge');
+  const { captureProductEvent } = require('./posthog');
+  initAirbridge();
+  captureProductEvent('first_island_arrival', { meta_sdk_logged: 1 }, { airbridge: false });
+  expect(mockAirbridge.trackEvent).not.toHaveBeenCalled();
+  captureProductEvent('first_island_arrival');
+  expect(mockAirbridge.trackEvent).toHaveBeenCalledTimes(1);
+});

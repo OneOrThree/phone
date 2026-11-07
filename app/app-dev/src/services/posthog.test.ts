@@ -321,3 +321,25 @@ test('실제 SDK의 첫 설치·초기 캡처 이벤트부터 비동기 IDFV가 
     await realClient.shutdown();
   }
 });
+
+test('Airbridge 제외 옵션은 PostHog의 기본 수집 시각과 지정 시각을 보존한다', () => {
+  loadAnalytics();
+  analytics.captureProductEvent(
+    'first_island_arrival',
+    { meta_sdk_logged: 1 },
+    { airbridge: false },
+  );
+  expect(mockClient.capture).toHaveBeenLastCalledWith('first_island_arrival', {
+    meta_sdk_logged: 1,
+    analytics_environment: 'production',
+  });
+  const timestamp = new Date('2026-11-01T00:00:00Z');
+  analytics.captureProductEvent('first_island_arrival', undefined, { airbridge: false, timestamp });
+  expect(mockClient.capture).toHaveBeenLastCalledWith(
+    'first_island_arrival',
+    {
+      analytics_environment: 'production',
+    },
+    { timestamp },
+  );
+});
