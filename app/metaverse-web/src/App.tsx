@@ -1,5 +1,7 @@
 import {
   Component,
+  lazy,
+  Suspense,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -7,7 +9,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { Scene } from "./Scene";
+const Scene = lazy(() => import("./Scene").then((m) => ({ default: m.Scene })));
 import { Simulation } from "./simulation";
 import { editingText, movementKey } from "./keyboard";
 import type { ZoomRequest } from "./CameraRig";
@@ -396,6 +398,7 @@ export function App() {
     };
     window.addEventListener("cattus-context-lost", contextLost);
     const tick = setInterval(() => {
+      if (document.hidden) return;
       setPose({ ...sim.actor });
       setNow(Date.now());
     }, 200);
@@ -614,39 +617,41 @@ export function App() {
         aria-describedby="controls-hint"
       >
         <SceneBoundary onFailure={onFailure}>
-          <Scene
-            island={island}
-            sim={sim}
-            residents={residents}
-            reset={reset}
-            zoom={zoom}
-            onReady={onReady}
-            onMove={(ok) => {
-              const current = sessionRef.current;
-              if (current) {
-                // 휴식 중 땅을 눌러도 모닥불 곁 자리를 지킨다.
-                if (ok) {
-                  sim.stop();
-                  sim.action("sit");
+          <Suspense fallback={null}>
+            <Scene
+              island={island}
+              sim={sim}
+              residents={residents}
+              reset={reset}
+              zoom={zoom}
+              onReady={onReady}
+              onMove={(ok) => {
+                const current = sessionRef.current;
+                if (current) {
+                  // 휴식 중 땅을 눌러도 모닥불 곁 자리를 지킨다.
+                  if (ok) {
+                    sim.stop();
+                    sim.action("sit");
+                  }
+                  announce(
+                    current.status === "paused"
+                      ? "쉬는 동안에는 모닥불 곁에 머물러요. 집중 이어가기를 누르면 의자로 돌아가요."
+                      : "집중하는 동안에는 의자에 앉아 있어요. 휴식하기나 종료하기를 눌러 주세요.",
+                  );
+                  return;
                 }
-                announce(
-                  current.status === "paused"
-                    ? "쉬는 동안에는 모닥불 곁에 머물러요. 집중 이어가기를 누르면 의자로 돌아가요."
-                    : "집중하는 동안에는 의자에 앉아 있어요. 휴식하기나 종료하기를 눌러 주세요.",
-                );
-                return;
-              }
-              if (!ok) announce("길이나 빈 땅을 골라 주세요.");
-            }}
-            occupied={occupied}
-            activeSeatId={activeSeatId}
-            pendingSeatId={pendingSeatId}
-            onSelectSeat={(id) => {
-              if (!sim.blocked) void selectSeat(id);
-            }}
-            lowQuality={low}
-            cameraMode={cameraMode}
-          />
+                if (!ok) announce("길이나 빈 땅을 골라 주세요.");
+              }}
+              occupied={occupied}
+              activeSeatId={activeSeatId}
+              pendingSeatId={pendingSeatId}
+              onSelectSeat={(id) => {
+                if (!sim.blocked) void selectSeat(id);
+              }}
+              lowQuality={low}
+              cameraMode={cameraMode}
+            />
+          </Suspense>
         </SceneBoundary>
       </div>
       {!ready && !lost && (

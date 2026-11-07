@@ -14,7 +14,7 @@ import {
   FOCUS_TREE_POSITIONS,
   TREE_POSITIONS,
   getFocusSeat,
-} from "./layout";
+} from "./layout.ts";
 import {
   FOCUS_BRIDGES,
   FOCUS_PLUNGE,
@@ -22,9 +22,9 @@ import {
   FOCUS_STREAM_Z0,
   FOCUS_STREAM_Z1,
   focusStreamX,
-} from "./focus-water";
-import type { IslandId } from "./focus-session";
-export type { IslandId } from "./focus-session";
+} from "./focus-water.ts";
+import type { IslandId } from "./focus-session.ts";
+export type { IslandId } from "./focus-session.ts";
 export type Point = { x: number; z: number };
 export type Action = "idle" | "walk" | "wave" | "fish" | "sit" | "focus";
 export const actions: Action[] = [

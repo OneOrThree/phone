@@ -148,12 +148,14 @@ try {
   await page.waitForTimeout(400);
   await page.screenshot({ path: "artifacts/islands/final-home-overview.png" });
   await motion({ x: 1080, y: 185, width: 240, height: 80 }, "sea");
+  const roomUrl =
+    process.env.CATTUS_ROOM_URL ||
+    `${url.protocol === "https:" ? "wss" : "ws"}://${url.host}/island-room`;
+  if (!["localhost", "127.0.0.1", "[::1]"].includes(new URL(roomUrl).hostname))
+    throw new Error("로컬 방만 검사할 수 있어요");
   // 로컬 기능 검증용 주민 29명. AWS·외부 서버에는 접속하지 않는다.
   for (let i = 0; i < 29; i++) {
-    const ws = new WebSocket(
-      `${url.protocol === "https:" ? "wss" : "ws"}://${url.host}/island-room`,
-      { origin: url.origin },
-    );
+    const ws = new WebSocket(roomUrl, { origin: url.origin });
     peers.push(ws);
     await new Promise((resolve, reject) => {
       const timer = setTimeout(

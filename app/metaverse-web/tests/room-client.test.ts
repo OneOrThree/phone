@@ -658,3 +658,24 @@ test("멈추면 기다리던 명령을 실패로 끝내고 다시 연결하지 �
   assert.equal(FakeSocket.all.length, 1);
   assert.equal(client.getState().status, "offline");
 });
+
+test("같은 위치는 다시 보내지 않고 이동·꾸미기 변경과 heartbeat만 보낸다", (t) => {
+  const clock = { now: 1000000 };
+  const { sim, client, socket } = fakeClient(t, clock);
+  t.mock.timers.tick(100);
+  assert.equal(socket.sent.filter((m) => m.type === "move").length, 1);
+  t.mock.timers.tick(1000);
+  assert.equal(socket.sent.filter((m) => m.type === "move").length, 1);
+  sim.actor.x += 1;
+  t.mock.timers.tick(100);
+  assert.equal(socket.sent.filter((m) => m.type === "move").length, 2);
+  sim.actor.name = "다른 이름";
+  t.mock.timers.tick(100);
+  assert.equal(socket.last("move").actor.name, "다른 이름");
+  const count = socket.sent.length;
+  clock.now += 30000;
+  t.mock.timers.tick(100);
+  assert.equal(socket.sent.length, count + 1);
+  assert.equal(socket.sent.at(-1).type, "ping");
+  client.stop();
+});

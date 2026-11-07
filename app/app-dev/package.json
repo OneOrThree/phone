@@ -44,8 +44,6 @@
     "gen:localized-stamp": "python3 scripts/gen-localized-stamp.py",
     "gen:localized-stamp:check": "python3 scripts/gen-localized-stamp.py --check",
     "postinstall": "patch-package",
-    "web:3d": "npm --prefix ../metaverse-web run dev",
-    "build:web:3d": "npm --prefix ../metaverse-web run build",
     "build:web:demo": "node web-demo/build.cjs"
   },
   "dependencies": {

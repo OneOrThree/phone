@@ -1,4 +1,4 @@
-import { Suspense, useRef } from "react";
+import { Suspense, useEffect, useState, useRef } from "react";
 import { Canvas } from "@react-three/fiber";
 import { Cat } from "./Cat";
 import { CameraOcclusion } from "./CameraOcclusion";
@@ -49,12 +49,19 @@ export function Scene({
   pendingSeatId: number | null;
   onSelectSeat: (seatId: number) => void;
 }) {
+  const [visible, setVisible] = useState(() => !document.hidden);
+  useEffect(() => {
+    const change = () => setVisible(!document.hidden);
+    document.addEventListener("visibilitychange", change);
+    return () => document.removeEventListener("visibilitychange", change);
+  }, []);
   const labels = useRef<HTMLDivElement>(null);
   const gesture = useRef<SceneGesture>({ suppressClickUntil: 0 });
   return (
     <>
       <div className="scene-labels" ref={labels} />
       <Canvas
+        frameloop={visible ? "always" : "never"}
         shadows={!lowQuality}
         dpr={lowQuality ? 1 : [1, 1.6]}
         camera={{ position: [17, 23, 27], fov: 38, near: 0.1, far: 400 }}

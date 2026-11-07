@@ -1,6 +1,6 @@
 # Cattus 3D 산책
 
-Cattus의 고양이로 일반 섬을 산책하고, 별도 낚시섬의 물가 의자 30개에서 앉아서 집중하는 3D 웹이다. `afeat/GROMO-2786-cattus-metaverse-web`에서 검토하며 머지·배포하지 않는다.
+Cattus의 고양이로 일반 섬을 산책하고, 별도 낚시섬의 물가 의자 30개에서 앉아서 집중하는 3D 웹이다. 공개 웹 주소는 <https://try.oneorthree.world/>이며 배포 구성은 [배포 문서](docs/deployment.md)에 있다.
 
 ## 실행
 
@@ -12,7 +12,7 @@ npm ci
 npm run dev
 ```
 
-[로컬 섬 열기](http://127.0.0.1:4173). 기존 `app/app-dev`에서도 `npm run web:3d`로 시작할 수 있다(이 폴더의 의존성을 먼저 설치한다).
+[로컬 섬 열기](http://127.0.0.1:4173).
 
 같은 주소를 두 브라우저에서 열면 서로 다른 고양이로 접속한다. 같은 섬의 고양이만 화면에 보이며 위치·방향·털색·이름·행동을 공유한다. 집중 의자는 30개이며 휴식 중인 예약도 포함한다. 두 섬을 합친 로컬 방의 연결 한도는 60명이다. 새로고침할 때 고양이와 집중 시간은 초기화된다. 같은 컴퓨터의 탭·브라우저 검토용이며 서버 기본 바인딩은 `127.0.0.1`이다.
 
@@ -54,12 +54,12 @@ Playwright Chromium이 없으면 `npx playwright install chromium`으로 설치�
 - `Scene.tsx`, `Island.tsx`, `FocusIsland.tsx`, `Scenery.tsx`, `Cat.tsx`: 렌더·애니메이션. `CameraRig.tsx`: 카메라 추적·회전·평면 이동·줌·제스처 판정. `keyboard.ts`: 입력 언어와 무관한 이동키 해석. 고양이의 큰 눈·곡선 꼬리는 앱 원화를 참고했다. 걸음 위상은 실제 이동 거리로 진행하며 자세 전환을 보간한다. 정적 섬은 메모해 HUD 갱신 때 geometry를 재생성하지 않는다.
 - `CameraOcclusion.tsx`: 추적 카메라와 고양이 사이의 건물·나무를 감지해 해당 물체를 옅게 표시한다.
 - `assets3d/ocean.tsx`: Claude가 구현한 수심별 수면 색·잔물결·반짝임·해안과 바위 포말. 동작 줄이기를 켜면 반복 애니메이션을 멈춘다.
-- `server/room.ts`: 개발·로컬 preview용 WebSocket 방. 10Hz 스냅샷, 최대 60개 연결, 메시지 크기·입력 검증, 같은 Origin 검사, heartbeat, 퇴장 정리. 섬 이동·자리 예약·휴식·이어가기·집중 종료를 서버 응답으로 확정하며 유효 집중 시간도 서버에서 센다. 연결 실패 시 세션·예약을 해제하고 일반 섬으로 돌아가 중단을 알린 뒤 자동 재연결한다.
+- `server/room-engine.ts`: 로컬·공개 방이 공유하는 상태 전이. `server/room.ts`: 개발·로컬 preview용 WebSocket 방. 10Hz 스냅샷, 최대 60개 연결, 메시지 크기·입력 검증, 같은 Origin 검사, heartbeat, 퇴장 정리. 섬 이동·자리 예약·휴식·이어가기·집중 종료를 서버 응답으로 확정하며 유효 집중 시간도 서버에서 센다. 연결 실패 시 세션·예약을 해제하고 일반 섬으로 돌아가 중단을 알린 뒤 자동 재연결한다.
 - `realtime.ts`: 명령별 응답과 요청 ID, 연결 수명, 스냅샷. 다른 고양이는 같은 섬에서만 표시하고 프레임 사이를 보간한다. `focus-session.ts`는 휴식 제외 시간과 좌석 예약 타입을 공유한다. [상태 계약](docs/island-split-state.md)과 [화면 흐름](docs/island-split-ui.md)에 세부 사항을 기록했다.
 - 앱 디자인 토큰은 Vite 가상 모듈에서 원본 TypeScript를 읽는다. 기존 Expo 의존성을 설치하지 않고도 같은 값을 사용한다. 폰트는 앱 원본 고운돋움을 글리프 제거 없이 WOFF2로 압축했다. 재생성은 `scripts/compress-font.py`, 라이선스는 `public/fonts/OFL.txt`다.
-- `dist/`만 정적으로 서빙하면 3D 산책은 실행되지만 실시간 방은 없다. 실시간 검토는 `npm run dev` 또는 `npm run preview`를 사용한다.
+- 로컬 실시간 검토는 `npm run dev` 또는 `npm run preview`를 사용한다. 공개 빌드는 `VITE_ROOM_URL`로 별도 방 주소를 지정한다. `server/worker.mjs`는 Origin·메시지 크기·빈도 제한과 절전 복원을 맡는다.
 
-이 구현은 로컬 체험이다. 운영 인증, 계정, 실제 섬 데이터, 섬 통장, 서버 집중 기록과 연결하지 않는다. 인터넷 공개용 서버 인증·영속화·서버 권위 이동 판정은 구현하지 않았다. 운영 WebSocket에 이 프로토콜을 연결하지 않는다.
+공개 버전은 별도 Cloudflare Durable Object 방을 사용한다. 운영 앱의 인증·계정·섬 통장·집중 기록과 연결하지 않는다. 연결이 종료되면 체험의 집중·예약은 끝나며 계정별 기록을 저장하지 않는다. 기존 앱 WebSocket에 이 프로토콜을 연결하지 않는다.
 
 기존 모닥불·숲바람 파일을 그대로 사용하며 출처와 재생 규칙은 [음원 기록](docs/audio-sources.md)에 있다.
 

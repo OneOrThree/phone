@@ -103,6 +103,10 @@
 - [검증 결과](docs/controls-validation.json), [Orca 화면](docs/controls-orca.png), [가까운 줌](docs/controls-zoom-near.png), [먼 줌](docs/controls-zoom-far.png), [낚시 확대](docs/controls-fishing-zoom.png), [모바일 핀치](docs/controls-touch-pinch.png).
 - 카메라 조작 의미는 [Three.js OrbitControls 공식 문서](https://threejs.org/docs/pages/OrbitControls.html)를 참고했고 실제 API는 설치된 `three-stdlib` 구현과 대조했다. 실기기·Safari에서는 확인하지 않았다.
 
+## 배포·최적화 추가 검토
+
+2026-11-07 소유자가 머지·배포를 요청하여 이전 로컬 전용 범위를 확장했다. 실시간 상태 계약은 Node·Cloudflare가 공유하고, 공개 방의 절전 복원·Origin·동시 예약·퇴장·큰 메시지·유휴 전송을 검사한다. 결과와 범위는 [배포 문서](docs/deployment.md) 및 [최적화 검증](docs/optimization-validation.json)에 기록한다. 위의 미머지·미배포 문장은 각 검토 당시 상태다.
+
 ## 증거와 재현
 
 - [수정 후 데스크톱 화면](docs/preview-desktop.png), [낚시 집중 화면](docs/preview-fishing.png), [30석 착석 화면](docs/preview-thirty-seats.png), [수정 후 모바일 화면](docs/preview-mobile.png), [수정 전 화면](docs/before-desktop.png)

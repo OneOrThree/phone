@@ -80,6 +80,7 @@ const MESSAGES = {
   lostIsland: "연결이 끊어져 우리 섬으로 돌아왔어요.",
 } as const;
 const defaultUrl = () =>
+  import.meta.env?.VITE_ROOM_URL ||
   `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/island-room`;
 const finite = (value: unknown): value is number =>
   typeof value === "number" && Number.isFinite(value);
@@ -108,6 +109,8 @@ export class RoomClient implements RoomCommands {
   private sequence = 0;
   private running = false;
   private retry: ReturnType<typeof setTimeout> | undefined;
+  private lastSent = "";
+  private lastPing = 0;
   private moves: ReturnType<typeof setInterval> | undefined;
   private readonly now: () => number;
   constructor(
@@ -380,15 +383,23 @@ export class RoomClient implements RoomCommands {
       this.setSession(null);
       this.update({ status: "online", residents: [] });
       clearInterval(this.moves);
+      this.lastSent = "";
+      this.lastPing = 0;
       this.moves = setInterval(() => {
         if (this.socket !== socket || socket.readyState !== OPEN) return;
         try {
-          socket.send(
-            JSON.stringify({
-              type: "move",
-              actor: sanitizeActor(this.sim.actor),
-            }),
-          );
+          const payload = JSON.stringify({
+            type: "move",
+            actor: sanitizeActor(this.sim.actor),
+          });
+          if (payload !== this.lastSent) {
+            socket.send(payload);
+            this.lastSent = payload;
+          }
+          if (this.now() - this.lastPing >= 30000) {
+            socket.send('{"type":"ping"}');
+            this.lastPing = this.now();
+          }
         } catch {
           /* 다음 간격에 다시 보낸다. */
         }

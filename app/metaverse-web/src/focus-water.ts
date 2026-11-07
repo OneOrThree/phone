@@ -1,4 +1,4 @@
-import { FOCUS_ISLAND, FOCUS_LANDMARKS, FOCUS_POND } from "./layout";
+import { FOCUS_ISLAND, FOCUS_LANDMARKS, FOCUS_POND } from "./layout.ts";
 
 // 낚시섬 폭포 아래 소·물길·판자 다리의 평면 배치. 렌더(assets3d/pond.ts)와 이동 판정(world.ts)이
 // 같은 값을 쓴다. 높이·재질은 렌더 쪽에서 붙이고, 이 파일은 그래픽 의존성 없이 순수 값만 둔다.

@@ -39,5 +39,21 @@ export default defineConfig({
       },
     },
   ],
-  build: { chunkSizeWarningLimit: 1200 },
+  build: {
+    manifest: true,
+    rolldownOptions: {
+      output: {
+        codeSplitting: {
+          groups: [
+            { name: "three", test: /node_modules\/three\//, priority: 30 },
+            {
+              name: "react",
+              test: /node_modules\/(react|react-dom|scheduler)\//,
+              priority: 20,
+            },
+          ],
+        },
+      },
+    },
+  },
 });
