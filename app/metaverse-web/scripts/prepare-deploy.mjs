@@ -41,7 +41,7 @@ const csp = [
   `connect-src 'self' ${room.origin}`,
   "object-src 'none'",
   "base-uri 'self'",
-  "frame-ancestors 'none'",
+  "frame-ancestors 'self' https://jeojat.altolab.ai",
   "form-action 'none'",
 ].join("; ");
 const config = {

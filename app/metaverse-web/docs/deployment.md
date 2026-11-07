@@ -26,6 +26,8 @@ vercel deploy --prod --yes --scope joejaeyoungs-projects --cwd dist
 
 `prepare:deploy`는 빌드의 방 주소와 헤더 설정을 대조하고 `version.json`에 소스 커밋을 기록한다. HTML은 매번 재검증·no-transform, 해시 JS/CSS는 1년 immutable, 해시 없는 동일 음원·폰트는 하루 캐시 후 재검증한다. 예전 `/experience(.html)`·`/google-login(.html)` 주소는 새 첫 화면으로 보낸다.
 
+iframe은 같은 출처와 `https://jeojat.altolab.ai`에서만 허용한다. Vercel의 HTTP 응답 `Content-Security-Policy`에 `frame-ancestors 'self' https://jeojat.altolab.ai`를 넣으며 meta 태그는 쓰지 않는다. `X-Frame-Options`는 설정하지 않는다. 배포 후에는 Cloudflare를 거친 대표 주소와 Vercel 원본 주소 모두에서 CSP 값이 유지되고 호스팅이 `X-Frame-Options`를 추가하지 않는지 확인한다. 방의 WebSocket Origin은 iframe 내부의 대표 주소이므로 기존 `ALLOWED_ORIGIN`을 유지한다.
+
 게시 뒤 대표 주소의 `version.json`, HTML·JS 캐시 헤더, 단일 브라우저의 이동→낚시섬→착석→휴식→복귀→종료를 확인한다. 부하 검사는 localhost에서만 수행한다. AWS 대상 부하·스트레스·지속 검사와 시험 데이터 생성은 금지다.
 
 ## 되돌리기
