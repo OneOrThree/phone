@@ -1,0 +1,50 @@
+{
+  "name": "cattus-metaverse-web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 4173 --strictPort",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --host 127.0.0.1 --port 4173 --strictPort",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test tests/*.test.ts",
+    "format": "prettier --write src server tests scripts/*.mjs *.ts *.json *.jsonc *.html *.md",
+    "format:check": "prettier --check src server tests scripts/*.mjs *.ts *.json *.jsonc *.html *.md",
+    "test:browser": "node tests/browser-qa.mjs",
+    "test:recovery": "node tests/recovery-qa.mjs",
+    "test:touch": "node tests/touch-qa.mjs",
+    "test:experience": "node tests/experience-qa.mjs",
+    "test:focus": "node tests/focus-qa.mjs",
+    "test:visual": "node tests/visual-qa.mjs",
+    "test:controls": "node tests/controls-qa.mjs",
+    "test:worker": "node tests/worker-qa.mjs",
+    "test:optimization": "node tests/optimization-qa.mjs",
+    "prepare:deploy": "node scripts/prepare-deploy.mjs",
+    "room:dev": "wrangler dev --ip 127.0.0.1 --port 8787",
+    "room:deploy": "wrangler deploy"
+  },
+  "dependencies": {
+    "@react-three/drei": "10.7.9",
+    "@react-three/fiber": "9.8.2",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "three": "0.187.0",
+    "three-stdlib": "2.36.1",
+    "ws": "8.18.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@types/three": "^0.183.0",
+    "@types/ws": "^8.18.1",
+    "@vitejs/plugin-react": "^6.0.0",
+    "playwright": "1.63.0",
+    "prettier": "^3.8.3",
+    "tsx": "^4.20.0",
+    "typescript": "~6.0.3",
+    "vite": "8.3.6",
+    "wrangler": "4.157.0"
+  }
+}

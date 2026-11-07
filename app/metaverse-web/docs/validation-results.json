@@ -1,0 +1,1029 @@
+{
+  "browser": {
+    "results": [
+      {
+        "check": "키보드 실시간 이동",
+        "initial": [0, 12.2],
+        "moved": [1.4, 11.4]
+      },
+      {
+        "check": "지면 클릭 이동",
+        "pass": true
+      },
+      {
+        "check": "일반 섬의 경로 이동 뒤 뗏목 부두 도착",
+        "dock": [0, 24.7]
+      },
+      {
+        "check": "두 브라우저 입장·이름·털색·실시간 이동",
+        "before": {
+          "x": 560.3820190429688,
+          "y": 546.8845825195312,
+          "width": 96.125,
+          "height": 26
+        },
+        "after": {
+          "x": 539.0672607421875,
+          "y": 538.9861450195312,
+          "width": 96.125,
+          "height": 26
+        }
+      },
+      {
+        "check": "퇴장 후 주민 정리",
+        "pass": true
+      },
+      {
+        "check": "입력창 키 차단·동작 줄이기",
+        "pass": true
+      },
+      {
+        "check": "모달 Escape·포커스 복원",
+        "pass": true
+      },
+      {
+        "check": "320px 화면·44px 터치 영역",
+        "layout": {
+          "width": 320,
+          "scroll": 320,
+          "buttons": [
+            {
+              "text": "소리 켜기",
+              "width": 44,
+              "height": 44
+            },
+            {
+              "text": "내 고양이와 설정",
+              "width": 44,
+              "height": 44
+            },
+            {
+              "text": "조작 안내",
+              "width": 44,
+              "height": 44
+            },
+            {
+              "text": "섬 둘러보기",
+              "width": 76.375,
+              "height": 44
+            },
+            {
+              "text": "섬 전체 보기",
+              "width": 44,
+              "height": 49
+            },
+            {
+              "text": "시점 되돌리기",
+              "width": 44,
+              "height": 44
+            },
+            {
+              "text": "산책",
+              "width": 61.109375,
+              "height": 48
+            },
+            {
+              "text": "인사Space",
+              "width": 61.109375,
+              "height": 48
+            },
+            {
+              "text": "쉬기",
+              "width": 61.109375,
+              "height": 48
+            },
+            {
+              "text": "낚시섬으로 가기",
+              "width": 82.671875,
+              "height": 48
+            }
+          ]
+        }
+      },
+      {
+        "check": "터치 조이스틱 포인터 캡처·이동",
+        "pass": true
+      },
+      {
+        "check": "375px 화면·44px 터치 영역",
+        "layout": {
+          "width": 375,
+          "scroll": 375,
+          "buttons": [
+            {
+              "text": "소리 켜기",
+              "width": 44,
+              "height": 44
+            },
+            {
+              "text": "내 고양이와 설정",
+              "width": 44,
+              "height": 44
+            },
+            {
+              "text": "조작 안내",
+              "width": 44,
+              "height": 44
+            },
+            {
+              "text": "섬 둘러보기",
+              "width": 76.375,
+              "height": 44
+            },
+            {
+              "text": "섬 전체 보기",
+              "width": 44,
+              "height": 49
+            },
+            {
+              "text": "시점 되돌리기",
+              "width": 44,
+              "height": 44
+            },
+            {
+              "text": "산책",
+              "width": 74.21875,
+              "height": 48
+            },
+            {
+              "text": "인사Space",
+              "width": 74.234375,
+              "height": 48
+            },
+            {
+              "text": "쉬기",
+              "width": 74.21875,
+              "height": 48
+            },
+            {
+              "text": "낚시섬으로 가기",
+              "width": 98.328125,
+              "height": 48
+            }
+          ]
+        }
+      },
+      {
+        "check": "414px 화면·44px 터치 영역",
+        "layout": {
+          "width": 414,
+          "scroll": 414,
+          "buttons": [
+            {
+              "text": "소리 켜기",
+              "width": 44,
+              "height": 44
+            },
+            {
+              "text": "내 고양이와 설정",
+              "width": 44,
+              "height": 44
+            },
+            {
+              "text": "조작 안내",
+              "width": 44,
+              "height": 44
+            },
+            {
+              "text": "섬 둘러보기",
+              "width": 76.375,
+              "height": 44
+            },
+            {
+              "text": "섬 전체 보기",
+              "width": 44,
+              "height": 49
+            },
+            {
+              "text": "시점 되돌리기",
+              "width": 44,
+              "height": 44
+            },
+            {
+              "text": "산책",
+              "width": 82.890625,
+              "height": 48
+            },
+            {
+              "text": "인사Space",
+              "width": 82.890625,
+              "height": 48
+            },
+            {
+              "text": "쉬기",
+              "width": 82.890625,
+              "height": 48
+            },
+            {
+              "text": "낚시섬으로 가기",
+              "width": 111.328125,
+              "height": 48
+            }
+          ]
+        }
+      },
+      {
+        "check": "768px 화면·44px 터치 영역",
+        "layout": {
+          "width": 768,
+          "scroll": 768,
+          "buttons": [
+            {
+              "text": "소리 켜기",
+              "width": 44,
+              "height": 44
+            },
+            {
+              "text": "내 고양이와 설정",
+              "width": 44,
+              "height": 44
+            },
+            {
+              "text": "조작 안내",
+              "width": 44,
+              "height": 44
+            },
+            {
+              "text": "섬 둘러보기",
+              "width": 85.890625,
+              "height": 44
+            },
+            {
+              "text": "섬 전체 보기",
+              "width": 60,
+              "height": 64
+            },
+            {
+              "text": "시점 되돌리기",
+              "width": 44,
+              "height": 44
+            },
+            {
+              "text": "산책",
+              "width": 91.15625,
+              "height": 52
+            },
+            {
+              "text": "인사Space",
+              "width": 121.375,
+              "height": 52
+            },
+            {
+              "text": "쉬기",
+              "width": 89.953125,
+              "height": 52
+            },
+            {
+              "text": "낚시섬으로 가기",
+              "width": 161.96875,
+              "height": 52
+            }
+          ]
+        }
+      },
+      {
+        "check": "외부 네트워크 요청",
+        "external": []
+      }
+    ],
+    "errors": [],
+    "checked_at": "2026-11-07T14:14:54.442170+09:00",
+    "evidence_file": "artifacts/browser-results.json",
+    "target": "http://127.0.0.1:4176"
+  },
+  "recovery": {
+    "results": [
+      {
+        "check": "연결 실패 중 산책·기기 동작 줄이기",
+        "pass": true
+      },
+      {
+        "check": "실제 로컬 서버로 자동 재연결",
+        "pass": true
+      },
+      {
+        "check": "카메라 회전·초기화·가벼운 화면",
+        "pass": true
+      },
+      {
+        "check": "집중 중 WebGL context 소실 시 좌석·모닥불 음원 해제, 안내·다시 불러오기",
+        "pass": true
+      },
+      {
+        "check": "WebGL 미지원 시 로딩 대신 복구 안내",
+        "pass": true
+      }
+    ],
+    "errors": [],
+    "checked_at": "2026-11-07T14:03:10.429955+09:00",
+    "evidence_file": "artifacts/recovery-results.json",
+    "target": "http://127.0.0.1:4176"
+  },
+  "touch": {
+    "results": [
+      {
+        "check": "실제 터치 조이스틱 이동·손을 떼면 정지",
+        "initial": "0.0, 12.2",
+        "released": "0.2, 12.1"
+      },
+      {
+        "check": "실제 땅 터치 이동",
+        "pass": true
+      },
+      {
+        "check": "한 손가락 카메라 회전",
+        "pass": true
+      },
+      {
+        "check": "두 손가락 핀치 확대·시점 초기화",
+        "pass": true
+      }
+    ],
+    "errors": [],
+    "checked_at": "2026-11-07T14:15:06.785342+09:00",
+    "evidence_file": "artifacts/touch-results.json",
+    "target": "http://127.0.0.1:4176"
+  },
+  "focus": {
+    "results": [
+      {
+        "check": "일반 섬 기능과 첫 입력 뒤 기존 숲바람 90초 루프",
+        "sound": {
+          "durations": [90, 90],
+          "loops": [true, true],
+          "state": "running"
+        }
+      },
+      {
+        "check": "섬 이동만으로 집중하지 않음·서로 다른 섬의 주민과 기능 분리",
+        "pass": true
+      },
+      {
+        "check": "의자 선택 즉시 낚시 집중·주제·타이머·기존 모닥불 ASMR·오입력 방지",
+        "pass": true
+      },
+      {
+        "check": "같은 낚시섬 주민 공유·의자 중복 선택 방지",
+        "pass": true
+      },
+      {
+        "check": "모닥불 휴식은 일반 섬으로 이동·시간 정지·낚시 의자 예약 유지",
+        "pausedTime": "00:00:02"
+      },
+      {
+        "check": "같은 의자·주제·누적 시간으로 집중 이어가기",
+        "pass": true
+      },
+      {
+        "check": "자리 변경은 누적·주제·음소거 유지",
+        "pass": true
+      },
+      {
+        "check": "종료 짧은 클릭·누르다 버튼 이탈은 집중을 끝내지 않음",
+        "pass": true
+      },
+      {
+        "check": "키보드 1.5초 종료·실제 결과·우리 섬 복귀·숲바람 전환",
+        "pass": true
+      },
+      {
+        "check": "다시 집중하기는 새 자리 준비로 복귀하며 자동 시작하지 않음",
+        "pass": true
+      },
+      {
+        "check": "320px 두 섬·30석·44px·휴식/이어가기·길게 눌러 종료",
+        "layout": {
+          "width": 320,
+          "scroll": 320,
+          "buttons": [
+            {
+              "width": 44,
+              "height": 44
+            },
+            {
+              "width": 44.796875,
+              "height": 58
+            },
+            {
+              "width": 44.796875,
+              "height": 58
+            },
+            {
+              "width": 44.796875,
+              "height": 58
+            },
+            {
+              "width": 44.796875,
+              "height": 58
+            },
+            {
+              "width": 44.796875,
+              "height": 58
+            },
+            {
+              "width": 44.796875,
+              "height": 58
+            },
+            {
+              "width": 44.796875,
+              "height": 58
+            },
+            {
+              "width": 44.796875,
+              "height": 58
+            },
+            {
+              "width": 44.796875,
+              "height": 58
+            },
+            {
+              "width": 44.796875,
+              "height": 58
+            },
+            {
+              "width": 44.796875,
+              "height": 58
+            },
+            {
+              "width": 44.796875,
+              "height": 58
+            },
+            {
+              "width": 44.796875,
+              "height": 58
+            },
+            {
+              "width": 44.796875,
+              "height": 58
+            },
+            {
+              "width": 44.796875,
+              "height": 58
+            },
+            {
+              "width": 44.796875,
+              "height": 58
+            },
+            {
+              "width": 44.796875,
+              "height": 58
+            },
+            {
+              "width": 44.796875,
+              "height": 58
+            },
+            {
+              "width": 44.796875,
+              "height": 58
+            },
+            {
+              "width": 44.796875,
+              "height": 58
+            },
+            {
+              "width": 44.796875,
+              "height": 58
+            },
+            {
+              "width": 44.796875,
+              "height": 58
+            },
+            {
+              "width": 44.796875,
+              "height": 58
+            },
+            {
+              "width": 44.796875,
+              "height": 58
+            },
+            {
+              "width": 44.796875,
+              "height": 58
+            },
+            {
+              "width": 44.796875,
+              "height": 58
+            },
+            {
+              "width": 44.796875,
+              "height": 58
+            },
+            {
+              "width": 44.796875,
+              "height": 58
+            },
+            {
+              "width": 44.796875,
+              "height": 58
+            },
+            {
+              "width": 44.796875,
+              "height": 58
+            }
+          ]
+        }
+      },
+      {
+        "check": "375px 두 섬·30석·44px·휴식/이어가기·길게 눌러 종료",
+        "layout": {
+          "width": 375,
+          "scroll": 375,
+          "buttons": [
+            {
+              "width": 44,
+              "height": 44
+            },
+            {
+              "width": 55.796875,
+              "height": 58
+            },
+            {
+              "width": 55.796875,
+              "height": 58
+            },
+            {
+              "width": 55.796875,
+              "height": 58
+            },
+            {
+              "width": 55.796875,
+              "height": 58
+            },
+            {
+              "width": 55.796875,
+              "height": 58
+            },
+            {
+              "width": 55.796875,
+              "height": 58
+            },
+            {
+              "width": 55.796875,
+              "height": 58
+            },
+            {
+              "width": 55.796875,
+              "height": 58
+            },
+            {
+              "width": 55.796875,
+              "height": 58
+            },
+            {
+              "width": 55.796875,
+              "height": 58
+            },
+            {
+              "width": 55.796875,
+              "height": 58
+            },
+            {
+              "width": 55.796875,
+              "height": 58
+            },
+            {
+              "width": 55.796875,
+              "height": 58
+            },
+            {
+              "width": 55.796875,
+              "height": 58
+            },
+            {
+              "width": 55.796875,
+              "height": 58
+            },
+            {
+              "width": 55.796875,
+              "height": 58
+            },
+            {
+              "width": 55.796875,
+              "height": 58
+            },
+            {
+              "width": 55.796875,
+              "height": 58
+            },
+            {
+              "width": 55.796875,
+              "height": 58
+            },
+            {
+              "width": 55.796875,
+              "height": 58
+            },
+            {
+              "width": 55.796875,
+              "height": 58
+            },
+            {
+              "width": 55.796875,
+              "height": 58
+            },
+            {
+              "width": 55.796875,
+              "height": 58
+            },
+            {
+              "width": 55.796875,
+              "height": 58
+            },
+            {
+              "width": 55.796875,
+              "height": 58
+            },
+            {
+              "width": 55.796875,
+              "height": 58
+            },
+            {
+              "width": 55.796875,
+              "height": 58
+            },
+            {
+              "width": 55.796875,
+              "height": 58
+            },
+            {
+              "width": 55.796875,
+              "height": 58
+            },
+            {
+              "width": 55.796875,
+              "height": 58
+            }
+          ]
+        }
+      },
+      {
+        "check": "768px 두 섬·30석·44px·휴식/이어가기·길게 눌러 종료",
+        "layout": {
+          "width": 768,
+          "scroll": 768,
+          "buttons": [
+            {
+              "width": 44,
+              "height": 44
+            },
+            {
+              "width": 80.796875,
+              "height": 58
+            },
+            {
+              "width": 80.796875,
+              "height": 58
+            },
+            {
+              "width": 80.796875,
+              "height": 58
+            },
+            {
+              "width": 80.796875,
+              "height": 58
+            },
+            {
+              "width": 80.8125,
+              "height": 58
+            },
+            {
+              "width": 80.796875,
+              "height": 58
+            },
+            {
+              "width": 80.796875,
+              "height": 58
+            },
+            {
+              "width": 80.796875,
+              "height": 58
+            },
+            {
+              "width": 80.796875,
+              "height": 58
+            },
+            {
+              "width": 80.8125,
+              "height": 58
+            },
+            {
+              "width": 80.796875,
+              "height": 58
+            },
+            {
+              "width": 80.796875,
+              "height": 58
+            },
+            {
+              "width": 80.796875,
+              "height": 58
+            },
+            {
+              "width": 80.796875,
+              "height": 58
+            },
+            {
+              "width": 80.8125,
+              "height": 58
+            },
+            {
+              "width": 80.796875,
+              "height": 58
+            },
+            {
+              "width": 80.796875,
+              "height": 58
+            },
+            {
+              "width": 80.796875,
+              "height": 58
+            },
+            {
+              "width": 80.796875,
+              "height": 58
+            },
+            {
+              "width": 80.8125,
+              "height": 58
+            },
+            {
+              "width": 80.796875,
+              "height": 58
+            },
+            {
+              "width": 80.796875,
+              "height": 58
+            },
+            {
+              "width": 80.796875,
+              "height": 58
+            },
+            {
+              "width": 80.796875,
+              "height": 58
+            },
+            {
+              "width": 80.8125,
+              "height": 58
+            },
+            {
+              "width": 80.796875,
+              "height": 58
+            },
+            {
+              "width": 80.796875,
+              "height": 58
+            },
+            {
+              "width": 80.796875,
+              "height": 58
+            },
+            {
+              "width": 80.796875,
+              "height": 58
+            },
+            {
+              "width": 80.8125,
+              "height": 58
+            }
+          ]
+        }
+      }
+    ],
+    "errors": [],
+    "external": [],
+    "checked_at": "2026-11-07T14:12:46.250904+09:00",
+    "evidence_file": "artifacts/island-split-ui-qa/coordinator-tests-4187/focus-results.json",
+    "target": "http://127.0.0.1:4187"
+  },
+  "visual": {
+    "results": [
+      {
+        "check": "물가 3D 의자 직접 hover·클릭으로 즉시 앉아서 낚시 집중",
+        "pixel": {
+          "x": 809.8213216629606,
+          "y": 349.7450185686339
+        }
+      },
+      {
+        "check": "sea 실제 수면 픽셀 변화·동작 줄이기 정지",
+        "pass": true
+      },
+      {
+        "check": "일반 섬에 다른 낚시섬 주민을 그리지 않음",
+        "pass": true
+      },
+      {
+        "check": "pond 실제 수면 픽셀 변화·동작 줄이기 정지",
+        "pass": true
+      },
+      {
+        "check": "로컬 29명+브라우저 1명 30석 낚시·만석 안내·휴식 중 예약 및 섬 분리",
+        "pass": true
+      }
+    ],
+    "errors": [],
+    "checked_at": "2026-11-07T14:12:46.251221+09:00",
+    "evidence_file": "artifacts/island-split-ui-qa/coordinator-tests-4187/visual-results.json",
+    "target": "http://127.0.0.1:4187"
+  },
+  "revision": "일반 섬·낚시섬 분리",
+  "status": "완료; 검증한 빌드를 사용자 4174 preview에 반영",
+  "build": "Vite production bundle, local preview",
+  "browser_checks": 40,
+  "renderer": "Full Chromium / ANGLE Metal Renderer: Apple M5 Pro",
+  "scope": "Chromium 데스크톱·모바일 에뮬레이션. 로컬 기능 검사만 수행. 물리 기기·Safari·운영 부하 검증 결과 없음.",
+  "dialog_labels_regression": {
+    "results": [
+      {
+        "name": "320px 터치 종료 뒤 결과창 유지",
+        "ok": true,
+        "detail": {
+          "x": 259.140625,
+          "y": 499,
+          "id": 0
+        }
+      },
+      {
+        "name": "320px 다시 집중하기 → 낚시섬 준비",
+        "ok": true
+      },
+      {
+        "name": "320px 두 번째 터치 종료 뒤 결과창 유지",
+        "ok": true
+      },
+      {
+        "name": "320px 우리 섬으로 → 우리 섬",
+        "ok": true
+      },
+      {
+        "name": "320px 막 터치로 닫기",
+        "ok": true,
+        "detail": {
+          "tapY": 16,
+          "dialogTop": 24
+        }
+      },
+      {
+        "name": "375px 터치 종료 뒤 결과창 유지",
+        "ok": true,
+        "detail": {
+          "x": 305.7109375,
+          "y": 598,
+          "id": 0
+        }
+      },
+      {
+        "name": "375px 다시 집중하기 → 낚시섬 준비",
+        "ok": true
+      },
+      {
+        "name": "375px 두 번째 터치 종료 뒤 결과창 유지",
+        "ok": true
+      },
+      {
+        "name": "375px 우리 섬으로 → 우리 섬",
+        "ok": true
+      },
+      {
+        "name": "375px 막 터치로 닫기",
+        "ok": true,
+        "detail": {
+          "tapY": 16,
+          "dialogTop": 24
+        }
+      },
+      {
+        "name": "막 클릭으로 닫기",
+        "ok": true
+      },
+      {
+        "name": "Escape로 닫고 포커스 복원",
+        "ok": true
+      },
+      {
+        "name": "닫기 버튼",
+        "ok": true
+      },
+      {
+        "name": "창 안에서 누르고 막에서 떼면 유지",
+        "ok": true
+      },
+      {
+        "name": "열리기 전 시작한 잔여 클릭은 버튼·막 모두 무시",
+        "ok": true
+      },
+      {
+        "name": "창에서 누른 일반 클릭은 동작",
+        "ok": true
+      },
+      {
+        "name": "라벨 글자 클릭으로 체크 전환",
+        "ok": true
+      },
+      {
+        "name": "두 번째 창에서 다른 고양이 이름이 보임",
+        "ok": true
+      },
+      {
+        "name": "cat-label DOM 31개 유지",
+        "ok": true
+      },
+      {
+        "name": "가까운 시점: 내 이름표 보임·겹침 0",
+        "ok": true,
+        "detail": {
+          "visibleCats": 21,
+          "self": true,
+          "places": ["그늘 쉼터", "축음기", "뗏목 부두", "폭포"],
+          "overlaps": [],
+          "domCats": 31
+        }
+      },
+      {
+        "name": "섬 전체: 내 이름표 보임·겹침 0",
+        "ok": true,
+        "detail": {
+          "visibleCats": 13,
+          "self": true,
+          "places": ["그늘 쉼터", "축음기", "뗏목 부두", "폭포"],
+          "overlaps": [],
+          "domCats": 31
+        }
+      },
+      {
+        "name": "섬 전체: DOM 31개 유지",
+        "ok": true
+      },
+      {
+        "name": "시점 회전 뒤 겹침 0",
+        "ok": true,
+        "detail": {
+          "visibleCats": 14,
+          "self": true,
+          "places": ["그늘 쉼터", "축음기", "뗏목 부두", "폭포"],
+          "overlaps": [],
+          "domCats": 31
+        }
+      },
+      {
+        "name": "375px 섬 전체 겹침 0",
+        "ok": true,
+        "detail": {
+          "visibleCats": 3,
+          "self": true,
+          "places": ["그늘 쉼터", "축음기", "뗏목 부두", "폭포"],
+          "overlaps": [],
+          "domCats": 31
+        }
+      },
+      {
+        "name": "휴식 중 우리 섬 cat-label 2개",
+        "ok": true
+      }
+    ],
+    "errors": [],
+    "evidence": "Orca task task_3dbb02cdeb7b / dispatch ctx_6780fd26ccac, local 4187"
+  },
+  "review_url": "http://127.0.0.1:4174/",
+  "unit_tests": {
+    "passed": 51,
+    "evidence": "Orca task task_dc5347bb1815 / dispatch ctx_308292fc1be1: 51/51 three repeats, 7 water regression tests, 7 mutations detected"
+  },
+  "review_preview_smoke": {
+    "target": "http://127.0.0.1:4174/",
+    "results": [
+      {
+        "width": 1440,
+        "script": "/assets/index-B0oYyDYx.js",
+        "flow": "일반 섬→낚시섬→의자 집중→모닥불 휴식→같은 자리 복귀→길게 종료→결과→일반 섬",
+        "pass": true
+      },
+      {
+        "width": 375,
+        "script": "/assets/index-B0oYyDYx.js",
+        "flow": "일반 섬→낚시섬→의자 집중→모닥불 휴식→같은 자리 복귀→길게 종료→결과→일반 섬",
+        "pass": true
+      }
+    ],
+    "errors": [],
+    "checkedAt": "2026-11-07T05:18:01.365Z"
+  },
+  "bundle": {
+    "js": "index-B0oYyDYx.js",
+    "css": "index-xrhaGTlu.css",
+    "same_bytes_as_integration_preview": true,
+    "js_kb": 1309.82,
+    "js_gzip_kb": 369.65
+  },
+  "ui_flow_evidence": {
+    "checks": 53,
+    "evidence": "Orca task task_a7882e5dd032 / dispatch ctx_766e0e123984, local 4186"
+  },
+  "orca_browser": {
+    "page": "61113a63-c65a-49fa-9e27-e240467597a6",
+    "url": "http://127.0.0.1:4174/",
+    "verified": "일반 섬→낚시섬→1번 의자 집중, 모닥불 ASMR 재생 표시",
+    "screenshot": "docs/preview-orca.png"
+  }
+}
