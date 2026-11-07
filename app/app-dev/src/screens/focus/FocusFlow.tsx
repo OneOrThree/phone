@@ -1618,18 +1618,19 @@ export function FocusFlow({ e: environment }: any) {
   // 없으면 첫 집중 체험을 마친 계정으로 보고 안내한다 — 기록을 잃은 계정에는 다시 보여도 된다.
   const tutorialDone = s.focusGuideDone || !s.tutorial || s.tutorial.step >= 22;
   const verificationIntro =
-    tutorialDone &&
-    !e.routeTransitionShielded &&
-    !e.letterOpen &&
-    r === 'fishingArrival' &&
-    !experience &&
-    !dialog &&
-    !catInfo &&
-    !leg &&
-    !voyage &&
-    !goldenCutscene
-      ? 'automatic'
-      : 'onPress';
+    tutorialDone && !experience
+      ? !e.routeTransitionShielded &&
+        !e.letterOpen &&
+        r === 'fishingArrival' &&
+        !dialog &&
+        !catInfo &&
+        !leg &&
+        !voyage &&
+        !goldenCutscene
+        ? 'automatic'
+        : 'onPress'
+      : undefined;
+
   // 집중 준비 모달은 누른 곳(내 고양이) 위에 붙인다. 위가 좁으면 아래 → 오른쪽 → 왼쪽.
   const setup = (toScreen: (p: Point) => Point, size: number) => {
     const { x, y } = toScreen(mine),

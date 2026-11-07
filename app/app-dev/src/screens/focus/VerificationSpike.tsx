@@ -162,7 +162,6 @@ export function VerificationToggle({
   }, [owner, generation, on, open, inSession]);
   const checked = education?.owner === owner && education?.generation === generation;
   useEffect(() => {
-    if (!intro) return;
     let cancelled = false;
     const accept = (seen: boolean, setupSeen: boolean) => {
       if (!cancelled && sessionGeneration() === generation && getSession()?.userId === owner)
@@ -181,7 +180,7 @@ export function VerificationToggle({
     return () => {
       cancelled = true;
     };
-  }, [intro, owner, generation]);
+  }, [owner, generation]);
   useEffect(() => {
     if (intro !== 'automatic' || !checked || inSession || autoOpened.current || introOpen) return;
     autoOpened.current = true;
@@ -213,8 +212,8 @@ export function VerificationToggle({
       } else onChange(false, cameraPosition);
       return;
     }
-    if (intro && !education?.seen) {
-      setIntroOpen('verification');
+    if (!checked || !education?.seen) {
+      if (intro) setIntroOpen('verification');
       return;
     }
     setRequesting(true);
@@ -252,10 +251,12 @@ export function VerificationToggle({
   const showPreview = () => {
     if (open) void changeVerification(false, true);
     else if (!on) Alert.alert(t('verification.setup.enableMeasurement'));
-    else if (intro && !education?.seen) setIntroOpen('verification');
-    else void changeVerification(true, true);
+    else if (!checked || !education?.seen) {
+      if (intro) setIntroOpen('verification');
+    } else void changeVerification(true, true);
   };
-  const busy = requesting || (!!intro && !checked && !(inSession && on));
+  const awaitingEducation = !checked || (!education?.seen && !intro);
+  const busy = requesting || (on && !open && awaitingEducation);
   const ui = componentTokens.verificationSetup;
   // 두 라벨은 각 컨트롤 가운데 아래에 붙는다. 두 컨트롤의 중심 간격(스위치 46/2 + 간격 + 버튼 44/2)보다
   // 넓으면 큰 글씨·영어·태블릿에서 서로 겹치므로, 폭을 버튼 + 간격으로 묶고 한 줄 안에서 줄여 맞춘다.
@@ -326,7 +327,7 @@ export function VerificationToggle({
               accessibilityHint={t(
                 on ? 'verification.session.turnOff' : 'verification.session.turnOn',
               )}
-              disabled={requesting || (!!intro && !checked && !on)}
+              disabled={requesting || (awaitingEducation && !on)}
               activeColor={C.pink}
             />
             <Txt {...controlLabel}>{t('verification.switchLabel')}</Txt>

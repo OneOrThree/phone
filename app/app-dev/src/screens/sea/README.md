@@ -36,6 +36,7 @@ https://www.figma.com/design/XzlUvx1LGl5OZt6wHr2WRg/new-design?node-id=1357-1347
 - 수면 반짝임(`SeaGlints`): 여덟 개가 수평선 아래 아무 데나 반짝였다 사라진다.
 - 뗏목(`SeaRaft floatSeed`): `RaftFloat` 가 뗏목마다 다른 주기·위상(`raftRhythm`)으로 상하 ±1.6~1.8%·기울기 −1.6~1.4도로 띄우고 그림자를 같이 움직이며, `RaftRipples` 가 물가에 고리 셋(2.7초)을 퍼뜨린다. 바다 장면만 `floatSeed` 를 주고 정보창 등의 뗏목은 정지 그림이다.
 - 표류 자리(`DRIFT_PEER_SLOTS`): 맨 뒤 칸을 앞으로 당기고(0.78, 0.29, 58) 세 번째 칸을 왼쪽으로(x 0.62) 옮겼다.
+- 망원경(GROMO-2789, 11/07 시안 https://claude.ai/artifact/C5wEHW6q7PK3uvJ7Q54Vwj): 그림(`SeaArt`)·구름 배치(`SkyConfig`)·고리 자리(`RippleShape`)를 인자로 받아 `screens/island/Telescope.tsx` 가 같은 부품을 쓴다. 파노라마 타일마다 `SeaWaterTile`(물빛 줄 시계는 `useSeaWater` 하나를 나눔), 하늘·반짝임은 파노라마와 같이 밀리지 않는 먼 배경, 섬은 흔들지 않고 발치에 `ShoreRipples` 둘(시계는 장면의 `useShoreClock` 하나를 모든 섬 칸이 나눠 쓰고 `index % 3` 위상으로 어긋남), 반전 타일은 좌우 흔들림만 부호를 뒤집어 이음매가 맞고, 반짝임 zone 은 `useMemo` 로 고정, 망원경 든 고양이 뗏목은 `RaftFloat amplitude 0.7`·그림자 없음·`TELESCOPE_RIPPLES`. 멈추면 망원경은 지금처럼 갈매기가 없다(`stillGulls` 없음).
 - 멈춤: 장면이 `useSeaRunning`(동작 줄이기 아님 + 앱이 앞) 을 한 번 계산해 `running` 으로 내리고, 안 보이는 페이지의 뗏목은 `running && index === visiblePage` 로 끈다. 멈춘 장면은 원화 구름 둘·정지 갈매기·바탕+첫 물빛 줄(=지금 바다 그림)이다. 보간 노드는 `useMemo` 로 한 번만 만들고 구름 x 는 리스너 없이 `stopAnimation` 으로만 읽는다(프레임마다 브리지를 타지 않게).
 
 ## 참가자 카드와 가로 탐색 (2365)

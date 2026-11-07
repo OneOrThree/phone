@@ -1,0 +1,13 @@
+{
+  "name": "cattus-3d-room",
+  "main": "server/worker.mjs",
+  "account_id": "8cbd6c2d55cdebe173eae6a5957eaa82",
+  "compatibility_date": "2026-11-01",
+  "workers_dev": true,
+  "preview_urls": false,
+  "vars": { "ALLOWED_ORIGIN": "https://try.oneorthree.world" },
+  "durable_objects": {
+    "bindings": [{ "name": "ISLAND_ROOM", "class_name": "IslandRoom" }],
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["IslandRoom"] }],
+}

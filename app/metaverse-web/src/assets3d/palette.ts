@@ -1,0 +1,123 @@
+import { art } from "../theme";
+
+// 3D 장면 전용 재질 색. UI 의미 색은 theme.ts의 앱 토큰을 그대로 쓰고,
+// 자연물·목재·건물처럼 앱 토큰에 없는 재질만 여기서 정의한다.
+export const GROUND_Y = 0.1;
+export const SEA_LEVEL = -0.42;
+export const SEAT_HEIGHT = 0.46;
+// 낚시섬 연못 수면. 땅보다 0.3m 낮고 바다(SEA_LEVEL)보다 높다.
+export const POND_LEVEL = GROUND_Y - 0.3;
+
+export const material = {
+  grass: "#B7D48A",
+  grassDeep: "#98C277",
+  grassLight: "#D1E4A0",
+  moss: "#8DB574",
+  dirt: "#E6CC98",
+  dirtDark: "#D5B47F",
+  ash: "#8C8079",
+  sand: "#F0DDB4",
+  sandWet: "#D8C297",
+  sandDeep: "#C9B98F",
+  seabed: "#9FC7B9",
+  wood: "#BF9068",
+  woodLight: "#D8AE80",
+  woodDark: "#8E654A",
+  woodDeep: "#6E4C38",
+  bark: "#8C6650",
+  plaster: art.cream,
+  stone: "#C2C0B2",
+  stoneDark: "#A3A497",
+  stoneMoss: "#9CAE8E",
+  roof: "#E58A63",
+  roofLight: "#F0A27B",
+  roofDark: "#C66F50",
+  teal: "#62B6B4",
+  tealLight: "#7FCAC4",
+  tealDark: "#4A9A9A",
+  leaf: "#86B96C",
+  leafLight: "#A6D07F",
+  leafDark: "#6A9F5C",
+  pine: "#5F9C6E",
+  pineDark: "#4C855E",
+  pineLight: "#7DB57E",
+  mailRed: "#E46F47",
+  mailRedDark: "#BF573A",
+  brass: "#E2B65C",
+  glass: "#BFE6EE",
+  lampGlow: "#FFD27A",
+  fireCore: "#FFF3B8",
+  fireMid: "#FFC659",
+  fireEdge: "#FF8E45",
+  cushion: "#FBE6CC",
+  cushionHover: "#FFF4E2",
+  cushionMine: art.pink,
+  cushionPending: art.butter,
+  cushionTaken: "#B9DCEB",
+  thatch: "#DDBB7E",
+  thatchDark: "#BE965C",
+  reed: "#9DBB6A",
+  reedDark: "#7A9C55",
+  cattail: "#8A5E3E",
+  lily: "#7DB46A",
+  lilyLight: "#A3CD84",
+  pondDeep: "#3E8B92",
+  pondShallow: "#A4DCCD",
+  pondBank: "#7FAF7A",
+  record: "#342F2B",
+  hornInner: "#F3D9A0",
+  rope: "#D9C29A",
+  eyeWhite: "#FFF9EC",
+  pupil: "#2F2725",
+  nose: "#F29AA6",
+  blush: "#FFB9C6",
+  innerEar: "#F6B3BE",
+  seaDeep: "#4FA8C4",
+  seaMid: "#72C0D0",
+  seaShallow: "#A9E0D6",
+  seaFoam: "#F4FAEE",
+  seaSky: "#DFF1EE",
+} as const;
+
+// 털색별 몸·배·수염 색. coats(theme.ts)를 기준으로 밝은 배와 대비되는 수염을 고른다.
+export const furTones: Record<
+  string,
+  { fur: string; belly: string; whisker: string; shade: string }
+> = {
+  cream: {
+    fur: "#F6E2BF",
+    belly: "#FFF6E6",
+    whisker: "#8E6F5C",
+    shade: "#E3C9A0",
+  },
+  peach: {
+    fur: "#F1B98F",
+    belly: "#FCE6D2",
+    whisker: "#8E6250",
+    shade: "#DE9F74",
+  },
+  gray: {
+    fur: "#A8B1B8",
+    belly: "#E4E8EA",
+    whisker: "#5D5F66",
+    shade: "#8E989F",
+  },
+  black: {
+    fur: "#4B4A52",
+    belly: "#5E5D66",
+    whisker: "#E9E2D6",
+    shade: "#3A3940",
+  },
+  white: {
+    fur: "#F8F5EC",
+    belly: "#FFFFFF",
+    whisker: "#9C8C80",
+    shade: "#E2DDD0",
+  },
+  brown: {
+    fur: "#BC9478",
+    belly: "#EBD7C4",
+    whisker: "#5E4436",
+    shade: "#A27C62",
+  },
+};
