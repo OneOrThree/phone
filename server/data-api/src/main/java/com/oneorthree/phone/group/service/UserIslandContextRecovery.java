@@ -94,6 +94,24 @@ public class UserIslandContextRecovery {
     }
 
     /**
+     * 남은 소속이 없으면 먼바다(LEFT)로 확정한다 — 운영 정리(GROMO-2763) 전용.
+     *
+     * <p>{@link #onMembershipRevoked} 는 잃은 섬이 현재 섬일 때만 움직인다. 가입만 하고 그 섬으로 옮긴 적 없는 주민은
+     * 컨텍스트가 없거나 비어 있고 사유도 없어서, 섬이 사라지면 앱이 첫 항해 튜토리얼 대상으로 본다(앱 reducer 의
+     * {@code awaiting-first-island}). 앞선 강퇴의 KICKED 가 남은 빈 컨텍스트도 LEFT 로 덮는다 — 그대로 두면 앱이 방금
+     * 사라진 이 섬을 «강퇴된 섬» 으로 안내한다(reducer 의 {@code kickedIsland} 는 사라진 소속을 고른다).
+     */
+    public void releaseIfNoIslandLeft(UUID userId) {
+        mainIslands.lockUserAxis(LOCK_AXIS_PREFIX + userId);
+        if (!groupMembers.findActiveGroupIdsByUserId(userId).isEmpty()) {
+            return;
+        }
+        contexts.findById(userId)
+                .orElseGet(() -> contexts.save(UserIslandContext.newFor(userId)))
+                .release(GroupLeaveReason.LEFT);
+    }
+
+    /**
      * 상실 사유 — 멤버십의 이탈 사유를 그대로 옮긴다.
      *
      * <p>레거시 행처럼 사유가 비어 있으면 자진 탈퇴로 본다. 「모르는 값」을 새로 만들면 읽는 쪽이

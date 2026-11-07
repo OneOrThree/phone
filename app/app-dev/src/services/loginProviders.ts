@@ -16,7 +16,11 @@ export function loginProviders(
       : 'web',
   appleLoginEnabled = process.env.EXPO_PUBLIC_APPLE_LOGIN_ENABLED === '1',
 ): Provider[] {
-  if (platform === 'web') return [];
+  if (platform === 'web')
+    return process.env.EXPO_PUBLIC_WEB_DEMO === '1' &&
+      process.env.EXPO_PUBLIC_WEB_GOOGLE_LOGIN_ENABLED === '1'
+      ? ['google']
+      : [];
   if (platform === 'ios') return appleLoginEnabled ? ['apple', 'google'] : ['google'];
   return ['google'];
 }

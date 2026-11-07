@@ -72,6 +72,7 @@ public class IntroVoyageService {
                     // 기존 도착 경로가 공개 여부·현재 섬·도착 기록·첫 주민 환영 사건을 같은 TX에서 처리한다.
                     var arrival = islands.arrive(userId, islandId, key);
                     if (firstEver) {
+                        UUID eventId = UUID.randomUUID();
                         // 광고 사건 시각은 방금 쓴 도착 기록의 첫 도착 시각이다. 사건 ID 는 계정당 한 번만 발급한다.
                         var at = arrivals.findById(new IslandArrival.Key(userId, islandId)).orElseThrow()
                                 .getFirstArrivedAt();
@@ -82,14 +83,16 @@ public class IntroVoyageService {
                         // IP 는 열 길이(45) 안일 때만 남긴다 — 넘치는 값이 INSERT 를 깨 도착까지 되돌리지 않게.
                         String ip = send && meta.clientIp() != null && meta.clientIp().length() <= 45
                                 ? meta.clientIp() : null;
-                        firstArrivals.insertIfAbsent(userId, UUID.randomUUID(), islandId, at,
+                        int inserted = firstArrivals.insertIfAbsent(userId, eventId, islandId, at,
                                 send ? m.anonId() : null, send ? m.advertiserTrackingEnabled() : null,
                                 send ? InternalJson.tree(m.extinfo()).toString() : null,
                                 ip, send ? "PENDING" : "SKIPPED", send ? now : null);
+                        // 이번 호출이 첫 도착 행을 만든 경우만 사건 ID 를 응답(과 receipt)에 싣는다. SKIPPED 여도 SDK 로그용으로 내린다.
+                        if (inserted == 1) {
+                            arrival = arrival.withFirstArrivalEventId(eventId);
+                        }
                     }
-                    var result = new IslandArrivalView(arrival.islandId(), arrival.arrivedBefore(),
-                            arrival.membershipStatus(), arrival.currentIslandId(), firstEver);
-                    return new PublicCommandResult(200, InternalJson.tree(result), InternalJson.tree(events));
+                    return new PublicCommandResult(200, InternalJson.tree(arrival), InternalJson.tree(events));
                 }).value().data();
         return InternalJson.decode(data, IslandArrivalView.class);
     }

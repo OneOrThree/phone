@@ -5,6 +5,21 @@ beforeEach(async () => {
   await AsyncStorage.clear();
 });
 
+test('통합 안내 노출은 응답으로 세지 않고 두 버전 이력을 계정별로 보존한다', async () => {
+  await saveAccountGuides('alice', { screenTimeGuideShownVersion: 1 });
+  expect((await readAccountGuides('alice')).screenTimeGuideAcknowledgedVersion).toBeUndefined();
+  await Promise.all([
+    saveAccountGuides('alice', { screenTimeGuideAcknowledgedVersion: 2 }),
+    saveAccountGuides('alice', { screenTimeGuideShownVersion: 2 }),
+    saveAccountGuides('alice', { screenTimeGuideAcknowledgedVersion: 1 }),
+  ]);
+  expect(await readAccountGuides('alice')).toMatchObject({
+    screenTimeGuideShownVersion: 2,
+    screenTimeGuideAcknowledgedVersion: 2,
+  });
+  expect((await readAccountGuides('bob')).screenTimeGuideAcknowledgedVersion).toBeUndefined();
+});
+
 test('계정별 이력은 일반 앱 저장본 삭제·재로그인과 섬 변경에 영향받지 않는다', async () => {
   await saveAccountGuides('alice', { focusDone: true, buildings: ['mail'] });
   await AsyncStorage.removeItem('gromo-r61-user-v2');

@@ -78,6 +78,16 @@ test('계정 전환을 신규 가입으로 집계하지 않고 Core에서 미지
   ]);
 });
 
+// GROMO-2753: Core 플랜은 맞춤 이벤트가 없어 첫 항해 체험 도착을 표준 Complete Tutorial 로 보낸다.
+test('첫 섬 도착을 Complete Tutorial 표준 이벤트로 보낸다', () => {
+  const { initAirbridge, captureAirbridgeEvent } = require('./airbridge');
+  initAirbridge();
+  captureAirbridgeEvent('first_island_arrival');
+  expect(mockAirbridge.trackEvent.mock.calls).toEqual([
+    ['airbridge.completeTutorial', { action: 'first_island_arrival' }],
+  ]);
+});
+
 test('SDK 오류가 사용자 동작 및 세션 정리를 중단하지 않는다', () => {
   const {
     initAirbridge,

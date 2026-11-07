@@ -17,10 +17,10 @@ class StateTest(unittest.TestCase):
             with self.assertRaises(RuntimeError): m.read()
 
     def test_stale_generation_fails(self):
-        state={'environment':'dev-v2','project':'oneorthree2'}
+        state={'environment':'dev-v2','project':'project-cd783bdb-e03f-4e17-b74'}
         with mock.patch.object(m, 'run', return_value=SimpleNamespace(returncode=1)) as call:
             with self.assertRaises(RuntimeError): m.write(state, '123')
             self.assertIn('--if-generation-match=123', call.call_args.args[0])
 
     def test_prod_state_is_rejected(self):
-        with self.assertRaises(ValueError): m.write({'environment':'prod','project':'oneorthree2'}, '0')
+        with self.assertRaises(ValueError): m.write({'environment':'prod','project':'project-cd783bdb-e03f-4e17-b74'}, '0')

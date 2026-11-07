@@ -107,7 +107,7 @@
       "gate": {
         "title": "측정 권한",
         "heading": "사용 시간을 정확히 기록할게요",
-        "sub": "선택한 앱의 사용 시간만 기록해요.",
+        "sub": "선택한 앱의 사용 시간만 기록해요. 이 선택은 앱 차단 설정에 영향을 주지 않아요.",
         "row": "스크린타임 권한",
         "rowUnavailable": "이 기기에서는 사용할 수 없어요",
         "rowDenied": "권한이 꺼져 있어요. 다시 요청할 수 있어요",
@@ -142,11 +142,11 @@
       "screenTime": {
         "title": "스크린타임",
         "connect": "스크린타임 연결",
-        "sub": "{{description}} · 폰 사용 퀘스트와 기록에 사용해요"
+        "sub": "{{description}} · 선택한 앱의 사용 시간을 기록해요. 앱 차단 설정과는 별개예요."
       },
       "focusBlockingIntro": {
         "title": "집중 중 앱 차단",
-        "dialogue": "집중하는 동안 내가 다른 앱 사용을 막아 줄 수 있어.\n권한을 허용하고, 꼭 필요한 앱만 골라 줘!\n나중에 환경설정에서 언제든 다시 설정할 수 있어!",
+        "dialogue": "집중 중에도 쓸 ‘허용 앱’을 골라 줘.\n고르지 않은 앱은 집중하는 동안 잠겨!\n사용 시간을 기록할 ‘측정 앱’ 선택과는 별개야.",
         "allow": "권한 허용하기",
         "later": "나중에"
       },
@@ -220,7 +220,7 @@
         "loadFailed": "설치된 앱 목록을 불러오지 못했어요.",
         "loading": "앱 목록을 불러오는 중이에요.",
         "descAllowed": "선택한 앱은 집중 중에도 사용할 수 있어요. 선택하지 않으면 추가 허용 앱이 없어요.",
-        "descMeasured": "최초 선택은 바로, 기존 대상 변경은 다음 날 한국 시각 자정부터 적용해요.",
+        "descMeasured": "사용 시간을 기록할 앱을 골라 주세요. 앱 차단 설정과는 별개예요. 최초 선택은 바로, 변경은 다음 날 한국 시각 자정부터 적용해요.",
         "allApps": "전체 앱 측정",
         "search": "앱 검색",
         "select": "{{label}} 선택",
@@ -1293,7 +1293,7 @@
     "selectedCat": "{{color}} 고양이와 함께할까요?",
     "silence": "...",
     "hello": "안녕?",
-    "name": "너는 이름이 뭐야?",
+    "name": "너는 닉네임이 뭐야?",
     "greet": "그래, 반가워.\n{{name}}...",
     "resolve": "계속 이렇게\n누워 있을 순 없지.",
     "settle": "이제 머물 섬을\n찾아보려고.",
@@ -1307,10 +1307,10 @@
     "depart": "좋아, 출발!\n도착하면 알려줄게.",
     "skip": "건너뛰기",
     "next": "화면을 누르면 이야기가 이어져요",
-    "nameLabel": "이름",
-    "namePlaceholder": "이름을 알려줘",
-    "nameCta": "이 이름으로 할게요",
-    "nameEmpty": "이름을 입력해 주세요.",
+    "nameLabel": "닉네임",
+    "namePlaceholder": "닉네임을 알려줘",
+    "nameCta": "이 닉네임으로 할게요",
+    "nameEmpty": "닉네임을 입력해 주세요.",
     "scopeCta": "망원경 보기",
     "start": "집중하고 출발하기",
     "enterSea": "함께 집중하기",
@@ -1449,6 +1449,12 @@
       }
     }
   },
+  "focusBlocking": {
+    "button": "허용 앱 설정",
+    "label": "허용 앱 설정",
+    "openHint": "집중 중 허용할 앱을 설정해요",
+    "next": "다음: 앱 차단 안내"
+  },
   "verification": {
     "button": "카메라 인증",
     "switch": "카메라 인증 사용",
@@ -1511,5 +1517,17 @@
       }
     },
     "switchLabel": "AI집중측정"
+  },
+  "screenTimeSetup": {
+    "title": "폰 사용 기록과\n집중 중 앱 차단",
+    "subtitle": "스크린타임 권한 한 번으로 설정해요.",
+    "measurementTitle": "측정할 앱 고르기",
+    "measurementBody": "고른 앱의 사용 시간을 기록해요.",
+    "allowedTitle": "집중 중 허용할 앱 고르기",
+    "allowedBody": "집중할 때 꼭 필요한 앱만 골라요.\n나머지 앱은 집중 중 차단돼요.",
+    "setup": "설정하기",
+    "androidTitle": "폰 사용 기록",
+    "androidSubtitle": "사용정보 접근을 허용하고 측정할 앱을 골라요.",
+    "androidBlocking": "Android 앱 차단은 아직 준비 중이에요."
   }
 }

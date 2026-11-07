@@ -11,7 +11,7 @@ import { ApiError, request } from '@/services/api/client';
 import { arriveAtIsland, getTelescope, type TelescopeItem } from '@/services/api/telescope';
 import { initialState, reducer } from '@/services/model';
 import { act, fireEvent, render, within } from '@testing-library/react-native';
-import { AccessibilityInfo, Animated, Platform, StyleSheet } from 'react-native';
+import { AccessibilityInfo, Animated, AppState, Platform, StyleSheet } from 'react-native';
 
 jest.mock('@/screens/onboarding/useFirstVoyage', () => ({
   useFirstVoyage: () => ({ eligible: false, pending: false, scene: null }),
@@ -367,7 +367,37 @@ describe('섬 그림·이름 알약·뗏목 (GROMO-2317 v5)', () => {
     const { right, bottom } = StyleSheet.flatten(raft.props.style);
     expect(right).toBe(59 + componentTokens.telescope.raft.right);
     expect(bottom).toBe(21 + componentTokens.telescope.raft.bottom);
-    expect((raft.children[0] as any).props.source).toBe(raftTelescope[e.state.color]);
+    expect(
+      screen.getByTestId('telescope-raft-image', { includeHiddenElements: true }).props.source,
+    ).toBe(raftTelescope[e.state.color]);
+  });
+
+  test('바다 움직임(GROMO-2789) — 앱이 앞에 있으면 물빛 줄·갈매기·섬 발치 물결·뗏목 고리가 돌고, 백그라운드면 전부 멈춘다', async () => {
+    const previous = AppState.currentState;
+    (AppState as { currentState: string | null }).currentState = 'active';
+    const { screen } = await open([item('r1'), item('r2')]);
+    const hidden = { includeHiddenElements: true };
+    expect(screen.getByTestId('telescope-sea-tile-0-foam-1', hidden)).toBeTruthy();
+    expect(screen.getByTestId('telescope-sky-gull', hidden)).toBeTruthy();
+    expect(screen.getByTestId('telescope-glints', hidden)).toBeTruthy();
+    expect(screen.getByTestId('telescope-shore-r1-0', hidden)).toBeTruthy();
+    expect(screen.getByTestId('telescope-raft-ripples-0', hidden)).toBeTruthy();
+    expect(screen.queryByTestId('telescope-sky-gulls-still', hidden)).toBeNull();
+
+    (AppState as { currentState: string | null }).currentState = 'background';
+    try {
+      const paused = await open([item('r1')]);
+      const s = paused.screen;
+      expect(s.queryByTestId('telescope-sky-gull', hidden)).toBeNull();
+      expect(s.queryByTestId('telescope-glints', hidden)).toBeNull();
+      expect(s.queryByTestId('telescope-shore-r1-0', hidden)).toBeNull();
+      expect(s.queryByTestId('telescope-raft-ripples-0', hidden)).toBeNull();
+      // 멈춘 바다 = 바탕 + 첫 물빛 줄(원래 망원경 바다 그림)
+      expect(s.getByTestId('telescope-sea-tile-0-foam-0', hidden)).toHaveStyle({ opacity: 1 });
+      expect(s.getByTestId('telescope-sea-tile-0-foam-1', hidden)).toHaveStyle({ opacity: 0 });
+    } finally {
+      (AppState as { currentState: string | null }).currentState = previous;
+    }
   });
 
   test('가로 화면에서는 뗏목 고양이가 섬 띠 뒤에 깔리지 않게 빠진다', async () => {
@@ -833,6 +863,11 @@ describe('항해하기(바다 항해 집중, GROMO-2310)', () => {
       '5분 잠금(409)',
       new ApiError('SEA_REMARK_LOCKED', '잠김', 409),
       '한마디는 고친 뒤 5분 동안 바꿀 수 없어요',
+    ],
+    [
+      '금칙어(400)',
+      new ApiError('BANNED_WORD', '금칙어', 400),
+      '사용할 수 없는 표현이 포함돼 있어요.',
     ],
     [
       '그 밖 실패',

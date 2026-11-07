@@ -71,16 +71,17 @@ public final class IslandMembershipResponses {
      * @param arrivedBefore   주민이면 현 가입 이후 이미 와 본 적이 있었는가 — false 면 이번이 주민 첫 도착(「환영해요」,
      *                        GROMO-2302). 방문(비주민)이면 언제나 true
      * @param currentIslandId 도착 처리 뒤 현재 섬. 방문(비주민)이면 그대로이고 없으면 null
+     * @param firstArrivalEventId 첫 도착 사건을 이 호출이 만들었을 때만 내려가는 Meta 이벤트 ID(GROMO-2748)
      */
     public record IslandArrivalView(
             @JsonProperty(required = true) UUID islandId,
             @JsonProperty(required = true) boolean arrivedBefore,
             @JsonProperty(required = true) String membershipStatus,
             @JsonInclude(JsonInclude.Include.ALWAYS) UUID currentIslandId,
-            boolean firstIslandArrival) {
+            @JsonInclude(JsonInclude.Include.NON_NULL) UUID firstArrivalEventId) {
         public static IslandArrivalView from(IslandArrival value) {
             return new IslandArrivalView(value.islandId(), value.arrivedBefore(), value.membershipStatus(),
-                    value.currentIslandId(), Boolean.TRUE.equals(value.firstIslandArrival()));
+                    value.currentIslandId(), value.firstArrivalEventId());
         }
     }
 

@@ -14,6 +14,7 @@ export type Building = 'hall' | 'board' | 'tower' | 'mail' | 'gram' | 'shop' | '
 export type Route =
   | 'login'
   | 'character'
+  | 'webIsland'
   | 'createIsland'
   | 'joinIsland'
   | 'approval'

@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "scenarios": [
+    {
+      "id": "guest-account",
+      "name": "게스트 시작·계정 조회",
+      "runner": "smoke/server/run.sh",
+      "cases": ["SMOKE-SERVER-002", "SMOKE-SERVER-003"],
+      "apis": ["POST /auth/sessions/guest", "GET /me"],
+      "production": "계정 생성은 dev에서만 검증"
+    },
+    {
+      "id": "first-voyage",
+      "name": "첫 항해·무인도 생성·재요청·소속·홈 확인",
+      "runner": "smoke/server/first-voyage.sh",
+      "cases": ["SMOKE-SERVER-019"],
+      "apis": ["GET /me/islands", "GET /me/telescope", "POST /islands/{}/intro-arrivals", "GET /screens/home"],
+      "production": "운영 쓰기 자동 실행 제외; 별도 제한된 검사 설계 필요"
+    },
+    {
+      "id": "first-voyage-focus-reward",
+      "name": "첫 항해 사용자 집중 시작·휴식·재개·충돌·종료와 보상",
+      "runner": "smoke/server/focus-journey.sh",
+      "cases": ["SMOKE-SERVER-020"],
+      "apis": ["POST /focus-sessions", "GET /focus-sessions/current", "POST /focus-sessions/{}/pause", "POST /focus-sessions/{}/resume", "POST /focus-sessions/{}/finish", "GET /islands/{}/shop/wallets"],
+      "production": "실제 집중 및 보상 발생은 dev에서만 검증"
+    },
+    {
+      "id": "focus-reward-construction",
+      "name": "집중·보상·건설·게스트 구매 거절",
+      "runner": "smoke/server/core-flow.sh",
+      "cases": ["SMOKE-SERVER-014"],
+      "apis": ["POST /focus-sessions", "GET /focus-sessions/current", "POST /focus-sessions/{}/finish", "GET /islands/{}/shop/wallets", "GET /islands/{}/construction-options"],
+      "production": "보상·잔액·건설 변경은 dev 전용 데이터에서 검증"
+    }
+  ]
+}

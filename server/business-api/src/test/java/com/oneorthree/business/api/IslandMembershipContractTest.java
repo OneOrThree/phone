@@ -67,6 +67,23 @@ class IslandMembershipContractTest extends UpstreamTestBase {
     // ---------------------------------------------------------------- 주체
 
     @Test
+    void webIslandUsesAuthenticatedUserAndCommandKey() throws Exception {
+        String path = "POST " + INTERNAL + "/web-island";
+        DATA.on(path, request -> ok(CREATED.replace("host", "member")));
+        mockMvc.perform(write(post("/me/web-island"), ""))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.id").value(ISLAND.toString()))
+                .andExpect(jsonPath("$.data.role").value("member"));
+        var forwarded = DATA.receivedFor(path).get(0);
+        assertThat(forwarded.header("X-User-Id")).isEqualTo(USER.toString());
+        assertThat(forwarded.header("Idempotency-Key")).isEqualTo(KEY);
+        mockMvc.perform(auth(post("/me/web-island"))).andExpect(status().isBadRequest());
+        mockMvc.perform(post("/me/web-island").header("Idempotency-Key", KEY))
+                .andExpect(status().isUnauthorized());
+        assertThat(DATA.receivedFor(path)).hasSize(1);
+    }
+
+    @Test
     @DisplayName("첫 항해 도착은 명령 키를 전달하고 무인도의 실제 섬 ID를 허용한다")
     void introductoryArrivalForwardsKeyAndAllowsMaterializedIsland() throws Exception {
         String path = "POST " + INTERNAL + "/islands/" + ISLAND + "/intro-arrivals";
@@ -80,15 +97,16 @@ class IslandMembershipContractTest extends UpstreamTestBase {
         assertThat(forwarded.header("X-User-Id")).isEqualTo(USER.toString());
     }
 
-    @ParameterizedTest
-    @ValueSource(strings = {"true", "false", "null"})
-    @DisplayName("첫 항해 최초 도착 판정을 공개 응답에 전달하고 구 서버 null은 false로 본다")
-    void forwardsFirstIslandArrival(String first) throws Exception {
+    @Test
+    @DisplayName("첫 항해 도착 응답의 firstArrivalEventId 는 상류가 줄 때만 그대로 내려간다")
+    void introArrivalPassesFirstArrivalEventIdThrough() throws Exception {
         String path = "POST " + INTERNAL + "/islands/" + ISLAND + "/intro-arrivals";
-        DATA.on(path, request -> ok(INTRO_OK.replace("}", ",\"firstIslandArrival\":" + first + "}")));
+        DATA.on(path, request -> ok("{\"islandId\":\"" + OTHER + "\",\"arrivedBefore\":false,"
+                + "\"membershipStatus\":\"active\",\"currentIslandId\":\"" + OTHER + "\","
+                + "\"firstArrivalEventId\":\"" + ISLAND + "\"}"));
         mockMvc.perform(write(post("/islands/" + ISLAND + "/intro-arrivals"), ""))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.firstIslandArrival").value("true".equals(first)));
+                .andExpect(jsonPath("$.data.firstArrivalEventId").value(ISLAND.toString()));
     }
 
     private static final String EXT = "[\"i2\",\"com.oneorthree.focuscat\",\"2.3.8\",\"778\",\"17.5.1\",\"iPhone15,2\","

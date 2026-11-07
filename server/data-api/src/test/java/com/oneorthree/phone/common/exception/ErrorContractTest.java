@@ -159,7 +159,7 @@ class ErrorContractTest {
     @Test
     @DisplayName("계정 레이트리밋은 429 RATE_LIMITED 에 상대 지연(ms)과 올림한 Retry-After(초)를 싣는다")
     void rateLimitedCarriesDelayInBodyAndHeader() {
-        ResponseEntity<RetryAfterErrorResponse> response = handler.handleRateLimited(new RateLimitedException(1500L));
+        ResponseEntity<RetryAfterErrorResponse> response = handler.handleRetryAfter(new RateLimitedException(1500L));
 
         assertThat(response.getStatusCode().value()).isEqualTo(429);
         assertThat(response.getBody()).isNotNull();

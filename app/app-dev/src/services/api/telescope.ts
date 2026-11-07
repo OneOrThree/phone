@@ -20,6 +20,7 @@
  *
  * 가입의 `origin: 'telescope'` 는 `islands.ts joinIsland` 가 맡는다 — 즉시 가입이어도 현재 섬을 옮기지 않는다.
  */
+import { sharedWebIslandId, usesSharedWebIsland } from '../webIsland';
 import { ApiError, request } from './client';
 import { CLIENT_CONTRACT_ERROR } from './home';
 import { readMagazineCell, type MagazineCell } from './magazine';
@@ -61,13 +62,13 @@ export type Telescope = {
 };
 
 export type Arrival = {
-  /** 첫 항해가 계정 최초 도착일 때만 true. 구 서버 응답은 미포함. */
-  firstIslandArrival?: boolean;
   islandId: string;
   /** 주민이면 현 가입 이후 첫 도착일 때 false(GROMO-2302), 방문자는 항상 true. */
   arrivedBefore: boolean;
   membershipStatus: 'none' | 'pending' | 'active';
   currentIslandId: string | null;
+  /** 첫 항해 체험이 계정의 첫 도착을 만들었을 때만 온다 — 서버 CAPI 와 같은 Meta event_id(GROMO-2748). */
+  firstArrivalEventId?: string;
 };
 
 /** 망원경에 넣은 곳 — 전망대(검색·랭킹)는 `observatory`, 잡지는 `magazine`(E4-5). */
@@ -135,7 +136,9 @@ function validateTelescope(raw: unknown): Telescope {
 }
 
 export async function getTelescope(): Promise<Telescope> {
-  return validateTelescope(await request<unknown>('/me/telescope'));
+  const result = validateTelescope(await request<unknown>('/me/telescope'));
+  if (!usesSharedWebIsland()) return result;
+  return { ...result, items: result.items.filter((item) => item.islandId === sharedWebIslandId()) };
 }
 
 /**

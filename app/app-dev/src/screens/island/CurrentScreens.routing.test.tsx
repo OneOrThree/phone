@@ -669,7 +669,7 @@ test('카메라 기능 안내는 튜토리얼 도착에서는 숨기고 체험 �
   await waitFor(() => expect(regular.getByTestId('verification-intro')).toBeTruthy());
 });
 
-test('집중 화면으로 복원해도 안내를 안 본 계정에는 자동 안내하고 닫은 이력을 로컬에 기억한다', async () => {
+test('집중 화면으로 복원하면 안내를 자동 표시하지 않고 수동 AI 안내만 열 수 있다', async () => {
   const userId = 'verification-restore-unseen';
   await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId });
   const state = serverFocusState();
@@ -678,7 +678,9 @@ test('집중 화면으로 복원해도 안내를 안 본 계정에는 자동 안
   const dispatch = jest.fn();
   const now = Date.now();
   const first = await mount('focus', state, { guideStep: 99, dispatch, now });
-  await waitFor(() => expect(first.getByTestId('verification-intro')).toBeTruthy());
+  await waitFor(() => expect(first.getByRole('button', { name: '카메라 인증' })).toBeEnabled());
+  expect(first.queryByTestId('verification-intro')).toBeNull();
+  await fireEvent.press(first.getByRole('switch', { name: '카메라 인증 사용' }));
   expect(first.getByText('00:02:03')).toBeTruthy();
   dispatch.mockClear();
   await fireEvent.press(first.getByRole('button', { name: '닫기' }));
@@ -703,12 +705,24 @@ test('입장 안내를 본 로컬 기록이 있으면 집중 화면에서도 안
   expect(screen.queryByTestId('verification-intro')).toBeNull();
 });
 
-test('첫 집중 체험이 끝나지 않았으면 집중 화면에서도 카메라 안내를 자동 표시하지 않는다', async () => {
+// 예전에는 체험 완료 기록(focusGuideDone)이 없으면 막았지만, 그 기록은 기기에만 남아 재설치·새 기기에서
+// 사라진다. 이제는 진행 중인 튜토리얼로 가른다 — 4단계는 집중 화면에서도 카메라 버튼이 보이는 단계다.
+test('튜토리얼이 진행 중이면 집중 화면에서도 카메라 안내를 자동 표시하지 않는다', async () => {
   const state = serverFocusState();
-  state.focusGuideDone = false;
-  const screen = await mount('focus', state, { guideStep: 99 });
+  state.tutorial = { step: 4 };
+  const screen = await mount('focus', state, { guideStep: 4 });
   await waitFor(() => expect(screen.getByRole('button', { name: '카메라 인증' })).toBeEnabled());
   expect(screen.queryByTestId('verification-intro')).toBeNull();
+});
+
+test('재설치·새 기기로 들어온 기존 계정은 완료 기록이 없어도 집중섬 도착에서 카메라 안내를 본다', async () => {
+  const state = serverFocusState();
+  state.session = null;
+  state.tutorialEnrollment = 'existing';
+  expect(state.tutorial).toBeUndefined();
+  expect(state.focusGuideDone).toBeUndefined();
+  const screen = await mount('fishingArrival', state);
+  await waitFor(() => expect(screen.getByTestId('verification-intro')).toBeTruthy());
 });
 
 test('과목·집중시간은 지도 안에 붙고 미리보기 토글은 지도 좌표를 바꾸지 않는다', async () => {

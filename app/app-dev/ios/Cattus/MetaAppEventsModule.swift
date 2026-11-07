@@ -66,6 +66,26 @@ final class MetaAppEventsModule: NSObject {
     resolve(context)
   }
 
+  /// 서버가 내려 준 이벤트 ID로 맞춤 앱 이벤트를 한 번 기록한다(GROMO-2749). 서버 CAPI 와 event_id·이름이 같아
+  /// Meta 가 하나로 합치고, 기기 SDK 기록이라 SKAN 전환값·AEM 대상이 된다. SDK 시작 전·개발 빌드는 false.
+  @objc(logEvent:eventId:resolver:rejecter:)
+  func logEvent(
+    _ name: String,
+    eventId: String,
+    resolver resolve: @escaping RCTPromiseResolveBlock,
+    rejecter reject: @escaping RCTPromiseRejectBlock
+  ) {
+    guard started, !Self.isDevelopmentBuild else {
+      resolve(false)
+      return
+    }
+    AppEvents.shared.logEvent(
+      AppEvents.Name(rawValue: name),
+      parameters: [AppEvents.ParameterName(rawValue: "event_id"): eventId]
+    )
+    resolve(true)
+  }
+
   private func configure(_ status: ATTrackingManager.AuthorizationStatus) {
     let granted = status == .authorized
     Settings.shared.isAdvertiserTrackingEnabled = granted

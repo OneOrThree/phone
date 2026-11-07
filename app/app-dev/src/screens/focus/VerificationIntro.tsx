@@ -1,6 +1,7 @@
+import { useRef, useState } from 'react';
 import { Modal, StyleSheet, View } from 'react-native';
 import Svg, { Circle, Path, Rect } from 'react-native-svg';
-import { NavBtn, Overlay } from '@/design-system/patterns';
+import { Btn, NavBtn, Overlay } from '@/design-system/patterns';
 import { Text } from '@/design-system/typography';
 import { useScreenInsets } from '@/design-system/primitives';
 import {
@@ -16,11 +17,19 @@ export type VerificationControlAnchor = { x: number; y: number; width: number; h
 /** 안내를 보는 것만으로 촬영하거나 카메라 권한을 요청하지 않는다. */
 export function VerificationIntro({
   onClose,
+  onNext,
   anchor,
 }: {
   onClose: () => void;
+  onNext?: () => void;
   anchor?: VerificationControlAnchor;
 }) {
+  const cardRef = useRef<View>(null);
+  const [cardTop, setCardTop] = useState<number>();
+  const showSpotlight =
+    anchor &&
+    cardTop !== undefined &&
+    anchor.y + anchor.height + ui.arrowHeight + s.spacing.page < cardTop;
   const insets = useScreenInsets();
   const font = { fontFamily: useGowun() };
   return (
@@ -35,7 +44,13 @@ export function VerificationIntro({
           boxShadow: c.modal.shadow,
         }}
       >
-        <View accessibilityViewIsModal testID="verification-intro">
+        <View
+          ref={cardRef}
+          collapsable={false}
+          onLayout={() => cardRef.current?.measureInWindow((_x, y) => setCardTop(y))}
+          accessibilityViewIsModal
+          testID="verification-intro"
+        >
           <NavBtn close label={t('common.close')} onPress={onClose} style={styles.close} />
           <Text accessibilityRole="header" style={[styles.title, font]}>
             {t('verification.intro.title')}
@@ -110,90 +125,105 @@ export function VerificationIntro({
               <Circle cx="10" cy="15" r="1.5" fill={p.color.ink} />
               <Path d="M10 16v2" stroke={p.color.ink} strokeWidth="1.6" />
             </Svg>
-            <Text style={[styles.privacyText, font]} numberOfLines={1} adjustsFontSizeToFit>
-              {t('verification.intro.privacy')}
-            </Text>
+            <Text style={[styles.privacyText, font]}>{t('verification.intro.privacy')}</Text>
           </View>
+          {onNext && (
+            <View style={{ alignItems: 'flex-end', marginTop: s.spacing.component }}>
+              <Btn
+                title=">"
+                accessibilityLabel={t('focusBlocking.next')}
+                style={{ width: c.button.height }}
+                onPress={onNext}
+              />
+            </View>
+          )}
         </View>
       </Overlay>
-      <View
-        pointerEvents="none"
-        accessible={false}
-        style={[
-          styles.spotlight,
-          anchor
-            ? { left: anchor.x, top: anchor.y, width: anchor.width, height: anchor.height }
-            : { top: insets.top + s.spacing.control, right: insets.right + s.spacing.page },
-        ]}
-      >
-        <Svg
-          width={c.verificationSetup.buttonSize}
-          height={c.verificationSetup.buttonSize}
-          viewBox="0 0 46 44"
-          fill="none"
-        >
-          <Rect
-            x="1"
-            y="8"
-            width="44"
-            height="28"
-            rx="14"
-            fill={p.color.pink}
-            stroke={p.color.brown}
-          />
-          <Circle cx="32" cy="22" r="10" fill={p.color.paper} />
-        </Svg>
-        <Svg
-          width={c.verificationSetup.buttonSize}
-          height={c.verificationSetup.buttonSize}
-          viewBox="-10 -10 44 44"
-          fill="none"
-        >
-          <Path
-            d="M4 8h3l2-3h6l2 3h3v11H4z"
-            stroke={p.color.ink}
-            strokeWidth="2"
-            strokeLinejoin="round"
-          />
-          <Circle cx="12" cy="13" r="3.5" stroke={p.color.ink} strokeWidth="2" />
-        </Svg>
-      </View>
-      <Svg
-        pointerEvents="none"
-        accessible={false}
-        width={ui.arrowWidth}
-        height={ui.arrowHeight}
-        viewBox="0 0 42 54"
-        style={{
-          position: 'absolute',
-          ...(anchor
-            ? {
-                left: anchor.x + anchor.width / 2 - ui.arrowWidth / 2,
-                top: anchor.y + anchor.height + s.spacing.page,
-              }
-            : {
-                right: insets.right + s.spacing.page + p.space[4],
-                top:
-                  insets.top + s.spacing.control + c.verificationSetup.buttonSize + s.spacing.page,
-              }),
-        }}
-      >
-        <Path
-          d="M26 3C28 25 10 22 10 47"
-          stroke={p.color.paper}
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeDasharray="3 5"
-          fill="none"
-        />
-        <Path
-          d="m5 41 5 7 5-7"
-          stroke={p.color.paper}
-          strokeWidth="2"
-          strokeLinecap="round"
-          fill="none"
-        />
-      </Svg>
+      {showSpotlight && (
+        <>
+          <View
+            pointerEvents="none"
+            accessible={false}
+            style={[
+              styles.spotlight,
+              anchor
+                ? { left: anchor.x, top: anchor.y, width: anchor.width, height: anchor.height }
+                : { top: insets.top + s.spacing.control, right: insets.right + s.spacing.page },
+            ]}
+          >
+            <Svg
+              width={c.verificationSetup.buttonSize}
+              height={c.verificationSetup.buttonSize}
+              viewBox="0 0 46 44"
+              fill="none"
+            >
+              <Rect
+                x="1"
+                y="8"
+                width="44"
+                height="28"
+                rx="14"
+                fill={p.color.pink}
+                stroke={p.color.brown}
+              />
+              <Circle cx="32" cy="22" r="10" fill={p.color.paper} />
+            </Svg>
+            <Svg
+              width={c.verificationSetup.buttonSize}
+              height={c.verificationSetup.buttonSize}
+              viewBox="-10 -10 44 44"
+              fill="none"
+            >
+              <Path
+                d="M4 8h3l2-3h6l2 3h3v11H4z"
+                stroke={p.color.ink}
+                strokeWidth="2"
+                strokeLinejoin="round"
+              />
+              <Circle cx="12" cy="13" r="3.5" stroke={p.color.ink} strokeWidth="2" />
+            </Svg>
+          </View>
+          <Svg
+            pointerEvents="none"
+            accessible={false}
+            width={ui.arrowWidth}
+            height={ui.arrowHeight}
+            viewBox="0 0 42 54"
+            style={{
+              position: 'absolute',
+              ...(anchor
+                ? {
+                    left: anchor.x + anchor.width / 2 - ui.arrowWidth / 2,
+                    top: anchor.y + anchor.height + s.spacing.page,
+                  }
+                : {
+                    right: insets.right + s.spacing.page + p.space[4],
+                    top:
+                      insets.top +
+                      s.spacing.control +
+                      c.verificationSetup.buttonSize +
+                      s.spacing.page,
+                  }),
+            }}
+          >
+            <Path
+              d="M26 3C28 25 10 22 10 47"
+              stroke={p.color.paper}
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeDasharray="3 5"
+              fill="none"
+            />
+            <Path
+              d="m5 41 5 7 5-7"
+              stroke={p.color.paper}
+              strokeWidth="2"
+              strokeLinecap="round"
+              fill="none"
+            />
+          </Svg>
+        </>
+      )}
     </Modal>
   );
 }

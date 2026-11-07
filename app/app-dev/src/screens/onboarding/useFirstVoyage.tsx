@@ -1,3 +1,4 @@
+import { usesSharedWebIsland } from '@/services/webIsland';
 import { errorTextOr } from '@/i18n';
 import type { ScreenEnvironment } from '@/navigation/ScreenEnvironment';
 import { ApiError } from '@/services/api/client';
@@ -37,7 +38,7 @@ export function useFirstVoyage(e: ScreenEnvironment, preview = false) {
     setError('');
     setUnavailable(false);
     lock.current = null;
-    if (e.focusBlockingIntroPreview) setEligible(false);
+    if (usesSharedWebIsland() || e.focusBlockingIntroPreview) setEligible(false);
     else if (preview) setEligible(true);
     else
       readFirstVoyage(owner)

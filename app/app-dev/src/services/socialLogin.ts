@@ -3,6 +3,7 @@ import type { Provider } from '@/services/api/auth';
 import { ApiError } from '@/services/api/client';
 import { t } from '@/i18n';
 import googleClientIds from '@/config/googleClientIds.json';
+import { isPublicWebDemo } from './demoMode';
 
 const UNAVAILABLE = 'CLIENT_PROVIDER_UNAVAILABLE';
 // GROMO-2215 — 구글 로그인을 2.0 전용 프로젝트(263851348176)로 옮겼다. 구 프로젝트(899365616896)는
@@ -40,7 +41,18 @@ export async function socialCredential(
   provider: Provider,
   loaders: SocialModuleLoaders = defaultLoaders,
 ): Promise<string> {
-  if (Platform.OS === 'web') unavailable(t('login.error.webUnavailable'));
+  if (Platform.OS === 'web') {
+    if (
+      provider === 'google' &&
+      isPublicWebDemo() &&
+      process.env.EXPO_PUBLIC_WEB_GOOGLE_LOGIN_ENABLED === '1'
+    ) {
+      const { openGoogleWebLogin } =
+        require('./webGoogleLogin') as typeof import('./webGoogleLogin');
+      return openGoogleWebLogin();
+    }
+    unavailable(t('login.error.webUnavailable'));
+  }
 
   switch (provider) {
     case 'kakao': {

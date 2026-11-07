@@ -63,7 +63,7 @@ PublicIslandSummary의 공통 표시 필드에 `role:host|member`, `buildings:Bu
 
 입력 `{name,intro?,approvalRequired,maxMembers?}`(`maxMembers` 1~15, 미입력 15). 성공201 `{data:{id,membershipStatus:"active",role:"host",currentIslandId}}`.
 
-새 groups 행 + 생성자의 OWNER membership + 초기 current context + 승인방식/빈 섬 기본 projection을 하나의 Data 명령으로 만든다. 생성자의 활성 계정/소속 상한을 검사한다. 원본대로 현재 섬을 새 섬으로 설정하므로 **기존 active/paused 세션이 있으면 생성으로 이동 가드를 우회하지 못하게409**. 첫 소속이면 출발 전망대 조건은 없다. 기존 섬에서 새 섬으로 바로 이동할 때의 출발 시설 조건은 switch와 같은 공통 guard를 적용한다. 생성만 하고 이동하지 않는 별도 동작을 임의 추가하지 않는다.
+새 groups 행 + 생성자의 OWNER membership + 초기 current context + 승인방식/빈 섬 기본 projection을 하나의 Data 명령으로 만든다. 0원 공동 지갑·빈 건설 상태와 함께 **마을회관을 완공(`COMPLETED`) 상태로 심는다** — 항해 정착(GROMO-2650)과 같은 시드이고 완공 안내 recipient 는 만들지 않는다(티켓 2763). 그 전에 이 경로로 생긴 회관 없는 섬의 정리는 [마을회관 없는 섬 정리 런북](hall-less-island-cleanup.md). 생성자의 활성 계정/소속 상한을 검사한다. 원본대로 현재 섬을 새 섬으로 설정하므로 **기존 active/paused 세션이 있으면 생성으로 이동 가드를 우회하지 못하게409**. 첫 소속이면 출발 전망대 조건은 없다. 기존 섬에서 새 섬으로 바로 이동할 때의 출발 시설 조건은 switch와 같은 공통 guard를 적용한다. 생성만 하고 이동하지 않는 별도 동작을 임의 추가하지 않는다.
 
 정원 1~15명, 생성 시 방장 입력(미입력 15) · 계정당 소속 상한 3(`IslandInputPolicy.MAX_JOINED_ISLANDS`, ticket 2260)이다. ~~기본 정원 10/최대 소속 10은 기존 제한 유지안이다.~~ 공개 여부 수정 UI가 없다는 원본과 기존 create 기본 공개를 따라 신규 create는 공개 섬으로 시작하는 출발안이며 승계/공개 정책 변경은 별도 명시한다. 초기 건설비·보상값은 여기서 정하지 않는다. 성공 시 island.updated와 island.members.updated를 outbox에 저장하고 조회/재시도에는 새 사건을 만들지 않는다.
 

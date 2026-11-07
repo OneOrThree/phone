@@ -38,7 +38,15 @@ jest.mock('@/services/screenTime', () => {
   const actual = jest.requireActual('@/services/screenTime');
   return {
     ...actual,
-    screenTime: { ...actual.screenTime, getAuthorizationStatus: jest.fn() },
+    screenTime: {
+      ...actual.screenTime,
+      getAuthorizationStatus: jest.fn(),
+      getAllowedSelectionCounts: jest.fn(async () => ({
+        applications: 0,
+        categories: 0,
+        webDomains: 0,
+      })),
+    },
   };
 });
 jest.mock('react-native-safe-area-context', () => ({

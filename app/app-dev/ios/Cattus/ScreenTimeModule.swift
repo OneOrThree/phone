@@ -8,7 +8,7 @@ import React
 import SwiftUI
 import UIKit
 
-private let appGroupID = "group.com.oneorthree.focuscat"
+private let appGroupID = "group.com.oneorthree.gromo"
 private let authorizationWasApprovedKey = "gromo:screentime:authorizationWasApproved"
 
 @objc(ScreenTimeModule)
@@ -130,6 +130,7 @@ final class ScreenTimeModule: NSObject {
                 return
             }
             let defaults = UserDefaults(suiteName: appGroupID)
+            let owner = defaults?.string(forKey: "gromo:screentime:owner")
             let activeSelection = defaults?.data(forKey: "gromo:goal:selection").flatMap {
                 try? JSONDecoder().decode(FamilyActivitySelection.self, from: $0)
             }
@@ -147,6 +148,10 @@ final class ScreenTimeModule: NSObject {
                 maxWebDomains: nil,
                 allowsEmpty: false,
                 onDone: { selection in
+                    guard defaults?.string(forKey: "gromo:screentime:owner") == owner else {
+                        top.dismiss(animated: true) { resolve(nil) }
+                        return
+                    }
                     guard !Self.isEmpty(selection) else { return }
                     if let data = try? JSONEncoder().encode(selection) {
                         // 적용일을 먼저 저장하고 pending을 마지막에 공개해 확장이 중간 상태를 읽지 않게 한다.
@@ -541,6 +546,7 @@ final class ScreenTimeModule: NSObject {
                 return
             }
             let defaults = UserDefaults(suiteName: appGroupID)
+            let owner = defaults?.string(forKey: "gromo:screentime:owner")
             var initial = FamilyActivitySelection(includeEntireCategory: true)
             if let data = defaults?.data(forKey: "gromo:focus:allowedSelection"),
                let saved = try? JSONDecoder().decode(FamilyActivitySelection.self, from: data) {
@@ -548,6 +554,14 @@ final class ScreenTimeModule: NSObject {
                 initial.webDomainTokens = saved.webDomainTokens
             }
             let manager = GromoAllowedAppManager(initialSelection: initial) { selection in
+                guard defaults?.string(forKey: "gromo:screentime:owner") == owner else {
+                    top.dismiss(animated: true) { resolve(nil) }
+                    return
+                }
+                guard let selection else {
+                    top.dismiss(animated: true) { resolve(nil) }
+                    return
+                }
                 if let data = try? JSONEncoder().encode(selection) {
                     defaults?.set(data, forKey: "gromo:focus:allowedSelection")
                 }
@@ -619,7 +633,9 @@ final class ScreenTimeModule: NSObject {
         rejecter _: @escaping RCTPromiseRejectBlock
     ) {
         guard #available(iOS 16.0, *),
-              Self.isAuthorized else {
+              Self.isAuthorized,
+              let data = UserDefaults(suiteName: appGroupID)?.data(forKey: "gromo:focus:allowedSelection"),
+              (try? JSONDecoder().decode(FamilyActivitySelection.self, from: data)) != nil else {
             ManagedSettingsStore(named: .init("gromoFocus")).clearAllSettings()
             UserDefaults(suiteName: appGroupID)?.set(false, forKey: "gromo:focus:shieldActive")
             resolve(false)
@@ -644,14 +660,16 @@ final class ScreenTimeModule: NSObject {
     }
 
     private func applyFocusShield(_ defaults: UserDefaults?) {
-        var apps = Set<ApplicationToken>()
-        var domains = Set<WebDomainToken>()
-        if let data = defaults?.data(forKey: "gromo:focus:allowedSelection"),
-           let selection = try? JSONDecoder().decode(FamilyActivitySelection.self, from: data) {
-            apps = selection.applicationTokens
-            domains = selection.webDomainTokens
-        }
         let store = ManagedSettingsStore(named: .init("gromoFocus"))
+        // 측정용 권한만 허용한 사용자는 차단을 시작하지 않는다. 빈 허용 목록 저장과 미설정을 구분한다.
+        guard let data = defaults?.data(forKey: "gromo:focus:allowedSelection"),
+              let selection = try? JSONDecoder().decode(FamilyActivitySelection.self, from: data) else {
+            store.clearAllSettings()
+            defaults?.set(false, forKey: "gromo:focus:shieldActive")
+            return
+        }
+        let apps = selection.applicationTokens
+        let domains = selection.webDomainTokens
         store.shield.applicationCategories = .all(except: apps)
         if defaults?.bool(forKey: "gromo:focus:allowSafariWeb") == true {
             store.shield.webDomainCategories = nil
@@ -674,6 +692,20 @@ final class ScreenTimeModule: NSObject {
         }
         UserDefaults(suiteName: appGroupID)?.set(false, forKey: "gromo:focus:shieldActive")
         resolve(nil)
+    }
+
+    @objc func isFocusShieldActive(
+        _ resolve: @escaping RCTPromiseResolveBlock,
+        rejecter _: @escaping RCTPromiseRejectBlock
+    ) {
+        guard #available(iOS 16.0, *), Self.isAuthorized else {
+            resolve(false)
+            return
+        }
+        let defaults = UserDefaults(suiteName: appGroupID)
+        let store = ManagedSettingsStore(named: .init("gromoFocus"))
+        resolve(defaults?.bool(forKey: "gromo:focus:shieldActive") == true
+            && store.shield.applicationCategories != nil)
     }
 
     private static func isEmpty(_ selection: FamilyActivitySelection) -> Bool {
@@ -841,11 +873,11 @@ private struct GromoActivityPicker: View {
 private struct GromoAllowedAppManager: View {
     @State private var selection: FamilyActivitySelection
     @State private var showPicker = false
-    private let onClose: (FamilyActivitySelection) -> Void
+    private let onClose: (FamilyActivitySelection?) -> Void
 
     init(
         initialSelection: FamilyActivitySelection,
-        onClose: @escaping (FamilyActivitySelection) -> Void
+        onClose: @escaping (FamilyActivitySelection?) -> Void
     ) {
         _selection = State(initialValue: initialSelection)
         self.onClose = onClose
@@ -870,10 +902,13 @@ private struct GromoAllowedAppManager: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("완료") { onClose(selection) }
+                    Button("취소") { onClose(nil) }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button { showPicker = true } label: { Image(systemName: "plus") }
+                    Button("저장") { onClose(selection) }
+                }
+                ToolbarItem(placement: .bottomBar) {
+                    Button("허용 앱 추가·삭제") { showPicker = true }
                 }
             }
             .sheet(isPresented: $showPicker) {

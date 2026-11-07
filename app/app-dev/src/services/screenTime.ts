@@ -61,6 +61,7 @@ export const screenTime = {
     nativeModule?.startFocusShield?.(subjectName) ??
     Promise.resolve(false),
   stopFocusShield: () => nativeModule?.stopFocusShield?.() ?? Promise.resolve(),
+  isFocusShieldActive: () => nativeModule?.isFocusShieldActive?.() ?? Promise.resolve(false),
 };
 
 export const selectionCount = (selection: ScreenTimeSelection | null) =>

@@ -54,7 +54,7 @@ def validate(payload):
     envs = payload.get('envs', {})
     if set(images) != set(SERVICES) or set(envs) != set(SERVICES): raise ValueError('네 서비스 설정이 필요합니다')
     for name in SERVICES:
-        pattern = rf'asia-northeast3-docker\.pkg\.dev/oneorthree2/{name}/{name}@sha256:[0-9a-f]{{64}}'
+        pattern = rf'asia-northeast3-docker\.pkg\.dev/project-cd783bdb-e03f-4e17-b74/{name}/{name}@sha256:[0-9a-f]{{64}}'
         if not re.fullmatch(pattern, images[name]): raise ValueError('이미지 digest 오류')
         if not isinstance(envs[name], str) or len(envs[name]) > 100000 or '\x00' in envs[name]: raise ValueError('서비스 env 오류')
     ip = ipaddress.ip_address(payload.get('redis_ip', ''))

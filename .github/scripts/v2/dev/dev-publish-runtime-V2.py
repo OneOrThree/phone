@@ -10,7 +10,7 @@ import tarfile
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[4]
-BUCKET = 'gs://catus-dev-v2-deploy-263851348176'
+BUCKET = 'gs://catus-dev-v2-deploy-201721380114'
 
 
 def publish(role):
@@ -46,7 +46,7 @@ def publish(role):
         digest = hashlib.sha256(archive.read_bytes()).hexdigest()
         release = f'{revision}-{run}-{attempt}'
         uri = f'{BUCKET}/releases/{role}/{release}'
-        body = {'environment':'dev-v2','project':'oneorthree2','role':role,'revision':revision,
+        body = {'environment':'dev-v2','project':'project-cd783bdb-e03f-4e17-b74','role':role,'revision':revision,
                 'release_id':release,'archive_sha256':digest,'files':hashes,'archive_uri':uri+'/runtime.tar'}
         manifest.write_text(json.dumps(body, sort_keys=True)+'\n')
         for file, name in ((archive, 'runtime.tar'), (manifest, 'manifest.json')):

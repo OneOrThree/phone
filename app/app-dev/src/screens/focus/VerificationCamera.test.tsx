@@ -1,4 +1,6 @@
 import { act, render } from '@testing-library/react-native';
+import { Platform } from 'react-native';
+import { Asset } from 'expo-asset';
 import { useCamera, useFrameOutput, type Frame } from 'react-native-vision-camera';
 import { useResizer } from 'react-native-vision-camera-resizer';
 import { useTensorflowModel } from 'react-native-fast-tflite';
@@ -11,6 +13,7 @@ import { PREVIEW_SAMPLE_MS, PREVIEW_STALE_MS, VerificationCamera } from './Verif
 
 jest.mock('../../assets/ml/palm_detection_lite.tflite', () => 1);
 jest.mock('../../assets/ml/efficientdet_lite0_int8.tflite', () => 2);
+jest.mock('expo-asset', () => ({ Asset: { fromModule: jest.fn() } }));
 jest.mock('react-native-vision-camera', () => ({
   useCamera: jest.fn(),
   usePreviewOutput: jest.fn(() => ({})),
@@ -26,7 +29,7 @@ const runSync = jest.fn();
 const objectRunSync = jest.fn();
 const objectDispose = jest.fn();
 const objectResized = {
-  getPixelBuffer: jest.fn(() => new Uint8Array([255, 0, 127]).buffer),
+  getPixelBuffer: jest.fn(() => new Uint8Array(320 * 320 * 3).buffer),
   dispose: objectDispose,
 };
 const objectResize = jest.fn(() => objectResized);
@@ -44,6 +47,7 @@ beforeEach(() => {
   resized.getPixelBuffer.mockImplementation(() => new Uint8Array([255, 0, 127]).buffer);
   resize.mockImplementation(() => resized);
   objectResize.mockImplementation(() => objectResized);
+  objectResized.getPixelBuffer.mockImplementation(() => new Uint8Array(320 * 320 * 3).buffer);
   const objectScores = new Float32Array(180);
   objectScores[83] = 0.9;
   objectRunSync.mockImplementation(() => [objectScores.buffer, new Float32Array(8).buffer]);
@@ -114,6 +118,43 @@ test('측정 OFF에서는 미리보기 출력만 연결하고 모델·리사이�
   const error = new Error('preview unavailable');
   await act(async () => jest.mocked(useCamera).mock.calls.at(-1)![0].onError!(error));
   expect(screen.onError).toHaveBeenCalledWith(error);
+});
+
+test('iOS 는 번들 require 값을 그대로 모델에 넘기고 expo-asset 을 거치지 않는다', async () => {
+  await setup();
+  expect(jest.mocked(useTensorflowModel).mock.calls.map(([source]) => source)).toEqual(
+    expect.arrayContaining([1, 2]),
+  );
+  expect(Asset.fromModule).not.toHaveBeenCalled();
+});
+
+test('Android 는 expo-asset 이 복사한 file:// 경로로 두 모델을 불러온다(릴리스 raw 리소스 이름은 못 읽는다)', async () => {
+  const originalOS = Platform.OS;
+  Platform.OS = 'android';
+  try {
+    jest.mocked(Asset.fromModule).mockImplementation(
+      (module) =>
+        ({
+          downloadAsync: async () => ({
+            localUri: `file:///data/user/0/com.oneorthree.gromo/cache/ExponentAsset-${String(module)}.tflite`,
+          }),
+        }) as unknown as Asset,
+    );
+    const screen = await setup();
+    expect(Asset.fromModule).toHaveBeenCalledWith(1);
+    expect(Asset.fromModule).toHaveBeenCalledWith(2);
+    const sources = jest.mocked(useTensorflowModel).mock.calls.map(([source]) => source);
+    expect(sources).toEqual(
+      expect.arrayContaining([
+        { url: 'file:///data/user/0/com.oneorthree.gromo/cache/ExponentAsset-1.tflite' },
+        { url: 'file:///data/user/0/com.oneorthree.gromo/cache/ExponentAsset-2.tflite' },
+      ]),
+    );
+    expect(sources.filter((source) => typeof source === 'number')).toEqual([]);
+    expect(screen.getByTestId('native-camera')).toBeTruthy();
+  } finally {
+    Platform.OS = originalOS;
+  }
 });
 
 test('측정과 미리보기가 모두 OFF이면 카메라도 구성하지 않는다', async () => {
@@ -458,12 +499,10 @@ test('손과 물체가 각각 2장이어도 같은 장에서 함께 보인 것�
   const none = new Float32Array(180);
   const book = new Float32Array(180);
   book[83] = 0.9;
-  objectRunSync
-    .mockReturnValueOnce([none.buffer])
-    .mockReturnValueOnce([book.buffer])
-    .mockReturnValueOnce([book.buffer]);
   const screen = await setup(false, 'periodic');
+  objectRunSync.mockReturnValue([none.buffer]);
   await sample(4);
+  objectRunSync.mockReturnValue([book.buffer]);
   await sample(4);
   await sample(-4);
   expect(screen.onDetection).toHaveBeenLastCalledWith('missingObject');
@@ -525,4 +564,26 @@ test('정기 촬영이 중단돼도 5초 제한으로 카메라를 쉬고 다음
   await sample(4);
   await sample(4);
   expect(screen.onDetection).toHaveBeenLastCalledWith('focused');
+});
+
+test('옆으로 놓인 책은 같은 프레임을 회전해 재검사하고 성공한 방향은 다음 장에 재사용한다', async () => {
+  const input = new Uint8Array(320 * 320 * 3);
+  input[0] = 255;
+  objectResized.getPixelBuffer.mockReturnValue(input.buffer);
+  objectRunSync.mockImplementation(([buffer]: ArrayBuffer[]) => {
+    const pixels = new Uint8Array(buffer!);
+    const scores = new Float32Array(180);
+    scores[83] = pixels[(320 - 1) * 3] === 255 ? 0.8 : 0.1;
+    return [scores.buffer, new Float32Array(8).buffer];
+  });
+  const screen = await setup(false, 'periodic');
+  await sample(4);
+  await sample(4);
+  await sample(4);
+  expect(screen.onDetection).toHaveBeenLastCalledWith('focused');
+  expect(objectRunSync).toHaveBeenCalledTimes(4);
+  expect(objectDispose).toHaveBeenCalledTimes(3);
+  await act(async () => jest.advanceTimersByTime(10_000));
+  expect(objectRunSync).toHaveBeenCalledTimes(4);
+  expect(jest.mocked(useCamera).mock.calls.at(-1)![0].isActive).toBe(false);
 });

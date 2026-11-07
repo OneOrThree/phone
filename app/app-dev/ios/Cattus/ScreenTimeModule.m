@@ -53,4 +53,7 @@ RCT_EXTERN_METHOD(startFocusShield:(NSString *)subjectName
 RCT_EXTERN_METHOD(stopFocusShield:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 
+RCT_EXTERN_METHOD(isFocusShieldActive:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+
 @end

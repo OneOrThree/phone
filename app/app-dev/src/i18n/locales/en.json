@@ -107,7 +107,7 @@
       "gate": {
         "title": "Measurement permission",
         "heading": "We'll record your usage accurately",
-        "sub": "Only the apps you select are recorded.",
+        "sub": "Only usage time for your selected apps is recorded. This selection does not affect app blocking.",
         "row": "Screen Time permission",
         "rowUnavailable": "Not available on this device",
         "rowDenied": "Permission is off. You can request it again.",
@@ -142,11 +142,11 @@
       "screenTime": {
         "title": "Screen Time",
         "connect": "Connect Screen Time",
-        "sub": "{{description}} · Used for phone-use quests and records"
+        "sub": "{{description}} · Records usage time for selected apps. App blocking is configured separately."
       },
       "focusBlockingIntro": {
         "title": "Block apps during focus",
-        "dialogue": "I can block other apps while you focus.\nAllow access, then pick only the apps you really need!\nYou can always set this up later in Settings!",
+        "dialogue": "Choose the apps you want to keep using during focus.\nApps you leave out will be blocked while you focus!\nThis is separate from choosing apps for usage tracking.",
         "allow": "Allow access",
         "later": "Not now"
       },
@@ -220,7 +220,7 @@
         "loadFailed": "Couldn't load the installed apps.",
         "loading": "Loading apps…",
         "descAllowed": "Selected apps stay usable during focus. If you select none, no extra apps are allowed.",
-        "descMeasured": "Your first selection applies right away. Changes to existing apps apply from midnight KST the next day.",
+        "descMeasured": "Choose apps to track usage time. App blocking is configured separately. Your first selection applies immediately; changes apply at the next midnight in Korea.",
         "allApps": "Measure all apps",
         "search": "Search apps",
         "select": "Select {{label}}",
@@ -1326,7 +1326,7 @@
     "selectedCat": "Shall we go with the {{color}} cat?",
     "silence": "...",
     "hello": "Hi?",
-    "name": "What’s your name?",
+    "name": "What’s your nickname?",
     "greet": "Nice to meet you,\n{{name}}...",
     "resolve": "I can’t keep lying\nhere like this.",
     "settle": "I think I’ll find\nan island to call home.",
@@ -1340,10 +1340,10 @@
     "depart": "All right, let’s go!\nI’ll tell you when we arrive.",
     "skip": "Skip",
     "next": "Tap to continue the story",
-    "nameLabel": "Name",
-    "namePlaceholder": "Tell me your name",
-    "nameCta": "That’s my name",
-    "nameEmpty": "Please enter your name.",
+    "nameLabel": "Nickname",
+    "namePlaceholder": "Tell me your nickname",
+    "nameCta": "That’s my nickname",
+    "nameEmpty": "Please enter a nickname.",
     "scopeCta": "Look through the telescope",
     "start": "Focus and set sail",
     "enterSea": "Focus together",
@@ -1482,6 +1482,12 @@
       }
     }
   },
+  "focusBlocking": {
+    "button": "Allowed apps settings",
+    "label": "Allowed apps",
+    "openHint": "Choose apps you can use during focus",
+    "next": "Next: App blocking guide"
+  },
   "verification": {
     "button": "Camera verification",
     "switch": "Camera verification",
@@ -1544,5 +1550,17 @@
       }
     },
     "switchLabel": "AI Focus Tracking"
+  },
+  "screenTimeSetup": {
+    "title": "Phone usage and\nblocking during focus",
+    "subtitle": "Set up both with one Screen Time permission.",
+    "measurementTitle": "Choose apps to measure",
+    "measurementBody": "Track the time you spend in these apps.",
+    "allowedTitle": "Choose apps allowed during focus",
+    "allowedBody": "Choose the apps you need while focusing.\nOther apps are blocked during focus.",
+    "setup": "Set up",
+    "androidTitle": "Phone usage",
+    "androidSubtitle": "Allow usage access and choose apps to measure.",
+    "androidBlocking": "App blocking on Android is not available yet."
   }
 }

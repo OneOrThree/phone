@@ -6,7 +6,7 @@ import UIKit
 final class ShieldConfigurationExtension: ShieldConfigurationDataSource {
     private func focusShield() -> ShieldConfiguration {
         // 재부팅 전 차단은 서버 세션을 확인할 앱이 다시 적용할 때까지 해제한다.
-        let defaults = UserDefaults(suiteName: "group.com.oneorthree.focuscat")
+        let defaults = UserDefaults(suiteName: "group.com.oneorthree.gromo")
         var boot = timeval()
         var size = MemoryLayout<timeval>.size
         if sysctlbyname("kern.boottime", &boot, &size, nil, 0) == 0,

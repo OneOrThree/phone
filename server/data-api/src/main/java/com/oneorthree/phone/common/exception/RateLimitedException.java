@@ -7,25 +7,17 @@ package com.oneorthree.phone.common.exception;
  * 이름을 공개 표의 {@code RATE_LIMITED} 로 그대로 옮기고 {@code retryAfterMs} 로 {@code Retry-After}
  * 헤더를 만든다 — 그래서 이름과 지연 값 둘 다 계약이다.
  */
-public class RateLimitedException extends DomainException {
-
-    private final long retryAfterMs;
+public class RateLimitedException extends RetryAfterException {
 
     /**
      * @param retryAfterMs 현재 윈도가 끝날 때까지 남은 밀리초(서버 시계 기준, 1 이상)
      */
     public RateLimitedException(long retryAfterMs) {
-        super(CommonErrorCode.RATE_LIMITED);
-        this.retryAfterMs = retryAfterMs;
+        super(CommonErrorCode.RATE_LIMITED, retryAfterMs);
     }
 
     @Override
     public CommonErrorCode getErrorCode() {
         return CommonErrorCode.RATE_LIMITED;
-    }
-
-    /** @return 다시 시도해도 되는 시점까지 남은 밀리초 */
-    public long getRetryAfterMs() {
-        return retryAfterMs;
     }
 }

@@ -2,7 +2,6 @@ package com.oneorthree.phone.internal.service;
 
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
-import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupQueryService;
 import com.oneorthree.phone.group.repository.GroupRepository;
 import com.oneorthree.phone.group.repository.UserIslandContextRepository;
@@ -10,8 +9,7 @@ import com.oneorthree.phone.group.repository.domain.Group;
 import com.oneorthree.phone.group.repository.domain.UserIslandContext;
 import com.oneorthree.phone.internal.dto.IslandRankingViews.IslandRanking;
 import com.oneorthree.phone.internal.dto.IslandRankingViews.IslandRankingPage;
-import com.oneorthree.phone.ranking.repository.IslandWeeklyFocusRepository;
-import com.oneorthree.phone.ranking.repository.IslandWeeklyMemberCountRepository;
+import com.oneorthree.phone.ranking.repository.IslandFocusAverageRepository;
 import com.oneorthree.phone.ranking.support.RankingWeek;
 import com.oneorthree.phone.stats.exception.StatsErrorCode;
 import com.oneorthree.phone.stats.exception.StatsException;
@@ -34,12 +32,15 @@ import java.util.Set;
 import java.util.UUID;
 
 /**
- * 주간 섬 랭킹 (GROMO-1997, island-rankings LLD) — 전망대의 섬 간 순위.
+ * 섬 랭킹 (GROMO-1997, island-rankings LLD) — 전망대의 섬 간 순위.
  *
- * <p><b>평균 = 그 섬에서 집중한 시간 합계 ÷ 그 섬 전체 주민 수</b>이고 다른 섬에서 집중한 시간은 빠진다
- * (기획 정본 2026-09-14 「섬 가입·전망대·랭킹」). 주는 <b>UTC 일요일 00:00Z ~ 다음 일요일</b>이며
- * ({@link RankingWeek}) 식별자는 ISO {@code YYYY-Www} 가 아니라 <b>주 시작일</b>이다 — ISO 주차는 월요일
- * 시작이 정의의 일부라 요일만 바꿔 쓰면 같은 문자열이 다른 7일을 뜻하게 된다.
+ * <p><b>평균 = 망원경과 같은 «최근 7일 주민 1명당 하루 평균 집중(분)»</b>이다(GROMO-2769, 2026-11-05 오스카 결정).
+ * 값은 매일 07:00 KST 배치가 적는 {@code island_focus_averages} 스냅샷({@link IslandFocusAverageSnapshotService})
+ * 그대로라 같은 섬은 전망대·망원경·잡지에서 같은 숫자다. 일요일 초기화는 없고 순위는 하루 한 번 바뀐다. 다른 섬에서
+ * 집중한 시간이 빠지는 것은 그대로다. 공개 응답의 {@code averageFocusSeconds} 는 이름을 바꾸지 않고 분 × 60 을 싣는다.
+ *
+ * <p>{@code week} 는 계약에 남은 식별자다 — <b>UTC 일요일</b>({@link RankingWeek}) 검증은 그대로 하고, 그 주가 끝나는
+ * 일요일까지의 가장 최근 스냅샷 날을 읽는다. 진행 중인 주는 곧 «가장 최근 스냅샷» 이다.
  *
  * <p><b>주민 랭킹은 없다.</b> {@code GET /islands/{islandId}/rankings/members} 는 2026-09-16 결정 B23·B15 로
  * 엔드포인트 자체가 폐기됐다(「전망대는… 우리 섬 내부 주민 랭킹은 제공하지 않는다」). 남은 것은 섬 간 랭킹뿐이다.
@@ -72,19 +73,17 @@ public class IslandRankingsService {
     private final UserQueryService users;
     private final GroupQueryService groups;
     private final GroupRepository islands;
-    private final GroupMemberRepository members;
     private final UserIslandContextRepository contexts;
     private final IslandMovementGuards guards;
-    private final IslandWeeklyFocusRepository weeklyFocus;
-    private final IslandWeeklyMemberCountRepository denominators;
+    private final IslandFocusAverageRepository averages;
     private final Clock clock;
 
     /**
-     * 섬 간 주간 랭킹.
+     * 섬 간 랭킹.
      *
-     * <p>한 스냅샷에서 읽도록 REPEATABLE READ 다 — 분자(집중 합)와 분모(주민 수)를 두 SELECT 로 읽는 사이
-     * 누가 집중을 끝내거나 섬을 나가도 같은 순간을 본다. 같은 표에서 {@code items}·{@code myRank} 가 함께 나오므로
-     * 「목록의 1위와 내 순위가 서로 다른 시점」이 생기지 않는다(RK-P06).
+     * <p>한 스냅샷에서 읽도록 REPEATABLE READ 다 — 평균과 섬 이름을 두 SELECT 로 읽는 사이 섬이 닫혀도 같은 순간을
+     * 본다. 같은 표에서 {@code items}·{@code myRank} 가 함께 나오므로 「목록의 1위와 내 순위가 서로 다른 시점」이
+     * 생기지 않는다(RK-P06).
      *
      * @param userId 조회자 — 현재 섬의 전망대가 열려 있어야 한다
      * @param week   조회할 주의 시작일(UTC 일요일). 아직 오지 않은 주는 422 다
@@ -100,13 +99,8 @@ public class IslandRankingsService {
         }
         UUID myIsland = requireObservatory(userId);
 
-        // 참가 모집단 = 그 주에 «이 섬에 귀속된 완료 집중»이 있었던 섬. 집중이 0인 섬을 0점으로 줄 세우지 않는다
-        // (RK-D06 「분모가 0이면 숫자 0을 임의 순위 점수로 만들지 않는다」와 같은 결). 모수가 이 집계 결과라
-        // 이어지는 분모·이름 조회도 자연히 유한하다.
-        Map<UUID, Long> focus = focusSeconds(week);
-
-        List<IslandRanking> ranked = rank(focus, denominators(week, currentWeek, focus.keySet()),
-                names(focus.keySet()));
+        Map<UUID, Integer> minutes = averageMinutes(week);
+        List<IslandRanking> ranked = rank(minutes, names(minutes.keySet()));
         Integer myRank = ranked.stream().filter(item -> item.islandId().equals(myIsland))
                 .map(IslandRanking::rank).findFirst().orElse(null);
         int size = limit == null ? DEFAULT_LIMIT : Math.min(Math.max(limit, 1), MAX_LIMIT);
@@ -116,30 +110,31 @@ public class IslandRankingsService {
     /**
      * 고양이 잡지 편집부 칸의 주간 랭킹 (GROMO-2289, MAG-04) — 발행 순간 전망대가 보여 주는 주(계획 P16)의 상위
      * {@code n} 곳이다. 부르는 사람이 없는 배치라 전망대 게이트가 없다. 10/16: 비공개 섬도 순위에 들어간다
-     * (GROMO-2305). 점수·분모·동점 규칙은 {@link #islands} 와 같다.
+     * (GROMO-2305). 점수·동점 규칙은 {@link #islands} 와 같다.
      *
      * <p>트랜잭션은 호출자(발행 배치)의 것을 쓴다 — 두 집계를 한 스냅샷으로 읽게 하려면 호출자가 경계를 연다.
      */
     public List<IslandRanking> top(Instant asOf, int n) {
-        LocalDate week = RankingWeek.weekStart(asOf);
-        Map<UUID, Long> focus = focusSeconds(week);
-        Map<UUID, String> names = new HashMap<>();
-        islands.findAllById(focus.keySet()).stream()
-                .filter(IslandMovementGuards::isAlive)
-                .forEach(island -> names.put(island.getId(), island.getName()));
-        List<IslandRanking> ranked = rank(focus, denominators(week, week, names.keySet()), names);
+        Map<UUID, Integer> minutes = averageMinutes(RankingWeek.weekStart(asOf));
+        List<IslandRanking> ranked = rank(minutes, names(minutes.keySet()));
         return ranked.subList(0, Math.min(n, ranked.size()));
     }
 
     /**
-     * 그 주의 분자 — 섬마다 «그 섬에 귀속된 끝난 집중»의 ACTIVE 초. read model({@code island_weekly_focus},
-     * V130)에서 읽는다(GROMO-2343). 완료 전이가 같은 트랜잭션에서 가산하므로 지연이 없고, 값은 정본 집계
-     * ({@code FocusSessionDetailRepository.sumIslandActiveSeconds})와 같다 — 1초 미만 섬이 빠지는 것까지.
+     * 그 주가 끝나는 일요일까지의 가장 최근 스냅샷 날의 섬별 평균(분) — 진행 중인 주는 망원경이 읽는 행과 같다.
+     *
+     * <p>참가 모집단 = 평균이 1분 이상인 섬. 0분·주민 0명(null) 섬을 0점으로 줄 세우지 않는다(RK-D06 「분모가 0이면
+     * 숫자 0을 임의 순위 점수로 만들지 않는다」와 같은 결). 최근 행이 null 이면 옛 행으로 되돌아가지 않는다(망원경과 같다).
      */
-    private Map<UUID, Long> focusSeconds(LocalDate week) {
-        Map<UUID, Long> focus = new HashMap<>();
-        weeklyFocus.findSeconds(week).forEach(row -> focus.put(row.getIslandId(), row.getSeconds()));
-        return focus;
+    private Map<UUID, Integer> averageMinutes(LocalDate week) {
+        Map<UUID, Integer> result = new HashMap<>();
+        averages.findLatestSnapshotOnOrBefore(week.plusDays(7)).forEach(row -> {
+            Integer average = row.getAvgMinutesPerMemberDay();
+            if (average != null && average > 0) {
+                result.put(row.getIslandId(), average);
+            }
+        });
+        return result;
     }
 
     /**
@@ -164,32 +159,12 @@ public class IslandRankingsService {
         return islandId;
     }
 
-    /**
-     * 그 주의 분모.
-     *
-     * <p>진행 중인 주는 아직 동결할 것이 없으므로 <b>지금</b> 인원으로 나눈다. 끝난 주는 V85 에 동결된 값만
-     * 쓴다 — 행이 없는 섬은 랭킹에서 빠진다. 「없으면 지금 인원으로」 라는 대체 경로를 두지 않는 것이 핵심이다:
-     * 그 경로가 있으면 주민을 내보내 분모를 줄이는 조작이 그대로 살아난다.
-     */
-    private Map<UUID, Integer> denominators(LocalDate week, LocalDate currentWeek, Set<UUID> candidates) {
-        Map<UUID, Integer> result = new HashMap<>();
-        if (candidates.isEmpty()) {
-            return result;
-        }
-        if (week.equals(currentWeek)) {
-            members.countByGroupIdIn(candidates)
-                    .forEach(row -> result.put(row.getGroupId(), Math.toIntExact(row.getMemberCount())));
-            return result;
-        }
-        denominators.findByWeekStart(week).stream()
-                .filter(row -> candidates.contains(row.getIslandId()))
-                .forEach(row -> result.put(row.getIslandId(), row.getMemberCount()));
-        return result;
-    }
-
     /** 살아 있는 섬의 이름만 — 소프트 삭제·종료된 섬은 「없는 섬」이라 랭킹에도 없다. */
     private Map<UUID, String> names(Set<UUID> candidates) {
         Map<UUID, String> result = new HashMap<>();
+        if (candidates.isEmpty()) {
+            return result;
+        }
         islands.findAllById(candidates).stream()
                 .filter(IslandMovementGuards::isAlive)
                 .forEach(island -> result.put(island.getId(), island.getName()));
@@ -199,21 +174,18 @@ public class IslandRankingsService {
     /**
      * 평균을 내고 순위를 매긴다.
      *
-     * <p><b>평균을 먼저 정수로 내린 뒤 그 값으로 줄 세운다</b> — 표시값과 정렬 키가 같아야 「화면에는 같은
-     * 숫자인데 순위가 다른」 줄이 생기지 않는다(LLD §3). 주민마다 분으로 내려 평균내지 않고, 정확한 초 합을
-     * 분모로 나눈다.
+     * <p><b>스냅샷의 정수 분이 표시값 겸 정렬 키다</b> — 표시값과 정렬 키가 같아야 「화면에는 같은 숫자인데 순위가
+     * 다른」 줄이 생기지 않는다(LLD §3).
      *
      * <p>동점은 <b>공동 순위</b>다 — 1,1,3 (SQL {@code RANK()} 와 같다, 2026-09-21 결정). UUID 오름차순은 같은
      * 점수 안의 «표시 순서»만 고정하는 보조 키이지 순위를 가르는 기준이 아니다.
      */
-    private static List<IslandRanking> rank(Map<UUID, Long> focus, Map<UUID, Integer> denominators,
-                                            Map<UUID, String> names) {
+    private static List<IslandRanking> rank(Map<UUID, Integer> minutes, Map<UUID, String> names) {
         List<Entry> entries = new ArrayList<>();
-        focus.forEach((islandId, seconds) -> {
-            Integer memberCount = denominators.get(islandId);
+        minutes.forEach((islandId, average) -> {
             String name = names.get(islandId);
-            if (memberCount != null && memberCount > 0 && name != null) {
-                entries.add(new Entry(islandId, name, seconds / memberCount));
+            if (name != null) {
+                entries.add(new Entry(islandId, name, average * 60L));
             }
         });
         entries.sort(Comparator.comparingLong(Entry::average).reversed().thenComparing(Entry::islandId, UUID_ORDER));

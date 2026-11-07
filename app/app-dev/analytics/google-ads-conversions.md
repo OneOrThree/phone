@@ -2,13 +2,13 @@
 
 앱의 첫 항해가 계정의 최초 섬 도착일 때 Google CPA 전환 후보를 보낸다. Meta의 `first_island_arrival`과 같은 서버 판정을 사용한다.
 
-| 구간         | 이벤트·판정                                                                                                               |
-| ------------ | ------------------------------------------------------------------------------------------------------------------------- |
-| Data API     | `intro-arrivals` 실행 전 도착 이력이 없으면 `firstIslandArrival=true`. 멱등 receipt에 함께 저장한다. 일반 도착은 false다. |
-| Business API | 최초 판정을 앱으로 전달한다. 구 Data 응답의 누락·null은 false로 처리한다.                                                 |
-| 앱           | 성공 응답의 true만 처리한다. 운영 release 빌드에서 계정·세션이 그대로인 경우에만 발행한다.                                |
-| Airbridge    | `airbridge.completeTutorial`, action=`first_island_arrival`. Core 플랜의 표준 이벤트를 첫 항해 완료 전용으로 쓴다.        |
-| Google Ads   | Airbridge 매핑 화면에 표시되는 이벤트를 전환으로 사용한다. 전환 표시 이름은 `first_island_arrival`로 구분한다.            |
+| 구간         | 이벤트·판정                                                                                                                                |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| Data API     | `intro-arrivals` 실행 전 도착 이력이 없으면 `firstArrivalEventId`가 있는 응답. 멱등 receipt에 함께 저장한다. 일반 도착에는 사건 ID가 없다. |
+| Business API | 최초 판정을 앱으로 전달한다. 구 Data 응답의 누락·null은 전환으로 처리하지 않는다.                                                          |
+| 앱           | 성공 응답의 사건 ID가 있을 때만 처리한다. 운영 release 빌드에서 계정·세션이 그대로인 경우에만 발행한다.                                    |
+| Airbridge    | `airbridge.completeTutorial`, action=`first_island_arrival`. Core 플랜의 표준 이벤트를 첫 항해 완료 전용으로 쓴다.                         |
+| Google Ads   | Airbridge 매핑 화면에 표시되는 이벤트를 전환으로 사용한다. 전환 표시 이름은 `first_island_arrival`로 구분한다.                             |
 
 `airbridge.unlockAchievement`는 기존 집중 완료 이벤트다. 첫 섬 도착 목표에 섞지 않는다. `completeTutorial`을 다른 안내 종료·스킵에 재사용하지 않는다.
 

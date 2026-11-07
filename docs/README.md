@@ -100,6 +100,7 @@ Git·PR 은 `git-pr-conventions.md`, 지라는 `jira-conventions.md`(분류) + `
 - [레거시 `/api/v1` 폐기 계획](engineering/legacy-v1-retirement/README.md) — 1.x 표면 폐기 실행 문서(결정 A24 후속).
 - 백오피스: [독립 릴리스](engineering/backoffice-independent-release.md)(V1 태그 방식 기록) · [서버 기능의 선별 운영 승격](engineering/backoffice-selective-release.md) · [건설 비용·공사 시간 관리](engineering/backoffice-construction-policy.md) · [운영 배포 현황 2026-10-29](engineering/backoffice-prod-deployment-readiness-2026-10-29.md).
 - dev 공개 경로: [dev 2.0 공개 라우팅 전환](engineering/dev-2.0-public-cutover.md) · [dev Business API 공개 경로 장애 기록](engineering/dev-business-ingress.md).
+- 앱 성능: [최적화 전후(시뮬레이터)](engineering/app-performance/measurements.md) · [iPhone 15 실기기 측정 2026-11](engineering/app-performance/device-iphone15-2026-11.md) — 홈 움직임·집중·AI집중측정의 CPU·프레임, 집중 화면 테두리 그리기 개선 전후.
 - [README 정보구조 개선 조사](engineering/readme-information-architecture/research.md) — 루트·영역·상세 문서 분리, 접힌 섹션, 문서 사이트 도입 기준.
 
 ## 신규 설계

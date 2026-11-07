@@ -61,6 +61,11 @@ public class Group {
     @Column(nullable = false)
     private int maxMembers;
 
+    /** 운영용 웹 공용 섬. 공개 생성·수정 API로는 켤 수 없다. */
+    @Column(name = "web_lobby", nullable = false, columnDefinition = "boolean not null default false")
+    @Builder.Default
+    private boolean webLobby = false;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     @Builder.Default

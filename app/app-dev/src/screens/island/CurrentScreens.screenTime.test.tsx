@@ -140,7 +140,13 @@ test.each([
   const view = await render(
     <CurrentScreens e={createPreviewEnvironment(environment('', route))} />,
   );
-  await view.findAllByText(route === 'permission' ? 'Measurement permission' : 'Measured apps');
+  await view.findAllByText(
+    os === 'ios'
+      ? 'Phone usage and\nblocking during focus'
+      : route === 'permission'
+        ? 'Measurement permission'
+        : 'Measured apps',
+  );
   expect(view.queryByText(/[가-힣]/)).toBeNull();
   expect(view.queryByLabelText(/[가-힣]/)).toBeNull();
 });
@@ -149,7 +155,9 @@ test('차단 미지원 Android 측정 권한 안내에는 앱 차단 권한을 �
   Platform.OS = 'android';
   native.supportsFocusShield = false;
   const view = await render(<CurrentScreens e={createPreviewEnvironment(environment())} />);
-  await view.findByText('선택한 앱의 사용 시간만 기록해요.');
+  await view.findByText(
+    '선택한 앱의 사용 시간만 기록해요. 이 선택은 앱 차단 설정에 영향을 주지 않아요.',
+  );
   expect(view.queryByText(/집중 중 앱 차단/)).toBeNull();
 });
 
@@ -171,10 +179,10 @@ test('튜토리얼 다음 집중의 앱 차단 안내는 권한 흐름 또는 �
   expect(view.queryByTestId('island-sheet-box')).toBeNull();
   expect(view.queryByLabelText('뒤로')).toBeNull();
   expect(view.getByLabelText('닫기')).toBeTruthy();
+  expect(view.getByText('집중 중에도 쓸 ‘허용 앱’을 골라 줘.', { exact: false })).toBeTruthy();
   expect(
-    view.getByText('집중하는 동안 내가 다른 앱 사용을 막아 줄 수 있어.', { exact: false }),
+    view.getByText('사용 시간을 기록할 ‘측정 앱’ 선택과는 별개야.', { exact: false }),
   ).toBeTruthy();
-  expect(view.getByText('꼭 필요한 앱만 골라 줘!', { exact: false })).toBeTruthy();
   await fireEvent.press(view.getByText('권한 허용하기'));
   expect(callbacks.onAllow).toHaveBeenCalledTimes(1);
   expect(callbacks.onLater).not.toHaveBeenCalled();
@@ -191,45 +199,38 @@ test('앱 차단 권한 요청 중에는 버튼을 다시 눌러도 중복 요�
   expect(callbacks.onAllow).not.toHaveBeenCalled();
 });
 
-test('거절 화면에서 재요청해 승인되면 측정 앱 선택으로 이동한다', async () => {
+test('통합 안내에서 승인하면 측정 피커를 열고 저장 후 돌아간다', async () => {
   const e = environment('measured-apps');
   const view = await render(<CurrentScreens e={createPreviewEnvironment(e)} />);
-  await view.findByText('권한 다시 요청하기');
-  if (e.detail === 'settings') {
-    expect(view.queryByText('시스템 설정')).toBeNull();
-    expect(view.queryByText('측정 권한')).toBeNull();
-    expect(view.getByText('스크린타임 연결')).toBeTruthy();
-  }
   native.requestAuthorization.mockImplementationOnce(async () => {
     native.getAuthorizationStatus.mockResolvedValue('approved');
     return true;
   });
-  await fireEvent.press(view.getByText('권한 다시 요청하기'));
-  await waitFor(() => expect(e.replace).toHaveBeenCalledWith('screenTimeApps', 'settings-auto'));
-  expect(native.requestAuthorization).toHaveBeenCalledTimes(1);
-  expect(Linking.openSettings).not.toHaveBeenCalled();
+  native.presentAppPicker.mockResolvedValue({ ...selection(4), appliesImmediately: false });
+  await fireEvent.press(view.getByText('설정하기'));
+  await waitFor(() => expect(native.presentAppPicker).toHaveBeenCalledTimes(1));
+  await waitFor(() => expect(e.back).toHaveBeenCalledTimes(1));
+  expect(native.presentAllowedAppManager).not.toHaveBeenCalled();
 });
 
-test('요청 취소 후 notDetermined가 유지돼도 재시도 안내를 표시한다', async () => {
+test('권한 요청을 취소하면 설정 버튼과 오류를 유지한다', async () => {
   native.getAuthorizationStatus.mockResolvedValue('notDetermined');
   const e = environment();
   const view = await render(<CurrentScreens e={createPreviewEnvironment(e)} />);
-  await fireEvent.press(await view.findByText('스크린타임 연결하기'));
-  await view.findByText('권한 다시 요청하기');
-  expect(view.getByText('허용 창이 안 뜨면 시스템 설정에서 허용해 주세요.')).toBeTruthy();
+  await fireEvent.press(view.getByText('설정하기'));
+  await view.findByText('iOS 설정에서 스크린타임 권한을 허용해 주세요.');
+  expect(view.getByRole('button', { name: '설정하기' })).toBeEnabled();
   expect(e.back).not.toHaveBeenCalled();
-  expect(e.dispatch).not.toHaveBeenCalledWith({ type: 'SETTING', key: 'permission', value: true });
+  expect(native.presentAppPicker).not.toHaveBeenCalled();
 });
 
-test('시스템 설정 열기 실패를 안내하고 재시도 경로를 유지한다', async () => {
-  jest.mocked(Linking.openSettings).mockRejectedValueOnce(new Error('unavailable'));
+test('통합 안내를 닫으면 권한이나 목록을 변경하지 않고 돌아간다', async () => {
   const e = environment();
   const view = await render(<CurrentScreens e={createPreviewEnvironment(e)} />);
-  await fireEvent.press(await view.findByText('시스템 설정 열기'));
-  await waitFor(() =>
-    expect(e.notify).toHaveBeenCalledWith(expect.stringContaining('설정을 열지 못했어요')),
-  );
-  expect(view.getByText('권한 다시 요청하기')).toBeTruthy();
+  await fireEvent.press(view.getByRole('button', { name: '닫기' }));
+  await waitFor(() => expect(e.back).toHaveBeenCalledTimes(1));
+  expect(native.requestAuthorization).not.toHaveBeenCalled();
+  expect(native.presentAppPicker).not.toHaveBeenCalled();
 });
 
 test('뗏목 권한 관리에서 재요청하고 승인 후 측정 앱과 허용 앱을 모두 연다', async () => {
@@ -273,7 +274,7 @@ test('설정에는 예약 선택을 표시하고 측정 소비자에는 현재 �
   expect((await screenTime.getMeasurementSelectionCounts())?.applications).toBe(2);
 });
 
-test('측정 앱 진입은 설명 화면 없이 피커를 열고 저장 뒤 돌아간다', async () => {
+test('측정 앱 진입은 통합 안내의 설정 버튼으로 피커를 열고 저장 뒤 돌아간다', async () => {
   native.getAuthorizationStatus.mockResolvedValue('approved');
   native.getMeasurementSelectionCounts.mockResolvedValue({
     ...selection(2),
@@ -289,22 +290,21 @@ test('측정 앱 진입은 설명 화면 없이 피커를 열고 저장 뒤 돌�
   expect(view.queryByText('줄이고 싶은 앱을 골라주세요')).toBeNull();
   expect(view.queryByText('저장한 측정 대상')).toBeNull();
   expect(view.queryByLabelText('스크린타임 서버 전송 동의')).toBeNull();
+  expect(native.presentAppPicker).not.toHaveBeenCalled();
+  await fireEvent.press(view.getByText('설정하기'));
   await waitFor(() => expect(e.back).toHaveBeenCalledTimes(1));
   expect(e.notify).toHaveBeenCalledWith('측정 앱 4개를 내일부터 적용해요.');
 });
 
-test('시스템 설정에서 승인하고 복귀하면 권한 상태와 다음 화면을 갱신한다', async () => {
-  let onActive: ((state: AppStateStatus) => void) | undefined;
-  jest.spyOn(AppState, 'addEventListener').mockImplementation((_event, listener) => {
-    onActive = listener;
-    return { remove: jest.fn() };
-  });
-  const e = environment('board-first|board|');
+test('시스템 설정에서 승인한 뒤 설정하기를 누르면 실제 권한을 다시 확인한다', async () => {
+  const e = environment();
   const view = await render(<CurrentScreens e={createPreviewEnvironment(e)} />);
-  await view.findByText('권한 다시 요청하기');
   native.getAuthorizationStatus.mockResolvedValue('approved');
-  await act(async () => onActive?.('active'));
-  await waitFor(() => expect(e.replace).toHaveBeenCalledWith('screenTimeApps', e.detail));
+  native.presentAppPicker.mockResolvedValue(null);
+  await fireEvent.press(view.getByText('설정하기'));
+  await waitFor(() => expect(native.presentAppPicker).toHaveBeenCalledTimes(1));
+  expect(native.requestAuthorization).not.toHaveBeenCalled();
+  expect(e.dispatch).toHaveBeenCalledWith({ type: 'SETTING', key: 'permission', value: true });
 });
 
 test('연결 요청 중·취소 후에도 추가 버튼 없이 같은 스위치로 재요청한다', async () => {
@@ -333,13 +333,14 @@ test('연결 요청 중·취소 후에도 추가 버튼 없이 같은 스위치�
   expect(view.queryByText('시스템 설정 열기')).toBeNull();
 });
 
-test('권한 허용 후 측정 앱 피커를 자동으로 한 번 열고 취소하면 돌아간다', async () => {
+test('측정 피커 취소 후 안내에 머물고 재렌더로 자동 재요청하지 않는다', async () => {
   native.getAuthorizationStatus.mockResolvedValue('approved');
   native.presentAppPicker.mockResolvedValue(null);
   const e = environment('settings-auto', 'screenTimeApps');
   const view = await render(<CurrentScreens e={createPreviewEnvironment(e)} />);
+  await fireEvent.press(view.getByText('설정하기'));
   await waitFor(() => expect(native.presentAppPicker).toHaveBeenCalledTimes(1));
-  expect(e.back).toHaveBeenCalledTimes(1);
+  expect(e.back).not.toHaveBeenCalled();
   await view.rerender(<CurrentScreens e={createPreviewEnvironment({ ...e })} />);
   expect(native.presentAppPicker).toHaveBeenCalledTimes(1);
 });

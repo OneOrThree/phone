@@ -13,7 +13,7 @@ class ManifestTest(unittest.TestCase):
         self.infra = 'b' * 40
         self.source = {service: 'c' * 64 for service in m.planner.SERVICES}
         self.artifacts = {service: {'service': service, 'revision': self.rev,
-            'image': f'asia-northeast3-docker.pkg.dev/oneorthree2/{service}/{service}@sha256:' + 'd' * 64}
+            'image': f'asia-northeast3-docker.pkg.dev/project-cd783bdb-e03f-4e17-b74/{service}/{service}@sha256:' + 'd' * 64}
             for service in m.planner.SERVICES}
 
     def make(self, source=None, previous=None, artifacts=None):

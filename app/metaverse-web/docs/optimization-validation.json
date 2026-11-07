@@ -1,0 +1,51 @@
+{
+  "검증시각": "2026-11-07T15:24:19.238793+09:00",
+  "환경": "localhost Chromium ANGLE Metal, 로컬 Cloudflare workerd. AWS 요청 없음.",
+  "단위_통합": 57,
+  "조작": 14,
+  "집중_음원": 13,
+  "복구": 5,
+  "시각_30석": 5,
+  "공개방_로컬": 6,
+  "최적화": {
+    "beforeInitialJs": 1314007,
+    "beforeInitialGzip": 366068,
+    "afterInitialJs": 259799,
+    "afterInitialGzip": 83059,
+    "chunks": [
+      {
+        "file": "assets/index-DPmHfSGv.js",
+        "bytes": 66033,
+        "gzip": 22429
+      },
+      {
+        "file": "assets/rolldown-runtime-XKyaHtl9.js",
+        "bytes": 726,
+        "gzip": 431
+      },
+      {
+        "file": "assets/react-CgdEFbth.js",
+        "bytes": 193040,
+        "gzip": 60199
+      }
+    ],
+    "idleMoveMessages": 0,
+    "hiddenDrawCalls": 0,
+    "visibilityMethod": "document.hidden + visibilitychange 경로를 직접 전환한 로컬 회귀 검사",
+    "errors": []
+  },
+  "worker": {
+    "checks": [
+      "공개 경로·Origin 제한",
+      "실제 Worker 두 연결의 같은 의자 동시 예약 배타성",
+      "휴식 예약·이어가기·종료",
+      "퇴장 뒤 즉시 좌석 해제",
+      "유휴 방은 snapshot 반복 전송 없이 자동 heartbeat 응답",
+      "큰 메시지 차단"
+    ],
+    "passed": 6,
+    "localOnly": true
+  },
+  "실행_주의": "같은 로컬 방의 시각·복구 검사를 동시에 실행해 주민수 기대가 한 번 어긋났다. 제품 변경 없이 다른 검사를 종료하고 시각 검사를 단독 실행해 5개 모두 통과했다.",
+  "남은_제약": "Three 엔진 청크 747kB의 500kB 경고는 남는다. 전체 다운로드 감소나 실기기 발열 개선을 수치로 주장하지 않는다."
+}

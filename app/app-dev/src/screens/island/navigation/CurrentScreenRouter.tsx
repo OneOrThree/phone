@@ -1,3 +1,4 @@
+import { Platform } from 'react-native';
 import { Btn, Overlay, Pic, Txt } from '@/design-system/patterns';
 import { getLocale, t } from '@/i18n';
 import { josa } from '@/i18n/format';
@@ -423,7 +424,8 @@ export function CurrentScreensContent({ e }: ScreenProps) {
     ) : (
       <ScreenTimePermission e={e} />
     );
-  if (r === 'screenTimeApps') return <MeasuredAppPicker e={e} />;
+  if (r === 'screenTimeApps')
+    return Platform.OS === 'ios' ? <ScreenTimePermission e={e} /> : <MeasuredAppPicker e={e} />;
   if (r === 'developerNotices' || r === 'developerNotice') return <DeveloperNoticesScreen e={e} />;
   if (r === 'blockedUsers' && e.islands) return <BlockedUsersScreen e={e} />;
   return <RedesignScreens e={{ ...screenE, magazineToday: magazine.today, islandChat }} />;

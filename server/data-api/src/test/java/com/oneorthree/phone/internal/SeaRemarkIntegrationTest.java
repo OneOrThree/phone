@@ -1,5 +1,6 @@
 package com.oneorthree.phone.internal;
 
+import com.jayway.jsonpath.JsonPath;
 import com.oneorthree.phone.auth.service.AuthService;
 import com.oneorthree.phone.auth.support.JwtProvider;
 import com.oneorthree.phone.internal.dto.CreateIslandCommandRequest;
@@ -14,6 +15,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -123,13 +125,17 @@ class SeaRemarkIntegrationTest {
     }
 
     @Test
-    @DisplayName("직전 변경 뒤 5분 안에 다시 바꾸면 409 SEA_REMARK_LOCKED, 5분이 지나면 바뀐다")
+    @DisplayName("직전 변경 뒤 5분 안에 다시 바꾸면 409 SEA_REMARK_LOCKED 와 남은 시간, 5분이 지나면 바뀐다")
     void secondChangeWithinFiveMinutesIsLocked() throws Exception {
         UUID user = newMember();
         putRemark(user, "첫 번째").andExpect(status().isOk());
 
-        putRemark(user, "두 번째").andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("SEA_REMARK_LOCKED"));
+        MockHttpServletResponse locked = putRemark(user, "두 번째").andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("SEA_REMARK_LOCKED")).andReturn().getResponse();
+        // 남은 시간(ms) — 방금 바꿨으니 5분에 가깝고 5분을 넘지 않는다. 헤더는 그 초 단위 올림(GROMO-2759).
+        long retryAfterMs = ((Number) JsonPath.read(locked.getContentAsString(), "$.retryAfterMs")).longValue();
+        assertThat(retryAfterMs).isBetween(240_000L, 300_000L);
+        assertThat(locked.getHeader("Retry-After")).isEqualTo(Long.toString((retryAfterMs + 999) / 1000));
         assertThat(jdbc.queryForObject("select remark from sea_remarks where user_id=?", String.class, user))
                 .isEqualTo("첫 번째");
 

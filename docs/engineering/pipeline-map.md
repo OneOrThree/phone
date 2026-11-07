@@ -13,6 +13,7 @@
 
 | 바꾼 경로 | PR에서 | main 머지 뒤 | 운영까지 |
 | --- | --- | --- | --- |
+| `app/metaverse-web` | `metaverse-web-ci` 타입·단위/통합·빌드·로컬 Worker 검사 | 같은 검사만 실행 | 소유자가 요청할 때 검증한 main 커밋의 Cloudflare `cattus-3d-room`과 Vercel `cattus-web-demo`를 수동 배포. AWS·앱 출시 워크플로와 분리 |
 | `app/app-dev` JS·TS | `app-lint`, `app-android-ci`(계약 테스트만, AAB 없음) | `app-lint`, `app-android-ci`(서버 선행 게이트 → 운영 V2 서버용 AAB), `app-ios-testflight-dev`(2026-11-02 현재 건너뜀) | Android: `app-android-cd`가 Play internal 트랙에 자동 게시(2026-11-02 18:08 KST 다시 켜짐), 프로덕션은 Play 콘솔 승격. iOS·OTA: 로컬 `app/app-dev/ios/testflight.sh`·`app/app-dev/scripts/ota-update.sh`와 스토어 제출 |
 | iOS 네이티브 `app/app-dev/ios` | `app-lint`만. iOS 컴파일 검사는 없다 | `app-lint`, `app-ios-testflight-dev`(건너뜀) | 로컬 빌드 → 스토어 |
 | Android 네이티브 `app/app-dev/android`·`modules/*/android` | `app-lint`, `app-android-build`, `app-android-ci` | `app-lint`, `app-android-build`, `app-android-ci`(AAB) | `app-android-cd` → Play internal, 프로덕션은 Play 콘솔 승격 |
@@ -50,6 +51,7 @@
 | --- | --- | --- | --- |
 | 공통 | [pr-ci-policy.yml](../../.github/workflows/pr-ci-policy.yml) | PR CI 정책 | main·release 대상 모든 PR(라벨·대상 변경 포함). 승격 PR 판정과 `release:*` 라벨 검사. 같은 판정 스크립트를 `prod-ci-V2`도 돈다 |
 | 공통 | [migration-immutable.yml](../../.github/workflows/migration-immutable.yml) | 적용된 마이그레이션 불변 | release 대상이 아닌 모든 PR. 통합 브랜치에 들어간 Flyway 파일의 수정·삭제·개명을 막는다. `db-tools` 잡(DB 전환 도구 검사)이 `server/data-api/docs/db/test-*.py` 4종을 돌린다(`test-backoffice-bridge-integration.py`는 Docker를 쓴다) |
+| 웹 | [metaverse-web-ci.yml](../../.github/workflows/metaverse-web-ci.yml) | Cattus 3D Web CI | 3D 웹과 공유 토큰 변경의 main PR·push 검사. localhost Worker만 실행하며 배포하지 않는다 |
 | 공통 | [agent-harness.yml](../../.github/workflows/agent-harness.yml) | Agent Harness | 모든 PR과 main push(경로 필터 없음). 에이전트 설정·게이트 자체 검사, 하네스 문서의 링크·경로·워크플로 언급, 이 지도에 활성 워크플로가 모두 있는지, 스킬 머리말, 루트 `CLAUDE.md` 12KB 상한, 용어집 금지어, `.claude/skills/*/scripts`의 `test_*.py` |
 | 공통 | [claude-review.yml](../../.github/workflows/claude-review.yml) | Claude PR Review | PR 댓글의 `@claude`. Claude PR 리뷰. 리뷰 줄 댓글 트리거는 잡 조건 때문에 늘 건너뛴다 |
 | 공통 | [smoke-check.yml](../../.github/workflows/smoke-check.yml) | Smoke Checks | `smoke/server/**` 변경 PR(main·release). 스모크 케이스 오프라인 검사 |

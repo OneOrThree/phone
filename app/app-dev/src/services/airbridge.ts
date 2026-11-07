@@ -96,16 +96,17 @@ export function captureAirbridgeEvent(
           label: 'member_conversion',
         });
         break;
-      case 'first_island_arrival':
-        // Core 표준 이벤트를 첫 항해 완료 전용으로 사용한다. 집중 완료와 섞지 않는다.
-        client.trackEvent('airbridge.completeTutorial', { action: 'first_island_arrival' });
-        break;
       case 'focus_completed':
         client.trackEvent(
           'airbridge.unlockAchievement',
           { achievementID: 'focus_completed', score: properties?.earned_fish },
           { duration_seconds: properties?.duration_seconds },
         );
+        break;
+      case 'first_island_arrival':
+        // 가입 후 첫 섬 도착(첫 항해 체험) — Google Ads 인앱 액션 전환의 출처(GROMO-2753).
+        // Core 플랜은 맞춤 이벤트가 없어 표준 「Complete Tutorial」로 보낸다.
+        client.trackEvent('airbridge.completeTutorial', { action: 'first_island_arrival' });
         break;
       default:
         return false;

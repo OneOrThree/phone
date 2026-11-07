@@ -6,4 +6,8 @@ RCT_EXTERN_METHOD(syncTracking:(BOOL)requestPermission
                   rejecter:(RCTPromiseRejectBlock)reject)
 RCT_EXTERN_METHOD(metaContext:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
+RCT_EXTERN_METHOD(logEvent:(NSString *)name
+                  eventId:(NSString *)eventId
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
 @end

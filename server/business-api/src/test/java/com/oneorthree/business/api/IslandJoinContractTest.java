@@ -142,7 +142,8 @@ class IslandJoinContractTest extends UpstreamTestBase {
                 .andExpect(jsonPath("$.data.islandId").value(ISLAND.toString()))
                 .andExpect(jsonPath("$.data.arrivedBefore").value(true))
                 .andExpect(jsonPath("$.data.membershipStatus").value("none"))
-                .andExpect(jsonPath("$.data.currentIslandId").value(nullValue()));
+                .andExpect(jsonPath("$.data.currentIslandId").value(nullValue()))
+                .andExpect(jsonPath("$.data.firstArrivalEventId").doesNotExist());
         assertThat(DATA.receivedFor(dataArrive).get(0).header("X-User-Id")).isEqualTo(USER.toString());
         assertThat(DATA.receivedFor(dataArrive).get(0).header("Idempotency-Key")).isEqualTo(KEY);
     }

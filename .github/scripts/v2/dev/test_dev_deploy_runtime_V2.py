@@ -45,7 +45,7 @@ class DeployTest(unittest.TestCase):
 
     def test_wrong_archive_checksum_is_rejected(self):
         release='a'*40+'-1-1'; uri=m.BUCKET+'/releases/kafka/'+release+'/manifest.json'
-        manifest={'release_id':release,'environment':'dev-v2','project':'oneorthree2','role':'kafka',
+        manifest={'release_id':release,'environment':'dev-v2','project':'project-cd783bdb-e03f-4e17-b74','role':'kafka',
                   'revision':'a'*40,'archive_uri':uri.rsplit('/',1)[0]+'/runtime.tar','archive_sha256':'0'*64}
         with self.assertRaises(ValueError): m.validate_manifest('kafka',uri,manifest,b'not a tar')
 
@@ -92,9 +92,9 @@ class CommandFailureTest(unittest.TestCase):
 
     def test_values_of_every_secret_are_masked_but_short_values_are_not(self):
         env={'JWT_SECRET':'jwt-s3cret-value','FLAG':'on','PORT':8080}
-        with processes(proc(0,json.dumps(env).encode()),proc(0,json.dumps({'project':'oneorthree2'}).encode())):
+        with processes(proc(0,json.dumps(env).encode()),proc(0,json.dumps({'project':'project-cd783bdb-e03f-4e17-b74'}).encode())):
             m.aws_secret('catus/dev/env-v2'); m.aws_secret('catus/dev/cicd-v2')
-        self.assertEqual(self.message(b'denied on jwt-s3cret-value in oneorthree2\n'),self.PREFIX+': denied on *** in ***')
+        self.assertEqual(self.message(b'denied on jwt-s3cret-value in project-cd783bdb-e03f-4e17-b74\n'),self.PREFIX+': denied on *** in ***')
 
     def test_each_line_of_a_multiline_secret_is_masked(self):
         env={'APPLE_PRIVATE_KEY':'-----BEGIN KEY-----\nMIGTAgEAMBMG\n-----END KEY-----'}
