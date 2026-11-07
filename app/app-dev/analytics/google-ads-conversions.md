@@ -14,7 +14,7 @@
 
 ## 적용 순서
 
-1. 서버 변경을 배포한 다음 앱 변경을 배포한다. 새 네이티브 의존성은 없다. 기존 Airbridge SDK가 포함된 바이너리가 필요하다. 구 서버에서는 전환을 보내지 않는다.
+1. 기존 서버가 `firstArrivalEventId`를 반환하는 버전인지 확인하고 앱 변경을 배포한다. 이 PR은 서버를 변경하지 않으며 별도 서버 배포를 요구하지 않는다. 새 네이티브 의존성은 없다. 기존 Airbridge SDK가 포함된 바이너리가 필요하다. 구 서버에서는 전환을 보내지 않는다.
 2. Google Ads의 도구 → 데이터 관리자 → 타사 앱 분석에서 Airbridge의 iOS 연결 ID를 확인한다. 대상은 `com.oneorthree.gromo`, App Store ID `6774498679`다. Android는 플랫폼별 별도 연결 ID를 사용한다.
 3. Airbridge의 연동 → 광고 채널 연동 → Google Ads에 해당 플랫폼 연결 ID를 등록한다. 기존 연결이 맞으면 재사용한다.
 4. 인앱 이벤트 포스트백에서 `Complete Tutorial (App)`을 추가하고 Google 이벤트 매핑을 저장한다. 실제 매핑 이름을 기록한다. 비프리셋 매핑에는 `abr_` 접두사가 붙을 수 있으므로 `first_island_arrival`이라는 원시 이름만 검색하지 않는다.
@@ -28,6 +28,6 @@
 
 SDK 호출 성공은 Google 수신 확인이 아니다. SDK 호출과 로컬 표지 저장 사이에 앱 종료·저장 실패가 발생하면 중복 가능성이 있고, 응답을 받기 전에 앱이 영구 이탈하면 누락될 수 있다. 종단 간 exactly-once 전송이나 Meta 서버 CAPI와 같은 전달 보장은 하지 않는다. 기존 사용자 전환을 소급 생성하지 않는다.
 
-이 변경의 로컬 테스트는 서버 최초 판정·receipt 재생, Business 응답 전달·구 서버 호환, 앱 중복 억제·계정 전환·환경 제한을 검증한다. Google Ads/Airbridge 콘솔 설정, 운영 배포, 실제 이벤트 수신은 별도 검증이 필요하다. 이 문서 작성 시 해당 설정은 적용하지 않았다.
+이 변경은 기존 서버 최초 판정·receipt 재생 계약을 재사용한다. 최종 앱 변경의 관련 Jest 56개와 타입 검사가 통과했으며, 중복 억제·계정 전환·환경 제한 및 기존 PostHog 동작을 검증했다. Google Ads/Airbridge 콘솔 설정, 운영 배포, 실제 이벤트 수신은 별도 검증이 필요하다. 이 문서 작성 시 해당 설정은 적용하지 않았다.
 
 공식 근거: [Airbridge Google Ads 연동](https://help.airbridge.io/en/guides/google-ads), [캠페인 최적화](https://help.airbridge.io/en/guides/google-ads-aap-for-engagement), [표준 이벤트](https://help.airbridge.io/en/guides/airbridge-event-types).
