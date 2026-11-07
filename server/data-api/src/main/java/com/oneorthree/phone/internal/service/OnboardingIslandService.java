@@ -43,6 +43,8 @@ import java.nio.charset.StandardCharsets;
 public class OnboardingIslandService {
     /** 망원경 무인도 출현 확률(%). 100이면 소속 상한 미만인 모든 사용자에게 표시한다. */
     private static final int UNINHABITED_CHANCE_PERCENT = 100;
+    /** 무인도 일반 항해는 가장 긴 시간을 채워야 한다. 가까운 일반 섬의 15분과 별개다. */
+    private static final int UNINHABITED_SAILING_MINUTES = 90;
 
     private final OnboardingIslandRepository reservations;
     private final GroupRepository groups;
@@ -74,7 +76,7 @@ public class OnboardingIslandService {
         }
         return Optional.of(new TelescopeItemView(candidate, "무인도", "", 0,
                 Group.DEFAULT_MAX_MEMBERS, false, IslandSummaries.STATUS_NONE, TelescopeService.SLOT_UNINHABITED,
-                TelescopeService.NEARBY_SAILING_MINUTES, null, false, false, null, null, null, 0));
+                UNINHABITED_SAILING_MINUTES, null, false, false, null, null, null, 0));
     }
 
     /** 완료 항해 또는 첫 항해 체험의 도착 TX에서 생성한다. 호출자가 이동 가드와 멱등 재생을 보장한다. */
