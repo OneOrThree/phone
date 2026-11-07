@@ -122,8 +122,23 @@ const headers = [
   { key: 'X-Content-Type-Options', value: 'nosniff' },
   { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
   { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
-  // Cloudflare가 외부 방문 통계 스크립트를 HTML에 자동 삽입하지 않도록 한다.
-  { key: 'Cache-Control', value: 'public, max-age=0, must-revalidate, no-transform' },
+];
+// HTML은 매번 다시 확인하고, Cloudflare가 외부 방문 통계 스크립트를 자동 삽입하지 않도록 no-transform을 붙인다.
+// 자산에는 no-transform을 붙이지 않는다. CDN 압축까지 막기 때문이다.
+const htmlCache = 'public, max-age=0, must-revalidate, no-transform';
+// Expo가 이름에 내용 해시를 붙인 번들·에셋(optimize-assets가 바꾼 파일 포함)만 1년 캐시한다.
+const assetCache = 'public, max-age=31536000, immutable';
+const cacheRules = [
+  ...[
+    '/',
+    '/index',
+    '/index.html',
+    '/experience',
+    '/experience.html',
+    '/google-login',
+    '/google-login.html',
+  ].map((source) => ({ source, value: htmlCache })),
+  ...['/_expo/static/*', '/assets/*'].map((source) => ({ source, value: assetCache })),
 ];
 fs.writeFileSync(
   path.join(out, 'vercel.json'),
@@ -131,7 +146,13 @@ fs.writeFileSync(
     {
       $schema: 'https://openapi.vercel.sh/vercel.json',
       framework: null,
-      headers: [{ source: '/(.*)', headers }],
+      headers: [
+        { source: '/(.*)', headers },
+        ...cacheRules.map(({ source, value }) => ({
+          source: source.replace('*', '(.*)'),
+          headers: [{ key: 'Cache-Control', value }],
+        })),
+      ],
     },
     null,
     2,
@@ -140,7 +161,10 @@ fs.writeFileSync(
 // Pages로 옮겨도 같은 보안 정책을 적용할 수 있다.
 fs.writeFileSync(
   path.join(out, '_headers'),
-  '/*\n' + headers.map(({ key, value }) => `  ${key}: ${value}`).join('\n') + '\n',
+  '/*\n' +
+    headers.map(({ key, value }) => `  ${key}: ${value}`).join('\n') +
+    '\n' +
+    cacheRules.map(({ source, value }) => `${source}\n  Cache-Control: ${value}\n`).join(''),
 );
 fs.renameSync(out, target);
 console.log(`공개 체험판: ${target}\n대표 주소: ${site.href}\n메타모아에는 제출하지 않았습니다.`);
