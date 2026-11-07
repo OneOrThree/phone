@@ -97,8 +97,8 @@ Worker 소스는 `api-worker.mjs`, 독립 검사 명령은 `node --test web-demo
 | `/experience.html`(체험 iframe) | 같은 진입·공통 번들과 `App-<해시>.js`            |
 | `/google-login.html`            | 같은 진입·공통 번들과 `GoogleWebLogin-<해시>.js` |
 
-- 조건에는 `process.env.EXPO_PUBLIC_WEB_DEMO`를 직접 쓴다. 빌드 때 상수로 바뀌어, 공개 빌드에서는 검토용 미리보기(`?harbor` 등)와 PostHog 초기화 코드가 번들에서 빠진다. 함수로 감싸면 빠지지 않는다. 공개 빌드에 진입·공통·런타임과 `App`·`PublicWebDemo`·`GoogleWebLogin` 말고 다른 번들이 있으면 `build.cjs`가 멈춘다.
-- 나눈 번들을 받지 못하면(배포 직후 어긋남·회선 끊김) 1초 뒤 한 번 더 받는다. 그래도 실패하면 흰 화면 대신 「다시 불러오기」를 보이고 `screen_load_failed` 이벤트를 남긴다(`src/app/LazyRoot.tsx`).
+- 조건에는 `process.env.EXPO_PUBLIC_WEB_DEMO`를 직접 쓴다. 빌드 때 상수로 바뀌어, 공개 빌드에서는 검토용 미리보기(`?harbor` 등)와 PostHog 초기화 코드가 번들에서 빠진다. 함수로 감싸면 빠지지 않는다. `build.cjs`는 두 가지를 검사해 어긋나면 멈춘다. 공개 빌드에 진입·공통·런타임과 `App`·`PublicWebDemo`·`GoogleWebLogin` 말고 다른 번들이 있는지(`allowedBundles`), 어느 JS에든 검토용 미리보기 이름(`HarborPreview` 등 7개)이 들어 있는지다. 정상적인 새 `import()` 분할이면 `allowedBundles`에 이름을 더한다.
+- 나눈 번들을 받지 못하면(배포 직후 어긋남·회선 끊김) 1초 뒤 한 번 더 받는다. 그래도 실패하면 흰 화면 대신 「다시 불러오기」를 보인다(`src/app/LazyRoot.tsx`, 웹 전용). 번들을 받지 못한 경우는 연결 확인 안내를, 받은 화면이 그리다 실패한 경우는 중립 문구를 쓴다. `screen_load_failed` 이벤트에는 `error_kind`(`chunk`·`render`)와 `error_name`만 남긴다.
 - `build.cjs`가 `App-<해시>.js`를 하나로 찾아 HTML에 넣는다. 못 찾으면 빌드가 멈춘다.
   - 소개 화면에는 `<meta name="cattus-app-bundle">`로 넣는다. `PublicWebDemo`가 load 뒤에 `<link rel="prefetch">`로 미리 받아 둔다. 실행은 하지 않는다. 데이터 절약 모드와 2G 회선에서는 받지 않는다.
   - 체험 화면에는 `<link rel="preload" as="script">`로 넣어, 진입 번들과 동시에 받는다. Expo 런타임이 같은 출처 번들을 `crossorigin` 없이 `<script src>`로 불러와 이 preload를 그대로 쓴다. Expo SDK를 올리면 체험 화면에서 `App-<해시>.js`가 한 번만 받아지는지 네트워크 탭에서 확인한다.
