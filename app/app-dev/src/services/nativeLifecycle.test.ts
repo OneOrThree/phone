@@ -29,6 +29,10 @@ function setup(os = 'ios') {
     startFocusShield: jest.fn().mockResolvedValue(true),
     stopFocusShield: jest.fn().mockResolvedValue(undefined),
     getAuthorizationStatus: jest.fn().mockResolvedValue('approved'),
+    getAllowedSelectionCounts: jest
+      .fn()
+      .mockResolvedValue({ applications: 0, categories: 0, webDomains: 0 }),
+    isFocusShieldActive: jest.fn().mockResolvedValue(true),
   };
   const auth = {
     sessionGeneration: jest.fn(() => 1),
@@ -58,6 +62,22 @@ afterEach(() => {
   jest.dontMock('./screenTime');
   jest.dontMock('./api/session');
   jest.dontMock('./api/focusSessions');
+});
+test('측정 권한만 승인한 iOS 사용자는 차단을 해제하고 실패 알림도 생략한다', async () => {
+  const { shield, focusShield } = setup();
+  shield.getAllowedSelectionCounts.mockResolvedValue(null as any);
+  await expect(focusShield.syncFocusShield(focus)).resolves.toBe(true);
+  expect(shield.startFocusShield).not.toHaveBeenCalled();
+  expect(shield.stopFocusShield).toHaveBeenCalledTimes(1);
+  await expect(focusShield.shouldReportShieldFailure()).resolves.toBe(false);
+});
+
+test('앱 이탈 폴백은 측정 권한이 아닌 실제 차단 적용 상태를 따른다', async () => {
+  const { shield, focusShield } = setup();
+  shield.isFocusShieldActive.mockResolvedValue(false);
+  await expect(focusShield.focusShieldApplied()).resolves.toBe(false);
+  shield.isFocusShieldActive.mockResolvedValue(true);
+  await expect(focusShield.focusShieldApplied()).resolves.toBe(true);
 });
 test('차단 적용 응답이 늦어도 휴식·종료 해제가 마지막에 실행된다', async () => {
   const { shield, focusShield } = setup();

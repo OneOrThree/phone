@@ -59,9 +59,16 @@ export function syncFocusShield(
     if (subject === null) return cleared ? true : clear();
     const confirmedSubject = subject;
     return write(async () => {
-      // 계정 측정 초기화가 새 세션의 실드를 나중에 지우지 않도록 소유자 확정을 먼저 마친다.
+      // 소유자 초기화·설정 확인·차단 적용을 같은 직렬 쓰기 안에서 처리한다.
       await screenTime.bindMeasurementOwner(owner);
       if (!current()) return true;
+      const configured =
+        Platform.OS !== 'ios' || (await screenTime.getAllowedSelectionCounts()) !== null;
+      if (!current()) return true;
+      if (!configured) {
+        await screenTime.stopFocusShield();
+        return true;
+      }
       return screenTime.startFocusShield(confirmedSubject, color);
     });
   })();
@@ -69,14 +76,16 @@ export function syncFocusShield(
 
 /**
  * 집중 중 다른 앱이 실제로 막히는지(GROMO-2635). {@link syncFocusShield} 의 반환값은 «동기화 성공»이라 권한이 없어도 true 다.
- * iOS 는 스크린타임 권한이 있어야 막고, Android 는 지금 바이너리가 차단을 지원하지 않는다(`supportsFocusShield=false`).
+ * iOS는 현재 적용된 실드를 읽는다. 측정용 승인만으로 차단 중이라고 판단하지 않는다.
  */
 export const focusShieldApplied = async (): Promise<boolean> =>
   Platform.OS === 'ios'
-    ? (await screenTime.getAuthorizationStatus().catch(() => 'unavailable')) === 'approved'
+    ? await screenTime.isFocusShieldActive().catch(() => false)
     : // ponytail: Android 차단을 켜는 바이너리가 나오면 다른 앱 위 표시 권한까지 봐야 한다
       Platform.OS === 'android' && screenTimeNative?.supportsFocusShield === true;
 
 /** 차단 상태 변경 실패를 알릴지. 스크린타임 권한을 허용하지 않아 건너뛴 것은 실패가 아니다(GROMO-2515). */
 export const shouldReportShieldFailure = async () =>
-  (await screenTime.getAuthorizationStatus().catch(() => 'unavailable')) === 'approved';
+  Platform.OS === 'ios' &&
+  (await screenTime.getAuthorizationStatus().catch(() => 'unavailable')) === 'approved' &&
+  (await screenTime.getAllowedSelectionCounts().catch(() => null)) !== null;
