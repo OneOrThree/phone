@@ -1,7 +1,7 @@
 import { sharedWebIslandId, usesSharedWebIsland } from '@/services/webIsland';
 import { ISLAND_ART_ASPECT, ISLAND_STAGE_ART, islandStage } from '@/constants/magazineAssets';
 import { Badge, Btn, NavBtn, Pic, Txt } from '@/design-system/patterns';
-import { Card } from '@/design-system/primitives';
+import { Card, MotionContext } from '@/design-system/primitives';
 import { componentTokens, primitiveTokens, semanticTokens } from '@/design-system/tokens';
 import { errorTextOr, t } from '@/i18n';
 import { formatDuration } from '@/i18n/format';
@@ -14,6 +14,20 @@ import { useTelescope } from '@/screens/island/useTelescope';
 import { AdCell } from '@/screens/magazine/AdCell';
 import { useFirstVoyage } from '@/screens/onboarding/useFirstVoyage';
 import { SeaVoyagePreparation } from '@/screens/sea/SeaVoyagePreparation';
+import {
+  RaftFloat,
+  RaftRipples,
+  SeaGlints,
+  SeaSkyMotion,
+  SeaWaterTile,
+  ShoreRipples,
+  TELESCOPE_RIPPLES,
+  TELESCOPE_SEA_ART,
+  TELESCOPE_SKY,
+  useSeaRunning,
+  useSeaWater,
+  useShoreClock,
+} from '@/screens/sea/SeaMotion';
 import { RAFT_TELESCOPE_ASPECT, raftTelescope, telescopeSea } from '@/screens/sea/seaAssets';
 import { SeaNotice } from '@/screens/sea/seaModel';
 import { saveSeaRemark } from '@/screens/sea/seaRemark';
@@ -26,7 +40,7 @@ import { unknownOutcome } from '@/services/islandCommands';
 import { islandErrorMessage } from '@/services/islandErrors';
 import { intentKeyPool, serverVisit, sessionRoute, type Route, type State } from '@/services/model';
 import { useAppLayout } from '@/utils/layout';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useContext, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AccessibilityInfo,
   ActivityIndicator,
@@ -86,7 +100,6 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: color.secondary },
   // 파노라마를 따라 밀리는 바다 층과 그 안에 이어 붙인 그림 한 장
   sea: { position: 'absolute' },
-  seaTile: { position: 'absolute', top: 0 },
   topBar: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -278,9 +291,12 @@ function IslandCell({
   disabled,
   onPress,
   hideTime = false,
+  motion,
 }: {
   item: TelescopeItem;
   index: number;
+  /** 섬 발치 물결(GROMO-2789) — 장면이 계산한 running 과 나눠 쓰는 시계 */
+  motion: { running: boolean; clock: Animated.Value };
   /** 큰 글자 — 이름 알약이 두 줄까지 늘어난다(보통은 한 줄 말줄임). */
   largeText: boolean;
   /** 항해·이동 요청 중에는 눌리지 않는다 — 말풍선을 열었다 닫으며 뒤로가기 삼킴을 흩트리지 않게. */
@@ -316,6 +332,15 @@ function IslandCell({
       ]}
     >
       <View style={styles.art}>
+        {/* 섬은 땅이라 흔들지 않고 모래톱에 물결 띠만(GROMO-2789) — 섬 그림 뒤 */}
+        <ShoreRipples
+          width={ART_W}
+          height={ART_H}
+          running={motion.running}
+          clock={motion.clock}
+          phase={(index % 3) / 3}
+          testID={`telescope-shore-${item.islandId}`}
+        />
         <Image
           testID={`telescope-art-${item.islandId}`}
           source={ISLAND_STAGE_ART[islandStage(item.memberCount, item.buildingCount)]}
@@ -592,6 +617,17 @@ export function Telescope({
   );
   const [panoramaW, setPanoramaW] = useState(0);
   const sea = telescopeSeaTiles(sceneW, sceneH, panoramaW);
+  // 바다 움직임(GROMO-2789) — 동작 줄이기가 아니고 앱이 앞에 있을 때만. 물빛 줄 시계는 타일이 다 같이 쓴다
+  const reduceMotion = useContext(MotionContext);
+  const running = useSeaRunning(reduceMotion);
+  const water = useSeaWater(running, sea.height, sceneW / 402);
+  const shoreClock = useShoreClock(running);
+  const shore = useMemo(() => ({ running, clock: shoreClock }), [running, shoreClock]);
+  // 반짝임은 섬 띠 아래 수면(수평선 + 12% ~ 98%)에만. 객체를 매 렌더 새로 만들면 반짝임이 처음부터 다시 돈다
+  const glintZone = useMemo(() => {
+    const horizon = horizonY / sceneH;
+    return { horizon, from: Math.max(0, Math.min(0.98, horizon + 0.12)), to: 0.98 };
+  }, [horizonY, sceneH]);
   // 파노라마가 사라지면(빈 목록·로딩·오류 카드) 바다를 처음 자리로 돌린다 — 다시 생긴 파노라마는 스크롤 0 에서 시작하는데
   // 바다만 옛 오프셋에 남으면 섬과 어긋나고 첫 드래그에 튄다. 사라질 때의 정리에서 맞추므로 새 ScrollView 가 붙기 전이다
   const panoramaShown = list.status === 'ready' && items.length > 0;
@@ -847,21 +883,35 @@ export function Telescope({
           ]}
         >
           {sea.tiles.map((tile) => (
-            <Image
+            <SeaWaterTile
               key={tile.n}
-              source={telescopeSea.source}
-              style={[
-                styles.seaTile,
-                {
-                  left: tile.left - sea.tiles[0].left,
-                  width: sea.width,
-                  height: sea.height,
-                  transform: tile.mirror ? [{ scaleX: -1 }] : undefined,
-                },
-              ]}
+              testID={`telescope-sea-tile-${tile.n}`}
+              art={TELESCOPE_SEA_ART}
+              layers={water}
+              running={running}
+              left={tile.left - sea.tiles[0].left}
+              top={0}
+              width={sea.width}
+              height={sea.height}
+              mirror={tile.mirror}
             />
           ))}
         </Animated.View>
+        {/* 하늘(구름·갈매기)과 수면 반짝임은 파노라마와 같이 밀리지 않는 먼 배경(GROMO-2789). 반짝임은 섬 띠 아래 수면에만 */}
+        <SeaSkyMotion
+          testID="telescope-sky"
+          width={sceneW}
+          height={sceneH}
+          running={running}
+          sky={TELESCOPE_SKY}
+        />
+        <SeaGlints
+          testID="telescope-glints"
+          width={sceneW}
+          height={sceneH}
+          running={running}
+          zone={glintZone}
+        />
         {/* 가로 화면에서는 섬 띠 뒤에 깔려 가리므로 세로일 때만 둔다 */}
         {sceneW <= sceneH && (
           <View
@@ -877,7 +927,31 @@ export function Telescope({
               },
             ]}
           >
-            <Image source={raftTelescope[s.color]} resizeMode="contain" style={FILL} />
+            {/* 둥실거림은 표류의 0.7배, 그림자 없이(GROMO-2789 시안) */}
+            <RaftRipples
+              size={TELESCOPE.raft.width}
+              height={TELESCOPE.raft.width / RAFT_TELESCOPE_ASPECT}
+              seed={0}
+              running={running}
+              shape={TELESCOPE_RIPPLES}
+              testID="telescope-raft-ripples"
+            />
+            <RaftFloat
+              size={TELESCOPE.raft.width}
+              height={TELESCOPE.raft.width / RAFT_TELESCOPE_ASPECT}
+              seed={0}
+              running={running}
+              amplitude={0.7}
+              shadow={false}
+              testID="telescope-raft-float"
+            >
+              <Image
+                testID="telescope-raft-image"
+                source={raftTelescope[s.color]}
+                resizeMode="contain"
+                style={FILL}
+              />
+            </RaftFloat>
           </View>
         )}
         {/* 위 막대와 파노라마를 세로로 쌓는다 — 큰 글자·가로 화면에서도 겹치지 않고, 화면보다 길면 세로로 밀어 끝까지 닿는다 */}
@@ -963,6 +1037,7 @@ export function Telescope({
                     largeText={largeText}
                     disabled={sail.busy || firstVoyage.pending || firstVoyage.eligible === null}
                     hideTime={firstVoyage.eligible !== false}
+                    motion={shore}
                     onPress={() => setSelectedId(item.islandId)}
                   />
                 ))}
