@@ -1,5 +1,5 @@
 import { usesSharedWebIsland } from '@/services/webIsland';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Image,
   Linking,
@@ -23,8 +23,33 @@ import {
 
 const layout = componentTokens.publicWebDemo;
 
+/**
+ * 체험 앱 번들을 소개 화면이 다 뜬 뒤(load) 미리 받아 둔다(GROMO-2788).
+ * 주소는 web-demo/build.cjs가 meta로 넣는다. 받기만 하고 실행하지 않으며, 시작하기를 누르면 iframe이 캐시에서 쓴다.
+ */
+export function usePrefetchAppBundle(doc: Document = document, win: Window = window) {
+  useEffect(() => {
+    const href = doc.querySelector<HTMLMetaElement>('meta[name="cattus-app-bundle"]')?.content;
+    if (!href) return;
+    const prefetch = () => {
+      const link = doc.createElement('link');
+      link.rel = 'prefetch';
+      link.as = 'script';
+      link.href = href;
+      doc.head.appendChild(link);
+    };
+    if (doc.readyState === 'complete') {
+      prefetch();
+      return;
+    }
+    win.addEventListener('load', prefetch, { once: true });
+    return () => win.removeEventListener('load', prefetch);
+  }, [doc, win]);
+}
+
 export default function PublicWebDemo() {
   useGowunFont();
+  usePrefetchAppBundle();
   const [started, setStarted] = useState(false);
   const [help, setHelp] = useState(false);
   const [privacyOpen, setPrivacyOpen] = useState(false);

@@ -109,10 +109,23 @@ html { height: 100dvh; }
 <link rel="canonical" href="${escape(site.href)}" />
 </head>`,
   );
-fs.writeFileSync(path.join(out, 'index.html'), html);
+// 체험 앱(App)은 index.web.ts에서 import()로 나눈 번들이다(GROMO-2788). 소개 화면은 그 주소를 meta로 받아
+// 화면을 다 그린 뒤 미리 받아 두고, 체험 화면은 진입 번들과 동시에 받도록 preload한다.
+const jsDir = path.join(out, '_expo/static/js/web');
+const appBundles = fs.readdirSync(jsDir).filter((file) => /^App-[0-9a-f]{32}\.js$/.test(file));
+if (appBundles.length !== 1)
+  throw new Error(`체험 앱 번들(App-<해시>.js)을 하나로 찾지 못했습니다: ${appBundles.join(', ')}`);
+const appBundle = `/_expo/static/js/web/${appBundles[0]}`;
+fs.writeFileSync(
+  path.join(out, 'index.html'),
+  html.replace('</head>', `<meta name="cattus-app-bundle" content="${appBundle}" />\n</head>`),
+);
 fs.writeFileSync(
   path.join(out, 'experience.html'),
-  html.replace('</head>', '<meta name="robots" content="noindex" /></head>'),
+  html.replace(
+    '</head>',
+    `<link rel="preload" as="script" href="${appBundle}" />\n<meta name="robots" content="noindex" /></head>`,
+  ),
 );
 fs.writeFileSync(
   path.join(out, 'google-login.html'),

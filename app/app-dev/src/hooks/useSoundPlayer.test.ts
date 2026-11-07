@@ -123,3 +123,36 @@ describe.each(['ios', 'web'] as const)('%s 재생 제한', (os) => {
     expect(target.play).toHaveBeenCalledTimes(1);
   });
 });
+
+it('웹은 첫 재생 전에 음원 주소를 넣지 않아 파일을 받지 않고, 첫 재생 때 고른 음원을 넣는다', async () => {
+  const originalOS = Platform.OS;
+  const originalAudio = globalThis.Audio;
+  const webAudio: Record<string, unknown> & { load: jest.Mock; play: jest.Mock } = {
+    play: jest.fn(() => Promise.resolve()),
+    pause: jest.fn(),
+    load: jest.fn(),
+    removeAttribute: jest.fn(),
+  };
+  Platform.OS = 'web';
+  globalThis.Audio = jest.fn(() => webAudio) as unknown as typeof Audio;
+  try {
+    const { result } = await renderHook(() => useSoundPlayer(jest.fn(), true));
+    result.current.replace('https://example.test/waves.m4a');
+    result.current.replace('https://example.test/rain.m4a');
+    expect(webAudio.preload).toBe('none');
+    expect(webAudio.src).toBeUndefined();
+    expect(webAudio.load).not.toHaveBeenCalled();
+
+    expect(result.current.play()).toBe(true);
+    expect(webAudio.src).toBe('https://example.test/rain.m4a');
+    expect(webAudio.play).toHaveBeenCalledTimes(1);
+
+    // 첫 재생 뒤의 곡 교체는 바로 주소를 바꿔 불러온다.
+    result.current.replace('https://example.test/campfire.m4a');
+    expect(webAudio.src).toBe('https://example.test/campfire.m4a');
+    expect(webAudio.load).toHaveBeenCalledTimes(1);
+  } finally {
+    Platform.OS = originalOS;
+    globalThis.Audio = originalAudio;
+  }
+});
