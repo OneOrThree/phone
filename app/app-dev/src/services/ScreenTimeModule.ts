@@ -109,6 +109,7 @@ type AndroidMethods = {
   canDrawOverlays(): Promise<boolean>;
   requestOverlayPermission(): Promise<void>;
   syncAndroidFocus(payload: string): Promise<boolean>;
+  expireAndroidFocus?(): Promise<void>;
   endAndroidFocus(): Promise<void>;
   getFocusPushToken(): Promise<string>;
   getUsageBreakdown(dayOffset: number): Promise<{

@@ -152,7 +152,12 @@ export function syncAndroidFocus(
       });
     } catch (error) {
       if (!current()) return true;
-      await clear();
+      // 일시 오류는 즉시 비활성화하되 다음 앱 전환의 정본 재확인 경로를 남긴다.
+      await write(async () => {
+        if (screenTimeNative?.expireAndroidFocus) await screenTimeNative.expireAndroidFocus();
+        else await screenTimeNative?.endAndroidFocus?.();
+        return true;
+      });
       throw error;
     }
   })();

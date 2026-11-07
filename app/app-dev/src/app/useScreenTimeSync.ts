@@ -147,8 +147,13 @@ export function useFocusShieldSync({
   const focusShieldOwner = getSession()?.userId;
 
   useEffect(() => {
-    if (!loaded || !storageOwnerReady || (Platform.OS !== 'ios' && Platform.OS !== 'android'))
+    if (!loaded || (Platform.OS !== 'ios' && Platform.OS !== 'android')) return;
+    // 로그아웃·계정 채택 중에는 저장소 gate와 무관하게 이전 Android 임대를 먼저 끊는다.
+    if (Platform.OS === 'android' && (!storageOwnerReady || !hasServerSession)) {
+      void syncAndroidFocus(null, stateRef.current.color).catch(() => {});
       return;
+    }
+    if (!storageOwnerReady) return;
     let active = true;
     let foreground = AppState.currentState === 'active';
     let request = 0;

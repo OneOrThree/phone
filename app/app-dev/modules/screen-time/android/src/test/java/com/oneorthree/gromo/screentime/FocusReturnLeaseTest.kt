@@ -29,6 +29,18 @@ class FocusReturnLeaseTest {
     time += 30_000
     assertFalse(lease.active())
   }
+  @Test fun transientFailureRequiresConfirmationButNeverRevivesAnEndedSession() {
+    val lease = FocusReturnLease { 100L }
+    lease.bind("owner"); lease.connect(true)
+    lease.apply("owner", "s", 1, 120_000)
+    lease.expire()
+    assertFalse(lease.active())
+    assertTrue(lease.needsConfirmation())
+    assertTrue(lease.apply("owner", "s", 1, 120_000))
+    lease.clear(); lease.expire()
+    assertFalse(lease.active())
+    assertFalse(lease.needsConfirmation())
+  }
   @Test fun restEndAccountSwitchAndReconnectNeverRestoreOldFocus() {
     val lease = FocusReturnLease { 100L }
     lease.bind("owner"); lease.connect(true)
