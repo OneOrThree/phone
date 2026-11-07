@@ -87,6 +87,10 @@ class WorkflowRefactorTests(unittest.TestCase):
         # 건너뛰기 값이 게이트 잡까지 번지면 판정 없이 통과한다.
         self.assertNotIn('ALLOW_SERVER_GAP', android.get('env', {}))
         self.assertNotIn('ALLOW_SERVER_GAP', gate['steps'][-1]['env'])
+        self.assertNotIn('ALLOW_SERVER_GAP', android['jobs']['build']['env'])
+        self.assertEqual(android['jobs']['build']['env']['GROMO_ANDROID_CI_ARTIFACT'], '1')
+        self.assertNotIn('GROMO_ANDROID_CI_ARTIFACT', android.get('env', {}))
+        self.assertNotIn('GROMO_ANDROID_CI_ARTIFACT', gate['steps'][-1]['env'])
 
     def test_android_pr_runs_contract_tests_without_building_aab(self):
         android = workflow('app-android-ci')
