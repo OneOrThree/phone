@@ -127,6 +127,7 @@ const headers = [
 // 자산에는 no-transform을 붙이지 않는다. CDN 압축까지 막기 때문이다.
 const htmlCache = 'public, max-age=0, must-revalidate, no-transform';
 // Expo가 이름에 내용 해시를 붙인 번들·에셋(optimize-assets가 바꾼 파일 포함)만 1년 캐시한다.
+// /assets·/_expo/static 아래 파일은 모두 이름에 해시가 있다는 전제다. 해시 없는 파일을 넣으면 1년 동안 바뀌지 않는다.
 const assetCache = 'public, max-age=31536000, immutable';
 const cacheRules = [
   ...[
@@ -149,7 +150,7 @@ fs.writeFileSync(
       headers: [
         { source: '/(.*)', headers },
         ...cacheRules.map(({ source, value }) => ({
-          source: source.replace('*', '(.*)'),
+          source: source.replaceAll('*', '(.*)'),
           headers: [{ key: 'Cache-Control', value }],
         })),
       ],
