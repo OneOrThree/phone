@@ -69,6 +69,13 @@ const load: ScreenLoader =
                     : () => import('./src/App');
 registerRootComponent(
   createLazyRoot(load, {
-    onError: () => captureWebDemoEvent('screen_load_failed', { path: window.location.pathname }),
+    // 번들을 받지 못한 경우(chunk)와 화면이 그리다 실패한 경우(render)를 나눠 남긴다. 메시지는 보내지 않는다.
+    onError: (failure, error) =>
+      captureWebDemoEvent('screen_load_failed', {
+        path: window.location.pathname,
+        error_kind: failure,
+        error_name: error instanceof Error ? error.name : 'unknown',
+      }),
+    reload: () => window.location.reload(),
   }),
 );
