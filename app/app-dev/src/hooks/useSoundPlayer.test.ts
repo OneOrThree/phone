@@ -156,3 +156,55 @@ it('웹은 첫 재생 전에 음원 주소를 넣지 않아 파일을 받지 않
     globalThis.Audio = originalAudio;
   }
 });
+
+describe('웹 첫 재생 전 경로', () => {
+  const originalOS = Platform.OS;
+  const originalAudio = globalThis.Audio;
+  let webAudio: Record<string, unknown> & { load: jest.Mock; play: jest.Mock };
+
+  beforeEach(() => {
+    webAudio = {
+      play: jest.fn(() => Promise.resolve()),
+      pause: jest.fn(),
+      load: jest.fn(),
+      removeAttribute: jest.fn(),
+    };
+    Platform.OS = 'web';
+    globalThis.Audio = jest.fn(() => webAudio) as unknown as typeof Audio;
+  });
+  afterEach(() => {
+    Platform.OS = originalOS;
+    globalThis.Audio = originalAudio;
+  });
+
+  it('재생이 막힌 동안의 play()는 첫 재생을 잠그지 않아, 허용되면 고른 음원으로 시작한다', async () => {
+    const { result, rerender } = await renderHook(
+      ({ allowed }: { allowed: boolean }) => useSoundPlayer(jest.fn(), allowed),
+      { initialProps: { allowed: false } },
+    );
+    result.current.replace('https://example.test/rain.m4a');
+    expect(result.current.play()).toBe(false);
+    expect(webAudio.src).toBeUndefined();
+
+    await rerender({ allowed: true });
+    result.current.replace('https://example.test/waves.m4a');
+    expect(webAudio.load).not.toHaveBeenCalled();
+    expect(result.current.play()).toBe(true);
+    expect(webAudio.src).toBe('https://example.test/waves.m4a');
+  });
+
+  it('첫 재생 전의 seekTo는 위치를 건드리지 않는다', async () => {
+    const { result } = await renderHook(() => useSoundPlayer(jest.fn(), true));
+    await result.current.seekTo(30);
+    expect(webAudio.currentTime).toBeUndefined();
+  });
+
+  it('고른 음원 없이 재생하면 주소를 넣지 않고, 그 뒤 고른 음원은 바로 불러온다', async () => {
+    const { result } = await renderHook(() => useSoundPlayer(jest.fn(), true));
+    expect(result.current.play()).toBe(true);
+    expect(webAudio.src).toBeUndefined();
+    result.current.replace('https://example.test/rain.m4a');
+    expect(webAudio.src).toBe('https://example.test/rain.m4a');
+    expect(webAudio.load).toHaveBeenCalledTimes(1);
+  });
+});
