@@ -43,6 +43,7 @@ import { FocusFlow } from '../../focus/FocusFlow';
 import { FocusVisit } from '../../focus/FocusVisit';
 import { RewardModal } from '../../focus/RewardModal';
 import { AppPermissionManager } from '../../permissions/AppPermissionManager';
+import { screenTimeNative } from '@/services/ScreenTimeModule';
 import { MeasuredAppPicker } from '../../permissions/MeasuredAppPicker';
 import { ScreenTimePermission } from '../../permissions/ScreenTimePermission';
 import { VisitIsland } from '../VisitIsland';
@@ -425,7 +426,11 @@ export function CurrentScreensContent({ e }: ScreenProps) {
       <ScreenTimePermission e={e} />
     );
   if (r === 'screenTimeApps')
-    return Platform.OS === 'ios' ? <ScreenTimePermission e={e} /> : <MeasuredAppPicker e={e} />;
+    return Platform.OS === 'ios' || screenTimeNative?.getAndroidFocusAccess ? (
+      <ScreenTimePermission e={e} />
+    ) : (
+      <MeasuredAppPicker e={e} />
+    );
   if (r === 'developerNotices' || r === 'developerNotice') return <DeveloperNoticesScreen e={e} />;
   if (r === 'blockedUsers' && e.islands) return <BlockedUsersScreen e={e} />;
   return <RedesignScreens e={{ ...screenE, magazineToday: magazine.today, islandChat }} />;

@@ -6,7 +6,7 @@ import { saveAccountGuides } from '@/services/accountGuides';
 import { isScreenTimeAvailable, screenTime, type ScreenTimeSelection } from '@/services/screenTime';
 import {
   configureIOSScreenTime,
-  SCREEN_TIME_GUIDE_VERSION,
+  screenTimeGuideVersion,
   type MeasurementReady,
   type ScreenTimeSetupMode,
 } from '@/services/screenTimeSetup';
@@ -46,7 +46,7 @@ export function useScreenTimeSetup({
     mounted.current = true;
     if (owner)
       void saveAccountGuides(owner, {
-        screenTimeGuideShownVersion: SCREEN_TIME_GUIDE_VERSION,
+        screenTimeGuideShownVersion: screenTimeGuideVersion(),
       }).catch(() => {
         if (current()) setError(t('app.storageCheck'));
       });
@@ -57,7 +57,7 @@ export function useScreenTimeSetup({
   const acknowledge = async () => {
     if (owner)
       await saveAccountGuides(owner, {
-        screenTimeGuideAcknowledgedVersion: SCREEN_TIME_GUIDE_VERSION,
+        screenTimeGuideAcknowledgedVersion: screenTimeGuideVersion(),
       });
   };
   const close = async () => {

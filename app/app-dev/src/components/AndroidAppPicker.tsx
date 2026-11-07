@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { t } from '@/i18n';
 import { Btn, Field, Group, Row, Toggle, Txt } from '@/design-system/patterns';
 import { screenTimeNative, type InstalledApp } from '@/services/ScreenTimeModule';
@@ -10,10 +10,12 @@ export function AndroidAppPicker({
   mode,
   onDone,
   notify,
+  onCancel = onDone,
 }: {
   mode: 'measured' | 'allowed';
   onDone: () => void;
   notify: (message: string) => void;
+  onCancel?: () => void;
 }) {
   const [apps, setApps] = useState<InstalledApp[] | null>(null);
   const [selected, setSelected] = useState<string[]>([]);
@@ -25,10 +27,15 @@ export function AndroidAppPicker({
   const [reload, setReload] = useState(0);
   const [generation] = useState(sessionGeneration);
   const [owner] = useState(() => getSession()?.userId);
+  const mounted = useRef(false);
   const current = () =>
-    !!owner && owner === getSession()?.userId && generation === sessionGeneration();
+    mounted.current &&
+    !!owner &&
+    owner === getSession()?.userId &&
+    generation === sessionGeneration();
   useEffect(() => {
     let active = true;
+    mounted.current = true;
     setError(false);
     (async () => {
       if (!owner || !screenTimeNative?.getInstalledApps) throw new Error('UNAVAILABLE');
@@ -47,6 +54,7 @@ export function AndroidAppPicker({
     });
     return () => {
       active = false;
+      mounted.current = false;
     };
   }, [mode, reload, generation]);
   const save = async () => {
@@ -167,7 +175,7 @@ export function AndroidAppPicker({
       <Btn
         title={t('settings.permissions.androidPicker.back')}
         kind="ghost"
-        onPress={onDone}
+        onPress={onCancel}
         disabled={busy}
       />
     </>

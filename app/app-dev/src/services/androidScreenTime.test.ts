@@ -140,50 +140,48 @@ test.each([
   await expect(mod.syncAndroidMeasurement()).rejects.toThrow('INVALID_ANDROID_OBSERVATION');
   expect(report).not.toHaveBeenCalled();
 });
-test('집중 적용을 기다리는 동안 종료되면 과거 적용을 폐기한다', async () => {
-  const { mod, native } = setup();
-  let release!: () => void;
-  native.bindMeasurementOwner.mockReturnValue(
-    new Promise<void>((resolve) => {
-      release = resolve;
-    }),
-  );
-  const session = {
-    id: 's',
-    version: 1,
-    status: 'active',
-    startedAt: Date.now(),
-    seconds: 0,
-    subject: '수학',
-    islandId: 'i',
-  } as Session;
-  const start = mod.syncAndroidFocus(session, 'black');
-  await Promise.resolve();
-  const end = mod.syncAndroidFocus(null, 'black');
-  release();
-  await Promise.all([start, end]);
-  expect(native.syncAndroidFocus).not.toHaveBeenCalled();
-  expect(native.endAndroidFocus).toHaveBeenCalledTimes(1);
+const focusing = {
+  id: 's',
+  version: 1,
+  status: 'active',
+  startedAt: 1,
+  seconds: 0,
+  subject: '수학',
+  islandId: 'i',
+} as Session;
+const serverFocus = () => ({
+  id: 's',
+  version: 2,
+  status: 'active',
+  activeSeconds: 42,
+  serverNow: new Date().toISOString(),
+  subject: '수학',
+  islandId: 'i',
 });
-test('휴식 만료 시각은 서버의 휴식 시작으로부터 한 시간이다', async () => {
-  const { mod, native } = setup();
-  const session = {
-    id: 's',
-    version: 2,
-    status: 'paused',
-    restStartedAt: Date.now() - 1000,
-    startedAt: 1,
-    seconds: 0,
-    subject: '수학',
-    islandId: 'i',
-  } as Session;
-  await mod.syncAndroidFocus(session, 'black');
-  expect(JSON.parse(native.syncAndroidFocus.mock.calls[0][0])).toMatchObject({
-    version: 2,
-    owner: 'owner',
-    phase: 'rest',
-    validUntilMs: session.restStartedAt! + 3600000,
-  });
+
+test('서버 조회가 지연돼도 종료는 즉시 해제하고 늦은 집중 응답을 버린다', async () => {
+  const { mod, native, currentFocusSession } = setup();
+  let release!: (value: unknown) => void;
+  currentFocusSession.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        release = resolve;
+      }),
+  );
+  const start = mod.syncAndroidFocus(focusing, 'black');
+  await Promise.resolve();
+  await mod.syncAndroidFocus(null, 'black');
+  expect(native.endAndroidFocus).toHaveBeenCalledTimes(1);
+  release(serverFocus());
+  await start;
+  expect(native.syncAndroidFocus).not.toHaveBeenCalled();
+});
+test('휴식은 조회 없이 앱 복귀를 즉시 해제한다', async () => {
+  const { mod, native, currentFocusSession } = setup();
+  await mod.syncAndroidFocus({ ...focusing, status: 'paused' }, 'black', true);
+  expect(native.endAndroidFocus).toHaveBeenCalledTimes(1);
+  expect(native.syncAndroidFocus).not.toHaveBeenCalled();
+  expect(currentFocusSession).not.toHaveBeenCalled();
 });
 
 test('콜드 스타트에서 서버에 없는 세션은 저장된 값으로 다시 차단하지 않는다', async () => {
@@ -211,24 +209,39 @@ test('브리지 전달 중 자정이 지나도 네이티브 관측 날짜를 유
   expect(report).toHaveBeenCalledWith('approved', null, 1, Date.now(), measurement.observations);
 });
 
-test('집중 상태는 8시간을 넘어 유지하되 원격 상태 미수신 시 28일 뒤 만료한다', async () => {
-  const { mod, native } = setup();
-  await mod.syncAndroidFocus(
-    {
-      id: 's',
-      version: 1,
-      status: 'active',
-      startedAt: 1,
-      seconds: 0,
-      subject: '수학',
-      islandId: 'i',
-    } as Session,
-    'black',
-  );
+test('서버 확인 성공만 최대 2분의 단조 시계 임대를 전달한다', async () => {
+  const { mod, native, currentFocusSession } = setup();
+  currentFocusSession.mockResolvedValue(serverFocus());
+  await mod.syncAndroidFocus(focusing, 'black');
   expect(JSON.parse(native.syncAndroidFocus.mock.calls[0][0])).toMatchObject({
     phase: 'focus',
-    validUntilMs: Date.now() + 28 * 24 * 60 * 60 * 1000,
+    owner: 'owner',
+    version: 2,
+    remainingMs: 120_000,
   });
+});
+test('서버 조회 실패는 이전 복귀 임대도 해제한다', async () => {
+  const { mod, native, currentFocusSession } = setup();
+  currentFocusSession.mockRejectedValue(new Error('OFFLINE'));
+  await expect(mod.syncAndroidFocus(focusing, 'black')).rejects.toThrow('OFFLINE');
+  expect(native.endAndroidFocus).toHaveBeenCalledTimes(1);
+});
+test('서버 확인 중 계정이 바뀌면 새 계정의 임대를 건드리지 않는다', async () => {
+  const { mod, native, currentFocusSession, auth } = setup();
+  currentFocusSession.mockImplementation(async () => {
+    auth.getSession.mockReturnValue({ userId: 'other' });
+    return serverFocus();
+  });
+  await mod.syncAndroidFocus(focusing, 'black');
+  expect(native.syncAndroidFocus).not.toHaveBeenCalled();
+  expect(native.endAndroidFocus).not.toHaveBeenCalled();
+});
+test('서버가 다른 세션을 반환하면 화면의 옛 세션으로 복귀를 적용하지 않는다', async () => {
+  const { mod, native, currentFocusSession } = setup();
+  currentFocusSession.mockResolvedValue({ ...serverFocus(), id: 'other' });
+  await mod.syncAndroidFocus(focusing, 'black');
+  expect(native.syncAndroidFocus).not.toHaveBeenCalled();
+  expect(native.endAndroidFocus).toHaveBeenCalledTimes(1);
 });
 
 test('동시 앱 사용 합계가 하루를 넘으면 서버 보고만 1440분으로 정규화한다', async () => {

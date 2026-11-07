@@ -92,16 +92,22 @@ class ScreenTimeModule : Module() {
 
   // 설정 복귀를 기다리는 requestAuthorization — 복귀(OnActivityEntersForeground) 시 재확인 후 resolve.
   private var pendingAuthPromise: Promise? = null
+  private var pendingFocusPromise: Promise? = null
 
   override fun definition() = ModuleDefinition {
     Name("ScreenTimeModule")
-    Constant("supportsFocusShield") { false }
+    Constant("supportsFocusShield") { true }
+    Events("onFocusReturnCheck")
+    OnCreate {
+      FocusReturnAccess.onNeedsSync = { sendEvent("onFocusReturnCheck", emptyMap<String, Any>()) }
+    }
     // 2.0.1 바이너리부터 expo-notifications Android 모듈이 포함된다. 옛 APK 에 OTA 가 닿아도 JS 가 로드하지 않는다.
     Constant("supportsGeneralPush") { true }
 
     AsyncFunction("bindMeasurementOwner") { owner: String ->
       ledger.bind(owner)
       FocusSessionState(context).bind(owner)
+      FocusReturnAccess.bind(context, owner)
       clearFocusActivity()
     }
     AsyncFunction("getAndroidMeasurement") {
@@ -125,11 +131,40 @@ class ScreenTimeModule : Module() {
     AsyncFunction("isScreenInteractive") {
       (context.getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager)?.isInteractive ?: true
     }
-    // 이전 JS 호출도 서비스를 다시 시작하거나 차단 성공으로 응답하지 않는다.
-    AsyncFunction("syncAndroidFocus") { _: String -> false }
-    AsyncFunction("endAndroidFocus") { clearFocusActivity() }
+    AsyncFunction("getAndroidFocusAccess") { owner: String -> FocusReturnAccess.status(context, owner) }
+    AsyncFunction("setAndroidFocusConsent") { owner: String, accepted: Boolean -> FocusReturnAccess.consent(context, owner, accepted) }
+    AsyncFunction("requestAndroidFocusAccess") { promise: Promise ->
+      if (!FocusReturnAccess.consented(context)) { promise.resolve(false); return@AsyncFunction }
+      pendingFocusPromise?.resolve(false)
+      pendingFocusPromise = promise
+      try {
+        val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+        context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+      } catch (_: Exception) {
+        pendingFocusPromise = null
+        promise.resolve(false)
+      }
+    }
+    AsyncFunction("syncAndroidFocus") { payload: String ->
+      val state = org.json.JSONObject(payload)
+      if (state.optString("phase") != "focus") {
+        FocusReturnAccess.lease.clear()
+        true
+      } else if (!FocusReturnAccess.ready(context)) {
+        FocusReturnAccess.lease.clear()
+        false
+      } else {
+        val applied = FocusReturnAccess.lease.apply(state.getString("owner"), state.getString("sessionId"),
+          state.getLong("version"), state.optLong("remainingMs", 0))
+        if (applied) FocusReturnAccess.service?.reevaluate()
+        applied
+      }
+    }
+    AsyncFunction("endAndroidFocus") { FocusReturnAccess.lease.clear(); clearFocusActivity() }
+    AsyncFunction("isFocusShieldActive") { FocusReturnAccess.active(context) }
     AsyncFunction("getAllowedSelectionCounts") {
-      mapOf("applications" to (prefs.getStringSet(KEY_ALLOWED_PACKAGES, emptySet())?.size ?: 0), "categories" to 0, "webDomains" to 0)
+      if (!prefs.contains(KEY_ALLOWED_PACKAGES)) null else
+        mapOf("applications" to (prefs.getStringSet(KEY_ALLOWED_PACKAGES, emptySet())?.size ?: 0), "categories" to 0, "webDomains" to 0)
     }
 
     // 2.0 퀘스트·기록과 같은 KST 날짜로 한 시점의 오늘/어제 값을 반환한다.
@@ -160,6 +195,7 @@ class ScreenTimeModule : Module() {
 
     AsyncFunction("resetScreenTimeData") {
       FocusSessionState(context).clear()
+      FocusReturnAccess.reset(context)
       clearFocusActivity()
       ledger.reset()
       prefs.edit().clear().apply()
@@ -168,6 +204,10 @@ class ScreenTimeModule : Module() {
     OnDestroy {
       pendingAuthPromise?.resolve(false)
       pendingAuthPromise = null
+      pendingFocusPromise?.resolve(false)
+      pendingFocusPromise = null
+      FocusReturnAccess.onNeedsSync = null
+      FocusReturnAccess.lease.clear()
     }
 
     // 현재 권한 상태 — approved / denied / notDetermined (JS AuthorizationStatus와 동일 문자열).
@@ -369,6 +409,10 @@ class ScreenTimeModule : Module() {
 
     // 설정을 다녀온 복귀 감지 — 대기 중인 권한 요청을 실제 AppOps 상태로 마감한다(§2).
     OnActivityEntersForeground {
+      pendingFocusPromise?.let { promise ->
+        pendingFocusPromise = null
+        promise.resolve(FocusReturnAccess.ready(context))
+      }
       pendingAuthPromise?.let { promise ->
         pendingAuthPromise = null
         promise.resolve(isUsageAccessGranted())

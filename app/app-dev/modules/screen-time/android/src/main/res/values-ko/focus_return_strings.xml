@@ -1,0 +1,4 @@
+<resources>
+  <string name="focus_return_label">집중할고양 집중 도우미</string>
+  <string name="focus_return_description">집중 중 어떤 앱을 여는지 감지하고, 허용하지 않은 앱이면 진행 중인 집중할고양 화면으로 돌아와요. 앱 식별 정보는 기기 안에서만 처리하며 화면 내용·메시지·입력값은 읽거나 공유하지 않아요. 언제든 여기서 서비스를 끌 수 있어요.</string>
+</resources>
