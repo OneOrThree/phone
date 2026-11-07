@@ -29,7 +29,7 @@ const runSync = jest.fn();
 const objectRunSync = jest.fn();
 const objectDispose = jest.fn();
 const objectResized = {
-  getPixelBuffer: jest.fn(() => new Uint8Array([255, 0, 127]).buffer),
+  getPixelBuffer: jest.fn(() => new Uint8Array(320 * 320 * 3).buffer),
   dispose: objectDispose,
 };
 const objectResize = jest.fn(() => objectResized);
@@ -47,6 +47,7 @@ beforeEach(() => {
   resized.getPixelBuffer.mockImplementation(() => new Uint8Array([255, 0, 127]).buffer);
   resize.mockImplementation(() => resized);
   objectResize.mockImplementation(() => objectResized);
+  objectResized.getPixelBuffer.mockImplementation(() => new Uint8Array(320 * 320 * 3).buffer);
   const objectScores = new Float32Array(180);
   objectScores[83] = 0.9;
   objectRunSync.mockImplementation(() => [objectScores.buffer, new Float32Array(8).buffer]);
@@ -498,12 +499,10 @@ test('손과 물체가 각각 2장이어도 같은 장에서 함께 보인 것�
   const none = new Float32Array(180);
   const book = new Float32Array(180);
   book[83] = 0.9;
-  objectRunSync
-    .mockReturnValueOnce([none.buffer])
-    .mockReturnValueOnce([book.buffer])
-    .mockReturnValueOnce([book.buffer]);
   const screen = await setup(false, 'periodic');
+  objectRunSync.mockReturnValue([none.buffer]);
   await sample(4);
+  objectRunSync.mockReturnValue([book.buffer]);
   await sample(4);
   await sample(-4);
   expect(screen.onDetection).toHaveBeenLastCalledWith('missingObject');
@@ -565,4 +564,26 @@ test('정기 촬영이 중단돼도 5초 제한으로 카메라를 쉬고 다음
   await sample(4);
   await sample(4);
   expect(screen.onDetection).toHaveBeenLastCalledWith('focused');
+});
+
+test('옆으로 놓인 책은 같은 프레임을 회전해 재검사하고 성공한 방향은 다음 장에 재사용한다', async () => {
+  const input = new Uint8Array(320 * 320 * 3);
+  input[0] = 255;
+  objectResized.getPixelBuffer.mockReturnValue(input.buffer);
+  objectRunSync.mockImplementation(([buffer]: ArrayBuffer[]) => {
+    const pixels = new Uint8Array(buffer!);
+    const scores = new Float32Array(180);
+    scores[83] = pixels[(320 - 1) * 3] === 255 ? 0.8 : 0.1;
+    return [scores.buffer, new Float32Array(8).buffer];
+  });
+  const screen = await setup(false, 'periodic');
+  await sample(4);
+  await sample(4);
+  await sample(4);
+  expect(screen.onDetection).toHaveBeenLastCalledWith('focused');
+  expect(objectRunSync).toHaveBeenCalledTimes(4);
+  expect(objectDispose).toHaveBeenCalledTimes(3);
+  await act(async () => jest.advanceTimersByTime(10_000));
+  expect(objectRunSync).toHaveBeenCalledTimes(4);
+  expect(jest.mocked(useCamera).mock.calls.at(-1)![0].isActive).toBe(false);
 });

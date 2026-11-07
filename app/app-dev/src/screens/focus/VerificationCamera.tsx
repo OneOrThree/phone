@@ -11,7 +11,12 @@ import {
 import { useResizer } from 'react-native-vision-camera-resizer';
 import { useTensorflowModel, type ModelSource } from 'react-native-fast-tflite';
 import { createSynchronizable, scheduleOnRN } from 'react-native-worklets';
-import { PALM_INPUT, maxSigmoid, scoreTensorIndex } from '@/services/studyVerification/palmScore';
+import {
+  HAND_SCORE,
+  PALM_INPUT,
+  maxSigmoid,
+  scoreTensorIndex,
+} from '@/services/studyVerification/palmScore';
 import {
   LIVE_SAMPLE_MS,
   LIVE_STALE_MS,
@@ -21,6 +26,10 @@ import {
   MEASUREMENT_CAPTURE_TIMEOUT_MS,
   type VerificationCadence,
 } from '@/services/studyVerification/cadence';
+import {
+  detectRotatedStudyObjects,
+  type RotationSearch,
+} from '@/services/studyVerification/rotatedStudyObjects';
 import type { VerificationCameraPosition } from '@/services/studyVerification/types';
 import {
   OBJECT_INPUT,
@@ -167,6 +176,10 @@ function ModelVerificationCamera({
   const tflite = model.state === 'loaded' ? model.model : undefined;
   const scoreIdx = tflite ? scoreTensorIndex(tflite.outputs) : -1;
   const resizer = resize.resizer;
+  const objectRotation = useMemo(
+    () => createSynchronizable<RotationSearch>({ preferred: 0, next: 1 }),
+    [],
+  );
   const samples = useMemo(() => createSynchronizable<Samples>(emptySamples()), []);
   const captureEpoch = useMemo(() => createSynchronizable(0), []);
   const interrupted = useMemo(() => createSynchronizable(false), []);
@@ -330,8 +343,18 @@ function ModelVerificationCamera({
             const objectFrame = objectResizer.resize(frame);
             try {
               // 모델 입력은 uint8 RGB다. float 정규화 없이 버퍼가 살아 있을 때 실행한다.
-              const result = objectTflite.runSync([objectFrame.getPixelBuffer()]);
-              objectScore = studyObjectScores(new Float32Array(result[objectIdx]!));
+              const result = detectRotatedStudyObjects(
+                objectFrame.getPixelBuffer(),
+                objectRotation.getBlocking(),
+                score >= HAND_SCORE,
+                (input) => {
+                  'worklet';
+                  const output = objectTflite.runSync([input]);
+                  return studyObjectScores(new Float32Array(output[objectIdx]!));
+                },
+              );
+              objectScore = result.scores;
+              objectRotation.setBlocking(result.search);
             } finally {
               objectFrame.dispose();
             }
@@ -364,6 +387,7 @@ function ModelVerificationCamera({
       interrupted,
       receiveScores,
       periodic,
+      objectRotation,
       objectTflite,
       objectResizer,
       objectIdx,
