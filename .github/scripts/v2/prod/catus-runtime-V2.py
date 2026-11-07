@@ -353,6 +353,10 @@ def publish_badge_once(result,repo):
     if success:
         paths.append((f'prod-V2/{role}.json',{'schemaVersion':1,'label':role+' prod V2','message':result['version'],'color':'green','namedLogo':'amazonaws'}))
         if role=='app':
+            paths.append(('prod-V2/app-proof.json',{'schemaVersion':1,'status':result['status'],
+                'version':result['version'],'run_url':result.get('run_url',''),
+                'run_attempt':int(os.environ.get('GITHUB_RUN_ATTEMPT','0')),
+                'service_revisions':result['release']['manifest']['service_revisions']}))
             for service,revision in result['release']['manifest']['service_revisions'].items():
                 paths.append((f'prod-V2/{service}.json',{'schemaVersion':1,'label':service+' prod V2','message':result['release']['manifest'].get('service_versions',{}).get(service,revision[:8]),'color':'green'}))
     changes=[{'path':path,'mode':'100644','type':'blob','content':json.dumps(value)} for path,value in paths]

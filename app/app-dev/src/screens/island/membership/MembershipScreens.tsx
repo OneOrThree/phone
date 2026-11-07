@@ -1,3 +1,5 @@
+import { WebIslandEntry } from '@/screens/web-demo/WebIslandEntry';
+import { usesSharedWebIsland } from '@/services/webIsland';
 import {
   Badge,
   Btn,
@@ -116,6 +118,12 @@ export function renderMembershipScreens(context: ScreenContext) {
   } = context;
 
   if (server && route === 'visit') return <ServerVisit key={detail} e={e} />;
+
+  if (
+    usesSharedWebIsland() &&
+    ['createIsland', 'joinIsland', 'mainIsland', 'currentIsland'].includes(route)
+  )
+    return <WebIslandEntry e={e} />;
 
   if (server && (route === 'mainIsland' || route === 'currentIsland'))
     return (

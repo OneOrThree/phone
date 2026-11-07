@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { Platform, StyleSheet, View } from 'react-native';
+import { Asset } from 'expo-asset';
 import {
   NativePreviewView,
   useCamera,
@@ -8,7 +9,7 @@ import {
   type Frame,
 } from 'react-native-vision-camera';
 import { useResizer } from 'react-native-vision-camera-resizer';
-import { useTensorflowModel } from 'react-native-fast-tflite';
+import { useTensorflowModel, type ModelSource } from 'react-native-fast-tflite';
 import { createSynchronizable, scheduleOnRN } from 'react-native-worklets';
 import { PALM_INPUT, maxSigmoid, scoreTensorIndex } from '@/services/studyVerification/palmScore';
 import {
@@ -38,6 +39,10 @@ export type { VerificationDetection } from '@/services/studyVerification/focusDe
 export const PREVIEW_SAMPLE_MS = LIVE_SAMPLE_MS;
 export const PREVIEW_STALE_MS = LIVE_STALE_MS;
 const PREVIEW_RESOLUTION = { width: 640, height: 480 };
+// 모델 require 는 카메라를 실제로 그릴 때만 평가한다 — 모듈 최상위에 두면 이 파일을 import 만 하는 화면·테스트도 .tflite 를 읽는다.
+const palmModelModule = (): number => require('../../assets/ml/palm_detection_lite.tflite');
+const objectModelModule = (): number => require('../../assets/ml/efficientdet_lite0_int8.tflite');
+type ModelSources = { palm: ModelSource; object: ModelSource };
 type Samples = {
   lastAt: number;
   scores: number[];
@@ -91,7 +96,43 @@ function CameraPreview({ output }: { output: ReturnType<typeof usePreviewOutput>
   );
 }
 
-function LiveVerificationCamera({
+/**
+ * Android 릴리스 번들의 require(..) 는 스킴 없는 raw 리소스 이름이라 fast-tflite 가 URL 로 읽지 못한다(티켓 2751).
+ * Android 에서만 expo-asset 으로 캐시 파일에 복사해 file:// 주소를 넘긴다. iOS 는 require 값을 그대로 넘긴다.
+ */
+function useModelSources(): ModelSources | null {
+  const [sources, setSources] = useState<ModelSources | null>(() =>
+    Platform.OS === 'android' ? null : { palm: palmModelModule(), object: objectModelModule() },
+  );
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+    let alive = true;
+    // 복사에 실패하면 원래 값을 넘겨 기존 모델 로딩 실패(판정 불가) 경로로 보낸다.
+    const toFile = (module: number): Promise<ModelSource> =>
+      Asset.fromModule(module)
+        .downloadAsync()
+        .then(
+          ({ localUri }) => (localUri ? { url: localUri } : module),
+          () => module,
+        );
+    Promise.all([toFile(palmModelModule()), toFile(objectModelModule())]).then(([palm, object]) => {
+      if (alive) setSources({ palm, object });
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+  return sources;
+}
+
+function LiveVerificationCamera(props: Omit<Props, 'active'>) {
+  const models = useModelSources();
+  if (!models) return null;
+  return <ModelVerificationCamera {...props} models={models} />;
+}
+
+function ModelVerificationCamera({
+  models,
   position,
   previewVisible = true,
   cadence = 'live',
@@ -100,8 +141,8 @@ function LiveVerificationCamera({
   onDetection,
   onStudyObjects,
   onError,
-}: Omit<Props, 'active'>) {
-  const model = useTensorflowModel(require('../../assets/ml/palm_detection_lite.tflite'), []);
+}: Omit<Props, 'active'> & { models: ModelSources }) {
+  const model = useTensorflowModel(models.palm, []);
   // 손 모델 입력은 float32 RGB 0~1 이다. 리사이저가 GPU 에서 바로 그 형식으로 내보내 JS 변환을 하지 않는다(티켓 2737).
   const resize = useResizer({
     width: PALM_INPUT,
@@ -111,10 +152,7 @@ function LiveVerificationCamera({
     scaleMode: 'contain',
     pixelLayout: 'interleaved',
   });
-  const objectModel = useTensorflowModel(
-    require('../../assets/ml/efficientdet_lite0_int8.tflite'),
-    [],
-  );
+  const objectModel = useTensorflowModel(models.object, []);
   const objectResize = useResizer({
     width: OBJECT_INPUT,
     height: OBJECT_INPUT,

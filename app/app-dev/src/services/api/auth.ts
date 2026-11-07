@@ -13,6 +13,7 @@
  */
 import * as SecureStore from 'expo-secure-store';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Platform } from 'react-native';
 import { ApiError, CLIENT_STALE_SESSION, request, uuid } from './client';
 import {
   clearRejectedSession,
@@ -132,6 +133,15 @@ async function saveSessionHoldingBootstrap(
 }
 
 const GUEST_DEVICE_ID_KEY = 'gromo.guestDeviceId';
+// 웹의 게스트 복구 ID도 영속 보관한다. 네이티브는 기존 보안 저장소를 그대로 쓴다.
+const guestDeviceStore = {
+  getItemAsync: (key: string) =>
+    Platform.OS === 'web' ? AsyncStorage.getItem(key) : SecureStore.getItemAsync(key),
+  setItemAsync: (key: string, value: string) =>
+    Platform.OS === 'web' ? AsyncStorage.setItem(key, value) : SecureStore.setItemAsync(key, value),
+  deleteItemAsync: (key: string) =>
+    Platform.OS === 'web' ? AsyncStorage.removeItem(key) : SecureStore.deleteItemAsync(key),
+};
 const GUEST_DEVICE_ID_ROTATION_PENDING_KEY = 'gromo.guestDeviceIdRotationPending';
 let guestDeviceIdFlight: Promise<string> | null = null;
 let guestDeviceIdQueue: Promise<unknown> = Promise.resolve();
@@ -148,14 +158,14 @@ function serializeGuestDeviceId<T>(work: () => Promise<T>): Promise<T> {
 async function finishGuestDeviceIdRotation(): Promise<void> {
   const [asyncMarker, secureMarker] = await Promise.all([
     AsyncStorage.getItem(GUEST_DEVICE_ID_ROTATION_PENDING_KEY),
-    SecureStore.getItemAsync(GUEST_DEVICE_ID_ROTATION_PENDING_KEY),
+    guestDeviceStore.getItemAsync(GUEST_DEVICE_ID_ROTATION_PENDING_KEY),
   ]);
   if (!guestDeviceIdRotationRequested && asyncMarker !== '1' && secureMarker !== '1') return;
-  await SecureStore.deleteItemAsync(GUEST_DEVICE_ID_KEY);
+  await guestDeviceStore.deleteItemAsync(GUEST_DEVICE_ID_KEY);
   const fresh = uuid();
-  await SecureStore.setItemAsync(GUEST_DEVICE_ID_KEY, fresh);
+  await guestDeviceStore.setItemAsync(GUEST_DEVICE_ID_KEY, fresh);
   await AsyncStorage.removeItem(GUEST_DEVICE_ID_ROTATION_PENDING_KEY);
-  await SecureStore.deleteItemAsync(GUEST_DEVICE_ID_ROTATION_PENDING_KEY);
+  await guestDeviceStore.deleteItemAsync(GUEST_DEVICE_ID_ROTATION_PENDING_KEY);
   guestDeviceIdRotationRequested = false;
 }
 
@@ -164,7 +174,7 @@ async function writeGuestDeviceIdRotationMarker(): Promise<void> {
     await AsyncStorage.setItem(GUEST_DEVICE_ID_ROTATION_PENDING_KEY, '1');
   } catch (error) {
     try {
-      await SecureStore.setItemAsync(GUEST_DEVICE_ID_ROTATION_PENDING_KEY, '1');
+      await guestDeviceStore.setItemAsync(GUEST_DEVICE_ID_ROTATION_PENDING_KEY, '1');
     } catch {
       throw new LogoutNotDurableError(error);
     }
@@ -182,7 +192,7 @@ export function prepareLogout(): Promise<void> {
     // 로그아웃을 취소하므로 회전 의도도 거둔다. 남기면 계속 로그인된 게스트의 복구 ID가 바뀐다.
     await Promise.all([
       AsyncStorage.removeItem(GUEST_DEVICE_ID_ROTATION_PENDING_KEY).catch(() => {}),
-      SecureStore.deleteItemAsync(GUEST_DEVICE_ID_ROTATION_PENDING_KEY).catch(() => {}),
+      guestDeviceStore.deleteItemAsync(GUEST_DEVICE_ID_ROTATION_PENDING_KEY).catch(() => {}),
     ]);
   });
 }
@@ -200,9 +210,9 @@ function rotateGuestDeviceId(intentRecorded: Promise<void>): Promise<void> {
       guestDeviceIdRotationRequested = false;
       throw error;
     }
-    await SecureStore.deleteItemAsync(GUEST_DEVICE_ID_KEY);
+    await guestDeviceStore.deleteItemAsync(GUEST_DEVICE_ID_KEY);
     await AsyncStorage.removeItem(GUEST_DEVICE_ID_ROTATION_PENDING_KEY);
-    await SecureStore.deleteItemAsync(GUEST_DEVICE_ID_ROTATION_PENDING_KEY);
+    await guestDeviceStore.deleteItemAsync(GUEST_DEVICE_ID_ROTATION_PENDING_KEY);
     guestDeviceIdRotationRequested = false;
   });
   guestDeviceIdRotationFlight = rotation;
@@ -222,11 +232,11 @@ async function guestDeviceId(): Promise<string> {
   guestDeviceIdFlight ??= (async () => {
     return serializeGuestDeviceId(async () => {
       await finishGuestDeviceIdRotation();
-      const saved = await SecureStore.getItemAsync(GUEST_DEVICE_ID_KEY);
+      const saved = await guestDeviceStore.getItemAsync(GUEST_DEVICE_ID_KEY);
       if (saved && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(saved))
         return saved;
       const created = uuid();
-      await SecureStore.setItemAsync(GUEST_DEVICE_ID_KEY, created);
+      await guestDeviceStore.setItemAsync(GUEST_DEVICE_ID_KEY, created);
       return created;
     });
   })();

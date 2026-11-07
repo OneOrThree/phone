@@ -1613,8 +1613,11 @@ export function FocusFlow({ e: environment }: any) {
     spots = [...fishingPeerSpots, ...(seated ? [mine] : [])];
   const focusing = activeFocus,
     mySubject = r === 'focusSetup' ? null : (s.session?.subject ?? result?.subject ?? null);
+  // 체험 완료 기록(focusGuideDone)은 기기에만 남아 재설치·새 기기에서는 사라진다. 진행 중인 튜토리얼이
+  // 없으면 첫 집중 체험을 마친 계정으로 보고 안내한다 — 기록을 잃은 계정에는 다시 보여도 된다.
+  const tutorialDone = s.focusGuideDone || !s.tutorial || s.tutorial.step >= 22;
   const verificationIntro =
-    s.focusGuideDone && !experience && !dialog && !catInfo && !leg && !voyage && !goldenCutscene
+    tutorialDone && !experience && !dialog && !catInfo && !leg && !voyage && !goldenCutscene
       ? 'automatic'
       : undefined;
   // 집중 준비 모달은 누른 곳(내 고양이) 위에 붙인다. 위가 좁으면 아래 → 오른쪽 → 왼쪽.
@@ -1635,7 +1638,13 @@ export function FocusFlow({ e: environment }: any) {
       <View style={[StyleSheet.absoluteFill, { zIndex: 10 }]}>
         <View style={[StyleSheet.absoluteFill, { backgroundColor: '#493B3940' }]} />
         <View
-          onLayout={(ev) => setSetupHeight(ev.nativeEvent.layout.height)}
+          testID="focus-setup-card"
+          // 카드 높이로 카드 위치를 정하므로(anchorCard), 위치가 바뀔 때 Android 픽셀 반올림으로 생기는
+          // 1픽셀 미만 높이 흔들림까지 받으면 측정 → 재배치 → 재측정이 끝없이 돌아 앱이 꺼진다(GROMO-2750).
+          onLayout={(ev) => {
+            const height = ev.nativeEvent.layout.height;
+            setSetupHeight((prev) => (Math.abs(height - prev) < 1 ? prev : height));
+          }}
           style={[
             fiCard,
             {

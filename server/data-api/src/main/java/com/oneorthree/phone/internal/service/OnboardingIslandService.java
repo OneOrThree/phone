@@ -82,19 +82,29 @@ public class OnboardingIslandService {
         guards.requireJoinedIslandLimit(user);
         Group island = groups.save(Group.builder().name("새로운 섬").description("")
                 .maxMembers(Group.DEFAULT_MAX_MEMBERS).isPrivate(false).approvalRequired(false).build());
-        wallets.save(IslandWallet.empty(island.getId()));
-        construction.save(IslandConstructionState.empty(island.getId()));
-        // 새 섬은 마을회관을 완공 상태로 함께 받는다(GROMO-2650). 다만 ConstructionGuideRecipient 행은
-        // 만들지 않는다 — 완공 안내는 recipient 행에서만 발동하므로, 심지 않아야 축하가 엉뚱하게 뜨지 않는다.
-        facilities.save(IslandFacility.completedSeed(island.getId(), HALL_BUILDING_ID, completedAt));
-        // 완공 시설은 같은 TX 에서 공동 외양 맵에도 default 로 등록해야 한다(GROMO-1783) — 등록하지 않으면
-        // buildingThemes 에 hall 이 없어 회관 테마 PATCH 가 미등록 건물로 422 거절되고, 완공 스케줄러는
-        // BUILDING 시설만 처리해 이후에도 복구되지 않는다. 완공 안내 recipient 는 여전히 만들지 않는다.
-        islandAppearance.buildingCompleted(island.getId(), HALL_BUILDING_ID, user.getId());
+        seedNewIsland(island.getId(), user.getId(), completedAt);
         members.save(GroupMember.builder().user(user).group(island).role(GroupMemberRole.OWNER).build());
         // 실제 항해는 완료 검증을, 첫 항해 체험은 호출부의 출발 가드를 이미 거쳤다.
         context.moveTo(island.getId());
         return island;
+    }
+
+    /**
+     * 새 섬의 공동 상태 — 0원 공동 지갑·빈 건설 상태·완공 마을회관. 섬을 만드는 두 경로(항해 정착·{@code POST /islands})가
+     * 같이 쓴다(GROMO-2650·2763). 한쪽만 회관을 심으면 회관 없는 섬이 그 경로로만 다시 생긴다.
+     *
+     * @param founderId 외양 사건의 주체 — 섬을 만든 사람
+     */
+    public void seedNewIsland(UUID islandId, UUID founderId, Instant completedAt) {
+        wallets.save(IslandWallet.empty(islandId));
+        construction.save(IslandConstructionState.empty(islandId));
+        // 새 섬은 마을회관을 완공 상태로 함께 받는다(GROMO-2650). 다만 ConstructionGuideRecipient 행은
+        // 만들지 않는다 — 완공 안내는 recipient 행에서만 발동하므로, 심지 않아야 축하가 엉뚱하게 뜨지 않는다.
+        facilities.save(IslandFacility.completedSeed(islandId, HALL_BUILDING_ID, completedAt));
+        // 완공 시설은 같은 TX 에서 공동 외양 맵에도 default 로 등록해야 한다(GROMO-1783) — 등록하지 않으면
+        // buildingThemes 에 hall 이 없어 회관 테마 PATCH 가 미등록 건물로 422 거절되고, 완공 스케줄러는
+        // BUILDING 시설만 처리해 이후에도 복구되지 않는다. 완공 안내 recipient 는 여전히 만들지 않는다.
+        islandAppearance.buildingCompleted(islandId, HALL_BUILDING_ID, founderId);
     }
 
     /** 사용자 → context → 목적지 잠금 뒤 호출한다. 생성 사건은 호출자가 나머지 도착 쓰기 뒤에 발행한다. */

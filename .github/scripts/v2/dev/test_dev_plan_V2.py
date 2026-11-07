@@ -12,7 +12,7 @@ class PlannerTest(unittest.TestCase):
         self.source = {name: 'a' * 64 for name in module.SERVICES}
         self.prior = {'environment': 'dev-v2', 'release_id': 'baseline', 'infra_revision': 'b' * 40,
                       'source_fingerprints': self.source.copy(),
-                      'images': {name: f'asia-northeast3-docker.pkg.dev/oneorthree2/{name}/{name}@sha256:' + 'c' * 64
+                      'images': {name: f'asia-northeast3-docker.pkg.dev/project-cd783bdb-e03f-4e17-b74/{name}/{name}@sha256:' + 'c' * 64
                                  for name in module.SERVICES}}
 
     def run_plan(self):

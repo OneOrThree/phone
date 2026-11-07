@@ -67,7 +67,7 @@ flow() {
   api GET "/islands/$island/shop/wallets" || return 1
   B0=$(smoke_json '.data.villagePoints') || return 1
   api GET "/islands/$island/construction-options" || return 1
-  assert '.data.items[] | select(.id=="hall") | .selectable == true' || return 1
+  assert '.data.items[] | select(.id=="board") | .selectable == true' || return 1
   stage='집중 시작·실제 대기'
   api POST /focus-sessions "{\"islandId\":\"$island\",\"subject\":\"smoke-core\"}" || return 1
   session=$(smoke_json '.data.id') || return 1
@@ -90,17 +90,17 @@ flow() {
   api GET "/islands/$island/shop/wallets" || return 1
   B1=$(smoke_json '.data.villagePoints') || return 1
   ((B1>B0)) || return 1
-  stage='회관 목표·착공'
+  stage='게시판 목표·착공'
   api GET "/islands/$island/construction-options" || return 1
-  cost=$(smoke_json '.data.items[] | select(.id=="hall") | .cost') || return 1
+  cost=$(smoke_json '.data.items[] | select(.id=="board") | .cost') || return 1
   version=$(smoke_json '.data.islandVersion') || return 1
   revision=$(smoke_json '.data.costPolicyVersion') || return 1
-  api PUT "/islands/$island/construction-target" "{\"buildingId\":\"hall\",\"expectedVersion\":$version}" || return 1
+  api PUT "/islands/$island/construction-target" "{\"buildingId\":\"board\",\"expectedVersion\":$version}" || return 1
   api GET "/islands/$island/construction-options" || return 1
-  assert ".data.costPolicyVersion == $revision and (.data.items[] | select(.id==\"hall\") | .cost == $cost and .buildable == true)" || return 1
+  assert ".data.costPolicyVersion == $revision and (.data.items[] | select(.id==\"board\") | .cost == $cost and .buildable == true)" || return 1
   version=$(smoke_json '.data.islandVersion') || return 1
-  api POST "/islands/$island/constructions" "{\"buildingId\":\"hall\",\"expectedVersion\":$version,\"expectedCostPolicyVersion\":$revision}" || return 1
-  assert '.data.buildingId == "hall" and .data.status == "BUILDING"' || return 1
+  api POST "/islands/$island/constructions" "{\"buildingId\":\"board\",\"expectedVersion\":$version,\"expectedCostPolicyVersion\":$revision}" || return 1
+  assert '.data.buildingId == "board" and .data.status == "BUILDING"' || return 1
   api GET "/islands/$island/shop/wallets" || return 1
   B2=$(smoke_json '.data.villagePoints') || return 1
   ((B2==B1-cost)) || return 1
@@ -137,8 +137,8 @@ flow() {
   assert ".data.wallets.villagePoints == $B3" || return 1
   cp "$SMOKE_BODY_FILE" "$SMOKE_TMP_DIR/final-home.json"
   api GET "/islands/$island/construction-options" || return 1
-  if ! assert '.data.activeConstruction.buildingId == "hall"'; then
-    jq -e '.data.buildings | index("hall") != null' "$SMOKE_TMP_DIR/final-home.json" >/dev/null || return 1
+  if ! assert '.data.activeConstruction.buildingId == "board"'; then
+    jq -e '.data.buildings | index("board") != null' "$SMOKE_TMP_DIR/final-home.json" >/dev/null || return 1
   fi
   if [[ -n "${SMOKE_CORE_CONTEXT_FILE:-}" ]]; then
     printf '%s' "$token" > "$SMOKE_TMP_DIR/token"

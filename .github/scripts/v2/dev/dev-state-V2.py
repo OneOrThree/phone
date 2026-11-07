@@ -5,7 +5,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 
-BUCKET = 'catus-dev-v2-deploy-263851348176'
+BUCKET = 'catus-dev-v2-deploy-201721380114'
 URI = f'gs://{BUCKET}/deployments/app/current.json'
 
 
@@ -29,13 +29,13 @@ def read():
     if value.returncode:
         raise RuntimeError('dev V2 성공 상태 본문 조회 실패')
     state = json.loads(value.stdout)
-    if state.get('environment') != 'dev-v2' or state.get('project') != 'oneorthree2':
+    if state.get('environment') != 'dev-v2' or state.get('project') != 'project-cd783bdb-e03f-4e17-b74':
         raise ValueError('dev V2 상태가 아닙니다')
     return state, generation
 
 
 def write(state, expected_generation):
-    if state.get('environment') != 'dev-v2' or state.get('project') != 'oneorthree2':
+    if state.get('environment') != 'dev-v2' or state.get('project') != 'project-cd783bdb-e03f-4e17-b74':
         raise ValueError('dev V2 상태만 기록할 수 있습니다')
     if not str(expected_generation).isdigit():
         raise ValueError('기준 객체 세대가 필요합니다')

@@ -1,0 +1,6 @@
+{
+  "name": "phone-api-contract-inventory",
+  "private": true,
+  "scripts": {"test": "node --test inventory.test.cjs", "report": "node report.cjs"},
+  "devDependencies": {"typescript": "6.0.3"}
+}

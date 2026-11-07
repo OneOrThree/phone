@@ -26,7 +26,7 @@ class AppHostTest(unittest.TestCase):
         (compose.parent/'nginx.conf').write_text('server {}\n')
         self.payload = {'release_id':release,'services':['data-api','realtime'], 'compose_path':str(compose),
                         'redis_ip':'10.30.0.7', 'envs':{s:'TEST=1\n' for s in m.SERVICES},
-                        'images':{s:f'asia-northeast3-docker.pkg.dev/oneorthree2/{s}/{s}@sha256:'+'b'*64 for s in m.SERVICES}}
+                        'images':{s:f'asia-northeast3-docker.pkg.dev/project-cd783bdb-e03f-4e17-b74/{s}/{s}@sha256:'+'b'*64 for s in m.SERVICES}}
 
     def fake_run(self, args, **kwargs):
         if args[:2] == ['docker', 'inspect']:

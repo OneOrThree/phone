@@ -64,6 +64,14 @@ public class IslandMembershipController {
     // 같게 둔다 — 여기서 더 느슨하게 받으면 초과분이 400/422 로 갈리는 경계가 상류와 어긋난다.
     private static final int CODE_MAX = 32;
     private static final int TOKEN_MAX = 64;
+
+    /** 웹에서 같은 공용 섬으로 입장한다. 목적지나 정원은 요청 본문으로 받지 않는다. */
+    @PostMapping("/me/web-island")
+    public IslandCreatedView enterWebIsland(HttpServletRequest request) {
+        AccessTokenClaims claims = sessions.requireSession(request);
+        return islands.enterWebIsland(claims, CommandKeys.required(request), properties.deadline());
+    }
+
     /** 섬 생성 본문의 화이트리스트 — password 는 없다(LLD §1). maxMembers 는 GROMO-1993 에서 열었다. */
     private static final Set<String> CREATE_KEYS = Set.of("name", "intro", "approvalRequired", "maxMembers");
     /** 가입 본문의 화이트리스트 — {@code origin} 은 GROMO-2260 에서 열었다. */

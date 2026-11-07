@@ -121,6 +121,7 @@ internal:
           - 'POST /internal/outbox-commands/*/delivered'
           # GROMO-1764 집중 세션 수명주기 6종. AntPathMatcher 의 `*` 는 «세그먼트 하나»라
           # 세그먼트 수를 정확히 맞춘다 — `/focus-sessions/*/pause` 는 sessionId 자리 하나만 받는다.
+          - 'POST /internal/users/*/web-island'
           - 'POST /internal/users/*/focus-sessions'
           # GROMO-2299 바다 집중 시작 · 한마디. `sea` 는 리터럴 한 세그먼트라 `/focus-sessions/*/…` 와 겹치지 않는다.
           - 'POST /internal/users/*/focus-sessions/sea'
@@ -297,6 +298,9 @@ internal:
         optional: true
         allow:
           - 'POST /internal/admin/island-focus-averages/snapshots'
+          # GROMO-2763 마을회관 없는 섬 일회성 정리 — 기본 dry-run. 절차는
+          # docs/prd/fishcat/island-membership/hall-less-island-cleanup.md.
+          - 'POST /internal/admin/hall-less-islands/cleanup'
 outbox:
   relay:
     enabled: ${OUTBOX_RELAY_ENABLED:false}

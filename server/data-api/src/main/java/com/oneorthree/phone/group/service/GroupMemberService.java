@@ -34,6 +34,8 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -264,6 +266,53 @@ public class GroupMemberService {
         EventEnvelope event = membershipEvents.changed(groupId, userId, "MEMBER_REMOVED", userId);
         userActivityEventLogger.log(UserActivityEvent.GROUP_LEFT, Map.of("group_id", group.getId().toString()));
         return event;
+    }
+
+    /**
+     * 운영자가 섬을 닫는다 — 마을회관 없는 섬 일회성 정리(GROMO-2763). 호출자가 주민 사용자·섬을 잠그고 대상인지 다시
+     * 판정했다.
+     *
+     * <p>주민마다 자진 이탈(LEFT)과 같은 결과를 남긴다. 강퇴가 아니므로 강퇴 알림·안내가 없다. 자진 이탈과 다른 점은
+     * 셋이다: 진행 중 집중을 막지 않고 강퇴와 같은 미정산 종결로 끝내고(FR-D03), 방장도 위임 없이 나가며, 메인 섬 이전
+     * 알림을 내지 않는다. 일반 주민을 먼저, 방장을 마지막에 내보내 «주민이 남았는데 방장이 없는» 순간을 만들지 않는다.
+     * 섬을 닫은 뒤의 순서는 마지막 1인 이탈({@link #withdrawGroupAndRecord})과 같다 — 종료 → 상태 사건 → 가입 신청
+     * 종결 → 공동 데이터 삭제(물고기 잔액 포함).
+     *
+     * @param groupId 닫을 섬
+     * @return 내보낸 주민 수
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public int closeIslandByOperator(UUID groupId) {
+        Group group = groupQueryService.getGroupForUpdate(groupId);
+        // 사용자 id 를 멤버십 쪽에서 읽는다 — User 엔티티를 거치면 group → user 저장 계층 의존이 늘어난다(GROMO-2198).
+        List<UUID> userIds = groupMemberRepository.findActiveMemberUserIdsByGroupId(groupId);
+        membershipLocks.lockMembers(groupId, userIds);
+        Map<UUID, GroupMember> residents = new LinkedHashMap<>();
+        for (UUID userId : userIds) {
+            groupMemberRepository.findActiveByUserIdAndGroupIdForUpdate(userId, groupId)
+                    .ifPresent(member -> residents.put(userId, member));
+        }
+        List<UUID> order = residents.keySet().stream()
+                .sorted(Comparator.comparing(userId -> residents.get(userId).getRole() == GroupMemberRole.OWNER))
+                .toList();
+        UUID lastActor = null;
+        for (UUID userId : order) {
+            GroupMember resident = residents.get(userId);
+            resident.leave(clock.instant());
+            focusMembershipLossService.endOnMembershipLoss(userId, groupId);
+            membershipTransitions.recordMembershipRevokedByOperator(resident, userId);
+            // 강퇴와 같이 «대상» 을 실어 Realtime 이 그 사람의 멤버십 캐시를 지운다(GROMO-2140). 주체는 본인이다.
+            membershipEvents.changed(groupId, userId, "MEMBER_REMOVED", userId);
+            lastActor = userId;
+        }
+        group.close();
+        // 주민이 없던 섬(옛 무인도 예약 등)은 사건 주체로 적을 사람이 없고, 받을 주민도 없어 상태 사건을 생략한다.
+        if (lastActor != null) {
+            islandStateEvents.changed(groupId, lastActor, "CLOSED");
+        }
+        closeJoinRequests(group);
+        islandPurge.purgeIsland(groupId);
+        return residents.size();
     }
 
     /**

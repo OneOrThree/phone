@@ -21,6 +21,7 @@ smoke_record() {
   printf '%s %s %s\n' "$1" "$2" "$reason"
 }
 smoke_request() {
+  SMOKE_CONTRACT_METHOD=$1; SMOKE_CONTRACT_PATH=$2
   local method=$1 path=$2 body=${3:-} token=${4:-${SMOKE_TOKEN:-}} device=${5:-}
   local cfg="$SMOKE_TMP_DIR/curl.cfg" output
   # 비밀은 argv / stdout / curl 진단으로 노출하지 않는다.
@@ -28,7 +29,7 @@ smoke_request() {
   if [[ -n "$token" ]]; then printf 'header = "Authorization: Bearer %s"\n' "$token" >> "$cfg"; fi
   if [[ -n "$device" ]]; then printf 'header = "X-Device-Id: %s"\n' "$device" >> "$cfg"; fi
   local args=(-q --config "$cfg" --request "$method" --max-time "${SMOKE_HTTP_TIMEOUT:-10}" --connect-timeout "${SMOKE_CONNECT_TIMEOUT:-2}" --dump-header "$SMOKE_HEADER_FILE" --output "$SMOKE_BODY_FILE" --write-out '%{http_code} %{time_total}')
-  if [[ "$method" != GET && "$method" != HEAD ]]; then args+=(-H "Idempotency-Key: $(smoke_uuid)"); fi
+  if [[ "$method" != GET && "$method" != HEAD ]]; then args+=(-H "Idempotency-Key: ${6:-$(smoke_uuid)}"); fi
   if [[ -n "$body" ]]; then
     printf '%s' "$body" > "$SMOKE_TMP_DIR/request.json"
     args+=(-H 'Content-Type: application/json' --data-binary "@$SMOKE_TMP_DIR/request.json")
@@ -40,7 +41,12 @@ smoke_request() {
   SMOKE_HTTP_MS=$(awk -v s="${output#* }" 'BEGIN{printf "%.0f", s*1000}')
   return "$rc"
 }
-smoke_ok() { [[ "$SMOKE_HTTP_CODE" =~ ^2[0-9][0-9]$ ]] && jq -e 'has("data") and (.error? == null)' "$SMOKE_BODY_FILE" >/dev/null 2>&1; }
+smoke_ok() {
+  [[ "$SMOKE_HTTP_CODE" =~ ^2[0-9][0-9]$ ]] && jq -e 'has("data") and (.error? == null)' "$SMOKE_BODY_FILE" >/dev/null 2>&1 || return 1
+  if [[ "${SMOKE_CONTRACTS_ENABLED:-0}" == 1 ]]; then
+    python3 "$(cd "$(dirname "${BASH_SOURCE[0]}")/../contracts" && pwd)/response_contract.py" "$SMOKE_CONTRACT_METHOD" "$SMOKE_CONTRACT_PATH" "$SMOKE_BODY_FILE" || return 1
+  fi
+}
 smoke_guest_login() {
   local device=$1 role=$2 script_dir rc=0
   script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)

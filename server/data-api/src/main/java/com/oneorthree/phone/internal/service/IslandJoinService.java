@@ -482,6 +482,9 @@ public class IslandJoinService {
      * 직렬화된다 — 정책 「마지막 한 자리에 동시에 가입하면 한 명만 성공한다」가 이것으로 성립한다.
      */
     private void requireCapacity(Group island) {
+        if (island.isWebLobby()) {
+            return;
+        }
         long members = groupMemberRepository.countByGroupIdIn(List.of(island.getId())).stream()
                 .mapToLong(row -> row.getMemberCount())
                 .sum();

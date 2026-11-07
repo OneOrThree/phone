@@ -13,7 +13,7 @@ import tarfile
 import time
 
 ROOT = Path(__file__).resolve().parents[4]
-BUCKET = 'gs://catus-dev-v2-deploy-263851348176'
+BUCKET = 'gs://catus-dev-v2-deploy-201721380114'
 
 
 class CommandError(RuntimeError):
@@ -81,7 +81,7 @@ def aws_secret(name):
 def validate_manifest(role, uri, manifest, archive):
     match = re.fullmatch(re.escape(BUCKET) + r'/releases/' + role + r'/([0-9a-f]{40}-[0-9]+-[0-9]+)/manifest\.json', uri)
     if not match or manifest.get('release_id') != match.group(1): raise ValueError('v2 릴리스 URI 오류')
-    if manifest.get('environment') != 'dev-v2' or manifest.get('project') != 'oneorthree2' or manifest.get('role') != role:
+    if manifest.get('environment') != 'dev-v2' or manifest.get('project') != 'project-cd783bdb-e03f-4e17-b74' or manifest.get('role') != role:
         raise ValueError('v2 대상이 아닙니다')
     revision = match.group(1).split('-')[0]
     if manifest.get('revision') != revision or manifest.get('archive_uri') != uri.rsplit('/', 1)[0] + '/runtime.tar':
@@ -118,7 +118,7 @@ SSH_ATTEMPTS, SSH_RETRY_SECONDS = 3, 10
 
 def ssh(host, remote, data=None):
     global ssh_key_ready
-    args = ['gcloud', 'compute', 'ssh', host, '--project=oneorthree2', '--zone=asia-northeast3-a',
+    args = ['gcloud', 'compute', 'ssh', host, '--project=project-cd783bdb-e03f-4e17-b74', '--zone=asia-northeast3-a',
             '--tunnel-through-iap', '--ssh-key-expire-after=1h', '--quiet', '--command']
     for attempt in range(1, SSH_ATTEMPTS + 1):
         try:
@@ -174,14 +174,14 @@ def deploy(role, uri, selection):
         if not required.issubset(selected):
             raise ValueError('선택한 Redis에 누적 변경이 모두 포함되지 않습니다')
     config = aws_secret('catus/dev/cicd-v2')
-    if config.get('environment') != 'dev-v2' or config.get('project') != 'oneorthree2' or config.get('zone') != 'asia-northeast3-a':
+    if config.get('environment') != 'dev-v2' or config.get('project') != 'project-cd783bdb-e03f-4e17-b74' or config.get('zone') != 'asia-northeast3-a':
         raise ValueError('dev V2 설정이 아닙니다')
     host_role = 'redis' if role == 'redis' else 'data'
     host = config['hosts'][host_role]
     expected_name = 'catus-dev-v2-' + host_role
     if host.get('name') != expected_name or not re.fullmatch(r'10\.30\.0\.[0-9]{1,3}', host.get('private_ip', '')):
         raise ValueError('대상 VM 정보가 다릅니다')
-    actual = command(['gcloud', 'compute', 'instances', 'describe', expected_name, '--project=oneorthree2',
+    actual = command(['gcloud', 'compute', 'instances', 'describe', expected_name, '--project=project-cd783bdb-e03f-4e17-b74',
                       '--zone=asia-northeast3-a', '--format=value(id)']).decode().strip()
     if actual != str(host['id']): raise ValueError('대상 VM ID가 다릅니다')
     # 이미지 버전 변경은 Kafka/DB 데이터 호환성 검토 없이 수행하지 않는다.
@@ -247,7 +247,7 @@ def deploy(role, uri, selection):
                 ssh(expected_name, f'sudo {root}/redis/verify.sh {name}', (password + '\n').encode())
     finally:
         if role == 'postgres': ssh(expected_name, f'sudo python3 -c "from pathlib import Path; Path(\'{destination}/postgres.env\').unlink(missing_ok=True)"')
-    result = {'environment':'dev-v2','project':'oneorthree2','role':role,'release_id':release,
+    result = {'environment':'dev-v2','project':'project-cd783bdb-e03f-4e17-b74','role':role,'release_id':release,
               'revision':revision,'host_id':actual,'result':'healthy','files':manifest['files'],
               'selection':selection if role == 'redis' else role}
     # 성공 상태는 검증을 마친 뒤에만 기록하며, 다른 실행이 먼저 기록하면 덮어쓰지 않는다.

@@ -3,6 +3,7 @@ import { Btn, C, Field, Pic, Txt, k } from '@/design-system/patterns';
 import { semanticTokens } from '@/design-system/tokens';
 import { t } from '@/i18n';
 import { LoginScreen } from '@/screens/LoginScreen';
+import { WebIslandEntry } from '@/screens/web-demo/WebIslandEntry';
 import { OnboardingFlow } from '@/screens/onboarding/OnboardingFlow';
 import { updateProfile } from '@/services/api/account';
 import { uuid } from '@/services/api/client';
@@ -40,6 +41,8 @@ export function renderEntryScreens(context: ScreenContext) {
     routeNowRef,
     serverError,
   } = context;
+
+  if (route === 'webIsland') return <WebIslandEntry e={e} />;
 
   if (route === 'login' && e.loginProviders) {
     return (

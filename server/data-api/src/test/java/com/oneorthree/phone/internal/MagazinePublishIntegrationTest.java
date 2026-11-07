@@ -27,8 +27,6 @@ import com.oneorthree.phone.magazine.repository.domain.IslandPromotion;
 import com.oneorthree.phone.magazine.repository.domain.MagazineIssue;
 import com.oneorthree.phone.magazine.support.IslandCard;
 import com.oneorthree.phone.outbox.support.OutboxTestPostgres;
-import com.oneorthree.phone.ranking.service.IslandWeeklyFocusService;
-import com.oneorthree.phone.ranking.support.RankingWeek;
 import com.oneorthree.phone.user.repository.UserRepository;
 import com.oneorthree.phone.user.repository.domain.User;
 import org.junit.jupiter.api.BeforeEach;
@@ -78,8 +76,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * 고양이 잡지 07시 발행과 읽기·받음 상태 (GROMO-2289)를 <b>실제 Flyway PostgreSQL</b> 위에서 본다 — 발행은 서비스를 직접
  * 부르고(크론은 ci 프로필에서 꺼져 있다), 읽기·받음은 생산 진입점(내부 표면)으로 부른다. 시계는 고정한다.
  *
- * <p>호는 DB 전체에 한 줄로 쌓이므로 테스트마다 잡지 표를 비우고, 주간 랭킹·7일 평균은 DB 의 모든 섬을 훑으므로 테스트마다
- * 2주씩 떨어진 다른 날(수요일)을 쓴다 — 앞선 테스트의 집중 기록이 뒤 테스트의 랭킹에 섞이지 않게.
+ * <p>호는 DB 전체에 한 줄로 쌓이므로 테스트마다 잡지 표를 비우고, 랭킹·7일 평균은 DB 의 모든 섬을 훑으므로 테스트마다
+ * 2주씩 떨어진 다른 날(수요일)을 쓴다 — 앞선 테스트의 집중 기록이 뒤 테스트의 랭킹에 섞이지 않게. 랭킹은 그날 7일 평균
+ * 스냅샷을 읽으므로(GROMO-2769) 다른 테스트 클래스가 스냅샷을 적는 날짜(2033~2036년)와도 겹치지 않는 해를 쓴다.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -87,7 +86,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class MagazinePublishIntegrationTest {
 
     private static final String TOKEN = "test-magazine-business";
-    private static final LocalDate FIRST_DATE = LocalDate.of(2034, 5, 10); // 수요일
+    private static final LocalDate FIRST_DATE = LocalDate.of(2039, 5, 11); // 수요일
     private static final AtomicInteger DATE_SEQ = new AtomicInteger();
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final String LAYOUT = "{\"v\":1,\"frameId\":\"mag.frame-scallop\",\"stickers\":[],\"tape\":null}";
@@ -106,8 +105,6 @@ class MagazinePublishIntegrationTest {
 
     @MockitoBean
     Clock clock;
-    @Autowired
-    IslandWeeklyFocusService weeklyFocus;
     @Autowired
     MagazinePublishService publisher;
     @Autowired
@@ -200,7 +197,7 @@ class MagazinePublishIntegrationTest {
     }
 
     @Test
-    @DisplayName("편집부 칸 — 주간 랭킹 1~3위는 비공개 섬도 넣어 매기고, 어제(KST) 새로 생긴 공개 섬을 먼저 만든 순으로, 운영 소식이 있으면 그 문구다")
+    @DisplayName("편집부 칸 — 랭킹(7일 평균) 1~3위는 비공개 섬도 넣어 매기고, 어제(KST) 새로 생긴 공개 섬을 먼저 만든 순으로, 운영 소식이 있으면 그 문구다")
     void editorialPage() {
         Island top = island("일등섬", true);
         Island second = island("이등섬", false);
@@ -487,7 +484,7 @@ class MagazinePublishIntegrationTest {
         jdbc.update("update islands set created_at = ? where id = ?", Timestamp.from(at), island.id);
     }
 
-    /** 이번 주(발행 순간이 속한 UTC 일요일 주)에 끝난 집중 — 섬 방장 한 명의 순수 집중 {@code minutes} 분. */
+    /** 발행 전 7일 평균 창 안(전날)에 끝난 집중 — 섬 방장 한 명의 순수 집중 {@code minutes} 분. */
     private void focus(Island island, int minutes) {
         Instant start = kst(date.minusDays(1), 10, 0);
         UUID session = sessions.save(FocusSession.builder().user(island.owner).focusType(FocusType.INFINITE)
@@ -497,8 +494,6 @@ class MagazinePublishIntegrationTest {
                 .lifecycle(FocusSessionLifecycle.COMPLETED).lastTransitionAt(start).build());
         intervals.save(FocusSessionInterval.builder().sessionId(session).ordinal(1).kind(FocusIntervalKind.ACTIVE)
                 .startedAt(start).endedAt(start.plusSeconds(minutes * 60L)).build());
-        // 완료 전이를 거치지 않고 심은 세션이라 랭킹 분자 read model(GROMO-2343)을 정본으로 다시 채운다.
-        weeklyFocus.recompute(RankingWeek.weekStart(start));
     }
 
     private UUID promotion(UUID islandId, LocalDate issueDate, Instant appliedAt, String body) {

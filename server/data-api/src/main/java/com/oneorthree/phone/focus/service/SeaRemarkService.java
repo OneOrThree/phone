@@ -1,8 +1,8 @@
 package com.oneorthree.phone.focus.service;
 
+import com.oneorthree.phone.common.exception.RetryAfterException;
 import com.oneorthree.phone.common.support.BannedWords;
 import com.oneorthree.phone.focus.exception.FocusErrorCode;
-import com.oneorthree.phone.focus.exception.FocusException;
 import com.oneorthree.phone.focus.repository.SeaRemarkRepository;
 import com.oneorthree.phone.focus.repository.domain.SeaRemark;
 import com.oneorthree.phone.outbox.service.OutboxCommandPort;
@@ -51,7 +51,7 @@ public class SeaRemarkService {
 
     /**
      * @param remark 이미 정규화된 값({@code SeaRemarkRequest}) — 빈 문자열은 지움
-     * @throws FocusException 5분 안 재변경이면 409 {@code SEA_REMARK_LOCKED}
+     * @throws RetryAfterException 5분 안 재변경이면 409 {@code SEA_REMARK_LOCKED} + 잠금이 풀릴 때까지 남은 밀리초
      */
     @Transactional
     public SeaRemarkView update(UUID userId, String remark) {
@@ -61,7 +61,9 @@ public class SeaRemarkService {
         Instant now = clock.instant();
         SeaRemark current = remarks.findById(userId).orElse(null);
         if (current != null && now.isBefore(current.getChangedAt().plus(LOCK))) {
-            throw new FocusException(FocusErrorCode.SEA_REMARK_LOCKED);
+            // 남은 시간을 싣는다 — 응답이 유실된 성공 뒤 다시 누른 앱이 이 값으로 잠금을 맞춘다(GROMO-2759).
+            long remainingMs = Duration.between(now, current.getChangedAt().plus(LOCK)).toMillis();
+            throw new RetryAfterException(FocusErrorCode.SEA_REMARK_LOCKED, Math.max(1, remainingMs));
         }
         if (current == null) {
             remarks.save(new SeaRemark(userId, remark, now));

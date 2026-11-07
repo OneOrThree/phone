@@ -78,7 +78,7 @@ func buildActivityReport(from data: DeviceActivityResults<DeviceActivityData>) a
     // 동일한 키·동일한 빈 선택 판정을 써서 "필터가 걸렸는지"를 판별한다.
     // synchronize(): 프로세스 간 공유 UserDefaults 캐시를 디스크에서 강제 재로드 —
     // 메인 앱이 방금 바꾼 선택/목표를 읽기 전에 수행한다.
-    let sharedDefaults = UserDefaults(suiteName: "group.com.oneorthree.focuscat")
+    let sharedDefaults = UserDefaults(suiteName: "group.com.oneorthree.gromo")
     sharedDefaults?.synchronize()
     var hasSelection = false
     var includeWebDomains = false
@@ -114,7 +114,7 @@ func buildActivityReport(from data: DeviceActivityResults<DeviceActivityData>) a
                 let catName = categoryActivity.category.localizedDisplayName ?? "기타"
                 for await app in categoryActivity.applications {
                     let duration = app.totalActivityDuration
-                    if app.application.bundleIdentifier == "com.oneorthree.focuscat" {
+                    if app.application.bundleIdentifier == "com.oneorthree.gromo" {
                         segmentTotal -= duration
                         continue
                     }

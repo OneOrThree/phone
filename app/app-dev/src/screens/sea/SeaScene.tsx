@@ -9,11 +9,11 @@ import {
 } from '@/design-system/tokens';
 import { t } from '@/i18n';
 import { ownCatName } from '@/i18n/format';
-import { seaAssets } from './seaAssets';
 import { art } from '@/constants/art';
 import { MAGAZINE_UI } from '@/constants/magazineAssets';
 import { useGowun } from '@/screens/island/sceneKit';
 import { SeaRaft } from './SeaRaft';
+import { SeaGlints, SeaSkyMotion, SeaWaterMotion, useSeaRunning } from './SeaMotion';
 import { SeaParticipant, seaClock, seaPeerPages } from './seaModel';
 
 type Props = {
@@ -34,6 +34,17 @@ const M = c.magazineReader.seaObject;
 /** 뗏목 상자 위쪽 빈 띠 — 뒤 판자 그림(raft back-day 512px)이 152px 부터 시작한다. 내 한마디 칩은 이만큼 내려와 뗏목에 붙는다. */
 const RAFT_TOP = 152 / 512;
 const DOT = c.magazineReader.unreadDot;
+/**
+ * 표류 중 남의 뗏목 자리 [x, y, 크기] — 11/06 시안에서 맨 뒤 칸은 너무 멀어 보여 앞으로 당기고(0.79,0.25,48 → 0.78,0.29,58),
+ * 세 번째 칸은 왼쪽으로 옮겼다(x 0.71 → 0.62). 아래로 갈수록 커지는 원근 순서는 그대로다(GROMO-2785).
+ */
+export const DRIFT_PEER_SLOTS: [number, number, number][] = [
+  [0.78, 0.29, 58],
+  [0.24, 0.33, 66],
+  [0.62, 0.42, 76],
+  [0.23, 0.58, 94],
+  [0.76, 0.62, 82],
+];
 
 export function SeaScene({
   participants,
@@ -48,6 +59,8 @@ export function SeaScene({
   children,
 }: Props) {
   const insets = useScreenInsets();
+  // 바다 움직임(GROMO-2785)은 동작 줄이기가 아니고 앱이 앞에 있을 때만 — 한 번 계산해 모든 층과 뗏목에 내린다
+  const running = useSeaRunning(reduceMotion);
   // 이름표·말풍선·집중 시간 글자는 고운돋움(DESIGN.md 그림 장면 위 화면 규칙)
   const font = { fontFamily: useGowun() };
   const [bounds, setBounds] = useState({ width: 402, height: 788 });
@@ -112,13 +125,7 @@ export function SeaScene({
         [0.22, 0.596, 88],
         [0.76, 0.617, 82],
       ]
-    : [
-        [0.79, 0.25, 48],
-        [0.24, 0.33, 66],
-        [0.71, 0.42, 76],
-        [0.23, 0.58, 94],
-        [0.76, 0.62, 82],
-      ];
+    : DRIFT_PEER_SLOTS;
 
   return (
     <View
@@ -126,18 +133,10 @@ export function SeaScene({
       style={[styles.scene, compact && styles.compactScene]}
       onLayout={(event) => setBounds(event.nativeEvent.layout)}
     >
-      <Image
-        source={seaAssets.background}
-        resizeMode="cover"
-        style={[StyleSheet.absoluteFill, { width: bounds.width, height: bounds.height }]}
-        accessible={false}
-      />
-      <Image
-        source={seaAssets.gulls}
-        resizeMode="contain"
-        style={[styles.gulls, { left: bounds.width * 0.16, top: bounds.height * 0.08 }]}
-        accessible={false}
-      />
+      {/* 바다 움직임(GROMO-2785) — 물빛 줄·반짝임은 수면, 구름·갈매기는 하늘. 뗏목은 그 위 ScrollView 안에서 둥실거린다 */}
+      <SeaWaterMotion width={bounds.width} height={bounds.height} running={running} />
+      <SeaGlints width={bounds.width} height={bounds.height} running={running} />
+      <SeaSkyMotion width={bounds.width} height={bounds.height} running={running} />
       <ScrollView
         ref={scroll}
         testID="sea-participants"
@@ -214,6 +213,10 @@ export function SeaScene({
                       outfit={person.outfit}
                       size={compact ? compactRaft : size * sizeScale}
                       reduceMotion={reduceMotion || index !== visiblePage}
+                      float={{
+                        seed: index * peerSlots.length + slot + 1,
+                        running: running && index === visiblePage,
+                      }}
                     />
                     <Text numberOfLines={1} style={[styles.name, font]}>
                       {person.name}
@@ -302,6 +305,7 @@ export function SeaScene({
               outfit={self.outfit}
               size={selfRaft}
               reduceMotion={reduceMotion}
+              float={{ seed: 0, running }}
             />
             <Text style={[styles.name, styles.me, font]}>{ownCatName(self.name)}</Text>
             {focusing && (
@@ -358,7 +362,6 @@ export function SeaScene({
 const styles = StyleSheet.create({
   self: { position: 'absolute', alignSelf: 'center', alignItems: 'center' },
   peer: { position: 'absolute', width: 130, alignItems: 'center' },
-  gulls: { position: 'absolute', width: 56, height: 26 },
   scene: { flex: 1, minHeight: 660, backgroundColor: s.color.secondary, overflow: 'hidden' },
   compactScene: { minHeight: 0 },
   person: { alignItems: 'center', minWidth: s.size.tapMin, minHeight: s.size.tapMin },

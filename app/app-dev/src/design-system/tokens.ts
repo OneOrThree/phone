@@ -213,6 +213,18 @@ export const semanticTokens = {
 } as const;
 
 export const componentTokens = {
+  publicWebDemo: {
+    contentMaxWidth: 960,
+    copyMaxWidth: 520,
+    heroMaxWidth: 560,
+    heroAspectRatio: 16 / 9,
+    headingLineHeight: 42,
+    compactBreakpoint: 700,
+    frameMaxWidth: 1280,
+    phoneCanvasWidth: 390,
+    frameAspectRatio: 16 / 10,
+    shortViewportHeight: 480,
+  },
   observatory: {
     portraitSize: 48,
     portraitZoom: 1.8,

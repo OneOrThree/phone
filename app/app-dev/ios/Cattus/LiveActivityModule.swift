@@ -55,7 +55,7 @@ final class LiveActivityModule: RCTEventEmitter {
         resolver resolve: @escaping RCTPromiseResolveBlock,
         rejecter reject: @escaping RCTPromiseRejectBlock
     ) {
-        guard let defaults = UserDefaults(suiteName: "group.com.oneorthree.focuscat") else {
+        guard let defaults = UserDefaults(suiteName: "group.com.oneorthree.gromo") else {
             reject("WIDGET_STORAGE", "위젯 저장소를 열지 못했어요.", nil)
             return
         }

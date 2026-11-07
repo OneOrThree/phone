@@ -75,10 +75,13 @@ import {
   type BuildingTransitionTarget,
 } from '@/services/buildingTransition';
 import { trackDatadogView } from '@/services/datadog';
-import { isDemoMode, isReviewMode } from '@/services/demoMode';
+import { isDemoMode, isPublicWebDemo, isReviewMode } from '@/services/demoMode';
+import { observeWebDemo } from '@/services/webDemoAnalytics';
+import { startWebMetamoaPresence } from '@/services/webMetamoaPresence';
 import { STORE_URLS, isLetterReady, visibleAt } from '@/services/developerLetter';
 import { loadHomeSnapshot, type HomeSnapshot } from '@/services/homeSnapshot';
 import { updateIOSHomeWidget } from '@/services/iosHomeWidget';
+import { sharedWebIslandId, usesSharedWebIsland } from '@/services/webIsland';
 import { decideBootRoute } from '@/services/islandBoot';
 import { createIslandCommands } from '@/services/islandCommands';
 import { islandErrorMessage } from '@/services/islandErrors';
@@ -288,6 +291,7 @@ function Gromo() {
     [focusBlockingPermissionBusy, setFocusBlockingPermissionBusy] = useState(false),
     [reviewEpoch, setReviewEpoch] = useState(0);
   const guideStep = state.tutorial?.step ?? 0;
+  useEffect(() => startWebMetamoaPresence(), []);
   useFocusTutorialViewed(guideStep);
   const tutorialOwner = getSession()?.userId;
   const tutorialGeneration = sessionGeneration();
@@ -1722,6 +1726,18 @@ function Gromo() {
   useEffect(() => {
     if (loaded && !REVIEW && !DEMO) trackPostHogScreen(route);
   }, [loaded, route]);
+  useEffect(() => {
+    if (!loaded || !isPublicWebDemo()) return;
+    observeWebDemo({
+      route,
+      session: state.session && { id: state.session.id, status: state.session.status },
+      result: state.lastResult && {
+        id: state.lastResult.id,
+        seconds: state.lastResult.seconds,
+        fish: state.lastResult.fish,
+      },
+    });
+  }, [loaded, route, state.session, state.lastResult]);
   // 서버가 세션을 거절하면(401) 저장소는 client 가 이미 비웠다 — 화면만 로그인으로 되돌린다.
   useEffect(() => {
     if (REVIEW || DEMO) return;
@@ -1823,7 +1839,8 @@ function Gromo() {
         // /me 는 checkSession 이 읽은 계정을 섬 동기화에 넘겨 부팅에서 한 번만 부른다.
         const serverBoot = !!(account && !mock);
         const recoverRead = serverBoot ? focusCmds.current!.commands.beginRecover() : null;
-        if (serverBoot) {
+        // 웹 배정은 현재 섬을 바꿀 수 있으므로 배정 전 홈 응답을 캐시하지 않는다.
+        if (serverBoot && !usesSharedWebIsland()) {
           const date = dayKey();
           const request = loadHomeSnapshot({ date, timezone: 'Asia/Seoul' });
           // 홈 effect 가 가져가기 전에 실패해도 처리되지 않은 거부로 남기지 않는다
@@ -1943,6 +1960,21 @@ function Gromo() {
     setDetail('');
     setFocusBlockingGate(null);
   }, [loaded]);
+  // 웹 배정을 미뤘던 기존 집중이 끝나면 같은 섬으로 합류한다. 진행 세션과 결과 화면은 지킨다.
+  useEffect(() => {
+    if (!usesSharedWebIsland() || !loaded || !state.loggedIn || !state.name || state.session)
+      return;
+    if (route !== 'home' && route !== 'sea') return;
+    if (sharedWebIslandId() && state.serverIslands?.currentIslandId === sharedWebIslandId()) return;
+    resetRef.current('webIsland');
+  }, [
+    loaded,
+    route,
+    state.loggedIn,
+    state.name,
+    state.session,
+    state.serverIslands?.currentIslandId,
+  ]);
   const kickedDestination =
     ['visit', 'travel'].includes(route) &&
     state.islands.some((candidate) => candidate.id === (detail || visited) && candidate.kicked);
