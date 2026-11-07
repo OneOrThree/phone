@@ -3,10 +3,10 @@ import { useEffect, useRef, useState } from 'react';
 import { readAccountGuides, saveAccountGuides } from '@/services/accountGuides';
 import { getSession, sessionGeneration } from '@/services/api/session';
 import { captureProductEvent } from '@/services/posthog';
-import { SCREEN_TIME_GUIDE_VERSION, type MeasurementReady } from '@/services/screenTimeSetup';
+import { screenTimeGuideVersion, type MeasurementReady } from '@/services/screenTimeSetup';
 import { ScreenTimeSetupIntro } from '@/screens/permissions/ScreenTimeSetupIntro';
 import { duringSystemPrompt } from './focusLeave';
-import { FocusBlockingIcon } from './FocusBlockingGuide';
+import { FocusBlockingIcon, supportsFocusSetup } from './FocusBlockingGuide';
 import { VerificationIntro, type VerificationControlAnchor } from './VerificationIntro';
 import { Alert, Linking, Platform, Pressable, View } from 'react-native';
 import { Toggle, Txt } from '@/design-system/patterns';
@@ -173,7 +173,7 @@ export function VerificationToggle({
         .then((guides) =>
           accept(
             !!guides.verificationIntroSeen,
-            (guides.screenTimeGuideAcknowledgedVersion ?? 0) >= SCREEN_TIME_GUIDE_VERSION,
+            (guides.screenTimeGuideAcknowledgedVersion ?? 0) >= screenTimeGuideVersion(),
           ),
         )
         .catch(() => accept(false, false));
@@ -185,7 +185,7 @@ export function VerificationToggle({
     if (intro !== 'automatic' || !checked || inSession || autoOpened.current || introOpen) return;
     autoOpened.current = true;
     if (!education?.seen) setIntroOpen('verification');
-    else if (!education.setupSeen && Platform.OS === 'ios') setIntroOpen('blocking');
+    else if (!education.setupSeen && supportsFocusSetup()) setIntroOpen('blocking');
   }, [intro, checked, education, inSession, introOpen]);
   const acknowledgeVerification = () => {
     setEducation((prior) => ({
@@ -378,7 +378,7 @@ export function VerificationToggle({
           anchor={introAnchor}
           onClose={consumeIntro}
           onNext={
-            !education?.setupSeen && Platform.OS === 'ios'
+            !education?.setupSeen && supportsFocusSetup()
               ? () => {
                   acknowledgeVerification();
                   setIntroOpen('blocking');

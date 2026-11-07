@@ -58,6 +58,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   Platform.OS = 'ios';
   delete (screenTimeNative as NonNullable<typeof screenTimeNative>).supportsFocusShield;
+  delete screenTimeNative!.getAndroidFocusAccess;
   native.getAuthorizationStatus.mockResolvedValue('denied');
   native.requestAuthorization.mockResolvedValue(false);
   native.getMeasurementSelectionCounts.mockResolvedValue(selection(2));
@@ -113,6 +114,13 @@ test.each(['ios', 'android'] as const)(
   'en 로케일 — 앱 권한 관리(%s)는 한글 없이 영문으로 그린다',
   async (os) => {
     Platform.OS = os;
+    if (os === 'android')
+      native.getAndroidFocusAccess = jest.fn().mockResolvedValue({
+        enabled: false,
+        connected: false,
+        consented: false,
+        configured: false,
+      });
     applyLocalePref('en');
     native.getAuthorizationStatus.mockResolvedValue('approved');
     const view = await render(

@@ -80,7 +80,7 @@ module.exports = {
       versionCode: 379,
       // 집중 차단 기능이 있는 기존 Android OTA와 네이티브 구성을 분리한다.
       // GROMO-2756 새 Meta 앱 ID·Client Token을 포함한 바이너리만 같은 OTA를 받는다.
-      runtimeVersion: '2.0.1-android-push-assets-ai-focus-meta-events-v4',
+      runtimeVersion: '2.0.1-android-focus-return-v1',
       permissions: [
         'android.permission.PACKAGE_USAGE_STATS',
         'android.permission.POST_NOTIFICATIONS',
