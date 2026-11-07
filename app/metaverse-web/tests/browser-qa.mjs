@@ -1,3 +1,4 @@
+import { returningVisitor } from "./returning-visitor.mjs";
 import { chromium } from "playwright";
 import { browserOptions } from "./browser-options.mjs";
 import assert from "node:assert/strict";
@@ -33,6 +34,7 @@ a.on("websocket", (ws) =>
   }),
 );
 const ready = async (page) => {
+  await returningVisitor(page);
   await page.goto(target);
   await page
     .getByRole("button", { name: "낚시섬으로 가기", exact: true })

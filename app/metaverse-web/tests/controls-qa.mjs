@@ -1,3 +1,4 @@
+import { returningVisitor } from "./returning-visitor.mjs";
 import { chromium } from "playwright";
 import { browserOptions } from "./browser-options.mjs";
 import assert from "node:assert/strict";
@@ -41,6 +42,7 @@ const ready = async (options) => {
   p.on("console", (e) => {
     if (e.type() === "error") errors.push(e.text());
   });
+  await returningVisitor(p);
   await p.goto(target);
   await p.waitForFunction(
     () =>
