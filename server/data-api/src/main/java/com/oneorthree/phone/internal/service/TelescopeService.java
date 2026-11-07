@@ -56,7 +56,7 @@ import java.util.stream.Stream;
  * 「빈칸 없음」보다 앞선다(정본 SCOPE-03). 핀을 넣으면 그 섬은 스냅샷 칸에서 감춰지고, 빼면 별도 복귀 로직 없이 스냅샷에서
  * 밀려났던 섬이 순서대로 돌아온다.
  *
- * <p>기본 칸은 넷이다. 무인도 후보는 이 목록과 독립적으로 추첨해 맨 앞에 추가한다.
+ * <p>기본 칸은 넷이다. 무인도 후보는 이 목록과 독립적으로 추첨해 맨 뒤에 추가한다.
  * <ul>
  *   <li>{@code joined} — 활성 소속 섬 전부(≤3). 항해 분도 계산해 둔다.</li>
  *   <li>{@code nearby} — 스냅샷의 첫 섬이 뽑힌 순간 정원이 남아 있었다면 그 섬 하나, 항해 {@value #NEARBY_SAILING_MINUTES}분.
@@ -241,7 +241,7 @@ public class TelescopeService {
         int firstRandom = (int) items.stream().takeWhile(view -> !SLOT_RANDOM.equals(view.slot())).count();
         items.addAll(firstRandom, pinnedItems);
         onboardingIslands.destination(userId, joinedIds, items, bucketStart)
-                .ifPresent(item -> items.add(0, item));
+                .ifPresent(items::add);
         // 60 − 버킷 안에서 지난 «온전한» 분 = ceil((bucketStart + 1h − now) / 1분). 정각엔 60, 59분 59초엔 1.
         int nextRefreshMinutes = 60 - (int) Duration.between(bucketStart, now).toMinutes();
         return new TelescopeView(bucketStart, nextRefreshMinutes, items);

@@ -1,0 +1,856 @@
+{
+  "browser": {
+    "results": [
+      {
+        "check": "키보드 실시간 이동",
+        "initial": [0, 12.2],
+        "moved": [1.2, 11.5]
+      },
+      {
+        "check": "지면 클릭 이동",
+        "pass": true
+      },
+      {
+        "check": "커진 섬의 경로 이동 뒤 부두 낚시",
+        "dock": [0, 24.7]
+      },
+      {
+        "check": "두 브라우저 입장·이름·털색·실시간 이동",
+        "before": {
+          "x": 560.3820190429688,
+          "y": 575.8845825195312,
+          "width": 96.125,
+          "height": 26
+        },
+        "after": {
+          "x": 537.8936767578125,
+          "y": 567.55126953125,
+          "width": 96.125,
+          "height": 26
+        }
+      },
+      {
+        "check": "퇴장 후 주민 정리",
+        "pass": true
+      },
+      {
+        "check": "입력창 키 차단·동작 줄이기",
+        "pass": true
+      },
+      {
+        "check": "모달 Escape·포커스 복원",
+        "pass": true
+      },
+      {
+        "check": "320px 화면·44px 터치 영역",
+        "layout": {
+          "width": 320,
+          "scroll": 320,
+          "buttons": [
+            {
+              "text": "소리 켜기",
+              "width": 44,
+              "height": 44
+            },
+            {
+              "text": "내 고양이와 설정",
+              "width": 44,
+              "height": 44
+            },
+            {
+              "text": "조작 안내",
+              "width": 44,
+              "height": 44
+            },
+            {
+              "text": "섬 둘러보기",
+              "width": 76.375,
+              "height": 44
+            },
+            {
+              "text": "섬 전체 보기",
+              "width": 44,
+              "height": 49
+            },
+            {
+              "text": "시점 되돌리기",
+              "width": 44,
+              "height": 44
+            },
+            {
+              "text": "산책",
+              "width": 61.109375,
+              "height": 48
+            },
+            {
+              "text": "인사Space",
+              "width": 61.109375,
+              "height": 48
+            },
+            {
+              "text": "쉬기",
+              "width": 61.109375,
+              "height": 48
+            },
+            {
+              "text": "집중하기",
+              "width": 82.671875,
+              "height": 48
+            }
+          ]
+        }
+      },
+      {
+        "check": "터치 조이스틱 포인터 캡처·이동",
+        "pass": true
+      },
+      {
+        "check": "375px 화면·44px 터치 영역",
+        "layout": {
+          "width": 375,
+          "scroll": 375,
+          "buttons": [
+            {
+              "text": "소리 켜기",
+              "width": 44,
+              "height": 44
+            },
+            {
+              "text": "내 고양이와 설정",
+              "width": 44,
+              "height": 44
+            },
+            {
+              "text": "조작 안내",
+              "width": 44,
+              "height": 44
+            },
+            {
+              "text": "섬 둘러보기",
+              "width": 76.375,
+              "height": 44
+            },
+            {
+              "text": "섬 전체 보기",
+              "width": 44,
+              "height": 49
+            },
+            {
+              "text": "시점 되돌리기",
+              "width": 44,
+              "height": 44
+            },
+            {
+              "text": "산책",
+              "width": 74.21875,
+              "height": 48
+            },
+            {
+              "text": "인사Space",
+              "width": 74.234375,
+              "height": 48
+            },
+            {
+              "text": "쉬기",
+              "width": 74.21875,
+              "height": 48
+            },
+            {
+              "text": "집중하기",
+              "width": 98.328125,
+              "height": 48
+            }
+          ]
+        }
+      },
+      {
+        "check": "414px 화면·44px 터치 영역",
+        "layout": {
+          "width": 414,
+          "scroll": 414,
+          "buttons": [
+            {
+              "text": "소리 켜기",
+              "width": 44,
+              "height": 44
+            },
+            {
+              "text": "내 고양이와 설정",
+              "width": 44,
+              "height": 44
+            },
+            {
+              "text": "조작 안내",
+              "width": 44,
+              "height": 44
+            },
+            {
+              "text": "섬 둘러보기",
+              "width": 76.375,
+              "height": 44
+            },
+            {
+              "text": "섬 전체 보기",
+              "width": 44,
+              "height": 49
+            },
+            {
+              "text": "시점 되돌리기",
+              "width": 44,
+              "height": 44
+            },
+            {
+              "text": "산책",
+              "width": 82.890625,
+              "height": 48
+            },
+            {
+              "text": "인사Space",
+              "width": 82.890625,
+              "height": 48
+            },
+            {
+              "text": "쉬기",
+              "width": 82.890625,
+              "height": 48
+            },
+            {
+              "text": "집중하기",
+              "width": 111.328125,
+              "height": 48
+            }
+          ]
+        }
+      },
+      {
+        "check": "768px 화면·44px 터치 영역",
+        "layout": {
+          "width": 768,
+          "scroll": 768,
+          "buttons": [
+            {
+              "text": "소리 켜기",
+              "width": 44,
+              "height": 44
+            },
+            {
+              "text": "내 고양이와 설정",
+              "width": 44,
+              "height": 44
+            },
+            {
+              "text": "조작 안내",
+              "width": 44,
+              "height": 44
+            },
+            {
+              "text": "섬 둘러보기",
+              "width": 85.890625,
+              "height": 44
+            },
+            {
+              "text": "섬 전체 보기",
+              "width": 60,
+              "height": 64
+            },
+            {
+              "text": "시점 되돌리기",
+              "width": 44,
+              "height": 44
+            },
+            {
+              "text": "산책",
+              "width": 91.15625,
+              "height": 52
+            },
+            {
+              "text": "인사Space",
+              "width": 121.375,
+              "height": 52
+            },
+            {
+              "text": "쉬기",
+              "width": 89.953125,
+              "height": 52
+            },
+            {
+              "text": "집중하기",
+              "width": 128,
+              "height": 52
+            }
+          ]
+        }
+      },
+      {
+        "check": "외부 네트워크 요청",
+        "external": []
+      }
+    ],
+    "errors": [],
+    "checked_at": "2026-11-07T12:13:32.630082+09:00"
+  },
+  "recovery": {
+    "results": [
+      {
+        "check": "연결 실패 중 산책·기기 동작 줄이기",
+        "pass": true
+      },
+      {
+        "check": "실제 로컬 서버로 자동 재연결",
+        "pass": true
+      },
+      {
+        "check": "카메라 회전·초기화·가벼운 화면",
+        "pass": true
+      },
+      {
+        "check": "집중 중 WebGL context 소실 시 좌석·모닥불 음원 해제, 안내·다시 불러오기",
+        "pass": true
+      },
+      {
+        "check": "WebGL 미지원 시 로딩 대신 복구 안내",
+        "pass": true
+      }
+    ],
+    "errors": [],
+    "checked_at": "2026-11-07T12:13:38.844444+09:00"
+  },
+  "touch": {
+    "results": [
+      {
+        "check": "실제 터치 조이스틱 이동·손을 떼면 정지",
+        "initial": "0.0, 12.2",
+        "released": "0.3, 12.0"
+      },
+      {
+        "check": "실제 땅 터치 이동",
+        "pass": true
+      },
+      {
+        "check": "한 손가락 카메라 회전",
+        "pass": true
+      },
+      {
+        "check": "두 손가락 핀치 확대·시점 초기화",
+        "pass": true
+      }
+    ],
+    "errors": [],
+    "checked_at": "2026-11-07T12:13:42.415794+09:00"
+  },
+  "experience": {
+    "results": [
+      {
+        "check": "desktop: 이동 중 추적 시점과 버튼 클릭 후 키보드 입력",
+        "initial": [0, 12.2],
+        "moved": [2.7, 12.2],
+        "before": {
+          "x": 720,
+          "y": 398.6306457519531
+        },
+        "after": {
+          "x": 720.4541625976562,
+          "y": 398.6306457519531
+        }
+      },
+      {
+        "check": "desktop: 전체 시점 전환 후 추적 복귀",
+        "pass": true
+      },
+      {
+        "check": "mobile: 이동 중 추적 시점과 터치 입력",
+        "initial": [0, 12.2],
+        "moved": [2.5, 12.2],
+        "before": {
+          "x": 187.5,
+          "y": 332.94781494140625
+        },
+        "after": {
+          "x": 187.82432556152344,
+          "y": 332.94781494140625
+        }
+      },
+      {
+        "check": "mobile: 전체 시점 전환 후 추적 복귀",
+        "pass": true
+      }
+    ],
+    "errors": [],
+    "checked_at": "2026-11-07T12:17:06.280754+09:00"
+  },
+  "focus": {
+    "results": [
+      {
+        "check": "첫 입력 뒤 기존 숲바람 90초 루프 재생",
+        "sound": {
+          "state": "running",
+          "time": 0.07466666666666667,
+          "gains": [0.3499999940395355, 1, 0],
+          "durations": [90, 90],
+          "loops": [true, true]
+        }
+      },
+      {
+        "check": "같은 섬 즉시 착석·타이머·모닥불 ASMR·집중 중 오입력 방지",
+        "seated": "1.4, 5.4",
+        "sound": {
+          "time": 1.264,
+          "gains": [0.3499999940395355, 0, 1]
+        }
+      },
+      {
+        "check": "두 브라우저 좌석 공유·사용 중 의자 비활성",
+        "pass": true
+      },
+      {
+        "check": "자리 변경 중 시간·음소거 유지, 종료 뒤 숲바람 복귀",
+        "pass": true
+      },
+      {
+        "check": "320px 좌석 30개·44px 조작·집중",
+        "layout": {
+          "width": 320,
+          "scroll": 320,
+          "buttons": [
+            {
+              "width": 44,
+              "height": 44
+            },
+            {
+              "width": 44,
+              "height": 58
+            },
+            {
+              "width": 44,
+              "height": 58
+            },
+            {
+              "width": 44,
+              "height": 58
+            },
+            {
+              "width": 44,
+              "height": 58
+            },
+            {
+              "width": 44,
+              "height": 58
+            },
+            {
+              "width": 44,
+              "height": 58
+            },
+            {
+              "width": 44,
+              "height": 58
+            },
+            {
+              "width": 44,
+              "height": 58
+            },
+            {
+              "width": 44,
+              "height": 58
+            },
+            {
+              "width": 44,
+              "height": 58
+            },
+            {
+              "width": 44,
+              "height": 58
+            },
+            {
+              "width": 44,
+              "height": 58
+            },
+            {
+              "width": 44,
+              "height": 58
+            },
+            {
+              "width": 44,
+              "height": 58
+            },
+            {
+              "width": 44,
+              "height": 58
+            },
+            {
+              "width": 44,
+              "height": 58
+            },
+            {
+              "width": 44,
+              "height": 58
+            },
+            {
+              "width": 44,
+              "height": 58
+            },
+            {
+              "width": 44,
+              "height": 58
+            },
+            {
+              "width": 44,
+              "height": 58
+            },
+            {
+              "width": 44,
+              "height": 58
+            },
+            {
+              "width": 44,
+              "height": 58
+            },
+            {
+              "width": 44,
+              "height": 58
+            },
+            {
+              "width": 44,
+              "height": 58
+            },
+            {
+              "width": 44,
+              "height": 58
+            },
+            {
+              "width": 44,
+              "height": 58
+            },
+            {
+              "width": 44,
+              "height": 58
+            },
+            {
+              "width": 44,
+              "height": 58
+            },
+            {
+              "width": 44,
+              "height": 58
+            },
+            {
+              "width": 44,
+              "height": 58
+            }
+          ]
+        }
+      },
+      {
+        "check": "모바일 네 방향 의자에서 모닥불을 화면 중앙에 유지",
+        "pass": true
+      },
+      {
+        "check": "375px 좌석 30개·44px 조작·집중",
+        "layout": {
+          "width": 375,
+          "scroll": 375,
+          "buttons": [
+            {
+              "width": 44,
+              "height": 44
+            },
+            {
+              "width": 54.1875,
+              "height": 58
+            },
+            {
+              "width": 54.203125,
+              "height": 58
+            },
+            {
+              "width": 54.203125,
+              "height": 58
+            },
+            {
+              "width": 54.203125,
+              "height": 58
+            },
+            {
+              "width": 54.203125,
+              "height": 58
+            },
+            {
+              "width": 54.1875,
+              "height": 58
+            },
+            {
+              "width": 54.203125,
+              "height": 58
+            },
+            {
+              "width": 54.203125,
+              "height": 58
+            },
+            {
+              "width": 54.203125,
+              "height": 58
+            },
+            {
+              "width": 54.203125,
+              "height": 58
+            },
+            {
+              "width": 54.1875,
+              "height": 58
+            },
+            {
+              "width": 54.203125,
+              "height": 58
+            },
+            {
+              "width": 54.1875,
+              "height": 58
+            },
+            {
+              "width": 54.203125,
+              "height": 58
+            },
+            {
+              "width": 54.203125,
+              "height": 58
+            },
+            {
+              "width": 54.203125,
+              "height": 58
+            },
+            {
+              "width": 54.203125,
+              "height": 58
+            },
+            {
+              "width": 54.1875,
+              "height": 58
+            },
+            {
+              "width": 54.203125,
+              "height": 58
+            },
+            {
+              "width": 54.203125,
+              "height": 58
+            },
+            {
+              "width": 54.203125,
+              "height": 58
+            },
+            {
+              "width": 54.203125,
+              "height": 58
+            },
+            {
+              "width": 54.1875,
+              "height": 58
+            },
+            {
+              "width": 54.203125,
+              "height": 58
+            },
+            {
+              "width": 54.203125,
+              "height": 58
+            },
+            {
+              "width": 54.203125,
+              "height": 58
+            },
+            {
+              "width": 54.203125,
+              "height": 58
+            },
+            {
+              "width": 54.1875,
+              "height": 58
+            },
+            {
+              "width": 54.203125,
+              "height": 58
+            },
+            {
+              "width": 54.203125,
+              "height": 58
+            }
+          ]
+        }
+      },
+      {
+        "check": "768px 좌석 30개·44px 조작·집중",
+        "layout": {
+          "width": 768,
+          "scroll": 768,
+          "buttons": [
+            {
+              "width": 44,
+              "height": 44
+            },
+            {
+              "width": 59.65625,
+              "height": 58
+            },
+            {
+              "width": 59.671875,
+              "height": 58
+            },
+            {
+              "width": 59.671875,
+              "height": 58
+            },
+            {
+              "width": 59.65625,
+              "height": 58
+            },
+            {
+              "width": 59.671875,
+              "height": 58
+            },
+            {
+              "width": 59.671875,
+              "height": 58
+            },
+            {
+              "width": 59.65625,
+              "height": 58
+            },
+            {
+              "width": 59.671875,
+              "height": 58
+            },
+            {
+              "width": 59.671875,
+              "height": 58
+            },
+            {
+              "width": 59.65625,
+              "height": 58
+            },
+            {
+              "width": 59.671875,
+              "height": 58
+            },
+            {
+              "width": 59.671875,
+              "height": 58
+            },
+            {
+              "width": 59.65625,
+              "height": 58
+            },
+            {
+              "width": 59.671875,
+              "height": 58
+            },
+            {
+              "width": 59.671875,
+              "height": 58
+            },
+            {
+              "width": 59.65625,
+              "height": 58
+            },
+            {
+              "width": 59.671875,
+              "height": 58
+            },
+            {
+              "width": 59.671875,
+              "height": 58
+            },
+            {
+              "width": 59.65625,
+              "height": 58
+            },
+            {
+              "width": 59.671875,
+              "height": 58
+            },
+            {
+              "width": 59.671875,
+              "height": 58
+            },
+            {
+              "width": 59.65625,
+              "height": 58
+            },
+            {
+              "width": 59.671875,
+              "height": 58
+            },
+            {
+              "width": 59.671875,
+              "height": 58
+            },
+            {
+              "width": 59.65625,
+              "height": 58
+            },
+            {
+              "width": 59.671875,
+              "height": 58
+            },
+            {
+              "width": 59.671875,
+              "height": 58
+            },
+            {
+              "width": 59.65625,
+              "height": 58
+            },
+            {
+              "width": 59.671875,
+              "height": 58
+            },
+            {
+              "width": 59.671875,
+              "height": 58
+            }
+          ]
+        }
+      }
+    ],
+    "errors": [],
+    "external": [],
+    "checked_at": "2026-11-07T12:17:21.564332+09:00"
+  },
+  "visual": {
+    "results": [
+      {
+        "check": "3D 의자 직접 hover·클릭으로 즉시 집중",
+        "pixel": {
+          "x": 818.49026478875,
+          "y": 359.8465815133808
+        }
+      },
+      {
+        "check": "바다 애니메이션 픽셀 변화·동작 줄이기 정지",
+        "pass": true
+      },
+      {
+        "check": "로컬 테스트 주민29명+브라우저1명:30석 동시 점유·31개 고양이(안내1 포함) 표시",
+        "pass": true
+      }
+    ],
+    "errors": [],
+    "checked_at": "2026-11-07T12:17:31.000931+09:00"
+  },
+  "target": "http://127.0.0.1:4176",
+  "review_url": "http://127.0.0.1:4174",
+  "build": "Vite production bundle, local preview",
+  "browser_checks": 37,
+  "unit_tests": {
+    "passed": 21,
+    "evidence": "Orca task task_4aa69ca5dd12 / dispatch ctx_d3a13216cd88: full suite 21/21 and disconnect regression 5 repeats"
+  },
+  "renderer": "Full Chromium / ANGLE Metal Renderer: Apple M5 Pro",
+  "scope": "Chromium 데스크톱·모바일 에뮬레이션. 로컬 기능 검사만 수행. 물리 기기·Safari·운영 부하 검증 결과 없음.",
+  "review_preview_smoke": {
+    "url": "http://127.0.0.1:4174/",
+    "script": "/assets/index-CGbnsA7C.js",
+    "focus": true,
+    "audioSwitch": true,
+    "errors": [],
+    "checkedAt": "2026-11-07T03:18:31.720Z"
+  }
+}

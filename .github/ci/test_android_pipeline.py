@@ -99,6 +99,18 @@ class AndroidPipelineTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, '기존 versionCode'):
             bundle.verify([record], [100], 99, 'c' * 64)
 
+    def test_cd_reports_advisory_failure_but_rejects_missing_or_unfinished_gate(self):
+        with tempfile.TemporaryDirectory() as directory:
+            summary = Path(directory) / 'summary'
+            with patch.dict(os.environ, {'GITHUB_STEP_SUMMARY': str(summary)}):
+                source.report_server_gate([{'conclusion': 'failure'}], self.run_record())
+            self.assertIn('호환성 검증 성공을 뜻하지 않습니다', summary.read_text())
+            self.assertIn('/runs/12/attempts/2', summary.read_text())
+        for gates in ([], [{'conclusion': 'cancelled'}], [{'conclusion': 'skipped'}],
+                      [{'conclusion': None}], [{'conclusion': 'success'}] * 2):
+            with self.subTest(gates=gates), self.assertRaises(ValueError):
+                source.report_server_gate(gates, self.run_record())
+
     def test_cd_source_selects_exact_unexpired_attempt_artifact(self):
         with tempfile.TemporaryDirectory() as directory:
             event = Path(directory) / 'event.json'
@@ -110,7 +122,8 @@ class AndroidPipelineTests(unittest.TestCase):
                 if path == '/actions/workflows/app-android-ci.yml':
                     return {'id': 90}
                 if '/jobs?' in path:
-                    return {'jobs': [{'name': 'release AAB 빌드', 'conclusion': 'success'}]}
+                    return {'jobs': [{'name': 'release AAB 빌드', 'conclusion': 'success'},
+                                     {'name': '운영 서버 선행 확인', 'conclusion': 'failure'}]}
                 if path.startswith('/compare/'):
                     return {'status': 'ahead'}
                 return {'artifacts': [{'name': 'android-ci-12-1', 'expired': False},
@@ -153,7 +166,8 @@ class AndroidPipelineTests(unittest.TestCase):
                 if path == '/actions/workflows/app-android-ci.yml':
                     return {'id': 90}
                 if '/jobs?' in path:
-                    return {'jobs': [{'name': 'release AAB 빌드', 'conclusion': 'success'}]}
+                    return {'jobs': [{'name': 'release AAB 빌드', 'conclusion': 'success'},
+                                     {'name': '운영 서버 선행 확인', 'conclusion': 'success'}]}
                 if path.startswith('/compare/'):
                     return {'status': 'identical'}
                 return {'artifacts': [{'name': 'android-ci-12-2', 'expired': True}]}

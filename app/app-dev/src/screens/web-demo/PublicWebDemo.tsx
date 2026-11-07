@@ -1,5 +1,5 @@
 import { usesSharedWebIsland } from '@/services/webIsland';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Image,
   Linking,
@@ -23,8 +23,40 @@ import {
 
 const layout = componentTokens.publicWebDemo;
 
+/**
+ * 체험 앱 번들을 소개 화면이 다 뜬 뒤(load) 미리 받아 둔다(GROMO-2788).
+ * 주소는 web-demo/build.cjs가 meta로 넣는다. 받기만 하고 실행하지 않으며, 시작하기를 누르면 iframe이 캐시에서 쓴다.
+ * 데이터 절약 모드나 2G 회선에서는 시작하지 않을 수도 있는 사용자에게 받게 하지 않는다.
+ */
+export function usePrefetchAppBundle(doc: Document = document, win: Window = window) {
+  useEffect(() => {
+    const href = doc.querySelector<HTMLMetaElement>('meta[name="cattus-app-bundle"]')?.content;
+    if (!href) return;
+    const connection = (
+      win.navigator as Navigator & { connection?: { saveData?: boolean; effectiveType?: string } }
+    ).connection;
+    if (connection?.saveData || /(^|-)2g$/.test(connection?.effectiveType ?? '')) return;
+    const prefetch = () => {
+      // 다시 마운트돼도 같은 링크를 쌓지 않는다.
+      if (doc.head.querySelector(`link[rel="prefetch"][href="${href}"]`)) return;
+      const link = doc.createElement('link');
+      link.rel = 'prefetch';
+      link.as = 'script';
+      link.href = href;
+      doc.head.appendChild(link);
+    };
+    if (doc.readyState === 'complete') {
+      prefetch();
+      return;
+    }
+    win.addEventListener('load', prefetch, { once: true });
+    return () => win.removeEventListener('load', prefetch);
+  }, [doc, win]);
+}
+
 export default function PublicWebDemo() {
   useGowunFont();
+  usePrefetchAppBundle();
   const [started, setStarted] = useState(false);
   const [help, setHelp] = useState(false);
   const [privacyOpen, setPrivacyOpen] = useState(false);

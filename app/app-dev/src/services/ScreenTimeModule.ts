@@ -56,6 +56,7 @@ export type ScreenTimeNativeModule = {
   startFocusShieldWithAppearance(subjectName: string, catColor: string): Promise<boolean>;
   startFocusShield(subjectName: string): Promise<boolean>;
   stopFocusShield(): Promise<void>;
+  isFocusShieldActive(): Promise<boolean>;
 };
 
 export type AndroidUsageSnapshot = {

@@ -35,7 +35,7 @@ def realtime_db_password(secret):
 
 
 def generate(secret, config, images):
-    if config.get('environment') != 'dev-v2' or config.get('project') != 'oneorthree2':
+    if config.get('environment') != 'dev-v2' or config.get('project') != 'project-cd783bdb-e03f-4e17-b74':
         raise ValueError('dev V2 배포 설정이 아닙니다')
     hosts = config['hosts']
     for role in ('app', 'data', 'redis'):
@@ -45,7 +45,7 @@ def generate(secret, config, images):
         raise ValueError('dev V2 VM 주소는 서로 달라야 합니다')
     for service in ('data-api', 'business-api', 'notification', 'realtime'):
         image = images.get(service, '')
-        pattern = rf'asia-northeast3-docker\.pkg\.dev/oneorthree2/{service}/{service}@sha256:[0-9a-f]{{64}}'
+        pattern = rf'asia-northeast3-docker\.pkg\.dev/project-cd783bdb-e03f-4e17-b74/{service}/{service}@sha256:[0-9a-f]{{64}}'
         if not re.fullmatch(pattern, image):
             raise ValueError('dev GAR 이미지 digest가 다릅니다: ' + service)
     data_host, redis_host = private_ip(hosts['data']['private_ip']), private_ip(hosts['redis']['private_ip'])

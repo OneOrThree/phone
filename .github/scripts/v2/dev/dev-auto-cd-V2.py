@@ -11,7 +11,7 @@ import sys
 ROOT = Path(__file__).resolve().parents[4]
 HERE = Path(__file__).parent
 REPO = 'OneOrThree/phone'
-BUCKET = 'gs://catus-dev-v2-deploy-263851348176'
+BUCKET = 'gs://catus-dev-v2-deploy-201721380114'
 # 앱 배포 전에 모두 끝나야 한다.
 RUNTIMES = ('redis', 'kafka', 'postgres')
 # 같은 VM은 apply.sh 호스트 잠금이 대기 없이 실패. 병렬은 VM 단위.

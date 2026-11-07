@@ -941,9 +941,10 @@ class TelescopePinIntegrationTest {
         assertThat(view.created()).isTrue();
         List<TelescopeItemView> listed = telescope.list(viewer).items();
         assertThat(listed).hasSize(2);
-        assertThat(listed.get(0).memberCount()).isZero();
-        assertThat(listed.get(0).sailingMinutes()).isEqualTo(15);
-        assertThat(listed.get(1)).isEqualTo(expected);
+        assertThat(listed.get(0)).isEqualTo(expected);
+        assertThat(listed.get(1).slot()).isEqualTo("uninhabited");
+        assertThat(listed.get(1).memberCount()).isZero();
+        assertThat(listed.get(1).sailingMinutes()).isEqualTo(90);
     }
 
     // ---------------------------------------------------------------- ⑧ 정리 (계약 §0 N42)

@@ -142,7 +142,7 @@ class SummaryTest(unittest.TestCase):
         with mock.patch.object(m.subprocess, 'run', return_value=mock.Mock(stdout=b'tree')):
             fingerprints = m.load('summary_fp', 'dev-fingerprint-V2.py').fingerprint('c' * 40)
         return {'environment': 'dev-v2', 'release_id': 'r1', 'infra_revision': 'a' * 40, 'source_fingerprints': fingerprints,
-                'images': {s: f'asia-northeast3-docker.pkg.dev/oneorthree2/{s}/{s}@sha256:' + 'e' * 64 for s in fingerprints}}
+                'images': {s: f'asia-northeast3-docker.pkg.dev/project-cd783bdb-e03f-4e17-b74/{s}/{s}@sha256:' + 'e' * 64 for s in fingerprints}}
 
     def test_notes_are_markdown_list_items(self):
         m.note('첫째')

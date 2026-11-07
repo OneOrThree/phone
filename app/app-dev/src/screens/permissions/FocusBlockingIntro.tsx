@@ -113,6 +113,67 @@ function FloatingAppLogo({
   );
 }
 
+export function FocusBlockingIllustration({
+  size,
+  stageHeight,
+}: {
+  size?: number;
+  stageHeight?: number;
+}) {
+  const layout = useAppLayout();
+  const characterSize =
+    size ??
+    Math.min(
+      layout.compact ? 160 : 288,
+      layout.width - semanticTokens.spacing.page * 2,
+      layout.height * 0.34,
+    );
+  const logoSize = layout.compact ? 42 : 56;
+  return (
+    <View
+      style={[
+        focusBlockingIntroStyles.characterStage,
+        {
+          minHeight:
+            stageHeight ?? Math.max(characterSize, layout.height * (layout.compact ? 0.3 : 0.4)),
+        },
+      ]}
+    >
+      <FloatingAppLogo
+        testID="focus-blocking-logo-instagram"
+        size={logoSize}
+        style={{ left: 4, top: '12%', transform: [{ rotate: '-8deg' }] }}
+      >
+        <InstagramLogo />
+      </FloatingAppLogo>
+      <FloatingAppLogo
+        testID="focus-blocking-logo-youtube"
+        size={logoSize}
+        style={{ right: 2, top: '24%', transform: [{ rotate: '7deg' }] }}
+      >
+        <YouTubeLogo />
+      </FloatingAppLogo>
+      <FloatingAppLogo
+        testID="focus-blocking-logo-tiktok"
+        size={logoSize}
+        style={{ left: 20, bottom: '10%', transform: [{ rotate: '-5deg' }] }}
+      >
+        <TikTokLogo />
+      </FloatingAppLogo>
+      <Image
+        testID="focus-blocking-character"
+        source={art['cat/black/phone']}
+        accessible={false}
+        resizeMode="contain"
+        style={[
+          focusBlockingIntroStyles.character,
+          { width: characterSize, height: characterSize },
+        ]}
+      />
+    </View>
+  );
+}
+
 export function FocusBlockingIntro({
   e,
 }: {
@@ -123,56 +184,12 @@ export function FocusBlockingIntro({
     busy?: boolean;
   };
 }) {
-  const layout = useAppLayout();
-  const characterSize = Math.min(
-    layout.compact ? 160 : 288,
-    layout.width - semanticTokens.spacing.page * 2,
-    layout.height * 0.34,
-  );
-  const logoSize = layout.compact ? 42 : 56;
   return (
     <IslandPopup onClose={e.onClose}>
       <Txt kind="h17" accessibilityRole="header" style={focusBlockingIntroStyles.title}>
         {t('settings.permissions.focusBlockingIntro.title')}
       </Txt>
-      <View
-        style={[
-          focusBlockingIntroStyles.characterStage,
-          { minHeight: Math.max(characterSize, layout.height * (layout.compact ? 0.3 : 0.4)) },
-        ]}
-      >
-        <FloatingAppLogo
-          testID="focus-blocking-logo-instagram"
-          size={logoSize}
-          style={{ left: 4, top: '12%', transform: [{ rotate: '-8deg' }] }}
-        >
-          <InstagramLogo />
-        </FloatingAppLogo>
-        <FloatingAppLogo
-          testID="focus-blocking-logo-youtube"
-          size={logoSize}
-          style={{ right: 2, top: '24%', transform: [{ rotate: '7deg' }] }}
-        >
-          <YouTubeLogo />
-        </FloatingAppLogo>
-        <FloatingAppLogo
-          testID="focus-blocking-logo-tiktok"
-          size={logoSize}
-          style={{ left: 20, bottom: '10%', transform: [{ rotate: '-5deg' }] }}
-        >
-          <TikTokLogo />
-        </FloatingAppLogo>
-        <Image
-          testID="focus-blocking-character"
-          source={art['cat/black/phone']}
-          accessible={false}
-          resizeMode="contain"
-          style={[
-            focusBlockingIntroStyles.character,
-            { width: characterSize, height: characterSize },
-          ]}
-        />
-      </View>
+      <FocusBlockingIllustration />
       <GuideBox
         character={null}
         text={t('settings.permissions.focusBlockingIntro.dialogue')}

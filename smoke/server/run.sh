@@ -3,6 +3,15 @@ set -uo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 source "$HERE/lib.sh"
 : "${BASE_URL:?BASE_URL is required}"
+if [[ "${SMOKE_FIRST_VOYAGE_ENABLED:-0}" == 1 ]]; then
+  # 운영 주소·기존 고정 기기를 거절하고 이 실행이 발급한 신규 게스트만 쓴다.
+  if [[ "$BASE_URL" != 'https://oneorthree-v2.dev.mooo.com' || -n "${SMOKE_DEVICE_ID:-}" ]]; then
+    echo '첫 항해 검사는 dev 주소·새 기기 게스트에서만 실행합니다' >&2
+    exit 2
+  fi
+  source "$HERE/first-voyage.sh"
+  source "$HERE/focus-journey.sh"
+fi
 # BASE_URL만 주면 공개 기본 검사. 내부 DB 설정이 있으면 전체 API 흐름을 실행한다.
 if [[ -z "${SMOKE_BASIC_ONLY+x}" ]]; then
   if [[ -n "${SMOKE_DB_CONTAINER:-}${SMOKE_DATABASE_URL:-}" || "${SMOKE_CORE_ENABLED:-0}" == 1 ]]; then
@@ -95,6 +104,7 @@ main() {
     for id in 004 005 006 007 009 010; do record "$id" SKIP '계정 선행 실패'; done
     return
   fi
+  if [[ "${SMOKE_FIRST_VOYAGE_ENABLED:-0}" == 1 ]]; then first_voyage; fi
   if req GET /me/islands '' "$TOKEN"; then
     ISLAND_ID=$(jq -r '.data.currentIslandId // .data.items[0].id // empty' "$SMOKE_BODY_FILE")
     if [[ -z "$ISLAND_ID" ]]; then
@@ -116,6 +126,9 @@ main() {
   if [[ -z "$ISLAND_ID" ]]; then record 004 FAIL "$island_failure"; for id in 005 006 007 010; do record "$id" SKIP '섬 선행 실패'; done
   else
     record 004 PASS '섬 확보'
+    if [[ "${SMOKE_FIRST_VOYAGE_ENABLED:-0}" == 1 && "${FIRST_VOYAGE_OK:-0}" == 1 && "$ISLAND_ID" == "$MAIN_CREATED_ISLAND_ID" ]]; then
+      focus_journey
+    fi
     if req GET "/screens/home?date=$today&timezone=Asia/Seoul" '' "$TOKEN" && jq -e '.data | (.buildings|type)=="array" and (.members.items|type)=="array" and (.wallets|has("fish") and has("villagePoints")) and ((.missingFragments // [])|length)==0' "$SMOKE_BODY_FILE" >/dev/null; then record 005 PASS '홈 조각 완전'; else record 005 FAIL '홈 계약/필수 조각'; fi
     focus_and_event
     if [[ "${SMOKE_BASIC_ONLY:-0}" != 1 ]]; then residents_and_friends "$today"; fi
@@ -250,6 +263,7 @@ screen_time() {
 main
 # 인증·섬 같은 선행 실패로 main이 일찍 끝나도 선택한 TC를 결과에서 누락하지 않는다.
 selected=(001 002 003 004 005 006 007 009 010)
+[[ "${SMOKE_FIRST_VOYAGE_ENABLED:-0}" != 1 ]] || selected+=(019 020)
 if [[ "${SMOKE_BASIC_ONLY:-0}" != 1 ]]; then
   selected+=(015 016)
   [[ "${SMOKE_CORE_ENABLED:-0}" != 1 ]] || selected+=(014)

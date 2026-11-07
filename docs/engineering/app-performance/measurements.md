@@ -43,8 +43,8 @@
   `/me` 2번 → 1번을 고정했다(`App.bootConcurrency.test.tsx`).
 - **Datadog 터치 추적 끄기·PostHog 플래그 미리 받기 끄기(GROMO-2376 일부)**: 토큰이 없어 SDK 가 꺼진 채로 쟀다.
   실제 빌드에서는 효과가 더 있다.
-- **실기기 프레임(FPS)·끊긴 프레임 수**: 아직 재지 않았다. Release 빌드를 실기기(iPhone 15)에 올려 Xcode Instruments
-  「Animation Hitches」 로 홈 걷기·지도 끌기·확대 3장면을 재고 이 문서에 표를 더한다.
+- **실기기 프레임(FPS)·끊긴 프레임 수**: iPhone 15 에서 잰 홈 움직임·집중·AI집중측정 결과와 개선 전후는
+  [iPhone 15 실기기 측정](device-iphone15-2026-11.md)에 있다.
 
 ## 4. 렌더 횟수 (jest)
 

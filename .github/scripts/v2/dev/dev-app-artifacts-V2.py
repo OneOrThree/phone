@@ -35,7 +35,7 @@ def read_zip(blob, service, revision):
         data = json.loads(z.read(entries[0]))
     image = data.get('image', '')
     if (data.get('service') != service or data.get('revision') != revision
-        or not re.fullmatch(r'asia-northeast3-docker\.pkg\.dev/oneorthree2/' + service + '/' + service + r'@sha256:[0-9a-f]{64}', image)):
+        or not re.fullmatch(r'asia-northeast3-docker\.pkg\.dev/project-cd783bdb-e03f-4e17-b74/' + service + '/' + service + r'@sha256:[0-9a-f]{64}', image)):
         raise ValueError('이미지 증거 내용이 다릅니다')
     return data
 

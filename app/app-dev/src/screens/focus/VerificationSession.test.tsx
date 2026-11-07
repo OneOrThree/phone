@@ -7,18 +7,22 @@ import {
   verificationResult,
 } from '@/services/studyVerification/sessionResult';
 
+let mockCameraFailure = false;
 jest.mock('./VerificationCamera', () => ({
   PREVIEW_STALE_MS: 2_000,
-  VerificationCamera: ({ active, ...props }: { active: boolean }) =>
-    active
+  VerificationCamera: ({ active, ...props }: { active: boolean }) => {
+    if (active && mockCameraFailure) throw new Error('native preview initialization failed');
+    return active
       ? require('react').createElement(require('react-native').View, {
           ...props,
           testID: 'live-camera',
         })
-      : null,
+      : null;
+  },
 }));
 
 beforeEach(() => {
+  mockCameraFailure = false;
   clearVerificationResult('session');
   jest.useFakeTimers();
   jest.setSystemTime(new Date('2026-10-30T00:00:00Z'));
@@ -387,3 +391,34 @@ test('집중 확인 완료 아래에는 감지된 물체 문구를 표시하지 
   });
   expect(screen.queryByText(/감지$/)).toBeNull();
 });
+
+test('촬영 중 렌더 예외는 카메라만 닫고 인증 적립을 멈추며 재시도로 복구한다', async () => {
+  jest.spyOn(console, 'error').mockImplementation(() => {});
+  const screen = await render(<VerificationSession sessionId="session" enabled />);
+  await focusedSeconds(screen, 4);
+  expect(verificationResult('session')).toBe(4);
+  mockCameraFailure = true;
+  await screen.rerender(<VerificationSession sessionId="session" enabled previewVisible />);
+  expect(screen.queryByTestId('live-camera')).toBeNull();
+  const retry = screen.getByRole('button', { name: '카메라 다시 시도' });
+  await act(async () => jest.advanceTimersByTime(10_000));
+  expect(verificationResult('session')).toBe(4);
+  mockCameraFailure = false;
+  await fireEvent.press(retry);
+  expect(screen.getByTestId('live-camera')).toBeTruthy();
+  await focusedSeconds(screen, 2);
+  expect(verificationResult('session')).toBe(6);
+});
+
+test.each([true, false])(
+  '첫 카메라 구성 실패도 오류 안내 후 재시도할 수 있다: 측정 %s',
+  async (enabled) => {
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+    mockCameraFailure = true;
+    const screen = await render(<VerificationSession enabled={enabled} previewVisible />);
+    expect(screen.queryByTestId('live-camera')).toBeNull();
+    mockCameraFailure = false;
+    await fireEvent.press(screen.getByRole('button', { name: '카메라 다시 시도' }));
+    expect(screen.getByTestId('live-camera')).toBeTruthy();
+  },
+);

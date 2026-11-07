@@ -28,7 +28,6 @@ import { useIslandPlayback } from '@/screens/island/useIslandPlayback';
 import { DeveloperLetter } from '@/screens/letter/DeveloperLetter';
 import { useDeveloperLetter } from '@/screens/letter/useDeveloperLetter';
 import { useForceUpdateLetter } from '@/screens/letter/useForceUpdateLetter';
-import { FocusBlockingIntro } from '@/screens/permissions/FocusBlockingIntro';
 import { PostHogAnalyticsProvider } from '@/services/PostHogAnalyticsProvider';
 import { saveAccountGuides } from '@/services/accountGuides';
 import { markActivationStage, markLoginViewed } from '@/services/activationJourney';
@@ -129,8 +128,6 @@ import {
   unregisterPushDevice,
 } from '@/services/push';
 import { createShieldedRouteTransition } from '@/services/routeTransition';
-import { screenTime } from '@/services/screenTime';
-import { shouldGateFocusBlockingIntro, shouldGateScreenTimeBoard } from '@/services/screenTimeFlow';
 import { createSessionCommands } from '@/services/sessionCommands';
 import { startSocialAnalytics } from '@/services/socialAnalytics';
 import { isSocialLoginCancellation, socialCredential } from '@/services/socialLogin';
@@ -283,25 +280,12 @@ function Gromo() {
     [previewAudio, setPreviewAudio] = useState(false),
     [failNext, setFailNext] = useState(false),
     [walkRequest, setWalkRequest] = useState<Route | null>(null),
-    [focusBlockingGate, setFocusBlockingGate] = useState<{
-      route: Route;
-      detail: string;
-      onContinue?: () => void;
-    } | null>(null),
-    [focusBlockingPermissionBusy, setFocusBlockingPermissionBusy] = useState(false),
     [reviewEpoch, setReviewEpoch] = useState(0);
   const guideStep = state.tutorial?.step ?? 0;
   useEffect(() => startWebMetamoaPresence(), []);
   useFocusTutorialViewed(guideStep);
   const tutorialOwner = getSession()?.userId;
   const tutorialGeneration = sessionGeneration();
-  const focusBlockingGateRef = useRef(focusBlockingGate);
-  focusBlockingGateRef.current = focusBlockingGate;
-  const focusBlockingRequestInFlight = useRef(false);
-  useEffect(() => {
-    setFocusBlockingGate(null);
-    setFocusBlockingPermissionBusy(false);
-  }, [tutorialOwner, tutorialGeneration]);
   const setGuideStep = (step: number, expected?: { step: number; revision: number }) => {
     if (sessionGeneration() !== tutorialGeneration || getSession()?.userId !== tutorialOwner)
       return;
@@ -469,113 +453,20 @@ function Gromo() {
     islandId: state.serverIslands?.currentIslandId ?? null,
     dispatch,
   });
-  const performGo = (
-    r: Route,
-    id = '',
-    options: { sessionIsAlreadyPaused?: boolean; skipFocusBlockingIntro?: boolean } = {},
-  ) => {
-    const gateBoard = shouldGateScreenTimeBoard(r, {
-      isIOS: Platform.OS === 'ios',
-      isAndroid: Platform.OS === 'android',
-      promptSeen: !!state.settings.screenTimeBoardPromptSeen,
-      visiting: !!state.visitingIslandId,
-    });
-    const gateFocusBlocking =
-      !options.skipFocusBlockingIntro &&
-      ((FOCUS_BLOCKING_PREVIEW && r === 'focusTravel') ||
-        shouldGateFocusBlockingIntro(r, {
-          isIOS: Platform.OS === 'ios',
-          promptPending: state.focusBlockingIntro === 'pending',
-          visiting: !!state.visitingIslandId,
-        }));
-    if (gateFocusBlocking) {
-      Keyboard.dismiss();
-      consumeFocusBlockingIntro();
-      setFocusBlockingGate({ route: r, detail: id });
-      return;
-    }
-    const nextRoute: Route = gateBoard ? 'permission' : r;
-    const nextDetail = gateBoard ? `board-first|${r}|${encodeURIComponent(id)}` : id;
+  const performGo = (r: Route, id = '', options: { sessionIsAlreadyPaused?: boolean } = {}) => {
     if (r === 'home' || route === 'home') setWalkRequest(null);
     if (r === 'rest' && !options.sessionIsAlreadyPaused && state.session?.status === 'active')
       dispatch({ type: 'PAUSE' });
-    setDetail(nextDetail);
+    setDetail(id);
     setTab('');
     setText('');
     setBody('');
     setHistory((h) => [...h, { route, detail, tab, text, body }]);
-    transitionRoute(nextRoute);
+    transitionRoute(r);
     if (state.settings.haptics && Platform.OS !== 'web') Haptics.selectionAsync().catch(() => {});
   };
-  const consumeFocusBlockingIntro = () => {
-    dispatch({ type: 'FOCUS_BLOCKING_INTRO_SEEN' });
-    const owner = getSession()?.userId;
-    const generation = sessionGeneration();
-    if (owner && !REVIEW && !DEMO)
-      void saveAccountGuides(owner, { focusBlockingIntro: 'seen' }).catch(() => {
-        if (sessionGeneration() === generation && getSession()?.userId === owner)
-          notify(t('app.storageCheck'));
-      });
-  };
-  const continueFocusBlockingTravel = () => {
-    const pending = focusBlockingGate;
-    if (!pending) return;
-    setFocusBlockingGate(null);
-    if (pending.onContinue) pending.onContinue();
-    else performGo(pending.route, pending.detail, { skipFocusBlockingIntro: true });
-  };
-  const beforeSeaVoyage = (onContinue: () => void) => {
-    if (
-      FOCUS_BLOCKING_PREVIEW ||
-      shouldGateFocusBlockingIntro('focusTravel', {
-        isIOS: Platform.OS === 'ios',
-        promptPending: state.focusBlockingIntro === 'pending',
-        visiting: !!state.visitingIslandId,
-      })
-    ) {
-      Keyboard.dismiss();
-      consumeFocusBlockingIntro();
-      setFocusBlockingGate({ route: 'sea', detail: '', onContinue });
-    } else onContinue();
-  };
-  const requestFocusBlockingPermission = async () => {
-    if (!focusBlockingGate || focusBlockingRequestInFlight.current) return;
-    const gate = focusBlockingGate;
-    const generation = sessionGeneration();
-    const owner = getSession()?.userId;
-    const isCurrent = () =>
-      focusBlockingGateRef.current === gate &&
-      sessionGeneration() === generation &&
-      getSession()?.userId === owner;
-    focusBlockingRequestInFlight.current = true;
-    setFocusBlockingPermissionBusy(true);
-    try {
-      await screenTime.requestAuthorization();
-      if (!isCurrent()) return;
-      const status = await screenTime.getAuthorizationStatus();
-      if (!isCurrent()) return;
-      dispatch({ type: 'SETTING', key: 'permission', value: status === 'approved' });
-      if (status !== 'approved') {
-        notify(t('settings.permissions.errors.grantIos'));
-        return;
-      }
-      // Family Controls 권한창이 완전히 닫힌 다음 picker를 present해야 iOS가 두 번째 시트를 누락하지 않는다.
-      await new Promise<void>((resolve) => setTimeout(resolve, 450));
-      if (!isCurrent()) return;
-      try {
-        await screenTime.presentAllowedAppManager();
-      } catch {
-        if (isCurrent()) notify(t('settings.permissions.errors.allowedChange'));
-        return;
-      }
-      if (isCurrent()) continueFocusBlockingTravel();
-    } catch {
-      if (isCurrent()) notify(t('settings.permissions.errors.requestFailed'));
-    } finally {
-      focusBlockingRequestInFlight.current = false;
-      setFocusBlockingPermissionBusy(false);
-    }
-  };
+  // 출항을 막는 별도 권한 안내는 없고, 낚시섬 도착 뒤 통합 안내를 표시한다.
+  const beforeSeaVoyage = (onContinue: () => void) => onContinue();
   const go = (r: Route, id = '', onTransitionCancel?: () => void) => {
     const direction =
       route === 'focus' && r === 'rest'
@@ -1619,7 +1510,6 @@ function Gromo() {
   }, [state.settings.notifications]);
   // 화면 전환 덮개(경로 전환 방패·건물·불 전환)가 앱 내용을 덮는 동안이다 — 접근성 트리에서도 내용을 숨기는 그 조건이다.
   const appContentHidden =
-    !!focusBlockingGate ||
     routeTransitionShielded ||
     buildingRouteCovered ||
     buildingTransitionActive ||
@@ -1958,7 +1848,6 @@ function Gromo() {
     if (!loaded || !FOCUS_BLOCKING_PREVIEW) return;
     setRoute('telescope');
     setDetail('');
-    setFocusBlockingGate(null);
   }, [loaded]);
   // 웹 배정을 미뤘던 기존 집중이 끝나면 같은 섬으로 합류한다. 진행 세션과 결과 화면은 지킨다.
   useEffect(() => {
@@ -2257,10 +2146,6 @@ function Gromo() {
     // 열린 확인창·진행 중인 건물 전환·화면이 건 뒤로 가기(backOverride)를 방문 분기보다 먼저 본다 — back() 의 앞 세
     // 검사와 같은 순서다. 그래서 방문 화면에서도 확인창이나 팝업이 END_VISIT 보다 먼저 닫히고, 집중→휴식 전환 취소처럼
     // override 보다 전환 취소가 앞서던 기존 순서도 그대로다(back() 는 그대로 둔다).
-    if (focusBlockingGate) {
-      if (!focusBlockingPermissionBusy) setFocusBlockingGate(null);
-      return true;
-    }
     if (modal) {
       setModal(null);
       return true;
@@ -2297,15 +2182,7 @@ function Gromo() {
       hardwareBack.current(),
     );
     return () => subscription.remove();
-  }, [
-    history,
-    route,
-    modal,
-    focusBlockingGate,
-    focusBlockingPermissionBusy,
-    state.visitingIslandId,
-    island.id,
-  ]);
+  }, [history, route, modal, state.visitingIslandId, island.id]);
   // 편지가 떠 있는 동안만 리스너를 하나 더 둬 맨 앞에 세운다. RN 은 나중에 등록한 리스너를 먼저 부른다.
   // App 구독 deps 에 넣으면 닫힐 때도 재등록되어 화면 안쪽 리스너(바다 패널)보다 앞서게 된다.
   useEffect(() => {
@@ -2541,22 +2418,6 @@ function Gromo() {
             {render()}
           </Animated.View>
         </KeyboardAvoidingView>
-        {focusBlockingGate && (
-          <FocusBlockingIntro
-            e={{
-              onClose: () => {
-                if (!focusBlockingPermissionBusy) setFocusBlockingGate(null);
-              },
-              onLater: () => {
-                if (!focusBlockingPermissionBusy) continueFocusBlockingTravel();
-              },
-              onAllow: () => {
-                void requestFocusBlockingPermission();
-              },
-              busy: focusBlockingPermissionBusy,
-            }}
-          />
-        )}
         <RouteTransitionShield
           visible={routeTransitionShielded || buildingRouteCovered}
           coverLoading={buildingRouteCovered}

@@ -1,0 +1,45 @@
+name: Cattus 3D Web CI
+on:
+  pull_request:
+    branches: [main]
+    paths: ['app/metaverse-web/**', 'app/app-dev/src/design-system/tokens.ts', '.github/workflows/metaverse-web-ci.yml']
+  push:
+    branches: [main]
+    paths: ['app/metaverse-web/**', 'app/app-dev/src/design-system/tokens.ts', '.github/workflows/metaverse-web-ci.yml']
+  workflow_dispatch: {}
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: app/metaverse-web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: app/metaverse-web/package-lock.json
+      - run: npm ci
+      - run: npm run format:check
+      - run: npm test
+      - run: npm run build
+      - name: 공개 방 배포 번들 검사 (게시 없음)
+        run: npx wrangler deploy --dry-run --outdir artifacts/worker-bundle
+        env:
+          WRANGLER_SEND_METRICS: 'false'
+      - name: 로컬 Worker 기능 검사
+        run: |
+          npx wrangler dev --ip 127.0.0.1 --port 8787 --var ALLOWED_ORIGIN:http://127.0.0.1:4176 > /tmp/cattus-room.log 2>&1 &
+          room_pid=$!
+          trap 'kill "$room_pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:8787/healthz > /dev/null; then break; fi
+            sleep 1
+          done
+          npm run test:worker
+        env:
+          WRANGLER_SEND_METRICS: 'false'

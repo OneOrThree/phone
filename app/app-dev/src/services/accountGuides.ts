@@ -5,6 +5,8 @@ export type AccountGuides = {
   focusDone: boolean;
   focusBlockingIntro?: 'pending' | 'seen';
   verificationIntroSeen?: boolean;
+  screenTimeGuideShownVersion?: number;
+  screenTimeGuideAcknowledgedVersion?: number;
   buildings: BuildingId[];
   completions: string[];
 };
@@ -30,6 +32,9 @@ function decode(raw: string | null): AccountGuides {
       !['pending', 'seen'].includes(value.focusBlockingIntro)) ||
     (value.verificationIntroSeen !== undefined &&
       typeof value.verificationIntroSeen !== 'boolean') ||
+    ['screenTimeGuideShownVersion', 'screenTimeGuideAcknowledgedVersion'].some(
+      (key) => value[key] !== undefined && (!Number.isInteger(value[key]) || value[key] < 0),
+    ) ||
     !Array.isArray(value.buildings) ||
     !Array.isArray(value.completions) ||
     value.buildings.some((b: BuildingId) => !CANONICAL_BUILDINGS.includes(b)) ||
@@ -64,6 +69,11 @@ export function saveAccountGuides(
         ...(current.verificationIntroSeen || update.verificationIntroSeen
           ? { verificationIntroSeen: true }
           : {}),
+        ...Object.fromEntries(
+          (['screenTimeGuideShownVersion', 'screenTimeGuideAcknowledgedVersion'] as const)
+            .filter((field) => current[field] !== undefined || update[field] !== undefined)
+            .map((field) => [field, Math.max(current[field] ?? 0, update[field] ?? 0)]),
+        ),
         buildings: [...new Set([...current.buildings, ...(update.buildings ?? [])])],
         completions: [...new Set([...current.completions, ...(update.completions ?? [])])],
       };

@@ -1,0 +1,645 @@
+{
+  "revision": "WASD·카메라 조작 개선",
+  "unit_tests": 54,
+  "target": "http://127.0.0.1:4176",
+  "browser_checks": 28,
+  "renderer": "Full Chromium / ANGLE Metal",
+  "scope": "로컬 Chromium 데스크톱 및 모바일 에뮬레이션, 실제 CDP 키·터치 입력. 물리 기기·Safari 미확인.",
+  "controls": {
+    "results": [
+      {
+        "check": "한글 입력 상태 물리 WASD 네 방향 이동"
+      },
+      {
+        "check": "대문자·한영 전환 뒤 키 해제·브라우저 단축키 이동 방지"
+      },
+      {
+        "check": "입력창에서는 이동하지 않고 버튼 사용 뒤 즉시 이동"
+      },
+      {
+        "check": "우클릭 드래그는 카메라만 이동하고 놓은 구도를 유지"
+      },
+      {
+        "check": "산책을 재개하면 고양이로 부드럽게 추적 복귀"
+      },
+      {
+        "check": "Shift+드래그 평면 이동·드래그 뒤 땅 클릭 이동 방지"
+      },
+      {
+        "check": "휠 이동량 기반 줌·± 버튼 확대/축소",
+        "base": 101.36935424804688,
+        "zoomed": 122.39340209960938
+      },
+      {
+        "check": "최대·최소 줌에서 추가 입력을 제한",
+        "near": 255.42237091064453,
+        "far": 20.621551513671875
+      },
+      {
+        "check": "전체/추적 시점은 여러 프레임에 걸쳐 부드럽게 전환",
+        "distinctFrames": 28
+      },
+      {
+        "check": "동작 줄이기에서는 관성·시점 전환 애니메이션을 생략"
+      },
+      {
+        "check": "할 일 입력 후 장면을 누르면 물리 WASD로 다시 산책"
+      },
+      {
+        "check": "의자 집중은 이동 잠금·줌 조작 유지·고양이 구도 유지",
+        "inFrame": [720, 420.8321533203125]
+      },
+      {
+        "check": "실제 두 손가락 이동·핀치 확대, 제스처 종료 후 고양이 제자리"
+      },
+      {
+        "check": "320/375/768/1024px 카메라 4개 버튼·44px 조작 영역·가로 넘침 없음"
+      }
+    ],
+    "errors": [],
+    "target": "http://127.0.0.1:4176",
+    "checked_at": "2026-11-07T14:32:11.816393+09:00"
+  },
+  "touch": {
+    "results": [
+      {
+        "check": "실제 터치 조이스틱 이동·손을 떼면 정지",
+        "initial": "0.0, 12.2",
+        "released": "0.2, 12.1"
+      },
+      {
+        "check": "실제 땅 터치 이동",
+        "pass": true
+      },
+      {
+        "check": "한 손가락 카메라 회전",
+        "pass": true
+      },
+      {
+        "check": "두 손가락 핀치 확대·시점 초기화",
+        "pass": true
+      }
+    ],
+    "errors": [],
+    "checked_at": "2026-11-07T14:32:48.104024+09:00"
+  },
+  "recovery": {
+    "results": [
+      {
+        "check": "연결 실패 중 산책·기기 동작 줄이기",
+        "pass": true
+      },
+      {
+        "check": "실제 로컬 서버로 자동 재연결",
+        "pass": true
+      },
+      {
+        "check": "카메라 회전·초기화·가벼운 화면",
+        "pass": true
+      },
+      {
+        "check": "집중 중 WebGL context 소실 시 좌석·모닥불 음원 해제, 안내·다시 불러오기",
+        "pass": true
+      },
+      {
+        "check": "WebGL 미지원 시 로딩 대신 복구 안내",
+        "pass": true
+      }
+    ],
+    "errors": [],
+    "checked_at": "2026-11-07T14:32:54.184625+09:00"
+  },
+  "visual": {
+    "results": [
+      {
+        "check": "물가 3D 의자 직접 hover·클릭으로 즉시 앉아서 낚시 집중",
+        "pixel": {
+          "x": 809.8213216629606,
+          "y": 349.7450185686339
+        }
+      },
+      {
+        "check": "sea 실제 수면 픽셀 변화·동작 줄이기 정지",
+        "pass": true
+      },
+      {
+        "check": "일반 섬에 다른 낚시섬 주민을 그리지 않음",
+        "pass": true
+      },
+      {
+        "check": "pond 실제 수면 픽셀 변화·동작 줄이기 정지",
+        "pass": true
+      },
+      {
+        "check": "로컬 29명+브라우저 1명 30석 낚시·만석 안내·휴식 중 예약 및 섬 분리",
+        "pass": true
+      }
+    ],
+    "errors": [],
+    "checked_at": "2026-11-07T14:33:05.131801+09:00"
+  },
+  "review_preview_smoke": {
+    "url": "http://127.0.0.1:4174/",
+    "assets": ["/assets/index-CaE2A9jp.js", "/assets/index-DyFQmH0d.css"],
+    "verified_bundle_matches_integration": true,
+    "before": "0.0, 12.2",
+    "after": "0.0, 10.3",
+    "zoomButton": true,
+    "errors": [],
+    "checkedAt": "2026-11-07T05:41:15.807Z"
+  },
+  "verified_bundle_matches_integration": true,
+  "orca_browser": {
+    "page": "61113a63-c65a-49fa-9e27-e240467597a6",
+    "state": "일반 섬 산책, 카메라 ± 버튼 활성",
+    "screenshot": "docs/controls-orca.png",
+    "checked_at": "2026-11-07T05:41:15.807Z"
+  },
+  "final_layout_checks": {
+    "passed": 12,
+    "scope": "6 viewport sizes × follow/overview, 44px controls, viewport bounds and pairwise control/dock/note overlap",
+    "results": [
+      {
+        "width": 320,
+        "height": 568,
+        "mode": "follow",
+        "overlap": [],
+        "buttons": [
+          {
+            "w": 44,
+            "h": 44,
+            "x": 204,
+            "y": 307,
+            "right": 248,
+            "bottom": 351
+          },
+          {
+            "w": 44,
+            "h": 44,
+            "x": 256,
+            "y": 307,
+            "right": 300,
+            "bottom": 351
+          },
+          {
+            "w": 44,
+            "h": 44,
+            "x": 204,
+            "y": 359,
+            "right": 248,
+            "bottom": 403
+          },
+          {
+            "w": 44,
+            "h": 44,
+            "x": 256,
+            "y": 359,
+            "right": 300,
+            "bottom": 403
+          }
+        ]
+      },
+      {
+        "width": 320,
+        "height": 568,
+        "mode": "overview",
+        "overlap": [],
+        "buttons": [
+          {
+            "w": 44,
+            "h": 44,
+            "x": 204,
+            "y": 307,
+            "right": 248,
+            "bottom": 351
+          },
+          {
+            "w": 44,
+            "h": 44,
+            "x": 256,
+            "y": 307,
+            "right": 300,
+            "bottom": 351
+          },
+          {
+            "w": 44,
+            "h": 44,
+            "x": 204,
+            "y": 359,
+            "right": 248,
+            "bottom": 403
+          },
+          {
+            "w": 44,
+            "h": 44,
+            "x": 256,
+            "y": 359,
+            "right": 300,
+            "bottom": 403
+          }
+        ]
+      },
+      {
+        "width": 375,
+        "height": 812,
+        "mode": "follow",
+        "overlap": [],
+        "buttons": [
+          {
+            "w": 44,
+            "h": 44,
+            "x": 259,
+            "y": 551,
+            "right": 303,
+            "bottom": 595
+          },
+          {
+            "w": 44,
+            "h": 44,
+            "x": 311,
+            "y": 551,
+            "right": 355,
+            "bottom": 595
+          },
+          {
+            "w": 44,
+            "h": 44,
+            "x": 259,
+            "y": 603,
+            "right": 303,
+            "bottom": 647
+          },
+          {
+            "w": 44,
+            "h": 44,
+            "x": 311,
+            "y": 603,
+            "right": 355,
+            "bottom": 647
+          }
+        ]
+      },
+      {
+        "width": 375,
+        "height": 812,
+        "mode": "overview",
+        "overlap": [],
+        "buttons": [
+          {
+            "w": 44,
+            "h": 44,
+            "x": 259,
+            "y": 551,
+            "right": 303,
+            "bottom": 595
+          },
+          {
+            "w": 44,
+            "h": 44,
+            "x": 311,
+            "y": 551,
+            "right": 355,
+            "bottom": 595
+          },
+          {
+            "w": 44,
+            "h": 44,
+            "x": 259,
+            "y": 601,
+            "right": 303,
+            "bottom": 645
+          },
+          {
+            "w": 44,
+            "h": 44,
+            "x": 311,
+            "y": 603,
+            "right": 355,
+            "bottom": 647
+          }
+        ]
+      },
+      {
+        "width": 768,
+        "height": 812,
+        "mode": "follow",
+        "overlap": [],
+        "buttons": [
+          {
+            "w": 44,
+            "h": 44,
+            "x": 632,
+            "y": 531,
+            "right": 676,
+            "bottom": 575
+          },
+          {
+            "w": 44,
+            "h": 44,
+            "x": 684,
+            "y": 531,
+            "right": 728,
+            "bottom": 575
+          },
+          {
+            "w": 44,
+            "h": 44,
+            "x": 632,
+            "y": 583,
+            "right": 676,
+            "bottom": 627
+          },
+          {
+            "w": 44,
+            "h": 44,
+            "x": 684,
+            "y": 583,
+            "right": 728,
+            "bottom": 627
+          }
+        ]
+      },
+      {
+        "width": 768,
+        "height": 812,
+        "mode": "overview",
+        "overlap": [],
+        "buttons": [
+          {
+            "w": 44,
+            "h": 44,
+            "x": 632,
+            "y": 531,
+            "right": 676,
+            "bottom": 575
+          },
+          {
+            "w": 44,
+            "h": 44,
+            "x": 684,
+            "y": 531,
+            "right": 728,
+            "bottom": 575
+          },
+          {
+            "w": 44,
+            "h": 44,
+            "x": 632,
+            "y": 581,
+            "right": 676,
+            "bottom": 625
+          },
+          {
+            "w": 44,
+            "h": 44,
+            "x": 684,
+            "y": 583,
+            "right": 728,
+            "bottom": 627
+          }
+        ]
+      },
+      {
+        "width": 1024,
+        "height": 775,
+        "mode": "follow",
+        "overlap": [],
+        "buttons": [
+          {
+            "w": 44,
+            "h": 44,
+            "x": 888,
+            "y": 494,
+            "right": 932,
+            "bottom": 538
+          },
+          {
+            "w": 44,
+            "h": 44,
+            "x": 940,
+            "y": 494,
+            "right": 984,
+            "bottom": 538
+          },
+          {
+            "w": 44,
+            "h": 44,
+            "x": 888,
+            "y": 546,
+            "right": 932,
+            "bottom": 590
+          },
+          {
+            "w": 44,
+            "h": 44,
+            "x": 940,
+            "y": 546,
+            "right": 984,
+            "bottom": 590
+          }
+        ]
+      },
+      {
+        "width": 1024,
+        "height": 775,
+        "mode": "overview",
+        "overlap": [],
+        "buttons": [
+          {
+            "w": 44,
+            "h": 44,
+            "x": 888,
+            "y": 494,
+            "right": 932,
+            "bottom": 538
+          },
+          {
+            "w": 44,
+            "h": 44,
+            "x": 940,
+            "y": 494,
+            "right": 984,
+            "bottom": 538
+          },
+          {
+            "w": 44,
+            "h": 44,
+            "x": 888,
+            "y": 544,
+            "right": 932,
+            "bottom": 588
+          },
+          {
+            "w": 44,
+            "h": 44,
+            "x": 940,
+            "y": 546,
+            "right": 984,
+            "bottom": 590
+          }
+        ]
+      },
+      {
+        "width": 1440,
+        "height": 650,
+        "mode": "follow",
+        "overlap": [],
+        "buttons": [
+          {
+            "w": 44,
+            "h": 44,
+            "x": 1304,
+            "y": 490,
+            "right": 1348,
+            "bottom": 534
+          },
+          {
+            "w": 44,
+            "h": 44,
+            "x": 1356,
+            "y": 490,
+            "right": 1400,
+            "bottom": 534
+          },
+          {
+            "w": 44,
+            "h": 44,
+            "x": 1304,
+            "y": 542,
+            "right": 1348,
+            "bottom": 586
+          },
+          {
+            "w": 44,
+            "h": 44,
+            "x": 1356,
+            "y": 542,
+            "right": 1400,
+            "bottom": 586
+          }
+        ]
+      },
+      {
+        "width": 1440,
+        "height": 650,
+        "mode": "overview",
+        "overlap": [],
+        "buttons": [
+          {
+            "w": 44,
+            "h": 44,
+            "x": 1304,
+            "y": 490,
+            "right": 1348,
+            "bottom": 534
+          },
+          {
+            "w": 44,
+            "h": 44,
+            "x": 1356,
+            "y": 490,
+            "right": 1400,
+            "bottom": 534
+          },
+          {
+            "w": 44,
+            "h": 44,
+            "x": 1304,
+            "y": 540,
+            "right": 1348,
+            "bottom": 584
+          },
+          {
+            "w": 44,
+            "h": 44,
+            "x": 1356,
+            "y": 542,
+            "right": 1400,
+            "bottom": 586
+          }
+        ]
+      },
+      {
+        "width": 1440,
+        "height": 1000,
+        "mode": "follow",
+        "overlap": [],
+        "buttons": [
+          {
+            "w": 44,
+            "h": 44,
+            "x": 1348,
+            "y": 692,
+            "right": 1392,
+            "bottom": 736
+          },
+          {
+            "w": 44,
+            "h": 44,
+            "x": 1348,
+            "y": 744,
+            "right": 1392,
+            "bottom": 788
+          },
+          {
+            "w": 60,
+            "h": 64,
+            "x": 1340,
+            "y": 796,
+            "right": 1400,
+            "bottom": 860
+          },
+          {
+            "w": 44,
+            "h": 44,
+            "x": 1348,
+            "y": 868,
+            "right": 1392,
+            "bottom": 912
+          }
+        ]
+      },
+      {
+        "width": 1440,
+        "height": 1000,
+        "mode": "overview",
+        "overlap": [],
+        "buttons": [
+          {
+            "w": 44,
+            "h": 44,
+            "x": 1348,
+            "y": 692,
+            "right": 1392,
+            "bottom": 736
+          },
+          {
+            "w": 44,
+            "h": 44,
+            "x": 1348,
+            "y": 744,
+            "right": 1392,
+            "bottom": 788
+          },
+          {
+            "w": 60,
+            "h": 64,
+            "x": 1340,
+            "y": 794,
+            "right": 1400,
+            "bottom": 858
+          },
+          {
+            "w": 44,
+            "h": 44,
+            "x": 1348,
+            "y": 868,
+            "right": 1392,
+            "bottom": 912
+          }
+        ]
+      }
+    ]
+  },
+  "final_changes_after_behavior_checks": "Camera control responsive CSS only; same installed three-stdlib 2.36.1 now declared as direct dependency. Final production JS/CSS match the layout preview byte-for-byte."
+}

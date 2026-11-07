@@ -1,6 +1,8 @@
 # Android Meta SDK
 
-Meta 앱 ID는 `1092876403132413`, Android 패키지는 `com.oneorthree.gromo`, 기본 액티비티는 `com.oneorthree.gromo.MainActivity`다. Meta 대시보드의 Android 설정에는 이 패키지·클래스를 입력한다.
+Meta 이벤트 관리자에서 연결된 데이터 세트 ID는 `1775306840352835`다. SDK와 서버 CAPI는 이 데이터 세트로 수집한다.
+
+Meta 앱 ID는 `4481407905460714`, Android 패키지는 `com.oneorthree.gromo`, 기본 액티비티는 `com.oneorthree.gromo.MainActivity`다. Meta 대시보드의 Android 설정에는 이 패키지·클래스를 입력한다.
 
 ## 설치와 설정
 
