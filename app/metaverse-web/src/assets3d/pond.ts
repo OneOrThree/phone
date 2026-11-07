@@ -1,10 +1,13 @@
 import {
   FOCUS_ISLAND,
+  FOCUS_ISLET,
   FOCUS_LANDMARKS,
   FOCUS_POND,
   FOCUS_SEATS,
   FOCUS_SPAWN_POINT,
   FOCUS_TREE_POSITIONS,
+  FRIEND_SEATS,
+  castSpot,
 } from "../layout";
 import { fbm, rng, smooth } from "./geometry";
 import { GROUND_Y, POND_LEVEL } from "./palette";
@@ -34,7 +37,16 @@ export { POND_LEVEL };
 // 연못 바닥 비탈이 물에 닿는 반경. 수면 메시는 이보다 조금 크게 깔고 지형이 가린다.
 const LIP_INNER = POND.radius - 0.06;
 const BED_DEEP = 0.95;
-export const ISLET = { radius: 1.25, top: POND_LEVEL + 0.24 } as const;
+// 가운데 작은 섬: 꼭대기는 땅(GROUND_Y)과 같은 높이로 평평해 집중 친구 의자 셋이 놓이고,
+// 가장자리는 물가처럼 둥글게 연못 바닥까지 내려간다. 물에 닿는 반경은 약 2.3m다.
+export const ISLET = {
+  flat: FOCUS_ISLET.flatRadius,
+  foot: FOCUS_ISLET.footRadius,
+  top: GROUND_Y,
+  floor: POND_LEVEL - 0.7,
+} as const;
+export const isletHeight = (r: number) =>
+  ISLET.top - (ISLET.top - ISLET.floor) * smooth(ISLET.flat, ISLET.foot, r);
 
 export const pondR = (x: number, z: number) =>
   Math.hypot(x - POND.x, z - POND.z);
@@ -48,14 +60,13 @@ export function pondBed(x: number, z: number) {
     0.06 -
     BED_DEEP * smooth(LIP_INNER, 7.2, r) +
     wobble * smooth(LIP_INNER, 9, r);
-  // 가운데 작은 섬: 수면 위로 0.24m, 가장자리는 완만하게 물에 잠긴다.
-  const islet =
-    ISLET.top -
-    (ISLET.top - (POND_LEVEL - 0.7)) *
-      smooth(ISLET.radius * 0.55, ISLET.radius + 1.1, r);
+  // 가운데 작은 섬: 의자가 놓이는 꼭대기는 평평하게 두고 물가 비탈에만 울퉁불퉁함을 준다.
+  const rough =
+    smooth(ISLET.flat, ISLET.flat + 0.35, r) *
+    (1 - smooth(ISLET.foot - 0.5, ISLET.foot, r));
   h = Math.max(
     h,
-    islet + (fbm(x * 1.4, z * 1.4, 2) - 0.5) * 0.08 * (1 - smooth(0.4, 1.4, r)),
+    isletHeight(r) + (fbm(x * 1.4, z * 1.4, 2) - 0.5) * 0.08 * rough,
   );
   return h;
 }
@@ -176,6 +187,13 @@ export const nearestSeat = (x: number, z: number) => {
     best = Math.min(best, Math.hypot(s.x - x, s.z - z));
   return best;
 };
+// 작은 섬 친구 의자 둘레의 다져진 흙
+export const FRIEND_SEATS_DIRT = (x: number, z: number) => {
+  let best = 99;
+  for (const s of FRIEND_SEATS)
+    best = Math.min(best, Math.hypot(s.x - x, s.z - z));
+  return best;
+};
 export const landmarkClearance = (x: number, z: number) =>
   Math.min(
     Math.hypot(x - FALL.x, z - FALL.z) - 2.35,
@@ -230,6 +248,24 @@ export const FOCUS_TREES: FocusTree[] = FOCUS_TREE_POSITIONS.map(
     };
   },
 );
+
+// 작은 섬이 수면 위로 드러나는 반경(isletHeight가 수면 높이가 되는 곳).
+export const ISLET_SHORE = (() => {
+  let r = ISLET.flat;
+  while (isletHeight(r) > POND_LEVEL) r += 0.005;
+  return r;
+})();
+// 작은 섬 집중 친구의 찌 자리와, 의자에서 찌까지 줄이 지나는 띠.
+export const FRIEND_FLOATS = FRIEND_SEATS.map(castSpot);
+export function inFriendLane(x: number, z: number, half: number) {
+  return FRIEND_SEATS.some((seat) => {
+    const dx = x - seat.x,
+      dz = z - seat.z;
+    const along = dx * Math.sin(seat.yaw) + dz * Math.cos(seat.yaw);
+    const side = dx * Math.cos(seat.yaw) - dz * Math.sin(seat.yaw);
+    return along > 0.4 && along < 4.4 && Math.abs(side) < half;
+  });
+}
 
 // 연못 장식 배치. 낚싯줄은 의자 각도(i+0.5)×12°로 들어가므로 갈대·수련은 의자 사이 각도에 둔다.
 export const seatAngle = (i: number) =>
@@ -304,13 +340,16 @@ export const POND_DECOR = (() => {
       tone: k % 4,
     });
   }
-  // 수련잎: 가운데 섬 둘레와 물가 쪽 의자 사이. 찌가 떨어지는 반경(9.4~10.1)의 줄 방향은 비운다.
+  // 수련잎: 가운데 섬 둘레와 물가 쪽 의자 사이. 찌가 떨어지는 반경(9.4~10.1)의 줄 방향과
+  // 작은 섬 집중 친구의 줄·찌 자리는 비운다.
   let tries = 0;
   while (lilies.length < 46 && tries++ < 900) {
     const a = random() * Math.PI * 2,
       r = 2.0 + random() * 8.1;
     if (r > 8.4 && angleGap(a) < 0.11) continue;
+    if (r < ISLET_SHORE + 0.6) continue;
     const p = at(a, r);
+    if (inFriendLane(p.x, p.z, 0.85)) continue;
     if (nearStream(p.x, p.z, 0.8)) continue;
     if (lilies.some((l) => Math.hypot(l.x - p.x, l.z - p.z) < 0.85)) continue;
     // 무리 지어 자라도록 노이즈가 높은 곳만
@@ -330,16 +369,17 @@ export const POND_DECOR = (() => {
     if (nearStream(p.x, p.z, 0.5)) continue;
     waterGrass.push({ ...p, s: 0.6 + random() * 0.6, yaw: random() * 6.28 });
   }
-  // 가운데 섬: 갈대와 꽃 몇 송이
-  for (let k = 0; k < 9; k++) {
-    const a = random() * Math.PI * 2,
-      r = 0.25 + random() * 0.6;
-    reeds.push({
-      ...at(a, r),
-      s: 0.8 + random() * 0.45,
-      yaw: random() * 6.28,
-      tone: k % 3,
-    });
-  }
+  // 가운데 섬: 친구 의자 사이 물가에 갈대 세 무더기(줄이 지나는 방향은 비운다)
+  for (const seat of FRIEND_SEATS)
+    for (let k = 0; k < 3; k++) {
+      const a = seat.yaw + Math.PI / 3 + (random() - 0.5) * 0.32,
+        r = ISLET_SHORE - 0.2 + random() * 0.35;
+      reeds.push({
+        ...at(a, r),
+        s: 0.75 + random() * 0.4,
+        yaw: random() * 6.28,
+        tone: k % 3,
+      });
+    }
   return { reeds, lilies, bankStones, waterGrass, bankFlowers };
 })();

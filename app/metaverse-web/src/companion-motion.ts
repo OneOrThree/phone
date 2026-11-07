@@ -1,3 +1,5 @@
+import { FishingRhythm, CATCH_LENGTH } from "./fishing-rhythm";
+import { FRIEND_SEATS } from "./layout";
 import { Simulation } from "./simulation";
 import {
   pathTo,
@@ -58,10 +60,30 @@ export const COMPANION_ROUTES: Record<IslandId, Route[]> = {
   ],
 };
 
-// 장면 안에서만 사는 산책 친구. 방 접속·좌석 예약·집중 시간에는 참여하지 않는다.
+// 낚시섬 가운데 작은 섬에서 의자에 앉아 집중하는 친구. 산책 친구와 이름·털색이 겹치지 않는다.
+export const FOCUS_FRIENDS: { name: string; color: CatColor }[] = [
+  { name: "보리", color: "cream" },
+  { name: "까미", color: "black" },
+  { name: "단비", color: "gray" },
+];
+// 집중 친구는 같은 33초 박자를 11초씩 어긋나게 낚는다. 한 번이 7초라 둘이 함께 낚는 일이 없고,
+// 섬에 들어서고 2.5초 뒤 첫 물고기가 올라온다.
+export const FRIEND_FISHING_EVERY = 33;
+export const FRIEND_FISHING_OFFSET =
+  FRIEND_FISHING_EVERY / FOCUS_FRIENDS.length;
+const friendRhythm = (i: number) => {
+  const first = 2.5 + i * FRIEND_FISHING_OFFSET;
+  const gap = FRIEND_FISHING_EVERY - CATCH_LENGTH;
+  return new FishingRhythm({ first: [first, first], gap: [gap, gap] });
+};
+export type FocusFriend = { actor: Actor; fishing: FishingRhythm };
+
+// 장면 안에서만 사는 친구. 방 접속·좌석 예약·집중 시간에는 참여하지 않는다.
+// 산책 친구는 정해진 길을 돌고, 낚시섬의 집중 친구는 작은 섬의 전용 의자에서 움직이지 않는다.
 export class IslandCompanions {
   private friends;
   readonly actors: Actor[];
+  readonly sitters: FocusFriend[];
   constructor(island: IslandId) {
     this.friends = COMPANION_ROUTES[island].map((route, i) => {
       const sim = new Simulation();
@@ -89,6 +111,21 @@ export class IslandCompanions {
       };
     });
     this.actors = this.friends.map(({ sim }) => sim.actor);
+    this.sitters =
+      island === "focus"
+        ? FOCUS_FRIENDS.map((friend, i) => ({
+            actor: {
+              x: FRIEND_SEATS[i].x,
+              z: FRIEND_SEATS[i].z,
+              yaw: FRIEND_SEATS[i].yaw,
+              island,
+              name: friend.name,
+              color: friend.color,
+              action: "focus",
+            },
+            fishing: friendRhythm(i),
+          }))
+        : [];
   }
 
   step(delta: number, visitor: Point, reduced: boolean) {

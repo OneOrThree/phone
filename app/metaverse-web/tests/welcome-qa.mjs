@@ -26,6 +26,15 @@ async function open(options = {}, init) {
   return page;
 }
 const welcome = (p) => p.getByRole("dialog", { name: "섬에 온 걸 환영해요" });
+// 장면 친구 이름표: 이름만 쓰고 「봇」 같은 꼬리표를 붙이지 않는다.
+const WALKERS = ["구름", "모카", "안내 고양이"];
+const SITTERS = ["까미", "단비", "보리"];
+const friendLabels = (p) =>
+  p.evaluate(() =>
+    [...document.querySelectorAll(".cat-label:not(.self)")]
+      .map((e) => e.textContent)
+      .sort(),
+  );
 async function join(page, name) {
   await page.getByLabel("섬에서 부를 이름").fill(name);
   await page.getByRole("button", { name: "이 이름으로 섬에 들어가기" }).click();
@@ -78,13 +87,12 @@ try {
     { name: "물가 친구", color: "gray" },
   );
   await p.getByText("함께 있는 고양이 1", { exact: true }).waitFor();
-  assert.equal(
-    await p.locator(".cat-label").filter({ hasText: "· 봇" }).count(),
-    3,
-  );
+  assert.deepEqual(await friendLabels(p), WALKERS);
   await p.getByText("낚시 의자 0/30", { exact: true }).waitFor();
   await p.screenshot({ path: "artifacts/welcome/companions-home.png" });
-  note("이름·털색으로 입장하며 봇 3마리는 인원·낚시 좌석에 포함되지 않는다");
+  note(
+    "이름·털색으로 입장하며 산책 친구 3마리는 이름만 보이고 인원·낚시 좌석에 포함되지 않는다",
+  );
 
   await p.reload();
   await p.locator(".connection.online").waitFor();
@@ -123,10 +131,9 @@ try {
   await p.waitForFunction(
     () => document.querySelector("main").dataset.island === "focus",
   );
-  assert.equal(
-    await p.locator(".cat-label").filter({ hasText: "· 봇" }).count(),
-    3,
-  );
+  assert.deepEqual(await friendLabels(p), [...WALKERS, ...SITTERS].sort());
+  await p.getByText("함께 있는 고양이 1", { exact: true }).waitFor();
+  await p.getByText("낚시 의자 0/30", { exact: true }).waitFor();
   await p.getByRole("button", { name: "자리 고르기", exact: true }).click();
   assert.equal(
     await p.getByRole("button", { name: /번 의자 · 비어 있음/ }).count(),
@@ -139,7 +146,9 @@ try {
     () => document.querySelector("main").dataset.focus === "active",
   );
   await p.screenshot({ path: "artifacts/welcome/companions-focus.png" });
-  note("낚시섬에서도 봇을 구분하고 30개 의자를 모두 이용할 수 있다");
+  note(
+    "낚시섬에는 산책 친구와 작은 섬 집중 친구 3마리가 이름만 보이고 사용자 의자 30개를 모두 이용할 수 있다",
+  );
   await p.close();
 
   const mobile = await open({

@@ -55,6 +55,32 @@ export const FOCUS_SEATS: readonly FocusSeat[] = Array.from(
 );
 export const getFocusSeat = (id: number) =>
   FOCUS_SEATS.find((seat) => seat.id === id);
+// 연못 가운데 작은 섬. 꼭대기(flatRadius 안)는 땅과 같은 높이로 평평하고 footRadius에서 연못 바닥에 닿는다.
+// 물가 길·의자 30석과 떨어진 물 한가운데라 사람이 걸어 들어갈 수 없다(world.ts의 연못 판정).
+export const FOCUS_ISLET = {
+  x: FOCUS_POND.x,
+  z: FOCUS_POND.z,
+  flatRadius: 1.8,
+  footRadius: 3.15,
+} as const;
+// 의자에 앉은 고양이의 찌가 떨어지는 거리. 의자 앞 3.5m 수면이다(catPose.ts의 FOCUS_CAST).
+export const CHAIR_CAST = 3.5;
+export const castSpot = (seat: { x: number; z: number; yaw: number }) => ({
+  x: seat.x + Math.sin(seat.yaw) * CHAIR_CAST,
+  z: seat.z + Math.cos(seat.yaw) * CHAIR_CAST,
+});
+// 작은 섬에서 등을 맞대고 앉아 바깥 연못에 낚싯대를 드리운 집중 친구 자리. 화면에서만 사는 친구라
+// 사용자 의자(FOCUS_SEATS)·예약·서버 검증·자리 고르기 목록에 들어가지 않는다. 0번은 부두 쪽(남)을 본다.
+export type FriendSeat = { x: number; z: number; yaw: number };
+export const FRIEND_SEAT_RADIUS = 0.95;
+export const FRIEND_SEATS: readonly FriendSeat[] = [0, 1, 2].map((i) => {
+  const yaw = (i / 3) * Math.PI * 2;
+  return {
+    x: FOCUS_ISLET.x + Math.sin(yaw) * FRIEND_SEAT_RADIUS,
+    z: FOCUS_ISLET.z + Math.cos(yaw) * FRIEND_SEAT_RADIUS,
+    yaw,
+  };
+});
 export const TREE_POSITIONS: [number, number, number][] = Array.from(
   { length: 30 },
   (_, i): [number, number, number] => {
