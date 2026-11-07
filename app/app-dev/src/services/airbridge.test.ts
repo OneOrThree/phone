@@ -139,3 +139,16 @@ test('PostHog가 늦게 구독해도 수신한 귀속을 전달하고 미귀속�
     }),
   ).not.toThrow();
 });
+
+test.each(['ios', 'android'])(
+  '%s 첫 섬 도착은 집중 완료와 별도 표준 이벤트로 보낸다',
+  (platform) => {
+    require('react-native').Platform.OS = platform;
+    const { initAirbridge, captureAirbridgeEvent } = require('./airbridge');
+    initAirbridge();
+    expect(captureAirbridgeEvent('first_island_arrival')).toBe(true);
+    expect(mockAirbridge.trackEvent).toHaveBeenCalledWith('airbridge.completeTutorial', {
+      action: 'first_island_arrival',
+    });
+  },
+);

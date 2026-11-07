@@ -1,7 +1,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ApiError, CLIENT_STALE_SESSION, request, uuid } from '@/services/api/client';
 import { metaContext } from '@/services/metaSdk';
-import { sessionGeneration } from '@/services/api/session';
+import { getSession, sessionGeneration } from '@/services/api/session';
+import { captureFirstArrivalConversion } from '@/services/firstArrivalConversion';
 import type { Arrival, TelescopeItem } from '@/services/api/telescope';
 
 /** 설치 단위로만 보관한다. 계정 서버 이력·키체인에 남기지 않아 재설치하면 다시 체험할 수 있다. */
@@ -47,6 +48,7 @@ export async function arriveFirstVoyage(
   intent: FirstVoyageIntent,
   generation = sessionGeneration(),
 ): Promise<Arrival> {
+  const owner = getSession()?.userId;
   // 서버가 Meta로 첫 도착 이벤트를 보낼 매칭 값(GROMO-2742). 실패·지연이 도착을 막지 않게 1초로 끊는다.
   let timer: ReturnType<typeof setTimeout> | undefined;
   const meta = await Promise.race([
@@ -57,10 +59,16 @@ export async function arriveFirstVoyage(
   // 기다리는 사이 로그아웃·계정 전환이 끝났으면 보내지 않는다 — 요청은 전송 시점의 토큰을 쓰므로 새 계정에 도착한다.
   if (generation !== sessionGeneration())
     throw new ApiError(CLIENT_STALE_SESSION, '로그인 정보가 바뀌었어요. 다시 시도해 주세요.', 0);
-  return request(`/islands/${encodeURIComponent(intent.destination.islandId)}/intro-arrivals`, {
-    method: 'POST',
-    idempotencyKey: intent.key,
-    generation,
-    ...(meta ? { body: { meta } } : {}),
-  });
+  const arrival = await request<Arrival>(
+    `/islands/${encodeURIComponent(intent.destination.islandId)}/intro-arrivals`,
+    {
+      method: 'POST',
+      idempotencyKey: intent.key,
+      generation,
+      ...(meta ? { body: { meta } } : {}),
+    },
+  );
+  if (arrival?.firstIslandArrival === true && owner)
+    void captureFirstArrivalConversion(owner, generation);
+  return arrival;
 }

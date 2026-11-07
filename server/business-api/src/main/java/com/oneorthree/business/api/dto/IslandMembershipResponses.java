@@ -76,10 +76,11 @@ public final class IslandMembershipResponses {
             @JsonProperty(required = true) UUID islandId,
             @JsonProperty(required = true) boolean arrivedBefore,
             @JsonProperty(required = true) String membershipStatus,
-            @JsonInclude(JsonInclude.Include.ALWAYS) UUID currentIslandId) {
+            @JsonInclude(JsonInclude.Include.ALWAYS) UUID currentIslandId,
+            boolean firstIslandArrival) {
         public static IslandArrivalView from(IslandArrival value) {
             return new IslandArrivalView(value.islandId(), value.arrivedBefore(), value.membershipStatus(),
-                    value.currentIslandId());
+                    value.currentIslandId(), Boolean.TRUE.equals(value.firstIslandArrival()));
         }
     }
 

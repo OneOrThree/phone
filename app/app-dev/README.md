@@ -272,3 +272,7 @@ iOS 2.3.0 은 1.x 와 같은 App Store 앱(번들 `com.oneorthree.gromo`, Store 
 `CatusAssetCache` 로컬 Expo 모듈이 추가되어 Android·iOS 모두 새 바이너리가 필요해 그때 두 OTA 런타임을 올렸습니다(당시 Android `2.0.1-android-push-assets-v1`, iOS `2.0.0-push-meta-assets-v1`, 현재 값은 `app.config.js`). 기존 바이너리와 웹은 번들 이미지를 유지합니다.
 
 기본값은 비활성화입니다. 개발 CDN을 게시한 뒤 Android CI repository vars `IMAGE_ASSETS_DEV_ENABLED=true`, `IMAGE_ASSETS_DEV_URL=https://<distribution>.cloudfront.net`을 설정해 개발 바이너리를 검증합니다. 로컬/iOS 빌드는 `.env.example`의 `EXPO_PUBLIC_IMAGE_ASSETS_*` 세 값을 명시합니다. 운영 CDN은 아직 없으므로(GROMO-2671) 운영 OTA 스크립트와 iOS 운영 레인(`fastlane beta`)은 기능을 끈 값으로 고정하고, 운영 TestFlight(`ios/testflight.sh`)·Xcode Release 운영 청중·Android 운영 release는 셸에 `EXPO_PUBLIC_IMAGE_ASSETS_ENABLED=true`가 있거나 `EXPO_PUBLIC_IMAGE_ASSETS_URL`이 비어 있지 않으면 빌드가 실패합니다(이 빌드 가드는 셸 값만 봅니다). `.env`에서 인라인된 값은 앱 게이트(`src/services/assets/repository.ts`의 `getAssetRepository`)가 운영 번들에서 끕니다. 운영 CDN을 발행·검증한 뒤 이 차단과 고정값을 운영 값으로 함께 바꿉니다. 개인 이미지나 인증이 필요한 파일은 공개 CDN에 올리지 않습니다.
+
+### Google Ads 첫 섬 도착 전환
+
+서버가 `firstIslandArrival=true`로 확정한 첫 항해 도착을 Airbridge `airbridge.completeTutorial`로 보냅니다. 운영 release 빌드에서만 보내며 계정별 로컬 표지로 중복 응답을 억제합니다. Google Ads에서 사용하려면 플랫폼 연결 ID와 이벤트 포스트백·전환 목표 설정이 필요합니다. [설정 절차와 전달 보장 범위](analytics/google-ads-conversions.md)를 따릅니다.

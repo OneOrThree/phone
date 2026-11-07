@@ -61,6 +61,8 @@ export type Telescope = {
 };
 
 export type Arrival = {
+  /** 첫 항해가 계정 최초 도착일 때만 true. 구 서버 응답은 미포함. */
+  firstIslandArrival?: boolean;
   islandId: string;
   /** 주민이면 현 가입 이후 첫 도착일 때 false(GROMO-2302), 방문자는 항상 true. */
   arrivedBefore: boolean;

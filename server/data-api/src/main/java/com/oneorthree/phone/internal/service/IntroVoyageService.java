@@ -87,7 +87,9 @@ public class IntroVoyageService {
                                 send ? InternalJson.tree(m.extinfo()).toString() : null,
                                 ip, send ? "PENDING" : "SKIPPED", send ? now : null);
                     }
-                    return new PublicCommandResult(200, InternalJson.tree(arrival), InternalJson.tree(events));
+                    var result = new IslandArrivalView(arrival.islandId(), arrival.arrivedBefore(),
+                            arrival.membershipStatus(), arrival.currentIslandId(), firstEver);
+                    return new PublicCommandResult(200, InternalJson.tree(result), InternalJson.tree(events));
                 }).value().data();
         return InternalJson.decode(data, IslandArrivalView.class);
     }

@@ -17,7 +17,13 @@ let mockGeneration = 7;
 jest.mock('@/services/api/session', () => ({
   ...jest.requireActual('@/services/api/session'),
   sessionGeneration: () => mockGeneration,
+  getSession: jest.fn(() => ({ userId: 'a' })),
 }));
+jest.mock('@/services/firstArrivalConversion', () => ({
+  captureFirstArrivalConversion: jest.fn(),
+}));
+import { captureFirstArrivalConversion } from './firstArrivalConversion';
+
 jest.mock('@/services/metaSdk', () => ({ metaContext: jest.fn() }));
 const destination = { islandId: 'candidate', name: '무인도' } as TelescopeItem;
 beforeEach(async () => {
@@ -61,4 +67,22 @@ test('Meta 값을 기다리는 사이 계정이 바뀌면 도착 요청을 보�
   resolveMeta(undefined);
   await expect(arrival).rejects.toMatchObject({ code: CLIENT_STALE_SESSION });
   expect(request).not.toHaveBeenCalled();
+});
+
+test.each([true, false, undefined])(
+  '서버 최초 판정 %s에 따라 전환을 전달한다',
+  async (firstIslandArrival) => {
+    (request as jest.Mock).mockResolvedValue({ islandId: 'island', firstIslandArrival });
+    await arriveFirstVoyage({ destination, key: 'receipt' }, 7);
+    expect(captureFirstArrivalConversion).toHaveBeenCalledTimes(
+      firstIslandArrival === true ? 1 : 0,
+    );
+    if (firstIslandArrival) expect(captureFirstArrivalConversion).toHaveBeenCalledWith('a', 7);
+  },
+);
+
+test('도착 실패에는 전환을 전달하지 않는다', async () => {
+  (request as jest.Mock).mockRejectedValueOnce(new Error('network'));
+  await expect(arriveFirstVoyage({ destination, key: 'receipt' }, 7)).rejects.toThrow('network');
+  expect(captureFirstArrivalConversion).not.toHaveBeenCalled();
 });

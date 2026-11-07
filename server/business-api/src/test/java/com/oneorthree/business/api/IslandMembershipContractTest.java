@@ -80,6 +80,17 @@ class IslandMembershipContractTest extends UpstreamTestBase {
         assertThat(forwarded.header("X-User-Id")).isEqualTo(USER.toString());
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"true", "false", "null"})
+    @DisplayName("첫 항해 최초 도착 판정을 공개 응답에 전달하고 구 서버 null은 false로 본다")
+    void forwardsFirstIslandArrival(String first) throws Exception {
+        String path = "POST " + INTERNAL + "/islands/" + ISLAND + "/intro-arrivals";
+        DATA.on(path, request -> ok(INTRO_OK.replace("}", ",\"firstIslandArrival\":" + first + "}")));
+        mockMvc.perform(write(post("/islands/" + ISLAND + "/intro-arrivals"), ""))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.firstIslandArrival").value("true".equals(first)));
+    }
+
     private static final String EXT = "[\"i2\",\"com.oneorthree.focuscat\",\"2.3.8\",\"778\",\"17.5.1\",\"iPhone15,2\","
             + "\"ko_KR\",\"KST\",\"\",\"393\",\"852\",\"3\",\"\",\"\",\"\",\"Asia/Seoul\"]";
     private static final String INTRO_OK = "{\"islandId\":\"" + OTHER + "\",\"arrivedBefore\":false,"

@@ -315,6 +315,7 @@ class OnboardingIslandIntegrationTest {
         UUID candidate = telescope.list(user).items().get(0).islandId();
         UUID key = UUID.randomUUID();
         var arrival = intro.arrive(user, candidate, key, meta("anon-1"));
+        assertThat(arrival.firstIslandArrival()).isTrue();
         var row = jdbc.queryForMap("select * from first_island_arrivals where user_id=?", user);
         assertThat(row.get("send_status")).isEqualTo("PENDING");
         assertThat(row.get("anon_id")).isEqualTo("anon-1");
@@ -328,7 +329,8 @@ class OnboardingIslandIntegrationTest {
                 Boolean.class, user)).isTrue();
         // 같은 키 재시도와 재설치 뒤 새 키 모두 행을 늘리거나 바꾸지 않는다.
         assertThat(intro.arrive(user, candidate, key, meta("anon-1"))).isEqualTo(arrival);
-        intro.arrive(user, arrival.islandId(), UUID.randomUUID(), meta("anon-2"));
+        assertThat(intro.arrive(user, arrival.islandId(), UUID.randomUUID(), meta("anon-2"))
+                .firstIslandArrival()).isFalse();
         assertThat(count("select count(*) from first_island_arrivals where user_id=?", user)).isEqualTo(1);
         assertThat(jdbc.queryForObject("select anon_id from first_island_arrivals where user_id=?", String.class,
                 user)).isEqualTo("anon-1");

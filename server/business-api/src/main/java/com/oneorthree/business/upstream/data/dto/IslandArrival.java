@@ -15,5 +15,5 @@ public record IslandArrival(
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) UUID islandId,
         @JsonProperty(required = true) boolean arrivedBefore,
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String membershipStatus,
-        UUID currentIslandId) {
+        UUID currentIslandId, Boolean firstIslandArrival) {
 }
