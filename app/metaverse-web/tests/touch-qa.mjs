@@ -1,3 +1,4 @@
+import { returningVisitor } from "./returning-visitor.mjs";
 import { chromium } from "playwright";
 import { browserOptions } from "./browser-options.mjs";
 import assert from "node:assert/strict";
@@ -18,6 +19,7 @@ const errors = [],
 page.on("pageerror", (e) => errors.push(e.message));
 const coords = () => page.locator(".coordinates").textContent();
 try {
+  await returningVisitor(page);
   await page.goto(target);
   await page.waitForFunction(() => !document.querySelector(".loading"));
   await page.getByRole("button", { name: "섬 전체 보기" }).click();

@@ -1,6 +1,7 @@
 import { Suspense, useEffect, useState, useRef } from "react";
 import { Canvas } from "@react-three/fiber";
 import { Cat } from "./Cat";
+import { Companions } from "./Companions";
 import { CameraOcclusion } from "./CameraOcclusion";
 import { Island, Ocean } from "./Island";
 import { FocusSeats } from "./FocusSeats";
@@ -11,15 +12,6 @@ import { art } from "./theme";
 import { CameraRig, type SceneGesture, type ZoomRequest } from "./CameraRig";
 import type { Simulation } from "./simulation";
 import type { Resident } from "./world";
-const guide = {
-  island: "home" as const,
-  x: -2.4,
-  z: 14.2,
-  yaw: 0.7,
-  action: "sit" as const,
-  color: "peach" as const,
-  name: "안내 고양이",
-};
 export function Scene({
   island,
   sim,
@@ -130,14 +122,10 @@ export function Scene({
               local
               reduced={sim.reducedMotion}
             />
-            <Cat
-              actor={
-                island === "home"
-                  ? guide
-                  : { ...guide, island: "focus", x: -2.4, z: 17.4 }
-              }
-              label="안내 고양이"
-              reduced={sim.reducedMotion}
+            <Companions
+              key={`companions:${island}`}
+              island={island}
+              sim={sim}
             />
             {residents
               .filter((actor) => actor.island === island)

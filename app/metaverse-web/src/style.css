@@ -469,6 +469,21 @@ dialog::backdrop {
   line-height: 1.7;
   margin-bottom: var(--s5);
 }
+.name-hint,
+.welcome-note {
+  color: var(--textMuted);
+  font-size: 12px;
+  line-height: 1.7;
+}
+.name-hint {
+  margin: var(--s2) 0 0;
+}
+.welcome-note {
+  margin: 0;
+}
+.welcome-dialog .wide {
+  margin-top: var(--s5);
+}
 .instructions {
   margin: 0;
 }

@@ -1,3 +1,4 @@
+import { returningVisitor } from "./returning-visitor.mjs";
 import { chromium } from "playwright";
 import { browserOptions } from "./browser-options.mjs";
 import { WebSocket } from "ws";
@@ -98,6 +99,7 @@ async function command(ws, type, params = {}) {
   });
 }
 try {
+  await returningVisitor(page);
   await page.goto(target);
   await page.waitForFunction(
     () =>
@@ -186,7 +188,7 @@ try {
     await command(ws, "claim-seat", { seatId: i, subject: "로컬 낚시 검토" });
   }
   await page.getByText("낚시 의자 29/30", { exact: true }).waitFor();
-  assert.equal(await page.locator(".cat-label").count(), 2);
+  assert.equal(await page.locator(".cat-label").count(), 4);
   results.push({
     check: "일반 섬에 다른 낚시섬 주민을 그리지 않음",
     pass: true,
@@ -201,7 +203,7 @@ try {
     .click();
   await state("focus", "active");
   await page.getByText("낚시 의자 30/30", { exact: true }).waitFor();
-  assert.equal(await page.locator(".cat-label").count(), 31);
+  assert.equal(await page.locator(".cat-label").count(), 33);
   await page.screenshot({ path: "artifacts/islands/thirty-fishing-close.png" });
   await page.getByRole("button", { name: "자리 바꾸기", exact: true }).click();
   await page.getByText(/지금은 낚시 의자 30개가 모두 사용 중/).waitFor();
@@ -237,7 +239,7 @@ try {
   );
   await page.getByRole("button", { name: "휴식하기", exact: true }).click();
   await state("home", "paused");
-  assert.equal(await page.locator(".cat-label").count(), 2);
+  assert.equal(await page.locator(".cat-label").count(), 4);
   await page.getByText("낚시 의자 30/30", { exact: true }).waitFor();
   await page.screenshot({
     path: "artifacts/islands/thirty-reserved-home-rest.png",
