@@ -56,4 +56,4 @@ Cattus 자신, Android 시스템 UI, 기본 전화 앱, HOME·설정·전화·�
 - 로컬 QA 화면은 실제 네이티브 브리지·설정 컴포넌트를 사용하고 서버 집중 확인만 테스트 데이터로 분리했다. 기존 React 화면의 세션 ID와 타이머 유지도 확인했다. 실제 서버 집중 전체 흐름과 OEM 실기기 검증을 대신하지 않는다.
 - 출시 전 확인 범위: 최소 지원 OS·목표 OS, Pixel·Galaxy Release, 장시간 화면 꺼짐·배터리 제한·서비스 종료, 큰 글자와 권한 철회, 보조 사용자·작업 프로필, 앱 삭제/데이터 초기화, 이벤트 빈도·배터리 영향. 접근성 서비스는 같은 Android 사용자/프로필의 앱만 대상으로 삼는다.
 - Play 제출 전 접근성 선언·별도 고지 및 동의/거절/철회 동영상, 스토어 설명·개인정보 처리방침·Data Safety 답변을 실제 수집 내용에 맞춰 검토한다. [Google Play 접근성 API 정책](https://support.google.com/googleplay/android-developer/answer/10964491?hl=en). 코드 구현이 Play 승인을 뜻하지 않는다.
-- 새 Android runtime은 `2.0.1-android-focus-return-v1`이다. 네이티브 서비스가 필요하므로 OTA만으로 배포할 수 없다. 앱 main 머지는 Play 내부 트랙 발행을 시작한다. 이 작업은 PR까지이며 merge·운영 워크플로·스토어 게시를 수행하지 않는다.
+- 새 Android runtime은 `2.0.1-android-focus-return-v1`이다. 네이티브 서비스가 필요하므로 OTA만으로 배포할 수 없다. 앱 main 머지는 Play 내부 트랙 발행을 시작한다. 현재 2798 범위는 누락 구현의 main 반영과 기능 포함 AAB·콘솔 준비까지다. 버전별 추가 테스트는 제외하며, 프로덕션 승격·실제 스토어 출시는 수행하지 않는다. 원래 구현 PR이 이전 기능 브랜치에 머지되어 main에 누락된 경위와 현재 범위는 [Release QA 기록](android-focus-return-release-qa.md)을 따른다.

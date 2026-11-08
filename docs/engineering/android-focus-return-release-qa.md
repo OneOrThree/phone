@@ -7,7 +7,7 @@
 
 ## 확인한 배포 이력 문제
 
-[PR #1627](https://github.com/OneOrThree/phone/pull/1627)은 2026-11-07 13:09:09 UTC main에 머지됐다. [PR #1630](https://github.com/OneOrThree/phone/pull/1630)은 21초 뒤 이미 머지된 부모 기능 브랜치에 머지되어 main에 포함되지 않았다. 2026-11-08 원격 main을 다시 가져와 `FocusReturnService.kt` 부재를 확인했다. 준비 브랜치로 두 기능 커밋을 가져왔으며 main 머지나 내부 트랙 발행은 하지 않았다.
+[PR #1627](https://github.com/OneOrThree/phone/pull/1627)은 2026-11-07 13:09:09 UTC main에 머지됐다. [PR #1630](https://github.com/OneOrThree/phone/pull/1630)은 21초 뒤 이미 머지된 부모 기능 브랜치에 머지되어 main에 포함되지 않았다. 2026-11-08 원격 main을 다시 가져와 `FocusReturnService.kt` 부재를 확인했다. 준비 브랜치로 두 기능 커밋을 가져왔다. 이 기록을 갱신한 PR 검토 시점에는 main 반영과 내부 트랙 등록 전이며, 이후 반영·공개 순서는 아래를 따른다.
 
 ## 검증 범위
 
@@ -31,6 +31,7 @@
 - 앱 관련 Jest: 5개 스위트, 97개 테스트 통과. Android 설정·네이티브 어댑터·섬 진입·동기화·안내 화면을 검증했다.
 - TypeScript 검사, Prettier 및 생성 팔레트 검사 통과. ESLint 오류 0개, 기존 경고 1,736개.
 - 네이티브: `FocusReturnLeaseTest` 4개, `AndroidStateTest` 15개 통과.
+- Android runtimeVersion은 `2.0.1-android-focus-return-v1`이다. iOS의 `2.0.0-screen-time-setup-v1`과 별개이며, Android 앱 복귀 모듈이 없는 이전 바이너리와 OTA를 분리한다.
 - 합쳐진 Release manifest에 `FocusReturnService`와 `BIND_ACCESSIBILITY_SERVICE` 등록 확인. `QUERY_ALL_PACKAGES`, `SYSTEM_ALERT_WINDOW`, `FOREGROUND_SERVICE_SPECIAL_USE` 없음. 기존 `PACKAGE_USAGE_STATS`는 유지한다.
 - 로컬 APK: `app/app-dev/android/app/build/outputs/apk/release/app-release.apk`. 서버는 `https://oneorthree-v2.dev.mooo.com`, arm64-v8a, Release 서명/최적화 산출물이다. 설치 버전은 로컬 기본값 `2.3.2 / 379`, minSdk 26, targetSdk 36이며 Play의 최신 857과 다른 산출물이다. Play 최종 제출 AAB가 아니다.
 - 첫 화면 진입과 재실행을 확인했고, 약관 동의 → 게스트 시작 → 고양이/닉네임/목적지 설정까지 실제 앱 흐름으로 진행했다. 집중 복귀 결과는 아래에 별도로 기록한다.
@@ -78,7 +79,7 @@ Android 17은 서비스를 켤 때 포괄적인 「full control」 시스템 확
 
 사용자는 기존 승인 빌드로 콘솔만 준비하려 했으나, 857에 Android 복귀 구현이 없는 것을 확인한 뒤 새 AAB가 필요하다고 범위를 변경했다. 앞선 「이번 작업에서 머지하지 않는다」는 제한은 현재 범위를 설명하지 못하므로 철회한다. main 반영과 실제 스토어 출시를 구분한다.
 
-1. 같은 head의 코드 리뷰·필수 검사를 확인하고 누락 구현을 main에 반영한다. 이 저장소는 app main 머지로 Android CI/CD와 Play internal 등록이 이어진다.
+1. 같은 head의 코드 리뷰·필수 검사를 확인하고 소유자가 직접 또는 위임한 에이전트가 누락 구현을 main에 반영한다. 이 저장소는 app main 머지로 Android CI/CD와 Play internal 등록이 이어진다.
 2. 새 산출물의 버전·소스 SHA·접근성 서비스 포함 여부를 확인하고, 기능 포함 번들 기준으로 접근성 선언·시연 영상·심사자 지침과 스토어 초안을 대조한다. 버전별 추가 테스트는 하지 않는다.
 3. 개인정보처리방침과 스토어 설명은 새 기능이 실제 제공되는 시점에 맞춘다. 준비된 수정안을 현재 승인 빌드 857의 기능으로 소개하지 않는다.
 4. 기존 857 프로덕션 게시 준비 건은 보존한다. 프로덕션 승격과 실제 스토어 출시는 별도 지시 전까지 실행하지 않는다.
