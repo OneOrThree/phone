@@ -1,5 +1,7 @@
-import { AndroidAppPicker } from '@/components/AndroidAppPicker';
-import { Group, Row, Toggle, Txt } from '@/design-system/patterns';
+import { AndroidScreenTimeSetup } from './AndroidScreenTimeSetup';
+import { getSession, sessionGeneration } from '@/services/api/session';
+import { syncFocusShield } from '@/services/focusShield';
+import { Btn, Group, Row, Toggle, Txt } from '@/design-system/patterns';
 import { t } from '@/i18n';
 import type { ScreenProps } from '@/navigation/ScreenEnvironment';
 import { screenTimeNative } from '@/services/ScreenTimeModule';
@@ -12,13 +14,13 @@ import {
   selectionCount,
 } from '@/services/screenTime';
 import { useEffect, useRef, useState } from 'react';
-import { AppState, Linking, PermissionsAndroid, Platform } from 'react-native';
+import { AppState, Linking, Platform } from 'react-native';
 import { Sheet } from '../shared/ScreenSheet';
 import { openScreenTimeSettings } from './screenTimeHelp';
 
 export function AppPermissionManager({ e }: ScreenProps) {
   const supportsFocusShield =
-    Platform.OS !== 'android' || screenTimeNative?.supportsFocusShield !== false;
+    Platform.OS !== 'android' || !!screenTimeNative?.getAndroidFocusAccess;
   const [status, setStatus] = useState<ScreenTimeAuthorization | 'loading'>('loading');
   const [selection, setSelection] = useState<ScreenTimeSelection | null>(null);
   const [selectionStatus, setSelectionStatus] = useState<'loading' | 'ready' | 'error'>('loading');
@@ -26,7 +28,7 @@ export function AppPermissionManager({ e }: ScreenProps) {
   const [allowSafari, setAllowSafari] = useState(false);
   const [allowedCount, setAllowedCount] = useState(0);
   const [allowedPicker, setAllowedPicker] = useState(false);
-  const [overlayGranted, setOverlayGranted] = useState(false);
+  const [focusGranted, setFocusGranted] = useState(false);
   // 알림 권한(GROMO-2526) — iOS 이고 푸시 브리지가 든 바이너리에서만 `unavailable` 이 아니다. 아니면 알림 섹션을 그리지 않는다.
   const [pushPermission, setPushPermission] = useState<PushPermission>('unavailable');
   // 알림 행은 알림을 다시 켜는 자리다 — 권한이 허용됐는데 앱 설정 「알림」이 꺼져 있으면 함께 켠다(꺼진 채로는 푸시 동기화가
@@ -93,22 +95,23 @@ export function AppPermissionManager({ e }: ScreenProps) {
           ? t('settings.permissions.unavailable')
           : t('settings.permissions.needed');
 
+  const refreshFocusAccess = async () => {
+    const owner = getSession()?.userId;
+    const generation = sessionGeneration();
+    if (!owner) return;
+    const access = await screenTimeNative?.getAndroidFocusAccess?.(owner);
+    if (owner !== getSession()?.userId || generation !== sessionGeneration()) return;
+    setFocusGranted(
+      !!(access?.consented && access.configured && access.connected && access.enabled),
+    );
+    setAllowedCount(selectionCount(await screenTime.getAllowedSelectionCounts()));
+  };
+
   useEffect(() => {
     let active = true;
     const syncPermissionState = () => {
       if (Platform.OS === 'android' && supportsFocusShield) {
-        void screenTimeNative
-          ?.canDrawOverlays?.()
-          .then((value) => {
-            if (active) setOverlayGranted(value);
-          })
-          .catch(() => {});
-        void screenTimeNative
-          ?.getAllowedPackages?.()
-          .then((value) => {
-            if (active) setAllowedCount(value.length);
-          })
-          .catch(() => {});
+        void refreshFocusAccess().catch(() => {});
       }
       const readSeq = ++pushReadSeq.current;
       void pushPermissionStatus().then((next) => {
@@ -243,15 +246,15 @@ export function AppPermissionManager({ e }: ScreenProps) {
   if (supportsFocusShield && allowedPicker)
     return (
       <Sheet e={e} title={t('settings.permissions.sheet.allowedApps')}>
-        <AndroidAppPicker
-          mode="allowed"
-          notify={e.notify}
-          onDone={() => {
+        <AndroidScreenTimeSetup
+          allowedOnly
+          onClose={() => {
             setAllowedPicker(false);
-            void screenTimeNative
-              ?.getAllowedPackages?.()
-              .then((value) => setAllowedCount(value.length))
-              .catch(() => {});
+            void refreshFocusAccess().catch(() => {});
+          }}
+          onConfigured={async () => {
+            if (!(await syncFocusShield(e.state.session, e.state.color, true)))
+              throw new Error('FOCUS_RETURN_FAILED');
           }}
         />
       </Sheet>
@@ -295,11 +298,11 @@ export function AppPermissionManager({ e }: ScreenProps) {
               chevron
               disabled={busy}
               onPress={async () => {
-                if (!(approved || (await requestConnection()))) return;
                 if (Platform.OS === 'android') {
                   setAllowedPicker(true);
                   return;
                 }
+                if (!(approved || (await requestConnection()))) return;
                 setBusy(true);
                 try {
                   const picked = await screenTime.presentAllowedAppManager();
@@ -341,33 +344,27 @@ export function AppPermissionManager({ e }: ScreenProps) {
       {Platform.OS === 'android' && supportsFocusShield && (
         <Group>
           <Row
-            title={t('settings.permissions.android.overlay.title')}
-            sub={
-              overlayGranted
-                ? t('settings.permissions.android.overlay.on')
-                : t('settings.permissions.android.overlay.off')
-            }
+            title={t('screenTimeSetup.accessManage')}
+            sub={t(focusGranted ? 'screenTimeSetup.accessOn' : 'screenTimeSetup.accessOff')}
             chevron
-            onPress={() =>
-              screenTimeNative
-                ?.requestOverlayPermission?.()
-                .catch(() => e.notify(t('settings.permissions.errors.overlayOpen')))
-            }
+            onPress={() => setAllowedPicker(true)}
           />
-          <Row
-            title={t('settings.permissions.android.notice.title')}
-            sub={t('settings.permissions.android.notice.sub')}
-            chevron
-            onPress={async () => {
-              if (Number(Platform.Version) >= 33) {
-                const result = await PermissionsAndroid.request(
-                  PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS,
-                );
-                if (result === PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN)
-                  await Linking.openSettings();
-              } else await Linking.openSettings();
-            }}
-          />
+          {focusGranted && (
+            <Btn
+              kind="ghost"
+              title={t('screenTimeSetup.accessDisable')}
+              onPress={async () => {
+                const owner = getSession()?.userId;
+                if (!owner) return;
+                try {
+                  await screenTimeNative?.setAndroidFocusConsent?.(owner, false);
+                  await refreshFocusAccess();
+                } catch {
+                  e.notify(t('settings.permissions.errors.requestFailed'));
+                }
+              }}
+            />
+          )}
         </Group>
       )}
       {pushPermission !== 'unavailable' && (
