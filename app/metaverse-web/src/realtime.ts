@@ -578,13 +578,18 @@ export class RoomClient implements RoomCommands {
   }
 }
 
-export function useRoom(sim: Simulation, options?: RoomClientOptions): RoomApi {
+export function useRoom(
+  sim: Simulation,
+  options?: RoomClientOptions & { enabled?: boolean },
+): RoomApi {
+  const enabled = options?.enabled ?? true;
   // options는 첫 렌더 값만 쓴다.
   const client = useMemo(() => new RoomClient(sim, options), [sim]);
   useEffect(() => {
+    if (!enabled) return;
     client.start();
     return () => client.stop();
-  }, [client]);
+  }, [client, enabled]);
   const state = useSyncExternalStore(
     client.subscribe,
     client.getState,

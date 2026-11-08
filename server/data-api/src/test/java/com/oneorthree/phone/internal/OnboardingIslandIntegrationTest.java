@@ -9,24 +9,31 @@ import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.internal.dto.CreateIslandCommandRequest;
 import com.oneorthree.phone.internal.dto.IntroArrivalRequest;
 import com.oneorthree.phone.internal.dto.JoinIslandCommandRequest;
+import com.oneorthree.phone.internal.dto.TelescopeItemView;
 import com.oneorthree.phone.internal.service.FocusSessionLifecycleService;
 import com.oneorthree.phone.internal.service.IslandMembershipService;
 import com.oneorthree.phone.internal.service.IslandJoinService;
 import com.oneorthree.phone.internal.service.TelescopeService;
+import com.oneorthree.phone.internal.service.TelescopePinService;
 import com.oneorthree.phone.outbox.support.OutboxTestPostgres;
 import com.oneorthree.phone.withdrawal.service.AccountWithdrawalService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 import java.sql.Timestamp;
+import java.time.Clock;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -36,6 +43,7 @@ import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.doReturn;
 
 /** 실제 Flyway DB로 무인도 준비 → 바다 집중 → 도착 → 방장 소속을 검증한다. */
 @SpringBootTest
@@ -53,6 +61,10 @@ class OnboardingIslandIntegrationTest {
     @Autowired
     TelescopeService telescope;
     @Autowired
+    TelescopePinService pins;
+    @MockitoSpyBean
+    Clock clock;
+    @Autowired
     FocusSessionLifecycleService focus;
     @Autowired
     IslandMembershipService islands;
@@ -67,6 +79,7 @@ class OnboardingIslandIntegrationTest {
 
     @BeforeEach
     void isolate() {
+        doReturn(Instant.now().truncatedTo(ChronoUnit.MICROS)).when(clock).instant();
         jdbc.update("update islands set deleted_at = now() where deleted_at is null");
     }
 
@@ -79,7 +92,7 @@ class OnboardingIslandIntegrationTest {
             assertThat(item.name()).isEqualTo("무인도");
             assertThat(item.memberCount()).isZero();
             assertThat(item.buildingCount()).isZero();
-            assertThat(item.sailingMinutes()).isEqualTo(15);
+            assertThat(item.sailingMinutes()).isEqualTo(90);
         });
         UUID island = first.get(0).islandId();
         assertThat(telescope.list(user).items()).isEqualTo(first);
@@ -114,16 +127,79 @@ class OnboardingIslandIntegrationTest {
                 UUID.randomUUID()).id();
         UUID visitor = user();
         assertThat(telescope.list(visitor).items()).extracting(item -> item.islandId()).contains(island);
-        assertThat(telescope.list(visitor).items()).extracting(item -> item.slot()).contains("uninhabited");
+        assertThat(telescope.list(visitor).items()).extracting(TelescopeItemView::slot)
+                .containsExactly("nearby", "uninhabited");
+        assertThat(telescope.list(visitor).items().get(0).sailingMinutes()).isEqualTo(15);
         assertThat(count("select count(*) from onboarding_islands where user_id=?", visitor)).isZero();
         assertThat(telescope.list(owner).items()).extracting(item -> item.islandId()).contains(island);
-        assertThat(telescope.list(owner).items()).extracting(item -> item.slot()).contains("uninhabited");
+        assertThat(telescope.list(owner).items()).extracting(TelescopeItemView::slot)
+                .containsExactly("joined", "uninhabited");
         jdbc.update("update islands set max_members=1 where id=?", island);
-        assertThat(telescope.list(visitor).items()).anySatisfy(item -> {
+        assertThat(telescope.list(visitor).items()).last().satisfies(item -> {
             assertThat(item.slot()).isEqualTo("uninhabited");
-            assertThat(item.sailingMinutes()).isEqualTo(15);
+            assertThat(item.sailingMinutes()).isEqualTo(90);
         });
         assertThat(count("select count(*) from onboarding_islands where user_id=?", visitor)).isZero();
+    }
+
+    @Test
+    @DisplayName("소속·가까운·찜·무작위 섬 뒤에 90분 무인도를 배치한다")
+    void uninhabitedComesAfterEveryRegularSlot() {
+        UUID user = user();
+        islands.create(user, new CreateIslandCommandRequest("내 섬", null, false, 5), UUID.randomUUID());
+        for (int i = 0; i < 5; i++) {
+            islands.create(user(), new CreateIslandCommandRequest("기존 섬 " + i, null, false, 5),
+                    UUID.randomUUID());
+        }
+        var before = telescope.list(user).items();
+        UUID pinned = before.stream().filter(item -> "random".equals(item.slot()))
+                .findFirst().orElseThrow().islandId();
+        pins.pin(user, pinned, "observatory", null);
+        var after = telescope.list(user).items();
+        assertThat(after).extracting(TelescopeItemView::slot).containsExactly(
+                "joined", "nearby", "pinned", "random", "random", "random", "uninhabited");
+        assertThat(after.stream().filter(item -> !"pinned".equals(item.slot())).toList())
+                .isEqualTo(before.stream().filter(item -> !pinned.equals(item.islandId())).toList());
+        assertThat(after.get(1).sailingMinutes()).isEqualTo(15);
+        assertThat(after).last().extracting(TelescopeItemView::sailingMinutes).isEqualTo(90);
+    }
+
+    @ParameterizedTest
+    @CsvSource({"900, false", "5399, false", "5400, true"})
+    @DisplayName("무인도 항해는 90분 경계부터 섬을 만들고 같은 종료 요청은 재생한다")
+    void uninhabitedRequiresNinetyMinutes(int activeSeconds, boolean arrived) {
+        UUID user = user();
+        UUID candidate = telescope.list(user).items().get(0).islandId();
+        var started = focus.startSea(user, new SeaFocusSessionStartCommandRequest(candidate), UUID.randomUUID());
+        assertThat(started.targetMinutes()).isEqualTo(90);
+        assertThat(jdbc.queryForObject("select sailing_minutes from focus_session_details where session_id=?",
+                Integer.class, started.id())).isEqualTo(90);
+        long islandsBefore = count("select count(*) from islands");
+        elapseVoyage(started.id(), activeSeconds);
+        UUID key = UUID.randomUUID();
+        var finished = focus.finish(user, started.id(), new FocusVersionedCommandRequest(1L), key);
+        assertThat(finished.arrived()).isEqualTo(arrived);
+        assertThat(finished.createdIsland()).isEqualTo(arrived);
+        assertThat(focus.finish(user, started.id(), new FocusVersionedCommandRequest(1L), key)).isEqualTo(finished);
+        assertThat(count("select count(*) from islands")).isEqualTo(islandsBefore + (arrived ? 1 : 0));
+        assertThat(count("select count(*) from group_members where user_id=?", user)).isEqualTo(arrived ? 1 : 0);
+    }
+
+    @Test
+    @DisplayName("배포 전에 15분으로 출항한 무인도 항해는 저장된 시간대로 도착한다")
+    void inFlightFifteenMinuteVoyageKeepsItsDuration() {
+        UUID user = user();
+        UUID candidate = telescope.list(user).items().get(0).islandId();
+        var started = focus.startSea(user, new SeaFocusSessionStartCommandRequest(candidate), UUID.randomUUID());
+        // 이전 서버가 출항 때 저장한 세션을 재현한다. 새 목록은 90분이어도 기존 세션을 늘리지 않는다.
+        jdbc.update("update focus_session_details set sailing_minutes=15, target_minutes=15 where session_id=?",
+                started.id());
+        assertThat(telescope.list(user).items().get(0).sailingMinutes()).isEqualTo(90);
+        elapseVoyage(started.id(), 900);
+        var finished = focus.finish(user, started.id(), new FocusVersionedCommandRequest(1L), UUID.randomUUID());
+        assertThat(finished.arrived()).isTrue();
+        assertThat(finished.createdIsland()).isTrue();
+        assertThat(count("select count(*) from group_members where user_id=?", user)).isEqualTo(1);
     }
 
     @Test
@@ -151,16 +227,13 @@ class OnboardingIslandIntegrationTest {
     }
 
     @Test
-    @DisplayName("15분 항해 성공 정산에서 섬과 방장 소속이 한 번만 생긴다")
+    @DisplayName("90분 항해 성공 정산에서 섬과 방장 소속이 한 번만 생긴다")
     void settleOnceAfterVoyage() {
         UUID user = user();
         UUID island = telescope.list(user).items().get(0).islandId();
         var started = focus.startSea(user, new SeaFocusSessionStartCommandRequest(island), UUID.randomUUID());
         assertThat(count("select count(*) from group_members where user_id=?", user)).isZero();
-        Timestamp at = Timestamp.from(Instant.now().minusSeconds(901));
-        jdbc.update("update focus_sessions set started_at=? where id=?", at, started.id());
-        jdbc.update("update focus_session_details set last_transition_at=? where session_id=?", at, started.id());
-        jdbc.update("update focus_session_intervals set started_at=? where session_id=? and ordinal=1", at, started.id());
+        elapseVoyage(started.id(), 5400);
         var finished = focus.finish(user, started.id(), new FocusVersionedCommandRequest(1L), UUID.randomUUID());
         assertThat(finished.arrived()).isTrue();
         // 무인도 항해 성공으로 섬이 새로 생겼으므로 앱에 이름 짓기 팝업 플래그가 참이다(GROMO-2650).
@@ -213,10 +286,7 @@ class OnboardingIslandIntegrationTest {
         UUID other = islands.create(user(), new CreateIslandCommandRequest("다른 섬", null, false, 5),
                 UUID.randomUUID()).id();
         joins.join(user, other, new JoinIslandCommandRequest(null, "telescope"), UUID.randomUUID());
-        Timestamp at = Timestamp.from(Instant.now().minusSeconds(901));
-        jdbc.update("update focus_sessions set started_at=? where id=?", at, started.id());
-        jdbc.update("update focus_session_details set last_transition_at=? where session_id=?", at, started.id());
-        jdbc.update("update focus_session_intervals set started_at=? where session_id=? and ordinal=1", at, started.id());
+        elapseVoyage(started.id(), 5400);
         var finished = focus.finish(user, started.id(), new FocusVersionedCommandRequest(1L), UUID.randomUUID());
         assertThat(finished.arrived()).isTrue();
         assertThat(finished.islandId()).isNotEqualTo(island);
@@ -237,10 +307,7 @@ class OnboardingIslandIntegrationTest {
                     UUID.randomUUID()).id();
             joins.join(user, other, new JoinIslandCommandRequest(null, "telescope"), UUID.randomUUID());
         }
-        Timestamp at = Timestamp.from(Instant.now().minusSeconds(901));
-        jdbc.update("update focus_sessions set started_at=? where id=?", at, started.id());
-        jdbc.update("update focus_session_details set last_transition_at=? where session_id=?", at, started.id());
-        jdbc.update("update focus_session_intervals set started_at=? where session_id=? and ordinal=1", at, started.id());
+        elapseVoyage(started.id(), 5400);
 
         var finished = focus.finish(user, started.id(), new FocusVersionedCommandRequest(1L), UUID.randomUUID());
         assertThat(finished.arrived()).isFalse();
@@ -404,7 +471,8 @@ class OnboardingIslandIntegrationTest {
         UUID user = user();
         islands.create(user, new CreateIslandCommandRequest("내 섬", null, false, 5), UUID.randomUUID());
         assertThat(count("select count(*) from island_arrivals where user_id=?", user)).isEqualTo(1);
-        UUID candidate = telescope.list(user).items().get(0).islandId();
+        UUID candidate = telescope.list(user).items().stream().filter(item -> "uninhabited".equals(item.slot()))
+                .findFirst().orElseThrow().islandId();
         assertThat(intro.arrive(user, candidate, UUID.randomUUID(), meta("anon-3")).firstArrivalEventId()).isNull();
         assertThat(count("select count(*) from first_island_arrivals where user_id=?", user)).isZero();
     }
@@ -421,6 +489,13 @@ class OnboardingIslandIntegrationTest {
 
     private UUID user() {
         return jwt.extractUserId(auth.guestSession(java.util.UUID.randomUUID().toString()).accessToken());
+    }
+
+    private void elapseVoyage(UUID sessionId, long activeSeconds) {
+        Timestamp at = Timestamp.from(clock.instant().minusSeconds(activeSeconds));
+        jdbc.update("update focus_sessions set started_at=? where id=?", at, sessionId);
+        jdbc.update("update focus_session_details set last_transition_at=? where session_id=?", at, sessionId);
+        jdbc.update("update focus_session_intervals set started_at=? where session_id=? and ordinal=1", at, sessionId);
     }
 
     private long count(String sql, Object... args) {

@@ -1,3 +1,4 @@
+import { returningVisitor } from "./returning-visitor.mjs";
 import { chromium } from "playwright";
 import { browserOptions } from "./browser-options.mjs";
 import assert from "node:assert/strict";
@@ -46,6 +47,7 @@ async function ready(options = {}) {
       }
     };
   });
+  await returningVisitor(page);
   await page.goto(target);
   await page.waitForFunction(
     () =>

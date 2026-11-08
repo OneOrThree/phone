@@ -46,6 +46,18 @@ export const BONE = {
   rod: 15,
   // 찌. 루트에 직접 붙어 줄 끝을 연못·바다 수면에 둔다(catPose.ts가 매 프레임 위치를 정한다).
   float: 16,
+  // 낚아 올린 물고기. 찌 아래 짧은 목줄 끝(입)에 매달리고, 꼬리지느러미는 따로 흔든다.
+  fish: 17,
+  fishTail: 18,
+  // 찌 둘레 물결 고리. 찌가 물 밖으로 나가도 수면에 남아 퍼지거나 사라진다.
+  ripple: 19,
+} as const;
+// 물고기 치수(모델 좌표 m). 입이 위, 꼬리가 아래로 매달린다. 넓은 옆면이 ±z(고양이 앞뒤)를 본다.
+export const FISH = {
+  leader: 0.13,
+  body: 0.29,
+  tail: 0.13,
+  width: 0.17,
 } as const;
 
 const TAIL = new CatmullRomCurve3([
@@ -76,6 +88,9 @@ const BONES: [number, V3][] = [
   [12, tailAt(0.36)],
   [13, tailAt(0.7)],
   [9, [0.22, 0.46, 0.15]],
+  [0, [0.3, -0.4, 2.0]],
+  [16, [0.3, -0.4 - FISH.leader, 2.0]],
+  [17, [0.3, -0.4 - FISH.leader - FISH.body + 0.02, 2.0]],
   [0, [0.3, -0.4, 2.0]],
 ];
 export const BONE_REST: Vector3[] = BONES.map(([parent, at]) => {
@@ -414,11 +429,121 @@ export function catGeometry(color: string, local: boolean) {
     at: [f[0], f[1] + 0.012, f[2]],
     rot: [Math.PI / 2, 0, 0],
     color: "#E8F5F0",
-    bone: BONE.float,
+    bone: BONE.ripple,
   });
+  addFish(b, f, small);
   const geometry = b.build();
   cache.set(key, geometry);
   return geometry;
+}
+
+// 낚아 올린 물고기: 주황 몸통·크림 배·큰 눈·볼 터치·등지느러미·갈래 꼬리. 입(목줄 끝)을 뼈 원점으로
+// 머리를 위로 두고 매달린다. 평소에는 catPose.ts가 크기를 0으로 접어 보이지 않는다.
+const FISH_TONE = {
+  body: "#F28C4E",
+  back: "#E9773F",
+  belly: "#FFE7C4",
+  fin: "#F7B58F",
+} as const;
+function addFish(b: Builder, f: V3, small: SphereGeometry) {
+  const ball = new SphereGeometry(1, 16, 12);
+  const mouth = [f[0], f[1] - FISH.leader, f[2]] as V3;
+  const [mx, my, mz] = mouth;
+  const half = FISH.body / 2;
+  const cy = my - half; // 몸통 가운데
+  // 목줄: 찌(위)와 물고기 입(아래)을 잇는 짧은 줄
+  b.add(new CylinderGeometry(0.004, 0.004, FISH.leader, 3, 1, true), {
+    at: [mx, my + FISH.leader / 2, mz],
+    color: art.paper,
+    weights: (p) =>
+      p.y > my + FISH.leader / 2
+        ? [BONE.float, 1, 0, 0, 0, 0]
+        : [BONE.fish, 1, 0, 0, 0, 0],
+  });
+  // 몸통(등은 +x 쪽으로 조금 진하게)과 배
+  b.add(ball, {
+    at: [mx, cy, mz],
+    scale: [FISH.width / 2, half, 0.05],
+    color: FISH_TONE.body,
+    bone: BONE.fish,
+  });
+  b.add(ball, {
+    at: [mx + 0.03, cy + 0.01, mz],
+    scale: [FISH.width / 2 - 0.035, half - 0.03, 0.052],
+    color: FISH_TONE.back,
+    bone: BONE.fish,
+  });
+  b.add(ball, {
+    at: [mx - 0.032, cy - 0.005, mz],
+    scale: [0.048, half - 0.035, 0.047],
+    color: FISH_TONE.belly,
+    bone: BONE.fish,
+  });
+  // 입: 위쪽 끝의 작은 분홍 입술
+  b.add(new TorusGeometry(0.014, 0.007, 6, 12), {
+    at: [mx, my - 0.012, mz],
+    rot: [Math.PI / 2, 0, 0],
+    color: material.nose,
+    bone: BONE.fish,
+  });
+  for (const s of [-1, 1]) {
+    // 눈: 양 옆면에 크림 흰자·큰 눈동자·빛 한 점
+    b.add(small, {
+      at: [mx + 0.012, my - 0.065, mz + s * 0.04],
+      scale: [0.03, 0.032, 0.014],
+      color: material.eyeWhite,
+      bone: BONE.fish,
+    });
+    b.add(small, {
+      at: [mx + 0.014, my - 0.067, mz + s * 0.05],
+      scale: [0.019, 0.022, 0.008],
+      color: material.pupil,
+      bone: BONE.fish,
+    });
+    b.add(small, {
+      at: [mx + 0.007, my - 0.058, mz + s * 0.056],
+      scale: 0.0065,
+      color: art.paper,
+      bone: BONE.fish,
+    });
+    b.add(small, {
+      at: [mx - 0.03, my - 0.1, mz + s * 0.045],
+      scale: [0.018, 0.012, 0.006],
+      color: material.blush,
+      bone: BONE.fish,
+    });
+    // 가슴지느러미
+    b.add(ball, {
+      at: [mx - 0.05, my - 0.13, mz + s * 0.04],
+      rot: [0, 0, 0.5],
+      scale: [0.035, 0.018, 0.012],
+      color: FISH_TONE.fin,
+      bone: BONE.fish,
+    });
+  }
+  // 등지느러미: 등(+x) 가장자리에 반쯤 묻힌 납작한 타원
+  b.add(ball, {
+    at: [mx + FISH.width / 2 - 0.004, cy + 0.015, mz],
+    scale: [0.036, 0.075, 0.008],
+    color: FISH_TONE.fin,
+    bone: BONE.fish,
+  });
+  // 꼬리지느러미: 꼬리 마디에서 아래로 벌어지는 두 갈래 V
+  const ty = my - FISH.body + 0.02;
+  for (const s of [-1, 1])
+    b.add(new ConeGeometry(0.045, FISH.tail, 6), {
+      at: [mx + s * 0.028, ty - FISH.tail / 2 + 0.01, mz],
+      rot: [0, 0, s * 0.45],
+      scale: [1, 1, 0.22],
+      color: FISH_TONE.fin,
+      bone: BONE.fishTail,
+    });
+  b.add(ball, {
+    at: [mx, ty + 0.01, mz],
+    scale: [0.03, 0.03, 0.025],
+    color: FISH_TONE.body,
+    bone: BONE.fishTail,
+  });
 }
 
 export const catMaterial = new MeshStandardMaterial({

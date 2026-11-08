@@ -28,6 +28,11 @@ TC020은 첫 항해 사용자의 집중 시작부터 휴식·재개·종료·보
 `app/app-dev`에 Git이 감지하는 미커밋 수정이나 미추적 파일이 있거나 상태 조회에 실패하면
 어떤 예외 설정이 있어도 먼저 중단한다. 검증 기준인 HEAD와 빌드할 앱 소스가 달라지는 일을 막기 위함이다.
 
+Android CI의 일회용 서명 AAB와 Play internal은 기존 [경고 정책](../conventions/android-ci-cd.md#서버-선행-게이트)을
+따른다. 서버 검사는 별도 CI 잡에서 실행하지만 실패해도 internal 게시를 허용하고 CD 요약에도 표시한다.
+Gradle의 CI 빌드는 이 검사를 중복 실행하지 않는다. 아래 차단 규칙은 iOS·OTA·Android 로컬 운영 빌드에
+적용되며, internal 게시 성공으로 이를 통과했다고 간주하지 않는다.
+
 1. `APP_COMPATIBILITY_RUN_ID`로 특정 main dev smoke 성공 실행을 선택한다.
 2. GitHub API로 실행 워크플로·브랜치·성공·head SHA를 확인하고 `smoke-results` 산출물을 받는다.
 3. 현재 빌드할 `app/app-dev` Git 트리가 해당 dev 검사 시점의 트리와 일치해야 한다.

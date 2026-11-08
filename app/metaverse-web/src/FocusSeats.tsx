@@ -19,7 +19,7 @@ import {
 } from "./assets3d/chair";
 import { GROUND_Y, material } from "./assets3d/palette";
 import { Label } from "./Label";
-import { FOCUS_SEATS, SEAT_SECTIONS } from "./layout";
+import { FOCUS_SEATS, FRIEND_SEATS, SEAT_SECTIONS } from "./layout";
 import { art } from "./theme";
 
 const frameMaterial = new MeshStandardMaterial({
@@ -233,6 +233,48 @@ export function FocusSeats({
           />
         </>
       )}
+    </group>
+  );
+}
+
+// 작은 섬 집중 친구 의자. 물가 의자와 같은 모델이고 고를 수 없어 클릭·이름표가 없다.
+const friendCushion = new Color(material.cushionTaken);
+export function FriendChairs() {
+  const frame = useRef<InstancedMesh>(null),
+    cushion = useRef<InstancedMesh>(null);
+  useLayoutEffect(() => {
+    const o = new Object3D();
+    FRIEND_SEATS.forEach((seat, i) => {
+      o.position.set(seat.x, GROUND_Y, seat.z);
+      o.rotation.set(0, seat.yaw, 0);
+      o.updateMatrix();
+      frame.current?.setMatrixAt(i, o.matrix);
+      cushion.current?.setMatrixAt(i, o.matrix);
+      cushion.current?.setColorAt(i, friendCushion);
+    });
+    for (const mesh of [frame.current, cushion.current]) {
+      if (!mesh) continue;
+      mesh.instanceMatrix.needsUpdate = true;
+      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+      mesh.computeBoundingSphere();
+    }
+  }, []);
+  return (
+    <group>
+      <instancedMesh
+        ref={frame}
+        args={[chairFrameGeometry(), frameMaterial, FRIEND_SEATS.length]}
+        raycast={() => null}
+        castShadow
+        receiveShadow
+      />
+      <instancedMesh
+        ref={cushion}
+        args={[chairCushionGeometry(), cushionMaterial, FRIEND_SEATS.length]}
+        raycast={() => null}
+        castShadow
+        receiveShadow
+      />
     </group>
   );
 }

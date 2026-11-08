@@ -1,3 +1,4 @@
+import { returningVisitor } from "./returning-visitor.mjs";
 import { chromium } from "playwright";
 import { browserOptions } from "./browser-options.mjs";
 import assert from "node:assert/strict";
@@ -31,6 +32,7 @@ try {
     page.on("console", (e) => {
       if (e.type() === "error") errors.push(e.text());
     });
+    await returningVisitor(page);
     await page.goto(target);
     await page.waitForFunction(() => !document.querySelector(".loading"));
     await page.waitForTimeout(600);

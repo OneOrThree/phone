@@ -243,8 +243,8 @@ jobs:
       EXPO_PUBLIC_POSTHOG_PROJECT_TOKEN: ${{ needs.settings.outputs.posthog-project-token || '' }}
       # 1.x 계정은 V2 로 이관하지 않아(decisions.md A24) 승격 경로가 없다. 1.x 에서 업데이트하면 로그인 화면으로 간다.
       GROMO_LEGACY_SESSION_MIGRATION_READY: "1"
-      # 게시 빌드의 서버 선행 판정은 server-gate 잡이 끝냈다. 얕은 checkout 인 이 잡의 Gradle 은 판정할 수 없다.
-      ALLOW_SERVER_GAP: server-gate 잡이 판정
+      # 일회용 서명 AAB 생성. 서버 검사는 별도 잡의 경고로 남기며 로컬 출시 검사를 중복 실행하지 않는다.
+      GROMO_ANDROID_CI_ARTIFACT: "1"
       # 앱에 포함되는 공개 SDK 토큰. API·서명 키와 달리 AWS 권한 없는 빌드 잡에서 사용한다.
       AIRBRIDGE_APP_TOKEN: ${{ vars.AIRBRIDGE_APP_TOKEN }}
     steps:

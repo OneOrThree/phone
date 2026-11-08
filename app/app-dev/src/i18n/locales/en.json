@@ -107,7 +107,7 @@
       "gate": {
         "title": "Measurement permission",
         "heading": "We'll record your usage accurately",
-        "sub": "Only the apps you select are recorded.",
+        "sub": "Only usage time for your selected apps is recorded. This selection does not affect app blocking.",
         "row": "Screen Time permission",
         "rowUnavailable": "Not available on this device",
         "rowDenied": "Permission is off. You can request it again.",
@@ -142,11 +142,11 @@
       "screenTime": {
         "title": "Screen Time",
         "connect": "Connect Screen Time",
-        "sub": "{{description}} · Used for phone-use quests and records"
+        "sub": "{{description}} · Records usage time for selected apps. App blocking is configured separately."
       },
       "focusBlockingIntro": {
         "title": "Block apps during focus",
-        "dialogue": "I can block other apps while you focus.\nAllow access, then pick only the apps you really need!\nYou can always set this up later in Settings!",
+        "dialogue": "Choose the apps you want to keep using during focus.\nApps you leave out will be blocked while you focus!\nThis is separate from choosing apps for usage tracking.",
         "allow": "Allow access",
         "later": "Not now"
       },
@@ -220,7 +220,7 @@
         "loadFailed": "Couldn't load the installed apps.",
         "loading": "Loading apps…",
         "descAllowed": "Selected apps stay usable during focus. If you select none, no extra apps are allowed.",
-        "descMeasured": "Your first selection applies right away. Changes to existing apps apply from midnight KST the next day.",
+        "descMeasured": "Choose apps to track usage time. App blocking is configured separately. Your first selection applies immediately; changes apply at the next midnight in Korea.",
         "allApps": "Measure all apps",
         "search": "Search apps",
         "select": "Select {{label}}",
@@ -1143,7 +1143,7 @@
       "The library has your diary and your neighbors’ diaries. Browse focus records by day, week, or month.",
       "From the gramophone onward, each resident included in the building goal has a fish quota. Check the blueprint at the town hall.",
       "Island rankings use the average daily focus time per resident over the last seven days.",
-      "Long-press the magazine lying on your island to open the rack. You can revisit the latest seven issues!",
+      "Want to read past issues? Open Past issues at the mailbox, or long-press the magazine on your island if there is no mailbox. You can revisit the latest seven issues!",
       "No mailbox yet? You can still receive the magazine. Look for it on your island!",
       "Island owner? Introduce your island at the town hall. Spend 60 island fish to appear in the next day’s issue.",
       "You can edit your submitted island ad until midnight. The next issue comes out at 7 a.m. Korea time.",
@@ -1493,6 +1493,12 @@
       }
     }
   },
+  "focusBlocking": {
+    "button": "Allowed apps settings",
+    "label": "Allowed apps",
+    "openHint": "Choose apps you can use during focus",
+    "next": "Next: App blocking guide"
+  },
   "verification": {
     "button": "Camera verification",
     "switch": "Camera verification",
@@ -1555,5 +1561,35 @@
       }
     },
     "switchLabel": "AI Focus Tracking"
+  },
+  "screenTimeSetup": {
+    "title": "Phone usage and\nblocking during focus",
+    "subtitle": "Set up both with one Screen Time permission.",
+    "measurementTitle": "Choose apps to measure",
+    "measurementBody": "Track the time you spend in these apps.",
+    "allowedTitle": "Choose apps allowed during focus",
+    "allowedBody": "Choose the apps you need while focusing.\nOther apps are blocked during focus.",
+    "setup": "Set up",
+    "androidTitle": "Phone usage",
+    "androidSubtitle": "Allow usage access and choose the apps to measure.",
+    "androidBlocking": "App blocking on Android is not available yet.",
+    "androidAllowedBody": "Choose the apps you need while focusing.\nOpening another app brings you back to focus.",
+    "usageTitle": "Track your phone usage",
+    "usageBody": "Usage access lets Cattus measure time in the apps you choose. The accessibility permission for returning to focus is explained separately in the next step.",
+    "usageAction": "Set up usage access",
+    "usageDenied": "Allow usage access and try again.",
+    "blockingOnly": "Skip tracking and choose allowed apps",
+    "accessTitle": "Return to your focus screen",
+    "accessBody": "Cattus uses an accessibility service to detect the app identifier (package name) when you switch apps. During focus, opening an app outside your allowed list brings your ongoing Cattus focus screen to the front.",
+    "accessPrivacy": "These identifiers are processed only on your device. They are not stored or sent to a server or another service. Screen contents, messages and typing are not read.",
+    "accessSettings": "On the next settings screen, enable “Focus with Cattus”. It does not act during rest or after focus ends. You can turn it off at any time in Android accessibility settings.",
+    "accessAgree": "Agree and open accessibility settings",
+    "accessDecline": "Decline and close",
+    "accessNotReady": "Not connected yet. Enable Focus with Cattus in accessibility settings, then return here.",
+    "accessOn": "Return to focus is on",
+    "accessOff": "Return to focus is off",
+    "accessManage": "Return to focus",
+    "accessDisable": "Turn off return to focus",
+    "androidSetupSubtitle": "Set up usage tracking, then returning to focus."
   }
 }

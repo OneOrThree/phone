@@ -32,6 +32,15 @@ main CI는 `server-gate` 잡에서 `.github/scripts/app-server-gate.py`를 실�
 
 PR과 main 외 브랜치의 수동 실행은 게시하지 않으므로 게이트를 실행하지 않는다.
 
+Gradle은 `.github/ci/android-build-gate.py`를 거친다. `GROMO_ANDROID_CI_ARTIFACT=1`은
+같은 저장소의 `Android CI` → `build` 잡에서 `ci-throwaway` 키로 만드는 AAB에만 허용한다.
+이 경우 서버 검사를 중복 실행하지 않고 위 경고 정책을 따른다. `ALLOW_SERVER_GAP`을 빌드 잡에
+설정하지 않는다. CI 환경값은 로컬 오설정 방지이며, CD의 원본 실행·산출물 검증을 대체하지 않는다.
+로컬 운영 빌드는 기존 `app-server-gate.py`의 버전·실제 응답 검사를 수행한다.
+
+CD는 원본 CI의 같은 attempt에 서버 검사 결과가 있어야 진행한다. 실패는 CD 경고와 실행 요약에도
+표시하며 누락·취소·생략은 거부한다. internal 게시 성공을 운영 서버 호환성 검증 성공으로 간주하지 않는다.
+
 ## 독립 CD와 신뢰 경계
 
 `app-android-cd.yml`은 Android CI 완료 이벤트를 받고, 성공한 같은 저장소의 main push 또는 main 수동 CI만 선택한다. PR·fork·다른 workflow·실패 실행·현재 main 이력에 없는 SHA·재실행된 다른 attempt·누락/만료된 산출물은 거부한다. 산출물 이름과 checksum만 믿지 않고 GitHub API의 원본 실행 정보도 확인한다.

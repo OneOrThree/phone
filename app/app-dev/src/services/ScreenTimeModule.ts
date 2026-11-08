@@ -56,6 +56,7 @@ export type ScreenTimeNativeModule = {
   startFocusShieldWithAppearance(subjectName: string, catColor: string): Promise<boolean>;
   startFocusShield(subjectName: string): Promise<boolean>;
   stopFocusShield(): Promise<void>;
+  isFocusShieldActive(): Promise<boolean>;
 };
 
 export type AndroidUsageSnapshot = {
@@ -76,7 +77,17 @@ export type AndroidMeasurement = import('./screentimeSync').ScreenTimeSnapshot &
   owner: string;
   observations: import('./screenTimeWindow').ScreenTimeObservation[];
 };
+export type AndroidFocusAccess = {
+  enabled: boolean;
+  connected: boolean;
+  consented: boolean;
+  configured: boolean;
+};
 type AndroidMethods = {
+  getAndroidFocusAccess?(owner: string): Promise<AndroidFocusAccess>;
+  setAndroidFocusConsent?(owner: string, accepted: boolean): Promise<void>;
+  requestAndroidFocusAccess?(): Promise<boolean>;
+  addListener?(event: 'onFocusReturnCheck', listener: () => void): { remove(): void };
   supportsFocusShield?: boolean;
   supportsGeneralPush?: boolean;
   /** 화면이 켜져 있는지(GROMO-2635). 이 함수가 없는 옛 바이너리는 undefined 다. */
@@ -98,6 +109,7 @@ type AndroidMethods = {
   canDrawOverlays(): Promise<boolean>;
   requestOverlayPermission(): Promise<void>;
   syncAndroidFocus(payload: string): Promise<boolean>;
+  expireAndroidFocus?(): Promise<void>;
   endAndroidFocus(): Promise<void>;
   getFocusPushToken(): Promise<string>;
   getUsageBreakdown(dayOffset: number): Promise<{

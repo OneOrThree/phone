@@ -63,7 +63,7 @@ module.exports = {
       // GROMO-2756 새 Meta 앱 ID·Client Token을 포함한 바이너리만 같은 OTA를 받는다.
       // GROMO-2783 expo-store-review 는 런타임을 올리지 않았다 — services/storeReview.ts 의 늦은 require 가 모듈 없는
       // 옛 바이너리를 지킨다. 다른 JS 가 이 모듈에 기대게 되면 그때 런타임을 가른다(Android 런타임도 같다).
-      runtimeVersion: '2.0.0-gromo-push-meta-assets-ai-focus-meta-events-v3',
+      runtimeVersion: '2.0.0-screen-time-setup-v1',
       infoPlist: {
         CFBundleLocalizations: ['ko', 'en'],
         NSSupportsLiveActivities: true,
@@ -80,7 +80,7 @@ module.exports = {
       versionCode: 379,
       // 집중 차단 기능이 있는 기존 Android OTA와 네이티브 구성을 분리한다.
       // GROMO-2756 새 Meta 앱 ID·Client Token을 포함한 바이너리만 같은 OTA를 받는다.
-      runtimeVersion: '2.0.1-android-push-assets-ai-focus-meta-events-v4',
+      runtimeVersion: '2.0.1-android-focus-return-v1',
       permissions: [
         'android.permission.PACKAGE_USAGE_STATS',
         'android.permission.POST_NOTIFICATIONS',

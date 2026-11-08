@@ -12,6 +12,8 @@ import { art } from "./theme";
 import type { Actor } from "./world";
 import { catGeometry, createCatRig } from "./assets3d/catModel";
 import { placeFloat, poseBones, POSES } from "./assets3d/catPose";
+import { rng } from "./assets3d/geometry";
+import { FishingRhythm, MY_FISHING, OTHERS_FISHING } from "./fishing-rhythm";
 import { GROUND_Y } from "./assets3d/palette";
 import { blobShadowTexture } from "./assets3d/textures";
 
@@ -39,11 +41,14 @@ export function Cat({
   local = false,
   label,
   reduced = false,
+  fishing,
 }: {
   actor: Actor;
   local?: boolean;
   label?: string;
   reduced?: boolean;
+  /** 의자 낚시 어획 박자. 주지 않으면 내 고양이·다른 고양이 기본 박자를 쓴다. */
+  fishing?: FishingRhythm;
 }) {
   const root = useRef<Group>(null),
     anchor = useRef<Group>(null),
@@ -52,6 +57,16 @@ export function Cat({
   const rig = useMemo(() => createCatRig(actor.color, local), [local]);
   useEffect(() => () => rig.mesh.skeleton.dispose(), [rig]);
   const seed = useMemo(() => Math.random() * 60, []);
+  // 처음 볼 때 이미 앉아 있던 다른 고양이는 첫 어획을 넓게 흩어 여럿이 한꺼번에 낚지 않게 한다.
+  const [rhythm] = useState(
+    () =>
+      fishing ??
+      new FishingRhythm(
+        local ? MY_FISHING : OTHERS_FISHING,
+        rng(Math.floor(seed * 7919) + 1),
+        !local && actor.action === "focus",
+      ),
+  );
   const motion = useRef({
     phase: 0,
     walk: 0,
@@ -59,6 +74,7 @@ export function Cat({
     wave: 0,
     fish: 0,
     focus: 0,
+    catch: -1,
     x: actor.x,
     z: actor.z,
     color: actor.color as string,
@@ -100,6 +116,12 @@ export function Cat({
     );
     g.rotation.y += turn * (reduced ? 1 : 1 - Math.exp(-14 * dt));
 
+    // 어획 박자는 앉은 의자마다 새로 시작한다. 휴식·퇴석·섬 이동이면 곧바로 물고기를 거둔다.
+    m.catch = rhythm.step(
+      dt,
+      action === "focus" ? (actor.seatId ?? -1) : null,
+      reduced,
+    );
     const lift = poseBones(rig.bones, m, t, live, seed);
     placeFloat(rig.bones, m, t, live);
 

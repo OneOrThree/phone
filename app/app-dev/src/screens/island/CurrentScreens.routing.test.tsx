@@ -669,7 +669,7 @@ test('카메라 기능 안내는 튜토리얼 도착에서는 숨기고 체험 �
   await waitFor(() => expect(regular.getByTestId('verification-intro')).toBeTruthy());
 });
 
-test('집중 화면으로 복원해도 안내를 안 본 계정에는 자동 안내하고 닫은 이력을 로컬에 기억한다', async () => {
+test('집중 화면으로 복원하면 안내를 자동 표시하지 않고 수동 AI 안내만 열 수 있다', async () => {
   const userId = 'verification-restore-unseen';
   await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId });
   const state = serverFocusState();
@@ -678,7 +678,9 @@ test('집중 화면으로 복원해도 안내를 안 본 계정에는 자동 안
   const dispatch = jest.fn();
   const now = Date.now();
   const first = await mount('focus', state, { guideStep: 99, dispatch, now });
-  await waitFor(() => expect(first.getByTestId('verification-intro')).toBeTruthy());
+  await waitFor(() => expect(first.getByRole('button', { name: '카메라 인증' })).toBeEnabled());
+  expect(first.queryByTestId('verification-intro')).toBeNull();
+  await fireEvent.press(first.getByRole('switch', { name: '카메라 인증 사용' }));
   expect(first.getByText('00:02:03')).toBeTruthy();
   dispatch.mockClear();
   await fireEvent.press(first.getByRole('button', { name: '닫기' }));

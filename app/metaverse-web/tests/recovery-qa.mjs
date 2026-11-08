@@ -1,3 +1,4 @@
+import { returningVisitor } from "./returning-visitor.mjs";
 import { chromium } from "playwright";
 import { browserOptions } from "./browser-options.mjs";
 import assert from "node:assert/strict";
@@ -19,6 +20,7 @@ try {
     if (reconnect) socket.connectToServer();
     else socket.close();
   });
+  await returningVisitor(page);
   await page.goto(target);
   await page.getByText("혼자 산책 중 · 다시 연결할게요").waitFor();
   await page.waitForFunction(() => !document.querySelector(".loading"));
@@ -108,6 +110,7 @@ try {
       return original.call(this, type, ...args);
     };
   });
+  await returningVisitor(unsupported);
   await unsupported.goto(target);
   await unsupported.getByText("섬을 그리지 못했어요").waitFor();
   assert.equal(await unsupported.locator(".loading").count(), 0);

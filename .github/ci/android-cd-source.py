@@ -27,6 +27,22 @@ def api(path):
     return json.loads(subprocess.check_output(['gh', 'api', 'repos/' + os.environ['GITHUB_REPOSITORY'] + path]))
 
 
+def report_server_gate(gates, source):
+    if len(gates) != 1 or gates[0].get('conclusion') not in {'success', 'failure'}:
+        raise ValueError('원본 CI의 서버 검사 결과가 없거나 미완료됨')
+    url = f'https://github.com/OneOrThree/phone/actions/runs/{source["id"]}/attempts/{source["run_attempt"]}'
+    if gates[0]['conclusion'] == 'failure':
+        message = ('서버 검사 실패: 기존 Android internal 경고 정책으로 게시합니다. '
+                   '운영 서버 호환성 검증 성공을 뜻하지 않습니다. '
+                   'Play 프로덕션 승격 전에 원본 CI의 실패 원인을 확인하세요.')
+        print('::warning::' + message + ' ' + url)
+    else:
+        message = '원본 CI의 서버 검사가 통과했습니다.'
+    if os.environ.get('GITHUB_STEP_SUMMARY'):
+        with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as file:
+            file.write(f'### 서버 검사\n\n{message}\n\n[원본 CI 실행]({url})\n')
+
+
 def main():
     event = json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text())
     if os.environ['GITHUB_REF'] != 'refs/heads/main':
@@ -49,10 +65,11 @@ def main():
         raise ValueError('원본 CI SHA가 현재 main 이력에 없음')
     # 테스트 전용 변경은 CI가 성공해도 AAB job을 의도적으로 생략한다.
     # 원본 attempt의 실제 job 결과를 확인하고, 이 경우 CD도 성공적으로 생략한다.
-    builds = []
+    builds, gates = [], []
     for page in range(1, 101):
         batch = api(f'/actions/runs/{run_id}/attempts/{source["run_attempt"]}/jobs?per_page=100&page={page}')['jobs']
         builds.extend(job for job in batch if job['name'] == 'release AAB 빌드')
+        gates.extend(job for job in batch if job['name'] == '운영 서버 선행 확인')
         if len(batch) < 100:
             break
     else:
@@ -64,6 +81,7 @@ def main():
             file.write('has-artifact=false\n')
         print('검증 전용 CI에서 AAB 생략 — Android CD도 생략')
         return
+    report_server_gate(gates, source)
     name = f'android-ci-{source["id"]}-{source["run_attempt"]}'
     artifacts = []
     for page in range(1, 101):

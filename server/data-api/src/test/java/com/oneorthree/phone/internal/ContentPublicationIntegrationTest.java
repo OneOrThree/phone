@@ -77,6 +77,8 @@ class ContentPublicationIntegrationTest {
         registry.add("internal.api.callers.console.allow[1]", () -> "POST /internal/admin/content/magazine/previews");
         registry.add("internal.api.callers.console.allow[2]", () ->
                 "POST /internal/admin/content/notices/*/withdraw");
+        registry.add("internal.api.callers.console.allow[3]", () ->
+                "GET /internal/admin/content/history/magazines/*");
         registry.add("internal.api.callers.business.token", () -> "content-test-business");
         // 실수로 넓은 허용목록을 등록해도 관리 경로는 전용 자격만 통과해야 한다.
         registry.add("internal.api.callers.business.allow[0]", () -> "GET /internal/admin/content/notices");
@@ -371,10 +373,37 @@ class ContentPublicationIntegrationTest {
     }
 
     @Test
-    void schedulerDoesNotCreateOrPublishAnUnreviewedIssue() {
-        reviews.preview(new MagazineReviewService.PreviewRequest(DATE, "아직 검토 중"), "member-1");
+    void schedulerPublishesWithoutBackofficeReviewAndKeepsOneIssuePerDay() {
+        setClock(DATE.atTime(6, 50).atZone(ZonePolicy.KST).toInstant());
         runTick();
         assertThat(count("magazine_issues")).isZero();
+
+        setClock(DATE.atTime(7, 0).atZone(ZonePolicy.KST).toInstant());
+        runTick();
+        assertThat(count("magazine_issues")).isEqualTo(1);
+        assertThat(history.magazines(null, 10).items()).hasSize(1);
+        assertThat(count("magazine_review_snapshots")).isZero();
+        assertThat(count("content_publications")).isZero();
+
+        setClock(DATE.atTime(7, 10).atZone(ZonePolicy.KST).toInstant());
+        runTick();
+        assertThat(count("magazine_issues")).isEqualTo(1);
+
+        setClock(DATE.plusDays(1).atTime(7, 0).atZone(ZonePolicy.KST).toInstant());
+        runTick();
+        assertThat(count("magazine_issues")).isEqualTo(2);
+    }
+
+    @Test
+    void pendingBackofficeReviewDoesNotBlockOrOverwriteAutomaticPublication() {
+        var preview = reviews.preview(new MagazineReviewService.PreviewRequest(DATE, "검토 중인 문구"), "member-1");
+        runTick();
+        assertThat(count("magazine_issues")).isEqualTo(1);
+        assertThat(count("content_publications")).isZero();
+        assertThatThrownBy(() -> reviews.publish(UUID.randomUUID(),
+                new MagazineReviewService.PublishRequest(preview.snapshotId(), preview.digest()), "member-1"))
+                .isInstanceOf(ContentException.class);
+        assertThat(count("magazine_issues")).isEqualTo(1);
         assertThat(count("content_publications")).isZero();
     }
 
@@ -626,6 +655,72 @@ class ContentPublicationIntegrationTest {
         return walk;
     }
 
+    @Test
+    void magazineHistoryReadsPublishedCellsWithPagingAndFrozenIslandNames() {
+        UUID first = promotion();
+        UUID second = promotion();
+        var issue = publisher.publish(DATE).orElseThrow();
+        // 발행 뒤 섬 이름과 숨김 상태가 바뀌어도 발행 당시 카드와 현재 숨김 사유를 함께 읽는다.
+        jdbc.update("UPDATE islands SET name='바뀐 섬' WHERE id IN"
+                + " (SELECT island_id FROM island_promotions WHERE issue_date=?)", DATE);
+        jdbc.update("UPDATE island_promotions SET moderation='HIDDEN' WHERE id=?", first);
+        UUID unpublished = promotion();
+        var page = history.magazineContent(issue.getId(), null, 1);
+        assertThat(page.issueDate()).isEqualTo(DATE);
+        assertThat(page.promotionCount()).isEqualTo(2);
+        assertThat(page.editorial()).isNotNull();
+        assertThat(page.cells()).hasSize(1);
+        assertThat(page.nextCursor()).isNotNull();
+        var next = history.magazineContent(issue.getId(), page.nextCursor(), 1);
+        assertThat(next.cells()).hasSize(1);
+        assertThat(next.nextCursor()).isNull();
+        var cells = java.util.stream.Stream.concat(page.cells().stream(), next.cells().stream()).toList();
+        assertThat(cells).extracting(cell -> cell.promotionId()).containsExactlyInAnyOrder(first, second)
+                .doesNotContain(unpublished);
+        assertThat(cells).allSatisfy(cell -> {
+            assertThat(cell.card().name()).isEqualTo("검토 섬");
+            assertThat(cell.body()).isEqualTo("검토한 홍보");
+            assertThat(cell.layout().frameId()).isEqualTo("mag.frame-scallop");
+        });
+        assertThat(cells.stream().filter(cell -> cell.promotionId().equals(first)).findFirst().orElseThrow()
+                .moderation()).isEqualTo("HIDDEN");
+        assertThat(count("magazine_review_snapshots")).isZero();
+        assertThat(count("content_publications")).isZero();
+    }
+
+    @Test
+    void magazineHistoryCanReadAnIssueOutsideTheAppsLatestSeven() {
+        promotion();
+        UUID first = publisher.publish(DATE).orElseThrow().getId();
+        for (int day = 1; day <= 7; day++) {
+            publisher.publish(DATE.plusDays(day));
+        }
+        assertThat(history.magazineContent(first, null, 50).cells()).hasSize(1);
+        assertThat(history.magazineContent(first, null, 50).issueNo()).isEqualTo(1);
+    }
+
+    @Test
+    void magazineContentHttpRequiresOperatorAndValidPage() throws Exception {
+        promotion();
+        UUID id = publisher.publish(DATE).orElseThrow().getId();
+        String path = ADMIN + "/history/magazines/" + id;
+        mvc.perform(get(path)).andExpect(status().isUnauthorized());
+        mvc.perform(get(path).header("Authorization", "Bearer content-test-business"))
+                .andExpect(status().isForbidden());
+        mvc.perform(get(path).header("Authorization", "Bearer content-test-console")
+                .header("X-Console-Actor", "member-2")).andExpect(status().isForbidden());
+        mvc.perform(get(path).header("Authorization", "Bearer content-test-console"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.issueId").value(id.toString()))
+                .andExpect(jsonPath("$.cells[0].body").value("검토한 홍보"))
+                .andExpect(jsonPath("$.editorial.note.type").value("TIP"));
+        mvc.perform(get(path).param("limit", "101").header("Authorization", "Bearer content-test-console"))
+                .andExpect(status().isBadRequest());
+        mvc.perform(get(path).param("cursor", "broken").header("Authorization", "Bearer content-test-console"))
+                .andExpect(status().isBadRequest());
+        mvc.perform(get(ADMIN + "/history/magazines/" + UUID.randomUUID())
+                .header("Authorization", "Bearer content-test-console")).andExpect(status().isNotFound());
+    }
+
     private UUID promotion() {
         User owner = users.save(User.builder().nickname("검토-" + UUID.randomUUID()).build());
         Group island = groups.save(Group.builder().name("검토 섬").maxMembers(10).isPrivate(false).build());
@@ -667,7 +762,7 @@ class ContentPublicationIntegrationTest {
                             "$.capabilities").value(org.hamcrest.Matchers.contains("content.publication.v1",
                                     "content.history.v1", "content.notice.withdraw.v1",
                                     "content.app-requirements.v1",
-                                    "construction.policy.v1", "focus.policy.v1")));
+                                    "construction.policy.v1", "focus.policy.v1", "content.magazine-read.v1")));
             jdbc.execute("ALTER DATABASE " + database + " SET gromo.environment='dev'");
             assertThatThrownBy(controller::environment).isInstanceOf(IllegalStateException.class)
                     .hasMessageContaining("DB 환경");

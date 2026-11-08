@@ -3,9 +3,12 @@ import { useEffect, useRef, useState } from 'react';
 import { readAccountGuides, saveAccountGuides } from '@/services/accountGuides';
 import { getSession, sessionGeneration } from '@/services/api/session';
 import { captureProductEvent } from '@/services/posthog';
+import { screenTimeGuideVersion, type MeasurementReady } from '@/services/screenTimeSetup';
+import { ScreenTimeSetupIntro } from '@/screens/permissions/ScreenTimeSetupIntro';
 import { duringSystemPrompt } from './focusLeave';
+import { FocusBlockingIcon, supportsFocusSetup } from './FocusBlockingGuide';
 import { VerificationIntro, type VerificationControlAnchor } from './VerificationIntro';
-import { Alert, Linking, Pressable, View } from 'react-native';
+import { Alert, Linking, Platform, Pressable, View } from 'react-native';
 import { Toggle, Txt } from '@/design-system/patterns';
 import { useCameraPermissions } from 'expo-camera';
 import Svg, { Circle, Path } from 'react-native-svg';
@@ -74,10 +77,18 @@ export function VerificationToggle({
   inSession = false,
   intro,
   onPreviewChange,
+  onBlockingPermissionChange,
+  onMeasurementReady,
+  onBlockingConfigured,
+  onAndroidSetup,
 }: {
   on: boolean;
   inSession?: boolean;
   onPreviewChange?: (open: boolean) => void;
+  onBlockingPermissionChange?: (approved: boolean) => void;
+  onMeasurementReady?: MeasurementReady;
+  onBlockingConfigured?: () => Promise<void>;
+  onAndroidSetup?: () => void;
   intro?: 'automatic' | 'onPress';
   cameraPosition?: VerificationCameraPosition;
   onChange: (next: boolean, position: VerificationCameraPosition) => void;
@@ -100,9 +111,11 @@ export function VerificationToggle({
     owner: string | undefined;
     generation: number;
     seen: boolean;
+    setupSeen: boolean;
   } | null>(null);
-  const [introOpen, setIntroOpen] = useState(false);
+  const [introOpen, setIntroOpen] = useState<'verification' | 'blocking' | null>(null);
   const controlsRef = useRef<View>(null);
+  const autoOpened = useRef(false);
   const [introAnchor, setIntroAnchor] = useState<VerificationControlAnchor>();
   useEffect(() => {
     if (!introOpen) return;
@@ -111,7 +124,8 @@ export function VerificationToggle({
     });
   }, [introOpen]);
   useEffect(() => {
-    setIntroOpen(false);
+    setIntroOpen(null);
+    autoOpened.current = false;
     setOpen(false);
     onPreviewChange?.(false);
   }, [owner, generation, onPreviewChange]);
@@ -149,32 +163,46 @@ export function VerificationToggle({
   const checked = education?.owner === owner && education?.generation === generation;
   useEffect(() => {
     let cancelled = false;
-    const accept = (seen: boolean) => {
+    const accept = (seen: boolean, setupSeen: boolean) => {
       if (!cancelled && sessionGeneration() === generation && getSession()?.userId === owner)
-        setEducation({ owner, generation, seen });
+        setEducation({ owner, generation, seen, setupSeen });
     };
-    if (!owner) accept(false);
+    if (!owner) accept(false, false);
     else
       readAccountGuides(owner)
-        .then((guides) => accept(!!guides.verificationIntroSeen))
-        .catch(() => accept(false));
+        .then((guides) =>
+          accept(
+            !!guides.verificationIntroSeen,
+            (guides.screenTimeGuideAcknowledgedVersion ?? 0) >= screenTimeGuideVersion(),
+          ),
+        )
+        .catch(() => accept(false, false));
     return () => {
       cancelled = true;
     };
   }, [owner, generation]);
   useEffect(() => {
-    if (intro === 'automatic' && checked && !education?.seen) setIntroOpen(true);
-  }, [intro, checked, education?.seen]);
-  useEffect(() => {
-    if (__DEV__ && introOpen) console.log('[verification-intro] shown');
-  }, [introOpen]);
-  const consumeIntro = () => {
-    setIntroOpen(false);
-    setEducation({ owner, generation, seen: true });
+    if (intro !== 'automatic' || !checked || inSession || autoOpened.current || introOpen) return;
+    autoOpened.current = true;
+    if (!education?.seen) setIntroOpen('verification');
+    else if (!education.setupSeen && supportsFocusSetup()) setIntroOpen('blocking');
+  }, [intro, checked, education, inSession, introOpen]);
+  const acknowledgeVerification = () => {
+    setEducation((prior) => ({
+      owner,
+      generation,
+      seen: true,
+      setupSeen: prior?.setupSeen ?? false,
+    }));
     if (owner)
       void saveAccountGuides(owner, { verificationIntroSeen: true }).catch((error) => {
         if (__DEV__) console.warn('[verification-intro] 안내 이력 저장 실패', String(error));
       });
+  };
+  const consumeIntro = () => {
+    autoOpened.current = true;
+    setIntroOpen(null);
+    if (introOpen === 'verification') acknowledgeVerification();
   };
   const changeVerification = async (next: boolean, previewOnly = false) => {
     if (!next) {
@@ -185,7 +213,7 @@ export function VerificationToggle({
       return;
     }
     if (!checked || !education?.seen) {
-      if (intro) setIntroOpen(true);
+      if (intro) setIntroOpen('verification');
       return;
     }
     setRequesting(true);
@@ -224,7 +252,7 @@ export function VerificationToggle({
     if (open) void changeVerification(false, true);
     else if (!on) Alert.alert(t('verification.setup.enableMeasurement'));
     else if (!checked || !education?.seen) {
-      if (intro) setIntroOpen(true);
+      if (intro) setIntroOpen('verification');
     } else void changeVerification(true, true);
   };
   const awaitingEducation = !checked || (!education?.seen && !intro);
@@ -248,44 +276,18 @@ export function VerificationToggle({
   return (
     <>
       <View
-        ref={controlsRef}
-        collapsable={false}
         style={{ flexDirection: 'row', alignItems: 'center', gap: semanticTokens.spacing.control }}
       >
-        <View
-          style={{
-            minHeight: semanticTokens.size.tapMin,
-            justifyContent: 'center',
-            alignItems: 'center',
-          }}
-        >
-          <Toggle
-            value={on}
-            onChange={changeVerification}
-            label={t('verification.switch')}
-            accessibilityHint={t(
-              on ? 'verification.session.turnOff' : 'verification.session.turnOn',
-            )}
-            disabled={requesting || (awaitingEducation && !on)}
-            activeColor={C.pink}
-          />
-          <Txt {...controlLabel}>{t('verification.switchLabel')}</Txt>
-        </View>
-        <View
-          style={{
-            minHeight: semanticTokens.size.tapMin,
-            justifyContent: 'center',
-            alignItems: 'center',
-          }}
-        >
+        <View style={{ alignItems: 'center' }}>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={t('verification.button')}
-            accessibilityHint={t('verification.setup.openHint')}
-            accessibilityState={{ expanded: open || introOpen, disabled: busy, busy }}
-            disabled={busy}
-            accessibilityValue={{ text: t(on ? 'verification.on' : 'verification.off') }}
-            onPress={showPreview}
+            accessibilityLabel={t('focusBlocking.button')}
+            accessibilityHint={t('focusBlocking.openHint')}
+            accessibilityState={{ expanded: introOpen === 'blocking' }}
+            onPress={() => {
+              autoOpened.current = true;
+              setIntroOpen('blocking');
+            }}
             style={({ pressed }) => ({
               width: ui.buttonSize,
               height: ui.buttonSize,
@@ -298,20 +300,108 @@ export function VerificationToggle({
               opacity: pressed ? componentTokens.button.disabledOpacity : 1,
             })}
           >
-            <Svg width={ui.iconSize} height={ui.iconSize} viewBox="0 0 24 24" fill="none">
-              <Path
-                d="M4 8h3l2-3h6l2 3h3v11H4z"
-                stroke={C.ink}
-                strokeWidth={2}
-                strokeLinejoin="round"
-              />
-              <Circle cx={12} cy={13} r={3.5} stroke={C.ink} strokeWidth={2} />
-            </Svg>
+            <FocusBlockingIcon />
           </Pressable>
-          <Txt {...controlLabel}>{t('verification.intro.previewLabel')}</Txt>
+          <Txt {...controlLabel}>{t('focusBlocking.label')}</Txt>
+        </View>
+        <View
+          ref={controlsRef}
+          collapsable={false}
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: semanticTokens.spacing.control,
+          }}
+        >
+          <View
+            style={{
+              minHeight: semanticTokens.size.tapMin,
+              justifyContent: 'center',
+              alignItems: 'center',
+            }}
+          >
+            <Toggle
+              value={on}
+              onChange={changeVerification}
+              label={t('verification.switch')}
+              accessibilityHint={t(
+                on ? 'verification.session.turnOff' : 'verification.session.turnOn',
+              )}
+              disabled={requesting || (awaitingEducation && !on)}
+              activeColor={C.pink}
+            />
+            <Txt {...controlLabel}>{t('verification.switchLabel')}</Txt>
+          </View>
+          <View
+            style={{
+              minHeight: semanticTokens.size.tapMin,
+              justifyContent: 'center',
+              alignItems: 'center',
+            }}
+          >
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={t('verification.button')}
+              accessibilityHint={t('verification.setup.openHint')}
+              accessibilityState={{ expanded: open || !!introOpen, disabled: busy, busy }}
+              disabled={busy}
+              accessibilityValue={{ text: t(on ? 'verification.on' : 'verification.off') }}
+              onPress={showPreview}
+              style={({ pressed }) => ({
+                width: ui.buttonSize,
+                height: ui.buttonSize,
+                borderRadius: semanticTokens.radius.full,
+                borderWidth: semanticTokens.stroke.strong,
+                borderColor: C.brown,
+                backgroundColor: C.paper,
+                alignItems: 'center',
+                justifyContent: 'center',
+                opacity: pressed ? componentTokens.button.disabledOpacity : 1,
+              })}
+            >
+              <Svg width={ui.iconSize} height={ui.iconSize} viewBox="0 0 24 24" fill="none">
+                <Path
+                  d="M4 8h3l2-3h6l2 3h3v11H4z"
+                  stroke={C.ink}
+                  strokeWidth={2}
+                  strokeLinejoin="round"
+                />
+                <Circle cx={12} cy={13} r={3.5} stroke={C.ink} strokeWidth={2} />
+              </Svg>
+            </Pressable>
+            <Txt {...controlLabel}>{t('verification.intro.previewLabel')}</Txt>
+          </View>
         </View>
       </View>
-      {intro && introOpen && <VerificationIntro anchor={introAnchor} onClose={consumeIntro} />}
+      {introOpen === 'verification' && (
+        <VerificationIntro
+          anchor={introAnchor}
+          onClose={consumeIntro}
+          onNext={
+            !education?.setupSeen && supportsFocusSetup()
+              ? () => {
+                  acknowledgeVerification();
+                  setIntroOpen('blocking');
+                }
+              : undefined
+          }
+        />
+      )}
+      {introOpen === 'blocking' && (
+        <ScreenTimeSetupIntro
+          onClose={() => {
+            setEducation((prior) => prior && { ...prior, setupSeen: true });
+            consumeIntro();
+          }}
+          onPermissionChange={onBlockingPermissionChange}
+          onMeasurementReady={onMeasurementReady}
+          onConfigured={onBlockingConfigured}
+          onAndroidSetup={() => {
+            consumeIntro();
+            onAndroidSetup?.();
+          }}
+        />
+      )}
     </>
   );
 }

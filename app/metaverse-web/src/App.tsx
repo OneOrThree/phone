@@ -22,8 +22,9 @@ import {
   type IslandId,
   type SeatReservation,
 } from "./focus-session";
-import { catColors, type Action } from "./world";
-import { coats } from "./theme";
+import { validName, type Action } from "./world";
+import { readProfile, saveProfile } from "./profile";
+import { AppearanceFields } from "./AppearanceFields";
 import { Icon, type IconName } from "./Icon";
 import { Dialog } from "./Dialog";
 import { HoldButton } from "./HoldButton";
@@ -63,14 +64,6 @@ const islandCopy: Record<
     subtitle: "연못가 의자에 앉아 함께 집중해요",
     icon: "fish",
   },
-};
-const colorNames = {
-  cream: "크림",
-  peach: "치즈",
-  gray: "회색",
-  black: "검정",
-  white: "흰색",
-  brown: "갈색",
 };
 class SceneBoundary extends Component<
   { children: ReactNode; onFailure: () => void },
@@ -143,7 +136,13 @@ function Stick({ sim }: { sim: Simulation }) {
   );
 }
 export function App() {
-  const [sim] = useState(() => new Simulation());
+  const [profile] = useState(readProfile);
+  const [joined, setJoined] = useState(Boolean(profile));
+  const [sim] = useState(() => {
+    const next = new Simulation();
+    if (profile) Object.assign(next.actor, profile);
+    return next;
+  });
   const {
     status,
     residents,
@@ -158,7 +157,7 @@ export function App() {
     resumeFocus,
     finishFocus,
     leaveSeat,
-  } = useRoom(sim);
+  } = useRoom(sim, { enabled: joined });
   const releaseSeat = useRef(leaveSeat);
   releaseSeat.current = leaveSeat;
   const [failed, setFailed] = useState(false);
@@ -175,7 +174,7 @@ export function App() {
       () => matchMedia("(prefers-reduced-motion: reduce)").matches,
     ),
     [low, setLow] = useState(false);
-  const [name, setName] = useState(sim.actor.name),
+  const [name, setName] = useState(profile?.name ?? ""),
     [color, setColor] = useState(sim.actor.color);
   const [message, setMessage] = useState("");
   const [pose, setPose] = useState({ ...sim.actor }),
@@ -194,7 +193,7 @@ export function App() {
       ? "prepare"
       : "home";
   const online = status === "online";
-  const locked = !ready || lost || failed;
+  const locked = !joined || !ready || lost || failed;
   const commandLocked = locked || busy || !online;
   const audio = useIslandAudio(Boolean(session) && !failed && !lost);
   // 예약은 휴식 중인 자리도 포함한다. 내 자리는 세션의 의자 번호로 구분한다.
@@ -385,7 +384,7 @@ export function App() {
       else audio.unlock();
     }
   };
-  const modalOpen = Boolean(panel) || Boolean(result) || interrupted;
+  const modalOpen = !joined || Boolean(panel) || Boolean(result) || interrupted;
   sim.reducedMotion = reduced || systemReduced;
   sim.blocked = modalOpen || lost || failed || !ready;
   useEffect(() => {
@@ -715,11 +714,13 @@ export function App() {
       <div className="presence" role="status">
         <span className={`connection ${status}`} />
         <span>
-          {online
-            ? `함께 있는 고양이 ${islandResidents.length + 1}`
-            : status === "connecting"
-              ? "섬에 연결 중"
-              : "혼자 산책 중 · 다시 연결할게요"}
+          {!joined
+            ? "이름을 정하고 섬에 들어오세요"
+            : online
+              ? `함께 있는 고양이 ${islandResidents.length + 1}`
+              : status === "connecting"
+                ? "섬에 연결 중"
+                : "혼자 산책 중 · 다시 연결할게요"}
         </span>
         <small>
           낚시 의자 {reservations.length}/{CAPACITY}
@@ -1008,52 +1009,90 @@ export function App() {
             </div>
           </dl>
           <div className="notice">
-            체험용 섬이에요. 같은 주소로 들어온 이웃과 함께 걸을 수 있어요.
-            새로고침하거나 연결이 끊기면 현재 집중과 자리 예약이 끝나요. 앱
-            계정·물고기·집중 기록에는 반영되지 않아요.
+            체험용 섬이에요. 같은 주소로 들어온 이웃과 함께 걸을 수 있어요. 안내
+            고양이·모카·구름은 산책 친구, 연못 가운데 작은 섬의 보리·까미·단비는
+            함께 낚시하는 친구예요. 접속 인원에 포함되지 않고 물가 낚시 의자도
+            사용하지 않아요. 낚아 올린 물고기는 보는 즐거움이라 따로 모이지
+            않아요. 새로고침하거나 연결이 끊기면 현재 집중과 자리 예약이 끝나요.
+            앱 계정·물고기·집중 기록에는 반영되지 않아요.
           </div>
           <button className="wide primary" onClick={() => setPanel(null)}>
             산책하러 가기
           </button>
         </Dialog>
       )}
-      {panel === "settings" && (
+      {!joined && (
+        <Dialog
+          title="섬에 온 걸 환영해요"
+          dismissible={false}
+          close={() => {}}
+          className="welcome-dialog"
+        >
+          <p className="dialog-lead">
+            이웃이 불러 줄 이름을 정하고,
+            <br />
+            나만의 고양이로 산책을 시작해요.
+          </p>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (!validName(name.trim())) return;
+              const next = { name: name.trim(), color };
+              Object.assign(sim.actor, next);
+              const saved = saveProfile(next);
+              setName(next.name);
+              sync();
+              audio.unlock();
+              setJoined(true);
+              announce(
+                saved
+                  ? `${next.name}님, 섬에 오신 걸 환영해요.`
+                  : "이번 방문은 이 이름으로 함께해요. 브라우저에서 이름을 기억할 수는 없어요.",
+              );
+            }}
+          >
+            <AppearanceFields
+              name={name}
+              color={color}
+              onName={setName}
+              onColor={setColor}
+              welcome
+            />
+            <p className="welcome-note">
+              이 브라우저에서 이름과 털색을 기억해요.
+              <br />
+              나중에 ‘내 고양이와 설정’에서 바꿀 수 있어요.
+            </p>
+            <button
+              type="submit"
+              className="wide primary"
+              disabled={!validName(name.trim())}
+            >
+              이 이름으로 섬에 들어가기
+            </button>
+          </form>
+        </Dialog>
+      )}
+      {joined && panel === "settings" && (
         <Dialog title="내 고양이" close={() => setPanel(null)}>
-          <label className="field-label" htmlFor="cat-name">
-            섬에서 부를 이름
-          </label>
-          <input
-            id="cat-name"
-            maxLength={16}
-            value={name}
-            onChange={(e) => setName(e.target.value)}
+          <AppearanceFields
+            name={name}
+            color={color}
+            onName={setName}
             onBlur={() => {
-              const next = name.trim() || "산책하는 고양이";
+              const next = validName(name.trim())
+                ? name.trim()
+                : sim.actor.name;
               setName(next);
               sim.actor.name = next;
+              saveProfile(sim.actor);
+            }}
+            onColor={(next) => {
+              setColor(next);
+              sim.actor.color = next;
+              saveProfile(sim.actor);
             }}
           />
-          <fieldset>
-            <legend>털색</legend>
-            <div className="swatches">
-              {catColors.map((c) => (
-                <button
-                  key={c}
-                  className={color === c ? "active" : ""}
-                  style={{ "--coat": coats[c] } as React.CSSProperties}
-                  onClick={() => {
-                    setColor(c);
-                    sim.actor.color = c;
-                  }}
-                  aria-label={`${colorNames[c]} 고양이`}
-                  aria-pressed={color === c}
-                >
-                  <span />
-                  {colorNames[c]}
-                </button>
-              ))}
-            </div>
-          </fieldset>
           <div className="audio-settings" data-audio-control>
             <div className="audio-heading">
               <span>섬의 소리</span>
@@ -1105,8 +1144,9 @@ export function App() {
           <button
             className="wide primary"
             onClick={() => {
-              sim.actor.name = name.trim() || "산책하는 고양이";
+              if (validName(name.trim())) sim.actor.name = name.trim();
               setName(sim.actor.name);
+              saveProfile(sim.actor);
               setPanel(null);
             }}
           >

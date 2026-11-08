@@ -247,7 +247,7 @@ iOS 앱은 FCM 토큰을 받으려고 서버 환경별 Firebase 설정 파일을
 - `src/services/androidScreenTime.ts`: 시작·복귀·자정·활성 상태 1분 간격으로 계정별 측정 원장을 조회하고 공통 서버 보고 큐에 연결합니다. 화면은 KST 날짜, 서버 보고는 원본 이벤트를 UTC 자정~자정 구간으로 다시 집계합니다. KST 합계의 날짜만 바꾸지 않습니다.
 - 설정 → 앱 권한 관리에서 측정 앱과 집중 중 허용 앱을 별도로 고릅니다. 측정 대상은 최초 선택 직후, 변경은 다음 KST 자정부터 적용합니다. 빈 측정 목록을 전체 앱으로 간주하지 않습니다. 허용 앱의 빈 목록은 추가 예외 없음입니다.
 - 최초 측정 이전·선택 변경을 가로지르는 UTC 일자·권한 공백·재부팅·원본 결측은 0으로 보고하지 않습니다. 보상 보고에는 일별 통계 근사 폴백을 쓰지 않습니다. 현재 서버 계약에 맞춰 진행 중 UTC 날짜는 `pending`, 마감된 날짜만 수치로 보고합니다. 당일 중간 관측/최종 확정 계약은 iOS와 공통 후속입니다.
-- 집중 차단(`FocusShieldService`·가림막)과 집중/휴식 지속 알림, 이를 갱신하던 FCM 수신은 GROMO-2415에서 뺐습니다(`specialUse` 포그라운드 서비스 제거, 당시 Android runtime `2.0.0-no-special-use`). 모듈은 `supportsFocusShield=false`를 내보내고, JS는 허용 앱·다른 앱 위에 표시·집중 상태 알림 설정을 숨기며 `syncAndroidFocus`·집중 푸시 등록을 건너뜁니다. 네이티브 `endAndroidFocus`는 이전 버전이 남긴 알림(4201)과 복구 상태만 지웁니다. 아래 FCM 설정과 실기기 점검의 오버레이·알림·FCM 항목은 차단 기능을 되살릴 때만 해당합니다.
+- 기존 가림막·specialUse 포그라운드 서비스·집중 FCM 복구는 티켓 2415에서 제거했습니다. 새 `FocusReturnService`는 별도 접근성 동의 뒤 집중 중 비허용 앱에서 진행 중인 Cattus 화면으로 돌아오게 합니다. 측정 권한과 접근성은 별개이며, 새 바이너리는 `supportsFocusShield=true`와 실제 유효 상태를 제공합니다. 서버 확인 후 최대 120초만 동작하고 휴식·종료·로그아웃·동의 철회 때 해제합니다. 오버레이·집중 푸시는 되살리지 않습니다. 자세한 권한·검증·출시 범위는 [Android 집중 중 앱 복귀 설계](../../docs/engineering/android-focus-blocking-plan.md)를 따릅니다.
 - 홈 위젯은 서버 홈 스냅샷의 오늘 총 집중시간과 고양이 4포즈를 표시합니다. 계정 변경·로그아웃 시 지우고 KST 날짜가 만료되면 미확인으로 표시합니다. 제조사별 위젯 갱신 주기에 따라 자정·포즈 갱신이 지연될 수 있습니다.
 - 모듈 namespace는 `com.oneorthree.gromo.screentime`이며 실제 권한 검사는 `context.packageName`을 사용합니다. 앱 applicationId 변경과 독립적입니다.
 
@@ -255,7 +255,7 @@ GROMO-2611부터 Android 일반 푸시는 `expo-notifications` 네이티브 모�
 
 FCM 설정은 `android/credentials/{dev|prod}/google-services.json`에서 해당 `GROMO_ANDROID_AUDIENCE` 파일만 읽습니다(기본 prod). 등록 패키지는 `com.oneorthree.gromo`이며 파일은 커밋하지 않습니다. 미설정 debug 빌드도 로컬 측정·위젯은 사용할 수 있지만 FCM 토큰을 받을 수 없고, release 빌드는 해당 파일이 없으면 중단합니다. Firebase 프로젝트도 청중에 따라 `catus-dev`·`catus-prod`인지 검사합니다. Android CI는 저장소 변수 `ANDROID_FIREBASE_PROD_JSON`에서 운영 파일을 복원해 AAB를 빌드합니다. 서버는 기존 `FCM_PROJECT_ID`·base64 `FCM_SERVICE_ACCOUNT_JSON`을 재사용합니다. 배포 전 앱 Firebase 프로젝트와 서버 `FCM_PROJECT_ID`가 같은지 확인하고, device-token API가 운영에 있는지 확인해야 합니다. iOS 전용 APNs 설정은 유지합니다.
 
-검증은 `npm run lint`, `npm run format:check`, `npm run typecheck`, `npm test -- --runInBand`, `android/`의 `./gradlew :app:assembleDebug :screen-time:testDebugUnitTest`로 수행합니다. 실기기에서는 사용 정보 접근·오버레이·알림 권한 허용/철회, 측정/허용 앱 독립성, 집중→휴식→종료, 전화·알람, KST/UTC 경계, 계정 전환, 실제 FCM 수신, 절전·강제 종료·재부팅, 위젯 탭/자정/로그아웃을 확인합니다. 네이티브 모듈 변경이므로 새 설치본이 필요합니다.
+검증은 `npm run lint`, `npm run format:check`, `npm run typecheck`, `npm test -- --runInBand`, `android/`의 `./gradlew :app:assembleDebug :screen-time:testDebugUnitTest`로 수행합니다. 실기기에서는 사용정보 접근·접근성 동의/연결·알림 권한 허용/철회, 측정/허용 앱 독립성, 집중→휴식→종료, 전화·알람, KST/UTC 경계, 계정 전환, 실제 FCM 수신, 절전·강제 종료·재부팅, 위젯 탭/자정/로그아웃을 확인합니다. 네이티브 모듈 변경이므로 새 설치본이 필요합니다.
 
 ### Meta 앱 이벤트
 
@@ -272,3 +272,7 @@ iOS 2.3.0 은 1.x 와 같은 App Store 앱(번들 `com.oneorthree.gromo`, Store 
 `CatusAssetCache` 로컬 Expo 모듈이 추가되어 Android·iOS 모두 새 바이너리가 필요해 그때 두 OTA 런타임을 올렸습니다(당시 Android `2.0.1-android-push-assets-v1`, iOS `2.0.0-push-meta-assets-v1`, 현재 값은 `app.config.js`). 기존 바이너리와 웹은 번들 이미지를 유지합니다.
 
 기본값은 비활성화입니다. 개발 CDN을 게시한 뒤 Android CI repository vars `IMAGE_ASSETS_DEV_ENABLED=true`, `IMAGE_ASSETS_DEV_URL=https://<distribution>.cloudfront.net`을 설정해 개발 바이너리를 검증합니다. 로컬/iOS 빌드는 `.env.example`의 `EXPO_PUBLIC_IMAGE_ASSETS_*` 세 값을 명시합니다. 운영 CDN은 아직 없으므로(GROMO-2671) 운영 OTA 스크립트와 iOS 운영 레인(`fastlane beta`)은 기능을 끈 값으로 고정하고, 운영 TestFlight(`ios/testflight.sh`)·Xcode Release 운영 청중·Android 운영 release는 셸에 `EXPO_PUBLIC_IMAGE_ASSETS_ENABLED=true`가 있거나 `EXPO_PUBLIC_IMAGE_ASSETS_URL`이 비어 있지 않으면 빌드가 실패합니다(이 빌드 가드는 셸 값만 봅니다). `.env`에서 인라인된 값은 앱 게이트(`src/services/assets/repository.ts`의 `getAssetRepository`)가 운영 번들에서 끕니다. 운영 CDN을 발행·검증한 뒤 이 차단과 고정값을 운영 값으로 함께 바꿉니다. 개인 이미지나 인증이 필요한 파일은 공개 CDN에 올리지 않습니다.
+
+### Google Ads 첫 섬 도착 전환
+
+서버가 `firstArrivalEventId`가 있는 응답로 확정한 첫 항해 도착을 Airbridge `airbridge.completeTutorial`로 보냅니다. 운영 release 빌드에서만 보내며 계정별 로컬 표지로 중복 응답을 억제합니다. Google Ads에서 사용하려면 플랫폼 연결 ID와 이벤트 포스트백·전환 목표 설정이 필요합니다. [설정 절차와 전달 보장 범위](analytics/google-ads-conversions.md)를 따릅니다.

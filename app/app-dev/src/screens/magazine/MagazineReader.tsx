@@ -190,7 +190,8 @@ export function MagazineReader({
       .then((page) => {
         if (!alive) return;
         // 호의 저장 번호와 무관하게 열 때 한 번 고른다. 이어 읽기·회전·재렌더에서는 유지한다.
-        if (page.editorial?.note.type === 'TIP') setTip(pickEditorTip());
+        const note = page.editorial?.note;
+        if (note && !(note.type === 'EDITOR' && note.body)) setTip(pickEditorTip());
         setLoaded(page);
         setIndex(0);
         setStatus('ready');

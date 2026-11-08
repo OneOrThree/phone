@@ -17,7 +17,12 @@ let mockGeneration = 7;
 jest.mock('@/services/api/session', () => ({
   ...jest.requireActual('@/services/api/session'),
   sessionGeneration: () => mockGeneration,
+  getSession: () => ({ userId: 'a' }),
 }));
+jest.mock('@/services/firstArrivalConversion', () => ({
+  captureFirstArrivalConversion: jest.fn(),
+}));
+import { captureFirstArrivalConversion } from './firstArrivalConversion';
 jest.mock('@/services/metaSdk', () => ({ metaContext: jest.fn(), logMetaEvent: jest.fn() }));
 jest.mock('@/services/posthog', () => ({ captureProductEvent: jest.fn() }));
 const { captureProductEvent } = jest.requireMock('@/services/posthog') as {
@@ -85,7 +90,11 @@ test('응답에 firstArrivalEventId 가 있을 때만 SDK 에 두 이벤트를 �
   // GROMO-2753: 같은 도착을 PostHog·Airbridge(Google Ads 전환) 로도 보내고 SDK 기록 결과를 남긴다.
   await new Promise(setImmediate);
   expect(captureProductEvent).toHaveBeenCalledTimes(1);
-  expect(captureProductEvent).toHaveBeenCalledWith('first_island_arrival', { meta_sdk_logged: 1 });
+  expect(captureProductEvent).toHaveBeenCalledWith(
+    'first_island_arrival',
+    { meta_sdk_logged: 1 },
+    { airbridge: false },
+  );
 
   (logMetaEvent as jest.Mock).mockClear();
   captureProductEvent.mockClear();
@@ -106,7 +115,11 @@ test('SDK 기록이 실패해도 도착 결과는 그대로 돌려준다', async
   await expect(arriveFirstVoyage(intent, 7)).resolves.toMatchObject({ islandId: 'island-1' });
   // SDK 기록이 실패해도 Airbridge·PostHog 이벤트는 나가고 실패를 0 으로 남긴다(GROMO-2753).
   await new Promise(setImmediate);
-  expect(captureProductEvent).toHaveBeenCalledWith('first_island_arrival', { meta_sdk_logged: 0 });
+  expect(captureProductEvent).toHaveBeenCalledWith(
+    'first_island_arrival',
+    { meta_sdk_logged: 0 },
+    { airbridge: false },
+  );
 });
 
 afterEach(() => {
@@ -155,5 +168,39 @@ test('표준 이벤트 실패는 맞춤 이벤트의 PostHog 성공 값을 바�
   (logMetaEvent as jest.Mock).mockResolvedValueOnce(true).mockRejectedValueOnce(new Error('boom'));
   await arriveFirstVoyage(intent, 7);
   await new Promise(setImmediate);
-  expect(captureProductEvent).toHaveBeenCalledWith('first_island_arrival', { meta_sdk_logged: 1 });
+  expect(captureProductEvent).toHaveBeenCalledWith(
+    'first_island_arrival',
+    { meta_sdk_logged: 1 },
+    { airbridge: false },
+  );
+});
+
+test('서버 사건이 있을 때만 Google 전환을 전달한다', async () => {
+  (request as jest.Mock).mockResolvedValueOnce({
+    islandId: 'island',
+    firstArrivalEventId: 'event',
+  });
+  await arriveFirstVoyage({ destination, key: 'receipt' }, 7);
+  expect(captureFirstArrivalConversion).toHaveBeenCalledWith('a', 7);
+  jest.clearAllMocks();
+  await arriveFirstVoyage({ destination, key: 'receipt' }, 7);
+  expect(captureFirstArrivalConversion).not.toHaveBeenCalled();
+});
+
+test('Meta 응답 대기 중 계정 전환이면 PostHog를 새 사용자로 보내지 않는다', async () => {
+  let resolveMeta!: (logged: boolean) => void;
+  (logMetaEvent as jest.Mock).mockReturnValueOnce(
+    new Promise<boolean>((resolve) => {
+      resolveMeta = resolve;
+    }),
+  );
+  (request as jest.Mock).mockResolvedValueOnce({
+    islandId: 'island',
+    firstArrivalEventId: 'event',
+  });
+  await arriveFirstVoyage({ destination, key: 'receipt' }, 7);
+  mockGeneration = 8;
+  resolveMeta(true);
+  await new Promise(setImmediate);
+  expect(captureProductEvent).not.toHaveBeenCalled();
 });

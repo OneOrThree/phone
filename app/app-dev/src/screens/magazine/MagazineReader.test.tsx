@@ -159,6 +159,20 @@ test.each([
   },
 );
 
+test.each(['', null])('운영 소식 본문이 %p이면 열 때마다 새 팁을 표시한다', async (body) => {
+  pickTip.mockReturnValueOnce(4).mockReturnValueOnce(20);
+  const emptyNotePage = page({
+    editorial: { ranking: [], newIslands: [], note: { type: 'EDITOR', body, tipNo: 0 } },
+    cells: [],
+  });
+  const first = await open(emptyNotePage);
+  expect(first.screen.getByText(ko.magazine.tips[4])).toBeTruthy();
+  await first.screen.unmount();
+  const second = await open(emptyNotePage);
+  expect(second.screen.getByText(ko.magazine.tips[20])).toBeTruthy();
+  expect(pickTip).toHaveBeenCalledTimes(2);
+});
+
 test('같은 호를 닫았다 다시 열면 직전 문구와 다른 문구가 나온다', async () => {
   pickTip.mockImplementation(jest.requireActual('./editorTips').pickEditorTip);
   const first = await open();

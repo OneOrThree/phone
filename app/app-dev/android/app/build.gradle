@@ -185,12 +185,13 @@ gradle.taskGraph.whenReady { taskGraph ->
         )
     }
     // 앱이 서버보다 먼저 나가면 새 API 가 운영에서 404 가 된다(GROMO-2684). 운영 청중만 서버 선행 여부를 확인한다.
-    // 저장소 루트 = android(rootDir) 기준 ../../.. . ALLOW_SERVER_GAP 은 자식 프로세스가 환경에서 물려받는다.
+    // CI 일회용 AAB는 별도 server-gate 잡의 경고 정책을 따른다. 로컬 운영 서명은 기존 출시 검사를 수행한다.
     if (includesReleaseArtifactTask && !devAudience) {
-        def gateScript = new File(rootDir, "../../../.github/scripts/app-server-gate.py").canonicalFile
+        def gateScript = new File(rootDir, "../../../.github/ci/android-build-gate.py").canonicalFile
         def gate
         try {
-            gate = new ProcessBuilder("python3", gateScript.path).redirectErrorStream(true).start()
+            gate = new ProcessBuilder("python3", gateScript.path, "--signing-alias",
+                releaseKeystoreProperties.getProperty("keyAlias", "")).redirectErrorStream(true).start()
         } catch (IOException e) {
             throw new GradleException("Android release 차단: 서버 선행 게이트를 실행하지 못했습니다 (python3 확인): ${e.message}")
         }
