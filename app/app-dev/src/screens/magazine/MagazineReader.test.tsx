@@ -3,6 +3,8 @@ import { createPreviewEnvironment } from '@/navigation/previewEnvironment';
 // 섬에서 펼치면 망원경 동그라미 없음(우리 섬 배지만) · 펼치면 읽음 받음 · 빈 호 · 섬장 끝 쪽 안내(쓰기는 마을회관) · 7호 밖 · 크게 보기.
 // 서버 API(magazine.ts)는 목이다.
 import { applyLocalePref } from '@/i18n';
+import en from '@/i18n/locales/en.json';
+import ko from '@/i18n/locales/ko.json';
 import { ApiError } from '@/services/api/client';
 import type { MagazineCell, MagazineIssuePage } from '@/services/api/magazine';
 import * as api from '@/services/api/magazine';
@@ -11,8 +13,10 @@ import { initialState } from '@/services/model';
 import { act, fireEvent, render, waitFor, within } from '@testing-library/react-native';
 import { FlatList, StyleSheet } from 'react-native';
 import { MagazineReader, issueBleed, magazinePages, readerGeometry } from './MagazineReader';
+import { pickEditorTip } from './editorTips';
 import { resetMagazineToday } from './useMagazineToday';
 
+jest.mock('./editorTips', () => ({ pickEditorTip: jest.fn() }));
 jest.mock('@/services/api/magazine', () => ({
   ...jest.requireActual('@/services/api/magazine'),
   getMagazineIssue: jest.fn(),
@@ -37,6 +41,7 @@ const getIssue = api.getMagazineIssue as jest.Mock;
 const putReceipt = api.putMagazineReceipt as jest.Mock;
 const report = api.reportPromotion as jest.Mock;
 const pin = pinToTelescope as jest.Mock;
+const pickTip = pickEditorTip as jest.Mock;
 
 const issue = {
   issueId: 'iss-19',
@@ -86,6 +91,7 @@ const env = (over: object = {}) => ({
 
 beforeEach(() => {
   jest.clearAllMocks();
+  pickTip.mockReset().mockReturnValue(0);
   resetMagazineToday();
   putReceipt.mockResolvedValue({
     place: 'ISLAND',
@@ -117,8 +123,77 @@ test('첫 장은 편집부 — 표지 띠(날짜·호) · 1~3위 메달 · 어�
   expect(screen.getByTestId('magazine-rank-3')).toBeTruthy();
   expect(screen.getByText('달빛섬')).toBeTruthy();
   expect(screen.getByText('편집냥의 조언')).toBeTruthy();
-  expect(screen.getByText('25분 집중하고 5분 쉬면 오래 가요. 오늘도 한 칸씩!')).toBeTruthy();
+  expect(
+    screen.getByText(
+      '황금 물고기는 같은 섬에서 둘 이상 함께 집중할 때 나타나. 다섯 명까지는 함께하는 고양이가 늘수록 확률도 올라가!',
+    ),
+  ).toBeTruthy();
   expect(screen.getByText('1 / 3')).toBeTruthy();
+});
+
+test.each([
+  ['ko', 0],
+  ['ko', 14],
+  ['ko', 24],
+  ['en', 14],
+  ['en', 24],
+] as const)(
+  '%s는 서버 번호와 무관하게 이번에 고른 %i번 문구를 표시한다',
+  async (locale, picked) => {
+    applyLocalePref(locale);
+    pickTip.mockReturnValueOnce(picked);
+    try {
+      const { screen } = await open(
+        page({
+          editorial: { ranking: [], newIslands: [], note: { type: 'TIP', body: null, tipNo: 5 } },
+          cells: [],
+        }),
+      );
+      const tips = (locale === 'ko' ? ko : en).magazine.tips;
+      expect(tips).toHaveLength(25);
+      expect(within(screen.getByTestId('magazine-note')).getByText(tips[picked])).toBeTruthy();
+      expect(pickTip).toHaveBeenCalledTimes(1);
+    } finally {
+      applyLocalePref('system');
+    }
+  },
+);
+
+test('같은 호를 닫았다 다시 열면 직전 문구와 다른 문구가 나온다', async () => {
+  pickTip.mockImplementation(jest.requireActual('./editorTips').pickEditorTip);
+  const first = await open();
+  const firstTip = pickTip.mock.results[0].value;
+  await first.screen.unmount();
+  const second = await open();
+  const secondTip = pickTip.mock.results[1].value;
+  expect(secondTip).not.toBe(firstTip);
+  expect(second.screen.getByText(ko.magazine.tips[secondTip])).toBeTruthy();
+});
+
+test('열린 화면에서 다른 호로 바꾸어도 새 문구를 고른다', async () => {
+  pickTip.mockReturnValueOnce(4).mockReturnValueOnce(20);
+  const { screen } = await open();
+  getIssue.mockResolvedValueOnce(page({ issue: { ...issue, issueId: 'iss-18', issueNo: 18 } }));
+  await screen.rerender(<MagazineReader e={createPreviewEnvironment(env({ detail: 'iss-18' }))} />);
+  await waitFor(() => expect(screen.getByText(ko.magazine.tips[20])).toBeTruthy());
+  expect(pickTip).toHaveBeenCalledTimes(2);
+});
+
+test('페이지 이동·회전·언어 변경은 선택한 문구를 다시 뽑지 않는다', async () => {
+  pickTip.mockReturnValue(24);
+  const { screen, e } = await open();
+  await fireEvent.press(screen.getByTestId('magazine-next'));
+  await fireEvent.press(screen.getByTestId('magazine-prev'));
+  mockScreen = { width: 874, height: 402 };
+  try {
+    applyLocalePref('en');
+    await screen.rerender(<MagazineReader e={createPreviewEnvironment(e)} />);
+    expect(screen.getByText(en.magazine.tips[24])).toBeTruthy();
+    expect(pickTip).toHaveBeenCalledTimes(1);
+  } finally {
+    mockScreen = {};
+    applyLocalePref('system');
+  }
 });
 
 test('운영 문구가 있는 날은 편집부 소식 · 랭킹·새 섬이 비면 빈 문구', async () => {
@@ -134,6 +209,7 @@ test('운영 문구가 있는 날은 편집부 소식 · 랭킹·새 섬이 비�
   );
   expect(screen.getByText('편집부 소식')).toBeTruthy();
   expect(screen.getByText('이번 주말 바다 축제!')).toBeTruthy();
+  expect(pickTip).not.toHaveBeenCalled();
   expect(screen.getByText('이번 주 순위는 아직 없어요')).toBeTruthy();
   expect(screen.getByText('어제는 새 섬이 없었어요')).toBeTruthy();
   // 칸이 하나도 없으면 편집부 다음 장에 「오늘은 실린 홍보가 없어요」
@@ -316,9 +392,11 @@ test('다른 오류는 다시 시도로 다시 읽는다', async () => {
   getIssue.mockRejectedValueOnce(new ApiError('NETWORK', '오프라인', 0));
   const screen = await render(<MagazineReader e={createPreviewEnvironment(env())} />);
   await waitFor(() => expect(screen.getByText('잡지를 펼치지 못했어요')).toBeTruthy());
+  expect(pickTip).not.toHaveBeenCalled();
   getIssue.mockResolvedValueOnce(page());
   await fireEvent.press(screen.getByTestId('magazine-retry'));
   await waitFor(() => expect(screen.getByTestId('magazine-pages')).toBeTruthy());
+  expect(pickTip).toHaveBeenCalledTimes(1);
 });
 
 test('칸을 누르면 화면 폭으로 크게 보고, 누르면 닫힌다 · 닫기 버튼은 뒤로', async () => {
