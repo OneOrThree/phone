@@ -2,8 +2,13 @@ package com.oneorthree.phone.internal.service;
 
 import com.oneorthree.phone.content.exception.ContentErrorCode;
 import com.oneorthree.phone.content.exception.ContentException;
+import com.oneorthree.phone.content.service.ContentJson;
 import com.oneorthree.phone.internal.dto.ContentHistoryPage;
+import com.oneorthree.phone.internal.dto.MagazineContentPage;
+import com.oneorthree.phone.magazine.support.IslandCard;
 import com.oneorthree.phone.magazine.support.MagazineCalendar;
+import com.oneorthree.phone.magazine.support.MagazineEditorial;
+import com.oneorthree.phone.magazine.support.PromotionContent;
 import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -106,6 +111,40 @@ public class ContentHistoryService {
         return new ContentHistoryPage(new ArrayList<>(visible), total == null ? 0 : total,
                 more ? String.valueOf(last.get("issueNo")) : null);
     }
+
+    /** 최근 7호 제한 없이 보관된 발행본을 읽는다. 초안·검토본은 읽거나 생성하지 않는다. */
+    @Transactional(readOnly = true)
+    public MagazineContentPage magazineContent(UUID issueId, String cursor, Integer limit) {
+        int size = limit(limit);
+        NoticeCursor after = cursor == null || cursor.isBlank()
+                ? new NoticeCursor(Instant.EPOCH, new UUID(0L, 0L)) : noticeCursor(cursor);
+        List<MagazineContentPage> issues = jdbc.query(
+                "SELECT issue_date,issue_no,promotion_count,editorial::text FROM magazine_issues WHERE id=?",
+                (rs, row) -> new MagazineContentPage(issueId, rs.getDate("issue_date").toLocalDate(),
+                        rs.getInt("issue_no"), rs.getInt("promotion_count"),
+                        ContentJson.read(rs.getString("editorial"), MagazineEditorial.class), List.of(), null),
+                issueId);
+        if (issues.isEmpty()) {
+            throw new ContentException(ContentErrorCode.NOT_FOUND);
+        }
+        MagazineContentPage issue = issues.get(0);
+        List<PromotionRow> rows = jdbc.query("SELECT id,applied_at,body,layout::text,snapshot::text,moderation"
+                + " FROM island_promotions WHERE issue_date=? AND snapshot IS NOT NULL"
+                + " AND (applied_at,id)>(?,?) ORDER BY applied_at,id LIMIT ?", (rs, row) ->
+                new PromotionRow(new MagazineContentPage.Cell(rs.getObject("id", UUID.class),
+                        ContentJson.read(rs.getString("snapshot"), IslandCard.class), rs.getString("body"),
+                        ContentJson.read(rs.getString("layout"), PromotionContent.Layout.class),
+                        rs.getString("moderation")), rs.getTimestamp("applied_at").toInstant()),
+                issue.issueDate(), Timestamp.from(after.publishedAt()), after.id(), size + 1);
+        boolean more = rows.size() > size;
+        List<PromotionRow> visible = more ? rows.subList(0, size) : rows;
+        PromotionRow last = more ? visible.get(visible.size() - 1) : null;
+        return new MagazineContentPage(issueId, issue.issueDate(), issue.issueNo(), issue.promotionCount(),
+                issue.editorial(), visible.stream().map(PromotionRow::cell).toList(),
+                last == null ? null : last.appliedAt() + "|" + last.cell().promotionId());
+    }
+
+    private record PromotionRow(MagazineContentPage.Cell cell, Instant appliedAt) { }
 
     private static NoticeCursor noticeCursor(String value) {
         if (value == null || value.isBlank()) {
