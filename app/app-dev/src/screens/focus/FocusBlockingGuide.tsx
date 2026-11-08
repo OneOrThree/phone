@@ -10,6 +10,10 @@ import { t } from '@/i18n';
 import { useGowun } from '@/screens/island/sceneKit';
 import { FocusBlockingIllustration } from '@/screens/permissions/FocusBlockingIntro';
 import { useAppLayout } from '@/utils/layout';
+import { screenTimeNative } from '@/services/ScreenTimeModule';
+
+export const supportsFocusSetup = () =>
+  Platform.OS === 'ios' || (Platform.OS === 'android' && !!screenTimeNative?.getAndroidFocusAccess);
 
 export function FocusBlockingIcon({ size = c.verificationSetup.iconSize }: { size?: number }) {
   return (
@@ -29,7 +33,7 @@ export function FocusBlockingGuide({
   busy,
   error,
   onSetup,
-  supportsBlocking = Platform.OS === 'ios',
+  supportsBlocking = supportsFocusSetup(),
 }: {
   busy: boolean;
   error?: string;
@@ -47,7 +51,13 @@ export function FocusBlockingGuide({
         {t(supported ? 'screenTimeSetup.title' : 'screenTimeSetup.androidTitle')}
       </Txt>
       <Txt style={[styles.subtitle, font]}>
-        {t(supported ? 'screenTimeSetup.subtitle' : 'screenTimeSetup.androidSubtitle')}
+        {t(
+          supported && Platform.OS === 'ios'
+            ? 'screenTimeSetup.subtitle'
+            : supported
+              ? 'screenTimeSetup.androidSetupSubtitle'
+              : 'screenTimeSetup.androidSubtitle',
+        )}
       </Txt>
       <FocusBlockingIllustration size={artworkSize} stageHeight={artworkSize} />
       <View style={styles.steps}>
@@ -58,7 +68,13 @@ export function FocusBlockingGuide({
             </View>
             <View style={styles.stepCopy}>
               <Txt style={[styles.stepTitle, font]}>{t(`screenTimeSetup.${step}Title`)}</Txt>
-              <Txt style={[styles.body, font]}>{t(`screenTimeSetup.${step}Body`)}</Txt>
+              <Txt style={[styles.body, font]}>
+                {t(
+                  step === 'allowed' && Platform.OS === 'android'
+                    ? 'screenTimeSetup.androidAllowedBody'
+                    : `screenTimeSetup.${step}Body`,
+                )}
+              </Txt>
             </View>
           </View>
         ))}

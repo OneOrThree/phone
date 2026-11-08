@@ -1,6 +1,10 @@
 import { screenTime, selectionCount, type ScreenTimeSelection } from './screenTime';
 
-export const SCREEN_TIME_GUIDE_VERSION = 1;
+import { Platform } from 'react-native';
+import { screenTimeNative } from './ScreenTimeModule';
+
+export const screenTimeGuideVersion = () =>
+  Platform.OS === 'android' && screenTimeNative?.getAndroidFocusAccess ? 2 : 1;
 export type ScreenTimeSetupMode = 'setup' | 'measurement';
 export type MeasurementReady = (minutes: number, unconfirmedDays: string[]) => void;
 

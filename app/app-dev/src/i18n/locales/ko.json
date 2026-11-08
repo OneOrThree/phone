@@ -1540,6 +1540,24 @@
     "setup": "설정하기",
     "androidTitle": "폰 사용 기록",
     "androidSubtitle": "사용정보 접근을 허용하고 측정할 앱을 골라요.",
-    "androidBlocking": "Android 앱 차단은 아직 준비 중이에요."
+    "androidBlocking": "Android 앱 차단은 아직 준비 중이에요.",
+    "androidAllowedBody": "집중할 때 꼭 필요한 앱만 골라요.\n다른 앱을 열면 집중 화면으로 돌아와요.",
+    "usageTitle": "폰 사용 시간을 기록해요",
+    "usageBody": "사용정보 접근을 허용하면 고른 앱의 사용 시간을 측정할 수 있어요. 앱 복귀에 쓰는 접근성 권한은 다음 단계에서 따로 안내해요.",
+    "usageAction": "사용정보 접근 설정하기",
+    "usageDenied": "사용정보 접근을 허용한 뒤 다시 시도해 주세요.",
+    "blockingOnly": "측정은 나중에 하고 허용 앱 고르기",
+    "accessTitle": "집중 화면으로 돌아오게 해요",
+    "accessBody": "집중할고양은 접근성 서비스를 사용해 다른 앱으로 전환할 때 앱 식별 정보(패키지명)를 확인해요. 집중 중 허용하지 않은 앱을 열면 진행 중인 집중할고양 화면을 앞으로 가져와요.",
+    "accessPrivacy": "이 정보는 기기 안에서만 처리하며 저장하거나 서버·다른 서비스로 보내지 않아요. 화면 내용, 메시지, 입력값은 읽지 않아요.",
+    "accessSettings": "다음 설정 화면에서 “집중할고양 집중 도우미(Focus with Cattus)”를 켜주세요. 휴식·집중 종료 때는 작동하지 않고, 언제든 Android 접근성 설정에서 끌 수 있어요.",
+    "accessAgree": "동의하고 접근성 설정하기",
+    "accessDecline": "동의하지 않고 닫기",
+    "accessNotReady": "아직 연결되지 않았어요. 접근성 설정에서 집중할고양 집중 도우미를 켠 뒤 돌아와 주세요.",
+    "accessOn": "집중 중 앱 복귀 켜짐",
+    "accessOff": "집중 중 앱 복귀 꺼짐",
+    "accessManage": "집중 중 앱 복귀",
+    "accessDisable": "앱 복귀 끄기",
+    "androidSetupSubtitle": "사용 시간 측정과 집중 중 앱 복귀를 차례로 설정해요."
   }
 }

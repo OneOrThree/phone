@@ -1,5 +1,6 @@
 import { DEEP_LINK_HOLD_ROUTES, NO_ISLAND_ROUTES, SEA_HUD_ROUTES, titles } from '@/app/routePolicy';
 import { useIslandAudio } from '@/app/useIslandAudio';
+import { useFocusKeepAwake } from '@/app/useFocusKeepAwake';
 import { useFocusShieldSync, useScreenTimeSync } from '@/app/useScreenTimeSync';
 import { PolicyLinks } from '@/components/PolicyLink';
 import { RouteTransitionShield } from '@/components/RouteTransitionShield';
@@ -2033,6 +2034,9 @@ function Gromo() {
     review: REVIEW,
     demo: DEMO,
   });
+  useFocusKeepAwake(
+    loaded && storageOwnerReady && state.loggedIn && state.session?.status === 'active',
+  );
   useFocusShieldSync({
     loaded,
     storageOwnerReady,
