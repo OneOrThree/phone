@@ -193,12 +193,12 @@ test('미리보기를 열고 닫아도 같은 촬영과 연속 판정을 유지�
   expect(verificationResult('session')).toBe(4);
 });
 
-test('측정을 끄고 영상만 봐도 사용으로 기록하지 않고 다시 켜면 이후 프레임만 누적한다', async () => {
+test('측정 OFF에서는 미리보기 요청도 촬영하지 않고 다시 켜면 이후 프레임만 누적한다', async () => {
   const screen = await render(
     <VerificationSession sessionId="session" enabled={false} previewVisible />,
   );
-  expect(screen.getByTestId('live-camera').props.measurementEnabled).toBe(false);
-  await focusedSeconds(screen, 3);
+  expect(screen.queryByTestId('live-camera')).toBeNull();
+  await act(async () => jest.advanceTimersByTime(3000));
   expect(screen.queryByText('집중 확인 완료')).toBeNull();
   expect(verificationResult('session')).toBeUndefined();
   await screen.rerender(<VerificationSession sessionId="session" enabled previewVisible />);
@@ -211,23 +211,22 @@ test('측정을 끄고 영상만 봐도 사용으로 기록하지 않고 다시 
   const lateReady = screen.getByTestId('live-camera').props.onReady;
   const lateDetection = screen.getByTestId('live-camera').props.onDetection;
   await screen.rerender(<VerificationSession sessionId="session" enabled={false} previewVisible />);
-  expect(screen.getByTestId('live-camera').props.measurementEnabled).toBe(false);
+  expect(screen.queryByTestId('live-camera')).toBeNull();
   await act(async () => {
     lateReady();
     lateDetection('focused');
   });
   await act(async () => jest.advanceTimersByTime(1000));
-  await fireEvent(screen.getByTestId('live-camera'), 'detection', 'focused');
   expect(verificationResult('session')).toBe(1);
 });
 
-test('집중 전 측정을 끄면 영상은 남지만 판정 안내와 불빛은 숨긴다', async () => {
+test('집중 전 측정을 끄면 영상과 판정 안내를 모두 닫는다', async () => {
   const screen = await render(<VerificationSession enabled previewVisible />);
   await focusedSeconds(screen, 1);
   expect(screen.getByText('집중 확인 완료')).toBeTruthy();
   await screen.rerender(<VerificationSession enabled={false} previewVisible />);
-  expect(screen.getByTestId('verification-session-preview')).toBeTruthy();
-  expect(screen.getByTestId('live-camera').props.measurementEnabled).toBe(false);
+  expect(screen.queryByTestId('verification-session-preview')).toBeNull();
+  expect(screen.queryByTestId('live-camera')).toBeNull();
   expect(screen.queryByTestId('verification-session-light')).toBeNull();
   expect(screen.queryByText('집중 확인 완료')).toBeNull();
   expect(screen.queryByText('집중 확인 중…')).toBeNull();
@@ -272,11 +271,11 @@ test.each([true, false])(
     expect(verificationResult('session')).toBe(3);
     await focusedSeconds(screen, 2);
     expect(verificationResult('session')).toBe(5);
-    expect(screen.queryByTestId('verification-session-light')).toBeNull();
+    expect(screen.getByText('집중 확인')).toBeTruthy();
   },
 );
 
-test('시작 전 오류 재시도는 새 판정을 기다리고 영상만 볼 때 재시도해도 측정을 켜지 않는다', async () => {
+test('시작 전 오류 재시도는 새 판정을 기다리고 측정 OFF면 촬영과 재시도를 숨긴다', async () => {
   const screen = await render(<VerificationSession enabled previewVisible />);
   await focusedSeconds(screen, 1);
   await fireEvent(screen.getByTestId('live-camera'), 'error', new Error('camera unavailable'));
@@ -286,9 +285,8 @@ test('시작 전 오류 재시도는 새 판정을 기다리고 영상만 볼 �
   await focusedSeconds(screen, 1);
   expect(screen.getByText('집중 확인 완료')).toBeTruthy();
   await screen.rerender(<VerificationSession enabled={false} previewVisible />);
-  await fireEvent(screen.getByTestId('live-camera'), 'error', new Error('camera unavailable'));
-  await fireEvent.press(screen.getByRole('button', { name: '카메라 다시 시도' }));
-  expect(screen.getByTestId('live-camera').props.measurementEnabled).toBe(false);
+  expect(screen.queryByRole('button', { name: '카메라 다시 시도' })).toBeNull();
+  expect(screen.queryByTestId('live-camera')).toBeNull();
   expect(screen.queryByTestId('verification-session-light')).toBeNull();
   expect(verificationResult('session')).toBeUndefined();
 });
@@ -316,11 +314,11 @@ test('정기 확인 뒤 검사 사이에도 시간을 세며 카메라가 쉬는
   expect(verificationResult('session')).toBe(7);
 });
 
-test('집중 중 미리보기에는 판정 불빛·문구·인증 숫자를 표시하지 않고 측정은 계속한다', async () => {
+test('집중 중에는 최근 판정을 보여주고 세부 미검출 이유와 인증 숫자는 숨긴다', async () => {
   const screen = await render(<VerificationSession sessionId="session" enabled previewVisible />);
   await focusedSeconds(screen, 3);
   expect(screen.getByTestId('verification-session-preview')).toBeTruthy();
-  expect(screen.queryByTestId('verification-session-light')).toBeNull();
+  expect(screen.getByText('집중 확인')).toBeTruthy();
   expect(screen.queryByText('집중 확인 완료')).toBeNull();
   expect(screen.queryByText('집중 확인 중…')).toBeNull();
   expect(screen.queryByText(/인증 00:/)).toBeNull();
@@ -328,7 +326,7 @@ test('집중 중 미리보기에는 판정 불빛·문구·인증 숫자를 표�
   await fireEvent(screen.getByTestId('live-camera'), 'detection', 'missingHand');
   await act(async () => jest.advanceTimersByTime(5000));
   expect(verificationResult('session')).toBe(3);
-  expect(screen.queryByTestId('verification-session-light')).toBeNull();
+  expect(screen.getByText('집중 미확인')).toBeTruthy();
 });
 
 test('보조 물체는 시작 전 미리보기에만 표시하고 물체만으로 초록불을 켜지 않는다', async () => {
@@ -418,7 +416,37 @@ test.each([true, false])(
     const screen = await render(<VerificationSession enabled={enabled} previewVisible />);
     expect(screen.queryByTestId('live-camera')).toBeNull();
     mockCameraFailure = false;
+    if (!enabled) {
+      expect(screen.queryByRole('button', { name: '카메라 다시 시도' })).toBeNull();
+      return;
+    }
     await fireEvent.press(screen.getByRole('button', { name: '카메라 다시 시도' }));
     expect(screen.getByTestId('live-camera')).toBeTruthy();
   },
 );
+
+test('집중 중 최근 결과는 미리보기를 닫아도 유지하고 만료·중단·오류에서는 성공을 지운다', async () => {
+  const screen = await render(<VerificationSession sessionId="session" enabled previewVisible />);
+  expect(screen.getByText('확인 중…')).toBeTruthy();
+  await focusedSeconds(screen, 1);
+  expect(screen.getByText('집중 확인')).toBeTruthy();
+  await screen.rerender(<VerificationSession sessionId="session" enabled />);
+  expect(screen.queryByTestId('verification-session-preview')).toBeNull();
+  expect(screen.getByText('집중 확인')).toBeTruthy();
+  await act(async () => jest.advanceTimersByTime(19_000));
+  expect(screen.getByText('집중 확인')).toBeTruthy();
+  await fireEvent(screen.getByTestId('live-camera'), 'detection', 'missingObject');
+  expect(screen.getByText('집중 미확인')).toBeTruthy();
+  expect(screen.queryByText('노트북/책이 보이지 않아요.')).toBeNull();
+  await fireEvent(screen.getByTestId('live-camera'), 'detection', 'checking');
+  expect(screen.getByText('확인 중…')).toBeTruthy();
+  await fireEvent(screen.getByTestId('live-camera'), 'detection', 'focused');
+  await fireEvent(screen.getByTestId('live-camera'), 'paused');
+  expect(screen.getByText('확인 중…')).toBeTruthy();
+  await fireEvent(screen.getByTestId('live-camera'), 'ready');
+  await fireEvent(screen.getByTestId('live-camera'), 'detection', 'unavailable');
+  expect(screen.getByText('판정할 수 없어요')).toBeTruthy();
+  await fireEvent(screen.getByTestId('live-camera'), 'error', new Error('interrupted'));
+  expect(screen.queryByTestId('verification-detection-status')).toBeNull();
+  expect(screen.getByText('카메라를 사용할 수 없어요.')).toBeTruthy();
+});

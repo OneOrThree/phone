@@ -7,7 +7,7 @@ import { SCREEN_TIME_GUIDE_VERSION, type MeasurementReady } from '@/services/scr
 import { ScreenTimeSetupIntro } from '@/screens/permissions/ScreenTimeSetupIntro';
 import { duringSystemPrompt } from './focusLeave';
 import { FocusBlockingIcon } from './FocusBlockingGuide';
-import { VerificationIntro, type VerificationControlAnchor } from './VerificationIntro';
+import { VerificationIntro } from './VerificationIntro';
 import { Alert, Linking, Platform, Pressable, View } from 'react-native';
 import { Toggle, Txt } from '@/design-system/patterns';
 import { useCameraPermissions } from 'expo-camera';
@@ -77,6 +77,7 @@ export function VerificationToggle({
   inSession = false,
   intro,
   onPreviewChange,
+  onPlacementHintChange,
   onBlockingPermissionChange,
   onMeasurementReady,
   onBlockingConfigured,
@@ -85,6 +86,7 @@ export function VerificationToggle({
   on: boolean;
   inSession?: boolean;
   onPreviewChange?: (open: boolean) => void;
+  onPlacementHintChange?: (visible: boolean) => void;
   onBlockingPermissionChange?: (approved: boolean) => void;
   onMeasurementReady?: MeasurementReady;
   onBlockingConfigured?: () => Promise<void>;
@@ -114,17 +116,39 @@ export function VerificationToggle({
     setupSeen: boolean;
   } | null>(null);
   const [introOpen, setIntroOpen] = useState<'verification' | 'blocking' | null>(null);
-  const controlsRef = useRef<View>(null);
+  const mounted = useRef(true);
+  const permissionRequest = useRef(0);
+  const [placementHint, setPlacementHint] = useState(false);
   const autoOpened = useRef(false);
-  const [introAnchor, setIntroAnchor] = useState<VerificationControlAnchor>();
   useEffect(() => {
-    if (!introOpen) return;
-    controlsRef.current?.measureInWindow((x, y, width, height) => {
-      if (width > 0 && height > 0) setIntroAnchor({ x, y, width, height });
-    });
-  }, [introOpen]);
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   useEffect(() => {
+    if (!placementHint) return;
+    onPlacementHintChange?.(true);
+    const timer = setTimeout(
+      () => setPlacementHint(false),
+      componentTokens.verificationIntro.placementHintDurationMs,
+    );
+    return () => {
+      clearTimeout(timer);
+      onPlacementHintChange?.(false);
+    };
+  }, [placementHint, onPlacementHintChange]);
+  useEffect(() => {
+    if (on) return;
+    permissionRequest.current += 1;
+    setPlacementHint(false);
+    setOpen(false);
+    onPreviewChange?.(false);
+  }, [on, onPreviewChange]);
+  useEffect(() => {
+    permissionRequest.current += 1;
     setIntroOpen(null);
+    setPlacementHint(false);
     autoOpened.current = false;
     setOpen(false);
     onPreviewChange?.(false);
@@ -139,6 +163,8 @@ export function VerificationToggle({
     const sameAccount = previous?.owner === owner && previous.generation === generation;
     // 계정 전환 직후에는 위 효과가 이전 미리보기를 닫은 다음 새 계정 상태를 관측한다.
     if (previous && !sameAccount && open) return;
+    // OFF 효과가 미리보기를 닫은 뒤 최종 사용 상태만 기록한다.
+    if (!on && open) return;
     if (
       sameAccount &&
       previous.on === on &&
@@ -206,29 +232,50 @@ export function VerificationToggle({
   };
   const changeVerification = async (next: boolean, previewOnly = false) => {
     if (!next) {
-      if (previewOnly) {
-        setOpen(false);
-        onPreviewChange?.(false);
-      } else onChange(false, cameraPosition);
+      permissionRequest.current += 1;
+      setOpen(false);
+      onPreviewChange?.(false);
+      if (!previewOnly) {
+        measurementOn.current = false;
+        setPlacementHint(false);
+        onChange(false, cameraPosition);
+      }
       return;
     }
     if (!checked || !education?.seen) {
       if (intro) setIntroOpen('verification');
       return;
     }
+    const requestId = ++permissionRequest.current;
     setRequesting(true);
     try {
       let permission = await getPermission();
+      if (
+        !mounted.current ||
+        permissionRequest.current !== requestId ||
+        getSession()?.userId !== owner ||
+        sessionGeneration() !== generation
+      )
+        return;
       // 권한 창은 Android 에서 앱을 나간 것처럼 보인다 — 그동안 이탈 폴백을 멈춘다(GROMO-2635)
       if (!permission.granted && permission.canAskAgain)
         permission = await duringSystemPrompt(requestPermission);
-      if (getSession()?.userId !== owner || sessionGeneration() !== generation) return;
+      if (
+        !mounted.current ||
+        permissionRequest.current !== requestId ||
+        getSession()?.userId !== owner ||
+        sessionGeneration() !== generation
+      )
+        return;
       if (previewOnly && !measurementOn.current) return;
       if (permission.granted) {
         if (previewOnly) {
           setOpen(true);
           onPreviewChange?.(true);
-        } else onChange(true, cameraPosition);
+        } else {
+          onChange(true, cameraPosition);
+          setPlacementHint(true);
+        }
       } else
         Alert.alert(t('verification.setup.denied'), undefined, [
           { text: t('common.cancel'), style: 'cancel' },
@@ -242,10 +289,15 @@ export function VerificationToggle({
           },
         ]);
     } catch {
-      if (getSession()?.userId === owner && sessionGeneration() === generation)
+      if (
+        mounted.current &&
+        permissionRequest.current === requestId &&
+        getSession()?.userId === owner &&
+        sessionGeneration() === generation
+      )
         Alert.alert(t('verification.setup.permissionError'));
     } finally {
-      setRequesting(false);
+      if (mounted.current) setRequesting(false);
     }
   };
   const showPreview = () => {
@@ -305,8 +357,6 @@ export function VerificationToggle({
           <Txt {...controlLabel}>{t('focusBlocking.label')}</Txt>
         </View>
         <View
-          ref={controlsRef}
-          collapsable={false}
           style={{
             flexDirection: 'row',
             alignItems: 'center',
@@ -375,7 +425,6 @@ export function VerificationToggle({
       </View>
       {introOpen === 'verification' && (
         <VerificationIntro
-          anchor={introAnchor}
           onClose={consumeIntro}
           onNext={
             !education?.setupSeen && Platform.OS === 'ios'
