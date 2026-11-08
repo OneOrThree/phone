@@ -175,6 +175,7 @@ export function FocusFlow({ e: environment }: any) {
     // 첫 물고기 reel이 끝나 12단계로 갈 차례 — 황금 컷신·reel이 끝날 때까지 미룬다
     [tutorialCatchRevision, setTutorialCatchRevision] = useState<number | null>(null);
   const [verificationPreviewOpen, setVerificationPreviewOpen] = useState(false);
+  const [verificationPlacementHint, setVerificationPlacementHint] = useState(false);
   const returningFromArrival = useRef(false);
   // 보상을 확인하는 동안에도 결과 화면에서 고른 다음 목적지를 유지한다.
   const resultDestination = useRef<'island' | 'focus'>('island');
@@ -2035,6 +2036,7 @@ export function FocusFlow({ e: environment }: any) {
                   e.dispatch({ type: 'SETTING', key: 'permission', value: approved })
                 }
                 onPreviewChange={setVerificationPreviewOpen}
+                onPlacementHintChange={setVerificationPlacementHint}
                 intro={verificationIntro}
                 on={s.settings.studyVerification === true}
                 cameraPosition={s.settings.studyVerificationCamera}
@@ -2158,6 +2160,7 @@ export function FocusFlow({ e: environment }: any) {
                     e.dispatch({ type: 'SETTING', key: 'permission', value: approved })
                   }
                   onPreviewChange={setVerificationPreviewOpen}
+                  onPlacementHintChange={setVerificationPlacementHint}
                   inSession
                   intro={verificationIntro}
                   on={s.settings.studyVerification === true}
@@ -2219,6 +2222,37 @@ export function FocusFlow({ e: environment }: any) {
             </View>
           </>
         )}
+        {verificationPlacementHint &&
+          s.settings.studyVerification &&
+          !dialog &&
+          !catInfo &&
+          !goldenCutscene && (
+            <View
+              testID="verification-placement-hint"
+              pointerEvents="none"
+              accessibilityLiveRegion="polite"
+              style={{
+                position: 'absolute',
+                zIndex: 6,
+                bottom: safe.bottom + componentTokens.verificationIntro.placementHintBottom,
+                left: safe.left + semanticTokens.spacing.page,
+                right: safe.right + semanticTokens.spacing.page,
+                backgroundColor: semanticTokens.color.text,
+                borderRadius: semanticTokens.radius.control,
+                padding: semanticTokens.spacing.component,
+              }}
+            >
+              <Text
+                style={{
+                  color: semanticTokens.color.surface,
+                  textAlign: 'center',
+                  fontSize: semanticTokens.typography.body,
+                }}
+              >
+                {t('verification.setup.placementHint')}
+              </Text>
+            </View>
+          )}
         {musicModal}
         {r === 'focusResult' && !leg && !goldenReeling && resultModal}
         {!leg && !goldenReeling && rewardModal}

@@ -1505,15 +1505,18 @@
     "on": "On",
     "off": "Off",
     "intro": {
-      "title": "On Fishing Island,\ncheck your focus time\nwith the camera",
-      "privacy": "Checked only on your device. Video is never saved, shared, or sent.",
+      "title": "Your camera is never\nvisible to anyone else",
+      "privacy": "Checked on your device. Never saved, shared or sent.",
       "try": "Try the camera",
       "later": "Not now",
-      "preview": "Tracking stays on while enabled,\neven without the preview.",
+      "preview": "Tracking continues with the preview off.",
       "precheckHint": "Before starting, use the preview to check whether your focus is recognized.",
       "measurementHint": "On · Off",
       "previewLabel": "Preview",
-      "previewHint": "See your camera view."
+      "previewHint": "Check your camera with Preview.",
+      "studyTools": "Hands + a book or laptop",
+      "studyToolsHint": "Both must be visible for tracking.",
+      "studyToolsImage": "Hands on an open book and hands on a laptop keyboard"
     },
     "result": {
       "title": "Verified time / Total focus time",
@@ -1528,7 +1531,15 @@
       "enable": "Turn on",
       "turnOff": "Turn off AI focus tracking and keep focusing",
       "turnOn": "Turn on AI focus tracking independently of the preview",
-      "verified": "Verified {{time}}"
+      "verified": "Verified {{time}}",
+      "detection": {
+        "focused": "Focus confirmed",
+        "missingHand": "Focus unconfirmed",
+        "missingObject": "Focus unconfirmed",
+        "checking": "Checking…",
+        "unavailable": "Unable to check"
+      },
+      "detectionA11y": "Latest 20-second check: {{status}}"
     },
     "setup": {
       "body": "Your camera checks your desk every 20 seconds.\nPhotos never leave your phone.",
@@ -1558,7 +1569,8 @@
         "book": "Book",
         "laptop": "Laptop",
         "keyboard": "Keyboard"
-      }
+      },
+      "placementHint": "Position your camera so your hands and a book or laptop are visible together."
     },
     "switchLabel": "AI Focus Tracking"
   },

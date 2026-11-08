@@ -55,7 +55,7 @@ export function VerificationSession({
     );
     return () => subscription.remove();
   }, []);
-  if ((!enabled && !previewVisible) || !foreground) return null;
+  if (!enabled || !foreground) return null;
   return (
     <SessionCamera
       key={`${cameraPosition}:${enabled}:${attempt}`}
@@ -158,6 +158,11 @@ function SessionCamera({
   }, [pause]);
   const ui = componentTokens.verificationSetup;
   const visibleDetection = ready && !error ? detection : 'checking';
+  const status = t(
+    sessionId
+      ? `verification.session.detection.${visibleDetection}`
+      : `verification.setup.detection.${visibleDetection}`,
+  );
   const measuring = ready && detection !== 'unavailable';
   return (
     <View
@@ -294,17 +299,16 @@ function SessionCamera({
           />
         </View>
       )}
-      {previewVisible && showFeedback && !error && (
+      {((previewVisible && showFeedback) || !!sessionId) && !error && (
         <>
           <View
             accessible
             accessibilityRole="text"
             accessibilityLiveRegion="polite"
-            accessibilityLabel={t(
-              error
-                ? 'verification.setup.cameraError'
-                : `verification.setup.detection.${visibleDetection}`,
-            )}
+            testID="verification-detection-status"
+            accessibilityLabel={
+              sessionId ? t('verification.session.detectionA11y', { status }) : status
+            }
             style={{
               flexDirection: 'row',
               alignItems: 'center',
@@ -326,14 +330,11 @@ function SessionCamera({
               }}
             />
             <Txt kind="meta" style={[textStyle, { flexShrink: 1 }]}>
-              {t(
-                error
-                  ? 'verification.setup.cameraError'
-                  : `verification.setup.detection.${visibleDetection}`,
-              )}
+              {status}
             </Txt>
           </View>
-          {ready &&
+          {!sessionId &&
+            ready &&
             !error &&
             visibleDetection !== 'focused' &&
             objects &&

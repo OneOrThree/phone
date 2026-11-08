@@ -1472,15 +1472,18 @@
     "on": "켜짐",
     "off": "꺼짐",
     "intro": {
-      "title": "낚시섬에서는\n카메라로 집중 시간을\n확인해요",
-      "privacy": "영상 저장·공유·전송 없이 기기 안에서만 확인해요.",
+      "title": "카메라를 켜도 다른 사람에게\n보이지 않아요",
+      "privacy": "영상 저장·공유·전송 없이 내 기기 안에서만 확인해요.",
       "try": "카메라 켜보기",
       "later": "나중에",
-      "preview": "미리보기를 꺼도,\n측정이 켜져 있으면 계속 측정해요.",
+      "preview": "미리보기를 꺼도 측정은 계속돼요.",
       "precheckHint": "집중 시작 전에 미리보기로 인정 여부를 확인할 수 있어요.",
       "measurementHint": "켜기 · 끄기",
       "previewLabel": "미리보기",
-      "previewHint": "내 화면을 볼 수 있어요."
+      "previewHint": "미리보기로 카메라를 확인해요.",
+      "studyTools": "손 + 책 또는 노트북",
+      "studyToolsHint": "함께 보여야 측정돼요.",
+      "studyToolsImage": "책 위에 놓인 손과 노트북 자판 위에 놓인 손"
     },
     "result": {
       "title": "인증 시간 / 총 집중 시간",
@@ -1495,7 +1498,15 @@
       "enable": "켜기",
       "turnOff": "AI 집중 측정만 끄고 집중은 계속해요",
       "turnOn": "미리보기 표시와 관계없이 AI 집중 측정을 켜요",
-      "verified": "인증 {{time}}"
+      "verified": "인증 {{time}}",
+      "detection": {
+        "focused": "집중 확인",
+        "missingHand": "집중 미확인",
+        "missingObject": "집중 미확인",
+        "checking": "확인 중…",
+        "unavailable": "판정할 수 없어요"
+      },
+      "detectionA11y": "최근 20초 검사 결과: {{status}}"
     },
     "setup": {
       "body": "집중 중 20초마다 책상을 봐요.\n사진은 폰 밖으로 나가지 않아요.",
@@ -1525,7 +1536,8 @@
         "book": "책",
         "laptop": "노트북",
         "keyboard": "키보드"
-      }
+      },
+      "placementHint": "손과 책 또는 노트북이 함께 보이도록 카메라를 놓아주세요."
     },
     "switchLabel": "AI집중측정"
   },
