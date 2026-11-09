@@ -18,7 +18,7 @@ const lost = message => new Failure(502, message);
 
 // 스텁 Data: 계약 §3 의 응답 모양만 흉내 낸다(규칙은 Data 쪽 시험이 맡는다).
 function fakeData({ running = 0 } = {}) {
-  const state = { calls: [], approvals: new Map(), executions: new Map(), loseApprove: 0, loseExecute: 0, revokeFails: 0, running, runs: 0 };
+  const state = { calls: [], approvals: new Map(), executions: new Map(), loseApprove: 0, loseExecute: 0, conflict: 0, listed: true, revokeFails: 0, running, runs: 0 };
   const upstream = {
     customizationItems: async () => ({ pool: { revision: 1, categoryWeights: {}, productIds: [] }, items: [
       { productId: "cust.head.mandarin", title: "귤 한 알", kind: "head", category: "head", rarity: "common", imagePath: "/a.png",
@@ -50,6 +50,7 @@ function fakeData({ running = 0 } = {}) {
       state.calls.push(["execute", item.grantId, actor]);
       state.runs++;
       if (state.loseExecute-- > 0) throw lost("실행 응답 유실");
+      if (state.conflict-- > 0) throw Object.assign(new Failure(409, "충돌"), { definite: true });
       const done = state.runs > state.running;
       const execution = { grantId: item.grantId, approvalId: item.approvalId, productId: item.productId, mode: item.mode, reason: item.reason,
         status: done ? "COMPLETED" : "RUNNING", targetCount: 2, grantedCount: done ? 2 : state.runs, alreadyOwnedCount: 0, skippedCount: 0,
@@ -57,7 +58,7 @@ function fakeData({ running = 0 } = {}) {
       state.executions.set(item.grantId, execution);
       return execution;
     },
-    grantExecutions: async () => [...state.executions.values()],
+    grantExecutions: async () => state.listed ? [...state.executions.values()] : [],
   };
   return { upstream, state };
 }
@@ -292,4 +293,42 @@ test("로컬 모드 Data 흉내도 2인 규칙을 지키고 청크 실행을 끝
   assert.equal(owner, 3);
   const retired = (await app.send("/api/customization/grants", { productId: "cust.head.old", mode: "ALL", nicknamesText: "", reason: "지급 불가" }, one)).body;
   assert.equal((await app.send(`/api/customization/grants/${retired.id}/preview`, { revision: retired.revision }, one)).status, 400);
+});
+
+test("uncertain 뒤 재시도가 409 일 때 목록(최근 50건 창)에 grantId 가 없어도 uncertain 을 유지하고 같은 grantId 로 끝낸다", async t => {
+  const { upstream, state } = fakeData();
+  const app = await startApp(t, upstream);
+  const one = await app.login("member-1"), two = await app.login("member-2");
+  let item = await reviewed(app, one);
+  item = (await app.send(`/api/customization/grants/${item.id}/approve`, { revision: item.revision }, one)).body;
+  state.loseExecute = 1;
+  item = (await app.send(`/api/customization/grants/${item.id}/execute`, { revision: item.revision }, two)).body;
+  assert.equal(item.status, "uncertain");
+  const { grantId, dispatchActor } = item;
+  state.conflict = 1;
+  state.listed = false;
+  item = (await app.send(`/api/customization/grants/${item.id}/execute`, { revision: item.revision }, two)).body;
+  assert.equal(item.status, "uncertain");
+  assert.equal(item.grantId, grantId);
+  assert.equal(item.dispatchActor, dispatchActor);
+  item = (await app.send(`/api/customization/grants/${item.id}/execute`, { revision: item.revision }, two)).body;
+  assert.equal(item.status, "completed");
+  assert.equal(item.grantId, grantId);
+});
+
+test("uncertain 뒤 재시도가 409 이고 목록에 COMPLETED 기록이 있으면 completed 로 정산한다", async t => {
+  const { upstream, state } = fakeData();
+  const app = await startApp(t, upstream);
+  const one = await app.login("member-1"), two = await app.login("member-2");
+  let item = await reviewed(app, one);
+  item = (await app.send(`/api/customization/grants/${item.id}/approve`, { revision: item.revision }, one)).body;
+  state.loseExecute = 1;
+  item = (await app.send(`/api/customization/grants/${item.id}/execute`, { revision: item.revision }, two)).body;
+  state.executions.set(item.grantId, { grantId: item.grantId, approvalId: item.approvalId, productId: item.productId, mode: item.mode,
+    reason: item.reason, status: "COMPLETED", targetCount: 2, grantedCount: 2, alreadyOwnedCount: 0, skippedCount: 0,
+    approvedBy: "member-1", actor: "member-2", startedAt: "2026-11-09T00:00:00.000Z", completedAt: "2026-11-09T00:00:01.000Z" });
+  state.conflict = 1;
+  item = (await app.send(`/api/customization/grants/${item.id}/execute`, { revision: item.revision }, two)).body;
+  assert.equal(item.status, "completed");
+  assert.equal(item.receipt.grantedCount, 2);
 });

@@ -126,7 +126,8 @@ export function createApp({
       const entry = (await upstream.grantExecutions(actor, operator, 50)).find(value => value.grantId === item.grantId);
       if (entry?.approvalId === item.approvalId && entry.status === "COMPLETED") return { receipt: entry };
       if (entry?.approvalId === item.approvalId && entry.status === "RUNNING") return { running: entry };
-      if (!entry) return { error: Object.assign(error, { reconciled: true }) };
+      // 목록에 없다고 실행되지 않았다는 증거는 아니다. 최근 50건만 돌려주는 창이라, 그 뒤에 시작한 지급이 50건 이상이면
+      // 실제로 실행된 grantId 도 빠진다. 그래서 없음은 판정하지 않고 uncertain 을 유지해 최초 실행자가 같은 grantId 로 재시도하게 한다.
     } catch { /* 조회가 실패하면 실행 결과를 단정하지 않는다. */ }
     return null;
   }
