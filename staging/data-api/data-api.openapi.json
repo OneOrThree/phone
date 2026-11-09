@@ -548,6 +548,88 @@
         }
       }
     },
+    "/internal/admin/customization/reward-pool/publications/{publicationId}": {
+      "put": {
+        "tags": [
+          "internal-customization-reward-pool-admin-controller"
+        ],
+        "operationId": "publish_1",
+        "parameters": [
+          {
+            "name": "publicationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublishRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/Publication"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/admin/customization/grants/executions/{grantId}": {
+      "put": {
+        "tags": [
+          "internal-customization-grant-admin-controller"
+        ],
+        "operationId": "execute",
+        "parameters": [
+          {
+            "name": "grantId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExecuteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/Execution"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/internal/admin/content/notices/{publicationId}": {
       "put": {
         "tags": [
@@ -2984,7 +3066,7 @@
         "tags": [
           "internal-login-attempt-controller"
         ],
-        "operationId": "execute",
+        "operationId": "execute_1",
         "requestBody": {
           "content": {
             "application/json": {
@@ -3235,6 +3317,162 @@
         }
       }
     },
+    "/internal/admin/customization/reward-pool/approvals/{approvalId}": {
+      "post": {
+        "tags": [
+          "internal-customization-reward-pool-admin-controller"
+        ],
+        "operationId": "approve_1",
+        "parameters": [
+          {
+            "name": "approvalId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApproveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/Approval"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "internal-customization-reward-pool-admin-controller"
+        ],
+        "operationId": "revoke_1",
+        "parameters": [
+          {
+            "name": "approvalId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        }
+      }
+    },
+    "/internal/admin/customization/grants/previews": {
+      "post": {
+        "tags": [
+          "internal-customization-grant-admin-controller"
+        ],
+        "operationId": "preview",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PreviewRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/Preview"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/admin/customization/grants/approvals/{approvalId}": {
+      "post": {
+        "tags": [
+          "internal-customization-grant-admin-controller"
+        ],
+        "operationId": "approve_2",
+        "parameters": [
+          {
+            "name": "approvalId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApproveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/Approval"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "internal-customization-grant-admin-controller"
+        ],
+        "operationId": "revoke_2",
+        "parameters": [
+          {
+            "name": "approvalId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        }
+      }
+    },
     "/internal/admin/content/notices/{publicationId}/withdraw": {
       "post": {
         "tags": [
@@ -3312,7 +3550,7 @@
         "tags": [
           "internal-content-admin-controller"
         ],
-        "operationId": "preview",
+        "operationId": "preview_1",
         "requestBody": {
           "content": {
             "application/json": {
@@ -6372,6 +6610,81 @@
         }
       }
     },
+    "/internal/admin/customization/reward-pool": {
+      "get": {
+        "tags": [
+          "internal-customization-reward-pool-admin-controller"
+        ],
+        "operationId": "current_3",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/View"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/admin/customization/items": {
+      "get": {
+        "tags": [
+          "internal-customization-reward-pool-admin-controller"
+        ],
+        "operationId": "items",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ItemsView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/admin/customization/grants/executions": {
+      "get": {
+        "tags": [
+          "internal-customization-grant-admin-controller"
+        ],
+        "operationId": "executions",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 50
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Execution"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/internal/admin/content/notices": {
       "get": {
         "tags": [
@@ -6463,6 +6776,54 @@
               "*/*": {
                 "schema": {
                   "$ref": "#/components/schemas/ContentHistoryPage"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/admin/content/history/magazines/{issueId}": {
+      "get": {
+        "tags": [
+          "internal-content-admin-controller"
+        ],
+        "operationId": "magazineContent",
+        "parameters": [
+          {
+            "name": "issueId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/MagazineContentPage"
                 }
               }
             }
@@ -7272,6 +7633,73 @@
           },
           "policy": {
             "$ref": "#/components/schemas/Policy"
+          }
+        }
+      },
+      "ExecuteRequest": {
+        "type": "object",
+        "properties": {
+          "approvalId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "digest": {
+            "type": "string"
+          }
+        }
+      },
+      "Execution": {
+        "type": "object",
+        "properties": {
+          "grantId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "approvalId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "productId": {
+            "type": "string"
+          },
+          "mode": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "targetCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "grantedCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "alreadyOwnedCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "skippedCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "approvedBy": {
+            "type": "string"
+          },
+          "actor": {
+            "type": "string"
+          },
+          "startedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "completedAt": {
+            "type": "string",
+            "format": "date-time"
           }
         }
       },
@@ -9043,6 +9471,82 @@
           }
         }
       },
+      "PreviewRequest": {
+        "type": "object",
+        "properties": {
+          "productId": {
+            "type": "string"
+          },
+          "mode": {
+            "type": "string"
+          },
+          "nicknames": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "reason": {
+            "type": "string"
+          }
+        }
+      },
+      "Preview": {
+        "type": "object",
+        "properties": {
+          "productId": {
+            "type": "string"
+          },
+          "productTitle": {
+            "type": "string"
+          },
+          "mode": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "targets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Target"
+            }
+          },
+          "unknownNicknames": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "targetCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "alreadyOwnedCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "newCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "digest": {
+            "type": "string"
+          }
+        }
+      },
+      "Target": {
+        "type": "object",
+        "properties": {
+          "nickname": {
+            "type": "string"
+          },
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
       "Withdrawal": {
         "type": "object",
         "properties": {
@@ -9081,18 +9585,6 @@
           "publishedAt": {
             "type": "string",
             "format": "date-time"
-          }
-        }
-      },
-      "PreviewRequest": {
-        "type": "object",
-        "properties": {
-          "issueDate": {
-            "type": "string",
-            "format": "date"
-          },
-          "editorialBody": {
-            "type": "string"
           }
         }
       },
@@ -9159,35 +9651,6 @@
           }
         }
       },
-      "Preview": {
-        "type": "object",
-        "properties": {
-          "snapshotId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "digest": {
-            "type": "string"
-          },
-          "issueDate": {
-            "type": "string",
-            "format": "date"
-          },
-          "issueNo": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "editorial": {
-            "$ref": "#/components/schemas/MagazineEditorial"
-          },
-          "cells": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ReviewCell"
-            }
-          }
-        }
-      },
       "Ranked": {
         "type": "object",
         "properties": {
@@ -9196,35 +9659,6 @@
             "format": "int32"
           },
           "island": {
-            "$ref": "#/components/schemas/IslandCard"
-          }
-        }
-      },
-      "ReviewCell": {
-        "type": "object",
-        "properties": {
-          "promotionId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "islandId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "updatedAt": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "body": {
-            "type": "string"
-          },
-          "layout": {
-            "$ref": "#/components/schemas/Layout"
-          },
-          "moderation": {
-            "type": "string"
-          },
-          "card": {
             "$ref": "#/components/schemas/IslandCard"
           }
         }
@@ -11525,6 +11959,39 @@
           }
         }
       },
+      "ItemsView": {
+        "type": "object",
+        "properties": {
+          "pool": {
+            "$ref": "#/components/schemas/PoolSummary"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Item"
+            }
+          }
+        }
+      },
+      "PoolSummary": {
+        "type": "object",
+        "properties": {
+          "revision": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "categoryWeights": {
+            "type": "object",
+            "additionalProperties": {}
+          },
+          "productIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
       "ContentHistoryPage": {
         "type": "object",
         "properties": {
@@ -11538,6 +12005,39 @@
           "total": {
             "type": "integer",
             "format": "int64"
+          },
+          "nextCursor": {
+            "type": "string"
+          }
+        }
+      },
+      "MagazineContentPage": {
+        "type": "object",
+        "properties": {
+          "issueId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "issueDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "issueNo": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "promotionCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "editorial": {
+            "$ref": "#/components/schemas/MagazineEditorial"
+          },
+          "cells": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Cell"
+            }
           },
           "nextCursor": {
             "type": "string"
