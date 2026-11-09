@@ -2,6 +2,7 @@ import { PRIVACY_URL, TERMS_URL, openPolicy } from '@/constants/legal';
 import { Btn, Field, Pic, Toggle, Txt } from '@/design-system/patterns';
 import { semanticTokens } from '@/design-system/tokens';
 import {
+  errorTextOr,
   type LocalePref,
   LOCALE_KEY,
   LOCALE_NAMES,
@@ -212,7 +213,7 @@ export function renderSettingsScreens(context: ScreenContext) {
                   routeNowRef.current === 'profile' &&
                   sessionGeneration() === gen
                 )
-                  setProfileNameError(thrown.message);
+                  setProfileNameError(errorTextOr(thrown, 'errors.NICKNAME_INVALID'));
                 return;
               }
               throw thrown;

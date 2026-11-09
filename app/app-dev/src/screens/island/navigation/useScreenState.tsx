@@ -1,7 +1,8 @@
+import { customizationTitle } from '@/i18n/customization';
 import { CatOutfitLayers, outfitOf, type Outfit } from '@/components/CatOutfitLayers';
 import { Btn, C, Pic, Strip, Txt, k } from '@/design-system/patterns';
 import { useScreenInsets } from '@/design-system/primitives';
-import { errorText, getLocale, t } from '@/i18n';
+import { errorTextOr, errorText, getLocale, t } from '@/i18n';
 import type { ScreenEnvironment } from '@/navigation/ScreenEnvironment';
 import { Preview } from '@/screens/island/IslandSheet';
 import { FinalIsland } from '@/screens/island/WorldMap';
@@ -255,7 +256,7 @@ export function useScreenState(e: ScreenEnvironment) {
       await finishWithdrawalCleanup(withdrawIntent.current?.userId || getSession()?.userId || null);
     } catch {
       setWithdrawCleanupPending(true);
-      notify('기기에 남은 데이터를 정리하지 못했어요. 다시 시도해 주세요.');
+      notify(t('ui.social.cleanupFailed'));
       return;
     }
     setWithdrawCleanupPending(false);
@@ -289,8 +290,8 @@ export function useScreenState(e: ScreenEnvironment) {
     active: !!server && ['shop', 'product', 'orders', 'wardrobe', 'sound'].includes(route),
     islandId: snap?.currentIslandId ?? null,
     route,
-    category: tab === '우리 섬 꾸미기' ? 'island' : 'personal',
-    orderScope: tab === '섬 공동 구매' ? 'shared' : 'personal',
+    category: tab === 'island' ? 'island' : 'personal',
+    orderScope: tab === 'shared' ? 'shared' : 'personal',
     productId: route === 'product' ? detail : null,
     dispatch,
   });
@@ -307,7 +308,10 @@ export function useScreenState(e: ScreenEnvironment) {
   const unseenOutfits = useUnseenOutfits();
 
   const productTitle = (id: string) =>
-    server ? (shopApi.titles[id] ?? id) : products.find((p) => p.id === id)?.title || id;
+    customizationTitle(
+      id,
+      server ? (shopApi.titles[id] ?? id) : products.find((p) => p.id === id)?.title || id,
+    );
 
   // 친구 관리·친구 찾기(GROMO-2015) — 서버 모드면 /screens/friends 조각과 명령 API 가 정본이다
   const friendsScreen = e.friendsScreen as FriendsScreenState;
@@ -316,12 +320,11 @@ export function useScreenState(e: ScreenEnvironment) {
   const friendFail = (thrown: unknown) => {
     if (e.conversion?.offer(thrown)) return;
     const kind = friendErrorKind(thrown);
-    if (kind === 'duplicate') notify('이미 친구이거나 보낸 요청이 있어요.');
-    else if (kind === 'already-handled') notify('이미 처리된 요청이에요. 목록을 새로고침했어요.');
-    else if (kind === 'privacy') notify('이 작업을 할 수 있는 상대가 아니에요.');
-    else if (kind === 'network') notify('네트워크를 확인한 뒤 다시 시도해 주세요.');
-    else
-      notify(thrown instanceof ApiError && thrown.message ? thrown.message : '다시 시도해 주세요.');
+    if (kind === 'duplicate') notify(t('ui.social.duplicateFriend'));
+    else if (kind === 'already-handled') notify(t('ui.social.handledRequest'));
+    else if (kind === 'privacy') notify(t('ui.social.friendUnavailable'));
+    else if (kind === 'network') notify(t('ui.social.checkNetwork'));
+    else notify(errorTextOr(thrown, 'errors.GENERIC'));
     if (kind === 'duplicate' || kind === 'already-handled') friendsScreen.refresh();
   };
 
@@ -577,13 +580,13 @@ export function useScreenState(e: ScreenEnvironment) {
 
   const fishStrip = (
     <Strip
-      label={fishStripIslandName + ' 물고기'}
+      label={fishStripIslandName + t('ui.social.fishSuffix')}
       value={
         server
           ? shopApi.wallets
-            ? shopApi.wallets.villagePoints.toLocaleString() + '마리'
+            ? shopApi.wallets.villagePoints.toLocaleString() + t('ui.hall.fishUnit')
             : '…'
-          : balance(island).toLocaleString() + '마리'
+          : balance(island).toLocaleString() + t('ui.hall.fishUnit')
       }
     />
   );

@@ -65,11 +65,11 @@ const props: {
   active: boolean;
   nb: boolean;
   page: number;
-  period: '일' | '주' | '월';
+  period: 'day' | 'week' | 'month';
   offset: number;
   combined?: boolean;
   focusSummaryOnly?: boolean;
-} = { active: true, nb: false, page: 0, period: '주', offset: 0 };
+} = { active: true, nb: false, page: 0, period: 'week', offset: 0 };
 const mount = (over: Partial<typeof props> = {}) =>
   renderHook((p: typeof props) => useLibraryDiary(p), { initialProps: { ...props, ...over } });
 
@@ -106,12 +106,12 @@ test('스크린타임 장도 진입 집계 조각을 그대로 쓴다', async ()
 test('이번 주가 아닌 기간은 KST from/to 로 도메인 GET 을 부른다', async () => {
   libMock.mockResolvedValue(lib());
   focusMock.mockResolvedValue({ ...FOCUS_ME, records: [], totalSeconds: 0 });
-  const { result } = await mount({ period: '월' });
+  const { result } = await mount({ period: 'month' });
 
   await waitFor(() => assert.equal(result.current.status, 'ready'));
   assert.equal(focusMock.mock.calls.length, 1);
   const [islandId, query] = focusMock.mock.calls[0];
-  const range = libraryPeriodRange('월', 0);
+  const range = libraryPeriodRange('month', 0);
   assert.equal(islandId, 'isl-1');
   assert.deepEqual(query, { scope: 'me', from: range.from, to: range.to });
 });
@@ -192,7 +192,7 @@ test('월간 요약은 첫 페이지의 합계와 수열만 사용한다', async
   focusMock.mockResolvedValue({ ...FOCUS_ME, nextCursor: 'unused' });
   screenMock.mockResolvedValue(SCREEN_ME);
   const { result } = await mount({
-    period: '월',
+    period: 'month',
     combined: true,
     focusSummaryOnly: true,
   });

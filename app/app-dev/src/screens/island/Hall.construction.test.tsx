@@ -1,4 +1,5 @@
 import { componentTokens } from '@/design-system/tokens';
+import { applyLocalePref } from '@/i18n';
 import { createPreviewEnvironment } from '@/navigation/previewEnvironment';
 import { useIslandManagement } from '@/screens/interiors/useIslandManagement';
 import { Hall } from '@/screens/island/Hall';
@@ -276,6 +277,34 @@ test('잔액이 목표 원가의 일부만 찬 상태로 게시판 건설 패널
   assert.equal(screen.queryByText('지금 모으는 건물'), null);
   await fireEvent.press(screen.getByTestId('hall-plan-backdrop'));
   assert.equal(screen.queryByTestId('hall-building-plan'), null);
+});
+
+test('영어 청사진은 서버의 한국어 건물명을 번역하고 서버 원가로 건설한다', async () => {
+  applyLocalePref('en');
+  const build = jest.fn(async () => {});
+  const serverOptions = options({ villagePoints: 1000 });
+  serverOptions.items[0] = {
+    ...serverOptions.items[0],
+    buildable: true,
+    blockedReason: null,
+  };
+  constructionMock.mockReturnValue(construction({ options: serverOptions, build }));
+  try {
+    const screen = await render(<Hall e={createPreviewEnvironment(e())} />);
+    await fireEvent.press(screen.getByTestId('hall-bld-board'));
+    expect(screen.getByLabelText('Preview of Notice Board')).toBeTruthy();
+    expect(screen.queryByText('게시판')).toBeNull();
+    expect(screen.getByText('Island account balance')).toBeTruthy();
+    expect(screen.getByText('1,000 fish')).toBeTruthy();
+    expect(screen.getByText('240 fish')).toBeTruthy();
+    await fireEvent.press(screen.getByTestId('hall-plan-action'));
+    expect(screen.getByText('Start building Notice Board?')).toBeTruthy();
+    await fireEvent.press(screen.getByTestId('hall-dialog-ok'));
+    await waitFor(() => expect(build).toHaveBeenCalledWith('board', 240));
+  } finally {
+    await cleanup();
+    applyLocalePref('system');
+  }
 });
 
 test('건설 패널을 열고 닫아도 「목각 건물 고르기」 그리드의 transform 이 undefined 가 되지 않는다', async () => {

@@ -16,6 +16,8 @@ import {
   LEGACY_LOCALE_KEY,
   LOCALE_KEY,
   applyLocalePref,
+  getLocalePref,
+  useLocale,
   errorTextOr,
   t,
   type LocalePref,
@@ -197,6 +199,7 @@ export default function App() {
 }
 
 function Gromo() {
+  useLocale();
   const layout = useAppLayout();
   const [state, dispatch] = useReducer(reducer, undefined, () =>
     DEMO ? demoState() : initialState(),
@@ -640,9 +643,7 @@ function Gromo() {
             if (!latest()) {
               if (gen === sessionGeneration())
                 notifyRef.current(
-                  result.status === 'pending'
-                    ? '초대받은 섬에 가입을 신청했어요.'
-                    : '초대받은 섬에 합류했어요.',
+                  result.status === 'pending' ? t('ui.invite.requested') : t('ui.invite.joined'),
                 );
               return;
             }
@@ -2053,6 +2054,13 @@ function Gromo() {
     busy: focus.busy,
     handlers: leaveHandlers,
   });
+  useEffect(() => {
+    if (!loaded) return;
+    const subscription = AppState.addEventListener('change', (next) => {
+      if (next === 'active') setLocalePref(applyLocalePref(getLocalePref()));
+    });
+    return () => subscription.remove();
+  }, [loaded]);
   const liveActivityOwner = getSession()?.userId;
   useEffect(() => {
     if (!loaded || !hasServerSession || !storageOwnerReady || REVIEW || DEMO) return;

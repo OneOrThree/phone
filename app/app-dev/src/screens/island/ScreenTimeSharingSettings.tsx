@@ -27,7 +27,7 @@ export function ScreenTimeSharingSettings({ e }: ScreenProps) {
         if (active) setEnabled(value);
       })
       .catch(() => {
-        if (active) e.notify('공유 설정을 확인하지 못했어요.');
+        if (active) e.notify(t('ui.misc.sharingLoadFailed'));
       })
       .finally(() => {
         if (active) setBusy(false);
@@ -43,7 +43,7 @@ export function ScreenTimeSharingSettings({ e }: ScreenProps) {
       await setScreenTimeReportingConsent(owner, value);
       if (getSession()?.userId === owner) setEnabled(value);
     } catch {
-      e.notify('공유 설정을 저장하지 못했어요. 다시 시도해 주세요.');
+      e.notify(t('ui.misc.sharingSaveFailed'));
     } finally {
       setBusy(false);
     }

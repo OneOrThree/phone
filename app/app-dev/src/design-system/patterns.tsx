@@ -1,3 +1,4 @@
+import { weekdayNames } from '@/i18n/format';
 import { TextInput, Text } from '@/design-system/typography';
 import React, { useRef, useState, useEffect } from 'react';
 import {
@@ -426,7 +427,15 @@ export function Row({
     </View>
   );
 }
-export function Seg({ items, value, onChange, small = false, inset = false, style }: any) {
+export function Seg({
+  items,
+  value,
+  onChange,
+  labelFor = (id: string) => id,
+  small = false,
+  inset = false,
+  style,
+}: any) {
   return (
     <View
       style={[
@@ -450,7 +459,7 @@ export function Seg({ items, value, onChange, small = false, inset = false, styl
       {items.map((x: string, i: number) => (
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={x}
+          accessibilityLabel={labelFor(x)}
           accessibilityState={{ selected: x === value }}
           key={x}
           onPress={() => onChange(x)}
@@ -471,7 +480,7 @@ export function Seg({ items, value, onChange, small = false, inset = false, styl
               color: x === value ? C.ink : C.muted,
             }}
           >
-            {x}
+            {labelFor(x)}
           </Txt>
         </Pressable>
       ))}
@@ -482,6 +491,7 @@ export function Chips({
   items,
   value,
   onChange,
+  labelFor = (id: string) => id,
   large = false,
   wrap = false,
   disabled = false,
@@ -498,7 +508,7 @@ export function Chips({
         <Pressable
           key={x}
           accessibilityRole="button"
-          accessibilityLabel={x}
+          accessibilityLabel={labelFor(x)}
           accessibilityState={{ selected: x === value, disabled }}
           disabled={disabled}
           onPress={() => onChange(x)}
@@ -522,7 +532,7 @@ export function Chips({
               color: x === value ? C.ink : C.muted,
             }}
           >
-            {x}
+            {labelFor(x)}
           </Txt>
         </Pressable>
       ))}
@@ -856,7 +866,7 @@ export function Page({
       >
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="뒤로"
+          accessibilityLabel={t('common.back')}
           onPress={back}
           style={{
             width: semanticTokens.size.tapMin,
@@ -1162,7 +1172,7 @@ export function Graph({ values, label }: any) {
         ))}
       </Svg>
       <View style={{ flexDirection: 'row' }}>
-        {['월', '화', '수', '목', '금', '토', '일'].map((x, i) => (
+        {[...weekdayNames().slice(1), weekdayNames()[0]].map((x, i) => (
           <Txt key={i} kind="meta" style={{ flex: 1, textAlign: 'center', fontSize: 12 }}>
             {x}
           </Txt>

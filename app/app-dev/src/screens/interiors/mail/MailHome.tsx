@@ -1,3 +1,4 @@
+import { formatCalendarDate } from '@/i18n/format';
 import { CatAvatar } from '@/components/CatAvatar';
 import { type Outfit, appearanceOutfit } from '@/components/CatOutfitLayers';
 import { UserSafetySheet } from '@/components/UserSafetySheet';
@@ -5,7 +6,7 @@ import { VillageNotificationBadge } from '@/components/village-motion/VillageNot
 import { MAGAZINE_UI } from '@/constants/magazineAssets';
 import { NavBtn } from '@/design-system/patterns';
 import { componentTokens, primitiveTokens, semanticTokens } from '@/design-system/tokens';
-import { t } from '@/i18n';
+import { errorText, errorTextOr, t } from '@/i18n';
 import { useMailbox } from '@/screens/interiors/useMailbox';
 import { GOWUN } from '@/screens/island/sceneKit';
 import { MagazineRack } from '@/screens/magazine/MagazineRack';
@@ -95,16 +96,15 @@ const letterFriends: FriendView[] = [
   { id: '2', name: '보리', island: '라임 섬', color: 'calico' },
 ];
 
-const weekdays = ['일', '월', '화', '수', '목', '금', '토'];
-
 // 받은 편지 시각: 오늘 09:12 · 어제 22:40 · 일주일 안이면 요일 · 그 전은 M월 D일
 const letterTime = (at: number, now: number) => {
   const days = Math.round((kstDayStart(dayKey(now)) - kstDayStart(dayKey(at))) / 86400000);
-  if (days === 0) return `오늘 ${kstHourMinute(at)}`;
-  if (days === 1) return `어제 ${kstHourMinute(at)}`;
-  const [year, month, date] = dayKey(at).split('-').map(Number);
-  if (days < 7) return `${weekdays[new Date(Date.UTC(year, month - 1, date)).getUTCDay()]}요일`;
-  return `${month}월 ${date}일`;
+  if (days === 0) return t('ui.mail.today', { v0: kstHourMinute(at) });
+  if (days === 1) return t('ui.mail.yesterday', { v0: kstHourMinute(at) });
+  return formatCalendarDate(
+    dayKey(at),
+    days < 7 ? { weekday: 'long' } : { month: 'long', day: 'numeric' },
+  );
 };
 
 export function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps) {
@@ -155,7 +155,7 @@ export function MailHome({ concept, height, reduceMotion, showToast, e }: Artifa
   const friends: FriendView[] = serverMail
     ? mail.friends.map((f) => ({
         id: f.userId,
-        name: f.nickname ?? '알 수 없음',
+        name: f.nickname ?? t('islandChat.unknown'),
         island: f.mainIslandName ?? '',
         color: f.catColor ?? null,
         outfit: appearanceOutfit(f.appearance),
@@ -181,7 +181,9 @@ export function MailHome({ concept, height, reduceMotion, showToast, e }: Artifa
         return {
           id: l.id,
           friendId: system ? null : l.counterpartUserId,
-          from: system ? t('mailbox.systemSender') : (l.counterpartNickname ?? '알 수 없음'),
+          from: system
+            ? t('mailbox.systemSender')
+            : (l.counterpartNickname ?? t('islandChat.unknown')),
           island: system ? '' : friendIsland(l.counterpartUserId),
           color: l.catColor ?? null,
           outfit: appearanceOutfit(l.appearance),
@@ -209,7 +211,7 @@ export function MailHome({ concept, height, reduceMotion, showToast, e }: Artifa
           friendId: isSystemLetterView(mail.detail) ? null : mail.detail.senderId,
           from: isSystemLetterView(mail.detail)
             ? t('mailbox.systemSender')
-            : (mail.detail.senderNickname ?? '알 수 없음'),
+            : (mail.detail.senderNickname ?? t('islandChat.unknown')),
           island: isSystemLetterView(mail.detail) ? '' : friendIsland(mail.detail.senderId),
           color: mail.detail.catColor ?? null,
           outfit: appearanceOutfit(mail.detail.appearance),
@@ -243,7 +245,7 @@ export function MailHome({ concept, height, reduceMotion, showToast, e }: Artifa
         : 'friend-select'
       : e.detail && (serverMail || openedLetter)
         ? 'letter'
-        : e.tab === '받은 편지'
+        : e.tab === 'inbox'
           ? 'inbox'
           : 'home';
   const chosen = friendOf(selectedFriend) ?? friends[0];
@@ -279,7 +281,7 @@ export function MailHome({ concept, height, reduceMotion, showToast, e }: Artifa
     }
     if (next === 'inbox') {
       e.go('mail');
-      e.setTab('받은 편지');
+      e.setTab('inbox');
     } else if (next === 'friend-select') e.go('friendMail', 'list');
   };
   const back = (to: MailRoute) => (e ? e.back() : go(to));
@@ -320,14 +322,14 @@ export function MailHome({ concept, height, reduceMotion, showToast, e }: Artifa
     align: 'left' | 'right' | 'center' = 'right',
   ) => (
     <Text style={[mailFont(5.5, 1.25, '#a35952', '700'), { marginTop: 2, textAlign: align }]}>
-      보내지 못했어요 ·{' '}
+      {t('ui.remaining.copy1')}{' '}
       <Text
         testID={testID}
         accessibilityRole="button"
         onPress={onRetry}
         style={{ textDecorationLine: 'underline' }}
       >
-        다시 보내기
+        {t('islandChat.resend')}
       </Text>
     </Text>
   );
@@ -337,7 +339,7 @@ export function MailHome({ concept, height, reduceMotion, showToast, e }: Artifa
       <View style={{ flexDirection: 'row', alignItems: 'center', columnGap: 7 }}>
         <NavBtn
           testID="mail-back"
-          label="이전 화면으로 돌아가기"
+          label={t('ui.mail.back')}
           onPress={() => back(to)}
           // 누르는 상자(44)의 여백만큼 당겨 제목 줄 높이를 예전처럼 둔다
           style={{ margin: -5, transform: [{ scale: navScale }] }}
@@ -422,7 +424,7 @@ export function MailHome({ concept, height, reduceMotion, showToast, e }: Artifa
         disabled={!!e && !magazineLatest}
         onPress={() => {
           react();
-          if (!e) return showToast('고양이 잡지를 펼쳤어요');
+          if (!e) return showToast(t('ui.mail.magazineOpened'));
           if (magazineLatest) e.go('magazine', magazineLatest.issueId);
         }}
         style={{
@@ -503,8 +505,8 @@ export function MailHome({ concept, height, reduceMotion, showToast, e }: Artifa
     </View>
   );
   const homeItems: [string, string][] = [
-    ['받은 편지', newLetters ? `새 편지 ${newLetters}통` : ''],
-    ['편지 쓰기', ''],
+    [t('ui.mail.inbox'), newLetters ? t('ui.mail.newLetters', { v0: newLetters }) : ''],
+    [t('ui.mail.writeLetter'), ''],
   ];
   // 오른쪽 두 칸(받은 편지·편지 쓰기). testID 는 예전 번호(1·2)를 그대로 쓴다
   const homeSlot = (i: 1 | 2) => {
@@ -522,9 +524,9 @@ export function MailHome({ concept, height, reduceMotion, showToast, e }: Artifa
         accessibilityLabel={
           i === 1 && newLetters
             ? t('home.door.inboxNewLetters', { count: newLetters })
-            : `${title} 열기`
+            : t('ui.mail.open', { v0: title })
         }
-        onPress={() => go(routes[i - 1], `${title}을 열었어요`)}
+        onPress={() => go(routes[i - 1], t('ui.mail.opened', { v0: title }))}
         style={{
           minHeight: 72,
           paddingTop: art.top + art.height + 5,
@@ -573,7 +575,7 @@ export function MailHome({ concept, height, reduceMotion, showToast, e }: Artifa
             ),
             webOnly({ filter: 'drop-shadow(0 2px 1px #65402a33)' }),
           ]}
-        ></View>
+        />
       </Pressable>
     );
   };
@@ -623,7 +625,7 @@ export function MailHome({ concept, height, reduceMotion, showToast, e }: Artifa
   const mailRetry = (error: ApiError, testID: string, onRetry: () => void) => (
     <View style={{ paddingVertical: 30, alignItems: 'center', rowGap: 8 }}>
       <Text style={[mailFont(8, 1.4, '#826c5b', '800'), { textAlign: 'center' }]}>
-        {error.message}
+        {errorText(error)}
       </Text>
       <Pressable
         testID={testID}
@@ -641,7 +643,9 @@ export function MailHome({ concept, height, reduceMotion, showToast, e }: Artifa
           boxShadow: '0 2px 0 #795642',
         }}
       >
-        <Text style={[mailFont(7, 1.35, INK, '800'), { textAlign: 'center' }]}>다시 시도</Text>
+        <Text style={[mailFont(7, 1.35, INK, '800'), { textAlign: 'center' }]}>
+          {t('common.retry')}
+        </Text>
       </Pressable>
     </View>
   );
@@ -657,17 +661,17 @@ export function MailHome({ concept, height, reduceMotion, showToast, e }: Artifa
     ? [...mail.letters, ...mail.systemLetters].filter((l) => !l.isRead).length
     : letters.length;
   const inbox: Pane = {
-    head: header('받은 편지', `아직 열지 않은 편지 ${unreadCount}통`),
+    head: header(t('ui.mail.inbox'), t('ui.mail.unreadLetters', { v0: unreadCount })),
     body:
       serverMail && (mail.blockedUsersStatus === 'loading' || (mail.loading && !mail.islandId)) ? (
-        mailStatus('편지를 불러오는 중이에요…')
+        mailStatus(t('ui.mail.loadingLetters'))
       ) : serverMail && mail.error && (mail.blockedUsersStatus === 'error' || !mail.islandId) ? (
         mailRetry(mail.error, 'mailbox-retry', () => mail.retry().catch(() => {}))
       ) : (
         <View style={{ rowGap: 7 }}>
           {serverMail && mail.error ? (
             <Text style={[mailFont(6.5, 1.35, '#a35952', '800'), { textAlign: 'center' }]}>
-              {mail.error.message}
+              {errorText(mail.error)}
             </Text>
           ) : null}
           {letters.length ? (
@@ -676,14 +680,14 @@ export function MailHome({ concept, height, reduceMotion, showToast, e }: Artifa
                 key={letter.id}
                 testID={`received-letter-${i}`}
                 accessibilityRole="button"
-                accessibilityLabel={`${letter.from}의 편지 열기`}
+                accessibilityLabel={t('ui.mail.openFrom', { v0: letter.from })}
                 onPress={() => {
                   // 받은 편지를 여는 사용자 행동 1회(탭당 1회) — 서버가 readAt 을 찍는 상세 열람 지점
                   captureProductEvent('feature_used', { building: 'mail', action: 'read' });
                   if (e) return e.go('mail', letter.id);
                   setSelectedLetter(letter.id);
                   setDeletedLetters((prev) => [...prev, letter.id]);
-                  go('letter', `${letter.from}의 편지를 열었어요`);
+                  go('letter', t('ui.mail.openedFrom', { v0: letter.from }));
                 }}
                 style={{
                   minHeight: 56,
@@ -723,7 +727,7 @@ export function MailHome({ concept, height, reduceMotion, showToast, e }: Artifa
                 style={{ width: 48, height: 48 }}
               />
               <Text style={[mailFont(8, 1.4, '#826c5b', '800'), { marginTop: 7 }]}>
-                기다리는 편지가 없어요.
+                {t('ui.mail.emptyInbox')}
               </Text>
             </View>
           )}
@@ -735,7 +739,7 @@ export function MailHome({ concept, height, reduceMotion, showToast, e }: Artifa
               style={{ alignSelf: 'center', paddingVertical: 6, paddingHorizontal: 10 }}
             >
               <Text style={mailFont(6.5, 1.35, '#826c5b', '800')}>
-                {mail.loadingMoreLetters ? '불러오는 중…' : '이전 편지 더 보기'}
+                {mail.loadingMoreLetters ? t('account.blocked.loading') : t('ui.mail.loadEarlier')}
               </Text>
             </Pressable>
           ) : null}
@@ -747,7 +751,7 @@ export function MailHome({ concept, height, reduceMotion, showToast, e }: Artifa
   // 시스템 편지(발신자 없음)는 답장할 상대가 없다.
   const replyToId = openedLetter?.friendId ?? null;
   const letter: Pane | undefined = openedLetter && {
-    head: header('받은 편지', '읽고 닫으면 이 편지는 사라져요', 'inbox'),
+    head: header(t('ui.mail.inbox'), t('ui.mail.disappears'), 'inbox'),
     body: (
       <View
         style={[
@@ -787,7 +791,7 @@ export function MailHome({ concept, height, reduceMotion, showToast, e }: Artifa
           {serverMail && openedLetter.friendId ? (
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel={`${openedLetter.from} 더보기`}
+              accessibilityLabel={t('ui.social.more', { v0: openedLetter.from })}
               hitSlop={8}
               onPress={() => setLetterSafetyTarget(openedLetter)}
               style={{ width: 34, height: 34, alignItems: 'center', justifyContent: 'center' }}
@@ -802,7 +806,7 @@ export function MailHome({ concept, height, reduceMotion, showToast, e }: Artifa
           {openedLetter.body}
         </Text>
         <Text style={[mailFont(7, 1.4, '#8d715e', '800'), { marginTop: 24, textAlign: 'right' }]}>
-          TO. 나
+          {t('ui.mail.addressedToMe')}
         </Text>
       </View>
     ),
@@ -815,7 +819,7 @@ export function MailHome({ concept, height, reduceMotion, showToast, e }: Artifa
             onPress={() => {
               if (e) return e.replace('friendMail', replyToId);
               setSelectedFriend(replyToId);
-              go('compose', `${openedLetter.from}에게 답장을 써요`);
+              go('compose', t('ui.mail.replyTo', { v0: openedLetter.from }));
             }}
             style={{
               minHeight: 34,
@@ -830,7 +834,7 @@ export function MailHome({ concept, height, reduceMotion, showToast, e }: Artifa
               boxShadow: '0 2px 0 #7b493f',
             }}
           >
-            <Text style={mailFont(8, 1.4, '#54352f', '900')}>답장하기</Text>
+            <Text style={mailFont(8, 1.4, '#54352f', '900')}>{t('ui.mail.reply')}</Text>
           </Pressable>
         ) : null}
         <Pressable
@@ -843,13 +847,11 @@ export function MailHome({ concept, height, reduceMotion, showToast, e }: Artifa
               mail
                 .close(openedLetter.id)
                 .then(() => back('inbox'))
-                .catch((err) =>
-                  say(err instanceof ApiError ? err.message : '편지를 닫지 못했어요'),
-                );
+                .catch((err) => say(errorTextOr(err, 'ui.errors.closeLetterFailed')));
               return;
             }
             back('inbox');
-            if (!e) showToast('편지를 닫았어요');
+            if (!e) showToast(t('ui.mail.closed'));
           }}
           style={{
             minHeight: 34,
@@ -864,17 +866,17 @@ export function MailHome({ concept, height, reduceMotion, showToast, e }: Artifa
             boxShadow: '0 2px 0 #7b493f',
           }}
         >
-          <Text style={mailFont(8, 1.4, '#54352f', '900')}>닫기</Text>
+          <Text style={mailFont(8, 1.4, '#54352f', '900')}>{t('common.close')}</Text>
         </Pressable>
       </View>
     ),
   };
 
   const friendSelect: Pane = {
-    head: header('편지 보낼 친구 선택', ''),
+    head: header(t('ui.mail.chooseFriend'), ''),
     body:
       serverMail && (mail.blockedUsersStatus === 'loading' || (mail.loading && !mail.islandId)) ? (
-        mailStatus('친구를 불러오는 중이에요…')
+        mailStatus(t('ui.mail.loadingFriends'))
       ) : serverMail && mail.error && (mail.blockedUsersStatus === 'error' || !mail.islandId) ? (
         mailRetry(mail.error, 'mailbox-retry', () => mail.retry().catch(() => {}))
       ) : (
@@ -888,7 +890,7 @@ export function MailHome({ concept, height, reduceMotion, showToast, e }: Artifa
               accessibilityState={{ selected: chosen === friend }}
               onPress={() => {
                 setSelectedFriend(friend.id);
-                if (!e) showToast(`${friend.name}를 받는 친구로 골랐어요`);
+                if (!e) showToast(t('ui.mail.selectedRecipient', { v0: friend.name }));
               }}
               style={{
                 minHeight: 57,
@@ -907,7 +909,7 @@ export function MailHome({ concept, height, reduceMotion, showToast, e }: Artifa
               <View style={{ flex: 1 }}>
                 <Text style={mailFont(9, 1.3, INK, '900')}>{friend.name}</Text>
                 <Text style={[mailFont(6.5, 1.35, '#826c5b'), { marginTop: 2 }]}>
-                  {friend.island} · 친구
+                  {t('ui.mail.friendLabel', { v0: friend.island })}
                 </Text>
               </View>
               <Text style={mailFont(10, 1.2, chosen === friend ? '#9a654d' : '#c5ad99', '900')}>
@@ -922,25 +924,25 @@ export function MailHome({ concept, height, reduceMotion, showToast, e }: Artifa
                 { paddingVertical: 24, textAlign: 'center' },
               ]}
             >
-              내 뗏목에서 친구를 추가해 주세요.
+              {t('ui.mail.addFriends')}
             </Text>
           )}
         </View>
       ),
     foot:
       chosen &&
-      stamp(`${chosen.name}에게 편지 쓰기`, () => {
+      stamp(t('ui.mail.writeTo', { v0: chosen.name }), () => {
         if (e) return e.go('friendMail', chosen.id);
-        go('compose', `${chosen.name}에게 쓸 편지를 펼쳤어요`);
+        go('compose', t('ui.mail.composeOpened', { v0: chosen.name }));
       }),
   };
 
   const sendLetter = () => {
     if (!composeTo) return;
-    if (!text.trim()) return say('편지 내용을 적어 주세요');
+    if (!text.trim()) return say(t('ui.mail.requiredBody'));
     if (!e) {
       react();
-      return showToast(`${composeTo.name}에게 편지를 보냈어요`);
+      return showToast(t('ui.mail.sent', { v0: composeTo.name }));
     }
     if (serverMail) {
       // POST /letters — 201 이 오면 발송 확정. 실패는 초안을 그대로 두고 오류를 보인다.
@@ -949,35 +951,38 @@ export function MailHome({ concept, height, reduceMotion, showToast, e }: Artifa
         .send(composeTo.id, text)
         .then(() => {
           e.setText('');
-          e.notify(`${composeTo.name}에게 편지를 보냈어요`);
+          e.notify(t('ui.mail.sent', { v0: composeTo.name }));
           e.reset('mail');
         })
         .catch((err) => {
           if (err instanceof ApiError && e.conversion?.offer(err)) return;
-          say(err instanceof ApiError ? err.message : '편지를 보내지 못했어요');
+          say(errorTextOr(err, 'ui.errors.sendLetterFailed'));
         });
       return;
     }
     // reducer가 거절할 편지(친구 아님·내 섬에 우체통 없음)는 보냈다고 하지 않는다
-    if (!canSendLetter(e.state, composeTo.id))
-      return say('지금은 이 친구에게 편지를 보낼 수 없어요');
+    if (!canSendLetter(e.state, composeTo.id)) return say(t('ui.mail.recipientUnavailable'));
     react();
     e.dispatch({ type: 'FRIEND_MESSAGE', id: composeTo.id, text, fail: e.failNext });
     e.setText('');
     if (e.failNext) return e.setFailNext(false);
-    e.notify(`${composeTo.name}에게 편지를 보냈어요`);
+    e.notify(t('ui.mail.sent', { v0: composeTo.name }));
     e.reset('mail');
   };
   const retryLetter = () => {
     if (!e || !composeTo || !failedLetter) return;
     e.dispatch({ type: 'FRIEND_RETRY', id: failedLetter.id, friend: composeTo.id });
-    e.notify(`${composeTo.name}에게 편지를 보냈어요`);
+    e.notify(t('ui.mail.sent', { v0: composeTo.name }));
     e.reset('mail');
   };
   // 편지지 입력칸은 남은 높이에 맞춰 줄인다 (머리·편지지 여백·버튼이 약 197)
   const letterInput = Math.max(64, Math.min(210, height - 14 - 197));
   const compose: Pane | undefined = composeTo && {
-    head: header('친구에게 편지 쓰기', `${composeTo.name} · ${composeTo.island}`, 'friend-select'),
+    head: header(
+      t('ui.mail.composeTitle'),
+      `${composeTo.name} · ${composeTo.island}`,
+      'friend-select',
+    ),
     body: (
       <View
         style={[
@@ -1011,10 +1016,10 @@ export function MailHome({ concept, height, reduceMotion, showToast, e }: Artifa
         <Text style={mailFont(7, 1.4, '#8d715e', '800')}>TO. {composeTo.name}</Text>
         <TextInput
           testID="friend-letter-input"
-          accessibilityLabel={`${composeTo.name}에게 쓸 편지`}
+          accessibilityLabel={t('ui.mail.letterTo', { v0: composeTo.name })}
           value={text}
           onChangeText={setText}
-          placeholder="친구에게 남길 편지를 써 주세요"
+          placeholder={t('ui.mail.bodyPlaceholder')}
           placeholderTextColor="#a28e7f"
           multiline
           style={
@@ -1031,12 +1036,14 @@ export function MailHome({ concept, height, reduceMotion, showToast, e }: Artifa
             } as any
           }
         />
-        <Text style={[mailFont(7, 1.4, '#8d715e', '800'), { textAlign: 'right' }]}>FROM. 나</Text>
+        <Text style={[mailFont(7, 1.4, '#8d715e', '800'), { textAlign: 'right' }]}>
+          {t('ui.mail.fromMe')}
+        </Text>
       </View>
     ),
     foot: (
       <>
-        {stamp('접어서 편지 보내기', sendLetter)}
+        {stamp(t('ui.mail.foldAndSend'), sendLetter)}
         {failedLetter ? (
           <View style={{ alignItems: 'center' }}>
             {failedLine('letter-retry', retryLetter, 'center')}
@@ -1050,7 +1057,7 @@ export function MailHome({ concept, height, reduceMotion, showToast, e }: Artifa
   const letterPending: Pane | undefined =
     serverMail && route === 'letter' && !openedLetter
       ? {
-          head: header('받은 편지', '', 'inbox'),
+          head: header(t('ui.mail.inbox'), '', 'inbox'),
           body: mail.detailError
             ? mailRetry(mail.detailError, 'letter-retry', () =>
                 (mail.blockedUsersStatus === 'error'
@@ -1058,7 +1065,7 @@ export function MailHome({ concept, height, reduceMotion, showToast, e }: Artifa
                   : mail.openLetter(e.detail)
                 ).catch(() => {}),
               )
-            : mailStatus('편지를 여는 중이에요…'),
+            : mailStatus(t('ui.mail.openingLetter')),
           foot: null,
         }
       : undefined;
@@ -1149,7 +1156,7 @@ export function MailHome({ concept, height, reduceMotion, showToast, e }: Artifa
         }}
       />
       {serverMail && (mail.blockedUsersStatus === 'loading' || (mail.loading && !mail.islandId)) ? (
-        <View style={{ padding: 20 }}>{mailStatus('우체통을 여는 중이에요…')}</View>
+        <View style={{ padding: 20 }}>{mailStatus(t('ui.mail.openingMailbox'))}</View>
       ) : serverMail && mail.error && (mail.blockedUsersStatus === 'error' || !mail.islandId) ? (
         <View style={{ padding: 20 }}>
           {mailRetry(mail.error, 'mailbox-retry', () => mail.retry().catch(() => {}))}

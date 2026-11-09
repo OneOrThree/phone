@@ -1,8 +1,9 @@
+import { formatCalendarDate, weekdayNames } from '@/i18n/format';
 import { dayKey, kstDayStart, recordSecondsBetween, type RecordItem } from '@/services/model';
 import { utcPeriodRange } from '@/services/api/records';
 
 export const DAY = 86400000;
-export type Period = '일' | '주' | '월';
+export type Period = 'day' | 'week' | 'month';
 export type DiaryRecord = {
   id: string;
   subject: string;
@@ -24,10 +25,10 @@ export const datesBetween = (from: string, to: string) =>
     (_, n) => shiftDate(from, n),
   );
 export const shortDate = (key: string) => `${Number(key.slice(5, 7))}.${Number(key.slice(8))}`;
-export const weekdays = ['일', '월', '화', '수', '목', '금', '토'];
-export const weekday = (key: string) => weekdays[new Date(`${key}T00:00:00Z`).getUTCDay()];
+export const weekdays = weekdayNames;
+export const weekday = (key: string) => weekdays()[new Date(`${key}T00:00:00Z`).getUTCDay()];
 export const longDate = (key: string) =>
-  `${Number(key.slice(5, 7))}월 ${Number(key.slice(8))}일 ${weekday(key)}요일`;
+  formatCalendarDate(key, { month: 'long', day: 'numeric', weekday: 'long' });
 
 /**
  * 일기장 주간 — 그 날짜가 든 월요일~일요일(GROMO-2488). {@code offset} 은 주 단위(0 이번 주, −1 지난주).
@@ -41,7 +42,7 @@ export const weekRange = (key: string, offset: number) => {
 export function diaryRange(period: Period, offset: number, now: number, utc: boolean) {
   // 로컬 기록도 서버와 같은 날짜 범위를 쓰되 각자의 날짜 축은 보존한다. 주는 월~일(GROMO-2488), 일·월은 종전대로
   const key = dateKey(now, utc);
-  if (period === '주') return weekRange(key, offset);
+  if (period === 'week') return weekRange(key, offset);
   return utcPeriodRange(period, offset, Date.parse(`${key}T12:00:00Z`));
 }
 

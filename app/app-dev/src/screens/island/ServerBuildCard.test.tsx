@@ -1,3 +1,4 @@
+import { t } from '@/i18n';
 import assert from 'node:assert/strict';
 import React, { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
@@ -391,7 +392,8 @@ test('착공 성공 뒤 재조회가 실패했는데 dispatch 가 반영되지 �
   await act(async () => fireEvent.press(await screen.findByTestId('server-build-start')));
 
   await waitFor(() => assert.equal(api.getConstructionOptions.mock.calls.length, 2));
-  expect(screen.getByText('x')).toBeTruthy();
+  expect(screen.getByText(t('ui.errors.buildFailed'))).toBeTruthy();
+  expect(screen.queryByText('x')).toBeNull();
   assert.equal(onServerBuilt.mock.calls.length, 1);
 });
 

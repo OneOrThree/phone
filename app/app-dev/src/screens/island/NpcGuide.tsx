@@ -359,37 +359,15 @@ export function TutorialSpotlight({
   );
 }
 
-const buildingLines: Record<Building, string[]> = {
-  hall: [
-    '마을회관에서는 섬 정보와 주민, 공동 통장을 확인할 수 있어.',
-    '섬장은 여기서 다음에 지을 건물을 고르고 섬을 관리할 수 있어.',
-  ],
-  board: [
-    '게시판에서는 섬 공지와 퀘스트를 확인할 수 있어.',
-    '공지에 댓글로 이야기하고, 퀘스트에 함께 참여해 봐!',
-  ],
-  gram: [
-    '축음기에서는 섬에서 함께 들을 음악을 고를 수 있어.',
-    '음악을 재생하거나 멈추면 같은 섬의 친구들에게도 함께 반영돼.',
-  ],
-  library: [
-    '도서관에서는 집중 기록과 휴대폰 사용 시간을 돌아볼 수 있어.',
-    '달력에서 날짜를 골라 기록을 확인해 봐!',
-  ],
-  mail: [
-    '난 친구들의 편지를 배달하는 펠리컨이야.',
-    '여기서 섬 친구들과 이야기하고, 친구에게 편지도 보낼 수 있어.',
-    '친구에게 편지가 오면 내가 우체통 위에 앉아 있을게.\n그때 우체통을 눌러 봐!',
-  ],
-  tower: [
-    '전망대에서는 다른 섬을 찾아보고 섬들의 순위를 볼 수 있어.',
-    '마음에 드는 섬을 발견하면 구경하러 가 봐!',
-  ],
-  shop: [
-    '강아지 상점에 어서 와!\n옷과 섬 꾸미기를 둘러볼 수 있어.',
-    '다 같이 모은 물고기로 마음에 드는 걸 골라 봐.\n이 섬을 너희답게 꾸며 보자!',
-  ],
-};
+const buildingLines = (): Record<Building, string[]> => ({
+  hall: [t('ui.shop.hallGuide1'), t('ui.shop.hallGuide2')],
+  board: [t('ui.shop.boardGuide1'), t('ui.shop.boardGuide2')],
+  gram: [t('ui.shop.gramGuide1'), t('ui.shop.gramGuide2')],
+  library: [t('ui.shop.libraryGuide1'), t('ui.shop.libraryGuide2')],
+  mail: [t('ui.shop.mailGuide1'), t('ui.shop.mailGuide2'), t('ui.shop.mailGuide3')],
+  tower: [t('ui.shop.towerGuide1'), t('ui.shop.towerGuide2')],
+  shop: [t('ui.shop.shopGuide1'), t('ui.shop.shopGuide2')],
+});
 
 function BuildingDialogue({
   building,
@@ -400,7 +378,7 @@ function BuildingDialogue({
   error,
   saving = false,
   testID,
-  lastTitle = '확인',
+  lastTitle = t('common.ok'),
 }: {
   building: Building;
   lines: string[];
@@ -449,11 +427,11 @@ function BuildingDialogue({
             text={lines[step]}
             style={building === 'shop' ? styles.shopBox : styles.mailboxBox}
             onSkip={disabled ? undefined : onDone}
-            skipTitle="안내 그만 보기"
+            skipTitle={t('onboarding.spotlightSkip')}
           >
             {error && <Txt accessibilityRole="alert">{error}</Txt>}
             <Btn
-              title={saving ? '저장 중' : last ? lastTitle : '다음'}
+              title={saving ? t('ui.shop.saving') : last ? lastTitle : t('onboarding.guide.next')}
               disabled={disabled}
               dialog
               style={styles.next}
@@ -479,7 +457,7 @@ export function BuildingGuide(props: {
   error?: string;
 }) {
   return (
-    <BuildingDialogue {...props} lines={buildingLines[props.building]} testID="building-guide" />
+    <BuildingDialogue {...props} lines={buildingLines()[props.building]} testID="building-guide" />
   );
 }
 
@@ -493,9 +471,7 @@ export function BuildingCompletionGuide(props: {
   return (
     <BuildingDialogue
       {...props}
-      lines={[
-        `${buildingNames[props.building]} 공사가 끝났어!\n네가 모아 준 물고기가 힘이 되었어. 고마워!`,
-      ]}
+      lines={[t('ui.shop.buildingComplete', { v0: buildingNames[props.building] })]}
       testID="building-completion-guide"
     />
   );
@@ -511,12 +487,12 @@ export function MailboxGuide({
   return (
     <BuildingDialogue
       building="mail"
-      lines={buildingLines.mail}
+      lines={buildingLines().mail}
       onDone={() => onDone(true)}
       onCancel={() => onDone(false)}
       blocked={blocked}
       testID="mailbox-guide"
-      lastTitle="우체통 열기"
+      lastTitle={t('ui.shop.openMailbox')}
     />
   );
 }
@@ -532,12 +508,12 @@ export function ShopGuide({
   return (
     <BuildingDialogue
       building="shop"
-      lines={buildingLines.shop}
+      lines={buildingLines().shop}
       onDone={onDone}
       onCancel={onCancel}
       blocked={blocked}
       testID="shop-guide"
-      lastTitle="상점 둘러보기"
+      lastTitle={t('ui.shop.browseShop')}
     />
   );
 }

@@ -1,3 +1,4 @@
+import { t, errorText } from '@/i18n';
 /**
  * 섬 관리 화면 상태 hook(GROMO-2008) — 읽기 경로 + 설정 저장 쓰기. 승인/거절·강퇴·위임은
  * 같은 write runner 를 타는 후속 슬라이스다.
@@ -61,17 +62,31 @@ const PAGE_LIMIT = 100;
 /** 서버 오류 코드 → 사용자 문구(2-15·2-18 H18). 서버·계약 문구를 화면에 그대로 내보내지 않는다. */
 const MANAGEMENT_MESSAGES: Record<string, string> = {
   // 승인 대기 중에 정원이 찼다 — 신청은 남기고 승인만 막는다(정책). 방장에게 정원 확대를 안내(H7).
-  ROOM_FULL: '정원이 가득 찼어요.\n정원을 늘린 뒤 승인해 주세요.',
-  MAX_MEMBERS_TOO_SMALL: '정원은 현재 주민 수보다 작게 줄일 수 없어요.',
-  ISLAND_MANAGEMENT_NOT_READY: '섬 관리 기능을 아직 사용할 수 없어요.\n잠시 후 다시 시도해 주세요.',
-  HOST_WITHDRAW: '섬장은 바로 섬을 나갈 수 없어요.\n섬장을 위임한 뒤 나가주세요.',
-  SESSION_IN_PROGRESS: '집중 중에는 섬을 떠날 수 없어요.\n집중을 마친 뒤 다시 시도해 주세요.',
-  [CLIENT_NETWORK_ERROR]: '연결이 불안정해요.\n잠시 후 다시 시도해 주세요.',
-  [CLIENT_TIMEOUT]: '응답이 늦어지고 있어요.\n잠시 후 다시 시도해 주세요.',
+  get ROOM_FULL() {
+    return t('ui.hall.roomFull');
+  },
+  get MAX_MEMBERS_TOO_SMALL() {
+    return t('ui.hall.capacityTooSmall');
+  },
+  get ISLAND_MANAGEMENT_NOT_READY() {
+    return t('ui.hall.managementNotReady');
+  },
+  get HOST_WITHDRAW() {
+    return t('ui.hall.hostMustTransfer');
+  },
+  get SESSION_IN_PROGRESS() {
+    return t('ui.hall.finishFocusFirst');
+  },
+  get [CLIENT_NETWORK_ERROR]() {
+    return t('ui.hall.networkUnstable');
+  },
+  get [CLIENT_TIMEOUT]() {
+    return t('ui.hall.responseSlow');
+  },
 };
 
 export function managementErrorMessage(error: unknown, operation?: 'approve' | 'settings'): string {
-  if (!(error instanceof ApiError)) return '처리하지 못했어요. 다시 시도해 주세요.';
+  if (!(error instanceof ApiError)) return t('ui.hall.actionFailed');
   // 공개 API는 내부 정원 오류를 STATE_CONFLICT + field로 변환한다.
   if (error.code === 'STATE_CONFLICT') {
     if (operation === 'approve' && error.field === 'islandId') return MANAGEMENT_MESSAGES.ROOM_FULL;
@@ -81,11 +96,11 @@ export function managementErrorMessage(error: unknown, operation?: 'approve' | '
   const mapped = MANAGEMENT_MESSAGES[error.code];
   if (mapped) return mapped;
   // 앱이 만든 CLIENT_ 오류는 이미 사용자 문구다(다른 명령 처리 중·로그인 변경 등)
-  if (error.code.startsWith('CLIENT_')) return error.message;
-  if (error.status === 403) return '이 작업을 할 권한이 없어요.';
-  if (error.status === 409) return '섬 상태가 바뀌었어요.\n다시 확인한 뒤 시도해 주세요.';
-  if (error.status === 400 || error.status === 422) return '입력한 내용을 다시 확인해 주세요.';
-  return '처리하지 못했어요. 잠시 후 다시 시도해 주세요.';
+  if (error.code.startsWith('CLIENT_')) return errorText(error);
+  if (error.status === 403) return t('ui.hall.noPermission');
+  if (error.status === 409) return t('ui.hall.stateChanged');
+  if (error.status === 400 || error.status === 422) return t('ui.hall.checkInput');
+  return t('ui.hall.retryLater');
 }
 
 export type IslandManagementSnapshot = {

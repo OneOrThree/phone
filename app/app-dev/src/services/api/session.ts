@@ -1,3 +1,4 @@
+import { t } from '@/i18n';
 /**
  * 인증 세션 보관 — 토큰 저장소 + 세션 세대(generation).
  *
@@ -372,7 +373,7 @@ async function migrateLegacySession(): Promise<Session | null> {
 /** 로그아웃 tombstone을 어느 저장소에도 기록하지 못했다. 세션은 그대로 남아 있다. */
 export class LogoutNotDurableError extends Error {
   constructor(readonly cause: unknown) {
-    super('로그아웃 상태를 기기에 기록하지 못했어요.');
+    super(t('ui.policy.could_not_save_your_signed_out_statu_f7b4e'));
     this.name = 'LogoutNotDurableError';
   }
 }

@@ -13,6 +13,7 @@
  * - App.tsx 의 titles 는 Datadog RUM 뷰 이름이라 번역하지 않는다.
  */
 import { getLocales } from 'expo-localization';
+import { useSyncExternalStore } from 'react';
 import { ApiError, CLIENT_STALE_SESSION } from '@/services/api/client';
 import en from './locales/en.json';
 import ko from './locales/ko.json';
@@ -54,9 +55,22 @@ export function isDeviceLocaleSupported(): boolean {
 // 고른 설정값과 실제 적용 언어를 따로 든다 — 명시 'ko' 와 기기 ko 는 결과가 같아 결과로 설정을 복원할 수 없다.
 let currentPref: LocalePref = 'system';
 let current: SupportedLocale = resolveLocale();
+const localeListeners = new Set<() => void>();
+
+const subscribeLocale = (listener: () => void) => {
+  localeListeners.add(listener);
+  return () => {
+    localeListeners.delete(listener);
+  };
+};
 
 export function getLocale(): SupportedLocale {
   return current;
+}
+
+/** memo로 감싼 화면도 언어만 바뀌면 다시 그린다. 화면을 remount하지 않는다. */
+export function useLocale(): SupportedLocale {
+  return useSyncExternalStore(subscribeLocale, getLocale, getLocale);
 }
 
 export function getLocalePref(): LocalePref {
@@ -64,9 +78,8 @@ export function getLocalePref(): LocalePref {
 }
 
 // 저장값을 적용하고 정규화한 설정값을 돌려준다. null·미지원 값('ja'·'zh-Hant' 등)은 'system'.
-// 이미 그려진 화면은 스스로 다시 그려지지 않는다 — 반환값을 App 의 setLocalePref 에 넘겨 재렌더한다.
-// 'system' 의 기기 언어는 호출 시점에 한 번만 읽는다 — 앱 실행 중 기기 언어를 바꾸고 돌아와도 콜드 스타트
-// 전까지는 반영하지 않는다(iOS 는 언어를 바꾸면 앱이 종료되고, Android 는 프로세스가 살아 있으면 구 언어 유지).
+// useLocale 구독자를 갱신한다. 설정값은 별도로 App의 setLocalePref에도 반영한다.
+// 'system' 기기 언어는 호출 시점에 읽으며 App이 foreground 복귀 때 재적용한다.
 // 언어 화면 계약: 'ko'|'en'|'system' 을 AsyncStorage LOCALE_KEY 에 저장하고(키를 지우지 않는다)
 // setLocalePref(applyLocalePref(값)) 으로 재렌더한다. 현재 선택 표시는 getLocale() 이 아니라 getLocalePref().
 export function applyLocalePref(raw: string | null | undefined): LocalePref {
@@ -75,7 +88,9 @@ export function applyLocalePref(raw: string | null | undefined): LocalePref {
       ? (raw as SupportedLocale)
       : 'system';
   currentPref = pref;
+  const previous = current;
   current = pref === 'system' ? resolveLocale() : pref;
+  if (previous !== current) localeListeners.forEach((listener) => listener());
   return pref;
 }
 
@@ -87,7 +102,16 @@ const has = (key: string): boolean =>
 
 // 현재 언어 표 → en 표 순으로 찾고, 어디에도 없으면 키를 그대로 돌려준다(빈 화면보다 찾기 쉽다).
 export function t(key: string, vars: Record<string, string | number> = {}): string {
-  let node = lookup(current, key) ?? lookup('en', key);
+  return tForLocale(current, key, vars);
+}
+
+/** 저장된 시스템 기록의 식별에는 기록 당시 언어도 명시적으로 읽는다. */
+export function tForLocale(
+  locale: SupportedLocale,
+  key: string,
+  vars: Record<string, string | number> = {},
+): string {
+  let node = lookup(locale, key) ?? lookup('en', key);
   // 복수 객체 판별은 other 가 문자열일 때만 — other 라는 하위 네임스페이스와 헷갈리지 않게.
   if (node && typeof node === 'object' && typeof node.other === 'string')
     node = vars.count === 1 ? node.one : node.other;

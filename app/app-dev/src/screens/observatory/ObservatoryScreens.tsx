@@ -236,7 +236,7 @@ export function renderObservatoryScreens(context: ScreenContext) {
                 rank: n + 1,
                 memberCount: residentCount(i),
                 average: t('observatory.average', { time: hoursMinutes(avg) }),
-                label: `${n + 1}위 ${i.name}, 평균 ${hoursMinutes(avg)}`,
+                label: t('ui.social.rankAverage', { v0: n + 1, v1: i.name, v2: hoursMinutes(avg) }),
                 joined: i.joined,
                 onPress:
                   i.id === island.id
@@ -260,7 +260,12 @@ export function renderObservatoryScreens(context: ScreenContext) {
                       key={i.id}
                       title={i.name}
                       average={t('observatory.average', { time: hoursMinutes(avg) })}
-                      label={`${n + 4}위 ${i.name}, 평균 ${hoursMinutes(avg)}, 주민 ${residentCount(i)}명`}
+                      label={t('ui.social.rankResidents', {
+                        v0: n + 4,
+                        v1: i.name,
+                        v2: hoursMinutes(avg),
+                        v3: residentCount(i),
+                      })}
                       current={i.id === island.id}
                       rank={n + 4}
                       memberCount={residentCount(i)}
@@ -302,23 +307,27 @@ export function renderObservatoryScreens(context: ScreenContext) {
       <IslandSheet
         bg="tower"
         sign="bld/observatory"
-        title="섬 찾기"
+        title={t('onboarding.joinIsland.title')}
         tall
         onBack={back}
         onClose={home}
       >
-        <SearchField value={search} onChange={setSearch} placeholder="섬 이름이나 초대 코드" />
+        <SearchField
+          value={search}
+          onChange={setSearch}
+          placeholder={t('ui.social.islandSearch')}
+        />
         {results.length ? (
           <SheetGroup>
             {results.map((i) => (
               <SheetRow
                 key={i.id}
                 title={i.name}
-                sub={`${i.intro} · 주민 ${residentCount(i)}`}
+                sub={t('ui.social.islandResidents', { v0: i.intro, v1: residentCount(i) })}
                 chevron={!i.joined}
                 tail={
                   <>
-                    {i.joined && <Badge soft>소속됨</Badge>}
+                    {i.joined && <Badge soft>{t('observatory.joined')}</Badge>}
                     <IslandThumb warm={i.id === 'strawberry'} />
                   </>
                 }
@@ -331,7 +340,7 @@ export function renderObservatoryScreens(context: ScreenContext) {
           </SheetGroup>
         ) : (
           <Txt kind="meta" style={st.meta}>
-            찾는 섬이 없어요. 이름이나 초대 코드를 확인해 주세요.
+            {t('ui.social.islandNotFound')}
           </Txt>
         )}
       </IslandSheet>

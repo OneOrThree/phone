@@ -1,3 +1,4 @@
+import { t, errorTextOr } from '@/i18n';
 /**
  * 서버 모드 홈의 첫 건물(회관·게시판) 짓기 카드 (GROMO-2139).
  *
@@ -110,20 +111,22 @@ export function ServerBuildCard({
   if (timing) {
     const progress = normalizedConstructionProgress(timing, now);
     meta =
-      progress >= 1 ? '완공 처리 중' : `${Math.max(0, Math.ceil((endsAt! - now) / 60000))}분 남음`;
+      progress >= 1
+        ? t('ui.hall.finalizing')
+        : t('ui.hall.minutesRemaining', { v0: Math.max(0, Math.ceil((endsAt! - now) / 60000)) });
     bar = progress;
     // 완공은 서버 스케줄러 몫 — 위 effect 가 홈을 다시 읽어 자동으로 반영한다
-    action = progress >= 1 && <Txt kind="meta">완공 처리 중이에요. 곧 자동으로 반영돼요.</Txt>;
+    action = progress >= 1 && <Txt kind="meta">{t('ui.hall.finalizingHint')}</Txt>;
   } else if (construction.status === 'error') {
     meta = '';
     bar = 0;
     action = (
       <>
-        <Txt kind="meta">{construction.error?.message ?? '건설 정보를 불러오지 못했어요.'}</Txt>
+        <Txt kind="meta">{errorTextOr(construction.error, 'ui.errors.constructionFailed')}</Txt>
         <Btn
           small
           id="server-build-retry"
-          title="다시 시도"
+          title={t('common.retry')}
           onPress={() => void construction.retry().catch(() => undefined)}
         />
       </>
@@ -133,11 +136,11 @@ export function ServerBuildCard({
     bar = 0;
     action = (
       <>
-        <Txt kind="meta">섬 정보가 바뀌었어요</Txt>
+        <Txt kind="meta">{t('ui.hall.islandChanged')}</Txt>
         <Btn
           small
           id="server-build-refresh"
-          title="새로고침"
+          title={t('ui.hall.refresh')}
           onPress={() => {
             void construction.reload().catch(() => undefined);
             onChanged();
@@ -147,22 +150,29 @@ export function ServerBuildCard({
     );
   } else if (construction.status === 'loading' || !item) {
     // 옵션에 이 건물이 없다 = 이미 완공 — 홈 스냅샷이 늦은 것이라 다시 읽는다
-    meta = `섬 통장 ${villagePoints}마리`;
+    meta = t('ui.hall.walletFish', { v0: villagePoints });
     bar = 0;
     action =
       construction.status === 'ready' ? (
-        <Btn small id="server-build-refresh" title="새로고침" onPress={onChanged} />
+        <Btn small id="server-build-refresh" title={t('ui.hall.refresh')} onPress={onChanged} />
       ) : (
-        <Txt kind="meta">{pending ? '건설을 시작하는 중' : '건설 정보를 불러오고 있어요'}</Txt>
+        <Txt kind="meta">
+          {pending ? t('ui.hall.startingConstruction') : t('ui.hall.fetchingConstruction')}
+        </Txt>
       );
   } else {
-    meta = `${construction.options!.villagePoints}/${item.cost} 마리`;
+    meta = t('ui.hall.constructionFish', {
+      v0: construction.options!.villagePoints,
+      v1: item.cost,
+    });
     bar = Math.min(1, construction.options!.villagePoints / Math.max(1, item.cost));
     action = item.buildable ? (
       <Btn
         small
         id="server-build-start"
-        title={pending ? '건설을 시작하는 중' : `${item.cost}마리로 건설하기`}
+        title={
+          pending ? t('ui.hall.startingConstruction') : t('ui.hall.buildForFish', { v0: item.cost })
+        }
         disabled={pending}
         onPress={() => {
           setMessage('');
@@ -174,7 +184,7 @@ export function ServerBuildCard({
             },
             (error) => {
               setPending(false);
-              setMessage(error instanceof Error ? error.message : '건설을 시작하지 못했어요.');
+              setMessage(errorTextOr(error, 'ui.errors.buildFailed'));
               onChanged();
             },
           );
@@ -188,7 +198,7 @@ export function ServerBuildCard({
           <Btn
             small
             id="server-build-recheck"
-            title="새로고침"
+            title={t('ui.hall.refresh')}
             onPress={() => {
               void construction.reload().catch(() => undefined);
               onChanged();
@@ -214,7 +224,7 @@ export function ServerBuildCard({
         }}
       >
         <Txt style={{ fontSize: 14, lineHeight: 20.3, fontWeight: '800' }}>
-          {name} {timing ? '공사 중' : '짓기'}
+          {name} {timing ? t('ui.hall.underConstruction') : t('ui.hall.build')}
         </Txt>
         <Txt
           kind="meta"

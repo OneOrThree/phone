@@ -166,7 +166,7 @@ const makeE = (over: Record<string, unknown> = {}) => {
   const e: any = {
     route: 'mail',
     detail: '',
-    tab: '받은 편지',
+    tab: 'inbox',
     text: '',
     now: Date.now(),
     state: initialState(true),
@@ -562,7 +562,7 @@ test('시스템 편지 1통만 안 읽어도 받은 편지 칸 배지·「새 �
       kind: 'KICK',
     }),
   );
-  await act(async () => e.setTab('받은 편지'));
+  await act(async () => e.setTab('inbox'));
   await waitFor(() => assert.ok(unread.getByTestId('received-letter-0')));
   await fireEvent.press(unread.getByTestId('received-letter-0'));
   await waitFor(() => assert.ok(unread.getByText('소다 섬에서 나가게 됐어요')));

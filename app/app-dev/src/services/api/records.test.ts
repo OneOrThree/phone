@@ -224,21 +224,21 @@ test('통계 GET 은 403 을 빈 기록으로 접지 않고 ApiError 그대로 �
 
 test('utcPeriodRange 주 — UTC 일요일~토요일 범위다(월요일 시작이 아니다)', () => {
   // 2026-09-22 는 화요일 — 같은 주는 9/20(일)~9/26(토)
-  const range = utcPeriodRange('주', 0, Date.UTC(2026, 8, 22, 15));
+  const range = utcPeriodRange('week', 0, Date.UTC(2026, 8, 22, 15));
   assert.deepEqual(range, { from: '2026-09-20', to: '2026-09-26' });
 });
 
 test('utcPeriodRange 주 — 일요일 당일은 그날이 주 시작이다', () => {
-  const range = utcPeriodRange('주', 0, Date.UTC(2026, 8, 20, 0, 30));
+  const range = utcPeriodRange('week', 0, Date.UTC(2026, 8, 20, 0, 30));
   assert.deepEqual(range, { from: '2026-09-20', to: '2026-09-26' });
 });
 
 test('utcPeriodRange 주 — 토요일은 같은 주의 끝, 다음 offset 은 다음 일요일이다', () => {
-  assert.deepEqual(utcPeriodRange('주', 0, Date.UTC(2026, 8, 26, 23)), {
+  assert.deepEqual(utcPeriodRange('week', 0, Date.UTC(2026, 8, 26, 23)), {
     from: '2026-09-20',
     to: '2026-09-26',
   });
-  assert.deepEqual(utcPeriodRange('주', -1, Date.UTC(2026, 8, 22)), {
+  assert.deepEqual(utcPeriodRange('week', -1, Date.UTC(2026, 8, 22)), {
     from: '2026-09-13',
     to: '2026-09-19',
   });
@@ -246,29 +246,29 @@ test('utcPeriodRange 주 — 토요일은 같은 주의 끝, 다음 offset 은 �
 
 test('utcPeriodRange 일 — UTC 그날 하루다(기기 타임존과 무관)', () => {
   // KST 9/22 08:30 = UTC 9/21 23:30 — UTC 축에서는 9/21 이다
-  assert.deepEqual(utcPeriodRange('일', 0, Date.UTC(2026, 8, 21, 23, 30)), {
+  assert.deepEqual(utcPeriodRange('day', 0, Date.UTC(2026, 8, 21, 23, 30)), {
     from: '2026-09-21',
     to: '2026-09-21',
   });
 });
 
 test('utcPeriodRange 월 — UTC 달력 월 전체다(말일·월 경계 포함)', () => {
-  assert.deepEqual(utcPeriodRange('월', 0, Date.UTC(2026, 8, 22)), {
+  assert.deepEqual(utcPeriodRange('month', 0, Date.UTC(2026, 8, 22)), {
     from: '2026-09-01',
     to: '2026-09-30',
   });
-  assert.deepEqual(utcPeriodRange('월', -1, Date.UTC(2026, 0, 15)), {
+  assert.deepEqual(utcPeriodRange('month', -1, Date.UTC(2026, 0, 15)), {
     from: '2025-12-01',
     to: '2025-12-31',
   });
 });
 
 test('도서관 오늘은 KST 자정에 바뀌고 일요일에 주간이 바뀐다', () => {
-  assert.deepEqual(libraryPeriodRange('일', 0, Date.parse('2026-10-10T15:00:00Z')), {
+  assert.deepEqual(libraryPeriodRange('day', 0, Date.parse('2026-10-10T15:00:00Z')), {
     from: '2026-10-11',
     to: '2026-10-11',
   });
-  assert.deepEqual(libraryPeriodRange('주', 0, Date.parse('2026-10-10T15:00:00Z')), {
+  assert.deepEqual(libraryPeriodRange('week', 0, Date.parse('2026-10-10T15:00:00Z')), {
     from: '2026-10-11',
     to: '2026-10-17',
   });

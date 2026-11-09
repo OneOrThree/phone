@@ -57,6 +57,7 @@ export type ResidentRate = {
 };
 
 export type BlueprintView = {
+  buildingId: string | null;
   state: 'none' | 'waiting' | 'ready' | 'building' | 'complete';
   name: string;
   image: ImageSourcePropType;

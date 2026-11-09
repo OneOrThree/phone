@@ -1,3 +1,4 @@
+import { t } from '@/i18n';
 import React from 'react';
 import { StyleSheet, View } from 'react-native';
 import Svg, { Circle, Line, Polyline } from 'react-native-svg';
@@ -57,8 +58,18 @@ export function WeekLineChart({
   const x = (i: number) => PAD_L + ((i + 0.5) * PLOT_W) / days.length;
   const y = (hours: number) => PAD_TOP + (1 - hours / top) * D.chartHeight;
   const series = [
-    { key: 'focus', label: '집중', color: C.primary, hours: focusHours },
-    { key: 'usage', label: '폰 사용', color: primitiveTokens.color.graphLine, hours: usageHours },
+    {
+      key: 'focus',
+      label: t('focusFlow.setup.defaultSubject'),
+      color: C.primary,
+      hours: focusHours,
+    },
+    {
+      key: 'usage',
+      label: t('diary.tab.screen'),
+      color: primitiveTokens.color.graphLine,
+      hours: usageHours,
+    },
   ];
   const segments = (hours: Hours) => {
     const out: string[][] = [];
@@ -79,7 +90,7 @@ export function WeekLineChart({
     .map((d) => {
       const f = minutes(focusHours.get(d));
       const u = minutes(usageHours.get(d));
-      return `${weekday(d)} ${f == null ? '기록 없음' : `집중 ${f}분`}${u == null ? '' : ` 폰 사용 ${u}분`}`;
+      return `${weekday(d)} ${f == null ? t('ui.diary.noRecords') : t('ui.diary.focusMinutes', { v0: f })}${u == null ? '' : t('ui.diary.phoneMinutes', { v0: u })}`;
     })
     .join(', ');
   return (
@@ -87,7 +98,7 @@ export function WeekLineChart({
       style={styles.wrap}
       testID="diary-week-chart"
       accessible
-      accessibilityLabel={`주간 그래프. ${summary}`}
+      accessibilityLabel={t('ui.diary.weeklyChart', { v0: summary })}
     >
       <View style={styles.legend}>
         {series.map((s) => (

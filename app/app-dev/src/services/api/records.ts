@@ -303,7 +303,7 @@ const utcDay = (ms: number) => new Date(ms).toISOString().slice(0, 10);
  * (KST·월요일 시작인 `periodBounds` 와 섞지 않는다).
  */
 export function utcPeriodRange(
-  period: '일' | '주' | '월',
+  period: 'day' | 'week' | 'month',
   offset: number,
   at = Date.now(),
 ): { from: string; to: string } {
@@ -311,11 +311,11 @@ export function utcPeriodRange(
   const y = d.getUTCFullYear(),
     m = d.getUTCMonth(),
     day = d.getUTCDate();
-  if (period === '일') {
+  if (period === 'day') {
     const t = Date.UTC(y, m, day + offset);
     return { from: utcDay(t), to: utcDay(t) };
   }
-  if (period === '주') {
+  if (period === 'week') {
     const start = Date.UTC(y, m, day - new Date(Date.UTC(y, m, day)).getUTCDay() + offset * 7);
     return { from: utcDay(start), to: utcDay(start + 6 * 864e5) };
   }
@@ -324,6 +324,10 @@ export function utcPeriodRange(
 }
 
 /** 도서관 달력의 KST 자정 경계. 서버 저장은 UTC instant를 유지한다. */
-export function libraryPeriodRange(period: '일' | '주' | '월', offset: number, at = Date.now()) {
+export function libraryPeriodRange(
+  period: 'day' | 'week' | 'month',
+  offset: number,
+  at = Date.now(),
+) {
   return utcPeriodRange(period, offset, at + 9 * 60 * 60 * 1000);
 }

@@ -10,11 +10,11 @@ import Svg, { Path } from 'react-native-svg';
 // 서버가 준 구매 불가 사유 → 화면 문구. 모르는 코드는 일반 문구로 접는다.
 export const shopBlockReason = (p: { blockedReason?: string | null; reason?: string | null }) => {
   const reason = p.blockedReason ?? p.reason;
-  if (reason === 'INSUFFICIENT_FUNDS') return '섬 물고기가 모자라요.';
-  if (reason === 'STATE_CONFLICT') return '아직 판매 준비 중이에요.';
-  if (reason === 'FACILITY_LOCKED') return '필요한 건물이 아직 없어요.';
-  if (reason === 'MEMBER_ONLY' || reason === 'FORBIDDEN') return '섬 주민만 살 수 있어요.';
-  return '지금은 구매할 수 없어요.';
+  if (reason === 'INSUFFICIENT_FUNDS') return t('ui.misc.insufficientFish');
+  if (reason === 'STATE_CONFLICT') return t('ui.misc.notForSaleYet');
+  if (reason === 'FACILITY_LOCKED') return t('ui.misc.requiredBuilding');
+  if (reason === 'MEMBER_ONLY' || reason === 'FORBIDDEN') return t('ui.misc.residentsOnly');
+  return t('ui.misc.purchaseUnavailable');
 };
 
 // mini = 내 정보의 한 줄 3칸 정사각(그림이 칸을 채우고 이름 글자는 읽는 이름으로만, GROMO-2473), six = 가로 온보딩의 6칸 한 줄.
