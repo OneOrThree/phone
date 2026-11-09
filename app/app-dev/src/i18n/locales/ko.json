@@ -1570,5 +1570,25 @@
     "accessManage": "집중 중 앱 복귀",
     "accessDisable": "앱 복귀 끄기",
     "androidSetupSubtitle": "사용 시간 측정과 집중 중 앱 복귀를 차례로 설정해요."
+  },
+  "constructionPlan": {
+    "fish": "{{amount}}마리",
+    "balance": "섬 통장 잔액",
+    "savedTogether": "함께 모은 물고기",
+    "cost": "총 건설비",
+    "remaining": "건설 후 남는 물고기",
+    "shortfall": "더 필요한 물고기",
+    "funded": "건설비를 모두 모았어요",
+    "needMore": "{{amount}} 더 모으면 지을 수 있어요",
+    "progress": "통장 잔액 대비 건설비 달성률",
+    "preview": "{{name}} 건물 미리보기",
+    "ready": "모아 둔 물고기로 지금 지을 수 있어요.",
+    "saving": "함께 집중하며 물고기를 조금 더 모아봐요.",
+    "ownerOnly": "섬장이 건설할 수 있어요.",
+    "confirmTitle": "{{name}} 건설을 시작할까요?",
+    "confirmBody": "사용할 물고기: {{cost}}\n건설 후 잔액: {{remaining}}",
+    "start": "건설 시작",
+    "close": "청사진 닫기",
+    "priceChanged": "건설비가 바뀌었어요. 금액을 확인한 뒤 다시 시도해 주세요."
   }
 }

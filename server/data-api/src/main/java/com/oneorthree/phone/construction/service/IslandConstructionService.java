@@ -7,7 +7,6 @@ import com.oneorthree.phone.construction.exception.ConstructionException;
 import com.oneorthree.phone.construction.repository.ConstructionCostPolicyRepository;
 import com.oneorthree.phone.construction.repository.ConstructionBuildingRepository;
 import com.oneorthree.phone.construction.repository.CostPolicyPublicationRepository;
-import com.oneorthree.phone.construction.repository.IslandConstructionContributionRepository;
 import com.oneorthree.phone.construction.repository.IslandConstructionStateRepository;
 import com.oneorthree.phone.construction.repository.IslandFacilityRepository;
 import com.oneorthree.phone.construction.repository.domain.ConstructionBuilding;
@@ -32,7 +31,6 @@ import com.oneorthree.phone.construction.dto.ConstructionOptionsView;
 import com.oneorthree.phone.construction.repository.ConstructionGuideRecipientRepository;
 import com.oneorthree.phone.construction.repository.domain.ConstructionGuideRecipient;
 import com.oneorthree.phone.focus.repository.FocusFishEarningsRepository;
-import com.oneorthree.phone.construction.dto.ConstructionResidentProgress;
 import com.oneorthree.phone.construction.dto.ConstructionStartedView;
 import com.oneorthree.phone.construction.dto.ConstructionTargetView;
 import com.oneorthree.phone.construction.dto.IslandLayoutView;
@@ -57,7 +55,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -93,7 +90,6 @@ public class IslandConstructionService {
     private final GroupMembershipMutationLocks membershipLocks;
     private final IslandConstructionStateRepository states;
     private final IslandFacilityRepository facilities;
-    private final IslandConstructionContributionRepository contributions;
     private final ConstructionGuideRecipientRepository guideRecipients;
     private final FocusFishEarningsRepository earnings;
     private final ConstructionCostPolicyRepository policies;
@@ -128,7 +124,7 @@ public class IslandConstructionService {
      * 건설 옵션 조회 — 활성 주민만 본다(LLD §2). 변경 권한이 없는 주민도 403 이 아니라
      * 항목별 {@code selectable=false/blockedReason=FORBIDDEN} 을 받는다(C08).
      *
-     * <p>응답의 세 version·잔액·시설·기여는 <b>한 스냅샷</b>이어야 한다 — READ COMMITTED 는
+     * <p>응답의 세 version·잔액·시설은 <b>한 스냅샷</b>이어야 한다 — READ COMMITTED 는
      * 문장마다 스냅샷을 새로 잡아 잔액·시설·정책 revision 이 서로 다른 시점을 섞어 읽을 수
      * 있으므로, PostgreSQL 의 트랜잭션 스냅샷을 주는 {@code REPEATABLE_READ} 로 읽는다
      * ({@code NotificationSnapshotService} 와 같은 방식).
@@ -152,15 +148,8 @@ public class IslandConstructionService {
                 .anyMatch(f -> f.getStatus() == FacilityStatus.BUILDING);
 
         IslandConstructionState state = states.findById(islandId).orElse(null);
-        long epoch = state == null ? 0L : state.getTargetEpoch();
-        String targetBuildingId = state == null ? null : state.getTargetBuildingId();
-        Map<UUID, Integer> contributed = contributedByUser(islandId, epoch);
         int balance = walletService.balanceOf(islandId);
         boolean canBuild = SharedPurchase.canBuild(member);
-        // 「각자 몫」의 분모는 현재 활성 주민이 아니라 «목표 선택 당시의 대상 주민 ∩ 현재 활성
-        // 주민 ∩ 선택 시각까지 시작된 멤버십» 이다(GROMO-1999).
-        List<UUID> targetIds = targetResidents(islandId, contributed.keySet(),
-                state == null ? null : state.getUpdatedAt());
 
         List<ConstructionOptionItem> items = new ArrayList<>();
         for (ConstructionBuilding building : buildings.findAllOrdered()) {
@@ -170,7 +159,7 @@ public class IslandConstructionService {
             }
             ConstructionCostPolicy price = requirePrice(priceBook, building);
             items.add(evaluate(building, price, anyInProgress,
-                    completed, canBuild, balance, targetIds, contributed, targetBuildingId));
+                    completed, canBuild, balance));
         }
         return new ConstructionOptionsView(
                 aggregateVersion(IslandStateEvents.AGGREGATE_TYPE, islandId),
@@ -179,7 +168,7 @@ public class IslandConstructionService {
                 balance,
                 aggregateVersion(IslandWalletEvents.AGGREGATE_TYPE, islandId),
                 items,
-                residentProgress(targetBuildingId, priceBook, targetIds, contributed),
+                null, // 이전 앱과의 응답 호환 필드. 건설은 주민별 준비량을 사용하지 않는다.
                 facilityByBuilding.values().stream()
                         .filter(f -> f.getStatus() == FacilityStatus.BUILDING)
                         .map(f -> new ConstructionOptionsView.ActiveConstruction(
@@ -189,37 +178,13 @@ public class IslandConstructionService {
                         .map(ConstructionGuideRecipient::getBuildingId).toList());
     }
 
-    /** 착공 판정과 같은 스냅샷·대상·가격으로 읽는다. 일반 주민에게도 진행량을 제공한다. */
-    private ConstructionResidentProgress residentProgress(String targetBuildingId,
-            Map<String, ConstructionCostPolicy> priceBook, List<UUID> targetIds,
-            Map<UUID, Integer> contributed) {
-        ConstructionBuilding building = buildings.findById(targetBuildingId).orElse(null);
-        if (building == null || building.funding() != ConstructionBuilding.Funding.RESIDENT_SPLIT) {
-            return null;
-        }
-        if (targetIds.isEmpty()) {
-            return new ConstructionResidentProgress(targetBuildingId, null, List.of());
-        }
-        int quota = (requirePrice(priceBook, building).getCost() - 1) / targetIds.size() + 1;
-        Map<UUID, User> users = userQueryService.findAllActive(targetIds).stream()
-                .collect(Collectors.toMap(User::getId, Function.identity()));
-        List<ConstructionResidentProgress.Resident> residents = targetIds.stream().sorted().map(id -> {
-            User user = users.get(id);
-            int amount = contributed.getOrDefault(id, 0);
-            return new ConstructionResidentProgress.Resident(id, user == null ? null : user.getNickname(),
-                    amount, Math.max(0, quota - amount));
-        }).toList();
-        return new ConstructionResidentProgress(targetBuildingId, quota, residents);
-    }
-
     // ---------------------------------------------------------------- PUT target
 
     /**
      * 목표 변경 — 차감 0(정책 C03). 같은 목표·현재 version 이면 무변경 200/기존 version/빈
      * events(C11). 바뀌는 목표면 island version 과 island.updated 만 올라간다.
      *
-     * <p>BUILDING 중에는 새 목표를 받지 않는다 — 공사가 끝나기 전에 목표가 바뀌면 epoch 가
-     * 올라가 「각자 몫」집계가 끊기기 때문이다.
+     * <p>BUILDING 중에는 새 목표를 받지 않는다 — 한 번에 한 건물만 진행한다.
      */
     @Transactional
     public ConstructionTargetView setTarget(UUID islandId, UUID userId, String buildingId,
@@ -255,16 +220,11 @@ public class IslandConstructionService {
                     long islandVersion = aggregateVersion(IslandStateEvents.AGGREGATE_TYPE, islandId);
                     if (buildingId.equals(state.getTargetBuildingId())) {
                         // 같은 값 목표 PUT — 무변경 200, receipt 에 빈 events(C11).
-                        // 대상 명단도 그대로 둔다 — 같은 목표를 다시 누른 것으로 신규 주민을
-                        // 끼워 넣으면 「목표를 바꾸지 않는 동안 새 주민은 추가하지 않는다」가 깨진다.
                         return new PublicCommandResult(200,
                                 tree(new ConstructionTargetView(buildingId, true, 0, islandVersion)),
                                 tree(List.of()));
                     }
                     state.retarget(buildingId);
-                    // 새 epoch 의 대상 주민을 «지금» 고정한다(GROMO-1999). 섬 행을 잠근 채라
-                    // 가입·탈퇴와 직렬화된다.
-                    contributions.seedCohort(islandId, state.getTargetEpoch(), clock.instant());
                     EventEnvelope updated = islandStateEvents.changed(
                             islandId, userId, "CONSTRUCTION_TARGET");
                     return new PublicCommandResult(200,
@@ -333,7 +293,6 @@ public class IslandConstructionService {
                     IslandConstructionState state = states.findByIdForUpdate(islandId)
                             .orElseThrow(() -> new IllegalStateException(
                                     "섬 건설 상태를 만들 직후에 찾지 못했습니다."));
-                    requireFunded(islandId, building, policy.getCost(), state);
 
                     // 실제 차감 — 단일 TX 의 지갑 구간이다. 잔액 부족은 여기서 INSUFFICIENT_FUNDS.
                     int newBalance = walletService.debitForConstruction(islandId, policy.getCost(),
@@ -343,21 +302,13 @@ public class IslandConstructionService {
                     Instant completesAt = now.plusSeconds(policy.getBuildSeconds());
                     facilities.save(IslandFacility.started(islandId, buildingId, policy.getCost(),
                             current.getRevision(), userId, now, completesAt));
-                    // 건설이 확정되면 걸려 있던 목표는 소비된 것이다 — 어떤 건물을 지었든
-                    // 같은 TX 안에서 무조건 해제한다. 남겨 두면 이미 지은 건물을 가리키는
-                    // 죽은 목표가 epoch 와 함께 다음 「각자 몫」판정을 오염시킨다.
-                    // 착공 당시 실제 기여 주민만 확정한다. 나중에 가입한 주민은 추가하지 않는다.
-                    List<UUID> supporters;
-                    if (building.funding() == ConstructionBuilding.Funding.RESIDENT_SPLIT) {
-                        Map<UUID, Integer> amounts = contributedByUser(islandId, state.getTargetEpoch());
-                        supporters = targetResidents(islandId, amounts.keySet(), state.getUpdatedAt()).stream()
-                                .filter(id -> amounts.getOrDefault(id, 0) > 0).toList();
-                    } else {
-                        List<UUID> residents = groupMemberRepository.findActiveMemberUserIdsJoinedBy(islandId, now);
-                        supporters = residents.isEmpty() ? List.of() : earnings.sumEarnedFishByUser(islandId, residents)
-                                .stream().filter(row -> row.getEarnedFish() > 0)
-                                .map(FocusFishEarningsRepository.UserEarnings::getUserId).toList();
-                    }
+                    // 목표 선택 시점과 관계없이 섬 통장의 잔액을 사용한다. 완공 안내는 착공 당시
+                    // 활성 주민 중 이 섬에서 물고기를 낚은 주민에게 제공한다.
+                    List<UUID> residents = groupMemberRepository.findActiveMemberUserIdsJoinedBy(islandId, now);
+                    List<UUID> supporters = residents.isEmpty() ? List.of()
+                            : earnings.sumEarnedFishByUser(islandId, residents).stream()
+                                    .filter(row -> row.getEarnedFish() > 0)
+                                    .map(FocusFishEarningsRepository.UserEarnings::getUserId).toList();
                     for (UUID supporter : supporters) {
                         guideRecipients.save(new ConstructionGuideRecipient(islandId, buildingId, supporter));
                     }
@@ -390,9 +341,7 @@ public class IslandConstructionService {
      */
     private ConstructionOptionItem evaluate(ConstructionBuilding building,
                                             ConstructionCostPolicy price, boolean anyInProgress,
-                                            Set<String> completed, boolean canBuild, int balance,
-                                            List<UUID> targetIds, Map<UUID, Integer> contributed,
-                                            String targetBuildingId) {
+                                            Set<String> completed, boolean canBuild, int balance) {
         if (!canBuild) {
             return item(building, price, false, false, "FORBIDDEN");
         }
@@ -402,7 +351,7 @@ public class IslandConstructionService {
         if (anyInProgress) {
             return item(building, price, false, false, "IN_PROGRESS");
         }
-        if (!funded(building, price.getCost(), balance, targetIds, contributed, targetBuildingId)) {
+        if (balance < price.getCost()) {
             return item(building, price, true, false, "INSUFFICIENT_FUNDS");
         }
         return item(building, price, true, true, null);
@@ -430,85 +379,6 @@ public class IslandConstructionService {
                 .map(IslandFacility::getBuildingId)
                 .collect(Collectors.toSet());
         return prerequisiteMet(building, completed);
-    }
-
-    /**
-     * 자금 충족 — 「섬 통장 합산」은 잔액만, 「각자 몫 n빵」은 <b>대상 주민 전원</b>이 현재 목표
-     * epoch 아래 ceil(cost/n) 을 채웠는지 본다(1829 표·P-D04). 지갑 잔액의 총액 검사는
-     * 차감({@code debitForConstruction})이 같이 한다.
-     *
-     * <p>분모 n 은 <b>대상 인원</b>이다 — 「목표 선택 시점의 주민으로 대상을 고정한다. …
-     * 탈퇴하거나 강퇴된 주민은 대상에서 제외한다」라, 고정된 명단에서 떠난 사람을 뺀 수다.
-     * 대상이 한 명도 남지 않으면 판정할 몫이 없으므로 충족으로 보지 않는다.
-     */
-    private static boolean funded(ConstructionBuilding building, int cost, int balance,
-                                  List<UUID> targetIds, Map<UUID, Integer> contributed,
-                                  String targetBuildingId) {
-        if (balance < cost) {
-            return false;
-        }
-        if (building.funding() != ConstructionBuilding.Funding.RESIDENT_SPLIT) {
-            return true;
-        }
-        // 「각자 몫」은 그 건물을 목표로 고른 epoch 의 기여만 인정한다 — 다른 목표·무목표
-        // epoch 에 모인 기여는 이 건물의 몫이 아니다(정책 P-D04).
-        if (!building.id().equals(targetBuildingId) || targetIds.isEmpty()) {
-            return false;
-        }
-        int quota = (cost - 1) / targetIds.size() + 1; // ceil(cost/n), int overflow 없는 형태
-        return targetIds.stream().allMatch(id -> contributed.getOrDefault(id, 0) >= quota);
-    }
-
-    /** {@link #funded} 의 TX 안 판정 — 대상 주민·기여를 그 자리에서 다시 읽는다. */
-    private void requireFunded(UUID islandId, ConstructionBuilding building, int cost,
-                               IslandConstructionState state) {
-        if (building.funding() == ConstructionBuilding.Funding.RESIDENT_SPLIT) {
-            // 「각자 몫」은 그 건물을 목표로 고른 뒤부터만 인정한다 — 지금 목표가 이 건물이
-            // 아니면 다른 목표·무목표 epoch 의 기여를 끌어다 쓰는 우회다(정책 P-D04).
-            // 건설 선행 조건 불충족이라 STATE_CONFLICT 로 거절한다(LLD §3 오류표).
-            if (!building.id().equals(state.getTargetBuildingId())) {
-                throw new ConstructionException(ConstructionErrorCode.STATE_CONFLICT);
-            }
-            Map<UUID, Integer> contributed = contributedByUser(islandId, state.getTargetEpoch());
-            List<UUID> targetIds = targetResidents(islandId, contributed.keySet(),
-                    state.getUpdatedAt());
-            // balance 에 MAX_VALUE 를 넣어 잔액 항을 비활성화한다 — 여기서 읽은 잔액은 잠금 전
-            // 스냅샷이라 판정 근거가 못 되고, 총액 검사는 아래 주석대로 차감이 한다.
-            if (!funded(building, cost, Integer.MAX_VALUE, targetIds, contributed,
-                    state.getTargetBuildingId())) {
-                throw new ConstructionException(ConstructionErrorCode.INSUFFICIENT_FUNDS);
-            }
-        }
-        // 잔액 총액은 debitForConstruction 이 잠긴 지갑에서 검사한다 — 여기서 읽은 잔액은
-        // 잠금 전 스냅샷이라 판정 근거로 쓰지 않는다.
-    }
-
-    /**
-     * 「각자 몫」의 대상 주민 = 목표 선택 당시 고정된 명단 ∩ 현재 활성 주민 ∩ 선택 시각까지
-     * 시작된 멤버십 (GROMO-1999).
-     *
-     * <p>고정 명단은 목표를 고를 때 심어 둔 <b>그 epoch 의 기여 행들</b>이다 — 퀘스트 cohort 와
-     * 같은 규율이되 표를 따로 두지 않는다. 그래서 첫 인자는 이미 읽어 둔 기여 맵의 키 집합이다.
-     *
-     * <p>{@code selectedAt} 은 {@code IslandConstructionState.updatedAt} — 목표가 걸린 동안 그
-     * 행을 갱신하는 유일한 쓰기가 retarget(선택 자체)이라, 선택 시각과 같다. 탈퇴 후 되살아난
-     * 멤버십 행은 옛 기여 행이 남아 있어도 {@code rejoined_at} 이 선택 시각 뒤라 여기서 빠진다 —
-     * 교집합만으로는 걸러지지 않는 재가입 부활을 막는 축이다.
-     */
-    private List<UUID> targetResidents(UUID islandId, Set<UUID> cohort, Instant selectedAt) {
-        if (cohort.isEmpty() || selectedAt == null) {
-            return List.of();
-        }
-        return groupMemberRepository.findActiveMemberUserIdsJoinedBy(islandId, selectedAt).stream()
-                .filter(cohort::contains)
-                .toList();
-    }
-
-    private Map<UUID, Integer> contributedByUser(UUID islandId, long epoch) {
-        Map<UUID, Integer> byUser = new HashMap<>();
-        contributions.findByIslandIdAndEpoch(islandId, epoch)
-                .forEach(c -> byUser.put(c.getUserId(), c.getAmount()));
-        return byUser;
     }
 
     // ---------------------------------------------------------------- 공통 가드

@@ -84,6 +84,9 @@ export const primitiveTokens = {
     ledgerTabPink: '#F2C1C8',
     ledgerTabButter: '#F1D77F',
     ledgerTabSky: '#ACD5DF',
+    blueprintSurface: '#4F94B1',
+    blueprintLine: '#DFF7FF',
+    blueprintInk: '#F7FCFF',
   },
   space: {
     0: 0,
@@ -159,6 +162,9 @@ export const semanticTokens = {
     overlay: `${color.ink}66`,
     overlayCinematic: `${color.ink}A6`,
     overlaySheet: `${color.ink}40`,
+    blueprintSurface: color.blueprintSurface,
+    blueprintLine: color.blueprintLine,
+    blueprintInk: color.blueprintInk,
   },
   nightColor: {
     canvas: color.nightCanvas,
@@ -213,6 +219,27 @@ export const semanticTokens = {
 } as const;
 
 export const componentTokens = {
+  constructionPlan: {
+    background: semanticTokens.color.blueprintSurface,
+    border: semanticTokens.color.blueprintLine,
+    foreground: semanticTokens.color.blueprintInk,
+    grid: `${color.blueprintLine}24`,
+    gridSize: space[6],
+    padding: space[4],
+    gap: space[4],
+    radius: semanticTokens.radius.control,
+    artWidth: 112,
+    artHeight: 124,
+    fishSize: space[8],
+    maxHeight: 620,
+    screenInset: space[4],
+    bottomInset: space[8],
+    closeInset: space[2],
+    closeSpace: space[8],
+    bodyLineHeight: 22,
+    titleSize: fontSize.xl,
+    numberSize: fontSize.display,
+  },
   publicWebDemo: {
     contentMaxWidth: 960,
     copyMaxWidth: 520,

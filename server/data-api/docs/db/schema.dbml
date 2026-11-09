@@ -799,7 +799,7 @@ Table construction_buildings [note: '건물 종류 정본. id는 기존 API·시
   id            varchar(30)  [pk, note: '소문자 계약 ID']
   display_name  varchar(100) [not null, note: '빈 문자열·공백만 허용하지 않음']
   display_order integer      [not null, note: '오름차순 표시. 동순위는 id 순']
-  funding       varchar(20)  [not null, note: 'WALLET_TOTAL / RESIDENT_SPLIT']
+  funding       varchar(20)  [not null, note: '모든 건물은 WALLET_TOTAL. RESIDENT_SPLIT은 과거 계약값으로만 보존']
 }
 
 Table construction_building_prerequisites [note: '건물별 직접 선행 관계. 선행 건물이 모두 COMPLETED여야 선택 가능'] {

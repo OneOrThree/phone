@@ -192,7 +192,7 @@ export type Island = {
     building: Building;
     targets: string[];
     selectedAt: number;
-    // 목표 선택 시점의 주민별 earned 스냅숏. 모은 양 = earnedBy − base. 없으면(예전 저장본) 0으로 본다
+    // 예전 저장본 호환 필드. 건설 가능 여부는 섬 통장 잔액만 사용한다.
     base?: Record<string, number>;
   };
   construction?: {

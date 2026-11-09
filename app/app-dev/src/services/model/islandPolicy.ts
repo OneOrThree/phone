@@ -31,24 +31,8 @@ export const earnedBy = (i: Island, id: string) => i.earned?.[id] ?? 0;
 // 건물 총액은 섬 인원과 무관한 고정값
 export const buildingCost = (i: Island, b: Building) => costs[b];
 
-// 대상 1인당 몫 = 총액 ÷ 대상 인원(올림). 현재 목표가 b면 스냅숏된 대상 수, 아니면(미리보기) 지금 주민 수
-export const buildingShare = (i: Island, b: Building) =>
-  Math.ceil(
-    costs[b] /
-      (i.buildingQuest?.building === b ? i.buildingQuest.targets.length : targetIds(i).length),
-  );
-
-// 목표를 고른 뒤부터 모은 양 = 현재 누적 earned − 목표 선택 시점 스냅숏(base)
-export const collectedBy = (i: Island, id: string) =>
-  earnedBy(i, id) - (i.buildingQuest?.base?.[id] ?? 0);
-
 export const buildingReady = (i: Island) =>
-  !!i.buildingQuest &&
-  i.buildingQuest.targets.length > 0 &&
-  i.buildingQuest.targets.every(
-    (id) => collectedBy(i, id) >= buildingShare(i, i.buildingQuest!.building),
-  ) &&
-  balance(i) >= buildingCost(i, i.buildingQuest.building);
+  !!i.buildingQuest && balance(i) >= buildingCost(i, i.buildingQuest.building);
 
 export const currentIsland = (s: State) => s.islands.find((i) => i.id === s.islandId)!;
 
@@ -286,12 +270,6 @@ export function canBuild(s: State, b: Building): string | null {
   if (b === 'board' && !i.buildings.includes('hall')) return t('app.build.blocked.hallRequired');
   if (b !== 'hall' && b !== 'board') {
     if (!i.buildings.includes('board')) return t('app.build.blocked.boardRequired');
-    if (i.buildingQuest?.building !== b) return t('app.build.blocked.selectNextBuilding');
-    if (
-      !i.buildingQuest.targets.length ||
-      !i.buildingQuest.targets.every((id) => collectedBy(i, id) >= buildingShare(i, b))
-    )
-      return t('app.build.blocked.targetNotMet');
     if (b === 'shop' && !shopPrerequisitesMet(i)) return t('app.build.blocked.shopPrerequisite');
   }
   return balance(i) < buildingCost(i, b) ? t('app.build.blocked.insufficientBalance') : null;

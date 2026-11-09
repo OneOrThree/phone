@@ -1603,5 +1603,25 @@
     "accessManage": "Return to focus",
     "accessDisable": "Turn off return to focus",
     "androidSetupSubtitle": "Set up usage tracking, then returning to focus."
+  },
+  "constructionPlan": {
+    "fish": "{{amount}} fish",
+    "balance": "Island account balance",
+    "savedTogether": "Saved together",
+    "cost": "Total building cost",
+    "remaining": "Balance after building",
+    "shortfall": "Fish still needed",
+    "funded": "Enough fish to build",
+    "needMore": "Collect {{amount}} more to build",
+    "progress": "Building cost covered by the island balance",
+    "preview": "Preview of {{name}}",
+    "ready": "Your saved fish are enough to build.",
+    "saving": "Focus together to collect more fish.",
+    "ownerOnly": "The host can start construction.",
+    "confirmTitle": "Start building {{name}}?",
+    "confirmBody": "Fish to use: {{cost}}\nRemaining balance: {{remaining}}",
+    "start": "Start building",
+    "close": "Close blueprint",
+    "priceChanged": "The construction cost has changed. Check the amount and try again."
   }
 }
