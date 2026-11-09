@@ -262,3 +262,19 @@ code { overflow-wrap: anywhere; }
 .monitoring-links a { display: block; height: 100%; padding: var(--space-md); border: 1px solid var(--color-rule); border-radius: var(--radius-sm); background: var(--color-surface); color: var(--color-ink); font-size: var(--text-sm); text-decoration: none; }
 .monitoring-links a:hover { border-color: var(--color-accent); }
 .monitoring-links small { display: block; margin-top: var(--space-xs); color: var(--color-muted); font-size: var(--text-xs); }
+/* 꾸미기 지급·아이템 현황 */
+.cust-table-wrap { overflow-x: auto; }
+.cust-table { width: 100%; border-collapse: collapse; font-size: var(--text-sm); }
+.cust-table th, .cust-table td { padding: var(--space-sm) var(--space-md); text-align: left; border-bottom: var(--rule-width) solid var(--color-rule-soft); vertical-align: middle; }
+.cust-table th { color: var(--color-muted); font-size: var(--text-xs); font-weight: 600; }
+.cust-table input[type="checkbox"] { min-height: 0; width: 18px; height: 18px; }
+.cust-retired { color: var(--color-muted); }
+.cust-name { display: flex; align-items: center; gap: var(--space-md); min-width: 0; }
+.cust-name small { display: block; color: var(--color-muted); font-size: var(--text-xs); overflow-wrap: anywhere; }
+.cust-thumb { flex: none; width: 40px; height: 40px; border-radius: var(--radius-sm); object-fit: contain; background: var(--color-paper-deep); }
+.cust-thumb-empty { display: inline-flex; align-items: center; justify-content: center; color: var(--color-muted); font-weight: 600; }
+.cust-mode { border: 0; padding: 0; margin: 0; display: grid; gap: var(--space-xs); }
+.cust-mode label { display: flex; align-items: center; gap: var(--space-sm); }
+.cust-mode input { min-height: 0; }
+.cust-preview { margin-top: var(--space-lg); }
+.cust-preview code { font-family: var(--font-mono); font-size: var(--text-xs); overflow-wrap: anywhere; }
