@@ -10,6 +10,9 @@ import { resolve, extname, sep } from "node:path";
 import { Failure, requireValue } from "./store.mjs";
 import { createReleaseStatus } from "./release-status.mjs";
 import { FocusPolicyStore, focusDigest, normalizeFocusPolicy } from "./focus-policy.mjs";
+import { RewardPoolStore, poolDigest, normalizePool } from "./reward-pool.mjs";
+import { CustomizationGrantStore, normalizeGrantInput } from "./customization-grant.mjs";
+import { resolveStaticOrigin } from "./static-origin.mjs";
 const hash = (value) => createHash("sha256").update(value).digest("hex");
 const safeEqual = (a, b) => {
   const x = Buffer.from(a),
@@ -60,6 +63,7 @@ export function createApp({
   mode,
   environment = mode === "local" ? "local" : undefined,
   staticDir,
+  staticOrigin = resolveStaticOrigin(mode, environment),
   secureCookie = mode === "connected",
   clock = Date.now,
   // 결과를 10분 캐시하므로 앱 생성 때 한 번만 만든다. 테스트는 대체 함수를 넣는다.
@@ -68,6 +72,8 @@ export function createApp({
   const sessions = new Map(),
     attempts = new Map();
   const policies = new FocusPolicyStore(store);
+  const pools = new RewardPoolStore(store);
+  const grants = new CustomizationGrantStore(store);
   const policyActions = new Set();
   const itemActions = new Set();
   async function withItemAction(id, work) {
@@ -99,6 +105,51 @@ export function createApp({
         return { error: Object.assign(error, { reconciled: true }) };
     } catch { /* 조회가 실패하거나 불일치하면 적용 결과를 단정하지 않는다. */ }
     return null;
+  }
+  // Data 승인 기록(발행 원장)과 현재 revision 으로 응답 유실 뒤 409 를 정산한다(집중 정책과 같다).
+  async function reconcilePoolPublication(item, actor, operator, error) {
+    if (!item.runUncertain || error.status !== 409) return null;
+    try {
+      const catalog = await upstream.rewardPool(actor, operator);
+      const receipt = catalog.history?.find(entry => entry.publicationId === item.publicationId);
+      if (receipt && receipt.approvedDigest === item.approvedDigest
+        && poolDigest(receipt.productIds) === item.approvedDigest) return { receipt };
+      if (!receipt && Number.isInteger(catalog.current?.revision)
+        && catalog.current.revision !== item.expectedRevision)
+        return { error: Object.assign(error, { reconciled: true }) };
+    } catch { /* 조회가 실패하거나 불일치하면 발행 결과를 단정하지 않는다. */ }
+    return null;
+  }
+  async function reconcileGrantExecution(item, actor, operator, error) {
+    if (!item.runUncertain || error.status !== 409) return null;
+    try {
+      const entry = (await upstream.grantExecutions(actor, operator, 50)).find(value => value.grantId === item.grantId);
+      if (entry?.approvalId === item.approvalId && entry.status === "COMPLETED") return { receipt: entry };
+      if (entry?.approvalId === item.approvalId && entry.status === "RUNNING") return { running: entry };
+      if (!entry) return { error: Object.assign(error, { reconciled: true }) };
+    } catch { /* 조회가 실패하면 실행 결과를 단정하지 않는다. */ }
+    return null;
+  }
+  // 같은 grantId 로 Data 가 COMPLETED 를 줄 때까지 최대 20번 부른다. 그래도 RUNNING 이면 executing 으로 두고 같은 실행자가 이어 간다.
+  async function runGrant(id, revision, actor, operator) {
+    let item = grants.transition(id, revision, actor, "run");
+    try {
+      let receipt;
+      for (let attempt = 0; attempt < 20; attempt++) {
+        receipt = await upstream.executeGrant(item, actor, operator);
+        if (receipt?.grantId !== item.grantId || receipt.approvalId !== item.approvalId
+          || !["RUNNING", "COMPLETED"].includes(receipt.status))
+          throw new Failure(502, "지급 실행 응답이 요청과 다릅니다. 같은 요청으로 재시도하세요.");
+        if (receipt.status === "COMPLETED") break;
+        item = grants.progress(id, receipt);
+      }
+      return receipt.status === "COMPLETED" ? grants.finish(id, receipt) : item;
+    } catch (error) {
+      const resolution = await reconcileGrantExecution(grants.get(id), actor, operator, error);
+      if (resolution?.receipt) return grants.finish(id, resolution.receipt);
+      if (resolution?.running) return grants.progress(id, resolution.running);
+      return grants.finish(id, null, resolution?.error ?? error);
+    }
   }
   const cookie = (token, maxAge) =>
     `backoffice_session=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${maxAge}${secureCookie ? "; Secure" : ""}`;
@@ -139,7 +190,7 @@ export function createApp({
       "X-Content-Type-Options": "nosniff",
       "Referrer-Policy": "no-referrer",
       "Content-Security-Policy":
-        "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
+        `default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:${staticOrigin ? ` ${staticOrigin}` : ""}; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'`,
     };
     const send = (status, value, extra = {}) => {
       res.writeHead(status, { ...headers, ...extra });
@@ -349,6 +400,119 @@ export function createApp({
             return item;
           });
           send(200, item);
+          return;
+        }
+      }
+      if (path === "/api/customization/items" && req.method === "GET") {
+        send(200, { ...await upstream.customizationItems(auth.actor, operator), staticOrigin });
+        return;
+      }
+      if (path === "/api/customization/pool" && req.method === "GET") {
+        send(200, await upstream.rewardPool(auth.actor, operator));
+        return;
+      }
+      if (path === "/api/customization/pool/drafts" && req.method === "GET") {
+        send(200, { items: pools.list() });
+        return;
+      }
+      if (path === "/api/customization/pool/drafts" && req.method === "POST") {
+        send(201, pools.create(await bodyOf(req), auth.actor));
+        return;
+      }
+      const poolMatch = path.match(/^\/api\/customization\/pool\/drafts\/([0-9a-f-]+)(?:\/(review|approve|publish|cancel))?$/);
+      if (poolMatch) {
+        const [, id, action] = poolMatch;
+        if (req.method === "GET" && !action) { send(200, pools.get(id)); return; }
+        if (req.method === "PATCH" && !action) {
+          const input = await bodyOf(req);
+          send(200, await withPolicyAction(id, async () => {
+            const approvalId = pools.changeRequest(id, input.revision);
+            normalizePool(input.productIds);
+            requireValue(Number.isInteger(input.expectedRevision) && input.expectedRevision > 0,
+              "현재 추첨 풀 revision을 확인하세요.");
+            // Data 승인 취소가 실패하면 수정도 하지 않는다(승인이 남은 채 내용만 바뀌면 안 된다).
+            if (approvalId) await upstream.revokeRewardPool(approvalId, auth.actor, operator);
+            return pools.edit(id, input, auth.actor);
+          }));
+          return;
+        }
+        if (req.method === "POST" && ["review", "approve", "publish", "cancel"].includes(action)) {
+          const revision = (await bodyOf(req)).revision;
+          send(200, await withPolicyAction(id, async () => {
+            if (action === "cancel") {
+              const approvalId = pools.changeRequest(id, revision);
+              if (approvalId) await upstream.revokeRewardPool(approvalId, auth.actor, operator);
+              return pools.cancel(id, revision, auth.actor);
+            }
+            if (action === "review") return pools.transition(id, revision, auth.actor, "review");
+            if (action === "approve") {
+              const request = pools.beginApproval(id, revision, auth.actor);
+              try {
+                const approval = await upstream.approveRewardPool(request, auth.actor, operator);
+                return pools.transition(id, revision, auth.actor, "approve", approval);
+              } catch (error) {
+                return pools.failApproval(id, error);
+              }
+            }
+            const item = pools.transition(id, revision, auth.actor, "run");
+            try {
+              return pools.finish(id, await upstream.publishRewardPool(item, auth.actor, operator));
+            } catch (error) {
+              const resolution = await reconcilePoolPublication(item, auth.actor, operator, error);
+              return resolution?.receipt ? pools.finish(id, resolution.receipt)
+                : pools.finish(id, null, resolution?.error ?? error);
+            }
+          }));
+          return;
+        }
+      }
+      if (path === "/api/customization/grants" && req.method === "GET") {
+        send(200, { items: grants.list() });
+        return;
+      }
+      if (path === "/api/customization/grants" && req.method === "POST") {
+        send(201, grants.create(await bodyOf(req), auth.actor));
+        return;
+      }
+      const grantMatch = path.match(/^\/api\/customization\/grants\/([0-9a-f-]+)(?:\/(preview|review|approve|execute|cancel))?$/);
+      if (grantMatch) {
+        const [, id, action] = grantMatch;
+        if (req.method === "GET" && !action) { send(200, grants.get(id)); return; }
+        if (req.method === "PATCH" && !action) {
+          const input = await bodyOf(req);
+          send(200, await withPolicyAction(id, async () => {
+            const approvalId = grants.changeRequest(id, input.revision);
+            normalizeGrantInput(input);
+            if (approvalId) await upstream.revokeGrant(approvalId, auth.actor, operator);
+            return grants.edit(id, input, auth.actor);
+          }));
+          return;
+        }
+        if (req.method === "POST" && ["preview", "review", "approve", "execute", "cancel"].includes(action)) {
+          const revision = (await bodyOf(req)).revision;
+          send(200, await withPolicyAction(id, async () => {
+            if (action === "preview") {
+              const input = grants.previewInput(id, revision);
+              const result = await upstream.previewGrant(input, auth.actor, operator);
+              return grants.savePreview(id, revision, result, auth.actor);
+            }
+            if (action === "cancel") {
+              const approvalId = grants.changeRequest(id, revision);
+              if (approvalId) await upstream.revokeGrant(approvalId, auth.actor, operator);
+              return grants.cancel(id, revision, auth.actor);
+            }
+            if (action === "review") return grants.transition(id, revision, auth.actor, "review");
+            if (action === "approve") {
+              const request = grants.beginApproval(id, revision, auth.actor);
+              try {
+                const approval = await upstream.approveGrant(request, auth.actor, operator);
+                return grants.transition(id, revision, auth.actor, "approve", approval);
+              } catch (error) {
+                return grants.failApproval(id, error);
+              }
+            }
+            return runGrant(id, revision, auth.actor, operator);
+          }));
           return;
         }
       }
