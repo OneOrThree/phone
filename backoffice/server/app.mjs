@@ -134,6 +134,8 @@ export function createApp({
   // 같은 grantId 로 Data 가 COMPLETED 를 줄 때까지 최대 20번 부른다. 그래도 RUNNING 이면 executing 으로 두고 같은 실행자가 이어 간다.
   async function runGrant(id, revision, actor, operator) {
     let item = grants.transition(id, revision, actor, "run");
+    // 프록시 유휴 시간 제한을 넘기지 않도록 한 요청은 45초까지만 붙들고, 남은 일은 같은 실행자가 이어서 한다.
+    const startedAt = clock();
     try {
       let receipt;
       for (let attempt = 0; attempt < 20; attempt++) {
@@ -143,6 +145,7 @@ export function createApp({
           throw new Failure(502, "지급 실행 응답이 요청과 다릅니다. 같은 요청으로 재시도하세요.");
         if (receipt.status === "COMPLETED") break;
         item = grants.progress(id, receipt);
+        if (clock() - startedAt >= 45000) break;
       }
       return receipt.status === "COMPLETED" ? grants.finish(id, receipt) : item;
     } catch (error) {
@@ -457,7 +460,12 @@ export function createApp({
             }
             const item = pools.transition(id, revision, auth.actor, "run");
             try {
-              return pools.finish(id, await upstream.publishRewardPool(item, auth.actor, operator));
+              const receipt = await upstream.publishRewardPool(item, auth.actor, operator);
+              if (receipt?.publicationId !== item.publicationId || receipt.approvalId !== item.approvalId
+                || !Number.isInteger(receipt.revision) || !Array.isArray(receipt.productIds)
+                || poolDigest(receipt.productIds) !== item.approvedDigest)
+                throw new Failure(502, "추첨 풀 발행 응답이 요청과 다릅니다. 같은 요청으로 재시도하세요.");
+              return pools.finish(id, receipt);
             } catch (error) {
               const resolution = await reconcilePoolPublication(item, auth.actor, operator, error);
               return resolution?.receipt ? pools.finish(id, resolution.receipt)

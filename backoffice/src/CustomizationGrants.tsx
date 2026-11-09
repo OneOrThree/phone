@@ -153,7 +153,7 @@ export function CustomizationGrants({ session, onDirtyChange, onUnauthorized }: 
           && <p className="callout">승인자와 다른 운영자가 실행해야 합니다.</p>}
         {selected?.status === 'approval_uncertain' && <p className="callout">승인 결과를 확인하지 못했습니다. 최초 승인자가 같은 승인 요청을 재시도하거나 철회하세요.</p>}
         {selected?.status === 'uncertain' && <p className="callout">결과를 단정할 수 없습니다. 최초 실행자가 같은 요청으로 재시도해야 합니다. 이미 지급된 사용자는 다시 받지 않습니다.</p>}
-        {selected?.status === 'executing' && <p className="callout">Data 가 아직 처리 중입니다. 최초 실행자가 「이어서 실행」으로 계속 처리합니다.</p>}
+        {selected?.status === 'executing' && <p className="callout">Data 에서 지급이 계속 처리되고 있습니다. 최초 실행자가 「이어서 실행」을 눌러 이어 가세요. 연결이 끊겼더라도 실패가 아닙니다. 새로고침해 상태를 확인하세요.</p>}
         {selected?.error && <p className="error-message" role="alert">{selected.error}</p>}
         {selected?.progress && selected.status !== 'completed' && <CountsView value={selected.progress} label="진행" />}
         {selected?.receipt && <><p className="callout">{selected.receipt.local ? '로컬 모의 지급 완료' : '지급 완료'} · {date(selected.receipt.completedAt)}</p><CountsView value={selected.receipt} label="결과" /></>}

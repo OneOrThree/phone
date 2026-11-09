@@ -33,6 +33,7 @@ function fakeData() {
       state.calls.push(["publish", item.publicationId, actor, item.approvedContent.productIds]);
       if (state.losePublish-- > 0) throw lost("발행 응답 유실");
       if (state.conflict) throw Object.assign(new Failure(409, "revision 충돌"), { definite: true });
+      if (state.badReceipt) return { publicationId: "other", approvalId: item.approvalId, revision: 2, productIds: item.approvedContent.productIds };
       return { publicationId: item.publicationId, approvalId: item.approvalId, revision: 2, previousRevision: 1,
         productIds: item.approvedContent.productIds, approvedDigest: item.approvedDigest, actor, approvedBy: item.approvedBy };
     },
@@ -214,4 +215,18 @@ test("로컬 모드 Data 흉내: 등급 칸 검증 400, 2인 규칙 409, 오래�
   const replay = upstream.localData.publishPool(published.publicationId, { approvalId: item.approvalId, expectedRevision: item.expectedRevision,
     productIds: item.approvedContent.productIds, approvedDigest: item.approvedDigest }, "member-2");
   assert.equal(replay.revision, published.receipt.revision);
+});
+
+test("발행 응답이 요청과 다르면 502 로 거부하고 uncertain 으로 남긴다", async t => {
+  const { upstream, state } = fakeData();
+  const app = await startApp(t, upstream);
+  const one = await app.login("member-1"), two = await app.login("member-2");
+  let item = await approved(app, one);
+  state.badReceipt = true;
+  item = (await act(app, item, "publish", two)).body;
+  assert.equal(item.status, "uncertain");
+  assert.match(item.error, /발행 응답이 요청과 다릅니다/);
+  state.badReceipt = false;
+  item = (await act(app, item, "publish", two)).body;
+  assert.equal(item.status, "published");
 });

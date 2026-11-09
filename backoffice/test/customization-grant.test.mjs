@@ -10,6 +10,7 @@ import { CustomizationGrantStore, grantDigest, grantCanonical } from "../server/
 import { poolDigest } from "../server/reward-pool.mjs";
 import { LocalCustomizationData } from "../server/local-customization.mjs";
 import { resolveStaticOrigin } from "../server/static-origin.mjs";
+import { normalizeGrantInput } from "../server/customization-grant.mjs";
 import { startApp } from "./customization-harness.mjs";
 
 const U1 = "0192f5a0-0000-7000-8000-000000000001", U2 = "0192f5a0-0000-7000-8000-000000000002";
@@ -269,7 +270,8 @@ test("CSP img-src 는 prod 기본 origin 을 포함하고 local 은 그대로다
   assert.match((await local.get("/api/session")).headers.get("content-security-policy"), /img-src 'self' data:; connect-src/);
   assert.equal(resolveStaticOrigin("local", "local", "https://x.example"), null);
   assert.equal(resolveStaticOrigin("connected", "dev"), "https://oneorthree-v2.dev.mooo.com");
-  for (const bad of ["http://x.example", "https://x.example/path", "not a url"])
+  assert.equal(resolveStaticOrigin("connected", "prod"), "https://catus-api-v2.oneorthree.world");
+  for (const bad of ["http://x.com", "https://x.com/path", "not a url", "https://*", "https://*.example.com", "https://exa mple.com"])
     assert.throws(() => resolveStaticOrigin("connected", "prod", bad), /BACKOFFICE_STATIC_ORIGIN/);
 });
 
@@ -331,4 +333,26 @@ test("uncertain 뒤 재시도가 409 이고 목록에 COMPLETED 기록이 있으
   item = (await app.send(`/api/customization/grants/${item.id}/execute`, { revision: item.revision }, two)).body;
   assert.equal(item.status, "completed");
   assert.equal(item.receipt.grantedCount, 2);
+});
+
+test("지급 사유에 짝 없는 서로게이트가 있으면 거부하고 정상 이모지는 허용한다", () => {
+  const base = { productId: "cust.head.mandarin", mode: "ALL", nicknamesText: "" };
+  assert.throws(() => normalizeGrantInput({ ...base, reason: "나쁨\ud800" }), /올바르지 않은 문자/);
+  assert.throws(() => normalizeGrantInput({ ...base, reason: "\udc00나쁨" }), /올바르지 않은 문자/);
+  assert.equal(normalizeGrantInput({ ...base, reason: "선물 \u{1F34A}" }).reason, "선물 \u{1F34A}");
+});
+
+test("한 요청이 45초를 넘기면 RUNNING 이어도 반복을 멈추고 executing 으로 돌아온다", async t => {
+  const { upstream, state } = fakeData({ running: 25 });
+  let now = Date.parse("2026-11-09T00:00:00Z");
+  const original = upstream.executeGrant;
+  upstream.executeGrant = async (...args) => { const result = await original(...args); now += 20000; return result; };
+  const app = await startApp(t, upstream, { clock: () => now });
+  const one = await app.login("member-1"), two = await app.login("member-2");
+  let item = await reviewed(app, one);
+  item = (await app.send(`/api/customization/grants/${item.id}/approve`, { revision: item.revision }, one)).body;
+  item = (await app.send(`/api/customization/grants/${item.id}/execute`, { revision: item.revision }, two)).body;
+  assert.equal(item.status, "executing");
+  assert.equal(state.runs, 3);
+  assert.equal(item.progress.status, "RUNNING");
 });

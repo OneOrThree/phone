@@ -24,6 +24,8 @@ export function normalizeGrantInput(input) {
   // Data 가 UTF-16 길이로 세어도 넘지 않도록 length 로 센다.
   requireValue(reason.length >= 1 && reason.length <= 200 && !CONTROL.test(reason),
     "지급 사유는 줄바꿈 없이 1~200자로 입력하세요.");
+  // 짝 없는 서로게이트는 JS 가 \udXXX 로, Java 는 다른 바이트로 인코딩해 지문이 갈린다.
+  requireValue(reason.isWellFormed(), "지급 사유에 올바르지 않은 문자가 있습니다.");
   let nicknamesText = "";
   if (input.mode === "USERS") {
     const nicknames = parseNicknames(input.nicknamesText);
