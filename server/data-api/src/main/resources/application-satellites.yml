@@ -55,6 +55,11 @@ internal:
           - 'POST /internal/admin/content/notices/*/withdraw'
           - 'POST /internal/admin/content/magazine/previews'
           - 'POST /internal/admin/content/magazine/publications/*'
+          - 'POST /internal/admin/customization/grants/previews'
+          - 'POST /internal/admin/customization/grants/approvals/*'
+          - 'DELETE /internal/admin/customization/grants/approvals/*'
+          - 'PUT /internal/admin/customization/grants/executions/*'
+          - 'GET /internal/admin/customization/grants/executions'
       console-member-2:
         token: ${SVC_TOKEN_CONSOLE_MEMBER_2_TO_DATA:}
         optional: true
@@ -75,6 +80,11 @@ internal:
           - 'POST /internal/admin/content/notices/*/withdraw'
           - 'POST /internal/admin/content/magazine/previews'
           - 'POST /internal/admin/content/magazine/publications/*'
+          - 'POST /internal/admin/customization/grants/previews'
+          - 'POST /internal/admin/customization/grants/approvals/*'
+          - 'DELETE /internal/admin/customization/grants/approvals/*'
+          - 'PUT /internal/admin/customization/grants/executions/*'
+          - 'GET /internal/admin/customization/grants/executions'
       console-member-3:
         token: ${SVC_TOKEN_CONSOLE_MEMBER_3_TO_DATA:}
         optional: true
@@ -95,6 +105,11 @@ internal:
           - 'POST /internal/admin/content/notices/*/withdraw'
           - 'POST /internal/admin/content/magazine/previews'
           - 'POST /internal/admin/content/magazine/publications/*'
+          - 'POST /internal/admin/customization/grants/previews'
+          - 'POST /internal/admin/customization/grants/approvals/*'
+          - 'DELETE /internal/admin/customization/grants/approvals/*'
+          - 'PUT /internal/admin/customization/grants/executions/*'
+          - 'GET /internal/admin/customization/grants/executions'
       business:
         token: ${SVC_TOKEN_BIZ_TO_DATA}
         allow:
