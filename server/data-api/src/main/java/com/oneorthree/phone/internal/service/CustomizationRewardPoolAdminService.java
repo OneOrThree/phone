@@ -9,6 +9,7 @@ import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -65,8 +66,12 @@ public class CustomizationRewardPoolAdminService {
 
     // ------------------------------------------------------------------ 조회
 
-    /** 아이템 현황: 보상 행이 있는 상품과 정적 꾸미기 상품의 합집합. 한 트랜잭션 스냅샷에서 읽는다. */
-    @Transactional(readOnly = true)
+    /**
+     * 아이템 현황: 보상 행이 있는 상품과 정적 꾸미기 상품의 합집합(둘 다 catalog_assets 에 행이 있는 것만).
+     * 문장 여러 개가 같은 스냅샷을 보도록 REPEATABLE READ 로 읽는다 — READ COMMITTED 면 그 사이 발행이 커밋될 때
+     * pool.revision 은 N 인데 상품 행은 N+1 값이 섞인다.
+     */
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public ItemsView items() {
         Policy current = currentPolicy();
         Set<String> displayable = new HashSet<>();
