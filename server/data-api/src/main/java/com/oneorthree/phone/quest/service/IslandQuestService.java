@@ -69,7 +69,7 @@ import java.util.regex.Pattern;
  *
  * <p><b>출시 스위치 없음</b>(GROMO-2822): 생성·수정·조회·정산이 모두 열려 있다. 종전에는 생성과 정산을
  * {@code island-quest.creation-enabled}·{@code island-quest.settlement-enabled}(기본 false)로 닫아 두었는데,
- * 앱은 섬장에게 만들기를 보여 줘 운영에서 503 이 났다. 2026-11-09 재영님 결정으로 스위치를 없앴다 —
+ * 앱은 섬장에게 만들기를 보여 줘 운영에서 503 이 났다. 2026-11-09 개방 결정(decision-log 퀘스트-개방)으로 스위치를 없앴다 —
  * 다시 닫는 설정을 두지 않는다(policy.md 출시 조건).
  *
  * <p><b>날짜 축은 UTC</b>(2026-09-19 결정 Q-6) — 회차는 UTC 자정에 시작하고 창 시각도 UTC 다.

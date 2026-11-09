@@ -21,7 +21,9 @@ import java.util.UUID;
  * 회차 id 다(회차 id 가 전역 유일이라 세 값을 다 싣지 않아도 축이 같다). 봉투의 version 이 곧 회차
  * {@code version} 이다 — 호출측이 반환 봉투의 version 을 회차에 싣는다.
  *
- * <p>전달은 outbox 에 적기까지다 — Realtime 로의 실제 전달(relay 구독 경로)은 아직 배선되지 않았다.
+ * <p>outbox 에 REALTIME 대상으로 적는다. relay 가 {@code application-satellites.yml} 의 {@code [quest.progress.updated]}
+ * 목적지(HTTP, {@code realtime-kafka-enabled} 면 {@code realtime-events} 토픽)로 보내고, Realtime 은
+ * {@code /topic/islands/{islandId}/events} 로 방송한다. 2026-11-09 기준 앱은 이 타입을 구독하지 않아 무시한다.
  */
 @Service
 @RequiredArgsConstructor
