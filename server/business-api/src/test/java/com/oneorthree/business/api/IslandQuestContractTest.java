@@ -188,7 +188,6 @@ class IslandQuestContractTest extends UpstreamTestBase {
             "400,QUEST_INVALID_REQUEST,400,INVALID_REQUEST,",
             "409,QUEST_VERSION_CONFLICT,409,VERSION_CONFLICT,expectedVersion",
             "409,QUEST_STATE_CONFLICT,409,STATE_CONFLICT,occurrenceId",
-            "503,QUEST_SETTLEMENT_UNAVAILABLE,400,SERVICE_UNAVAILABLE,",
             "409,IDEMPOTENCY_KEY_CONFLICT,409,IDEMPOTENCY_KEY_REUSED,Idempotency-Key",
             "409,QUEST_FORBIDDEN,400,UPSTREAM_CONTRACT_ERROR,",
             "400,UNKNOWN_QUEST_ERROR,400,UPSTREAM_CONTRACT_ERROR,"})
@@ -210,9 +209,8 @@ class IslandQuestContractTest extends UpstreamTestBase {
             "422,QUEST_TARGET_OUT_OF_RANGE,422,OUT_OF_RANGE,targetMinutes",
             "422,QUEST_WINDOW_OUT_OF_RANGE,422,OUT_OF_RANGE,windowEnd",
             "400,QUEST_INVALID_TIMEZONE,400,INVALID_PARAMETER,timezone",
-            "403,QUEST_FORBIDDEN,403,FORBIDDEN,",
-            "503,QUEST_CREATION_UNAVAILABLE,400,SERVICE_UNAVAILABLE,"})
-    @DisplayName("생성 — 범위 위반은 필드를 지목한 422, 생성 스위치가 닫히면 400 이다")
+            "403,QUEST_FORBIDDEN,403,FORBIDDEN,"})
+    @DisplayName("생성 — 범위 위반은 필드를 지목한 422, 방장 아닌 주민은 403 이다")
     void createMapsRangeAndGate(int upstreamStatus, String code, int publicStatus, String publicCode, String field)
             throws Exception {
         DATA.on(DATA_CREATE, request -> error(upstreamStatus, code));

@@ -89,8 +89,6 @@ class IslandQuestIntegrationTest {
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
         OutboxTestPostgres.applyProductionMigrationWiring(registry);
-        registry.add("island-quest.creation-enabled", () -> true);
-        registry.add("island-quest.settlement-enabled", () -> true);
     }
 
     @MockitoBean

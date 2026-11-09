@@ -47,13 +47,7 @@ public enum QuestErrorCode implements ErrorCode {
     QUEST_VERSION_CONFLICT(HttpStatus.CONFLICT, "다른 변경이 먼저 반영됐습니다."),
 
     /** 미달성·측정 대기·이미 정산·수령 기한 지남 — 지급 없음(LLD §5 2~3단계). */
-    QUEST_STATE_CONFLICT(HttpStatus.CONFLICT, "지금 상태에서는 보상을 받을 수 없습니다."),
-
-    /** 생성 스위치가 닫힘(policy.md 출시 조건) — 정산 게이트와 여는 조건이 달라 코드를 가른다. */
-    QUEST_CREATION_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "퀘스트 만들기를 아직 사용할 수 없습니다."),
-
-    /** 정산 스위치가 닫힘(policy.md 출시 조건). */
-    QUEST_SETTLEMENT_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "퀘스트 보상 받기를 아직 사용할 수 없습니다.");
+    QUEST_STATE_CONFLICT(HttpStatus.CONFLICT, "지금 상태에서는 보상을 받을 수 없습니다.");
 
     private final HttpStatus status;
     private final String message;

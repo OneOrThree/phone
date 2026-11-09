@@ -64,7 +64,7 @@ if relay_files:
 
 profile = source('server/data-api/src/main/resources/application-satellites.yml')
 require('NOTIFICATION_DISPATCH_MODE' not in profile, '폐기한 직접 발송 스위치가 남아 있음')
-require('${OUTBOX_RELAY_ENABLED:false}' in profile, 'A18 미확정 상태에서 relay가 자동으로 켜짐')
+require('${OUTBOX_RELAY_ENABLED:true}' in profile, 'GROMO-2822: 배포 프로필의 relay 기본값이 ON 이 아님')
 for path in (ROOT / 'server/notification/src/main/resources').glob('application-*.yml'):
     require('API_DB_' not in path.read_text(), f'{path.relative_to(ROOT)}: 알림이 core DB 자격을 받음')
 
