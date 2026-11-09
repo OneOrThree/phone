@@ -170,7 +170,7 @@ public class CustomizationRewardPoolAdminService {
         Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
         jdbc.update("INSERT INTO customization_reward_pool_approvals(approval_id,expected_revision,product_ids,"
                         + "approved_digest,request_digest,approved_by,approved_at) VALUES(?,?,?::jsonb,?,?,?,?)",
-                approvalId, request.expectedRevision(), canonical(request.productIds()), digest, requestDigest,
+                approvalId, request.expectedRevision(), jsonArray(request.productIds()), digest, requestDigest,
                 actor, Timestamp.from(now));
         return new Approval(approvalId, request.expectedRevision(), request.productIds(), digest, actor, now);
     }
@@ -205,8 +205,7 @@ public class CustomizationRewardPoolAdminService {
             throw badRequest();
         }
         validateShape(request.productIds());
-        String canonical = canonical(request.productIds());
-        String digest = sha256(canonical);
+        String digest = sha256(canonical(request.productIds()));
         if (!digest.equals(request.approvedDigest())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "승인 풀과 발행 풀이 다릅니다.");
         }
@@ -229,7 +228,7 @@ public class CustomizationRewardPoolAdminService {
                         + "product_ids=?::jsonb AS snapshot_matches,revoked_at IS NULL AS active"
                         + " FROM customization_reward_pool_approvals WHERE approval_id=?",
                 (rs, index) -> new ApprovalEvidence(rs.getInt(1), rs.getString(2).trim(), rs.getString(3),
-                        rs.getBoolean(4), rs.getBoolean(5)), canonical, request.approvalId());
+                        rs.getBoolean(4), rs.getBoolean(5)), jsonArray(request.productIds()), request.approvalId());
         if (approvals.size() != 1) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "승인 기록을 찾을 수 없습니다.");
         }
@@ -263,7 +262,7 @@ public class CustomizationRewardPoolAdminService {
                     + " SELECT ?,product_id,source_asset_id,category,rarity,rarity_reason,render_data,sort_order"
                     + " FROM (SELECT DISTINCT ON (product_id) * FROM customization_reward_items"
                     + " WHERE product_id IN (SELECT jsonb_array_elements_text(?::jsonb))"
-                    + " ORDER BY product_id,revision DESC) latest", next, canonical);
+                    + " ORDER BY product_id,revision DESC) latest", next, jsonArray(request.productIds()));
             if (copied != request.productIds().size()) {
                 throw new IllegalStateException("추첨 풀 아이템 복사 건수가 다릅니다: " + copied);
             }
@@ -276,7 +275,8 @@ public class CustomizationRewardPoolAdminService {
                             + "previous_revision,before_product_ids,after_product_ids,request_digest,"
                             + "approved_digest,approved_by,actor,published_at)"
                             + " VALUES(?,?,?,?,?::jsonb,?::jsonb,?,?,?,?,?)", publicationId, request.approvalId(),
-                    next, previous, canonical(before), canonical, requestDigest, digest, approvedBy, actor,
+                    next, previous, jsonArray(before), jsonArray(request.productIds()), requestDigest, digest,
+                    approvedBy, actor,
                     Timestamp.from(now));
         } catch (DuplicateKeyException e) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "승인 또는 발행 ID가 이미 사용되었습니다.", e);
@@ -312,7 +312,7 @@ public class CustomizationRewardPoolAdminService {
                         + " ORDER BY product_id,revision DESC",
                 rs -> {
                     cells.put(rs.getString(1), new String[] {rs.getString(2), rs.getString(3)});
-                }, canonical(productIds));
+                }, jsonArray(productIds));
         Set<String> filled = new HashSet<>();
         for (String id : productIds) {
             String[] cell = cells.get(id);
@@ -387,6 +387,18 @@ public class CustomizationRewardPoolAdminService {
             out.append(i == 0 ? "" : ",").append('"').append(productIds.get(i)).append('"');
         }
         return out.append("]}").toString();
+    }
+
+    /**
+     * jsonb 열에 저장하고 jsonb_array_elements_text 에 넘기는 배열 {@code ["a","b"]}. {@link #canonical} 은 지문 입력일 뿐
+     * 객체라서 DB 에 넣지 않는다. 상품 id 모양 검증이 이스케이프할 문자를 막는다.
+     */
+    public static String jsonArray(List<String> productIds) {
+        StringBuilder out = new StringBuilder("[");
+        for (int i = 0; i < productIds.size(); i++) {
+            out.append(i == 0 ? "" : ",").append('"').append(productIds.get(i)).append('"');
+        }
+        return out.append(']').toString();
     }
 
     private static String sha256(String value) {

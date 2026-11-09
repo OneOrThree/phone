@@ -25,4 +25,15 @@ class CustomizationRewardPoolDigestTest {
                 .digest(canonical.getBytes(StandardCharsets.UTF_8))))
                 .isEqualTo("e7c9781ed14a0461f6b88b1a70438621e457e6f42ae1fd98709832e728fe66b1");
     }
+
+    @Test
+    @DisplayName("DB 에 넣는 값은 객체가 아니라 배열이다 — canonical 은 지문 입력일 뿐이다")
+    void storedJsonIsAnArrayWhileCanonicalIsAnObject() {
+        List<String> ids = List.of("cust.head.bun", "cust.neck.bell");
+
+        assertThat(CustomizationRewardPoolAdminService.jsonArray(ids))
+                .isEqualTo("[\"cust.head.bun\",\"cust.neck.bell\"]");
+        assertThat(CustomizationRewardPoolAdminService.jsonArray(List.of())).isEqualTo("[]");
+        assertThat(CustomizationRewardPoolAdminService.canonical(ids)).startsWith("{\"productIds\":[");
+    }
 }

@@ -322,7 +322,21 @@ class CustomizationRewardPoolAdminIntegrationTest {
                 .andExpect(status().isOk()).andExpect(jsonPath("$.current.revision").value(3))
                 .andExpect(jsonPath("$.current.productIds.length()").value(next.size()))
                 .andExpect(jsonPath("$.history.length()").value(1))
-                .andExpect(jsonPath("$.history[0].publicationId").value(publicationId.toString()));
+                .andExpect(jsonPath("$.history[0].publicationId").value(publicationId.toString()))
+                .andExpect(jsonPath("$.history[0].productIds.length()").value(next.size()))
+                .andExpect(jsonPath("$.history[0].productIds[0]").value(next.get(0)))
+                .andExpect(jsonPath("$.history[0].previousProductIds.length()").value(next.size() + 1));
+        // 같은 publicationId 재시도는 200 이고 본문이 같다 — 저장된 배열을 다시 읽는다.
+        String first = mvc.perform(put(BASE + "/reward-pool/publications/{id}", publicationId)
+                        .header("Authorization", MEMBER_1).contentType("application/json")
+                        .content(publishJson(approvalId, 2, next, digest(next))))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.revision").value(3))
+                .andExpect(jsonPath("$.productIds.length()").value(next.size()))
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+        assertThat(first).contains(removed);
+        assertThat(jdbc.queryForObject("SELECT jsonb_typeof(after_product_ids) FROM"
+                + " customization_reward_pool_publications WHERE publication_id=?", String.class, publicationId))
+                .isEqualTo("array");
 
         // 뺐던 상품을 다시 넣는다 — 그 상품이 들어 있는 가장 큰 revision(2)의 행이 복사된다.
         UUID back = UUID.randomUUID();
