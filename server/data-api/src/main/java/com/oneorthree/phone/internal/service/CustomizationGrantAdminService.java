@@ -39,7 +39,7 @@ import java.util.regex.Pattern;
 
 /**
  * 꾸미기 지급: 미리 계산(저장 없음) → 승인 → 다른 운영자의 실행. 집중 정책 승인·발행({@link FocusPolicyAdminService})과
- * 같은 멱등 규칙을 따르되, 발행 대신 사용자 수만큼 보유 행을 넣는 실행이 200명 단위 트랜잭션으로 나뉜다.
+ * 같은 멱등 규칙을 따르되, 발행 대신 사용자 수만큼 보유 행을 넣는 실행이 사용자 한 명 단위 트랜잭션으로 나뉜다.
  *
  * <p>닉네임은 어디에도 저장하지 않는다 — 탈퇴하면 닉네임이 지워져야 하므로 승인에는 사용자 UUID 스냅샷만 남긴다.
  * 실행은 사용자 UUID 오름차순 커서로 진행하고, 요청 하나가 약 {@code budget-millis} 만 처리한 뒤 RUNNING 으로 돌려준다.
@@ -57,7 +57,6 @@ public class CustomizationGrantAdminService {
     private static final String MODE_USERS = "USERS";
     private static final String MODE_ALL = "ALL";
     private static final int MAX_NICKNAMES = 500;
-    private static final int CHUNK_SIZE = 200;
     private static final int MAX_REASON = 200;
     private static final Pattern UUID_TEXT = Pattern.compile(
             "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}");
@@ -75,7 +74,7 @@ public class CustomizationGrantAdminService {
     private final PlatformTransactionManager transactionManager;
     private final Clock clock;
 
-    /** 한 요청이 chunk 를 이어 도는 시간 예산. 적어도 chunk 하나는 처리하므로 0 이어도 진행은 멈추지 않는다. */
+    /** 한 요청이 사용자 단위 처리를 이어 도는 시간 예산. 적어도 한 명(또는 완료 확인 한 번)은 처리하므로 0 이어도 진행은 멈추지 않는다. */
     @Value("${internal.customization-grant.budget-millis:8000}")
     private long budgetMillis = 8000;
 
@@ -221,7 +220,7 @@ public class CustomizationGrantAdminService {
         transaction.executeWithoutResult(status -> begin(grantId, request, actor, requestDigest));
         Instant deadline = clock.instant().plusMillis(budgetMillis);
         while (true) {
-            Boolean done = transaction.execute(status -> runChunk(grantId));
+            Boolean done = transaction.execute(status -> runStep(grantId));
             if (Boolean.TRUE.equals(done) || !clock.instant().isBefore(deadline)) {
                 break;
             }
@@ -276,8 +275,19 @@ public class CustomizationGrantAdminService {
         jdbc.update("UPDATE customization_grant_executions SET target_count=? WHERE grant_id=?", target, grantId);
     }
 
-    /** 최대 200명을 한 트랜잭션으로 처리한다. 끝났으면 true. 이 트랜잭션이 실행 행을 쥐어 같은 grantId 의 동시 호출을 줄 세운다. */
-    private boolean runChunk(UUID grantId) {
+    /**
+     * 사용자 <b>한 명</b>을 한 트랜잭션으로 처리한다. 끝났으면 true. 이 트랜잭션이 실행 행을 쥐어 같은 grantId 의
+     * 동시 호출을 줄 세운다.
+     *
+     * <p>한 명씩 끊는 이유: 여러 명을 한 트랜잭션에 묶으면 앞 사용자 X 의 공유 잠금과 X 의 인벤토리
+     * aggregate_versions 행을 쥔 채 다음 사용자 Y 의 공유 잠금을 기다린다. Y 의 탈퇴 트랜잭션은 Y 를 배타로 쥐고
+     * 섬 잠금을 기다리고, 섬 잠금을 쥔 X 의 같은 섬 동료 집중 정산은 X 의 인벤토리 행을 기다리면 순환(지급→탈퇴→정산→지급)
+     * 이 닫힌다. 한 명씩 커밋하면 지급은 다른 사용자의 잠금을 기다리며 자기 잠금을 쥐고 있는 일이 없다.
+     *
+     * <p>잠금 순서: 실행 행 → 사용자(공유) → 보유 행 삽입 → 인벤토리 사건(aggregate_versions).
+     * 실행 행이 생긴 승인은 {@code revoke} 가 막으므로(실행에 쓴 승인은 409) 여기서 revoked_at 을 다시 보지 않는다.
+     */
+    private boolean runStep(UUID grantId) {
         RunRow run = jdbc.queryForObject("SELECT e.status,e.cursor_user_id,e.grant_id,a.product_id,a.mode,"
                 + "a.approval_id FROM customization_grant_executions e JOIN customization_grant_approvals a"
                 + " ON a.approval_id=e.approval_id WHERE e.grant_id=? FOR UPDATE OF e",
@@ -287,40 +297,35 @@ public class CustomizationGrantAdminService {
         if (run == null || "COMPLETED".equals(run.status())) {
             return true;
         }
-        List<UUID> batch = nextBatch(run);
+        List<UUID> next = nextTarget(run);
         Instant now = clock.instant().truncatedTo(ChronoUnit.MICROS);
-        int granted = 0;
-        int already = 0;
-        int skipped = 0;
-        for (UUID userId : batch) {
-            if (userQueryService.findActiveForShare(userId).isEmpty()) {
-                skipped++;
-                continue;
-            }
-            int inserted = ownedProducts.insertUserProductIfAbsent(UuidV7.next(), userId, run.productId(),
-                    "admin-grant:" + grantId, now);
-            if (inserted == 1) {
-                granted++;
-                appearanceEvents.inventoryChanged(CatalogAsset.OWNER_USER, userId, userId, run.productId());
-            } else {
-                already++;
-            }
+        if (next.isEmpty()) {
+            jdbc.update("UPDATE customization_grant_executions SET status='COMPLETED',completed_at=?"
+                    + " WHERE grant_id=?", Timestamp.from(now), grantId);
+            return true;
         }
-        boolean done = batch.size() < CHUNK_SIZE;
-        UUID cursor = batch.isEmpty() ? run.cursor() : batch.get(batch.size() - 1);
-        // 대상이 시작 때 얼려진 표(customization_grant_targets)라서, 중간에 탈퇴한 사람도 표에 남아 자기 chunk 에서
+        UUID userId = next.get(0);
+        // 대상이 시작 때 얼려진 표(customization_grant_targets)라서, 중간에 탈퇴한 사람도 표에 남아 자기 차례에
         // findActiveForShare 가 비면 건너뜀으로 센다. 그래서 받음+이미 가짐+건너뜀 = 대상 수가 정확히 맞는다.
-        jdbc.update("UPDATE customization_grant_executions SET cursor_user_id=?,granted_count=granted_count+?,"
-                        + "already_owned_count=already_owned_count+?,skipped_count=skipped_count+?,"
-                        + "status=?,completed_at=? WHERE grant_id=?", cursor, granted, already, skipped,
-                done ? "COMPLETED" : "RUNNING", done ? Timestamp.from(now) : null, grantId);
-        return done;
+        String counter;
+        if (userQueryService.findActiveForShare(userId).isEmpty()) {
+            counter = "skipped_count";
+        } else if (ownedProducts.insertUserProductIfAbsent(UuidV7.next(), userId, run.productId(),
+                "admin-grant:" + grantId, now) == 1) {
+            counter = "granted_count";
+            appearanceEvents.inventoryChanged(CatalogAsset.OWNER_USER, userId, userId, run.productId());
+        } else {
+            counter = "already_owned_count";
+        }
+        jdbc.update("UPDATE customization_grant_executions SET cursor_user_id=?," + counter + "=" + counter
+                + "+1 WHERE grant_id=?", userId, grantId);
+        return false;
     }
 
-    /** 얼려 둔 대상 표를 사용자 UUID 순서(Postgres uuid 순서 = 커서 순서)로 200명씩 읽는다. */
-    private List<UUID> nextBatch(RunRow run) {
+    /** 얼려 둔 대상 표에서 커서 다음 사용자 한 명(Postgres uuid 순서 = 커서 순서). 없으면 빈 목록. */
+    private List<UUID> nextTarget(RunRow run) {
         String sql = "SELECT user_id FROM customization_grant_targets WHERE grant_id=?"
-                + (run.cursor() == null ? "" : " AND user_id > ?") + " ORDER BY user_id LIMIT " + CHUNK_SIZE;
+                + (run.cursor() == null ? "" : " AND user_id > ?") + " ORDER BY user_id LIMIT 1";
         return run.cursor() == null
                 ? jdbc.queryForList(sql, UUID.class, run.grantId())
                 : jdbc.queryForList(sql, UUID.class, run.grantId(), run.cursor());

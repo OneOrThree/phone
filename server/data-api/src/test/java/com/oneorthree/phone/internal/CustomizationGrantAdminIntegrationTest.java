@@ -21,6 +21,8 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.util.AopTestUtils;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -53,7 +55,6 @@ class CustomizationGrantAdminIntegrationTest {
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
         OutboxTestPostgres.applyProductionMigrationWiring(registry);
-        registry.add("internal.customization-grant.budget-millis", () -> "0");
         String[] routes = {
             "POST /internal/admin/customization/grants/previews",
             "POST /internal/admin/customization/grants/approvals/*",
@@ -82,11 +83,13 @@ class CustomizationGrantAdminIntegrationTest {
     @BeforeEach
     void reset() {
         jdbc.execute("DELETE FROM customization_grant_targets");
+        jdbc.execute("DELETE FROM customization_grant_targets");
         jdbc.execute("DELETE FROM customization_grant_executions");
         jdbc.execute("DELETE FROM customization_grant_approvals");
         jdbc.execute("DELETE FROM owned_products WHERE product_id LIKE 'gt.%'");
         jdbc.execute("DELETE FROM owned_products WHERE user_id IN (SELECT id FROM users WHERE nickname LIKE 'gt-%')");
         jdbc.execute("DELETE FROM users WHERE nickname LIKE 'gt-%'");
+        setBudgetMillis(8000);
         product(PRODUCT, null);
         product(RETIRED, Timestamp.from(Instant.parse("2026-01-01T00:00:00Z")));
     }
@@ -251,6 +254,7 @@ class CustomizationGrantAdminIntegrationTest {
 
     @Test
     void 전체_지급은_450명을_여러_번_나눠_중복과_누락없이_넣고_시작_뒤_가입자는_받지_않는다() {
+        setBudgetMillis(20); // 사용자 한 명씩 처리하므로 요청 하나는 몇 명만 돌고 RUNNING 으로 돌아온다
         List<UUID> all = new ArrayList<>();
         for (int i = 0; i < 450; i++) {
             all.add(newUser(String.format("gt-bulk-%03d", i)));
@@ -280,10 +284,10 @@ class CustomizationGrantAdminIntegrationTest {
         while (current.status().equals("RUNNING")) {
             current = grants.execute(grantId, request, "member-1");
             calls++;
-            assertThat(calls).isLessThan(50);
+            assertThat(calls).isLessThan(5000);
         }
 
-        assertThat(calls).isGreaterThanOrEqualTo((target + 199) / 200); // 200명 단위로 끊긴다
+        assertThat(calls).isGreaterThanOrEqualTo(2); // 한 명씩 처리해 예산 안에 다 끝나지 않는다
         assertThat(current.targetCount()).isEqualTo(target);
         assertThat(current.grantedCount() + current.alreadyOwnedCount() + current.skippedCount()).isEqualTo(target);
         assertThat(current.alreadyOwnedCount()).isEqualTo(5);
@@ -302,6 +306,7 @@ class CustomizationGrantAdminIntegrationTest {
 
     @Test
     void 전체_지급_중_chunk_사이에_탈퇴한_대상도_건너뜀으로_세어_합계가_대상과_같다() {
+        setBudgetMillis(20);
         List<UUID> all = new ArrayList<>();
         for (int i = 0; i < 450; i++) {
             all.add(newUser(String.format("gt-wd-%03d", i)));
@@ -323,7 +328,7 @@ class CustomizationGrantAdminIntegrationTest {
         int calls = 1;
         while (current.status().equals("RUNNING")) {
             current = grants.execute(grantId, request, "member-1");
-            assertThat(++calls).isLessThan(50);
+            assertThat(++calls).isLessThan(5000);
         }
 
         assertThat(current.skippedCount()).isEqualTo(1);
@@ -348,6 +353,12 @@ class CustomizationGrantAdminIntegrationTest {
     }
 
     // ---------------------------------------------------------------- 픽스처
+
+    /** 시간 예산을 시험이 바꾼다. 서비스는 프록시라 실제 대상 객체의 필드를 바꾼다. */
+    private void setBudgetMillis(long millis) {
+        Object target = AopTestUtils.getUltimateTargetObject(grants);
+        ReflectionTestUtils.setField(target, "budgetMillis", millis);
+    }
 
     private void product(String productId, Timestamp retiredAt) {
         jdbc.update("INSERT INTO catalog_assets(product_id,title,kind,owner_type) VALUES(?,?, 'head','user')"
