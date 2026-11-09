@@ -292,6 +292,38 @@ class CustomizationGrantAdminIntegrationTest {
     }
 
     @Test
+    void 전체_지급_중_chunk_사이에_탈퇴한_대상도_건너뜀으로_세어_합계가_대상과_같다() {
+        List<UUID> all = new ArrayList<>();
+        for (int i = 0; i < 450; i++) {
+            all.add(newUser(String.format("gt-wd-%03d", i)));
+        }
+        Preview preview = grants.preview(new PreviewRequest(PRODUCT, "ALL", List.of(), REASON));
+        UUID approvalId = UUID.randomUUID();
+        grants.approve(approvalId, new ApproveRequest(PRODUCT, "ALL", List.of(), REASON, preview.digest()), "member-2");
+        UUID grantId = UUID.randomUUID();
+        ExecuteRequest request = new ExecuteRequest(approvalId, preview.digest());
+
+        Execution first = grants.execute(grantId, request, "member-1");
+        assertThat(first.status()).isEqualTo("RUNNING");
+        // 아직 처리되지 않은 사용자(첫 chunk 의 마지막 id 보다 뒤) 한 명이 chunk 사이에 탈퇴한다.
+        UUID leaver = jdbc.queryForObject("SELECT id FROM users WHERE nickname LIKE 'gt-wd-%' AND id >"
+                + " (SELECT cursor_user_id FROM customization_grant_executions WHERE grant_id=?)"
+                + " ORDER BY id LIMIT 1", UUID.class, grantId);
+        jdbc.update("UPDATE users SET is_deleted=true, nickname=NULL WHERE id=?", leaver);
+        Execution current = first;
+        int calls = 1;
+        while (current.status().equals("RUNNING")) {
+            current = grants.execute(grantId, request, "member-1");
+            assertThat(++calls).isLessThan(50);
+        }
+
+        assertThat(current.skippedCount()).isEqualTo(1);
+        assertThat(current.grantedCount() + current.alreadyOwnedCount() + current.skippedCount())
+                .isEqualTo(current.targetCount());
+        assertThat(owned(leaver)).isFalse();
+    }
+
+    @Test
     void business_토큰은_403이고_console_토큰은_최근_실행_목록을_읽는다() throws Exception {
         mvc.perform(post("/internal/admin/customization/grants/previews")
                         .header("Authorization", "Bearer grant-test-business")

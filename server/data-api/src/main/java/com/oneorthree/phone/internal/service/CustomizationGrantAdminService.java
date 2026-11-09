@@ -297,10 +297,17 @@ public class CustomizationGrantAdminService {
         }
         boolean done = batch.size() < CHUNK_SIZE;
         UUID cursor = batch.isEmpty() ? run.cursor() : batch.get(batch.size() - 1);
-        jdbc.update("UPDATE customization_grant_executions SET cursor_user_id=?,granted_count=granted_count+?,"
-                        + "already_owned_count=already_owned_count+?,skipped_count=skipped_count+?,"
-                        + "status=?,completed_at=? WHERE grant_id=?", cursor, granted, already, skipped,
-                done ? "COMPLETED" : "RUNNING", done ? Timestamp.from(now) : null, grantId);
+        // 끝나는 chunk 에서는 건너뛴 수를 «대상 - 받음 - 이미 가짐» 으로 다시 정한다. 대상은 시작 때
+        // (created_at <= started_at 이고 활성)로 고정되고 이후 가입자는 들어오지 않으며, 탈퇴는 되돌릴 수 없다.
+        // 그래서 시작 때 대상이었는데 자기 chunk 가 돌 때 이미 탈퇴해 커서 조회에서 사라진 사람도 남김없이
+        // 건너뜀으로 센다(chunk 안에서 센 건너뜀은 이 값에 이미 들어 있다). USERS 는 스냅샷을 그대로 돌아
+        // 탈퇴자도 chunk 안에서 건너뜀으로 세므로 이 식과 같은 값이 되어 결과가 바뀌지 않는다.
+        jdbc.update("UPDATE customization_grant_executions SET cursor_user_id=?,"
+                        + "skipped_count=CASE WHEN ? THEN GREATEST(target_count - (granted_count + ?)"
+                        + " - (already_owned_count + ?), 0) ELSE skipped_count + ? END,"
+                        + "granted_count=granted_count+?,already_owned_count=already_owned_count+?,"
+                        + "status=?,completed_at=? WHERE grant_id=?", cursor, done, granted, already, skipped,
+                granted, already, done ? "COMPLETED" : "RUNNING", done ? Timestamp.from(now) : null, grantId);
         return done;
     }
 
