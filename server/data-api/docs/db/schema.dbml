@@ -507,7 +507,7 @@ Table customization_grant_approvals [note: 'V13: 꾸미기 지급 승인. 닉네
   revoked_by varchar(30)
 }
 
-Table customization_grant_executions [note: 'V13: 꾸미기 지급 실행 원장. cursor_user_id 로 200명 단위 이어 하기, 승인자와 실행자는 달라야 한다'] {
+Table customization_grant_executions [note: 'V13: 꾸미기 지급 실행 원장. cursor_user_id 로 사용자 1명 단위 이어 하기, 승인자와 실행자는 달라야 한다'] {
   grant_id uuid [pk]
   approval_id uuid [not null, unique]
   request_digest char(64) [not null]
@@ -526,7 +526,7 @@ Table customization_grant_executions [note: 'V13: 꾸미기 지급 실행 원장
 Ref: customization_grant_approvals.product_id > catalog_assets.product_id
 Ref: customization_grant_executions.approval_id > customization_grant_approvals.approval_id
 
-Table customization_grant_targets [note: 'V13: 꾸미기 지급 실행 대상 스냅샷. begin 트랜잭션에서 얼려 건수와 모든 chunk 가 같은 대상을 읽는다. 사용자 UUID 만 둔다'] {
+Table customization_grant_targets [note: 'V13: 꾸미기 지급 실행 대상 스냅샷. begin 트랜잭션에서 얼려 건수와 모든 처리 단계가 같은 대상을 읽는다. 사용자 UUID 만 둔다'] {
   grant_id uuid [not null, note: 'FK → customization_grant_executions.grant_id ON DELETE RESTRICT']
   user_id uuid [not null]
 

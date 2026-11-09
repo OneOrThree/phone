@@ -259,7 +259,7 @@ public class CustomizationGrantAdminService {
                         + "status,target_count,started_at) VALUES(?,?,?,?,?,'RUNNING',0,?)",
                 grantId, request.approvalId(), requestDigest, approval.approvedBy(), actor,
                 Timestamp.from(startedAt));
-        // 대상은 이 트랜잭션에서 한 번에 얼려 둔다 — 건수와 모든 chunk 가 같은 스냅샷을 읽는다. created_at 으로는
+        // 대상은 이 트랜잭션에서 한 번에 얼려 둔다 — 건수와 모든 처리 단계가 같은 스냅샷을 읽는다. created_at 으로는
         // 가입 트랜잭션이 시작 시각 전에 행을 넣고 늦게 커밋하는 경우를 막지 못하므로, «시작 때 활성» 은 이 문장의
         // 스냅샷이 정한다.
         int target;

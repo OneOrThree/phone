@@ -21,7 +21,7 @@ CREATE TABLE customization_grant_approvals (
 );
 
 -- 실행 원장. 한 승인은 한 번만 실행에 쓰인다(approval_id UNIQUE).
--- 승인자 ≠ 실행자는 서비스와 DB 가 둘 다 막는다. cursor_user_id 는 사용자 UUID 오름차순으로 200명씩 처리한
+-- 승인자 ≠ 실행자는 서비스와 DB 가 둘 다 막는다. cursor_user_id 는 사용자 UUID 오름차순으로 한 명씩(한 명당 트랜잭션 하나) 처리한
 -- 마지막 자리라서, 요청이 중간에 끊겨도 같은 grant_id 로 이어서 한다(중복·누락 없이).
 CREATE TABLE customization_grant_executions (
     grant_id uuid PRIMARY KEY,
@@ -44,7 +44,7 @@ CREATE TABLE customization_grant_executions (
     CONSTRAINT customization_grant_exec_completed_ck CHECK ((status = 'COMPLETED') = (completed_at IS NOT NULL))
 );
 
--- 실행 대상 스냅샷. begin 트랜잭션에서 실행 행과 함께 한 번에 얼려, 건수와 모든 chunk 가 같은 대상을 읽는다
+-- 실행 대상 스냅샷. begin 트랜잭션에서 실행 행과 함께 한 번에 얼려, 건수와 모든 처리 단계가 같은 대상을 읽는다
 -- (created_at 만으로는 시작 전에 INSERT 하고 늦게 커밋하는 가입을 가를 수 없다). 사용자 UUID 만 두고 닉네임 등
 -- PII 는 두지 않는다. 지급 원장으로 보존하므로 실행 행을 지우지 못하게 RESTRICT 다.
 CREATE TABLE customization_grant_targets (
