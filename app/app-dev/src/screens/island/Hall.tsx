@@ -499,12 +499,16 @@ export function Hall({ e }: ScreenProps) {
             justifyContent: 'center',
             paddingLeft: land ? over : 31,
             paddingRight: land ? 75 : 31,
+            paddingTop: L.insets.top + semanticTokens.spacing.control,
+            paddingBottom: L.insets.bottom + semanticTokens.spacing.control,
           },
         ]}
       >
         <View
+          testID="hall-dialog"
           accessibilityViewIsModal
           style={{
+            maxHeight: H - L.insets.top - L.insets.bottom - 2 * semanticTokens.spacing.control,
             gap: land ? 7 : 11,
             paddingTop: land ? 16 : 22,
             paddingHorizontal: land ? 18 : 19,
@@ -516,32 +520,39 @@ export function Hall({ e }: ScreenProps) {
             boxShadow: '0px 14px 34px rgba(45, 33, 27, 0.5)',
           }}
         >
-          <T style={g(21, 33.6, { color: CARD_INK, fontWeight: '700' })}>{dialog.title}</T>
-          {!!dialog.text && (
-            <T
-              style={g(land ? 14 : 15, land ? 21.7 : 23.25, {
-                color: MUTED,
-                ...web({ wordBreak: 'keep-all' }),
-              })}
-            >
-              {dialog.text}
-            </T>
-          )}
-          {dialog.body}
-          {!!dialog.detail && (
-            <View
-              style={{
-                padding: land ? 8 : 11,
-                borderWidth: 1,
-                borderColor: '#d1b995',
-                borderRadius: 9,
-                backgroundColor: '#fffdf8',
-              }}
-            >
-              <T style={g(14, 20.3, { color: CARD_INK })}>{dialog.detail}</T>
-            </View>
-          )}
-          <View style={{ flexDirection: 'row', gap: 8, marginTop: 3 }}>
+          <ScrollView
+            testID="hall-dialog-content"
+            style={{ flexShrink: 1 }}
+            contentContainerStyle={{ gap: land ? 7 : 11 }}
+            keyboardShouldPersistTaps="handled"
+          >
+            <T style={g(21, 33.6, { color: CARD_INK, fontWeight: '700' })}>{dialog.title}</T>
+            {!!dialog.text && (
+              <T
+                style={g(land ? 14 : 15, land ? 21.7 : 23.25, {
+                  color: MUTED,
+                  ...web({ wordBreak: 'keep-all' }),
+                })}
+              >
+                {dialog.text}
+              </T>
+            )}
+            {dialog.body}
+            {!!dialog.detail && (
+              <View
+                style={{
+                  padding: land ? 8 : 11,
+                  borderWidth: 1,
+                  borderColor: '#d1b995',
+                  borderRadius: 9,
+                  backgroundColor: '#fffdf8',
+                }}
+              >
+                <T style={g(14, 20.3, { color: CARD_INK })}>{dialog.detail}</T>
+              </View>
+            )}
+          </ScrollView>
+          <View style={{ flexDirection: 'row', flexShrink: 0, gap: 8, marginTop: 3 }}>
             {(dialog.ok ? [false, true] : [false]).map((ok) => (
               <Pressable
                 key={String(ok)}
