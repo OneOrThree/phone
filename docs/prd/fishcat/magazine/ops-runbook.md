@@ -189,7 +189,7 @@ COMMIT;
 
 07시 발행 뒤 10분 틱마다 최근 7호 중 `magazine_issues.notified_at IS NULL`이고 발행일 다음 날 07시 전인 호를 정식 계정 전원(게스트·탈퇴 제외)에게 펼친다. `MagazinePublishScheduler`가 `MagazineIssueNotifier`를 호출하고, Data는 사용자별 `MAGAZINE_PUBLISHED` 사건을 outbox의 Kafka 대상으로 적는다. Relay가 `notification-events`로 전달하면 Notification이 소비해 `deliveries`에 적재하고 발송한다. 펼치기가 전부 끝나면 `notified_at`을 확정하고, 확정된 호는 다시 펼치지 않는다. 앱 실수신은 배포 빌드·FCM 자격과 발송 상태를 함께 확인한다.
 
-경로를 열려면 Data의 `OUTBOX_RELAY_ENABLED=true`, Notification의 `NOTIFICATION_KAFKA_ENABLED=true`·`NOTIFICATION_SCHEDULING_ENABLED=true`, 알림 DB의 `dispatch_control.enabled=true`가 모두 필요하다. 실제 발송에는 등록부의 `delivery-dispatch` job 활성화와 FCM 자격도 필요하다([알림 서버 운영 절차](../../../../server/notification/README.md#dev-발송-게이트)). 운영의 실제 설정값은 배포 환경에서 확인한다. `OUTBOX_RELAY_REALTIME_KAFKA_ENABLED`는 잡지 알림과 무관하다.
+경로를 열려면 Data의 `OUTBOX_RELAY_ENABLED=true`, Notification의 `NOTIFICATION_KAFKA_ENABLED=true`·`NOTIFICATION_SCHEDULING_ENABLED=true`, 알림 DB의 `dispatch_control.enabled=true`가 모두 필요하다. 앞의 세 스위치는 2026-11-09(GROMO-2822)부터 배포 프로필 기본값이 `true`라서, env 에 `false`를 명시하지 않는 한 켜져 있다. 실제 발송에는 등록부의 `delivery-dispatch` job 활성화와 FCM 자격도 필요하다([알림 서버 운영 절차](../../../../server/notification/README.md#dev-발송-게이트)). 운영의 실제 설정값은 배포 환경에서 확인한다. `OUTBOX_RELAY_REALTIME_KAFKA_ENABLED`는 잡지 알림과 무관하다.
 
 **로그** — `고양이 잡지 알림` 접두로 찾는다.
 
