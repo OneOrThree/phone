@@ -103,12 +103,12 @@ cd server/notification
 
 ### 수신 · 발송 활성화 상태
 
-[`application.yml`](src/main/resources/application.yml)의 기본값은 다음과 같습니다.
+[`application.yml`](src/main/resources/application.yml)의 기본값은 다음과 같습니다. dev·prod 프로필(`application-dev.yml`·`application-prod.yml`)은 2026-11-09(GROMO-2822)부터 Kafka 수신과 예약 작업을 기본으로 켭니다. 끄려면 env 에 `false` 를 명시합니다.
 
 | 설정 | 기본값 | 의미 |
 | --- | --- | --- |
-| `NOTIFICATION_KAFKA_ENABLED` | `false` | Kafka 소비자 활성화 여부 |
-| `NOTIFICATION_SCHEDULING_ENABLED` | `false` | 예약 작업 활성화 여부 |
+| `NOTIFICATION_KAFKA_ENABLED` | `false` (dev·prod 프로필 `true`) | Kafka 소비자 활성화 여부 |
+| `NOTIFICATION_SCHEDULING_ENABLED` | `false` (dev·prod 프로필 `true`) | 예약 작업 활성화 여부 |
 | `NOTIFICATION_GENERATION_REQUIRED` | `false` | 세대 정보 필수 여부 |
 | `NOTIFICATION_LEGACY_DEVICE_REGISTRATION` | `true` | 기존 기기 등록 호환 |
 
@@ -148,7 +148,7 @@ V13 뒤에 이 서비스를 이전 이미지로 되돌리면 Flyway 기본값(�
 
 dev는 2026-10-27부터, 운영은 2026-10-30부터 발송 게이트를 열어 둡니다. V17 이후 새 DB는 게이트가 열린 상태로 시작합니다. 기존 DB에서 명시적으로 닫은 게이트는 재배포나 V17 적용으로 다시 열리지 않습니다. 게이트 상태와 예약 잡·스케줄러 설정은 별개이므로 새 환경이나 의도적으로 닫은 환경은 다음 순서로 확인합니다.
 
-1. Secrets Manager `gromo/dev/env`에 `NOTIFICATION_SCHEDULING_ENABLED=true`를 두고 `ops-redeploy.dev`로 notification을 재기동합니다. 실발송에는 `FCM_PROJECT_ID`(dev는 `catus-dev`)와 FCM 서비스 계정 자격이, 사건이 들어오려면 `NOTIFICATION_KAFKA_ENABLED=true`가 있어야 합니다. 프로젝트가 앱과 어긋나면 열자마자 [FCM 프로젝트 불일치](#fcm-프로젝트-불일치sender_id_mismatch) 증상이 납니다.
+1. dev·prod 프로필은 예약 작업과 Kafka 수신을 기본으로 켭니다(GROMO-2822). Secrets Manager `gromo/dev/env`에 `NOTIFICATION_SCHEDULING_ENABLED=false`가 남아 있지 않은지 확인하고 `ops-redeploy.dev`로 notification을 재기동합니다. 실발송에는 `FCM_PROJECT_ID`(dev는 `catus-dev`)와 FCM 서비스 계정 자격이, 사건이 들어오려면 `NOTIFICATION_KAFKA_ENABLED=true`가 있어야 합니다. 프로젝트가 앱과 어긋나면 열자마자 [FCM 프로젝트 불일치](#fcm-프로젝트-불일치sender_id_mismatch) 증상이 납니다.
 2. 열기 전 대기 발송을 `GET /internal/admin/deliveries?status=PENDING`·`status=DEFERRED`로 확인합니다. 쌓인 발송은 열자마자 한꺼번에 나갑니다.
 3. `PUT /internal/admin/jobs/delivery-dispatch`로 잡을 켭니다. PUT은 전체 수정이라 `GET /internal/admin/jobs`의 `delivery-dispatch` 항목에서 `cron`·`config`를 그대로 두고 `enabled`만 `true`로 바꿔 보냅니다(예: `{"enabled":true,"cron":"0/5 * * * * *","config":{}}`).
 4. `POST /internal/admin/dispatch/open`을 보냅니다.
