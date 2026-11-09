@@ -20,7 +20,13 @@ export function VisitIsland({ e, onReturnFromVisit }: any) {
   const join = useVisitorJoin(e, s, viewIsland(s, visit?.island.id ?? islandId), e.notify);
   // 섬장 인사말 말풍선(GROMO-2263) — 이번 방문(리듀서 visitGreeted)에 한 번만 띄운다. 게시판·낚시 구경에서 돌아와
   // 이 화면이 다시 마운트돼도 안 뜬다. 구서버는 greeting 이 없어 띄우지 않는다.
-  const greeting = visit?.island.greeting?.trim();
+  const rawGreeting = visit?.island.greeting?.trim();
+  const greeting =
+    rawGreeting && visit?.island.greetingIsDefault
+      ? t('islandVisit.defaultGreeting', {
+          name: visit.island.name,
+        })
+      : rawGreeting;
   const [greetingOpen, setGreetingOpen] = useState(false);
   useEffect(() => {
     if (!greeting || s.visitGreeted) return;

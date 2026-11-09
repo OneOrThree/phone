@@ -1,3 +1,4 @@
+import { t, useLocale } from '@/i18n';
 import React, { memo, useEffect, useRef } from 'react';
 import { Animated, StyleSheet, View, type ImageSourcePropType, type ViewStyle } from 'react-native';
 import { VillageNotificationBadge } from './VillageNotificationBadge';
@@ -50,6 +51,7 @@ export const LibraryMotion = memo(function LibraryMotionView({
   style?: ViewStyle;
   testID?: string;
 }) {
+  useLocale();
   const lastTrigger = useRef(trigger);
   const elapsed = useRef(new Animated.Value(0)).current;
   const steps = entryActive ? openSteps : closeSteps;
@@ -79,7 +81,11 @@ export const LibraryMotion = memo(function LibraryMotionView({
   }, [elapsed, entryActive, reduceMotion, showFrames, trigger]);
 
   const stateLabel =
-    state === 'new-quest' ? '새 퀘스트' : state === 'new-reading' ? '새 읽을거리' : null;
+    state === 'new-quest'
+      ? t('ui.village.newQuest')
+      : state === 'new-reading'
+        ? t('ui.village.newReading')
+        : null;
 
   return (
     <View
@@ -114,7 +120,7 @@ export const LibraryMotion = memo(function LibraryMotionView({
       {stateLabel && (
         <VillageNotificationBadge
           testID="library-motion-indicator"
-          accessibilityLabel={`${stateLabel}이 있습니다`}
+          accessibilityLabel={t('ui.village.available', { v0: stateLabel })}
           scale={indicatorScale}
           style={{ top: -4 * indicatorScale, left: 75 * indicatorScale }}
         />

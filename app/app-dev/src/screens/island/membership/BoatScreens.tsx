@@ -248,7 +248,7 @@ export function renderBoatScreens(context: ScreenContext) {
       <IslandSheet
         bg={accountBg}
         sign="island/whole"
-        title="내 메인 섬 변경하기"
+        title={t('islandPicker.mainTitle')}
         tall
         tight
         onBack={back}
@@ -256,7 +256,7 @@ export function renderBoatScreens(context: ScreenContext) {
       >
         <View style={{ gap: 5 }}>
           <Txt style={{ fontSize: 18, lineHeight: 25, fontWeight: '700' }}>
-            대표로 보여줄 섬을 골라 주세요
+            {t('ui.social.chooseMainIsland')}
           </Txt>
           <Txt kind="meta" style={{ fontSize: 12, lineHeight: 18, color: C.muted }}>
             {t('islandPicker.mainDescription')}
@@ -279,7 +279,12 @@ export function renderBoatScreens(context: ScreenContext) {
               <Pressable
                 key={candidate.id}
                 accessibilityRole="radio"
-                accessibilityLabel={`${candidate.name}, 주민 ${residentCount(candidate)}명, ${isHost(candidate) ? '내가 섬장' : '멤버'}${current ? ', 현재 메인 섬' : ''}`}
+                accessibilityLabel={t('ui.social.mainIslandA11y', {
+                  v0: candidate.name,
+                  v1: residentCount(candidate),
+                  v2: isHost(candidate) ? t('ui.social.iAmHost') : t('ui.social.member'),
+                  v3: current ? t('ui.social.currentMainSuffix') : '',
+                })}
                 accessibilityState={{ selected }}
                 onPress={() => setMainIslandPick(candidate.id)}
                 style={({ pressed }) => ({
@@ -311,7 +316,7 @@ export function renderBoatScreens(context: ScreenContext) {
                         }}
                       >
                         <Txt style={{ fontSize: 10, lineHeight: 14, fontWeight: '600' }}>
-                          현재 메인 섬
+                          {t('ui.social.currentMain')}
                         </Txt>
                       </View>
                     ) : (
@@ -324,13 +329,16 @@ export function renderBoatScreens(context: ScreenContext) {
                             color: '#9A4C3E',
                           }}
                         >
-                          선택됨
+                          {t('islandPicker.selected')}
                         </Txt>
                       )
                     )}
                   </View>
                   <Txt kind="meta" style={{ fontSize: 12, lineHeight: 18, color: C.muted }}>
-                    주민 {residentCount(candidate)}명 · {isHost(candidate) ? '내가 섬장' : '멤버'}
+                    {t('ui.social.residentsRole', {
+                      v0: residentCount(candidate),
+                      v1: isHost(candidate) ? t('ui.social.iAmHost') : t('ui.social.member'),
+                    })}
                   </Txt>
                 </View>
                 <MainIslandRadio selected={selected} />
@@ -342,12 +350,14 @@ export function renderBoatScreens(context: ScreenContext) {
           kind="meta"
           style={{ width: '100%', fontSize: 11, lineHeight: 17, textAlign: 'center' }}
         >
-          메인 섬을 바꿔도 현재 접속한 섬은 그대로예요.
+          {t('ui.social.mainIslandHint')}
         </Txt>
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={
-            selectedIsland ? `${selectedIsland.name}으로 변경하기` : '메인 섬 변경하기'
+            selectedIsland
+              ? t('ui.social.changeMain', { v0: selectedIsland.name })
+              : t('account.boat.changeMain')
           }
           accessibilityState={{ disabled: unchanged }}
           disabled={unchanged}
@@ -369,7 +379,9 @@ export function renderBoatScreens(context: ScreenContext) {
           })}
         >
           <Txt style={{ fontSize: 15, lineHeight: 22, fontWeight: '800' }}>
-            {selectedIsland ? `${selectedIsland.name}으로 변경하기` : '메인 섬 변경하기'}
+            {selectedIsland
+              ? t('ui.social.changeMain', { v0: selectedIsland.name })
+              : t('account.boat.changeMain')}
           </Txt>
         </Pressable>
       </IslandSheet>

@@ -17,6 +17,13 @@ export const formatNumber = (n: number) => n.toLocaleString(localeTag());
 export const formatDate = (d: Date, opts?: Intl.DateTimeFormatOptions) =>
   d.toLocaleDateString(localeTag(), opts);
 
+/** 집계가 정한 YYYY-MM-DD를 기기 시간대로 다시 이동시키지 않는다. */
+export const formatCalendarDate = (key: string, opts: Intl.DateTimeFormatOptions) =>
+  formatDate(new Date(`${key}T12:00:00Z`), { ...opts, timeZone: 'UTC' });
+
+export const weekdayNames = () =>
+  ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'].map((day) => t(`time.weekdays.${day}`));
+
 /** 내 고양이 이름표 — 닉네임이 비면 「나」/「Me」 (GROMO-2475) */
 export const ownCatName = (name: string) => name.trim() || t('focusFlow.common.me');
 
@@ -42,3 +49,7 @@ export const josa = (word: string, withFinal: string, without: string) => {
   const final = code >= 0 && code <= 11171 ? code % 28 : 0;
   return word + (final && !(without === '로' && final === 8) ? withFinal : without);
 };
+
+/** 번역된 문장의 고유명사에 한국어 조사만 필요할 때 사용한다. */
+export const localizedJosa = (word: string, withFinal: string, without: string) =>
+  getLocale() === 'ko' ? josa(word, withFinal, without) : word;

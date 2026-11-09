@@ -1,3 +1,4 @@
+import { t } from '@/i18n';
 import React, { Component, Suspense, lazy, type ComponentType, type ReactNode } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { Btn, Txt } from '@/design-system/patterns';
@@ -50,11 +51,9 @@ class LoadErrorBoundary extends Component<BoundaryProps, { failed: ScreenFailure
     return (
       <View style={styles.page} accessibilityRole="alert">
         <Txt style={styles.message}>
-          {this.state.failed === 'chunk'
-            ? '화면을 불러오지 못했어요. 연결을 확인하고 다시 불러와 주세요.'
-            : '화면을 여는 중에 문제가 생겼어요. 다시 불러와 주세요.'}
+          {this.state.failed === 'chunk' ? t('ui.misc.chunkFailed') : t('ui.misc.renderFailed')}
         </Txt>
-        <Btn title="다시 불러오기" onPress={this.props.reload} />
+        <Btn title={t('onboarding.joinIsland.reload')} onPress={this.props.reload} />
       </View>
     );
   }

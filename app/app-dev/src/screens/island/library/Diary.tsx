@@ -1,3 +1,4 @@
+import { t } from '@/i18n';
 import { CatAvatar } from '@/components/CatAvatar';
 import { appearanceOutfit } from '@/components/CatOutfitLayers';
 import ScreenTimeReportView from '@/components/ScreenTimeReportView';
@@ -45,9 +46,9 @@ export function Diary({ e, font }: { e: ScreenEnvironment; font?: string }) {
   const server = !!e.islands;
   const neighbors = e.detail === 'residents';
   const today = dateKey(e.now, false);
-  const [period, setPeriod] = useState<Period>(e.tab === 'screen' ? '일' : '주');
+  const [period, setPeriod] = useState<Period>(e.tab === 'screen' ? 'day' : 'week');
   const [offset, setOffset] = useState(0);
-  const [tab, setTab] = useState<'집중' | '폰 사용'>(e.tab === 'screen' ? '폰 사용' : '집중');
+  const [tab, setTab] = useState<'focus' | 'screen'>(e.tab === 'screen' ? 'screen' : 'focus');
   const [selected, setSelected] = useState(today);
   const [memberId, setMemberId] = useState<string | null>(e.body || null);
   const scroll = useRef<ScrollView>(null);
@@ -64,11 +65,11 @@ export function Diary({ e, font }: { e: ScreenEnvironment; font?: string }) {
   const srv = useLibraryDiary({
     active: server,
     nb: neighbors,
-    page: tab === '폰 사용' ? 1 : 0,
+    page: tab === 'screen' ? 1 : 0,
     period,
     offset,
-    combined: neighbors || period === '월',
-    focusSummaryOnly: !neighbors && period === '월',
+    combined: neighbors || period === 'month',
+    focusSummaryOnly: !neighbors && period === 'month',
     // 주간이 월~일이라(GROMO-2488) `/screens/library` 의 이번 주 조각(일~토)은 재사용하지 않고 늘 범위를 준다
     rangeOverride: range,
     islandKey: island.id,
@@ -91,10 +92,10 @@ export function Diary({ e, font }: { e: ScreenEnvironment; font?: string }) {
         ? today
         : range.to;
   const selectedDayStats = useLibraryDiary({
-    active: server && !neighbors && period === '월',
+    active: server && !neighbors && period === 'month',
     nb: false,
     page: 0,
-    period: '일',
+    period: 'day',
     offset: 0,
     rangeOverride: { from: selectedDate, to: selectedDate },
     islandKey: island.id,
@@ -109,7 +110,7 @@ export function Diary({ e, font }: { e: ScreenEnvironment; font?: string }) {
         )
         .map((m) => ({
           id: m.userId,
-          name: m.name ?? '주민',
+          name: m.name ?? t('onboarding.residentFallbackName'),
           color: m.catColor ?? null,
           outfit: m.catColor ? appearanceOutfit(m.appearance) : undefined,
         }))
@@ -122,7 +123,7 @@ export function Diary({ e, font }: { e: ScreenEnvironment; font?: string }) {
     ? (localResident?.records ?? []).filter((r) => r.islandId === island.id)
     : localRecords;
   const records: DiaryRecord[] = server
-    ? (period === '월'
+    ? (period === 'month'
         ? (selectedDayStats.focusMe?.records ?? [])
         : (srv.focusMe?.records ?? [])
       ).map((r) => ({
@@ -179,7 +180,7 @@ export function Diary({ e, font }: { e: ScreenEnvironment; font?: string }) {
   const dailyFish = server
     ? srv.focusMe?.earnedFish
     : recordsOnDay(localSource, range.from, false).reduce((sum, r) => sum + (r.fish ?? 0), 0);
-  const activeDay = period === '월' ? selectedDate : range.from;
+  const activeDay = period === 'month' ? selectedDate : range.from;
   // 서버 records.activeSeconds는 요청 날짜와 겹친 기여분이다. 완료 날짜로 재필터하지 않는다.
   const dayRecords = server ? records : recordsOnDay(records, activeDay, false);
   const resetScroll = () => scroll.current?.scrollTo({ y: 0, animated: false });
@@ -195,15 +196,15 @@ export function Diary({ e, font }: { e: ScreenEnvironment; font?: string }) {
   };
   const title = neighbors
     ? resident
-      ? `${resident.name}의 일기장`
-      : '이웃들의 일기장'
-    : '내 일기장';
+      ? t('ui.diary.residentDiary', { v0: resident.name })
+      : t('ui.diary.neighbors')
+    : t('ui.diary.mine');
   const label =
-    period === '일'
+    period === 'day'
       ? longDate(range.from)
-      : period === '주'
+      : period === 'week'
         ? `${shortDate(range.from)} – ${shortDate(range.to)}`
-        : `${range.from.slice(0, 4)}년 ${Number(range.from.slice(5, 7))}월`;
+        : t('ui.hall.month', { v0: range.from.slice(0, 4), v1: Number(range.from.slice(5, 7)) });
   const changePeriod = (value: Period) => {
     setPeriod(value);
     setOffset(0);
@@ -244,14 +245,26 @@ export function Diary({ e, font }: { e: ScreenEnvironment; font?: string }) {
   const showState = () => {
     if (status === 'loading') return <Loading />;
     if (status === 'locked')
-      return <Empty title="도서관이 아직 완공되지 않았어요" action="도서관으로" onPress={close} />;
+      return (
+        <Empty
+          title={t('ui.diary.libraryUnfinished')}
+          action={t('ui.diary.toLibrary')}
+          onPress={close}
+        />
+      );
     if (status === 'error')
-      return <Empty title="기록을 불러오지 못했어요" action="다시 불러오기" onPress={srv.retry} />;
+      return (
+        <Empty
+          title={t('ui.diary.loadFailed')}
+          action={t('onboarding.joinIsland.reload')}
+          onPress={srv.retry}
+        />
+      );
     return null;
   };
 
   const usageNotice = (notice: React.ReactNode) =>
-    period === '주' ? (
+    period === 'week' ? (
       <>
         <Chart days={allDays} values={new Map()} screen />
         {notice}
@@ -261,7 +274,7 @@ export function Diary({ e, font }: { e: ScreenEnvironment; font?: string }) {
     );
 
   const personal = () => {
-    if (period === '월') {
+    if (period === 'month') {
       return (
         <>
           <Calendar
@@ -281,11 +294,11 @@ export function Diary({ e, font }: { e: ScreenEnvironment; font?: string }) {
           />
           <View style={styles.row}>
             <Metric
-              label="집중"
+              label={t('focusFlow.setup.defaultSubject')}
               value={focusAvailable ? hm(focusSeries.get(selectedDate) ?? 0) : '—'}
             />
             <View style={styles.metric}>
-              <T style={styles.meta}>폰 사용</T>
+              <T style={styles.meta}>{t('diary.tab.screen')}</T>
               {ownUsage(selectedDate)}
             </View>
           </View>
@@ -293,8 +306,8 @@ export function Diary({ e, font }: { e: ScreenEnvironment; font?: string }) {
             <Loading />
           ) : server && selectedDayStats.status === 'error' ? (
             <Empty
-              title="기록을 불러오지 못했어요"
-              action="다시 불러오기"
+              title={t('ui.diary.loadFailed')}
+              action={t('onboarding.joinIsland.reload')}
               onPress={selectedDayStats.retry}
             />
           ) : (
@@ -303,24 +316,28 @@ export function Diary({ e, font }: { e: ScreenEnvironment; font?: string }) {
         </>
       );
     }
-    if (tab === '폰 사용') {
+    if (tab === 'screen') {
       // 서버에 남은 과거 허용 상태보다 현재 기기의 권한을 먼저 확인한다.
       if (!state.settings.permission || measurementStatus === 'denied')
         return usageNotice(
           <Empty
-            title="스크린타임 권한을 허용해 주세요"
-            action="권한 설정하기"
+            title={t('ui.diary.allowScreenTime')}
+            action={t('ui.diary.openPermissions')}
             onPress={settings}
           />,
         );
       if (!state.settings.screenTimeMeasurementReady)
         return usageNotice(
-          <Empty title="측정할 앱을 선택해 주세요" action="측정 설정 열기" onPress={settings} />,
+          <Empty
+            title={t('ui.diary.selectApps')}
+            action={t('ui.diary.openMeasurement')}
+            onPress={settings}
+          />,
         );
       if (
         server &&
         (!screenStats ||
-          (period === '일' &&
+          (period === 'day' &&
             measurementStatus !== 'authorized' &&
             !(
               range.from === today &&
@@ -332,8 +349,8 @@ export function Diary({ e, font }: { e: ScreenEnvironment; font?: string }) {
           <Empty
             title={
               measurementStatus === 'unavailable'
-                ? '폰 사용 기록을 이용할 수 없어요'
-                : '기록을 준비하고 있어요'
+                ? t('ui.diary.usageUnavailable')
+                : t('ui.diary.preparing')
             }
           />,
         );
@@ -341,73 +358,93 @@ export function Diary({ e, font }: { e: ScreenEnvironment; font?: string }) {
       if (!usageAllowed)
         return usageNotice(
           <Empty
-            title={state.settings.permission ? '측정 기록이 없어요' : '측정 권한이 꺼져 있어요'}
+            title={
+              state.settings.permission
+                ? t('ui.diary.noMeasurement')
+                : t('ui.diary.measurementDisabled')
+            }
             action={
               state.settings.permission && state.settings.screenTimeMeasurementReady
                 ? undefined
-                : '측정 설정 열기'
+                : t('ui.diary.openMeasurement')
             }
             onPress={settings}
           />,
         );
-      if (period === '일')
+      if (period === 'day')
         return (
           <>
-            <T style={styles.centerMeta}>이날의 폰 사용</T>
+            <T style={styles.centerMeta}>{t('ui.diary.dailyUsage')}</T>
             <View style={styles.dailyUsage}>{ownUsage(range.from)}</View>
           </>
         );
       return (
         <>
-          <T style={styles.centerMeta}>이번 주 폰 사용</T>
-          <T style={styles.total}>{screenTotal == null ? '합산 보류' : usageText(screenTotal)}</T>
+          <T style={styles.centerMeta}>{t('ui.diary.weeklyUsage')}</T>
+          <T style={styles.total}>
+            {screenTotal == null ? t('ui.diary.totalPending') : usageText(screenTotal)}
+          </T>
           {screenStats?.series.some(
             (point) => point.minutes != null && point.finalized === false,
           ) ? (
-            <T style={styles.centerMeta}>측정 중인 사용량이 포함되어 있어요</T>
+            <T style={styles.centerMeta}>{t('ui.diary.includesLiveUsage')}</T>
           ) : null}
           <Chart days={allDays} values={usageSeries} screen />
           <View style={styles.row}>
             <Metric
-              label="하루 평균"
+              label={t('ui.diary.dailyAverage')}
               value={screenTotal == null ? '—' : usageText(screenTotal / days.length)}
             />
             <Metric
-              label="측정된 날짜"
-              value={`${days.filter((key) => usageSeries.get(key) != null).length} / ${days.length}일`}
+              label={t('ui.diary.measuredDates')}
+              value={t('ui.diary.measuredDays', {
+                v0: days.filter((key) => usageSeries.get(key) != null).length,
+                v1: days.length,
+              })}
             />
           </View>
         </>
       );
     }
-    if (period === '주') {
+    if (period === 'week') {
       const activeDays = days.filter((key) => (focusSeries.get(key) ?? 0) > 0).length;
       return (
         <>
-          <T style={styles.centerMeta}>이번 주 집중</T>
+          <T style={styles.centerMeta}>{t('ui.diary.weeklyFocus')}</T>
           <T style={styles.total}>{focus == null ? '—' : hm(focus)}</T>
           <Chart days={allDays} values={focusSeries} />
           <View style={styles.row}>
-            <Metric label="집중한 날" value={`${activeDays}일`} />
             <Metric
-              label="집중일 평균"
+              label={t('ui.diary.activeDays')}
+              value={t('ui.diary.days', { v0: activeDays })}
+            />
+            <Metric
+              label={t('ui.diary.activeDayAverage')}
               value={focus == null ? '—' : hm(focus / Math.max(1, activeDays))}
             />
             <Metric
-              label="집중 횟수"
-              value={`${server ? records.length : recordsInRange(records, dateStart(range.from, false), Math.min(dateStart(range.to, false) + DAY, e.now)).length}회`}
+              label={t('ui.diary.sessions')}
+              value={t('ui.diary.sessionCount', {
+                v0: server
+                  ? records.length
+                  : recordsInRange(
+                      records,
+                      dateStart(range.from, false),
+                      Math.min(dateStart(range.to, false) + DAY, e.now),
+                    ).length,
+              })}
             />
           </View>
         </>
       );
     }
-    if (!focusAvailable) return <Empty title="기록을 준비하고 있어요" />;
+    if (!focusAvailable) return <Empty title={t('ui.diary.preparing')} />;
     if (!focus && !dailyFish)
       return (
         <Empty
-          title={period === '일' ? '이날은 기록이 없어요' : '이 주에는 기록이 없어요'}
-          action={offset < 0 ? '오늘 기록으로' : undefined}
-          onPress={() => changePeriod('일')}
+          title={period === 'day' ? t('ui.diary.emptyDay') : t('ui.diary.emptyWeek')}
+          action={offset < 0 ? t('ui.diary.today') : undefined}
+          onPress={() => changePeriod('day')}
         />
       );
     const subjects = Object.entries(
@@ -420,14 +457,20 @@ export function Diary({ e, font }: { e: ScreenEnvironment; font?: string }) {
       <>
         <T style={styles.total}>{hm(focus ?? 0)}</T>
         <View style={styles.row}>
-          <Metric label="집중" value={`${dayRecords.length}회`} />
           <Metric
-            label="최장"
+            label={t('focusFlow.setup.defaultSubject')}
+            value={t('ui.diary.sessionCount', { v0: dayRecords.length })}
+          />
+          <Metric
+            label={t('ui.diary.longest')}
             value={dayRecords.length ? hm(Math.max(...dayRecords.map((r) => r.seconds))) : '—'}
           />
-          <Metric label="물고기" value={dailyFish == null ? '—' : `${dailyFish}마리`} />
+          <Metric
+            label={t('magazine.asset.fish')}
+            value={dailyFish == null ? '—' : t('ui.hall.fishCount', { v0: dailyFish })}
+          />
         </View>
-        <T style={styles.sectionTitle}>과목별 집중</T>
+        <T style={styles.sectionTitle}>{t('ui.diary.bySubject')}</T>
         {subjects.map(([subject, seconds]) => (
           <View key={subject} style={styles.subjectRow}>
             <T style={styles.body}>{subject}</T>
@@ -443,14 +486,14 @@ export function Diary({ e, font }: { e: ScreenEnvironment; font?: string }) {
     if (!resident)
       return memberRows.length ? (
         <>
-          <T style={styles.meta}>우리 섬의 일기장 · {memberRows.length} / 15명</T>
+          <T style={styles.meta}>{t('ui.diary.islandDiary', { v0: memberRows.length })}</T>
           <View style={styles.residentGrid}>
             {memberRows.map((m) => (
               <Pressable
                 key={m.id}
                 testID={`diary-member-${m.id}`}
                 accessibilityRole="button"
-                accessibilityLabel={`${m.name} 기록`}
+                accessibilityLabel={t('ui.diary.residentRecords', { v0: m.name })}
                 onPress={() => {
                   setMemberId(m.id);
                   resetScroll();
@@ -470,7 +513,7 @@ export function Diary({ e, font }: { e: ScreenEnvironment; font?: string }) {
           </View>
         </>
       ) : (
-        <Empty title="이웃의 자리가 비어 있어요" action="도서관으로" onPress={close} />
+        <Empty title={t('ui.diary.noNeighbors')} action={t('ui.diary.toLibrary')} onPress={close} />
       );
     return (
       <>
@@ -496,11 +539,17 @@ export function Diary({ e, font }: { e: ScreenEnvironment; font?: string }) {
           }}
           nextDisabled={weekOffset === 0}
         />
-        <T style={styles.centerMeta}>집중</T>
+        <T style={styles.centerMeta}>{t('focusFlow.setup.defaultSubject')}</T>
         <T style={styles.total}>{focus == null ? '—' : hm(focus)}</T>
         <View style={styles.row}>
-          <Metric label="폰 사용" value={usageAllowed ? usageText(screenTotal) : '—'} />
-          <Metric label="모은 물고기" value={fish == null ? '—' : `${fish}마리`} />
+          <Metric
+            label={t('diary.tab.screen')}
+            value={usageAllowed ? usageText(screenTotal) : '—'}
+          />
+          <Metric
+            label={t('ui.diary.fishEarned')}
+            value={fish == null ? '—' : t('ui.hall.fishCount', { v0: fish })}
+          />
         </View>
         <View style={styles.divider} />
         {/* 날짜별 표 대신 그 주의 월~일 선그래프(GROMO-2488). 집중이 아직 없으면 0 선, 폰 사용은 측정 허용 날만 */}
@@ -522,12 +571,13 @@ export function Diary({ e, font }: { e: ScreenEnvironment; font?: string }) {
       onBack={back}
       fitHeight={neighbors ? neighborHeight : null}
       // 이웃 상세의 ‹ 는 목적지(이웃 목록)가 정해져 있어 그것을 읽고, 그 밖은 들어온 화면으로 가는 「뒤로」다
-      backLabel={neighbors && memberId ? '이웃들의 일기장으로 돌아가기' : '뒤로'}
+      backLabel={neighbors && memberId ? t('ui.diary.backToNeighbors') : t('common.back')}
     >
       {!neighbors && (
         <View style={styles.controls}>
           <Seg
-            items={['일', '주', '월']}
+            items={['day', 'week', 'month']}
+            labelFor={(id: string) => t(`diary.period.${id}`)}
             value={period}
             onChange={changePeriod}
             inset
@@ -545,13 +595,13 @@ export function Diary({ e, font }: { e: ScreenEnvironment; font?: string }) {
             }}
             nextDisabled={offset === 0}
           />
-          {period !== '월' && (
+          {period !== 'month' && (
             <View style={styles.row}>
-              {(['집중', '폰 사용'] as const).map((value) => (
+              {(['focus', 'screen'] as const).map((value) => (
                 <Pressable
                   key={value}
                   accessibilityRole="tab"
-                  accessibilityLabel={value}
+                  accessibilityLabel={t(`diary.tab.${value}`)}
                   accessibilityState={{ selected: tab === value }}
                   onPress={() => {
                     setTab(value);
@@ -559,7 +609,9 @@ export function Diary({ e, font }: { e: ScreenEnvironment; font?: string }) {
                   }}
                   style={[styles.tab, tab === value && styles.tabSelected]}
                 >
-                  <T style={[styles.body, tab === value && styles.bold]}>{value}</T>
+                  <T style={[styles.body, tab === value && styles.bold]}>
+                    {t(`diary.tab.${value}`)}
+                  </T>
                 </Pressable>
               ))}
             </View>
@@ -576,7 +628,7 @@ export function Diary({ e, font }: { e: ScreenEnvironment; font?: string }) {
         onContentSizeChange={neighbors ? (_, h) => setNeighborHeight(h) : undefined}
         key={`${neighbors ? 'neighbors' : period}-${state.islandId}`}
       >
-        {!neighbors && period !== '월' && tab === '폰 사용' && !state.settings.permission
+        {!neighbors && period !== 'month' && tab === 'screen' && !state.settings.permission
           ? personal()
           : (showState() ?? (neighbors ? residentContent() : personal()))}
       </ScrollView>
@@ -703,9 +755,14 @@ function DatePicker({
 }) {
   return (
     <View style={styles.datePicker}>
-      <Arrow label="이전 기간" glyph="‹" onPress={previous} disabled={previousDisabled} />
+      <Arrow
+        label={t('ui.diary.previousPeriod')}
+        glyph="‹"
+        onPress={previous}
+        disabled={previousDisabled}
+      />
       <T style={styles.dateLabel}>{label}</T>
-      <Arrow label="다음 기간" glyph="›" onPress={next} disabled={nextDisabled} />
+      <Arrow label={t('ui.diary.nextPeriod')} glyph="›" onPress={next} disabled={nextDisabled} />
     </View>
   );
 }
@@ -743,7 +800,7 @@ function Empty({
 function Loading() {
   return (
     <View
-      accessibilityLabel="기록 불러오는 중"
+      accessibilityLabel={t('ui.diary.loading')}
       accessibilityState={{ busy: true }}
       style={styles.loading}
     >
@@ -772,7 +829,7 @@ function Calendar({
   return (
     <View>
       <View style={styles.row}>
-        {weekdays.map((d) => (
+        {weekdays().map((d) => (
           <T key={d} style={styles.weekday}>
             {d}
           </T>
@@ -825,9 +882,11 @@ function Chart({
             key={day}
             style={styles.chartColumn}
             accessible
-            accessibilityLabel={`${longDate(day)} ${minutes == null ? '기록 없음' : `${minutes}분`}`}
+            accessibilityLabel={`${longDate(day)} ${minutes == null ? t('ui.diary.noRecords') : t('ui.diary.minutes', { v0: minutes })}`}
           >
-            <T style={styles.chartLabel}>{minutes == null ? '—' : `${minutes}분`}</T>
+            <T style={styles.chartLabel}>
+              {minutes == null ? '—' : t('ui.diary.minutes', { v0: minutes })}
+            </T>
             <View style={styles.barTrack}>
               <View
                 style={[
@@ -854,7 +913,7 @@ function Chart({
 
 function Timetable({ records, day, utc }: { records: DiaryRecord[]; day: string; utc: boolean }) {
   if (records.length === 0 || records.some((r) => !r.intervals?.length))
-    return <T style={styles.centerMeta}>시간대 기록 없음</T>;
+    return <T style={styles.centerMeta}>{t('ui.diary.noTimeline')}</T>;
   return (
     <View style={styles.timetable}>
       {timetableRows(records, day, utc).map(({ hour, cells }) => (
@@ -864,7 +923,11 @@ function Timetable({ records, day, utc }: { records: DiaryRecord[]; day: string;
             <View
               key={n}
               accessible
-              accessibilityLabel={`${hour}시 ${n * 10}분${focused ? ' 집중' : ''}`}
+              accessibilityLabel={t('ui.diary.hourSlot', {
+                v0: hour,
+                v1: n * 10,
+                v2: focused ? t('ui.diary.focusingSuffix') : '',
+              })}
               style={[styles.timeCell, focused && styles.timeFocused]}
             />
           ))}
@@ -878,8 +941,8 @@ function SessionList({ records, utc }: { records: DiaryRecord[]; utc: boolean })
   const time = (at: number) => new Date(at + (utc ? 0 : 9 * 3600000)).toISOString().slice(11, 16);
   return (
     <View style={styles.sessions}>
-      <T style={styles.sectionTitle}>집중 기록</T>
-      {!records.length && <T style={styles.meta}>기록 없음</T>}
+      <T style={styles.sectionTitle}>{t('ui.diary.focusRecords')}</T>
+      {!records.length && <T style={styles.meta}>{t('ui.diary.noRecords')}</T>}
       {[...records]
         .sort((a, b) => a.at - b.at)
         .map((r) => (

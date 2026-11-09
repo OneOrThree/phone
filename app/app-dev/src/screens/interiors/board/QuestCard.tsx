@@ -1,3 +1,4 @@
+import { t } from '@/i18n';
 import { semanticTokens } from '@/design-system/tokens';
 import { GOWUN } from '@/screens/island/sceneKit';
 import { useEffect, useRef } from 'react';
@@ -21,28 +22,33 @@ export function QuestCard({
   onDetail: () => void;
   visitor?: boolean;
 }) {
-  const t = useRef(new Animated.Value(0)).current;
+  const unfoldProgress = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     if (reduceMotion) return;
-    Animated.timing(t, {
+    Animated.timing(unfoldProgress, {
       toValue: 1,
       duration: 450,
       delay: [120, 220, 320][index] ?? 0,
       easing: Easing.bezier(0.16, 0.8, 0.25, 1),
       useNativeDriver: false,
     }).start();
-  }, [index, reduceMotion, t]);
+  }, [index, reduceMotion, unfoldProgress]);
   const complete = quest.rate === 100;
   // 웹은 부모의 perspective:700px 를 쓰고, 네이티브는 transform 안에 넣는다
   const unfold: any = reduceMotion
     ? null
     : {
-        opacity: t,
+        opacity: unfoldProgress,
         transform: [
           ...(Platform.OS === 'web' ? [] : [{ perspective: 700 }]),
-          { translateY: t.interpolate({ inputRange: [0, 1], outputRange: [-18, 0] }) },
-          { rotateX: t.interpolate({ inputRange: [0, 1], outputRange: ['-65deg', '0deg'] }) },
-          { scaleY: t.interpolate({ inputRange: [0, 1], outputRange: [0.7, 1] }) },
+          { translateY: unfoldProgress.interpolate({ inputRange: [0, 1], outputRange: [-18, 0] }) },
+          {
+            rotateX: unfoldProgress.interpolate({
+              inputRange: [0, 1],
+              outputRange: ['-65deg', '0deg'],
+            }),
+          },
+          { scaleY: unfoldProgress.interpolate({ inputRange: [0, 1], outputRange: [0.7, 1] }) },
         ],
       };
   return (
@@ -71,10 +77,14 @@ export function QuestCard({
       </View>
       <Text style={[boardFont(12, 1.45, '400', '#786147', GOWUN), { marginTop: 5 }]}>
         {quest.type === 'phone'
-          ? `하루 폰 사용 ${quest.target}분 이하`
+          ? t('ui.board.phoneLimit', { v0: quest.target })
           : quest.startTime
-            ? `${quest.startTime}–${quest.endTime} · ${quest.target}분 집중`
-            : `${quest.target}분 집중`}
+            ? t('ui.board.scheduledGoal', {
+                v0: quest.startTime,
+                v1: quest.endTime ?? '—',
+                v2: quest.target,
+              })
+            : t('ui.board.focusMinutes', { v0: quest.target })}
       </Text>
       {/* 방문자는 이 섬 퀘스트에 참여하지 않으므로 내 달성률이 없다 */}
       {!visitor && (
@@ -87,9 +97,9 @@ export function QuestCard({
               marginVertical: 7,
             }}
           >
-            <Text style={boardFont(13, 1.6, '400', '#786147')}>내 달성률</Text>
+            <Text style={boardFont(13, 1.6, '400', '#786147')}>{t('ui.board.myProgress')}</Text>
             <Text style={boardFont(13, 1.6, '700')}>
-              {quest.rate == null ? '측정 전' : `${quest.rate}%`}
+              {quest.rate == null ? t('focusFlow.result.notMeasuredYet') : `${quest.rate}%`}
             </Text>
           </View>
           <Track
@@ -106,8 +116,13 @@ export function QuestCard({
               ]}
             >
               {quest.claimed
-                ? '보상 수령 완료'
-                : `보상 받을 수 있어요${quest.rewardAmount != null ? ` · ${quest.rewardAmount}마리` : ''}`}
+                ? t('ui.board.rewardClaimed')
+                : t('ui.board.rewardReady', {
+                    v0:
+                      quest.rewardAmount != null
+                        ? t('ui.board.fishSuffix', { v0: quest.rewardAmount })
+                        : '',
+                  })}
             </Text>
           )}
         </>
@@ -115,7 +130,7 @@ export function QuestCard({
       <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 7 }}>
         <Link
           testID={`board-quest-detail-${index}`}
-          label="자세히 보기 ›"
+          label={t('ui.board.viewDetails')}
           onPress={onDetail}
           minTapHeight={44}
         />

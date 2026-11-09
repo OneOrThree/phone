@@ -22,7 +22,8 @@
   - 앱 설치 → 섬 도착까지의 온보딩 전체: 로그인, 캐릭터, 첫 섬 선택, 초대 코드, 섬 만들기·참여·승인 대기, 첫 항해, 몽돌 첫 안내
   - 몽돌 튜토리얼이 지나가는 집중 흐름 전체: 집중 준비·할 일 입력·집중·휴식·종료 확인·결과
   - 홈 랜딩, 계정(내 뗏목·프로필·탈퇴·게스트 전환·차단 목록), 앱 설정(언어 화면 포함)
-- **아직 한국어인 화면**(GROMO-1840): 건물 내부, 펠리컨·강아지 안내, 일반 집중 결과 뒤 퀘스트 보상 모달, 방문·관전, 스크린타임 권한 시트, 소셜, 네이티브 문자열.
+- **GROMO-2832 앱 보완 범위**: 기존 `src/i18n`과 ko/en 리소스·언어 설정을 재사용해 건물 내부·퀘스트·편지 UI·방문·스크린타임 안내·친구·상품·축음기·NPC의 직접 문구를 옮긴다. 탭·기간은 고정 ID로 유지하고 언어 변경 시 라벨만 갱신한다.
+- 서버·DB·운영 콘텐츠 번역 계약·백오피스·공개 웹 전용 화면·네이티브 확장/위젯의 새 언어 연동은 이번 작업 범위에서 제외한다. 서버에서 받은 공지·편지·사용자 작성 원문은 기존 계약대로 표시한다.
 
 ## 3. 구성 요소
 
@@ -32,7 +33,7 @@
 | `src/i18n/format.ts` | 시간·숫자·날짜 서식(`localeTag`·`formatDuration`·`formatNumber`·`formatDate`) |
 | `src/i18n/locales/ko.json`·`en.json` | 문구 표. 네임스페이스: `common` `errors` `time` `settings` `login` `account` `character` `onboarding` `app` `building` `color` `track` `focus` `home` `focusFlow` |
 | `src/App.tsx` | 부팅 때 저장된 언어를 적용하고, `localePref` 상태를 화면에 넘긴다(`e.localePref`·`e.setLocalePref`) |
-| `src/screens/island/Screens.tsx` 의 `route === 'language'` | 앱 설정 → 언어 화면(기기 언어 따름 / 한국어 / English) |
+| `src/screens/settings/SettingsScreens.tsx` 의 언어 화면 | 앱 설정 → 언어 화면(기기 언어 따름 / 한국어 / English) |
 | `src/assets/ota/**` | 언어별 이미지(`<이름>.ko.png`·`<이름>.en.png`) — OTA 업데이트에 실리는 경로 |
 | `scripts/gen-localized-stamp.py` | 영문 «READY» 도장 생성기(`npm run gen:localized-stamp`, 검사는 `:check`) |
 | `jest.setup.js` | `expo-localization` 을 ko-KR 로 모킹(기존 한국어 단언 테스트의 기준) |
@@ -72,7 +73,7 @@ flowchart TD
 - 모듈을 import 할 때 적용 언어는 `resolveLocale()`(기기 언어)로 시작한다. 저장값을 읽기 전의 첫 프레임은 기기 언어다.
 - `App.tsx` 의 부팅 `Promise.all` 이 세션·앱 상태와 함께 `gromo.locale`(없으면 1.x 키)을 읽고, `.then` 첫 줄에서 `setLocalePref(applyLocalePref(raw))` 로 첫 화면 전에 적용한다.
 - 웹 검토·데모 모드(`?review=1`·`?demo=1`)는 저장값을 읽지 않고 `?lang=` 값(없으면 ko)으로 고정한다 — 캡처·검증이 브라우저에 남은 값에 따라 달라지지 않게.
-- `applyLocalePref` 는 지원 밖 값·`null` 을 `'system'` 으로 정규화한다. `'system'` 은 **호출 시점의 기기 언어를 한 번만** 읽는다 — 앱 실행 중 기기 언어를 바꾸면 콜드 스타트 전까지 반영되지 않는다(iOS 는 언어를 바꾸면 앱이 종료된다. Android 는 남은 일).
+- `applyLocalePref` 는 지원 밖 값·`null` 을 `'system'` 으로 정규화한다. 앱이 foreground로 돌아오면 저장된 설정에 따라 기기 언어를 다시 판정한다.
 - `resolveLocale()` 은 네이티브 호출이 예외를 던지면 ko 를 돌려준다 — `expo-localization` 이 없던 구 빌드가 OTA 로 이 JS 를 받는 경우의 방어선이다.
 
 ### 4.3 문구 조회 `t(key, vars)`
@@ -104,8 +105,7 @@ sequenceDiagram
 ```
 
 - 같은 값을 다시 누르거나 저장 중에 겹쳐 누르면 무시한다.
-- **왜 `key` 리마운트가 아닌가**: 화면 트리(`CurrentScreens`)에 ref 30여 개, STOMP 구독, 입력 중인 초안 상태가 있어 리마운트하면 전부 날아간다. App 이 매 렌더 새 `e` 객체를 넘기고, i18n 문구를 그리는 화면에는 `React.memo` 가 없어서(memo 컴포넌트 6개는 전부 하드코딩 라벨·접근성 숨김 장식이다), 재렌더만으로 모든 `t()` 가 다시 불린다. memo 로 문구를 그리는 자식을 더한다면 `localePref` 를 prop 으로 받아야 따라 바뀐다(`app/app-dev/README.md`).
-- 그래서 번역 문자열을 `React.memo`·`useMemo` 로 감싸면 언어를 바꿔도 옛 언어가 남는다(`WorldMap.tsx` 의 `doors` 계산 위에 메모이즈 금지 주석이 있다).
+- 입력 중 초안·필터·진행 상태를 보존하기 위해 화면을 리마운트하지 않는다. 루트와 문구가 있는 memo 컴포넌트는 기존 i18n 상태를 `useLocale()`로 구독한다. `useMemo`로 라벨을 계산할 때도 locale을 의존성에 포함한다.
 
 ### 4.5 서버 오류 문구
 
@@ -168,5 +168,4 @@ sequenceDiagram
 
 ## 8. 남은 일
 
-- GROMO-1840: 남은 화면(건물 내부·펠리컨/강아지 안내·퀘스트 보상 모달·방문·스크린타임 권한·소셜)과 네이티브 문자열.
-- Android 실행 중 기기 언어 변경 반영(`AppState` 복귀 때 다시 적용) — 아직 정하지 않았다.
+- GROMO-1840의 기존 계획은 유지한다. 이번 GROMO-2832 작업은 앱 화면의 기존 ko/en 지원 누락 보완만 다룬다. 네이티브 확장·서버·웹·백오피스로 범위를 확장하지 않는다.

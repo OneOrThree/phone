@@ -194,12 +194,7 @@ export function OnboardingFlow({
         scope();
       } else move('greet');
     } catch (thrown) {
-      if (live())
-        setError(
-          thrown instanceof ApiError && thrown.code === 'NICKNAME_INVALID'
-            ? thrown.message
-            : errorTextOr(thrown, 'errors.GENERIC'),
-        );
+      if (live()) setError(errorTextOr(thrown, 'errors.GENERIC'));
     } finally {
       requestLock.current = false;
       if (mounted.current) setPending(false);

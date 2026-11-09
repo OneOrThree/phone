@@ -1,3 +1,4 @@
+import { t, useLocale } from '@/i18n';
 import React, { memo, useContext, useEffect, useRef } from 'react';
 import { Animated, StyleSheet, View, type ImageSourcePropType, type ViewStyle } from 'react-native';
 import { MotionContext } from '@/design-system/primitives';
@@ -51,6 +52,7 @@ export const ShopMotion = memo(function ShopMotionView({
   style?: ViewStyle;
   testID?: string;
 }) {
+  useLocale();
   const motionDisabled = useContext(MotionContext) || reduceMotion;
   const lastTrigger = useRef(trigger);
   const elapsed = useRef(new Animated.Value(0)).current;
@@ -91,7 +93,11 @@ export const ShopMotion = memo(function ShopMotionView({
   }, [elapsed, entryActive, motionDisabled, showFrames, trigger]);
 
   const stateLabel =
-    state === 'new-product' ? '새 상품' : state === 'purchasable' ? '구매 가능' : null;
+    state === 'new-product'
+      ? t('ui.village.newItem')
+      : state === 'purchasable'
+        ? t('ui.village.forSale')
+        : null;
 
   return (
     <View
@@ -101,7 +107,9 @@ export const ShopMotion = memo(function ShopMotionView({
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants"
       aria-hidden
-      accessibilityLabel={stateLabel ? `상점, ${stateLabel}` : '상점'}
+      accessibilityLabel={
+        stateLabel ? t('ui.village.shop', { v0: stateLabel }) : t('building.shop')
+      }
       pointerEvents="none"
       style={[styles.fill, style]}
     >

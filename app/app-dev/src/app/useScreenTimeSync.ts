@@ -1,3 +1,4 @@
+import { t } from '@/i18n';
 import { syncAndroidFocus, syncAndroidMeasurement } from '@/services/androidScreenTime';
 import { getSession, sessionGeneration } from '@/services/api/session';
 import { shouldReportShieldFailure, syncFocusShield } from '@/services/focusShield';
@@ -197,12 +198,12 @@ export function useFocusShieldSync({
           (await shouldReportShieldFailure()) &&
           latest()
         )
-          notify('앱 차단을 적용하지 못했어요. 스크린타임 권한을 확인해 주세요.');
+          notify(t('ui.screenTime.blockFailed'));
         if (latest()) retry();
       } catch {
         if (!latest()) return;
         if (reportFailure && (await shouldReportShieldFailure()) && latest())
-          notify('앱 차단 상태를 변경하지 못했어요. 다시 확인해 주세요.');
+          notify(t('ui.screenTime.blockChangeFailed'));
         if (latest()) retry();
       }
     };

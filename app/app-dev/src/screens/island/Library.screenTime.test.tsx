@@ -1,3 +1,4 @@
+import { applyLocalePref } from '@/i18n';
 import { assets } from '@/constants/assets';
 import { createPreviewEnvironment } from '@/navigation/previewEnvironment';
 import {
@@ -8,7 +9,7 @@ import {
 } from '@/services/api/records';
 import type { Route } from '@/services/model';
 import { initialState } from '@/services/model';
-import { cleanup, fireEvent, render, waitFor } from '@testing-library/react-native';
+import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react-native';
 import { Platform, ScrollView, StyleSheet } from 'react-native';
 import { Library } from './Library';
 import { dateKey, diaryRange, shortDate } from './library/diaryData';
@@ -129,7 +130,7 @@ test('주간은 월~일 범위를 직접 읽고(이번 주 조각 재사용 안 
   await waitFor(() => expect(screen.getByText('집중한 날')).toBeTruthy());
   expect(getLibraryScreen).toHaveBeenCalledTimes(1);
   // 월~일 주간은 `/screens/library` 의 일~토 이번 주 조각과 축이 달라 범위를 직접 묻는다
-  const week = diaryRange('주', 0, e.now, false);
+  const week = diaryRange('week', 0, e.now, false);
   expect(new Date(`${week.from}T00:00:00Z`).getUTCDay()).toBe(1);
   expect(getFocusStatistics).toHaveBeenCalledWith(e.state.islandId, {
     scope: 'me',
@@ -585,7 +586,7 @@ test('이웃 상세는 날짜별 표 대신 월~일 주간 선그래프를 보�
   expect(screen.queryByText('날짜별 기록')).toBeNull();
   expect(screen.getByTestId('diary-week-chart')).toBeTruthy();
   // 가로축은 월~일 순서다
-  const week = diaryRange('주', 0, e.now, false);
+  const week = diaryRange('week', 0, e.now, false);
   const labels = screen
     .getAllByTestId(/^diary-weekday-/)
     .map((node) => node.props.children as string);
@@ -597,7 +598,7 @@ test('이웃 상세는 날짜별 표 대신 월~일 주간 선그래프를 보�
   // 이번 주는 › 가 꺼져 있고, ‹ 로 지난주에 가면 범위가 7일 앞당겨지고 › 가 켜진다
   expect(screen.getByLabelText('다음 기간').props.accessibilityState.disabled).toBe(true);
   await fireEvent.press(screen.getByLabelText('이전 기간'));
-  const previous = diaryRange('주', -1, e.now, false);
+  const previous = diaryRange('week', -1, e.now, false);
   expect(screen.getByText(`${shortDate(previous.from)} – ${shortDate(previous.to)}`)).toBeTruthy();
   expect(screen.getByLabelText('다음 기간').props.accessibilityState.disabled).toBe(false);
   // 넘칠 때만 책 안에서 밀고 막대는 숨긴다
@@ -668,4 +669,22 @@ test('서버 이웃 일기장 — 털색을 안 준 이웃은 빈 상자이고 �
   expect(screen.getAllByTestId('cat-avatar-image').map((n) => n.props.source)).toEqual([
     assets['characters/cat/ginger/idle.png'],
   ]);
+});
+
+test('언어 전환은 선택한 주·폰 사용 탭과 날짜 범위를 보존한다', async () => {
+  applyLocalePref('ko');
+  const e = { ...environment(), now: Date.parse('2026-09-22T12:00:00+09:00') };
+  const screen = await render(<Library e={createPreviewEnvironment(e)} />);
+  await fireEvent.press(screen.getByLabelText('주'));
+  await fireEvent.press(screen.getByLabelText('이전 기간'));
+  expect(screen.getByText('9.14 – 9.20')).toBeTruthy();
+  await act(async () => {
+    applyLocalePref('en');
+  });
+  await screen.rerender(<Library e={createPreviewEnvironment(e)} />);
+  expect(screen.getByLabelText('Week').props.accessibilityState.selected).toBe(true);
+  expect(screen.getByLabelText('Phone use').props.accessibilityState.selected).toBe(true);
+  expect(screen.getByText('9.14 – 9.20')).toBeTruthy();
+  await screen.unmount();
+  applyLocalePref('ko');
 });

@@ -315,13 +315,16 @@ export const ledgerParts = (entry: { text: string }) => {
 
 // 다음 건물 목표로 고를 수 없는 이유. 없으면 null (방장 여부는 reducer의 hostOnly가 따로 막는다)
 export function canSelectBuilding(i: Island, b: Building): string | null {
-  if (!['gram', 'library', 'mail', 'tower', 'shop'].includes(b)) return '고를 수 없는 건물이에요.';
-  if (i.buildings.includes(b)) return '이미 완공한 건물이에요.';
-  if (!i.buildings.includes('board')) return '게시판을 완공한 뒤 목표를 정할 수 있어요.';
-  if (i.construction) return '공사가 끝난 뒤 다음 목표를 정할 수 있어요.';
+  if (!['gram', 'library', 'mail', 'tower', 'shop'].includes(b))
+    return t('ui.policy.this_building_cannot_be_selected_3d3a6');
+  if (i.buildings.includes(b)) return t('ui.policy.this_building_is_already_complete_daa36');
+  if (!i.buildings.includes('board'))
+    return t('ui.policy.complete_the_notice_board_before_cho_349d3');
+  if (i.construction) return t('ui.policy.wait_for_construction_to_finish_befo_16370');
   if (b === 'shop' && !shopPrerequisitesMet(i))
-    return '상점은 다른 네 건물을 모두 완공한 뒤 목표로 정할 수 있어요.';
-  if (i.buildingQuest?.building === b) return '이미 목표로 정한 건물이에요.';
+    return t('ui.policy.complete_the_other_four_buildings_be_caad9');
+  if (i.buildingQuest?.building === b)
+    return t('ui.policy.this_building_is_already_the_goal_1de67');
   return null;
 }
 
@@ -389,10 +392,12 @@ export function removeOwnMembership(s: State, island: Island, closeWhenEmpty: bo
 
 export function canBuy(s: State, p: Product): string | null {
   const i = currentIsland(s);
-  if (!i.joined) return '이 섬 주민만 구매할 수 있어요.';
+  if (!i.joined) return t('ui.policy.only_residents_of_this_island_can_ma_e1210');
   if (p.kind === 'audio' ? !i.buildings.includes('gram') : !i.buildings.includes('shop'))
-    return p.kind === 'audio' ? '축음기 완공 후 구매할 수 있어요.' : '상점이 아직 열리지 않았어요.';
+    return p.kind === 'audio'
+      ? t('ui.policy.complete_the_gramophone_before_purch_55906')
+      : t('ui.policy.the_shop_is_not_open_yet_76f60');
   if ((p.kind === 'clothes' ? s.owned : i.sharedOwned).includes(p.id))
-    return '이미 보유하고 있어요.';
-  return balance(i) < p.price ? '섬 물고기 잔액이 부족해요.' : null;
+    return t('ui.policy.you_already_own_this_item_9f11b');
+  return balance(i) < p.price ? t('app.build.blocked.insufficientBalance') : null;
 }

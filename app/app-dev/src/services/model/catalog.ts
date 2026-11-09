@@ -87,28 +87,40 @@ export const trackNames: Record<string, string> = {
 export const products: Product[] = [
   {
     id: 'soda-theme',
-    title: '소다 섬 테마',
+    get title() {
+      return t('ui.remaining.copy2');
+    },
     kind: 'island',
     price: 1000,
     currency: 'fish',
-    description: '섬 주변을 밝은 소다색으로 꾸며요.',
+    get description() {
+      return t('ui.remaining.copy3');
+    },
   },
   {
     id: 'strawberry-roof',
-    title: '마을회관 딸기 테마',
+    get title() {
+      return t('ui.remaining.copy4');
+    },
     building: 'hall',
     kind: 'building',
     price: 300,
     currency: 'fish',
-    description: '마을회관 한 곳에만 적용하는 외양이에요.',
+    get description() {
+      return t('ui.remaining.copy5');
+    },
   },
   {
     id: 'rain',
-    title: '빗방울 소리',
+    get title() {
+      return t('track.rain');
+    },
     kind: 'audio',
     price: 30,
     currency: 'fish',
-    description: '창가에 톡톡 떨어지는 빗방울 소리예요.',
+    get description() {
+      return t('ui.remaining.copy7');
+    },
   },
 ];
 
@@ -118,13 +130,13 @@ for (const building of ['board', 'tower', 'mail', 'shop'] as Building[])
   products.push({
     id: 'strawberry-' + building,
     get title() {
-      return buildingNames[building] + ' 딸기 테마';
+      return buildingNames[building] + t('ui.remaining.copy8');
     },
     building,
     kind: 'building',
     price: 300,
     currency: 'fish',
     get description() {
-      return buildingNames[building] + ' 한 곳에만 적용하는 외양이에요.';
+      return buildingNames[building] + t('ui.remaining.copy9');
     },
   });

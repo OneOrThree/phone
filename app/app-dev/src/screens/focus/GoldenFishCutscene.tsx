@@ -1,3 +1,4 @@
+import { t } from '@/i18n';
 import React from 'react';
 import { VideoCutscene } from '@/components/VideoCutscene';
 
@@ -15,7 +16,7 @@ export function GoldenFishCutscene({
   return (
     <VideoCutscene
       source={SOURCE}
-      accessibilityLabel="여러 고양이가 힘을 모아 황금 물고기를 낚아 올렸어요"
+      accessibilityLabel={t('ui.shop.goldenFishTeam')}
       testID="golden-fish-cutscene"
       videoTestID="golden-fish-video"
       muted={muted}

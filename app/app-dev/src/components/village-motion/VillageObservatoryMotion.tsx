@@ -1,3 +1,4 @@
+import { t } from '@/i18n';
 import React, { useContext, useEffect, useRef } from 'react';
 import { Animated, StyleSheet, View, type ImageSourcePropType, type ViewStyle } from 'react-native';
 import { MotionContext } from '@/design-system/primitives';
@@ -56,9 +57,9 @@ export function VillageObservatoryMotion({
   const elapsed = useRef(new Animated.Value(0)).current;
   const rankLabel =
     rankState === 'rank-updated'
-      ? '주간 순위가 갱신되었습니다'
+      ? t('ui.village.rankingUpdated')
       : rankState === 'rank-changed'
-        ? '주간 순위가 변동되었습니다'
+        ? t('ui.village.rankingChanged')
         : undefined;
 
   useEffect(() => {
@@ -78,7 +79,10 @@ export function VillageObservatoryMotion({
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants"
       aria-hidden
-      accessibilityLabel={`전망대, ${dayNight === 'day' ? '낮' : '밤'}${rankLabel ? `, ${rankLabel}` : ''}`}
+      accessibilityLabel={t('ui.village.observatory', {
+        v0: dayNight === 'day' ? t('ui.village.day') : t('ui.village.night'),
+        v1: rankLabel ? `, ${rankLabel}` : '',
+      })}
       style={[styles.root, style]}
     >
       {showFrames &&

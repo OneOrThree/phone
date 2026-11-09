@@ -1749,19 +1749,19 @@ test('퀘스트 날짜와 일·주·월 경계는 기기 타임존과 무관하�
   assert.equal(dayKey(kst0030), '2026-09-16');
   // 랭킹 주는 일요일 00시, 도서관 기록의 주(periodBounds)는 월요일 00시부터
   assert.equal(weekStart(kst0030), Date.parse('2026-09-12T15:00:00.000Z'));
-  assert.deepEqual(periodBounds('일', 0, kst0030), {
+  assert.deepEqual(periodBounds('day', 0, kst0030), {
     from: Date.parse('2026-09-15T15:00:00.000Z'),
     until: Date.parse('2026-09-16T15:00:00.000Z'),
   });
-  assert.deepEqual(periodBounds('주', 0, kst0030), {
+  assert.deepEqual(periodBounds('week', 0, kst0030), {
     from: Date.parse('2026-09-13T15:00:00.000Z'),
     until: Date.parse('2026-09-20T15:00:00.000Z'),
   });
-  assert.deepEqual(periodBounds('월', 0, kst0030), {
+  assert.deepEqual(periodBounds('month', 0, kst0030), {
     from: Date.parse('2026-08-31T15:00:00.000Z'),
     until: Date.parse('2026-09-30T15:00:00.000Z'),
   });
-  const today = periodBounds('일', 0, kst0030);
+  const today = periodBounds('day', 0, kst0030);
   assert.equal(
     recordSecondsBetween(
       {

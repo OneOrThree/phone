@@ -55,20 +55,20 @@ export function hoursMinutes(seconds: number) {
 }
 
 // Period filtering is shared by the diary and ranking; no fabricated record values.
-export function periodBounds(period: '일' | '주' | '월', offset: number, at = Date.now()) {
+export function periodBounds(period: 'day' | 'week' | 'month', offset: number, at = Date.now()) {
   const d = kstDate(at);
   d.setUTCHours(0, 0, 0, 0);
-  if (period === '일') d.setUTCDate(d.getUTCDate() + offset);
-  if (period === '주') {
+  if (period === 'day') d.setUTCDate(d.getUTCDate() + offset);
+  if (period === 'week') {
     d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7) + offset * 7);
   }
-  if (period === '월') {
+  if (period === 'month') {
     d.setUTCDate(1);
     d.setUTCMonth(d.getUTCMonth() + offset);
   }
   const from = d.getTime() - KST_OFFSET_MS;
-  if (period === '일') d.setUTCDate(d.getUTCDate() + 1);
-  if (period === '주') d.setUTCDate(d.getUTCDate() + 7);
-  if (period === '월') d.setUTCMonth(d.getUTCMonth() + 1);
+  if (period === 'day') d.setUTCDate(d.getUTCDate() + 1);
+  if (period === 'week') d.setUTCDate(d.getUTCDate() + 7);
+  if (period === 'month') d.setUTCMonth(d.getUTCMonth() + 1);
   return { from, until: d.getTime() - KST_OFFSET_MS };
 }

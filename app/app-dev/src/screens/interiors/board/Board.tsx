@@ -2,8 +2,8 @@ import { CatAvatar } from '@/components/CatAvatar';
 import { appearanceOutfit } from '@/components/CatOutfitLayers';
 import { Btn, NavBtn } from '@/design-system/patterns';
 import { primitiveTokens, semanticTokens } from '@/design-system/tokens';
-import { errorTextOr, t } from '@/i18n';
-import { josa } from '@/i18n/format';
+import { errorTextOr, t, useLocale } from '@/i18n';
+import { localizedJosa as josa } from '@/i18n/format';
 import { Guestbook } from '@/screens/interiors/Guestbook';
 import { useBoardNotices } from '@/screens/interiors/useBoardNotices';
 import { HOME_QUEST_LIST_DETAIL } from '@/screens/island/HomeQuestIndicator';
@@ -73,6 +73,7 @@ export function Board({
   higherModalOpen = false,
   onBoardModalChange,
 }: ArtifactProps) {
+  const locale = useLocale();
   const [local, setS] = useState(() => makeState(concept));
   const guestbookMore = useRef<(() => void) | null>(null);
   const [mockNotices, setNotices] = useState(() =>
@@ -100,7 +101,7 @@ export function Board({
   const live = !!e && (!!e.state.session || !!viewIsland(e.state).construction);
   const app = useMemo(
     () => (e ? boardFromApp(e) : null),
-    [e?.state, e ? dayKey(e.now) : '', live ? e.now : 0],
+    [locale, e?.state, e ? dayKey(e.now) : '', live ? e.now : 0],
   );
   const routeKey = e ? `${e.route}/${e.detail}/${e.tab}` : '';
   useEffect(() => {
@@ -218,7 +219,7 @@ export function Board({
     : app
       ? app.owner
       : local.role === 'owner';
-  const user = owner ? OWNER : '두부';
+  const user = owner ? OWNER : t('firstVoyage.peerName');
   // 공지 상세는 라우트가 연다 — route 'notice' 의 detail id 를 따라 select 한다.
   const noticeDetailId = e && e.route === 'notice' ? e.detail : null;
   // 이 라우트 id 의 상세를 이미 요청했는지 — 요청 전 한 프레임과 「삭제로 비워진」 상태를 구분한다.
@@ -289,7 +290,7 @@ export function Board({
       const open = board.questDetail?.occurrenceId === quest.id ? board.questDetail : null;
       return (open?.members ?? []).map((m) => ({
         id: m.userId,
-        name: m.name ?? '주민',
+        name: m.name ?? t('onboarding.residentFallbackName'),
         color: m.catColor ?? null,
         outfit: appearanceOutfit(m.appearance),
         rate: m.rate,
@@ -301,7 +302,7 @@ export function Board({
       app?.ratesOf(quest) ??
       RESIDENTS.map(([name, color], i) => ({
         id: name,
-        name: name === user ? `${name} · 나` : name,
+        name: name === user ? t('ui.board.meSuffix', { v0: name }) : name,
         color,
         rate: local.screenUnknown && quest.type === 'phone' ? null : i < 2 ? quest.rate : 48,
       }))
@@ -310,6 +311,7 @@ export function Board({
   const mockReady = local.ready && local.balance >= 60;
   const localBlueprintView: BlueprintView = app?.blueprint ?? {
     ...buildOptions[0],
+    buildingId: 'library',
     state: ['building', 'complete'].includes(local.view)
       ? (local.view as 'building' | 'complete')
       : mockReady
@@ -323,7 +325,10 @@ export function Board({
     residents: RESIDENTS.map(([name], i) => ({
       id: name,
       name,
-      value: `${local.ready ? 20 : [20, 18, 12][i]} / 20마리${local.ready || i === 0 ? ' ✓' : ''}`,
+      value: t('ui.board.sampleContribution', {
+        v0: local.ready ? 20 : [20, 18, 12][i],
+        v1: local.ready || i === 0 ? ' ✓' : '',
+      }),
     })),
   };
   const constructionOptions = construction.options;
@@ -343,6 +348,7 @@ export function Board({
     !!selectedBuilding && constructionTiming?.buildingId === selectedBuilding;
   const blueprintView: BlueprintView = serverBoard
     ? {
+        buildingId: selectedBuilding ?? null,
         state: !selectedBuilding
           ? 'none'
           : !selectedOption
@@ -352,15 +358,13 @@ export function Board({
               : selectedOption.buildable
                 ? 'ready'
                 : 'waiting',
-        name:
-          selectedOption?.name ??
-          (selectedBuilding ? buildingNames[selectedBuilding as Building] : ''),
+        name: selectedBuilding ? buildingNames[selectedBuilding as Building] : '',
         image:
           selectedArt?.image ??
           (selectedBuilding === 'hall'
             ? interiorArt.buildings.hall
             : interiorArt.buildings.noticeboard),
-        price: selectedOption ? `총 ${selectedOption.cost}마리` : '',
+        price: selectedOption ? t('ui.board.totalFish', { v0: selectedOption.cost }) : '',
         time: '', // 조회 응답에는 공사 소요 시간이 없으므로 시안 값을 보여 주지 않는다.
         detail: selectedArt?.detail ?? '',
         balance: constructionOptions?.villagePoints ?? 0,
@@ -466,10 +470,10 @@ export function Board({
   const render = (change: Partial<BoardState>) => setS({ ...s, ...change, serial: s.serial + 1 });
   const setError = (error: string) =>
     e ? setUi((prev) => ({ ...prev, error })) : render({ error });
-  const failCopy = '저장하지 못했어요. 입력한 내용은 그대로 남아 있어요.';
+  const failCopy = t('ui.board.saveFailed');
   // 서버 오류 message 는 그대로 띄울 수 있는 계약이다 — 아니면 기존 문구로 떨어진다.
   const apiMessage = (err: unknown, fallback = failCopy) =>
-    err instanceof ApiError && err.message ? err.message : fallback;
+    err instanceof ApiError ? errorTextOr(err, 'errors.GENERIC') : fallback;
   // stale(계정·범위 교체 중 시작된) 쓰기 오류는 새 화면에 띄우지 않는다.
   const apiWriteMessage = (err: unknown) =>
     err instanceof ApiError && err.code === CLIENT_STALE_SESSION ? '' : apiMessage(err);
@@ -563,8 +567,7 @@ export function Board({
     publish: () => {
       if (!owner) return;
       const draft = s.draft;
-      if (!draft?.title.trim() || !draft.body.trim())
-        return setError('제목과 본문을 입력해주세요.');
+      if (!draft?.title.trim() || !draft.body.trim()) return setError(t('ui.board.requiredNotice'));
       const next = { title: draft.title.trim(), body: draft.body.trim() };
       if (e) {
         // 목업 서버: 다음 저장을 실패로 만들면 입력을 그대로 두고 문구만 보여 준다
@@ -608,7 +611,7 @@ export function Board({
         );
         return render({ view: 'detail', error: '', editing: false, draft: null });
       }
-      setNotices([...mockNotices, { ...next, time: '오늘', comments: [] }]);
+      setNotices([...mockNotices, { ...next, time: t('magazine.rack.today'), comments: [] }]);
       render({
         noticeIndex: mockNotices.length,
         view: 'detail',
@@ -941,8 +944,11 @@ export function Board({
           if (!liveE(op)) return;
           showToast?.(
             result.bonusAdded > 0
-              ? `보상 ${result.villagePointsAdded}마리와 전원 달성 보너스 ${result.bonusAdded}마리가 섬에 쌓였어요`
-              : `보상 ${result.villagePointsAdded}마리가 섬에 쌓였어요`,
+              ? t('ui.board.rewardAndBonus', {
+                  v0: result.villagePointsAdded,
+                  v1: result.bonusAdded,
+                })
+              : t('ui.board.rewardAdded', { v0: result.villagePointsAdded }),
           );
         },
         (err: unknown) => {
@@ -1005,7 +1011,7 @@ export function Board({
             snapshot.facts.islandId !== islandId ||
             !snapshot.facts.completedBuildings.includes(building as Building)
           ) {
-            setError('완공 상태를 확인하지 못했어요. 잠시 뒤 다시 눌러 주세요.');
+            setError(t('ui.board.completionFailed'));
             return;
           }
           const latest = liveE(op);
@@ -1049,7 +1055,7 @@ export function Board({
     <View>
       <View>
         <Text style={[boardFont(14, 1.2, '400', '#9b7058'), { marginBottom: 1 }]}>
-          {app ? `${app.island.name} 게시판` : '소다 섬 게시판'}
+          {app ? t('ui.board.islandBoard', { v0: app.island.name }) : t('ui.board.sampleBoard')}
         </Text>
         <View
           style={{
@@ -1061,25 +1067,34 @@ export function Board({
           }}
         >
           <Text style={boardFont(28, 1.15, '700', INK)}>
-            공지{' '}
+            {t('ui.board.notice')}{' '}
             <Text style={{ fontSize: 16, lineHeight: lh(16 * 1.15), color: '#9b7058' }}>
               {notices.length}
             </Text>
           </Text>
-          {owner && <Btn small id="board-notice-new" title="+ 새 공지" onPress={nav.newNotice} />}
+          {owner && (
+            <Btn
+              small
+              id="board-notice-new"
+              title={t('ui.board.newNotice')}
+              onPress={nav.newNotice}
+            />
+          )}
         </View>
       </View>
       <View>
         {serverBoard && board.loading ? (
-          <Text style={muted({ marginTop: 4, marginBottom: 14 })}>불러오는 중…</Text>
+          <Text style={muted({ marginTop: 4, marginBottom: 14 })}>
+            {t('account.blocked.loading')}
+          </Text>
         ) : serverBoard && board.error ? (
           <View>
             <Text style={muted({ marginTop: 4, marginBottom: 8 })}>
-              {apiMessage(board.error, '불러오지 못했어요.')}
+              {apiMessage(board.error, t('ui.board.loadFailed'))}
             </Text>
             <PaperAction
               testID="board-notices-retry"
-              label="다시 시도"
+              label={t('common.retry')}
               onPress={() => board.retry().catch(() => {})}
             />
           </View>
@@ -1119,7 +1134,9 @@ export function Board({
                     webOnly({ whiteSpace: 'nowrap' }),
                   ]}
                 >
-                  {`댓글 ${notice.commentCount ?? notice.comments.length} `}
+                  {t('ui.board.commentCount', {
+                    v0: notice.commentCount ?? notice.comments.length,
+                  })}
                   <Text
                     style={{
                       fontSize: 19,
@@ -1135,12 +1152,12 @@ export function Board({
             </Pressable>
           ))
         ) : (
-          <Text style={muted({ marginTop: 4, marginBottom: 14 })}>아직 등록된 공지가 없어요.</Text>
+          <Text style={muted({ marginTop: 4, marginBottom: 14 })}>{t('ui.board.noNotices')}</Text>
         )}
         {serverBoard && board.nextCursor !== null && (
           <PaperAction
             testID="board-notices-more"
-            label={board.loadingMore ? '불러오는 중…' : '더 보기'}
+            label={board.loadingMore ? t('account.blocked.loading') : t('developerNotices.more')}
             onPress={() => board.loadMore()}
           />
         )}
@@ -1159,16 +1176,16 @@ export function Board({
               testID="board-notice-close"
               close
               boardPaper
-              label="공지 닫고 목록으로 돌아가기"
+              label={t('ui.board.closeNotice')}
               onPress={nav.backToNotices}
             />,
           )}
           <Text style={muted({ marginTop: 4, marginBottom: 8 })}>
-            {apiMessage(board.detailError, '불러오지 못했어요.')}
+            {apiMessage(board.detailError, t('ui.board.loadFailed'))}
           </Text>
           <PaperAction
             testID="board-notice-retry"
-            label="다시 시도"
+            label={t('common.retry')}
             onPress={() => board.select(e.detail).catch(() => {})}
           />
         </View>
@@ -1181,15 +1198,15 @@ export function Board({
               testID="board-notice-close"
               close
               boardPaper
-              label="공지 닫고 목록으로 돌아가기"
+              label={t('ui.board.closeNotice')}
               onPress={nav.backToNotices}
             />,
           )}
           {/* 요청을 냈고 로딩도 끝났는데 detail 이 없으면 종결 — 삭제로 비워진 공지다. */}
           <Text style={muted({ marginTop: 4 })}>
             {board.detailLoading || !board.islandId || noticeAsked.current !== noticeDetailId
-              ? '불러오는 중…'
-              : '삭제됐거나 더 이상 볼 수 없는 공지예요.'}
+              ? t('account.blocked.loading')
+              : t('ui.board.noticeUnavailable')}
           </Text>
         </View>
       );
@@ -1202,7 +1219,7 @@ export function Board({
             testID="board-notice-close"
             close
             boardPaper
-            label="공지 닫고 목록으로 돌아가기"
+            label={t('ui.board.closeNotice')}
             onPress={nav.backToNotices}
           />,
         )}
@@ -1216,18 +1233,22 @@ export function Board({
           {notice.title}
         </Text>
         {notice.time !== '' && (
-          <Text
-            style={[boardFont(11, 1.45, '400', '#8a7364', GOWUN), { marginBottom: 14 }]}
-          >{`작성일 · ${notice.time}`}</Text>
+          <Text style={[boardFont(11, 1.45, '400', '#8a7364', GOWUN), { marginBottom: 14 }]}>
+            {t('ui.board.postedOn', { v0: notice.time })}
+          </Text>
         )}
         <Text style={[body, { marginBottom: 14 }]}>{notice.body}</Text>
         {formError}
         {owner && (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16, marginBottom: 14 }}>
-            <PaperAction testID="board-notice-edit" label="수정" onPress={nav.editNotice} />
+            <PaperAction
+              testID="board-notice-edit"
+              label={t('magazine.editor.editOk')}
+              onPress={nav.editNotice}
+            />
             <Link
               testID="board-notice-delete"
-              label="삭제"
+              label={t('ui.social.delete')}
               danger
               onPress={() => nav.askDelete('notice')}
             />
@@ -1244,16 +1265,20 @@ export function Board({
           }}
         >
           <Text style={boardFont(15, 1.4, '700')}>
-            주민 댓글{' '}
+            {t('ui.remaining.copy0')}{' '}
             <Text style={{ marginLeft: 4, color: '#99644f' }}>{notice.comments.length}</Text>
           </Text>
           {!visitor &&
             (s.view === 'comment' ? (
-              <PaperAction testID="board-comment-cancel" label="취소" onPress={nav.cancelComment} />
+              <PaperAction
+                testID="board-comment-cancel"
+                label={t('common.cancel')}
+                onPress={nav.cancelComment}
+              />
             ) : (
               <PaperAction
                 testID="board-comment-new"
-                label="+ 댓글 쓰기"
+                label={t('ui.board.writeComment')}
                 onPress={nav.openComment}
               />
             ))}
@@ -1273,7 +1298,7 @@ export function Board({
               backgroundColor: '#fffaf0',
             }}
           >
-            <Text style={muted({ textAlign: 'center' })}>주민이 되면 댓글을 남길 수 있어요</Text>
+            <Text style={muted({ textAlign: 'center' })}>{t('ui.board.joinToComment')}</Text>
           </View>
         )}
         {s.view === 'comment' && (
@@ -1288,13 +1313,13 @@ export function Board({
           >
             <TextInput
               testID="board-comment-input"
-              accessibilityLabel="댓글 내용"
+              accessibilityLabel={t('ui.board.commentBody')}
               autoFocus
               multiline
               textAlignVertical="top"
               value={s.commentDraft}
               onChangeText={nav.setCommentDraft}
-              placeholder="댓글을 적어주세요"
+              placeholder={t('ui.board.commentPlaceholder')}
               placeholderTextColor="#8d796a"
               style={[
                 inputStyle(),
@@ -1312,7 +1337,7 @@ export function Board({
             <View style={{ flexDirection: 'row', justifyContent: 'flex-end' }}>
               <PaperAction
                 testID="board-comment-submit"
-                label="등록 →"
+                label={t('ui.board.postComment')}
                 onPress={nav.submitComment}
                 style={!s.commentDraft.trim() && { opacity: 0.38 }}
               />
@@ -1346,7 +1371,7 @@ export function Board({
                     <View style={{ flexDirection: 'row', marginTop: 5 }}>
                       <Link
                         testID={`board-comment-delete-${commentIndex}`}
-                        label="삭제"
+                        label={t('ui.social.delete')}
                         danger
                         size={12}
                         onPress={() => nav.askDelete('comment', commentIndex)}
@@ -1358,13 +1383,17 @@ export function Board({
             ))
           ) : (
             <Text style={muted({ marginTop: 4, marginBottom: 14 })}>
-              {visitor ? '아직 댓글이 없어요.' : '첫 댓글을 남겨보세요.'}
+              {visitor ? t('ui.board.noComments') : t('ui.board.firstComment')}
             </Text>
           )}
           {serverBoard && board.detail?.nextCommentsCursor !== null && board.detail && (
             <PaperAction
               testID="board-comments-more"
-              label={board.loadingMoreComments ? '불러오는 중…' : '댓글 더 보기'}
+              label={
+                board.loadingMoreComments
+                  ? t('account.blocked.loading')
+                  : t('visitorBoard.moreComments')
+              }
               onPress={() => board.loadMoreComments()}
             />
           )}
@@ -1384,34 +1413,36 @@ export function Board({
             testID="board-notice-cancel"
             close
             boardPaper
-            label={s.editing ? '수정 닫고 공지로 돌아가기' : '작성 닫고 공지 목록으로 돌아가기'}
+            label={s.editing ? t('ui.board.closeEditNotice') : t('ui.board.closeNewNotice')}
             onPress={nav.cancelEditor}
           />,
         )}
-        <Text
-          style={[h4, { marginTop: 4, marginRight: 34, marginBottom: 12 }]}
-        >{`공지 ${s.editing ? '수정' : '쓰기'}`}</Text>
+        <Text style={[h4, { marginTop: 4, marginRight: 34, marginBottom: 12 }]}>
+          {t('ui.board.noticeAction', {
+            v0: s.editing ? t('magazine.editor.editOk') : t('ui.board.write'),
+          })}
+        </Text>
         <View style={{ gap: 12 }}>
-          <BoardField label="제목">
+          <BoardField label={t('ui.board.title')}>
             <TextInput
               testID="board-notice-title"
-              accessibilityLabel="공지 제목"
+              accessibilityLabel={t('ui.board.noticeTitle')}
               value={draft.title}
               onChangeText={(title) => setDraft({ title })}
-              placeholder="공지 제목을 적어주세요"
+              placeholder={t('ui.board.noticeTitlePlaceholder')}
               placeholderTextColor="#757575"
               style={inputStyle()}
             />
           </BoardField>
-          <BoardField label="본문">
+          <BoardField label={t('ui.board.body')}>
             <TextInput
               testID="board-notice-body"
-              accessibilityLabel="공지 본문"
+              accessibilityLabel={t('ui.board.noticeBody')}
               multiline
               textAlignVertical="top"
               value={draft.body}
               onChangeText={(text) => setDraft({ body: text })}
-              placeholder="주민들에게 전할 소식을 적어주세요"
+              placeholder={t('ui.board.noticeBodyPlaceholder')}
               placeholderTextColor="#757575"
               style={[inputStyle(), { height: 106 }]}
             />
@@ -1419,7 +1450,7 @@ export function Board({
           {formError}
           <PaperStamp
             testID="board-notice-submit"
-            label={s.editing ? '수정 저장' : '게시하기'}
+            label={s.editing ? t('ui.board.saveChanges') : t('ui.board.publish')}
             onPress={nav.publish}
           />
         </View>
@@ -1437,22 +1468,27 @@ export function Board({
       case 'confirm':
         return (
           <View>
-            <Text
-              style={[h4, { marginTop: 4, marginRight: 34, marginBottom: 12 }]}
-            >{`${s.deleteTarget === 'notice' ? '공지를' : '댓글을'} 삭제할까요?`}</Text>
+            <Text style={[h4, { marginTop: 4, marginRight: 34, marginBottom: 12 }]}>
+              {t('ui.board.confirmDelete', {
+                v0:
+                  s.deleteTarget === 'notice'
+                    ? t('ui.board.noticeObject')
+                    : t('ui.board.commentObject'),
+              })}
+            </Text>
             <Text style={[boardFont(14, 1.6), { marginTop: 2, marginBottom: 18 }]}>
-              삭제한 내용은 되돌릴 수 없어요.
+              {t('ui.board.cannotUndo')}
             </Text>
             <View style={{ flexDirection: 'row', gap: 10 }}>
               <BoardPill
                 testID="board-delete-cancel"
-                label="취소"
+                label={t('common.cancel')}
                 style={{ flex: 1 }}
                 onPress={nav.cancelDelete}
               />
               <BoardPill
                 testID="board-delete-confirm"
-                label="삭제"
+                label={t('ui.social.delete')}
                 primary
                 style={{ flex: 1 }}
                 onPress={nav.confirmDelete}
@@ -1468,11 +1504,11 @@ export function Board({
   // 서버가 내려주는 수령 불가 사유 — 값을 만들지 않고 알려진 코드만 번역한다.
   const questBlockedText = (reason: string | null | undefined) =>
     reason === 'NOT_ACHIEVED'
-      ? '목표를 채우면 보상을 받을 수 있어요.'
+      ? t('ui.board.reachGoalToClaim')
       : reason === 'MEASUREMENT_PENDING'
-        ? '측정이 끝나야 보상을 받을 수 있어요.'
+        ? t('ui.board.waitForMeasurement')
         : reason
-          ? '지금은 보상을 받을 수 없어요.'
+          ? t('ui.board.rewardUnavailable')
           : '';
 
   const questContent = (listOnly = false) => {
@@ -1492,7 +1528,7 @@ export function Board({
               testID="board-quest-close"
               close
               boardPaper
-              label="퀘스트 닫고 목록으로 돌아가기"
+              label={t('ui.board.closeQuest')}
               onPress={nav.backToQuests}
             />,
           )}
@@ -1501,16 +1537,20 @@ export function Board({
           </Text>
           <Text style={[boardFont(13, 1.55, '400', '#786151', GOWUN), { marginBottom: 12 }]}>
             {quest.type === 'phone'
-              ? `하루 폰 사용 ${quest.target}분 이하`
+              ? t('ui.board.phoneLimit', { v0: quest.target })
               : quest.startTime
-                ? `${quest.startTime}부터 ${quest.endTime}까지 · 목표 ${quest.target}분 집중`
-                : `목표 ${quest.target}분 집중`}
+                ? t('ui.board.focusWindow', {
+                    v0: quest.startTime,
+                    v1: quest.endTime ?? '—',
+                    v2: quest.target,
+                  })
+                : t('ui.board.focusGoal', { v0: quest.target })}
           </Text>
           {owner && (
             <View style={{ flexDirection: 'row', marginTop: -6, marginBottom: 4 }}>
               <PaperAction
                 testID="board-quest-edit"
-                label="수정"
+                label={t('magazine.editor.editOk')}
                 onPress={() => nav.editQuest(quest)}
               />
             </View>
@@ -1518,20 +1558,22 @@ export function Board({
           {serverBoard && board.questDetailError ? (
             <View>
               <Text style={muted({ marginTop: 4, marginBottom: 8 })}>
-                {apiMessage(board.questDetailError, '불러오지 못했어요.')}
+                {apiMessage(board.questDetailError, t('ui.board.loadFailed'))}
               </Text>
               <PaperAction
                 testID="board-quest-detail-retry"
-                label="다시 시도"
+                label={t('common.retry')}
                 onPress={() => board.selectQuest(quest.id).catch(() => {})}
               />
             </View>
           ) : serverBoard && !progress ? (
-            <Text style={muted({ marginTop: 4, marginBottom: 14 })}>불러오는 중…</Text>
+            <Text style={muted({ marginTop: 4, marginBottom: 14 })}>
+              {t('account.blocked.loading')}
+            </Text>
           ) : (
             <>
               <Text style={[boardFont(13, 1.65, '400', '#786151'), { marginBottom: 4 }]}>
-                주민별 달성률
+                {t('ui.board.residentProgress')}
               </Text>
               <View>
                 {residentsOf(quest).map(({ id, name, color, outfit, rate, achieved, claimed }) => {
@@ -1551,7 +1593,7 @@ export function Board({
                         borderStyle: 'dashed',
                       }}
                     >
-                      <View accessible accessibilityLabel={`${name} 고양이 프로필`}>
+                      <View accessible accessibilityLabel={t('ui.board.catProfile', { v0: name })}>
                         <CatAvatar
                           userId={id}
                           color={color}
@@ -1562,12 +1604,16 @@ export function Board({
                       <View style={{ flex: 1, minWidth: 0 }}>
                         <Text style={boardFont(14, 1.6, '700')}>
                           {name}
-                          {claimed ? ' · 수령 완료' : achieved ? ' · 달성' : ''}
+                          {claimed
+                            ? t('ui.board.claimedSuffix')
+                            : achieved
+                              ? t('ui.board.achievedSuffix')
+                              : ''}
                         </Text>
                         {!unknown && <Track rate={rate} color="#91b67e" style={{ marginTop: 7 }} />}
                       </View>
                       <Text style={[boardFont(14, 1.6, '700'), { width: unknown ? 52 : 42 }]}>
-                        {unknown ? '측정 전' : `${rate}%`}
+                        {unknown ? t('focusFlow.result.notMeasuredYet') : `${rate}%`}
                       </Text>
                     </View>
                   );
@@ -1577,11 +1623,16 @@ export function Board({
               {serverBoard && (
                 <View style={{ marginTop: 12, gap: 6 }}>
                   {quest.claimed ? (
-                    <Text style={muted({})}>내 몫은 이미 받았어요.</Text>
+                    <Text style={muted({})}>{t('ui.board.alreadyClaimed')}</Text>
                   ) : quest.claimable ? (
                     <BoardPill
                       testID="board-quest-claim"
-                      label={`보상 받기${quest.rewardAmount != null ? ` · ${quest.rewardAmount}마리` : ''}`}
+                      label={t('ui.board.claimWithAmount', {
+                        v0:
+                          quest.rewardAmount != null
+                            ? t('ui.board.fishSuffix', { v0: quest.rewardAmount })
+                            : '',
+                      })}
                       primary
                       onPress={() => nav.claimQuest(quest)}
                     />
@@ -1590,7 +1641,7 @@ export function Board({
                   ) : null}
                   {quest.bonusGranted && !!quest.bonusAmount && (
                     <Text style={muted({})}>
-                      모두 달성 보너스 {quest.bonusAmount}마리가 섬에 쌓였어요.
+                      {t('ui.board.teamBonusAdded', { v0: quest.bonusAmount })}
                     </Text>
                   )}
                   {formError}
@@ -1615,56 +1666,64 @@ export function Board({
       return (
         <>
           <Text style={[h4, { marginTop: 4, marginRight: 34, marginBottom: 12 }]}>
-            {s.editing ? '퀘스트 수정' : '퀘스트 만들기'}
+            {s.editing ? t('ui.board.editQuest') : t('ui.board.createQuest')}
           </Text>
           <View style={{ gap: 12 }}>
-            <BoardField label="퀘스트 종류">
+            <BoardField label={t('ui.board.questType')}>
               {serverEdit ? (
                 <Text style={[inputStyle(), { paddingTop: 13 }]}>
-                  {form.type === 'phone' ? '하루 폰 사용' : '시간대 집중'}
+                  {form.type === 'phone'
+                    ? t('ui.board.dailyPhoneUse')
+                    : t('ui.board.scheduledFocus')}
                 </Text>
               ) : (
                 <QuestTypeChoice value={form.type} onChange={(type) => setForm({ type })} />
               )}
             </BoardField>
-            <BoardField label="퀘스트 제목">
+            <BoardField label={t('ui.board.questTitle')}>
               <TextInput
                 testID="board-quest-title"
-                accessibilityLabel="퀘스트 제목"
+                accessibilityLabel={t('ui.board.questTitle')}
                 value={form.title}
                 onChangeText={(title) => setForm({ title })}
-                placeholder={form.type === 'focus' ? '예: 저녁 집중' : '예: 하루 폰 90분 이하'}
+                placeholder={
+                  form.type === 'focus' ? t('ui.board.focusExample') : t('ui.board.phoneExample')
+                }
                 placeholderTextColor="#757575"
                 style={inputStyle()}
               />
             </BoardField>
             {form.type === 'focus' && serverEdit ? (
-              <BoardField label="진행 시간">
+              <BoardField label={t('ui.board.schedule')}>
                 <Text style={[inputStyle(), { paddingTop: 13 }]}>
                   {form.startTime}–{form.endTime}
                 </Text>
               </BoardField>
             ) : (
               form.type === 'focus' && (
-                <BoardField label="진행 시간">
+                <BoardField label={t('ui.board.schedule')}>
                   {/* 좁은 화면(320pt 이하)에서도 각 휠의 터치 폭 44pt 를 지키려고 시작·종료를 세로로
                       쌓는다 — 한 줄에 휠 두 개만 두면 종이 폭을 반씩 나눠 넉넉하다(AGENTS 44pt). */}
                   <View style={{ gap: semanticTokens.spacing.control }}>
                     <View style={{ gap: 4 }}>
-                      <Text style={boardFont(12, 1.4, '400', '#786151', GOWUN)}>시작</Text>
+                      <Text style={boardFont(12, 1.4, '400', '#786151', GOWUN)}>
+                        {t('ui.board.start')}
+                      </Text>
                       <QuestTimeInput
                         testID="board-quest-start"
-                        label="시작 시간"
+                        label={t('ui.board.startTime')}
                         value={form.startTime}
                         onChange={(startTime) => setForm({ startTime })}
                       />
                     </View>
                     <View style={{ gap: 4 }}>
-                      <Text style={boardFont(12, 1.4, '400', '#786151', GOWUN)}>종료</Text>
+                      <Text style={boardFont(12, 1.4, '400', '#786151', GOWUN)}>
+                        {t('ui.board.end')}
+                      </Text>
                       {/* 종료는 24:00(하루 끝)까지 드럼으로 고른다 — 별도 「자정까지」 토글은 없다. */}
                       <QuestTimeInput
                         testID="board-quest-end"
-                        label="종료 시간"
+                        label={t('ui.board.endTime')}
                         value={form.endTime}
                         onChange={(endTime) => setForm({ endTime })}
                         allowMidnight
@@ -1684,14 +1743,16 @@ export function Board({
               )
             )}
             {serverEdit && (
-              <Text style={muted({ marginTop: -2 })}>
-                종류·진행 시간은 바꿀 수 없어요. 수정은 다음 회차부터 적용돼요.
-              </Text>
+              <Text style={muted({ marginTop: -2 })}>{t('ui.board.scheduleLocked')}</Text>
             )}
-            <BoardField label={form.type === 'focus' ? '목표 집중 시간' : '하루 폰 사용 상한'}>
+            <BoardField
+              label={form.type === 'focus' ? t('ui.board.focusTarget') : t('ui.board.phoneTarget')}
+            >
               <QuestTargetInput
                 testID="board-quest-target"
-                label={form.type === 'focus' ? '목표 집중 시간' : '하루 폰 사용 상한'}
+                label={
+                  form.type === 'focus' ? t('ui.board.focusTarget') : t('ui.board.phoneTarget')
+                }
                 value={form.target}
                 onChange={(target) => setForm({ target })}
               />
@@ -1703,13 +1764,11 @@ export function Board({
                 webOnly({ wordBreak: 'keep-all' }),
               ]}
             >
-              {form.type === 'focus'
-                ? '설정한 시간 안에서 목표 집중 시간을 채워요. 매일 00시에 새 회차로 시작해요.'
-                : '하루 동안 폰 사용 시간이 상한 이하이면 달성해요. 매일 00시에 새 회차로 시작해요.'}
+              {form.type === 'focus' ? t('ui.board.focusHint') : t('ui.board.phoneHint')}
             </Text>
             <BoardPill
               testID="board-quest-save"
-              label={s.editing ? '수정 저장' : '퀘스트 시작'}
+              label={s.editing ? t('ui.board.saveChanges') : t('ui.board.startQuest')}
               primary
               onPress={() => nav.submitQuest(form)}
             />
@@ -1721,7 +1780,7 @@ export function Board({
       <>
         <View style={{ marginBottom: 4 }}>
           <Text style={[boardFont(14, 1.2, '400', '#98713d'), { marginBottom: 1 }]}>
-            매일 새 도전
+            {t('ui.board.newDailyChallenge')}
           </Text>
           <View
             style={{
@@ -1732,12 +1791,14 @@ export function Board({
             }}
           >
             <Text style={boardFont(27, 1.15, '700', INK)}>
-              퀘스트{' '}
+              {t('ui.shop.quest')}{' '}
               <Text style={{ fontSize: 16, lineHeight: lh(16 * 1.15), color: '#92713f' }}>
                 {quests.length}
               </Text>
             </Text>
-            {owner && <Btn small id="board-quest-new" title="+ 만들기" onPress={nav.newQuest} />}
+            {owner && (
+              <Btn small id="board-quest-new" title={t('ui.board.create')} onPress={nav.newQuest} />
+            )}
           </View>
         </View>
         <View
@@ -1745,15 +1806,17 @@ export function Board({
           style={[{ paddingHorizontal: 2 }, webOnly({ perspective: 700 })]}
         >
           {serverBoard && board.loading ? (
-            <Text style={muted({ marginTop: 4, marginBottom: 14 })}>불러오는 중…</Text>
+            <Text style={muted({ marginTop: 4, marginBottom: 14 })}>
+              {t('account.blocked.loading')}
+            </Text>
           ) : serverBoard && board.error ? (
             <View>
               <Text style={muted({ marginTop: 4, marginBottom: 8 })}>
-                {apiMessage(board.error, '불러오지 못했어요.')}
+                {apiMessage(board.error, t('ui.board.loadFailed'))}
               </Text>
               <PaperAction
                 testID="board-quests-retry"
-                label="다시 시도"
+                label={t('common.retry')}
                 onPress={() => board.retry().catch(() => {})}
               />
             </View>
@@ -1771,11 +1834,9 @@ export function Board({
           ) : (
             <View style={{ paddingVertical: 28, alignItems: 'center' }}>
               <Text style={[h4, { marginBottom: 7, textAlign: 'center' }]}>
-                진행 중인 퀘스트가 없어요
+                {t('ui.board.noQuests')}
               </Text>
-              <Text style={muted({ textAlign: 'center' })}>
-                섬장이 일일 퀘스트를 만들면 여기에 붙어요.
-              </Text>
+              <Text style={muted({ textAlign: 'center' })}>{t('ui.board.questHint')}</Text>
             </View>
           )}
         </View>
@@ -1790,14 +1851,12 @@ export function Board({
       return (
         <View style={{ paddingTop: 32, gap: semanticTokens.spacing.control }}>
           <Text testID="board-construction-status" style={boardFont(14, 1.6, '700', '#f7fcff')}>
-            {construction.status === 'error'
-              ? '건설 목표를 불러오지 못했어요.'
-              : '건설 목표를 불러오고 있어요.'}
+            {construction.status === 'error' ? t('ui.board.goalFailed') : t('ui.board.goalLoading')}
           </Text>
           {construction.status === 'error' && (
             <BoardPill
               testID="board-construction-retry"
-              label="다시 시도"
+              label={t('common.retry')}
               onPress={() => void construction.retry().catch(() => undefined)}
             />
           )}
@@ -1808,9 +1867,7 @@ export function Board({
         <Text
           style={[boardFont(14, 1.6, '700', '#f7fcff'), { paddingTop: 32, textAlign: 'center' }]}
         >
-          {allBuildingsComplete
-            ? '모든 건물을 완공했어요.'
-            : '마을회관에서 다음 건물을 골라 주세요.'}
+          {allBuildingsComplete ? t('ui.board.allComplete') : t('ui.board.chooseNext')}
         </Text>
       );
     const light = '#f7fcff';
@@ -1902,7 +1959,7 @@ export function Board({
               >
                 <Picture
                   source={bp.image}
-                  label={`${bp.name} 건물 미리보기`}
+                  label={t('ui.board.buildingPreview', { v0: bp.name })}
                   shadow="0 4px 2px #244c5c80"
                   style={{ zIndex: 1, width: 94, maxWidth: '100%', height: 104 }}
                 />
@@ -1921,7 +1978,7 @@ export function Board({
                   },
                 ]}
               >
-                예상 모습
+                {t('ui.hall.preview')}
               </Text>
               {/* 도장은 이 그림 칸 안 가운데에 찍는다 — 칸 폭을 넘지 않게 줄어 옆 글자 칸(가격·공사 시간)을 가리지 않고,
                   칸이 overflow hidden 이라 찍히는 순간 커지는 연출도 칸 밖으로 나가지 않는다 */}
@@ -1951,8 +2008,8 @@ export function Board({
               <Text style={[boardFont(22, 1.1, '700', light, GOWUN), { marginBottom: 7 }]}>
                 {bp.name}
               </Text>
-              {!!bp.price && copyRow('가격', bp.price)}
-              {!!bp.time && copyRow('시간', bp.time)}
+              {!!bp.price && copyRow(t('ui.board.price'), bp.price)}
+              {!!bp.time && copyRow(t('ui.board.time'), bp.time)}
               <Text
                 style={[
                   boardFont(12, 1.45, '400', light),
@@ -1973,22 +2030,23 @@ export function Board({
               gap: semanticTokens.spacing.control,
             }}
           >
-            <Text style={boardFont(14, 1.6, '700', light)}>각자 모을 물고기</Text>
+            <Text style={boardFont(14, 1.6, '700', light)}>{t('ui.board.individualFish')}</Text>
             {!residentProgress ? (
               <Text style={boardFont(12, 1.45, '400', light)}>
-                주민별 준비량을 아직 불러올 수 없어요. 섬 잔액과는 별도로 각자의 몫을 채워야 해요.
+                {t('ui.board.progressUnavailable')}
               </Text>
             ) : residentProgress.residents.length === 0 ? (
-              <Text style={boardFont(12, 1.45, '400', light)}>
-                대상 주민이 없어 건설할 수 없어요.
-              </Text>
+              <Text style={boardFont(12, 1.45, '400', light)}>{t('ui.board.noParticipants')}</Text>
             ) : (
               <>
                 <Text style={boardFont(13, 1.6, '700', light)}>
-                  {`대상 주민 ${residentProgress.residents.length}명 · 각자 ${residentProgress.requiredPerResident}마리`}
+                  {t('ui.board.participants', {
+                    v0: residentProgress.residents.length,
+                    v1: residentProgress.requiredPerResident ?? '—',
+                  })}
                 </Text>
                 <Text style={boardFont(12, 1.45, '400', light)}>
-                  목표를 정한 뒤 모은 물고기예요. 전원이 각자의 몫을 채워야 해요.
+                  {t('ui.board.contributionHint')}
                 </Text>
                 {residentProgress.residents.map((resident) => (
                   <View
@@ -2002,18 +2060,23 @@ export function Board({
                     }}
                   >
                     <Text style={boardFont(13, 1.6, '700', semanticTokens.color.text)}>
-                      {resident.name || '주민'}
+                      {resident.name || t('onboarding.residentFallbackName')}
                     </Text>
                     <Text style={boardFont(13, 1.6, '400', semanticTokens.color.text)}>
-                      {`모은 ${resident.contributed}마리 / 목표 ${residentProgress.requiredPerResident}마리`}
+                      {t('ui.board.collectedGoal', {
+                        v0: resident.contributed,
+                        v1: residentProgress.requiredPerResident ?? '—',
+                      })}
                     </Text>
                     <Text style={boardFont(13, 1.6, '700', semanticTokens.color.text)}>
-                      {resident.remaining === 0 ? '달성' : `${resident.remaining}마리 남음`}
+                      {resident.remaining === 0
+                        ? t('ui.board.achieved')
+                        : t('ui.board.remainingFish', { v0: resident.remaining })}
                     </Text>
                   </View>
                 ))}
                 <Text style={boardFont(12, 1.45, '400', light)}>
-                  {`건설할 때 섬 잔액에서 총 ${bp.cost}마리를 차감해요.`}
+                  {t('ui.board.constructionDebit', { v0: bp.cost })}
                 </Text>
               </>
             )}
@@ -2022,13 +2085,13 @@ export function Board({
         {bp.state === 'building' ? (
           <View style={{ gap: 10, paddingTop: 16, paddingHorizontal: 2, paddingBottom: 2 }}>
             <Text style={boardFont(21, 1.25, '700', light, GOWUN)}>
-              {`${josa(bp.name, '을', '를')} 짓고 있어요`}
+              {t('ui.board.buildingInProgress', { v0: josa(bp.name, '을', '를') })}
             </Text>
             {(!serverBoard || hasConstructionTiming) && (
               <>
-                <Text
-                  style={boardFont(13, 1.6, '400', '#e8faff')}
-                >{`공사 진행률 · ${bp.progress}%`}</Text>
+                <Text style={boardFont(13, 1.6, '400', '#e8faff')}>
+                  {t('ui.board.constructionProgress', { v0: bp.progress })}
+                </Text>
                 <Track
                   rate={bp.progress}
                   color="#f3d16d"
@@ -2045,16 +2108,16 @@ export function Board({
         ) : bp.state === 'complete' ? (
           <View style={{ gap: 10, paddingTop: 16, paddingHorizontal: 2, paddingBottom: 2 }}>
             <Text style={boardFont(21, 1.25, '700', light, GOWUN)}>
-              {`${josa(bp.name, '이', '가')} 완공됐어요`}
+              {t('ui.board.buildingCompleted', { v0: josa(bp.name, '이', '가') })}
             </Text>
             <Text style={boardFont(13, 1.6, '400', '#e8faff')}>
-              {bp.name === '도서관'
-                ? '이제 도서관에서 주민들의 기록을 펼쳐볼 수 있어요.'
-                : `이제 ${josa(bp.name, '을', '를')} 이용할 수 있어요.`}
+              {bp.buildingId === 'library'
+                ? t('ui.board.libraryReady')
+                : t('ui.board.facilityReady', { v0: josa(bp.name, '을', '를') })}
             </Text>
             <BoardPill
               testID="board-open-library"
-              label={`${josa(bp.name, '으로', '로')} 이동`}
+              label={t('ui.board.goToBuilding', { v0: josa(bp.name, '으로', '로') })}
               primary
               onPress={nav.openBuilding}
             />
@@ -2064,7 +2127,7 @@ export function Board({
             <View style={{ alignItems: 'center', paddingTop: 14 }}>
               <BoardPill
                 testID="board-build-start"
-                label="건설하기"
+                label={t('home.buildAction')}
                 primary
                 style={{ backgroundColor: '#ffa6bc' }}
                 onPress={nav.build}
@@ -2078,24 +2141,30 @@ export function Board({
                 { paddingTop: 3, textAlign: 'center' },
               ]}
             >
-              섬장이 건설할 수 있어요
+              {t('ui.board.hostCanBuild')}
             </Text>
           )
         ) : serverBoard ? (
           <View style={{ paddingTop: 14, gap: semanticTokens.spacing.control }}>
-            {fishRow('섬 잔액 / 공사 가격', `${bp.balance} / ${bp.cost}마리`)}
+            {fishRow(
+              t('ui.board.balanceAndCost'),
+              t('ui.hall.fishProgress', { v0: bp.balance, v1: bp.cost }),
+            )}
             <Text style={boardFont(12, 1.45, '400', '#e8faff')}>
               {selectedOption?.blockedReason === 'FORBIDDEN'
-                ? '섬장이 건설을 진행할 수 있어요.'
+                ? t('ui.board.hostConstructionHint')
                 : selectedOption?.blockedReason === 'FACILITY_LOCKED'
-                  ? '먼저 필요한 시설을 완공해 주세요.'
-                  : '필요한 물고기와 주민별 기여 조건을 채우면 건설할 수 있어요.'}
+                  ? t('ui.board.finishRequiredFacilities')
+                  : t('ui.board.constructionRequirements')}
             </Text>
           </View>
         ) : (
           <View style={{ paddingTop: 14 }}>
             <View style={{ gap: 7 }}>
-              {fishRow('주민 준비량', `${bp.collected} / ${bp.needed}마리`)}
+              {fishRow(
+                t('ui.board.residentContributions'),
+                t('ui.hall.fishProgress', { v0: bp.collected, v1: bp.needed }),
+              )}
               <View
                 style={{
                   height: 10,
@@ -2118,7 +2187,10 @@ export function Board({
                   ]}
                 />
               </View>
-              {fishRow('섬 잔액 / 공사 가격', `${bp.balance} / ${bp.cost}마리`)}
+              {fishRow(
+                t('ui.board.balanceAndCost'),
+                t('ui.hall.fishProgress', { v0: bp.balance, v1: bp.cost }),
+              )}
             </View>
             <View style={{ gap: 7, marginTop: 14 }}>
               {bp.residents.map(({ id, name, value }) => (
@@ -2146,7 +2218,7 @@ export function Board({
                 { marginTop: 10, textAlign: 'center' },
               ]}
             >
-              주민 전원이 요구량을 채워야 건설할 수 있어요.
+              {t('ui.board.allSharesRequired')}
             </Text>
           </View>
         )}
@@ -2443,7 +2515,7 @@ export function Board({
             <Pressable
               testID="board-notice-area"
               accessibilityRole="button"
-              accessibilityLabel="공지"
+              accessibilityLabel={t('ui.board.notice')}
               onPress={() => nav.open('notice')}
               style={[
                 {
@@ -2469,14 +2541,14 @@ export function Board({
                   },
                 ]}
               >
-                공지
+                {t('ui.board.notice')}
               </Text>
               <Handwriting scale={labelScale} />
             </Pressable>
             <Pressable
               testID="board-quest-area"
               accessibilityRole="button"
-              accessibilityLabel="퀘스트 목록 펼치기"
+              accessibilityLabel={t('ui.board.expandQuests')}
               onPress={() => nav.open('quest')}
               style={[
                 {
@@ -2499,7 +2571,7 @@ export function Board({
                   { width: scene.width * 0.52, textAlign: 'center' },
                 ]}
               >
-                퀘스트
+                {t('ui.shop.quest')}
               </Text>
               <Handwriting short scale={labelScale} />
             </Pressable>
@@ -2510,8 +2582,10 @@ export function Board({
                 accessibilityRole="button"
                 accessibilityLabel={
                   allBuildingsComplete
-                    ? '모든 건물 완공 현황 보기'
-                    : `${blueprintView.name || '다음 건물'} 건설 현황 보기`
+                    ? t('ui.board.allBuildingsStatus')
+                    : t('ui.board.constructionStatus', {
+                        v0: blueprintView.name || t('ui.board.nextBuilding'),
+                      })
                 }
                 onPress={() => nav.open('blueprint')}
                 style={[
@@ -2651,9 +2725,9 @@ export function Board({
               label={
                 questEditorOpen
                   ? s.editing
-                    ? '수정 닫고 퀘스트로 돌아가기'
-                    : '작성 닫고 퀘스트 목록으로 돌아가기'
-                  : '게시판 닫기'
+                    ? t('ui.board.closeQuestEditor')
+                    : t('ui.board.closeNewQuest')
+                  : t('ui.board.closeBoard')
               }
               onPress={questEditorOpen ? nav.backToQuests : nav.closePanel}
             />
@@ -2664,7 +2738,7 @@ export function Board({
             boardPaper
             close
             testID="board-drawer-close"
-            label="내용 닫기"
+            label={t('ui.board.closeContent')}
             onPress={nav.closePanel}
             style={{ position: 'absolute', zIndex: 3, top: 8, right: 8 }}
           />
@@ -2756,7 +2830,7 @@ export function Board({
         <>
           <Pressable
             testID="board-notice-overlay-scrim"
-            accessibilityLabel="공지 창 닫기"
+            accessibilityLabel={t('ui.board.closeNoticeWindow')}
             accessibilityElementsHidden={higherModalOpen}
             disabled={higherModalOpen}
             onPress={dismissNoticeOverlay}
@@ -2780,7 +2854,9 @@ export function Board({
             {...(Platform.OS === 'web'
               ? {
                   'aria-modal': !higherModalOpen,
-                  'aria-label': noticeEditorOpen ? '공지 작성' : '공지 상세',
+                  'aria-label': noticeEditorOpen
+                    ? t('ui.board.newNoticeTitle')
+                    : t('ui.board.noticeDetails'),
                   tabIndex: -1,
                   ...(higherModalOpen && { 'aria-hidden': true }),
                 }
@@ -2821,7 +2897,7 @@ export function Board({
         <>
           <Pressable
             testID="board-quest-overlay-scrim"
-            accessibilityLabel="퀘스트 상세 닫기"
+            accessibilityLabel={t('ui.board.closeQuestDetails')}
             accessibilityElementsHidden={higherModalOpen}
             disabled={higherModalOpen}
             onPress={dismissQuestDetail}
@@ -2845,7 +2921,7 @@ export function Board({
             {...(Platform.OS === 'web'
               ? {
                   'aria-modal': !higherModalOpen,
-                  'aria-label': '퀘스트 상세',
+                  'aria-label': t('ui.board.questDetails'),
                   tabIndex: -1,
                   ...(higherModalOpen && { 'aria-hidden': true }),
                 }

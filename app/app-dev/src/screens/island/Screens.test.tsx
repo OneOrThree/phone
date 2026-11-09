@@ -1715,6 +1715,7 @@ test('기기 언어가 지원 언어(ko·en)가 아니면 기기 언어 따름 s
 });
 
 test('상점 내용 화면은 완공 축하나 사용 설명을 중복해서 띄우지 않는다', async () => {
+  applyLocalePref('ko');
   const screen = await render(<Harness route="shop" full />);
   expect(screen.queryByTestId('shop-guide')).toBeNull();
   screen.getByText('강아지 상점');

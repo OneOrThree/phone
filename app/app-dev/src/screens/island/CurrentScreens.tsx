@@ -135,8 +135,8 @@ export function CurrentScreens({ e }: ScreenProps) {
   )
     return (
       <Overlay close={e.home}>
-        <Txt>{guides.error || '안내 이력을 확인하고 있어요.'}</Txt>
-        {!!guides.error && <Btn title="다시 시도" onPress={guides.retry} />}
+        <Txt>{guides.error || t('ui.shop.checkingGuide')}</Txt>
+        {!!guides.error && <Btn title={t('common.retry')} onPress={guides.retry} />}
       </Overlay>
     );
   if (owner && guides.data?.focusDone && e.route === 'guide') return null;
@@ -162,10 +162,10 @@ export function CurrentScreens({ e }: ScreenProps) {
         >
           <View style={{ flex: 1, justifyContent: 'center', padding: semanticTokens.spacing.page }}>
             <GuideBox
-              text={guides.error || '안내 이력을 확인하고 있어요.'}
+              text={guides.error || t('ui.shop.checkingGuide')}
               style={{ position: 'relative' }}
             >
-              {!!guides.error && <Btn title="다시 시도" onPress={guides.retry} />}
+              {!!guides.error && <Btn title={t('common.retry')} onPress={guides.retry} />}
               <Btn title={t('common.close')} kind="sec" onPress={cancelEntry} />
             </GuideBox>
           </View>
@@ -218,7 +218,7 @@ export function friendsSnapshotForSync(data: FriendsScreenState['data']) {
     status: 'friend' | 'received' | 'sent',
   ) => ({
     id: userId,
-    name: nickname ?? '탈퇴한 사용자',
+    name: nickname ?? t('ui.social.deletedUser'),
     color: 'white' as Color,
     island: islandName ?? '',
     status,

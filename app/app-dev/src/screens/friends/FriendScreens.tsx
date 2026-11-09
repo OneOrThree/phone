@@ -3,7 +3,7 @@ import { UserSafetySheet } from '@/components/UserSafetySheet';
 import { assets } from '@/constants/assets';
 import { Badge, Btn, C, EmptyState, Txt } from '@/design-system/patterns';
 import { semanticTokens } from '@/design-system/tokens';
-import { t } from '@/i18n';
+import { errorTextOr, t } from '@/i18n';
 import {
   Avatar,
   IslandSheet,
@@ -82,7 +82,7 @@ export function renderFriendScreens(context: ScreenContext) {
     const friendMenu = (id: string, name: string, onDelete?: () => void) => (
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`${name} 더보기`}
+        accessibilityLabel={t('ui.social.more', { v0: name })}
         hitSlop={6}
         onPress={() => setSafetyTarget({ id, name, onDelete })}
         style={{ width: 32, height: 32, alignItems: 'center', justifyContent: 'center' }}
@@ -129,11 +129,16 @@ export function renderFriendScreens(context: ScreenContext) {
     ) =>
       rowActions(
         <>
-          <Btn small title="수락" disabled={serverMode && friendsScreen.busy} onPress={onAccept} />
+          <Btn
+            small
+            title={t('ui.social.accept')}
+            disabled={serverMode && friendsScreen.busy}
+            onPress={onAccept}
+          />
           <Btn
             small
             kind="sec"
-            title="거절"
+            title={t('ui.social.decline')}
             disabled={serverMode && friendsScreen.busy}
             onPress={onReject}
           />
@@ -148,9 +153,9 @@ export function renderFriendScreens(context: ScreenContext) {
         sub={
           friend.island +
           (friend.status === 'sent'
-            ? ' · 수락 기다리는 중'
+            ? t('ui.social.pendingSuffix')
             : searchResult && friend.status === 'received'
-              ? ' · 받은 요청'
+              ? t('ui.social.receivedSuffix')
               : '')
         }
         tone={friend.status === 'received' ? 'butter' : undefined}
@@ -165,23 +170,23 @@ export function renderFriendScreens(context: ScreenContext) {
             <Btn
               small
               kind="sec"
-              title="요청 취소"
+              title={t('ui.social.cancelRequest')}
               onPress={() => act('FRIEND_CANCEL', { id: friend.id })}
             />
           ) : friend.status === 'friend' ? (
             searchResult ? (
-              <Badge soft>친구</Badge>
+              <Badge soft>{t('home.hud.friends')}</Badge>
             ) : (
               <Btn
                 small
                 kind="sec"
-                title="친구 삭제"
+                title={t('ui.social.removeFriend')}
                 onPress={() =>
                   confirm(
-                    '친구를 삭제할까요?',
-                    `${friend.name}님과 더 이상 편지를 주고받을 수 없어요. 아직 읽지 않은 편지도 지워져요.`,
+                    t('ui.social.removeConfirm'),
+                    t('ui.social.removeDetail', { v0: friend.name }),
                     () => act('FRIEND_DELETE', { id: friend.id }),
-                    { ok: '삭제', destructive: true },
+                    { ok: t('ui.social.delete'), destructive: true },
                   )
                 }
               />
@@ -189,7 +194,7 @@ export function renderFriendScreens(context: ScreenContext) {
           ) : (
             <Btn
               small
-              title="친구 요청"
+              title={t('catInfo.request')}
               onPress={() => act('FRIEND_REQUEST', { id: friend.id, friend })}
             />
           )
@@ -197,7 +202,7 @@ export function renderFriendScreens(context: ScreenContext) {
       />
     );
     const serverReceivedRows = (data?.friendRequests ?? []).map((friend) => {
-      const name = friend.nickname ?? '탈퇴한 사용자';
+      const name = friend.nickname ?? t('ui.social.deletedUser');
       return (
         <SheetRow
           key={friend.requestId}
@@ -219,12 +224,12 @@ export function renderFriendScreens(context: ScreenContext) {
       );
     });
     const serverSentRows = (data?.sentFriendRequests ?? []).map((friend) => {
-      const name = friend.nickname ?? '탈퇴한 사용자';
+      const name = friend.nickname ?? t('ui.social.deletedUser');
       return (
         <SheetRow
           key={friend.requestId}
           title={name}
-          sub="수락 기다리는 중"
+          sub={t('ui.social.pending')}
           lead={
             <Avatar
               userId={friend.userId}
@@ -236,7 +241,7 @@ export function renderFriendScreens(context: ScreenContext) {
             <Btn
               small
               kind="sec"
-              title="요청 취소"
+              title={t('ui.social.cancelRequest')}
               disabled={friendsScreen.busy}
               onPress={() => friendCmd(() => cancelFriendRequest(friend.requestId))}
             />,
@@ -246,7 +251,7 @@ export function renderFriendScreens(context: ScreenContext) {
       );
     });
     const serverFriendRows = (data?.friends ?? []).map((friend) => {
-      const name = friend.nickname ?? '탈퇴한 사용자';
+      const name = friend.nickname ?? t('ui.social.deletedUser');
       return (
         <SheetRow
           key={friend.userId}
@@ -272,7 +277,7 @@ export function renderFriendScreens(context: ScreenContext) {
     const friendRows = serverMode
       ? serverFriendRows
       : (accepted as Friend[]).map((friend) => localFriendRow(friend));
-    const empty = (message = '아직 없어요.') => (
+    const empty = (message = t('ui.social.empty')) => (
       <Txt kind="meta" style={[st.meta, { paddingVertical: 10 }]}>
         {message}
       </Txt>
@@ -282,7 +287,7 @@ export function renderFriendScreens(context: ScreenContext) {
           <SheetRow
             key={friend.userId}
             title={friend.nickname}
-            sub={friend.relation === 'FRIEND' ? '친구' : undefined}
+            sub={friend.relation === 'FRIEND' ? t('home.hud.friends') : undefined}
             lead={
               <Avatar
                 userId={friend.userId}
@@ -294,7 +299,7 @@ export function renderFriendScreens(context: ScreenContext) {
               friend.relation === 'NONE' ? (
                 <Btn
                   small
-                  title="친구 요청"
+                  title={t('catInfo.request')}
                   disabled={friendsScreen.busy}
                   onPress={() => friendCmd(() => sendFriendRequest(friend.userId))}
                 />
@@ -303,7 +308,9 @@ export function renderFriendScreens(context: ScreenContext) {
                   small
                   kind="sec"
                   disabled
-                  title={friend.relation === 'PENDING' ? '요청 중' : '친구'}
+                  title={
+                    friend.relation === 'PENDING' ? t('catInfo.requested') : t('home.hud.friends')
+                  }
                 />
               ),
               friendMenu(friend.userId, friend.nickname),
@@ -318,13 +325,15 @@ export function renderFriendScreens(context: ScreenContext) {
       serverMode && friendsScreen.searchStatus === 'error' ? (
         <SheetGroup>
           <View style={{ alignItems: 'center', gap: 9, paddingVertical: 18 }}>
-            <Txt kind="meta">{friendsScreen.searchError?.message ?? '검색하지 못했어요'}</Txt>
-            <Btn small kind="sec" title="다시 시도" onPress={friendsScreen.retry} />
+            <Txt kind="meta">
+              {errorTextOr(friendsScreen.searchError, 'ui.errors.searchFailed')}
+            </Txt>
+            <Btn small kind="sec" title={t('common.retry')} onPress={friendsScreen.retry} />
           </View>
         </SheetGroup>
       ) : serverMode && friendsScreen.searchStatus !== 'ready' ? (
         <Txt kind="meta" style={[st.meta, { paddingVertical: 10 }]}>
-          찾는 중이에요…
+          {t('ui.social.searching')}
         </Txt>
       ) : searchRows.length ? (
         <SheetGroup>{searchRows}</SheetGroup>
@@ -332,44 +341,44 @@ export function renderFriendScreens(context: ScreenContext) {
         <SheetGroup>
           <View style={{ paddingVertical: 24, paddingHorizontal: 18, alignItems: 'center' }}>
             <Txt style={{ fontSize: 16, lineHeight: 23, fontWeight: '700' }}>
-              검색 결과가 없어요
+              {t('ui.social.noResults')}
             </Txt>
           </View>
         </SheetGroup>
       );
     const leftColumn = query ? (
       <View style={{ flex: layout.compact ? 1 : undefined, minWidth: 0, gap: 7 }}>
-        {sectionTitle('검색 결과')}
+        {sectionTitle(t('ui.social.results'))}
         {searchContent}
       </View>
     ) : (
       <View style={{ flex: layout.compact ? 1 : undefined, minWidth: 0, gap: 16 }}>
         <View style={{ gap: 7 }}>
-          {sectionTitle('받은 요청', receivedRows.length)}
+          {sectionTitle(t('ui.social.received'), receivedRows.length)}
           {receivedRows.length ? <SheetGroup>{receivedRows}</SheetGroup> : empty()}
         </View>
         <View style={{ gap: 7 }}>
-          {sectionTitle('보낸 요청')}
+          {sectionTitle(t('ui.social.sent'))}
           {sentRows.length ? <SheetGroup>{sentRows}</SheetGroup> : empty()}
         </View>
       </View>
     );
     const friendColumn = (
       <View style={{ flex: layout.compact ? 1 : undefined, minWidth: 0, gap: 7 }}>
-        {sectionTitle('친구')}
+        {sectionTitle(t('home.hud.friends'))}
         {serverMode && friendsScreen.status === 'loading' ? (
           <Txt kind="meta" style={[st.meta, { paddingVertical: 10 }]}>
-            불러오는 중이에요
+            {t('ui.hall.loading')}
           </Txt>
         ) : serverMode && friendsScreen.status === 'error' ? (
           <View style={{ alignItems: 'center', gap: 9, paddingVertical: 12 }}>
-            <Txt kind="meta">{friendsScreen.error?.message ?? '친구 목록을 불러오지 못했어요'}</Txt>
-            <Btn small kind="sec" title="다시 시도" onPress={friendsScreen.retry} />
+            <Txt kind="meta">{errorTextOr(friendsScreen.error, 'ui.errors.friendsFailed')}</Txt>
+            <Btn small kind="sec" title={t('common.retry')} onPress={friendsScreen.retry} />
           </View>
         ) : friendRows.length ? (
           <SheetGroup>{friendRows}</SheetGroup>
         ) : (
-          empty('아직 친구가 없어요.')
+          empty(t('ui.social.noFriends'))
         )}
       </View>
     );
@@ -378,7 +387,7 @@ export function renderFriendScreens(context: ScreenContext) {
         <IslandSheet
           bg={accountBg}
           sign="boat/raft"
-          title="친구 관리"
+          title={t('account.boat.friendsTitle')}
           tall
           onBack={back}
           onClose={home}
@@ -386,25 +395,23 @@ export function renderFriendScreens(context: ScreenContext) {
           <SearchField
             value={queryValue}
             onChange={serverMode ? friendsScreen.setQuery : setSearch}
-            placeholder="닉네임으로 친구 찾기"
+            placeholder={t('ui.social.findByNickname')}
           />
           {serverMode && !query && friendsScreen.status === 'loading' ? (
             <Txt kind="meta" style={[st.meta, { textAlign: 'center', paddingVertical: 24 }]}>
-              불러오는 중이에요
+              {t('ui.hall.loading')}
             </Txt>
           ) : serverMode && !query && friendsScreen.status === 'error' ? (
             <View style={{ alignItems: 'center', gap: 9, paddingVertical: 24 }}>
-              <Txt kind="meta">
-                {friendsScreen.error?.message ?? '친구 목록을 불러오지 못했어요'}
-              </Txt>
+              <Txt kind="meta">{errorTextOr(friendsScreen.error, 'ui.errors.friendsFailed')}</Txt>
               {friendErrorKind(friendsScreen.error) === 'guest' && e.conversion ? (
                 <Btn
                   small
-                  title="소셜 로그인하기"
+                  title={t('ui.social.socialLogin')}
                   onPress={() => e.conversion?.offer(friendsScreen.error)}
                 />
               ) : (
-                <Btn small kind="sec" title="다시 시도" onPress={friendsScreen.retry} />
+                <Btn small kind="sec" title={t('common.retry')} onPress={friendsScreen.retry} />
               )}
             </View>
           ) : !query && !receivedRows.length && !sentRows.length && !friendRows.length ? (
@@ -450,13 +457,13 @@ export function renderFriendScreens(context: ScreenContext) {
             extraAction={
               safetyTarget.onDelete
                 ? {
-                    title: '친구 삭제',
+                    title: t('ui.social.removeFriend'),
                     onPress: () =>
                       confirm(
-                        '친구를 삭제할까요?',
-                        `${safetyTarget.name}님과 더 이상 편지를 주고받을 수 없어요. 아직 읽지 않은 편지도 지워져요.`,
+                        t('ui.social.removeConfirm'),
+                        t('ui.social.removeDetail', { v0: safetyTarget.name }),
                         safetyTarget.onDelete!,
-                        { ok: '삭제', destructive: true },
+                        { ok: t('ui.social.delete'), destructive: true },
                       ),
                   }
                 : undefined

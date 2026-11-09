@@ -1,3 +1,4 @@
+import { t, getLocale, errorTextOr } from '@/i18n';
 import { Btn, C, Txt, art } from '@/design-system/patterns';
 import type { ScreenEnvironment } from '@/navigation/ScreenEnvironment';
 import { FiModal, OUTLINE } from '@/screens/focus/FishingIsland';
@@ -25,9 +26,14 @@ export function RewardModal({
     reward = open[0];
   if (!reward) return null;
   const owner = s.islands.find((i) => i.id === reward.islandId),
-    title = owner?.quests.find((q) => q.id === reward.questId)?.title ?? '퀘스트',
+    title = owner?.quests.find((q) => q.id === reward.questId)?.title ?? t('ui.shop.quest'),
     // 받침 있는 글자 뒤에는 '을'
-    particle = (title.charCodeAt(title.length - 1) - 0xac00) % 28 > 0 ? '을' : '를';
+    particle =
+      getLocale() !== 'ko'
+        ? ''
+        : (title.charCodeAt(title.length - 1) - 0xac00) % 28 > 0
+          ? '을'
+          : '를';
   return (
     <View
       style={[StyleSheet.absoluteFill, { zIndex: 20, justifyContent: 'center' }]}
@@ -50,14 +56,16 @@ export function RewardModal({
         }}
       >
         <Image source={art.fish} style={{ width: 72, height: 72 }} />
-        <Txt kind="h">{reward.kind === 'bonus' ? '모두 해냈어요!' : '퀘스트 달성!'}</Txt>
+        <Txt kind="h">
+          {reward.kind === 'bonus' ? t('ui.shop.everyoneCompleted') : t('ui.shop.questCompleted')}
+        </Txt>
         <Txt style={{ color: '#796256', textAlign: 'center' }}>
           {reward.kind === 'bonus'
-            ? `섬에 보너스 ${reward.amount}마리가 쌓였어요`
-            : `${title}${particle} 달성했어요.\n물고기 ${reward.amount}마리를 추가로 받았어요!`}
+            ? t('ui.shop.islandBonus', { v0: reward.amount })
+            : t('ui.shop.rewardReceived', { v0: title, v1: particle, v2: reward.amount })}
         </Txt>
         <Btn
-          title={reward.kind === 'bonus' ? '좋아요' : '보상받기'}
+          title={reward.kind === 'bonus' ? t('ui.shop.great') : t('ui.shop.claimReward')}
           id="claim-reward"
           style={{ alignSelf: 'stretch' }}
           onPress={() => {
@@ -95,16 +103,19 @@ export function ServerQuestRewardModal({
   if (board.loading && !reward)
     return (
       <FiModal>
-        <Txt kind="h">퀘스트 보상</Txt>
-        <Txt style={{ color: '#796256', textAlign: 'center' }}>
-          받을 수 있는 보상을 확인하고 있어요…
-        </Txt>
+        <Txt kind="h">{t('ui.hall.questReward')}</Txt>
+        <Txt style={{ color: '#796256', textAlign: 'center' }}>{t('ui.shop.checkingRewards')}</Txt>
       </FiModal>
     );
   if (!reward) return null;
   const title = reward.title,
     // 받침 있는 글자 뒤에는 '을'
-    particle = (title.charCodeAt(title.length - 1) - 0xac00) % 28 > 0 ? '을' : '를';
+    particle =
+      getLocale() !== 'ko'
+        ? ''
+        : (title.charCodeAt(title.length - 1) - 0xac00) % 28 > 0
+          ? '을'
+          : '를';
   return (
     <View
       style={[StyleSheet.absoluteFill, { zIndex: 20, justifyContent: 'center' }]}
@@ -127,13 +138,13 @@ export function ServerQuestRewardModal({
         }}
       >
         <Image source={art.fish} style={{ width: 72, height: 72 }} />
-        <Txt kind="h">퀘스트 달성!</Txt>
+        <Txt kind="h">{t('ui.shop.questCompleted')}</Txt>
         <Txt style={{ color: '#796256', textAlign: 'center' }}>
-          {`${title}${particle} 달성했어요.\n물고기 ${reward.reward.amount}마리를 받을 수 있어요!`}
+          {t('ui.shop.rewardAvailable', { v0: title, v1: particle, v2: reward.reward.amount })}
         </Txt>
         {!!error && <Txt style={{ color: '#994C3E', textAlign: 'center' }}>{error}</Txt>}
         <Btn
-          title={busy ? '받는 중…' : '보상받기'}
+          title={busy ? t('ui.shop.claiming') : t('ui.shop.claimReward')}
           id="claim-server-reward"
           style={{ alignSelf: 'stretch' }}
           disabled={busy}
@@ -145,18 +156,14 @@ export function ServerQuestRewardModal({
               (result) => {
                 setBusy(false);
                 if (result.bonusAdded > 0)
-                  e?.notify?.(`전원 달성 보너스 ${result.bonusAdded}마리도 섬에 함께 쌓였어요`);
+                  e?.notify?.(t('ui.shop.teamBonus', { v0: result.bonusAdded }));
                 onDone?.(
                   board.quests.some((q) => q.claimable && q.occurrenceId !== reward.occurrenceId),
                 );
               },
               (err: unknown) => {
                 setBusy(false);
-                setError(
-                  err instanceof ApiError && err.message
-                    ? err.message
-                    : '받지 못했어요. 다시 시도해 주세요.',
-                );
+                setError(errorTextOr(err, 'ui.errors.rewardFailed'));
               },
             );
           }}

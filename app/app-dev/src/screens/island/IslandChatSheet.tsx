@@ -6,7 +6,7 @@ import { appearanceOutfit, type Outfit } from '@/components/CatOutfitLayers';
 import { Btn, C, Txt, k } from '@/design-system/patterns';
 import { componentTokens, semanticTokens } from '@/design-system/tokens';
 import { TextInput } from '@/design-system/typography';
-import { t } from '@/i18n';
+import { errorText, errorTextOr, t } from '@/i18n';
 import { Avatar, IslandSheet, sheetInput } from '@/screens/island/IslandSheet';
 import type { IslandChat } from '@/screens/island/useIslandChat';
 import { ApiError } from '@/services/api/client';
@@ -109,9 +109,7 @@ export function IslandChatSheet({ e, chat }: { e: ScreenEnvironment; chat: Islan
         .sendMessage(text)
         // 시트가 아직 열려 있을 때만 입력을 비운다(닫힌 뒤면 편지 쓰기 등 다른 화면의 초안을 건드리지 않는다)
         .then(() => mounted.current && e.setText(''))
-        .catch((err) =>
-          e.notify(err instanceof ApiError ? err.message : t('islandChat.sendFailed')),
-        );
+        .catch((err) => e.notify(errorTextOr(err, 'islandChat.sendFailed')));
       return;
     }
     // 목업 서버: 다음 보내기를 실패로 만들면 글에 실패 표시와 다시 보내기가 붙는다
@@ -134,7 +132,7 @@ export function IslandChatSheet({ e, chat }: { e: ScreenEnvironment; chat: Islan
       }}
     >
       <Txt kind="meta" style={{ textAlign: 'center', color: C.danger }}>
-        {error.message}
+        {errorText(error)}
       </Txt>
       <Btn
         id={id}

@@ -1,3 +1,4 @@
+import { t, useLocale } from '@/i18n';
 import React, { memo, useEffect, useRef, useState } from 'react';
 import {
   Animated,
@@ -32,6 +33,7 @@ export const FireMotion = memo(function FireMotionView({
   style?: ViewStyle;
   testID?: string;
 }) {
+  useLocale();
   const [appState, setAppState] = useState<AppStateStatus>(AppState.currentState);
   const elapsed = useRef(new Animated.Value(0)).current;
   const paused = reduceMotion || appState === 'background' || appState === 'inactive';
@@ -56,10 +58,10 @@ export const FireMotion = memo(function FireMotionView({
     residentCount == null
       ? ''
       : residentCount <= 0
-        ? '주민 없음'
+        ? t('ui.village.noResidents')
         : residentCount === 1
-          ? '주민 1명'
-          : `주민 ${residentCount}명`;
+          ? t('ui.village.oneResident')
+          : t('ui.village.residents', { v0: residentCount });
 
   return (
     <View
@@ -69,7 +71,9 @@ export const FireMotion = memo(function FireMotionView({
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants"
       aria-hidden
-      accessibilityLabel={`모닥불, 불꽃${residentLabel ? `, ${residentLabel}` : ''}`}
+      accessibilityLabel={t('ui.village.campfire', {
+        v0: residentLabel ? `, ${residentLabel}` : '',
+      })}
       pointerEvents="none"
       style={[styles.fill, style]}
     >

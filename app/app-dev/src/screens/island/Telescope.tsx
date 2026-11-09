@@ -470,7 +470,7 @@ function IslandBubble({
         <SheetRow
           title={
             usesSharedWebIsland() && item.islandId === sharedWebIslandId()
-              ? `${item.memberCount}마리 · 정원 제한 없음`
+              ? t('ui.misc.fishUnlimited', { v0: item.memberCount })
               : t('telescope.residents', { count: item.memberCount, max: item.maxMembers })
           }
         />
@@ -563,7 +563,10 @@ export function Telescope({
   const list = previewItems
     ? { ...liveList, status: 'ready' as const, items: previewItems }
     : liveList;
-  const items = visibleTelescopeItems(list.items);
+  const items = visibleTelescopeItems(list.items).map((item) => ({
+    ...item,
+    name: item.slot === 'uninhabited' ? t('ui.misc.uninhabitedIsland') : item.name,
+  }));
   const uninhabitedOnly = items.length === 1 && items[0].memberCount === 0;
   const requests = new Map(
     [...(s.serverIslands?.joinRequests ?? []), ...(s.serverIslands?.requestStatus ?? [])].map(

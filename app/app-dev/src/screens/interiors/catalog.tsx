@@ -1,3 +1,4 @@
+import { t } from '@/i18n';
 import { BuildingData, Concept, Item } from './types';
 
 const board = (
@@ -24,7 +25,9 @@ const mailHomeItems: Item[] = [
 export const buildings: BuildingData[] = [
   {
     id: 'hall',
-    name: '마을회관',
+    get name() {
+      return t('building.hall');
+    },
     background: require('@/assets/interiors/hall-cute-v1.png'),
     concepts: [
       {
@@ -92,7 +95,9 @@ export const buildings: BuildingData[] = [
   },
   {
     id: 'board',
-    name: '게시판',
+    get name() {
+      return t('building.board');
+    },
     background: require('@/assets/interiors/board-three-papers-v5.png'),
     concepts: [
       board('게시판 기본 화면', '', 'owner', 'list'),
@@ -127,7 +132,9 @@ export const buildings: BuildingData[] = [
   },
   {
     id: 'observatory',
-    name: '전망대',
+    get name() {
+      return t('building.tower');
+    },
     background: require('@/assets/interiors/observatory-cute-v1.png'),
     concepts: [
       {
@@ -163,7 +170,9 @@ export const buildings: BuildingData[] = [
   },
   {
     id: 'mail',
-    name: '우체통',
+    get name() {
+      return t('building.mail');
+    },
     background: require('@/assets/interiors/mail-cute-v1.png'),
     concepts: [
       { title: '열린 우체통', kind: 'mail-home', position: 'bottom', items: mailHomeItems },
@@ -185,7 +194,9 @@ export const buildings: BuildingData[] = [
   },
   {
     id: 'shop',
-    name: '상점',
+    get name() {
+      return t('building.shop');
+    },
     background: require('@/assets/interiors/shop-cute-v1.png'),
     concepts: [
       {
@@ -222,7 +233,9 @@ export const buildings: BuildingData[] = [
   },
   {
     id: 'gram',
-    name: '축음기',
+    get name() {
+      return t('building.gram');
+    },
     background: require('@/assets/interiors/gram-cute-v1.png'),
     concepts: [
       {

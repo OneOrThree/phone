@@ -70,7 +70,7 @@ export function FocusVisit({ e, islandId, onBack }: any) {
         .map((m) => ({
           userId: m.userId,
           sessionId: m.sessionId,
-          name: m.name ?? '주민',
+          name: m.name ?? t('onboarding.residentFallbackName'),
           color: catColor(m.catColor),
           subject: m.subject,
           seconds:
@@ -86,7 +86,7 @@ export function FocusVisit({ e, islandId, onBack }: any) {
         .map((member: any) => ({
           userId: member.id,
           sessionId: member.sessionId ?? member.id,
-          name: member.name ?? '주민',
+          name: member.name ?? t('onboarding.residentFallbackName'),
           color: member.color,
           subject: member.subject ?? null,
           seconds: member.seconds ?? 0,
@@ -217,17 +217,17 @@ export function FocusVisit({ e, islandId, onBack }: any) {
           >
             <Text style={{ fontSize: 14, lineHeight: 22.4, fontWeight: '800', color: INK }}>
               {live.error?.code === 'MEMBER_ONLY'
-                ? '이 섬의 주민 상태를 볼 수 없어요'
-                : '주민 상태를 불러오지 못했어요'}
+                ? t('ui.shop.residentsUnavailable')
+                : t('ui.shop.residentsFailed')}
             </Text>
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel="다시 시도"
+              accessibilityLabel={t('common.retry')}
               onPress={live.retry}
               style={{ minHeight: 44, justifyContent: 'center' }}
             >
               <Text style={{ fontSize: 13, lineHeight: 20.8, fontWeight: '800', color: INK }}>
-                다시 시도
+                {t('common.retry')}
               </Text>
             </Pressable>
           </View>
@@ -253,7 +253,7 @@ export function FocusVisit({ e, islandId, onBack }: any) {
             }}
           >
             <Text style={{ fontSize: 14, lineHeight: 22.4, fontWeight: '800', color: INK }}>
-              지금 낚시 중인 주민이 없어요
+              {t('ui.shop.noFishingResidents')}
             </Text>
           </View>
         </View>

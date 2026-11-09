@@ -1,3 +1,4 @@
+import { applyLocalePref, t } from '@/i18n';
 import { createPreviewEnvironment } from '@/navigation/previewEnvironment';
 // 방문자 화면(GROMO-2263): 섬장 인사말 말풍선은 방문마다 한 번만 뜬다.
 import { CurrentScreens } from '@/screens/island/CurrentScreens';
@@ -167,7 +168,9 @@ test('섬장이 안 쓴 섬의 합성된 기본 인사말도 똑같이 한 번 �
   const screen = await render(
     <Harness initial={visitState({ greeting: text, greetingIsDefault: true })} />,
   );
-  expect((await screen.findByTestId('visit-greeting')).props.children).toBe(text);
+  expect((await screen.findByTestId('visit-greeting')).props.children).toBe(
+    t('islandVisit.defaultGreeting', { name: '구경' }),
+  );
 });
 
 test('구서버(greeting 없음)나 빈 인사말이면 말풍선도 방문 표식도 만들지 않는다', async () => {
@@ -284,3 +287,21 @@ test('「다시 바다로」는 가입하지 않은 방문자에게 한 번 묻�
   expect(latest.state.visitingIslandId).toBeNull();
   expect(resetMock).toHaveBeenCalledWith('sea');
 });
+
+test.each([true, false])(
+  '영어에서도 기본 인사만 번역하고 작성한 원문은 보존한다: default=%s',
+  async (isDefault) => {
+    applyLocalePref('en');
+    try {
+      const screen = await render(
+        <Harness initial={visitState({ greeting: GREETING, greetingIsDefault: isDefault })} />,
+      );
+      expect((await screen.findByTestId('visit-greeting')).props.children).toBe(
+        isDefault ? t('islandVisit.defaultGreeting', { name: '구경' }) : GREETING,
+      );
+      await screen.unmount();
+    } finally {
+      applyLocalePref('ko');
+    }
+  },
+);
