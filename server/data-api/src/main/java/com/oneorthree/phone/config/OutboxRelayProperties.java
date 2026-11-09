@@ -13,7 +13,9 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * outbox relay 설정 — <b>기본값은 「꺼짐」이다</b> (GROMO-1659/1660 공통 기반).
+ * outbox relay 설정 — <b>코드 기본값은 「꺼짐」이다</b> (GROMO-1659/1660 공통 기반). 배포 프로필
+ * {@code application-satellites.yml} 은 GROMO-2822 부터 기본 ON 이고 재시도 정책 기본값도 둔다 — 프로필 없이 뜨는
+ * 테스트·로컬만 꺼진 채로 뜬다.
  *
  * <p>왜 기본이 꺼짐인가: 이 기반이 들어가는 시점에 Kafka 브로커도 링크·알림 서버도 아직 없다. 켜진
  * 채로 들어가면 기존 앱 기동이 매 틱 연결 타임아웃을 물고, 「없는 대상에 못 보냈다」는 오류가 로그를
@@ -26,14 +28,16 @@ import java.util.Map;
  * 경고를 한 번 남기되 행은 남고 재시도는 최대 백오프로 계속된다. 폐기·DLQ 이동·HTTP 자동 폴백은 구현하지 않는다.
  *
  * <p>대신 <b>켤 때는 재시도 정책을 반드시 채우게</b> 한다({@link #validateWhenEnabled()}) — 값 없이
- * 켜지면 코드의 임의 기본값이 곧 운영 정책이 되어 버린다.
+ * 켜지면 코드의 임의 기본값이 곧 운영 정책이 되어 버린다. 배포 프로필의 yml 기본값(GROMO-2822)은 dev 전환 때
+ * 승인한 값이고, env 로 주면 env 가 이긴다(2026-11-09 운영 {@code catus/prod/env} 는 여섯 값을 모두 명시한다).
+ * 고갈 처리는 여전히 A18 보류다.
  */
 @Getter
 @Setter
 @ConfigurationProperties(prefix = "outbox.relay")
 public class OutboxRelayProperties {
 
-    /** 꺼짐이 기본이다. 대상이 실제로 뜬 뒤 켠다. */
+    /** 코드 기본은 꺼짐이다. 배포 프로필(satellites)이 기본 ON 으로 덮는다(GROMO-2822). */
     private boolean enabled = false;
 
     /** 워커 식별자 — 리스 소유자 로그에 남는다. 비우면 호스트명을 쓴다. */

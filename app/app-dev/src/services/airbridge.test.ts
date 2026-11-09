@@ -149,3 +149,26 @@ test('PostHog가 늦게 구독해도 수신한 귀속을 전달하고 미귀속�
     }),
   ).not.toThrow();
 });
+
+test.each(['ios', 'android'])(
+  '%s 첫 섬 도착은 집중 완료와 별도 표준 이벤트로 보낸다',
+  (platform) => {
+    require('react-native').Platform.OS = platform;
+    const { initAirbridge, captureAirbridgeEvent } = require('./airbridge');
+    initAirbridge();
+    expect(captureAirbridgeEvent('first_island_arrival')).toBe(true);
+    expect(mockAirbridge.trackEvent).toHaveBeenCalledWith('airbridge.completeTutorial', {
+      action: 'first_island_arrival',
+    });
+  },
+);
+
+test('PostHog 전용 옵션은 Airbridge 재발행을 제외하고 다음 일반 이벤트는 보낸다', () => {
+  const { initAirbridge } = require('./airbridge');
+  const { captureProductEvent } = require('./posthog');
+  initAirbridge();
+  captureProductEvent('first_island_arrival', { meta_sdk_logged: 1 }, { airbridge: false });
+  expect(mockAirbridge.trackEvent).not.toHaveBeenCalled();
+  captureProductEvent('first_island_arrival');
+  expect(mockAirbridge.trackEvent).toHaveBeenCalledTimes(1);
+});

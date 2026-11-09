@@ -2,6 +2,11 @@
 
 GROMO-1776 설계, **GROMO-1997 구현**. [PRD](prd.md)·[정책](policy.md)·[HLD](high-level-design.md)·[LLD](low-level-design.md)·[운영 런북](ops-runbook.md)·[원본2계약](source-contracts.json). 정책 충돌 시 policy.md 가 우선한다.
 
+> **2026-11-05 평균 정의 변경(GROMO-2769)** — 전망대 평균은 이제 망원경·잡지와 같은 **「최근 7일 주민 1명당 하루 평균
+> 집중」** 스냅샷(`island_focus_averages`, 매일 07:00 KST)이고 그 값으로 줄 세운다. 일요일 초기화는 없고 순위는 하루
+> 한 번 바뀐다. 아래 「주간 합계 ÷ 주민 수」·분모 동결(V85)·분자 read model(V130) 설명은 그 전 설계다 — 두 표는 아직
+> 적히지만 랭킹은 읽지 않는다. 정본은 [policy.md](policy.md) RK-D13.
+
 > **2026-09-21 현행화** — 구현과 함께 세 가지가 확정돼 이 폴더 전체에 반영했다.
 > ① **주민 랭킹 폐지**(2026-09-16 결정 B23·B15): `GET /islands/{islandId}/rankings/members` 는 엔드포인트 자체가
 > 사라졌다. 남은 계약은 `GET /rankings/islands` 하나다. 종전 GROMO-1777 범위에서 줄었다.

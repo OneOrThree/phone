@@ -120,8 +120,8 @@ docker compose -p "$PROD_PROJECT" --project-directory <prod 배포 디렉터리>
 
 | 키 | 받는 쪽 · 경로 | 비었을 때 |
 | --- | --- | --- |
-| `SVC_TOKEN_DATA_TO_REALTIME` | Realtime(dev.env → `realtime.yml`) · Data(satellites 프로파일, `data-api.env` 선택) | Realtime `POST /internal/events` 가 401 → Data relay 의 REALTIME 행이 전달되지 않고 재시도로 남는다. Data 는 relay OFF 면 무영향, relay ON 이면 기동 거부 |
-| `REALTIME_BASE_URL` | Business(`business-api.env` **필수**) · Data(satellites, 선택) | Business: writer 가 env 생성 단계에서 거부(수동 누락 시 부팅 fail-fast). Data: relay ON 이면 기동 거부 |
+| `SVC_TOKEN_DATA_TO_REALTIME` | Realtime(dev.env → `realtime.yml`) · Data(satellites 프로파일, `data-api.env` 선택) | Realtime `POST /internal/events` 가 401 → Data relay 의 REALTIME 행이 전달되지 않고 재시도로 남는다. Data 는 relay ON 이면 기동 거부 — satellites 프로필은 relay 기본 ON 이다(GROMO-2822). `OUTBOX_RELAY_ENABLED=false` 로 끈 동안만 무영향 |
+| `REALTIME_BASE_URL` | Business(`business-api.env` **필수**) · Data(satellites, 선택) | Business: writer 가 env 생성 단계에서 거부(수동 누락 시 부팅 fail-fast). Data: relay ON(satellites 기본) 이면 기동 거부 |
 | `SVC_TOKEN_BIZ_TO_REALTIME` | Business(**필수**) · Realtime(dev.env → `realtime.yml`) | Realtime 쪽이 비면 우체통 내부 어댑터 `/internal/*` 401 → 섬 편지 저장 실패. `SVC_TOKEN_DATA_TO_REALTIME`과 같은 값이면 writer 가 모든 모드에서 거부한다(Data 자격으로 우체통을 부를 수 있게 되므로) |
 | `BUSINESS_CURSOR_KEY_V1` | Business(**필수**) | writer 가 거부(부팅 fail-fast). 커서 서명기는 항상 있어(티켓 2535 — 켜는 스위치를 걷었다) 손으로 비우거나 32바이트보다 짧으면 Business 가 부팅에서 죽는다 |
 | `BUSINESS_CURSOR_ACTIVE_KEY` | Business(선택) | `v1` |
@@ -130,6 +130,8 @@ docker compose -p "$PROD_PROJECT" --project-directory <prod 배포 디렉터리>
 | `LOGIN_ATTEMPT_DIGEST_SECRET` | Business(**필수**) | writer 가 거부(부팅 fail-fast) |
 | `JWT_SECRET` | Data(legacy **필수**) · Business(**필수**) · Realtime(dev.env → `realtime.yml`) | writer 가 거부. 세 서비스가 **같은 값**이어야 한다 — 다르면 한 곳이 서명한 AT 를 나머지가 전부 401 로 거절한다. `LOGIN_ATTEMPT_DIGEST_SECRET` 과는 달라야 한다 |
 | `APPLE_CLIENT_ID` · `GOOGLE_CLIENT_ID` | Data(legacy **필수**). Business env 로도 옮겨지지만 Business 코드는 읽지 않는다 — 제공자 토큰 검증은 Data 가 한다 | writer 가 거부(키 자체가 없을 때). 값이 빈 문자열이면 부팅은 되고 경고 한 줄만 남긴 채 그 제공자 로그인이 **전부** 401 `APPLE_TOKEN`·`GOOGLE_TOKEN`. 값은 쉼표로 구분한 허용 `aud` 목록이다(계정 정책 LOGIN-D03) — Apple 은 앱 번들 id(`com.oneorthree.focuscat`, 1.x `com.oneorthree.gromo`), Google 은 **Web 클라이언트 id**(2.0 은 `263851348176-hpndg0cj…`, GROMO-2215). 바꿀 때는 기존 값을 지우지 않고 **덧붙인다** — 설치된 구 빌드가 옛 `aud` 로 들어온다. 발급·확인 절차는 개인 문서가 아니라 이 표가 정본이다 |
+| `OUTBOX_RELAY_ENABLED` | Data(satellites, 선택) | `true` — satellites 프로필은 relay 를 기본으로 켠다(GROMO-2822). 새 환경에서 브로커·토픽·목적지를 먼저 확인하려면 `false` 를 명시한다. 코드 기본값과 프로필 없는 테스트는 `false` |
+| `OUTBOX_RELAY_BATCH_SIZE` · `OUTBOX_RELAY_LEASE_DURATION` · `OUTBOX_RELAY_POLL_INTERVAL` · `OUTBOX_RELAY_INITIAL_BACKOFF` · `OUTBOX_RELAY_MAX_BACKOFF` · `OUTBOX_RELAY_WARNING_ATTEMPTS` | Data(satellites, 선택) | `100` · `30s` · `1s` · `1s` · `1m` · `10` — dev 전환 때 승인한 재시도 정책(`dev-notification-kafka-cutover.sh`). relay 가 켜졌는데 값이 비면 기동 거부라 기본값을 둔다. 2026-11-09 운영 SM 은 여섯 값을 모두 명시한다(max-backoff 만 `5m`) |
 | `OUTBOX_RELAY_REALTIME_KAFKA_ENABLED` | Data(satellites, 선택) | `false` — REALTIME 을 HTTP 로 보낸다 |
 | `OUTBOX_RELAY_RUN_LENGTH` · `OUTBOX_RELAY_WORKER_THREADS` · `OUTBOX_RELAY_TICK_BUDGET` | Data(satellites, 선택) | `10` · `4` · `PT5S` — 축마다 앞쪽 10건을 한 번에 집고, 축 4개를 병렬로 보내고, 한 틱이 5초 안에서 빌 때까지 라운드를 반복한다(GROMO-2338). poll 1s 면 relay 가 일하는 비율 ≈ 5/(5+1) ≈ 83%. relay 동시 DB 커넥션은 최대 worker-threads + 1(Hikari 기본 10). `1`·`1`·`PT0S` 면 2337 까지의 동작(축당 틱당 1건)이다. **`OUTBOX_RELAY_LEASE_DURATION` 은 `run-length × http-read-timeout`(기본 10 × 10s) 보다 충분히 커야 한다** — 축 안은 순차라 뒤 행이 앞 행 전송을 기다리는 동안 리스가 만료되면 그 축이 멈추고 나머지를 놓는다(순서는 안전하지만 처리량이 떨어진다) |
 | `CHAT_WS_ALLOWED_ORIGINS` | Realtime(dev.env → `realtime.yml`) | Origin 을 보낸 WS 핸드셰이크 전부 403. React Native 앱도 접속 URL 기준 `Origin: https://<API 호스트>` 를 보내므로 **앱 실시간 연결이 끊긴다**. V1 dev 는 `https://oneorthree.dev.mooo.com`(GROMO-2175)이었고, dev V2 는 이 값에 `https://oneorthree-v2.dev.mooo.com` 을 항상 더합니다(`.github/scripts/v2/dev/dev-env-V2.py:85-86`). 기본값을 `*` 로 열지 않는다 |

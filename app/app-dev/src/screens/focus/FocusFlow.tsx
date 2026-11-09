@@ -1,3 +1,4 @@
+import { syncFocusShield } from '@/services/focusShield';
 import { outfitOf } from '@/components/CatOutfitLayers';
 import {
   BUNDLED_AUDIO_TRACK_IDS,
@@ -174,6 +175,7 @@ export function FocusFlow({ e: environment }: any) {
     // 첫 물고기 reel이 끝나 12단계로 갈 차례 — 황금 컷신·reel이 끝날 때까지 미룬다
     [tutorialCatchRevision, setTutorialCatchRevision] = useState<number | null>(null);
   const [verificationPreviewOpen, setVerificationPreviewOpen] = useState(false);
+  const [verificationPlacementHint, setVerificationPlacementHint] = useState(false);
   const returningFromArrival = useRef(false);
   // 보상을 확인하는 동안에도 결과 화면에서 고른 다음 목적지를 유지한다.
   const resultDestination = useRef<'island' | 'focus'>('island');
@@ -1617,9 +1619,19 @@ export function FocusFlow({ e: environment }: any) {
   // 없으면 첫 집중 체험을 마친 계정으로 보고 안내한다 — 기록을 잃은 계정에는 다시 보여도 된다.
   const tutorialDone = s.focusGuideDone || !s.tutorial || s.tutorial.step >= 22;
   const verificationIntro =
-    tutorialDone && !experience && !dialog && !catInfo && !leg && !voyage && !goldenCutscene
-      ? 'automatic'
+    tutorialDone && !experience
+      ? !e.routeTransitionShielded &&
+        !e.letterOpen &&
+        r === 'fishingArrival' &&
+        !dialog &&
+        !catInfo &&
+        !leg &&
+        !voyage &&
+        !goldenCutscene
+        ? 'automatic'
+        : 'onPress'
       : undefined;
+
   // 집중 준비 모달은 누른 곳(내 고양이) 위에 붙인다. 위가 좁으면 아래 → 오른쪽 → 왼쪽.
   const setup = (toScreen: (p: Point) => Point, size: number) => {
     const { x, y } = toScreen(mine),
@@ -2004,10 +2016,27 @@ export function FocusFlow({ e: environment }: any) {
               title={t('focusFlow.spot.backToMainIsland')}
               id="leave-fishing-arrival"
               onPress={returnFromArrival}
+              style={{ flexShrink: 1 }}
+              multiline
             />
             {Platform.OS !== 'web' && !experience && (
               <VerificationToggle
+                onBlockingConfigured={async () => {
+                  if (!(await syncFocusShield(s.session, s.color, true)))
+                    throw new Error('shield setup failed');
+                }}
+                onAndroidSetup={() => e.go('permission', 'measured-apps')}
+                onMeasurementReady={(minutes, days) => {
+                  e.dispatch({ type: 'SCREEN_TIME_UNCONFIRMED', days });
+                  e.dispatch({ type: 'SETTING', key: 'screenTimeMeasurementReady', value: true });
+                  e.dispatch({ type: 'SETTING', key: 'screenTimeHistoryReady', value: true });
+                  e.dispatch({ type: 'SCREEN_TIME', value: minutes });
+                }}
+                onBlockingPermissionChange={(approved) =>
+                  e.dispatch({ type: 'SETTING', key: 'permission', value: approved })
+                }
                 onPreviewChange={setVerificationPreviewOpen}
+                onPlacementHintChange={setVerificationPlacementHint}
                 intro={verificationIntro}
                 on={s.settings.studyVerification === true}
                 cameraPosition={s.settings.studyVerificationCamera}
@@ -2116,7 +2145,22 @@ export function FocusFlow({ e: environment }: any) {
                 }}
               >
                 <VerificationToggle
+                  onBlockingConfigured={async () => {
+                    if (!(await syncFocusShield(s.session, s.color, true)))
+                      throw new Error('shield setup failed');
+                  }}
+                  onAndroidSetup={() => e.go('permission', 'measured-apps')}
+                  onMeasurementReady={(minutes, days) => {
+                    e.dispatch({ type: 'SCREEN_TIME_UNCONFIRMED', days });
+                    e.dispatch({ type: 'SETTING', key: 'screenTimeMeasurementReady', value: true });
+                    e.dispatch({ type: 'SETTING', key: 'screenTimeHistoryReady', value: true });
+                    e.dispatch({ type: 'SCREEN_TIME', value: minutes });
+                  }}
+                  onBlockingPermissionChange={(approved) =>
+                    e.dispatch({ type: 'SETTING', key: 'permission', value: approved })
+                  }
                   onPreviewChange={setVerificationPreviewOpen}
+                  onPlacementHintChange={setVerificationPlacementHint}
                   inSession
                   intro={verificationIntro}
                   on={s.settings.studyVerification === true}
@@ -2178,6 +2222,37 @@ export function FocusFlow({ e: environment }: any) {
             </View>
           </>
         )}
+        {verificationPlacementHint &&
+          s.settings.studyVerification &&
+          !dialog &&
+          !catInfo &&
+          !goldenCutscene && (
+            <View
+              testID="verification-placement-hint"
+              pointerEvents="none"
+              accessibilityLiveRegion="polite"
+              style={{
+                position: 'absolute',
+                zIndex: 6,
+                bottom: safe.bottom + componentTokens.verificationIntro.placementHintBottom,
+                left: safe.left + semanticTokens.spacing.page,
+                right: safe.right + semanticTokens.spacing.page,
+                backgroundColor: semanticTokens.color.text,
+                borderRadius: semanticTokens.radius.control,
+                padding: semanticTokens.spacing.component,
+              }}
+            >
+              <Text
+                style={{
+                  color: semanticTokens.color.surface,
+                  textAlign: 'center',
+                  fontSize: semanticTokens.typography.body,
+                }}
+              >
+                {t('verification.setup.placementHint')}
+              </Text>
+            </View>
+          )}
         {musicModal}
         {r === 'focusResult' && !leg && !goldenReeling && resultModal}
         {!leg && !goldenReeling && rewardModal}

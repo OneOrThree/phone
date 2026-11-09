@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { Component, useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { AppState, Pressable, View, type TextStyle } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import { Btn, Txt } from '@/design-system/patterns';
@@ -13,6 +13,23 @@ import {
 import { VerificationCamera, type VerificationDetection } from './VerificationCamera';
 import type { VerificationCameraPosition } from '@/services/studyVerification/types';
 import type { StudyObjectPresence } from '@/services/studyVerification/studyObjects';
+
+/** 네이티브 출력 생성 중 렌더 예외도 기존 촬영 오류·재시도 경로로 보낸다. */
+class CameraErrorBoundary extends Component<
+  { children: ReactNode; onError: (error: unknown) => void },
+  { failed: boolean }
+> {
+  state = { failed: false };
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+  componentDidCatch(error: Error) {
+    this.props.onError(error);
+  }
+  render() {
+    return this.state.failed ? null : this.props.children;
+  }
+}
 
 /** 설정을 꺼도 이 컴포넌트는 유지해 이미 확인한 인증 시간을 보존한다. */
 export function VerificationSession({
@@ -38,7 +55,7 @@ export function VerificationSession({
     );
     return () => subscription.remove();
   }, []);
-  if ((!enabled && !previewVisible) || !foreground) return null;
+  if (!enabled || !foreground) return null;
   return (
     <SessionCamera
       key={`${cameraPosition}:${enabled}:${attempt}`}
@@ -133,8 +150,19 @@ function SessionCamera({
       activeCapture?.close();
     };
   }, [sessionId]);
+  const failCamera = useCallback(() => {
+    if (!mounted.current || failed.current) return;
+    failed.current = true;
+    pause();
+    setError(true);
+  }, [pause]);
   const ui = componentTokens.verificationSetup;
   const visibleDetection = ready && !error ? detection : 'checking';
+  const status = t(
+    sessionId
+      ? `verification.session.detection.${visibleDetection}`
+      : `verification.setup.detection.${visibleDetection}`,
+  );
   const measuring = ready && detection !== 'unavailable';
   return (
     <View
@@ -202,23 +230,20 @@ function SessionCamera({
             : undefined
         }
       >
-        <VerificationCamera
-          position={position}
-          active={!error}
-          measurementEnabled={measurementEnabled}
-          previewVisible={previewVisible}
-          cadence={cadence}
-          onReady={readyForFrames}
-          onPaused={pause}
-          onDetection={receive}
-          onStudyObjects={setObjects}
-          onError={() => {
-            if (!mounted.current || failed.current) return;
-            failed.current = true;
-            pause();
-            setError(true);
-          }}
-        />
+        <CameraErrorBoundary onError={failCamera}>
+          <VerificationCamera
+            position={position}
+            active={!error}
+            measurementEnabled={measurementEnabled}
+            previewVisible={previewVisible}
+            cadence={cadence}
+            onReady={readyForFrames}
+            onPaused={pause}
+            onDetection={receive}
+            onStudyObjects={setObjects}
+            onError={failCamera}
+          />
+        </CameraErrorBoundary>
         {previewVisible && onCameraPositionChange && (
           <Pressable
             pointerEvents="auto"
@@ -274,17 +299,16 @@ function SessionCamera({
           />
         </View>
       )}
-      {previewVisible && showFeedback && !error && (
+      {((previewVisible && showFeedback) || !!sessionId) && !error && (
         <>
           <View
             accessible
             accessibilityRole="text"
             accessibilityLiveRegion="polite"
-            accessibilityLabel={t(
-              error
-                ? 'verification.setup.cameraError'
-                : `verification.setup.detection.${visibleDetection}`,
-            )}
+            testID="verification-detection-status"
+            accessibilityLabel={
+              sessionId ? t('verification.session.detectionA11y', { status }) : status
+            }
             style={{
               flexDirection: 'row',
               alignItems: 'center',
@@ -306,14 +330,11 @@ function SessionCamera({
               }}
             />
             <Txt kind="meta" style={[textStyle, { flexShrink: 1 }]}>
-              {t(
-                error
-                  ? 'verification.setup.cameraError'
-                  : `verification.setup.detection.${visibleDetection}`,
-              )}
+              {status}
             </Txt>
           </View>
-          {ready &&
+          {!sessionId &&
+            ready &&
             !error &&
             visibleDetection !== 'focused' &&
             objects &&

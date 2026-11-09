@@ -1,9 +1,16 @@
+import { screenTimeNative } from '@/services/ScreenTimeModule';
+import { ScreenTimeSetupIntro } from './ScreenTimeSetupIntro';
 import { Btn, C, Group, Pic, Row, Txt } from '@/design-system/patterns';
 import { t } from '@/i18n';
 import type { ScreenProps } from '@/navigation/ScreenEnvironment';
 import { sessionGeneration } from '@/services/api/session';
 import { Route } from '@/services/model';
-import { ScreenTimeAuthorization, isScreenTimeAvailable, screenTime } from '@/services/screenTime';
+import {
+  ScreenTimeAuthorization,
+  isScreenTimeAvailable,
+  screenTime,
+  selectionCount,
+} from '@/services/screenTime';
 import { syncAndroidScreenTime } from '@/services/screentimeSync';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, AppState, Platform, View } from 'react-native';
@@ -11,6 +18,39 @@ import { Sheet } from '../shared/ScreenSheet';
 import { ScreenTimePermissionHelp, openScreenTimeSettings } from './screenTimeHelp';
 
 export function ScreenTimePermission({ e }: ScreenProps) {
+  if (
+    Platform.OS === 'ios' ||
+    (Platform.OS === 'android' && screenTimeNative?.getAndroidFocusAccess)
+  )
+    return (
+      <ScreenTimeSetupIntro
+        onClose={e.back}
+        mode="measurement"
+        onMeasurementSaved={(selection) =>
+          e.notify(
+            t(
+              selection.appliesImmediately
+                ? 'settings.permissions.errors.appliedNow'
+                : 'settings.permissions.errors.appliedTomorrow',
+              { count: selectionCount(selection) },
+            ),
+          )
+        }
+        onPermissionChange={(approved) =>
+          e.dispatch({ type: 'SETTING', key: 'permission', value: approved })
+        }
+        onMeasurementReady={(minutes, days) => {
+          e.dispatch({ type: 'SCREEN_TIME_UNCONFIRMED', days });
+          e.dispatch({ type: 'SETTING', key: 'screenTimeMeasurementReady', value: true });
+          e.dispatch({ type: 'SETTING', key: 'screenTimeHistoryReady', value: true });
+          e.dispatch({ type: 'SCREEN_TIME', value: minutes });
+        }}
+      />
+    );
+  return <AndroidScreenTimePermission e={e} />;
+}
+
+function AndroidScreenTimePermission({ e }: ScreenProps) {
   const [status, setStatus] = useState<ScreenTimeAuthorization | 'loading'>('loading');
   const [busy, setBusy] = useState(false);
   const [requestAttempted, setRequestAttempted] = useState(false);

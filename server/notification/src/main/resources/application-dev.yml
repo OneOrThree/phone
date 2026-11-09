@@ -16,6 +16,10 @@ spring:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.apache.kafka.common.serialization.StringSerializer
 notification:
+  # GROMO-2822 — 배포 환경에서는 발송 잡과 Kafka 수신을 기본으로 켠다. 설정이 빠져 알림이 조용히 멈추지 않게 한다.
+  # 기본 프로필(application.yml)·ci 는 그대로 OFF 다(브로커 없는 로컬·테스트).
+  scheduling-enabled: ${NOTIFICATION_SCHEDULING_ENABLED:true}
+  kafka-enabled: ${NOTIFICATION_KAFKA_ENABLED:true}
   tokens:
     business: ${SVC_TOKEN_BIZ_TO_NOTI:}
     data: ${SVC_TOKEN_DATA_TO_NOTI:}

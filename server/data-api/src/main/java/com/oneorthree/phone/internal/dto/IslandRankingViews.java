@@ -21,8 +21,8 @@ public final class IslandRankingViews {
      * @param week   조회한 주의 시작일({@code YYYY-MM-DD} 인 UTC 일요일) — 요청과 대조해 다른 주를 조용히
      *               받지 않는다
      * @param items  순위 오름차순 상위 목록
-     * @param myRank 요청자의 <b>현재 섬</b>이 전체 모집단에서 갖는 순위. 그 섬이 이번 주 랭킹에 참가하지
-     *               않으면(집중 0 또는 분모 없음) {@code null} 이다 — 없다는 이유로 0위를 만들지 않는다
+     * @param myRank 요청자의 <b>현재 섬</b>이 전체 모집단에서 갖는 순위. 그 섬이 랭킹에 참가하지
+     *               않으면(평균 0분 또는 스냅샷 없음) {@code null} 이다 — 없다는 이유로 0위를 만들지 않는다
      * @param asOf   집계를 고정한 관측 시각
      */
     public record IslandRankingPage(String week, List<IslandRanking> items, Integer myRank, Instant asOf) {
@@ -31,8 +31,8 @@ public final class IslandRankingViews {
     /**
      * 섬 한 줄.
      *
-     * @param averageFocusSeconds 평균 = 그 섬 집중 초 합 ÷ 그 섬 전체 주민 수. <b>표시값이 곧 정렬 키</b>라
-     *                            내부 순위와 화면 숫자가 갈리지 않는다(LLD §3)
+     * @param averageFocusSeconds 평균 = 망원경과 같은 «최근 7일 주민 1명당 하루 평균 집중» 분 × 60 (GROMO-2769).
+     *                            <b>표시값이 곧 정렬 키</b>라 내부 순위와 화면 숫자가 갈리지 않는다(LLD §3)
      */
     public record IslandRanking(int rank, UUID islandId, String name, long averageFocusSeconds) {
     }

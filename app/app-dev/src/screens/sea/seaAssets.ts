@@ -4,6 +4,25 @@ import type { Color } from '@/services/model';
 export const seaAssets = {
   background: require('@/assets/ota/sea/far-sea.jpg'),
   gulls: require('@/assets/ota/sea/seagulls.png'),
+  // 바다 움직임(GROMO-2785): 원화에서 구름·밝은 물빛 줄을 떼어 낸 바탕, 떼어 낸 물빛 줄, 구름 네 모양, 갈매기 날개 위·아래
+  base: require('@/assets/ota/sea/far-sea-base.jpg'),
+  foam: require('@/assets/ota/sea/far-sea-foam.png'),
+  clouds: [
+    require('@/assets/ota/sea/cloud-1.png'),
+    require('@/assets/ota/sea/cloud-2.png'),
+    require('@/assets/ota/sea/cloud-3.png'),
+    require('@/assets/ota/sea/cloud-4.png'),
+  ] as ImageSourcePropType[],
+  gullUp: require('@/assets/ota/sea/gull-up.png'),
+  gullDown: require('@/assets/ota/sea/gull-down.png'),
+  // 망원경 바다 움직임(GROMO-2789): telescope-sea 에서 구름·물빛 줄을 뺀 바탕, 떼어 낸 물빛 줄, 그 그림의 구름 셋
+  telescopeBase: require('@/assets/ota/sea/telescope-sea-base.jpg'),
+  telescopeFoam: require('@/assets/ota/sea/telescope-sea-foam.png'),
+  telescopeClouds: [
+    require('@/assets/ota/sea/telescope-cloud-1.png'),
+    require('@/assets/ota/sea/telescope-cloud-2.png'),
+    require('@/assets/ota/sea/telescope-cloud-3.png'),
+  ] as ImageSourcePropType[],
   destination: require('@/assets/ota/sea/destination-island.png'),
   raftBack: require('@/assets/boats/raft/layers/back-day.png'),
   raftFront: require('@/assets/boats/raft/layers/front-day.png'),

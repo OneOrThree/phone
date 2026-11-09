@@ -2,15 +2,6 @@ package com.oneorthree.phone.internal.service;
 
 import com.oneorthree.phone.construction.repository.IslandFacilityRepository;
 import com.oneorthree.phone.construction.repository.domain.IslandFacility;
-import com.oneorthree.phone.focus.repository.FocusSessionDetailRepository;
-import com.oneorthree.phone.focus.repository.FocusSessionIntervalRepository;
-import com.oneorthree.phone.focus.repository.FocusSessionRepository;
-import com.oneorthree.phone.focus.repository.domain.FocusIntervalKind;
-import com.oneorthree.phone.focus.repository.domain.FocusSession;
-import com.oneorthree.phone.focus.repository.domain.FocusSessionDetail;
-import com.oneorthree.phone.focus.repository.domain.FocusSessionInterval;
-import com.oneorthree.phone.focus.repository.domain.FocusSessionLifecycle;
-import com.oneorthree.phone.focus.repository.domain.FocusType;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
@@ -26,7 +17,6 @@ import com.oneorthree.phone.outbox.support.OutboxTestPostgres;
 import org.springframework.jdbc.core.JdbcTemplate;
 import com.oneorthree.phone.ranking.repository.IslandWeeklyMemberCountRepository;
 import com.oneorthree.phone.ranking.service.IslandRankingFreezeService;
-import com.oneorthree.phone.ranking.service.IslandWeeklyFocusService;
 import com.oneorthree.phone.ranking.support.RankingWeek;
 import com.oneorthree.phone.stats.exception.StatsErrorCode;
 import com.oneorthree.phone.stats.exception.StatsException;
@@ -47,6 +37,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -56,8 +47,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.when;
 
 /**
- * 주간 섬 랭킹의 Data 통합 검증 (GROMO-1997) — 실 Flyway(V85 포함)·{@code ddl-auto=validate} 스키마 위에서
- * 운영 엔티티·저장소로 섬·주민·전망대·집중 구간을 심고, 서비스의 실제 경로로 조회한다.
+ * 섬 랭킹의 Data 통합 검증 (GROMO-1997, GROMO-2769) — 실 Flyway·{@code ddl-auto=validate} 스키마 위에서
+ * 운영 엔티티·저장소로 섬·주민·전망대를 심고, 7일 평균 스냅샷({@code island_focus_averages}) 행을 적은 뒤 서비스의 실제
+ * 경로로 조회한다. 평균 계산 자체는 {@code IslandFocusAverageSnapshotIntegrationTest} 가 겨눈다.
  *
  * <p>시각은 서버 {@link Clock} 빈을 제어해 UTC 일요일 자정 경계를 재현한다
  * ({@code IslandRecordsIntegrationTest} 와 같은 방식).
@@ -68,7 +60,8 @@ class IslandRankingsIntegrationTest {
     /**
      * 테스트마다 <b>다른 주</b>를 쓴다 — 이 랭킹은 «모든 섬»을 가로지르므로, 같은 주를 공유하면 앞선
      * 테스트가 심은 섬이 뒤 테스트의 순위에 그대로 섞인다(순위·목록이 전역 값이라 섬만 갈라서는 부족하다).
-     * 2033-01-02 는 일요일이고 거기서 한 주씩 뒤로 간다.
+     * 2033-01-02 는 일요일이고 거기서 한 주씩 뒤로 간다. 랭킹은 «그 주 끝(다음 일요일) 이하의 가장 최근 스냅샷 날» 을
+     * 읽으므로, 각 테스트가 자기 주의 다음 일요일에 행을 적으면 앞선 테스트의 행(더 이른 날)은 섞이지 않는다.
      */
     private static final LocalDate FIRST_WEEK = LocalDate.of(2033, 1, 2);
     private static final AtomicInteger WEEK_SEQ = new AtomicInteger();
@@ -99,17 +92,11 @@ class IslandRankingsIntegrationTest {
     @Autowired
     IslandFacilityRepository facilities;
     @Autowired
-    FocusSessionRepository sessions;
-    @Autowired
-    FocusSessionDetailRepository details;
-    @Autowired
-    FocusSessionIntervalRepository intervals;
-    @Autowired
     IslandWeeklyMemberCountRepository denominators;
     @Autowired
     IslandRankingFreezeService freezeService;
     @Autowired
-    IslandWeeklyFocusService weeklyFocus;
+    IslandFocusAverageReader telescopeAverages;
     @Autowired
     JdbcTemplate jdbc;
 
@@ -160,40 +147,21 @@ class IslandRankingsIntegrationTest {
     // ---------------------------------------------------------------- 평균·순위
 
     @Test
-    @DisplayName("평균 = 그 섬 집중 합 ÷ 동결 주민 수. 휴식은 빼고, 다른 섬 집중과 진행 중 세션도 빼며, 주 경계에서 잘린다")
-    void averageUsesIslandAttributedCompletedActiveSecondsOverFrozenMembers() {
+    @DisplayName("평균 = 망원경과 같은 7일 평균 스냅샷(분 × 60) — 가장 최근 날의 행을 읽고 그 값으로 줄 세운다")
+    void averageIsTheTelescopeSnapshot() {
         Island home = island("우리 섬", true);
         Island other = island("다른 섬", true);
-        User resident = resident(home.group);
+        snapshot(home, snapDate().minusDays(1), 500);
+        snapshot(home, snapDate(), 30);
+        snapshot(other, snapDate(), 90);
 
-        Instant monday = at(1, 10);
-
-        // ① 주 안의 완료 집중 600초 (휴식 300초는 빠진다)
-        UUID session = session(resident, home.id, FocusSessionLifecycle.COMPLETED);
-        interval(session, 1, FocusIntervalKind.ACTIVE, monday, monday.plusSeconds(300));
-        interval(session, 2, FocusIntervalKind.REST, monday.plusSeconds(300), monday.plusSeconds(600));
-        interval(session, 3, FocusIntervalKind.ACTIVE, monday.plusSeconds(600), monday.plusSeconds(900));
-
-        // ② 주 경계를 걸친 세션 — 주 «안»의 몫(다음 일요일 00:00Z 까지 600초)만 센다
-        Instant boundary = RankingWeek.endInstant(week);
-        UUID straddling = session(resident, home.id, FocusSessionLifecycle.COMPLETED);
-        interval(straddling, 1, FocusIntervalKind.ACTIVE, boundary.minusSeconds(600), boundary.plusSeconds(600));
-
-        // ③ 같은 주민이 «다른 섬»에서 한 집중 — 우리 섬 분자가 아니다
-        UUID elsewhere = session(resident, other.id, FocusSessionLifecycle.COMPLETED);
-        interval(elsewhere, 1, FocusIntervalKind.ACTIVE, at(2, 10), at(2, 11));
-
-        // ④ 아직 끝나지 않은 집중 — 끝난 집중만 반영한다
-        UUID running = session(resident, home.id, FocusSessionLifecycle.ACTIVE);
-        interval(running, 1, FocusIntervalKind.ACTIVE, at(3, 10), null);
-
-        freeze(week);
         IslandRankingPage page = service.islands(home.owner.getId(), week, null);
 
-        // 우리 섬: (600 + 600) ÷ 주민 2명 = 600
-        assertThat(item(page, home.id).averageFocusSeconds()).isEqualTo(600);
-        // 다른 섬: 3600 ÷ 주민 1명(방장) = 3600 — 그 주민은 다른 섬 소속이 아니지만 기여는 세션의 섬에 붙는다
-        assertThat(item(page, other.id).averageFocusSeconds()).isEqualTo(3600);
+        assertThat(item(page, home.id).averageFocusSeconds()).as("전날 행(500분)이 아니라 최근 날 행").isEqualTo(30 * 60);
+        assertThat(item(page, other.id).averageFocusSeconds()).isEqualTo(90 * 60);
+        assertThat(item(page, home.id).averageFocusSeconds())
+                .as("망원경이 읽는 값과 같다")
+                .isEqualTo(telescopeAverages.latest(List.of(home.id)).get(home.id).getAsInt() * 60L);
         assertThat(item(page, other.id).rank()).isEqualTo(1);
         assertThat(item(page, home.id).rank()).isEqualTo(2);
         assertThat(page.myRank()).isEqualTo(2);
@@ -206,10 +174,9 @@ class IslandRankingsIntegrationTest {
         Island home = island("우리 섬", true);
         Island tied = island("동점 섬", true);
         Island slower = island("느린 섬", true);
-        focus(home, 600);
-        focus(tied, 600);
-        focus(slower, 60);
-        freeze(week);
+        snapshot(home, snapDate(), 10);
+        snapshot(tied, snapDate(), 10);
+        snapshot(slower, snapDate(), 1);
 
         IslandRankingPage page = service.islands(home.owner.getId(), week, null);
 
@@ -222,12 +189,11 @@ class IslandRankingsIntegrationTest {
     @DisplayName("목록이 잘려도 myRank 는 «전체 모집단» 기준이다 — 상위 N 안에 없어도 자기 순위를 받는다")
     void myRankIsOverTheWholePopulationNotThePage() {
         Island home = island("우리 섬", true);
-        focus(home, 60);
         Island faster = island("빠른 섬", true);
-        focus(faster, 6000);
         Island fastest = island("가장 빠른 섬", true);
-        focus(fastest, 60000);
-        freeze(week);
+        snapshot(home, snapDate(), 1);
+        snapshot(faster, snapDate(), 100);
+        snapshot(fastest, snapDate(), 1000);
 
         IslandRankingPage page = service.islands(home.owner.getId(), week, 1);
 
@@ -240,11 +206,10 @@ class IslandRankingsIntegrationTest {
     @DisplayName("비공개 섬도 순위와 myRank 모집단에 든다 — 랭킹은 섬 공개 여부를 보지 않는다(GROMO-2305)")
     void privateIslandsAreRanked() {
         Island home = island("우리 비공개 섬", true);
-        focus(home, 60);
         Island hidden = island("비공개 일등섬", true);
-        focus(hidden, 60000);
+        snapshot(home, snapDate(), 1);
+        snapshot(hidden, snapDate(), 1000);
         jdbc.update("update islands set is_private = true where id in (?, ?)", home.id, hidden.id);
-        freeze(week);
 
         IslandRankingPage page = service.islands(home.owner.getId(), week, null);
 
@@ -252,98 +217,76 @@ class IslandRankingsIntegrationTest {
         assertThat(page.myRank()).isEqualTo(2);
     }
 
-    // ---------------------------------------------------------------- 분모 동결
-
     @Test
-    @DisplayName("분모 동결 — 주가 끝난 뒤 주민을 내보내도 지난 주 순위가 오르지 않는다(강퇴 조작 차단)")
-    void kickingAfterTheWeekEndsCannotRaiseLastWeeksAverage() {
+    @DisplayName("평균 0분·주민 0명(null)·그날 행 없음·닫힌 섬은 줄 세우지 않는다 — 0점 참가를 지어내지 않는다")
+    void islandsWithoutAPositiveAverageDoNotParticipate() {
         Island home = island("우리 섬", true);
-        User leaving = resident(home.group);
-        resident(home.group);
-        focus(home, 1200);
-        freeze(week);
-
-        // 주민 3명 기준 평균 400
-        long before = item(service.islands(home.owner.getId(), week, null), home.id).averageFocusSeconds();
-        assertThat(before).isEqualTo(400);
-
-        // 주가 끝난 «뒤» 한 명을 내보낸다 — 지금 인원으로 나눴다면 600 으로 올랐을 것이다.
-        GroupMember member = membership(home.group, leaving);
-        member.kick(NOW.get());
-        members.save(member);
-
-        long after = item(service.islands(home.owner.getId(), week, null), home.id).averageFocusSeconds();
-        assertThat(after).as("동결된 분모라 지난 주 순위는 움직이지 않는다").isEqualTo(before);
-    }
-
-    @Test
-    @DisplayName("진행 중인 이번 주는 «지금» 인원으로 나눈다 — 아직 동결할 것이 없다")
-    void currentWeekDividesByLiveMembers() {
-        // 시계를 대상 주 «한가운데»로 옮긴다 — 그 주가 곧 「이번 주」다.
-        NOW.set(week.plusDays(2).atStartOfDay(ZoneOffset.UTC).toInstant());
-        Island home = island("우리 섬", true);
-        resident(home.group);
-        focusIn(home, week, 1200);
-
-        // 동결 행이 없지만 지금 인원 2명으로 나눈다.
-        IslandRankingPage page = service.islands(home.owner.getId(), week, null);
-
-        assertThat(item(page, home.id).averageFocusSeconds()).isEqualTo(600);
-        assertThat(denominators.findByWeekStart(week)).isEmpty();
-    }
-
-    @Test
-    @DisplayName("끝난 주에 동결 행이 없으면 그 섬은 랭킹에서 빠진다 — 지금 인원으로 대체하지 않는다")
-    void pastWeekWithoutAFrozenDenominatorIsExcluded() {
-        Island home = island("우리 섬", true);
-        Island frozen = island("동결된 섬", true);
-        focus(home, 1200);
-        focus(frozen, 60);
-        // frozen 섬만 동결한다 — home 은 그 주의 분모가 없다.
-        freezeOnly(week, frozen.id, 1);
+        Island empty = island("빈 섬", true);
+        Island stale = island("옛 행만 있는 섬", true);
+        Island closed = island("닫힌 섬", true);
+        Island active = island("집중한 섬", true);
+        snapshot(home, snapDate(), 0);
+        snapshot(empty, snapDate(), null);
+        snapshot(stale, snapDate().minusDays(1), 50);
+        snapshot(closed, snapDate(), 70);
+        snapshot(active, snapDate(), 10);
+        jdbc.update("update islands set deleted_at = now() where id = ?", closed.id);
 
         IslandRankingPage page = service.islands(home.owner.getId(), week, null);
 
-        assertThat(page.items()).extracting(IslandRanking::islandId).containsExactly(frozen.id);
-        assertThat(page.myRank()).as("분모가 없으면 참가가 아니다 — 0위를 만들지 않는다").isNull();
+        assertThat(page.items()).extracting(IslandRanking::islandId).containsExactly(active.id);
+        assertThat(page.myRank()).as("items 에서 빠졌으면 myRank 도 null 이어야 한다").isNull();
     }
+
+    @Test
+    @DisplayName("지난 주는 그 주가 끝나는 일요일까지의 스냅샷, 이번 주는 가장 최근 스냅샷을 읽는다")
+    void weekPicksTheSnapshotAtItsEnd() {
+        Island home = island("우리 섬", true);
+        snapshot(home, snapDate(), 10);
+        snapshot(home, snapDate().plusDays(1), 20);
+
+        assertThat(item(service.islands(home.owner.getId(), week, null), home.id).averageFocusSeconds())
+                .as("주가 끝난 뒤 적힌 행은 지난 주에 섞이지 않는다").isEqualTo(10 * 60);
+        LocalDate current = RankingWeek.weekStart(NOW.get());
+        assertThat(item(service.islands(home.owner.getId(), current, null), home.id).averageFocusSeconds())
+                .isEqualTo(20 * 60);
+    }
+
+    @Test
+    @DisplayName("잡지 편집부 칸(top)도 같은 스냅샷·같은 순위다")
+    void magazineTopUsesTheSameSnapshot() {
+        Island first = island("일등섬", false);
+        Island second = island("이등섬", false);
+        snapshot(first, snapDate(), 300);
+        snapshot(second, snapDate(), 200);
+
+        // top 은 «asOf 가 속한 주» 를 본다 — 대상 주 한가운데로 시계를 둔다.
+        List<IslandRanking> top = service.top(at(3, 0), 2);
+
+        assertThat(top).extracting(IslandRanking::islandId).containsExactly(first.id, second.id);
+        assertThat(top).extracting(IslandRanking::averageFocusSeconds).containsExactly(300 * 60L, 200 * 60L);
+    }
+
+    // ---------------------------------------------------------------- 분모 동결 (GROMO-2769 뒤로 랭킹은 읽지 않는다)
 
     @Test
     @DisplayName("동결은 멱등 — 다시 돌려도 이미 적힌 값을 덮지 않는다")
     void freezingTwiceKeepsTheFirstValue() {
         Island home = island("우리 섬", true);
         assertThat(freezeAt(week, RankingWeek.endInstant(week))).isPositive();
-        int frozen = denominators.findByWeekStart(week).stream()
-                .filter(row -> row.getIslandId().equals(home.id)).findFirst().orElseThrow().getMemberCount();
+        int frozen = frozenCount(home);
 
         resident(home.group);
         assertThat(freezeAt(week, RankingWeek.endInstant(week)))
                 .as("두 번째 실행은 새 행을 적지 않는다").isZero();
 
-        assertThat(denominators.findByWeekStart(week).stream()
-                .filter(row -> row.getIslandId().equals(home.id)).findFirst().orElseThrow().getMemberCount())
-                .isEqualTo(frozen);
-    }
-
-    @Test
-    @DisplayName("집중이 0인 섬은 줄 세우지 않는다 — 0점 참가를 지어내지 않는다")
-    void islandsWithoutFocusDoNotParticipate() {
-        Island home = island("우리 섬", true);
-        Island active = island("집중한 섬", true);
-        focus(active, 600);
-        freeze(week);
-
-        IslandRankingPage page = service.islands(home.owner.getId(), week, null);
-
-        assertThat(page.items()).extracting(IslandRanking::islandId).containsExactly(active.id);
-        assertThat(page.myRank()).isNull();
+        assertThat(frozenCount(home)).isEqualTo(frozen);
     }
 
     @Test
     @DisplayName("경계 직후 가입은 지난 주 분모에 들어가지 않는다 — 기준은 크론 실행 시각이 아니라 주 종료 경계다")
     void joinsAfterTheBoundaryDoNotEnterLastWeeksDenominator() {
         Island home = island("우리 섬", true);
-        focus(home, 1200);
 
         // 경계가 지난 «뒤» 새 주민이 들어온다. 가입 시각은 @CreationTimestamp 라 실제 벽시계로 찍히므로
         // (모의 Clock 을 타지 않는다) 이 픽스처에서만 직접 경계 이후로 옮긴다 — 운영에서는 둘 다 벽시계다.
@@ -355,8 +298,7 @@ class IslandRankingsIntegrationTest {
         // 크론이 경계보다 늦게(유예 안에서) 돌아도 분모는 경계 시점 인원(방장 1명)이다.
         freezeAt(week, boundary.plusSeconds(120));
 
-        assertThat(item(service.islands(home.owner.getId(), week, null), home.id).averageFocusSeconds())
-                .as("경계 이후 가입자가 섞였다면 1200÷2=600 이 됐을 것이다").isEqualTo(1200);
+        assertThat(frozenCount(home)).as("경계 이후 가입자가 섞였다면 2명이 됐을 것이다").isEqualTo(1);
     }
 
     @Test
@@ -364,7 +306,6 @@ class IslandRankingsIntegrationTest {
     void kicksAfterTheBoundaryDoNotShrinkLastWeeksDenominator() {
         Island home = island("우리 섬", true);
         User leaving = resident(home.group);
-        focus(home, 1200);
         Instant boundary = RankingWeek.endInstant(week);
 
         // GROMO-1997 이 닫지 못했던 창 — 주 경계가 지난 «뒤», 동결 배치가 돌기 «전»에 내보낸다.
@@ -375,8 +316,8 @@ class IslandRankingsIntegrationTest {
         // 유예 가드가 사라져 하루 늦게 돈 실행도 거부되지 않는다(GROMO-2050).
         assertThat(freezeAt(week, boundary.plus(Duration.ofDays(1)))).isPositive();
 
-        assertThat(item(service.islands(home.owner.getId(), week, null), home.id).averageFocusSeconds())
-                .as("경계 시점 주민은 2명이다 — 강퇴가 분모를 줄였다면 1200 이 됐을 것이다").isEqualTo(600);
+        assertThat(frozenCount(home)).as("경계 시점 주민은 2명이다 — 강퇴가 분모를 줄였다면 1명이 됐을 것이다")
+                .isEqualTo(2);
     }
 
     @Test
@@ -384,7 +325,6 @@ class IslandRankingsIntegrationTest {
     void leavesBeforeTheBoundaryStayOutOfLastWeeksDenominator() {
         Island home = island("우리 섬", true);
         User leaving = resident(home.group);
-        focus(home, 1200);
 
         // 주 한가운데에 나간다 — 경계 시점 주민은 방장 1명뿐이다.
         GroupMember member = membership(home.group, leaving);
@@ -392,8 +332,7 @@ class IslandRankingsIntegrationTest {
         members.save(member);
         freeze(week);
 
-        assertThat(item(service.islands(home.owner.getId(), week, null), home.id).averageFocusSeconds())
-                .as("이탈 시각을 무시하고 셌다면 1200÷2=600 이 됐을 것이다").isEqualTo(1200);
+        assertThat(frozenCount(home)).as("이탈 시각을 무시하고 셌다면 2명이 됐을 것이다").isEqualTo(1);
     }
 
     @Test
@@ -401,7 +340,6 @@ class IslandRankingsIntegrationTest {
     void rejoinsAfterTheBoundaryDoNotEnterLastWeeksDenominator() {
         Island home = island("우리 섬", true);
         User returning = resident(home.group);
-        focus(home, 1200);
         Instant boundary = RankingWeek.endInstant(week);
 
         // 나갔다 돌아온 행은 «지금» 활성이지만, 되살린 시각이 경계보다 뒤다.
@@ -413,28 +351,7 @@ class IslandRankingsIntegrationTest {
 
         freezeAt(week, boundary.plusSeconds(120));
 
-        assertThat(item(service.islands(home.owner.getId(), week, null), home.id).averageFocusSeconds())
-                .as("재가입 시각을 무시하고 created_at 으로 셌다면 1200÷2=600 이 됐을 것이다").isEqualTo(1200);
-    }
-
-    @Test
-    @DisplayName("0초만 집중한 섬은 참가가 아니다 — items 와 myRank 가 같은 모집단을 쓴다")
-    void islandsWithSubSecondFocusDoNotParticipate() {
-        Island home = island("우리 섬", true);
-        Island real = island("실제로 집중한 섬", true);
-        // 1초 미만으로 끝난 완료 세션 — FLOOR 하면 0초다.
-        UUID blink = session(home.owner, home.id, FocusSessionLifecycle.COMPLETED);
-        Instant start = at(1, 10);
-        interval(blink, 1, FocusIntervalKind.ACTIVE, start, start.plusMillis(400));
-        focus(real, 600);
-        freeze(week);
-
-        IslandRankingPage page = service.islands(home.owner.getId(), week, null);
-
-        assertThat(page.items()).extracting(IslandRanking::islandId)
-                .as("0초 섬이 평균 0으로 최하위를 차지하면 안 된다").doesNotContain(home.id);
-        assertThat(page.items()).extracting(IslandRanking::islandId).contains(real.id);
-        assertThat(page.myRank()).as("items 에서 빠졌으면 myRank 도 null 이어야 한다").isNull();
+        assertThat(frozenCount(home)).as("재가입 시각을 무시하고 created_at 으로 셌다면 2명이 됐을 것이다").isEqualTo(1);
     }
 
     // ---------------------------------------------------------------- 도구
@@ -475,21 +392,21 @@ class IslandRankingsIntegrationTest {
         }
     }
 
-    /** 운영에서도 이 표를 쓰는 것은 네이티브 SQL 한 문장이다 — 테스트도 같은 자리에서 한 행만 심는다. */
-    private void freezeOnly(LocalDate week, UUID islandId, int count) {
-        jdbc.update("INSERT INTO island_weekly_member_counts (week_start, island_id, member_count) VALUES (?, ?, ?)",
-                java.sql.Date.valueOf(week), islandId, count);
+    /** 그 섬의 동결 분모(지난 주 주민 수). */
+    private int frozenCount(Island island) {
+        return denominators.findByWeekStart(week).stream()
+                .filter(row -> row.getIslandId().equals(island.id)).findFirst().orElseThrow().getMemberCount();
     }
 
-    /** 그 섬의 방장이 대상 주에 완료 집중 {@code seconds} 초를 한다. */
-    private void focus(Island island, int seconds) {
-        focusIn(island, week, seconds);
+    /** 대상 주가 끝나는 다음 일요일 — 07:00 KST 배치가 그 주를 마지막으로 적는 날이다. */
+    private LocalDate snapDate() {
+        return week.plusDays(7);
     }
 
-    private void focusIn(Island island, LocalDate target, int seconds) {
-        Instant start = target.plusDays(1).atStartOfDay(ZoneOffset.UTC).toInstant();
-        UUID session = session(island.owner, island.id, FocusSessionLifecycle.COMPLETED);
-        interval(session, 1, FocusIntervalKind.ACTIVE, start, start.plusSeconds(seconds));
+    /** 7일 평균 스냅샷 한 행 — 운영 배치({@code IslandFocusAverageRepository#insertIfAbsent})와 같은 표·열이다. */
+    private void snapshot(Island island, LocalDate date, Integer minutes) {
+        jdbc.update("insert into island_focus_averages (snapshot_date, island_id, member_count, "
+                + "avg_minutes_per_member_day) values (?, ?, ?, ?)", date, island.id, minutes == null ? 0 : 1, minutes);
     }
 
     private Island island(String name, boolean withObservatory) {
@@ -516,29 +433,6 @@ class IslandRankingsIntegrationTest {
         User user = users.save(User.builder().nickname("주민-" + UUID.randomUUID()).build());
         members.save(GroupMember.builder().user(user).group(group).role(GroupMemberRole.MEMBER).build());
         return user;
-    }
-
-    private UUID session(User user, UUID islandId, FocusSessionLifecycle lifecycle) {
-        Instant started = at(1, 10);
-        UUID id = sessions.save(FocusSession.builder().user(user).focusType(FocusType.INFINITE)
-                .startedAt(started).build()).getId();
-        details.save(FocusSessionDetail.builder().sessionId(id).userId(user.getId()).islandId(islandId)
-                .membershipEpochAtStart(1L).subject("공부").targetMinutes(30).lifecycle(lifecycle)
-                .lastTransitionAt(started).build());
-        return id;
-    }
-
-    private void interval(UUID sessionId, int ordinal, FocusIntervalKind kind, Instant startedAt, Instant endedAt) {
-        intervals.save(FocusSessionInterval.builder().sessionId(sessionId).ordinal(ordinal).kind(kind)
-                .startedAt(startedAt).endedAt(endedAt).build());
-        // 픽스처는 완료 전이를 거치지 않고 끝난 세션을 바로 심는다 — 분자 read model(GROMO-2343)을 정본으로 다시
-        // 채운다. 완료 전이의 가산 경로는 IslandWeeklyFocusIntegrationTest 가 따로 겨눈다.
-        if (endedAt != null) {
-            for (LocalDate w = RankingWeek.weekStart(startedAt); !w.isAfter(RankingWeek.weekStart(endedAt));
-                 w = w.plusWeeks(1)) {
-                weeklyFocus.recompute(w);
-            }
-        }
     }
 
     private static IslandRanking item(IslandRankingPage page, UUID islandId) {

@@ -366,6 +366,15 @@ export function createApp({
         send(200, await upstream.history(historyKind[1], cursor, auth.actor, operator));
         return;
       }
+      const magazineContent = path.match(/^\/api\/history\/magazine\/([^/]+)$/);
+      if (magazineContent && req.method === "GET") {
+        requireValue(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(magazineContent[1]),
+          "잡지 번호가 올바르지 않습니다.");
+        const cursor = url.searchParams.get("cursor") ?? "";
+        requireValue(cursor.length <= 200, "잡지 페이지 번호가 올바르지 않습니다.");
+        send(200, await upstream.magazineContent(magazineContent[1], cursor, auth.actor, operator));
+        return;
+      }
       if (path === "/api/items" && req.method === "POST") {
         send(201, store.create(await bodyOf(req), auth.actor));
         return;

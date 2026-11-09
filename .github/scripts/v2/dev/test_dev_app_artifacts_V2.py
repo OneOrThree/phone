@@ -24,7 +24,7 @@ class ArtifactTest(unittest.TestCase):
     def test_archive_rejects_wrong_service_and_extra_files(self):
         buf = io.BytesIO()
         service = 'realtime'
-        image = f'asia-northeast3-docker.pkg.dev/oneorthree2/{service}/{service}@sha256:' + 'c'*64
+        image = f'asia-northeast3-docker.pkg.dev/project-cd783bdb-e03f-4e17-b74/{service}/{service}@sha256:' + 'c'*64
         data = {'service':service,'revision':'a'*40,'image':image}
         with zipfile.ZipFile(buf,'w') as z: z.writestr(service+'-dev-v2-image.json',json.dumps(data))
         self.assertEqual(m.read_zip(buf.getvalue(),service,'a'*40),data)

@@ -25,7 +25,7 @@ def lit(value):
 
 
 def build(secret, config):
-    if config.get('environment') != 'dev-v2' or config.get('project') != 'oneorthree2':
+    if config.get('environment') != 'dev-v2' or config.get('project') != 'project-cd783bdb-e03f-4e17-b74':
         raise ValueError('dev V2 배포 설정이 아닙니다')
     if config['hosts']['data'].get('name') != 'catus-dev-v2-data':
         raise ValueError('DB 호스트가 dev V2가 아닙니다')
@@ -64,11 +64,11 @@ def main():
     config = json.loads(Path(sys.argv[1]).read_text())
     sql = build(secret, config)
     instance = subprocess.run(['gcloud', 'compute', 'instances', 'describe', 'catus-dev-v2-data',
-                               '--project=oneorthree2', '--zone=asia-northeast3-a', '--format=value(id)'],
+                               '--project=project-cd783bdb-e03f-4e17-b74', '--zone=asia-northeast3-a', '--format=value(id)'],
                               capture_output=True, text=True, check=False)
     if instance.returncode or instance.stdout.strip() != str(config['hosts']['data']['id']):
         raise ValueError('현재 DB VM의 ID가 v2 배포 설정과 다릅니다')
-    cmd = ['gcloud', 'compute', 'ssh', 'catus-dev-v2-data', '--project=oneorthree2',
+    cmd = ['gcloud', 'compute', 'ssh', 'catus-dev-v2-data', '--project=project-cd783bdb-e03f-4e17-b74',
            '--zone=asia-northeast3-a', '--tunnel-through-iap', '--quiet', '--command',
            'sudo docker exec -i catus-dev-postgres-v2-postgres-1 sh -c \'exec psql -X -q -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d postgres\'']
     result = subprocess.run(cmd, input=sql, text=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

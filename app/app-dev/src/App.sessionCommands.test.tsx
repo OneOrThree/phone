@@ -1,4 +1,5 @@
 import App from '@/App';
+import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { applyLocalePref, getLocale } from '@/i18n';
 import { readAccountGuides } from '@/services/accountGuides';
 import type { Account } from '@/services/api/auth';
@@ -2822,7 +2823,7 @@ test('이전 계정의 늦은 체험 완료 콜백은 새 계정의 완료 이�
 });
 
 test.each(['island', 'sea'])(
-  '%s 집중 안내를 열면 해당 계정의 열람 이력을 저장한다',
+  '%s 출발 전에는 차단 안내를 열거나 열람 이력을 소비하지 않는다',
   async (kind) => {
     const owner = `blocking-intro-${kind}`;
     await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: owner });
@@ -2834,11 +2835,9 @@ test.each(['island', 'sea'])(
       if (kind === 'sea') captured.beforeSeaVoyage(jest.fn());
       else captured.go('focusTravel');
     });
-    expect(mockFocusBlockingIntro).toBeDefined();
-    expect(captured.state.focusBlockingIntro).toBe('seen');
-    expect((await readAccountGuides(owner)).focusBlockingIntro).toBe('seen');
-    await act(async () => mockFocusBlockingIntro.onClose());
-    mockFocusBlockingIntro = undefined;
+    expect(mockFocusBlockingIntro).toBeUndefined();
+    expect(captured.state.focusBlockingIntro).toBe('pending');
+    expect((await readAccountGuides(owner)).screenTimeGuideAcknowledgedVersion).toBeUndefined();
     const prepare = jest.fn();
     await act(async () => captured.beforeSeaVoyage(prepare));
     expect(prepare).toHaveBeenCalledTimes(1);
@@ -3558,5 +3557,59 @@ test.each(['이동', '세션 변경', '가입 실패'] as const)(
     if (mode === '이동')
       await waitFor(() => assert.ok(screen.getByText('초대받은 섬에 합류했어요.')));
     if (mode === '세션 변경') assert.equal(screen.queryByText('초대받은 섬에 합류했어요.'), null);
+  },
+);
+
+test.each(['island', 'sea'] as const)(
+  'AI를 끈 %s 집중도 화면을 유지하고 휴식·종료·로그아웃에서는 해제한다',
+  async (kind) => {
+    Object.defineProperty(AppState, 'currentState', {
+      configurable: true,
+      writable: true,
+      value: 'active',
+    });
+    const app = await render(<App />);
+    await waitFor(() => expect(captured).toBeTruthy());
+    const active = {
+      id: 'awake-focus',
+      islandId: 'awake-island',
+      subject: '화면 유지',
+      kind,
+      status: 'active' as const,
+      seconds: 0,
+      startedAt: Date.now(),
+      version: 1,
+    };
+    await act(async () => {
+      captured.dispatch({ type: 'LOGIN' });
+      captured.dispatch({ type: 'SETTING', key: 'studyVerification', value: false });
+      captured.dispatch({ type: 'SESSION_SYNC', session: active });
+    });
+    await waitFor(() => expect(activateKeepAwakeAsync).toHaveBeenCalled());
+    expect(captured.state.settings.studyVerification).toBe(false);
+    const tags = jest.mocked(activateKeepAwakeAsync).mock.calls;
+    const first = tags.at(-1)![0];
+    await act(async () =>
+      captured.dispatch({
+        type: 'SESSION_SYNC',
+        session: { ...active, status: 'paused', version: 2 },
+      }),
+    );
+    await waitFor(() => expect(deactivateKeepAwake).toHaveBeenCalledWith(first));
+    await act(async () =>
+      captured.dispatch({ type: 'SESSION_SYNC', session: { ...active, version: 3 } }),
+    );
+    await waitFor(() => expect(tags.at(-1)![0]).not.toBe(first));
+    const second = tags.at(-1)![0];
+    await act(async () => captured.dispatch({ type: 'SESSION_SYNC', session: null }));
+    await waitFor(() => expect(deactivateKeepAwake).toHaveBeenCalledWith(second));
+    await act(async () =>
+      captured.dispatch({ type: 'SESSION_SYNC', session: { ...active, id: 'next-focus' } }),
+    );
+    await waitFor(() => expect(tags.at(-1)![0]).not.toBe(second));
+    const third = tags.at(-1)![0];
+    await act(async () => captured.dispatch({ type: 'LOGOUT' }));
+    await waitFor(() => expect(deactivateKeepAwake).toHaveBeenCalledWith(third));
+    await app.unmount();
   },
 );

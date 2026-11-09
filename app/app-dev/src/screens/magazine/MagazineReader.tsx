@@ -32,6 +32,7 @@ import {
 } from 'react-native';
 import { AdCell } from './AdCell';
 import { CELL_ASPECT } from './layout';
+import { pickEditorTip } from './editorTips';
 import { cachedMagazineToday, sendReceipt } from './useMagazineToday';
 import { magazineApi } from './usePromotionEditor';
 import { CANVAS_PAD, layoutBleed } from './useStickerGestures';
@@ -45,7 +46,6 @@ const TAP = semanticTokens.size.tapMin;
 /** 쪽 넘김 줄 버튼은 가로로만 넓힌다 — 줄이 이미 44 라 세로로 넓히면 줄 밖 지면 칸 하단 터치를 가로챈다 */
 const NAV_SLOP = { left: 8, right: 8 };
 const COVER_H = R.coverHeight;
-const TIP_COUNT = 14;
 
 type Page =
   | { kind: 'editorial'; editorial: MagazineEditorial }
@@ -156,6 +156,7 @@ export function MagazineReader({
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error' | 'gone'>('loading');
   const [nonce, setNonce] = useState(0);
+  const [tip, setTip] = useState(0);
   const [more, setMore] = useState(false);
   // 편집부 쪽(랭킹 · 새 섬 · 조언)이 지면보다 길면 쪽 넘김 줄에 잘려 보인다 — 지면·내용 높이를 재서 맞춰 줄인다
   const [editorialBox, setEditorialBox] = useState(0);
@@ -188,6 +189,9 @@ export function MagazineReader({
       .getMagazineIssue(issueId)
       .then((page) => {
         if (!alive) return;
+        // 호의 저장 번호와 무관하게 열 때 한 번 고른다. 이어 읽기·회전·재렌더에서는 유지한다.
+        const note = page.editorial?.note;
+        if (note && !(note.type === 'EDITOR' && note.body)) setTip(pickEditorTip());
         setLoaded(page);
         setIndex(0);
         setStatus('ready');
@@ -363,7 +367,6 @@ export function MagazineReader({
   );
 
   const editorialPage = (ed: MagazineEditorial) => {
-    const tip = ed.note.tipNo != null && ed.note.tipNo >= 0 ? ed.note.tipNo % TIP_COUNT : 0;
     const note =
       ed.note.type === 'EDITOR' && ed.note.body ? ed.note.body : t(`magazine.tips.${tip}`);
     const bannerW = Math.min(innerW, R.bannerMaxWidth);

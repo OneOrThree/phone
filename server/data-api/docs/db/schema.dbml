@@ -93,6 +93,35 @@ Table customization_reward_items [note: 'revision별 후보(revision 1 = 90종, 
   }
 }
 
+Table customization_reward_pool_approvals [note: 'V12: 추첨 풀 변경 승인 영수증. product_ids = 풀 전체 스냅샷(오름차순 상품 id 배열). 취소는 삭제 대신 revoked_*에 남긴다'] {
+  approval_id uuid [pk]
+  expected_revision integer [not null]
+  product_ids jsonb [not null]
+  approved_digest character(64) [not null]
+  request_digest character(64) [not null]
+  approved_by varchar(30) [not null]
+  approved_at timestamptz [not null, default: `now()`]
+  revoked_at timestamptz
+  revoked_by varchar(30)
+}
+
+Table customization_reward_pool_publications [note: 'V12: 추첨 풀 발행의 전후 풀·승인자·발행자 영구 감사 원장. approval_id는 한 번만 사용한다'] {
+  publication_id uuid [pk]
+  approval_id uuid [not null, unique]
+  revision integer [not null, unique]
+  previous_revision integer [not null]
+  before_product_ids jsonb [not null]
+  after_product_ids jsonb [not null]
+  request_digest character(64) [not null]
+  approved_digest character(64) [not null]
+  approved_by varchar(30) [not null]
+  actor varchar(30) [not null]
+  published_at timestamptz [not null, default: `now()`]
+}
+
+Ref: customization_reward_pool_publications.approval_id > customization_reward_pool_approvals.approval_id
+Ref: customization_reward_pool_publications.revision > customization_reward_policies.revision
+
 Table users [note: '서비스 사용자 계정 (소셜 로그인 기반, 소프트 딜리트)'] {
   id                             uuid        [pk]
   is_guest                       boolean     [not null, default: false, note: '게스트 계정 여부']
@@ -463,6 +492,50 @@ Table focus_reward_policy_publications [note: 'V6: 새 revision 발행의 전후
 
 Ref: focus_reward_policy_publications.approval_id > focus_reward_policy_approvals.approval_id
 Ref: focus_reward_policy_publications.revision > focus_reward_policies.revision
+
+Table customization_grant_approvals [note: 'V13: 꾸미기 지급 승인. 닉네임은 저장하지 않고(탈퇴 때 지워져야 한다) 사용자 UUID 스냅샷만 남긴다'] {
+  approval_id uuid [pk]
+  product_id varchar(80) [not null, note: 'FK → catalog_assets.product_id']
+  mode varchar(10) [not null, note: 'USERS | ALL']
+  user_ids jsonb [not null, note: 'USERS 면 UUID 오름차순 배열, ALL 이면 []']
+  reason varchar(200) [not null]
+  digest char(64) [not null]
+  request_digest char(64) [not null]
+  approved_by varchar(30) [not null]
+  approved_at timestamptz [not null, default: `now()`]
+  revoked_at timestamptz
+  revoked_by varchar(30)
+}
+
+Table customization_grant_executions [note: 'V13: 꾸미기 지급 실행 원장. cursor_user_id 로 사용자 1명 단위 이어 하기, 승인자와 실행자는 달라야 한다'] {
+  grant_id uuid [pk]
+  approval_id uuid [not null, unique]
+  request_digest char(64) [not null]
+  approved_by varchar(30) [not null]
+  actor varchar(30) [not null]
+  status varchar(10) [not null, note: 'RUNNING | COMPLETED']
+  cursor_user_id uuid
+  target_count integer [not null]
+  granted_count integer [not null, default: 0]
+  already_owned_count integer [not null, default: 0]
+  skipped_count integer [not null, default: 0]
+  started_at timestamptz [not null]
+  completed_at timestamptz
+}
+
+Ref: customization_grant_approvals.product_id > catalog_assets.product_id
+Ref: customization_grant_executions.approval_id > customization_grant_approvals.approval_id
+
+Table customization_grant_targets [note: 'V13: 꾸미기 지급 실행 대상 스냅샷. begin 트랜잭션에서 얼려 건수와 모든 처리 단계가 같은 대상을 읽는다. 사용자 UUID 만 둔다'] {
+  grant_id uuid [not null, note: 'FK → customization_grant_executions.grant_id ON DELETE RESTRICT']
+  user_id uuid [not null]
+
+  indexes {
+    (grant_id, user_id) [pk]
+  }
+}
+
+Ref: customization_grant_targets.grant_id > customization_grant_executions.grant_id
 
 Table user_fish_wallets [note: 'GROMO-1924: 개인 물고기 지갑(통화 fish, 2026-09-18 결정 D1, migration V67). 코인(user_wallets)과 별개 — D11 로 코인 잔액을 옮기지 않는다'] {
   user_id     uuid    [pk, note: 'FK → users.id ON DELETE CASCADE']

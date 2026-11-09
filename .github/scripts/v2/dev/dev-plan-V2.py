@@ -6,7 +6,7 @@ import re
 SERVICES = frozenset({'data-api', 'realtime', 'business-api', 'notification'})
 CORE = frozenset({'data-api', 'realtime'})
 SHA = re.compile(r'[0-9a-f]{40}\Z')
-DIGEST = re.compile(r'asia-northeast3-docker\.pkg\.dev/oneorthree2/([^/]+)/\1@sha256:[0-9a-f]{64}\Z')
+DIGEST = re.compile(r'asia-northeast3-docker\.pkg\.dev/project-cd783bdb-e03f-4e17-b74/([^/]+)/\1@sha256:[0-9a-f]{64}\Z')
 
 
 def plan(source, previous, revision, infra_revision, force=False):

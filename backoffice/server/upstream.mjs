@@ -194,6 +194,13 @@ export class Upstream {
     );
     return page;
   }
+  async magazineContent(issueId, cursor, actor, operator) {
+    if (this.mode === "local") throw new Failure(404, "발행된 잡지를 찾을 수 없습니다.");
+    await this.verifyEnvironment(this.environment, actor, operator);
+    return this.request(this.dataUrl,
+      `/internal/admin/content/history/magazines/${encodeURIComponent(issueId)}?limit=50${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
+      actor, operator.dataToken, undefined, "GET");
+  }
   async focusPolicy(actor, operator) {
     if (this.mode === "local") return {
       current: { revision: 1, publishedAt: null, policy: {

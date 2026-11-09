@@ -6,9 +6,9 @@
 #
 #   docker compose -f docker-compose.dev.yml -f docker-compose.kafka.yml up -d
 #
-# ⚠️ 이 오버레이는 app 을 «재정의하지 않는다». outbox relay 는 기본이 꺼짐이라
-#    (outbox.relay.enabled=false) 브로커만 띄운다고 발행이 시작되지 않는다 — 켜는 것은 별도 단계다.
-#    그 순서가 의도다: 브로커 기동·토픽 생성을 먼저 확인하고, 그다음에 relay 를 켠다.
+# ⚠️ 이 오버레이는 app 을 «재정의하지 않는다». satellites 프로필로 뜨는 app 은 relay 가 기본 ON 이라
+#    (GROMO-2822, ${OUTBOX_RELAY_ENABLED:true}) 브로커가 뜨면 곧바로 발행을 시도한다. 브로커 기동·토픽 생성을
+#    먼저 확인하려면 그동안 env 에 OUTBOX_RELAY_ENABLED=false 를 명시하고, 확인한 뒤 그 줄을 지운다.
 #
 # ⚠️ 외부에 노출하지 않는다. ports 매핑이 없는 것은 실수가 아니다 — 브로커는 compose 네트워크
 #    안에서만 보이고, Vercel(링크 서버)은 Kafka 에 붙지 않는다(계약 §2).

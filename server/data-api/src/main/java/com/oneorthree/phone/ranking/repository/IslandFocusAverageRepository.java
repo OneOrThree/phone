@@ -87,6 +87,21 @@ public interface IslandFocusAverageRepository
     List<IslandFocusAverage> findLatestByIslandIds(@Param("islandIds") Collection<UUID> islandIds);
 
     /**
+     * {@code asOf} 이하에서 가장 최근 snapshot_date 의 행 전부 — 전망대 랭킹(GROMO-2769)이 망원경과 같은 값을 읽는 질의다.
+     *
+     * <p>배치({@link #insertIfAbsent})는 그날 살아 있는 섬 전부를 한 문장으로 적으므로, 가장 최근 날의 행이 곧 섬마다의
+     * 최신 행({@link #findLatestByIslandIds})과 같다 — 그날 뒤에 생긴 섬은 둘 다 행이 없다. 죽은 섬의 행도 나오므로 호출부가
+     * 섬 생존으로 거른다. PK {@code (snapshot_date, island_id)} 가 max 와 날짜 조회를 받친다.
+     *
+     * @param asOf 이 날짜 «이하» 의 스냅샷만 본다
+     * @return 그날 행이 있는 섬마다 1건. 그 이하 스냅샷이 없으면 빈 목록
+     */
+    @Query(value = "SELECT a.* FROM island_focus_averages a WHERE a.snapshot_date = "
+            + "(SELECT max(b.snapshot_date) FROM island_focus_averages b "
+            + "WHERE b.snapshot_date <= CAST(:asOf AS date))", nativeQuery = true)
+    List<IslandFocusAverage> findLatestSnapshotOnOrBefore(@Param("asOf") LocalDate asOf);
+
+    /**
      * {@code cutoff} 보다 오래된 행을 지우되 <b>섬마다 가장 최근 행은 남긴다</b> (GROMO-2280) — cutoff 보다 오래됐어도.
      * 읽기({@link #findLatestByIslandIds})가 «섬의 최신 행» 을 답으로 주므로 그 행을 지우면 한동안 새 행이 없던 섬의
      * 값이 사라진다. 판정은 섬 단위라 다른 섬의 행은 영향을 주지 않는다. {@code (island_id, snapshot_date DESC)} 인덱스가

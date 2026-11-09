@@ -79,8 +79,8 @@ export function resetAirbridgeUser(): void {
 export function captureAirbridgeEvent(
   event: string,
   properties?: Record<string, string | number>,
-): void {
-  if (!client || isMockMode()) return;
+): boolean {
+  if (!client || isMockMode()) return false;
   try {
     switch (event) {
       case 'guest_login_completed':
@@ -108,8 +108,12 @@ export function captureAirbridgeEvent(
         // Core 플랜은 맞춤 이벤트가 없어 표준 「Complete Tutorial」로 보낸다.
         client.trackEvent('airbridge.completeTutorial', { action: 'first_island_arrival' });
         break;
+      default:
+        return false;
     }
+    return true;
   } catch {
     // 계측 실패가 로그인·집중 완료 처리를 막지 않도록 한다.
+    return false;
   }
 }

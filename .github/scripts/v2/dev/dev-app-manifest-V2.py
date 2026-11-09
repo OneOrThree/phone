@@ -29,7 +29,7 @@ def candidate(source, previous, revision, infra_revision, artifacts, release_id,
         images[service] = image
     if set(images) != planner.SERVICES:
         raise ValueError('네 서비스의 이미지가 필요합니다')
-    result.update(project='oneorthree2', release_id=release_id, images=images)
+    result.update(project='project-cd783bdb-e03f-4e17-b74', release_id=release_id, images=images)
     return result
 
 

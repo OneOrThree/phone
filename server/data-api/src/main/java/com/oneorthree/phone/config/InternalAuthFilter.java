@@ -150,7 +150,8 @@ public class InternalAuthFilter extends OncePerRequestFilter {
 
         if (path.startsWith("/internal/admin/content/")
                 || path.equals("/internal/admin/policies/focus")
-                || path.startsWith("/internal/admin/policies/focus/")) {
+                || path.startsWith("/internal/admin/policies/focus/")
+                || path.startsWith("/internal/admin/customization/")) {
             String actor = consoleActors.get(caller);
             String claimed = request.getHeader("X-Console-Actor");
             if (actor == null || (claimed != null && !claimed.equals(actor))) {
