@@ -48,8 +48,9 @@ public class InternalContentAdminController {
     public Map<String, Object> environment() {
         return Map.of("environment", verifiedEnvironment(), "contractVersion", "1",
                 "serverVersion", serverVersion(), "infraRevision", infraRevision(), "schemaVersion", schemaVersion(),
-                "capabilities", java.util.List.of("content.publication.v1", "content.history.v1",
-                        "content.notice.withdraw.v1", "content.app-requirements.v1",
+                "capabilities", java.util.List.of("customization.grant.v1",
+                        "content.publication.v1", "content.history.v1", "content.notice.withdraw.v1",
+                        "content.app-requirements.v1",
                         "construction.policy.v1", "focus.policy.v1", "content.magazine-read.v1",
                         "customization.reward-pool.v1"));
     }

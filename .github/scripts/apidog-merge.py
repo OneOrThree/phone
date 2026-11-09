@@ -63,7 +63,7 @@ DOMAINS = {
                "customization-reward-pool-admin"],
     "친구": ["friend", "user-block"],
     "알림": ["user-notification", "notification", "user", "outbox-command", "developer-notice"],
-    "콘텐츠 운영": ["content-admin", "focus-policy-admin"],
+    "콘텐츠 운영": ["content-admin", "focus-policy-admin", "customization-grant-admin"],
     "화면": ["screen"],
 }
 CONTROLLER_DOMAIN = {c: d for d, controllers in DOMAINS.items() for c in controllers}

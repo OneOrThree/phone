@@ -368,4 +368,28 @@ class InternalAuthFilterTest {
         assertThat(chain.getRequest()).isNull();
     }
 
+    @Test
+    void consoleActorIsAttachedOnCustomizationGrantRoutes() throws Exception {
+        InternalApiProperties properties = new InternalApiProperties();
+        var console = new InternalApiProperties.Caller();
+        console.setToken("console-token");
+        console.setConsoleActor("member-2");
+        console.setAllow(List.of("PUT /internal/admin/customization/grants/executions/*"));
+        properties.getCallers().put("console", console);
+        UUID grantId = UUID.randomUUID();
+        var request = request("PUT", "/internal/admin/customization/grants/executions/" + grantId);
+        request.addHeader("Authorization", "Bearer console-token");
+        var chain = new MockFilterChain();
+        assertThat(run(properties, request, chain).getStatus()).isEqualTo(200);
+        assertThat(chain.getRequest()).isNotNull();
+        assertThat(request.getAttribute("content.actor")).isEqualTo("member-2");
+
+        // 다른 사람의 이름을 주장하면 이 접두사에서도 거부한다.
+        var spoofed = request("PUT", "/internal/admin/customization/grants/executions/" + grantId);
+        spoofed.addHeader("Authorization", "Bearer console-token");
+        spoofed.addHeader("X-Console-Actor", "member-1");
+        var spoofedChain = new MockFilterChain();
+        assertThat(run(properties, spoofed, spoofedChain).getStatus()).isEqualTo(403);
+        assertThat(spoofedChain.getRequest()).isNull();
+    }
 }
