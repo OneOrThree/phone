@@ -1,4 +1,4 @@
--- 운영자가 꾸미기 상품을 사용자에게 지급한다. 승인(1인)과 실행(다른 1인)을 나누어 남긴다.
+-- 운영자가 꾸미기 상품을 사용자에게 지급한다(승인·실행 원장 + 실행 대상 스냅샷 3개 표). 승인(1인)과 실행(다른 1인)을 나누어 남긴다.
 -- 닉네임은 일부러 저장하지 않는다: 탈퇴 때 닉네임이 지워져야 하므로(PII), 승인 때 사용자 UUID 스냅샷만 남기고
 -- 화면의 닉네임은 조회 시점 값을 쓴다.
 CREATE TABLE customization_grant_approvals (
@@ -42,4 +42,13 @@ CREATE TABLE customization_grant_executions (
         CHECK (target_count >= 0 AND granted_count >= 0 AND already_owned_count >= 0 AND skipped_count >= 0),
     CONSTRAINT customization_grant_distinct_actors_ck CHECK (approved_by <> actor),
     CONSTRAINT customization_grant_exec_completed_ck CHECK ((status = 'COMPLETED') = (completed_at IS NOT NULL))
+);
+
+-- 실행 대상 스냅샷. begin 트랜잭션에서 실행 행과 함께 한 번에 얼려, 건수와 모든 chunk 가 같은 대상을 읽는다
+-- (created_at 만으로는 시작 전에 INSERT 하고 늦게 커밋하는 가입을 가를 수 없다). 사용자 UUID 만 두고 닉네임 등
+-- PII 는 두지 않는다. 지급 원장으로 보존하므로 실행 행을 지우지 못하게 RESTRICT 다.
+CREATE TABLE customization_grant_targets (
+    grant_id uuid NOT NULL REFERENCES customization_grant_executions(grant_id) ON DELETE RESTRICT,
+    user_id uuid NOT NULL,
+    PRIMARY KEY (grant_id, user_id)
 );

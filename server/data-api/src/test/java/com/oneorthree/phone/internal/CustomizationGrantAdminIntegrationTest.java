@@ -81,6 +81,7 @@ class CustomizationGrantAdminIntegrationTest {
 
     @BeforeEach
     void reset() {
+        jdbc.execute("DELETE FROM customization_grant_targets");
         jdbc.execute("DELETE FROM customization_grant_executions");
         jdbc.execute("DELETE FROM customization_grant_approvals");
         jdbc.execute("DELETE FROM owned_products WHERE product_id LIKE 'gt.%'");
@@ -218,6 +219,8 @@ class CustomizationGrantAdminIntegrationTest {
         assertThat(done.grantedCount()).isEqualTo(1);
         assertThat(done.alreadyOwnedCount()).isEqualTo(1);
         assertThat(done.skippedCount()).isZero();
+        assertThat(count("SELECT count(*) FROM customization_grant_targets WHERE grant_id='" + grantId + "'"))
+                .isEqualTo(2); // USERS 도 승인 스냅샷이 대상 표를 거친다
         assertThat(jdbc.queryForObject("SELECT granted_ref FROM owned_products WHERE user_id=? AND product_id=?",
                 String.class, fresh, PRODUCT)).isEqualTo("admin-grant:" + grantId);
         assertThat(inventoryEvents(fresh)).isEqualTo(1);
@@ -269,6 +272,9 @@ class CustomizationGrantAdminIntegrationTest {
         assertThat(first.status()).isEqualTo("RUNNING");
         assertThat(first.completedAt()).isNull();
         UUID late = newUser("gt-late");
+        // 가입 트랜잭션이 시작 시각 전에 행을 넣고 늦게 커밋한 경우를 흉내 낸다 — created_at 이 started_at 보다 이르다.
+        UUID lateCommit = newUser("gt-late-commit");
+        jdbc.update("UPDATE users SET created_at = now() - interval '1 hour' WHERE id=?", lateCommit);
         int calls = 1;
         Execution current = first;
         while (current.status().equals("RUNNING")) {
@@ -285,6 +291,9 @@ class CustomizationGrantAdminIntegrationTest {
         assertThat(count("SELECT count(DISTINCT user_id) FROM owned_products WHERE product_id='" + PRODUCT + "'"))
                 .isEqualTo(target);
         assertThat(owned(late)).isFalse();
+        assertThat(owned(lateCommit)).isFalse();
+        assertThat(count("SELECT count(*) FROM customization_grant_targets WHERE grant_id='" + grantId + "'"))
+                .isEqualTo(target); // 반복 호출이 대상 행을 다시 넣지 않는다
         assertThat(owned(all.get(1))).isTrue();
         assertThat(count("SELECT count(*) FROM event_outbox WHERE type='inventory.updated' AND aggregate_id IN"
                 + " (SELECT id::text FROM users WHERE nickname LIKE 'gt-bulk-%')")).isEqualTo(445);

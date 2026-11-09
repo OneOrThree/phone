@@ -256,23 +256,34 @@ public class CustomizationGrantAdminService {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "이미 실행에 사용한 승인입니다.");
         }
         Instant startedAt = clock.instant().truncatedTo(ChronoUnit.MICROS);
-        int target = MODE_ALL.equals(approval.mode())
-                ? count("SELECT count(*) FROM users WHERE is_deleted=false AND (created_at IS NULL OR created_at <= ?)",
-                Timestamp.from(startedAt))
-                : snapshotUsers(request.approvalId()).size();
         jdbc.update("INSERT INTO customization_grant_executions(grant_id,approval_id,request_digest,approved_by,actor,"
-                        + "status,target_count,started_at) VALUES(?,?,?,?,?,'RUNNING',?,?)",
-                grantId, request.approvalId(), requestDigest, approval.approvedBy(), actor, target,
+                        + "status,target_count,started_at) VALUES(?,?,?,?,?,'RUNNING',0,?)",
+                grantId, request.approvalId(), requestDigest, approval.approvedBy(), actor,
                 Timestamp.from(startedAt));
+        // 대상은 이 트랜잭션에서 한 번에 얼려 둔다 — 건수와 모든 chunk 가 같은 스냅샷을 읽는다. created_at 으로는
+        // 가입 트랜잭션이 시작 시각 전에 행을 넣고 늦게 커밋하는 경우를 막지 못하므로, «시작 때 활성» 은 이 문장의
+        // 스냅샷이 정한다.
+        int target;
+        if (MODE_ALL.equals(approval.mode())) {
+            target = jdbc.update("INSERT INTO customization_grant_targets(grant_id,user_id)"
+                    + " SELECT ?, id FROM users WHERE is_deleted=false", grantId);
+        } else {
+            List<UUID> ids = snapshotUsers(request.approvalId());
+            jdbc.batchUpdate("INSERT INTO customization_grant_targets(grant_id,user_id) VALUES(?,?)",
+                    ids.stream().map(id -> new Object[] {grantId, id}).toList());
+            target = ids.size();
+        }
+        jdbc.update("UPDATE customization_grant_executions SET target_count=? WHERE grant_id=?", target, grantId);
     }
 
     /** 최대 200명을 한 트랜잭션으로 처리한다. 끝났으면 true. 이 트랜잭션이 실행 행을 쥐어 같은 grantId 의 동시 호출을 줄 세운다. */
     private boolean runChunk(UUID grantId) {
-        RunRow run = jdbc.queryForObject("SELECT e.status,e.cursor_user_id,e.started_at,a.product_id,a.mode,"
+        RunRow run = jdbc.queryForObject("SELECT e.status,e.cursor_user_id,e.grant_id,a.product_id,a.mode,"
                 + "a.approval_id FROM customization_grant_executions e JOIN customization_grant_approvals a"
                 + " ON a.approval_id=e.approval_id WHERE e.grant_id=? FOR UPDATE OF e",
                 (rs, index) -> new RunRow(rs.getString(1), rs.getObject(2, UUID.class),
-                        rs.getTimestamp(3), rs.getString(4), rs.getString(5), rs.getObject(6, UUID.class)), grantId);
+                        rs.getObject(3, UUID.class), rs.getString(4), rs.getString(5),
+                        rs.getObject(6, UUID.class)), grantId);
         if (run == null || "COMPLETED".equals(run.status())) {
             return true;
         }
@@ -297,33 +308,22 @@ public class CustomizationGrantAdminService {
         }
         boolean done = batch.size() < CHUNK_SIZE;
         UUID cursor = batch.isEmpty() ? run.cursor() : batch.get(batch.size() - 1);
-        // 끝나는 chunk 에서는 건너뛴 수를 «대상 - 받음 - 이미 가짐» 으로 다시 정한다. 대상은 시작 때
-        // (created_at <= started_at 이고 활성)로 고정되고 이후 가입자는 들어오지 않으며, 탈퇴는 되돌릴 수 없다.
-        // 그래서 시작 때 대상이었는데 자기 chunk 가 돌 때 이미 탈퇴해 커서 조회에서 사라진 사람도 남김없이
-        // 건너뜀으로 센다(chunk 안에서 센 건너뜀은 이 값에 이미 들어 있다). USERS 는 스냅샷을 그대로 돌아
-        // 탈퇴자도 chunk 안에서 건너뜀으로 세므로 이 식과 같은 값이 되어 결과가 바뀌지 않는다.
-        jdbc.update("UPDATE customization_grant_executions SET cursor_user_id=?,"
-                        + "skipped_count=CASE WHEN ? THEN GREATEST(target_count - (granted_count + ?)"
-                        + " - (already_owned_count + ?), 0) ELSE skipped_count + ? END,"
-                        + "granted_count=granted_count+?,already_owned_count=already_owned_count+?,"
-                        + "status=?,completed_at=? WHERE grant_id=?", cursor, done, granted, already, skipped,
-                granted, already, done ? "COMPLETED" : "RUNNING", done ? Timestamp.from(now) : null, grantId);
+        // 대상이 시작 때 얼려진 표(customization_grant_targets)라서, 중간에 탈퇴한 사람도 표에 남아 자기 chunk 에서
+        // findActiveForShare 가 비면 건너뜀으로 센다. 그래서 받음+이미 가짐+건너뜀 = 대상 수가 정확히 맞는다.
+        jdbc.update("UPDATE customization_grant_executions SET cursor_user_id=?,granted_count=granted_count+?,"
+                        + "already_owned_count=already_owned_count+?,skipped_count=skipped_count+?,"
+                        + "status=?,completed_at=? WHERE grant_id=?", cursor, granted, already, skipped,
+                done ? "COMPLETED" : "RUNNING", done ? Timestamp.from(now) : null, grantId);
         return done;
     }
 
+    /** 얼려 둔 대상 표를 사용자 UUID 순서(Postgres uuid 순서 = 커서 순서)로 200명씩 읽는다. */
     private List<UUID> nextBatch(RunRow run) {
-        if (MODE_ALL.equals(run.mode())) {
-            // started_at 으로 대상을 고정한다 — 실행 도중 가입한 사용자는 받지 않는다.
-            String sql = "SELECT id FROM users WHERE is_deleted=false AND (created_at IS NULL OR created_at <= ?)"
-                    + (run.cursor() == null ? "" : " AND id > ?") + " ORDER BY id LIMIT " + CHUNK_SIZE;
-            return run.cursor() == null
-                    ? jdbc.queryForList(sql, UUID.class, run.startedAt())
-                    : jdbc.queryForList(sql, UUID.class, run.startedAt(), run.cursor());
-        }
-        // 문자열 순서(소문자 hex)는 PostgreSQL uuid 순서와 같다. Java UUID.compareTo 는 부호 있는 비교라 쓰지 않는다.
-        String after = run.cursor() == null ? "" : run.cursor().toString();
-        return snapshotUsers(run.approvalId()).stream().filter(id -> id.toString().compareTo(after) > 0)
-                .limit(CHUNK_SIZE).toList();
+        String sql = "SELECT user_id FROM customization_grant_targets WHERE grant_id=?"
+                + (run.cursor() == null ? "" : " AND user_id > ?") + " ORDER BY user_id LIMIT " + CHUNK_SIZE;
+        return run.cursor() == null
+                ? jdbc.queryForList(sql, UUID.class, run.grantId())
+                : jdbc.queryForList(sql, UUID.class, run.grantId(), run.cursor());
     }
 
     @Transactional(readOnly = true)
@@ -500,6 +500,6 @@ public class CustomizationGrantAdminService {
 
     private record ApprovalRow(String mode, String digest, String approvedBy, boolean active) { }
 
-    private record RunRow(String status, UUID cursor, Timestamp startedAt, String productId, String mode,
+    private record RunRow(String status, UUID cursor, UUID grantId, String productId, String mode,
                           UUID approvalId) { }
 }

@@ -497,6 +497,17 @@ Table customization_grant_executions [note: 'V13: 꾸미기 지급 실행 원장
 Ref: customization_grant_approvals.product_id > catalog_assets.product_id
 Ref: customization_grant_executions.approval_id > customization_grant_approvals.approval_id
 
+Table customization_grant_targets [note: 'V13: 꾸미기 지급 실행 대상 스냅샷. begin 트랜잭션에서 얼려 건수와 모든 chunk 가 같은 대상을 읽는다. 사용자 UUID 만 둔다'] {
+  grant_id uuid [not null, note: 'FK → customization_grant_executions.grant_id ON DELETE RESTRICT']
+  user_id uuid [not null]
+
+  indexes {
+    (grant_id, user_id) [pk]
+  }
+}
+
+Ref: customization_grant_targets.grant_id > customization_grant_executions.grant_id
+
 Table user_fish_wallets [note: 'GROMO-1924: 개인 물고기 지갑(통화 fish, 2026-09-18 결정 D1, migration V67). 코인(user_wallets)과 별개 — D11 로 코인 잔액을 옮기지 않는다'] {
   user_id     uuid    [pk, note: 'FK → users.id ON DELETE CASCADE']
   balance     integer [not null, default: 0, note: 'CHECK >= 0']
