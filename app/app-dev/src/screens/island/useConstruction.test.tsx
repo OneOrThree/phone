@@ -461,6 +461,17 @@ test('selectable:false / buildable:false 는 앱이 추측해 보내지 않는�
   await h.unmount();
 });
 
+test('확인창에서 본 가격이 재조회로 바뀌면 착공 요청 없이 다시 확인하도록 한다', async () => {
+  serve(live(options([item('library', { cost: 120 })])));
+  const h = await mount({ active: true, islandId: 'local1', now: NOW });
+  await flush();
+  const error = await act(async () => h.result.current.build('library', 100).catch((e) => e));
+  assert.equal(error.code, 'VERSION_CONFLICT');
+  assert.equal(writes('/islands/srv1/constructions', 'POST').length, 0);
+  assert.equal(h.result.current.started, null);
+  await h.unmount();
+});
+
 test('403 FORBIDDEN(비방장) — 재조회로 화면을 맞추고 원래 오류를 그대로 올린다', async () => {
   serve({
     ...live(),
