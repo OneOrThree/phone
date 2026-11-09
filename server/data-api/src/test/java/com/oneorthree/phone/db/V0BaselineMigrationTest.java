@@ -42,7 +42,7 @@ class V0BaselineMigrationTest {
         assertThat(jdbc.queryForList("SELECT version FROM flyway_schema_history", String.class))
                 .containsExactly("0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "13");
         assertThat(jdbc.queryForObject("SELECT count(*) FROM pg_tables WHERE schemaname='public' "
-                + "AND tablename<>'flyway_schema_history'", Integer.class)).isEqualTo(86);
+                + "AND tablename<>'flyway_schema_history'", Integer.class)).isEqualTo(89);
         assertThat(jdbc.queryForObject("SELECT to_regclass('public.islands') IS NOT NULL", Boolean.class)).isTrue();
         assertThat(jdbc.queryForObject("SELECT to_regclass('public.groups') IS NULL", Boolean.class)).isTrue();
         assertThat(jdbc.queryForObject("SELECT count(*) FROM users", Integer.class)).isZero();
