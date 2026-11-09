@@ -61,7 +61,7 @@ export function ServerBuildCard({
     active: !tracked,
     islandId,
     now,
-    // 이 카드는 「각자 몫」 분모를 보여 주지 않는다 — 주민 전체 페이지 조회는 낭비다.
+    // 건설 카드는 섬 통장 잔액을 사용하므로 주민 목록을 별도로 조회하지 않는다.
     withMembers: false,
     onStarted: (r, serverIslandId) =>
       onStarted({

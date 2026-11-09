@@ -1,7 +1,13 @@
 import { localeTag } from '@/i18n/format';
+import {
+  ConstructionPlanGrid,
+  ConstructionPlanPreview,
+  ConstructionWalletSummary,
+  constructionPlanStyles,
+} from '@/components/ConstructionPlanContent';
 import { CatAvatar } from '@/components/CatAvatar';
 import { appearanceOutfit, outfitOf, type Outfit } from '@/components/CatOutfitLayers';
-import { CharCount, NavBtn, Wheel, art } from '@/design-system/patterns';
+import { Btn, CharCount, NavBtn, Wheel, art } from '@/design-system/patterns';
 import { componentTokens, semanticTokens } from '@/design-system/tokens';
 import { getLocale, errorTextOr, t } from '@/i18n';
 import type { ScreenProps } from '@/navigation/ScreenEnvironment';
@@ -9,7 +15,7 @@ import {
   managementErrorMessage,
   useIslandManagement,
 } from '@/screens/interiors/useIslandManagement';
-import { BROWN, T, fill, hm, safeOffset, useGowun, web } from '@/screens/island/sceneKit';
+import { BROWN, GOWUN, T, fill, hm, safeOffset, useGowun, web } from '@/screens/island/sceneKit';
 import { useConstruction } from '@/screens/island/useConstruction';
 import { useInviteShare } from '@/screens/island/useInviteShare';
 import {
@@ -25,7 +31,7 @@ import {
   ISLAND_INTRO_MAX,
   ISLAND_NAME_MAX,
 } from '@/services/api/islandManagement';
-import { getSession, sessionGeneration } from '@/services/api/session';
+import { sessionGeneration } from '@/services/api/session';
 import { isMockMode } from '@/services/demoMode';
 import { sharedWebIslandId, usesSharedWebIsland } from '@/services/webIsland';
 import type { Route } from '@/services/model';
@@ -35,12 +41,10 @@ import {
   CAPACITY_MIN,
   State,
   balance,
-  buildMinutes,
+  canBuild,
   buildingNames,
-  buildingShare,
   canSelectBuilding,
   capacityOf,
-  collectedBy,
   costs,
   dayKey,
   isFull,
@@ -155,9 +159,6 @@ const bldArt: Record<string, string> = {
   gram: 'bld/gramophone',
   shop: 'bld/shop',
 };
-// 정책 C01: 회관·게시판은 섬 통장 합산, 나머지는 주민별 n빵 — 서버 옵션에 구분 필드가 없어
-// 건물 id 로만 나눈다. 각자 몫 = 총액 ÷ 대상 주민 수(올림).
-const walletTotal = (b: string) => b === 'hall' || b === 'board';
 // blockedReason 은 서버 evaluator 의 UI 사유다 — 앱이 권한·선행을 다시 추론하지 않는다.
 const blockedText = (reason: string | null) =>
   reason === 'FORBIDDEN'
@@ -528,12 +529,16 @@ export function Hall({ e }: ScreenProps) {
             justifyContent: 'center',
             paddingLeft: land ? over : 31,
             paddingRight: land ? 75 : 31,
+            paddingTop: L.insets.top + semanticTokens.spacing.control,
+            paddingBottom: L.insets.bottom + semanticTokens.spacing.control,
           },
         ]}
       >
         <View
+          testID="hall-dialog"
           accessibilityViewIsModal
           style={{
+            maxHeight: H - L.insets.top - L.insets.bottom - 2 * semanticTokens.spacing.control,
             gap: land ? 7 : 11,
             paddingTop: land ? 16 : 22,
             paddingHorizontal: land ? 18 : 19,
@@ -545,32 +550,39 @@ export function Hall({ e }: ScreenProps) {
             boxShadow: '0px 14px 34px rgba(45, 33, 27, 0.5)',
           }}
         >
-          <T style={g(21, 33.6, { color: CARD_INK, fontWeight: '700' })}>{dialog.title}</T>
-          {!!dialog.text && (
-            <T
-              style={g(land ? 14 : 15, land ? 21.7 : 23.25, {
-                color: MUTED,
-                ...web({ wordBreak: 'keep-all' }),
-              })}
-            >
-              {dialog.text}
-            </T>
-          )}
-          {dialog.body}
-          {!!dialog.detail && (
-            <View
-              style={{
-                padding: land ? 8 : 11,
-                borderWidth: 1,
-                borderColor: '#d1b995',
-                borderRadius: 9,
-                backgroundColor: '#fffdf8',
-              }}
-            >
-              <T style={g(14, 20.3, { color: CARD_INK })}>{dialog.detail}</T>
-            </View>
-          )}
-          <View style={{ flexDirection: 'row', gap: 8, marginTop: 3 }}>
+          <ScrollView
+            testID="hall-dialog-content"
+            style={{ flexShrink: 1 }}
+            contentContainerStyle={{ gap: land ? 7 : 11 }}
+            keyboardShouldPersistTaps="handled"
+          >
+            <T style={g(21, 33.6, { color: CARD_INK, fontWeight: '700' })}>{dialog.title}</T>
+            {!!dialog.text && (
+              <T
+                style={g(land ? 14 : 15, land ? 21.7 : 23.25, {
+                  color: MUTED,
+                  ...web({ wordBreak: 'keep-all' }),
+                })}
+              >
+                {dialog.text}
+              </T>
+            )}
+            {dialog.body}
+            {!!dialog.detail && (
+              <View
+                style={{
+                  padding: land ? 8 : 11,
+                  borderWidth: 1,
+                  borderColor: '#d1b995',
+                  borderRadius: 9,
+                  backgroundColor: '#fffdf8',
+                }}
+              >
+                <T style={g(14, 20.3, { color: CARD_INK })}>{dialog.detail}</T>
+              </View>
+            )}
+          </ScrollView>
+          <View style={{ flexDirection: 'row', flexShrink: 0, gap: 8, marginTop: 3 }}>
             {(dialog.ok ? [false, true] : [false]).map((ok) => (
               <Pressable
                 key={String(ok)}
@@ -1549,498 +1561,186 @@ export function Hall({ e }: ScreenProps) {
     // live: 옵션 재조회로 계획 중이던 건물이 items 에서 빠지면(완공 등) 패널을 열지 않는다 — 추정 금지
     const planItem = liveConstruction && plan ? liveItem(plan) : undefined;
     if (plan && (!liveConstruction || planItem !== undefined)) {
-      const st = status(plan),
-        name = buildingNames[plan],
-        // 로컬 시연의 몫. 실서버 본문은 아래 residentProgress만 사용한다.
-        share = buildingShare(i, plan),
-        q = i.buildingQuest;
-      const meId = liveConstruction ? getSession()?.userId : undefined;
-      const residentProgress =
-        opts?.selectedBuildingId === plan && opts.residentProgress?.buildingId === plan
-          ? opts.residentProgress
+      const st = status(plan);
+      const name = buildingNames[plan] ?? planItem?.name ?? '';
+      const cost = planItem?.cost ?? costs[plan];
+      const funds = liveConstruction ? opts!.villagePoints : balance(i);
+      const selected = liveConstruction
+        ? opts!.selectedBuildingId === plan
+        : i.buildingQuest?.building === plan;
+      const allowed = liveConstruction ? planItem!.blockedReason !== 'FORBIDDEN' : host;
+      const buildable = liveConstruction ? planItem!.buildable : canBuild(s, plan) === null;
+      const timing = liveConstruction
+        ? construction.timing
+        : i.construction
+          ? { buildingId: i.construction.building, completesAt: i.construction.endsAt }
           : null;
-      const row = (label: string, value: string) => (
-        <View
-          key={label}
-          style={{
-            flexDirection: 'row',
-            justifyContent: 'space-between',
-            gap: 6.5,
-            paddingVertical: 3.9,
-            borderTopWidth: 1.3,
-            borderStyle: 'dashed',
-            borderTopColor: 'rgba(223, 247, 255, 0.667)',
-          }}
-        >
-          <T style={g(15.5, 20.925, { color: '#f7fcff' })}>{label}</T>
-          <T style={g(15.5, 20.925, { color: '#f7fcff', fontWeight: '700' })}>{value}</T>
-        </View>
-      );
-      const bar = (pct: number) => (
-        <View
-          style={{
-            height: 8.78,
-            paddingVertical: 3.9,
-            borderTopWidth: 1.3,
-            borderStyle: 'dashed',
-            borderTopColor: 'rgba(223, 247, 255, 0.667)',
-            borderRadius: 3,
-            backgroundColor: '#eadfd2',
-            overflow: 'hidden',
-          }}
-        >
+      const activeHere = timing?.buildingId === plan;
+      const left = timing ? Math.max(0, new Date(timing.completesAt).getTime() - e.now) : 0;
+      const reason = liveConstruction
+        ? blockedText(planItem!.blockedReason)
+        : canSelectBuilding(i, plan);
+      const p = componentTokens.constructionPlan;
+      const select = () => {
+        if (liveConstruction) {
+          construction.select(plan!).then(
+            () => notify(t('ui.hall.goalSet', { v0: eul(name) })),
+            (error) => notify(errorTextOr(error, 'ui.errors.goalFailed')),
+          );
+        } else {
+          e.dispatch({ type: 'SELECT_BUILDING', building: plan });
+          notify(t('ui.hall.goalSet', { v0: eul(name) }));
+        }
+      };
+      const confirmTarget = () => {
+        const previous = liveConstruction ? opts!.selectedBuildingId : i.buildingQuest?.building;
+        if (previous && previous !== plan) {
+          setDialog({
+            title: t('ui.hall.changeGoal'),
+            text: t('ui.hall.changeTargetKeepBalance', { name: eul(name) }),
+            ok: t('ui.hall.change'),
+            onOk: select,
+          });
+        } else select();
+      };
+      const build = () => {
+        if (!liveConstruction) {
+          e.build(plan!);
+          return;
+        }
+        setDialog({
+          title: t('constructionPlan.confirmTitle', { name }),
+          text: '',
+          body: <ConstructionWalletSummary balance={funds} cost={cost} />,
+          ok: t('constructionPlan.start'),
+          onOk: () =>
+            construction.build(plan!, cost).then(
+              () => notify(t('ui.hall.constructionStarted', { v0: eul(name) })),
+              (error) => notify(errorTextOr(error, 'ui.errors.buildFailed')),
+            ),
+        });
+      };
+      const notice = (text: string) => <T style={constructionPlanStyles.notice}>{text}</T>;
+      const canSelect = liveConstruction ? planItem!.selectable : host && !reason;
+      planView = (
+        <>
+          <Pressable
+            testID="hall-plan-backdrop"
+            accessibilityRole="button"
+            accessibilityLabel={t('constructionPlan.close')}
+            onPress={() => setPlan(null)}
+            style={[fill, { zIndex: 8 }]}
+          />
           <View
+            pointerEvents="box-none"
             style={{
               position: 'absolute',
-              left: 0,
-              top: 0,
-              bottom: 0,
-              width: `${Math.max(0, Math.min(100, pct))}%`,
-              borderRadius: 3,
-              backgroundColor: '#ffa6bc',
-            }}
-          />
-        </View>
-      );
-      // 시안은 블록 여백이 겹쳐(h4 아래 9·몫 칩 아래 7.7) 바로 앞이 줄 칸일 때만 위 여백 7.7이 보인다
-      const para = (text: string, afterRow = false) => (
-        <View
-          style={{
-            marginTop: afterRow ? 7.7 : 0,
-            paddingTop: 7.7,
-            borderTopWidth: 1.3,
-            borderStyle: 'dashed',
-            borderTopColor: 'rgba(223, 247, 255, 0.667)',
-          }}
-        >
-          <T style={g(15.5, 22.475, { color: '#f7fcff' })}>{text}</T>
-        </View>
-      );
-      const btn = (label: string, onPress: () => void, disabled = false) => (
-        <Pressable
-          testID="hall-plan-action"
-          accessibilityRole="button"
-          accessibilityLabel={label}
-          accessibilityState={{ disabled }}
-          disabled={disabled}
-          onPress={onPress}
-          style={{
-            opacity: disabled ? componentTokens.button.disabledOpacity : 1,
-            marginTop: 10.3,
-            minHeight: 56.8,
-            alignItems: 'center',
-            justifyContent: 'center',
-            paddingVertical: 11.6,
-            paddingHorizontal: 19.4,
-            borderWidth: 2.6,
-            borderColor: BROWN,
-            borderRadius: 999,
-            backgroundColor: componentTokens.button.background,
-            boxShadow: `0px 5.2px 0px ${BROWN}`,
-          }}
-        >
-          <T style={g(16.8, 21, { fontWeight: '800' })}>{label}</T>
-        </Pressable>
-      );
-      // 서버 응답의 startedAt/completesAt 만 표시한다 — 기기 시각으로 완공을 판정하지 않는다.
-      // completesAt 경과는 hook 의 재조회 신호일 뿐 완공 표시가 아니다.
-      const startedInfo = liveConstruction ? construction.started : null;
-      const left = liveConstruction
-        ? startedInfo !== null && startedInfo.buildingId === plan
-          ? Math.max(0, Date.parse(startedInfo.completesAt) - e.now)
-          : 0
-        : i.construction
-          ? Math.max(0, i.construction.endsAt - e.now)
-          : 0;
-      const reason = liveConstruction ? null : canSelectBuilding(i, plan);
-      const select = () => {
-        e.dispatch({ type: 'SELECT_BUILDING', building: plan });
-        notify(t('ui.hall.questPosted'));
-      };
-      // 쓰기 실패는 성공으로 바꾸지 않는다 — 서버 오류 메시지를 그대로 알린다.
-      const liveSelect = () => {
-        construction.select(plan!).then(
-          () => notify(t('ui.hall.goalSet', { v0: eul(name) })),
-          (error) => notify(errorTextOr(error, 'ui.errors.goalFailed')),
-        );
-      };
-      const liveBuild = () => {
-        construction.build(plan!).then(
-          () => notify(t('ui.hall.constructionStarted', { v0: eul(name) })),
-          (error) => notify(errorTextOr(error, 'ui.errors.buildFailed')),
-        );
-      };
-      const note = (text: string) => (
-        <T
-          style={g(15.5, 23.25, {
-            color: 'rgba(223, 247, 255, 0.7)',
-            marginTop: land ? 8 : 12.9,
-          })}
-        >
-          {text}
-        </T>
-      );
-      const shareRow = walletTotal(plan)
-        ? row(t('ui.hall.collectionMethod'), t('ui.hall.pooledWallet'))
-        : row(
-            t('ui.hall.eachShare'),
-            residentProgress
-              ? residentProgress.requiredPerResident === null
-                ? t('ui.hall.noEligibleResidents')
-                : t('ui.hall.fishAndResidents', {
-                    v0: residentProgress.requiredPerResident.toLocaleString(localeTag()),
-                    v1: residentProgress.residents.length,
-                  })
-              : opts?.selectedBuildingId === plan
-                ? t('ui.hall.unavailable')
-                : t('ui.hall.setGoalFirst'),
-          );
-      // 서버 본문은 서버 모드에서만 계산한다. 데모에는 opts·planItem이 없다.
-      const liveCopy = !liveConstruction ? null : st === 'locked' ? (
-        para(`${name} — ${blockedText(planItem!.blockedReason)}`)
-      ) : st === 'build' ? (
-        startedInfo !== null && startedInfo.buildingId === plan && left > 0 ? (
-          <>
-            {row(
-              t('ui.hall.underConstruction'),
-              t('ui.hall.timeRemaining', { v0: hm(Math.ceil(left / 60000) * 60) }),
-            )}
-            {bar(
-              ((e.now - Date.parse(startedInfo.startedAt)) /
-                Math.max(
-                  1,
-                  Date.parse(startedInfo.completesAt) - Date.parse(startedInfo.startedAt),
-                )) *
-                100,
-            )}
-          </>
-        ) : startedInfo !== null && startedInfo.buildingId === plan ? (
-          para(t('ui.hall.completionPending'))
-        ) : (
-          para(t('ui.hall.constructionInProgress'))
-        )
-      ) : st === 'collect' ? (
-        <>
-          {row(
-            t('ui.hall.islandBalance'),
-            t('ui.hall.fishProgress', {
-              v0: opts!.villagePoints.toLocaleString(localeTag()),
-              v1: planItem!.cost.toLocaleString(localeTag()),
-            }),
-          )}
-          {bar((opts!.villagePoints / Math.max(1, planItem!.cost)) * 100)}
-          {shareRow}
-          {!walletTotal(plan) && residentProgress && (
-            <View
-              style={{
-                flexDirection: 'row',
-                flexWrap: 'wrap',
-                gap: 6.5,
-                marginVertical: 7.7,
-                paddingVertical: 3.9,
-                borderTopWidth: 1.3,
-                borderStyle: 'dashed',
-                borderTopColor: 'rgba(223, 247, 255, 0.667)',
-              }}
-            >
-              {residentProgress.residents.map((m) => (
-                <View
-                  key={m.userId}
-                  style={{
-                    paddingVertical: 1.3,
-                    paddingHorizontal: 7.7,
-                    borderRadius: 99,
-                    backgroundColor: 'rgba(255, 255, 255, 0.125)',
-                  }}
-                >
-                  <T style={g(13, 17.55, { color: '#f7fcff' })}>
-                    {m.userId === meId
-                      ? t('focusFlow.common.me')
-                      : (m.name ?? t('onboarding.residentFallbackName'))}
-                  </T>
-                </View>
-              ))}
-            </View>
-          )}
-          {para(planDesc[plan] ?? '')}
-        </>
-      ) : (
-        <>
-          {row(
-            t('ui.hall.total'),
-            t('ui.hall.fishCount', { v0: planItem!.cost.toLocaleString(localeTag()) }),
-          )}
-          {shareRow}
-          {para(planDesc[plan] ?? '', true)}
-        </>
-      );
-      const copy = liveConstruction ? (
-        liveCopy
-      ) : st === 'locked' ? (
-        para(t('ui.hall.shopPrerequisites', { v0: name }))
-      ) : st === 'done' ? (
-        para(planDesc[plan])
-      ) : st === 'build' ? (
-        <>
-          {row(
-            t('ui.hall.underConstruction'),
-            t('ui.hall.timeRemaining', { v0: hm(Math.ceil(left / 60000) * 60) }),
-          )}
-          {bar(
-            ((e.now - i.construction!.startedAt) /
-              Math.max(1, i.construction!.endsAt - i.construction!.startedAt)) *
-              100,
-          )}
-        </>
-      ) : st === 'collect' && q ? (
-        <>
-          {row(
-            t('ui.hall.islandBalance'),
-            t('ui.hall.fishProgress', {
-              v0: balance(i).toLocaleString(localeTag()),
-              v1: costs[plan].toLocaleString(localeTag()),
-            }),
-          )}
-          {bar((balance(i) / costs[plan]) * 100)}
-          <View
-            style={{
-              flexDirection: 'row',
-              flexWrap: 'wrap',
-              justifyContent: 'space-between',
-              gap: 6.5,
-              marginVertical: 7.7,
-              paddingVertical: 3.9,
-              borderTopWidth: 1.3,
-              borderStyle: 'dashed',
-              borderTopColor: 'rgba(223, 247, 255, 0.667)',
+              zIndex: 9,
+              left: land ? side + p.screenInset : p.screenInset,
+              right: land ? p.bottomInset : p.screenInset,
+              top: land ? p.screenInset : off.top + 96,
+              bottom: p.bottomInset,
+              justifyContent: 'center',
             }}
           >
-            {q.targets.map((id) => {
-              const got = Math.max(0, collectedBy(i, id)),
-                done = got >= share,
-                who =
-                  id === 'me'
-                    ? t('focusFlow.common.me')
-                    : (i.members.find((m) => m.id === id)?.name ?? '');
-              return (
-                <View
-                  key={id}
-                  style={{
-                    paddingVertical: 1.3,
-                    paddingHorizontal: 7.7,
-                    borderRadius: 99,
-                    backgroundColor: done ? '#bff5d0' : 'rgba(255, 255, 255, 0.125)',
-                  }}
-                >
-                  <T
-                    style={g(13, 17.55, {
-                      color: done ? '#1f5c34' : '#f7fcff',
-                      fontWeight: done ? '800' : '400',
-                    })}
-                  >
-                    {who} {done ? `${share}✓` : `${got}/${share}`}
-                  </T>
-                </View>
-              );
-            })}
-          </View>
-          {para(planDesc[plan])}
-        </>
-      ) : (
-        <>
-          {row(
-            t('ui.hall.total'),
-            t('ui.hall.fishCount', { v0: costs[plan].toLocaleString(localeTag()) }),
-          )}
-          {row(
-            t('ui.hall.eachShare'),
-            t('ui.hall.fishAndResidents', { v0: share, v1: residentCount(i) }),
-          )}
-          {row(t('ui.hall.constructionTime'), hm(buildMinutes[plan] * 60))}
-          {para(planDesc[plan], true)}
-        </>
-      );
-      planView = (
-        <View
-          testID="hall-building-plan"
-          style={[
-            {
-              position: 'absolute',
-              zIndex: 8,
-              left: land ? side + 16 : 10.3,
-              right: land ? 32 : 10.3,
-              top: land ? 36 : 276,
-              height: land ? 330 : 356.4,
-              padding: 15.5,
-              borderWidth: 2.6,
-              borderColor: '#d9f3f7',
-              borderRadius: 15.5,
-              backgroundColor: 'rgba(79, 148, 177, 0.97)',
-              boxShadow:
-                'inset 0px 0px 0px 5.2px rgb(74, 137, 159), 0px 15.5px 33.6px rgba(39, 60, 70, 0.66)',
-            },
-            web({
-              backgroundImage:
-                'linear-gradient(rgba(223, 247, 255, 0.14) 1.3px, transparent 1.3px), linear-gradient(90deg, rgba(223, 247, 255, 0.14) 1.3px, transparent 1.3px), linear-gradient(rgba(223, 247, 255, 0.07) 1.3px, transparent 1.3px), linear-gradient(90deg, rgba(223, 247, 255, 0.07) 1.3px, transparent 1.3px)',
-              backgroundSize: '41.3px 41.3px, 41.3px 41.3px, 10.3px 10.3px, 10.3px 10.3px',
-            }),
-          ]}
-        >
-          {st === 'collect' && !liveConstruction && (
             <View
-              style={{
-                flexDirection: 'row',
-                justifyContent: 'flex-end',
-                alignItems: 'center',
-                marginBottom: 12.9,
-              }}
+              testID="hall-building-plan"
+              style={[
+                constructionPlanStyles.card,
+                {
+                  maxHeight: Math.min(
+                    p.maxHeight,
+                    H - off.top - L.insets.bottom - (land ? p.bottomInset : 128),
+                  ),
+                },
+              ]}
             >
-              <Pressable
-                testID="hall-plan-quest"
-                accessibilityRole="link"
-                accessibilityLabel={t('ui.hall.viewConstructionQuest')}
-                hitSlop={8}
-                onPress={() => e.go('quest', 'building')}
+              <ConstructionPlanGrid />
+              <ScrollView
+                style={{ flexShrink: 1 }}
+                contentContainerStyle={constructionPlanStyles.content}
+                keyboardShouldPersistTaps="handled"
               >
-                <T style={g(13, 24.8, { color: '#e8faff', textDecorationLine: 'underline' })}>
-                  {t('ui.hall.viewOnBoard')}
-                </T>
-              </Pressable>
-            </View>
-          )}
-          <View style={{ flex: 1, minHeight: 0, flexDirection: 'row', gap: 12.9 }}>
-            <View
-              style={{
-                width: '36%',
-                alignItems: 'center',
-                paddingTop: 6.5,
-                paddingHorizontal: 6.5,
-                paddingBottom: 5.2,
-                borderWidth: 1.3,
-                borderColor: 'rgba(223, 247, 255, 0.667)',
-                backgroundColor: 'rgba(234, 248, 251, 0.098)',
-                overflow: 'hidden',
-                opacity: st === 'locked' ? 0.45 : 1,
-              }}
-            >
-              <View
-                style={{
-                  position: 'absolute',
-                  left: '50%',
-                  top: 7.7,
-                  bottom: 7.7,
-                  width: 1.3,
-                  backgroundColor: 'rgba(223, 247, 255, 0.333)',
-                }}
-              />
-              <View
-                style={{
-                  position: 'absolute',
-                  top: '50%',
-                  left: 7.7,
-                  right: 7.7,
-                  height: 1.3,
-                  backgroundColor: 'rgba(223, 247, 255, 0.333)',
-                }}
-              />
-              <T
-                style={{
-                  position: 'absolute',
-                  right: 6.5,
-                  top: 3.9,
-                  fontSize: 14.2,
-                  lineHeight: 22.72,
-                  color: 'rgba(223, 247, 255, 0.667)',
-                }}
-              >
-                ＋
-              </T>
-              {/* 시안 격자처럼 그림이 칸보다 넓으면 그림 폭 기준으로 가운데를 잡는다 */}
-              <View
-                style={{ flex: 1, minWidth: '100%', alignSelf: 'flex-start', alignItems: 'center' }}
-              >
-                <View style={{ flex: 1, justifyContent: 'center' }}>
-                  <Image
-                    source={art[bldArt[plan]]}
-                    resizeMode="contain"
-                    style={[
-                      { width: land ? 110 : 134.3, height: land ? 110 : 134.3 },
-                      web({ filter: 'drop-shadow(rgba(36, 76, 92, 0.5) 0px 5.2px 2.6px)' }),
-                    ]}
-                  />
-                </View>
-                <View
-                  style={{
-                    paddingVertical: 1.3,
-                    paddingHorizontal: 6.5,
-                    borderWidth: 1.3,
-                    borderColor: 'rgba(223, 247, 255, 0.667)',
-                    borderRadius: 99,
-                    backgroundColor: '#4f94b1',
-                  }}
-                >
-                  <T style={g(14.2, 22.72, { color: '#fff' })}>{t('ui.hall.preview')}</T>
-                </View>
-              </View>
-            </View>
-            <View style={{ flex: 1, minWidth: 0, justifyContent: 'center' }}>
-              <T style={g(28.4, 31.24, { color: '#f7fcff', marginBottom: 9 })}>{name}</T>
-              {copy}
-            </View>
-          </View>
-          {liveConstruction ? (
-            <>
-              {st === 'none' &&
-                (planItem!.selectable
-                  ? btn(t('ui.hall.setBuildingGoal'), () =>
-                      opts!.selectedBuildingId !== null && opts!.selectedBuildingId !== plan
-                        ? setDialog({
-                            title: t('ui.hall.changeGoal'),
-                            text: t('ui.hall.changeGoalDetail', {
-                              v0:
-                                buildingNames[opts!.selectedBuildingId as Building] ??
-                                opts!.selectedBuildingId ??
-                                '',
-                              v1: eul(name),
-                            }),
-                            ok: t('ui.hall.change'),
-                            onOk: liveSelect,
+                <ConstructionPlanPreview
+                  name={name}
+                  image={art[bldArt[plan]]}
+                  description={planDesc[plan] ?? ''}
+                />
+                {st === 'build' ? (
+                  notice(
+                    activeHere
+                      ? left > 0
+                        ? t('ui.hall.buildingWithTime', {
+                            name: eul(name),
+                            time: hm(Math.ceil(left / 60000) * 60),
                           })
-                        : liveSelect(),
-                    )
-                  : // 서버가 막은 사유 그대로 안내한다 — 권한·중복·선행 조건은 서버 판정
-                    note(blockedText(planItem!.blockedReason)))}
-              {st === 'collect' && (
-                <>
-                  {btn(t('home.buildAction'), liveBuild, !planItem!.buildable)}
-                  {!planItem!.buildable && note(buildBlockedText(planItem!.blockedReason))}
-                </>
+                        : t('ui.hall.checkingCompletion')
+                      : t('ui.hall.buildingElsewhere'),
+                  )
+                ) : st === 'done' ? (
+                  notice(t('ui.policy.this_building_is_already_complete_daa36'))
+                ) : (
+                  <>
+                    <ConstructionWalletSummary
+                      testID="hall-wallet-summary"
+                      balance={funds}
+                      cost={cost}
+                    />
+                    {st === 'locked' && planItem?.blockedReason !== 'FORBIDDEN'
+                      ? notice(reason ?? '')
+                      : selected && allowed
+                        ? notice(
+                            t(funds >= cost ? 'constructionPlan.ready' : 'constructionPlan.saving'),
+                          )
+                        : null}
+                  </>
+                )}
+              </ScrollView>
+              {st === 'done' && bldRoute[plan] && (
+                <Btn
+                  title={t('ui.hall.goToBuilding', { v0: ro(name) })}
+                  font={GOWUN}
+                  dynamicHeight
+                  onPress={() => e.go(bldRoute[plan])}
+                />
               )}
-            </>
-          ) : (
-            <>
-              {st === 'done' &&
-                btn(t('ui.hall.goToBuilding', { v0: ro(name) }), () => e.go(bldRoute[plan]))}
-              {st === 'none' &&
-                (host && !reason
-                  ? btn(t('ui.hall.setBuildingGoal'), () =>
-                      q
-                        ? setDialog({
-                            title: t('ui.hall.changeGoal'),
-                            text: t('ui.hall.changeGoalDetail', {
-                              v0: buildingNames[q.building],
-                              v1: eul(name),
-                            }),
-                            ok: t('ui.hall.change'),
-                            onOk: select,
-                          })
-                        : select(),
-                    )
-                  : // 주민은 섬장 안내, 섬장은 게시판 완공 전·공사 중 같은 이유 안내
-                    note(host ? reason! : t('ui.hall.hostSetsGoal')))}
-            </>
-          )}
-        </View>
+              {st !== 'build' && st !== 'done' && (
+                <View
+                  style={{
+                    paddingTop: semanticTokens.spacing.component,
+                    gap: semanticTokens.spacing.control,
+                  }}
+                >
+                  {!allowed ? (
+                    notice(t('constructionPlan.ownerOnly'))
+                  ) : selected ? (
+                    <>
+                      <Btn
+                        id="hall-plan-action"
+                        title={t('home.buildAction')}
+                        font={GOWUN}
+                        dynamicHeight
+                        disabled={!buildable}
+                        onPress={build}
+                      />
+                      {!buildable &&
+                        funds >= cost &&
+                        notice(buildBlockedText(planItem?.blockedReason ?? null))}
+                    </>
+                  ) : canSelect ? (
+                    <Btn
+                      id="hall-plan-action"
+                      title={t('ui.hall.setBuildingGoal')}
+                      font={GOWUN}
+                      dynamicHeight
+                      onPress={confirmTarget}
+                    />
+                  ) : null}
+                </View>
+              )}
+            </View>
+          </View>
+        </>
       );
     }
     return shell(

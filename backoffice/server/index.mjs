@@ -5,6 +5,8 @@ import { fileURLToPath } from "node:url";
 import { Store, requireValue } from "./store.mjs";
 import { Upstream } from "./upstream.mjs";
 import { createApp } from "./app.mjs";
+import { LocalCustomizationData } from "./local-customization.mjs";
+import { resolveStaticOrigin } from "./static-origin.mjs";
 import { validateOperators, verifyOperatorEnvironments } from "./operators.mjs";
 const mode = process.env.BACKOFFICE_MODE ?? "local";
 const environment = mode === "local" ? "local" : process.env.BACKOFFICE_ENV;
@@ -51,14 +53,7 @@ const operators = mode === "local"
       .map(actor => [actor, { passwordHash: demoHash }]))
   : JSON.parse(process.env.BACKOFFICE_OPERATORS ?? "{}");
 const operatorEntries = validateOperators(operators, mode);
-const upstream = new Upstream({
-  mode,
-  environment,
-  expectedFcmProjectId: process.env.BACKOFFICE_FCM_PROJECT_ID,
-  notificationUrl: process.env.NOTIFICATION_URL,
-  dataUrl: process.env.DATA_API_URL,
-});
-if (mode === "connected") await verifyOperatorEnvironments(upstream, environment, operatorEntries);
+const staticOrigin = resolveStaticOrigin(mode, environment, process.env.BACKOFFICE_STATIC_ORIGIN);
 const directory = resolve(process.env.BACKOFFICE_STATE_DIR ?? "var");
 process.umask(0o077);
 mkdirSync(directory, { recursive: true, mode: 0o700 });
@@ -66,6 +61,15 @@ chmodSync(directory, 0o700);
 const store = new Store(
   resolve(directory, `${environment}.sqlite`),
 );
+const upstream = new Upstream({
+  mode,
+  localData: mode === "local" ? new LocalCustomizationData(store) : undefined,
+  environment,
+  expectedFcmProjectId: process.env.BACKOFFICE_FCM_PROJECT_ID,
+  notificationUrl: process.env.NOTIFICATION_URL,
+  dataUrl: process.env.DATA_API_URL,
+});
+if (mode === "connected") await verifyOperatorEnvironments(upstream, environment, operatorEntries);
 const app = createApp({
   store,
   upstream,
@@ -73,6 +77,7 @@ const app = createApp({
   origin,
   mode,
   environment,
+  staticOrigin,
   staticDir: fileURLToPath(new URL("../dist", import.meta.url)),
 });
 const host =

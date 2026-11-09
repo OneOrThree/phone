@@ -1851,7 +1851,11 @@
       "constructionFish": "{{v0}}/{{v1}} fish",
       "buildForFish": "Build for {{v0}} fish",
       "build": "Build",
-      "miscellaneous": "Other"
+      "miscellaneous": "Other",
+      "changeTargetKeepBalance": "Set {{name}} as the next goal. You can use the fish already saved in your island account.",
+      "buildingWithTime": "Building {{name}} · {{time}} remaining",
+      "checkingCompletion": "Checking whether construction is complete.",
+      "buildingElsewhere": "Another building is under construction."
     },
     "diary": {
       "neighbors": "Neighbors' diaries",
@@ -2184,7 +2188,8 @@
       "noticeObject": "this notice",
       "commentObject": "this comment",
       "fishSuffix": " · {{v0}} fish",
-      "nextBuilding": "Next building"
+      "nextBuilding": "Next building",
+      "totalFishCost": "Total: {{v0}} fish"
     },
     "mail": {
       "today": "Today {{v0}}",
@@ -2333,5 +2338,25 @@
       "purchaseUnavailable": "You can't buy this right now.",
       "uninhabitedIsland": "Uninhabited island"
     }
+  },
+  "constructionPlan": {
+    "fish": "{{amount}} fish",
+    "balance": "Island account balance",
+    "savedTogether": "Saved together",
+    "cost": "Total building cost",
+    "remaining": "Balance after building",
+    "shortfall": "Fish still needed",
+    "funded": "Enough fish to build",
+    "needMore": "Collect {{amount}} more to build",
+    "progress": "Building cost covered by the island balance",
+    "preview": "Preview of {{name}}",
+    "ready": "Your saved fish are enough to build.",
+    "saving": "Focus together to collect more fish.",
+    "ownerOnly": "The host can start construction.",
+    "confirmTitle": "Start building {{name}}?",
+    "confirmBody": "Fish to use: {{cost}}\nRemaining balance: {{remaining}}",
+    "start": "Start building",
+    "close": "Close blueprint",
+    "priceChanged": "The construction cost has changed. Check the amount and try again."
   }
 }

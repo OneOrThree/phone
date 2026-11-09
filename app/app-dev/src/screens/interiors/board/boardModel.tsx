@@ -10,9 +10,7 @@ import {
   buildingCost,
   buildingNames,
   buildingReady,
-  buildingShare,
   clockMinutes,
-  collectedBy,
   dayKey,
   isHost,
   isOwnComment,
@@ -137,8 +135,6 @@ export function boardFromApp(e: ScreenEnvironment) {
     work = i.construction,
     b = work?.building ?? goal?.building ?? i.completed?.building;
   const option = buildOptions.find((o) => o.id === (b && blueprintOption[b]));
-  const share = b ? buildingShare(i, b) : 0,
-    targets = goal?.targets ?? [];
   const blueprint: BlueprintView = {
     buildingId: b ?? null,
     // 회관·게시판처럼 청사진 설명이 없는 건물은 보여 줄 청사진이 없다
@@ -155,11 +151,11 @@ export function boardFromApp(e: ScreenEnvironment) {
             : 'none',
     name: b ? buildingNames[b] : '',
     image: option?.image ?? interiorArt.buildings.library,
-    price: t('ui.board.fishPerResident', { v0: share }),
+    price: t('ui.board.totalFish', { v0: b ? buildingCost(i, b) : 0 }),
     time: t('ui.board.constructionDuration', { v0: b ? minutesLabel(buildMinutes[b]) : '' }),
     detail: option?.detail ?? '',
-    collected: targets.reduce((n, id) => n + Math.min(share, Math.max(0, collectedBy(i, id))), 0),
-    needed: share * targets.length,
+    collected: balance(i),
+    needed: b ? buildingCost(i, b) : 0,
     balance: balance(i),
     cost: b ? buildingCost(i, b) : 0,
     progress: work
@@ -167,14 +163,7 @@ export function boardFromApp(e: ScreenEnvironment) {
           Math.min(1, Math.max(0, (now - work.startedAt) / (work.endsAt - work.startedAt))) * 100,
         )
       : 0,
-    residents: targets.map((id) => {
-      const got = Math.max(0, collectedBy(i, id));
-      return {
-        id,
-        name: id === 'me' ? state.name : (member(id)?.name ?? t('ui.board.formerResident')),
-        value: t('ui.board.contribution', { v0: got, v1: share, v2: got >= share ? ' ✓' : '' }),
-      };
-    }),
+    residents: [],
   };
   return {
     island: i,

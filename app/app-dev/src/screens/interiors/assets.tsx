@@ -1,3 +1,4 @@
+import { formatNumber } from '@/i18n/format';
 import { t } from '@/i18n';
 export const interiorArt = {
   boardBackground: require('@/assets/interiors/board-three-papers-v5.png'),
@@ -130,7 +131,7 @@ export const buildOptions = [
     image: interiorArt.buildings.library,
     size: artSize.library,
     get price() {
-      return t('ui.interiors.fish20');
+      return t('ui.board.totalFishCost', { v0: formatNumber(2720) });
     },
     get time() {
       return t('ui.interiors.build15m');
@@ -151,7 +152,7 @@ export const buildOptions = [
     image: interiorArt.buildings.observatory,
     size: artSize.observatory,
     get price() {
-      return t('ui.interiors.fish40');
+      return t('ui.board.totalFishCost', { v0: formatNumber(5440) });
     },
     get time() {
       return t('ui.interiors.build30m');
@@ -172,7 +173,7 @@ export const buildOptions = [
     image: interiorArt.buildings.mailbox,
     size: artSize.mailbox,
     get price() {
-      return t('ui.interiors.fish30');
+      return t('ui.board.totalFishCost', { v0: formatNumber(4080) });
     },
     get time() {
       return t('ui.interiors.build20m');
@@ -193,7 +194,7 @@ export const buildOptions = [
     image: interiorArt.buildings.gramophone,
     size: artSize.gramophone,
     get price() {
-      return t('ui.interiors.fish10');
+      return t('ui.board.totalFishCost', { v0: formatNumber(1360) });
     },
     get time() {
       return t('ui.interiors.build5m');
@@ -214,7 +215,7 @@ export const buildOptions = [
     image: interiorArt.buildings.shop,
     size: artSize.shop,
     get price() {
-      return t('ui.interiors.fish50');
+      return t('ui.board.totalFishCost', { v0: formatNumber(6800) });
     },
     get time() {
       return t('ui.interiors.build1h');

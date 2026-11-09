@@ -1,7 +1,14 @@
+import {
+  ConstructionPlanGrid,
+  ConstructionPlanPreview,
+  ConstructionWalletSummary,
+  constructionFish,
+  constructionPlanStyles,
+} from '@/components/ConstructionPlanContent';
 import { CatAvatar } from '@/components/CatAvatar';
 import { appearanceOutfit } from '@/components/CatOutfitLayers';
 import { Btn, NavBtn } from '@/design-system/patterns';
-import { primitiveTokens, semanticTokens } from '@/design-system/tokens';
+import { componentTokens, primitiveTokens, semanticTokens } from '@/design-system/tokens';
 import { errorTextOr, t, useLocale } from '@/i18n';
 import { localizedJosa as josa } from '@/i18n/format';
 import { Guestbook } from '@/screens/interiors/Guestbook';
@@ -33,7 +40,6 @@ import { INK, exact, fill, gradient, lh, webOnly } from '../shared/styles';
 import { Text, boardFont } from '../shared/typography';
 import { ArtifactProps, ArtifactRenderer } from '../types';
 import {
-  BlueprintReadyStamp,
   BoardField,
   BoardPaper,
   BoardPill,
@@ -308,7 +314,7 @@ export function Board({
       }))
     );
   };
-  const mockReady = local.ready && local.balance >= 60;
+  const mockReady = local.balance >= 60;
   const localBlueprintView: BlueprintView = app?.blueprint ?? {
     ...buildOptions[0],
     buildingId: 'library',
@@ -317,19 +323,12 @@ export function Board({
       : mockReady
         ? 'ready'
         : 'waiting',
-    collected: local.ready ? 60 : 50,
+    collected: local.balance,
     needed: 60,
     balance: local.balance,
     cost: 60,
     progress: 35,
-    residents: RESIDENTS.map(([name], i) => ({
-      id: name,
-      name,
-      value: t('ui.board.sampleContribution', {
-        v0: local.ready ? 20 : [20, 18, 12][i],
-        v1: local.ready || i === 0 ? ' ✓' : '',
-      }),
-    })),
+    residents: [],
   };
   const constructionOptions = construction.options;
   // 서버 옵션은 미완공 건물만 포함하므로, 조회에 성공한 빈 목록은 전체 완공이다.
@@ -369,7 +368,7 @@ export function Board({
         detail: selectedArt?.detail ?? '',
         balance: constructionOptions?.villagePoints ?? 0,
         cost: selectedOption?.cost ?? 0,
-        // 실제 주민별 준비량은 options.residentProgress 를 상세에서 표시한다.
+        // 모든 건물의 준비량은 섬 통장 잔액이다.
         collected: 0,
         needed: 0,
         residents: [],
@@ -963,16 +962,27 @@ export function Board({
         if (!selectedBuilding || constructionInflight.current !== null) return;
         const target = selectedBuilding;
         const op = routeGen.current;
-        constructionInflight.current = target;
-        setError('');
-        construction
-          .build(target)
-          .catch((error: unknown) => {
-            if (liveE(op)) setError(apiWriteMessage(error));
-          })
-          .finally(() => {
-            if (constructionInflight.current === target) constructionInflight.current = null;
-          });
+        e.confirm(
+          t('constructionPlan.confirmTitle', { name: blueprintView.name }),
+          t('constructionPlan.confirmBody', {
+            cost: constructionFish(blueprintView.cost),
+            remaining: constructionFish(blueprintView.balance - blueprintView.cost),
+          }),
+          () => {
+            if (!liveE(op) || constructionInflight.current !== null) return;
+            constructionInflight.current = target;
+            setError('');
+            construction
+              .build(target, blueprintView.cost)
+              .catch((error: unknown) => {
+                if (liveE(op)) setError(apiWriteMessage(error));
+              })
+              .finally(() => {
+                if (constructionInflight.current === target) constructionInflight.current = null;
+              });
+          },
+          { ok: t('constructionPlan.start') },
+        );
         return;
       }
       if (e) return app?.building && e.build(app.building);
@@ -1845,8 +1855,7 @@ export function Board({
   };
 
   const blueprint = () => {
-    const bp = blueprintView,
-      stamp = bp.state === 'ready' || bp.state === 'building';
+    const bp = blueprintView;
     if (serverBoard && construction.status !== 'ready')
       return (
         <View style={{ paddingTop: 32, gap: semanticTokens.spacing.control }}>
@@ -1870,364 +1879,92 @@ export function Board({
           {allBuildingsComplete ? t('ui.board.allComplete') : t('ui.board.chooseNext')}
         </Text>
       );
-    const light = '#f7fcff';
-    const dashed = { borderStyle: 'dashed' as const, borderColor: exact('#dff7ffaa') };
-    const copyRow = (label: string, value: string) => (
+    return (
       <View
         style={[
-          {
-            flexDirection: 'row',
-            justifyContent: 'space-between',
-            gap: 5,
-            paddingVertical: 4,
-            borderTopWidth: 1,
-          },
-          dashed,
+          constructionPlanStyles.content,
+          { paddingTop: componentTokens.constructionPlan.closeSpace },
         ]}
       >
-        <Text style={boardFont(12, 1.35, '400', light)}>{label}</Text>
-        <Text style={boardFont(12, 1.35, '700', light)}>{value}</Text>
-      </View>
-    );
-    const fishRow = (label: string, value: string) => (
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Text style={boardFont(14, 1.6, '700', light)}>{label}</Text>
-        <Text style={boardFont(14, 1.6, '400', light)}>{value}</Text>
-      </View>
-    );
-    const splitTarget = selectedBuilding && !['hall', 'board'].includes(selectedBuilding);
-    const residentProgress = constructionOptions?.residentProgress;
-    const showResidentProgress =
-      serverBoard && splitTarget && (bp.state === 'waiting' || bp.state === 'ready');
-    return (
-      <>
-        <View style={[{ paddingTop: 32, paddingBottom: 14, borderBottomWidth: 1 }, dashed]}>
-          <View
-            testID="board-blueprint-grid"
-            style={{ flexDirection: 'row', gap: 10, minHeight: 142 }}
-          >
-            <View
-              testID="board-blueprint-preview"
-              style={{
-                width: '36%',
-                minHeight: 142,
-                alignItems: 'center',
-                paddingTop: 7,
-                paddingHorizontal: 5,
-                paddingBottom: 6,
-                borderWidth: 1,
-                borderColor: exact('#dff7ffaa'),
-                backgroundColor: exact('#eaf8fb19'),
-                overflow: 'hidden',
-              }}
-            >
-              <View
-                style={{
-                  position: 'absolute',
-                  left: '50%',
-                  top: 6,
-                  bottom: 6,
-                  width: 1,
-                  backgroundColor: exact('#dff7ff55'),
-                }}
-              />
-              <View
-                style={{
-                  position: 'absolute',
-                  top: '50%',
-                  left: 6,
-                  right: 6,
-                  height: 1,
-                  backgroundColor: exact('#dff7ff55'),
-                }}
-              />
-              <Text
-                style={[
-                  boardFont(11, 1.6, '400', exact('#dff7ffaa')),
-                  { position: 'absolute', zIndex: 1, right: 5, top: 3 },
-                ]}
-              >
-                ＋
-              </Text>
-              <View
-                style={{
-                  flex: 1,
-                  alignSelf: 'stretch',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                <Picture
-                  source={bp.image}
-                  label={t('ui.board.buildingPreview', { v0: bp.name })}
-                  shadow="0 4px 2px #244c5c80"
-                  style={{ zIndex: 1, width: 94, maxWidth: '100%', height: 104 }}
-                />
-              </View>
-              <Text
-                style={[
-                  boardFont(11, 1.6, '400', '#fff'),
-                  {
-                    zIndex: 1,
-                    paddingVertical: 1,
-                    paddingHorizontal: 5,
-                    borderWidth: 1,
-                    borderColor: exact('#dff7ffaa'),
-                    borderRadius: 99,
-                    backgroundColor: '#4f94b1',
-                  },
-                ]}
-              >
-                {t('ui.hall.preview')}
-              </Text>
-              {/* 도장은 이 그림 칸 안 가운데에 찍는다 — 칸 폭을 넘지 않게 줄어 옆 글자 칸(가격·공사 시간)을 가리지 않고,
-                  칸이 overflow hidden 이라 찍히는 순간 커지는 연출도 칸 밖으로 나가지 않는다 */}
-              {stamp && (
-                <View
-                  testID="board-blueprint-stamp-area"
-                  pointerEvents="none"
-                  style={{
-                    position: 'absolute',
-                    zIndex: 2,
-                    left: 0,
-                    right: 0,
-                    top: 0,
-                    bottom: 0,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
-                  <BlueprintReadyStamp reduceMotion={reduceMotion} />
-                </View>
-              )}
-            </View>
-            <View
-              testID="board-blueprint-copy"
-              style={{ flex: 1, minWidth: 0, alignSelf: 'center' }}
-            >
-              <Text style={[boardFont(22, 1.1, '700', light, GOWUN), { marginBottom: 7 }]}>
-                {bp.name}
-              </Text>
-              {!!bp.price && copyRow(t('ui.board.price'), bp.price)}
-              {!!bp.time && copyRow(t('ui.board.time'), bp.time)}
-              <Text
-                style={[
-                  boardFont(12, 1.45, '400', light),
-                  { marginTop: 6, paddingTop: 6, borderTopWidth: 1 },
-                  dashed,
-                ]}
-              >
-                {bp.detail}
-              </Text>
-            </View>
-          </View>
-        </View>
-        {showResidentProgress && (
-          <View
-            testID="board-resident-progress"
-            style={{
-              paddingTop: semanticTokens.spacing.component,
-              gap: semanticTokens.spacing.control,
-            }}
-          >
-            <Text style={boardFont(14, 1.6, '700', light)}>{t('ui.board.individualFish')}</Text>
-            {!residentProgress ? (
-              <Text style={boardFont(12, 1.45, '400', light)}>
-                {t('ui.board.progressUnavailable')}
-              </Text>
-            ) : residentProgress.residents.length === 0 ? (
-              <Text style={boardFont(12, 1.45, '400', light)}>{t('ui.board.noParticipants')}</Text>
-            ) : (
-              <>
-                <Text style={boardFont(13, 1.6, '700', light)}>
-                  {t('ui.board.participants', {
-                    v0: residentProgress.residents.length,
-                    v1: residentProgress.requiredPerResident ?? '—',
-                  })}
-                </Text>
-                <Text style={boardFont(12, 1.45, '400', light)}>
-                  {t('ui.board.contributionHint')}
-                </Text>
-                {residentProgress.residents.map((resident) => (
-                  <View
-                    key={resident.userId}
-                    testID={`board-contribution-${resident.userId}`}
-                    style={{
-                      gap: semanticTokens.spacing.control,
-                      padding: semanticTokens.spacing.control,
-                      borderRadius: semanticTokens.radius.control,
-                      backgroundColor: semanticTokens.color.surface,
-                    }}
-                  >
-                    <Text style={boardFont(13, 1.6, '700', semanticTokens.color.text)}>
-                      {resident.name || t('onboarding.residentFallbackName')}
-                    </Text>
-                    <Text style={boardFont(13, 1.6, '400', semanticTokens.color.text)}>
-                      {t('ui.board.collectedGoal', {
-                        v0: resident.contributed,
-                        v1: residentProgress.requiredPerResident ?? '—',
-                      })}
-                    </Text>
-                    <Text style={boardFont(13, 1.6, '700', semanticTokens.color.text)}>
-                      {resident.remaining === 0
-                        ? t('ui.board.achieved')
-                        : t('ui.board.remainingFish', { v0: resident.remaining })}
-                    </Text>
-                  </View>
-                ))}
-                <Text style={boardFont(12, 1.45, '400', light)}>
-                  {t('ui.board.constructionDebit', { v0: bp.cost })}
-                </Text>
-              </>
-            )}
-          </View>
-        )}
+        <ConstructionPlanPreview
+          testID="board-blueprint-grid"
+          name={bp.name}
+          image={bp.image}
+          description={bp.detail}
+        />
         {bp.state === 'building' ? (
-          <View style={{ gap: 10, paddingTop: 16, paddingHorizontal: 2, paddingBottom: 2 }}>
-            <Text style={boardFont(21, 1.25, '700', light, GOWUN)}>
+          <View style={{ gap: semanticTokens.spacing.control }}>
+            <Text style={constructionPlanStyles.notice}>
               {t('ui.board.buildingInProgress', { v0: josa(bp.name, '을', '를') })}
             </Text>
             {(!serverBoard || hasConstructionTiming) && (
-              <>
-                <Text style={boardFont(13, 1.6, '400', '#e8faff')}>
-                  {t('ui.board.constructionProgress', { v0: bp.progress })}
-                </Text>
-                <Track
-                  rate={bp.progress}
-                  color="#f3d16d"
-                  style={{
-                    height: 10,
-                    borderWidth: 1,
-                    borderColor: '#dff7ff',
-                    backgroundColor: '#eaf8fb',
-                  }}
-                />
-              </>
+              <Track rate={bp.progress} color={semanticTokens.color.primary} />
             )}
           </View>
         ) : bp.state === 'complete' ? (
-          <View style={{ gap: 10, paddingTop: 16, paddingHorizontal: 2, paddingBottom: 2 }}>
-            <Text style={boardFont(21, 1.25, '700', light, GOWUN)}>
-              {t('ui.board.buildingCompleted', { v0: josa(bp.name, '이', '가') })}
-            </Text>
-            <Text style={boardFont(13, 1.6, '400', '#e8faff')}>
-              {bp.buildingId === 'library'
-                ? t('ui.board.libraryReady')
-                : t('ui.board.facilityReady', { v0: josa(bp.name, '을', '를') })}
-            </Text>
-            <BoardPill
-              testID="board-open-library"
-              label={t('ui.board.goToBuilding', { v0: josa(bp.name, '으로', '로') })}
-              primary
-              onPress={nav.openBuilding}
-            />
-          </View>
-        ) : bp.state === 'ready' ? (
-          owner ? (
-            <View style={{ alignItems: 'center', paddingTop: 14 }}>
-              <BoardPill
-                testID="board-build-start"
-                label={t('home.buildAction')}
-                primary
-                style={{ backgroundColor: '#ffa6bc' }}
-                onPress={nav.build}
-              />
-            </View>
-          ) : (
-            // 시안의 빈 바닥 여백 안에 들어가게 작게 붙인다
-            <Text
-              style={[
-                boardFont(12, 1.35, '400', '#e8faff'),
-                { paddingTop: 3, textAlign: 'center' },
-              ]}
-            >
-              {t('ui.board.hostCanBuild')}
-            </Text>
-          )
-        ) : serverBoard ? (
-          <View style={{ paddingTop: 14, gap: semanticTokens.spacing.control }}>
-            {fishRow(
-              t('ui.board.balanceAndCost'),
-              t('ui.hall.fishProgress', { v0: bp.balance, v1: bp.cost }),
-            )}
-            <Text style={boardFont(12, 1.45, '400', '#e8faff')}>
-              {selectedOption?.blockedReason === 'FORBIDDEN'
-                ? t('ui.board.hostConstructionHint')
-                : selectedOption?.blockedReason === 'FACILITY_LOCKED'
-                  ? t('ui.board.finishRequiredFacilities')
-                  : t('ui.board.constructionRequirements')}
-            </Text>
-          </View>
+          <Text style={constructionPlanStyles.notice}>
+            {t('ui.board.buildingCompleted', { v0: josa(bp.name, '이', '가') })}
+          </Text>
         ) : (
-          <View style={{ paddingTop: 14 }}>
-            <View style={{ gap: 7 }}>
-              {fishRow(
-                t('ui.board.residentContributions'),
-                t('ui.hall.fishProgress', { v0: bp.collected, v1: bp.needed }),
-              )}
-              <View
-                style={{
-                  height: 10,
-                  borderWidth: 1,
-                  borderColor: '#dff7ff',
-                  borderRadius: 99,
-                  backgroundColor: '#eaf8fb',
-                  overflow: 'hidden',
-                }}
-              >
-                {/* 웹은 원본 <u>처럼 쌓임 맥락 없는 블록으로 둔다: 100%로 가득 차면 둥근 잘림의 가장자리 픽셀이 달라진다 */}
-                <View
-                  style={[
-                    {
-                      width: `${bp.needed ? (bp.collected / bp.needed) * 100 : 0}%`,
-                      height: '100%',
-                      backgroundColor: '#f3d16d',
-                    },
-                    webOnly({ position: 'static', zIndex: 'auto' }),
-                  ]}
-                />
-              </View>
-              {fishRow(
-                t('ui.board.balanceAndCost'),
-                t('ui.hall.fishProgress', { v0: bp.balance, v1: bp.cost }),
-              )}
-            </View>
-            <View style={{ gap: 7, marginTop: 14 }}>
-              {bp.residents.map(({ id, name, value }) => (
-                <View
-                  key={id}
-                  style={{
-                    flexDirection: 'row',
-                    justifyContent: 'space-between',
-                    minHeight: 42,
-                    padding: 10,
-                    borderWidth: 1,
-                    borderColor: '#dff7ff',
-                    borderRadius: 5,
-                    backgroundColor: exact('#eaf8fbe8'),
-                  }}
-                >
-                  <Text style={boardFont(13, 1.6, '400', '#395e70')}>{name}</Text>
-                  <Text style={boardFont(13, 1.6, '700', '#395e70')}>{value}</Text>
-                </View>
-              ))}
-            </View>
-            <Text
-              style={[
-                boardFont(12, 1.45, '400', '#e8faff'),
-                { marginTop: 10, textAlign: 'center' },
-              ]}
-            >
-              {t('ui.board.allSharesRequired')}
-            </Text>
-          </View>
+          <ConstructionWalletSummary
+            testID="board-wallet-summary"
+            balance={bp.balance}
+            cost={bp.cost}
+            progress
+          />
         )}
         {serverBoard && !!s.error && (
-          <Text accessibilityRole="alert" style={boardFont(13, 1.45, '700', '#f7fcff')}>
+          <Text accessibilityRole="alert" style={constructionPlanStyles.notice}>
             {s.error}
           </Text>
         )}
-      </>
+      </View>
+    );
+  };
+  const blueprintFooter = () => {
+    const bp = blueprintView;
+    if (
+      (serverBoard && construction.status !== 'ready') ||
+      allBuildingsComplete ||
+      bp.state === 'none' ||
+      bp.state === 'building'
+    )
+      return null;
+    return (
+      <View
+        style={{
+          paddingTop: semanticTokens.spacing.component,
+          gap: semanticTokens.spacing.control,
+        }}
+      >
+        {bp.state === 'complete' ? (
+          <Btn
+            id="board-open-library"
+            title={t('ui.board.goToBuilding', { v0: josa(bp.name, '으로', '로') })}
+            font={GOWUN}
+            dynamicHeight
+            onPress={nav.openBuilding}
+          />
+        ) : owner ? (
+          <>
+            <Btn
+              id="board-build-start"
+              title={t('home.buildAction')}
+              font={GOWUN}
+              dynamicHeight
+              disabled={bp.state !== 'ready'}
+              onPress={nav.build}
+            />
+            {selectedOption?.blockedReason === 'FACILITY_LOCKED' && (
+              <Text style={constructionPlanStyles.notice}>
+                {t('ui.board.finishRequiredFacilities')}
+              </Text>
+            )}
+          </>
+        ) : (
+          <Text style={constructionPlanStyles.notice}>{t('constructionPlan.ownerOnly')}</Text>
+        )}
+      </View>
     );
   };
 
@@ -2353,16 +2090,11 @@ export function Board({
   const dismissQuestDetail = () => (e ? e.back() : render({ view: 'list', error: '' }));
   const paperSource =
     s.panel === 'quest' ? interiorArt.boardPaper.quest : interiorArt.boardPaper.notice;
-  const blueprintPanelContentHeight =
-    serverBoard && constructionOptions?.residentProgress
-      ? height - 48
-      : {
-          complete: 380,
-          building: 326,
-          ready: owner ? 300 : 236,
-          waiting: 430,
-          none: 236,
-        }[blueprintView.state];
+  const blueprintPanelContentHeight = ['waiting', 'ready'].includes(blueprintView.state)
+    ? componentTokens.constructionPlan.maxHeight
+    : { complete: 380, building: 326, none: 236 }[
+        blueprintView.state as 'complete' | 'building' | 'none'
+      ];
   const blueprintPanelHeight = Math.min(height - 48, blueprintPanelContentHeight);
   // 청사진 대신 안내 한 줄(불러오는 중·실패·목표 없음·전체 완공)만 있으면 상자를 내용 높이로 줄인다(GROMO-2412)
   const blueprintMessageOnly =
@@ -2636,6 +2368,15 @@ export function Board({
           </View>
         </View>
       </ScrollView>
+      {s.panel === 'blueprint' && (
+        <Pressable
+          testID="board-blueprint-backdrop"
+          accessibilityRole="button"
+          accessibilityLabel={t('constructionPlan.close')}
+          onPress={nav.closePanel}
+          style={[fill, { zIndex: 3 }]}
+        />
+      )}
       <View
         testID="board-drawer"
         ref={boardDrawerRef as any}
@@ -2801,29 +2542,25 @@ export function Board({
           </Scroll>
         )}
         {s.panel === 'blueprint' && (
-          <Scroll
+          <View
             style={[
+              constructionPlanStyles.card,
               {
-                ...(blueprintMessageOnly
-                  ? { flexGrow: 0, flexShrink: 1 }
-                  : { flex: 1, minHeight: Math.min(241, blueprintPanelHeight) }),
+                flexShrink: 1,
+                minHeight: 0,
                 margin: -16,
-                padding: 16,
-                maxHeight: blueprintPanelHeight,
-                borderWidth: 2,
-                borderColor: '#d9f3f7',
-                borderRadius: 16,
-                backgroundColor: '#4f94b1',
-                boxShadow: 'inset 0 0 0 4px #4a899f,0 12px 26px #273c4666',
+                ...(blueprintMessageOnly ? {} : { flex: 1 }),
               },
-              gradient(
-                'linear-gradient(#dff7ff24 1px,transparent 1px),linear-gradient(90deg,#dff7ff24 1px,transparent 1px),linear-gradient(#dff7ff12 1px,transparent 1px),linear-gradient(90deg,#dff7ff12 1px,transparent 1px)',
-              ),
-              webOnly({ backgroundSize: '32px 32px,32px 32px,8px 8px,8px 8px' }),
             ]}
           >
-            {blueprint()}
-          </Scroll>
+            <ConstructionPlanGrid />
+            <Scroll
+              style={{ flexShrink: 1, minHeight: 0, ...(blueprintMessageOnly ? {} : { flex: 1 }) }}
+            >
+              {blueprint()}
+            </Scroll>
+            {blueprintFooter()}
+          </View>
         )}
       </View>
       {noticeOverlayOpen && (

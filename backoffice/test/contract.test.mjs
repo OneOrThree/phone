@@ -42,3 +42,11 @@ test('Data에 content.app-requirements.v1 이 없으면 연결을 거부한다',
     .verifyEnvironment('prod', 'member-1', operator), error => error.definite === true);
   assert.ok(contract.data.includes('content.app-requirements.v1'));
 });
+for (const capability of ['customization.grant.v1', 'customization.reward-pool.v1']) {
+  test(`Data에 ${capability} 가 없으면 연결을 거부한다`, async () => {
+    assert.ok(contract.data.includes(capability));
+    await assert.rejects(upstream((name, value) => name === 'data' ? { ...value,
+      capabilities: value.capabilities.filter(item => item !== capability) } : value)
+      .verifyEnvironment('prod', 'member-1', operator), error => error.definite === true);
+  });
+}

@@ -1818,7 +1818,11 @@
       "constructionFish": "{{v0}}/{{v1}} 마리",
       "buildForFish": "{{v0}}마리로 건설하기",
       "build": "짓기",
-      "miscellaneous": "기타"
+      "miscellaneous": "기타",
+      "changeTargetKeepBalance": "{{name}} 다음 목표로 정해요. 모아 둔 물고기는 그대로 사용할 수 있어요.",
+      "buildingWithTime": "{{name}} 짓고 있어요 · 남은 시간 {{time}}",
+      "checkingCompletion": "완공 상태를 확인하고 있어요.",
+      "buildingElsewhere": "지금 다른 건물을 짓고 있어요."
     },
     "diary": {
       "neighbors": "이웃들의 일기장",
@@ -2151,7 +2155,8 @@
       "noticeObject": "공지를",
       "commentObject": "댓글을",
       "fishSuffix": " · {{v0}}마리",
-      "nextBuilding": "다음 건물"
+      "nextBuilding": "다음 건물",
+      "totalFishCost": "총 {{v0}}마리"
     },
     "mail": {
       "today": "오늘 {{v0}}",
@@ -2300,5 +2305,25 @@
       "purchaseUnavailable": "지금은 구매할 수 없어요.",
       "uninhabitedIsland": "무인도"
     }
+  },
+  "constructionPlan": {
+    "fish": "{{amount}}마리",
+    "balance": "섬 통장 잔액",
+    "savedTogether": "함께 모은 물고기",
+    "cost": "총 건설비",
+    "remaining": "건설 후 남는 물고기",
+    "shortfall": "더 필요한 물고기",
+    "funded": "건설비를 모두 모았어요",
+    "needMore": "{{amount}} 더 모으면 지을 수 있어요",
+    "progress": "통장 잔액 대비 건설비 달성률",
+    "preview": "{{name}} 건물 미리보기",
+    "ready": "모아 둔 물고기로 지금 지을 수 있어요.",
+    "saving": "함께 집중하며 물고기를 조금 더 모아봐요.",
+    "ownerOnly": "섬장이 건설할 수 있어요.",
+    "confirmTitle": "{{name}} 건설을 시작할까요?",
+    "confirmBody": "사용할 물고기: {{cost}}\n건설 후 잔액: {{remaining}}",
+    "start": "건설 시작",
+    "close": "청사진 닫기",
+    "priceChanged": "건설비가 바뀌었어요. 금액을 확인한 뒤 다시 시도해 주세요."
   }
 }

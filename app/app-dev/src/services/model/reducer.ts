@@ -848,17 +848,8 @@ export function reducer(state: State, a: Action): State {
     case 'SELECT_BUILDING': {
       const b = a.building as Building;
       if (canSelectBuilding(i, b)) return state;
-      const targets = targetIds(i);
-      const prevQuest = i.buildingQuest;
-      const base: Record<string, number> = {};
-      // 목표 변경 시 이어서 셈 — 추가 결정 필요: 계속 대상인 주민은 이전 스냅숏을 유지하고,
-      // 새로 대상에 들어온 주민만 지금 시점 earned로 새로 스냅숏한다
-      for (const id of targets)
-        base[id] =
-          prevQuest && prevQuest.targets.includes(id)
-            ? (prevQuest.base?.[id] ?? 0)
-            : earnedBy(i, id);
-      i.buildingQuest = { building: b, targets, selectedAt: now, base };
+      // 예전 저장본의 targets/base는 읽을 수 있지만 새 목표는 개인별 할당량을 만들지 않는다.
+      i.buildingQuest = { building: b, targets: [], selectedAt: now };
       i.nextBuilding = b;
       delete i.completed;
       break;
