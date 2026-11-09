@@ -51,7 +51,8 @@ public class InternalContentAdminController {
                 "capabilities", java.util.List.of("customization.grant.v1",
                         "content.publication.v1", "content.history.v1", "content.notice.withdraw.v1",
                         "content.app-requirements.v1",
-                        "construction.policy.v1", "focus.policy.v1", "content.magazine-read.v1"));
+                        "construction.policy.v1", "focus.policy.v1", "content.magazine-read.v1",
+                        "customization.reward-pool.v1"));
     }
 
     /** 배포 커밋 SHA(OBS_VERSION). 없으면 unknown. */

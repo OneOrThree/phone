@@ -68,7 +68,7 @@ dev(GCP `gromo-dev-app`, e2-standard-2 · 2 vCPU · 8 GB, decisions.md A25)에�
 |---|---|---|
 | 0 | `data-api-cd.dev.yml` 조건부 오버레이 + `ops-kafka.dev.yml` 머지. `phone-kafka` 미실행이고 `/var/lib/gromo/runtime/data-api.env`가 없으면 배포 입력은 `docker-compose.dev.yml`(+기존 datadog) 그대로다 — **no-op** | 해당 PR revert |
 | 1 | 서버에서 `free -m` 확인 → Actions **Dev Kafka** `up`. 여유 1024 MiB 미만이면 워크플로가 거부한다. 브로커만 뜨고 토픽은 없다(자동 생성 꺼짐). 이후 CD는 `phone-kafka`가 돌면 `docker-compose.kafka.yml`을 함께 물린다 | **Dev Kafka** `down` (`kafka-data` 볼륨 보존) |
-| 2 | `/var/lib/gromo/runtime/data-api.env`(0600, VM 시작 스크립트가 만드는 고정 경로 — GROMO-2134)를 [서비스별 시크릿 생성](#서비스별-시크릿-생성)의 `--service data-api --environment dev`로 만든다. `OUTBOX_RELAY_ENABLED=false`로 둔다(내부 API 는 스위치가 없다 — caller 토큰이 문이다, 10-27 티켓 2535). 다음 CD부터 `docker-compose.satellites.data.yml`이 마지막 `-f`로 붙어 파일의 `SPRING_PROFILES_ACTIVE`(기본 `dev,satellites`)로 뜬다 | 파일 삭제 → 다음 CD가 dev 단독으로 app 재생성 |
+| 2 | `/var/lib/gromo/runtime/data-api.env`(0600, VM 시작 스크립트가 만드는 고정 경로 — GROMO-2134)를 [서비스별 시크릿 생성](#서비스별-시크릿-생성)의 `--service data-api --environment dev`로 만든다. `OUTBOX_RELAY_ENABLED=false`를 **명시**한다 — satellites 프로필은 2026-11-09(GROMO-2822)부터 relay 기본 ON 이라 키를 빼면 이 단계에서 바로 켜진다(내부 API 는 스위치가 없다 — caller 토큰이 문이다, 10-27 티켓 2535). 다음 CD부터 `docker-compose.satellites.data.yml`이 마지막 `-f`로 붙어 파일의 `SPRING_PROFILES_ACTIVE`(기본 `dev,satellites`)로 뜬다 | 파일 삭제 → 다음 CD가 dev 단독으로 app 재생성 |
 | 3 | relay ON. A18의 `OUTBOX_RELAY_*` 여섯 값을 모두 명시하고, 정적 목적지 ~~`LINK_BASE_URL`·~~`NOTIFICATION_BASE_URL`이 app 컨테이너 안에서 풀려야 한다(A23: relay 를 켜기 전에 `outbox.relay.endpoints` 의 `link.*` 대상을 뺀다 — 링크 LLD §9.1, GROMO-2407 로 완료). `notification-events`·`.DLT` 토픽은 이때 NewTopic 빈이 만든다. REALTIME 대상도 이때 함께 열리므로 아래 [relay ON 체크리스트](#relay-on-체크리스트)를 먼저 채운다 | `OUTBOX_RELAY_ENABLED=false` (미전달 행 보존) |
 | 4 | Notification·Business 위성 기동 — [신규 서비스 compose](#신규-서비스-compose)와 [deployment.md](deployment.md) | 해당 서비스만 제거 |
 | 5 | ~~`NOTIFICATION_DISPATCH_MODE=OUTBOX` — GROMO-893 해소 후에만. **단방향**~~ → 스위치 삭제(#1247, 티켓 2421): Data 에 구 FCM 발송 경로가 없어 Notification 이 유일한 발송 경로다 | — |
@@ -110,12 +110,12 @@ python3 -m unittest discover -s .github/scripts -p 'test_*.py' -v
 
 | 스위치 | 초기값 | 전환 조건 |
 |---|---|---|
-| Data `OUTBOX_RELAY_ENABLED` | false | A18 재시도 정책 입력과 Kafka/HTTP 목적지 준비 후 true |
+| Data `OUTBOX_RELAY_ENABLED` | 코드 false · satellites 프로필 true(GROMO-2822) | A18 재시도 정책 입력과 Kafka/HTTP 목적지 준비 후 true. 새 환경은 env 에 false 를 명시해 단계를 지킨다. 2026-11-09 운영 SM 은 true |
 | ~~Data `NOTIFICATION_DISPATCH_MODE`~~ | ~~LEGACY~~ | ~~구 FCM·리스너·flush 정지/drain 후 OUTBOX~~ → 스위치 삭제(#1247, 위 5단계) |
-| Notification `NOTIFICATION_KAFKA_ENABLED` | false | `.DLT`까지 토픽 준비 후 true. 수신·내구 적재만 시작 |
+| Notification `NOTIFICATION_KAFKA_ENABLED` | 기본·ci false · dev·prod 프로필 true(GROMO-2822) | `.DLT`까지 토픽 준비 후 true. 수신·내구 적재만 시작. 2026-11-09 운영 SM 은 true |
 | Notification `NOTIFICATION_GENERATION_REQUIRED` | false | gen 발급 롤아웃 + 구 AT 최대수명 대기 후 true |
 | Notification `NOTIFICATION_LEGACY_DEVICE_REGISTRATION` | true | 구 앱 지원 종료만으로 끄지 않는다. 2.0 앱도 서명된 sid 창에 기대므로 끄는 조건과 영향은 [기기 등록 계약](../../../../docs/contracts/business-satellite-api.yaml)의 device-token 절을 확인한다. AT의 gen 존재와 별개인 앱 롤아웃 축 |
-| Notification `NOTIFICATION_SCHEDULING_ENABLED` | false | 각 등록부 job 활성화와 함께 true. 공통 gate는 계속 별도. dev 는 2026-10-27 부터 true(위 6단계) |
+| Notification `NOTIFICATION_SCHEDULING_ENABLED` | 기본·ci false · dev·prod 프로필 true(GROMO-2822) | 각 등록부 job 활성화와 함께 true. 공통 gate는 계속 별도. dev 는 2026-10-27 부터 true(위 6단계). 2026-11-09 운영 SM 은 true |
 | Notification `dispatch_control.enabled` | false | `POST /internal/admin/dispatch/open` 으로만 true(이관용 import/verify 경로는 #1247 에서 제거). dev 는 2026-10-27 부터 상시 개방(위 6단계 — 운영은 바꾸지 않음) |
 
 `OUTBOX_RELAY_BATCH_SIZE`, `OUTBOX_RELAY_LEASE_DURATION`, `OUTBOX_RELAY_POLL_INTERVAL`,

@@ -22,12 +22,9 @@ island-board:
 account:
   profile-update-enabled: true
 
-# 섬 퀘스트(GROMO-1773). island-quests policy.md 출시 조건 — 생성(새 생산 데이터)과 정산(claim)은
-# 남은 게이트(집중 시작 게이트 #815 · 보상 설정 revision 등록 QQ05 잔여 · 복수 기기 1806)가 닫힐 때까지 끈다.
+# 섬 퀘스트(GROMO-1773). 생성·정산 출시 스위치는 GROMO-2822(2026-11-09 퀘스트-개방 결정)로 없앴다 — 다시 닫는 키를 두지 않는다.
 # 보상 값은 D5(1830) 확정값 — 개인 달성 +10, 전원 달성 보너스 대상 주민 수 × 5, 전액 섬 통장(2026-09-19 결정 Q-1).
 island-quest:
-  creation-enabled: false
-  settlement-enabled: false
   reward:
     per-achiever: 10
     all-achieved-bonus-per-member: 5
@@ -49,6 +46,11 @@ internal:
           - 'PUT /internal/admin/policies/focus/publications/*'
           - 'POST /internal/admin/policies/focus/approvals/*'
           - 'DELETE /internal/admin/policies/focus/approvals/*'
+          - 'GET /internal/admin/customization/items'
+          - 'GET /internal/admin/customization/reward-pool'
+          - 'POST /internal/admin/customization/reward-pool/approvals/*'
+          - 'DELETE /internal/admin/customization/reward-pool/approvals/*'
+          - 'PUT /internal/admin/customization/reward-pool/publications/*'
           - 'GET /internal/admin/content/construction-policy'
           - 'PUT /internal/admin/content/construction-policy/*'
           - 'PUT /internal/admin/content/notices/*'
@@ -74,6 +76,11 @@ internal:
           - 'PUT /internal/admin/policies/focus/publications/*'
           - 'POST /internal/admin/policies/focus/approvals/*'
           - 'DELETE /internal/admin/policies/focus/approvals/*'
+          - 'GET /internal/admin/customization/items'
+          - 'GET /internal/admin/customization/reward-pool'
+          - 'POST /internal/admin/customization/reward-pool/approvals/*'
+          - 'DELETE /internal/admin/customization/reward-pool/approvals/*'
+          - 'PUT /internal/admin/customization/reward-pool/publications/*'
           - 'GET /internal/admin/content/construction-policy'
           - 'PUT /internal/admin/content/construction-policy/*'
           - 'PUT /internal/admin/content/notices/*'
@@ -99,6 +106,11 @@ internal:
           - 'PUT /internal/admin/policies/focus/publications/*'
           - 'POST /internal/admin/policies/focus/approvals/*'
           - 'DELETE /internal/admin/policies/focus/approvals/*'
+          - 'GET /internal/admin/customization/items'
+          - 'GET /internal/admin/customization/reward-pool'
+          - 'POST /internal/admin/customization/reward-pool/approvals/*'
+          - 'DELETE /internal/admin/customization/reward-pool/approvals/*'
+          - 'PUT /internal/admin/customization/reward-pool/publications/*'
           - 'GET /internal/admin/content/construction-policy'
           - 'PUT /internal/admin/content/construction-policy/*'
           - 'PUT /internal/admin/content/notices/*'
@@ -321,10 +333,13 @@ internal:
           - 'POST /internal/admin/hall-less-islands/cleanup'
 outbox:
   relay:
-    enabled: ${OUTBOX_RELAY_ENABLED:false}
-    batch-size: ${OUTBOX_RELAY_BATCH_SIZE:}
-    lease-duration: ${OUTBOX_RELAY_LEASE_DURATION:}
-    poll-interval: ${OUTBOX_RELAY_POLL_INTERVAL:}
+    # GROMO-2822 — 배포 환경(satellites)에서는 relay 를 기본으로 켠다. 설정이 빠져 섬 실시간 사건·알림이 조용히 멈추지 않게 한다.
+    # 아래 재시도 정책 기본값은 dev 전환 때 승인한 값이다(server/scripts/dev-notification-kafka-cutover.sh 「Relay 정책 기록」).
+    # 환경변수로 값을 주면 그 값이 이긴다. 코드 기본값(OutboxRelayProperties)은 그대로 OFF 라 프로필 없는 테스트는 relay 를 띄우지 않는다.
+    enabled: ${OUTBOX_RELAY_ENABLED:true}
+    batch-size: ${OUTBOX_RELAY_BATCH_SIZE:100}
+    lease-duration: ${OUTBOX_RELAY_LEASE_DURATION:30s}
+    poll-interval: ${OUTBOX_RELAY_POLL_INTERVAL:1s}
     # GROMO-2338 처리량 손잡이 — 비우면 기본값. run-length = 축마다 한 번에 집는 연속 건수(1 = 축당 선두 하나),
     # worker-threads = 축 병렬 스레드(relay 동시 커넥션 = 이 값 + 1, Hikari 기본 10 안), tick-budget = 한 틱이
     # 빌 때까지 라운드를 반복하는 상한(0 = 한 라운드).
@@ -332,9 +347,9 @@ outbox:
     worker-threads: ${OUTBOX_RELAY_WORKER_THREADS:4}
     tick-budget: ${OUTBOX_RELAY_TICK_BUDGET:PT5S}
     retry:
-      initial-backoff: ${OUTBOX_RELAY_INITIAL_BACKOFF:}
-      max-backoff: ${OUTBOX_RELAY_MAX_BACKOFF:}
-      max-attempts: ${OUTBOX_RELAY_WARNING_ATTEMPTS:}
+      initial-backoff: ${OUTBOX_RELAY_INITIAL_BACKOFF:1s}
+      max-backoff: ${OUTBOX_RELAY_MAX_BACKOFF:1m}
+      max-attempts: ${OUTBOX_RELAY_WARNING_ATTEMPTS:10}
     # 2026-09-19 R-1 — REALTIME 은 HTTP 기본 · Kafka 선택. true 면 아래 realtime.* HTTP 키 대신
     # realtime-events 토픽으로 보낸다(realtime 의 REALTIME_EVENTS_KAFKA_ENABLED 를 먼저 켠다).
     realtime-kafka-enabled: ${OUTBOX_RELAY_REALTIME_KAFKA_ENABLED:false}

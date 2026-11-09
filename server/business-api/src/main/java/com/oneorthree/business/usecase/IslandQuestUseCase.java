@@ -51,10 +51,7 @@ public class IslandQuestUseCase {
             Map.entry("QUEST_WINDOW_OUT_OF_RANGE", new PublicFailure(ApiErrorCode.OUT_OF_RANGE, "windowEnd")),
             Map.entry("QUEST_VERSION_CONFLICT", new PublicFailure(ApiErrorCode.VERSION_CONFLICT, "expectedVersion")),
             // 미달성·측정 대기·이미 받음·수령 기한 지남 — 지급 없음(LLD §5, GROMO-1991).
-            Map.entry("QUEST_STATE_CONFLICT", new PublicFailure(ApiErrorCode.STATE_CONFLICT, "occurrenceId")),
-            // 출시 스위치(policy.md 출시 조건) — 사유는 내부 코드로만 남긴다.
-            Map.entry("QUEST_CREATION_UNAVAILABLE", new PublicFailure(ApiErrorCode.SERVICE_UNAVAILABLE, null)),
-            Map.entry("QUEST_SETTLEMENT_UNAVAILABLE", new PublicFailure(ApiErrorCode.SERVICE_UNAVAILABLE, null)));
+            Map.entry("QUEST_STATE_CONFLICT", new PublicFailure(ApiErrorCode.STATE_CONFLICT, "occurrenceId")));
 
     private final DataQuestClient data;
 

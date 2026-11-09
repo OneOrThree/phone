@@ -67,9 +67,10 @@ import java.util.regex.Pattern;
  * 보너스는 <b>수령과 독립으로</b> 매분 finalizer 가 한 번 적립한다({@link #settleBonusIfAllAchieved}) —
  * 기획 정본 {@code policy-2026-09-14.md} 「일일 퀘스트와 보상」의 «전원 달성 시 … 즉시 지급한다».
  *
- * <p><b>출시 스위치</b>(policy.md 출시 조건): 새 생산 데이터를 만드는 생성과 정산(claim)은 각각
- * {@code island-quest.creation-enabled}·{@code island-quest.settlement-enabled} 로 닫혀 있다(기본 false).
- * 조회·수정은 열려 있다 — 생성이 닫혀 있으면 수정할 정의도 없다.
+ * <p><b>출시 스위치 없음</b>(GROMO-2822): 생성·수정·조회·정산이 모두 열려 있다. 종전에는 생성과 정산을
+ * {@code island-quest.creation-enabled}·{@code island-quest.settlement-enabled}(기본 false)로 닫아 두었는데,
+ * 앱은 섬장에게 만들기를 보여 줘 운영에서 503 이 났다. 2026-11-09 개방 결정(decision-log 퀘스트-개방)으로 스위치를 없앴다 —
+ * 다시 닫는 설정을 두지 않는다(policy.md 출시 조건).
  *
  * <p><b>날짜 축은 UTC</b>(2026-09-19 결정 Q-6) — 회차는 UTC 자정에 시작하고 창 시각도 UTC 다.
  */
@@ -106,13 +107,7 @@ public class IslandQuestService {
     private final PublicCommandService publicCommands;
     private final Clock clock;
 
-    @Value("${island-quest.creation-enabled:false}")
-    private boolean creationEnabled;
-
-    @Value("${island-quest.settlement-enabled:false}")
-    private boolean settlementEnabled;
-
-    /** D5 개인 달성 +10 — 달성한 주민이 «받기»를 누르면 받는 몫이다(설정 값, QQ05 revision 등록은 미결). */
+    /** D5 개인 달성 +10 — 달성한 주민이 «받기»를 누르면 받는 몫이다(설정 값, 2026-11-09 개방 결정으로 이 값이 보상 설정이다). */
     @Value("${island-quest.reward.per-achiever:10}")
     private int rewardPerAchiever;
 
@@ -171,9 +166,6 @@ public class IslandQuestService {
     public QuestViews.Created create(UUID islandId, UUID userId, String rawTitle, String rawType,
                                      Integer targetMinutes, String rawWindowStart, String rawWindowEnd,
                                      String timezone, UUID idempotencyKey) {
-        if (!creationEnabled) {
-            throw new QuestException(QuestErrorCode.QUEST_CREATION_UNAVAILABLE);
-        }
         requireTimezone(timezone);
         QuestType type = QuestType.fromWire(rawType)
                 .orElseThrow(() -> new QuestException(QuestErrorCode.QUEST_INVALID_REQUEST));
@@ -274,9 +266,6 @@ public class IslandQuestService {
     @Transactional
     public QuestViews.Claimed claim(UUID islandId, UUID userId, UUID questId, UUID occurrenceId,
                                     long expectedVersion, UUID idempotencyKey) {
-        if (!settlementEnabled) {
-            throw new QuestException(QuestErrorCode.QUEST_SETTLEMENT_UNAVAILABLE);
-        }
         JsonNode data = publicCommands.run(
                 new PublicCommandRequest(userId, "POST:/islands/" + islandId + "/quests/" + questId + "/claims",
                         idempotencyKey, tree(Map.of("occurrenceId", occurrenceId.toString(),
@@ -357,9 +346,6 @@ public class IslandQuestService {
      */
     @Transactional
     public int settleBonusIfAllAchieved(UUID occurrenceId) {
-        if (!settlementEnabled) {
-            return 0;
-        }
         // 엔티티가 아니라 섬 id 만 읽는다 — findById 로 먼저 읽으면 그 인스턴스가 영속성 컨텍스트에 남아
         // 아래 findByIdForUpdate 가 «잠금 전» 스냅샷을 돌려주고, 그 사이 수령 TX 가 적립한 보너스를
         // 못 본 채 두 번째 행을 쓰게 된다.
