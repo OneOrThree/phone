@@ -8,7 +8,7 @@ interface PoolPublication { publicationId: string; revision: number; previousRev
   previousProductIds: string[]; actor: string; approvedBy: string; approvedDigest: string; publishedAt: string }
 interface PoolCatalog { current: PoolCurrent; history: PoolPublication[]; local?: boolean }
 type Status = 'draft' | 'review' | 'approving' | 'approval_uncertain' | 'approved' | 'publishing' | 'published' | 'failed' | 'uncertain' | 'cancelled';
-interface Draft { id: string; revision: number; expectedRevision: number; productIds: string[]; status: Status;
+interface Draft { id: string; approvalId?: string; revision: number; expectedRevision: number; productIds: string[]; status: Status;
   approvalActor?: string; approvedBy?: string; approvedDigest?: string; dispatchActor?: string;
   receipt?: { revision: number; local?: boolean }; error?: string; updatedAt: string; audit: AuditEvent[] }
 const STATUS: Record<Status, string> = { draft: '작성 중', review: '검토 대기', approving: '승인 중', approval_uncertain: '승인 결과 확인 필요',
@@ -134,6 +134,7 @@ export function CustomizationItems({ session, onDirtyChange, onUnauthorized }: {
         <span>revision {item.expectedRevision} 기준 · {item.productIds.length}개</span><time>{date(item.updatedAt)}</time></button></li>)}</ul> : <p>작성한 변경안이 없습니다.</p>}</section>
       <section className="policy-card"><h2>{selected ? `변경안 · ${STATUS[selected.status]}` : '검토·승인'}</h2>
         {picked === null ? <p>「현재 풀로 변경안 작성」을 누르거나 변경안을 고르세요.</p> : <>
+          {editable && selected?.approvalId && <p className="callout">저장하면 승인이 해제되고 다시 검토·승인해야 합니다.</p>}
           <div className="action-buttons">
             {editable && <button className="button secondary" disabled={!!busy || (!!selected && !dirty)} onClick={() => void save()}>변경안 저장</button>}
             {selected?.status === 'draft' && <button className="button primary" disabled={!!busy || dirty} onClick={() => void transition('review')}>검토 요청</button>}

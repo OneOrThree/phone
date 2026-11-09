@@ -353,6 +353,22 @@ test("한 요청이 45초를 넘기면 RUNNING 이어도 반복을 멈추고 exe
   item = (await app.send(`/api/customization/grants/${item.id}/approve`, { revision: item.revision }, one)).body;
   item = (await app.send(`/api/customization/grants/${item.id}/execute`, { revision: item.revision }, two)).body;
   assert.equal(item.status, "executing");
-  assert.equal(state.runs, 3);
+  assert.equal(state.runs, 2);
   assert.equal(item.progress.status, "RUNNING");
+});
+
+test("남은 예산이 상류 한 번의 제한(15초)보다 적으면 다음 호출을 시작하지 않는다", async t => {
+  for (const [advance, calls] of [[31000, 1], [30000, 2]]) {
+    const { upstream, state } = fakeData({ running: 25 });
+    let now = Date.parse("2026-11-09T00:00:00Z");
+    const original = upstream.executeGrant;
+    upstream.executeGrant = async (...args) => { const result = await original(...args); now += advance; return result; };
+    const app = await startApp(t, upstream, { clock: () => now });
+    const one = await app.login("member-1"), two = await app.login("member-2");
+    let item = await reviewed(app, one);
+    item = (await app.send(`/api/customization/grants/${item.id}/approve`, { revision: item.revision }, one)).body;
+    item = (await app.send(`/api/customization/grants/${item.id}/execute`, { revision: item.revision }, two)).body;
+    assert.equal(item.status, "executing");
+    assert.equal(state.runs, calls);
+  }
 });

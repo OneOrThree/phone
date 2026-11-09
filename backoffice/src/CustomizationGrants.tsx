@@ -7,7 +7,7 @@ type Status = 'draft' | 'review' | 'approving' | 'approval_uncertain' | 'approve
 interface Preview { productId: string; productTitle: string; mode: 'ALL' | 'USERS'; targets: { nickname: string; userId: string }[];
   unknownNicknames: string[]; targetCount: number; alreadyOwnedCount: number; newCount: number; digest: string | null; previewedAt: string }
 interface Counts { targetCount: number; grantedCount: number; alreadyOwnedCount: number; skippedCount: number }
-interface Grant { id: string; revision: number; productId: string; mode: 'ALL' | 'USERS'; nicknamesText: string; reason: string;
+interface Grant { id: string; approvalId?: string; revision: number; productId: string; mode: 'ALL' | 'USERS'; nicknamesText: string; reason: string;
   preview?: Preview; status: Status; approvalActor?: string; approvedBy?: string; dispatchActor?: string; grantId?: string;
   progress?: Counts; receipt?: Counts & { completedAt: string | null; local?: boolean }; error?: string; updatedAt: string; audit: AuditEvent[] }
 interface Form { productId: string; mode: 'ALL' | 'USERS'; nicknamesText: string; reason: string }
@@ -92,7 +92,7 @@ export function CustomizationGrants({ session, onDirtyChange, onUnauthorized }: 
     if (action === 'execute') {
       const count = selected.preview?.targetCount ?? 0;
       const message = selected.mode === 'ALL'
-        ? `「${title}」을 실행 시점의 모든 가입자·게스트(지금 ${count.toLocaleString('ko-KR')}명 기준)에게 지급할까요? 지급은 되돌릴 수 없습니다.`
+        ? `「${title}」을 실행 시점의 모든 가입자·게스트에게 지급할까요? 미리 계산 시점(${date(selected.preview?.previewedAt)}) 기준 ${count.toLocaleString('ko-KR')}명 — 실행 시점에 탈퇴하지 않은 사용자에게 지급하므로 달라질 수 있습니다. 지급은 되돌릴 수 없습니다.`
         : `「${title}」을 ${count.toLocaleString('ko-KR')}명에게 지급할까요? 지급은 되돌릴 수 없습니다.`;
       if (!window.confirm(message)) return;
     }
@@ -107,7 +107,7 @@ export function CustomizationGrants({ session, onDirtyChange, onUnauthorized }: 
   const preview = selected?.preview;
   const canExecute = selected && ['approved', 'uncertain', 'executing'].includes(selected.status)
     && selected.approvedBy !== session.actor && (!selected.dispatchActor || selected.dispatchActor === session.actor);
-  const pickedItem = catalog?.items.find(value => value.productId === (selected?.productId ?? form?.productId));
+  const pickedItem = catalog?.items.find(value => value.productId === (form?.productId ?? selected?.productId));
   return <div className="policy-workspace">
     <header className="workspace-header"><div><h1>꾸미기 지급</h1><p>아이템을 고르고 대상을 미리 계산한 뒤, 한 운영자가 승인하고 다른 운영자가 실행합니다.</p></div>
       <button className="button primary" disabled={!!busy || !catalog} onClick={newDraft}>새 지급 작성</button></header>
@@ -138,6 +138,7 @@ export function CustomizationGrants({ session, onDirtyChange, onUnauthorized }: 
             <input value={form.reason} maxLength={200} onChange={event => change({ reason: event.target.value })} required />
             <span className="field-hint">감사 기록에 남습니다. 줄바꿈은 쓸 수 없습니다.</span></label>
         </fieldset></form>
+        {editable && selected?.approvalId && <p className="callout">저장하면 승인이 해제되고 다시 검토·승인해야 합니다.</p>}
         <div className="action-buttons">
           {editable && <button className="button secondary" type="submit" form="grant-form" disabled={!!busy || (!!selected && !dirty)}>{selected ? '지급 저장' : '초안 저장'}</button>}
           {selected?.status === 'draft' && <button className="button secondary" disabled={!!busy || dirty} onClick={() => void transition('preview')}>미리 계산</button>}

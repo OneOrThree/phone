@@ -136,16 +136,18 @@ export function createApp({
     let item = grants.transition(id, revision, actor, "run");
     // 프록시 유휴 시간 제한을 넘기지 않도록 한 요청은 45초까지만 붙들고, 남은 일은 같은 실행자가 이어서 한다.
     const startedAt = clock();
+    const CALL_TIMEOUT_MS = 15000, REQUEST_BUDGET_MS = 45000; // Upstream.request 의 15초 제한 + 한 요청 예산
     try {
       let receipt;
       for (let attempt = 0; attempt < 20; attempt++) {
+        // 다음 호출이 최대 15초 걸릴 수 있으므로 예산이 모자라면 시작하지 않는다(첫 호출은 항상 한다).
+        if (attempt > 0 && clock() - startedAt + CALL_TIMEOUT_MS > REQUEST_BUDGET_MS) break;
         receipt = await upstream.executeGrant(item, actor, operator);
         if (receipt?.grantId !== item.grantId || receipt.approvalId !== item.approvalId
           || !["RUNNING", "COMPLETED"].includes(receipt.status))
           throw new Failure(502, "지급 실행 응답이 요청과 다릅니다. 같은 요청으로 재시도하세요.");
         if (receipt.status === "COMPLETED") break;
         item = grants.progress(id, receipt);
-        if (clock() - startedAt >= 45000) break;
       }
       return receipt.status === "COMPLETED" ? grants.finish(id, receipt) : item;
     } catch (error) {
@@ -462,7 +464,7 @@ export function createApp({
             try {
               const receipt = await upstream.publishRewardPool(item, auth.actor, operator);
               if (receipt?.publicationId !== item.publicationId || receipt.approvalId !== item.approvalId
-                || !Number.isInteger(receipt.revision) || !Array.isArray(receipt.productIds)
+                || receipt.revision !== item.expectedRevision + 1 || !Array.isArray(receipt.productIds)
                 || poolDigest(receipt.productIds) !== item.approvedDigest)
                 throw new Failure(502, "추첨 풀 발행 응답이 요청과 다릅니다. 같은 요청으로 재시도하세요.");
               return pools.finish(id, receipt);
