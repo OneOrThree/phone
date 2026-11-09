@@ -136,7 +136,7 @@ export function CustomizationGrants({ session, onDirtyChange, onUnauthorized }: 
             <span className="field-hint">대소문자를 무시하고 정확히 일치하는 닉네임만 찾습니다. 최대 500개.</span></label>}
           <label className="field"><span className="field-label">사유(1~200자)</span>
             <input value={form.reason} maxLength={200} onChange={event => change({ reason: event.target.value })} required />
-            <span className="field-hint">감사 기록에 남습니다. 줄바꿈은 쓸 수 없습니다.</span></label>
+            <span className="field-hint">사유는 승인 기록에 영구히 남습니다. 닉네임 등 개인정보를 쓰지 마세요. 줄바꿈은 쓸 수 없습니다.</span></label>
         </fieldset></form>
         {editable && selected?.approvalId && <p className="callout">저장하면 승인이 해제되고 다시 검토·승인해야 합니다.</p>}
         <div className="action-buttons">
