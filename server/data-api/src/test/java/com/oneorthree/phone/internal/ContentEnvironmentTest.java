@@ -149,7 +149,7 @@ class ContentEnvironmentTest {
                                 "content.history.v1", "content.notice.withdraw.v1",
                                     "content.app-requirements.v1",
                                 "construction.policy.v1", "focus.policy.v1", "content.magazine-read.v1",
-                                "customization.reward-pool.v1")));
+                                "customization.reward-pool.v1", "content.notice.platform.v1")));
     }
 
     private org.springframework.test.web.servlet.ResultActions environmentResponse(String obsVersion,

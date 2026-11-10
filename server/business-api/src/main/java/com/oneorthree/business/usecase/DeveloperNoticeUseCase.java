@@ -32,8 +32,11 @@ public class DeveloperNoticeUseCase {
      * 최신순 한 쪽. 커서는 사용자·정렬·limit 에 묶인다 — 다른 사용자나 다른 limit 에 내밀면 400
      * {@code INVALID_CURSOR} 다. 커서를 먼저 푸는 것은 위조·만료 커서로 상류를 두드리지 않기 위해서다.
      */
-    public DeveloperNoticeResponses.Page list(UUID userId, String cursor, int limit, Deadline deadline) {
-        CursorScope scope = new CursorScope(userId, "me/developer-notices", Map.of(), "published-desc", limit);
+    public DeveloperNoticeResponses.Page list(UUID userId, String cursor, int limit, String platform,
+            Deadline deadline) {
+        // 플랫폼을 아는 요청의 커서는 그 플랫폼에 묶인다. 모르면 예전 커서와 같은 범위다.
+        Map<String, String> filters = platform == null ? Map.of() : Map.of("platform", platform);
+        CursorScope scope = new CursorScope(userId, "me/developer-notices", filters, "published-desc", limit);
         CursorBoundary boundary = codec.decode(cursor, scope);
         Instant afterPublishedAt = null;
         UUID afterId = null;
@@ -47,7 +50,7 @@ public class DeveloperNoticeUseCase {
             }
         }
         DeveloperNotices.Page page = required(data.fetchDeveloperNotices(userId, afterPublishedAt, afterId, limit,
-                deadline));
+                platform, deadline));
         boolean hasMore = Boolean.TRUE.equals(page.hasMore());
         if (page.items().size() > limit || (hasMore && page.items().size() != limit)) {
             throw new UpstreamContractMismatchException("개발자 소식 페이지 크기가 계약과 다릅니다");
@@ -61,8 +64,8 @@ public class DeveloperNoticeUseCase {
         return DeveloperNoticeResponses.Page.from(page, next);
     }
 
-    public DeveloperNotices.Notice get(UUID userId, UUID publicationId, Deadline deadline) {
-        return required(data.fetchDeveloperNotice(userId, publicationId, deadline));
+    public DeveloperNotices.Notice get(UUID userId, UUID publicationId, String platform, Deadline deadline) {
+        return required(data.fetchDeveloperNotice(userId, publicationId, platform, deadline));
     }
 
     public DeveloperNotices.AppRequirement appRequirement(String platform, Deadline deadline) {

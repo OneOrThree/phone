@@ -26,7 +26,8 @@ public class DeveloperNoticeController {
     @GetMapping("/me/developer-notices")
     public DeveloperNoticeResponses.Page list(HttpServletRequest request) {
         var claims = sessions.requireSession(request);
-        return notices.list(claims.userId(), single(request, "cursor"), limit(request), properties.deadline());
+        return notices.list(claims.userId(), single(request, "cursor"), limit(request), appPlatform(request),
+                properties.deadline());
     }
 
     /** 로그인 전 앱도 부른다 — 필터가 인증을 건너뛰는 정확 일치 경로이며 세션을 요구하지 않는다. */
@@ -50,7 +51,17 @@ public class DeveloperNoticeController {
     public DeveloperNoticeResponses.Notice get(@PathVariable String publicationId, HttpServletRequest request) {
         var claims = sessions.requireSession(request);
         return DeveloperNoticeResponses.Notice.from(notices.get(claims.userId(),
-                PublicIds.uuid(publicationId, "publicationId"), properties.deadline()));
+                PublicIds.uuid(publicationId, "publicationId"), appPlatform(request), properties.deadline()));
+    }
+
+    /**
+     * 앱이 요청마다 보내는 {@code X-App-Platform} — 앞뒤 공백을 걷고 {@code ios}·{@code android} 만 유효하다
+     * ({@code RequestEnvelopeFilter} 와 같은 규칙). 없거나 어긋나면 «모름»(null)이고 요청은 거절하지 않는다.
+     */
+    private static String appPlatform(HttpServletRequest request) {
+        String raw = request.getHeader("X-App-Platform");
+        String value = raw == null ? "" : raw.strip();
+        return "ios".equals(value) || "android".equals(value) ? value : null;
     }
 
     /** 쿼리 파라미터 하나 — 같은 키가 여러 번 오면 400 이다. */
