@@ -173,15 +173,16 @@ export class Store {
           ? "강제 업데이트는 최소 버전을 하나 이상 입력하세요."
           : "패치노트에는 최소 버전을 둘 수 없습니다.",
       );
+      requireValue(
+        mins.every((v) => typeof v === "string" && /^\d{1,9}\.\d{1,9}\.\d{1,9}$/.test(v)),
+        "최소 버전은 숫자.숫자.숫자 형식이어야 합니다.",
+      );
+      // 형식을 통과한 최소 버전으로 정한다. Data 의 대상 결정 규칙과 같다.
       const derived = mins.length === 2 ? "ALL" : item.minIosVersion ? "IOS" : item.minAndroidVersion ? "ANDROID" : null;
       requireValue(
         [undefined, "ALL", "IOS", "ANDROID"].includes(item.targetPlatform) &&
           (!force || item.targetPlatform === undefined || item.targetPlatform === derived),
         "공지 대상 플랫폼이 최소 버전과 맞지 않습니다.",
-      );
-      requireValue(
-        mins.every((v) => typeof v === "string" && /^\d{1,9}\.\d{1,9}\.\d{1,9}$/.test(v)),
-        "최소 버전은 숫자.숫자.숫자 형식이어야 합니다.",
       );
     }
     if (item.kind === "magazine") {

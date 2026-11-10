@@ -35,7 +35,7 @@ function emptyDraft(kind: ContentKind): Draft {
 }
 function draftFrom(item: ContentItem): Draft {
   const fcm = item.data?.fcm as { kind?: string } | undefined;
-  return { kind: item.kind, title: item.title, body: item.body, targetsText: (item.targets ?? []).join('\n'), fcmKind: fcm?.kind ?? '', dataText: JSON.stringify(item.kind === 'fcm' ? item.data?.payload ?? {} : item.data ?? {}, null, 2), issueDate: item.issueDate ?? '', startsAt: localDate(item.startsAt), endsAt: localDate(item.endsAt), noticeType: item.noticeType ?? 'patch', targetPlatform: item.targetPlatform ?? 'ALL', minIosVersion: item.minIosVersion ?? '', minAndroidVersion: item.minAndroidVersion ?? '' };
+  return { kind: item.kind, title: item.title, body: item.body, targetsText: (item.targets ?? []).join('\n'), fcmKind: fcm?.kind ?? '', dataText: JSON.stringify(item.kind === 'fcm' ? item.data?.payload ?? {} : item.data ?? {}, null, 2), issueDate: item.issueDate ?? '', startsAt: localDate(item.startsAt), endsAt: localDate(item.endsAt), noticeType: item.noticeType ?? 'patch', targetPlatform: forces(item) ? 'ALL' : item.targetPlatform ?? 'ALL', minIosVersion: item.minIosVersion ?? '', minAndroidVersion: item.minAndroidVersion ?? '' };
 }
 function objectData(text: string): Record<string, unknown> {
   let value: unknown;

@@ -304,5 +304,11 @@ test("공지 대상 플랫폼: 패치노트는 ALL·IOS·ANDROID, 강제 업데�
   assert.equal(review({ noticeType: "force", targetPlatform: "ALL", minIosVersion: "2.1.0", minAndroidVersion: "2.1.0" })().status, "review");
   assert.throws(review({ noticeType: "force", targetPlatform: "ALL", minIosVersion: "2.1.0" }), /플랫폼/);
   assert.throws(review({ noticeType: "force", targetPlatform: "IOS", minAndroidVersion: "2.1.0" }), /플랫폼/);
+  assert.equal(review({ noticeType: "force", targetPlatform: "ANDROID", minAndroidVersion: "2.1.0" })().status, "review");
+  // 값이 없는 옛 항목은 그대로 통과하고 Data 가 최소 버전으로 정한다.
+  assert.equal(review({ noticeType: "force", minIosVersion: "2.1.0" })().status, "review");
+  assert.throws(review({ noticeType: "patch", targetPlatform: null }), /플랫폼/);
+  // 공백뿐인 최소 버전은 대상 불일치가 아니라 형식 오류로 알린다.
+  assert.throws(review({ noticeType: "force", targetPlatform: "IOS", minIosVersion: "  " }), /숫자\.숫자\.숫자/);
   store.close();
 });

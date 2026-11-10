@@ -74,7 +74,9 @@ HTTPS 역방향 프록시 뒤에 단일 인스턴스로 운영한다. 인터넷�
 
 이 화면은 `GET /api/history/magazine/{issueId}` → Data의 `GET /internal/admin/content/history/magazines/{issueId}`로 읽기만 한다. 초안·검토 스냅샷·수령 기록을 만들지 않는다. 발행 당시 섬 카드와 현재 숨김 상태를 함께 표시하며, 섬 삭제로 홍보 행이 정리되면 해당 글은 복원하지 않는다. 앱의 그림 배치까지 재현하는 화면은 아니다. 몽돌 팁은 `src/magazineTips.ko.json`에 두며 앱의 `app/app-dev/src/i18n/locales/ko.json` 내 `magazine.tips` 문구가 바뀌면 함께 갱신한다.
 
-**배포 순서:** `content.magazine-read.v1`을 제공하는 Data 서버를 운영에 먼저 배포한 뒤 백오피스를 배포한다. 새 백오피스는 이 계약이 없는 서버에 연결하지 않는다. DB 스키마 변경은 없다. 개발자 공지 대상 플랫폼(GROMO-2849)은 `content.notice.platform.v1`을 광고하는 Data(DB `developer_notices.target_platform` 열 추가 포함)를 운영에 먼저 배포한 뒤 백오피스를 머지한다. 이 capability가 없으면 백오피스가 기동을 거부한다.
+**배포 순서:** `content.magazine-read.v1`을 제공하는 Data 서버를 운영에 먼저 배포한 뒤 백오피스를 배포한다. 새 백오피스는 이 계약이 없는 서버에 연결하지 않는다. 잡지 읽기에는 DB 스키마 변경이 없다.
+
+**배포 순서(공지 대상 플랫폼, GROMO-2849):** 개발자 공지 대상 플랫폼은 `content.notice.platform.v1`을 광고하는 Data(DB `developer_notices.target_platform` 열 추가 포함)를 운영에 먼저 배포한 뒤 백오피스를 머지한다. 이 capability가 없으면 백오피스가 기동을 거부한다.
 
 ### 수동 콘텐츠 작업
 
