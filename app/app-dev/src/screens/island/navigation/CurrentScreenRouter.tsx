@@ -187,8 +187,8 @@ export function CurrentScreensContent({ e }: ScreenProps) {
           />
         }
       >
-        <Txt kind="h17">가입한 섬이 없어요</Txt>
-        <Btn title="바다로 가기" onPress={() => e.reset('sea')} />
+        <Txt kind="h17">{t('ui.island.noMembership')}</Txt>
+        <Btn title={t('ui.island.toSea')} onPress={() => e.reset('sea')} />
       </Overlay>
     );
   // 구경 중에는 구경하는 섬의 홈·회관 정보·게시판 열람과 돌아가는 배만 연다(허용 목록).
@@ -227,15 +227,15 @@ export function CurrentScreensContent({ e }: ScreenProps) {
           />
         }
       >
-        <Txt kind="h17">주민만 이용할 수 있어요</Txt>
-        <Btn title="확인" onPress={closeFacility} />
+        <Txt kind="h17">{t('home.door.membersOnly')}</Txt>
+        <Btn title={t('common.ok')} onPress={closeFacility} />
       </Overlay>
     );
   if (e.islands && state.visitingIslandId && !built)
     return (
       <Overlay close={endServerVisit}>
-        <Txt>섬 모습을 불러오지 못했어요. 다시 방문해 주세요.</Txt>
-        <Btn title="원래 섬으로" onPress={endServerVisit} />
+        <Txt>{t('ui.island.visitFailed')}</Txt>
+        <Btn title={t('home.returnToMyIsland')} onPress={endServerVisit} />
       </Overlay>
     );
   const locked: Partial<Record<Route, Building>> = {
@@ -265,8 +265,8 @@ export function CurrentScreensContent({ e }: ScreenProps) {
   if (required && e.islands && !state.visitingIslandId && !serverHome(state))
     return (
       <Overlay close={e.home}>
-        <Txt>{e.homeError ? '시설 정보를 불러오지 못했어요' : '시설 정보를 확인하고 있어요.'}</Txt>
-        {e.homeError && <Btn title="다시 시도" onPress={e.retryHome} />}
+        <Txt>{e.homeError ? t('ui.island.facilityFailed') : t('ui.island.facilityLoading')}</Txt>
+        {e.homeError && <Btn title={t('common.retry')} onPress={e.retryHome} />}
       </Overlay>
     );
   if (required && built && !built.includes(required))

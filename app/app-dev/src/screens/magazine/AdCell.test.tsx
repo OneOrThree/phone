@@ -107,6 +107,22 @@ describe('AdCell', () => {
     expect(screen.getByLabelText(/, 우리 섬이에요$/)).toBeTruthy();
   });
 
+  it.each([false, true])(
+    '우리 섬 평균은 배지와 다른 줄의 전체 너비를 쓴다(비공개 %s)',
+    async (privateIsland) => {
+      const screen = await render(
+        <AdCell testID="c" width={240} cell={cell({ privateIsland })} corner="ours" />,
+      );
+      const residents = StyleSheet.flatten(screen.getByText('주민 8/15').props.style);
+      const average = StyleSheet.flatten(screen.getByText('평균 2시간 10분').props.style);
+      expect(residents.marginRight).toBeGreaterThan(0);
+      expect(average.marginRight).toBe(0);
+      expect(screen.queryByText('주민 8/15 · 평균 2시간 10분')).toBeNull();
+      if (privateIsland) expect(screen.getByText('초대로만 갈 수 있는 섬')).toBeTruthy();
+      expect(screen.getByTestId('c-ours', { includeHiddenElements: true })).toBeTruthy();
+    },
+  );
+
   it('누르기는 크게 보기를 유지하고 길게 누르기·접근성 신고는 제공하지 않는다', async () => {
     const onPress = jest.fn();
     const screen = await render(<AdCell width={300} cell={cell()} onPress={onPress} />);

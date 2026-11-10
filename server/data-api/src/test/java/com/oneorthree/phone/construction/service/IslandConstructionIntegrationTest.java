@@ -102,16 +102,16 @@ class IslandConstructionIntegrationTest {
     PlatformTransactionManager transactionManager;
 
     @Test
-    @DisplayName("V2 건물 행은 기존 API ID·순서·모금 방식·선행 그래프를 보존한다")
+    @DisplayName("건물 ID·가격·선행 그래프를 보존하고 모든 건물을 섬 통장 합산으로 전환한다")
     void migrationSeedsBuildingContract() {
         assertThat(buildings.findAllOrdered()).containsExactly(
                 new ConstructionBuilding("hall", "회관", Funding.WALLET_TOTAL, Set.of()),
                 new ConstructionBuilding("board", "게시판", Funding.WALLET_TOTAL, Set.of("hall")),
-                new ConstructionBuilding("gram", "방송기", Funding.RESIDENT_SPLIT, Set.of("board")),
-                new ConstructionBuilding("library", "도서관", Funding.RESIDENT_SPLIT, Set.of("board")),
-                new ConstructionBuilding("mail", "우체통", Funding.RESIDENT_SPLIT, Set.of("board")),
-                new ConstructionBuilding("tower", "전망대", Funding.RESIDENT_SPLIT, Set.of("board")),
-                new ConstructionBuilding("shop", "상점", Funding.RESIDENT_SPLIT,
+                new ConstructionBuilding("gram", "방송기", Funding.WALLET_TOTAL, Set.of("board")),
+                new ConstructionBuilding("library", "도서관", Funding.WALLET_TOTAL, Set.of("board")),
+                new ConstructionBuilding("mail", "우체통", Funding.WALLET_TOTAL, Set.of("board")),
+                new ConstructionBuilding("tower", "전망대", Funding.WALLET_TOTAL, Set.of("board")),
+                new ConstructionBuilding("shop", "상점", Funding.WALLET_TOTAL,
                         Set.of("gram", "library", "mail", "tower")));
         assertThat(buildings.findById("HALL")).isEmpty();
     }
@@ -221,11 +221,13 @@ class IslandConstructionIntegrationTest {
     }
 
     @Test
-    @DisplayName("각자 몫 건물은 소비된 목표의 기여 명단을 보존한다")
-    void splitCompletionKeepsConsumedTargetContributors() {
+    @DisplayName("통장 합산 건물도 목표 선택 전 기여 주민에게 완공을 알리고 무기여 주민은 제외한다")
+    void walletCompletionIncludesEarlierContributors() {
         Fixture f = fundedIsland(2000, "gram");
         completeFacility(f, "hall");
         completeFacility(f, "board");
+        jdbc.update("INSERT INTO focus_tutorial_rewards(user_id, island_id, claimed_at) VALUES (?, ?, now())",
+                f.ownerId, f.islandId);
         UUID newcomer = joinNewMember(f.islandId);
         var options = service.options(f.islandId, f.ownerId);
         service.start(f.islandId, f.ownerId, "gram", options.islandVersion(),
@@ -547,33 +549,26 @@ class IslandConstructionIntegrationTest {
     }
 
     @Test
-    @DisplayName("「각자 몫」건물은 지금 목표가 아니면 STATE_CONFLICT — 다른 목표의 epoch 기여를 못 쓴다")
-    void residentSplitRejectsWhenTargetDiffers() {
+    @DisplayName("목표 변경 전 모아 둔 잔액도 다른 건물의 건설비로 쓸 수 있다")
+    void walletFundsRemainUsableAcrossTargets() {
         Fixture f = fundedIsland(3000, "library");
-        // gram 의 선행(board 완공)까지 채워 선행 가드가 아니라 목표 가드만 남긴다.
         completeFacility(f, "board");
-
-        assertThatThrownBy(() -> service.start(f.islandId, f.ownerId, "gram", 0, 1,
-                UUID.randomUUID()))
-                .isInstanceOf(ConstructionException.class)
-                .extracting("errorCode").isEqualTo(ConstructionErrorCode.STATE_CONFLICT);
-
-        // 거절됐으니 잔액·시설은 그대로다 — library epoch 의 기여를 gram 에 쓰지 못했다.
-        assertThat(balance(f.islandId)).isEqualTo(3000);
-        assertThat(count("island_facilities", f.islandId)).isEqualTo(1);
-        assertThat(debitCount(f.islandId)).isZero();
+        var result = service.start(f.islandId, f.ownerId, "gram", 0, 1, UUID.randomUUID());
+        assertThat(result.status()).isEqualTo("BUILDING");
+        assertThat(balance(f.islandId)).isEqualTo(1640);
+        assertThat(debitCount(f.islandId)).isEqualTo(1);
     }
 
     @Test
-    @DisplayName("「각자 몫」건물은 목표 epoch 아래 전원 몫을 채우면 BUILDING 을 접수한다")
-    void residentSplitStartsWhenTargetMatches() {
+    @DisplayName("잔액이 총 건설비와 같으면 BUILDING을 접수하고 잔액은 0이 된다")
+    void constructionStartsAtExactWalletBalance() {
         Fixture f = fundedIsland(1360, "gram");
         completeFacility(f, "board");
 
         ConstructionStartedView view = service.start(f.islandId, f.ownerId, "gram", 0, 1,
                 UUID.randomUUID());
 
-        // gram 1360 ÷ 주민 1명 = 1360 — 목표를 고른 뒤의 기여가 몫을 채웠다.
+        // 총 건설비 1360마리를 한 번 사용한다.
         assertThat(view.status()).isEqualTo("BUILDING");
         assertThat(view.spent().amount()).isEqualTo(1360);
         assertThat(balance(f.islandId)).isZero();
@@ -652,44 +647,33 @@ class IslandConstructionIntegrationTest {
         assertThat(count("island_facilities", f.islandId)).isEqualTo(1);
     }
 
-    // ---------------------------------------------------------------- 목표 선택 당시 대상 주민
+    // ---------------------------------------------------------------- 섬 통장 합산 건설
 
     @Test
-    @DisplayName("주민별 준비량은 착공 판정과 같은 몫이며 방장·주민 모두 남은 수량을 조회한다")
-    void optionsExposeEachResidentsRemainingShare() {
+    @DisplayName("한 주민이 전액을 모아도 건설할 수 있고 주민별 할당량은 반환하지 않는다")
+    void oneResidentCanFundTheWholeBuilding() {
         SharedFixture f = sharedIsland();
-        completeFacility(new Fixture(f.islandId, f.ownerId), "hall");
         completeFacility(new Fixture(f.islandId, f.ownerId), "board");
-        assertThat(service.options(f.islandId, f.ownerId).residentProgress()).isNull();
-        service.setTarget(f.islandId, f.ownerId, "gram", 0, UUID.randomUUID());
         tx().executeWithoutResult(status ->
                 walletService.contribute(f.islandId, f.ownerId, 1360, "own-" + f.islandId));
-
+        service.setTarget(f.islandId, f.ownerId, "gram", 0, UUID.randomUUID());
         var ownerView = service.options(f.islandId, f.ownerId);
-        var progress = ownerView.residentProgress();
-        assertThat(progress.buildingId()).isEqualTo("gram");
-        assertThat(progress.requiredPerResident()).isEqualTo(680);
-        assertThat(progress.residents()).hasSize(2);
-        assertThat(progress.residents()).filteredOn(row -> row.userId().equals(f.ownerId))
-                .singleElement().satisfies(row -> {
-                    assertThat(row.name()).startsWith("방장-");
-                    assertThat(row.contributed()).isEqualTo(1360);
-                    assertThat(row.remaining()).isZero();
-                });
-        assertThat(progress.residents()).filteredOn(row -> row.userId().equals(f.memberId))
-                .singleElement().satisfies(row -> {
-                    assertThat(row.contributed()).isZero();
-                    assertThat(row.remaining()).isEqualTo(680);
-                });
+        assertThat(ownerView.residentProgress()).isNull();
+        assertThat(ownerView.villagePoints()).isEqualTo(1360);
         assertThat(ownerView.items()).filteredOn(item -> item.id().equals("gram"))
-                .singleElement().satisfies(item -> assertThat(item.buildable()).isFalse());
-        assertThat(service.options(f.islandId, f.memberId).residentProgress()).isEqualTo(progress);
+                .singleElement().satisfies(item -> assertThat(item.buildable()).isTrue());
+        var memberView = service.options(f.islandId, f.memberId);
+        assertThat(memberView.residentProgress()).isNull();
+        assertThat(memberView.villagePoints()).isEqualTo(1360);
+        assertThat(memberView.items()).allSatisfy(item -> assertThat(item.buildable()).isFalse());
+        assertThat(contributionCount(f.islandId)).isZero();
+        assertThat(service.start(f.islandId, f.ownerId, "gram", ownerView.islandVersion(), 1,
+                UUID.randomUUID()).villagePoints()).isZero();
     }
 
     @Test
-    @DisplayName("총액 1마리·대상 2명이면 각자 1마리를 채우고 착공은 총액 1마리만 차감한다")
-    void oneFishPriceStillRequiresOneFishFromEachResident() {
-        // 테스트 DB 에만 새 비용 revision 을 발행한다. 운영/dev 정책에는 손대지 않는다.
+    @DisplayName("총액 1마리·주민 2명이면 한 주민이 모은 1마리만 차감한다")
+    void oneFishPriceNeedsOnlyOneFishInTheWallet() {
         int revision = 10001;
         jdbc.update("INSERT INTO construction_cost_policies (revision, building_id, cost, build_seconds) "
                 + "SELECT ?, building_id, 1, build_seconds FROM construction_cost_policies WHERE revision=1",
@@ -697,153 +681,89 @@ class IslandConstructionIntegrationTest {
         jdbc.update("UPDATE construction_cost_policy_publication SET revision=?", revision);
         try {
             SharedFixture f = sharedIsland();
-            completeFacility(new Fixture(f.islandId, f.ownerId), "hall");
             completeFacility(new Fixture(f.islandId, f.ownerId), "board");
-            service.setTarget(f.islandId, f.ownerId, "gram", 0, UUID.randomUUID());
             tx().executeWithoutResult(status ->
                     walletService.contribute(f.islandId, f.ownerId, 1, "own-" + f.islandId));
-            var waiting = service.options(f.islandId, f.ownerId);
-            assertThat(waiting.residentProgress().requiredPerResident()).isEqualTo(1);
-            assertThat(waiting.residentProgress().residents()).extracting(row -> row.remaining())
-                    .containsExactlyInAnyOrder(0, 1);
-            assertThatThrownBy(() -> service.start(f.islandId, f.ownerId, "gram", waiting.islandVersion(),
-                    revision, UUID.randomUUID())).isInstanceOf(ConstructionException.class)
-                    .extracting("errorCode").isEqualTo(ConstructionErrorCode.INSUFFICIENT_FUNDS);
-
-            tx().executeWithoutResult(status ->
-                    walletService.contribute(f.islandId, f.memberId, 1, "mem-" + f.islandId));
+            service.setTarget(f.islandId, f.ownerId, "gram", 0, UUID.randomUUID());
             var ready = service.options(f.islandId, f.ownerId);
-            assertThat(ready.residentProgress().residents()).allSatisfy(row -> assertThat(row.remaining()).isZero());
+            assertThat(ready.residentProgress()).isNull();
             var started = service.start(f.islandId, f.ownerId, "gram", ready.islandVersion(),
                     revision, UUID.randomUUID());
             assertThat(started.spent().amount()).isEqualTo(1);
-            assertThat(started.villagePoints()).isEqualTo(1);
+            assertThat(started.villagePoints()).isZero();
             var active = service.options(f.islandId, f.memberId).activeConstruction();
             assertThat(active.buildingId()).isEqualTo("gram");
             assertThat(active.startedAt()).isEqualTo(toDbMicros(started.startedAt()));
             assertThat(active.completesAt()).isEqualTo(toDbMicros(started.completesAt()));
-            assertThat(service.options(f.islandId, f.ownerId).residentProgress()).isNull();
         } finally {
             jdbc.update("UPDATE construction_cost_policy_publication SET revision=1");
         }
     }
 
     @Test
-    @DisplayName("대상은 목표 선택 당시의 주민으로 고정된다 — 뒤에 가입한 주민은 몫을 지지 않는다")
-    void targetCohortIsPinnedAtSelection() {
+    @DisplayName("목표 선택 뒤 들어온 주민이 모은 물고기도 건설비에 포함한다")
+    void newResidentCanFundExistingTarget() {
         SharedFixture f = sharedIsland();
-        completeFacility(new Fixture(f.islandId, f.ownerId), "hall");
         completeFacility(new Fixture(f.islandId, f.ownerId), "board");
         service.setTarget(f.islandId, f.ownerId, "gram", 0, UUID.randomUUID());
-
-        // 목표를 고른 «뒤» 새 주민이 들어온다 — 대상이 아니므로 분모도 몫도 바뀌지 않는다.
-        UUID latecomer = joinNewMember(f.islandId);
-        assertThat(service.options(f.islandId, f.ownerId).residentProgress().residents())
-                .extracting(row -> row.userId()).containsExactlyInAnyOrder(f.ownerId, f.memberId);
-
-        // 대상 2명 → 각자 ceil(1360/2)=680.
-        tx().executeWithoutResult(status -> {
-            walletService.contribute(f.islandId, f.ownerId, 680, "own-" + f.islandId);
-            walletService.contribute(f.islandId, f.memberId, 680, "mem-" + f.islandId);
-        });
-
-        Integer latecomerRow = jdbc.queryForObject(
-                "SELECT COUNT(*) FROM island_construction_contributions "
-                        + "WHERE island_id = ? AND user_id = ?",
-                Integer.class, f.islandId, latecomer);
-        assertThat(latecomerRow).as("대상 밖 주민은 기여 행 자체가 없다").isZero();
-
-        long version = service.options(f.islandId, f.ownerId).islandVersion();
-        assertThat(service.start(f.islandId, f.ownerId, "gram", version, 1, UUID.randomUUID())
-                .status()).isEqualTo("BUILDING");
-    }
-
-    @Test
-    @DisplayName("탈퇴·강퇴한 주민은 대상에서 빠진다 — 남은 대상 인원으로 몫을 다시 나눈다")
-    void leavingResidentDropsOutOfTheTarget() {
-        SharedFixture f = sharedIsland();
-        completeFacility(new Fixture(f.islandId, f.ownerId), "hall");
-        completeFacility(new Fixture(f.islandId, f.ownerId), "board");
-        service.setTarget(f.islandId, f.ownerId, "gram", 0, UUID.randomUUID());
+        UUID newcomer = joinNewMember(f.islandId);
         tx().executeWithoutResult(status ->
-                walletService.contribute(f.islandId, f.ownerId, 1360, "own-" + f.islandId));
-        long version = service.options(f.islandId, f.ownerId).islandVersion();
+                walletService.contribute(f.islandId, newcomer, 1360, "new-" + f.islandId));
+        var options = service.options(f.islandId, f.ownerId);
+        assertThat(options.items()).filteredOn(item -> item.id().equals("gram"))
+                .singleElement().satisfies(item -> assertThat(item.buildable()).isTrue());
+        assertThat(service.start(f.islandId, f.ownerId, "gram", options.islandVersion(), 1,
+                UUID.randomUUID()).villagePoints()).isZero();
+    }
 
-        // 대상 2명이면 각자 680 이 필요한데 주민은 0 이다 — 잔액이 총액을 넘어도 몫이 비었다.
-        assertThatThrownBy(() -> service.start(f.islandId, f.ownerId, "gram", version, 1,
-                UUID.randomUUID()))
-                .isInstanceOf(ConstructionException.class)
-                .extracting("errorCode").isEqualTo(ConstructionErrorCode.INSUFFICIENT_FUNDS);
-
-        // 그 주민이 강퇴되면 대상은 방장 1명 — 몫은 1360 이고 방장이 이미 채웠다.
+    @Test
+    @DisplayName("주민이 떠나도 이미 섬 통장에 쌓인 물고기는 건설에 사용할 수 있다")
+    void departingResidentDoesNotRemoveWalletFunds() {
+        SharedFixture f = sharedIsland();
+        completeFacility(new Fixture(f.islandId, f.ownerId), "board");
+        tx().executeWithoutResult(status ->
+                walletService.contribute(f.islandId, f.memberId, 1360, "member-" + f.islandId));
+        service.setTarget(f.islandId, f.ownerId, "gram", 0, UUID.randomUUID());
         jdbc.update("UPDATE group_members SET is_left = true WHERE user_id = ? AND group_id = ?",
                 f.memberId, f.islandId);
+        long version = service.options(f.islandId, f.ownerId).islandVersion();
         assertThat(service.start(f.islandId, f.ownerId, "gram", version, 1, UUID.randomUUID())
                 .status()).isEqualTo("BUILDING");
     }
 
     @Test
-    @DisplayName("목표 선택 뒤 탈퇴→재가입한 주민은 옛 epoch 대상에서 빠진다 — 옛 기여도 인정되지 않는다")
-    void rejoinedResidentDoesNotReviveOldEpoch() {
-        SharedFixture f = sharedIsland();
-        completeFacility(new Fixture(f.islandId, f.ownerId), "hall");
-        completeFacility(new Fixture(f.islandId, f.ownerId), "board");
-        service.setTarget(f.islandId, f.ownerId, "gram", 0, UUID.randomUUID());
-        // 대상 2명 — 각자 ceil(1360/2)=680. 탈퇴 전 주민 몫까지 채워 둔다.
-        tx().executeWithoutResult(status -> {
-            walletService.contribute(f.islandId, f.ownerId, 680, "own-" + f.islandId);
-            walletService.contribute(f.islandId, f.memberId, 680, "mem-" + f.islandId);
-        });
-
-        // 선택 뒤 탈퇴 → 같은 행을 되살려 재가입 — 옛 기여 행은 지워지지 않고 남는다.
-        jdbc.update("UPDATE group_members SET is_left = true WHERE user_id = ? AND group_id = ?",
-                f.memberId, f.islandId);
-        jdbc.update("UPDATE group_members SET is_left = false, left_reason = NULL, left_at = NULL,"
-                + " rejoined_at = now() WHERE user_id = ? AND group_id = ?",
-                f.memberId, f.islandId);
-
-        // 재가입 주민은 여전히 활성 주민인데도 대상이 아니다 — 분모는 방장 1명이고 몫은 1360.
-        assertThat(members.existsByGroupIdAndUserId(f.islandId, f.memberId)).isTrue();
-        long version = service.options(f.islandId, f.ownerId).islandVersion();
-        assertThatThrownBy(() -> service.start(f.islandId, f.ownerId, "gram", version, 1,
-                UUID.randomUUID()))
-                .as("재가입 주민의 옛 기여 680 이 인정됐다면 두 명 몫으로 이미 지어졌다")
-                .isInstanceOf(ConstructionException.class)
+    @DisplayName("다른 구매로 잔액이 줄면 착공 때 재검사하여 잔액 부족으로 거절한다")
+    void spendingAfterPreviewPreventsConstruction() {
+        Fixture f = fundedIsland(1360, "gram");
+        completeFacility(f, "board");
+        var options = service.options(f.islandId, f.ownerId);
+        assertThat(options.items()).filteredOn(item -> item.id().equals("gram"))
+                .singleElement().satisfies(item -> assertThat(item.buildable()).isTrue());
+        jdbc.update("UPDATE island_wallets SET balance = 1359 WHERE island_id = ?", f.islandId);
+        assertThatThrownBy(() -> service.start(f.islandId, f.ownerId, "gram", options.islandVersion(), 1,
+                UUID.randomUUID())).isInstanceOf(ConstructionException.class)
                 .extracting("errorCode").isEqualTo(ConstructionErrorCode.INSUFFICIENT_FUNDS);
+        assertThat(balance(f.islandId)).isEqualTo(1359);
+        assertThat(debitCount(f.islandId)).isZero();
+        assertThat(facilities.findById(new IslandFacilityId(f.islandId, "gram"))).isEmpty();
     }
 
     @Test
-    @DisplayName("목표를 실제로 바꾸면 새 epoch 대상에 재가입 주민이 다시 포함된다")
-    void retargetSeedsRejoinedResidentIntoNewCohort() {
+    @DisplayName("목표를 바꾸어도 기존 잔액이 유지되고 새 할당량이나 주민별 행을 만들지 않는다")
+    void retargetPreservesWalletWithoutCreatingQuotas() {
         SharedFixture f = sharedIsland();
-        completeFacility(new Fixture(f.islandId, f.ownerId), "hall");
         completeFacility(new Fixture(f.islandId, f.ownerId), "board");
+        tx().executeWithoutResult(status ->
+                walletService.contribute(f.islandId, f.ownerId, 2720, "saved-" + f.islandId));
         service.setTarget(f.islandId, f.ownerId, "gram", 0, UUID.randomUUID());
-
-        // 선택 뒤 탈퇴→재가입 — 옛 epoch 에서는 빠진 사람이다.
-        jdbc.update("UPDATE group_members SET is_left = true WHERE user_id = ? AND group_id = ?",
-                f.memberId, f.islandId);
-        jdbc.update("UPDATE group_members SET is_left = false, left_reason = NULL, left_at = NULL,"
-                + " rejoined_at = now() WHERE user_id = ? AND group_id = ?",
-                f.memberId, f.islandId);
-
-        // 목표를 «다른 값»으로 바꾸면 새 epoch 의 대상은 지금 주민으로 다시 고정된다.
         long version = service.options(f.islandId, f.ownerId).islandVersion();
         service.setTarget(f.islandId, f.ownerId, "library", version, UUID.randomUUID());
-        long epoch = states.findById(f.islandId).orElseThrow().getTargetEpoch();
-
-        // 대상 2명 → 각자 ceil(2720/2)=1360 — 재가입 주민의 새 epoch 기여 행이 다시 심겼다.
-        tx().executeWithoutResult(status -> {
-            walletService.contribute(f.islandId, f.ownerId, 1360, "own2-" + f.islandId);
-            walletService.contribute(f.islandId, f.memberId, 1360, "mem2-" + f.islandId);
-        });
-        assertThat(jdbc.queryForObject("SELECT amount FROM island_construction_contributions "
-                        + "WHERE island_id = ? AND epoch = ? AND user_id = ?",
-                Integer.class, f.islandId, epoch, f.memberId)).isEqualTo(1360);
-
-        long v2 = service.options(f.islandId, f.ownerId).islandVersion();
-        assertThat(service.start(f.islandId, f.ownerId, "library", v2, 1, UUID.randomUUID())
-                .status()).isEqualTo("BUILDING");
+        var options = service.options(f.islandId, f.ownerId);
+        assertThat(options.villagePoints()).isEqualTo(2720);
+        assertThat(options.residentProgress()).isNull();
+        assertThat(contributionCount(f.islandId)).isZero();
+        assertThat(service.start(f.islandId, f.ownerId, "library", options.islandVersion(), 1,
+                UUID.randomUUID()).villagePoints()).isZero();
     }
 
     // ---------------------------------------------------------------- V100 백필
@@ -917,8 +837,7 @@ class IslandConstructionIntegrationTest {
     }
 
     /**
-     * 목표 선택을 서비스 없이 재현한다 — {@code setTarget} 과 같은 두 쓰기(목표·epoch 갱신과
-     * 그 시점 주민 고정)를 한 TX 에서 한다. 고정을 빼면 기여가 대상 행을 못 찾아 쌓이지 않는다.
+     * 과거 목표·주민별 기여 행이 남아 있는 저장 상태를 재현한다. 새 setTarget은 주민별 행을 만들지 않는다.
      */
     private void chooseTarget(UUID islandId, String buildingId) {
         tx().executeWithoutResult(status -> {

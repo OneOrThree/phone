@@ -24,8 +24,6 @@ import {
   balance,
   buildingReady,
   buildingCost,
-  buildingShare,
-  collectedBy,
   earnedBy,
   costs,
   buildMinutes,
@@ -238,61 +236,45 @@ test('QA 완공은 온보딩을 유지하고 완료 후 현재 섬의 공사 중
   assert.equal(completed.completed, undefined);
   assert.deepEqual(loaded.islands[1].buildings, otherBuildings);
 });
-test('도서관을 자유 선택: 목표를 고른 뒤 각자 몫을 모아야 하고 공동 잔액도 필요, 차감은 건설 버튼에서만', () => {
+test('모아 둔 통장 잔액으로 목표를 선택한 직후 건설하고 총액을 한 번 차감한다', () => {
   let s = initialState(true);
   currentIsland(s).buildings = ['hall', 'board', 'gram'];
   currentIsland(s).fish = 3000;
   s = act(s, 'SELECT_BUILDING', { building: 'library' });
-  assert.equal(buildingCost(currentIsland(s), 'library'), costs.library);
-  // 선택 직후에는 아무도 몫을 모으지 않아 아직 준비되지 않는다
-  assert.ok(!buildingReady(currentIsland(s)));
-  const share = buildingShare(currentIsland(s), 'library');
-  let i = currentIsland(s);
-  for (const id of i.buildingQuest!.targets) i.earned![id] = (i.earned![id] ?? 0) + share;
+  assert.equal(balance(currentIsland(s)), 3000);
   assert.ok(buildingReady(currentIsland(s)));
   s = act(s, 'BUILD', { building: 'library', now: 1000 });
   assert.equal(balance(currentIsland(s)), 3000 - costs.library);
   assert.equal(currentIsland(s).construction?.endsAt, 1000 + buildMinutes.library * 60000);
-  assert.ok(!currentIsland(s).buildings.includes('library'));
   assert.deepEqual(act(s, 'SELECT_BUILDING', { building: 'mail' }), s);
   assert.deepEqual(act(s, 'BUILD', { building: 'library' }), s);
   s = act(s, 'TICK', { now: 1000 + buildMinutes.library * 60000 });
   assert.ok(currentIsland(s).buildings.includes('library'));
   assert.equal(currentIsland(s).buildingQuest, undefined);
 });
-test('목표 변경 시 계속 대상인 주민은 모은 양을 이어가고, 새로 대상에 들어온 주민은 0부터 시작한다', () => {
+test('목표 변경과 주민 추가는 이미 모은 통장 잔액을 초기화하지 않는다', () => {
   let s = initialState(true);
   currentIsland(s).buildings = ['hall', 'board'];
+  currentIsland(s).fish = costs.gram;
   s = act(s, 'SELECT_BUILDING', { building: 'library' });
-  let i = currentIsland(s);
-  // "나"만 도서관 목표에서 몫만큼 모아 둔다
-  const libraryShare = buildingShare(i, 'library');
-  i.earned!.me = (i.earned!.me ?? 0) + libraryShare;
+  assert.ok(!buildingReady(currentIsland(s)));
   s = act(s, 'ADD_MEMBER');
-  assert.equal(currentIsland(s).buildingQuest?.targets.length, 4);
-  s = act(s, 'SELECT_BUILDING', { building: 'gram' }); // 방장이 목표를 축음기로 변경
-  i = currentIsland(s);
-  assert.equal(i.buildingQuest?.targets.length, 5);
-  // 목표 변경 전부터 계속 대상이던 "나"는 모은 양을 이어간다
-  assert.equal(collectedBy(i, 'me'), libraryShare);
-  // 목표 변경 시점에 새로 대상에 들어온 중도 가입자는 0부터 시작한다
-  const newcomer = i.members.at(-1)!;
-  assert.equal(collectedBy(i, newcomer.id), 0);
+  s = act(s, 'SELECT_BUILDING', { building: 'gram' });
+  assert.equal(balance(currentIsland(s)), costs.gram);
+  assert.ok(buildingReady(currentIsland(s)));
+  s = act(s, 'BUILD', { building: 'gram' });
+  assert.equal(balance(currentIsland(s)), 0);
 });
 test('음원 구매로 잔액이 부족해지면 완료 상태가 없어지고 부족분만 다시 채운다', () => {
   let s = initialState(true);
   currentIsland(s).buildings = ['hall', 'board', 'gram'];
   currentIsland(s).fish = 2740;
   s = act(s, 'SELECT_BUILDING', { building: 'library' });
-  const i = currentIsland(s);
-  const share = buildingShare(i, 'library');
-  // 대상 전원이 각자 몫만큼 이미 모아 둔 상태
-  for (const id of i.buildingQuest!.targets) i.earned![id] = (i.earned![id] ?? 0) + share;
   assert.ok(buildingReady(currentIsland(s)));
   s = act(s, 'BUY', { id: 'rain' });
   assert.equal(balance(currentIsland(s)), 2710);
   assert.ok(!buildingReady(currentIsland(s)));
-  assert.equal(currentIsland(s).earned?.me, 320 + share);
+  assert.equal(currentIsland(s).earned?.me, 320);
   s = act(s, 'DEMO_CREDIT', { fish: 20 });
   assert.ok(buildingReady(currentIsland(s)));
 });
@@ -305,22 +287,19 @@ test('건물 총액은 섬 인원과 무관하게 고정이다 (GROMO-1829)', ()
     assert.equal(buildingCost(currentIsland(solo), b), buildingCost(currentIsland(full), b));
   }
 });
-test('목표를 고르기 전에 모은 earned는 몫에 포함되지 않는다', () => {
-  let s = initialState(true);
-  currentIsland(s).buildings = ['hall', 'board'];
-  assert.equal(currentIsland(s).earned?.me, 320); // 이미 쌓여 있던 누적 획득량
-  s = act(s, 'SELECT_BUILDING', { building: 'gram' });
+test('예전 저장본의 주민별 미달성 정보가 있어도 잔액만으로 건설한다', () => {
+  const s = initialState(true);
   const i = currentIsland(s);
-  assert.equal(i.earned?.me, 320); // 누적 자체는 그대로 남지만
-  assert.equal(collectedBy(i, 'me'), 0); // 목표 선택 이후 모은 양은 0부터 시작한다
-});
-test('각자 몫은 총액을 대상 인원으로 올림 나눈 값이다', () => {
-  let s = initialState(true);
-  currentIsland(s).buildings = ['hall', 'board'];
-  // 주민 2명을 빼서 대상 3명(나 포함)으로 만든다: 1360 ÷ 3 = 453.33 → 올림 454
-  currentIsland(s).members = currentIsland(s).members.slice(0, 2);
-  s = act(s, 'SELECT_BUILDING', { building: 'gram' });
-  assert.equal(buildingShare(currentIsland(s), 'gram'), 454);
+  i.buildings = ['hall', 'board'];
+  i.fish = costs.gram;
+  i.buildingQuest = {
+    building: 'gram',
+    targets: ['me', 'idle'],
+    base: { me: 9999, idle: 9999 },
+    selectedAt: 1,
+  };
+  assert.ok(buildingReady(i));
+  assert.equal(canBuild(s, 'gram'), null);
 });
 test('상점은 다른 네 건물을 모두 완공해야 고르며, 축음기 음원은 상점 없이 구매한다', () => {
   let s = initialState(true);
@@ -1607,9 +1586,6 @@ test('공사가 끝나면 완공 안내를 남기고, 다음 건물을 고르면
   currentIsland(s).buildings = ['hall', 'board', 'gram'];
   currentIsland(s).fish = 3000;
   s = act(s, 'SELECT_BUILDING', { building: 'library' });
-  const i = currentIsland(s);
-  for (const id of i.buildingQuest!.targets)
-    i.earned![id] = (i.earned![id] ?? 0) + buildingShare(i, 'library');
   s = act(s, 'BUILD', { building: 'library', now: 1000 });
   assert.equal(currentIsland(s).completed, undefined);
   s = act(s, 'TICK', { now: 1000 + buildMinutes.library * 60000 });
@@ -1749,19 +1725,19 @@ test('퀘스트 날짜와 일·주·월 경계는 기기 타임존과 무관하�
   assert.equal(dayKey(kst0030), '2026-09-16');
   // 랭킹 주는 일요일 00시, 도서관 기록의 주(periodBounds)는 월요일 00시부터
   assert.equal(weekStart(kst0030), Date.parse('2026-09-12T15:00:00.000Z'));
-  assert.deepEqual(periodBounds('일', 0, kst0030), {
+  assert.deepEqual(periodBounds('day', 0, kst0030), {
     from: Date.parse('2026-09-15T15:00:00.000Z'),
     until: Date.parse('2026-09-16T15:00:00.000Z'),
   });
-  assert.deepEqual(periodBounds('주', 0, kst0030), {
+  assert.deepEqual(periodBounds('week', 0, kst0030), {
     from: Date.parse('2026-09-13T15:00:00.000Z'),
     until: Date.parse('2026-09-20T15:00:00.000Z'),
   });
-  assert.deepEqual(periodBounds('월', 0, kst0030), {
+  assert.deepEqual(periodBounds('month', 0, kst0030), {
     from: Date.parse('2026-08-31T15:00:00.000Z'),
     until: Date.parse('2026-09-30T15:00:00.000Z'),
   });
-  const today = periodBounds('일', 0, kst0030);
+  const today = periodBounds('day', 0, kst0030);
   assert.equal(
     recordSecondsBetween(
       {
@@ -2027,11 +2003,11 @@ test('예전 저장본은 LOAD에서 가입 신청을 빈 목록으로, 규칙�
   assert.equal(currentIsland(s).nextBuilding, undefined);
 });
 
-test('강퇴한 주민은 건설 퀘스트 대상에서 빠진다', () => {
+test('이전 저장 데이터에서 강퇴한 주민의 건설 대상 기록을 정리한다', () => {
   let s = initialState(true);
   currentIsland(s).buildings = ['hall', 'board'];
   s = act(s, 'SELECT_BUILDING', { building: 'library' });
-  assert.ok(currentIsland(s).buildingQuest!.targets.includes('dubu'));
+  currentIsland(s).buildingQuest!.targets = ['me', 'dubu'];
   s = act(s, 'KICK', { id: 'dubu' });
   assert.ok(!currentIsland(s).buildingQuest!.targets.includes('dubu'));
 });

@@ -1,3 +1,4 @@
+import { t } from '@/i18n';
 import { outfitOf } from '@/components/CatOutfitLayers';
 import type { ScreenEnvironment } from '@/navigation/ScreenEnvironment';
 import {
@@ -9,9 +10,7 @@ import {
   buildingCost,
   buildingNames,
   buildingReady,
-  buildingShare,
   clockMinutes,
-  collectedBy,
   dayKey,
   isHost,
   isOwnComment,
@@ -25,10 +24,10 @@ import { BlueprintView, NoticeView, QuestForm, QuestView, ResidentRate } from '.
 
 // 앱 라우트의 게시판 탭 이름 ↔ 종이
 export const boardTabs = {
-  notice: '공지',
-  quest: '퀘스트',
-  blueprint: '청사진',
-  guestbook: '방명록',
+  notice: 'notice',
+  quest: 'quest',
+  blueprint: 'blueprint',
+  guestbook: 'guestbook',
 } as const;
 
 // 건물 → 청사진 설명(buildOptions)과 완공 후 이동할 라우트
@@ -48,16 +47,17 @@ export const buildingRoute: Partial<Record<Building, Route>> = {
   shop: 'shop',
 };
 
-const minutesLabel = (m: number) => (m % 60 ? `${m}분` : `${m / 60}시간`);
+const minutesLabel = (m: number) =>
+  m % 60 ? t('ui.diary.minutes', { v0: m }) : t('ui.board.hours', { v0: m / 60 });
 
 // 공지 작성일: 오늘 · 어제 · M월 D일 (Asia/Seoul)
 const dayLabel = (at: number | undefined, now: number) => {
   if (!at) return '';
   const diff = Math.round((kstDayStart(dayKey(now)) - kstDayStart(dayKey(at))) / 86400000);
-  if (diff === 0) return '오늘';
-  if (diff === 1) return '어제';
+  if (diff === 0) return t('magazine.rack.today');
+  if (diff === 1) return t('ui.mail.yesterdayDate');
   const [, month, date] = dayKey(at).split('-').map(Number);
-  return `${month}월 ${date}일`;
+  return t('ui.board.monthDay', { v0: month, v1: date });
 };
 
 // 퀘스트 만들기 입력 검사 (목업·앱 공통)
@@ -73,15 +73,15 @@ export const questError = (form: QuestForm, serverEdit = false) => {
     target < 0 ||
     (form.type === 'focus' && target === 0)
   )
-    return '제목과 목표 시간을 입력해주세요.';
+    return t('ui.board.requiredQuest');
   if (form.type === 'phone' || serverEdit) return '';
   const start = clockMinutes(form.startTime),
     end = clockMinutes(form.endTime);
-  if (start === null || end === null) return '시작·종료 시간을 입력해주세요.';
-  if (end <= start) return '종료 시간은 시작 시간보다 늦어야 해요.';
+  if (start === null || end === null) return t('ui.board.requiredTimes');
+  if (end <= start) return t('ui.board.endAfterStart');
   // 창은 KST 벽시계 그대로 검증한다 — 24:00 은 서버 어댑터가 15:00 UTC 로 깨끗이 보내므로
   // 진짜 창 길이(end - start)로 목표를 잰다(23:59 로 깎지 않는다, GROMO-2672).
-  if (target > end - start) return '목표 집중 시간은 진행 시간 안으로 정해주세요.';
+  if (target > end - start) return t('ui.board.goalWithinSchedule');
   return '';
 };
 
@@ -121,7 +121,10 @@ export function boardFromApp(e: ScreenEnvironment) {
       const who = member(id) ?? i.formerMembers?.find((m) => m.id === id);
       return {
         id,
-        name: id === 'me' ? `${state.name} · 나` : (who?.name ?? '떠난 주민'),
+        name:
+          id === 'me'
+            ? t('ui.board.meSuffix', { v0: state.name })
+            : (who?.name ?? t('visitorBoard.formerResident')),
         color: id === 'me' ? state.color : (who?.color ?? 'gray'),
         outfit: id === 'me' ? outfitOf(state) : undefined,
         rate: q ? questMemberRate(state, q, id, i.id, now) : null,
@@ -132,9 +135,8 @@ export function boardFromApp(e: ScreenEnvironment) {
     work = i.construction,
     b = work?.building ?? goal?.building ?? i.completed?.building;
   const option = buildOptions.find((o) => o.id === (b && blueprintOption[b]));
-  const share = b ? buildingShare(i, b) : 0,
-    targets = goal?.targets ?? [];
   const blueprint: BlueprintView = {
+    buildingId: b ?? null,
     // 회관·게시판처럼 청사진 설명이 없는 건물은 보여 줄 청사진이 없다
     state: !option
       ? 'none'
@@ -149,11 +151,11 @@ export function boardFromApp(e: ScreenEnvironment) {
             : 'none',
     name: b ? buildingNames[b] : '',
     image: option?.image ?? interiorArt.buildings.library,
-    price: `1인당 ${share}마리`,
-    time: `공사 ${b ? minutesLabel(buildMinutes[b]) : ''}`,
+    price: t('ui.board.totalFish', { v0: b ? buildingCost(i, b) : 0 }),
+    time: t('ui.board.constructionDuration', { v0: b ? minutesLabel(buildMinutes[b]) : '' }),
     detail: option?.detail ?? '',
-    collected: targets.reduce((n, id) => n + Math.min(share, Math.max(0, collectedBy(i, id))), 0),
-    needed: share * targets.length,
+    collected: balance(i),
+    needed: b ? buildingCost(i, b) : 0,
     balance: balance(i),
     cost: b ? buildingCost(i, b) : 0,
     progress: work
@@ -161,14 +163,7 @@ export function boardFromApp(e: ScreenEnvironment) {
           Math.min(1, Math.max(0, (now - work.startedAt) / (work.endsAt - work.startedAt))) * 100,
         )
       : 0,
-    residents: targets.map((id) => {
-      const got = Math.max(0, collectedBy(i, id));
-      return {
-        id,
-        name: id === 'me' ? state.name : (member(id)?.name ?? '탈퇴한 주민'),
-        value: `${got} / ${share}마리${got >= share ? ' ✓' : ''}`,
-      };
-    }),
+    residents: [],
   };
   return {
     island: i,

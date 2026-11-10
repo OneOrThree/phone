@@ -547,8 +547,18 @@ function BoardTabs({
   );
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 * s }}>
-      {pill('퀘스트', tab === 'quest' ? C.pink : C.paper, () => onTab('quest'), tab === 'quest')}
-      {pill('공지', tab === 'notice' ? C.pink : C.paper, () => onTab('notice'), tab === 'notice')}
+      {pill(
+        t('ui.shop.quest'),
+        tab === 'quest' ? C.pink : C.paper,
+        () => onTab('quest'),
+        tab === 'quest',
+      )}
+      {pill(
+        t('ui.board.notice'),
+        tab === 'notice' ? C.pink : C.paper,
+        () => onTab('notice'),
+        tab === 'notice',
+      )}
       {!!make && pill(make, C.butter, onMake)}
     </View>
   );
@@ -580,7 +590,7 @@ export function WoodBoard({
   // 사용자가 직접 쓴 퀘스트·공지 제목이 올라가므로 서브셋이 아닌 전체 고운돋움을 쓴다.
   // 다른 장면 화면과 같은 글꼴 이름(sceneKit 의 GOWUN) 하나로 쓴다
   const font = useGowun();
-  const make = tab === 'quest' ? '＋ 만들기' : '＋ 작성';
+  const make = tab === 'quest' ? t('ui.misc.create') : t('ui.misc.write');
 
   // 가로 폰: 세로형 보드가 안 들어가므로 오른쪽 사이드 패널 안에 같은 포스트잇·종이를 흐름 배치
   if (L.compact)
@@ -589,7 +599,7 @@ export function WoodBoard({
         <IslandSheet
           bg="board"
           sign="bld/notice-board"
-          title="게시판"
+          title={t('building.board')}
           action={make}
           actionPress={onMake}
           onClose={onClose}
@@ -649,11 +659,11 @@ export function WoodBoard({
                     { position: 'absolute', left: x * s, right: -x * s, top: y * s, color },
                   ]}
                 >
-                  게시판
+                  {t('building.board')}
                 </Txt>
               ))}
               <Txt tabletScale={1} accessibilityRole="header" style={[title, { color: '#FFF3DF' }]}>
-                게시판
+                {t('building.board')}
               </Txt>
               <NavBtn
                 close
@@ -739,7 +749,7 @@ export function QuestNote({
             }}
           >
             <Txt tabletScale={1} style={[tx, { fontSize: 11 * s, lineHeight: 16 * s }]}>
-              내 달성률
+              {t('ui.board.myProgress')}
             </Txt>
             <Txt
               tabletScale={1}
@@ -753,7 +763,7 @@ export function QuestNote({
                 },
               ]}
             >
-              {pct === null ? '확인 필요' : `${pct}%`}
+              {pct === null ? t('ui.common.needsReview') : `${pct}%`}
             </Txt>
           </View>
           <View
@@ -777,7 +787,7 @@ export function QuestNote({
           </View>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={`${title} 자세히 보기`}
+            accessibilityLabel={t('ui.misc.detailsFor', { v0: title })}
             onPress={onPress}
             style={{
               alignSelf: 'flex-start',
@@ -794,7 +804,7 @@ export function QuestNote({
               tabletScale={1}
               style={[t, { fontSize: 11 * s, lineHeight: 15 * s, fontWeight: '700' }]}
             >
-              자세히 보기
+              {t('ui.misc.details')}
             </Txt>
           </Pressable>
         </View>
@@ -829,7 +839,12 @@ export function NoticePaper({
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`${badge ? badge + ' ' : ''}${title}, ${meta}, 댓글 ${comments}개`}
+      accessibilityLabel={t('ui.misc.noticeA11y', {
+        v0: badge ? badge + ' ' : '',
+        v1: title,
+        v2: meta,
+        v3: comments,
+      })}
       onPress={onPress}
       style={[
         {

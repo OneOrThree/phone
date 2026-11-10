@@ -1,3 +1,4 @@
+import { t, errorTextOr } from '@/i18n';
 import {
   BUNDLED_AUDIO_TRACK_IDS,
   DEFAULT_FREE_AUDIO_TRACK_IDS,
@@ -68,11 +69,7 @@ export function renderSoundScreen(context: ScreenContext) {
             setSoundDialog({ kind: 'error', productId: dialogProduct.id, product: dialogProduct });
           else {
             setSoundDialog(null);
-            notify(
-              thrown instanceof ApiError && thrown.message
-                ? thrown.message
-                : '구매하지 못했어요. 다시 시도해 주세요.',
-            );
+            notify(errorTextOr(thrown, 'ui.errors.purchaseFailed'));
           }
         }
         return;
@@ -111,7 +108,7 @@ export function renderSoundScreen(context: ScreenContext) {
             <Pic id="interior/gram" w="100%" h="100%" cover />
           </View>
           <NavBtn
-            label="섬으로 돌아가기"
+            label={t('focusFlow.common.backToIsland')}
             onPress={back}
             style={{ position: 'absolute', left: 20 + ins.left, top: 16 + ins.top }}
           />
@@ -139,7 +136,7 @@ export function renderSoundScreen(context: ScreenContext) {
               tabletScale={1}
               style={{ color: gramophone.signForeground, fontSize: 17, lineHeight: 24 }}
             >
-              축음기
+              {t('building.gram')}
             </Txt>
           </View>
           <View
@@ -171,7 +168,7 @@ export function renderSoundScreen(context: ScreenContext) {
                   }}
                 >
                   <View
-                    accessibilityLabel="축음기 레코드판"
+                    accessibilityLabel={t('ui.shop.recordPlayer')}
                     style={{
                       width: gramophone.recordSize,
                       height: gramophone.recordSize,
@@ -211,7 +208,7 @@ export function renderSoundScreen(context: ScreenContext) {
                     tabletScale={1}
                     style={{ color: gramophone.foregroundMuted, ...gramophone.captionText }}
                   >
-                    섬에서 들을 곡을 구매해요
+                    {t('ui.shop.buyMusicHint')}
                   </Txt>
                 </View>
                 <View style={{ flex: 1, minWidth: 0, height: contentHeight, gap: 8 }}>
@@ -223,13 +220,13 @@ export function renderSoundScreen(context: ScreenContext) {
                       tabletScale={1}
                       style={{ color: gramophone.foreground, ...gramophone.titleText }}
                     >
-                      음원 구매
+                      {t('ui.shop.buyMusic')}
                     </Txt>
                     <Txt
                       tabletScale={1}
                       style={{ color: gramophone.foregroundMuted, ...gramophone.captionText }}
                     >
-                      재생과 곡 변경은 집중섬 축음기에서 할 수 있어요
+                      {t('ui.shop.playAtFocusIsland')}
                     </Txt>
                   </View>
                   <ScrollView
@@ -246,13 +243,13 @@ export function renderSoundScreen(context: ScreenContext) {
                           (server && (product?.available === false || product?.price == null)));
                       const status = owned
                         ? DEFAULT_FREE_AUDIO_TRACK_IDS.includes(id)
-                          ? '무료'
-                          : '보유'
+                          ? t('focusFlow.music.free')
+                          : t('focusFlow.music.owned')
                         : !localAudioIds.has(id)
-                          ? '앱 업데이트가 필요해요'
+                          ? t('ui.shop.updateRequired')
                           : unavailable
                             ? shopBlockReason(product ?? {})
-                            : `${product?.price}마리 · 구매`;
+                            : t('ui.shop.priceBuy', { v0: product?.price });
                       return (
                         <Pressable
                           key={id}
@@ -262,7 +259,10 @@ export function renderSoundScreen(context: ScreenContext) {
                               ? `${trackLabel(id)}, ${status}`
                               : unavailable
                                 ? `${trackLabel(id)}, ${status}`
-                                : `${trackLabel(id)}, ${product?.price}마리로 구매`
+                                : t('ui.shop.buyTrackA11y', {
+                                    v0: trackLabel(id),
+                                    v1: product?.price,
+                                  })
                           }
                           accessibilityState={{ disabled: owned || unavailable }}
                           disabled={owned || unavailable}
@@ -310,8 +310,8 @@ export function renderSoundScreen(context: ScreenContext) {
               </>
             ) : (
               <View style={{ flex: 1, alignItems: 'center', gap: 12 }}>
-                <Txt style={{ color: gramophone.foreground }}>축음기를 먼저 지어 주세요.</Txt>
-                <Btn title="마을회관에서 건설" onPress={() => go('construction')} />
+                <Txt style={{ color: gramophone.foreground }}>{t('ui.shop.buildGramFirst')}</Txt>
+                <Btn title={t('ui.shop.buildAtHall')} onPress={() => go('construction')} />
               </View>
             )}
           </View>
@@ -367,14 +367,14 @@ export function renderSoundScreen(context: ScreenContext) {
                   style={{ fontSize: 20, lineHeight: 28, fontWeight: '700', textAlign: 'center' }}
                 >
                   {soundDialog.kind === 'confirm'
-                    ? `${dialogProduct.title}를 구매할까요?`
+                    ? t('ui.shop.confirmTrack', { v0: dialogProduct.title })
                     : soundDialog.kind === 'success'
-                      ? '구매했어요'
-                      : '물고기가 부족해요'}
+                      ? t('focusFlow.music.purchaseSuccess')
+                      : t('focusFlow.music.insufficientFish')}
                 </Txt>
                 {soundDialog.kind === 'confirm' && (
                   <Txt kind="meta" style={{ textAlign: 'center', lineHeight: 20 }}>
-                    구매한 곡은 같은 섬 주민 모두가 함께 들을 수 있어요.
+                    {t('ui.shop.musicShared')}
                   </Txt>
                 )}
                 {soundDialog.kind === 'confirm' ? (
@@ -383,14 +383,14 @@ export function renderSoundScreen(context: ScreenContext) {
                     style={{ flexDirection: largeText ? 'column' : 'row', gap: 8 }}
                   >
                     <Btn
-                      title="취소"
+                      title={t('common.cancel')}
                       kind="glass"
                       dynamicHeight={largeText}
                       onPress={() => setSoundDialog(null)}
                       style={largeText ? undefined : { flex: 1 }}
                     />
                     <Btn
-                      title={`${dialogProduct.price}마리로 구매`}
+                      title={t('ui.shop.buyForFish', { v0: dialogProduct.price })}
                       dynamicHeight={largeText}
                       disabled={server && shopApi.writing}
                       onPress={buyTrack}
@@ -399,7 +399,7 @@ export function renderSoundScreen(context: ScreenContext) {
                   </View>
                 ) : (
                   <Btn
-                    title="확인"
+                    title={t('common.ok')}
                     dynamicHeight={largeText}
                     disabled={server && shopApi.writing}
                     onPress={() => setSoundDialog(null)}

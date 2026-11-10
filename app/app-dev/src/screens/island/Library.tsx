@@ -1,3 +1,4 @@
+import { t } from '@/i18n';
 import { CatSprite } from '@/components/CatSprite';
 import { NavBtn, art } from '@/design-system/patterns';
 import { semanticTokens } from '@/design-system/tokens';
@@ -29,7 +30,7 @@ function Cover({ nb, x, y, w, h, land, font, onPress }: any) {
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={nb ? '이웃들의 일기장' : '내 일기장'}
+      accessibilityLabel={nb ? t('ui.diary.neighbors') : t('ui.diary.mine')}
       testID={nb ? 'diary-neighbors' : 'diary-mine'}
       onPress={onPress}
       style={[
@@ -113,13 +114,13 @@ function Cover({ nb, x, y, w, h, land, font, onPress }: any) {
             textAlign: 'center',
           }}
         >
-          {nb ? '이웃들의\n일기장' : '내\n일기장'}
+          {nb ? t('ui.diary.neighborsLines') : t('ui.diary.mineLines')}
         </T>
         <View style={{ height: 30 }}>
           <Flower outline={nb} />
         </View>
         <T style={{ fontSize: 7, lineHeight: 10.15 }}>
-          {nb ? '함께 자라는 이야기' : '나의 하루를 차곡차곡'}
+          {nb ? t('ui.diary.neighborsCaption') : t('ui.diary.myCaption')}
         </T>
       </View>
       <Svg
@@ -184,7 +185,7 @@ export function Library({ e }: ScreenProps) {
         ))}
         {/* 건물 안(마을회관)과 같은 자리·모양의 ‹ — 도서관을 떠나 섬으로 간다. 읽는 이름도 건물 안 scene-back 과 같다 */}
         <NavBtn
-          label="섬으로 돌아가기"
+          label={t('focusFlow.common.backToIsland')}
           onPress={e.home}
           style={{
             position: 'absolute',

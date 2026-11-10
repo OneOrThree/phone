@@ -1,3 +1,4 @@
+import { t } from '@/i18n';
 import React, { memo, useEffect, useRef } from 'react';
 import { Animated, AppState, Easing, Image, View, StyleSheet } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
@@ -166,7 +167,7 @@ export const VillageScenery = memo(function VillageScenery({
           {o.kind === 'mailbox' && mailboxLetters && (
             <VillageNotificationBadge
               testID="village-mailbox-new-indicator"
-              accessibilityLabel="친구에게 받은 새 편지가 있습니다"
+              accessibilityLabel={t('ui.village.newLetter')}
               scale={scale}
               style={{ top: -10 * scale, right: -5 * scale }}
             />
@@ -205,9 +206,9 @@ export const VillageScenery = memo(function VillageScenery({
               indicatorScale={scale}
               tooltip={
                 boardStatus === 'new-comment' ? (
-                  <Txt kind="meta">새 댓글이 있어요</Txt>
+                  <Txt kind="meta">{t('ui.village.newCommentHint')}</Txt>
                 ) : boardStatus === 'unread' ? (
-                  <Txt kind="meta">읽지 않은 새 소식이 있어요</Txt>
+                  <Txt kind="meta">{t('ui.village.unreadNewsHint')}</Txt>
                 ) : undefined
               }
               style={{ position: 'absolute', left: 0, top: 0, width: '100%', height: '100%' }}

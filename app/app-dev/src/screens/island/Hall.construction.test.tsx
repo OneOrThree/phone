@@ -1,4 +1,5 @@
 import { componentTokens } from '@/design-system/tokens';
+import { applyLocalePref } from '@/i18n';
 import { createPreviewEnvironment } from '@/navigation/previewEnvironment';
 import { useIslandManagement } from '@/screens/interiors/useIslandManagement';
 import { Hall } from '@/screens/island/Hall';
@@ -241,7 +242,7 @@ test('목표 선택 뒤 건설하기는 서버 조건이 충족될 때까지 흐
   await fireEvent.press(button);
   assert.equal(build.mock.calls.length, 0);
 
-  // 잔액만 충분해져도 주민별 기여 등 서버 조건이 남으면 버튼을 열지 않는다.
+  // 잔액만 충분해져도 서버가 착공을 허용하지 않으면 버튼을 열지 않는다.
   constructionMock.mockReturnValue(
     construction({ options: { ...selected, villagePoints: 1000 }, select, build }),
   );
@@ -257,7 +258,9 @@ test('목표 선택 뒤 건설하기는 서버 조건이 충족될 때까지 흐
   assert.equal(button.props.accessibilityState.disabled, false);
   assert.equal(StyleSheet.flatten(button.props.style).opacity, 1);
   await fireEvent.press(button);
-  await waitFor(() => expect(build).toHaveBeenCalledWith('board'));
+  expect(build).not.toHaveBeenCalled();
+  await fireEvent.press(screen.getByTestId('hall-dialog-ok'));
+  await waitFor(() => expect(build).toHaveBeenCalledWith('board', 240));
 });
 
 test('잔액이 목표 원가의 일부만 찬 상태로 게시판 건설 패널을 열어도 렌더가 죽지 않는다', async () => {
@@ -268,7 +271,40 @@ test('잔액이 목표 원가의 일부만 찬 상태로 게시판 건설 패널
 
   await waitFor(() => assert.ok(screen.getByTestId('hall-building-plan')));
   assert.equal(screen.queryByText('BUILDING PLAN · 01'), null);
-  assert.ok(screen.getByText('120 / 240마리'));
+  assert.ok(screen.getByText('섬 통장 잔액'));
+  assert.equal(screen.getAllByText('120마리').length, 2);
+  assert.ok(screen.getByText('240마리'));
+  assert.equal(screen.queryByText('지금 모으는 건물'), null);
+  await fireEvent.press(screen.getByTestId('hall-plan-backdrop'));
+  assert.equal(screen.queryByTestId('hall-building-plan'), null);
+});
+
+test('영어 청사진은 서버의 한국어 건물명을 번역하고 서버 원가로 건설한다', async () => {
+  applyLocalePref('en');
+  const build = jest.fn(async () => {});
+  const serverOptions = options({ villagePoints: 1000 });
+  serverOptions.items[0] = {
+    ...serverOptions.items[0],
+    buildable: true,
+    blockedReason: null,
+  };
+  constructionMock.mockReturnValue(construction({ options: serverOptions, build }));
+  try {
+    const screen = await render(<Hall e={createPreviewEnvironment(e())} />);
+    await fireEvent.press(screen.getByTestId('hall-bld-board'));
+    expect(screen.getByLabelText('Preview of Notice Board')).toBeTruthy();
+    expect(screen.queryByText('게시판')).toBeNull();
+    expect(screen.getByText('Island account balance')).toBeTruthy();
+    expect(screen.getByText('1,000 fish')).toBeTruthy();
+    expect(screen.getByText('240 fish')).toBeTruthy();
+    await fireEvent.press(screen.getByTestId('hall-plan-action'));
+    expect(screen.getByText('Start building Notice Board?')).toBeTruthy();
+    await fireEvent.press(screen.getByTestId('hall-dialog-ok'));
+    await waitFor(() => expect(build).toHaveBeenCalledWith('board', 240));
+  } finally {
+    await cleanup();
+    applyLocalePref('system');
+  }
 });
 
 test('건설 패널을 열고 닫아도 「목각 건물 고르기」 그리드의 transform 이 undefined 가 되지 않는다', async () => {
@@ -303,7 +339,7 @@ test('건설 패널을 열고 닫아도 「목각 건물 고르기」 그리드�
   );
 });
 
-test('회관 청사진은 현재 주민 수가 달라도 목표 당시 주민과 서버 몫을 표시한다', async () => {
+test('회관 청사진은 이전 주민별 기여 대신 섬 통장 잔액과 부족액을 표시한다', async () => {
   constructionMock.mockReturnValue(
     construction({
       members: [
@@ -327,15 +363,15 @@ test('회관 청사진은 현재 주민 수가 달라도 목표 당시 주민과
   );
   const screen = await render(<Hall e={createPreviewEnvironment(e())} />);
   await fireEvent.press(screen.getByTestId('hall-bld-library'));
-  assert.ok(screen.getByText('100마리 · 2명'));
-  assert.ok(screen.getByText('목표 주민'));
-  assert.ok(screen.getByText('나'));
-  assert.equal(screen.queryByText('늦게 온 주민'), null);
-  assert.equal(screen.queryByText('67마리 · 3명'), null);
+  assert.ok(screen.getByText('120마리'));
+  assert.ok(screen.getByText('200마리'));
+  assert.ok(screen.getByText('80마리'));
+  assert.equal(screen.queryByText('목표 주민'), null);
+  assert.equal(screen.queryByText('100마리 · 2명'), null);
 });
 
 test.each(['missing', 'empty', 'unselected'] as const)(
-  '회관은 알 수 없는 대상 몫을 현재 주민 수로 추정하지 않는다: %s',
+  '회관은 주민별 진행량 유무·목표 선택 여부와 관계없이 현재 잔액을 보여 준다: %s',
   async (kind) => {
     constructionMock.mockReturnValue(
       construction({
@@ -351,15 +387,10 @@ test.each(['missing', 'empty', 'unselected'] as const)(
     );
     const screen = await render(<Hall e={createPreviewEnvironment(e())} />);
     await fireEvent.press(screen.getByTestId('hall-bld-library'));
-    assert.ok(
-      screen.getByText(
-        kind === 'missing'
-          ? '조회 불가'
-          : kind === 'empty'
-            ? '대상 주민이 없어요'
-            : '목표를 정한 뒤 확인해 주세요',
-      ),
-    );
+    assert.ok(screen.getByText('섬 통장 잔액'));
+    assert.ok(screen.getByText('120마리'));
+    assert.ok(screen.getByText('더 필요한 물고기'));
+    assert.ok(screen.getByText('80마리'));
     assert.equal(screen.queryByText('100마리 · 2명'), null);
   },
 );

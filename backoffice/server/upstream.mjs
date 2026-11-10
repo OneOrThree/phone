@@ -3,8 +3,8 @@ import { randomUUID, createHash } from "node:crypto";
 import { Failure } from "./store.mjs";
 import contract from "./contract.json" with { type: "json" };
 export class Upstream {
-  constructor({ mode, environment, expectedFcmProjectId, notificationUrl, dataUrl, fetchImpl = fetch }) {
-    Object.assign(this, { mode, environment, expectedFcmProjectId, notificationUrl, dataUrl, fetchImpl });
+  constructor({ mode, environment, expectedFcmProjectId, notificationUrl, dataUrl, fetchImpl = fetch, localData }) {
+    Object.assign(this, { mode, environment, expectedFcmProjectId, notificationUrl, dataUrl, fetchImpl, localData });
   }
   async verifyEnvironment(expected, actor, operator) {
     try {
@@ -245,6 +245,58 @@ export class Upstream {
         policy: item.approvedPolicy,
         approvedDigest: item.approvedDigest,
       }, "PUT", `${item.id}:${item.revision}`);
+  }
+  // 꾸미기 아이템·추첨 풀·지급(계약 §2·§3). 집중 정책 메서드와 같이 환경 확인 -> 운영자 토큰 -> 로컬 분기 순서다.
+  async dataCall(method, path, actor, operator, body, key) {
+    await this.verifyEnvironment(this.environment, actor, operator);
+    return this.request(this.dataUrl, `/internal/admin/customization/${path}`, actor, operator.dataToken, body, method, key);
+  }
+  async customizationItems(actor, operator) {
+    if (this.mode === "local") return { ...this.localData.items(), local: true };
+    return this.dataCall("GET", "items", actor, operator);
+  }
+  async rewardPool(actor, operator) {
+    if (this.mode === "local") return { ...this.localData.pool(), local: true };
+    return this.dataCall("GET", "reward-pool", actor, operator);
+  }
+  async approveRewardPool(request, actor, operator) {
+    const body = { expectedRevision: request.expectedRevision, productIds: request.productIds,
+      approvedDigest: request.approvedDigest };
+    if (this.mode === "local") return { ...this.localData.approvePool(request.approvalId, body, actor), local: true };
+    return this.dataCall("POST", `reward-pool/approvals/${request.approvalId}`, actor, operator, body, request.approvalId);
+  }
+  async revokeRewardPool(approvalId, actor, operator) {
+    if (this.mode === "local") return this.localData.revokePool(approvalId);
+    return this.dataCall("DELETE", `reward-pool/approvals/${approvalId}`, actor, operator);
+  }
+  async publishRewardPool(item, actor, operator) {
+    const body = { approvalId: item.approvalId, expectedRevision: item.expectedRevision,
+      productIds: item.approvedContent.productIds, approvedDigest: item.approvedDigest };
+    if (this.mode === "local") return this.localData.publishPool(item.publicationId, body, actor);
+    return this.dataCall("PUT", `reward-pool/publications/${item.publicationId}`, actor, operator, body, `${item.id}:${item.revision}`);
+  }
+  async previewGrant(input, actor, operator) {
+    if (this.mode === "local") return { ...this.localData.previewGrant(input), local: true };
+    return this.dataCall("POST", "grants/previews", actor, operator, input);
+  }
+  async approveGrant(request, actor, operator) {
+    const body = { productId: request.productId, mode: request.mode, userIds: request.userIds,
+      reason: request.reason, digest: request.digest };
+    if (this.mode === "local") return { ...this.localData.approveGrant(request.approvalId, body, actor), local: true };
+    return this.dataCall("POST", `grants/approvals/${request.approvalId}`, actor, operator, body, request.approvalId);
+  }
+  async revokeGrant(approvalId, actor, operator) {
+    if (this.mode === "local") return this.localData.revokeGrant(approvalId);
+    return this.dataCall("DELETE", `grants/approvals/${approvalId}`, actor, operator);
+  }
+  async executeGrant(item, actor, operator) {
+    const body = { approvalId: item.approvalId, digest: item.approvedDigest };
+    if (this.mode === "local") return this.localData.executeGrant(item.grantId, body, actor);
+    return this.dataCall("PUT", `grants/executions/${item.grantId}`, actor, operator, body, `${item.id}:${item.revision}`);
+  }
+  async grantExecutions(actor, operator, limit = 50) {
+    if (this.mode === "local") return this.localData.executions(limit);
+    return this.dataCall("GET", `grants/executions?limit=${limit}`, actor, operator);
   }
   async publish(item, actor, operator) {
     if (item.kind === "construction") {

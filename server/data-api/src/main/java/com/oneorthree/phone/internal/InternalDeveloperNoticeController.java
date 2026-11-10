@@ -22,19 +22,22 @@ public class InternalDeveloperNoticeController {
      * 최신순 한 쪽. 커서는 여기 없다 — Business 가 서명 커서를 풀어 앞 쪽 마지막 행의 두 값
      * ({@code afterPublishedAt}·{@code afterId})으로 넘기고, 응답의 {@code hasMore} 와 마지막 행으로 다음 커서를 만든다.
      * 세 파라미터는 전부 선택이며 없으면 첫 쪽 100건이다.
+     * {@code platform}({@code ios}·{@code android}, 선택)은 대상 플랫폼 공지만 거르고, 없으면 전부 주되 제목에 표시를 붙인다.
      */
     @GetMapping("/internal/users/{userId}/developer-notices")
     public DeveloperNoticeService.Page list(@PathVariable UUID userId,
             @RequestParam(required = false) Instant afterPublishedAt, @RequestParam(required = false) UUID afterId,
-            @RequestParam(defaultValue = "100") int limit) {
+            @RequestParam(defaultValue = "100") int limit,
+            @RequestParam(required = false) String platform) {
         users.getCaller(userId);
-        return notices.list(afterPublishedAt, afterId, limit);
+        return notices.list(afterPublishedAt, afterId, limit, platform);
     }
 
     @GetMapping("/internal/users/{userId}/developer-notices/{publicationId}")
-    public DeveloperNoticeService.Notice get(@PathVariable UUID userId, @PathVariable UUID publicationId) {
+    public DeveloperNoticeService.Notice get(@PathVariable UUID userId, @PathVariable UUID publicationId,
+            @RequestParam(required = false) String platform) {
         users.getCaller(userId);
-        return notices.get(publicationId);
+        return notices.get(publicationId, platform);
     }
 
     /** 사용자 없는 공개 조회용. 현재 유효한 플랫폼 최소 버전. */

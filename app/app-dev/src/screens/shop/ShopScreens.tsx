@@ -1,3 +1,5 @@
+import { customizationTitle } from '@/i18n/customization';
+import { localeTag } from '@/i18n/format';
 import { cat } from '@/constants/assets';
 import { bundledAudioSource } from '@/constants/audio';
 import { Badge, Btn, C, Chips, EmptyState, Pic, Txt } from '@/design-system/patterns';
@@ -50,7 +52,7 @@ function PlayIcon({ pause = false, size = 18 }: any) {
 }
 
 // 폴더형 아이콘 타일 탭(ftabs). items = [[글자, 아이콘], ...]
-function FTabs({ items, value, onChange }: any) {
+function FTabs({ items, value, onChange, labelFor = (id: string) => id }: any) {
   return (
     <View style={{ flexDirection: 'row', gap: 10 }}>
       {items.map(([label, icon]: string[]) => {
@@ -59,7 +61,7 @@ function FTabs({ items, value, onChange }: any) {
           <Pressable
             key={label}
             accessibilityRole="button"
-            accessibilityLabel={label}
+            accessibilityLabel={labelFor(label)}
             accessibilityState={{ selected: on }}
             onPress={() => onChange(label)}
             style={{
@@ -84,7 +86,7 @@ function FTabs({ items, value, onChange }: any) {
                 color: on ? C.ink : C.muted,
               }}
             >
-              {label}
+              {labelFor(label)}
             </Txt>
           </Pressable>
         );
@@ -129,7 +131,7 @@ export function renderShopScreens(context: ScreenContext) {
   if (route === 'shop') {
     // 탭 2개: 내 꾸미기(옷·장신구) · 우리 섬 꾸미기(섬·건물 테마). 음원은 축음기에서 산다
     // 서버 모드는 탭이 곧 category 이고 목록은 서버 응답 그대로다(GROMO-2017).
-    const mine = tab !== '우리 섬 꾸미기',
+    const mine = tab !== 'island',
       cols = layout.compact ? 4 : 2,
       items = server
         ? shopApi.items.map(shopCard)
@@ -140,7 +142,7 @@ export function renderShopScreens(context: ScreenContext) {
       <Pressable
         key={p.id}
         accessibilityRole="button"
-        accessibilityLabel={`${p.title}, ${p.price == null ? '준비 중' : `${p.price}마리`}${owned(p) ? ', 보유 중' : ''}`}
+        accessibilityLabel={`${customizationTitle(p.id, p.title)}, ${p.price == null ? t('ui.shop.comingSoon') : t('ui.hall.fishCount', { v0: p.price })}${owned(p) ? t('ui.shop.ownedSuffix') : ''}`}
         onPress={() => go('product', p.id)}
         style={{
           flex: 1,
@@ -186,7 +188,9 @@ export function renderShopScreens(context: ScreenContext) {
               backgroundColor: C.butter,
             }}
           >
-            <Txt style={{ fontSize: 11, lineHeight: 15.95, fontWeight: '700' }}>보유 중</Txt>
+            <Txt style={{ fontSize: 11, lineHeight: 15.95, fontWeight: '700' }}>
+              {t('ui.shop.owned')}
+            </Txt>
           </View>
         )}
         <Txt
@@ -196,10 +200,10 @@ export function renderShopScreens(context: ScreenContext) {
             fontWeight: '700',
           }}
         >
-          {p.title}
+          {customizationTitle(p.id, p.title)}
         </Txt>
         <Txt kind="meta" style={{ lineHeight: 18.85 }}>
-          {p.price == null ? '준비 중' : `${p.price}마리`}
+          {p.price == null ? t('ui.shop.comingSoon') : t('ui.hall.fishCount', { v0: p.price })}
         </Txt>
       </Pressable>
     );
@@ -209,36 +213,37 @@ export function renderShopScreens(context: ScreenContext) {
           bg="shop"
           sign="dog"
           signKind="npc"
-          title="강아지 상점"
+          title={t('ui.shop.dogShop')}
           tall
-          action="구매 내역"
+          action={t('ui.shop.purchaseHistory')}
           actionPress={() => go('orders')}
           onClose={home}
         >
           {fishStrip}
           <Chips
-            items={['내 꾸미기', '우리 섬 꾸미기']}
-            value={mine ? '내 꾸미기' : '우리 섬 꾸미기'}
+            items={['personal', 'island']}
+            labelFor={(id: string) => t(`shop.tab.${id}`)}
+            value={mine ? 'personal' : 'island'}
             onChange={setTab}
           />
           {mine && (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
               <Pic id="dog" w={56} />
               <Txt kind="meta" style={[st.meta, { flex: 1 }]}>
-                어서 와, 기다렸어! 물고기로 사는 건 내 뗏목에서 입어.
+                {t('ui.shop.shopGreeting')}
               </Txt>
             </View>
           )}
           {server && shopApi.error ? (
             <View style={{ alignItems: 'center', gap: 10, paddingVertical: 24 }}>
               <Txt kind="meta" style={st.meta}>
-                {serverErrorText(shopApi.error) || '상점을 불러오지 못했어요.'}
+                {serverErrorText(shopApi.error) || t('ui.shop.shopFailed')}
               </Txt>
-              <Btn title="다시 시도" onPress={shopApi.retry} />
+              <Btn title={t('common.retry')} onPress={shopApi.retry} />
             </View>
           ) : server && shopApi.loading ? (
             <Txt kind="meta" style={[st.meta, { textAlign: 'center', paddingVertical: 24 }]}>
-              불러오는 중…
+              {t('account.blocked.loading')}
             </Txt>
           ) : null}
           {/* 파는 상품이 없으면 빈 상태 한 줄. 서버는 이 탭 응답을 받은 뒤에만 — 요청 전 첫 프레임·탭을 바꾼 직후·불러오는 중·실패엔 띄우지 않는다 */}
@@ -288,15 +293,15 @@ export function renderShopScreens(context: ScreenContext) {
           bg="shop"
           sign="dog"
           signKind="npc"
-          title="상품 상세"
+          title={t('ui.shop.productDetails')}
           fit
           onBack={back}
           onClose={home}
         >
           <Txt kind="meta" style={[st.meta, { textAlign: 'center', paddingVertical: 24 }]}>
             {shopApi.detailLoading
-              ? '불러오는 중…'
-              : serverErrorText(shopApi.detailError) || '상품을 불러오지 못했어요.'}
+              ? t('account.blocked.loading')
+              : serverErrorText(shopApi.detailError) || t('ui.shop.productFailed')}
           </Txt>
         </IslandSheet>
       );
@@ -347,16 +352,16 @@ export function renderShopScreens(context: ScreenContext) {
     };
     const buy = () =>
       confirm(
-        p.title + '를 살까요?',
-        `섬 물고기 ${p.price}마리 사용 · 구매 후 ${remaining.toLocaleString()}마리` +
-          (clothes ? '\n산 사람의 보유품이라 섬을 떠나도 남아요.' : ''),
+        t('ui.shop.confirmTrack', { v0: customizationTitle(p.id, p.title) }),
+        t('ui.shop.purchaseBalance', { v0: p.price, v1: remaining.toLocaleString(localeTag()) }) +
+          (clothes ? t('ui.shop.personalOwnershipLine') : ''),
         () => {
           if (server) {
             // 응답 + 지갑·인벤토리·내역 재조회가 끝날 때만 성공 토스트 — 실패·응답 유실에는 붙지 않는다.
             const startedView = productViewRef.current;
             shopApi
               .buy({ id: p.id, productVersion: sp!.productVersion })
-              .then(() => setSheetToast('구매했어요.'))
+              .then(() => setSheetToast(t('ui.shop.purchased')))
               .catch((thrown) => {
                 if (e.conversion?.offer(thrown)) return;
                 const m = serverErrorText(thrown);
@@ -374,39 +379,46 @@ export function renderShopScreens(context: ScreenContext) {
             return;
           }
           act('BUY', { id: p.id });
-          setSheetToast('구매했어요.');
+          setSheetToast(t('ui.shop.purchased'));
         },
-        { ok: '구매' },
+        { ok: t('ui.shop.buy') },
       );
     const cta = !has ? (
       <Cta
         note={
           error ??
           (audio
-            ? `구매 후 ${remaining.toLocaleString()}마리`
-            : `섬 물고기 ${p.price}마리 사용 · 구매 후 ${remaining.toLocaleString()}마리`)
+            ? t('ui.shop.remainingBalance', { v0: remaining.toLocaleString(localeTag()) })
+            : t('ui.shop.purchaseBalance', {
+                v0: p.price,
+                v1: remaining.toLocaleString(localeTag()),
+              }))
         }
-        title={audio ? `섬 물고기 ${p.price}마리로 구매` : `${p.price}마리로 구매`}
+        title={
+          audio
+            ? t('ui.shop.buyWithIslandFish', { v0: p.price })
+            : t('ui.shop.buyForFish', { v0: p.price })
+        }
         onPress={buy}
         disabled={!!error || (server && shopApi.writing)}
       />
     ) : clothes ? (
-      <Cta title="내 뗏목에서 갈아입기" onPress={() => walkTo('wardrobe')} />
+      <Cta title={t('ui.shop.changeOnRaft')} onPress={() => walkTo('wardrobe')} />
     ) : audio ? (
-      <Cta title="축음기에서 듣기" onPress={() => go('sound')} />
+      <Cta title={t('ui.shop.listenAtGram')} onPress={() => go('sound')} />
     ) : (
       <Cta
-        title={applied ? '우리 섬에 적용됨' : '우리 섬에 적용'}
+        title={applied ? t('ui.shop.applied') : t('ui.shop.apply')}
         // 적용됨은 시안 모양 그대로 두고 누름만 막는다(Btn이 비활성으로 읽음)
         onPress={
           applied
             ? undefined
             : () =>
                 void apply(p.id).then((ok) => {
-                  if (ok) setSheetToast('우리 섬에 적용했어요.');
+                  if (ok) setSheetToast(t('ui.shop.appliedNotice'));
                 })
         }
-        ghost="기본 외양으로 해제"
+        ghost={t('ui.shop.resetAppearance')}
         onGhost={() => {
           const current =
             p.kind === 'island'
@@ -417,11 +429,11 @@ export function renderShopScreens(context: ScreenContext) {
                 ? shopApi.shared?.appearance.buildingThemes?.[p.building || 'hall']
                 : island.buildingThemes?.[p.building || 'hall'];
           if (!current || current === 'default') {
-            setSheetToast('이미 기본 외양이에요');
+            setSheetToast(t('ui.shop.alreadyDefault'));
             return;
           }
           void apply('default').then((ok) => {
-            if (ok) setSheetToast('기본 외양으로 되돌렸어요.');
+            if (ok) setSheetToast(t('ui.shop.restored'));
           });
         }}
       />
@@ -431,7 +443,7 @@ export function renderShopScreens(context: ScreenContext) {
         bg={audio ? 'gram' : 'shop'}
         sign={audio ? 'bld/gramophone' : 'dog'}
         signKind={audio ? '' : 'npc'}
-        title={audio ? '음원 사기' : '상품 상세'}
+        title={audio ? t('ui.shop.buyTrack') : t('ui.shop.productDetails')}
         fit
         onBack={back}
         onClose={home}
@@ -444,12 +456,12 @@ export function renderShopScreens(context: ScreenContext) {
           <Preview h={220} bg={C.soft}>
             <Pic id="bld/gramophone" w={170} />
             <View style={{ position: 'absolute', left: 16, bottom: 22 }}>
-              <Badge soft>나만 미리듣기</Badge>
+              <Badge soft>{t('ui.shop.preview')}</Badge>
             </View>
             {/* 미리듣기는 내 기기에서만. 섬 재생에는 영향 없음 */}
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel={previewAudio ? '미리듣기 멈춤' : '나만 미리듣기'}
+              accessibilityLabel={previewAudio ? t('ui.shop.stopPreview') : t('ui.shop.preview')}
               disabled={!player.playbackAllowed}
               accessibilityState={{ disabled: !player.playbackAllowed }}
               onPress={() => {
@@ -465,7 +477,7 @@ export function renderShopScreens(context: ScreenContext) {
                     setPreviewAudio(player.play());
                   }
                 } catch {
-                  notify('음원을 불러오지 못했어요.');
+                  notify(t('ui.shop.trackFailed'));
                 }
               }}
               style={{
@@ -495,20 +507,24 @@ export function renderShopScreens(context: ScreenContext) {
             <Pic id={'bld/' + buildingArt[p.building || 'hall']} w={180} />
           </Preview>
         )}
-        <Txt style={st.h22}>{p.title}</Txt>
-        {has && !audio && <Badge>보유 중{applied ? ' · 적용됨' : ''}</Badge>}
+        <Txt style={st.h22}>{customizationTitle(p.id, p.title)}</Txt>
+        {has && !audio && (
+          <Badge>
+            {t('ui.shop.ownedApplied', { v0: applied ? t('ui.shop.appliedSuffix') : '' })}
+          </Badge>
+        )}
         <Txt style={st.body}>
           {p.description}
-          {p.kind === 'island' && applied ? ' 지금 우리 섬에 적용돼 있어요.' : ''}
+          {p.kind === 'island' && applied ? t('ui.shop.appliedHint') : ''}
         </Txt>
         {clothes && (
           <Txt kind="meta" style={st.meta}>
-            산 사람의 보유품이라 섬을 떠나도 남아요.
+            {t('ui.shop.personalOwnership')}
           </Txt>
         )}
         {audio && (
           <Txt kind="meta" style={st.meta}>
-            주민 누구나 살 수 있어요. 사면 섬 전체가 함께 들어요.
+            {t('ui.shop.anyResidentCanBuy')}
           </Txt>
         )}
       </IslandSheet>
@@ -518,7 +534,7 @@ export function renderShopScreens(context: ScreenContext) {
   if (route === 'orders') {
     // 내 구매 = 옷·장신구(날짜·시각), 섬 공동 구매 = 이 섬 테마·음원(날짜·구매자, 방장이면 "방장")
     // 서버 모드는 scope=personal|shared 응답이 정본 — 내역 가격은 당시 확정가 스냅숏이다(GROMO-2017).
-    const shared = tab === '섬 공동 구매';
+    const shared = tab === 'shared';
     const list: State['orders'] = server
       ? shopApi.orders.map((o) => ({
           id: o.id,
@@ -537,29 +553,30 @@ export function renderShopScreens(context: ScreenContext) {
         bg="shop"
         sign="dog"
         signKind="npc"
-        title="구매 내역"
+        title={t('ui.shop.purchaseHistory')}
         tight
         onBack={back}
         onClose={home}
       >
         <FTabs
           items={[
-            ['내 구매', 'person'],
-            ['섬 공동 구매', 'group'],
+            ['personal', 'person'],
+            ['shared', 'group'],
           ]}
-          value={shared ? '섬 공동 구매' : '내 구매'}
+          value={shared ? 'shared' : 'personal'}
+          labelFor={(id: string) => t(`shop.ordersTab.${id}`)}
           onChange={setTab}
         />
         {server && shopApi.ordersLoading ? (
           <Txt kind="meta" style={[st.meta, { textAlign: 'center', paddingVertical: 24 }]}>
-            불러오는 중…
+            {t('account.blocked.loading')}
           </Txt>
         ) : server && shopApi.ordersError ? (
           <View style={{ alignItems: 'center', gap: 10, paddingVertical: 24 }}>
             <Txt kind="meta" style={st.meta}>
-              {serverErrorText(shopApi.ordersError) || '구매 내역을 불러오지 못했어요.'}
+              {serverErrorText(shopApi.ordersError) || t('ui.shop.ordersFailed')}
             </Txt>
-            <Btn title="다시 시도" onPress={shopApi.retry} />
+            <Btn title={t('common.retry')} onPress={shopApi.retry} />
           </View>
         ) : list.length ? (
           <SheetGroup>
@@ -569,12 +586,12 @@ export function renderShopScreens(context: ScreenContext) {
                 title={productTitle(o.product)}
                 sub={
                   shared
-                    ? [md(o.at), o.buyer && (isHostName(o.buyer) ? '섬장' : o.buyer)]
+                    ? [md(o.at), o.buyer && (isHostName(o.buyer) ? t('ui.shop.host') : o.buyer)]
                         .filter(Boolean)
                         .join(' · ')
                     : `${md(o.at)} · ${hm(o.at)}`
                 }
-                right={`${o.price}마리`}
+                right={t('ui.hall.fishCount', { v0: o.price })}
                 chevron
                 onPress={() => go('product', o.product)}
               />
@@ -582,7 +599,7 @@ export function renderShopScreens(context: ScreenContext) {
           </SheetGroup>
         ) : (
           <Txt kind="meta" style={[st.meta, { textAlign: 'center', paddingVertical: 24 }]}>
-            아직 구매한 물건이 없어요.
+            {t('ui.shop.noPurchases')}
           </Txt>
         )}
       </IslandSheet>

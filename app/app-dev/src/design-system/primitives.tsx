@@ -1,3 +1,4 @@
+import { t } from '@/i18n';
 import { TextInput, Text } from '@/design-system/typography';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import React, { useRef, createContext, useContext } from 'react';
@@ -215,7 +216,7 @@ export function Avatar({ color = 'black', size = 54 }: { color?: string; size?: 
       source={cat(color)}
       style={[S.avatar, { width: size, height: size }]}
       resizeMode="contain"
-      accessibilityLabel="고양이 프로필"
+      accessibilityLabel={t('ui.common.catProfile')}
     />
   );
 }
@@ -254,7 +255,11 @@ export function Progress({ value, label }: { value: number | null; label?: strin
   return (
     <View
       accessible
-      accessibilityLabel={(label || '달성률') + ' ' + (value === null ? '확인 필요' : value + '%')}
+      accessibilityLabel={
+        (label || t('ui.common.completionRate')) +
+        ' ' +
+        (value === null ? t('ui.common.needsReview') : value + '%')
+      }
       style={{ gap: 6 }}
     >
       <View

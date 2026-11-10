@@ -1,3 +1,5 @@
+import { formatNumber } from '@/i18n/format';
+import { t } from '@/i18n';
 export const interiorArt = {
   boardBackground: require('@/assets/interiors/board-three-papers-v5.png'),
   buildings: {
@@ -46,86 +48,184 @@ export const artSize = {
 } as const;
 
 export const kindCopy: Record<string, string> = {
-  'island-management': '섬 관리',
-  'hall-desk': '마을회관 책상',
-  'building-models': '목각 건물',
-  'village-ledger': '공동 가계부',
-  'building-blueprint': '건물 청사진',
-  'board-final': '게시판',
-  'board-notice': '공지 목록',
-  'board-notice-detail': '공지 상세',
-  'board-quest': '퀘스트 상세',
-  'board-blueprint': '청사진 상세',
-  'observatory-desk': '노트북과 지도',
-  'island-ranking': '섬 랭킹',
-  'old-map': '낡은 지도',
-  'mail-home': '열린 우체통',
-  'received-letters': '받은 편지',
-  'letter-detail': '편지 상세',
-  'friend-select': '친구 선택',
-  'friend-compose': '편지 쓰기',
-  tryon: '거울',
-  counter: '진열대',
-  themes: '섬 테마',
-  records: '레코드판',
-  player: '턴테이블',
-  catalog: '음원 상자',
+  get 'island-management'() {
+    return t('common.manageIsland');
+  },
+  get 'hall-desk'() {
+    return t('ui.interiors.hallDesk');
+  },
+  get 'building-models'() {
+    return t('ui.interiors.woodenBuildings');
+  },
+  get 'village-ledger'() {
+    return t('ui.hall.sharedLedger');
+  },
+  get 'building-blueprint'() {
+    return t('ui.interiors.buildingBlueprint');
+  },
+  get 'board-final'() {
+    return t('building.board');
+  },
+  get 'board-notice'() {
+    return t('ui.interiors.noticeList');
+  },
+  get 'board-notice-detail'() {
+    return t('ui.board.noticeDetails');
+  },
+  get 'board-quest'() {
+    return t('ui.board.questDetails');
+  },
+  get 'board-blueprint'() {
+    return t('ui.interiors.blueprintDetails');
+  },
+  get 'observatory-desk'() {
+    return t('ui.interiors.laptopMap');
+  },
+  get 'island-ranking'() {
+    return t('ui.interiors.islandRanking');
+  },
+  get 'old-map'() {
+    return t('ui.interiors.oldMap');
+  },
+  get 'mail-home'() {
+    return t('ui.interiors.openMailbox');
+  },
+  get 'received-letters'() {
+    return t('ui.mail.inbox');
+  },
+  get 'letter-detail'() {
+    return t('ui.interiors.letterDetails');
+  },
+  get 'friend-select'() {
+    return t('ui.interiors.chooseFriend');
+  },
+  get 'friend-compose'() {
+    return t('ui.mail.writeLetter');
+  },
+  get tryon() {
+    return t('ui.interiors.mirror');
+  },
+  get counter() {
+    return t('ui.interiors.display');
+  },
+  get themes() {
+    return t('ui.interiors.islandTheme');
+  },
+  get records() {
+    return t('ui.interiors.record');
+  },
+  get player() {
+    return t('ui.interiors.turntable');
+  },
+  get catalog() {
+    return t('ui.interiors.recordBox');
+  },
 };
 
 export const buildOptions = [
   {
     id: 'library',
-    name: '도서관',
+    get name() {
+      return t('building.library');
+    },
     image: interiorArt.buildings.library,
     size: artSize.library,
-    price: '1인당 20마리',
-    time: '공사 15분',
-    summary: '집중·스크린타임 기록',
-    detail: '나와 주민들의 집중 기록, 스크린타임, 누적 물고기를 일·주·월로 확인해요.',
+    get price() {
+      return t('ui.board.totalFishCost', { v0: formatNumber(2720) });
+    },
+    get time() {
+      return t('ui.interiors.build15m');
+    },
+    get summary() {
+      return t('ui.interiors.librarySummary');
+    },
+    get detail() {
+      return t('ui.hall.libraryDescription');
+    },
     locked: false,
   },
   {
     id: 'observatory',
-    name: '전망대',
+    get name() {
+      return t('building.tower');
+    },
     image: interiorArt.buildings.observatory,
     size: artSize.observatory,
-    price: '1인당 40마리',
-    time: '공사 30분',
-    summary: '다른 섬 랭킹과 탐색',
-    detail: '다른 섬의 주간 랭킹을 보고 공개 섬을 찾아 구경하거나 가입해요.',
+    get price() {
+      return t('ui.board.totalFishCost', { v0: formatNumber(5440) });
+    },
+    get time() {
+      return t('ui.interiors.build30m');
+    },
+    get summary() {
+      return t('ui.interiors.towerSummary');
+    },
+    get detail() {
+      return t('ui.interiors.towerDescription');
+    },
     locked: false,
   },
   {
     id: 'mailbox',
-    name: '우체통',
+    get name() {
+      return t('building.mail');
+    },
     image: interiorArt.buildings.mailbox,
     size: artSize.mailbox,
-    price: '1인당 30마리',
-    time: '공사 20분',
-    summary: '주민·친구 편지',
-    detail: '섬 주민 모두의 편지방과 다른 섬 친구에게 보내는 개인 편지를 이용해요.',
+    get price() {
+      return t('ui.board.totalFishCost', { v0: formatNumber(4080) });
+    },
+    get time() {
+      return t('ui.interiors.build20m');
+    },
+    get summary() {
+      return t('ui.hall.mailSummary');
+    },
+    get detail() {
+      return t('ui.interiors.mailDescription');
+    },
     locked: false,
   },
   {
     id: 'gramophone',
-    name: '축음기',
+    get name() {
+      return t('building.gram');
+    },
     image: interiorArt.buildings.gramophone,
     size: artSize.gramophone,
-    price: '1인당 10마리',
-    time: '공사 5분',
-    summary: '공동 음원 재생',
-    detail: '모닥불과 집중 화면에서 함께 들을 음원을 구매하고 재생해요.',
+    get price() {
+      return t('ui.board.totalFishCost', { v0: formatNumber(1360) });
+    },
+    get time() {
+      return t('ui.interiors.build5m');
+    },
+    get summary() {
+      return t('ui.hall.gramSummary');
+    },
+    get detail() {
+      return t('ui.interiors.gramDescription');
+    },
     locked: false,
   },
   {
     id: 'shop',
-    name: '상점',
+    get name() {
+      return t('building.shop');
+    },
     image: interiorArt.buildings.shop,
     size: artSize.shop,
-    price: '1인당 50마리',
-    time: '공사 1시간',
-    summary: '의상·섬 테마 구매',
-    detail: '고양이 의상과 장신구, 섬과 건물 테마를 공동 물고기로 구매해요.',
+    get price() {
+      return t('ui.board.totalFishCost', { v0: formatNumber(6800) });
+    },
+    get time() {
+      return t('ui.interiors.build1h');
+    },
+    get summary() {
+      return t('ui.hall.shopSummary');
+    },
+    get detail() {
+      return t('ui.interiors.shopDescription');
+    },
     locked: true,
   },
 ];

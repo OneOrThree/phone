@@ -7,7 +7,9 @@
     "content.notice.withdraw.v1",
     "content.app-requirements.v1",
     "construction.policy.v1",
-    "focus.policy.v1"
+    "focus.policy.v1",
+    "customization.grant.v1",
+    "customization.reward-pool.v1"
   ],
   "notification": [
     "notification.publication.v1",

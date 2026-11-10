@@ -13,12 +13,12 @@
  *    앱은 그 구간으로 표시 진행률을 계산하고, `completesAt` 경과는 재조회 신호로만 쓴다.
  *  - `islandId` 입력은 지금 로컬 섬 id 라 fetch 에 쓰지 않는다 — 서버 섬 id 는 `/me/islands`
  *    의 current 에서 배우고(`useLedgerScreen` 과 같은 계약), `islandId` 는 scope 리셋 신호다.
- *  - 「각자 몫」의 대상 명단과 목표량은 options.residentProgress가 정본이다.
- *    현재 주민 목록으로 목표 선택 시점의 대상을 다시 계산하지 않는다.
+ *  - 모든 건물은 섬 통장의 현재 잔액을 사용하고 주민별 할당량을 계산하지 않는다.
  *
  * 경합·쓰기 규칙은 `useIslandManagement` 와 같다 — scope(로컬 섬 id + 인증 세대)·순서·mounted
  * fence, 단일 쓰기 flight, 성공은 서버 재조회로만 확정, 403/409 는 재조회 뒤 원래 오류를 올린다.
  */
+import { t } from '@/i18n';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 import {
@@ -87,7 +87,7 @@ type WriteIntent = { key: string; payload: string; scope: Scope };
 export type ConstructionSnapshot = {
   /** 마지막으로 확정된 옵션 — 쓰기의 expectedVersion·selectable 정본. */
   options: ConstructionOptions | null;
-  /** 서버 주민 전원(모든 페이지) — 「각자 몫」 분모와 대상 명단 표시의 정본. */
+  /** 주민 목록이 필요한 호출부를 위한 선택 데이터. 건설 판정에는 사용하지 않는다. */
   members: IslandMember[] | null;
   /** `/me/islands` 의 current 에서 배운 서버 섬 id — 호출부의 섬 id 와 대조하는 정본. */
   serverIslandId: string | null;
@@ -126,7 +126,7 @@ export function useConstruction({
   onStarted?: (started: ConstructionStarted, serverIslandId: string) => void;
   /** 회관 재진입 뒤에도 홈이 보관한 착공 시각으로 완공 확인을 이어 간다. */
   resumeTiming?: ConstructionTiming | null;
-  /** 「각자 몫」 분모가 필요 없는 호출부는 false로 주민 전체 페이지 조회를 건너뛴다. */
+  /** 주민 목록을 표시하지 않는 호출부는 false로 전체 페이지 조회를 건너뛴다. */
   withMembers?: boolean;
 }) {
   const [snap, setSnap] = useState<ConstructionSnapshot>(EMPTY);
@@ -456,9 +456,15 @@ export function useConstruction({
 
   /** 착공 — 가격 버전까지 서명한다. 성공 확정 뒤 BUILDING·시각을 서버 응답 그대로 싣는다. */
   const build = useCallback(
-    async (buildingId: string): Promise<void> => {
+    async (buildingId: string, quotedCost?: number): Promise<void> => {
       const scope = callScope();
       const options = confirmedItem(scope, buildingId, 'buildable');
+      if (
+        quotedCost !== undefined &&
+        options.items.find((item) => item.id === buildingId)?.cost !== quotedCost
+      ) {
+        throw new ApiError('VERSION_CONFLICT', t('constructionPlan.priceChanged'), 409);
+      }
       // 쓰기 전에 고정한다 — 재조회로 serverIsland.current 가 바뀌어도 이 착공은 대상 섬 그대로 확정한다.
       const target = serverIsland.current!;
       const body = {

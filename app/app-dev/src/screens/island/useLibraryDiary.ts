@@ -30,7 +30,7 @@ import {
   type StatisticsQuery,
 } from '@/services/api/records';
 
-export type DiaryPeriod = '일' | '주' | '월';
+export type DiaryPeriod = 'day' | 'week' | 'month';
 
 // ponytail: 정원 15·기록 30/쪽이라 정상 계약에선 1쪽이다 — 서버가 커서를 계속 주는 비정상을
 // 32쪽에서 끊는다(homeSnapshot 의 MAX_MEMBER_PAGES 와 같은 최후 방어선).
@@ -155,7 +155,7 @@ export function useLibraryDiary({
         // 이번 KST 주·scope=me 는 진입 집계의 조각을 그대로 쓴다(같은 축·같은 관측).
         // missingFragments 에 든 조각은 서버가 아직 만들지 않은 것 — 다시 묻지 않고
         // null 로 둬서 UI 가 「준비 중」을 그리게 한다.
-        const firstWeek = !from && period === '주' && offset === 0;
+        const firstWeek = !from && period === 'week' && offset === 0;
         const missing = lib.missingFragments ?? [];
         if (combined) {
           if (nb) {

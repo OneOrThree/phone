@@ -1,3 +1,4 @@
+import { t, tForLocale, SUPPORTED_LOCALES } from '@/i18n';
 import type { IslandSummary, MyIslands, MyJoinRequest, VisitScreen } from '@/services/api/islands';
 import type { PlaybackState } from '@/services/api/playback';
 import type { PersonalInventory, SharedInventory } from '@/services/api/shop';
@@ -271,7 +272,7 @@ export function reducer(state: State, a: Action): State {
       break;
     // ── 섬 — 만들기·가입·이동 ──
     case 'CREATE_ISLAND': {
-      const n = makeIsland(uuid(), a.name.trim() || '나의 섬', false, true);
+      const n = makeIsland(uuid(), a.name.trim() || t('ui.policy.my_island_97b77'), false, true);
       n.joined = true;
       n.joinedDay = dayKey(now);
       n.intro = a.intro || '';
@@ -304,7 +305,7 @@ export function reducer(state: State, a: Action): State {
         s.pendingIsland = island.id;
         break;
       }
-      s.travelOrigin = s.onboarded ? i.name : '나의 뗏목';
+      s.travelOrigin = s.onboarded ? i.name : t('ui.policy.my_raft_2aa18');
       island.joined = true;
       if (!wasJoined) island.joinedDay = dayKey(now);
       s.islandId = island.id;
@@ -628,7 +629,7 @@ export function reducer(state: State, a: Action): State {
         session: {
           id: uuid(),
           islandId: s.serverIslands?.currentIslandId ?? s.islandId,
-          subject: a.subject.trim() || '집중',
+          subject: a.subject.trim() || t('focusFlow.setup.defaultSubject'),
           startedAt: now,
           seconds: 0,
           status: 'active',
@@ -697,7 +698,7 @@ export function reducer(state: State, a: Action): State {
       s.session = {
         id: uuid(),
         islandId: s.islandId,
-        subject: a.subject.trim() || '집중',
+        subject: a.subject.trim() || t('focusFlow.setup.defaultSubject'),
         startedAt: now,
         seconds: 0,
         status: 'active',
@@ -747,7 +748,7 @@ export function reducer(state: State, a: Action): State {
       tutorialIsland.earned.me = earnedBy(tutorialIsland, 'me') + 1;
       tutorialIsland.ledger.unshift({
         id: uuid(),
-        text: `${s.name} · 첫 집중 +1마리`,
+        text: t('ui.policy.v0_first_focus_1_fish_0e5e5', { v0: s.name }),
         at: now,
         memberId: 'me',
       });
@@ -787,7 +788,7 @@ export function reducer(state: State, a: Action): State {
       if (uncredited > 0)
         island.ledger.unshift({
           id: uuid(),
-          text: `${s.name} · 집중 +${uncredited}마리`,
+          text: t('ui.policy.v0_focus_v1_fish_04a32', { v0: s.name, v1: uncredited }),
           at: now,
           memberId: 'me',
         });
@@ -830,7 +831,7 @@ export function reducer(state: State, a: Action): State {
         owner.earned.me = earnedBy(owner, 'me') + record.fish;
         owner.ledger.unshift({
           id: uuid(),
-          text: `${s.name} · 집중 +${record.fish}마리`,
+          text: t('ui.policy.v0_focus_v1_fish_04a32', { v0: s.name, v1: record.fish }),
           at: record.at,
           memberId: 'me',
         });
@@ -847,17 +848,8 @@ export function reducer(state: State, a: Action): State {
     case 'SELECT_BUILDING': {
       const b = a.building as Building;
       if (canSelectBuilding(i, b)) return state;
-      const targets = targetIds(i);
-      const prevQuest = i.buildingQuest;
-      const base: Record<string, number> = {};
-      // 목표 변경 시 이어서 셈 — 추가 결정 필요: 계속 대상인 주민은 이전 스냅숏을 유지하고,
-      // 새로 대상에 들어온 주민만 지금 시점 earned로 새로 스냅숏한다
-      for (const id of targets)
-        base[id] =
-          prevQuest && prevQuest.targets.includes(id)
-            ? (prevQuest.base?.[id] ?? 0)
-            : earnedBy(i, id);
-      i.buildingQuest = { building: b, targets, selectedAt: now, base };
+      // 예전 저장본의 targets/base는 읽을 수 있지만 새 목표는 개인별 할당량을 만들지 않는다.
+      i.buildingQuest = { building: b, targets: [], selectedAt: now };
       i.nextBuilding = b;
       delete i.completed;
       break;
@@ -873,7 +865,7 @@ export function reducer(state: State, a: Action): State {
         endsAt: now + buildMinutes[b] * 60000,
         cost,
       };
-      log(`${buildingNames[b]} 공사 시작 −${cost}마리`);
+      log(t('ui.policy.started_v0_construction_v1_fish_770ed', { v0: buildingNames[b], v1: cost }));
       break;
     }
     case 'TICK': {
@@ -889,7 +881,7 @@ export function reducer(state: State, a: Action): State {
           if (nextBuildings.includes(b)) island.completed = { building: b, at: now };
           island.ledger.unshift({
             id: uuid(),
-            text: `${buildingNames[b]} 완공`,
+            text: t('ui.policy.v0_completed_6750f', { v0: buildingNames[b] }),
             at: now,
           });
         }
@@ -925,7 +917,7 @@ export function reducer(state: State, a: Action): State {
         owner.quests.find((q) => q.id === reward.questId)?.rounds?.[reward.day]?.claimed.push('me');
         owner.ledger.unshift({
           id: uuid(),
-          text: `퀘스트 달성 보상 +${reward.amount}마리`,
+          text: t('ui.policy.quest_reward_v0_fish_2fa95', { v0: reward.amount }),
           at: now,
           memberId: 'me',
         });
@@ -942,7 +934,7 @@ export function reducer(state: State, a: Action): State {
       i.fish = balance(i) + 10;
       i.earned ??= {};
       i.earned[a.memberId] = earnedBy(i, a.memberId) + 10;
-      log('주민 퀘스트 달성 보상 +10마리', a.memberId);
+      log(t('ui.policy.resident_quest_reward_10_fish_cd037'), a.memberId);
       break;
     }
     case 'QUEST_SAVE': {
@@ -1076,7 +1068,7 @@ export function reducer(state: State, a: Action): State {
       if (!p || canBuy(s, p)) return state;
       i.fish = balance(i) - p.price;
       i.sharedOwned.push(p.id);
-      log(`${p.title} 구매 −${p.price}마리`);
+      log(t('ui.policy.purchased_v0_v1_fish_4db4a', { v0: p.title, v1: p.price }));
       s.orders.unshift({
         id: uuid(),
         product: p.id,
@@ -1186,7 +1178,7 @@ export function reducer(state: State, a: Action): State {
         id: i.members.some((m) => m.id === request.id) ? uuid() : request.id,
         name: request.name,
         color: request.color,
-        subject: former?.subject ?? '독서 과제',
+        subject: former?.subject ?? t('ui.policy.reading_task_cfc60'),
         seconds: former?.seconds ?? 0,
         focusing: false,
         restStartedAt: undefined,
@@ -1366,7 +1358,11 @@ export function reducer(state: State, a: Action): State {
       const profileNames = new Set([s.name, ...(s.profileNames ?? [])]);
       const isOwnLegacyLedger = (text: string) =>
         [...profileNames].some((name) =>
-          [`${name} · 집중 `, `${name} 집중 보상`].some((prefix) => text.startsWith(prefix)),
+          SUPPORTED_LOCALES.some((locale) =>
+            ['ui.policy.v0_focus_09b3f', 'ui.policy.v0_focus_reward_a8736'].some((key) =>
+              text.startsWith(tForLocale(locale, key, { v0: name })),
+            ),
+          ),
         );
       clean.islands = s.islands.map((i) => ({
         ...i,

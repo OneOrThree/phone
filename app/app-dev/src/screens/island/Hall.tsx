@@ -1,14 +1,21 @@
+import { localeTag } from '@/i18n/format';
+import {
+  ConstructionPlanGrid,
+  ConstructionPlanPreview,
+  ConstructionWalletSummary,
+  constructionPlanStyles,
+} from '@/components/ConstructionPlanContent';
 import { CatAvatar } from '@/components/CatAvatar';
 import { appearanceOutfit, outfitOf, type Outfit } from '@/components/CatOutfitLayers';
-import { CharCount, NavBtn, Wheel, art } from '@/design-system/patterns';
+import { Btn, CharCount, NavBtn, Wheel, art } from '@/design-system/patterns';
 import { componentTokens, semanticTokens } from '@/design-system/tokens';
-import { t } from '@/i18n';
+import { getLocale, errorTextOr, t } from '@/i18n';
 import type { ScreenProps } from '@/navigation/ScreenEnvironment';
 import {
   managementErrorMessage,
   useIslandManagement,
 } from '@/screens/interiors/useIslandManagement';
-import { BROWN, T, fill, hm, safeOffset, useGowun, web } from '@/screens/island/sceneKit';
+import { BROWN, GOWUN, T, fill, hm, safeOffset, useGowun, web } from '@/screens/island/sceneKit';
 import { useConstruction } from '@/screens/island/useConstruction';
 import { useInviteShare } from '@/screens/island/useInviteShare';
 import {
@@ -24,7 +31,7 @@ import {
   ISLAND_INTRO_MAX,
   ISLAND_NAME_MAX,
 } from '@/services/api/islandManagement';
-import { getSession, sessionGeneration } from '@/services/api/session';
+import { sessionGeneration } from '@/services/api/session';
 import { isMockMode } from '@/services/demoMode';
 import { sharedWebIslandId, usesSharedWebIsland } from '@/services/webIsland';
 import type { Route } from '@/services/model';
@@ -34,12 +41,10 @@ import {
   CAPACITY_MIN,
   State,
   balance,
-  buildMinutes,
+  canBuild,
   buildingNames,
-  buildingShare,
   canSelectBuilding,
   capacityOf,
-  collectedBy,
   costs,
   dayKey,
   isFull,
@@ -95,26 +100,55 @@ const final = (word: string) => {
   const c = word.charCodeAt(word.length - 1) - 0xac00;
   return c < 0 || c > 11171 ? -1 : c % 28;
 };
-const eul = (w: string) => w + (final(w) > 0 ? '을' : '를');
-const ro = (w: string) => w + (final(w) > 0 && final(w) !== 8 ? '으로' : '로');
+const eul = (w: string) => (getLocale() === 'ko' ? w + (final(w) > 0 ? '을' : '를') : w);
+const ro = (w: string) =>
+  getLocale() === 'ko' ? w + (final(w) > 0 && final(w) !== 8 ? '으로' : '로') : w;
 const grid = ['library', 'tower', 'mail', 'gram', 'shop'] as const satisfies readonly Building[];
 const cardDesc: Record<string, string> = {
-  hall: '주민이 모이는 곳',
-  board: '섬 공지와 퀘스트',
-  library: '집중과 스크린타임',
-  tower: '섬 순위와 탐색',
-  mail: '주민·친구 편지',
-  gram: '공동 음원 재생',
-  shop: '의상·섬 테마 구매',
+  get hall() {
+    return t('ui.hall.hallSummary');
+  },
+  get board() {
+    return t('ui.hall.boardSummary');
+  },
+  get library() {
+    return t('ui.hall.librarySummary');
+  },
+  get tower() {
+    return t('ui.hall.towerSummary');
+  },
+  get mail() {
+    return t('ui.hall.mailSummary');
+  },
+  get gram() {
+    return t('ui.hall.gramSummary');
+  },
+  get shop() {
+    return t('ui.hall.shopSummary');
+  },
 };
 const planDesc: Record<string, string> = {
-  hall: '주민이 모여 섬 소식과 가계부를 보는 곳이에요.',
-  board: '공지와 퀘스트를 올리고 확인해요.',
-  library: '나와 주민들의 집중 기록, 스크린타임, 누적 물고기를 일·주·월로 확인해요.',
-  tower: '다른 섬 순위를 보고 구경하거나 가입해요.',
-  mail: '주민·친구와 편지를 주고받아요.',
-  gram: '섬 물고기로 음원을 사서 함께 들어요.',
-  shop: '물고기로 의상과 섬 테마를 사요.',
+  get hall() {
+    return t('ui.hall.hallDescription');
+  },
+  get board() {
+    return t('ui.hall.boardDescription');
+  },
+  get library() {
+    return t('ui.hall.libraryDescription');
+  },
+  get tower() {
+    return t('ui.hall.towerDescription');
+  },
+  get mail() {
+    return t('ui.hall.mailDescription');
+  },
+  get gram() {
+    return t('ui.hall.gramDescription');
+  },
+  get shop() {
+    return t('ui.hall.shopDescription');
+  },
 };
 const bldArt: Record<string, string> = {
   hall: 'bld/hall',
@@ -125,30 +159,27 @@ const bldArt: Record<string, string> = {
   gram: 'bld/gramophone',
   shop: 'bld/shop',
 };
-// 정책 C01: 회관·게시판은 섬 통장 합산, 나머지는 주민별 n빵 — 서버 옵션에 구분 필드가 없어
-// 건물 id 로만 나눈다. 각자 몫 = 총액 ÷ 대상 주민 수(올림).
-const walletTotal = (b: string) => b === 'hall' || b === 'board';
 // blockedReason 은 서버 evaluator 의 UI 사유다 — 앱이 권한·선행을 다시 추론하지 않는다.
 const blockedText = (reason: string | null) =>
   reason === 'FORBIDDEN'
-    ? '섬장이 목표를 정해요'
+    ? t('ui.hall.hostSetsGoal')
     : reason === 'FACILITY_LOCKED'
-      ? '먼저 지어야 할 건물이 있어요'
+      ? t('ui.hall.prerequisiteBuilding')
       : reason === 'REQUIRES_TOWER_AND_MAIL'
-        ? '나머지 건물을 모두 완공한 뒤에 지을 수 있어요'
+        ? t('ui.hall.allBuildingsRequired')
         : reason === 'INSUFFICIENT_FUNDS'
-          ? '섬 물고기가 부족해요'
+          ? t('ui.hall.insufficientFish')
           : reason === 'IN_PROGRESS'
-            ? '지금 다른 건물을 짓고 있어요'
-            : '지금은 선택할 수 없어요';
+            ? t('ui.hall.miscellaneousConstruction')
+            : t('ui.hall.selectionUnavailable');
 export const buildBlockedText = (reason: string | null) =>
   reason === 'FORBIDDEN'
-    ? '섬장이 건설을 시작해요'
+    ? t('ui.hall.hostStartsConstruction')
     : reason === 'INSUFFICIENT_FUNDS'
-      ? '물고기가 모이면 건설할 수 있어요'
+      ? t('ui.hall.collectFishFirst')
       : reason === 'IN_PROGRESS'
-        ? '다른 공사가 끝난 뒤에 지을 수 있어요'
-        : '지금은 건설할 수 없어요';
+        ? t('ui.hall.waitForConstruction')
+        : t('ui.hall.constructionUnavailable');
 const bldRoute: Record<string, Route> = {
   library: 'library',
   tower: 'tower',
@@ -293,7 +324,7 @@ export function Hall({ e }: ScreenProps) {
         .filter((m) => m.role !== 'host')
         .map((m) => ({
           id: m.id,
-          name: m.name ?? '주민',
+          name: m.name ?? t('onboarding.residentFallbackName'),
           color: m.catColor ?? NO_CAT_COLOR,
           outfit: appearanceOutfit(m.appearance),
         }))
@@ -448,7 +479,7 @@ export function Hall({ e }: ScreenProps) {
     </>
   );
   // 목적지가 정해진 ‹ 는 목적지를 읽고(책상 → 섬), 이전 화면으로 가는 ‹ 는 「뒤로」다(DESIGN §7.14)
-  const back = (onPress: () => void, label = '뒤로') => (
+  const back = (onPress: () => void, label = t('common.back')) => (
     <NavBtn
       label={label}
       testID="hall-back"
@@ -485,7 +516,7 @@ export function Hall({ e }: ScreenProps) {
     <>
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel="닫기"
+        accessibilityLabel={t('common.close')}
         onPress={() => setDialog(null)}
         style={[fill, { zIndex: 20, backgroundColor: 'rgba(51, 42, 38, 0.45)' }]}
       />
@@ -498,12 +529,16 @@ export function Hall({ e }: ScreenProps) {
             justifyContent: 'center',
             paddingLeft: land ? over : 31,
             paddingRight: land ? 75 : 31,
+            paddingTop: L.insets.top + semanticTokens.spacing.control,
+            paddingBottom: L.insets.bottom + semanticTokens.spacing.control,
           },
         ]}
       >
         <View
+          testID="hall-dialog"
           accessibilityViewIsModal
           style={{
+            maxHeight: H - L.insets.top - L.insets.bottom - 2 * semanticTokens.spacing.control,
             gap: land ? 7 : 11,
             paddingTop: land ? 16 : 22,
             paddingHorizontal: land ? 18 : 19,
@@ -515,38 +550,45 @@ export function Hall({ e }: ScreenProps) {
             boxShadow: '0px 14px 34px rgba(45, 33, 27, 0.5)',
           }}
         >
-          <T style={g(21, 33.6, { color: CARD_INK, fontWeight: '700' })}>{dialog.title}</T>
-          {!!dialog.text && (
-            <T
-              style={g(land ? 14 : 15, land ? 21.7 : 23.25, {
-                color: MUTED,
-                ...web({ wordBreak: 'keep-all' }),
-              })}
-            >
-              {dialog.text}
-            </T>
-          )}
-          {dialog.body}
-          {!!dialog.detail && (
-            <View
-              style={{
-                padding: land ? 8 : 11,
-                borderWidth: 1,
-                borderColor: '#d1b995',
-                borderRadius: 9,
-                backgroundColor: '#fffdf8',
-              }}
-            >
-              <T style={g(14, 20.3, { color: CARD_INK })}>{dialog.detail}</T>
-            </View>
-          )}
-          <View style={{ flexDirection: 'row', gap: 8, marginTop: 3 }}>
+          <ScrollView
+            testID="hall-dialog-content"
+            style={{ flexShrink: 1 }}
+            contentContainerStyle={{ gap: land ? 7 : 11 }}
+            keyboardShouldPersistTaps="handled"
+          >
+            <T style={g(21, 33.6, { color: CARD_INK, fontWeight: '700' })}>{dialog.title}</T>
+            {!!dialog.text && (
+              <T
+                style={g(land ? 14 : 15, land ? 21.7 : 23.25, {
+                  color: MUTED,
+                  ...web({ wordBreak: 'keep-all' }),
+                })}
+              >
+                {dialog.text}
+              </T>
+            )}
+            {dialog.body}
+            {!!dialog.detail && (
+              <View
+                style={{
+                  padding: land ? 8 : 11,
+                  borderWidth: 1,
+                  borderColor: '#d1b995',
+                  borderRadius: 9,
+                  backgroundColor: '#fffdf8',
+                }}
+              >
+                <T style={g(14, 20.3, { color: CARD_INK })}>{dialog.detail}</T>
+              </View>
+            )}
+          </ScrollView>
+          <View style={{ flexDirection: 'row', flexShrink: 0, gap: 8, marginTop: 3 }}>
             {(dialog.ok ? [false, true] : [false]).map((ok) => (
               <Pressable
                 key={String(ok)}
                 testID={ok ? 'hall-dialog-ok' : 'hall-dialog-cancel'}
                 accessibilityRole="button"
-                accessibilityLabel={ok ? dialog.ok : '취소'}
+                accessibilityLabel={ok ? dialog.ok : t('common.cancel')}
                 onPress={() => {
                   setDialog(null);
                   if (ok) dialog.onOk?.();
@@ -573,7 +615,7 @@ export function Hall({ e }: ScreenProps) {
                     fontWeight: ok ? '700' : '400',
                   })}
                 >
-                  {ok ? dialog.ok : '취소'}
+                  {ok ? dialog.ok : t('common.cancel')}
                 </T>
               </Pressable>
             ))}
@@ -604,19 +646,19 @@ export function Hall({ e }: ScreenProps) {
   if (r === 'hall') {
     const spots = [
       {
-        label: '섬 관리',
+        label: t('common.manageIsland'),
         route: 'manage' as const,
         on: true,
         box: land ? [309.4, 85.8, 255.1, 236] : [116, 375.8, 170.1, 157.3],
       },
       {
-        label: '목각 건물 고르기',
+        label: t('ui.hall.chooseWoodenBuilding'),
         route: 'construction' as const,
         on: false,
         box: land ? [337, 5, 200, 100] : [85, 270.9, 231.9, 131.1],
       },
       {
-        label: '공동 가계부',
+        label: t('ui.hall.sharedLedger'),
         route: 'ledger' as const,
         on: false,
         box: land ? [529.7, 243, 156.5, 196.7] : [262.9, 480.7, 104.4, 131.1],
@@ -667,7 +709,7 @@ export function Hall({ e }: ScreenProps) {
                 textShadowRadius: 0,
               })}
             >
-              마을회관
+              {t('building.hall')}
             </T>
           </View>
         </View>
@@ -715,7 +757,7 @@ export function Hall({ e }: ScreenProps) {
         ))}
       </>,
       e.home,
-      '섬으로 돌아가기',
+      t('focusFlow.common.backToIsland'),
     );
   }
 
@@ -746,10 +788,10 @@ export function Hall({ e }: ScreenProps) {
             testID="ledger-member-only"
             style={g(16.8, 26.88, { fontWeight: '700', textAlign: 'center' })}
           >
-            섬 주민만 볼 수 있어요
+            {t('ui.hall.residentsOnly')}
           </T>
           <T style={g(15.5, 21.7, { color: MUTED, textAlign: 'center' })}>
-            공동 가계부는 주민에게만 공개돼요
+            {t('ui.hall.ledgerResidentsOnly')}
           </T>
         </View>,
         e.back,
@@ -757,20 +799,23 @@ export function Hall({ e }: ScreenProps) {
     }
     const [ledgerYear, ledgerMonth] = ledger.month.split('-').map(Number);
     // 포스트잇 라벨 ↔ 서버 direction scope. 잔액은 무필터(최근 두 줄), 적립·지출은 해당 방향 전체
-    const TAB_KEY = { 잔액: 'balance', 적립: 'earn', 지출: 'spend' } as const;
-    const TAB_LABEL = { balance: '잔액', earn: '적립', spend: '지출' } as const;
+    const TAB_LABEL = {
+      balance: t('ui.hall.balance'),
+      earn: t('ui.hall.earned'),
+      spend: t('ui.hall.spent'),
+    } as const;
     // 서버 원장 사유 → 한 줄 표시 (GROMO-1786 · IslandWalletTransactionType). 거래 주체는 계약에 없다
     const REASON: Record<string, string> = {
-      contribution: '집중 적립',
-      quest_settlement: '퀘스트 보상',
-      construction_debit: '건설 사용',
-      shop_purchase: '공동 구매',
-      golden_fish: '황금 물고기',
+      contribution: t('ui.hall.focusContribution'),
+      quest_settlement: t('ui.hall.questReward'),
+      construction_debit: t('ui.hall.constructionExpense'),
+      shop_purchase: t('ui.hall.sharedPurchase'),
+      golden_fish: t('ui.hall.goldenFish'),
       promotion_fee: t('magazine.ledger.promotionFee'),
     };
     const shown = ledger.tab === 'balance' ? ledger.items.slice(0, 2) : ledger.items;
     const numberText = (n: number, sign: '+' | '−') =>
-      `${sign}${Math.abs(n).toLocaleString('ko-KR')}`;
+      `${sign}${Math.abs(n).toLocaleString(localeTag())}`;
     const LG = componentTokens.ledger;
     // 세 장짜리 책: 장부 그림 한 장을 비율 그대로 깔고(세로는 폭은 좌우 여백 안, 높이는 위~아래 여백 안 — 작은 쪽에 맞춰
     // 가운데) 그림 속 종이 영역 비율로 글을 둔다
@@ -806,7 +851,7 @@ export function Hall({ e }: ScreenProps) {
       g(type.fontSize, type.lineHeight, extra);
     const tnum = { fontVariant: ['tabular-nums'] };
     // 이번 달이 아니면 「그 달」
-    const monthWord = ledger.offset ? '그 달' : '이번 달';
+    const monthWord = ledger.offset ? t('ui.hall.thatMonth') : t('ui.hall.thisMonth');
     // 통장 표 한 줄: 날짜 | 내용(묶인 줄은 · N회) | 물고기 금액. 금액 줄높이 22 > 크기 18 이라 고운돋움 숫자 윗부분이 잘리지 않는다
     const list = shown.map((l) => {
       const spend = l.direction === 'spend';
@@ -840,11 +885,11 @@ export function Hall({ e }: ScreenProps) {
             </T>
             {/* 모크 모드의 reason 자리에는 로컬 제목이 실려 있다 — 그대로 보여 준다 */}
             <T style={lt(LG.reason, { flex: 1, minWidth: 0 })}>
-              {mockLedger ? l.reason : (REASON[l.reason] ?? '기타')}
+              {mockLedger ? l.reason : (REASON[l.reason] ?? t('ui.hall.miscellaneous'))}
               {l.entryCount > 1 ? (
-                <T
-                  style={{ fontSize: LG.countFontSize, color: LG.faint }}
-                >{` · ${l.entryCount}회`}</T>
+                <T style={{ fontSize: LG.countFontSize, color: LG.faint }}>
+                  {t('ui.hall.entryCount', { v0: l.entryCount })}
+                </T>
               ) : null}
             </T>
           </View>
@@ -875,7 +920,7 @@ export function Hall({ e }: ScreenProps) {
         <Pressable
           testID="ledger-more"
           accessibilityRole="button"
-          accessibilityLabel="이전 내역 더 보기"
+          accessibilityLabel={t('ui.hall.loadEarlier')}
           accessibilityState={{ disabled: ledger.loadingMore }}
           disabled={ledger.loadingMore}
           onPress={ledger.loadMore}
@@ -888,7 +933,7 @@ export function Hall({ e }: ScreenProps) {
           }}
         >
           <T style={g(15.5, 24.8, { color: MUTED, fontWeight: '700' })}>
-            {ledger.loadingMore ? '불러오는 중…' : '이전 내역 더 보기'}
+            {ledger.loadingMore ? t('account.blocked.loading') : t('ui.hall.loadEarlier')}
           </T>
         </Pressable>
       ) : null;
@@ -896,12 +941,12 @@ export function Hall({ e }: ScreenProps) {
       <Pressable
         testID="ledger-more-retry"
         accessibilityRole="button"
-        accessibilityLabel="다시 시도"
+        accessibilityLabel={t('common.retry')}
         onPress={ledger.loadMore}
         style={{ alignSelf: 'center', paddingVertical: 9 }}
       >
         <T style={g(15.5, 21.7, { color: '#8a4a3f', textAlign: 'center' })}>
-          내역을 더 불러오지 못했어요 · 다시 시도
+          {t('ui.hall.loadEarlierFailed')}
         </T>
       </Pressable>
     );
@@ -918,7 +963,7 @@ export function Hall({ e }: ScreenProps) {
             borderRadius: 12.9,
           }}
         >
-          <T style={g(16.8, 26.88, { fontWeight: '700' })}>불러오는 중이에요</T>
+          <T style={g(16.8, 26.88, { fontWeight: '700' })}>{t('ui.hall.loading')}</T>
         </View>
       ) : ledger.status === 'error' ? (
         <View
@@ -935,12 +980,12 @@ export function Hall({ e }: ScreenProps) {
           }}
         >
           <T style={g(16.8, 26.88, { fontWeight: '700', textAlign: 'center' })}>
-            {ledger.error?.message ?? '가계부를 불러오지 못했어요'}
+            {errorTextOr(ledger.error, 'ui.errors.ledgerFailed')}
           </T>
           <Pressable
             testID="ledger-retry"
             accessibilityRole="button"
-            accessibilityLabel="다시 시도"
+            accessibilityLabel={t('common.retry')}
             onPress={ledger.retry}
             style={{
               minHeight: 44,
@@ -952,7 +997,7 @@ export function Hall({ e }: ScreenProps) {
               borderRadius: 99,
             }}
           >
-            <T style={g(14, 22.4, { color: CARD_INK })}>다시 시도</T>
+            <T style={g(14, 22.4, { color: CARD_INK })}>{t('common.retry')}</T>
           </Pressable>
         </View>
       ) : null;
@@ -968,8 +1013,10 @@ export function Hall({ e }: ScreenProps) {
           borderBottomColor: LG.rule,
         }}
       >
-        <T style={lt(LG.tableHead, { minWidth: LG.dateWidth, color: LG.faint })}>날짜</T>
-        <T style={lt(LG.tableHead, { flex: 1, color: LG.faint })}>내용</T>
+        <T style={lt(LG.tableHead, { minWidth: LG.dateWidth, color: LG.faint })}>
+          {t('ui.hall.date')}
+        </T>
+        <T style={lt(LG.tableHead, { flex: 1, color: LG.faint })}>{t('ui.hall.details')}</T>
         <T
           style={lt(LG.tableHead, {
             minWidth: LG.amountMinWidth,
@@ -997,11 +1044,11 @@ export function Hall({ e }: ScreenProps) {
       >
         <T style={g(16.8, 26.88, { fontWeight: '700', textAlign: 'center' })}>
           {ledger.tab === 'balance'
-            ? '아직 쌓인 내역이 없어요'
-            : `이 달 ${TAB_LABEL[ledger.tab]} 내역이 없어요`}
+            ? t('ui.hall.noEntries')
+            : t('ui.hall.noMonthlyEntries', { v0: TAB_LABEL[ledger.tab] })}
         </T>
         <T style={g(15.5, 21.7, { color: MUTED, textAlign: 'center' })}>
-          주민이 함께 모으고 쓰면 여기 쌓여요
+          {t('ui.hall.earnAndSpendHint')}
         </T>
       </View>
     );
@@ -1029,21 +1076,23 @@ export function Hall({ e }: ScreenProps) {
               adjustsFontSizeToFit
               style={lt(LG.balance, { flexShrink: 1, ...tnum })}
             >
-              {ledger.villagePoints === null ? '—' : ledger.villagePoints.toLocaleString('ko-KR')}
+              {ledger.villagePoints === null
+                ? '—'
+                : ledger.villagePoints.toLocaleString(localeTag())}
             </T>
-            <T style={lt(LG.unit, { color: MUTED })}>마리</T>
+            <T style={lt(LG.unit, { color: MUTED })}>{t('ui.hall.fishUnit')}</T>
           </View>
           <T style={lt(LG.caption, { marginTop: LG.summaryTop, color: MUTED })}>
-            {`${monthWord} 적립 `}
+            {t('ui.hall.monthlyEarned', { v0: monthWord })}
             <T style={{ color: LG.earn, ...tnum }}>{numberText(ledger.earnedTotal, '+')}</T>
-            {` · ${monthWord} 사용 `}
+            {t('ui.hall.monthlySpent', { v0: monthWord })}
             <T style={{ color: LG.spend, ...tnum }}>{numberText(ledger.spentTotal, '−')}</T>
           </T>
         </>
       ) : (
         <>
           <T style={lt(LG.caption, { marginTop: LG.headTop, color: MUTED })}>
-            {`${monthWord} ${ledger.tab === 'earn' ? '적립' : '사용'}`}
+            {`${monthWord} ${ledger.tab === 'earn' ? t('ui.hall.earned') : t('ui.hall.used')}`}
           </T>
           <T
             testID="ledger-total"
@@ -1065,7 +1114,7 @@ export function Hall({ e }: ScreenProps) {
         <Pressable
           testID={dir < 0 ? 'ledger-prev' : 'ledger-next'}
           accessibilityRole="button"
-          accessibilityLabel={dir < 0 ? '이전 달' : '다음 달'}
+          accessibilityLabel={dir < 0 ? t('ui.hall.previousMonth') : t('ui.hall.nextMonth')}
           accessibilityState={{ disabled }}
           disabled={disabled}
           onPress={() => (dir < 0 ? ledger.prevMonth() : ledger.nextMonth())}
@@ -1083,7 +1132,7 @@ export function Hall({ e }: ScreenProps) {
         </Pressable>
       );
     };
-    const labels = ['잔액', '적립', '지출'] as const;
+    const labels = ['balance', 'earn', 'spend'] as const;
     const tabLeft = (n: number) => paper.left + LG.tabLeft + n * (LG.tabSize + LG.tabGap);
     // 포스트잇은 책 위로(좁은 화면은 오른쪽으로도) 나온다. 안드로이드는 부모 상자 밖 터치를 자르므로 바깥 상자를
     // 누르는 자리(hitSlop 포함)까지 위·오른쪽으로 늘리고, 책은 그 안에서 rise 만큼 내려 화면상 자리는 그대로 둔다.
@@ -1101,7 +1150,7 @@ export function Hall({ e }: ScreenProps) {
     // 고양이 포스트잇 — 세 장 모두 책 그림 앞. 펼친 장은 아래가 단면 띠 바닥 +4(종이에 붙음), 나머지는 제 색 단면 +6 에 걸친다.
     // 누르면 그 장이 펼쳐진다(넘김 애니메이션 없음)
     const postIt = (label: (typeof labels)[number], n: number) => {
-      const on = ledger.tab === TAB_KEY[label];
+      const on = ledger.tab === label;
       const artBottom = on
         ? A.bandBottom * sc + LG.tabOpenOverlap
         : LG.pageEdges[n] * sc + LG.tabRestOverlap;
@@ -1110,11 +1159,11 @@ export function Hall({ e }: ScreenProps) {
           key={label}
           testID={`ledger-tab-${label}`}
           accessibilityRole="tab"
-          accessibilityLabel={label}
+          accessibilityLabel={TAB_LABEL[label]}
           accessibilityState={{ selected: on }}
           hitSlop={LG.tabHitSlop}
           onPress={() => {
-            const next = TAB_KEY[label];
+            const next = label;
             // 거래내역(적립·지출) 장을 실제로 펼치는 순간 1회 — 기본 잔액 요약·같은 장 재탭은 제외
             if (next !== ledger.tab && next !== 'balance')
               captureProductEvent('feature_used', { building: 'ledger', action: 'open' });
@@ -1140,7 +1189,7 @@ export function Hall({ e }: ScreenProps) {
               fontWeight: '800',
             })}
           >
-            {label}
+            {TAB_LABEL[label]}
           </T>
         </Pressable>
       );
@@ -1200,7 +1249,7 @@ export function Hall({ e }: ScreenProps) {
               top: paper.top,
               height: artH - paper.top - paper.bottom,
               borderRadius: LG.tintRadius,
-              backgroundColor: LG.tabColors[labels.findIndex((x) => TAB_KEY[x] === ledger.tab)],
+              backgroundColor: LG.tabColors[labels.findIndex((x) => x === ledger.tab)],
               opacity: LG.tintOpacity,
               mixBlendMode: 'multiply',
             }}
@@ -1230,7 +1279,7 @@ export function Hall({ e }: ScreenProps) {
             >
               {nav(-1)}
               <T style={lt(LG.month, { flex: 1, textAlign: 'center', color: LG.faint })}>
-                {ledgerYear}년 {ledgerMonth}월
+                {t('ui.hall.month', { v0: ledgerYear, v1: ledgerMonth })}
               </T>
               {nav(1)}
             </View>
@@ -1343,12 +1392,12 @@ export function Hall({ e }: ScreenProps) {
                   testID="hall-construction-error"
                   style={g(16.8, 26.88, { fontWeight: '700', textAlign: 'center' })}
                 >
-                  {construction.error?.message ?? '건설 정보를 불러오지 못했어요.'}
+                  {errorTextOr(construction.error, 'ui.errors.constructionFailed')}
                 </T>
                 <Pressable
                   testID="hall-construction-retry"
                   accessibilityRole="button"
-                  accessibilityLabel="다시 시도"
+                  accessibilityLabel={t('common.retry')}
                   onPress={() => void construction.retry().catch(() => undefined)}
                   style={{
                     minHeight: 44,
@@ -1363,7 +1412,7 @@ export function Hall({ e }: ScreenProps) {
                     boxShadow: `0px 5.2px 0px ${BROWN}`,
                   }}
                 >
-                  <T style={g(16.8, 21, { fontWeight: '800' })}>다시 시도</T>
+                  <T style={g(16.8, 21, { fontWeight: '800' })}>{t('common.retry')}</T>
                 </Pressable>
               </>
             ) : (
@@ -1371,7 +1420,7 @@ export function Hall({ e }: ScreenProps) {
                 testID="hall-construction-loading"
                 style={g(16.8, 26.88, { fontWeight: '700', textAlign: 'center' })}
               >
-                서버에서 건설 정보를 불러오고 있어요
+                {t('ui.hall.loadingConstruction')}
               </T>
             )}
           </View>,
@@ -1388,7 +1437,9 @@ export function Hall({ e }: ScreenProps) {
     const pick = pickFrame(
       <>
         <View style={{ gap: 1.3, marginBottom: 11.6 }}>
-          <T style={g(25.8, 32.25)}>{allDone ? '건설 현황' : '어떤 건물을 지을까요?'}</T>
+          <T style={g(25.8, 32.25)}>
+            {allDone ? t('ui.hall.constructionStatus') : t('ui.hall.chooseBuilding')}
+          </T>
         </View>
         <View
           testID="hall-bld-grid"
@@ -1407,7 +1458,7 @@ export function Hall({ e }: ScreenProps) {
             const st = status(b),
               off = dim(b),
               item = liveConstruction ? liveItem(b) : undefined,
-              cardName = item?.name ?? buildingNames[b];
+              cardName = buildingNames[b];
             // 흐린 카드도 눌러서 잠금 사유·공사 상태 패널을 본다
             const tappable =
               !(liveConstruction && st === 'done') && (!off || st === 'locked' || st === 'build');
@@ -1416,7 +1467,7 @@ export function Hall({ e }: ScreenProps) {
                 key={b}
                 testID={`hall-bld-${b}`}
                 accessibilityRole="button"
-                accessibilityLabel={`${cardName}${st === 'done' ? ' 완공' : st === 'build' ? ' 공사 중' : ''}`}
+                accessibilityLabel={`${cardName}${st === 'done' ? t('ui.hall.completedSuffix') : st === 'build' ? t('ui.hall.buildingSuffix') : ''}`}
                 accessibilityState={{ disabled: !tappable }}
                 disabled={!tappable}
                 onPress={() => setPlan(b)}
@@ -1453,7 +1504,7 @@ export function Hall({ e }: ScreenProps) {
                         color: '#a33d5c',
                       })}
                     >
-                      공사 중
+                      {t('ui.hall.underConstruction')}
                     </T>
                   </View>
                 )}
@@ -1510,459 +1561,186 @@ export function Hall({ e }: ScreenProps) {
     // live: 옵션 재조회로 계획 중이던 건물이 items 에서 빠지면(완공 등) 패널을 열지 않는다 — 추정 금지
     const planItem = liveConstruction && plan ? liveItem(plan) : undefined;
     if (plan && (!liveConstruction || planItem !== undefined)) {
-      const st = status(plan),
-        name = liveConstruction ? planItem!.name : buildingNames[plan],
-        // 로컬 시연의 몫. 실서버 본문은 아래 residentProgress만 사용한다.
-        share = buildingShare(i, plan),
-        q = i.buildingQuest;
-      const meId = liveConstruction ? getSession()?.userId : undefined;
-      const residentProgress =
-        opts?.selectedBuildingId === plan && opts.residentProgress?.buildingId === plan
-          ? opts.residentProgress
+      const st = status(plan);
+      const name = buildingNames[plan] ?? planItem?.name ?? '';
+      const cost = planItem?.cost ?? costs[plan];
+      const funds = liveConstruction ? opts!.villagePoints : balance(i);
+      const selected = liveConstruction
+        ? opts!.selectedBuildingId === plan
+        : i.buildingQuest?.building === plan;
+      const allowed = liveConstruction ? planItem!.blockedReason !== 'FORBIDDEN' : host;
+      const buildable = liveConstruction ? planItem!.buildable : canBuild(s, plan) === null;
+      const timing = liveConstruction
+        ? construction.timing
+        : i.construction
+          ? { buildingId: i.construction.building, completesAt: i.construction.endsAt }
           : null;
-      const row = (label: string, value: string) => (
-        <View
-          key={label}
-          style={{
-            flexDirection: 'row',
-            justifyContent: 'space-between',
-            gap: 6.5,
-            paddingVertical: 3.9,
-            borderTopWidth: 1.3,
-            borderStyle: 'dashed',
-            borderTopColor: 'rgba(223, 247, 255, 0.667)',
-          }}
-        >
-          <T style={g(15.5, 20.925, { color: '#f7fcff' })}>{label}</T>
-          <T style={g(15.5, 20.925, { color: '#f7fcff', fontWeight: '700' })}>{value}</T>
-        </View>
-      );
-      const bar = (pct: number) => (
-        <View
-          style={{
-            height: 8.78,
-            paddingVertical: 3.9,
-            borderTopWidth: 1.3,
-            borderStyle: 'dashed',
-            borderTopColor: 'rgba(223, 247, 255, 0.667)',
-            borderRadius: 3,
-            backgroundColor: '#eadfd2',
-            overflow: 'hidden',
-          }}
-        >
+      const activeHere = timing?.buildingId === plan;
+      const left = timing ? Math.max(0, new Date(timing.completesAt).getTime() - e.now) : 0;
+      const reason = liveConstruction
+        ? blockedText(planItem!.blockedReason)
+        : canSelectBuilding(i, plan);
+      const p = componentTokens.constructionPlan;
+      const select = () => {
+        if (liveConstruction) {
+          construction.select(plan!).then(
+            () => notify(t('ui.hall.goalSet', { v0: eul(name) })),
+            (error) => notify(errorTextOr(error, 'ui.errors.goalFailed')),
+          );
+        } else {
+          e.dispatch({ type: 'SELECT_BUILDING', building: plan });
+          notify(t('ui.hall.goalSet', { v0: eul(name) }));
+        }
+      };
+      const confirmTarget = () => {
+        const previous = liveConstruction ? opts!.selectedBuildingId : i.buildingQuest?.building;
+        if (previous && previous !== plan) {
+          setDialog({
+            title: t('ui.hall.changeGoal'),
+            text: t('ui.hall.changeTargetKeepBalance', { name: eul(name) }),
+            ok: t('ui.hall.change'),
+            onOk: select,
+          });
+        } else select();
+      };
+      const build = () => {
+        if (!liveConstruction) {
+          e.build(plan!);
+          return;
+        }
+        setDialog({
+          title: t('constructionPlan.confirmTitle', { name }),
+          text: '',
+          body: <ConstructionWalletSummary balance={funds} cost={cost} />,
+          ok: t('constructionPlan.start'),
+          onOk: () =>
+            construction.build(plan!, cost).then(
+              () => notify(t('ui.hall.constructionStarted', { v0: eul(name) })),
+              (error) => notify(errorTextOr(error, 'ui.errors.buildFailed')),
+            ),
+        });
+      };
+      const notice = (text: string) => <T style={constructionPlanStyles.notice}>{text}</T>;
+      const canSelect = liveConstruction ? planItem!.selectable : host && !reason;
+      planView = (
+        <>
+          <Pressable
+            testID="hall-plan-backdrop"
+            accessibilityRole="button"
+            accessibilityLabel={t('constructionPlan.close')}
+            onPress={() => setPlan(null)}
+            style={[fill, { zIndex: 8 }]}
+          />
           <View
+            pointerEvents="box-none"
             style={{
               position: 'absolute',
-              left: 0,
-              top: 0,
-              bottom: 0,
-              width: `${Math.max(0, Math.min(100, pct))}%`,
-              borderRadius: 3,
-              backgroundColor: '#ffa6bc',
-            }}
-          />
-        </View>
-      );
-      // 시안은 블록 여백이 겹쳐(h4 아래 9·몫 칩 아래 7.7) 바로 앞이 줄 칸일 때만 위 여백 7.7이 보인다
-      const para = (text: string, afterRow = false) => (
-        <View
-          style={{
-            marginTop: afterRow ? 7.7 : 0,
-            paddingTop: 7.7,
-            borderTopWidth: 1.3,
-            borderStyle: 'dashed',
-            borderTopColor: 'rgba(223, 247, 255, 0.667)',
-          }}
-        >
-          <T style={g(15.5, 22.475, { color: '#f7fcff' })}>{text}</T>
-        </View>
-      );
-      const btn = (label: string, onPress: () => void, disabled = false) => (
-        <Pressable
-          testID="hall-plan-action"
-          accessibilityRole="button"
-          accessibilityLabel={label}
-          accessibilityState={{ disabled }}
-          disabled={disabled}
-          onPress={onPress}
-          style={{
-            opacity: disabled ? componentTokens.button.disabledOpacity : 1,
-            marginTop: 10.3,
-            minHeight: 56.8,
-            alignItems: 'center',
-            justifyContent: 'center',
-            paddingVertical: 11.6,
-            paddingHorizontal: 19.4,
-            borderWidth: 2.6,
-            borderColor: BROWN,
-            borderRadius: 999,
-            backgroundColor: componentTokens.button.background,
-            boxShadow: `0px 5.2px 0px ${BROWN}`,
-          }}
-        >
-          <T style={g(16.8, 21, { fontWeight: '800' })}>{label}</T>
-        </Pressable>
-      );
-      // 서버 응답의 startedAt/completesAt 만 표시한다 — 기기 시각으로 완공을 판정하지 않는다.
-      // completesAt 경과는 hook 의 재조회 신호일 뿐 완공 표시가 아니다.
-      const startedInfo = liveConstruction ? construction.started : null;
-      const left = liveConstruction
-        ? startedInfo !== null && startedInfo.buildingId === plan
-          ? Math.max(0, Date.parse(startedInfo.completesAt) - e.now)
-          : 0
-        : i.construction
-          ? Math.max(0, i.construction.endsAt - e.now)
-          : 0;
-      const reason = liveConstruction ? null : canSelectBuilding(i, plan);
-      const select = () => {
-        e.dispatch({ type: 'SELECT_BUILDING', building: plan });
-        notify('게시판에 건설 퀘스트가 등록됐어요.');
-      };
-      // 쓰기 실패는 성공으로 바꾸지 않는다 — 서버 오류 메시지를 그대로 알린다.
-      const liveSelect = () => {
-        construction.select(plan!).then(
-          () => notify(`${eul(name)} 목표로 정했어요.`),
-          (error) => notify(error instanceof Error ? error.message : '목표를 정하지 못했어요.'),
-        );
-      };
-      const liveBuild = () => {
-        construction.build(plan!).then(
-          () => notify(`${eul(name)} 공사를 시작했어요.`),
-          (error) => notify(error instanceof Error ? error.message : '건설을 시작하지 못했어요.'),
-        );
-      };
-      const note = (text: string) => (
-        <T
-          style={g(15.5, 23.25, {
-            color: 'rgba(223, 247, 255, 0.7)',
-            marginTop: land ? 8 : 12.9,
-          })}
-        >
-          {text}
-        </T>
-      );
-      const shareRow = walletTotal(plan)
-        ? row('모으는 법', '섬 통장 합산')
-        : row(
-            '각자 몫',
-            residentProgress
-              ? residentProgress.requiredPerResident === null
-                ? '대상 주민이 없어요'
-                : `${residentProgress.requiredPerResident.toLocaleString('ko-KR')}마리 · ${residentProgress.residents.length}명`
-              : opts?.selectedBuildingId === plan
-                ? '조회 불가'
-                : '목표를 정한 뒤 확인해 주세요',
-          );
-      // 서버 본문은 서버 모드에서만 계산한다. 데모에는 opts·planItem이 없다.
-      const liveCopy = !liveConstruction ? null : st === 'locked' ? (
-        para(`${name} — ${blockedText(planItem!.blockedReason)}`)
-      ) : st === 'build' ? (
-        startedInfo !== null && startedInfo.buildingId === plan && left > 0 ? (
-          <>
-            {row('공사 중', `남은 시간 ${hm(Math.ceil(left / 60000) * 60)}`)}
-            {bar(
-              ((e.now - Date.parse(startedInfo.startedAt)) /
-                Math.max(
-                  1,
-                  Date.parse(startedInfo.completesAt) - Date.parse(startedInfo.startedAt),
-                )) *
-                100,
-            )}
-          </>
-        ) : startedInfo !== null && startedInfo.buildingId === plan ? (
-          para('완공 예정 시각이 지났어요. 서버에서 상태를 확인하고 있어요.')
-        ) : (
-          para('지금 공사가 진행 중이에요.')
-        )
-      ) : st === 'collect' ? (
-        <>
-          {row(
-            '섬 잔액',
-            `${opts!.villagePoints.toLocaleString('ko-KR')} / ${planItem!.cost.toLocaleString('ko-KR')}마리`,
-          )}
-          {bar((opts!.villagePoints / Math.max(1, planItem!.cost)) * 100)}
-          {shareRow}
-          {!walletTotal(plan) && residentProgress && (
-            <View
-              style={{
-                flexDirection: 'row',
-                flexWrap: 'wrap',
-                gap: 6.5,
-                marginVertical: 7.7,
-                paddingVertical: 3.9,
-                borderTopWidth: 1.3,
-                borderStyle: 'dashed',
-                borderTopColor: 'rgba(223, 247, 255, 0.667)',
-              }}
-            >
-              {residentProgress.residents.map((m) => (
-                <View
-                  key={m.userId}
-                  style={{
-                    paddingVertical: 1.3,
-                    paddingHorizontal: 7.7,
-                    borderRadius: 99,
-                    backgroundColor: 'rgba(255, 255, 255, 0.125)',
-                  }}
-                >
-                  <T style={g(13, 17.55, { color: '#f7fcff' })}>
-                    {m.userId === meId ? '나' : (m.name ?? '주민')}
-                  </T>
-                </View>
-              ))}
-            </View>
-          )}
-          {para(planDesc[plan] ?? '')}
-        </>
-      ) : (
-        <>
-          {row('총액', `${planItem!.cost.toLocaleString('ko-KR')}마리`)}
-          {shareRow}
-          {para(planDesc[plan] ?? '', true)}
-        </>
-      );
-      const copy = liveConstruction ? (
-        liveCopy
-      ) : st === 'locked' ? (
-        para(`${name}은 도서관·전망대·우체통·축음기를 모두 완공한 뒤에 목표로 정할 수 있어요.`)
-      ) : st === 'done' ? (
-        para(planDesc[plan])
-      ) : st === 'build' ? (
-        <>
-          {row('공사 중', `남은 시간 ${hm(Math.ceil(left / 60000) * 60)}`)}
-          {bar(
-            ((e.now - i.construction!.startedAt) /
-              Math.max(1, i.construction!.endsAt - i.construction!.startedAt)) *
-              100,
-          )}
-        </>
-      ) : st === 'collect' && q ? (
-        <>
-          {row(
-            '섬 잔액',
-            `${balance(i).toLocaleString('ko-KR')} / ${costs[plan].toLocaleString('ko-KR')}마리`,
-          )}
-          {bar((balance(i) / costs[plan]) * 100)}
-          <View
-            style={{
-              flexDirection: 'row',
-              flexWrap: 'wrap',
-              justifyContent: 'space-between',
-              gap: 6.5,
-              marginVertical: 7.7,
-              paddingVertical: 3.9,
-              borderTopWidth: 1.3,
-              borderStyle: 'dashed',
-              borderTopColor: 'rgba(223, 247, 255, 0.667)',
+              zIndex: 9,
+              left: land ? side + p.screenInset : p.screenInset,
+              right: land ? p.bottomInset : p.screenInset,
+              top: land ? p.screenInset : off.top + 96,
+              bottom: p.bottomInset,
+              justifyContent: 'center',
             }}
           >
-            {q.targets.map((id) => {
-              const got = Math.max(0, collectedBy(i, id)),
-                done = got >= share,
-                who = id === 'me' ? '나' : (i.members.find((m) => m.id === id)?.name ?? '');
-              return (
-                <View
-                  key={id}
-                  style={{
-                    paddingVertical: 1.3,
-                    paddingHorizontal: 7.7,
-                    borderRadius: 99,
-                    backgroundColor: done ? '#bff5d0' : 'rgba(255, 255, 255, 0.125)',
-                  }}
-                >
-                  <T
-                    style={g(13, 17.55, {
-                      color: done ? '#1f5c34' : '#f7fcff',
-                      fontWeight: done ? '800' : '400',
-                    })}
-                  >
-                    {who} {done ? `${share}✓` : `${got}/${share}`}
-                  </T>
-                </View>
-              );
-            })}
-          </View>
-          {para(planDesc[plan])}
-        </>
-      ) : (
-        <>
-          {row('총액', `${costs[plan].toLocaleString('ko-KR')}마리`)}
-          {row('각자 몫', `${share}마리 · ${residentCount(i)}명`)}
-          {row('공사 시간', hm(buildMinutes[plan] * 60))}
-          {para(planDesc[plan], true)}
-        </>
-      );
-      planView = (
-        <View
-          testID="hall-building-plan"
-          style={[
-            {
-              position: 'absolute',
-              zIndex: 8,
-              left: land ? side + 16 : 10.3,
-              right: land ? 32 : 10.3,
-              top: land ? 36 : 276,
-              height: land ? 330 : 356.4,
-              padding: 15.5,
-              borderWidth: 2.6,
-              borderColor: '#d9f3f7',
-              borderRadius: 15.5,
-              backgroundColor: 'rgba(79, 148, 177, 0.97)',
-              boxShadow:
-                'inset 0px 0px 0px 5.2px rgb(74, 137, 159), 0px 15.5px 33.6px rgba(39, 60, 70, 0.66)',
-            },
-            web({
-              backgroundImage:
-                'linear-gradient(rgba(223, 247, 255, 0.14) 1.3px, transparent 1.3px), linear-gradient(90deg, rgba(223, 247, 255, 0.14) 1.3px, transparent 1.3px), linear-gradient(rgba(223, 247, 255, 0.07) 1.3px, transparent 1.3px), linear-gradient(90deg, rgba(223, 247, 255, 0.07) 1.3px, transparent 1.3px)',
-              backgroundSize: '41.3px 41.3px, 41.3px 41.3px, 10.3px 10.3px, 10.3px 10.3px',
-            }),
-          ]}
-        >
-          {st === 'collect' && !liveConstruction && (
             <View
-              style={{
-                flexDirection: 'row',
-                justifyContent: 'flex-end',
-                alignItems: 'center',
-                marginBottom: 12.9,
-              }}
+              testID="hall-building-plan"
+              style={[
+                constructionPlanStyles.card,
+                {
+                  maxHeight: Math.min(
+                    p.maxHeight,
+                    H - off.top - L.insets.bottom - (land ? p.bottomInset : 128),
+                  ),
+                },
+              ]}
             >
-              <Pressable
-                testID="hall-plan-quest"
-                accessibilityRole="link"
-                accessibilityLabel="게시판에서 건설 퀘스트 보기"
-                hitSlop={8}
-                onPress={() => e.go('quest', 'building')}
+              <ConstructionPlanGrid />
+              <ScrollView
+                style={{ flexShrink: 1 }}
+                contentContainerStyle={constructionPlanStyles.content}
+                keyboardShouldPersistTaps="handled"
               >
-                <T style={g(13, 24.8, { color: '#e8faff', textDecorationLine: 'underline' })}>
-                  게시판에서 보기 ›
-                </T>
-              </Pressable>
-            </View>
-          )}
-          <View style={{ flex: 1, minHeight: 0, flexDirection: 'row', gap: 12.9 }}>
-            <View
-              style={{
-                width: '36%',
-                alignItems: 'center',
-                paddingTop: 6.5,
-                paddingHorizontal: 6.5,
-                paddingBottom: 5.2,
-                borderWidth: 1.3,
-                borderColor: 'rgba(223, 247, 255, 0.667)',
-                backgroundColor: 'rgba(234, 248, 251, 0.098)',
-                overflow: 'hidden',
-                opacity: st === 'locked' ? 0.45 : 1,
-              }}
-            >
-              <View
-                style={{
-                  position: 'absolute',
-                  left: '50%',
-                  top: 7.7,
-                  bottom: 7.7,
-                  width: 1.3,
-                  backgroundColor: 'rgba(223, 247, 255, 0.333)',
-                }}
-              />
-              <View
-                style={{
-                  position: 'absolute',
-                  top: '50%',
-                  left: 7.7,
-                  right: 7.7,
-                  height: 1.3,
-                  backgroundColor: 'rgba(223, 247, 255, 0.333)',
-                }}
-              />
-              <T
-                style={{
-                  position: 'absolute',
-                  right: 6.5,
-                  top: 3.9,
-                  fontSize: 14.2,
-                  lineHeight: 22.72,
-                  color: 'rgba(223, 247, 255, 0.667)',
-                }}
-              >
-                ＋
-              </T>
-              {/* 시안 격자처럼 그림이 칸보다 넓으면 그림 폭 기준으로 가운데를 잡는다 */}
-              <View
-                style={{ flex: 1, minWidth: '100%', alignSelf: 'flex-start', alignItems: 'center' }}
-              >
-                <View style={{ flex: 1, justifyContent: 'center' }}>
-                  <Image
-                    source={art[bldArt[plan]]}
-                    resizeMode="contain"
-                    style={[
-                      { width: land ? 110 : 134.3, height: land ? 110 : 134.3 },
-                      web({ filter: 'drop-shadow(rgba(36, 76, 92, 0.5) 0px 5.2px 2.6px)' }),
-                    ]}
-                  />
-                </View>
-                <View
-                  style={{
-                    paddingVertical: 1.3,
-                    paddingHorizontal: 6.5,
-                    borderWidth: 1.3,
-                    borderColor: 'rgba(223, 247, 255, 0.667)',
-                    borderRadius: 99,
-                    backgroundColor: '#4f94b1',
-                  }}
-                >
-                  <T style={g(14.2, 22.72, { color: '#fff' })}>예상 모습</T>
-                </View>
-              </View>
-            </View>
-            <View style={{ flex: 1, minWidth: 0, justifyContent: 'center' }}>
-              <T style={g(28.4, 31.24, { color: '#f7fcff', marginBottom: 9 })}>{name}</T>
-              {copy}
-            </View>
-          </View>
-          {liveConstruction ? (
-            <>
-              {st === 'none' &&
-                (planItem!.selectable
-                  ? btn('이 건물을 목표로 정하기', () =>
-                      opts!.selectedBuildingId !== null && opts!.selectedBuildingId !== plan
-                        ? setDialog({
-                            title: '목표를 바꿀까요?',
-                            text: `지금 목표인 ${opts!.items.find((it) => it.id === opts!.selectedBuildingId)?.name ?? opts!.selectedBuildingId} 대신 ${eul(name)} 목표로 정해요.\n대상 주민은 지금 주민으로 다시 정해요.`,
-                            ok: '바꾸기',
-                            onOk: liveSelect,
+                <ConstructionPlanPreview
+                  name={name}
+                  image={art[bldArt[plan]]}
+                  description={planDesc[plan] ?? ''}
+                />
+                {st === 'build' ? (
+                  notice(
+                    activeHere
+                      ? left > 0
+                        ? t('ui.hall.buildingWithTime', {
+                            name: eul(name),
+                            time: hm(Math.ceil(left / 60000) * 60),
                           })
-                        : liveSelect(),
-                    )
-                  : // 서버가 막은 사유 그대로 안내한다 — 권한·중복·선행 조건은 서버 판정
-                    note(blockedText(planItem!.blockedReason)))}
-              {st === 'collect' && (
-                <>
-                  {btn('건설하기', liveBuild, !planItem!.buildable)}
-                  {!planItem!.buildable && note(buildBlockedText(planItem!.blockedReason))}
-                </>
+                        : t('ui.hall.checkingCompletion')
+                      : t('ui.hall.buildingElsewhere'),
+                  )
+                ) : st === 'done' ? (
+                  notice(t('ui.policy.this_building_is_already_complete_daa36'))
+                ) : (
+                  <>
+                    <ConstructionWalletSummary
+                      testID="hall-wallet-summary"
+                      balance={funds}
+                      cost={cost}
+                    />
+                    {st === 'locked' && planItem?.blockedReason !== 'FORBIDDEN'
+                      ? notice(reason ?? '')
+                      : selected && allowed
+                        ? notice(
+                            t(funds >= cost ? 'constructionPlan.ready' : 'constructionPlan.saving'),
+                          )
+                        : null}
+                  </>
+                )}
+              </ScrollView>
+              {st === 'done' && bldRoute[plan] && (
+                <Btn
+                  title={t('ui.hall.goToBuilding', { v0: ro(name) })}
+                  font={GOWUN}
+                  dynamicHeight
+                  onPress={() => e.go(bldRoute[plan])}
+                />
               )}
-            </>
-          ) : (
-            <>
-              {st === 'done' && btn(`${ro(name)} 가기`, () => e.go(bldRoute[plan]))}
-              {st === 'none' &&
-                (host && !reason
-                  ? btn('이 건물을 목표로 정하기', () =>
-                      q
-                        ? setDialog({
-                            title: '목표를 바꿀까요?',
-                            text: `지금 목표인 ${buildingNames[q.building]} 대신 ${eul(name)} 목표로 정해요.\n대상 주민은 지금 주민으로 다시 정해요.`,
-                            ok: '바꾸기',
-                            onOk: select,
-                          })
-                        : select(),
-                    )
-                  : // 주민은 섬장 안내, 섬장은 게시판 완공 전·공사 중 같은 이유 안내
-                    note(host ? reason! : '섬장이 목표를 정해요'))}
-            </>
-          )}
-        </View>
+              {st !== 'build' && st !== 'done' && (
+                <View
+                  style={{
+                    paddingTop: semanticTokens.spacing.component,
+                    gap: semanticTokens.spacing.control,
+                  }}
+                >
+                  {!allowed ? (
+                    notice(t('constructionPlan.ownerOnly'))
+                  ) : selected ? (
+                    <>
+                      <Btn
+                        id="hall-plan-action"
+                        title={t('home.buildAction')}
+                        font={GOWUN}
+                        dynamicHeight
+                        disabled={!buildable}
+                        onPress={build}
+                      />
+                      {!buildable &&
+                        funds >= cost &&
+                        notice(buildBlockedText(planItem?.blockedReason ?? null))}
+                    </>
+                  ) : canSelect ? (
+                    <Btn
+                      id="hall-plan-action"
+                      title={t('ui.hall.setBuildingGoal')}
+                      font={GOWUN}
+                      dynamicHeight
+                      onPress={confirmTarget}
+                    />
+                  ) : null}
+                </View>
+              )}
+            </View>
+          </View>
+        </>
       );
     }
     return shell(
@@ -1971,7 +1749,7 @@ export function Hall({ e }: ScreenProps) {
         {planView}
       </>,
       plan ? () => setPlan(null) : e.back,
-      plan ? '건물 목록으로 돌아가기' : undefined,
+      plan ? t('ui.hall.backToBuildings') : undefined,
     );
   }
 
@@ -2004,7 +1782,7 @@ export function Hall({ e }: ScreenProps) {
             style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}
           >
             <T style={g(16, 25.6, { color: MUTED, fontWeight: '700' })}>
-              섬 정보를 불러오는 중이에요
+              {t('ui.hall.loadingIsland')}
             </T>
           </View>,
         ),
@@ -2030,11 +1808,11 @@ export function Hall({ e }: ScreenProps) {
             <Pressable
               testID="hall-management-retry"
               accessibilityRole="button"
-              accessibilityLabel="다시 시도"
+              accessibilityLabel={t('common.retry')}
               onPress={() => void management.reload().catch(() => undefined)}
             >
               <T style={g(14, 22.4, { color: CARD_INK, textDecorationLine: 'underline' })}>
-                다시 시도
+                {t('common.retry')}
               </T>
             </Pressable>
           </View>,
@@ -2056,16 +1834,16 @@ export function Hall({ e }: ScreenProps) {
             }}
           >
             <T style={g(16, 25.6, { color: MUTED, fontWeight: '700', textAlign: 'center' })}>
-              섬 주민만 관리할 수 있어요
+              {t('ui.hall.manageResidentsOnly')}
             </T>
             <Pressable
               testID="hall-management-retry"
               accessibilityRole="button"
-              accessibilityLabel="다시 시도"
+              accessibilityLabel={t('common.retry')}
               onPress={() => void management.reload().catch(() => undefined)}
             >
               <T style={g(14, 22.4, { color: CARD_INK, textDecorationLine: 'underline' })}>
-                다시 시도
+                {t('common.retry')}
               </T>
             </Pressable>
           </View>,
@@ -2079,14 +1857,14 @@ export function Hall({ e }: ScreenProps) {
   const next = s.islands.find((j) => j.joined && j.id !== i.id);
   const leave = () => {
     if (s.session) {
-      notify('집중 중에는 섬을 떠날 수 없어요.\n집중을 마친 뒤 다시 시도해 주세요.');
+      notify(t('ui.hall.finishFocusFirst'));
       return;
     }
     if (
       (liveManagement ? managementHost : host) &&
       (liveManagement ? (management.members?.length ?? 0) > 1 : i.members.length > 0)
     ) {
-      notify('섬장은 바로 섬을 나갈 수 없어요.\n섬장을 위임한 뒤 나가주세요.');
+      notify(t('ui.hall.hostMustTransfer'));
       setPanel('transfer');
       return;
     }
@@ -2096,10 +1874,10 @@ export function Hall({ e }: ScreenProps) {
       const liveSolo = (management.members?.length ?? 0) <= 1;
       const islandName = management.detail?.name ?? '';
       setDialog({
-        title: `${eul(islandName)} 떠날까요?`,
+        title: t('ui.hall.leaveIsland', { v0: eul(islandName) }),
         text: t(liveSolo ? 'hall.leave.soloText' : 'hall.leave.memberText'),
         detail: t('hall.leave.detail'),
-        ok: liveSolo ? '삭제하고 나가기' : '탈퇴하기',
+        ok: liveSolo ? t('ui.hall.deleteAndLeave') : t('ui.hall.leave'),
         danger: true,
         onOk: () =>
           void runManagement(async () => {
@@ -2110,17 +1888,21 @@ export function Hall({ e }: ScreenProps) {
             // 먼바다라고 했으면 바다로(GROMO-2366), 다음 위치를 모르면(구 응답) App 이 보낸다.
             if (my.currentIslandId) e.home();
             else if (my.nextLocation?.islandId === null) e.reset('sea');
-          }, '섬을 떠났어요.'),
+          }, t('ui.hall.leftIsland')),
       });
       return;
     }
     const solo = !i.members.length;
     setDialog({
-      title: `${eul(i.name)} 떠날까요?`,
+      title: t('ui.hall.leaveIsland', { v0: eul(i.name) }),
       // 서버 경로와 같은 문구 — 행선지(다른 소속 섬·바다)는 약속하지 않는다.
       text: t(solo ? 'hall.leave.soloText' : 'hall.leave.memberText'),
       detail: t('hall.leave.detail'),
-      ok: solo ? (next ? '삭제하고 탈퇴' : '삭제하고 나가기') : '탈퇴하기',
+      ok: solo
+        ? next
+          ? t('ui.hall.deleteAndWithdraw')
+          : t('ui.hall.deleteAndLeave')
+        : t('ui.hall.leave'),
       danger: true,
       onOk: () => {
         e.dispatch({ type: 'LEAVE' });
@@ -2130,7 +1912,7 @@ export function Hall({ e }: ScreenProps) {
     });
   };
   const close = (onPress: () => void, style?: object) => (
-    <NavBtn close testID="hall-close" label="닫기" onPress={onPress} style={style} />
+    <NavBtn close testID="hall-close" label={t('common.close')} onPress={onPress} style={style} />
   );
   const person = (
     // userId: 외양을 조회할 사용자 id — 주민 칸은 id 가 곧 사용자 id 라 생략하고, 가입 신청 칸(id=신청 id)만 넘긴다
@@ -2142,7 +1924,11 @@ export function Hall({ e }: ScreenProps) {
       key={m.id}
       // 방장 칸은 보조기기가 이름 뒤에 '방장'까지 읽는다
       accessible={opts.crown || undefined}
-      accessibilityLabel={opts.crown ? `${m.id === 'me' ? '나' : m.name}, 섬장` : undefined}
+      accessibilityLabel={
+        opts.crown
+          ? t('ui.hall.hostName', { v0: m.id === 'me' ? t('focusFlow.common.me') : m.name })
+          : undefined
+      }
       style={[
         {
           minWidth: 0,
@@ -2194,7 +1980,7 @@ export function Hall({ e }: ScreenProps) {
           ...(opts.grow ? { flex: 1 } : null),
         })}
       >
-        {m.id === 'me' ? '나' : m.name}
+        {m.id === 'me' ? t('focusFlow.common.me') : m.name}
       </T>
       {opts.tail}
     </View>
@@ -2231,7 +2017,7 @@ export function Hall({ e }: ScreenProps) {
     <Pressable
       testID="hall-leave"
       accessibilityRole="button"
-      accessibilityLabel="섬 탈퇴"
+      accessibilityLabel={t('ui.hall.leaveMembership')}
       onPress={leave}
       style={[
         {
@@ -2246,7 +2032,9 @@ export function Hall({ e }: ScreenProps) {
         style,
       ]}
     >
-      <T style={g(15, 24, { color: '#a3453e', fontWeight: '700' })}>섬 탈퇴</T>
+      <T style={g(15, 24, { color: '#a3453e', fontWeight: '700' })}>
+        {t('ui.hall.leaveMembership')}
+      </T>
     </Pressable>
   );
   // 방문자는 이 섬 주민이 아니므로 '나'를 앞에 붙이지 않는다
@@ -2258,7 +2046,7 @@ export function Hall({ e }: ScreenProps) {
     liveManagement || visitorMembers
       ? (visitorMembers ?? management.members ?? []).map((m) => ({
           id: m.id,
-          name: m.name ?? '주민',
+          name: m.name ?? t('onboarding.residentFallbackName'),
           color: m.catColor ?? NO_CAT_COLOR,
           outfit: appearanceOutfit(m.appearance),
           isHost: m.role === 'host',
@@ -2266,7 +2054,15 @@ export function Hall({ e }: ScreenProps) {
       : [
           ...(visitor
             ? []
-            : [{ id: 'me', name: '나', color: s.color, outfit: outfitOf(s), isHost: host }]),
+            : [
+                {
+                  id: 'me',
+                  name: t('focusFlow.common.me'),
+                  color: s.color,
+                  outfit: outfitOf(s),
+                  isHost: host,
+                },
+              ]),
           ...i.members.map((m) => ({
             id: m.id,
             name: m.name,
@@ -2276,20 +2072,20 @@ export function Hall({ e }: ScreenProps) {
         ];
   const hostId = residents.find((m) => m.isHost)?.id;
   const transferDialog = (m: { id: string; name: string }) => ({
-    title: '섬장 위임',
-    text: `${m.name}에게 섬장을 위임하시겠습니까?`,
-    ok: '위임하기',
+    title: t('ui.hall.transferHost'),
+    text: t('ui.hall.transferConfirm', { v0: m.name }),
+    ok: t('ui.hall.transfer'),
     onOk: () => {
       if (liveManagement) {
         void runManagement(
           () => management.transferHost(m.id),
-          `${m.name}에게 섬장을 위임했어요.`,
+          t('ui.hall.transferred', { v0: m.name }),
           () => setPanel(''),
         );
       } else {
         e.dispatch({ type: 'TRANSFER', id: m.id });
         setPanel('');
-        notify(`${m.name}에게 섬장을 위임했어요.`);
+        notify(t('ui.hall.transferred', { v0: m.name }));
       }
     },
   });
@@ -2321,25 +2117,27 @@ export function Hall({ e }: ScreenProps) {
       text: '',
       body: (
         <View style={{ gap: 8 }}>
-          {option('섬장 위임', 'hall-member-transfer', () => setDialog(transferDialog(m)))}
+          {option(t('ui.hall.transferHost'), 'hall-member-transfer', () =>
+            setDialog(transferDialog(m)),
+          )}
           {option(
-            '섬에서 내보내기',
+            t('ui.hall.removeResident'),
             'hall-member-kick',
             () =>
               setDialog({
-                title: '섬에서 내보낼까요?',
-                text: `${eul(m.name)} 섬에서 내보내요.\n모은 물고기와 기록은 섬에 남고, 건설 목표 대상에서 빠져요.`,
-                ok: '내보내기',
+                title: t('ui.hall.removeConfirm'),
+                text: t('ui.hall.removeDetail', { v0: eul(m.name) }),
+                ok: t('ui.hall.remove'),
                 danger: true,
                 onOk: () => {
                   if (liveManagement)
                     void runManagement(
                       () => management.kickMember(m.id),
-                      `${m.name}님을 섬에서 내보냈어요.`,
+                      t('ui.hall.removed', { v0: m.name }),
                     );
                   else {
                     e.dispatch({ type: 'KICK', id: m.id });
-                    notify(`${m.name}님을 섬에서 내보냈어요.`);
+                    notify(t('ui.hall.removed', { v0: m.name }));
                   }
                 },
               }),
@@ -2369,9 +2167,11 @@ export function Hall({ e }: ScreenProps) {
             }}
           >
             <View>
-              <T style={g(22, 35.2, { color: CARD_INK, fontWeight: '600' })}>섬장 위임</T>
+              <T style={g(22, 35.2, { color: CARD_INK, fontWeight: '600' })}>
+                {t('ui.hall.transferHost')}
+              </T>
               <T style={g(14, 22.4, { color: '#6d5b4a', marginTop: 4 })}>
-                섬장을 위임할 주민을 골라요.
+                {t('ui.hall.chooseNewHost')}
               </T>
             </View>
             {close(() => setPanel('edit'), { marginTop: -9, marginRight: -8 })}
@@ -2382,7 +2182,7 @@ export function Hall({ e }: ScreenProps) {
                 key={m.id}
                 testID={`hall-transfer-${m.id}`}
                 accessibilityRole="button"
-                accessibilityLabel={`${m.name}에게 섬장 위임`}
+                accessibilityLabel={t('ui.hall.transferTo', { v0: m.name })}
                 onPress={() => setDialog(transferDialog({ id: m.id, name: m.name }))}
                 // 가로 2열: 목록 폭 = 화면 − 왼쪽 side − 오른쪽 16 − 테두리 4 − 안쪽 여백 32
                 style={{ width: land ? (W - side - 52 - 10) / 2 : '100%' }}
@@ -2511,8 +2311,8 @@ export function Hall({ e }: ScreenProps) {
       </View>
     );
     const approval = setting(
-      '가입 승인',
-      '섬장이 확인한 후 주민이 돼요.',
+      t('ui.hall.joinApproval'),
+      t('ui.hall.joinApprovalHint'),
       <View
         style={{
           width: 50,
@@ -2544,8 +2344,11 @@ export function Hall({ e }: ScreenProps) {
       },
     );
     const capacity = setting(
-      '주민 정원',
-      `현재 ${liveManagement ? (management.members?.length ?? 0) : residentCount(i)}명 · 최대 ${CAPACITY_MAX}명`,
+      t('ui.hall.capacity'),
+      t('ui.hall.capacityStatus', {
+        v0: liveManagement ? (management.members?.length ?? 0) : residentCount(i),
+        v1: CAPACITY_MAX,
+      }),
       <T style={g(15, 24, { color: CARD_INK, fontWeight: '700' })}>
         {t('onboarding.createIsland.capacityUnit', { count: draft.capacity })}
       </T>,
@@ -2562,28 +2365,28 @@ export function Hall({ e }: ScreenProps) {
             t('onboarding.createIsland.capacityUnit', { count: n + min }),
           );
           setDialog({
-            title: '주민 정원',
-            text: '현재 주민 수보다 작게 줄일 수는 없어요.',
+            title: t('ui.hall.capacity'),
+            text: t('ui.hall.capacityHint'),
             body: (
               <View style={{ height: 132 }}>
                 <Wheel
                   label=""
-                  a11yLabel="주민 정원"
+                  a11yLabel={t('ui.hall.capacity')}
                   items={items}
                   value={items[picked - min]}
                   onChange={(v: string) => (picked = items.indexOf(v) + min)}
                 />
               </View>
             ),
-            ok: '정하기',
+            ok: t('ui.hall.set'),
             onOk: () => setDraft((d) => ({ ...d, capacity: picked })),
           });
         },
       },
     );
     const transfer = setting(
-      '섬장 위임',
-      transferCandidates.length ? '다른 주민에게 섬장을 넘겨요.' : '위임할 주민이 없어요.',
+      t('ui.hall.transferHost'),
+      transferCandidates.length ? t('ui.hall.transferHint') : t('ui.hall.noTransferCandidate'),
       <View style={{ width: 28, height: 44, alignItems: 'center', justifyContent: 'center' }}>
         <Icon d={CHEV} size={18} />
       </View>,
@@ -2597,7 +2400,7 @@ export function Hall({ e }: ScreenProps) {
       <Pressable
         testID="hall-save"
         accessibilityRole="button"
-        accessibilityLabel="저장하기"
+        accessibilityLabel={t('ui.hall.save')}
         accessibilityState={{ disabled: !draft.name.trim() }}
         disabled={!draft.name.trim()}
         onPress={() => {
@@ -2616,7 +2419,7 @@ export function Hall({ e }: ScreenProps) {
                     greeting: draft.greeting.trim(),
                   }),
                 }),
-              '섬 정보를 저장했어요.',
+              t('ui.hall.saved'),
               () => setPanel(''),
               'settings',
             );
@@ -2645,7 +2448,7 @@ export function Hall({ e }: ScreenProps) {
           opacity: draft.name.trim() ? 1 : 0.5,
         }}
       >
-        <T style={g(16, 25.6, { color: CARD_INK, fontWeight: '800' })}>저장하기</T>
+        <T style={g(16, 25.6, { color: CARD_INK, fontWeight: '800' })}>{t('ui.hall.save')}</T>
       </Pressable>
     );
     const header = (
@@ -2658,14 +2461,14 @@ export function Hall({ e }: ScreenProps) {
           marginBottom: land ? 6 : 13,
         }}
       >
-        <T style={g(22, 35.2, { color: CARD_INK, fontWeight: '600' })}>섬 정보 수정</T>
+        <T style={g(22, 35.2, { color: CARD_INK, fontWeight: '600' })}>{t('ui.hall.editIsland')}</T>
         {close(() => setPanel(''), { marginTop: -9, marginRight: -8 })}
       </View>
     );
     const fields = (
       <View style={{ gap: land ? 7 : 10 }}>
-        {input('섬 이름', 'name')}
-        {input('섬 소개', 'intro')}
+        {input(t('onboarding.createIsland.nameLabel'), 'name')}
+        {input(t('onboarding.createIsland.introLabel'), 'intro')}
         {/* 인사말은 서버 모드(실제 섬)에서만 — 목업 로컬 섬에는 필드가 없다 */}
         {liveManagement && input(t('hall.greeting'), 'greeting')}
       </View>
@@ -2783,7 +2586,7 @@ export function Hall({ e }: ScreenProps) {
             <Pressable
               testID="hall-edit"
               accessibilityRole="button"
-              accessibilityLabel="섬 정보 수정"
+              accessibilityLabel={t('ui.hall.editIsland')}
               onPress={() => {
                 setDraft({
                   name: liveManagement ? (management.detail?.name ?? '') : i.name,
@@ -2842,7 +2645,7 @@ export function Hall({ e }: ScreenProps) {
     >
       {requests.length > 0 &&
         section(
-          '가입 신청',
+          t('onboarding.joinRequest'),
           requests.map((q, n) => (
             <View
               key={q.id}
@@ -2860,7 +2663,7 @@ export function Hall({ e }: ScreenProps) {
                 {
                   ...q,
                   userId: 'applicantId' in q ? q.applicantId : undefined,
-                  name: q.name ?? '신청자',
+                  name: q.name ?? t('ui.hall.applicant'),
                   // 서버 모드는 신청자 본인의 색, 목업은 로컬 신청 데이터의 색
                   color: liveManagement
                     ? ((q as { catColor?: string | null }).catColor ?? NO_CAT_COLOR)
@@ -2883,14 +2686,16 @@ export function Hall({ e }: ScreenProps) {
               <Pressable
                 testID={`hall-reject-${q.id}`}
                 accessibilityRole="button"
-                accessibilityLabel={`${q.name ?? '신청자'} 가입 거절`}
+                accessibilityLabel={t('ui.hall.rejectApplicant', {
+                  v0: q.name ?? t('ui.hall.applicant'),
+                })}
                 accessibilityState={{ disabled: managementBusy }}
                 disabled={managementBusy}
                 onPress={() => {
                   if (liveManagement)
                     void runManagement(
                       () => management.answerRequest(q.id, 'reject'),
-                      `${q.name ?? '신청자'}님의 가입을 거절했어요.`,
+                      t('ui.hall.rejectedApplicant', { v0: q.name ?? t('ui.hall.applicant') }),
                     );
                   else e.dispatch({ type: 'REJECT_MEMBER', id: q.id });
                 }}
@@ -2911,18 +2716,20 @@ export function Hall({ e }: ScreenProps) {
               <Pressable
                 testID={`hall-approve-${q.id}`}
                 accessibilityRole="button"
-                accessibilityLabel={`${q.name ?? '신청자'} 가입 승인`}
+                accessibilityLabel={t('ui.hall.approveApplicant', {
+                  v0: q.name ?? t('ui.hall.applicant'),
+                })}
                 accessibilityState={{ disabled: managementBusy }}
                 disabled={managementBusy}
                 onPress={() => {
                   if (liveManagement)
                     void runManagement(
                       () => management.answerRequest(q.id, 'approve'),
-                      `${q.name ?? '신청자'}님의 가입을 승인했어요.`,
+                      t('ui.hall.approvedApplicant', { v0: q.name ?? t('ui.hall.applicant') }),
                       undefined,
                       'approve',
                     );
-                  else if (isFull(i)) notify('정원이 가득 찼어요.\n정원을 늘린 뒤 승인해 주세요.');
+                  else if (isFull(i)) notify(t('ui.hall.roomFull'));
                   else e.dispatch({ type: 'ADD_MEMBER', id: q.id });
                 }}
                 style={{
@@ -2937,7 +2744,9 @@ export function Hall({ e }: ScreenProps) {
                   backgroundColor: componentTokens.button.background,
                 }}
               >
-                <T style={g(14, 22.4, { color: CARD_INK, fontWeight: '700' })}>승인</T>
+                <T style={g(14, 22.4, { color: CARD_INK, fontWeight: '700' })}>
+                  {t('ui.hall.approve')}
+                </T>
               </Pressable>
             </View>
           )),
@@ -2948,7 +2757,7 @@ export function Hall({ e }: ScreenProps) {
         </View>
       )}
       {section(
-        '함께 사는 주민',
+        t('ui.hall.residents'),
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 7 }}>
           {residents.map((m, n) =>
             displayHost && !m.isHost ? (
@@ -2956,7 +2765,7 @@ export function Hall({ e }: ScreenProps) {
                 key={m.id}
                 testID={`hall-member-${m.id}`}
                 accessibilityRole="button"
-                accessibilityLabel={`${m.name} 관리`}
+                accessibilityLabel={t('ui.hall.manageResident', { v0: m.name })}
                 onPress={() => memberMenu(m)}
                 style={{ width: cell }}
               >
@@ -2968,8 +2777,11 @@ export function Hall({ e }: ScreenProps) {
           )}
         </View>,
         usesSharedWebIsland() && liveIslandId === sharedWebIslandId()
-          ? `${residents.length}명 · 정원 제한 없음`
-          : `${residents.length} / ${liveManagement ? (management.detail?.maxMembers ?? 0) : capacityOf(i)}명`,
+          ? t('ui.hall.unlimitedCapacity', { v0: residents.length })
+          : t('ui.hall.residentCount', {
+              v0: residents.length,
+              v1: liveManagement ? (management.detail?.maxMembers ?? 0) : capacityOf(i),
+            }),
       )}
       {news.length > 0 &&
         section(
@@ -3026,11 +2838,13 @@ export function Hall({ e }: ScreenProps) {
               gap: 12,
             }}
           >
-            <T style={g(16, 25.6, { color: CARD_INK, fontWeight: '700' })}>섬에 친구 초대하기</T>
+            <T style={g(16, 25.6, { color: CARD_INK, fontWeight: '700' })}>
+              {t('ui.hall.inviteFriends')}
+            </T>
             <Pressable
               testID="hall-invite"
               accessibilityRole="button"
-              accessibilityLabel="섬에 친구 초대하기"
+              accessibilityLabel={t('ui.hall.inviteFriends')}
               disabled={inviteShare.busy}
               accessibilityState={{ disabled: inviteShare.busy, busy: inviteShare.busy }}
               onPress={inviteShare.share}

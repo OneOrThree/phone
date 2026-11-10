@@ -203,14 +203,14 @@ export function layoutProblem(
 // 이모지(≈1.2em)처럼 더 넓은 글자는 AdCell 의 adjustsFontSizeToFit 가 마지막으로 줄인다.
 const HANGUL_EM = 0.92;
 const WRAP_SLACK = 1.05;
-const MIN_SCALE = 0.6;
+const MIN_SCALE = 0.5;
 
 /**
- * 틀의 글 상자(inset)에 60자 글이 넘치지 않게 들어가는 글자 배율.
+ * 틀의 글 상자(inset)에 실제 글 길이가 넘치지 않게 들어가는 글자 배율.
  * - scale: 섬 프로필·이름·주민 줄 배율. bodyScale: 한 줄 글 배율(줄 수 상한이 있는 틀만 scale 보다 작다).
  * - maxBodyLines: 틀 그림에 인쇄된 장식(고양이 귀 틀 아래쪽 하트)을 피하려고 글 줄 수를 묶는 틀만 준다.
  * 배율은 칸 너비에 비례하는 기준 크기(componentTokens.magazineCell)에 곱한다 — 모든 치수가 너비에 비례하므로
- * 틀마다 한 번 정해지는 값이고 칸 너비와 무관하다. 프로필·이름 줄 + 한 줄 글 + 주민/평균 줄이 상자 높이 안에 든다.
+ * 같은 틀·글이면 칸 너비와 무관하다. 프로필·이름 줄 + 한 줄 글 + 주민/평균 줄이 상자 높이 안에 든다.
  */
 export function cellTextFit(
   frame: {
@@ -218,24 +218,27 @@ export function cellTextFit(
     maxBodyLines?: number;
   },
   metaLines = 1,
+  bodyLength = BODY_MAX,
 ): { scale: number; bodyScale: number; bodyLines: number } {
   const m = componentTokens.magazineCell;
   const [l, t, r, b] = frame.inset;
   const boxW = (1 - l - r) * m.referenceWidth;
   const boxH = (1 - t - b) * m.referenceWidth * m.aspect;
-  // 글자 크기 size 로 60자가 차지하는 줄 수
+  // 짧은 글까지 60자 기준으로 줄이지 않는다. 빈 입력도 한 글자 자리는 남긴다.
+  const length = Math.max(1, bodyLength);
+  const headerHeight = Math.max(m.profileDiameter, m.nameSize * m.lineHeight);
   const linesAt = (size: number) =>
-    Math.max(1, Math.ceil((BODY_MAX * HANGUL_EM * size * WRAP_SLACK) / boxW));
+    Math.max(1, Math.ceil((length * HANGUL_EM * size * WRAP_SLACK) / boxW));
   let result = { scale: MIN_SCALE, bodyScale: MIN_SCALE, bodyLines: 1 };
   for (let s = 1; s >= MIN_SCALE - 1e-9; s -= 0.02) {
     let body = m.bodySize * s;
     let lines = linesAt(body);
     if (frame.maxBodyLines && lines > frame.maxBodyLines) {
       lines = frame.maxBodyLines;
-      body = Math.min(body, (boxW * lines) / (BODY_MAX * HANGUL_EM * WRAP_SLACK));
+      body = Math.min(body, (boxW * lines) / (length * HANGUL_EM * WRAP_SLACK));
     }
     const need =
-      m.profileDiameter * s +
+      headerHeight * s +
       m.gap * s * 2 +
       lines * body * m.lineHeight +
       m.metaSize * s * m.lineHeight * metaLines;

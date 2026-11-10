@@ -32,7 +32,7 @@ export function InteriorRoute({
         : 3
       : e.detail
         ? 2
-        : e.tab === '받은 편지'
+        : e.tab === 'inbox'
           ? 1
           : 0;
   const width = size?.width ?? layout.width,

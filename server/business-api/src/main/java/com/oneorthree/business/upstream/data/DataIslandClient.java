@@ -433,16 +433,18 @@ public class DataIslandClient {
     }
 
     /**
-     * 현재 게시 중인 개발자 소식 한 쪽. anchor 두 값은 서명 커서를 푼 이전 쪽의 마지막 행이다 — 첫 쪽은 싣지 않는다.
+     * 현재 게시 중인 개발자 소식 한 쪽.
+     * platform(ios·android)이 null 이면 파라미터를 싣지 않는다.
+     * anchor 두 값은 서명 커서를 푼 이전 쪽의 마지막 행이다 — 첫 쪽은 싣지 않는다.
      * 멱등 GET 이라 재시도한다.
      */
     public DeveloperNotices.Page fetchDeveloperNotices(UUID userId, Instant afterPublishedAt, UUID afterId,
-            int limit, Deadline deadline) {
+            int limit, String platform, Deadline deadline) {
         return http.exchange(InternalCall.to(HttpMethod.GET,
                 "/internal/users/" + userId + "/developer-notices").onBehalfOf(userId)
                 .query("afterPublishedAt", afterPublishedAt == null ? null : afterPublishedAt.toString())
                 .query("afterId", afterId == null ? null : afterId.toString())
-                .query("limit", Integer.toString(limit)).build(),
+                .query("limit", Integer.toString(limit)).query("platform", platform).build(),
                 deadline, new ParameterizedTypeReference<DeveloperNotices.Page>() { });
     }
 
@@ -454,9 +456,10 @@ public class DataIslandClient {
     }
 
     /** 기간 밖 소식의 직접 ID 조회도 Data가 거절한다. */
-    public DeveloperNotices.Notice fetchDeveloperNotice(UUID userId, UUID id, Deadline deadline) {
+    public DeveloperNotices.Notice fetchDeveloperNotice(UUID userId, UUID id, String platform, Deadline deadline) {
         return http.exchange(InternalCall.to(HttpMethod.GET,
-                "/internal/users/" + userId + "/developer-notices/" + id).onBehalfOf(userId).build(),
+                "/internal/users/" + userId + "/developer-notices/" + id).onBehalfOf(userId)
+                .query("platform", platform).build(),
                 deadline, new ParameterizedTypeReference<DeveloperNotices.Notice>() { });
     }
 

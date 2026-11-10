@@ -1,3 +1,4 @@
+import { t } from '@/i18n';
 import { NavBtn } from '@/design-system/patterns';
 import { useAssetPack } from '@/hooks/useAssetPack';
 import type { ScreenEnvironment } from '@/navigation/ScreenEnvironment';
@@ -102,7 +103,10 @@ export function InteriorScreen({
   const modeLabel =
     isHall || building.id === 'board' || building.id === 'mail'
       ? ''
-      : `${String.fromCharCode(65 + conceptIndex)}안 · ${kindCopy[concept.kind]} 중심`;
+      : t('ui.misc.conceptPosition', {
+          v0: String.fromCharCode(65 + conceptIndex),
+          v1: kindCopy[concept.kind],
+        });
   // 가로 우체통은 편지·채팅 종이를 오른쪽 열(폭 500)에 둔다
   const side = building.id === 'mail' && width > sceneHeight ? MAIL_LAND : { left: 14, right: 14 };
   const wrap =
@@ -227,8 +231,8 @@ export function InteriorScreen({
         disabled={sceneBackBlocked}
         accessibilityElementsHidden={sceneBackBlocked}
         {...(sceneBackBlocked ? webOnly({ 'aria-hidden': true } as any) : null)}
-        label="섬으로 돌아가기"
-        onPress={() => (e ? e.home() : showToast('섬으로 돌아가는 전환이 이어집니다'))}
+        label={t('focusFlow.common.backToIsland')}
+        onPress={() => (e ? e.home() : showToast(t('ui.misc.returnTransition')))}
         // 원(34)이 예전 자리(좌/우 14 · 위 36)에 오게 누르는 상자(44)를 5 당긴다. 자리는 화면 좌표로 정해
         // 장면을 키워 그리는 우체통(navScale = 1/k)도 모서리 기준으로 줄여 다른 건물과 같은 화면 자리에 둔다
         style={{
@@ -293,10 +297,10 @@ export function InteriorScreen({
       {hotspot && (
         <Hotspot
           at={hotspot}
-          label={`${kindCopy[concept.kind]} 살펴보기`}
+          label={t('ui.misc.inspectBuilding', { v0: kindCopy[concept.kind] })}
           reduceMotion={reduceMotion}
           onPress={() => {
-            showToast(peek ? '공간 전체를 봅니다' : '물건을 가까이 봅니다');
+            showToast(peek ? t('ui.misc.viewRoom') : t('ui.misc.viewObject'));
             setPeek(!peek);
           }}
         />

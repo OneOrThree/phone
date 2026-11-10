@@ -1,3 +1,4 @@
+import { t } from '@/i18n';
 /**
  * 모든 백엔드 호출이 지나는 한 곳. 도메인 모듈(`auth.ts` 등)은 여기 `request()` 만 쓴다.
  *
@@ -188,9 +189,7 @@ async function refreshAccessTokenOnce(expectedGeneration: number): Promise<strin
   } catch {
     throw new ApiError(
       controller.signal.aborted ? CLIENT_TIMEOUT : CLIENT_NETWORK_ERROR,
-      controller.signal.aborted
-        ? '서버 응답이 늦어요. 잠시 후 다시 시도해 주세요.'
-        : '네트워크에 연결할 수 없어요. 연결을 확인해 주세요.',
+      controller.signal.aborted ? t('errors.CLIENT_TIMEOUT') : t('errors.CLIENT_NETWORK_ERROR'),
       0,
     );
   } finally {
@@ -260,7 +259,7 @@ export class ApiError extends Error {
       status === 404 &&
         (code === 'RESOURCE_NOT_FOUND' ||
           (code === 'NOT_FOUND' && message === '요청하신 경로를 찾을 수 없습니다.'))
-        ? '요청을 처리하지 못했어요. 잠시 후 다시 시도해 주세요.'
+        ? t('ui.policy.could_not_process_your_request_pleas_8544d')
         : message,
     );
     this.name = 'ApiError';
@@ -332,7 +331,7 @@ function errorFrom(response: Response, payload: unknown): ApiError {
     typeof rawCode === 'string' ? rawCode : `HTTP_${response.status}`,
     typeof rawMessage === 'string'
       ? rawMessage
-      : '요청을 처리하지 못했어요. 잠시 후 다시 시도해 주세요.',
+      : t('ui.policy.could_not_process_your_request_pleas_8544d'),
     response.status,
     {
       field: typeof nested?.field === 'string' ? nested.field : null,
@@ -396,9 +395,7 @@ async function requestAttempt<T>(
     const aborted = controller.signal.aborted;
     throw new ApiError(
       aborted ? CLIENT_TIMEOUT : CLIENT_NETWORK_ERROR,
-      aborted
-        ? '서버 응답이 늦어요. 잠시 후 다시 시도해 주세요.'
-        : '네트워크에 연결할 수 없어요. 연결을 확인해 주세요.',
+      aborted ? t('errors.CLIENT_TIMEOUT') : t('errors.CLIENT_NETWORK_ERROR'),
       0,
     );
   } finally {

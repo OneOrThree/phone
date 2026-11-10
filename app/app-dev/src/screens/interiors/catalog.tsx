@@ -1,3 +1,4 @@
+import { t } from '@/i18n';
 import { BuildingData, Concept, Item } from './types';
 
 const board = (
@@ -24,7 +25,9 @@ const mailHomeItems: Item[] = [
 export const buildings: BuildingData[] = [
   {
     id: 'hall',
-    name: '마을회관',
+    get name() {
+      return t('building.hall');
+    },
     background: require('@/assets/interiors/hall-cute-v1.png'),
     concepts: [
       {
@@ -42,9 +45,9 @@ export const buildings: BuildingData[] = [
         kind: 'building-models',
         position: 'scene',
         items: [
-          ['도서관', '공부 기록을 모아보는 도서관', '1인당 20마리 · 15분'],
-          ['전망대', '다른 섬을 찾아보는 전망대', '1인당 40마리 · 30분'],
-          ['우체통', '주민과 친구의 편지가 오가는 곳', '1인당 30마리 · 20분'],
+          ['도서관', '공부 기록을 모아보는 도서관', '총 2,720마리 · 15분'],
+          ['전망대', '다른 섬을 찾아보는 전망대', '총 5,440마리 · 30분'],
+          ['우체통', '주민과 친구의 편지가 오가는 곳', '총 4,080마리 · 20분'],
         ],
       },
       {
@@ -62,9 +65,9 @@ export const buildings: BuildingData[] = [
         kind: 'building-blueprint',
         position: 'scene',
         items: [
-          ['도서관', '도서관 건설 계획', '1인당 20마리 · 공사 15분'],
-          ['전망대', '전망대 건설 계획', '1인당 40마리 · 공사 30분'],
-          ['우체통', '우체통 건설 계획', '1인당 30마리 · 공사 20분'],
+          ['도서관', '도서관 건설 계획', '총 2,720마리 · 공사 15분'],
+          ['전망대', '전망대 건설 계획', '총 5,440마리 · 공사 30분'],
+          ['우체통', '우체통 건설 계획', '총 4,080마리 · 공사 20분'],
         ],
       },
       {
@@ -92,7 +95,9 @@ export const buildings: BuildingData[] = [
   },
   {
     id: 'board',
-    name: '게시판',
+    get name() {
+      return t('building.board');
+    },
     background: require('@/assets/interiors/board-three-papers-v5.png'),
     concepts: [
       board('게시판 기본 화면', '', 'owner', 'list'),
@@ -127,7 +132,9 @@ export const buildings: BuildingData[] = [
   },
   {
     id: 'observatory',
-    name: '전망대',
+    get name() {
+      return t('building.tower');
+    },
     background: require('@/assets/interiors/observatory-cute-v1.png'),
     concepts: [
       {
@@ -163,7 +170,9 @@ export const buildings: BuildingData[] = [
   },
   {
     id: 'mail',
-    name: '우체통',
+    get name() {
+      return t('building.mail');
+    },
     background: require('@/assets/interiors/mail-cute-v1.png'),
     concepts: [
       { title: '열린 우체통', kind: 'mail-home', position: 'bottom', items: mailHomeItems },
@@ -185,7 +194,9 @@ export const buildings: BuildingData[] = [
   },
   {
     id: 'shop',
-    name: '상점',
+    get name() {
+      return t('building.shop');
+    },
     background: require('@/assets/interiors/shop-cute-v1.png'),
     concepts: [
       {
@@ -222,7 +233,9 @@ export const buildings: BuildingData[] = [
   },
   {
     id: 'gram',
-    name: '축음기',
+    get name() {
+      return t('building.gram');
+    },
     background: require('@/assets/interiors/gram-cute-v1.png'),
     concepts: [
       {

@@ -1,3 +1,4 @@
+import { t } from '@/i18n';
 import React, { useEffect, useState } from 'react';
 import {
   AppState,
@@ -33,7 +34,7 @@ export default function ScreenTimeReportView({
   if (Platform.OS !== 'ios' || !UIManager.getViewManagerConfig('ScreenTimeReportView')) {
     return (
       <View {...props}>
-        <Txt kind="meta">사용량 리포트를 사용할 수 없어요</Txt>
+        <Txt kind="meta">{t('ui.screenTime.reportUnavailable')}</Txt>
       </View>
     );
   }
@@ -94,15 +95,15 @@ function AndroidReport({ dayOffset = 0, ...props }: ScreenTimeReportViewProps) {
   return (
     <View {...props}>
       {failed ? (
-        <Txt kind="meta">사용량을 확인하지 못했어요. 측정 권한과 앱 선택을 확인해 주세요.</Txt>
+        <Txt kind="meta">{t('ui.screenTime.reportFailed')}</Txt>
       ) : !report ? (
-        <Txt kind="meta">사용량 확인 중…</Txt>
+        <Txt kind="meta">{t('ui.screenTime.reportLoading')}</Txt>
       ) : (
         <>
-          <Txt>총 {Math.floor(report.totalSeconds / 60)}분</Txt>
+          <Txt>{t('ui.screenTime.totalMinutes', { v0: Math.floor(report.totalSeconds / 60) })}</Txt>
           {report.apps.slice(0, 5).map((app) => (
             <Txt key={app.packageName} kind="meta">
-              {app.label} · {Math.floor(app.seconds / 60)}분
+              {t('ui.screenTime.appMinutes', { v0: app.label, v1: Math.floor(app.seconds / 60) })}
             </Txt>
           ))}
         </>

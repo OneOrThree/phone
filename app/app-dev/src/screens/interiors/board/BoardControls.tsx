@@ -410,14 +410,14 @@ function HourMinuteWheels({
     <View testID={testID} style={{ flexDirection: 'row', gap: semanticTokens.spacing.control }}>
       <Wheel
         label=""
-        a11yLabel={`${label} 시`}
+        a11yLabel={t('ui.board.hour', { v0: label })}
         items={hours}
         value={hh}
         onChange={(h: string) => onPick(h, mm)}
       />
       <Wheel
         label=""
-        a11yLabel={`${label} 분`}
+        a11yLabel={t('ui.board.minute', { v0: label })}
         items={hh === '24' ? ['00'] : MINUTE_ITEMS}
         value={mm}
         onChange={(m: string) => onPick(hh, m)}
@@ -491,8 +491,8 @@ export function QuestTypeChoice({
   onChange: (value: QuestType) => void;
 }) {
   const options: [QuestType, string, string][] = [
-    ['focus', '시간대 집중', '정한 시간 안에 집중'],
-    ['phone', '하루 폰 사용', '하루 사용량 상한'],
+    ['focus', t('ui.board.scheduledFocus'), t('ui.board.focusWithinSchedule')],
+    ['phone', t('ui.board.dailyPhoneUse'), t('ui.board.dailyUsageCap')],
   ];
   return (
     <View testID="board-quest-type" style={{ flexDirection: 'row', gap: 8 }}>

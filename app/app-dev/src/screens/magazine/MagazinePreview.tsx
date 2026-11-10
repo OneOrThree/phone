@@ -263,8 +263,10 @@ export function MagazineEditorPreview() {
  * 목업 서버로 띄운다. 데모 섬에는 우체통이 있어 실제 앱으로는 이 경우를 볼 수 없다. 물건·버튼은 진짜 Pressable 이라
  * maestro 로 누를 수 있다. `EXPO_PUBLIC_MAGAZINE_PREVIEW=home` 로 Metro 를 띄운다(EXPO_PUBLIC_MAGAZINE_MOCK=deliver 면 펠리컨부터).
  */
-export function MagazineHomePreview() {
-  const [route, setRoute] = useState<{ name: string; id?: string }>({ name: 'home' });
+function MagazineScenePreview({ initiallyOpen = false }: { initiallyOpen?: boolean }) {
+  const [route, setRoute] = useState<{ name: string; id?: string }>({
+    name: initiallyOpen ? 'magazine' : 'home',
+  });
   const [state] = useState(() => {
     const s = demoState();
     return {
@@ -274,7 +276,7 @@ export function MagazineHomePreview() {
       ),
     };
   });
-  const { today } = useMagazineToday(route.name === 'home');
+  const { today } = useMagazineToday(route.name === 'home' || initiallyOpen);
   const go = (name: string, id?: string) => setRoute({ name, id });
   const background = (
     <FinalIsland state={state} go={() => {}} build={() => {}} showActions={false} />
@@ -286,7 +288,7 @@ export function MagazineHomePreview() {
           <MagazineReader
             e={createPreviewEnvironment({
               state,
-              detail: route.id ?? '',
+              detail: route.id ?? today?.issue?.issueId ?? '',
               go,
               replace: go,
               back: () => go('home'),
@@ -302,4 +304,13 @@ export function MagazineHomePreview() {
       </View>
     </SafeAreaProvider>
   );
+}
+
+export function MagazineHomePreview() {
+  return <MagazineScenePreview />;
+}
+
+/** 웹 `?magazine=reader&demo` — 실제 속지·쪽 넘김·카드 확대를 목업 호로 확인한다. */
+export function MagazineReaderPreview() {
+  return <MagazineScenePreview initiallyOpen />;
 }

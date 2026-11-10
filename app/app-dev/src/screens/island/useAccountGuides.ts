@@ -1,3 +1,4 @@
+import { t } from '@/i18n';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { readAccountGuides, saveAccountGuides, type AccountGuides } from '@/services/accountGuides';
 import { getLastSessionUserId, sessionGeneration } from '@/services/api/session';
@@ -59,8 +60,7 @@ export function useAccountGuides(
       setResult({ owner, generation, data });
     };
     void load().catch(() => {
-      if (!disposed && alive(owner, generation))
-        setError('안내 이력을 불러오지 못했어요. 다시 시도해 주세요.');
+      if (!disposed && alive(owner, generation)) setError('ui.guides.loadFailed');
     });
     return () => {
       disposed = true;
@@ -75,10 +75,16 @@ export function useAccountGuides(
       const next = await saveAccountGuides(owner, update);
       if (alive(owner, generation)) setResult({ owner, generation, data: next });
     } catch {
-      if (alive(owner, generation)) setError('안내 이력을 저장하지 못했어요. 다시 눌러 주세요.');
+      if (alive(owner, generation)) setError('ui.guides.saveFailed');
     } finally {
       if (alive(owner, generation)) setSaving(false);
     }
   };
-  return { data, error, saving, done, retry: () => setRevision((v) => v + 1) };
+  return {
+    data,
+    error: error ? t(error) : '',
+    saving,
+    done,
+    retry: () => setRevision((v) => v + 1),
+  };
 }

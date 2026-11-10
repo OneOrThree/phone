@@ -7,7 +7,7 @@ export function renderScreenFallback(context: ScreenContext) {
 
   return (
     <Page title={t('onboardingStory.brand')} back={home}>
-      <Btn title="섬으로 돌아가기" onPress={home} />
+      <Btn title={t('focusFlow.common.backToIsland')} onPress={home} />
     </Page>
   );
 }

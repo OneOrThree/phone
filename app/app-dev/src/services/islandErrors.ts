@@ -1,36 +1,35 @@
 import { ApiError, CLIENT_STALE_SESSION } from '@/services/api/client';
-import { errorText, getLocale, t } from '@/i18n';
+import { t, errorText } from '@/i18n';
 
 /** 섬 진입·가입·선택에서 사용하는 사용자 안내. 서버 내부 문구는 그대로 노출하지 않는다. */
 export function islandErrorMessage(error: unknown, facility?: 'board' | 'tower'): string {
-  if (getLocale() !== 'ko') return errorText(error);
-  if (!(error instanceof ApiError)) return '연결을 확인한 뒤 다시 시도해 주세요.';
+  if (!(error instanceof ApiError)) return t('errors.GENERIC');
   const messages: Record<string, string> = {
     [CLIENT_STALE_SESSION]: '',
-    SESSION_IN_PROGRESS: '집중이나 휴식을 마친 뒤 섬을 이동해 주세요.',
-    OBSERVATORY_LOCKED: '현재 섬의 전망대를 완공한 뒤 이동할 수 있어요.',
+    SESSION_IN_PROGRESS: t('islandPicker.sessionBlocksMove'),
+    OBSERVATORY_LOCKED: t('ui.policy.complete_the_observatory_on_your_cur_bab29'),
     FACILITY_LOCKED:
       facility === 'board'
-        ? '게시판을 완공한 뒤 이용할 수 있어요.'
+        ? t('ui.policy.complete_the_notice_board_to_use_thi_5b3c1')
         : facility === 'tower'
-          ? '현재 섬의 전망대를 완공한 뒤 이동할 수 있어요.'
-          : '시설을 완공한 뒤 이용할 수 있어요.',
-    MEMBER_ONLY: '이 섬의 주민만 이용할 수 있어요. 소속을 다시 확인해 주세요.',
-    BOARD_LOCKED: '게시판을 완공한 뒤 이용할 수 있어요.',
-    LIBRARY_LOCKED: '도서관을 완공한 뒤 이용할 수 있어요.',
-    NOT_FOUND: '더 이상 볼 수 없는 내용이에요. 다시 불러와 주세요.',
-    GROUP_NOT_FOUND: '더 이상 이용할 수 없는 섬이에요. 다른 섬을 선택해 주세요.',
-    GROUP_FULL: '섬의 정원이 찼어요. 다른 섬을 선택해 주세요.',
-    GROUP_LIMIT_EXCEEDED: '가입할 수 있는 섬 수를 모두 채웠어요.',
-    SLUG_NOT_FOUND: '초대 코드를 다시 확인해 주세요.',
-    INVITATION_EXPIRED: '만료된 초대예요. 새 초대를 받아 주세요.',
-    STATE_CONFLICT: '섬 정보가 바뀌었어요. 최신 상태로 다시 시도해 주세요.',
-    VERSION_CONFLICT: '섬 정보가 바뀌었어요. 최신 상태로 다시 시도해 주세요.',
-    REQUEST_IN_PROGRESS: '처리 중이에요. 잠시 뒤 다시 시도해 주세요.',
-    ISLAND_NOT_ARRIVED: '아직 가 본 적 없는 섬이에요. 망원경에서 항해해 주세요.',
+          ? t('ui.policy.complete_the_observatory_on_your_cur_bab29')
+          : t('ui.policy.complete_this_facility_to_use_it_819e3'),
+    MEMBER_ONLY: t('ui.policy.only_residents_can_use_this_feature__a936e'),
+    BOARD_LOCKED: t('ui.policy.complete_the_notice_board_to_use_thi_5b3c1'),
+    LIBRARY_LOCKED: t('ui.policy.complete_the_library_to_use_this_fea_689e9'),
+    NOT_FOUND: t('ui.policy.this_content_is_no_longer_available__6668a'),
+    GROUP_NOT_FOUND: t('ui.policy.this_island_is_no_longer_available_c_fc2cd'),
+    GROUP_FULL: t('ui.policy.this_island_is_full_choose_another_i_57617'),
+    GROUP_LIMIT_EXCEEDED: t('ui.policy.you_have_reached_the_limit_for_joine_8eb75'),
+    SLUG_NOT_FOUND: t('errors.SLUG_NOT_FOUND'),
+    INVITATION_EXPIRED: t('errors.INVITATION_EXPIRED'),
+    STATE_CONFLICT: t('errors.STATE_CONFLICT'),
+    VERSION_CONFLICT: t('errors.STATE_CONFLICT'),
+    REQUEST_IN_PROGRESS: t('errors.REQUEST_IN_PROGRESS'),
+    ISLAND_NOT_ARRIVED: t('errors.ISLAND_NOT_ARRIVED'),
     // 망원경 [바로 가입]의 409(GROMO-2266) — 서버 문구와 같은 글을 JSON 한 곳에서 가져온다.
     ISLAND_LIMIT_EXCEEDED: t('errors.ISLAND_LIMIT_EXCEEDED'),
-    FORBIDDEN: '이 작업을 할 권한이 없어요. 소속을 다시 확인해 주세요.',
+    FORBIDDEN: t('ui.policy.you_do_not_have_permission_to_do_thi_8b172'),
   };
-  return messages[error.code] ?? '연결을 확인한 뒤 다시 시도해 주세요.';
+  return messages[error.code] ?? errorText(error);
 }

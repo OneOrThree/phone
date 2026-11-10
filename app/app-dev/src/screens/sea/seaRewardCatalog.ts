@@ -1,3 +1,4 @@
+import { t } from '@/i18n';
 import type { ImageSourcePropType } from 'react-native';
 
 export type SeaRewardArt = {
@@ -13,7 +14,9 @@ export type SeaRewardArt = {
 export const seaRewardCatalog: Readonly<Record<string, SeaRewardArt>> = {};
 
 export const duckPreviewArt: SeaRewardArt = {
-  title: '오리 인형',
+  get title() {
+    return t('customization.items.head.duck-plush');
+  },
   source: require('@/assets/ota/customization/head/duck.png'),
   category: 'head',
   preview: { width: 176, height: 148, size: 330, left: -84, top: -98 },

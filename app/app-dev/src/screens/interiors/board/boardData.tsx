@@ -1,3 +1,4 @@
+import { t } from '@/i18n';
 import { Concept } from '../types';
 import { BoardState, Notice, Quest } from './types';
 
@@ -6,7 +7,9 @@ export const OWNER = '민지';
 export const NOTICES: Notice[] = [
   {
     title: '수아가 소다 섬에 도착했어요',
-    time: '오늘',
+    get time() {
+      return t('magazine.rack.today');
+    },
     body: '오늘부터 수아도 소다 섬에서 함께 집중해요.\n모닥불에서 만나면 반갑게 인사해 주세요.',
     comments: [
       ['두부', '수아야, 어서 와!'],
@@ -16,7 +19,9 @@ export const NOTICES: Notice[] = [
   },
   {
     title: '오늘 밤, 모닥불에서 만나요',
-    time: '오늘',
+    get time() {
+      return t('magazine.rack.today');
+    },
     body: '밤 9시에 모닥불에서 잠깐 쉬어가요.\n오늘 들을 음악도 같이 골라봐요.',
     comments: [
       ['민지', '좋아! 집중 끝나고 갈게.'],
@@ -103,7 +108,7 @@ export function makeState(concept: Concept): BoardState {
   }
   if (requestedView === 'write-failed') {
     state.view = 'write';
-    state.error = '저장하지 못했어요. 입력한 내용은 그대로 남아 있어요.';
+    state.error = t('ui.board.saveFailed');
   }
   if (requestedView === 'comment' || requestedView === 'comment-input')
     state.commentDraft = '수아야, 어서 와! 같이 낚시하자.';

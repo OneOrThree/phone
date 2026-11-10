@@ -799,7 +799,7 @@ Table construction_buildings [note: '건물 종류 정본. id는 기존 API·시
   id            varchar(30)  [pk, note: '소문자 계약 ID']
   display_name  varchar(100) [not null, note: '빈 문자열·공백만 허용하지 않음']
   display_order integer      [not null, note: '오름차순 표시. 동순위는 id 순']
-  funding       varchar(20)  [not null, note: 'WALLET_TOTAL / RESIDENT_SPLIT']
+  funding       varchar(20)  [not null, note: '모든 건물은 WALLET_TOTAL. RESIDENT_SPLIT은 과거 계약값으로만 보존']
 }
 
 Table construction_building_prerequisites [note: '건물별 직접 선행 관계. 선행 건물이 모두 COMPLETED여야 선택 가능'] {
@@ -1480,6 +1480,7 @@ Table developer_notices {
   withdrawn_by varchar(16)
   min_ios_version varchar(32) [note: '강제 업데이트 최소 iOS 버전 숫자.숫자.숫자. 둘 다 NULL이면 패치노트']
   min_android_version varchar(32) [note: '강제 업데이트 최소 Android 버전. 형식은 min_ios_version과 같다']
+  target_platform varchar(10) [not null, default: 'ALL', note: '공지 대상 플랫폼 ALL·IOS·ANDROID. 강제 업데이트는 최소 버전에서 정해진다. V15 이전 행도 최소 버전에서 계산해 채웠다']
 }
 Ref: developer_notices.publication_id > content_publications.publication_id [delete: no action]
 Table magazine_review_snapshots {

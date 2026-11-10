@@ -1,3 +1,4 @@
+import { t } from '@/i18n';
 import React, { type ReactNode } from 'react';
 import { Image, StyleSheet, View, type ViewStyle } from 'react-native';
 import { villageAssets } from '@/constants/village-assets';
@@ -37,7 +38,9 @@ export function VillageBoardIndicator({
       {hasNotice && (
         <VillageNotificationBadge
           testID="village-board-new-indicator"
-          accessibilityLabel={hasNewComment ? '새 댓글이 있습니다' : '읽지 않은 새 소식이 있습니다'}
+          accessibilityLabel={
+            hasNewComment ? t('ui.village.newComment') : t('ui.village.unreadNews')
+          }
           scale={indicatorScale}
           style={{ top: -20 * indicatorScale, right: 12 * indicatorScale }}
         />

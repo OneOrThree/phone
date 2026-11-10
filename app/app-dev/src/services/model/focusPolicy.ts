@@ -1,3 +1,4 @@
+import { t } from '@/i18n';
 import { uuid } from './fixtures';
 import { balance, earnedBy, memberOf, residentCount, targetIds } from './islandPolicy';
 import { dayKey, kstDayStart, weekStart } from './time';
@@ -257,7 +258,9 @@ export function evaluateQuests(s: State, now: number) {
             i.earned[id] = earnedBy(i, id) + 10;
             i.ledger.unshift({
               id: uuid(),
-              text: `${member?.name ?? '주민'} 퀘스트 달성 보상 +10마리`,
+              text: t('ui.policy.v0_quest_reward_10_fish_c22f7', {
+                v0: member?.name ?? t('onboarding.residentFallbackName'),
+              }),
               at: now,
               memberId: id,
             });
@@ -272,7 +275,10 @@ export function evaluateQuests(s: State, now: number) {
           i.fish = balance(i) + round.targets.length * 5;
           i.ledger.unshift({
             id: uuid(),
-            text: `${q.title} · 모두 달성 보너스 +${round.targets.length * 5}마리`,
+            text: t('ui.policy.v0_all_complete_bonus_v1_fish_3e305', {
+              v0: q.title,
+              v1: round.targets.length * 5,
+            }),
             at: now,
           });
           if (round.targets.includes('me'))

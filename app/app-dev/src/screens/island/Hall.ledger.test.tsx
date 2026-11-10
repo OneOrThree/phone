@@ -140,7 +140,7 @@ const descendants = (node: any): any[] =>
 test('세 장짜리 책은 장부 그림 한 장이다 — 「공동 가계부」 팻말·옛 책 View·책갈피 SVG 가 없다(GROMO-2487)', async () => {
   townHallMock.mockResolvedValue(screenBody({}));
   const screen = await render(<Hall e={createPreviewEnvironment(e())} />);
-  await waitFor(() => assert.ok(screen.getByTestId('ledger-tab-잔액')));
+  await waitFor(() => assert.ok(screen.getByTestId('ledger-tab-balance')));
 
   assert.equal(screen.queryByTestId('ledger-heading'), null);
   assert.equal(screen.queryByTestId('ledger-tabs'), null);
@@ -168,13 +168,22 @@ test('세 장짜리 책은 장부 그림 한 장이다 — 「공동 가계부�
 test('포스트잇 세 장은 모두 책 그림 앞 층이고, 펼친 장은 종이 윗변에·나머지는 제 색 단면에 걸친다(GROMO-2487)', async () => {
   townHallMock.mockResolvedValue(screenBody({}));
   const screen = await render(<Hall e={createPreviewEnvironment(e())} />);
-  await waitFor(() => assert.ok(screen.getByTestId('ledger-tab-잔액')));
+  await waitFor(() => assert.ok(screen.getByTestId('ledger-tab-balance')));
 
   // 포스트잇은 책 몸통(그림·종이를 품은 상자)의 형제다 — 둘의 zIndex 가 앞뒤를 정한다
   const bodyZ = style(screen.getByTestId('ledger-book-body')).zIndex;
   const artZ = style(screen.getByTestId('ledger-book-art')).zIndex;
-  const z = (label: string) => style(screen.getByTestId(`ledger-tab-${label}`)).zIndex;
-  const tab = (label: string) => onScreen(screen, `ledger-tab-${label}`);
+  const z = (label: string) =>
+    style(
+      screen.getByTestId(
+        `ledger-tab-${({ 잔액: 'balance', 적립: 'earn', 지출: 'spend' } as Record<string, string>)[label]}`,
+      ),
+    ).zIndex;
+  const tab = (label: string) =>
+    onScreen(
+      screen,
+      `ledger-tab-${({ 잔액: 'balance', 적립: 'earn', 지출: 'spend' } as Record<string, string>)[label]}`,
+    );
   const labels = ['잔액', '적립', '지출'];
   for (const label of labels) {
     assert.ok(z(label) > bodyZ, `${label} 포스트잇이 책 뒤에 있다`);
@@ -198,11 +207,11 @@ test('포스트잇 세 장은 모두 책 그림 앞 층이고, 펼친 장은 종
   assert.ok(Math.abs(artBottom('지출') - (96 * SC + 6)) < 1e-9);
 
   // 누르는 자리 84×84 = 상자 80 + 사방 2
-  assert.equal(screen.getByTestId('ledger-tab-잔액').props.hitSlop, 2);
+  assert.equal(screen.getByTestId('ledger-tab-balance').props.hitSlop, 2);
 
   // 적립 장을 펼치면 적립 포스트잇이 종이 윗변으로 내려오고 맨 앞이 된다. 분홍(잔액)은 제 단면으로 돌아간다
   ledgerMock.mockResolvedValue(page({}));
-  await fireEvent.press(screen.getByTestId('ledger-tab-적립'));
+  await fireEvent.press(screen.getByTestId('ledger-tab-earn'));
   await waitFor(() => assert.ok(screen.getByTestId('ledger-total')));
   assert.ok(Math.abs(artBottom('적립') - (147 * SC + 4)) < 1e-9);
   assert.ok(Math.abs(artBottom('잔액') - (142 * SC + 6)) < 1e-9);
@@ -236,13 +245,15 @@ test('포스트잇과 누르는 자리(hitSlop 2)는 바깥 상자 안에 든다
       townHallMock.mockResolvedValue(screenBody({}));
       ledgerMock.mockResolvedValue(page({}));
       const screen = await render(<Hall e={createPreviewEnvironment(e())} />);
-      await waitFor(() => assert.ok(screen.getByTestId('ledger-tab-잔액')));
+      await waitFor(() => assert.ok(screen.getByTestId('ledger-tab-balance')));
       const frame = style(screen.getByTestId('ledger-book'));
       const bodyTop = () => onScreen(screen, 'ledger-book-body').top;
       const top0 = bodyTop();
       const inside = () => {
         for (const label of ['잔액', '적립', '지출']) {
-          const node = screen.getByTestId(`ledger-tab-${label}`);
+          const node = screen.getByTestId(
+            `ledger-tab-${({ 잔액: 'balance', 적립: 'earn', 지출: 'spend' } as Record<string, string>)[label]}`,
+          );
           const t = style(node);
           const slop = node.props.hitSlop as number;
           const at = `${layout.width}×${layout.height} ${label}`;
@@ -255,7 +266,11 @@ test('포스트잇과 누르는 자리(hitSlop 2)는 바깥 상자 안에 든다
       inside();
       // 장을 넘겨도 안에 들고, 책의 화면상 자리는 그대로다
       for (const label of ['적립', '지출']) {
-        await fireEvent.press(screen.getByTestId(`ledger-tab-${label}`));
+        await fireEvent.press(
+          screen.getByTestId(
+            `ledger-tab-${({ 잔액: 'balance', 적립: 'earn', 지출: 'spend' } as Record<string, string>)[label]}`,
+          ),
+        );
         await waitFor(() => assert.ok(screen.getByTestId('ledger-total')));
         inside();
         assert.ok(Math.abs(bodyTop() - top0) < 1e-9);
@@ -326,7 +341,9 @@ test('가로 화면은 책을 세로 폰 폭(360)으로 크게 두고 아래를 
         `${at}: 오른쪽 화면 밖`,
       );
       for (const label of ['잔액', '적립', '지출']) {
-        const node = screen.getByTestId(`ledger-tab-${label}`);
+        const node = screen.getByTestId(
+          `ledger-tab-${({ 잔액: 'balance', 적립: 'earn', 지출: 'spend' } as Record<string, string>)[label]}`,
+        );
         const t = style(node);
         const slop = node.props.hitSlop as number;
         assert.ok(t.top - slop >= 0, `${at} ${label}: 위가 부모 밖`);
@@ -402,12 +419,16 @@ test('포스트잇을 누르면 그 장이 펼쳐진다 — 잔액 → 적립 �
   );
   const screen = await render(<Hall e={createPreviewEnvironment(e())} />);
   const selected = (label: string) =>
-    screen.getByTestId(`ledger-tab-${label}`).props.accessibilityState?.selected;
+    screen.getByTestId(
+      `ledger-tab-${({ 잔액: 'balance', 적립: 'earn', 지출: 'spend' } as Record<string, string>)[label]}`,
+    ).props.accessibilityState?.selected;
 
   // 잔액 장: 잔액 큰 숫자 + 합계 한 줄 + 최근 내역
   await waitFor(() => assert.ok(screen.getByTestId('ledger-balance')));
   for (const label of ['잔액', '적립', '지출']) {
-    const tab = screen.getByTestId(`ledger-tab-${label}`);
+    const tab = screen.getByTestId(
+      `ledger-tab-${({ 잔액: 'balance', 적립: 'earn', 지출: 'spend' } as Record<string, string>)[label]}`,
+    );
     assert.equal(tab.props.accessibilityRole, 'tab');
     assert.equal(tab.props.accessibilityLabel, label);
   }
@@ -416,7 +437,7 @@ test('포스트잇을 누르면 그 장이 펼쳐진다 — 잔액 → 적립 �
   assert.equal(screen.queryByTestId('ledger-total'), null);
 
   // 적립 장: 「이번 달 적립」 + 적립 합계 + 적립 내역만
-  await fireEvent.press(screen.getByTestId('ledger-tab-적립'));
+  await fireEvent.press(screen.getByTestId('ledger-tab-earn'));
   await waitFor(() => assert.ok(screen.getByText('퀘스트 보상')));
   assert.equal(ledgerMock.mock.calls.at(-1)[1].direction, 'earn');
   assert.equal(selected('적립'), true);
@@ -429,7 +450,7 @@ test('포스트잇을 누르면 그 장이 펼쳐진다 — 잔액 → 적립 �
   assert.ok(screen.getByTestId('ledger-amount-e2'));
 
   // 지출 장: 「이번 달 사용」 + 지출 합계 + 지출 내역만
-  await fireEvent.press(screen.getByTestId('ledger-tab-지출'));
+  await fireEvent.press(screen.getByTestId('ledger-tab-spend'));
   await waitFor(() => assert.ok(screen.getByText('건설 사용')));
   assert.equal(ledgerMock.mock.calls.at(-1)[1].direction, 'spend');
   assert.equal(selected('지출'), true);
@@ -472,20 +493,20 @@ test('거래내역 장(적립·지출)을 펼치면 feature_used(ledger/open) �
   mockCapture.mockClear();
 
   // 적립 장을 펼치면 1회
-  await fireEvent.press(screen.getByTestId('ledger-tab-적립'));
+  await fireEvent.press(screen.getByTestId('ledger-tab-earn'));
   await waitFor(() => assert.ok(screen.getByTestId('ledger-total')));
   expect(mockCapture.mock.calls).toEqual([
     ['feature_used', { building: 'ledger', action: 'open' }],
   ]);
 
   // 같은 적립 장을 다시 눌러도 늘지 않는다
-  await fireEvent.press(screen.getByTestId('ledger-tab-적립'));
+  await fireEvent.press(screen.getByTestId('ledger-tab-earn'));
   expect(mockCapture.mock.calls).toEqual([
     ['feature_used', { building: 'ledger', action: 'open' }],
   ]);
 
   // 지출 장은 다른 열람이라 1회 더
-  await fireEvent.press(screen.getByTestId('ledger-tab-지출'));
+  await fireEvent.press(screen.getByTestId('ledger-tab-spend'));
   await waitFor(() => assert.ok(screen.getByText('건설 사용')));
   expect(mockCapture.mock.calls).toEqual([
     ['feature_used', { building: 'ledger', action: 'open' }],
@@ -493,7 +514,7 @@ test('거래내역 장(적립·지출)을 펼치면 feature_used(ledger/open) �
   ]);
 
   // 잔액(요약)으로 돌아가는 건 거래내역 열람이 아니라 발행하지 않는다
-  await fireEvent.press(screen.getByTestId('ledger-tab-잔액'));
+  await fireEvent.press(screen.getByTestId('ledger-tab-balance'));
   assert.equal(mockCapture.mock.calls.length, 2);
 });
 
@@ -523,7 +544,7 @@ test('잔액·합계·거래 금액은 줄높이가 글자보다 커서 고운�
   roomy('ledger-amount-e1');
   expect(screen.getByTestId('ledger-amount-e1')).toHaveTextContent('+1,234,567');
 
-  await fireEvent.press(screen.getByTestId('ledger-tab-적립'));
+  await fireEvent.press(screen.getByTestId('ledger-tab-earn'));
   await waitFor(() => assert.ok(screen.getByTestId('ledger-total')));
   roomy('ledger-total');
   roomy('ledger-amount-e1');
@@ -625,7 +646,7 @@ test('spend 는 양수 amount 를 −로, earn 은 +로 그리고 reason 라벨�
   assert.ok(screen.getByText('+480'));
 
   // 지출 장: 양수 DTO 그대로 오고 화면에서만 −를 단다
-  await fireEvent.press(screen.getByTestId('ledger-tab-지출'));
+  await fireEvent.press(screen.getByTestId('ledger-tab-spend'));
   await waitFor(() => assert.ok(screen.getByText('건설 사용')));
   assert.ok(screen.getByText('공동 구매'));
   assert.ok(screen.getByText('잡지 홍보'));
@@ -652,7 +673,7 @@ test('로딩·빈 달·실패 재시도·더 보기는 서로 다른 상태다',
 
   // 적립 탭: 서버가 다음 쪽 커서를 주면 더 보기가 나오고 같은 scope 로 잇는다
   ledgerMock.mockResolvedValue(page({ items: [entry('e1')], nextCursor: 'cur1', earnedTotal: 10 }));
-  await fireEvent.press(screen.getByTestId('ledger-tab-적립'));
+  await fireEvent.press(screen.getByTestId('ledger-tab-earn'));
   await waitFor(() => assert.ok(screen.getByTestId('ledger-more')));
 
   ledgerMock.mockResolvedValue(page({ items: [entry('e2')], nextCursor: null }));

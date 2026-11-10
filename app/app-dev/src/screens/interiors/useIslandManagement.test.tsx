@@ -1,3 +1,4 @@
+import { applyLocalePref } from '@/i18n';
 import assert from 'node:assert/strict';
 import { act, renderHook } from '@testing-library/react-native';
 import {
@@ -1382,4 +1383,28 @@ test('정원 안내는 공개 오류의 field와 실행한 명령이 일치할 �
     ),
     '섬 상태가 바뀌었어요.\n다시 확인한 뒤 시도해 주세요.',
   );
+});
+
+test('영어 오류는 승인·정원 분기를 유지하고 오래된 세션의 안내를 억제한다', () => {
+  applyLocalePref('en');
+  try {
+    const full = managementErrorMessage(
+      new ApiError('STATE_CONFLICT', '서버 원문', 409, { field: 'islandId' }),
+      'approve',
+    );
+    const small = managementErrorMessage(
+      new ApiError('STATE_CONFLICT', '서버 원문', 409, { field: 'maxMembers' }),
+      'settings',
+    );
+    expect(full).toContain('island is full');
+    expect(small).toContain('Capacity');
+    expect(
+      managementErrorMessage(new ApiError(CLIENT_FORBIDDEN, '섬장만 실행할 수 있어요.', 0)),
+    ).toBe('Only the island host can do this.');
+    expect(
+      managementErrorMessage(new ApiError(CLIENT_STALE_SESSION, '로그인 정보가 바뀌었어요.', 0)),
+    ).toBe('');
+  } finally {
+    applyLocalePref('system');
+  }
 });

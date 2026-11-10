@@ -36,7 +36,7 @@ import { initialState } from '@/services/model';
 import { act, fireEvent, render, waitFor, within } from '@testing-library/react-native';
 import assert from 'node:assert/strict';
 import React, { useState } from 'react';
-import { PixelRatio, Platform, StyleSheet } from 'react-native';
+import { Dimensions, PixelRatio, Platform, StyleSheet } from 'react-native';
 
 import {
   getQuestProgress,
@@ -213,7 +213,7 @@ const makeE = (over: Record<string, unknown> = {}) => {
   const e: any = {
     route: 'board',
     detail: '',
-    tab: '공지',
+    tab: 'notice',
     text: '',
     body: '',
     windowStart: '',
@@ -264,6 +264,7 @@ const makeE = (over: Record<string, unknown> = {}) => {
       e.failNext = v;
     }),
     build: jest.fn(),
+    confirm: jest.fn(),
     home: jest.fn(),
     reset: jest.fn(),
     _tick: () => {},
@@ -670,11 +671,12 @@ test('게시판 청사진은 회관이 서버에 저장한 목표·가격·잔�
   const e = makeE({ route: 'quest', detail: 'building' });
   const screen = await renderBoard(e);
 
-  await waitFor(() => assert.ok(screen.getByText('총 37마리')));
-  assert.ok(screen.getByText('21 / 37마리'));
+  await waitFor(() => assert.ok(screen.getByText('37마리')));
+  assert.ok(screen.getByText('21마리'));
+  assert.ok(screen.getByText('16마리'));
   assert.equal(getConstructionOptionsMock.mock.calls[0][0], ISLAND);
   assert.equal(screen.queryByText('마을회관에서 다음 건물을 골라 주세요.'), null);
-  assert.equal(screen.queryByTestId('board-build-start'), null);
+  assert.equal(screen.getByTestId('board-build-start').props.accessibilityState.disabled, true);
   assert.equal(screen.queryByText('주민 준비량'), null);
   assert.equal(screen.queryByText('공사 15분'), null);
 });
@@ -724,7 +726,7 @@ test('고른 목표가 있으면 청사진 상자는 지금처럼 고정 높이�
   );
   const screen = await renderBoard(makeE({ route: 'quest', detail: 'building' }));
 
-  await waitFor(() => assert.ok(screen.getByText('총 37마리')));
+  await waitFor(() => assert.ok(screen.getByText('37마리')));
   const drawer = StyleSheet.flatten(screen.getByTestId('board-drawer').props.style);
   assert.equal(typeof drawer.height, 'number');
   assert.equal(drawer.height, drawer.maxHeight);
@@ -755,14 +757,14 @@ test('일반 주민도 서버 목표를 보지만 게시판에서 착공할 수 
   getConstructionOptionsMock.mockResolvedValue(options);
   const screen = await renderBoard(makeE({ route: 'quest', detail: 'building' }));
 
-  await waitFor(() => assert.ok(screen.getByText('총 37마리')));
-  assert.ok(screen.getByText('섬장이 건설을 진행할 수 있어요.'));
+  await waitFor(() => assert.ok(screen.getByText('37마리')));
+  assert.ok(screen.getByText('섬장이 건설할 수 있어요.'));
   assert.equal(screen.queryByTestId('board-build-start'), null);
   assert.equal(startConstructionMock.mock.calls.length, 0);
 });
 
 test.each(['host', 'member'] as const)(
-  '청사진 상세에서 %s도 총액 1마리와 두 주민의 각자 몫을 구분한다',
+  '청사진 상세에서 %s는 주민별 기여 없이 잔액·비용·건설 후 잔액을 확인한다',
   async (role) => {
     getBoardMock.mockResolvedValue(page([], null, role));
     const options = constructionOptions({
@@ -780,9 +782,9 @@ test.each(['host', 'member'] as const)(
     options.items[0] = {
       ...options.items[0],
       cost: 1,
-      buildable: false,
+      buildable: role === 'host',
       selectable: role === 'host',
-      blockedReason: role === 'host' ? 'INSUFFICIENT_FUNDS' : 'FORBIDDEN',
+      blockedReason: role === 'host' ? null : 'FORBIDDEN',
     };
     getConstructionOptionsMock.mockResolvedValue(options);
     const e = makeE({ tab: '' });
@@ -801,12 +803,16 @@ test.each(['host', 'member'] as const)(
     );
     assert.equal(screen.queryByTestId('board-resident-progress'), null);
     await fireEvent.press(screen.getByTestId('board-blueprint-area'));
-    await waitFor(() => assert.ok(screen.getByText('대상 주민 2명 · 각자 1마리')));
-    assert.ok(screen.getByText('총 1마리'));
-    assert.ok(screen.getByText('주민 둘'));
-    assert.ok(screen.getByText('1마리 남음'));
-    assert.ok(screen.getByText('건설할 때 섬 잔액에서 총 1마리를 차감해요.'));
-    assert.equal(screen.queryByTestId('board-build-start'), null);
+    await waitFor(() => assert.ok(screen.getByText('건설 후 남는 물고기')));
+    assert.equal(screen.getAllByText('1마리').length, 2);
+    assert.ok(screen.getByText('0마리'));
+    assert.equal(screen.queryByText('주민 둘'), null);
+    assert.equal(!!screen.queryByTestId('board-build-start'), role === 'host');
+    if (role === 'host')
+      assert.equal(
+        screen.getByTestId('board-build-start').props.accessibilityState.disabled,
+        false,
+      );
 
     getConstructionOptionsMock.mockResolvedValue({
       ...options,
@@ -828,7 +834,8 @@ test.each(['host', 'member'] as const)(
     assert.equal(screen.queryByTestId('board-contribution-refresh'), null);
     await fireEvent.press(screen.getByTestId('board-drawer-close'));
     await fireEvent.press(screen.getByTestId('board-blueprint-area'));
-    await waitFor(() => assert.equal(screen.getAllByText('달성').length, 2));
+    await waitFor(() => assert.ok(screen.getByText('2마리')));
+    assert.equal(screen.getAllByText('1마리').length, 2);
     assert.equal(screen.queryByText('1마리 남음'), null);
     assert.equal(!!screen.queryByTestId('board-build-start'), role === 'host');
   },
@@ -864,6 +871,14 @@ test('게시판 건설하기는 서버 착공 후 재조회하고 홈에 착공 
   const screen = await renderBoard(e);
   await waitFor(() => assert.ok(screen.getByTestId('board-build-start')));
   await fireEvent.press(screen.getByTestId('board-build-start'));
+  expect(startConstructionMock).not.toHaveBeenCalled();
+  expect(e.confirm).toHaveBeenCalledWith(
+    '도서관 건설을 시작할까요?',
+    '사용할 물고기: 37마리\n건설 후 잔액: 63마리',
+    expect.any(Function),
+    { ok: '건설 시작' },
+  );
+  await act(async () => e.confirm.mock.calls[0][2]());
   await waitFor(() => assert.ok(screen.getByText('도서관을 짓고 있어요')));
   expect(startConstructionMock).toHaveBeenCalledWith(ISLAND, 'library', 2, 3, expect.any(String));
   assert.equal(e.build.mock.calls.length, 0);
@@ -875,36 +890,27 @@ test('게시판 건설하기는 서버 착공 후 재조회하고 홈에 착공 
   );
 });
 
-test('준비 완료 도장은 예상 모습 그림 칸 안에서 칸 폭을 넘지 않아 가격·시간을 가리지 않는다(GROMO-2409)', async () => {
+test('건설비를 모으면 잔액을 가리지 않고 안내하며 카드 바깥을 누르면 청사진이 닫힌다', async () => {
   getBoardMock.mockResolvedValue(page([]));
   const options = constructionOptions({ selectedBuildingId: 'library', villagePoints: 100 });
   options.items[0] = { ...options.items[0], buildable: true, blockedReason: null };
   getConstructionOptionsMock.mockResolvedValue(options);
-  const screen = await renderBoard(makeE({ route: 'quest', detail: 'building' }));
-  await waitFor(() => assert.ok(screen.getByLabelText('준비 완료 도장')));
-
-  // 도장은 왼쪽 그림 칸의 자식이고, 가격·시간이 적힌 글자 칸에는 없다
-  const preview = screen.getByTestId('board-blueprint-preview');
-  assert.ok(within(preview).getByLabelText('준비 완료 도장'));
-  const copy = screen.getByTestId('board-blueprint-copy');
-  assert.ok(within(copy).getByText('총 37마리'));
-  expect(within(copy).queryByLabelText('준비 완료 도장')).toBeNull();
-  // 칸을 꽉 채우는 자리(absolute 0) 가운데에, 칸 폭(100%)과 시안 크기 126 중 작은 쪽 정사각형으로 찍힌다
-  const area = StyleSheet.flatten(
-    within(preview).getByTestId('board-blueprint-stamp-area').props.style,
-  );
-  assert.deepEqual(
-    [area.position, area.left, area.right, area.top, area.bottom],
-    ['absolute', 0, 0, 0, 0],
-  );
-  const stamp = StyleSheet.flatten(screen.getByTestId('board-blueprint-ready-stamp').props.style);
-  assert.equal(stamp.width, '100%');
-  assert.equal(stamp.maxWidth, 126);
-  assert.equal(stamp.aspectRatio, 1);
-  // 그림 칸은 자르기(overflow hidden)만 하고 그림자는 두지 않는다(DESIGN.md §6.3)
-  const column = StyleSheet.flatten(preview.props.style);
-  assert.equal(column.overflow, 'hidden');
-  assert.equal(column.boxShadow, undefined);
+  const e = makeE({ tab: '' });
+  e.back = jest.fn(() => {
+    e.route = 'board';
+    e.detail = '';
+    e.setTab('');
+  });
+  const screen = await renderBoard(e);
+  await fireEvent.press(screen.getByTestId('board-blueprint-area'));
+  await waitFor(() => assert.ok(screen.getByText('건설비를 모두 모았어요')));
+  assert.ok(screen.getByText('63마리'));
+  assert.equal(screen.queryByText('지금 모으는 건물'), null);
+  assert.equal(screen.queryByText('건물 목록'), null);
+  // 카드 자체에는 닫기 핸들러가 없어 안쪽 정보 탭은 유지된다.
+  assert.equal(screen.getByTestId('board-wallet-summary').props.onPress, undefined);
+  await fireEvent.press(screen.getByTestId('board-blueprint-backdrop'));
+  await waitFor(() => expect(screen.queryByTestId('board-wallet-summary')).toBeNull());
 });
 
 test.each([
@@ -947,7 +953,7 @@ test('건설 목표 조회 실패는 목표 없음으로 숨기지 않고 재시
     constructionOptions({ selectedBuildingId: 'library' }),
   );
   await fireEvent.press(screen.getByTestId('board-construction-retry'));
-  await waitFor(() => assert.ok(screen.getByText('총 37마리')));
+  await waitFor(() => assert.ok(screen.getByText('37마리')));
 });
 
 test('청사진을 열 때 목표를 다시 읽어 다른 기기에서 변경한 건물을 표시한다', async () => {
@@ -966,9 +972,9 @@ test('청사진을 열 때 목표를 다시 읽어 다른 기기에서 변경한
   next.items[0] = { ...next.items[0], id: 'mail', name: '우체통', cost: 81 };
   getConstructionOptionsMock.mockResolvedValue(next);
   await fireEvent.press(screen.getByTestId('board-blueprint-area'));
-  await waitFor(() => assert.ok(screen.getByText('총 81마리')));
+  await waitFor(() => assert.ok(screen.getByText('81마리')));
   assert.ok(screen.getByText('우체통'));
-  assert.equal(screen.queryByText('총 37마리'), null);
+  assert.equal(screen.queryByText('37마리'), null);
 });
 
 test('게시판 장면 배율을 종이와 내용에 함께 적용해 종횡비가 달라도 정렬한다', async () => {
@@ -1141,22 +1147,34 @@ test('퀘스트 목록 항목의 상세 버튼은 여덟 화면 크기에서 손
   }
 });
 
-test('좁은 세로 화면에서도 청사진 패널과 두 열 배치를 유지한다', async () => {
-  const width = 375;
-  const screen = await renderBoard(null, concept({ boardPanel: 'blueprint', boardView: 'list' }), {
-    width,
-    height: 500,
-  });
-  const drawer = StyleSheet.flatten(screen.getByTestId('board-drawer').props.style);
-  const grid = StyleSheet.flatten(screen.getByTestId('board-blueprint-grid').props.style);
-
-  assert.equal(drawer.left, (324 * width) / 874);
-  assert.equal(drawer.right, (30 * width) / 874);
-  assert.ok(width - drawer.left - drawer.right >= 44);
-  assert.equal(grid.flexDirection, 'row');
-  assert.ok(screen.getByText('예상 모습'));
-  await screen.unmount();
-});
+test.each([
+  [1, 'row'],
+  [2, 'column'],
+] as const)(
+  '좁은 화면 청사진은 글자 배율 %s에 맞춰 미리보기를 %s로 배치한다',
+  async (fontScale, direction) => {
+    const window = Dimensions.get('window');
+    Dimensions.set({ window: { ...window, fontScale } });
+    try {
+      const width = 375;
+      const screen = await renderBoard(
+        null,
+        concept({ boardPanel: 'blueprint', boardView: 'list' }),
+        { width, height: 500 },
+      );
+      const drawer = StyleSheet.flatten(screen.getByTestId('board-drawer').props.style);
+      const grid = StyleSheet.flatten(screen.getByTestId('board-blueprint-grid').props.style);
+      assert.equal(drawer.left, (324 * width) / 874);
+      assert.equal(drawer.right, (30 * width) / 874);
+      assert.ok(width - drawer.left - drawer.right >= 44);
+      assert.equal(grid.flexDirection, direction);
+      assert.ok(screen.getByLabelText('도서관 건물 미리보기'));
+      await screen.unmount();
+    } finally {
+      Dimensions.set({ window });
+    }
+  },
+);
 
 test('작은 320×480·290×400 화면에서 퀘스트와 청사진 터치 영역이 겹치지 않는다', async () => {
   for (const [width, height] of [
@@ -1581,7 +1599,7 @@ test('가로 키보드 전후 게시판 장면 초기 스크롤 오프셋을 고
 
 test('홈 퀘스트 바로가기는 없는 상세로 치지 않고 퀘스트 목록을 연다', async () => {
   getBoardMock.mockResolvedValue(page([]));
-  const e = makeE({ route: 'quest', detail: HOME_QUEST_LIST_DETAIL, tab: '퀘스트' });
+  const e = makeE({ route: 'quest', detail: HOME_QUEST_LIST_DETAIL, tab: 'quest' });
   const screen = await renderBoard(e);
 
   await waitFor(() => assert.ok(screen.getByText('매일 새 도전')));
@@ -2137,7 +2155,7 @@ test('퀘스트 목록 — getBoard 의 회차 헤더를 그린다(내 달성률
       }),
     ]),
   );
-  const screen = await renderBoard(makeE({ tab: '퀘스트' }));
+  const screen = await renderBoard(makeE({ tab: 'quest' }));
 
   await waitFor(() => assert.ok(screen.getByText('저녁 집중')));
   assert.ok(screen.getByText('64%'));
@@ -2155,7 +2173,7 @@ test('퀘스트 목록 — 같은 정의의 여러 회차를 occurrenceId로 라
       questItem({ occurrenceId: 'occ-today', date: '2026-09-21' }),
     ]),
   );
-  const e = makeE({ tab: '퀘스트' });
+  const e = makeE({ tab: 'quest' });
   const screen = await renderBoard(e);
   await waitFor(() => assert.ok(screen.getByTestId('board-quest-detail-1')));
 
@@ -2170,7 +2188,7 @@ test('퀘스트 상세 — progress 의 주민 목록을 그리고 수령 버튼
     page([], null, 'host', [questItem({ claimable: true, claimBlockedReason: null })]),
   );
   getQuestProgressMock.mockResolvedValue(questProgress());
-  const e = makeE({ route: 'quest', detail: 'occ-1', tab: '퀘스트' });
+  const e = makeE({ route: 'quest', detail: 'occ-1', tab: 'quest' });
   const screen = await renderBoard(e);
 
   await waitFor(() => assert.ok(screen.getByText(/· 달성/)));
@@ -2208,7 +2226,7 @@ test('퀘스트 상세 — 털색을 안 준 주민은 빈 상자이고 준 주�
   getQuestProgressMock.mockResolvedValue(
     questProgress({ members: [{ ...withColor, catColor: 'ginger' }, noColor] }),
   );
-  const screen = await renderBoard(makeE({ route: 'quest', detail: 'occ-1', tab: '퀘스트' }));
+  const screen = await renderBoard(makeE({ route: 'quest', detail: 'occ-1', tab: 'quest' }));
 
   await waitFor(() => assert.ok(screen.getByText(/· 달성/)));
   assert.ok(screen.getByText('주민')); // 털색이 없는 u2 의 줄은 있다
@@ -2224,7 +2242,7 @@ test('퀘스트 상세 — 수령 불가 사유를 서버 코드 그대로 번�
     page([], null, 'member', [questItem({ claimBlockedReason: 'MEASUREMENT_PENDING' })]),
   );
   getQuestProgressMock.mockResolvedValue(questProgress());
-  const screen = await renderBoard(makeE({ route: 'quest', detail: 'occ-1', tab: '퀘스트' }));
+  const screen = await renderBoard(makeE({ route: 'quest', detail: 'occ-1', tab: 'quest' }));
 
   await waitFor(() => assert.ok(screen.getByText('측정이 끝나야 보상을 받을 수 있어요.')));
   assert.equal(screen.queryByTestId('board-quest-claim'), null);
@@ -2236,7 +2254,7 @@ test('퀘스트 상세 — 수령 실패(409)는 문구를 띄우고 목록을 �
     page([], null, 'host', [questItem({ claimable: true, claimBlockedReason: null })]),
   );
   getQuestProgressMock.mockResolvedValue(questProgress());
-  const e = makeE({ route: 'quest', detail: 'occ-1', tab: '퀘스트' });
+  const e = makeE({ route: 'quest', detail: 'occ-1', tab: 'quest' });
   const screen = await renderBoard(e);
   await waitFor(() => assert.ok(screen.getByTestId('board-quest-claim')));
 
@@ -2255,7 +2273,7 @@ test('퀘스트 만들기 — POST 에 허용 키만 싣고 창은 KST 벽시계
   postQuestMock.mockResolvedValue({ id: 'q9', title: '저녁 집중' });
   const e = makeE({
     route: 'questEdit',
-    tab: '퀘스트',
+    tab: 'quest',
     body: 'focus',
     text: '저녁 집중',
     windowStart: '19:00',
@@ -2288,7 +2306,7 @@ test('퀘스트 만들기 — 23:00–24:00 창의 꽉 찬 60분 목표를 받�
   postQuestMock.mockResolvedValue({ id: 'q9', title: '자정 집중' });
   const e = makeE({
     route: 'questEdit',
-    tab: '퀘스트',
+    tab: 'quest',
     body: 'focus',
     text: '자정 집중',
     windowStart: '23:00',
@@ -2316,7 +2334,7 @@ test('퀘스트 만들기 — 창을 넘는 목표(23:00–24:00 에 61분)는 �
   getBoardMock.mockResolvedValue(page([], null, 'host', []));
   const e = makeE({
     route: 'questEdit',
-    tab: '퀘스트',
+    tab: 'quest',
     body: 'focus',
     text: '자정 집중',
     windowStart: '23:00',
@@ -2336,7 +2354,7 @@ test('퀘스트 만들기 — UTC 자정을 가로지르는 창(08:00–10:00)�
   getBoardMock.mockResolvedValue(page([], null, 'host', []));
   const e = makeE({
     route: 'questEdit',
-    tab: '퀘스트',
+    tab: 'quest',
     body: 'focus',
     text: '아침 집중',
     windowStart: '08:00',
@@ -2358,7 +2376,7 @@ test('퀘스트 만들기 — screen 은 창 필드 없이 간다', async () => 
   postQuestMock.mockResolvedValue({ id: 'q9', title: '폰 줄이기' });
   const e = makeE({
     route: 'questEdit',
-    tab: '퀘스트',
+    tab: 'quest',
     body: 'screen',
     text: '폰 줄이기',
   });
@@ -2381,7 +2399,7 @@ test('퀘스트 만들기 — screen 목표 0분을 허용한다', async () => {
   postQuestMock.mockResolvedValue({ id: 'q0', title: '폰 안 쓰기' });
   const e = makeE({
     route: 'questEdit',
-    tab: '퀘스트',
+    tab: 'quest',
     body: 'screen',
     text: '폰 안 쓰기',
   });
@@ -2404,7 +2422,7 @@ test('퀘스트 저장 중 바꾼 초안은 이전 요청 성공 후에도 닫�
   postQuestMock.mockReturnValue(slow.promise);
   const e = makeE({
     route: 'questEdit',
-    tab: '퀘스트',
+    tab: 'quest',
     body: 'screen',
     text: '폰 줄이기',
   });
@@ -2430,7 +2448,7 @@ test('퀘스트 수정 — PATCH 에 title/targetMinutes 만 싣는다(창·종�
   getBoardMock.mockResolvedValue(page([], null, 'host', [questItem()]));
   getQuestProgressMock.mockResolvedValue(questProgress());
   patchQuestMock.mockResolvedValue({ id: 'q1', title: '저녁 집중', targetMinutes: 60 });
-  const e = makeE({ route: 'quest', detail: 'occ-1', tab: '퀘스트' });
+  const e = makeE({ route: 'quest', detail: 'occ-1', tab: 'quest' });
   const screen = await renderBoard(e);
 
   // 실제 진입은 상세의 수정 버튼이다 — 초안과 목표 분을 서버 목록 값으로 채운다.
@@ -2467,7 +2485,7 @@ test('퀘스트 수정 — KST 자정을 넘는 기존 창(23:00–02:00)도 제
   getBoardMock.mockResolvedValue(page([], null, 'host', [questItem(crossing)]));
   getQuestProgressMock.mockResolvedValue(questProgress(crossing));
   patchQuestMock.mockResolvedValue({ id: 'q1', title: '밤 집중', targetMinutes: 60 });
-  const e = makeE({ route: 'quest', detail: 'occ-1', tab: '퀘스트' });
+  const e = makeE({ route: 'quest', detail: 'occ-1', tab: 'quest' });
   const screen = await renderBoard(e);
 
   await waitFor(() => assert.ok(screen.getByTestId('board-quest-edit')));
@@ -2494,7 +2512,7 @@ test('퀘스트 만들기 — 하루 폰 사용 상한 1440분(24:00)을 고를 
   // 서버 상한이 1440분이므로 하루 전체(24:00)를 피커로 고를 수 있어야 한다(GROMO-2672, 코드리뷰 반영).
   getBoardMock.mockResolvedValue(page([], null, 'host', []));
   postQuestMock.mockResolvedValue({ id: 'qmax', title: '폰 상한' });
-  const e = makeE({ route: 'questEdit', tab: '퀘스트', body: 'screen', text: '폰 상한' });
+  const e = makeE({ route: 'questEdit', tab: 'quest', body: 'screen', text: '폰 상한' });
   const screen = await renderBoard(e);
   await waitFor(() => assert.ok(screen.getByTestId('board-quest-target')));
   await setTargetMinutes(screen, '하루 폰 사용 상한', 1440);
@@ -2514,7 +2532,7 @@ test('퀘스트 만들기 — + 만들기는 창을 빈 값이 아니라 기본 
   // 보이는 00:00 을 저장하려 해도 start 가 비어 막힌다. 보이는 값이 곧 폼 값이도록 초기화한다
   // (GROMO-2672, 코드리뷰 반영). 폼은 e.windowStart/End 에서 오므로 거기로 확인한다.
   getBoardMock.mockResolvedValue(page([], null, 'host', []));
-  const e = makeE({ route: 'quest', detail: HOME_QUEST_LIST_DETAIL, tab: '퀘스트' });
+  const e = makeE({ route: 'quest', detail: HOME_QUEST_LIST_DETAIL, tab: 'quest' });
   const screen = await renderBoard(e);
 
   await waitFor(() => assert.ok(screen.getByTestId('board-quest-new')));
@@ -2531,7 +2549,7 @@ test('퀘스트 만들기 — 서버 실패 시 초안·문구를 보존하고 �
   postQuestMock.mockRejectedValue(new ApiError('FORBIDDEN', '권한이 없습니다.', 403));
   const e = makeE({
     route: 'questEdit',
-    tab: '퀘스트',
+    tab: 'quest',
     body: 'focus',
     text: '저녁 집중',
     windowStart: '19:00',
@@ -2606,7 +2624,7 @@ test.each(['success', 'failure', 'stale'] as const)(
       assert.equal(e.go.mock.calls.at(-1)[0], 'library');
       assert.ok(e.dispatch.mock.invocationCallOrder.at(-1) < e.go.mock.invocationCallOrder.at(-1));
     }
-    if (outcome === 'failure') assert.ok(screen.getByText('lost'));
+    if (outcome === 'failure') assert.ok(screen.getByText('연결을 확인한 뒤 다시 시도해 주세요.'));
   },
 );
 
@@ -2638,7 +2656,7 @@ test('섬장은 펜꽂이로 방명록 종이를 열고 항목마다 지우기�
   assert.equal(screen.getByTestId('board-guestbook-area').props.accessibilityLabel, '방명록');
 
   await fireEvent.press(screen.getByTestId('board-guestbook-area'));
-  assert.equal(e.setTab.mock.calls.at(-1)[0], '방명록');
+  assert.equal(e.setTab.mock.calls.at(-1)[0], 'guestbook');
   await waitFor(() => assert.ok(screen.getByText('g1 놀러 왔어요')));
   assert.equal(getGuestbookMock.mock.calls[0][0], ISLAND);
   assert.ok(screen.getByText('g2 놀러 왔어요'));
@@ -2975,3 +2993,27 @@ test.each(['ios', 'web'])(
     }
   },
 );
+
+test('언어를 바꿔도 게시판 종이와 작성 중인 사용자 원문을 유지한다', async () => {
+  applyLocalePref('ko');
+  getBoardMock.mockResolvedValue(page([]));
+  const e = makeE({
+    route: 'noticeEdit',
+    tab: 'notice',
+    text: '우리 섬의 소식',
+    body: '사용자가 쓴 원문',
+  });
+  const screen = await renderBoard(e);
+  await screen.findByTestId('board-notice-title');
+  const reads = getBoardMock.mock.calls.length;
+  await act(async () => {
+    applyLocalePref('en');
+  });
+  expect(screen.getByLabelText('Notice title').props.value).toBe('우리 섬의 소식');
+  expect(screen.getByLabelText('Notice body').props.value).toBe('사용자가 쓴 원문');
+  expect(e.tab).toBe('notice');
+  expect(getBoardMock.mock.calls.length).toBe(reads);
+  expect(postNotice).not.toHaveBeenCalled();
+  await screen.unmount();
+  applyLocalePref('ko');
+});
