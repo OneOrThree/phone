@@ -1480,6 +1480,7 @@ Table developer_notices {
   withdrawn_by varchar(16)
   min_ios_version varchar(32) [note: '강제 업데이트 최소 iOS 버전 숫자.숫자.숫자. 둘 다 NULL이면 패치노트']
   min_android_version varchar(32) [note: '강제 업데이트 최소 Android 버전. 형식은 min_ios_version과 같다']
+  target_platform varchar(10) [not null, default: 'ALL', note: '공지 대상 플랫폼 ALL·IOS·ANDROID. 강제 업데이트는 최소 버전에서 정해진다']
 }
 Ref: developer_notices.publication_id > content_publications.publication_id [delete: no action]
 Table magazine_review_snapshots {

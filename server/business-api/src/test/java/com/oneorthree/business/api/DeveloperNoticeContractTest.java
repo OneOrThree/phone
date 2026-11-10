@@ -243,6 +243,12 @@ class DeveloperNoticeContractTest extends UpstreamTestBase {
         return NEWEST.minusSeconds(n / 2);
     }
 
+    /** Data 가 보내는 단건 — n번째 소식. */
+    private static String notice(int n) {
+        return "{\"publicationId\":\"" + id(n) + "\",\"title\":\"소식 " + n + "\",\"body\":\"본문\","
+                + "\"startsAt\":\"2026-10-01T00:00:00Z\",\"endsAt\":null,\"publishedAt\":\"" + published(n) + "\"}";
+    }
+
     /** Data 가 보내는 한 쪽 — from 번째부터 count 건. */
     private static String page(int from, int count, boolean hasMore) {
         String items = IntStream.range(from, from + count).mapToObj(n -> "{\"publicationId\":\"" + id(n)
@@ -268,6 +274,78 @@ class DeveloperNoticeContractTest extends UpstreamTestBase {
 
     private static MockUpstream.Response ok(String body) {
         return new MockUpstream.Response(200, body);
+    }
+
+    @ParameterizedTest
+    @CsvSource({"ios,ios", "android,android", "' ios ',ios", "'android ',android"})
+    @DisplayName("X-App-Platform 이 ios·android 면 목록과 단건 모두 Data 에 platform 으로 전달한다(공백은 걷는다)")
+    void validPlatformHeaderIsForwardedAsPlatform(String header, String expected) throws Exception {
+        DATA.on(INTERNAL, request -> ok("{\"items\":[],\"hasMore\":false}"));
+        DATA.on(INTERNAL + "/" + ID, request -> ok(notice(0)));
+
+        mockMvc.perform(auth(get(PUBLIC)).header("X-App-Platform", header)).andExpect(status().isOk());
+        assertThat(queryParams(DATA.receivedFor(INTERNAL).get(0).query()))
+                .containsExactlyInAnyOrder("limit=100", "platform=" + expected);
+        mockMvc.perform(auth(get(PUBLIC + "/" + ID)).header("X-App-Platform", header)).andExpect(status().isOk());
+        assertThat(queryParams(DATA.receivedFor(INTERNAL + "/" + ID).get(0).query()))
+                .containsExactly("platform=" + expected);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"", "   ", "web", "IOS", "ios,android", "windows"})
+    @DisplayName("X-App-Platform 이 비었거나 어긋나면 «모름» — platform 을 싣지 않고 요청도 거절하지 않는다")
+    void missingOrGarbagePlatformHeaderSendsNoPlatform(String header) throws Exception {
+        DATA.on(INTERNAL, request -> ok("{\"items\":[],\"hasMore\":false}"));
+        DATA.on(INTERNAL + "/" + ID, request -> ok(notice(0)));
+
+        mockMvc.perform(auth(get(PUBLIC)).header("X-App-Platform", header)).andExpect(status().isOk());
+        mockMvc.perform(auth(get(PUBLIC + "/" + ID)).header("X-App-Platform", header)).andExpect(status().isOk());
+        mockMvc.perform(auth(get(PUBLIC))).andExpect(status().isOk());
+        assertThat(queryParams(DATA.receivedFor(INTERNAL).get(0).query())).containsExactly("limit=100");
+        assertThat(queryParams(DATA.receivedFor(INTERNAL).get(1).query())).containsExactly("limit=100");
+        assertThat(DATA.receivedFor(INTERNAL + "/" + ID).get(0).query()).isNull();
+    }
+
+    @Test
+    @DisplayName("한 플랫폼에서 받은 커서는 다른 플랫폼·플랫폼 모름에서 400 INVALID_CURSOR 이고, 모름 커서는 예전처럼 풀린다")
+    void cursorIsBoundToThePlatform() throws Exception {
+        DATA.on(INTERNAL, request -> ok(page(0, 2, true)));
+        String ios = nextCursor(auth(get(PUBLIC + "?limit=2")).header("X-App-Platform", "ios"));
+        String unknown = nextCursor(auth(get(PUBLIC + "?limit=2")));
+        int before = DATA.received().size();
+
+        mockMvc.perform(auth(get(PUBLIC + "?limit=2")).header("X-App-Platform", "android").queryParam("cursor", ios))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.error.code").value("INVALID_CURSOR"));
+        mockMvc.perform(auth(get(PUBLIC + "?limit=2")).queryParam("cursor", ios))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.error.code").value("INVALID_CURSOR"));
+        mockMvc.perform(auth(get(PUBLIC + "?limit=2")).header("X-App-Platform", "ios").queryParam("cursor", unknown))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.error.code").value("INVALID_CURSOR"));
+        assertThat(DATA.received()).hasSize(before);
+
+        // 예전 코드가 발급한 범위(필터 없음)의 커서는 플랫폼을 모르는 요청에서 그대로 이어진다.
+        String legacy = codec.encode(new CursorScope(USER, "me/developer-notices", Map.of(), "published-desc", 2),
+                new CursorBoundary(published(1).toString(), id(1).toString()));
+        DATA.on(INTERNAL, request -> ok(page(2, 1, false)));
+        mockMvc.perform(auth(get(PUBLIC + "?limit=2")).queryParam("cursor", legacy)).andExpect(status().isOk());
+        mockMvc.perform(auth(get(PUBLIC + "?limit=2")).header("X-App-Platform", "ios").queryParam("cursor", ios))
+                .andExpect(status().isOk());
+        assertThat(queryParams(DATA.received().get(before).query())).containsExactlyInAnyOrder(
+                "afterPublishedAt=" + published(1), "afterId=" + id(1), "limit=2");
+        assertThat(queryParams(DATA.received().get(before + 1).query())).containsExactlyInAnyOrder(
+                "afterPublishedAt=" + published(1), "afterId=" + id(1), "limit=2", "platform=ios");
+    }
+
+    @Test
+    @DisplayName("Data 응답의 targetPlatform 은 받아도 공개 응답 모양을 바꾸지 않는다")
+    void targetPlatformFromDataDoesNotChangeThePublicShape() throws Exception {
+        DATA.on(INTERNAL, request -> ok("{\"items\":[{\"publicationId\":\"" + ID
+                + "\",\"title\":\"[iOS] 소식\",\"body\":\"본문\",\"startsAt\":\"2026-10-29T00:00:00Z\","
+                + "\"endsAt\":null,\"publishedAt\":\"2026-10-28T00:00:00Z\",\"targetPlatform\":\"IOS\"}],"
+                + "\"hasMore\":false}"));
+        String body = mockMvc.perform(auth(get(PUBLIC))).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items[0].title").value("[iOS] 소식"))
+                .andReturn().getResponse().getContentAsString();
+        assertThat(mapper.readTree(body).path("data").path("items").get(0).has("targetPlatform")).isFalse();
     }
 
     @Test

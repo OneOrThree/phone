@@ -25,9 +25,12 @@ import java.util.regex.Pattern;
 public class DeveloperNoticeService {
     private static final Pattern MIN_VERSION = Pattern.compile("^[0-9]{1,9}\\.[0-9]{1,9}\\.[0-9]{1,9}$");
     private static final String COLUMNS = "publication_id,title,body,starts_at,ends_at,published_at,"
-            + "min_ios_version,min_android_version";
+            + "min_ios_version,min_android_version,target_platform";
     /** 한 쪽의 최대이자 기본 크기. 앱이 첫 쪽만 훑어 예약 공지를 고르므로 기본값을 줄이지 않는다. */
     private static final int PAGE_MAX = 100;
+    private static final String ALL = "ALL";
+    private static final String IOS = "IOS";
+    private static final String ANDROID = "ANDROID";
     private final JdbcTemplate jdbc;
     private final ContentStore store;
     private final Clock clock;
@@ -40,6 +43,7 @@ public class DeveloperNoticeService {
                 || !version(draft.minIosVersion()) || !version(draft.minAndroidVersion())) {
             throw new ContentException(ContentErrorCode.INVALID_REQUEST);
         }
+        String target = targetPlatform(draft);
         String digest = ContentJson.digest(draft);
         store.lock(id);
         String previous = store.replay(id, "NOTICE", digest);
@@ -47,13 +51,13 @@ public class DeveloperNoticeService {
             return ContentJson.read(previous, Notice.class);
         }
         Notice notice = new Notice(id, draft.title(), draft.body(), draft.startsAt(), draft.endsAt(), clock.instant(),
-                draft.minIosVersion(), draft.minAndroidVersion());
+                draft.minIosVersion(), draft.minAndroidVersion(), target);
         jdbc.update("INSERT INTO developer_notices(publication_id,title,body,starts_at,ends_at,published_at,"
-                        + "min_ios_version,min_android_version) VALUES(?,?,?,?,?,?,?,?)",
+                        + "min_ios_version,min_android_version,target_platform) VALUES(?,?,?,?,?,?,?,?,?)",
                 id, notice.title(), notice.body(),
                 Timestamp.from(notice.startsAt()),
                 notice.endsAt() == null ? null : Timestamp.from(notice.endsAt()), Timestamp.from(notice.publishedAt()),
-                notice.minIosVersion(), notice.minAndroidVersion());
+                notice.minIosVersion(), notice.minAndroidVersion(), notice.targetPlatform());
         store.record(id, "NOTICE", digest, ContentJson.write(notice), actor, notice.publishedAt());
         return notice;
     }
@@ -80,7 +84,7 @@ public class DeveloperNoticeService {
     /** 관리 목록(전체)이나 공개 목록(활성만)의 첫 쪽 — 최대 100건이다. 이어 읽기는 공개 목록의 keyset 쪽만 한다. */
     @Transactional(readOnly = true)
     public Page list(boolean management) {
-        return page(management, null, null, PAGE_MAX);
+        return page(management, null, null, PAGE_MAX, null);
     }
 
     /**
@@ -90,14 +94,28 @@ public class DeveloperNoticeService {
      */
     @Transactional(readOnly = true)
     public Page list(Instant afterPublishedAt, UUID afterId, int limit) {
+        return list(afterPublishedAt, afterId, limit, null);
+    }
+
+    /**
+     * 플랫폼을 아는 요청({@code ios}·{@code android})은 그 플랫폼 대상과 전체 공지만 받고 제목은 그대로다.
+     * 플랫폼을 모르는 요청({@code null})은 모든 공지를 받고 IOS·ANDROID 공지 제목에 표시가 붙는다.
+     * 거른 뒤에 limit+1 건을 읽으므로 걸러진 행 때문에 {@code hasMore} 나 keyset 경계가 어긋나지 않는다.
+     */
+    @Transactional(readOnly = true)
+    public Page list(Instant afterPublishedAt, UUID afterId, int limit, String platform) {
+        List<String> targets = targets(platform);
         if (limit < 1 || limit > PAGE_MAX || (afterPublishedAt == null) != (afterId == null)) {
             throw new ContentException(ContentErrorCode.INVALID_REQUEST);
         }
-        return page(false, afterPublishedAt, afterId, limit);
+        Page page = page(false, afterPublishedAt, afterId, limit, targets);
+        return platform == null ? new Page(page.items().stream().map(DeveloperNoticeService::marked).toList(),
+                page.hasMore()) : page;
     }
 
     /** limit+1 건을 읽어 {@code hasMore} 를 정한다 — 정확히 limit 건이면 false 다. */
-    private Page page(boolean management, Instant afterPublishedAt, UUID afterId, int limit) {
+    private Page page(boolean management, Instant afterPublishedAt, UUID afterId, int limit,
+            List<String> targets) {
         List<Object> args = new ArrayList<>();
         String where = "";
         if (!management) {
@@ -105,6 +123,10 @@ public class DeveloperNoticeService {
             where = " WHERE withdrawn_at IS NULL AND starts_at<=? AND (ends_at IS NULL OR ends_at>?)";
             args.add(now);
             args.add(now);
+        }
+        if (targets != null) {
+            where += (where.isEmpty() ? " WHERE" : " AND") + " target_platform IN (?,?)";
+            args.addAll(targets);
         }
         if (afterPublishedAt != null) {
             where += (where.isEmpty() ? " WHERE" : " AND") + " (published_at,publication_id)<(?::timestamptz,?::uuid)";
@@ -121,15 +143,22 @@ public class DeveloperNoticeService {
 
     @Transactional(readOnly = true)
     public Notice get(UUID id) {
+        return get(id, null);
+    }
+
+    /** 단건. 대상이 아닌 플랫폼으로 부르면 없는 공지와 같이 NOT_FOUND 다. 플랫폼을 모르면 제목에 표시가 붙는다. */
+    @Transactional(readOnly = true)
+    public Notice get(UUID id, String platform) {
+        List<String> targets = targets(platform);
         Instant now = clock.instant();
         List<Notice> rows = jdbc.query("SELECT " + COLUMNS
                         + " FROM developer_notices WHERE publication_id=? AND withdrawn_at IS NULL AND starts_at<=?"
                         + " AND (ends_at IS NULL OR ends_at>?)",
                 DeveloperNoticeService::notice, id, Timestamp.from(now), Timestamp.from(now));
-        if (rows.isEmpty()) {
+        if (rows.isEmpty() || (targets != null && !targets.contains(rows.get(0).targetPlatform()))) {
             throw new ContentException(ContentErrorCode.NOT_FOUND);
         }
-        return rows.get(0);
+        return platform == null ? marked(rows.get(0)) : rows.get(0);
     }
 
     /** 지금 유효한 해당 플랫폼 최소 버전 공지 중 가장 최근 것. 없으면 전부 null. */
@@ -156,7 +185,49 @@ public class DeveloperNoticeService {
         Timestamp end = rs.getTimestamp(5);
         return new Notice(rs.getObject(1, UUID.class), rs.getString(2), rs.getString(3),
                 rs.getTimestamp(4).toInstant(), end == null ? null : end.toInstant(),
-                rs.getTimestamp(6).toInstant(), rs.getString(7), rs.getString(8));
+                rs.getTimestamp(6).toInstant(), rs.getString(7), rs.getString(8), rs.getString(9));
+    }
+
+    /** 플랫폼 파라미터({@code ios}·{@code android}·없음)를 조회 대상 값 둘로 바꾼다. 없으면 null(전부), 그 밖은 400. */
+    private static List<String> targets(String platform) {
+        if (platform == null) {
+            return null;
+        }
+        return switch (platform) {
+            case "ios" -> List.of(ALL, IOS);
+            case "android" -> List.of(ALL, ANDROID);
+            default -> throw new ContentException(ContentErrorCode.INVALID_REQUEST);
+        };
+    }
+
+    /** 게시 대상: 최소 버전이 있으면 거기서 정하고(명시 값과 다르면 400), 없으면 명시 값, 둘 다 없으면 ALL. */
+    private static String targetPlatform(Draft draft) {
+        String explicit = draft.targetPlatform();
+        if (explicit != null && !ALL.equals(explicit) && !IOS.equals(explicit) && !ANDROID.equals(explicit)) {
+            throw new ContentException(ContentErrorCode.INVALID_REQUEST);
+        }
+        boolean ios = draft.minIosVersion() != null;
+        boolean android = draft.minAndroidVersion() != null;
+        if (!ios && !android) {
+            return explicit == null ? ALL : explicit;
+        }
+        String derived = ios && android ? ALL : ios ? IOS : ANDROID;
+        if (explicit != null && !explicit.equals(derived)) {
+            throw new ContentException(ContentErrorCode.INVALID_REQUEST);
+        }
+        return derived;
+    }
+
+    /** 플랫폼을 모르는 요청용 제목 표시. ALL 은 그대로다. */
+    private static Notice marked(Notice notice) {
+        String prefix = switch (notice.targetPlatform()) {
+            case IOS -> "[iOS] ";
+            case ANDROID -> "[Android] ";
+            default -> "";
+        };
+        return prefix.isEmpty() ? notice : new Notice(notice.publicationId(), prefix + notice.title(), notice.body(),
+                notice.startsAt(), notice.endsAt(), notice.publishedAt(), notice.minIosVersion(),
+                notice.minAndroidVersion(), notice.targetPlatform());
     }
 
     private static boolean version(String value) {
@@ -169,15 +240,32 @@ public class DeveloperNoticeService {
     }
 
 
-    // min 은 컴포넌트 단위 NON_NULL: 없는 초안의 직렬화(=digest)가 기존과 같아야 한다.
+    // min·targetPlatform 은 컴포넌트 단위 NON_NULL: 없는 초안의 직렬화(=digest)가 기존과 같아야 한다.
     public record Draft(String title, String body, Instant startsAt, Instant endsAt,
                         @JsonInclude(JsonInclude.Include.NON_NULL) String minIosVersion,
-                        @JsonInclude(JsonInclude.Include.NON_NULL) String minAndroidVersion) { }
+                        @JsonInclude(JsonInclude.Include.NON_NULL) String minAndroidVersion,
+                        @JsonInclude(JsonInclude.Include.NON_NULL) String targetPlatform) {
+        public Draft(String title, String body, Instant startsAt, Instant endsAt, String minIosVersion,
+                     String minAndroidVersion) {
+            this(title, body, startsAt, endsAt, minIosVersion, minAndroidVersion, null);
+        }
+    }
 
     public record Notice(UUID publicationId, String title, String body, Instant startsAt, Instant endsAt,
                          Instant publishedAt,
                          @JsonInclude(JsonInclude.Include.NON_NULL) String minIosVersion,
-                         @JsonInclude(JsonInclude.Include.NON_NULL) String minAndroidVersion) { }
+                         @JsonInclude(JsonInclude.Include.NON_NULL) String minAndroidVersion,
+                         String targetPlatform) {
+        /** 대상 열이 생기기 전에 저장된 게시 결과(replay)는 값이 없다 — 그때 행은 모두 ALL 이다. */
+        public Notice {
+            targetPlatform = targetPlatform == null ? ALL : targetPlatform;
+        }
+
+        public Notice(UUID publicationId, String title, String body, Instant startsAt, Instant endsAt,
+                      Instant publishedAt, String minIosVersion, String minAndroidVersion) {
+            this(publicationId, title, body, startsAt, endsAt, publishedAt, minIosVersion, minAndroidVersion, ALL);
+        }
+    }
 
     public record AppRequirement(String minVersion, String title, String body, UUID publicationId,
                                  Instant publishedAt) { }
