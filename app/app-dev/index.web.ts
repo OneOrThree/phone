@@ -64,7 +64,10 @@ const load: ScreenLoader =
                   : query.has('magazine')
                     ? () =>
                         import('@/screens/magazine/MagazinePreview').then((m) => ({
-                          default: m.MagazinePreview,
+                          default:
+                            query.get('magazine') === 'reader'
+                              ? m.MagazineReaderPreview
+                              : m.MagazinePreview,
                         }))
                     : () => import('./src/App');
 registerRootComponent(
