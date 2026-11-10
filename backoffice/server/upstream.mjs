@@ -349,6 +349,7 @@ export class Upstream {
           body: item.body,
           startsAt: item.startsAt,
           endsAt: item.endsAt || null,
+          ...(item.targetPlatform ? { targetPlatform: item.targetPlatform } : {}),
           minIosVersion: item.minIosVersion || null,
           minAndroidVersion: item.minAndroidVersion || null,
         },

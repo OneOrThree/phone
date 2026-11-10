@@ -290,3 +290,19 @@ test("공지 종류와 최소 버전: patch 는 min 거절, force 는 min 필수
   assert.equal(patched.minIosVersion, null);
   assert.equal(store.transition(patched.id, patched, "member-1", "review").status, "review");
 });
+
+test("공지 대상 플랫폼: 패치노트는 ALL·IOS·ANDROID, 강제 업데이트는 최소 버전에서 정한 값과 같아야 한다", () => {
+  const store = new Store(":memory:");
+  const review = (input) => {
+    const item = store.create({ ...notice, ...input }, "member-1");
+    return () => store.transition(item.id, item, "member-1", "review");
+  };
+  assert.equal(review({ noticeType: "patch", targetPlatform: "IOS" })().status, "review");
+  assert.equal(review({ noticeType: "patch", targetPlatform: "ANDROID" })().status, "review");
+  assert.throws(review({ noticeType: "patch", targetPlatform: "ios" }), /플랫폼/);
+  assert.equal(review({ noticeType: "force", targetPlatform: "IOS", minIosVersion: "2.1.0" })().status, "review");
+  assert.equal(review({ noticeType: "force", targetPlatform: "ALL", minIosVersion: "2.1.0", minAndroidVersion: "2.1.0" })().status, "review");
+  assert.throws(review({ noticeType: "force", targetPlatform: "ALL", minIosVersion: "2.1.0" }), /플랫폼/);
+  assert.throws(review({ noticeType: "force", targetPlatform: "IOS", minAndroidVersion: "2.1.0" }), /플랫폼/);
+  store.close();
+});
