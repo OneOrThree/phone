@@ -18,6 +18,7 @@ import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
@@ -33,6 +34,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -47,6 +49,10 @@ class DeveloperNoticeTargetPlatformIntegrationTest {
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
         OutboxTestPostgres.applyProductionMigrationWiring(registry);
+        registry.add("internal.api.callers.console.token", () -> "platform-test-console");
+        registry.add("internal.api.callers.console.console-actor", () -> "member-1");
+        registry.add("internal.api.callers.console.allow[0]", () -> "GET /internal/admin/content/notices");
+        registry.add("internal.api.callers.console.allow[1]", () -> "PUT /internal/admin/content/notices/*");
         registry.add("internal.api.callers.business.token", () -> "platform-test-business");
         registry.add("internal.api.callers.business.allow[0]", () -> "GET /internal/users/*/developer-notices");
         registry.add("internal.api.callers.business.allow[1]", () -> "GET /internal/users/*/developer-notices/*");
@@ -212,6 +218,72 @@ class DeveloperNoticeTargetPlatformIntegrationTest {
         mvc.perform(detail(reader, all, null)).andExpect(jsonPath("$.title").value("제목"));
         mvc.perform(detail(reader, ios, "web")).andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+    }
+
+    private String body(String extra) {
+        return "{\"title\":\"패치\",\"body\":\"본문\",\"startsAt\":\"" + NOW.minusSeconds(60)
+                + "\",\"endsAt\":null" + extra + "}";
+    }
+
+    private MockHttpServletRequestBuilder publishRequest(UUID id, String json) {
+        return put("/internal/admin/content/notices/" + id).header("Authorization", "Bearer platform-test-console")
+                .contentType(MediaType.APPLICATION_JSON).content(json);
+    }
+
+    @Test
+    void publishOverHttpCarriesTheTargetPlatformAndRejectsAConflictWithMinVersions() throws Exception {
+        UUID id = UUID.randomUUID();
+        mvc.perform(publishRequest(id, body(",\"targetPlatform\":\"IOS\"")))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.targetPlatform").value("IOS"))
+                .andExpect(jsonPath("$.title").value("패치"));
+        mvc.perform(get("/internal/admin/content/notices").header("Authorization", "Bearer platform-test-console"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.items[0].publicationId").value(id.toString()))
+                .andExpect(jsonPath("$.items[0].targetPlatform").value("IOS"))
+                .andExpect(jsonPath("$.items[0].title").value("패치"));
+        // 최소 버전 없이 targetPlatform 도 없으면 ALL.
+        mvc.perform(publishRequest(UUID.randomUUID(), body("")))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.targetPlatform").value("ALL"));
+
+        UUID conflict = UUID.randomUUID();
+        mvc.perform(publishRequest(conflict, body(",\"minIosVersion\":\"2.0.0\",\"targetPlatform\":\"ANDROID\"")))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+        mvc.perform(publishRequest(conflict, body(",\"targetPlatform\":\"ios\"")))
+                .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM developer_notices WHERE publication_id=?",
+                Integer.class, conflict)).isZero();
+    }
+
+    @Test
+    void httpKeysetPageWorksTogetherWithThePlatformFilter() throws Exception {
+        // 최신순: A1(ANDROID) I1 L1(ALL) I2 A2 I3 → ios: I1 L1 I2 I3
+        String[] targets = {"ANDROID", "IOS", "ALL", "IOS", "ANDROID", "IOS"};
+        List<UUID> ids = new ArrayList<>();
+        for (int i = 0; i < targets.length; i++) {
+            ids.add(publish(NOW.minusSeconds(10L * (i + 1)), targets[i]));
+        }
+        UUID reader = users.save(User.builder().nickname("플랫폼 독자-" + UUID.randomUUID()).build()).getId();
+        String first = mvc.perform(request(reader, "ios").param("limit", "2")).andExpect(status().isOk())
+                .andExpect(jsonPath("$.hasMore").value(true)).andReturn().getResponse().getContentAsString();
+        assertThat(JsonPath.<List<String>>read(first, "$.items[*].publicationId"))
+                .containsExactly(ids.get(1).toString(), ids.get(2).toString());
+        String at = JsonPath.read(first, "$.items[1].publishedAt");
+        mvc.perform(request(reader, "ios").param("afterPublishedAt", at).param("afterId", ids.get(2).toString())
+                        .param("limit", "2"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.hasMore").value(false))
+                .andExpect(jsonPath("$.items[*].publicationId").value(
+                        org.hamcrest.Matchers.contains(ids.get(3).toString(), ids.get(5).toString())));
+    }
+
+    @Test
+    void aWithdrawnPlatformNoticeIsHiddenFromTheListAndTheSingleGet() throws Exception {
+        UUID ios = publish(NOW.minusSeconds(10), "IOS");
+        UUID reader = users.save(User.builder().nickname("플랫폼 독자-" + UUID.randomUUID()).build()).getId();
+        assertThat(notices.list(null, null, 100, "ios").items()).hasSize(1);
+        notices.withdraw(ios, "member-1");
+        assertThat(notices.list(null, null, 100, "ios").items()).isEmpty();
+        assertThatThrownBy(() -> notices.get(ios, "ios")).isInstanceOf(ContentException.class);
+        mvc.perform(request(reader, "ios")).andExpect(jsonPath("$.items").isEmpty());
+        mvc.perform(detail(reader, ios, "ios")).andExpect(status().isNotFound());
     }
 
     @Test

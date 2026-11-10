@@ -327,11 +327,13 @@ class DeveloperNoticeContractTest extends UpstreamTestBase {
                 new CursorBoundary(published(1).toString(), id(1).toString()));
         DATA.on(INTERNAL, request -> ok(page(2, 1, false)));
         mockMvc.perform(auth(get(PUBLIC + "?limit=2")).queryParam("cursor", legacy)).andExpect(status().isOk());
+        // 헤더 없이 실제로 발급받은 커서도 헤더 없는 요청에서 이어진다.
+        mockMvc.perform(auth(get(PUBLIC + "?limit=2")).queryParam("cursor", unknown)).andExpect(status().isOk());
         mockMvc.perform(auth(get(PUBLIC + "?limit=2")).header("X-App-Platform", "ios").queryParam("cursor", ios))
                 .andExpect(status().isOk());
         assertThat(queryParams(DATA.received().get(before).query())).containsExactlyInAnyOrder(
                 "afterPublishedAt=" + published(1), "afterId=" + id(1), "limit=2");
-        assertThat(queryParams(DATA.received().get(before + 1).query())).containsExactlyInAnyOrder(
+        assertThat(queryParams(DATA.received().get(before + 2).query())).containsExactlyInAnyOrder(
                 "afterPublishedAt=" + published(1), "afterId=" + id(1), "limit=2", "platform=ios");
     }
 

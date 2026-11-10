@@ -58,6 +58,26 @@ class DeploymentMigrationMainTest {
     }
 
     @Test
+    void V15는_기존_공지의_대상_플랫폼을_최소_버전에서_채운다() {
+        DeploymentMigrationMain.configuration("current", environment).target("14").load().migrate();
+        String[][] rows = {{"1", "2.0.0", null}, {"2", null, "2.0.0"}, {"3", "2.0.0", "2.0.1"}, {"4", null, null}};
+        for (String[] row : rows) {
+            String id = "10000000-0000-0000-0000-00000000000" + row[0];
+            jdbc.update("INSERT INTO content_publications VALUES (?::uuid,'NOTICE',repeat('a',64),"
+                    + "'{\"status\":\"PUBLISHED\"}','member-1',now())", id);
+            jdbc.update("INSERT INTO developer_notices(publication_id,title,body,starts_at,published_at,"
+                    + "min_ios_version,min_android_version) VALUES (?::uuid,'t','b',now(),now(),?,?)",
+                    id, row[1], row[2]);
+        }
+
+        assertThat(DeploymentMigrationMain.configuration("current", environment).load().migrate()
+                .migrationsExecuted).isEqualTo(1);
+
+        assertThat(jdbc.queryForList("SELECT target_platform FROM developer_notices ORDER BY publication_id",
+                String.class)).containsExactly("IOS", "ANDROID", "ALL", "ALL");
+    }
+
+    @Test
     void 원본_이력은_보존한_채_V117에서_V138까지만_준비한다() {
         Flyway.configure().dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
                 .locations("classpath:db/migration").target("117").load().migrate();
