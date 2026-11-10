@@ -32,7 +32,7 @@ const FRAME_ROWS: [string, ImageSourcePropType, number, readonly [number, number
   ['mag.frame-ticket', require('@/assets/ota/magazine/frame/frame-ticket.png'), 1.933, [0.17, 0.11, 0.17, 0.11]],
   ['mag.frame-grid', require('@/assets/ota/magazine/frame/frame-grid.png'), 1.669, [0.07, 0.22, 0.07, 0.1]],
   ['mag.frame-polaroid', require('@/assets/ota/magazine/frame/frame-polaroid.png'), 1.698, [0.12, 0.14, 0.12, 0.31]],
-  ['mag.frame-catear', require('@/assets/ota/magazine/frame/frame-catear.png'), 1.701, [0.08, 0.24, 0.08, 0.13], { maxBodyLines: 2, metaLeft: 0.19 }],
+  ['mag.frame-catear', require('@/assets/ota/magazine/frame/frame-catear.png'), 1.701, [0.08, 0.24, 0.08, 0.13], { maxBodyLines: 3, metaLeft: 0.19 }],
   ['mag.frame-cloud', require('@/assets/ota/magazine/frame/frame-cloud.png'), 1.741, [0.14, 0.32, 0.27, 0.2]],
   ['mag.frame-envelope', require('@/assets/ota/magazine/frame/frame-envelope.png'), 2.064, [0.1, 0.32, 0.1, 0.14]],
   ['mag.frame-woodsign', require('@/assets/ota/magazine/frame/frame-woodsign.png'), 2.108, [0.08, 0.3, 0.07, 0.12]],

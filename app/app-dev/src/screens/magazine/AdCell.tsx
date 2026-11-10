@@ -89,15 +89,19 @@ export function AdCell({
   const k = W / m.referenceWidth;
   const frame = MAGAZINE_FRAMES[cell.layout.frameId] ?? MAGAZINE_FRAMES[DEFAULT_FRAME_ID];
   const [l, top, r, b] = frame.inset;
-  const fit = cellTextFit(frame, privateNotice && !hideMeta ? 2 : 1);
+  // 우리 섬 배지는 주민 줄 옆에 두고, 평균은 다음 줄의 전체 너비를 쓴다.
+  const splitMeta = corner === 'ours' && !hideMeta;
+  const metaLines = (privateNotice && !hideMeta ? 2 : 1) + Number(splitMeta);
+  const fit = cellTextFit(frame, metaLines, Array.from(cell.body).length);
   const s = k * fit.scale;
   const d = m.profileDiameter * s;
   const cornerSize = m.cornerSize * k;
   const scopeTouch = Math.max(cornerSize, semanticTokens.size.tapMin);
   const ours = t('magazine.cell.ours');
   const oursFont = m.metaSize * s;
-  // 배지 폭 어림(한글 0.92em) — 주민/평균 줄이 배지 밑으로 들어가지 않게 그만큼 비운다
+  // 배지 폭 어림(한글 0.92em) — 주민 줄만 배지 밑으로 들어가지 않게 비운다
   const oursWidth = ours.length * 0.92 * oursFont + 14 * k;
+  const oursBottom = b * H + (splitMeta ? metaLines - 1 : 0) * oursFont * m.lineHeight;
 
   const name = islandTitle(cell.name);
   const residents = t('magazine.cell.residents', {
@@ -108,6 +112,9 @@ export function AdCell({
     cell.averageFocusMinutesPerDay == null
       ? t('magazine.cell.averageUnknown')
       : t('magazine.cell.average', { time: formatDuration(cell.averageFocusMinutesPerDay * 60) });
+  const metaRows = splitMeta
+    ? [residents, average, privateNotice].filter(Boolean)
+    : [[!hideMeta && `${residents} · ${average}`, privateNotice].filter(Boolean).join('\n')];
   const label =
     (hideMeta
       ? t('magazine.cell.a11yNoMeta', { name, body: cell.body })
@@ -227,23 +234,31 @@ export function AdCell({
             </View>
           </View>
           {(!hideMeta || !!privateNotice) && (
-            <T
-              allowFontScaling={false}
-              numberOfLines={privateNotice && !hideMeta ? 2 : 1}
-              adjustsFontSizeToFit
-              minimumFontScale={0.7}
-              style={[
-                text(m.metaSize),
-                {
-                  color: semanticTokens.color.textMuted,
-                  marginLeft: (frame.metaLeft ?? 0) * W,
-                  marginRight:
-                    corner === 'ours' ? oursWidth : corner === 'scope' ? cornerSize * 0.6 : 0,
-                },
-              ]}
-            >
-              {[!hideMeta && `${residents} · ${average}`, privateNotice].filter(Boolean).join('\n')}
-            </T>
+            <View style={{ marginLeft: (frame.metaLeft ?? 0) * W }}>
+              {metaRows.map((row, index) => (
+                <T
+                  key={index}
+                  allowFontScaling={false}
+                  numberOfLines={splitMeta ? 1 : metaLines}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.7}
+                  style={[
+                    text(m.metaSize),
+                    {
+                      color: semanticTokens.color.textMuted,
+                      marginRight:
+                        corner === 'ours' && index === 0
+                          ? oursWidth
+                          : corner === 'scope'
+                            ? cornerSize * 0.6
+                            : 0,
+                    },
+                  ]}
+                >
+                  {row}
+                </T>
+              ))}
+            </View>
           )}
         </View>
         <View pointerEvents="none" style={StyleSheet.absoluteFill}>
@@ -332,7 +347,7 @@ export function AdCell({
           style={{
             position: 'absolute',
             right: r * W,
-            bottom: b * H,
+            bottom: oursBottom,
             paddingHorizontal: 6 * k,
             borderRadius: semanticTokens.radius.full,
             borderWidth: Math.max(1, componentTokens.badge.borderWidth * k),

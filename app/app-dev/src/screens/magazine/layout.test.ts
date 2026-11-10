@@ -171,13 +171,13 @@ describe('보내기 전 검사', () => {
 describe('틀마다 글자 배율', () => {
   const m = componentTokens.magazineCell;
   it.each(Object.keys(MAGAZINE_FRAMES))(
-    '%s — 60자 글·이름·주민 줄이 글 상자 높이·너비 안에 든다(하한 0.6 폴백에 걸리지 않음)',
+    '%s — 60자 글·이름·주민 줄이 글 상자 높이·너비 안에 든다',
     (id) => {
       const frame = MAGAZINE_FRAMES[id];
       const { scale, bodyScale, bodyLines } = cellTextFit(frame);
-      expect(scale).toBeGreaterThanOrEqual(0.7);
+      expect(m.nameSize * scale).toBeGreaterThanOrEqual(11.9);
       expect(scale).toBeLessThanOrEqual(1);
-      expect(bodyScale).toBeGreaterThanOrEqual(0.7);
+      expect(m.bodySize * bodyScale).toBeGreaterThanOrEqual(9.1);
       expect(bodyScale).toBeLessThanOrEqual(scale);
       expect(bodyLines).toBeGreaterThanOrEqual(2);
       if (frame.maxBodyLines) expect(bodyLines).toBeLessThanOrEqual(frame.maxBodyLines);
@@ -185,7 +185,10 @@ describe('틀마다 글자 배율', () => {
       const boxW = (1 - l - r) * m.referenceWidth;
       const boxH = (1 - t - b) * m.referenceWidth * m.aspect;
       const need =
-        (m.profileDiameter + m.gap * 2 + m.metaSize * m.lineHeight) * scale +
+        (Math.max(m.profileDiameter, m.nameSize * m.lineHeight) +
+          m.gap * 2 +
+          m.metaSize * m.lineHeight) *
+          scale +
         bodyLines * m.bodySize * bodyScale * m.lineHeight;
       expect(need).toBeLessThanOrEqual(boxH);
       // 띄어쓰기 없는 한글 60자(0.92em)가 정한 줄 수 안에 든다
@@ -193,10 +196,18 @@ describe('틀마다 글자 배율', () => {
     },
   );
 
-  it('고양이 귀 틀은 아래쪽 인쇄 하트를 피해 글을 2줄까지만 쓴다', () => {
+  it('고양이 귀 틀은 아래쪽 인쇄 하트를 피해 글을 3줄까지만 쓴다', () => {
     const fit = cellTextFit(MAGAZINE_FRAMES['mag.frame-catear']);
-    expect(fit.bodyLines).toBe(2);
+    expect(fit.bodyLines).toBe(3);
     expect(fit.bodyScale).toBeLessThan(fit.scale);
+  });
+
+  it.each(Object.keys(MAGAZINE_FRAMES))('%s — 짧은 글은 60자 기준으로 미리 줄이지 않는다', (id) => {
+    const frame = MAGAZINE_FRAMES[id];
+    const short = cellTextFit(frame, 1, Array.from('같이 공부해요!').length);
+    expect(short.scale).toBe(1);
+    expect(short.bodyScale).toBe(1);
+    expect(short.bodyScale).toBeGreaterThanOrEqual(cellTextFit(frame).bodyScale);
   });
 });
 
@@ -270,17 +281,20 @@ describe('칸 밖 걸침 · 손잡이', () => {
   });
 });
 
-it.each(Object.keys(MAGAZINE_FRAMES))(
-  '%s — 비공개 안내 한 줄을 더해도 60자 글이 칸 밖으로 넘치지 않는다',
-  (id) => {
+it.each(Object.keys(MAGAZINE_FRAMES).flatMap((id) => [2, 3].map((lines) => [id, lines] as const)))(
+  '%s — 주민·평균·비공개 안내 %i줄에도 60자 글이 칸 밖으로 넘치지 않는다',
+  (id, metaLines) => {
     const m = componentTokens.magazineCell;
     const frame = MAGAZINE_FRAMES[id];
-    const { scale, bodyScale, bodyLines } = cellTextFit(frame, 2);
+    const { scale, bodyScale, bodyLines } = cellTextFit(frame, metaLines);
     const [l, top, r, bottom] = frame.inset;
     const boxW = (1 - l - r) * m.referenceWidth;
     const boxH = (1 - top - bottom) * m.referenceWidth * m.aspect;
     const need =
-      (m.profileDiameter + m.gap * 2 + m.metaSize * m.lineHeight * 2) * scale +
+      (Math.max(m.profileDiameter, m.nameSize * m.lineHeight) +
+        m.gap * 2 +
+        m.metaSize * m.lineHeight * metaLines) *
+        scale +
       bodyLines * m.bodySize * bodyScale * m.lineHeight;
     expect(need).toBeLessThanOrEqual(boxH);
     expect(60 * 0.92 * m.bodySize * bodyScale).toBeLessThanOrEqual(boxW * bodyLines);
