@@ -5418,6 +5418,14 @@
               "format": "int32",
               "default": 100
             }
+          },
+          {
+            "name": "platform",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -5457,6 +5465,14 @@
             "schema": {
               "type": "string",
               "format": "uuid"
+            }
+          },
+          {
+            "name": "platform",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
             }
           }
         ],
@@ -7725,6 +7741,9 @@
           },
           "minAndroidVersion": {
             "type": "string"
+          },
+          "targetPlatform": {
+            "type": "string"
           }
         }
       },
@@ -7757,6 +7776,9 @@
             "type": "string"
           },
           "minAndroidVersion": {
+            "type": "string"
+          },
+          "targetPlatform": {
             "type": "string"
           }
         }
