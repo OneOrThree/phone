@@ -312,3 +312,14 @@ test("공지 대상 플랫폼: 패치노트는 ALL·IOS·ANDROID, 강제 업데�
   assert.throws(review({ noticeType: "force", targetPlatform: "IOS", minIosVersion: "  " }), /숫자\.숫자\.숫자/);
   store.close();
 });
+
+test("공지 대상 플랫폼만 바꿔도 승인이 취소된다", () => {
+  const store = new Store(":memory:");
+  let item = approve(store, store.create({ ...notice, noticeType: "patch", targetPlatform: "IOS" }, "member-1"));
+  assert.equal(item.status, "approved");
+  item = store.edit(item.id, { revision: item.revision, targetPlatform: "ANDROID" }, "member-1");
+  assert.equal(item.status, "draft");
+  assert.equal(item.approvedBy, undefined);
+  assert.equal(item.targetPlatform, "ANDROID");
+  store.close();
+});

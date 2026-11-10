@@ -79,7 +79,11 @@ const MIN_VERSION = /^\d{1,9}\.\d{1,9}\.\d{1,9}$/;
 // 강제 업데이트의 대상은 최소 버전을 넣은 플랫폼으로 정해진다. Data 규칙과 같다.
 const derivePlatform = (iosMin: string, androidMin: string): TargetPlatform => iosMin.trim() && androidMin.trim() ? 'ALL' : iosMin.trim() ? 'IOS' : androidMin.trim() ? 'ANDROID' : 'ALL';
 const PLATFORM_LABELS: Record<string, string> = { ALL: '전체', IOS: 'iOS', ANDROID: 'Android' };
-const platformLabel = (value?: string | null) => PLATFORM_LABELS[value ?? 'ALL'] ?? '전체';
+// 모르는 값은 «전체» 로 뭉개지 않고 원문을 보인다.
+const platformLabel = (value?: string | null) => PLATFORM_LABELS[value ?? 'ALL'] ?? String(value);
+// 대상 값이 없는 옛 항목: 강제 업데이트는 최소 버전에서 정하고(Data 규칙과 같다), 패치노트는 전체다.
+const itemPlatform = (item: Parameters<typeof forces>[0] & { targetPlatform?: string | null }) =>
+  item.targetPlatform ?? (forces(item) ? derivePlatform(item.minIosVersion ?? '', item.minAndroidVersion ?? '') : 'ALL');
 const minSummary = (value: { minIosVersion?: string | null; minAndroidVersion?: string | null }) => [value.minIosVersion && `iOS ${value.minIosVersion}`, value.minAndroidVersion && `Android ${value.minAndroidVersion}`].filter(Boolean).join(' · ') || '없음';
 function Icon({ name }: { name: string }) {
   const paths: Record<string, ReactNode> = {
@@ -166,7 +170,7 @@ function HistoryPanel({ kind }: { kind: ContentKind }) {
     {kind === 'fcm' && <p className="field-hint">수신자별 알림 한 건씩 표시합니다. SENT는 발송 서버 처리 상태이며 기기 화면 표시까지 보장하지 않습니다.</p>}
     {error && <p role="alert" className="error-message">{error}</p>}
     <p className="list-caption">{total === undefined ? `${items.length}건 불러옴` : `전체 ${total}건 중 ${items.length}건 불러옴`}</p>
-    {items.length ? <ol className="history-list">{items.map(item => item.kind === 'magazine' ? <MagazineHistoryEntry key={item.id} item={item} /> : <li key={item.id}><details><summary><strong>{item.title || item.notificationKind || item.id}</strong><span>{item.kind === 'notice' ? `${forces(item) ? '강제 업데이트 · ' + minSummary(item) : '패치노트'} · 대상 ${platformLabel(item.targetPlatform)} · ` : ''}{item.status || '기록됨'}</span><time>{readableDate(item.publishedAt || item.createdAt)}</time></summary><div className="history-details"><ReadableValue value={item} /></div></details></li>)}</ol> : !loading && !error && <p className="list-empty">이 환경의 기록이 없습니다.</p>}
+    {items.length ? <ol className="history-list">{items.map(item => item.kind === 'magazine' ? <MagazineHistoryEntry key={item.id} item={item} /> : <li key={item.id}><details><summary><strong>{item.title || item.notificationKind || item.id}</strong><span>{item.kind === 'notice' ? `${forces(item) ? '강제 업데이트 · ' + minSummary(item) : '패치노트'} · 대상 ${platformLabel(itemPlatform(item))} · ` : ''}{item.status || '기록됨'}</span><time>{readableDate(item.publishedAt || item.createdAt)}</time></summary><div className="history-details"><ReadableValue value={item} /></div></details></li>)}</ol> : !loading && !error && <p className="list-empty">이 환경의 기록이 없습니다.</p>}
     {loading && <p role="status" className="list-loading">운영 이력을 불러오는 중…</p>}
     {nextCursor && <button className="button secondary" disabled={loading} onClick={() => void load(nextCursor)}>이전 기록 더 보기</button>}
   </section>;
@@ -279,7 +283,7 @@ function ConfirmDialog({ item, action, busy, error, mode, iosStore, onClose, onC
       <p className="dialog-title">{item.title}</p><p className="prewrap dialog-body">{item.body || '본문 없음'}</p>
       <dl className="confirmation-facts"><div><dt>대상</dt><dd>{item.kind === 'fcm' ? `명시한 수신자 ${item.targets.length}명` : item.kind === 'magazine' ? `${item.issueDate} 잡지` : item.kind === 'construction' ? '전체 건물의 새 착공' : '앱 개발자 공지'}</dd></div>
         {item.kind === 'notice' && <div><dt>공지 종류</dt><dd>{forces(item) ? `강제 업데이트 · ${minSummary(item)}` : '패치노트'}</dd></div>}
-        {item.kind === 'notice' && <div><dt>대상 플랫폼</dt><dd>{platformLabel(item.targetPlatform)}</dd></div>}
+        {item.kind === 'notice' && <div><dt>대상 플랫폼</dt><dd>{platformLabel(itemPlatform(item))}</dd></div>}
         {item.kind === 'notice' && <div><dt>게시 기간</dt><dd>{readableDate(item.startsAt)} ~ {item.endsAt ? readableDate(item.endsAt) : '종료일 없음'}</dd></div>}
         {item.approvedBy && <div><dt>승인자</dt><dd>{item.approvedBy}</dd></div>}<div><dt>연결 모드</dt><dd>{mode === 'local' ? '로컬 · 외부 발송/게시 없음' : '서비스 연결'}</dd></div></dl>
       {item.kind === 'fcm' && <details className="technical-details"><summary>수신자 {item.targets.length}명 확인</summary><ul className="recipient-list">{item.targets.map(id => <li key={id}><code>{id}</code></li>)}</ul></details>}
