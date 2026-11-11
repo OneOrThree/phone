@@ -8,7 +8,7 @@
 
 - 앱은 Business API 만 부른다. Business API 는 도메인 DB 가 없고 Data API `/internal/users/{userId}/**` 를 서비스 토큰으로 부른다.
 - 백오피스 BFF 는 Business API 를 거치지 않는다. 운영자별 토큰으로 Data API `/internal/admin/**` 를 부른다. 운영자 로그인과 각 Data 호출 직전에 Data 가 광고하는 capability 목록을 `backoffice/server/contract.json` 과 대조하고(`upstream.mjs` `verifyEnvironment`), 하나라도 없으면 503 으로 거절한다.
-- 섬 통장과 보유품이 바뀌면 Data 가 같은 트랜잭션에서 outbox 에 `wallet.updated`·`inventory.updated` 를 적고, Realtime 이 앱에 전한다.
+- 섬 통장과 보유품이 바뀌면 Data 가 같은 트랜잭션에서 outbox 에 `wallet.updated`·`inventory.updated` 를 적고, relay 가 Realtime 까지 전한다. 지금 앱은 이 두 사건을 받지 않는다.
 
 이번에 새로 생기는 것과 바뀌지 않는 것은 아래와 같다.
 
@@ -53,7 +53,7 @@ flowchart LR
   Claim --> Inv
   Claim --> Outbox
   Outbox --> RT
-  RT -->|"wallet.updated · inventory.updated"| App
+  RT -.->|"wallet.updated · inventory.updated<br/>(앱은 아직 받지 않음)"| App
   UI --> BFF
   BFF -->|"운영자 토큰 /internal/admin/attendance"| Admin
   Admin --> Att
@@ -140,7 +140,7 @@ sequenceDiagram
 - 적용 개정은 그 주의 최신 발행 주간 표, 없으면 최신 발행 기본 표다. 미리 발행한 다음 주 표는 그 주가 되면 그대로 쓰인다(정책 AT05·AT11).
 - 청구가 성공하면 그날 노출 기록이 없을 때 함께 넣는다. 그래서 출석자는 늘 노출자에 들어간다(정책 AT15).
 - 섬 통장 적립량이 0 이면 `wallet.updated` 를 적지 않는다. 꾸미기를 받으면 `inventory.updated` 를 적는다.
-- 앱은 청구 응답으로 결과를 먼저 그린다. Realtime 이벤트는 다른 화면과 다른 기기의 보정용이다.
+- 앱은 청구 응답으로 결과와 섬 통장 잔액을 그리고, 꾸미기를 받았으면 보유품을 다시 읽는다. 지금 앱은 `wallet.updated`·`inventory.updated` 를 받지 않으므로 응답이 앱의 즉시 갱신 경로이고, 두 사건은 앞으로의 소비자를 위한 것이다.
 - 같은 요청 키로 다시 보내면 처음 결과를 그대로 돌려준다. 이벤트는 다시 적지 않는다.
 - 같은 날 다른 요청 키로 다시 보내면 409 다. 앱은 출석판을 새로 읽어 「오늘 출석 완료」를 보여 준다.
 
@@ -203,7 +203,7 @@ sequenceDiagram
 | 승인·발행 응답 유실 | 그 단계를 처음 시작한 운영자가 같은 ID 로 다시 시도한다. 다른 운영자가 이어받는 기능은 없고, 처음 운영자의 자격을 복구할 수 없으면 그 표를 보류한다. 보류 중 대상 주가 지나면 버린다(정책 AT13) |
 | 승인 뒤 주가 바뀌어 대상 주가 지난 주 | 발행 409(정책 AT11) |
 | 백오피스가 새 capability 를 못 찾음 | 운영자 로그인과 Data 호출이 503 으로 거절돼 콘솔 전체를 못 쓴다. 그래서 Data 를 먼저 배포한다 |
-| outbox relay 지연 | 지급은 이미 확정됐다. 앱은 응답으로 결과를 그렸으므로 다른 화면만 늦게 갱신된다 |
+| outbox relay 지연 | 지급은 이미 확정됐다. 앱은 응답으로 결과·잔액을 그렸으므로 영향이 없다 |
 
 ## 배포 순서
 
