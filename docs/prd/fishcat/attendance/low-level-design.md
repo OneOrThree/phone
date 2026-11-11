@@ -22,7 +22,7 @@
 | 백오피스 | `backoffice/server/attendance.mjs`·`local-attendance.mjs` (신설) | 2인 흐름 store, 로컬 모드 흉내 |
 | 백오피스 | `backoffice/server/upstream.mjs`·`app.mjs`·`contract.json` | 호출·라우트·필수 capability |
 | 백오피스 | `backoffice/src/AttendanceRewards.tsx`·`AttendanceStats.tsx` (신설), `backoffice/src/App.tsx` | 화면 두 개, 사이드바 |
-| 앱 | `app/app-dev/src/services/api/attendance.ts`·`services/attendance.ts` (신설) | API 호출, 기기 기억 |
+| 앱 | `app/app-dev/src/services/api/attendance.ts`·`services/attendance.ts` (신설) | API 호출, 기기 기억, 출석판 상태 저장소와 `useAttendanceBoard()`(§11) |
 | 앱 | `app/app-dev/src/screens/attendance/` (신설) | `AttendanceBoard.tsx`·`useAttendance.ts`·`AttendanceIcon.tsx` |
 | 앱 | `app/app-dev/src/App.tsx`, `app/app-dev/src/i18n/locales/ko.json`·`en.json` | 팝업 장착, 문구 |
 | 앱 | `app/app-dev/src/screens/letter/useDeveloperLetter.ts`·`useForceUpdateLetter.ts` | 조회 완료 `settled` 를 함께 돌려준다(§11.2) |
@@ -217,7 +217,7 @@ V16 과 함께 바꿀 고정값 자리(2026-11-09 꾸미기 지급 배치에서 
 
 헤더 `Idempotency-Key`(UUID) 필수, 본문 없음. 새 출석은 201, 같은 키의 재생도 201 이다.
 
-`wallet` 은 이 청구로 섬 통장에 적립했을 때만 있고, 적립 직후의 정본 잔액과 지갑 사건 버전이다. 잔액은 `creditAttendance` 가 돌려준 값이다. 버전은 `IslandWalletEvents.changed(...)` 가 돌려준 `EventEnvelope.version()`, 곧 `aggregate_versions` 의 `ISLAND_WALLET` 축 값이다. 상점 응답(`ShopService.walletVersion`)과 `wallet.updated` 가 쓰는 축과 같다. `island_wallets.version` 은 낙관적 잠금 값이라 이 축과 다르므로 쓰지 않는다. 앱은 지급량을 로컬 잔액에 더하지 않고 이 값으로 `SERVER_VILLAGE_POINTS` 를 보낸다(`app/app-dev/src/services/model/reducer.ts`). 그래서 영수증 재생이나 먼저 도착한 Realtime `wallet.updated` 와 겹쳐도 두 번 더해지지 않는다. 재생 응답의 `wallet` 은 처음 청구 때의 값이고, 버전이 더 낮으면 리듀서가 무시한다.
+`wallet` 은 이 청구로 섬 통장에 적립했을 때만 있고, 적립 직후의 정본 잔액과 지갑 사건 버전이다. 잔액은 `creditAttendance` 가 돌려준 값이다. 버전은 `IslandWalletEvents.changed(...)` 가 돌려준 `EventEnvelope.version()`, 곧 `aggregate_versions` 의 `ISLAND_WALLET` 축 값이다. 상점 응답(`ShopService.walletVersion`)과 `wallet.updated` 가 쓰는 축과 같다. `island_wallets.version` 은 낙관적 잠금 값이라 이 축과 다르므로 쓰지 않는다. 앱은 지급량을 로컬 잔액에 더하지 않고 이 값으로 `SERVER_VILLAGE_POINTS` 를 보낸다(`app/app-dev/src/services/model/reducer.ts`). 그래서 영수증 재생과 겹쳐도, 앞으로 앱이 Realtime `wallet.updated` 를 받게 되더라도 두 번 더해지지 않는다. 재생 응답의 `wallet` 은 처음 청구 때의 값이고, 버전이 더 낮으면 리듀서가 무시한다.
 
 Business 의 `GlobalExceptionHandler.registeredUpstream` 은 Data 오류 코드와 같은 이름·같은 상태가 `ApiErrorCode` 에 있을 때만 그 코드를 공개 응답에 싣고, 없으면 502 `UPSTREAM_CONTRACT_ERROR` 로 바꾼다. 그래서 아래 세 코드를 Data `AttendanceErrorCode` 와 Business `ApiErrorCode` 양쪽에 같은 상태로 넣는다. `retryable` 은 409 둘이 `false`, 503 이 `true` 다.
 
@@ -363,7 +363,7 @@ Business 의 `GlobalExceptionHandler.registeredUpstream` 은 Data 오류 코드�
 | 단계 | 요청 본문 | 검사 | 실패 |
 | --- | --- | --- | --- |
 | 승인 `POST …/approvals/{approvalId}` | `scope`, `weekStart`, `expectedRevision`, `slots`(7), `approvedDigest` | 칸 모양(§3 CHECK 와 같은 규칙), 꾸미기 상품 카탈로그 조건, 대상 주가 이번 주·다음 주(`WEEK` 만), 다이제스트 재계산 일치, `expectedRevision` = 현재 개정 | 400 형식·상품, 409 주·개정·다이제스트, 같은 ID 다른 내용 409 |
-| 취소 `DELETE …/approvals/{approvalId}` | 없음 | 발행에 쓰이지 않은 승인 | 404 없음, 409 이미 발행 |
+| 취소 `DELETE …/approvals/{approvalId}` | 없음 | 발행에 쓰이지 않은 승인. 성공은 204(본문 없음), 추첨 풀 취소와 같다 | 404 없음, 409 이미 발행 |
 | 발행 `PUT …/publications/{publicationId}` | `approvalId`, `scope`, `weekStart`, `expectedRevision`, `slots`, `approvedDigest` | 승인 존재·미취소·미사용, 본문 = 승인 스냅샷, `actor ≠ approved_by`, 꾸미기 상품 다시 검사, 대상 주가 아직 이번 주·다음 주(`WEEK` 만), `expectedRevision` = 현재 개정 | 400 상품, 409 나머지. 같은 발행 ID 재요청은 처음 결과 |
 
 응답 모양. BFF 의 `matches`(§10.1)가 승인 응답을 요청과 대조한다.
@@ -415,9 +415,9 @@ BFF 와 Data 가 같은 문자열을 만든다. 키 순서는 아래 그대로, 
 | 일별 | `attendees` | `attendance_claims` 의 그날 행 수. 출석하면 노출도 기록되므로 `attendees ≤ viewers` |
 | 일별 | `conversion` | `attendees / viewers`, `viewers = 0` 이면 `null` |
 | 일별 | `firstDayAttendees` | 그날 출석자 중 `users.created_at` 의 UTC 날짜가 그날인 계정 |
-| 주별 | `distribution[1..7]` | 그 주 출석 수가 k 인 계정 수 |
-| 주별 | `completers` | `distribution[7]` |
-| 주별 | `slotClaims[1..7]` | 그 주 k 칸 출석 행 수 |
+| 주별 | `distribution[0..6]` | `distribution[k-1]` = 그 주 출석 수가 k 인 계정 수 |
+| 주별 | `completers` | `distribution[6]` |
+| 주별 | `slotClaims[0..6]` | `slotClaims[k-1]` = 그 주 k 칸 출석 행 수 |
 | 주별 | `returnRate` | 지난 주 출석자 중 이번 주에도 출석한 비율 |
 | 지급 | `fishCredited` | `today_fish`(`CREDITED`) 합 + `released_hold_fish` 합 |
 | 지급 | `fishHeldOpen` | 조회 시점의 열린 보관 행 합(기간과 무관). 개인 잔액 지표가 아니다(정책 AT08) |
@@ -532,7 +532,7 @@ BFF 와 Data 가 같은 문자열을 만든다. 키 순서는 아래 그대로, 
 | Data 기타 | 탈퇴 → 출석 3표 행 0. 탈퇴와 노출 기록이 겹쳐도 탈퇴 뒤 노출 행이 남지 않음. 통계 픽스처의 일별·주별·지급 값과 불변식(`attendees ≤ viewers`, `slotClaims[k-1] = distribution[k-1..6]` 합), 기간이 주 중간에서 잘린 경우. `InternalCustomizationRewardPoolAllowlistTest` 처럼 allowlist 시험 |
 | Business | 응답 JSON 모양, `imageUrl` 조립, Data 오류 3개가 502 가 아니라 같은 코드·상태·`retryable`(409 둘 `false`, 503 `true`)로 나감(`ApiErrorCode` 등록) |
 | 백오피스 | 2인 흐름(`approval-workflow.mjs` 공통 시험), `contract.json` 시험, 다이제스트가 Data 와 같은 값(§8.3 예시 고정) |
-| 앱 | 자동 열림 세 조건, 편지 조회가 늦게 끝나도 출석판이 먼저 열리지 않음, 노출 실패 뒤 같은 기기에서 다시 안 열림, 청구 응답 `wallet` 으로 잔액 갱신(재생·Realtime 과 겹쳐도 한 번), 404 숨김, 409 다시 읽기, 503 같은 키 재시도 |
+| 앱 | 자동 열림 세 조건, 편지 조회가 늦게 끝나도 출석판이 먼저 열리지 않음, 꾸미기 지급 뒤 `addUnseenOutfits` 호출과 `getMyInventory()` 재조회, 섬 목록을 불러오기 전 응답의 잔액이 버려진 뒤 다음 조회가 채움, 노출 실패 뒤 같은 기기에서 다시 안 열림, 청구 응답 `wallet` 으로 잔액 갱신(재생·Realtime 과 겹쳐도 한 번), 404 숨김, 409 다시 읽기, 503 같은 키 재시도 |
 
 ## 14. 배포 순서와 구현 티켓
 
