@@ -198,7 +198,7 @@ V16 과 함께 바꿀 고정값 자리(2026-11-09 꾸미기 지급 배치에서 
       { "slot": 1, "status": "CLAIMED",
         "reward": { "type": "FISH", "fishAmount": 10 },
         "received": { "itemOutcome": null, "fish": 10, "fishDelivery": "CREDITED" } },
-      { "slot": 3, "status": "NEXT",
+      { "slot": 3, "status": "NEXT", "alreadyOwned": true,
         "reward": { "type": "ITEM", "fallbackFishAmount": 30,
                     "product": { "productId": "cust.neck.red-scarf", "title": "빨간 목도리",
                                  "imageUrl": "https://catus-api-v2.oneorthree.world/static/customization/neck/red-scarf.ab12cd34.png" } } },
@@ -293,11 +293,11 @@ Business 의 `GlobalExceptionHandler.registeredUpstream` 은 Data 오류 코드�
 새 명령의 순서. 잠금 방향은 집중 시작(`FocusSessionLifecycleService` 의 context → 섬 → 멤버십)과 1회 보상(`FocusTutorialRewardService`)을 따른다.
 
 1. `UserQueryService.getCallerForUpdate(userId)` — 사용자 행 배타 잠금. 같은 사용자의 청구·탈퇴·섬 이동이 여기서 차례로 선다.
-2. `UserIslandContextLockService.lock(user)` — 현재 섬 컨텍스트 잠금.
-3. `now = clock.instant()`, `today = AttendanceDay.today(now)`, `weekStart = RankingWeek.weekStart(now)`.
+2. 현재 섬 컨텍스트를 읽는다(`UserIslandContextRepository.findById`). 컨텍스트를 바꾸는 쓰기(섬 이동·가입·강퇴 정리)는 모두 사용자 행을 먼저 잡으므로 사용자 잠금 아래의 읽기로 충분하다. `UserIslandContextLockService.lock` 은 행이 없으면 만들기 때문에 쓰지 않는다. 출석이 컨텍스트 행을 새로 만들 이유가 없다.
+3. `now = clock.instant()` 를 **이 한 번만** 읽는다. `today = AttendanceDay.today(now)`, `weekStart = RankingWeek.weekStart(now)`, `nextDayAt`·`nextWeekAt`, 꾸미기 지급 시각, 출석 행의 `created_at` 이 모두 이 값을 쓴다. 자정 직전에 시작한 청구의 날짜와 주가 서로 다른 날을 가리키지 않는다. 판정 순서는 영수증 재생(1 앞의 `run`) → 같은 날 출석(4, 409) → 칸·표(5, 503) → 현재 섬(6) → 꾸미기(7) 이고, 어느 오류가 먼저 나오는지가 이 순서로 정해진다(PRD 구현 결정 7).
 4. 오늘 출석 행이 있으면 `ATTENDANCE_ALREADY_CLAIMED`(409). 이번 주 출석 수가 7 이면 `ATTENDANCE_WEEK_COMPLETE`(409). 유일 제약 `uq_attendance_claim_day`·`uq_attendance_claim_slot` 이 마지막 방어선이다.
 5. `slot = 이번 주 출석 수 + 1`. 적용 개정은 `AttendanceScheduleResolver`: 그 주의 `WEEK` 최대 `revision`, 없으면 `DEFAULT` 최대 `revision`. 둘 다 없으면 `ATTENDANCE_SCHEDULE_UNAVAILABLE`(503).
-6. 현재 섬 판정: 컨텍스트의 `currentIslandId` 가 있으면 `GroupMembershipMutationLocks.lockGroup(islandId)` 뒤 `findActiveByUserIdAndGroupIdForShare` 와 `IslandMovementGuards.isAlive` 로 다시 확인한다. 실패하면 「현재 섬 없음」으로 본다(`GET /me/islands` 의 `currentIslandId` 와 같은 판정). 예외를 던지지 않는다.
+6. 현재 섬 판정: 컨텍스트의 `currentIslandId` 가 있으면 `GroupMembershipMutationLocks.lockGroup(islandId)` 뒤 `findActiveByUserIdAndGroupIdForShare` 와 `IslandMovementGuards.isAlive` 로 다시 확인한다. 실패하면 「현재 섬 없음」으로 본다(`GET /me/islands` 의 `currentIslandId` 와 같은 판정). 예외를 던지지 않는다. 강퇴·나가기·탈퇴는 사용자 행을 먼저 잡아 이 청구와 섞이지 않는다. 이 재확인이 막는 것은 사용자 행을 잡지 않는 섬 종료다. 2026-11-12 기준 그런 경로는 운영자 섬 닫기 `GroupMemberService.closeIslandByOperator`(섬 `FOR UPDATE` 와 멤버십만 잠근다)와 섬 정리 `IslandPurgeService`(`markDeleted`)다. 둘 다 섬 잠금을 잡으므로 청구의 `lockGroup` 뒤 재확인과 차례로 선다.
 7. 칸 보상 풀기:
    - `FISH`: `todayFish = fish_amount`.
    - `ITEM`: 상품이 `CustomizationCatalogService.catalog()` 결과에 있고 그 항목의 `retiredAt` 이 비어 있으면 `OwnedProductRepository.insertUserProductIfAbsent(newId, userId, productId, "attendance:<userId>:<today>", now)`. 1 이면 `GRANTED`·`todayFish=0`, 0 이면 `ALREADY_OWNED`·`todayFish = fallback`. 카탈로그 조건에 맞지 않으면 `UNAVAILABLE`·`todayFish = fallback`.
@@ -307,7 +307,7 @@ Business 의 `GlobalExceptionHandler.registeredUpstream` 은 Data 오류 코드�
 9. 쓰기. 보관 행이 출석 행을 외래 키로 가리키므로 출석 행을 먼저 넣는다.
    1. 출석 행(보상 사본·결과·`island_id`).
    2. `HELD` 면 보관 행 하나(`claim_id` = 방금 출석). 현재 섬이 있고 `released > 0` 이면 열린 보관 행에 `released_claim_id` = 방금 출석, `released_at` = now.
-   3. 현재 섬이 있고 `total = todayFish + released` 가 0 보다 크면 `IslandWalletService.creditAttendance(islandId, total, "attendance:<userId>:<today>")`. 지갑은 마지막에 잠근다.
+   3. 현재 섬이 있고 `total = todayFish + released` 가 0 보다 크면 `IslandWalletService.creditAttendance(islandId, total, "attendance:<userId>:<today>")`. 지갑은 마지막에 잠근다. `total = 0`(섬 없이 보관만 했거나, 꾸미기만 받고 보관분도 없는 날)이면 원장 행을 쓰지 않는다. 원장의 `ATTENDANCE` 행 합계가 곧 섬에 들어간 출석 물고기라 감시(정책 ATQ05)에 0원 행이 섞이지 않는다.
    4. 그날 노출 행이 없으면 넣는다(`INSERT … ON CONFLICT DO NOTHING`, 정책 AT15).
 10. 이벤트: 적립했으면 `IslandWalletEvents.changed(islandId, userId, "ATTENDANCE_REWARD")`, 꾸미기를 넣었으면 `AppearanceEvents.inventoryChanged("user", userId, userId, productId)`. 둘 다 같은 트랜잭션의 outbox 행이다.
 11. 결과(§4 응답 모양)를 `PublicCommandResult(201, data, events)` 로 돌려준다. 적립했으면 `creditAttendance` 가 돌려준 잔액과 10 의 `IslandWalletEvents.changed` 봉투 `version` 을 `wallet` 에 담는다.
@@ -316,13 +316,21 @@ Business 의 `GlobalExceptionHandler.registeredUpstream` 은 Data 오류 코드�
 
 보관분을 꺼낸 물고기는 출석 행의 `island_id` 로 집계한다. 그 물고기가 어느 섬에서 번 것인지는 없다(PR #1649 리뷰 1라운드).
 
+잠금과 경합에 관한 결정:
+
+- 잠금 순서는 사용자(배타) → 섬(`lockGroup`) → 멤버십(공유) → 보유품 삽입 → 지갑(마지막)이다. 섬 통장 쓰기가 지갑을 마지막에 잡는 것은 `IslandWalletService` 의 모든 메서드와 같다.
+- 이벤트는 지갑 적립 뒤 `wallet.updated` → `inventory.updated` 순서로 적는다. 두 사건 축(`ISLAND_WALLET` 섬 하나, 보유품 사용자 하나)의 `aggregate_versions` 행은 서로 다르다. 사용자 축은 이미 사용자 잠금 아래이고, 섬 지갑 축은 이 명령이 마지막에 잡는 섬 단위 자원이라 순환이 생기지 않는다.
+- 보관 행은 그 사용자의 청구만 건드리고 사용자 잠금 아래에서 `FOR UPDATE` 로 읽으므로 다른 요청과 다투지 않는다.
+- 한국 오전 9시에 같은 섬 주민의 청구가 몰리면 섬 잠금(6)부터 커밋까지 줄을 선다. 그 구간에는 외부 호출이 없고 쓰기는 몇 행이다. 섬 잠금 대기 시간은 로컬 격리 환경에서만 잰다(AWS 대상 부하 시험 금지).
+
 ## 7. 출석판 조회
 
 `AttendanceReadService.board(userId)` 는 읽기 전용 트랜잭션이다.
 
 - 이번 주 출석 행(최대 7)으로 `CLAIMED` 칸을 채운다. 사본에서 `reward`·`received` 를 만든다.
 - 적용 개정(§6 의 5)에서 나머지 칸의 `reward` 를 만든다. `ITEM` 칸의 이름과 이미지 경로는 `CustomizationCatalogService.catalog()` 결과에서 상품 ID 로 찾는다. 이 결과는 `customization_asset_meta` 행과, 메타 행 없이 `customization_reward_items` 에만 있는 보상 꾸미기(이미지 경로가 `render_data` 쪽)를 함께 담는다. 메타 테이블만 읽으면 보상 꾸미기의 그림이 빠진다. 카탈로그에 없는 상품이면 `product` 의 `imageUrl` 을 `null` 로 내고 앱은 이름만 보인다.
-- `heldFish` = 열린 보관 행의 합, `viewedToday` = 오늘 노출 행 존재, `attendedToday` = 오늘 출석 행 존재.
+- `heldFish` = 열린 보관 행의 합, `viewedToday` = 오늘 노출 행 존재, `attendedToday` = 오늘 출석 행 존재. 출석하면 그날 노출도 기록되므로 `attendedToday=true` 이면 `viewedToday=true` 다.
+- 받지 않은 `ITEM` 칸에는 `alreadyOwned`(이미 가진 상품이면 `true`)를 싣는다. 앱은 이 값이 참이면 칸 아래에 「이미 가진 꾸미기 — 받으면 물고기 {n}마리」를 보여 준다. 청구 순간 판정(§6 의 7)이 정본이고 이 값은 미리 보기다.
 
 `recordView(userId)` 는 쓰기 트랜잭션에서 `UserQueryService.getCallerForShare(userId)` 로 활성 사용자를 공유 잠금한 뒤 `INSERT INTO attendance_views … ON CONFLICT DO NOTHING` 을 한다. 영향 행 수로 `first` 를 정한다. 공유 잠금이 탈퇴의 배타 잠금과 부딪혀, 탈퇴가 지운 노출 행을 늦게 도착한 요청이 다시 만들지 못한다. 잡지 열람 기록(`MagazineIssueService.receive`)과 같은 방식이다.
 
@@ -408,6 +416,7 @@ BFF 와 Data 가 같은 문자열을 만든다. 키 순서는 아래 그대로, 
 ```
 
 - `expectedRevision` 은 0 을 허용한다(아직 주간 표가 없는 주). 추첨 풀의 `expected()` 는 0 을 거절하므로 그대로 복사하지 않는다.
+- 대상 주가 지난 초안(정책 AT11·AT13): BFF 는 조회 때 `weekStart` 가 이번 주보다 이르면 그 초안을 `expired` 로 보이고 편집·승인·발행 버튼을 끈다. 처음 운영자가 아니어도 누구나 「새 초안」으로 다음 주 표를 만들 수 있다. 쓰이지 않은 Data 승인 영수증은 남겨 둔다. 발행이 주 검사로 거절되므로 해가 없다.
 - `upstream.mjs`: `attendanceSchedules`·`attendanceHistory`·`approveAttendance`·`revokeAttendanceApproval`·`publishAttendance`·`attendanceStats`. 로컬 모드는 `local-attendance.mjs` 가 §8 규칙을 흉내 낸다(`local-customization.mjs` 와 같은 방식).
 - `contract.json` 의 `data` 목록에 `attendance.schedule.v1`·`attendance.stats.v1`.
 - `app.mjs` 라우트: `GET /api/attendance/schedules`, 초안 저장·검토 요청·승인·철회·발행(추첨 풀 라우트와 같은 이름 규칙), `GET /api/attendance/stats`.
@@ -434,7 +443,7 @@ BFF 와 Data 가 같은 문자열을 만든다. 키 순서는 아래 그대로, 
 2. 조회 응답이 `attendedToday=false`·`viewedToday=false`.
 3. 기기 기억 `autoOpened` 가 응답의 `today` 와 다르다.
 
-열면 `autoOpened = today` 를 먼저 저장하고 노출을 보낸다. 노출이 실패하면 `viewPending = today` 를 두고 다음 foreground 에 한 번 더 보낸다. 앱은 날짜를 계산하지 않고 서버가 준 `today` 문자열만 비교한다.
+열면 `autoOpened = today` 를 먼저 저장하고 노출을 보낸다. 노출이 실패하면 `viewPending = today` 를 둔다. 다음 foreground 에 먼저 조회하고, 응답의 `today` 가 `viewPending` 과 같을 때만 노출을 한 번 더 보낸다. 다르면 `viewPending` 을 지운다. 서버는 노출을 도착 시각의 UTC 날짜로 기록하므로 자정을 넘겨 보내면 보지 않은 날의 노출이 된다. 앱은 날짜를 계산하지 않고 서버가 준 `today` 문자열만 비교한다.
 
 ### 11.3 입구·결과·오류
 
@@ -443,13 +452,14 @@ BFF 와 Data 가 같은 문자열을 만든다. 키 순서는 아래 그대로, 
 - 결과 문구는 PRD 「결과 종류와 문구」 표의 6종이다. 꾸미기를 받으면 `services/unseenOutfits.ts` 의 NEW 표시를 단다. 섬 통장 잔액은 응답의 `wallet`(정본 잔액·버전)으로 먼저 고치고, Realtime `wallet.updated` 는 다른 화면과 다른 기기의 보정용이다.
 - 404 는 그 세션 동안 입구를 숨긴다. 409·503 은 §4 표대로.
 - 문구 키는 `attendance.*` 로 `ko.json`·`en.json` 에 넣는다.
-- PostHog: `attendance_board_viewed` `{ source: "auto" | "icon" }`, `attendance_claimed` `{ slot, item_outcome, fish_delivery }`. `services/socialAnalytics.ts` 가 쓰는 `captureProductEvent` 로 보낸다.
+- PostHog: `attendance_board_viewed` `{ source: "auto" | "icon" }`, `attendance_claimed` `{ slot, item_outcome, fish_delivery }`. `services/socialAnalytics.ts` 가 쓰는 `captureProductEvent` 로 보낸다. 서버 노출자(§9)는 자동 열림과 아이콘 열림을 가르지 않고 계정·날짜로 한 번만 센다. 퍼널을 PostHog 와 비교하면 두 수가 다를 수 있다.
 
 ## 12. 탈퇴·개인정보·관측
 
 - `AccountWithdrawalService.withdraw` 는 사용자 행을 먼저 배타 잠금한다. 그 뒤 개인 기록을 지우는 줄들 사이에 `attendanceErasure.eraseWithdrawnUser(userId)` 를 넣는다. 지우는 순서는 `attendance_fish_holds` → `attendance_claims` → `attendance_views` 다(외래 키 방향).
 - 섬 통장에 이미 들어간 물고기와 원장 행은 그대로 남는다. 다중 계정 감시는 원장의 `ATTENDANCE` 행으로 한다(정책 ATQ05).
-- 로그: 청구 한 번에 `attendance_claim outcome=<GRANTED|ALREADY_OWNED|UNAVAILABLE|FISH> delivery=<CREDITED|HELD|NONE> slot=<n>` 한 줄. 사용자 ID 외 개인정보는 남기지 않는다.
+- 로그: 청구 한 번에 `attendance_claim slot=<n> item_outcome=<GRANTED|ALREADY_OWNED|UNAVAILABLE|-> fish_delivery=<CREDITED|HELD|NONE> released=<m>` 한 줄, 거절이면 `attendance_claim_rejected code=<오류 코드>`. HLD 「관측」의 지급·보관·대체·거절은 각각 `CREDITED`·`GRANTED`, `HELD`, `ALREADY_OWNED`·`UNAVAILABLE`, `attendance_claim_rejected` 다. 사용자 ID 외 개인정보는 남기지 않는다.
+- 게스트: `AccessTokenFilter` 에는 게스트를 가르는 분기가 없고 출석 서비스도 `users.is_guest` 를 보지 않는다(정책 AT14). 게스트가 소셜 계정으로 올라가면 같은 사용자 행을 승격하므로(`AuthService.java:298` `setGuest(false)`) 출석·보관 기록이 이어진다.
 
 ## 13. 검증
 
