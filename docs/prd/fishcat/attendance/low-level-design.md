@@ -18,6 +18,7 @@
 | Business | `server/business-api/src/main/java/com/oneorthree/business/api/AttendanceController.java` (신설) | `/me/attendance` 3개 |
 | Business | `server/business-api/src/main/java/com/oneorthree/business/usecase/AttendanceUseCase.java` (신설) | Data 호출, 이미지 URL 조립 |
 | Business | `server/business-api/src/main/java/com/oneorthree/business/upstream/data/DataAttendanceClient.java` (신설) | `/internal/users/{userId}/attendance/**` |
+| Business | `server/business-api/src/main/java/com/oneorthree/business/common/api/ApiErrorCode.java` | 출석 오류 3개 등록(§4). 등록하지 않으면 공개 응답이 502 가 된다 |
 | 백오피스 | `backoffice/server/attendance.mjs`·`local-attendance.mjs` (신설) | 2인 흐름 store, 로컬 모드 흉내 |
 | 백오피스 | `backoffice/server/upstream.mjs`·`app.mjs`·`contract.json` | 호출·라우트·필수 capability |
 | 백오피스 | `backoffice/src/AttendanceRewards.tsx`·`AttendanceStats.tsx` (신설), `backoffice/src/App.tsx` | 화면 두 개, 사이드바 |
@@ -215,6 +216,8 @@ V16 과 함께 바꿀 고정값 자리(2026-11-09 꾸미기 지급 배치에서 
 
 헤더 `Idempotency-Key`(UUID) 필수, 본문 없음. 새 출석은 201, 같은 키의 재생도 201 이다.
 
+Business 의 `GlobalExceptionHandler.registeredUpstream` 은 Data 오류 코드와 같은 이름·같은 상태가 `ApiErrorCode` 에 있을 때만 그 코드를 공개 응답에 싣고, 없으면 502 `UPSTREAM_CONTRACT_ERROR` 로 바꾼다. 그래서 아래 세 코드를 Data `AttendanceErrorCode` 와 Business `ApiErrorCode` 양쪽에 같은 상태로 넣는다. `retryable` 은 409 둘이 `false`, 503 이 `true` 다.
+
 ```json
 {
   "data": {
@@ -293,11 +296,15 @@ V16 과 함께 바꿀 고정값 자리(2026-11-09 꾸미기 지급 배치에서 
 6. 현재 섬 판정: 컨텍스트의 `currentIslandId` 가 있으면 `GroupMembershipMutationLocks.lockGroup(islandId)` 뒤 `findActiveByUserIdAndGroupIdForShare` 와 `IslandMovementGuards.isAlive` 로 다시 확인한다. 실패하면 「현재 섬 없음」으로 본다(`GET /me/islands` 의 `currentIslandId` 와 같은 판정). 예외를 던지지 않는다.
 7. 칸 보상 풀기:
    - `FISH`: `todayFish = fish_amount`.
-   - `ITEM`: 상품이 `customization_asset_meta.retired_at` 이 비어 있고 `CustomizationCatalogService.catalog()` 에 있으면 `OwnedProductRepository.insertUserProductIfAbsent(newId, userId, productId, "attendance:<userId>:<today>", now)`. 1 이면 `GRANTED`·`todayFish=0`, 0 이면 `ALREADY_OWNED`·`todayFish = fallback`. 카탈로그 조건에 맞지 않으면 `UNAVAILABLE`·`todayFish = fallback`.
-8. 물고기 배달:
-   - 현재 섬 있음: 열린 보관 행을 `FOR UPDATE` 로 읽어 합 `released` 를 낸다. `total = todayFish + released` 가 0 보다 크면 `IslandWalletService.creditAttendance(islandId, total, "attendance:<userId>:<today>")`. 보관 행에 `released_claim_id`·`released_at` 를 쓴다. `fishDelivery = todayFish > 0 ? CREDITED : NONE`.
-   - 현재 섬 없음: `todayFish > 0` 이면 보관 행을 하나 만든다. `fishDelivery = HELD`. 지난 보관 행은 건드리지 않는다.
-9. 출석 행 저장(보상 사본·결과), 그날 노출 행이 없으면 함께 넣는다(`INSERT … ON CONFLICT DO NOTHING`, 정책 AT15).
+   - `ITEM`: 상품이 `CustomizationCatalogService.catalog()` 결과에 있고 그 항목의 `retiredAt` 이 비어 있으면 `OwnedProductRepository.insertUserProductIfAbsent(newId, userId, productId, "attendance:<userId>:<today>", now)`. 1 이면 `GRANTED`·`todayFish=0`, 0 이면 `ALREADY_OWNED`·`todayFish = fallback`. 카탈로그 조건에 맞지 않으면 `UNAVAILABLE`·`todayFish = fallback`.
+8. 물고기 배달 값 정하기(아직 쓰지 않는다):
+   - 현재 섬 있음: 열린 보관 행을 `FOR UPDATE` 로 읽어 합 `released` 를 낸다. `fishDelivery = todayFish > 0 ? CREDITED : NONE`, `releasedHoldFish = released`.
+   - 현재 섬 없음: `fishDelivery = todayFish > 0 ? HELD : NONE`, `releasedHoldFish = 0`. 지난 보관 행은 건드리지 않는다.
+9. 쓰기. 보관 행이 출석 행을 외래 키로 가리키므로 출석 행을 먼저 넣는다.
+   1. 출석 행(보상 사본·결과·`island_id`).
+   2. `HELD` 면 보관 행 하나(`claim_id` = 방금 출석). 현재 섬이 있고 `released > 0` 이면 열린 보관 행에 `released_claim_id` = 방금 출석, `released_at` = now.
+   3. 현재 섬이 있고 `total = todayFish + released` 가 0 보다 크면 `IslandWalletService.creditAttendance(islandId, total, "attendance:<userId>:<today>")`. 지갑은 마지막에 잠근다.
+   4. 그날 노출 행이 없으면 넣는다(`INSERT … ON CONFLICT DO NOTHING`, 정책 AT15).
 10. 이벤트: 적립했으면 `IslandWalletEvents.changed(islandId, userId, "ATTENDANCE_REWARD")`, 꾸미기를 넣었으면 `AppearanceEvents.inventoryChanged("user", userId, userId, productId)`. 둘 다 같은 트랜잭션의 outbox 행이다.
 11. 결과(§4 응답 모양)를 `PublicCommandResult(201, data, events)` 로 돌려준다.
 
@@ -310,10 +317,10 @@ V16 과 함께 바꿀 고정값 자리(2026-11-09 꾸미기 지급 배치에서 
 `AttendanceReadService.board(userId)` 는 읽기 전용 트랜잭션이다.
 
 - 이번 주 출석 행(최대 7)으로 `CLAIMED` 칸을 채운다. 사본에서 `reward`·`received` 를 만든다.
-- 적용 개정(§6 의 5)에서 나머지 칸의 `reward` 를 만든다. `ITEM` 칸은 `catalog_assets.title` 과 `customization_asset_meta.image_path` 를 붙인다.
+- 적용 개정(§6 의 5)에서 나머지 칸의 `reward` 를 만든다. `ITEM` 칸의 이름과 이미지 경로는 `CustomizationCatalogService.catalog()` 결과에서 상품 ID 로 찾는다. 이 결과는 `customization_asset_meta` 행과, 메타 행 없이 `customization_reward_items` 에만 있는 보상 꾸미기(이미지 경로가 `render_data` 쪽)를 함께 담는다. 메타 테이블만 읽으면 보상 꾸미기의 그림이 빠진다. 카탈로그에 없는 상품이면 `product` 의 `imageUrl` 을 `null` 로 내고 앱은 이름만 보인다.
 - `heldFish` = 열린 보관 행의 합, `viewedToday` = 오늘 노출 행 존재, `attendedToday` = 오늘 출석 행 존재.
 
-`recordView(userId)` 는 `INSERT INTO attendance_views … ON CONFLICT DO NOTHING` 하나다. 영향 행 수로 `first` 를 정한다.
+`recordView(userId)` 는 쓰기 트랜잭션에서 `UserQueryService.getCallerForShare(userId)` 로 활성 사용자를 공유 잠금한 뒤 `INSERT INTO attendance_views … ON CONFLICT DO NOTHING` 을 한다. 영향 행 수로 `first` 를 정한다. 공유 잠금이 탈퇴의 배타 잠금과 부딪혀, 탈퇴가 지운 노출 행을 늦게 도착한 요청이 다시 만들지 못한다. 잡지 열람 기록(`MagazineIssueService.receive`)과 같은 방식이다.
 
 ## 8. 표 관리
 
@@ -447,10 +454,10 @@ BFF 와 Data 가 같은 문자열을 만든다. 키 순서는 아래 그대로, 
 | 범위 | 잡아야 할 회귀 |
 | --- | --- |
 | Data 청구 | 같은 날 다른 키 두 번 → 두 번째 409. 같은 키 재생 → 같은 응답, 원장 행 1개. 두 스레드 동시 청구 → 하나만 성공. UTC 토요일 23:59:59Z 와 일요일 00:00Z 의 주가 다름. 같은 키 재시도가 자정을 넘겨도 처음 결과 |
-| Data 보상 | 섬 없음 → `HELD`, 섬 가입 뒤 다음 날 꾸미기 칸 → 보유품 + 보관분 적립. 이미 가짐 → 대체. 은퇴·카탈로그 밖 → `UNAVAILABLE` 대체. 청구 중 강퇴(섬 잠금 뒤 재확인 실패) → 보관 |
+| Data 보상 | 섬 없음 → `HELD`, 섬 없음 + 새 꾸미기 → `NONE`, 섬 가입 뒤 다음 날 꾸미기 칸 → 보유품 + 보관분 적립. `render_data` 만 있는 보상 꾸미기 칸의 이미지 경로가 비지 않음. 이미 가짐 → 대체. 은퇴·카탈로그 밖 → `UNAVAILABLE` 대체. 청구 중 강퇴(섬 잠금 뒤 재확인 실패) → 보관 |
 | Data 표 | 주간 표 없음 → 기본 표. 승인자 = 발행자 → 409. 승인 뒤 상품 은퇴 → 발행 400. 다음 주 표를 승인하고 주가 바뀐 뒤 발행 → 이번 주 표로 발행됨. 이번 주 표를 승인하고 주가 바뀐 뒤 발행 → 409 |
-| Data 기타 | 탈퇴 → 출석 3표 행 0. 통계 픽스처의 일별·주별·지급 값. `InternalCustomizationRewardPoolAllowlistTest` 처럼 allowlist 시험 |
-| Business | 응답 JSON 모양, `imageUrl` 조립, Data 오류 코드 전달 |
+| Data 기타 | 탈퇴 → 출석 3표 행 0. 탈퇴와 노출 기록이 겹쳐도 탈퇴 뒤 노출 행이 남지 않음. 통계 픽스처의 일별·주별·지급 값. `InternalCustomizationRewardPoolAllowlistTest` 처럼 allowlist 시험 |
+| Business | 응답 JSON 모양, `imageUrl` 조립, Data 오류 3개가 502 가 아니라 같은 코드·상태로 나감(`ApiErrorCode` 등록) |
 | 백오피스 | 2인 흐름(`approval-workflow.mjs` 공통 시험), `contract.json` 시험, 다이제스트가 Data 와 같은 값(§8.3 예시 고정) |
 | 앱 | 자동 열림 세 조건, 노출 실패 뒤 같은 기기에서 다시 안 열림, 404 숨김, 409 다시 읽기, 503 같은 키 재시도 |
 
@@ -463,6 +470,6 @@ BFF 와 Data 가 같은 문자열을 만든다. 키 순서는 아래 그대로, 
 | 후보 | 범위 | 선행 |
 | --- | --- | --- |
 | Data | §1~§3·§5~§9·§12 의 Data 부분, 고정값 자리, `backend-layering.md`, `schema.dbml`, `CONTEXT.md` 용어 | 없음 |
-| Business | §4 와 계약 시험 | Data |
+| Business | §4(`ApiErrorCode` 등록 포함)와 계약 시험 | Data |
 | 백오피스 | §10 과 시험, README 절 | Data 운영 배포 |
 | 앱 | §11 과 시험 | Business 운영 배포 |
