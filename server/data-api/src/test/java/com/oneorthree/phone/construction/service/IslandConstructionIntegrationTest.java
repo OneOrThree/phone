@@ -674,6 +674,36 @@ class IslandConstructionIntegrationTest {
         });
     }
 
+    @Test
+    @DisplayName("공사 중에도 권한 없는 주민은 전부 FORBIDDEN 이고, 완공 뒤에는 공사 중 사유가 사라진다")
+    void forbiddenOutranksInProgressAndReasonsClearAfterCompletion() {
+        SharedFixture f = sharedIsland();
+        Fixture owner = new Fixture(f.islandId, f.ownerId);
+        completeFacility(owner, "hall");
+        completeFacility(owner, "board");
+        tx().executeWithoutResult(status ->
+                walletService.contribute(f.islandId, f.ownerId, 4080, "seed-" + f.islandId));
+        service.setTarget(f.islandId, f.ownerId, "mail", 0, UUID.randomUUID());
+        long version = service.options(f.islandId, f.ownerId).islandVersion();
+        service.start(f.islandId, f.ownerId, "mail", version, 1, UUID.randomUUID());
+
+        // 권한 판정이 먼저다 — 주민은 공사 중인 건물까지 FORBIDDEN 으로 본다(C08).
+        assertThat(service.options(f.islandId, f.memberId).items())
+                .isNotEmpty()
+                .allSatisfy(item -> assertThat(item.blockedReason()).isEqualTo("FORBIDDEN"));
+
+        jdbc.update("UPDATE island_facilities SET completes_at = ? "
+                        + "WHERE island_id = ? AND building_id = 'mail'",
+                Timestamp.from(Instant.now().minus(1, ChronoUnit.MINUTES)), f.islandId);
+        scheduler.completeDueFacilities();
+
+        var after = service.options(f.islandId, f.ownerId);
+        assertThat(after.activeConstruction()).isNull();
+        assertThat(after.items())
+                .extracting(ConstructionOptionItem::blockedReason)
+                .doesNotContain("IN_PROGRESS", "OTHER_IN_PROGRESS");
+    }
+
     // ---------------------------------------------------------------- 섬 통장 합산 건설
 
     @Test

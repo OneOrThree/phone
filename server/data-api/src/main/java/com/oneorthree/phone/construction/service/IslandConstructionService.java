@@ -144,7 +144,8 @@ public class IslandConstructionService {
                 .filter(f -> f.getStatus() == FacilityStatus.COMPLETED)
                 .map(IslandFacility::getBuildingId)
                 .collect(Collectors.toSet());
-        // 한 번에 한 건물만 짓는다 — BUILDING 은 많아야 1행이다.
+        // 한 번에 한 건물만 짓는다 — 착공이 existsBuildingInProgress 로 두 번째 BUILDING 을 막으므로 정상이면 1행이다.
+        // 비정상 데이터로 여러 행이면 어느 행을 고를지 보장하지 않고, IN_PROGRESS 와 activeConstruction 은 같은 행을 가리킨다.
         IslandFacility active = facilityByBuilding.values().stream()
                 .filter(f -> f.getStatus() == FacilityStatus.BUILDING)
                 .findFirst().orElse(null);
