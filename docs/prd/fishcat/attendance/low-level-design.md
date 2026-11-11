@@ -217,7 +217,7 @@ V16 과 함께 바꿀 고정값 자리(2026-11-09 꾸미기 지급 배치에서 
 
 헤더 `Idempotency-Key`(UUID) 필수, 본문 없음. 새 출석은 201, 같은 키의 재생도 201 이다.
 
-`wallet` 은 이 청구로 섬 통장에 적립했을 때만 있고, 적립 직후의 정본 잔액과 지갑 버전이다(`island_wallets.balance`·`version`). 앱은 지급량을 로컬 잔액에 더하지 않고 이 값으로 `SERVER_VILLAGE_POINTS` 를 보낸다(`app/app-dev/src/services/model/reducer.ts`). 그래서 영수증 재생이나 먼저 도착한 Realtime `wallet.updated` 와 겹쳐도 두 번 더해지지 않는다. 재생 응답의 `wallet` 은 처음 청구 때의 값이고, 버전이 더 낮으면 리듀서가 무시한다.
+`wallet` 은 이 청구로 섬 통장에 적립했을 때만 있고, 적립 직후의 정본 잔액과 지갑 사건 버전이다. 잔액은 `creditAttendance` 가 돌려준 값이다. 버전은 `IslandWalletEvents.changed(...)` 가 돌려준 `EventEnvelope.version()`, 곧 `aggregate_versions` 의 `ISLAND_WALLET` 축 값이다. 상점 응답(`ShopService.walletVersion`)과 `wallet.updated` 가 쓰는 축과 같다. `island_wallets.version` 은 낙관적 잠금 값이라 이 축과 다르므로 쓰지 않는다. 앱은 지급량을 로컬 잔액에 더하지 않고 이 값으로 `SERVER_VILLAGE_POINTS` 를 보낸다(`app/app-dev/src/services/model/reducer.ts`). 그래서 영수증 재생이나 먼저 도착한 Realtime `wallet.updated` 와 겹쳐도 두 번 더해지지 않는다. 재생 응답의 `wallet` 은 처음 청구 때의 값이고, 버전이 더 낮으면 리듀서가 무시한다.
 
 Business 의 `GlobalExceptionHandler.registeredUpstream` 은 Data 오류 코드와 같은 이름·같은 상태가 `ApiErrorCode` 에 있을 때만 그 코드를 공개 응답에 싣고, 없으면 502 `UPSTREAM_CONTRACT_ERROR` 로 바꾼다. 그래서 아래 세 코드를 Data `AttendanceErrorCode` 와 Business `ApiErrorCode` 양쪽에 같은 상태로 넣는다. `retryable` 은 409 둘이 `false`, 503 이 `true` 다.
 
@@ -310,7 +310,7 @@ Business 의 `GlobalExceptionHandler.registeredUpstream` 은 Data 오류 코드�
    3. 현재 섬이 있고 `total = todayFish + released` 가 0 보다 크면 `IslandWalletService.creditAttendance(islandId, total, "attendance:<userId>:<today>")`. 지갑은 마지막에 잠근다.
    4. 그날 노출 행이 없으면 넣는다(`INSERT … ON CONFLICT DO NOTHING`, 정책 AT15).
 10. 이벤트: 적립했으면 `IslandWalletEvents.changed(islandId, userId, "ATTENDANCE_REWARD")`, 꾸미기를 넣었으면 `AppearanceEvents.inventoryChanged("user", userId, userId, productId)`. 둘 다 같은 트랜잭션의 outbox 행이다.
-11. 결과(§4 응답 모양)를 `PublicCommandResult(201, data, events)` 로 돌려준다. 적립했으면 `creditAttendance` 가 돌려준 잔액과 그때의 지갑 버전을 `wallet` 에 담는다.
+11. 결과(§4 응답 모양)를 `PublicCommandResult(201, data, events)` 로 돌려준다. 적립했으면 `creditAttendance` 가 돌려준 잔액과 10 의 `IslandWalletEvents.changed` 봉투 `version` 을 `wallet` 에 담는다.
 
 `IslandWalletService.creditAttendance(islandId, amount, idempotencyKey)` 는 `creditQuestSettlement` 와 같은 모양이다. `@Transactional(propagation = MANDATORY)`, 지갑을 마지막에 잠그고, `(island_id, ATTENDANCE, idempotency_key)` 가 이미 있으면 잔액만 돌려준다. 멱등 키 `attendance:<userId>:<YYYY-MM-DD>` 는 하루 한 번이라는 자연 키라 출석 행의 유일 제약과 같은 것을 가리킨다.
 
