@@ -508,7 +508,7 @@ BFF 와 Data 가 같은 문자열을 만든다. 키 순서는 아래 그대로, 
 - 출석판 `AttendanceBoard.tsx`: `design-system/patterns.tsx` 의 `Overlay` 를 쓴다. 7칸, 보관 물고기, `nextDayAt`·`nextWeekAt` 을 기기 시간대로 표시한다. 디자인은 `app/app-dev/DESIGN.md` 를 따른다.
 - 결과 문구는 PRD 「결과 종류와 문구」 표의 6종이다.
 - 섬 통장 잔액은 응답의 `wallet` 으로 `SERVER_VILLAGE_POINTS` 를 보내 고친다. 퀘스트 보상이 게시판에서 하는 방식과 같다(`screens/interiors/board/Board.tsx` 의 `SERVER_VILLAGE_POINTS`). 지금 앱의 `services/islandRealtime.ts` 는 `wallet.updated`·`inventory.updated` 를 받지 않는다. 그래서 응답이 앱의 유일한 즉시 갱신 경로이고, 두 사건은 앞으로의 소비자를 위한 것이다.
-- 꾸미기를 받으면(`itemOutcome=GRANTED`) `addUnseenOutfits("attendance:<claimedOn>", [productId])` 로 NEW 표시를 달고 `getMyInventory()`(`services/api/shop.ts`)를 한 번 다시 부른다. 리듀서는 대상 섬이 아직 `islands` 에 없으면 값을 버리므로, 섬 목록을 불러오기 전에 받은 응답은 다음 조회나 Realtime 이 채운다.
+- 꾸미기를 받으면(`itemOutcome=GRANTED`) `addUnseenOutfits("attendance:<claimedOn>", [productId])` 로 NEW 표시를 달고 `getMyInventory()`(`services/api/shop.ts`)를 한 번 다시 부른다. 리듀서는 대상 섬이 아직 `islands` 에 없으면 값을 버리므로, 섬 목록을 불러오기 전에 받은 응답은 다음 조회가 채운다.
 - 404 는 그 세션 동안 입구를 숨긴다. 409·503·그 밖의 실패는 §4 표대로.
 - 문구 키는 `attendance.*` 로 `ko.json`·`en.json` 에 넣는다.
 - PostHog: `attendance_board_viewed` `{ source: "auto" | "icon" }`, `attendance_claimed` `{ slot, item_outcome, fish_delivery }`. `services/socialAnalytics.ts` 가 쓰는 `captureProductEvent` 로 보낸다. 서버 노출자(§9)는 자동 열림과 아이콘 열림을 가르지 않고 계정·날짜로 한 번만 센다. 퍼널을 PostHog 와 비교하면 두 수가 다를 수 있다.
@@ -532,7 +532,7 @@ BFF 와 Data 가 같은 문자열을 만든다. 키 순서는 아래 그대로, 
 | Data 기타 | 탈퇴 → 출석 3표 행 0. 탈퇴와 노출 기록이 겹쳐도 탈퇴 뒤 노출 행이 남지 않음. 통계 픽스처의 일별·주별·지급 값과 불변식(`attendees ≤ viewers`, `slotClaims[k-1] = distribution[k-1..6]` 합), 기간이 주 중간에서 잘린 경우. `InternalCustomizationRewardPoolAllowlistTest` 처럼 allowlist 시험 |
 | Business | 응답 JSON 모양, `imageUrl` 조립, Data 오류 3개가 502 가 아니라 같은 코드·상태·`retryable`(409 둘 `false`, 503 `true`)로 나감(`ApiErrorCode` 등록) |
 | 백오피스 | 2인 흐름(`approval-workflow.mjs` 공통 시험), `contract.json` 시험, 다이제스트가 Data 와 같은 값(§8.3 예시 고정) |
-| 앱 | 자동 열림 세 조건, 편지 조회가 늦게 끝나도 출석판이 먼저 열리지 않음, 꾸미기 지급 뒤 `addUnseenOutfits` 호출과 `getMyInventory()` 재조회, 섬 목록을 불러오기 전 응답의 잔액이 버려진 뒤 다음 조회가 채움, 노출 실패 뒤 같은 기기에서 다시 안 열림, 청구 응답 `wallet` 으로 잔액 갱신(재생·Realtime 과 겹쳐도 한 번), 404 숨김, 409 다시 읽기, 503 같은 키 재시도 |
+| 앱 | 자동 열림 세 조건, 편지 조회가 늦게 끝나도 출석판이 먼저 열리지 않음, 꾸미기 지급 뒤 `addUnseenOutfits` 호출과 `getMyInventory()` 재조회, 섬 목록을 불러오기 전 응답의 잔액이 버려진 뒤 다음 조회가 채움, 노출 실패 뒤 같은 기기에서 다시 안 열림, 청구 응답 `wallet` 으로 잔액 갱신(재생과 겹쳐도 한 번), 404 숨김, 409 다시 읽기, 503 같은 키 재시도 |
 
 ## 14. 배포 순서와 구현 티켓
 
