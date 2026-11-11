@@ -243,9 +243,10 @@ Business 의 `GlobalExceptionHandler.registeredUpstream` 은 Data 오류 코드�
 | --- | --- | --- |
 | 409 | `ATTENDANCE_ALREADY_CLAIMED` | 출석판을 다시 읽고 「오늘은 이미 출석했어요」 |
 | 409 | `ATTENDANCE_WEEK_COMPLETE` | 출석판을 다시 읽는다 |
-| 409 | `IDEMPOTENCY_KEY_REUSED` | 새 키로 바꾸지 않는다. 출석판을 다시 읽는다 |
+| 409 | `IDEMPOTENCY_KEY_REUSED` | 키를 버리고 출석판을 다시 읽는다. 자동으로 다시 청구하지 않는다(정책 AT04 의 「409 면 키를 버린다」) |
 | 503 | `ATTENDANCE_SCHEDULE_UNAVAILABLE` | 「잠시 후 다시 시도해 주세요」, 같은 키로 다시 |
 | 404 | (라우트 없음) | 출석 입구를 숨긴다(AT-F06) |
+| 그 밖의 5xx·`UPSTREAM_CONTRACT_ERROR` | 「잠시 후 다시 시도해 주세요」. 키를 버리고 출석판을 다시 읽는다. 첫 요청이 반영됐다면 다시 읽은 출석판이 보여 준다 |
 
 ### POST `/me/attendance/views`
 
@@ -332,7 +333,7 @@ Business 의 `GlobalExceptionHandler.registeredUpstream` 은 Data 오류 코드�
 - `heldFish` = 열린 보관 행의 합, `viewedToday` = 오늘 노출 행 존재, `attendedToday` = 오늘 출석 행 존재. 출석하면 그날 노출도 기록되므로 `attendedToday=true` 이면 `viewedToday=true` 다.
 - 받지 않은 `ITEM` 칸에는 `alreadyOwned`(이미 가진 상품이면 `true`)를 싣는다. 앱은 이 값이 참이면 칸 아래에 「이미 가진 꾸미기 — 받으면 물고기 {n}마리」를 보여 준다. 청구 순간 판정(§6 의 7)이 정본이고 이 값은 미리 보기다.
 
-`recordView(userId)` 는 쓰기 트랜잭션에서 `UserQueryService.getCallerForShare(userId)` 로 활성 사용자를 공유 잠금한 뒤 `INSERT INTO attendance_views … ON CONFLICT DO NOTHING` 을 한다. 영향 행 수로 `first` 를 정한다. 공유 잠금이 탈퇴의 배타 잠금과 부딪혀, 탈퇴가 지운 노출 행을 늦게 도착한 요청이 다시 만들지 못한다. 잡지 열람 기록(`MagazineIssueService.receive`)과 같은 방식이다.
+`recordView(userId)` 의 날짜는 청구와 같은 `Clock` 에서 낸 UTC 날짜다. DB 의 `CURRENT_DATE` 는 세션 시간대에 따라 날이 갈리므로 쓰지 않는다. `recordView(userId)` 는 쓰기 트랜잭션에서 `UserQueryService.getCallerForShare(userId)` 로 활성 사용자를 공유 잠금한 뒤 `INSERT INTO attendance_views … ON CONFLICT DO NOTHING` 을 한다. 영향 행 수로 `first` 를 정한다. 공유 잠금이 탈퇴의 배타 잠금과 부딪혀, 탈퇴가 지운 노출 행을 늦게 도착한 요청이 다시 만들지 못한다. 잡지 열람 기록(`MagazineIssueService.receive`)과 같은 방식이다.
 
 ## 8. 표 관리
 
@@ -347,7 +348,7 @@ Business 의 `GlobalExceptionHandler.registeredUpstream` 은 Data 오류 코드�
                    "published": { "revisionId": "…", "revision": 2, "publishedBy": "member-1", "publishedAt": "…", "slots": [ … ] },
                    "effective": "WEEK" },
   "nextWeek":    { "weekStart": "2026-11-15", "editable": true, "published": null, "effective": "DEFAULT" },
-  "default":     { "published": { "revision": 1, "publishedBy": "migration", "slots": [ … ] } },
+  "default":     { "editable": true, "published": { "revision": 1, "publishedBy": "migration", "slots": [ … ] } },
   "items": "GET /internal/admin/customization/items 를 따로 부른다"
 }
 ```
@@ -361,9 +362,23 @@ Business 의 `GlobalExceptionHandler.registeredUpstream` 은 Data 오류 코드�
 
 | 단계 | 요청 본문 | 검사 | 실패 |
 | --- | --- | --- | --- |
-| 승인 `POST …/approvals/{approvalId}` | `scope`, `weekStart`, `expectedRevision`, `slots`(7), `approvedDigest` | 칸 모양(§3 CHECK 와 같은 규칙), 꾸미기 상품 카탈로그 조건, 대상 주가 이번 주·다음 주, 다이제스트 재계산 일치, `expectedRevision` = 현재 개정 | 400 형식·상품, 409 주·개정·다이제스트, 같은 ID 다른 내용 409 |
+| 승인 `POST …/approvals/{approvalId}` | `scope`, `weekStart`, `expectedRevision`, `slots`(7), `approvedDigest` | 칸 모양(§3 CHECK 와 같은 규칙), 꾸미기 상품 카탈로그 조건, 대상 주가 이번 주·다음 주(`WEEK` 만), 다이제스트 재계산 일치, `expectedRevision` = 현재 개정 | 400 형식·상품, 409 주·개정·다이제스트, 같은 ID 다른 내용 409 |
 | 취소 `DELETE …/approvals/{approvalId}` | 없음 | 발행에 쓰이지 않은 승인 | 404 없음, 409 이미 발행 |
-| 발행 `PUT …/publications/{publicationId}` | `approvalId`, `scope`, `weekStart`, `expectedRevision`, `slots`, `approvedDigest` | 승인 존재·미취소·미사용, 본문 = 승인 스냅샷, `actor ≠ approved_by`, 꾸미기 상품 다시 검사, 대상 주가 아직 이번 주·다음 주, `expectedRevision` = 현재 개정 | 400 상품, 409 나머지. 같은 발행 ID 재요청은 처음 결과 |
+| 발행 `PUT …/publications/{publicationId}` | `approvalId`, `scope`, `weekStart`, `expectedRevision`, `slots`, `approvedDigest` | 승인 존재·미취소·미사용, 본문 = 승인 스냅샷, `actor ≠ approved_by`, 꾸미기 상품 다시 검사, 대상 주가 아직 이번 주·다음 주(`WEEK` 만), `expectedRevision` = 현재 개정 | 400 상품, 409 나머지. 같은 발행 ID 재요청은 처음 결과 |
+
+응답 모양. BFF 의 `matches`(§10.1)가 승인 응답을 요청과 대조한다.
+
+```json
+// 승인 200 — 같은 approvalId·같은 본문 재요청도 같은 응답
+{ "approvalId": "…", "scope": "WEEK", "weekStart": "2026-11-15", "expectedRevision": 0,
+  "slots": [ /* §8.3 정규형의 slots */ ], "approvedDigest": "…", "approvedBy": "member-2", "approvedAt": "…" }
+// 발행 200 — 같은 publicationId 재요청도 같은 응답
+{ "publicationId": "…", "revisionId": "…", "scope": "WEEK", "weekStart": "2026-11-15", "revision": 1,
+  "approvedBy": "member-2", "publishedBy": "member-1", "publishedAt": "…" }
+// 이력 GET …/history?scope=WEEK&week=2026-11-15&limit=20 — 최신 개정부터
+{ "items": [ { "revision": 1, "revisionId": "…", "approvedBy": "member-2", "publishedBy": "member-1",
+               "publishedAt": "…", "slots": [ … ] } ] }
+```
 
 발행은 `pg_advisory_xact_lock('backoffice:attendance-schedule')` 안에서 `revision = 현재 + 1` 행과 칸 7행을 넣는다. 발행 ID 가 개정 ID 다.
 
@@ -409,7 +424,32 @@ BFF 와 Data 가 같은 문자열을 만든다. 키 순서는 아래 그대로, 
 | 지급 | `fallbacks` | `item_outcome` 이 `ALREADY_OWNED`·`UNAVAILABLE` 인 행 수와 물고기 합 |
 | 지급 | `itemsGranted[]` | `GRANTED` 상품별 건수, 상품 이름 |
 
-주는 기간에 걸친 UTC 일요일 시작 주다. 탈퇴한 계정의 행은 지워져 있어 집계에서 빠진다(정책 AT16). 응답에는 사용자 식별자를 싣지 않는다.
+기간 규칙:
+
+- `from`·`to` 는 UTC 날짜, 포함 범위, 최대 92일. `from > to` 나 92일 초과는 400.
+- 일별 값은 기간 안의 날마다 하나다.
+- 주별 값은 시작일이 `RankingWeek.weekStart(from)` 이상 `weekStart(to)` 이하인 주마다 하나다. 기간이 주 중간에서 잘려도 그 주 전체(조회 시점까지)를 센다. 진행 중인 주는 `inProgress: true` 다.
+- `returnRate` 는 그 주와 바로 앞 주를 본다. 앞 주가 기간 밖이어도 센다. 앞 주 출석자가 0 이면 `null`.
+- `conversion`·`returnRate` 는 0~1 소수(소수점 넷째 자리 반올림)다. 화면이 % 로 바꾼다.
+- `firstDayAttendees` 는 `(u.created_at AT TIME ZONE 'UTC')::date = claimed_on` 으로 센다. `claimed_on`·`viewed_on` 은 이미 date 다.
+- 주는 UTC 일요일 시작이다. 탈퇴한 계정의 행은 지워져 있어 집계에서 빠진다(정책 AT16). 그래서 통계의 지급 합계는 섬 통장 원장의 `ATTENDANCE` 합계보다 작을 수 있다. 원장은 탈퇴 뒤에도 남는다. 화면에 이 차이를 적는다.
+- `fallbacks` 의 물고기는 `fishCredited`(또는 보관)의 일부다. 더하면 두 번 센다.
+- 응답에는 사용자 식별자를 싣지 않는다.
+
+```json
+{
+  "from": "2026-11-01", "to": "2026-11-14",
+  "daily": [ { "date": "2026-11-11", "viewers": 180, "attendees": 150, "conversion": 0.8333, "firstDayAttendees": 40 } ],
+  "weeks": [ { "weekStart": "2026-11-08", "inProgress": true,
+               "distribution": [120, 60, 30, 12, 5, 2, 1], "completers": 1,
+               "slotClaims": [230, 110, 50, 20, 8, 3, 1], "returnRate": 0.4120 } ],
+  "totals": { "fishCredited": 5120, "fishHeldOpen": 340,
+              "fallbacks": { "alreadyOwned": { "count": 12, "fish": 360 }, "unavailable": { "count": 0, "fish": 0 } },
+              "itemsGranted": [ { "productId": "cust.neck.red-scarf", "title": "빨간 목도리", "count": 88 } ] }
+}
+```
+
+`distribution[k-1]` 은 그 주 출석 수가 k 인 계정 수, `slotClaims[k-1]` 은 k 칸 출석 행 수다. 그래서 `slotClaims[k-1] = distribution[k-1] + … + distribution[6]` 이다.
 
 ## 10. 백오피스
 
@@ -428,6 +468,7 @@ BFF 와 Data 가 같은 문자열을 만든다. 키 순서는 아래 그대로, 
   matches: (approval, request) => /* 승인 응답의 approvalId·expectedRevision·digest·slots 가 요청과 같다 */ }
 ```
 
+- 초안은 (`scope`, `weekStart`)마다 한 번에 하나만 열려 있다. 열린 초안(편집·검토·승인·발행 중)이 있으면 같은 대상의 새 초안을 만들지 않는다. 발행됐거나 `expired` 가 된 뒤에 새 초안을 만든다.
 - `expectedRevision` 은 0 을 허용한다(아직 주간 표가 없는 주). 추첨 풀의 `expected()` 는 0 을 거절하므로 그대로 복사하지 않는다.
 - 대상 주가 지난 초안(정책 AT11·AT13): BFF 는 조회 때 `weekStart` 가 이번 주보다 이르면 그 초안을 `expired` 로 보이고 편집·승인·발행 버튼을 끈다. 처음 운영자가 아니어도 누구나 「새 초안」으로 다음 주 표를 만들 수 있다. 쓰이지 않은 Data 승인 영수증은 남겨 둔다. 발행이 주 검사로 거절되므로 해가 없다.
 - `upstream.mjs`: `attendanceSchedules`·`attendanceHistory`·`approveAttendance`·`revokeAttendanceApproval`·`publishAttendance`·`attendanceStats`. 로컬 모드는 `local-attendance.mjs` 가 §8 규칙을 흉내 낸다(`local-customization.mjs` 와 같은 방식).
@@ -437,7 +478,7 @@ BFF 와 Data 가 같은 문자열을 만든다. 키 순서는 아래 그대로, 
 ### 10.2 화면
 
 - `AttendanceRewards.tsx`: 탭 「이번 주」·「다음 주」·「기본 표」. 각 탭에 지금 적용되는 표(`effective`)와 개정 번호를 보이고, 7칸 편집기에서 칸마다 종류·수량·꾸미기(썸네일은 `CustomizationShared.tsx` 의 `Thumb`)·대체 물고기를 고른다. 아래에 승인 대기·발행 이력.
-- `AttendanceStats.tsx`: 기간 선택, 일별 표, 주별 분포·칸별 수령 표, 지급 합계. 머리에 「UTC 기준 — 하루는 한국 오전 9시, 주는 한국 일요일 오전 9시에 시작」.
+- `AttendanceStats.tsx`: 기간 선택(기본 최근 14일), 일별 표, 주별 분포·칸별 수령 표(진행 중인 주 표시), 지급 합계(대체 물고기는 지급 합계의 일부, 원장 합계와 차이가 날 수 있음을 함께 적는다). 머리에 「UTC 기준 — 하루는 한국 오전 9시, 주는 한국 일요일 오전 9시에 시작」.
 - `App.tsx`: 사이드바 버튼 두 개, `panel` 값 `'attendance' | 'attendanceStats'`, props `{ session, onDirtyChange, onUnauthorized }`.
 
 ## 11. 앱
@@ -461,9 +502,14 @@ BFF 와 Data 가 같은 문자열을 만든다. 키 순서는 아래 그대로, 
 ### 11.3 입구·결과·오류
 
 - 아이콘 `AttendanceIcon.tsx`: 섬 홈과 먼바다 화면의 HUD 에 둔다(`screens/island/HomeQuestIndicator.tsx` 와 같은 자리 규칙). `attendedToday=false` 면 점.
+- 상태 공유: `services/attendance.ts` 가 마지막 조회 응답을 작은 저장소로 들고 `useAttendanceBoard()` 로 구독하게 한다(`services/unseenOutfits.ts` 의 `update`·구독 훅과 같은 모양). 출석판·두 화면의 아이콘이 같은 값을 본다. 청구 성공 뒤와 foreground 복귀 때 다시 조회한다.
+- 청구 키는 메모리에만 둔다. 앱이 죽어 키를 잃으면 다음 청구는 409 가 되고 출석판 재조회로 정리된다.
+- 아이콘으로 열 때도 노출을 보낸다(같은 날 두 번째부터 서버가 무시한다).
 - 출석판 `AttendanceBoard.tsx`: `design-system/patterns.tsx` 의 `Overlay` 를 쓴다. 7칸, 보관 물고기, `nextDayAt`·`nextWeekAt` 을 기기 시간대로 표시한다. 디자인은 `app/app-dev/DESIGN.md` 를 따른다.
-- 결과 문구는 PRD 「결과 종류와 문구」 표의 6종이다. 꾸미기를 받으면 `services/unseenOutfits.ts` 의 NEW 표시를 단다. 섬 통장 잔액은 응답의 `wallet`(정본 잔액·버전)으로 먼저 고치고, Realtime `wallet.updated` 는 다른 화면과 다른 기기의 보정용이다. 리듀서는 대상 섬이 아직 `islands` 에 없으면 값을 버리므로, 섬 목록을 불러오기 전에 받은 응답은 다음 조회나 Realtime 이 채운다.
-- 404 는 그 세션 동안 입구를 숨긴다. 409·503 은 §4 표대로.
+- 결과 문구는 PRD 「결과 종류와 문구」 표의 6종이다.
+- 섬 통장 잔액은 응답의 `wallet` 으로 `SERVER_VILLAGE_POINTS` 를 보내 고친다. 퀘스트 보상이 게시판에서 하는 방식과 같다(`screens/interiors/board/Board.tsx` 의 `SERVER_VILLAGE_POINTS`). 지금 앱의 `services/islandRealtime.ts` 는 `wallet.updated`·`inventory.updated` 를 받지 않는다. 그래서 응답이 앱의 유일한 즉시 갱신 경로이고, 두 사건은 앞으로의 소비자를 위한 것이다.
+- 꾸미기를 받으면(`itemOutcome=GRANTED`) `addUnseenOutfits("attendance:<claimedOn>", [productId])` 로 NEW 표시를 달고 `getMyInventory()`(`services/api/shop.ts`)를 한 번 다시 부른다. 리듀서는 대상 섬이 아직 `islands` 에 없으면 값을 버리므로, 섬 목록을 불러오기 전에 받은 응답은 다음 조회나 Realtime 이 채운다.
+- 404 는 그 세션 동안 입구를 숨긴다. 409·503·그 밖의 실패는 §4 표대로.
 - 문구 키는 `attendance.*` 로 `ko.json`·`en.json` 에 넣는다.
 - PostHog: `attendance_board_viewed` `{ source: "auto" | "icon" }`, `attendance_claimed` `{ slot, item_outcome, fish_delivery }`. `services/socialAnalytics.ts` 가 쓰는 `captureProductEvent` 로 보낸다. 서버 노출자(§9)는 자동 열림과 아이콘 열림을 가르지 않고 계정·날짜로 한 번만 센다. 퍼널을 PostHog 와 비교하면 두 수가 다를 수 있다.
 
@@ -483,7 +529,7 @@ BFF 와 Data 가 같은 문자열을 만든다. 키 순서는 아래 그대로, 
 | Data 청구 | 같은 날 다른 키 두 번 → 두 번째 409. 같은 키 재생 → 같은 응답, 원장 행 1개. 두 스레드 동시 청구 → 하나만 성공. UTC 토요일 23:59:59Z 와 일요일 00:00Z 의 주가 다름. 같은 키 재시도가 자정을 넘겨도 처음 결과 |
 | Data 보상 | 섬 없음 → `HELD`, 섬 없음 + 새 꾸미기 → `NONE`, 섬 가입 뒤 다음 날 꾸미기 칸 → 보유품 + 보관분 적립. `render_data` 만 있는 보상 꾸미기 칸의 이미지 경로가 비지 않음. 이미 가짐 → 대체. 은퇴·카탈로그 밖 → `UNAVAILABLE` 대체. 청구 중 강퇴(섬 잠금 뒤 재확인 실패) → 보관 |
 | Data 표 | 주간 표 없음 → 기본 표. 승인자 = 발행자 → 409. 승인 뒤 상품 은퇴 → 발행 400. 다음 주 표를 승인하고 주가 바뀐 뒤 발행 → 이번 주 표로 발행됨. 이번 주 표를 승인하고 주가 바뀐 뒤 발행 → 409 |
-| Data 기타 | 탈퇴 → 출석 3표 행 0. 탈퇴와 노출 기록이 겹쳐도 탈퇴 뒤 노출 행이 남지 않음. 통계 픽스처의 일별·주별·지급 값. `InternalCustomizationRewardPoolAllowlistTest` 처럼 allowlist 시험 |
+| Data 기타 | 탈퇴 → 출석 3표 행 0. 탈퇴와 노출 기록이 겹쳐도 탈퇴 뒤 노출 행이 남지 않음. 통계 픽스처의 일별·주별·지급 값과 불변식(`attendees ≤ viewers`, `slotClaims[k-1] = distribution[k-1..6]` 합), 기간이 주 중간에서 잘린 경우. `InternalCustomizationRewardPoolAllowlistTest` 처럼 allowlist 시험 |
 | Business | 응답 JSON 모양, `imageUrl` 조립, Data 오류 3개가 502 가 아니라 같은 코드·상태·`retryable`(409 둘 `false`, 503 `true`)로 나감(`ApiErrorCode` 등록) |
 | 백오피스 | 2인 흐름(`approval-workflow.mjs` 공통 시험), `contract.json` 시험, 다이제스트가 Data 와 같은 값(§8.3 예시 고정) |
 | 앱 | 자동 열림 세 조건, 편지 조회가 늦게 끝나도 출석판이 먼저 열리지 않음, 노출 실패 뒤 같은 기기에서 다시 안 열림, 청구 응답 `wallet` 으로 잔액 갱신(재생·Realtime 과 겹쳐도 한 번), 404 숨김, 409 다시 읽기, 503 같은 키 재시도 |
