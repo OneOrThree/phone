@@ -173,7 +173,7 @@ V16 과 함께 바꿀 고정값 자리(2026-11-09 꾸미기 지급 배치에서 
 | `server/data-api/src/test/java/com/oneorthree/phone/common/db/DeploymentMigrationMainTest.java` | 체인, 실행 건수 |
 | `server/data-api/src/test/java/com/oneorthree/phone/db/V0BaselineMigrationTest.java` | 체인, public 테이블 수(+6) |
 | `server/data-api/src/test/java/com/oneorthree/phone/db/V0DefaultSeedTest.java` | 체인, 기본 표 시드 행 |
-| `server/data-api/docs/db/schema.dbml` | 테이블 6개 |
+| `server/data-api/docs/db/schema.dbml` | 테이블 6개. 고친 뒤 `server/data-api/docs/db/verify-schema-dbml.sh` 로 V0 체인과 대조한다(`server/data-api/CLAUDE.md` 「Database changes」) |
 | `.github/scripts/apidog-merge.py` `DOMAINS` | 새 컨트롤러 태그(Data 2개, Business 1개) |
 | `server/data-api/src/test/java/com/oneorthree/phone/internal/ContentEnvironmentTest.java` | capability 목록 |
 
@@ -297,7 +297,7 @@ Business 의 `GlobalExceptionHandler.registeredUpstream` 은 Data 오류 코드�
 3. `now = clock.instant()` 를 **이 한 번만** 읽는다. `today = AttendanceDay.today(now)`, `weekStart = RankingWeek.weekStart(now)`, `nextDayAt`·`nextWeekAt`, 꾸미기 지급 시각, 출석 행의 `created_at` 이 모두 이 값을 쓴다. 자정 직전에 시작한 청구의 날짜와 주가 서로 다른 날을 가리키지 않는다. 판정 순서는 영수증 재생(1 앞의 `run`) → 같은 날 출석(4, 409) → 칸·표(5, 503) → 현재 섬(6) → 꾸미기(7) 이고, 어느 오류가 먼저 나오는지가 이 순서로 정해진다(PRD 구현 결정 7).
 4. 오늘 출석 행이 있으면 `ATTENDANCE_ALREADY_CLAIMED`(409). 이번 주 출석 수가 7 이면 `ATTENDANCE_WEEK_COMPLETE`(409). 유일 제약 `uq_attendance_claim_day`·`uq_attendance_claim_slot` 이 마지막 방어선이다.
 5. `slot = 이번 주 출석 수 + 1`. 적용 개정은 `AttendanceScheduleResolver`: 그 주의 `WEEK` 최대 `revision`, 없으면 `DEFAULT` 최대 `revision`. 둘 다 없으면 `ATTENDANCE_SCHEDULE_UNAVAILABLE`(503).
-6. 현재 섬 판정: 컨텍스트의 `currentIslandId` 가 있으면 `GroupMembershipMutationLocks.lockGroup(islandId)` 뒤 `findActiveByUserIdAndGroupIdForShare` 와 `IslandMovementGuards.isAlive` 로 다시 확인한다. 실패하면 「현재 섬 없음」으로 본다(`GET /me/islands` 의 `currentIslandId` 와 같은 판정). 예외를 던지지 않는다. 강퇴·나가기·탈퇴는 사용자 행을 먼저 잡아 이 청구와 섞이지 않는다. 이 재확인이 막는 것은 사용자 행을 잡지 않는 섬 종료다. 2026-11-12 기준 그런 경로는 운영자 섬 닫기 `GroupMemberService.closeIslandByOperator`(섬 `FOR UPDATE` 와 멤버십만 잠근다)와 섬 정리 `IslandPurgeService`(`markDeleted`)다. 둘 다 섬 잠금을 잡으므로 청구의 `lockGroup` 뒤 재확인과 차례로 선다.
+6. 현재 섬 판정: 컨텍스트의 `currentIslandId` 가 있으면 `GroupMembershipMutationLocks.lockGroup(islandId)` 뒤 `findActiveByUserIdAndGroupIdForShare` 와 `IslandMovementGuards.isAlive` 로 다시 확인한다. 실패하면 「현재 섬 없음」으로 본다(`GET /me/islands` 의 `currentIslandId` 와 같은 판정). `lockGroup` 은 섬 행이 없으면 `GROUP_NOT_FOUND` 를 던지는데, 청구는 이것도 잡아 「현재 섬 없음」으로 본다. 섬 정리(`IslandPurgeService`)는 `markDeleted` 로 행을 남기므로 지금은 생기지 않지만, 청구가 이 예외로 실패하지 않게 한다. 강퇴·나가기·탈퇴는 사용자 행을 먼저 잡아 이 청구와 섞이지 않는다. 이 재확인이 막는 것은 사용자 행을 잡지 않는 섬 종료다. 2026-11-12 기준 그런 경로는 운영자 섬 닫기 `GroupMemberService.closeIslandByOperator`(섬 `FOR UPDATE` 와 멤버십만 잠근다)와 섬 정리 `IslandPurgeService`(`markDeleted`)다. 둘 다 섬 잠금을 잡으므로 청구의 `lockGroup` 뒤 재확인과 차례로 선다. 청구는 섬 하나만 잠근다. 계정 탈퇴는 여러 섬을 정렬해 잠그지만(`lockGroupsForAccountWithdrawal`) 그 전에 사용자 행을 배타로 잡으므로 같은 사용자의 청구와 만나지 않는다.
 7. 칸 보상 풀기:
    - `FISH`: `todayFish = fish_amount`.
    - `ITEM`: 상품이 `CustomizationCatalogService.catalog()` 결과에 있고 그 항목의 `retiredAt` 이 비어 있으면 `OwnedProductRepository.insertUserProductIfAbsent(newId, userId, productId, "attendance:<userId>:<today>", now)`. 1 이면 `GRANTED`·`todayFish=0`, 0 이면 `ALREADY_OWNED`·`todayFish = fallback`. 카탈로그 조건에 맞지 않으면 `UNAVAILABLE`·`todayFish = fallback`.
@@ -377,6 +377,19 @@ BFF 와 Data 가 같은 문자열을 만든다. 키 순서는 아래 그대로, 
 
 `DEFAULT` 는 `"weekStart":null`. 다이제스트 = UTF-8 바이트의 SHA-256 소문자 16진수 64자.
 
+어긋나기 쉬운 곳:
+
+- Data 는 BFF 가 보낸 문자열을 쓰지 않는다. 받은 7칸을 검증한 뒤 위 순서로 직접 다시 조립해 다이제스트를 계산하고 `approvedDigest` 와 비교한다. 입력 JSON 의 키 순서에 기대지 않는다.
+- 칸은 `slot` 오름차순 7개다. 중복·누락이면 다이제스트 계산 전에 400 이다.
+- 숫자는 정수 리터럴(`10`, `10.0` 아님)이다. `null` 은 생략하지 않고 `null` 로 쓴다.
+- `productId` 는 카탈로그 ID 형식(ASCII)이라 이스케이프가 생기지 않는다. `/` 도 이스케이프하지 않는다. BFF 는 `JSON.stringify`, Data 는 Jackson 기본 설정이다.
+
+고정 예시(V16 시드 기본 표). 아래 문자열의 다이제스트는 `fbfa42dfc536d73d205aab71b676d612bb1a1c2e414ed01e5835f2df3ec33df0` 다. Node `JSON.stringify` + `crypto` 와 Python `json.dumps(separators=(",", ":"))` + `hashlib` 이 같은 값을 낸다. BFF·Data 시험이 이 값을 함께 고정한다.
+
+```text
+{"scope":"DEFAULT","weekStart":null,"slots":[{"slot":1,"rewardType":"FISH","fishAmount":10,"productId":null,"fallbackFishAmount":null},{"slot":2,"rewardType":"FISH","fishAmount":10,"productId":null,"fallbackFishAmount":null},{"slot":3,"rewardType":"FISH","fishAmount":15,"productId":null,"fallbackFishAmount":null},{"slot":4,"rewardType":"FISH","fishAmount":15,"productId":null,"fallbackFishAmount":null},{"slot":5,"rewardType":"FISH","fishAmount":20,"productId":null,"fallbackFishAmount":null},{"slot":6,"rewardType":"FISH","fishAmount":20,"productId":null,"fallbackFishAmount":null},{"slot":7,"rewardType":"FISH","fishAmount":30,"productId":null,"fallbackFishAmount":null}]}
+```
+
 ## 9. 참여 현황 통계
 
 `GET /internal/admin/attendance/stats?from=YYYY-MM-DD&to=YYYY-MM-DD`(포함 범위, 최대 92일, UTC 날짜). `@Transactional(readOnly = true, isolation = REPEATABLE_READ)` 하나에서 아래를 읽는다.
@@ -449,7 +462,7 @@ BFF 와 Data 가 같은 문자열을 만든다. 키 순서는 아래 그대로, 
 
 - 아이콘 `AttendanceIcon.tsx`: 섬 홈과 먼바다 화면의 HUD 에 둔다(`screens/island/HomeQuestIndicator.tsx` 와 같은 자리 규칙). `attendedToday=false` 면 점.
 - 출석판 `AttendanceBoard.tsx`: `design-system/patterns.tsx` 의 `Overlay` 를 쓴다. 7칸, 보관 물고기, `nextDayAt`·`nextWeekAt` 을 기기 시간대로 표시한다. 디자인은 `app/app-dev/DESIGN.md` 를 따른다.
-- 결과 문구는 PRD 「결과 종류와 문구」 표의 6종이다. 꾸미기를 받으면 `services/unseenOutfits.ts` 의 NEW 표시를 단다. 섬 통장 잔액은 응답의 `wallet`(정본 잔액·버전)으로 먼저 고치고, Realtime `wallet.updated` 는 다른 화면과 다른 기기의 보정용이다.
+- 결과 문구는 PRD 「결과 종류와 문구」 표의 6종이다. 꾸미기를 받으면 `services/unseenOutfits.ts` 의 NEW 표시를 단다. 섬 통장 잔액은 응답의 `wallet`(정본 잔액·버전)으로 먼저 고치고, Realtime `wallet.updated` 는 다른 화면과 다른 기기의 보정용이다. 리듀서는 대상 섬이 아직 `islands` 에 없으면 값을 버리므로, 섬 목록을 불러오기 전에 받은 응답은 다음 조회나 Realtime 이 채운다.
 - 404 는 그 세션 동안 입구를 숨긴다. 409·503 은 §4 표대로.
 - 문구 키는 `attendance.*` 로 `ko.json`·`en.json` 에 넣는다.
 - PostHog: `attendance_board_viewed` `{ source: "auto" | "icon" }`, `attendance_claimed` `{ slot, item_outcome, fish_delivery }`. `services/socialAnalytics.ts` 가 쓰는 `captureProductEvent` 로 보낸다. 서버 노출자(§9)는 자동 열림과 아이콘 열림을 가르지 않고 계정·날짜로 한 번만 센다. 퍼널을 PostHog 와 비교하면 두 수가 다를 수 있다.
@@ -471,7 +484,7 @@ BFF 와 Data 가 같은 문자열을 만든다. 키 순서는 아래 그대로, 
 | Data 보상 | 섬 없음 → `HELD`, 섬 없음 + 새 꾸미기 → `NONE`, 섬 가입 뒤 다음 날 꾸미기 칸 → 보유품 + 보관분 적립. `render_data` 만 있는 보상 꾸미기 칸의 이미지 경로가 비지 않음. 이미 가짐 → 대체. 은퇴·카탈로그 밖 → `UNAVAILABLE` 대체. 청구 중 강퇴(섬 잠금 뒤 재확인 실패) → 보관 |
 | Data 표 | 주간 표 없음 → 기본 표. 승인자 = 발행자 → 409. 승인 뒤 상품 은퇴 → 발행 400. 다음 주 표를 승인하고 주가 바뀐 뒤 발행 → 이번 주 표로 발행됨. 이번 주 표를 승인하고 주가 바뀐 뒤 발행 → 409 |
 | Data 기타 | 탈퇴 → 출석 3표 행 0. 탈퇴와 노출 기록이 겹쳐도 탈퇴 뒤 노출 행이 남지 않음. 통계 픽스처의 일별·주별·지급 값. `InternalCustomizationRewardPoolAllowlistTest` 처럼 allowlist 시험 |
-| Business | 응답 JSON 모양, `imageUrl` 조립, Data 오류 3개가 502 가 아니라 같은 코드·상태로 나감(`ApiErrorCode` 등록) |
+| Business | 응답 JSON 모양, `imageUrl` 조립, Data 오류 3개가 502 가 아니라 같은 코드·상태·`retryable`(409 둘 `false`, 503 `true`)로 나감(`ApiErrorCode` 등록) |
 | 백오피스 | 2인 흐름(`approval-workflow.mjs` 공통 시험), `contract.json` 시험, 다이제스트가 Data 와 같은 값(§8.3 예시 고정) |
 | 앱 | 자동 열림 세 조건, 편지 조회가 늦게 끝나도 출석판이 먼저 열리지 않음, 노출 실패 뒤 같은 기기에서 다시 안 열림, 청구 응답 `wallet` 으로 잔액 갱신(재생·Realtime 과 겹쳐도 한 번), 404 숨김, 409 다시 읽기, 503 같은 키 재시도 |
 
