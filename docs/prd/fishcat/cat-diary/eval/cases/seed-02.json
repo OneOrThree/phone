@@ -1,0 +1,39 @@
+{
+  "id": "seed-02",
+  "tags": [
+    "줄어든 주",
+    "섬 하위",
+    "스크린타임 증가"
+  ],
+  "facts": {
+    "schema": "cat-diary-facts/1",
+    "week_label": "11월 첫째 주",
+    "is_first_diary": false,
+    "focus": {
+      "total": "2시간 5분",
+      "days": "3일",
+      "best_weekday": "수요일",
+      "best_day_total": "1시간",
+      "trend": "down",
+      "trend_amount": "4시간 10분"
+    },
+    "attendance": {
+      "days": "4일"
+    },
+    "island": {
+      "rank_band": null,
+      "fish_in": "60마리",
+      "events": []
+    },
+    "screen_time": {
+      "daily_avg": "3시간 10분",
+      "trend": "up",
+      "trend_amount": "1시간"
+    },
+    "highlights": [
+      "바쁜 주에도 3일 낚시섬에 왔다"
+    ],
+    "missing": []
+  },
+  "expect": "§5.1 채점 기준(eval/rubric.md)으로 본다. 정답 문장은 없다"
+}

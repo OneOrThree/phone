@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cat-diary-output/1",
+  "title": "고양이 일기 LLM 출력 v1",
+  "description": "LLM 이 돌려주는 일기 1편. 회사별 구조화 출력에 넘길 때 그 회사가 지원하지 않는 키워드(minLength·maxLength 등)는 빼고 보낸다. 길이·내용은 가드(G1~G7)가 다시 본다. 고정 문구 일기의 mood 에는 missing 이 더 있다(../guardrails.md §4).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["title", "body", "mood"],
+  "properties": {
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 20
+    },
+    "body": {
+      "description": "2~4문단, 문단 사이는 빈 줄 하나",
+      "type": "string",
+      "minLength": 250,
+      "maxLength": 450
+    },
+    "mood": {
+      "enum": ["happy", "proud", "calm", "sleepy"]
+    }
+  }
+}

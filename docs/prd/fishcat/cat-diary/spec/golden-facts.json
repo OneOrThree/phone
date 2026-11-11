@@ -1,0 +1,146 @@
+{
+  "about": "guard-golden.jsonl 의 facts_id 가 가리키는 수치. GF-A·GF-B 는 시험지 seed-01·seed-02 와 같은 값, EX-1 은 예시와 같은 값이다",
+  "facts": {
+    "GF-A": {
+      "schema": "cat-diary-facts/1",
+      "week_label": "11월 둘째 주",
+      "is_first_diary": false,
+      "focus": {
+        "total": "7시간 20분",
+        "days": "5일",
+        "best_weekday": "목요일",
+        "best_day_total": "2시간 10분",
+        "trend": "up",
+        "trend_amount": "1시간 40분"
+      },
+      "attendance": {
+        "days": "6일"
+      },
+      "island": {
+        "rank_band": "상위 20%",
+        "fish_in": "320마리",
+        "events": [
+          "도서관이 완공됐다"
+        ]
+      },
+      "screen_time": null,
+      "highlights": [
+        "목요일에 이번 달 가장 오래 집중했다",
+        "우리 섬이 상위 20%에 들었다"
+      ],
+      "missing": [
+        "screen_time"
+      ]
+    },
+    "GF-B": {
+      "schema": "cat-diary-facts/1",
+      "week_label": "11월 첫째 주",
+      "is_first_diary": false,
+      "focus": {
+        "total": "2시간 5분",
+        "days": "3일",
+        "best_weekday": "수요일",
+        "best_day_total": "1시간",
+        "trend": "down",
+        "trend_amount": "4시간 10분"
+      },
+      "attendance": {
+        "days": "4일"
+      },
+      "island": {
+        "rank_band": null,
+        "fish_in": "60마리",
+        "events": []
+      },
+      "screen_time": {
+        "daily_avg": "3시간 10분",
+        "trend": "up",
+        "trend_amount": "1시간"
+      },
+      "highlights": [
+        "바쁜 주에도 3일 낚시섬에 왔다"
+      ],
+      "missing": []
+    },
+    "GF-C": {
+      "schema": "cat-diary-facts/1",
+      "week_label": "10월 넷째 주",
+      "is_first_diary": false,
+      "focus": {
+        "total": "4시간 30분",
+        "days": "3일",
+        "best_weekday": "금요일",
+        "best_day_total": "2시간",
+        "trend": "same",
+        "trend_amount": null
+      },
+      "attendance": null,
+      "island": null,
+      "screen_time": null,
+      "highlights": [
+        "섬 없이 바다에서 집중했다"
+      ],
+      "missing": [
+        "attendance",
+        "screen_time"
+      ]
+    },
+    "GF-D": {
+      "schema": "cat-diary-facts/1",
+      "week_label": "10월 셋째 주",
+      "is_first_diary": false,
+      "focus": null,
+      "attendance": {
+        "days": "2일"
+      },
+      "island": {
+        "rank_band": null,
+        "fish_in": null,
+        "events": [
+          "우리 섬에 상점이 문을 열었다"
+        ]
+      },
+      "screen_time": {
+        "daily_avg": "1시간 15분",
+        "trend": "down",
+        "trend_amount": "25분"
+      },
+      "highlights": [
+        "이번 주에는 낚시섬을 쉬어 갔다",
+        "우리 섬에 상점이 문을 열었다"
+      ],
+      "missing": []
+    },
+    "EX-1": {
+      "schema": "cat-diary-facts/1",
+      "week_label": "10월 넷째 주",
+      "is_first_diary": false,
+      "focus": {
+        "total": "9시간 40분",
+        "days": "6일",
+        "best_weekday": "화요일",
+        "best_day_total": "2시간 50분",
+        "trend": "up",
+        "trend_amount": "2시간 15분"
+      },
+      "attendance": {
+        "days": "7일"
+      },
+      "island": {
+        "rank_band": "상위 30%",
+        "fish_in": "410마리",
+        "events": [
+          "우리 섬에 상점이 문을 열었다"
+        ]
+      },
+      "screen_time": null,
+      "highlights": [
+        "화요일에 이번 달 가장 오래 집중했다",
+        "일주일 내내 섬에 들렀다"
+      ],
+      "missing": [
+        "screen_time"
+      ]
+    }
+  }
+}

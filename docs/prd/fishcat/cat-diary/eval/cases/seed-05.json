@@ -1,0 +1,32 @@
+{
+  "id": "seed-05",
+  "tags": [
+    "섬 없음",
+    "출석 결측",
+    "스크린타임 결측"
+  ],
+  "facts": {
+    "schema": "cat-diary-facts/1",
+    "week_label": "12월 첫째 주",
+    "is_first_diary": false,
+    "focus": {
+      "total": "4시간 30분",
+      "days": "3일",
+      "best_weekday": "금요일",
+      "best_day_total": "2시간",
+      "trend": "same",
+      "trend_amount": null
+    },
+    "attendance": null,
+    "island": null,
+    "screen_time": null,
+    "highlights": [
+      "섬 없이 바다에서 집중했다"
+    ],
+    "missing": [
+      "attendance",
+      "screen_time"
+    ]
+  },
+  "expect": "§5.1 채점 기준(eval/rubric.md)으로 본다. 정답 문장은 없다"
+}
