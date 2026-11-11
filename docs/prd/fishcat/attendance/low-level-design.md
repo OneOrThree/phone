@@ -25,6 +25,7 @@
 | 앱 | `app/app-dev/src/services/api/attendance.ts`·`services/attendance.ts` (신설) | API 호출, 기기 기억 |
 | 앱 | `app/app-dev/src/screens/attendance/` (신설) | `AttendanceBoard.tsx`·`useAttendance.ts`·`AttendanceIcon.tsx` |
 | 앱 | `app/app-dev/src/App.tsx`, `app/app-dev/src/i18n/locales/ko.json`·`en.json` | 팝업 장착, 문구 |
+| 앱 | `app/app-dev/src/screens/letter/useDeveloperLetter.ts`·`useForceUpdateLetter.ts` | 조회 완료 `settled` 를 함께 돌려준다(§11.2) |
 | 문서 | `docs/conventions/backend-layering.md` §4, `server/data-api/docs/db/schema.dbml`, `CONTEXT.md` | 층 표에 `attendance`, 스키마, 용어 「출석」·「출석판」 |
 
 `server/business-api/src/main/java/com/oneorthree/business/common/api/PublicApiRoutes.java` 는 이미 `/me/**` 를 성공 봉투로 감싸므로 바꾸지 않는다.
@@ -216,6 +217,8 @@ V16 과 함께 바꿀 고정값 자리(2026-11-09 꾸미기 지급 배치에서 
 
 헤더 `Idempotency-Key`(UUID) 필수, 본문 없음. 새 출석은 201, 같은 키의 재생도 201 이다.
 
+`wallet` 은 이 청구로 섬 통장에 적립했을 때만 있고, 적립 직후의 정본 잔액과 지갑 버전이다(`island_wallets.balance`·`version`). 앱은 지급량을 로컬 잔액에 더하지 않고 이 값으로 `SERVER_VILLAGE_POINTS` 를 보낸다(`app/app-dev/src/services/model/reducer.ts`). 그래서 영수증 재생이나 먼저 도착한 Realtime `wallet.updated` 와 겹쳐도 두 번 더해지지 않는다. 재생 응답의 `wallet` 은 처음 청구 때의 값이고, 버전이 더 낮으면 리듀서가 무시한다.
+
 Business 의 `GlobalExceptionHandler.registeredUpstream` 은 Data 오류 코드와 같은 이름·같은 상태가 `ApiErrorCode` 에 있을 때만 그 코드를 공개 응답에 싣고, 없으면 502 `UPSTREAM_CONTRACT_ERROR` 로 바꾼다. 그래서 아래 세 코드를 Data `AttendanceErrorCode` 와 Business `ApiErrorCode` 양쪽에 같은 상태로 넣는다. `retryable` 은 409 둘이 `false`, 503 이 `true` 다.
 
 ```json
@@ -230,6 +233,7 @@ Business 의 `GlobalExceptionHandler.registeredUpstream` 은 Data 오류 코드�
     "fishDelivery": "CREDITED",
     "releasedHeldFish": 20,
     "islandId": "0193…",
+    "wallet": { "islandId": "0193…", "balance": 1250, "version": 42 },
     "heldFish": 0
   }
 }
@@ -306,7 +310,7 @@ Business 의 `GlobalExceptionHandler.registeredUpstream` 은 Data 오류 코드�
    3. 현재 섬이 있고 `total = todayFish + released` 가 0 보다 크면 `IslandWalletService.creditAttendance(islandId, total, "attendance:<userId>:<today>")`. 지갑은 마지막에 잠근다.
    4. 그날 노출 행이 없으면 넣는다(`INSERT … ON CONFLICT DO NOTHING`, 정책 AT15).
 10. 이벤트: 적립했으면 `IslandWalletEvents.changed(islandId, userId, "ATTENDANCE_REWARD")`, 꾸미기를 넣었으면 `AppearanceEvents.inventoryChanged("user", userId, userId, productId)`. 둘 다 같은 트랜잭션의 outbox 행이다.
-11. 결과(§4 응답 모양)를 `PublicCommandResult(201, data, events)` 로 돌려준다.
+11. 결과(§4 응답 모양)를 `PublicCommandResult(201, data, events)` 로 돌려준다. 적립했으면 `creditAttendance` 가 돌려준 잔액과 그때의 지갑 버전을 `wallet` 에 담는다.
 
 `IslandWalletService.creditAttendance(islandId, amount, idempotencyKey)` 는 `creditQuestSettlement` 와 같은 모양이다. `@Transactional(propagation = MANDATORY)`, 지갑을 마지막에 잠그고, `(island_id, ATTENDANCE, idempotency_key)` 가 이미 있으면 잔액만 돌려준다. 멱등 키 `attendance:<userId>:<YYYY-MM-DD>` 는 하루 한 번이라는 자연 키라 출석 행의 유일 제약과 같은 것을 가리킨다.
 
@@ -426,7 +430,7 @@ BFF 와 Data 가 같은 문자열을 만든다. 키 순서는 아래 그대로, 
 
 조건을 모두 만족하면 연다.
 
-1. 팝업 게이트 통과: `services/developerLetter.ts` 의 `isLetterReady(…)` 가 참이고, 운영진의 편지(`useDeveloperLetter`)와 강제 업데이트 편지(`useForceUpdateLetter`)가 떠 있지 않다. 우선순위는 강제 업데이트 → 운영진의 편지 → 출석판이다.
+1. 팝업 게이트 통과: `services/developerLetter.ts` 의 `isLetterReady(…)` 가 참이고, 운영진의 편지(`useDeveloperLetter`)와 강제 업데이트 편지(`useForceUpdateLetter`)가 **이번 판정 회차의 조회를 마쳤고**(성공·실패 모두) 둘 다 떠 있지 않다. 우선순위는 강제 업데이트 → 운영진의 편지 → 출석판이다. 지금 두 훅은 조회 완료를 알려 주지 않아(`useDeveloperLetter` 는 `{ notice, dismiss }`, `useForceUpdateLetter` 는 요구 사항만 돌려준다), 출석 조회가 먼저 끝나면 출석판이 먼저 열리고 뒤늦은 편지가 겹칠 수 있다. 두 훅이 `settled` 를 함께 돌려주게 고친다. 앱 시작과 foreground 복귀 때마다 `settled` 는 거짓으로 돌아갔다가 그 회차의 조회가 끝나면 참이 된다.
 2. 조회 응답이 `attendedToday=false`·`viewedToday=false`.
 3. 기기 기억 `autoOpened` 가 응답의 `today` 와 다르다.
 
@@ -436,7 +440,7 @@ BFF 와 Data 가 같은 문자열을 만든다. 키 순서는 아래 그대로, 
 
 - 아이콘 `AttendanceIcon.tsx`: 섬 홈과 먼바다 화면의 HUD 에 둔다(`screens/island/HomeQuestIndicator.tsx` 와 같은 자리 규칙). `attendedToday=false` 면 점.
 - 출석판 `AttendanceBoard.tsx`: `design-system/patterns.tsx` 의 `Overlay` 를 쓴다. 7칸, 보관 물고기, `nextDayAt`·`nextWeekAt` 을 기기 시간대로 표시한다. 디자인은 `app/app-dev/DESIGN.md` 를 따른다.
-- 결과 문구는 PRD 「결과 종류와 문구」 표의 6종이다. 꾸미기를 받으면 `services/unseenOutfits.ts` 의 NEW 표시를 단다. 섬 통장 잔액은 Realtime `wallet.updated` 가 고치지만, 응답으로 먼저 그린다.
+- 결과 문구는 PRD 「결과 종류와 문구」 표의 6종이다. 꾸미기를 받으면 `services/unseenOutfits.ts` 의 NEW 표시를 단다. 섬 통장 잔액은 응답의 `wallet`(정본 잔액·버전)으로 먼저 고치고, Realtime `wallet.updated` 는 다른 화면과 다른 기기의 보정용이다.
 - 404 는 그 세션 동안 입구를 숨긴다. 409·503 은 §4 표대로.
 - 문구 키는 `attendance.*` 로 `ko.json`·`en.json` 에 넣는다.
 - PostHog: `attendance_board_viewed` `{ source: "auto" | "icon" }`, `attendance_claimed` `{ slot, item_outcome, fish_delivery }`. `services/socialAnalytics.ts` 가 쓰는 `captureProductEvent` 로 보낸다.
@@ -459,7 +463,7 @@ BFF 와 Data 가 같은 문자열을 만든다. 키 순서는 아래 그대로, 
 | Data 기타 | 탈퇴 → 출석 3표 행 0. 탈퇴와 노출 기록이 겹쳐도 탈퇴 뒤 노출 행이 남지 않음. 통계 픽스처의 일별·주별·지급 값. `InternalCustomizationRewardPoolAllowlistTest` 처럼 allowlist 시험 |
 | Business | 응답 JSON 모양, `imageUrl` 조립, Data 오류 3개가 502 가 아니라 같은 코드·상태로 나감(`ApiErrorCode` 등록) |
 | 백오피스 | 2인 흐름(`approval-workflow.mjs` 공통 시험), `contract.json` 시험, 다이제스트가 Data 와 같은 값(§8.3 예시 고정) |
-| 앱 | 자동 열림 세 조건, 노출 실패 뒤 같은 기기에서 다시 안 열림, 404 숨김, 409 다시 읽기, 503 같은 키 재시도 |
+| 앱 | 자동 열림 세 조건, 편지 조회가 늦게 끝나도 출석판이 먼저 열리지 않음, 노출 실패 뒤 같은 기기에서 다시 안 열림, 청구 응답 `wallet` 으로 잔액 갱신(재생·Realtime 과 겹쳐도 한 번), 404 숨김, 409 다시 읽기, 503 같은 키 재시도 |
 
 ## 14. 배포 순서와 구현 티켓
 
