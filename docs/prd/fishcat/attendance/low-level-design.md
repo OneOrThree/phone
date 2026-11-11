@@ -479,6 +479,12 @@ BFF 와 Data 가 같은 문자열을 만든다. 키 순서는 아래 그대로, 
 
 배포 순서는 HLD 「배포 순서」 그대로다. Data·Business 운영 배포 → 운영 Data 의 capability 광고 확인 → 백오피스 머지(곧 운영 배포) → 앱 출시.
 
+배포 중 새 Business 가 옛 Data 를 부르는 창(HLD 「배포 순서」 1단계에서 넘긴 확인):
+
+- 옛 Data 에는 새 경로가 business allowlist 에 없다. `InternalAuthFilter` 가 라우팅 전에 본문 없는 403 을 내고, Business 의 `InternalHttpClient` 는 이를 `UpstreamCredentialRejectedException` 으로 받는다. 앱에는 404 가 아니라 서버 오류로 간다. 라우트까지 갔다면 옛 Data 는 `RESOURCE_NOT_FOUND`(404)를 낸다.
+- 그래서 「Data 404 → 앱 404 → 입구 숨김」은 이 창에서 성립하지 않는다. 앱이 이 창을 만나는 일은 없다. 앱은 `app-server-gate.py` 로 서버 배포가 끝난 뒤에만 나가고, 구버전 앱은 출석 API 를 부르지 않는다. dev 에서는 잠깐 오류 문구가 보일 수 있고, 이를 받아들인다.
+- 앱의 404 숨김(§11.3)이 막는 경우는 Business 자체가 옛 버전이라 `/me/attendance` 라우트가 없는 때다.
+
 에픽 2855 에 넣을 구현 티켓 후보(이 문서 머지 뒤 만든다):
 
 | 후보 | 범위 | 선행 |
