@@ -105,4 +105,5 @@ Git·PR 은 `git-pr-conventions.md`, 지라는 `jira-conventions.md`(분류) + `
 
 ## 신규 설계
 
+- [고양이 일기](prd/fishcat/cat-diary/README.md) — LLM 주간 회고. 요구사항·정책·프롬프트·가드레일·평가·비용 문서와 서버·평가기가 함께 읽는 계약 파일(`spec/`). P0 명세 단계(GROMO-2860).
 - [이미지 CDN·기기 캐시](prd/fishcat/image-cdn/README.md) — PRD·수명 정책·HLD·LLD·Jira 실행 계획. dev CDN 은 있고(`image-assets` 수동 발행), 운영 CDN 은 없다([파이프라인 지도](engineering/pipeline-map.md)).

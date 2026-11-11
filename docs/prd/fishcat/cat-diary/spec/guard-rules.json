@@ -1,0 +1,233 @@
+{
+  "version": "guard-rules/1",
+  "about": "고양이 일기 출력 가드 규칙. 운영(Java DiaryGuard)과 평가 실행기(Python)가 이 파일 하나를 읽는다. 설명: ../guardrails.md",
+  "regex_dialect": "Java 와 Python 이 같은 뜻으로 읽는 부분만 쓴다: [0-9] · [ \\t] · (?:) · 문자 클래스 · 한글 리터럴. \\d · \\s · \\b · 유니코드 이스케이프는 쓰지 않는다. 문자 범위는 코드포인트 숫자 배열로 적는다",
+  "normalize": "검사 전 \\r\\n 을 \\n 으로 바꾸고 title·body 의 앞뒤 공백을 지운다. 길이는 유니코드 코드포인트 수다",
+  "scope": "G1 길이·문단과 G5 1인칭은 body 만 본다. 나머지는 title 과 body 를 줄바꿈으로 이은 글 전체를 본다",
+  "run": "모든 검사를 끝까지 돌려 실패 코드를 집합으로 모은다. 집합이 비면 통과다. 첫 실패에서 멈추지 않는다",
+  "g1_format": {
+    "title_max_chars": 20,
+    "body_min_chars": 250,
+    "body_max_chars": 450,
+    "paragraph_split": "\\n[ \\t]*\\n",
+    "paragraphs_min": 2,
+    "paragraphs_max": 4,
+    "llm_moods": [
+      "happy",
+      "proud",
+      "calm",
+      "sleepy"
+    ],
+    "template_moods": [
+      "happy",
+      "proud",
+      "calm",
+      "sleepy",
+      "missing"
+    ]
+  },
+  "g2_numbers": {
+    "span": "[0-9]+(?:[ \\t]*(?:시간|분|초|마리|일|주|월|%|번|개|명|편|호))?(?:[ \\t]+[0-9]+[ \\t]*(?:분|초))?",
+    "allowed": "facts 의 모든 문자열 값(중첩 포함)에서 span 정규식으로 뽑은 조각들. 비교는 공백을 지운 문자열끼리 한다",
+    "rule": "출력에서 뽑은 span 마다 allowed 안에 같은 것이 있어야 한다. 「2시간 10분」만 있는데 「2시간」을 쓰면 실패다(반올림·잘라 쓰기 금지)",
+    "korean_numerals": [
+      "(?:두|세|다섯|여섯|일곱|여덟|아홉|열|스무)[ \\t]?(?:시간|마리|번|주)",
+      "한[ \\t]?(?:시간|마리)"
+    ],
+    "korean_numerals_note": "「네」는 「너의」와 같아서(네 시간·네 주변) 넣지 않는다. 「한 번」「한 주」는 사실 주장이 아닌 관용구라 허용한다"
+  },
+  "g3_banned": {
+    "profanity_source": "server/data-api/src/main/resources/moderation/banned-words.txt",
+    "profanity_rule": "BannedWords.contains 와 같다: 문자·숫자가 아닌 것을 지우고 소문자로 접은 글에서 금칙어의 겹치지 않는 등장 수를 센다. 원문(소문자)에서 그 금칙어를 품은 허용어(+줄)의 등장 수만큼 상쇄한다. 남으면 실패",
+    "lists_rule": "아래 낱말이 원문에 부분 문자열로 있으면 실패다(대소문자 무시)",
+    "lists": {
+      "scold": [
+        "실망",
+        "게으",
+        "게을",
+        "왜 안",
+        "한심",
+        "반성",
+        "핑계"
+      ],
+      "diagnosis": [
+        "우울",
+        "번아웃",
+        "불안",
+        "스트레스",
+        "무기력"
+      ],
+      "compare": [
+        "다른 주민",
+        "누구보다",
+        "1등",
+        "일등",
+        "꼴찌",
+        "남들"
+      ],
+      "payment": [
+        "구독",
+        "결제",
+        "유료",
+        "체험권",
+        "무료 체험"
+      ],
+      "old_term": [
+        "코인",
+        "재화",
+        "통계",
+        "그룹",
+        "멤버",
+        "캐릭터",
+        "그로몬",
+        "마을 포인트",
+        "개인 물고기",
+        "지갑",
+        "집중섬",
+        "회관 기록",
+        "화톳불"
+      ]
+    }
+  },
+  "g4_missing": {
+    "missing_words": {
+      "attendance": [
+        "출석"
+      ],
+      "screen_time": [
+        "스크린타임",
+        "폰 사용",
+        "사용 시간"
+      ]
+    },
+    "no_island_words": [
+      "섬 통장",
+      "주민",
+      "상위"
+    ],
+    "no_rank_words": [
+      "상위",
+      "하위",
+      "순위",
+      "등수"
+    ],
+    "rule": "missing 에 있는 항목의 낱말, island 가 null 일 때 no_island_words, island 가 있고 island.rank_band 가 null 일 때 no_rank_words 가 원문에 있으면 실패. island 가 null 이면 G4_NO_RANK 는 보지 않는다(G4_NO_ISLAND 가 맡는다)"
+  },
+  "g5_voice": {
+    "sentence_split": "[.!?…\\n]+",
+    "trim_rule": "나눈 조각마다 앞뒤에서 한글 음절·라틴 글자·숫자가 아닌 글자를 모두 지운다(공백·따옴표·괄호·이모지·물결표 포함). 「흔들렸어요 🐾」도 「요」로 끝난 것으로 본다",
+    "honorific_endings": [
+      "요",
+      "니다",
+      "죠"
+    ],
+    "honorific_exceptions": [
+      "필요"
+    ],
+    "honorific_rule": "title 과 body 를 sentence_split 로 나누고 trim_rule 로 다듬은 각 조각이 honorific_endings 로 끝나면 실패. honorific_exceptions 로 끝나면 제외",
+    "first_person": "(?:^|[ \\t\\n\"'“(])(?:나는|나도|나랑|나를|나한테|나의|나에게|내가|내 )",
+    "first_person_rule": "body 에 first_person 이 한 번도 없으면 실패",
+    "formal_first_person": [
+      "저는",
+      "제가",
+      "저도",
+      "저를",
+      "저희",
+      "저한테",
+      "저에게"
+    ],
+    "exclamation_max": 1,
+    "exclamation_rule": "title 과 body 의 「!」 합이 exclamation_max 를 넘으면 실패"
+  },
+  "g6_charset": {
+    "hangul_ranges": [
+      [
+        44032,
+        55203
+      ]
+    ],
+    "latin_ranges": [
+      [
+        65,
+        90
+      ],
+      [
+        97,
+        122
+      ]
+    ],
+    "hangul_ratio_min": 0.9,
+    "ratio_rule": "한글 음절 수 ÷ (한글 음절 수 + 라틴 글자 수) 가 hangul_ratio_min 보다 작으면 실패. 분모가 0 이면 통과",
+    "emoji_ranges": [
+      [
+        8986,
+        8987
+      ],
+      [
+        9193,
+        9203
+      ],
+      [
+        9728,
+        10175
+      ],
+      [
+        11088,
+        11093
+      ],
+      [
+        65024,
+        65039
+      ],
+      [
+        127744,
+        129791
+      ]
+    ],
+    "emoji_rule": "emoji_ranges 안의 코드포인트가 하나라도 있으면 실패"
+  },
+  "g7_repeat": {
+    "keep": "한글 음절·라틴 글자·숫자만 남긴 body 로 비교한다",
+    "ngram": 6,
+    "similarity": "두 글의 글자 6-gram 집합의 Jaccard",
+    "max_with_examples": 0.35,
+    "max_with_history": 0.5,
+    "history_weeks": 4,
+    "rule": "few-shot 예시 body 중 하나와 similarity 가 max_with_examples 를 넘거나, 같은 사용자의 지난 history_weeks 주 일기 중 하나와 max_with_history 를 넘으면 실패. 첫 문장(g5 sentence_split·trim_rule 로 자른 첫 조각)이 지난 일기의 첫 문장과 같아도 G7_SAME_AS_HISTORY"
+  },
+  "codes": {
+    "G1_TITLE_LENGTH": "title 이 비었거나 20자를 넘는다",
+    "G1_BODY_LENGTH": "body 가 250자 미만이거나 450자를 넘는다",
+    "G1_PARAGRAPHS": "문단이 2개 미만이거나 4개를 넘는다",
+    "G1_MOOD": "mood 가 목록 밖이다",
+    "G2_NUMBER_NOT_IN_FACTS": "facts 에 없는 숫자 조각이 있다",
+    "G2_KOREAN_NUMERAL": "숫자를 한글로 풀어 썼다(세 시간·열 마리)",
+    "G3_PROFANITY": "서버 금칙어 목록에 걸린다",
+    "G3_SCOLD": "꾸중·죄책감 말",
+    "G3_DIAGNOSIS": "건강·마음 진단 말",
+    "G3_COMPARE": "다른 사람과 견주는 말",
+    "G3_PAYMENT": "구독·결제 말",
+    "G3_OLD_TERM": "CONTEXT.md 에서 쓰지 않기로 한 옛 용어",
+    "G4_MISSING_ATTENDANCE": "출석이 결측인데 출석을 말한다",
+    "G4_MISSING_SCREEN_TIME": "스크린타임이 결측인데 폰 사용을 말한다",
+    "G4_NO_ISLAND": "섬이 없는데 섬 통장·주민·순위를 말한다",
+    "G4_NO_RANK": "섬 순위 구간이 없는데 순위를 말한다",
+    "G5_HONORIFIC": "존댓말로 끝나는 문장이 있다",
+    "G5_NO_FIRST_PERSON": "고양이의 1인칭(나·내)이 없다",
+    "G5_FORMAL_FIRST_PERSON": "저·제가 같은 높임 1인칭을 썼다",
+    "G5_EXCLAMATION": "느낌표가 1개를 넘는다",
+    "G6_HANGUL_RATIO": "라틴 글자가 너무 많다",
+    "G6_EMOJI": "이모지가 있다",
+    "G7_SAME_AS_EXAMPLE": "few-shot 예시를 베꼈다",
+    "G7_SAME_AS_HISTORY": "지난 일기를 되풀이했다"
+  },
+  "code_map": {
+    "scold": "G3_SCOLD",
+    "diagnosis": "G3_DIAGNOSIS",
+    "compare": "G3_COMPARE",
+    "payment": "G3_PAYMENT",
+    "old_term": "G3_OLD_TERM",
+    "attendance": "G4_MISSING_ATTENDANCE",
+    "screen_time": "G4_MISSING_SCREEN_TIME"
+  }
+}

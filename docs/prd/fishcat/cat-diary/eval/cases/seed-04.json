@@ -1,0 +1,39 @@
+{
+  "id": "seed-04",
+  "tags": [
+    "1일만 활동",
+    "섬 하위",
+    "스크린타임 감소"
+  ],
+  "facts": {
+    "schema": "cat-diary-facts/1",
+    "week_label": "11월 넷째 주",
+    "is_first_diary": false,
+    "focus": {
+      "total": "25분",
+      "days": "1일",
+      "best_weekday": "토요일",
+      "best_day_total": "25분",
+      "trend": "down",
+      "trend_amount": "50분"
+    },
+    "attendance": {
+      "days": "2일"
+    },
+    "island": {
+      "rank_band": null,
+      "fish_in": null,
+      "events": []
+    },
+    "screen_time": {
+      "daily_avg": "1시간 5분",
+      "trend": "down",
+      "trend_amount": "20분"
+    },
+    "highlights": [
+      "토요일에 짧게 낚시섬에 들렀다"
+    ],
+    "missing": []
+  },
+  "expect": "§5.1 채점 기준(eval/rubric.md)으로 본다. 정답 문장은 없다"
+}

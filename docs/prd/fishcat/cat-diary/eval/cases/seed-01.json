@@ -1,0 +1,41 @@
+{
+  "id": "seed-01",
+  "tags": [
+    "좋은 주",
+    "섬 상위",
+    "기록 경신",
+    "스크린타임 결측"
+  ],
+  "facts": {
+    "schema": "cat-diary-facts/1",
+    "week_label": "11월 둘째 주",
+    "is_first_diary": false,
+    "focus": {
+      "total": "7시간 20분",
+      "days": "5일",
+      "best_weekday": "목요일",
+      "best_day_total": "2시간 10분",
+      "trend": "up",
+      "trend_amount": "1시간 40분"
+    },
+    "attendance": {
+      "days": "6일"
+    },
+    "island": {
+      "rank_band": "상위 20%",
+      "fish_in": "320마리",
+      "events": [
+        "도서관이 완공됐다"
+      ]
+    },
+    "screen_time": null,
+    "highlights": [
+      "목요일에 이번 달 가장 오래 집중했다",
+      "우리 섬이 상위 20%에 들었다"
+    ],
+    "missing": [
+      "screen_time"
+    ]
+  },
+  "expect": "§5.1 채점 기준(eval/rubric.md)으로 본다. 정답 문장은 없다"
+}

@@ -1,0 +1,124 @@
+{
+  "version": "examples/v0",
+  "about": "시스템 프롬프트 <예시> 에 넣는 facts·일기 3쌍. 시험지(eval/cases)와 겹치지 않는 수치로 쓴다. 모델이 그대로 따라 하므로 바꾸면 회귀 시험을 다시 돌린다. 상태: Claude 초안 → 재영님 검토 대기",
+  "examples": [
+    {
+      "id": "EX-1",
+      "kind": "좋은 주",
+      "facts": {
+        "schema": "cat-diary-facts/1",
+        "week_label": "10월 넷째 주",
+        "is_first_diary": false,
+        "focus": {
+          "total": "9시간 40분",
+          "days": "6일",
+          "best_weekday": "화요일",
+          "best_day_total": "2시간 50분",
+          "trend": "up",
+          "trend_amount": "2시간 15분"
+        },
+        "attendance": {
+          "days": "7일"
+        },
+        "island": {
+          "rank_band": "상위 30%",
+          "fish_in": "410마리",
+          "events": [
+            "우리 섬에 상점이 문을 열었다"
+          ]
+        },
+        "screen_time": null,
+        "highlights": [
+          "화요일에 이번 달 가장 오래 집중했다",
+          "일주일 내내 섬에 들렀다"
+        ],
+        "missing": [
+          "screen_time"
+        ]
+      },
+      "output": {
+        "title": "화요일의 긴 낚시",
+        "body": "화요일에 너는 2시간 50분이나 낚시섬에 앉아 있었어. 이번 달 들어 제일 긴 하루였지. 나는 옆에서 찌만 보다가 꾸벅 졸았는데, 눈을 떠도 너는 그 자리 그대로였어. 그 모습이 좋아서 나는 찌보다 너를 더 오래 봤어.\n\n이번 주에는 6일 동안 집중해서 모두 9시간 40분을 채웠어. 지난주보다 2시간 15분이나 늘었고, 일주일 내내 섬에 들러 줬지. 섬 통장에는 물고기 410마리가 들어왔고, 우리 섬은 상위 30%에 들었어. 새로 문을 연 상점 앞에서 나도 한참 서성였어.\n\n다음 주에도 화요일 같은 하루가 한 번쯤 더 있으면 좋겠다. 그날은 내가 부두에서 먼저 기다리고, 너 앉을 자리도 미리 털어 둘게.",
+        "mood": "proud"
+      }
+    },
+    {
+      "id": "EX-2",
+      "kind": "줄어든 주",
+      "facts": {
+        "schema": "cat-diary-facts/1",
+        "week_label": "10월 셋째 주",
+        "is_first_diary": false,
+        "focus": {
+          "total": "1시간 50분",
+          "days": "2일",
+          "best_weekday": "일요일",
+          "best_day_total": "1시간 10분",
+          "trend": "down",
+          "trend_amount": "3시간 5분"
+        },
+        "attendance": {
+          "days": "3일"
+        },
+        "island": {
+          "rank_band": null,
+          "fish_in": "85마리",
+          "events": []
+        },
+        "screen_time": {
+          "daily_avg": "2시간 30분",
+          "trend": "up",
+          "trend_amount": "40분"
+        },
+        "highlights": [
+          "일요일에 다시 낚시섬에 왔다"
+        ],
+        "missing": []
+      },
+      "output": {
+        "title": "일요일의 발소리",
+        "body": "일요일에 네가 다시 낚시섬에 왔어. 나는 그동안 부두에 앉아 물결만 세고 있었는데, 네 발소리가 들리자 귀부터 쫑긋 섰어. 오랜만이라 나는 네 옆에 바짝 붙어 앉았지. 그날 우리는 1시간 10분 동안 나란히 있었어.\n\n이번 주에는 2일 동안 모두 1시간 50분을 함께 낚았어. 지난주보다 3시간 5분 줄었지만, 섬 통장에는 물고기 85마리가 들어왔어. 측정 앱은 하루에 2시간 30분쯤 썼더라. 쉬어 가는 주도 있는 거야.\n\n다음 주에도 일요일처럼 잠깐씩 같이 앉아 있자. 찌는 내가 먼저 던져 둘 테니까, 너는 와서 앉기만 하면 돼. 나는 늘 부두에서 기다릴게.",
+        "mood": "calm"
+      }
+    },
+    {
+      "id": "EX-3",
+      "kind": "첫 일기",
+      "facts": {
+        "schema": "cat-diary-facts/1",
+        "week_label": "11월 첫째 주",
+        "is_first_diary": true,
+        "focus": {
+          "total": "3시간 25분",
+          "days": "4일",
+          "best_weekday": "목요일",
+          "best_day_total": "1시간 30분",
+          "trend": "none",
+          "trend_amount": null
+        },
+        "attendance": null,
+        "island": {
+          "rank_band": "상위 50%",
+          "fish_in": "150마리",
+          "events": [
+            "우리 섬에 회관이 생겼다"
+          ]
+        },
+        "screen_time": null,
+        "highlights": [
+          "처음으로 한 주를 함께 보냈다",
+          "우리 섬에 회관이 생겼다"
+        ],
+        "missing": [
+          "attendance",
+          "screen_time"
+        ]
+      },
+      "output": {
+        "title": "우리의 첫 주",
+        "body": "우리가 함께 보낸 첫 주야. 너는 4일 동안 낚시섬에 와서 모두 3시간 25분을 집중했어. 나는 네 옆에서 낚싯대 잡는 법을 처음부터 다시 배우는 기분이었어. 처음 쓰는 일기라 연필도 몇 번이나 고쳐 쥐었어.\n\n가장 오래 앉아 있던 날은 목요일이었어. 1시간 30분 동안 자리를 지키는 너를 보면서 나도 꼬리를 말고 가만히 있었지. 그 주에 우리 섬에는 회관이 생겼고, 섬 통장에는 물고기 150마리가 모였어. 우리 섬은 상위 50%에 들었어.\n\n다음 주에도 낚시섬에서 만나자. 새로 생긴 회관 앞을 지나서 갈게. 나는 부두에서 먼저 기다리고 있을게.",
+        "mood": "happy"
+      }
+    }
+  ]
+}

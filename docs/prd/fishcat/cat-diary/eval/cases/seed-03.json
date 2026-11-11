@@ -1,0 +1,39 @@
+{
+  "id": "seed-03",
+  "tags": [
+    "첫 일기",
+    "출석 결측",
+    "스크린타임 결측"
+  ],
+  "facts": {
+    "schema": "cat-diary-facts/1",
+    "week_label": "11월 셋째 주",
+    "is_first_diary": true,
+    "focus": {
+      "total": "5시간 45분",
+      "days": "4일",
+      "best_weekday": "토요일",
+      "best_day_total": "2시간 30분",
+      "trend": "none",
+      "trend_amount": null
+    },
+    "attendance": null,
+    "island": {
+      "rank_band": "상위 50%",
+      "fish_in": "210마리",
+      "events": [
+        "우리 섬 퀘스트를 처음 달성했다"
+      ]
+    },
+    "screen_time": null,
+    "highlights": [
+      "처음으로 한 주를 함께 보냈다",
+      "우리 섬 퀘스트를 처음 달성했다"
+    ],
+    "missing": [
+      "attendance",
+      "screen_time"
+    ]
+  },
+  "expect": "§5.1 채점 기준(eval/rubric.md)으로 본다. 정답 문장은 없다"
+}
