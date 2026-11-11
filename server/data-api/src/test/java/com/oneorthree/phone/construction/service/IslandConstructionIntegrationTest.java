@@ -19,6 +19,7 @@ import com.oneorthree.phone.group.repository.GroupRepository;
 import com.oneorthree.phone.group.repository.domain.Group;
 import com.oneorthree.phone.group.repository.domain.GroupMember;
 import com.oneorthree.phone.group.repository.domain.GroupMemberRole;
+import com.oneorthree.phone.construction.dto.ConstructionOptionItem;
 import com.oneorthree.phone.construction.dto.ConstructionStartedView;
 import com.oneorthree.phone.construction.dto.IslandLayoutView;
 import com.oneorthree.phone.outbox.support.OutboxTestPostgres;
@@ -55,6 +56,7 @@ import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 
 /**
  * 건설 POST 전체 트랜잭션의 최소 통합 검증 (GROMO-1767).
@@ -645,6 +647,31 @@ class IslandConstructionIntegrationTest {
                 .isInstanceOf(ConstructionException.class)
                 .extracting("errorCode").isEqualTo(ConstructionErrorCode.STATE_CONFLICT);
         assertThat(count("island_facilities", f.islandId)).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("공사 중에는 그 건물만 IN_PROGRESS, 나머지는 OTHER_IN_PROGRESS — 앱이 모든 카드를 공사 중으로 그리지 않는다")
+    void onlyTheActiveBuildingIsInProgress() {
+        Fixture f = fundedIsland(4080, "mail");
+        completeFacility(f, "hall");
+        completeFacility(f, "board");
+        service.start(f.islandId, f.ownerId, "mail", 0, 1, UUID.randomUUID());
+
+        var options = service.options(f.islandId, f.ownerId);
+
+        assertThat(options.activeConstruction().buildingId()).isEqualTo("mail");
+        assertThat(options.items())
+                .extracting(ConstructionOptionItem::id, ConstructionOptionItem::blockedReason)
+                .containsExactlyInAnyOrder(
+                        tuple("gram", "OTHER_IN_PROGRESS"),
+                        tuple("library", "OTHER_IN_PROGRESS"),
+                        tuple("mail", "IN_PROGRESS"),
+                        tuple("tower", "OTHER_IN_PROGRESS"),
+                        tuple("shop", "FACILITY_LOCKED"));
+        assertThat(options.items()).allSatisfy(item -> {
+            assertThat(item.selectable()).isFalse();
+            assertThat(item.buildable()).isFalse();
+        });
     }
 
     // ---------------------------------------------------------------- 섬 통장 합산 건설
