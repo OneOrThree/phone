@@ -1,0 +1,192 @@
+# 출석 보상 High-level Design
+
+상태: 목표 설계, 미적용. 작성일: 2026-11-12. GROMO-2857. 규칙의 정본은 [정책](policy.md)이다.
+
+## 현재 구조와 변경 경계
+
+지금 쓰는 경로를 그대로 탄다.
+
+- 앱은 Business API 만 부른다. Business API 는 도메인 DB 가 없고 Data API `/internal/users/{userId}/**` 를 서비스 토큰으로 부른다.
+- 백오피스 BFF 는 Business API 를 거치지 않는다. 운영자별 토큰으로 Data API `/internal/admin/**` 를 부르고, 시작할 때 Data 가 광고하는 capability 목록을 확인한다.
+- 섬 통장과 보유품이 바뀌면 Data 가 같은 트랜잭션에서 outbox 에 `wallet.updated`·`inventory.updated` 를 적고, Realtime 이 앱에 전한다.
+
+이번에 새로 생기는 것과 바뀌지 않는 것은 아래와 같다.
+
+| 구분 | 내용 |
+| --- | --- |
+| 새로 생김 | Data 도메인 `attendance`(표·출석·노출·보관 저장), Data `internal` 의 청구·관리·통계 조합, Business `/me/attendance` 계열 3개, 백오피스 「출석 보상」·「출석 현황」 화면, 앱 출석판·아이콘 |
+| 한 줄만 바뀜 | 섬 통장 원장 사유에 출석(`ATTENDANCE`) 추가, 탈퇴 경로에 출석 기록 삭제 추가, 운영자 경로 접두사·allowlist·capability 추가 |
+| 바뀌지 않음 | 꾸미기 카탈로그와 이미지 경로, 개인 지갑 없음(재화 단일), Redis, Kafka 토픽, 알림 서비스 |
+
+## 컴포넌트 구조
+
+```mermaid
+flowchart LR
+  subgraph App["앱 app/app-dev"]
+    Gate["팝업 게이트<br/>운영진의 편지와 공유"]
+    Board["출석판<br/>7칸·출석하기"]
+    Icon["출석판 아이콘<br/>섬 홈·먼바다"]
+  end
+  subgraph Biz["Business API"]
+    BC["/me/attendance<br/>조회·청구·노출"]
+  end
+  subgraph Data["Data API"]
+    Claim["청구 명령<br/>internal"]
+    Admin["표 관리·통계<br/>internal"]
+    Att[("attendance 도메인<br/>표·출석·노출·보관")]
+    Wallet[("섬 통장<br/>construction")]
+    Inv[("보유품<br/>appearance")]
+    Outbox[("outbox")]
+  end
+  subgraph BO["백오피스"]
+    BFF["BFF<br/>세션·초안·2인 흐름"]
+    UI["출석 보상·출석 현황 화면"]
+  end
+  RT["Realtime"]
+
+  Gate --> Board
+  Icon --> Board
+  Board -->|"GET·POST"| BC
+  BC -->|"서비스 토큰"| Claim
+  Claim --> Att
+  Claim --> Wallet
+  Claim --> Inv
+  Claim --> Outbox
+  Outbox --> RT
+  RT -->|"wallet.updated · inventory.updated"| App
+  UI --> BFF
+  BFF -->|"운영자 토큰 /internal/admin/attendance"| Admin
+  Admin --> Att
+```
+
+## 책임과 인터페이스
+
+| 모듈 | 소유 책임 | 금지 |
+| --- | --- | --- |
+| 앱 출석판 | 하루(UTC) 한 번 자동 열림 기억(계정별), 노출 기록 호출, 「출석하기」 요청, 결과 문구 표시, 서버 미지원(404)이면 입구 숨김 | 출석 여부·칸 번호를 스스로 계산해 도장 찍기, 응답 전에 보상 표시, 기기 날짜를 서버에 보내기 |
+| Business API | 앱 토큰 검증, `Idempotency-Key` 전달, 꾸미기 이미지 상대 경로에 정적 주소 붙이기, 공개 오류 봉투 | 상태 저장, 출석 판정, 보상 계산 |
+| Data `attendance` 도메인 | 표 개정·칸·출석·노출·보관 테이블과 리포지토리, 순수 규칙(주 시작일, 칸 번호, 표 해석) | 다른 도메인 서비스 호출, 섬 통장·보유품 직접 쓰기 |
+| Data 청구 명령 | 잠금, 하루 1회·주 7회 판정, 물고기 지급·보관·보관분 지급, 꾸미기 지급·대체, 보상 사본 저장, 이벤트 적재를 한 트랜잭션에서 | 개인 지갑 적립, 앱이 보낸 날짜 사용, 트랜잭션 안의 외부 호출 |
+| Data 표 관리·통계 | 이번 주·다음 주·기본 표 조회, 승인·발행(승인자 ≠ 발행자), 참여 현황 SQL | 지난 주 표 고치기, 이미 받은 칸 소급, 운영자 이름 외 개인정보 응답 |
+| 백오피스 BFF | 운영자 로그인·CSRF, 초안 저장(SQLite), 2인 흐름 상태, Data 호출 | DB 직접 접속, 승인 없이 발행 |
+| 백오피스 화면 | 7칸 편집기(카탈로그에서 꾸미기 고르기), 승인·발행 버튼, 발행 이력, 참여 현황 표 | 이미지 업로드 |
+
+## 데이터 흐름
+
+### 출석판 열기와 노출 기록
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant A as 앱
+  participant B as Business API
+  participant D as Data API
+  A->>A: 팝업 게이트 통과(편지·튜토리얼·방문·모달 없음)
+  A->>B: GET /me/attendance
+  B->>D: GET /internal/users/{userId}/attendance
+  D-->>B: 이번 주 7칸·오늘 출석 여부·보관 물고기
+  B-->>A: 이미지 URL 을 붙인 응답
+  alt 오늘 출석 전이고 오늘 아직 자동으로 열지 않았다
+    A->>A: 출석판을 연다(계정·UTC 날짜 기억)
+  end
+  A->>B: POST /me/attendance/views (출석판이 보였을 때)
+  B->>D: 노출 기록(같은 날 두 번째부터는 아무것도 바꾸지 않는다)
+```
+
+출석판을 아이콘으로 열 때도 같은 조회와 노출 기록을 한다. 노출은 보상과 무관하고 참여율의 분모로만 쓴다(정책 AT15).
+
+### 출석 청구
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant A as 앱
+  participant B as Business API
+  participant D as Data API
+  participant R as Realtime
+  A->>B: POST /me/attendance/claims (Idempotency-Key)
+  B->>D: POST /internal/users/{userId}/attendance/claims
+  Note over D: 한 트랜잭션
+  D->>D: 사용자 잠금 → 현재 섬 확인 → 섬 잠금
+  D->>D: 오늘 출석했나·이번 주 7번 찼나 판정
+  D->>D: 칸 = 이번 주 출석 수 + 1, 발행본에서 보상 읽기
+  alt 물고기 칸, 현재 섬 있음
+    D->>D: 섬 통장 적립 + 보관분 함께 적립
+  else 물고기 칸, 현재 섬 없음
+    D->>D: 보관
+  else 꾸미기 칸
+    D->>D: 보유품 추가, 못 주면 대체 물고기(위와 같은 규칙)
+  end
+  D->>D: 출석 기록(보상 사본) + 영수증 + outbox
+  D-->>B: 결과(칸·결과 종류·지급량·섬)
+  B-->>A: 결과
+  D--)R: wallet.updated · inventory.updated (relay)
+```
+
+- 같은 요청 키로 다시 보내면 처음 결과를 그대로 돌려준다. 이벤트는 다시 적지 않는다.
+- 같은 날 다른 요청 키로 다시 보내면 409 다. 앱은 출석판을 새로 읽어 「오늘 출석 완료」를 보여 준다.
+
+### 백오피스 표 작성·승인·발행
+
+```mermaid
+sequenceDiagram
+  autonumber
+  actor W as 운영자 1(작성)
+  actor P as 운영자 2(승인)
+  participant F as 백오피스 BFF
+  participant D as Data API
+  W->>F: 이번 주(또는 다음 주·기본) 표 열기
+  F->>D: GET /internal/admin/attendance/schedules
+  F->>D: GET /internal/admin/customization/items (꾸미기 고르기 목록)
+  W->>F: 7칸 고쳐 초안 저장 → 검토 요청
+  P->>F: 승인
+  F->>D: POST /internal/admin/attendance/schedules/approvals/{approvalId}
+  D-->>F: 승인 영수증(다이제스트·개정 번호)
+  W->>F: 발행
+  F->>D: PUT /internal/admin/attendance/schedules/publications/{publicationId}
+  D->>D: 승인자 ≠ 발행자, 다이제스트·개정 번호 일치 확인
+  D-->>F: 새 개정 번호
+```
+
+승인은 운영자 2, 발행은 운영자 1처럼 서로 다른 사람이 한다. 꾸미기 추첨 풀과 같은 흐름이다(정책 AT13). 발행하면 그 뒤의 출석부터 새 표를 쓴다(정책 AT12).
+
+### 참여 현황 조회
+
+운영자가 기간을 고르면 BFF 가 `GET /internal/admin/attendance/stats` 를 부른다. Data 가 읽기 전용 트랜잭션에서 노출·출석·보관 테이블을 집계해 일별·주별·지급 합계를 돌려준다. 백오피스는 숫자를 표로 보여 줄 뿐 다시 계산하지 않는다.
+
+## 날짜와 주 경계
+
+- 하루는 서버 시각의 UTC 날짜, 주는 UTC 일요일 00:00Z 부터다(정책 AT02·AT03). 랭킹 주와 같은 계산기를 쓴다.
+- 한국 사용자에게는 매일 오전 9시에 하루가, 매주 일요일 오전 9시에 주가 바뀐다. 출석판은 다음 초기화 시각을 보여 준다.
+- 앱의 「오늘 자동으로 열었다」 기억도 UTC 날짜를 키로 쓴다. 기기 날짜(KST)를 쓰면 오전 0~9시 사이에 서버와 하루가 어긋난다.
+
+## 실패와 복구
+
+| 상황 | 동작 |
+| --- | --- |
+| 청구 응답을 못 받음(네트워크) | 앱이 같은 요청 키로 다시 보낸다. 서버는 처음 결과를 돌려준다 |
+| 오늘 이미 출석 | 409. 앱은 출석판을 다시 읽는다 |
+| 이번 주 7칸을 다 받음 | 409. 출석판은 「이번 주 출석 완료」와 다음 주 시작 시각을 보여 준다 |
+| 발행된 표가 하나도 없음 | 503. 기본 표를 마이그레이션이 시드하므로 운영에서는 생기지 않는다 |
+| 서버가 출석 API 를 모름(앱이 먼저 나감) | 404. 앱은 출석판과 아이콘을 숨긴다 |
+| 승인 뒤 다른 사람이 표를 고침 | 발행이 409. 다시 승인받는다 |
+| 백오피스가 새 capability 를 못 찾음 | BFF 가 시작하지 않는다. 그래서 Data 를 먼저 배포한다 |
+
+## 배포 순서
+
+1. **Data API(V16 마이그레이션)와 Business API.** main 머지 뒤 dev V2 에 자동 반영된다. 운영은 재영님 요청으로 `prod-cd-V2` 를 돌린다. 마이그레이션은 새 테이블 생성과 기본 표 시드만 해서 기존 기능과 호환된다.
+2. **백오피스.** 운영 Data 가 `attendance.schedule.v1`·`attendance.stats.v1` 을 광고하는지 확인한 뒤 머지한다. 백오피스는 `backoffice/server/contract.json` 의 capability 가 하나라도 없으면 시작하지 않고, 백오피스 머지는 곧 운영 배포다.
+3. **표 확인.** 운영자가 기본 표 값을 확인하고(정책 ATQ01) 필요하면 첫 주 표를 발행한다.
+4. **앱.** `.github/scripts/app-server-gate.py` 는 `release` 의 최신 `prod-cd-V2` 실행이 성공하기 전까지 앱 출시를 막는다. 앱이 서버보다 먼저 나가도 출석 API 404 면 입구를 숨긴다.
+
+순서를 지키는 이유는 안전이다. 앱이 먼저 나가면 입구가 숨겨져 손해는 없지만, 백오피스가 먼저 나가면 운영 콘솔 전체가 뜨지 않는다.
+
+## 관측
+
+- Data 는 청구 결과 종류별(지급·보관·대체·거절) 건수를 로그 필드로 남긴다. 사용자 식별자 외 개인정보는 남기지 않는다.
+- 운영자의 일상 확인은 백오피스 참여 현황이고, 리텐션 목표는 PostHog 로 잰다(PRD 「측정 계획」).
+
+## 단계별 확대
+
+- 출석 알림 푸시(정책 ATQ04): 노출·전환율을 본 뒤 알림 종류를 추가한다.
+- 출석판 장식 그림 교체와 이미지 업로드: 범위 밖. 필요해지면 이미지 CDN 경로([이미지 CDN](../image-cdn/README.md))에 맞춰 따로 설계한다.
