@@ -697,11 +697,16 @@ class IslandConstructionIntegrationTest {
                 Timestamp.from(Instant.now().minus(1, ChronoUnit.MINUTES)), f.islandId);
         scheduler.completeDueFacilities();
 
+        // 완공한 우체통은 목록에서 빠지고, 잔액 0 이라 남은 셋은 자금 부족, 상점은 선행 미충족이다.
         var after = service.options(f.islandId, f.ownerId);
         assertThat(after.activeConstruction()).isNull();
         assertThat(after.items())
-                .extracting(ConstructionOptionItem::blockedReason)
-                .doesNotContain("IN_PROGRESS", "OTHER_IN_PROGRESS");
+                .extracting(ConstructionOptionItem::id, ConstructionOptionItem::blockedReason)
+                .containsExactlyInAnyOrder(
+                        tuple("gram", "INSUFFICIENT_FUNDS"),
+                        tuple("library", "INSUFFICIENT_FUNDS"),
+                        tuple("tower", "INSUFFICIENT_FUNDS"),
+                        tuple("shop", "FACILITY_LOCKED"));
     }
 
     // ---------------------------------------------------------------- 섬 통장 합산 건설
