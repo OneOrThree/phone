@@ -368,7 +368,7 @@ Business 의 `GlobalExceptionHandler.registeredUpstream` 은 Data 오류 코드�
 
 응답 모양. BFF 의 `matches`(§10.1)가 승인 응답을 요청과 대조한다.
 
-```json
+```jsonc
 // 승인 200 — 같은 approvalId·같은 본문 재요청도 같은 응답
 { "approvalId": "…", "scope": "WEEK", "weekStart": "2026-11-15", "expectedRevision": 0,
   "slots": [ /* §8.3 정규형의 slots */ ], "approvedDigest": "…", "approvedBy": "member-2", "approvedAt": "…" }
