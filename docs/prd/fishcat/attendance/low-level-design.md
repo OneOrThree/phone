@@ -242,7 +242,7 @@ Business 의 `GlobalExceptionHandler.registeredUpstream` 은 Data 오류 코드�
 | 상태 | `code` | 앱 동작(PRD AT-F04) |
 | --- | --- | --- |
 | 409 | `ATTENDANCE_ALREADY_CLAIMED` | 출석판을 다시 읽고 「오늘은 이미 출석했어요」 |
-| 409 | `ATTENDANCE_WEEK_COMPLETE` | 출석판을 다시 읽는다 |
+| 409 | `ATTENDANCE_WEEK_COMPLETE` | 출석판을 다시 읽고 PRD 「결과 종류와 문구」의 「이번 주 완료」를 보여 준다(`nextWeekAt`) |
 | 409 | `IDEMPOTENCY_KEY_REUSED` | 키를 버리고 출석판을 다시 읽는다. 자동으로 다시 청구하지 않는다(정책 AT04 의 「409 면 키를 버린다」) |
 | 503 | `ATTENDANCE_SCHEDULE_UNAVAILABLE` | 「잠시 후 다시 시도해 주세요」, 같은 키로 다시 |
 | 404 | (라우트 없음) | 출석 입구를 숨긴다(AT-F06) |
@@ -477,7 +477,7 @@ BFF 와 Data 가 같은 문자열을 만든다. 키 순서는 아래 그대로, 
 
 ### 10.2 화면
 
-- `AttendanceRewards.tsx`: 탭 「이번 주」·「다음 주」·「기본 표」. 각 탭에 지금 적용되는 표(`effective`)와 개정 번호를 보이고, 7칸 편집기에서 칸마다 종류·수량·꾸미기(썸네일은 `CustomizationShared.tsx` 의 `Thumb`)·대체 물고기를 고른다. 아래에 승인 대기·발행 이력.
+- `AttendanceRewards.tsx`: 탭 「이번 주」·「다음 주」·「기본 표」와 읽기 전용 「지난 주」(`GET …/schedules/history?scope=WEEK&week=<지난 주 시작일>`). 각 탭에 지금 적용되는 표(`effective`)와 개정 번호를 보이고, 7칸 편집기에서 칸마다 종류·수량·꾸미기(썸네일은 `CustomizationShared.tsx` 의 `Thumb`)·대체 물고기를 고른다. 아래에 승인 대기·발행 이력.
 - `AttendanceStats.tsx`: 기간 선택(기본 최근 14일), 일별 표, 주별 분포·칸별 수령 표(진행 중인 주 표시), 지급 합계(대체 물고기는 지급 합계의 일부, 원장 합계와 차이가 날 수 있음을 함께 적는다). 머리에 「UTC 기준 — 하루는 한국 오전 9시, 주는 한국 일요일 오전 9시에 시작」.
 - `App.tsx`: 사이드바 버튼 두 개, `panel` 값 `'attendance' | 'attendanceStats'`, props `{ session, onDirtyChange, onUnauthorized }`.
 
@@ -493,7 +493,7 @@ BFF 와 Data 가 같은 문자열을 만든다. 키 순서는 아래 그대로, 
 
 조건을 모두 만족하면 연다.
 
-1. 팝업 게이트 통과: `services/developerLetter.ts` 의 `isLetterReady(…)` 가 참이고, 운영진의 편지(`useDeveloperLetter`)와 강제 업데이트 편지(`useForceUpdateLetter`)가 **이번 판정 회차의 조회를 마쳤고**(성공·실패 모두) 둘 다 떠 있지 않다. 우선순위는 강제 업데이트 → 운영진의 편지 → 출석판이다. 지금 두 훅은 조회 완료를 알려 주지 않아(`useDeveloperLetter` 는 `{ notice, dismiss }`, `useForceUpdateLetter` 는 요구 사항만 돌려준다), 출석 조회가 먼저 끝나면 출석판이 먼저 열리고 뒤늦은 편지가 겹칠 수 있다. 두 훅이 `settled` 를 함께 돌려주게 고친다. 앱 시작과 foreground 복귀 때마다 `settled` 는 거짓으로 돌아갔다가 그 회차의 조회가 끝나면 참이 된다.
+1. 팝업 게이트 통과: `services/developerLetter.ts` 의 `isLetterReady(…)` 가 참이고(튜토리얼·방문·모달·화면 경로 같은 나머지 조건은 이 함수가 맡는다), 운영진의 편지(`useDeveloperLetter`)와 강제 업데이트 편지(`useForceUpdateLetter`)가 **이번 판정 회차의 조회를 마쳤고**(성공·실패 모두) 둘 다 떠 있지 않다. 우선순위는 강제 업데이트 → 운영진의 편지 → 출석판이다. 지금 두 훅은 조회 완료를 알려 주지 않아(`useDeveloperLetter` 는 `{ notice, dismiss }`, `useForceUpdateLetter` 는 요구 사항만 돌려준다), 출석 조회가 먼저 끝나면 출석판이 먼저 열리고 뒤늦은 편지가 겹칠 수 있다. 두 훅이 `settled` 를 함께 돌려주게 고친다. 앱 시작과 foreground 복귀 때마다 `settled` 는 거짓으로 돌아갔다가 그 회차의 조회가 끝나면 참이 된다.
 2. 조회 응답이 `attendedToday=false`·`viewedToday=false`.
 3. 기기 기억 `autoOpened` 가 응답의 `today` 와 다르다.
 
