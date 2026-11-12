@@ -59,6 +59,12 @@ class InternalEventControllerTest {
     @Autowired
     private ChatUserFence chatUserFence;
 
+    @Autowired
+    private com.oneorthree.realtime.message.service.ChatMessageAppender appender;
+
+    @Autowired
+    private com.oneorthree.realtime.message.service.ChatMessageService messages;
+
     @Value("${realtime.internal.data-service-token}")
     private String dataToken;
 
@@ -68,6 +74,9 @@ class InternalEventControllerTest {
     /** legacy 경로의 멤버십 상류 — 이 테스트는 호출하지 않는다. */
     @MockitoBean
     private GroupClient groupClient;
+
+    @Autowired
+    private org.springframework.transaction.PlatformTransactionManager transactions;
 
     private UUID withdrawn;
     private UUID other;
@@ -122,6 +131,88 @@ class InternalEventControllerTest {
                 .extracting(e -> ((ChatException) e).getErrorCode()).isEqualTo(ChatErrorCode.NOT_A_MEMBER);
         assertThat(upsert(roomA, withdrawn)).isZero();
         assertThat(cursors(withdrawn)).isZero();
+    }
+
+    @Test
+    @DisplayName("탈퇴 사건은 메시지 개인정보를 지우고 읽음 기준 ID를 보존하며 늦은 재전송을 거절한다")
+    void withdrawalErasesMessagesAndFencesSender() throws Exception {
+        UUID room = UUID.randomUUID();
+        var draft = com.oneorthree.realtime.message.repository.domain.ChatMessage.builder()
+                .groupId(room).senderId(withdrawn).content("파기할 원문")
+                .clientMessageId(UUID.randomUUID()).sentAt(Instant.now()).build();
+        var saved = appender.append(draft);
+        var retained = appender.append(com.oneorthree.realtime.message.repository.domain.ChatMessage.builder()
+                .groupId(room).senderId(other).content("다른 사람 원문")
+                .clientMessageId(UUID.randomUUID()).sentAt(Instant.now()).build());
+
+        mockMvc.perform(authorized(event(withdrawn, 1))).andExpect(status().isOk());
+        chatUserFence.withdraw(withdrawn, 1);
+
+        assertThat(jdbc.queryForMap("SELECT content, sender_id, client_message_id FROM chat_messages WHERE id = ?",
+                saved.getId())).containsEntry("content", "").containsEntry("sender_id", null)
+                .containsEntry("client_message_id", saved.getId());
+        assertThat(jdbc.queryForObject("SELECT content FROM chat_messages WHERE id = ?", String.class,
+                retained.getId())).isEqualTo("다른 사람 원문");
+        chatUserFence.writeReadCursor(room, other, saved.getId());
+        assertThat(messages.historyForMailbox(room, null, 20).messages()).hasSize(2);
+        assertThatThrownBy(() -> appender.append(draft)).isInstanceOf(ChatException.class)
+                .extracting(e -> ((ChatException) e).getErrorCode()).isEqualTo(ChatErrorCode.NOT_A_MEMBER);
+    }
+
+    @Test
+    @DisplayName("저장이 먼저 잠그면 탈퇴가 기다렸다가 원문을 지우고, 탈퇴가 먼저면 늦은 저장이 거절된다")
+    void concurrentAppendAndWithdrawalCannotRestorePersonalData() throws Exception {
+        for (boolean appendFirst : new boolean[] {true, false}) {
+            UUID sender = UUID.randomUUID();
+            var draft = com.oneorthree.realtime.message.repository.domain.ChatMessage.builder()
+                    .groupId(UUID.randomUUID()).senderId(sender).content("경합 원문")
+                    .clientMessageId(UUID.randomUUID()).sentAt(Instant.now()).build();
+            var executor = java.util.concurrent.Executors.newFixedThreadPool(2);
+            var locked = new java.util.concurrent.CountDownLatch(1);
+            var release = new java.util.concurrent.CountDownLatch(1);
+            try {
+                var first = executor.submit(() -> new org.springframework.transaction.support.TransactionTemplate(
+                        transactions).executeWithoutResult(tx -> {
+                            if (appendFirst) {
+                                appender.append(draft);
+                            } else {
+                                chatUserFence.withdraw(sender, 1);
+                            }
+                            locked.countDown();
+                            try {
+                                if (!release.await(10, java.util.concurrent.TimeUnit.SECONDS)) {
+                                    throw new IllegalStateException("선행 트랜잭션 해제 대기 시간 초과");
+                                }
+                            } catch (InterruptedException e) {
+                                Thread.currentThread().interrupt();
+                                throw new IllegalStateException(e);
+                            }
+                        }));
+                assertThat(locked.await(10, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+                var second = executor.submit(() -> {
+                    if (appendFirst) {
+                        chatUserFence.withdraw(sender, 1);
+                    } else {
+                        assertThatThrownBy(() -> appender.append(draft)).isInstanceOf(ChatException.class);
+                    }
+                });
+                try {
+                    assertThatThrownBy(() -> second.get(200, java.util.concurrent.TimeUnit.MILLISECONDS))
+                            .isInstanceOf(java.util.concurrent.TimeoutException.class);
+                } finally {
+                    release.countDown();
+                }
+                first.get(10, java.util.concurrent.TimeUnit.SECONDS);
+                second.get(10, java.util.concurrent.TimeUnit.SECONDS);
+                assertThat(jdbc.queryForObject("SELECT count(*) FROM chat_messages WHERE sender_id = ?",
+                        Integer.class, sender)).isZero();
+                assertThat(jdbc.queryForObject("SELECT count(*) FROM chat_messages WHERE group_id = ? AND content <> ''",
+                        Integer.class, draft.getGroupId())).isZero();
+            } finally {
+                release.countDown();
+                executor.shutdownNow();
+            }
+        }
     }
 
     @Test

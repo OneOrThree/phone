@@ -15,6 +15,7 @@ import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.group.service.GroupMemberService;
 import com.oneorthree.phone.invitelink.repository.GroupInviteLinkRepository;
 import com.oneorthree.phone.magazine.repository.MagazineReceiptRepository;
+import com.oneorthree.phone.letter.service.LetterErasureService;
 import com.oneorthree.phone.outbox.service.PublicCommandService;
 import com.oneorthree.phone.quest.service.IslandQuestService;
 import com.oneorthree.phone.screentime.repository.ScreenTimeObservationRepository;
@@ -53,6 +54,7 @@ public class AccountWithdrawalService {
     private final MagazineReceiptRepository magazineReceiptRepository;
     private final UserService userService;
     private final FriendService friendService;
+    private final LetterErasureService letters;
     private final AuthSessionService authSessionService;
     private final UserSatelliteCommandService userSatelliteCommandService;
     private final WithdrawalSatelliteCommandService withdrawalSatelliteCommandService;
@@ -110,6 +112,7 @@ public class AccountWithdrawalService {
         fishWallets.deleteById(userId);
         userService.deleteSettings(userId);
 
+        letters.eraseWithdrawnUser(userId);
         friendService.detachWithdrawnUser(userId);
         publicCommandService.forgetReceiptsOf(userId);
 

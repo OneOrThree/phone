@@ -235,6 +235,29 @@ class AccountWithdrawalErasureIntegrationTest {
         }
     }
 
+    @Test
+    @DisplayName("탈퇴자의 송수신 편지는 이미 닫은 편지·시스템 편지까지 파기하고 타인의 편지는 보존한다")
+    void erasesLettersIncludingClosedAndSystemLetters() {
+        Actor w = actor();
+        Actor c = actor();
+        Actor t = actor();
+        for (UUID[] pair : new UUID[][] {{w.id(), c.id()}, {c.id(), w.id()}, {c.id(), t.id()}}) {
+            jdbc.update("insert into letters (id, sender_id, receiver_id, content, created_at, kind)"
+                    + " values (?, ?, ?, '개인 원문', now(), 'FRIEND')", UUID.randomUUID(), pair[0], pair[1]);
+        }
+        jdbc.update("insert into letters (id, sender_id, receiver_id, content, created_at, deleted_at, kind)"
+                + " values (?, ?, ?, '닫은 원문', now(), now(), 'FRIEND')", UUID.randomUUID(), w.id(), c.id());
+        jdbc.update("insert into letters (id, receiver_id, content, created_at, kind)"
+                + " values (?, ?, '시스템 안내', now(), 'KICK')", UUID.randomUUID(), w.id());
+
+        withdrawal.withdraw(w.id());
+
+        assertThat(count("select count(*) from letters where sender_id=? or receiver_id=?", w.id(), w.id()))
+                .isZero();
+        assertThat(count("select count(*) from letters where sender_id=? and receiver_id=?", c.id(), t.id()))
+                .isEqualTo(1L);
+    }
+
     /** 회차 하나 + cohort + 그 회차의 정산 행 — 정산 행 id 를 돌려준다. */
     private UUID seedSettledOccurrence(UUID questId, UUID islandId, int daysAgo, UUID claimer, UUID... cohort) {
         UUID occurrenceId = UUID.randomUUID();

@@ -108,6 +108,9 @@ class AccountWithdrawalServiceTest {
     @Mock
     private com.oneorthree.phone.currency.repository.UserFishWalletRepository fishWallets;
 
+    @Mock
+    private com.oneorthree.phone.letter.service.LetterErasureService letters;
+
     @InjectMocks
     private AccountWithdrawalService accountWithdrawalService;
 
@@ -124,7 +127,7 @@ class AccountWithdrawalServiceTest {
         InOrder order = inOrder(userQueryService, groupMemberService, authSessionService,
                 focusSessions, dailyFocusStats, focusSessionIntervalRepository, focusSessionDetailRepository,
                 appearanceService, magazineReceiptRepository, seaRemarkService, islandQuestService,
-                userService, friendService, publicCommandService);
+                userService, letters, friendService, publicCommandService);
         order.verify(userQueryService).getCallerForUpdate(USER_ID);
         order.verify(groupMemberService).lockGroupsForAccountWithdrawal(user);
         order.verify(authSessionService).revokeAll(USER_ID, "WITHDRAW");
@@ -140,6 +143,7 @@ class AccountWithdrawalServiceTest {
         order.verify(seaRemarkService).eraseWithdrawnUser(USER_ID);
         order.verify(islandQuestService).eraseWithdrawnUser(USER_ID);
         order.verify(userService).deleteSettings(USER_ID);
+        order.verify(letters).eraseWithdrawnUser(USER_ID);
         order.verify(friendService).detachWithdrawnUser(USER_ID);
         order.verify(publicCommandService).forgetReceiptsOf(USER_ID);
         order.verify(userService).erasePersonalData(user);
