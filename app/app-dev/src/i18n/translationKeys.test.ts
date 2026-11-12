@@ -51,7 +51,7 @@ const missingIn = (check: (table: unknown) => boolean, call: Call) =>
     .map(([locale]) => `${locale} ${call.where} ${call.key}`);
 
 test('스캔이 호출을 찾는다 — 정규식이 깨져 0개가 되면 아래 검사가 아무것도 안 보고 통과한다', () => {
-  expect(calls.filter((call) => !call.template).length).toBeGreaterThan(1000);
+  expect(calls.filter((call) => !call.template).length).toBeGreaterThan(1500);
   expect(calls.filter((call) => call.template).length).toBeGreaterThan(10);
 });
 

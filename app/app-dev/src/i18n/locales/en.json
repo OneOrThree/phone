@@ -670,8 +670,8 @@
       "island": "Island decor"
     },
     "ordersTab": {
-      "personal": "My purchases",
-      "shared": "Shared purchases"
+      "personal": "Mine",
+      "shared": "Shared"
     }
   },
   "emptyState": {

@@ -56,9 +56,12 @@ const usesCatalogArt = (product: any) => product.kind !== 'island' && product.ki
 function ShopCardArt({ product, height }: { product: any; height: number }) {
   const table = useCustomizationCatalog();
   const [width, setWidth] = useState(0);
-  if (product.kind === 'island') return <Pic id="island/whole" w="100%" h="100%" cover />;
-  if (product.kind === 'building')
-    return <Pic id={'bld/' + buildingArt[product.building || 'hall']} w="92%" h="92%" />;
+  if (!usesCatalogArt(product))
+    return product.kind === 'island' ? (
+      <Pic id="island/whole" w="100%" h="100%" cover />
+    ) : (
+      <Pic id={'bld/' + buildingArt[product.building || 'hall']} w="92%" h="92%" />
+    );
   const entry = table[product.id];
   if (!entry) return <Pic id="scarf-cat" w="92%" h="92%" />;
   const byHeight = height * ITEM_ART_RATIO;
