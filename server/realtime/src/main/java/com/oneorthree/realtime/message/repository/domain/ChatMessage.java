@@ -21,9 +21,8 @@ import java.util.UUID;
  * DB 에 맡기는 순간 두 서비스의 배포·마이그레이션이 한 몸이 된다. 대신 「멤버가 아니면 못 쓴다」를
  * 쓰기 시점에 {@code ChatAccessGuard} 가 보장한다.
  *
- * <p>탈퇴한 사람의 메시지는 남는다. 대화 기록에서 한 사람의 말만 도려내면 남은 사람들의 대화가
- * 앞뒤가 안 맞게 된다 — 표시 이름은 어차피 이 테이블에 없고(있으면 개명이 반영 안 된다) 조회
- * 시점에 프로필에서 붙이므로, 탈퇴자는 화면에서 「알 수 없음」으로 그려진다.
+ * <p>탈퇴하면 본문·발신자·클라이언트 식별자를 지운다. 다른 사용자의 읽음 위치와 페이지 커서가
+ * 참조하는 메시지 id·방·순서만 남긴다.
  */
 @Entity
 @Getter
@@ -45,8 +44,8 @@ public class ChatMessage {
     @Column(name = "group_id", nullable = false, updatable = false)
     private UUID groupId;
 
-    /** 보낸 사람. 탈퇴해도 이 값은 남는다. */
-    @Column(name = "sender_id", nullable = false, updatable = false)
+    /** 보낸 사람. 탈퇴 사건 처리 뒤에는 null이다. */
+    @Column(name = "sender_id", updatable = false)
     private UUID senderId;
 
     /** 본문. 길이 상한은 컬럼이 아니라 {@code ChatErrorCode.CONTENT_TOO_LONG} 규칙이 정한다. */

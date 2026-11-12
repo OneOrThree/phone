@@ -2,6 +2,8 @@ package com.oneorthree.realtime.message.service;
 
 import com.oneorthree.realtime.common.id.UuidV7;
 import com.oneorthree.realtime.message.repository.domain.ChatMessage;
+import com.oneorthree.realtime.message.exception.ChatException;
+import com.oneorthree.realtime.message.exception.ChatErrorCode;
 import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
@@ -41,6 +43,14 @@ public class ChatMessageAppender {
      */
     @Transactional
     public ChatMessage append(ChatMessage draft) {
+        // 탈퇴와 같은 사용자 잠금: 먼저 저장되면 탈퇴가 지우고, 먼저 탈퇴하면 저장을 거절한다.
+        jdbc.queryForObject("SELECT 1 FROM pg_advisory_xact_lock(hashtextextended(?, 0))", Integer.class,
+                "chat-user:" + draft.getSenderId());
+        if (Boolean.TRUE.equals(jdbc.queryForObject(
+                "SELECT EXISTS (SELECT 1 FROM user_tombstones WHERE user_id = ?)",
+                Boolean.class, draft.getSenderId()))) {
+            throw new ChatException(ChatErrorCode.NOT_A_MEMBER);
+        }
         // ponytail: 방당 잠금 하나. 한 방이 초당 수천 건이 되면 커밋 순번 워터마크로 바꾼다.
         jdbc.queryForObject("SELECT 1 FROM pg_advisory_xact_lock(hashtextextended(?, 0))", Integer.class,
                 "chat-room:" + draft.getGroupId());

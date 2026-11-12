@@ -58,7 +58,7 @@ public class ChatUserFence {
     private final Map<UUID, Instant> revokedSessions = new ConcurrentHashMap<>();
 
     /**
-     * {@code user.withdrawn} 적용 — tombstone 확정 → 그 사용자의 모든 방 커서 삭제. 한 로컬 TX 다.
+     * {@code user.withdrawn} 적용 — tombstone 확정 → 메시지 개인정보 파기 → 그 사용자의 모든 방 커서 삭제. 한 로컬 TX 다.
      *
      * <p>멱등이다: 두 번째 전달은 세대를 {@code GREATEST} 로만 맞추고 지울 커서가 없다. 역순으로 온 낮은
      * 세대가 폐기를 되돌리지도 않는다.
@@ -72,6 +72,9 @@ public class ChatUserFence {
                 + " ON CONFLICT (user_id) DO UPDATE SET auth_generation ="
                 + " GREATEST(user_tombstones.auth_generation, EXCLUDED.auth_generation)",
                 userId, authGeneration, Timestamp.from(clock.instant()));
+        // 커서의 기준 행만 남기고 본문·발신자·클라이언트 식별자를 제거한다.
+        jdbc.update("UPDATE chat_messages SET content = '', sender_id = NULL, client_message_id = id"
+                + " WHERE sender_id = ?", userId);
         return jdbc.update("DELETE FROM chat_read_cursors WHERE user_id = ?", userId);
     }
 

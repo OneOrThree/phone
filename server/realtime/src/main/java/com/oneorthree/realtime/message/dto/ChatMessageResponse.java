@@ -18,7 +18,7 @@ import java.util.UUID;
  * @param senderId 보낸 사람. 표시 이름·프로필은 여기 싣지 않는다(개명이 반영 안 되고, 이 서비스는
  *                 프로필을 소유하지 않는다) — 앱이 이미 들고 있는 섬 멤버 목록에서 붙인다.
  *                 <b>탈퇴한 발신자면 null</b>이다(GROMO-1946 · 계정 LLD §4) — 저장된 {@code sender_id} 는
- *                 그대로 두고 공개 응답에서만 끊는다. 행 구분은 {@code messageId} 로 한다
+ *                 탈퇴 처리에서 지우고 본문도 비운다. 행 구분은 {@code messageId} 로 한다
  * @param content 본문
  * @param sentAt 서버 수신 시각
  * @param clientMessageId 보낸 쪽이 만든 멱등 키. <b>발신자 본인의 낙관적 렌더링을 실제 메시지로
@@ -45,7 +45,8 @@ public record ChatMessageResponse(
      * @param withdrawnSenders 이 목록의 발신자 중 tombstone 이 있는 사용자({@code WithdrawnSenders#among})
      */
     public static ChatMessageResponse from(ChatMessage m, Set<UUID> withdrawnSenders) {
-        UUID senderId = withdrawnSenders.contains(m.getSenderId()) ? null : m.getSenderId();
+        UUID senderId = m.getSenderId() == null || withdrawnSenders.contains(m.getSenderId())
+                ? null : m.getSenderId();
         return new ChatMessageResponse(m.getId(), m.getGroupId(), senderId,
                 m.getContent(), m.getSentAt(), m.getClientMessageId());
     }
