@@ -946,6 +946,7 @@ export function Overlay({
   maxWidth,
   contentStyle,
   frameStyle,
+  adjustForKeyboard = false,
 }: any) {
   const ins = useScreenInsets();
   const layout = useAppLayout();
@@ -995,6 +996,7 @@ export function Overlay({
           ]}
         >
           <ScrollView
+            automaticallyAdjustKeyboardInsets={adjustForKeyboard}
             keyboardShouldPersistTaps="handled"
             nestedScrollEnabled
             showsVerticalScrollIndicator={false}

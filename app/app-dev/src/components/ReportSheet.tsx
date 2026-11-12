@@ -46,7 +46,7 @@ export function ReportSheet({ visible, target, onClose }: Props) {
     return () => {
       generation.current += 1;
     };
-  }, [visible, target?.targetType, target?.targetId, target?.targetUserId]);
+  }, [visible, target?.targetType, target?.targetId, target?.targetUserId, target?.submittedText]);
 
   const close = () => {
     if (!sending.current) onClose();
@@ -58,7 +58,7 @@ export function ReportSheet({ visible, target, onClose }: Props) {
       targetType: target?.targetType ?? ('OTHER' as const),
       targetId: target?.targetId,
       targetUserId: target?.targetUserId,
-      submittedText: target?.submittedText,
+      submittedText: target?.submittedText?.slice(0, 5000),
       reason,
       details: details.trim(),
     };
@@ -82,7 +82,7 @@ export function ReportSheet({ visible, target, onClose }: Props) {
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={close}>
-      <Overlay close={close}>
+      <Overlay close={close} adjustForKeyboard>
         <View accessibilityViewIsModal style={{ gap: componentTokens.modal.gap }}>
           <View
             style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}

@@ -82,3 +82,34 @@ test('처리 중 중복 탭과 닫기를 막고 실패 뒤 설명 변경은 새 
   await waitFor(() => assert.ok(ui.getByText('신고를 접수했어요')));
   assert.notEqual(submit.mock.calls[0][0].requestId, submit.mock.calls[1][0].requestId);
 });
+
+test('대상이 바뀌면 이전 접수 결과를 버리고 본문 발췌는 서버 한도를 지킨다', async () => {
+  let resolve!: (value: { reportId: string; receivedAt: string }) => void;
+  submit.mockImplementationOnce(
+    () =>
+      new Promise((done) => {
+        resolve = done;
+      }),
+  );
+  const ui = await render(
+    <ReportSheet
+      visible
+      target={{ ...target, submittedText: 'x'.repeat(6000) }}
+      onClose={jest.fn()}
+    />,
+    { wrapper },
+  );
+  await fireEvent.press(ui.getByText('기타'));
+  await fireEvent.changeText(
+    ui.getByPlaceholderText('누구의 어떤 내용인지, 어디에서 있었던 일인지 알려주세요.'),
+    '신고 내용',
+  );
+  await fireEvent.press(ui.getByText('신고 접수하기'));
+  assert.equal(submit.mock.calls[0][0].submittedText.length, 5000);
+  await ui.rerender(
+    <ReportSheet visible target={{ ...target, targetId: '다른-편지' }} onClose={jest.fn()} />,
+  );
+  await act(async () => resolve({ reportId: '이전-접수', receivedAt: '2026-11-12T00:00:00Z' }));
+  assert.equal(ui.queryByText('신고를 접수했어요'), null);
+  assert.ok(ui.getByText('신고 접수하기'));
+});

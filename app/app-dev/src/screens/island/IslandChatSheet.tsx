@@ -34,6 +34,7 @@ type Row = {
   userId?: string;
   name: string;
   text: string;
+  submittedText?: string;
   time: string;
   color: string | null;
   outfit?: Outfit | null;
@@ -74,6 +75,7 @@ export function IslandChatSheet({ e, chat }: { e: ScreenEnvironment; chat: Islan
           userId: m.userId,
           name: m.name ?? t('islandChat.unknown'),
           text: m.text || t('report.deletedMessage'),
+          submittedText: m.text || undefined,
           time: chatTime(Date.parse(m.createdAt), now),
           color: look ? look.catColor : (m.catColor ?? null),
           outfit: look ? (look.appearance ?? undefined) : appearanceOutfit(m.appearance),
@@ -239,6 +241,7 @@ export function IslandChatSheet({ e, chat }: { e: ScreenEnvironment; chat: Islan
                 onPress={() => setSafetyTarget(m)}
                 accessibilityRole="button"
                 accessibilityLabel={t('report.userActions', { name: m.name })}
+                accessibilityState={{ disabled: !server || !m.userId }}
                 style={{
                   minWidth: semanticTokens.size.tapMin,
                   minHeight: semanticTokens.size.tapMin,
@@ -278,7 +281,7 @@ export function IslandChatSheet({ e, chat }: { e: ScreenEnvironment; chat: Islan
             targetType: 'ISLAND_MESSAGE',
             targetId: safetyTarget.id,
             targetUserId: safetyTarget.userId,
-            submittedText: safetyTarget.text,
+            submittedText: safetyTarget.submittedText,
             label: safetyTarget.name,
           }}
           onClose={() => setSafetyTarget(null)}
