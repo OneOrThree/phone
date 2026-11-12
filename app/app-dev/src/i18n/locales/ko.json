@@ -2325,5 +2325,29 @@
     "start": "건설 시작",
     "close": "청사진 닫기",
     "priceChanged": "건설비가 바뀌었어요. 금액을 확인한 뒤 다시 시도해 주세요."
+  },
+  "report": {
+    "title": "신고하기",
+    "received": "신고를 접수했어요",
+    "receivedBody": "운영팀이 내용을 확인할게요. 신고만으로 상대가 자동 차단되지는 않아요.",
+    "receipt": "접수 번호: {{id}}",
+    "privacy": "신고 대상과 작성한 내용은 안전한 서비스 운영을 위해 운영팀에 전달돼요. 비밀번호나 인증번호는 적지 마세요.",
+    "reason": "신고 사유",
+    "details": "상황 설명",
+    "placeholder": "누구의 어떤 내용인지, 어디에서 있었던 일인지 알려주세요.",
+    "submit": "신고 접수하기",
+    "centerSub": "신고 내용을 작성해 운영팀에 보내기",
+    "deletedMessage": "삭제된 메시지예요.",
+    "userActions": "{{name}}님 신고·차단",
+    "reasons": {
+      "HARASSMENT": "괴롭힘·욕설",
+      "HATE": "혐오·차별",
+      "SPAM_FRAUD": "스팸·사기",
+      "SEXUAL": "성적인 내용",
+      "CHILD_SAFETY": "아동·청소년 안전",
+      "THREAT": "위협·폭력",
+      "PRIVACY_IMPERSONATION": "개인정보 침해·사칭",
+      "OTHER": "기타"
+    }
   }
 }
