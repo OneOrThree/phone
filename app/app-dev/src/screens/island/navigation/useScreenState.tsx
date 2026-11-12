@@ -184,8 +184,7 @@ export function useScreenState(e: ScreenEnvironment) {
   const profileSaveIntent = useRef<{ signature: string; key: string } | null>(null),
     profileErrorScope = useRef<object>({}),
     serverWriting = useRef(false),
-    characterSaveIntent = useRef<{ signature: string; key: string } | null>(null),
-    // 저장 응답이 왔을 때 사용자가 아직 character 화면에 있는지 확인하는 용도
+    // 비동기 응답이 왔을 때 사용자가 요청한 화면에 남아 있는지 확인한다
     routeNowRef = useRef(route),
     // 진행 중인 탈퇴 의도 — 탈퇴 대상 userId 와 멱등 키. 요청 전에 기기에도 남겨(beginWithdrawal)
     // 앱이 종료돼도 부팅이 로컬 정리를 이어 간다. 세션이 먼저 정리돼도 정리 대상 계정을 잃지 않는다.
@@ -606,7 +605,6 @@ export function useScreenState(e: ScreenEnvironment) {
     back,
     serverBusy,
     server,
-    characterSaveIntent,
     run,
     routeNowRef,
     serverError,
