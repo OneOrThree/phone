@@ -305,7 +305,7 @@ Business 의 `GlobalExceptionHandler.registeredUpstream` 은 Data 오류 코드�
 - 이번 주 출석 행(최대 7)으로 `CLAIMED` 칸을 채운다. 사본에서 `reward`·`received` 를 만든다.
 - 적용 개정(§6 의 5)에서 나머지 칸의 `reward` 를 만든다. `ITEM` 칸의 이름과 이미지 경로는 `CustomizationCatalogService.catalog()` 결과에서 상품 ID 로 찾는다. 이 결과는 `customization_asset_meta` 행과, 메타 행 없이 `customization_reward_items` 에만 있는 보상 꾸미기(이미지 경로가 `render_data` 쪽)를 함께 담는다. 메타 테이블만 읽으면 보상 꾸미기의 그림이 빠진다. 카탈로그에 없는 상품이면 `product` 의 `imageUrl` 을 `null` 로 내고 앱은 이름만 보인다.
 - `heldFish` = 열린 보관 행의 합, `viewedToday` = 오늘 노출 행 존재, `attendedToday` = 오늘 출석 행 존재. 출석하면 그날 노출도 기록되므로 `attendedToday=true` 이면 `viewedToday=true` 다.
-- 받지 않은 `ITEM` 칸에는 `alreadyOwned`(이미 가진 상품이면 `true`)를 싣는다. 앱은 이 값이 참이면 칸 아래에 「이미 가짐 · 물고기 {n}」을 보여 준다. 청구 순간 판정(§6 의 7)이 정본이고 이 값은 미리 보기다.
+- 받지 않은 `ITEM` 칸에는 `alreadyOwned`(이미 가진 상품이면 `true`)를 싣는다. 앱은 이 값이 참이면 칸 아래에 「이미 가짐 · 받으면 물고기 {n}마리」를 보여 준다. 청구 순간 판정(§6 의 7)이 정본이고 이 값은 미리 보기다.
 
 `recordView(userId)` 의 날짜는 청구와 같은 `Clock` 에서 낸 UTC 날짜다. DB 의 `CURRENT_DATE` 는 세션 시간대에 따라 날이 갈리므로 쓰지 않는다. `recordView(userId)` 는 쓰기 트랜잭션에서 `UserQueryService.getCallerForShare(userId)` 로 활성 사용자를 공유 잠금한 뒤 `INSERT INTO attendance_views … ON CONFLICT DO NOTHING` 을 한다. 영향 행 수로 `first` 를 정한다. 이 잠금은 탈퇴한 계정이 노출·출석을 새로 기록하지 못하게 한다. 공유 잠금이 탈퇴의 배타 잠금과 차례로 서므로, 탈퇴가 먼저 끝났으면 활성 사용자를 찾지 못해 거절하고, 탈퇴가 뒤면 방금 넣은 노출 행도 남는다(정책 AT16). 청구는 같은 목적으로 `getCallerForUpdate` 를 쓴다(§6 의 1). 활성 사용자 확인은 잡지 열람 기록(`MagazineIssueService.receive`)과 같은 방식이다.
 
