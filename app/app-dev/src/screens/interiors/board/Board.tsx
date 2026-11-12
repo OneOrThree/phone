@@ -35,6 +35,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Image, PixelRatio, Platform, Pressable, ScrollView, TextInput, View } from 'react-native';
 import { artSize, buildOptions, interiorArt } from '../assets';
 import { Scroll } from '../shared/Scroll';
+import { SceneObjectLabel, sceneObjectLabelSize } from '../shared/SceneObjectLabel';
 import { boardScene } from '../shared/sceneGeometry';
 import { INK, exact, fill, gradient, lh, webOnly } from '../shared/styles';
 import { Text, boardFont } from '../shared/typography';
@@ -2028,15 +2029,36 @@ export function Board({
   );
   const noticeBox = sceneHitbox(0.3495, noticeCenterY, 0.253, noticeHitHeight / scene.height);
   const questBox = sceneHitbox(0.645, questCenterY, 0.27, questLabelHitHeight / scene.height);
-  const blueprintBox = sceneHitbox(0.705, blueprintCenterY, 0.19, 0.128, blueprintHitHeight);
+  const blueprintArtBox = sceneHitbox(0.705, blueprintCenterY, 0.19, 0.128, blueprintHitHeight);
+  const blueprintLabel = t('ui.hall.constructionStatus');
+  const blueprintLeftLimit = Math.max(0, -scene.left, noticeBox.left + noticeBox.width + 1);
+  const blueprintRightLimit = Math.min(scene.width, width - scene.left);
+  const blueprintLabelSize = sceneObjectLabelSize(
+    blueprintLabel,
+    labelScale,
+    fontScale,
+    Math.max(semanticTokens.size.tapMin, blueprintRightLimit - blueprintLeftLimit),
+  );
+  const blueprintLabelHeight = Math.max(semanticTokens.size.tapMin, blueprintLabelSize.height);
+  const blueprintWidth = Math.max(blueprintArtBox.width, blueprintLabelSize.width);
+  // 청사진 아랫변에 이름표를 붙이고 누르는 영역도 함께 늘린다. 화면 밖으로 잘리는 번역은 안쪽으로 옮긴다.
+  const blueprintBox = {
+    ...blueprintArtBox,
+    left: Math.max(
+      blueprintLeftLimit,
+      Math.min(scene.width * 0.705 - blueprintWidth / 2, blueprintRightLimit - blueprintWidth),
+    ),
+    width: blueprintWidth,
+    height: blueprintArtBox.height + primitiveTokens.space[1] + blueprintLabelHeight / 2,
+  };
   // 방명록 = 선반 위 펜꽂이(그림 비율 1024×1536 기준 중심 0.54, 0.535). 알약 라벨이 큰 글자에서도 한 줄로 들어가도록
   // 터치 영역을 글자 수·글자 배율로 키운다(글자 한 칸을 1em 으로 넉넉히 잡아 어떤 글꼴에서도 줄바꿈이 없다).
-  const guestbookPillHeight =
-    13 * 1.3 * fontScale * labelScale +
-    2 * (primitiveTokens.space[1] + semanticTokens.stroke.default);
-  const guestbookPillWidth =
-    Array.from(t('guestbook.title')).length * 13 * fontScale * labelScale +
-    2 * (primitiveTokens.space[3] + semanticTokens.stroke.default);
+  const { height: guestbookPillHeight, width: guestbookPillWidth } = sceneObjectLabelSize(
+    t('guestbook.title'),
+    labelScale,
+    fontScale,
+    Number.POSITIVE_INFINITY,
+  );
   const guestbookBase = sceneHitbox(
     0.54,
     0.535,
@@ -2325,10 +2347,25 @@ export function Board({
                     position: 'absolute',
                     zIndex: 2,
                     ...boardHitboxes.blueprint,
+                    alignItems: 'center',
+                    justifyContent: 'flex-end',
                   },
                   pressedFilter('blueprint'),
                 ]}
-              />
+              >
+                <View
+                  pointerEvents="none"
+                  style={{
+                    height: blueprintLabelHeight,
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                  }}
+                >
+                  <SceneObjectLabel scale={labelScale} maxWidth={blueprintLabelSize.width}>
+                    {blueprintLabel}
+                  </SceneObjectLabel>
+                </View>
+              </Pressable>
             )}
             {/* 방명록은 선반 위 펜꽂이로 연다. 서버 게시판(주민)에서만 — 방문자는 VisitorBoard 에 방명록이 있다 */}
             {serverBoard && (
@@ -2349,20 +2386,7 @@ export function Board({
                   pressedFilter('guestbook'),
                 ]}
               >
-                <View
-                  style={{
-                    paddingVertical: primitiveTokens.space[1],
-                    paddingHorizontal: primitiveTokens.space[3],
-                    borderRadius: semanticTokens.radius.full,
-                    borderWidth: semanticTokens.stroke.default,
-                    borderColor: semanticTokens.color.outline,
-                    backgroundColor: semanticTokens.color.surface,
-                  }}
-                >
-                  <Text allowFontScaling style={boardFont(13 * labelScale, 1.3, '700')}>
-                    {t('guestbook.title')}
-                  </Text>
-                </View>
+                <SceneObjectLabel scale={labelScale}>{t('guestbook.title')}</SceneObjectLabel>
               </Pressable>
             )}
           </View>

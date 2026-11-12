@@ -1084,8 +1084,17 @@ test('여덟 화면 크기에서 게시판 장면 전체와 세 라벨 터치 �
         const area = StyleSheet.flatten(screen.getByTestId(testID as string).props.style);
         assert.ok(area.width >= 44, `${testID} is at least 44px wide at ${width}x${height}`);
         assert.ok(area.height >= 44, `${testID} is at least 44px tall at ${width}x${height}`);
-        assert.ok(Math.abs(area.left + area.width / 2 - scene.width * Number(centerX)) < 0.01);
-        assert.ok(Math.abs(area.top + area.height / 2 - scene.height * Number(centerY)) < 0.01);
+        if (testID === 'board-blueprint-area') {
+          // 청사진은 아랫변 이름표까지 영역이 커져도 그림 중심을 계속 누를 수 있어야 한다.
+          const x = scene.width * Number(centerX),
+            y = scene.height * Number(centerY);
+          assert.ok(area.left <= x && x <= area.left + area.width);
+          assert.ok(area.top <= y && y <= area.top + area.height);
+          assert.ok(within(screen.getByTestId(testID)).getByText('건설 현황'));
+        } else {
+          assert.ok(Math.abs(area.left + area.width / 2 - scene.width * Number(centerX)) < 0.01);
+          assert.ok(Math.abs(area.top + area.height / 2 - scene.height * Number(centerY)) < 0.01);
+        }
         return {
           testID,
           left: area.left,

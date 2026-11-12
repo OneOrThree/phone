@@ -573,6 +573,17 @@ export const componentTokens = {
     borderWidth: semanticTokens.stroke.default,
     radius: semanticTokens.radius.full,
   },
+  // 건물 안 사물 이름표 — 기존 게시판 방명록의 작은 알약 스타일을 함께 쓴다.
+  interiorObjectLabel: {
+    fontSize: 13,
+    lineHeight: 1.3,
+    paddingVertical: space[1],
+    paddingHorizontal: space[3],
+    borderWidth: semanticTokens.stroke.default,
+    border: semanticTokens.color.outline,
+    background: semanticTokens.color.surface,
+    radius: semanticTokens.radius.full,
+  },
   hallCompletionStamp: {
     width: 88,
     height: 40,

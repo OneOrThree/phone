@@ -634,6 +634,16 @@
       "shoes": "신발"
     }
   },
+  "shop": {
+    "tab": {
+      "personal": "내 꾸미기",
+      "island": "우리 섬 꾸미기"
+    },
+    "ordersTab": {
+      "personal": "내 구매",
+      "shared": "섬 공동 구매"
+    }
+  },
   "emptyState": {
     "shop": "아직 파는 꾸미기가 없어요",
     "wardrobe": "아직 가진 꾸미기가 없어요",
@@ -1702,6 +1712,7 @@
       "waitForConstruction": "다른 공사가 끝난 뒤에 지을 수 있어요",
       "constructionUnavailable": "지금은 건설할 수 없어요",
       "chooseWoodenBuilding": "목각 건물 고르기",
+      "buildingLabel": "건물 고르기",
       "sharedLedger": "공동 가계부",
       "residentsOnly": "섬 주민만 볼 수 있어요",
       "ledgerResidentsOnly": "공동 가계부는 주민에게만 공개돼요",
