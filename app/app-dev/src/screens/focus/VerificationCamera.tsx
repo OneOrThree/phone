@@ -27,13 +27,15 @@ import {
   type VerificationCadence,
 } from '@/services/studyVerification/cadence';
 import {
+  detectRotatedHand,
   detectRotatedStudyObjects,
+  objectAttemptLimit,
   type RotationSearch,
 } from '@/services/studyVerification/rotatedStudyObjects';
 import type { VerificationCameraPosition } from '@/services/studyVerification/types';
 import {
   OBJECT_INPUT,
-  objectScoreIndex,
+  studyObjectModelReady,
   studyObjectScores,
   studyObjectPresence,
   type StudyObjectScores,
@@ -49,8 +51,9 @@ export const PREVIEW_SAMPLE_MS = LIVE_SAMPLE_MS;
 export const PREVIEW_STALE_MS = LIVE_STALE_MS;
 const PREVIEW_RESOLUTION = { width: 640, height: 480 };
 // 모델 require 는 카메라를 실제로 그릴 때만 평가한다 — 모듈 최상위에 두면 이 파일을 import 만 하는 화면·테스트도 .tflite 를 읽는다.
-const palmModelModule = (): number => require('../../assets/ml/palm_detection_lite.tflite');
-const objectModelModule = (): number => require('../../assets/ml/efficientdet_lite0_int8.tflite');
+const palmModelModule = (): number => require('../../assets/ml/palm_detection_full.tflite');
+const objectModelModule = (): number =>
+  require('../../assets/ml/efficientdet_lite0_float16_study.tflite');
 type ModelSources = { palm: ModelSource; object: ModelSource };
 type Samples = {
   lastAt: number;
@@ -171,7 +174,9 @@ function ModelVerificationCamera({
     pixelLayout: 'interleaved',
   });
   const objectTflite = objectModel.state === 'loaded' ? objectModel.model : undefined;
-  const objectIdx = objectTflite ? objectScoreIndex(objectTflite.inputs, objectTflite.outputs) : -1;
+  const objectReady = objectTflite
+    ? studyObjectModelReady(objectTflite.inputs, objectTflite.outputs)
+    : false;
   const objectResizer = objectResize.resizer;
   const tflite = model.state === 'loaded' ? model.model : undefined;
   const scoreIdx = tflite ? scoreTensorIndex(tflite.outputs) : -1;
@@ -180,6 +185,12 @@ function ModelVerificationCamera({
     () => createSynchronizable<RotationSearch>({ preferred: 0, next: 1 }),
     [],
   );
+  const handRotation = useMemo(
+    () => createSynchronizable<RotationSearch>({ preferred: 0, next: 1 }),
+    [],
+  );
+  // 주기 검사에서 같은 3장 묶음이 쓴 도구 추론 횟수. 묶음의 첫 장에서 0으로 다시 센다.
+  const objectBudget = useMemo(() => createSynchronizable(0), []);
   const samples = useMemo(() => createSynchronizable<Samples>(emptySamples()), []);
   const captureEpoch = useMemo(() => createSynchronizable(0), []);
   const interrupted = useMemo(() => createSynchronizable(false), []);
@@ -237,7 +248,7 @@ function ModelVerificationCamera({
       (tflite && scoreIdx < 0) ||
       objectModel.state === 'error' ||
       objectResize.state === 'error' ||
-      (objectTflite && objectIdx < 0)
+      (objectTflite && !objectReady)
     ) {
       onDetection('unavailable');
     }
@@ -249,7 +260,7 @@ function ModelVerificationCamera({
     objectModel.state,
     objectResize.state,
     objectTflite,
-    objectIdx,
+    objectReady,
     onDetection,
   ]);
 
@@ -324,35 +335,47 @@ function ModelVerificationCamera({
         if (now - previous.lastAt < PREVIEW_SAMPLE_MS) return;
         samples.setBlocking({ ...previous, lastAt: now });
         const resized = resizer.resize(frame);
-        let outputs: ArrayBuffer[];
+        let score: number;
         try {
           // 버퍼가 살아 있을 때 그대로 넣는다. 판정마다 192×192×3 값을 JS 로 나누던 변환은 하지 않는다.
-          outputs = tflite.runSync([resized.getPixelBuffer()]);
+          // 손이 안 보이면 다른 방향으로 한 번만 더 본다(최대 2회).
+          const hand = detectRotatedHand(
+            resized.getPixelBuffer(),
+            handRotation.getBlocking(),
+            (input) => {
+              'worklet';
+              return maxSigmoid(new Float32Array(tflite.runSync([input])[scoreIdx]!));
+            },
+          );
+          score = hand.score;
+          handRotation.setBlocking(hand.search);
         } finally {
           resized.dispose();
         }
-        const score = maxSigmoid(new Float32Array(outputs[scoreIdx]!));
         const recent = now - previous.lastAt >= PREVIEW_STALE_MS ? [] : previous.scores;
         const scores = [...recent, score].slice(-MEASUREMENT_BATCH_SIZE);
         const startedAt = recent.length ? previous.startedAt : now;
         const complete = periodic && scores.length === MEASUREMENT_BATCH_SIZE;
         // 같은 프레임의 손·물체 결과를 짝지어 유지한다. 물체 실패를 손만으로 통과시키지 않는다.
         let objectScore: StudyObjectScores | null = null;
-        if (objectTflite && objectResizer && objectIdx >= 0) {
+        if (objectTflite && objectResizer && objectReady) {
           try {
             const objectFrame = objectResizer.resize(frame);
             try {
-              // 모델 입력은 uint8 RGB다. float 정규화 없이 버퍼가 살아 있을 때 실행한다.
+              // 모델 입력은 uint8 RGB다. 정규화는 모델 안에서 하므로 버퍼가 살아 있을 때 그대로 넣는다.
+              // 주기 검사는 3장 묶음의 도구 추론을 합쳐 6회 이내로 나눠 쓴다. 미리보기 검사는 장마다 최대 4방향.
+              const used = recent.length ? objectBudget.getBlocking() : 0;
               const result = detectRotatedStudyObjects(
                 objectFrame.getPixelBuffer(),
                 objectRotation.getBlocking(),
                 score >= HAND_SCORE,
                 (input) => {
                   'worklet';
-                  const output = objectTflite.runSync([input]);
-                  return studyObjectScores(new Float32Array(output[objectIdx]!));
+                  return studyObjectScores(objectTflite.runSync([input]));
                 },
+                periodic ? objectAttemptLimit(recent.length, used) : 4,
               );
+              if (periodic) objectBudget.setBlocking(used + result.attempts);
               objectScore = result.scores;
               objectRotation.setBlocking(result.search);
             } finally {
@@ -388,9 +411,11 @@ function ModelVerificationCamera({
       receiveScores,
       periodic,
       objectRotation,
+      handRotation,
+      objectBudget,
       objectTflite,
       objectResizer,
-      objectIdx,
+      objectReady,
     ],
   );
 
