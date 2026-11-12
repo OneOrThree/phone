@@ -280,6 +280,71 @@ test('집중 보상 머리·목(catFit)은 대표 영역만 잘라 칸 높이 �
   assert.ok(crop.height <= 96 && crop.width <= 96, `잘린 그림 ${crop.width}×${crop.height}`);
   assert.ok(crop.height > 90, '세로가 긴 목걸이는 높이 기준값에 맞춘다');
 });
+// 그림 없는 신발(GROMO-2878) — 서버 꾸미기 카탈로그에는 신발 그림 자료가 없다
+const bareShoes = {
+  ...bellItem,
+  id: 'cust.shoes.test-only',
+  title: '시험용 덧신',
+  kind: 'shoes',
+  price: 25,
+};
+
+test('꾸미기 카탈로그를 받은 뒤에는 표에 없는 개인 꾸미기 카드를 목록에서 뺀다(GROMO-2878)', async () => {
+  mockShopApi = { ...baseShopApi(), items: [bellItem, bareShoes] };
+  mockCatalog = { 'cust.neck.bell': bellEntry };
+  const screen = await render(<Harness route="shop" notify={jest.fn()} />);
+  assert.ok(screen.getByTestId('shop-art-cust.neck.bell'));
+  assert.equal(screen.queryByText('25마리'), null);
+  assert.equal(screen.queryByTestId('shop-empty'), null);
+});
+
+test('카탈로그를 아직 못 받았거나 실패해 표가 비었으면 거르지 않고 기본 그림으로 보인다(GROMO-2878)', async () => {
+  mockShopApi = { ...baseShopApi(), items: [bellItem, bareShoes] };
+  const screen = await render(<Harness route="shop" notify={jest.fn()} />);
+  assert.ok(screen.getByText('30마리'));
+  assert.ok(screen.getByText('25마리'));
+  assert.equal(screen.queryByTestId('shop-art-cust.shoes.test-only'), null);
+});
+
+test('개인 꾸미기가 모두 걸러지면 빈 상태 한 줄을 보인다(GROMO-2878)', async () => {
+  mockShopApi = { ...baseShopApi(), items: [bareShoes] };
+  mockCatalog = { 'cust.neck.bell': bellEntry };
+  const screen = await render(<Harness route="shop" notify={jest.fn()} />);
+  assert.ok(screen.getByTestId('shop-empty'));
+});
+
+test('섬·건물 테마 카드는 카탈로그에 없어도 거르지 않는다(GROMO-2878)', async () => {
+  const theme = (id: string, kind: string) => ({
+    ...bellItem,
+    id,
+    title: id,
+    kind,
+    price: 300,
+    ownerType: 'island',
+  });
+  mockShopApi = {
+    ...baseShopApi(),
+    itemsCategory: 'island',
+    items: [theme('soda-theme', 'island_theme'), theme('strawberry-roof', 'building_theme')],
+  };
+  mockCatalog = { 'cust.neck.bell': bellEntry };
+  const screen = await render(<Harness route="shop" notify={jest.fn()} />);
+  assert.equal(screen.getAllByText('300마리').length, 2);
+});
+
+test('상점·구매 내역 탭은 번역한 이름을 보인다 — 키 문자열이 화면에 나오지 않는다(GROMO-2878)', async () => {
+  const shop = await render(<Harness route="shop" notify={jest.fn()} />);
+  assert.ok(shop.getByText('내 꾸미기'));
+  assert.ok(shop.getByText('우리 섬 꾸미기'));
+  assert.equal(shop.queryByText('shop.tab.personal'), null);
+  await shop.unmount();
+
+  const orders = await render(<Harness route="orders" notify={jest.fn()} />);
+  assert.ok(orders.getByText('내 구매'));
+  assert.ok(orders.getByText('섬 공동 구매'));
+  assert.equal(orders.queryByText('shop.ordersTab.personal'), null);
+});
+
 test('서버 불통(CLIENT_NETWORK_ERROR) 구매 실패는 사용자에게 실패 문구를 보여준다', async () => {
   mockShopApi.buy = jest.fn(() =>
     Promise.reject(
