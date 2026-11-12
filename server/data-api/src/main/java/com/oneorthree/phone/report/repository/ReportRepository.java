@@ -8,6 +8,7 @@ import org.springframework.stereotype.Repository;
 
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -29,12 +30,14 @@ public class ReportRepository {
     }
 
     public ReportReceipt insert(UUID id, UUID reporter, ReportRequest body, Instant now) {
+        // PostgreSQL timestamptz 정밀도에 맞춰 최초 응답과 재시도 응답을 동일하게 유지한다.
+        Instant receivedAt = now.truncatedTo(ChronoUnit.MICROS);
         jdbc.update("INSERT INTO safety_reports (id, reporter_id, request_id, target_type, target_id, target_user_id,"
                         + " reason, details, submitted_text, received_at, status, legal_hold)"
                         + " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'OPEN', false)",
                 id, reporter, body.requestId(), body.targetType(), body.targetId(), body.targetUserId(),
-                body.reason(), body.details(), body.submittedText(), Timestamp.from(now));
-        return new ReportReceipt(id, now);
+                body.reason(), body.details(), body.submittedText(), Timestamp.from(receivedAt));
+        return new ReportReceipt(id, receivedAt);
     }
 
     public List<Map<String, Object>> pending(UUID cursor) {

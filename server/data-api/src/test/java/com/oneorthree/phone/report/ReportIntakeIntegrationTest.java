@@ -6,6 +6,8 @@ import com.oneorthree.phone.outbox.support.OutboxTestPostgres;
 import com.oneorthree.phone.report.dto.ReportRequest;
 import com.oneorthree.phone.report.exception.ReportException;
 import com.oneorthree.phone.report.service.ReportService;
+import com.oneorthree.phone.report.repository.ReportRepository;
+import java.time.Instant;
 import com.oneorthree.phone.report.scheduler.ReportRetention;
 import com.oneorthree.phone.common.exception.RateLimitedException;
 import org.junit.jupiter.api.Test;
@@ -29,6 +31,7 @@ class ReportIntakeIntegrationTest {
     @Autowired private AuthService auth;
     @Autowired private JwtProvider jwt;
     @Autowired private ReportService reports;
+    @Autowired private ReportRepository repository;
     @Autowired private ReportRetention retention;
     @Autowired private JdbcTemplate jdbc;
 
@@ -51,6 +54,16 @@ class ReportIntakeIntegrationTest {
                 "HATE", body.details(), body.submittedText()))).isInstanceOf(ReportException.class);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM safety_reports WHERE reporter_id = ?",
                 Integer.class, caller)).isEqualTo(1);
+    }
+
+    @Test
+    void nanosecondReceiptMatchesStoredTimestampOnRetry() {
+        UUID caller = user();
+        var body = request(UUID.randomUUID());
+        var receipt = repository.insert(UUID.randomUUID(), caller, body,
+                Instant.parse("2026-11-12T00:00:00.123456789Z"));
+        assertThat(receipt.receivedAt()).isEqualTo(Instant.parse("2026-11-12T00:00:00.123456Z"));
+        assertThat(reports.submit(caller, body)).isEqualTo(receipt);
     }
 
     @Test
