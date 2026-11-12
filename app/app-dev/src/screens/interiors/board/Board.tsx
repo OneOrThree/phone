@@ -1731,13 +1731,14 @@ export function Board({
                       <Text style={boardFont(12, 1.4, '400', '#786151', GOWUN)}>
                         {t('ui.board.end')}
                       </Text>
-                      {/* 종료는 24:00(하루 끝)까지 드럼으로 고른다 — 별도 「자정까지」 토글은 없다. */}
+                      {/* 종료는 23:59 까지만 고른다(GROMO-2886) — 24:00 KST 는 15:00 UTC 로 가는데
+                          운영 DB 가 창을 KST 로 밀어 저장해 00:00 이 되고 window_start < window_end CHECK 에
+                          걸려 생성이 실패한다. 폰 사용 상한 피커(하루 1440분)의 24 는 길이라 그대로 둔다. */}
                       <QuestTimeInput
                         testID="board-quest-end"
                         label={t('ui.board.endTime')}
                         value={form.endTime}
                         onChange={(endTime) => setForm({ endTime })}
-                        allowMidnight
                       />
                     </View>
                   </View>

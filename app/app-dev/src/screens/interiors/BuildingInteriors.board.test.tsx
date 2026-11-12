@@ -2286,7 +2286,7 @@ test('퀘스트 만들기 — POST 에 허용 키만 싣고 창은 KST 벽시계
     body: 'focus',
     text: '저녁 집중',
     windowStart: '19:00',
-    windowEnd: '24:00',
+    windowEnd: '23:59',
   });
   const screen = await renderBoard(e);
 
@@ -2295,13 +2295,13 @@ test('퀘스트 만들기 — POST 에 허용 키만 싣고 창은 KST 벽시계
   await fireEvent.press(screen.getByTestId('board-quest-save'));
 
   await waitFor(() => assert.equal(postQuestMock.mock.calls.length, 1));
-  // KST 벽시계(24:00 포함) 그대로 — UTC 변환·23:59 방어는 quests.ts createQuest 가 한다(GROMO-2672).
+  // KST 벽시계 그대로 — UTC 변환과 24:00→23:59 내림은 quests.ts createQuest 가 한다(GROMO-2672·2886).
   assert.deepEqual(postQuestMock.mock.calls[0][1], {
     title: '저녁 집중',
     type: 'focus',
     targetMinutes: 50,
     windowStart: '19:00',
-    windowEnd: '24:00',
+    windowEnd: '23:59',
     timezone: 'UTC',
   });
   await waitFor(() => assert.equal(e.back.mock.calls.length > 0, true));
@@ -2310,9 +2310,50 @@ test('퀘스트 만들기 — POST 에 허용 키만 싣고 창은 KST 벽시계
   await screen.unmount();
 });
 
-test('퀘스트 만들기 — 23:00–24:00 창의 꽉 찬 60분 목표를 받아들인다(24:00 을 23:59 로 깎지 않는다)', async () => {
+test('퀘스트 만들기 — 종료 시각 피커는 23:59 까지다(24 시가 없다, GROMO-2886)', async () => {
+  // 24:00 KST 는 15:00 UTC 로 가고 운영 DB 가 창을 KST 로 밀어 00:00 으로 저장해 CHECK 에 걸린다.
+  getBoardMock.mockResolvedValue(page([], null, 'host', []));
+  const e = makeE({ route: 'questEdit', tab: 'quest', body: 'focus', text: '밤 집중' });
+  const screen = await renderBoard(e);
+
+  await waitFor(() => assert.ok(screen.getByLabelText('종료 시간 시 23')));
+  assert.equal(screen.queryByLabelText('종료 시간 시 24'), null);
+  assert.ok(screen.getByLabelText('종료 시간 분 59'));
+  await screen.unmount();
+});
+
+test('퀘스트 만들기 — 23:00–23:59 창의 꽉 찬 59분 목표를 받아들인다', async () => {
   getBoardMock.mockResolvedValue(page([], null, 'host', []));
   postQuestMock.mockResolvedValue({ id: 'q9', title: '자정 집중' });
+  const e = makeE({
+    route: 'questEdit',
+    tab: 'quest',
+    body: 'focus',
+    text: '자정 집중',
+    windowStart: '23:00',
+    windowEnd: '23:59',
+  });
+  const screen = await renderBoard(e);
+
+  await setTargetMinutes(screen, '목표 집중 시간', 59);
+  await fireEvent.press(screen.getByTestId('board-quest-save'));
+
+  // 23:00–23:59 = 59분 창. 59분 목표가 꼭 맞으므로 통과해 KST 그대로 보낸다.
+  await waitFor(() => assert.equal(postQuestMock.mock.calls.length, 1));
+  assert.deepEqual(postQuestMock.mock.calls[0][1], {
+    title: '자정 집중',
+    type: 'focus',
+    targetMinutes: 59,
+    windowStart: '23:00',
+    windowEnd: '23:59',
+    timezone: 'UTC',
+  });
+  await screen.unmount();
+});
+
+test('퀘스트 만들기 — 종료 24:00 이 들어와도 23:59 로 재서 23:00 시작에 60분 목표는 막는다', async () => {
+  // 피커 밖에서 24:00 이 들어와도 어댑터가 23:59 로 내려 보내므로 검증도 같은 끝으로 잰다(GROMO-2886).
+  getBoardMock.mockResolvedValue(page([], null, 'host', []));
   const e = makeE({
     route: 'questEdit',
     tab: 'quest',
@@ -2326,20 +2367,12 @@ test('퀘스트 만들기 — 23:00–24:00 창의 꽉 찬 60분 목표를 받�
   await setTargetMinutes(screen, '목표 집중 시간', 60);
   await fireEvent.press(screen.getByTestId('board-quest-save'));
 
-  // 23:00–24:00 = 60분 창. 60분 목표가 꼭 맞으므로 통과해 KST 그대로 보낸다.
-  await waitFor(() => assert.equal(postQuestMock.mock.calls.length, 1));
-  assert.deepEqual(postQuestMock.mock.calls[0][1], {
-    title: '자정 집중',
-    type: 'focus',
-    targetMinutes: 60,
-    windowStart: '23:00',
-    windowEnd: '24:00',
-    timezone: 'UTC',
-  });
+  assert.equal(postQuestMock.mock.calls.length, 0);
+  assert.ok(screen.getByText('목표 집중 시간은 진행 시간 안으로 정해주세요.'));
   await screen.unmount();
 });
 
-test('퀘스트 만들기 — 창을 넘는 목표(23:00–24:00 에 61분)는 막는다', async () => {
+test('퀘스트 만들기 — 창을 넘는 목표(23:00–23:59 에 60분)는 막는다', async () => {
   getBoardMock.mockResolvedValue(page([], null, 'host', []));
   const e = makeE({
     route: 'questEdit',
@@ -2347,11 +2380,11 @@ test('퀘스트 만들기 — 창을 넘는 목표(23:00–24:00 에 61분)는 �
     body: 'focus',
     text: '자정 집중',
     windowStart: '23:00',
-    windowEnd: '24:00',
+    windowEnd: '23:59',
   });
   const screen = await renderBoard(e);
 
-  await setTargetMinutes(screen, '목표 집중 시간', 61);
+  await setTargetMinutes(screen, '목표 집중 시간', 60);
   await fireEvent.press(screen.getByTestId('board-quest-save'));
 
   assert.equal(postQuestMock.mock.calls.length, 0);
