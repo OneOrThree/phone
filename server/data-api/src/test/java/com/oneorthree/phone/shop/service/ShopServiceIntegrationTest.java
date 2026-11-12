@@ -546,6 +546,21 @@ class ShopServiceIntegrationTest {
     }
 
     @Test
+    @DisplayName("이미 산 개인 꾸미기도 그림이 빠지면 상세·새 키 재구매가 STATE_CONFLICT 가 아니라 PRODUCT_NOT_FOUND 다")
+    void ownedItemThatLostItsArtIsNotFound() {
+        Fixture f = island();
+        fund(f.islandId, 100);
+        String scarf = product("neck", "user", null);
+        publish(entry(scarf, 1, 30, null, null, "personal", 1));
+        buy(f, f.ownerId, scarf, UUID.randomUUID());
+        jdbc.update("DELETE FROM customization_asset_meta WHERE product_id = ?", scarf);
+
+        assertCode(() -> shop.product(f.islandId, f.ownerId, scarf), ShopErrorCode.PRODUCT_NOT_FOUND);
+        assertCode(() -> buy(f, f.ownerId, scarf, UUID.randomUUID()), ShopErrorCode.PRODUCT_NOT_FOUND);
+        assertThat(islandBalance(f.islandId)).isEqualTo(70);
+    }
+
+    @Test
     @DisplayName("그림 없는 상품을 걸러 한 쪽이 limit 보다 짧아도 hasMore·커서는 발행본 항목 기준이라 이어 읽기가 맞다")
     void filteredPageKeepsTheCursor() {
         Fixture f = island();
