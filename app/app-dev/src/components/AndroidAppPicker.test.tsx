@@ -4,6 +4,7 @@ import { AndroidAppPicker } from './AndroidAppPicker';
 import { screenTimeNative } from '@/services/ScreenTimeModule';
 import { getSession, sessionGeneration } from '@/services/api/session';
 import { applyLocalePref } from '@/i18n';
+import { syncAndroidMeasurement } from '@/services/androidScreenTime';
 
 jest.mock('@/services/ScreenTimeModule', () => ({
   screenTimeNative: {
@@ -78,8 +79,7 @@ beforeEach(() => {
     packages: ['video.app'],
     pending: true,
   });
-  const { syncAndroidMeasurement } = require('@/services/androidScreenTime');
-  syncAndroidMeasurement.mockResolvedValue(undefined);
+  (syncAndroidMeasurement as jest.Mock).mockResolvedValue(undefined);
 });
 afterEach(() => {
   applyLocalePref('system');
@@ -113,6 +113,7 @@ test('검색으로 고른 측정 앱을 현재 계정에 저장하고 예약 적
   await fireEvent.press(screen.getByLabelText('선택 저장'));
   await waitFor(() => expect(done).toHaveBeenCalled());
   expect(native.setAndroidSelection).toHaveBeenCalledWith('owner', ['video.app'], false);
+  expect(syncAndroidMeasurement).toHaveBeenCalledTimes(1);
   expect(notify).toHaveBeenCalledWith('측정 앱을 내일부터 적용해요.');
 });
 
@@ -123,6 +124,7 @@ test('빈 측정 선택은 저장할 수 없고 전체 앱은 명시적으로 �
   await screen.findByText('동영상');
   await fireEvent.press(screen.getByLabelText('선택 저장'));
   expect(native.setAndroidSelection).not.toHaveBeenCalled();
+  expect(syncAndroidMeasurement).not.toHaveBeenCalled();
   await fireEvent.press(screen.getByLabelText('전체 앱 측정'));
   await fireEvent.press(screen.getByLabelText('선택 저장'));
   await waitFor(() => expect(native.setAndroidSelection).toHaveBeenCalledWith('owner', [], true));

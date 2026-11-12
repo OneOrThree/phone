@@ -1532,7 +1532,7 @@ test('앱 설정은 권한 관련 진입을 폰 사용·앱 차단 한 줄로 �
   assert.equal(exposed.go.mock.calls[0][1], 'settings');
   assert.equal(s.queryByText('측정 권한'), null);
   assert.equal(s.queryByText('측정 앱'), null);
-  // 사용 시간 공유는 폰 사용·앱 차단 안으로 옮겼다(GROMO-2885)
+  // 측정 앱 저장과 서버 전송을 합쳐 별도 사용 시간 공유 스위치를 두지 않는다.
   assert.equal(s.queryByText('사용 시간 공유'), null);
 });
 

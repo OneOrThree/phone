@@ -11,6 +11,8 @@ import App from '@/App';
 import { clearSession, saveSession } from '@/services/api/session';
 import { syncIOSScreenTime } from '@/services/iosScreenTimeSync';
 import { syncAndroidMeasurement } from '@/services/androidScreenTime';
+import { screenTimeMeasurementChanged } from '@/services/screenTimeEvents';
+import { reportScreenTime } from '@/services/screenTimeReporting';
 
 jest.setTimeout(30_000);
 
@@ -39,7 +41,6 @@ jest.mock('@/services/androidScreenTime', () => ({
 jest.mock('@/services/screenTimeReporting', () => ({
   ...jest.requireActual('@/services/screenTimeReporting'),
   reportScreenTime: jest.fn(async () => undefined),
-  subscribeScreenTimeReporting: jest.fn(() => () => {}),
 }));
 jest.mock('@/services/api/auth', () => ({
   checkSession: async () => ({ status: 'offline' }),
@@ -82,6 +83,7 @@ beforeEach(async () => {
   mockCapture.mockClear();
   iosSync.mockReset();
   androidSync.mockReset();
+  jest.mocked(reportScreenTime).mockClear();
   (AppState as any).currentState = 'active';
   // 화면 전환 리스너는 실제 remove 처럼 목록에서 빠져야 부팅 재실행의 옛 리스너가 남지 않는다
   jest.spyOn(AppState, 'addEventListener').mockImplementation(((_type: string, handler: any) => {
@@ -129,6 +131,20 @@ test('iOS 측정값이 null 이면 screen_time_daily 를 발행하지 않는다'
   await act(async () => {});
   expect(dailyCalls()).toEqual([]);
   await screen.unmount();
+});
+
+test('건물 화면을 열지 않아도 측정 앱 저장 직후 앱 전역에서 서버 보고를 실행한다', async () => {
+  iosSync.mockResolvedValue(iosSnapshot(42));
+  const screen = await render(<App />);
+  await waitFor(() => expect(reportScreenTime).toHaveBeenCalled());
+  await act(async () => {});
+  const base = jest.mocked(reportScreenTime).mock.calls.length;
+  await act(async () => screenTimeMeasurementChanged());
+  await waitFor(() => expect(reportScreenTime).toHaveBeenCalledTimes(base + 1));
+  expect(reportScreenTime).toHaveBeenLastCalledWith('approved', null, expect.any(Number));
+  await screen.unmount();
+  screenTimeMeasurementChanged();
+  expect(reportScreenTime).toHaveBeenCalledTimes(base + 1);
 });
 
 test('Android 측정값이 확정되면 screen_time_daily 를 스냅샷 당 1회 발행한다', async () => {

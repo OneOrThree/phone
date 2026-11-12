@@ -3,7 +3,11 @@ import { ApiError, uuid } from './api/client';
 import { getSession, sessionGeneration } from './api/session';
 import { putScreenTime, screenTimeDeviceId } from './api/screenTime';
 import { screenTimeObservationReported } from './screenTimeEvents';
-import type { ScreenTimeAuthorization, UsageTimeline } from './ScreenTimeModule';
+import {
+  screenTimeNative,
+  type ScreenTimeAuthorization,
+  type UsageTimeline,
+} from './ScreenTimeModule';
 import {
   buildScreenTimeObservations,
   reportDeadline,
@@ -12,7 +16,6 @@ import {
 } from './screenTimeWindow';
 
 const PREFIX = 'gromo:screenTimeReporting:v1:';
-type Consent = { version: 1; enabled: boolean };
 type Pending = { observation: ScreenTimeObservation; key: string };
 type Journal = {
   pending: Pending[];
@@ -20,26 +23,6 @@ type Journal = {
   rejected?: Record<string, string>;
 };
 let queue: Promise<unknown> = Promise.resolve();
-let consentRevision = 0;
-const listeners = new Set<() => void>();
-export const subscribeScreenTimeReporting = (listener: () => void) => {
-  listeners.add(listener);
-  return () => {
-    listeners.delete(listener);
-  };
-};
-const consentKey = (userId: string) => `${PREFIX}consent:${userId}`;
-
-export async function getScreenTimeReportingConsent(userId: string): Promise<boolean> {
-  const raw = await AsyncStorage.getItem(consentKey(userId));
-  return raw ? (JSON.parse(raw) as Consent).enabled === true : false;
-}
-
-export async function setScreenTimeReportingConsent(userId: string, enabled: boolean) {
-  consentRevision++;
-  await AsyncStorage.setItem(consentKey(userId), JSON.stringify({ version: 1, enabled }));
-  listeners.forEach((listener) => listener());
-}
 
 const fingerprint = (o: ScreenTimeObservation) =>
   `${o.measurementStatus}:${o.minutes}:${o.finalized ?? false}`;
@@ -58,27 +41,30 @@ export function reportScreenTime(
   const session = getSession();
   const deviceId = session && screenTimeDeviceId(session.accessToken);
   if (!session || !deviceId || sessionGeneration() !== expectedGeneration) return Promise.resolve();
-  const revision = consentRevision;
   const current = () =>
     sessionGeneration() === expectedGeneration &&
     getSession()?.userId === session.userId &&
-    screenTimeDeviceId(getSession()?.accessToken ?? '') === deviceId &&
-    revision === consentRevision;
+    screenTimeDeviceId(getSession()?.accessToken ?? '') === deviceId;
   const run = queue.then(async () => {
     if (!current()) return;
-    const consentRaw = await AsyncStorage.getItem(consentKey(session.userId));
-    // 동의한 적 없는 계정은 상태 보고도 보내지 않는다. 철회는 denied만 보낸다.
-    if (!consentRaw || !current()) return;
-    const consent = JSON.parse(consentRaw) as Consent;
+    // 측정 앱 저장이 서버 보고의 시작이다. 기존 별도 공유 스위치는 더 이상 읽지 않는다.
+    // 예약 선택은 아직 측정 대상이 아니므로 네이티브의 현재 선택만 확인한다.
+    const selection = await screenTimeNative?.getMeasurementSelectionCounts?.();
+    if (
+      !current() ||
+      !selection ||
+      selection.applications + selection.categories + selection.webDomains === 0
+    )
+      return;
     const key = `${PREFIX}queue:${session.userId}:${deviceId}`;
     const raw = await AsyncStorage.getItem(key);
     const journal: Journal = raw ? JSON.parse(raw) : { pending: [], sent: {} };
     if (!current()) return;
     const observations =
-      consent.enabled && authorization === 'approved' && androidObservations
+      authorization === 'approved' && androidObservations
         ? androidObservations
-        : buildScreenTimeObservations(consent.enabled ? authorization : 'denied', timeline, now);
-    const revoked = !consent.enabled || authorization !== 'approved';
+        : buildScreenTimeObservations(authorization, timeline, now);
+    const revoked = authorization !== 'approved';
     journal.pending = journal.pending.filter(
       (p) =>
         now <= reportDeadline(p.observation.date, p.observation.timezone) &&

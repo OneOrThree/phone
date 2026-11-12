@@ -91,6 +91,13 @@ test('차단 미지원 Android는 측정 설정만 표시하고 차단 권한을
   const view = await render(<CurrentScreens e={createPreviewEnvironment(e)} />);
   await view.findByText('2개 선택됨');
   expect(view.getByRole('switch', { name: '스크린타임 연결' })).toBeTruthy();
+  expect(view.queryByText('사용 시간 공유')).toBeNull();
+  expect(view.queryByRole('switch', { name: '스크린타임 서버 전송 동의' })).toBeNull();
+  expect(
+    view.getByText(
+      '측정 앱을 저장하면 사용 시간과 측정 상태를 서버에 보내 통계·퀘스트에 사용해요.',
+    ),
+  ).toBeTruthy();
   for (const label of ['집중 중 허용', '허용 앱', '다른 앱 위에 표시', '집중 상태 알림']) {
     expect(view.queryByText(label)).toBeNull();
   }
@@ -121,6 +128,12 @@ test.each(['ios', 'android'] as const)(
     await view.findByText('2 selected');
     expect(view.getByText('Phone use & app blocking')).toBeTruthy();
     expect(view.getByRole('switch', { name: 'Connect Screen Time' })).toBeTruthy();
+    expect(view.queryByText('Share usage time')).toBeNull();
+    expect(
+      view.getByText(
+        'Saving measured apps sends usage time and measurement status to the server for statistics and quests.',
+      ),
+    ).toBeTruthy();
     expect(view.getByText('App blocking during focus')).toBeTruthy();
     expect(view.queryByText(/[가-힣]/)).toBeNull();
     expect(view.queryByLabelText(/[가-힣]/)).toBeNull();

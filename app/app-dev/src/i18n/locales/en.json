@@ -165,7 +165,8 @@
       "measuredApps": {
         "title": "Measured apps",
         "a11y": "Measured apps, {{description}}",
-        "pick": "Pick measured apps"
+        "pick": "Pick measured apps",
+        "reporting": "Saving measured apps sends usage time and measurement status to the server for statistics and quests."
       },
       "allowed": {
         "section": "App blocking during focus",
@@ -224,7 +225,7 @@
         "loadFailed": "Couldn't load the installed apps.",
         "loading": "Loading apps…",
         "descAllowed": "Selected apps stay usable during focus. If you select none, no extra apps are allowed.",
-        "descMeasured": "Choose apps to track usage time. App blocking is configured separately. Your first selection applies immediately; changes apply at the next midnight in Korea.",
+        "descMeasured": "Choose apps to track usage time. Saving sends usage time and measurement status to the server for statistics and quests. Your first selection applies immediately; changes apply at the next midnight in Korea.",
         "allApps": "Measure all apps",
         "search": "Search apps",
         "select": "Select {{label}}",
@@ -257,9 +258,7 @@
     "generalSection": "General",
     "newsHelpSection": "News & Help",
     "termsAccountSection": "Terms & Account",
-    "usageSharing": "Share usage time",
-    "usageSharingSub": "Share usage time for statistics and quests",
-    "usageSharingError": "Could not share usage time. We’ll try again."
+    "usageSyncError": "Could not send usage time. We’ll try again."
   },
   "login": {
     "continue": {
@@ -1590,7 +1589,7 @@
     "title": "Phone usage and\nblocking during focus",
     "subtitle": "Set up both with one Screen Time permission.",
     "measurementTitle": "Choose apps to measure",
-    "measurementBody": "Track the time you spend in these apps.",
+    "measurementBody": "Send usage time and measurement status for these apps to the server for statistics and quests.",
     "allowedTitle": "Choose apps allowed during focus",
     "allowedBody": "Choose the apps you need while focusing.\nOther apps are blocked during focus.",
     "setup": "Set up",

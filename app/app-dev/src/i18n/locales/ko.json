@@ -165,7 +165,8 @@
       "measuredApps": {
         "title": "측정 앱",
         "a11y": "측정 앱, {{description}}",
-        "pick": "측정 앱 고르기"
+        "pick": "측정 앱 고르기",
+        "reporting": "측정 앱을 저장하면 사용 시간과 측정 상태를 서버에 보내 통계·퀘스트에 사용해요."
       },
       "allowed": {
         "section": "집중 중 앱 차단",
@@ -224,7 +225,7 @@
         "loadFailed": "설치된 앱 목록을 불러오지 못했어요.",
         "loading": "앱 목록을 불러오는 중이에요.",
         "descAllowed": "선택한 앱은 집중 중에도 사용할 수 있어요. 선택하지 않으면 추가 허용 앱이 없어요.",
-        "descMeasured": "사용 시간을 기록할 앱을 골라 주세요. 앱 차단 설정과는 별개예요. 최초 선택은 바로, 변경은 다음 날 한국 시각 자정부터 적용해요.",
+        "descMeasured": "사용 시간을 기록할 앱을 골라 주세요. 저장하면 사용 시간과 측정 상태를 서버에 보내 통계·퀘스트에 사용해요. 최초 선택은 바로, 변경은 다음 날 한국 시각 자정부터 적용해요.",
         "allApps": "전체 앱 측정",
         "search": "앱 검색",
         "select": "{{label}} 선택",
@@ -257,9 +258,7 @@
     "generalSection": "기본",
     "newsHelpSection": "소식·도움",
     "termsAccountSection": "약관·계정",
-    "usageSharing": "사용 시간 공유",
-    "usageSharingSub": "사용 시간만 공유해 통계·퀘스트에 사용해요",
-    "usageSharingError": "사용 시간을 공유하지 못했어요. 다시 시도할게요."
+    "usageSyncError": "사용 시간을 전송하지 못했어요. 다시 시도할게요."
   },
   "login": {
     "continue": {
@@ -1557,7 +1556,7 @@
     "title": "폰 사용 기록과\n집중 중 앱 차단",
     "subtitle": "스크린타임 권한 한 번으로 설정해요.",
     "measurementTitle": "측정할 앱 고르기",
-    "measurementBody": "고른 앱의 사용 시간을 기록해요.",
+    "measurementBody": "고른 앱의 사용 시간과 측정 상태를 서버에 보내 통계·퀘스트에 사용해요.",
     "allowedTitle": "집중 중 허용할 앱 고르기",
     "allowedBody": "집중할 때 꼭 필요한 앱만 골라요.\n나머지 앱은 집중 중 차단돼요.",
     "setup": "설정하기",

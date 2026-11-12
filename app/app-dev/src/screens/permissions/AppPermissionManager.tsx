@@ -15,7 +15,6 @@ import {
 import { useEffect, useState } from 'react';
 import { AppState, Platform } from 'react-native';
 import { SheetGroup, SheetRow, st } from '../island/IslandSheet';
-import { ScreenTimeSharingSettings } from '../island/ScreenTimeSharingSettings';
 import { Sheet } from '../shared/ScreenSheet';
 import { openScreenTimeSettings } from './screenTimeHelp';
 
@@ -217,8 +216,11 @@ export function AppPermissionManager({ e }: ScreenProps) {
           chevron
           onPress={openMeasuredApps}
         />
-        <ScreenTimeSharingSettings e={e} />
       </SheetGroup>
+      <Txt kind="meta">{t('settings.permissions.measuredApps.reporting')}</Txt>
+      {e.state.settings.screenTimeSyncError && (
+        <Txt kind="meta">{t('settings.usageSyncError')}</Txt>
+      )}
       {supportsFocusShield && (
         <>
           <Txt kind="section" style={st.sec}>

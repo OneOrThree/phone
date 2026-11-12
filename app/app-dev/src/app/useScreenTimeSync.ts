@@ -7,7 +7,8 @@ import { dayKey, type Action, type State } from '@/services/model';
 import { captureProductEvent } from '@/services/posthog';
 import { screenTime } from '@/services/screenTime';
 import { screenTimeNative } from '@/services/ScreenTimeModule';
-import { reportScreenTime, subscribeScreenTimeReporting } from '@/services/screenTimeReporting';
+import { reportScreenTime } from '@/services/screenTimeReporting';
+import { subscribeScreenTimeMeasurement } from '@/services/screenTimeEvents';
 import { useEffect, type Dispatch, type RefObject } from 'react';
 import { AppState, Platform } from 'react-native';
 interface MeasurementInput {
@@ -99,7 +100,7 @@ export function useScreenTimeSync({
       }
     };
     void syncPermission();
-    const unsubscribeReporting = subscribeScreenTimeReporting(() => void syncPermission());
+    const unsubscribeMeasurement = subscribeScreenTimeMeasurement(() => void syncPermission());
     let syncedDay = dayKey();
     const dayChangeTimer = setInterval(() => {
       const currentDay = dayKey();
@@ -119,7 +120,7 @@ export function useScreenTimeSync({
     return () => {
       active = false;
       request++;
-      unsubscribeReporting();
+      unsubscribeMeasurement();
       clearInterval(usageTimer);
       clearInterval(dayChangeTimer);
       subscription.remove();
