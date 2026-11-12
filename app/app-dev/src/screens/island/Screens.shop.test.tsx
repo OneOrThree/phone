@@ -207,6 +207,79 @@ test('꾸미기 카탈로그에 없는 상품(불러오는 중·실패)은 상�
   assert.equal(screen.queryByTestId('shop-art-cust.neck.bell'), null);
   assert.ok(screen.getByText('30마리'));
 });
+
+test('칸이 좁으면 꾸미기 그림은 칸 폭의 92% 를 넘지 않는다 — compact 한 줄 4칸에서 가로로 잘리지 않게(GROMO-2873)', async () => {
+  mockShopApi = { ...baseShopApi(), items: [bellItem] };
+  mockCatalog = { 'cust.neck.bell': bellEntry };
+  const screen = await render(<Harness route="shop" notify={jest.fn()} />);
+  const size = () => StyleSheet.flatten(screen.getByTestId('shop-art-cust.neck.bell').props.style);
+  // 폭을 재기 전에는 칸 높이 112 의 0.86 배
+  assert.equal(size().width, 96);
+  await fireEvent(screen.getByTestId('shop-art-box-cust.neck.bell'), 'layout', {
+    nativeEvent: { layout: { x: 0, y: 0, width: 60, height: 112 } },
+  });
+  assert.equal(size().width, 55);
+  assert.equal(size().height, 55);
+});
+
+test('섬·건물 테마 카드는 꾸미기 카탈로그와 상관없이 종류별 그림만 그린다(GROMO-2873)', async () => {
+  const theme = (id: string, kind: string, targetBuilding?: string) => ({
+    ...bellItem,
+    id,
+    title: id,
+    kind,
+    price: 300,
+    ownerType: 'island',
+    ...(targetBuilding ? { targetBuilding } : {}),
+  });
+  mockShopApi = {
+    ...baseShopApi(),
+    itemsCategory: 'island',
+    items: [
+      theme('soda-theme', 'island_theme'),
+      theme('strawberry-roof', 'building_theme', 'hall'),
+    ],
+  };
+  // 같은 id 가 카탈로그 표에 있어도 테마 카드는 상품 그림을 쓰지 않는다
+  mockCatalog = {
+    'soda-theme': { ...bellEntry, productId: 'soda-theme' },
+    'strawberry-roof': { ...bellEntry, productId: 'strawberry-roof' },
+  };
+  const screen = await render(<Harness route="shop" notify={jest.fn()} />);
+  assert.equal(screen.queryByTestId('shop-art-soda-theme'), null);
+  assert.equal(screen.queryByTestId('shop-art-strawberry-roof'), null);
+  assert.equal(screen.getAllByText('300마리').length, 2);
+});
+
+test('집중 보상 머리·목(catFit)은 대표 영역만 잘라 칸 높이 안에 그린다(GROMO-2873)', async () => {
+  mockShopApi = { ...baseShopApi(), items: [bellItem] };
+  mockCatalog = {
+    'cust.neck.bell': {
+      ...bellEntry,
+      catFit: {
+        width: 1254,
+        height: 1254,
+        crop: [406, 406, 839, 913],
+        colors: ['black'],
+        motions: { walk: 6, focus: 4, reel: 4 },
+        stills: [],
+        rigUrls: { black: 'https://api.test/static/customization/rigs/neck.22a4cc24.json' },
+        neck: {
+          style: 'pendant',
+          front: [406, 406, 839, 913],
+          commonBand: {
+            url: 'https://api.test/static/customization/neck/common-band.1acc2be4.png',
+            box: [82, 392, 1693, 493],
+          },
+        },
+      },
+    },
+  };
+  const screen = await render(<Harness route="shop" notify={jest.fn()} />);
+  const crop = StyleSheet.flatten(screen.getByTestId('shop-art-cust.neck.bell').props.style);
+  assert.ok(crop.height <= 96 && crop.width <= 96, `잘린 그림 ${crop.width}×${crop.height}`);
+  assert.ok(crop.height > 90, '세로가 긴 목걸이는 높이 기준값에 맞춘다');
+});
 test('서버 불통(CLIENT_NETWORK_ERROR) 구매 실패는 사용자에게 실패 문구를 보여준다', async () => {
   mockShopApi.buy = jest.fn(() =>
     Promise.reject(
