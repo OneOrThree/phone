@@ -1438,7 +1438,7 @@ test('목업 친구 화면에서는 안전 API 더보기를 숨기되 기존 친
   assert.ok(exposed.actions.includes('FRIEND_DELETE'));
 });
 
-test('서버에서 받은 친구 요청의 더보기는 신고 없이 차단만 제공한다', async () => {
+test('서버에서 받은 친구 요청의 더보기는 신고와 차단을 제공한다', async () => {
   const friendsScreen = {
     data: {
       friends: [],
@@ -1469,7 +1469,7 @@ test('서버에서 받은 친구 요청의 더보기는 신고 없이 차단만 
 
   await fireEvent.press(screen.getByLabelText('반복요청자 더보기'));
 
-  assert.equal(screen.queryByText('신고하기'), null);
+  assert.ok(screen.getByText('신고하기'));
   assert.ok(screen.getByText('차단하기'));
   assert.equal(screen.queryByText('친구 삭제'), null);
 });
@@ -3149,34 +3149,21 @@ test.each([true, false] as const)(
 );
 
 for (const serverMode of [false, true]) {
-  test(`신고센터는 일반 설정 행에서 바로 메일을 연다 — 서버 모드 ${serverMode}`, async () => {
+  test(`신고센터는 메일 없이 앱 작성 화면을 연다 — 서버 모드 ${serverMode}`, async () => {
     const open = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined);
     const ui = await render(
       <Harness route="settings" full {...(serverMode ? { api: () => ({}) } : {})} />,
     );
     await fireEvent.press(ui.getByText('신고센터'));
-    assert.equal(open.mock.calls.length, 1);
-    const url = open.mock.calls[0][0];
-    assert.ok(url.startsWith('mailto:nappaegonoljima@gmail.com?'));
-    assert.ok(decodeURIComponent(url).includes('상대 닉네임·섬 이름:'));
-    assert.ok(decodeURIComponent(url).includes('캡처가 있다면 이 메일에 첨부해 주세요.'));
-    assert.equal(ui.queryByText('이메일 작성'), null);
+    assert.equal(open.mock.calls.length, 0);
+    assert.ok(ui.getByText('신고 사유'));
+    assert.ok(ui.getByText('상황 설명'));
+    expect(ui.getByRole('button', { name: '신고 접수하기' })).toBeDisabled();
+    await fireEvent.press(within(ui.getByTestId('report-dialog')).getByLabelText('닫기'));
+    expect(ui.queryByText('신고 사유')).toBeNull();
     open.mockRestore();
   });
 }
-
-test('메일 앱 열기에 실패하면 수신 주소가 있는 안내를 보여주고 접수 완료를 표시하지 않는다', async () => {
-  const open = jest.spyOn(Linking, 'openURL').mockRejectedValue(new Error('no mail'));
-  let exposed: any;
-  const ui = await render(<Harness route="settings" full expose={(e: any) => (exposed = e)} />);
-  await fireEvent.press(ui.getByText('신고센터'));
-  await waitFor(() => expect(exposed.confirm).toHaveBeenCalled());
-  assert.ok(exposed.confirm.mock.calls[0][1].includes('메일 앱을 열지 못했어요'));
-  assert.ok(exposed.confirm.mock.calls[0][1].includes('nappaegonoljima@gmail.com'));
-  assert.equal(notifyMock.mock.calls.length, 0);
-  assert.ok(exposed);
-  open.mockRestore();
-});
 
 test('OS 모션 줄이기가 켜져 있어도 설정 토글은 저장값을 보이고 눌러서 바꿀 수 있다 (GROMO-2159)', async () => {
   const ui = await render(<Harness route="settings" full osReduceMotion />);
@@ -3203,15 +3190,15 @@ test('문의하기는 신고센터 아래 행에서 한국어면 오픈채팅을
   open.mockRestore();
 });
 
-test('영어 설정에서도 신고센터가 영어 작성 안내가 담긴 메일을 연다', async () => {
+test('영어 설정에서도 신고센터가 앱 작성 화면을 연다', async () => {
   applyLocalePref('en');
   const open = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined);
   const ui = await render(<Harness route="settings" full localePref="en" />);
   await fireEvent.press(ui.getByText('Report center'));
-  assert.ok(
-    decodeURIComponent(open.mock.calls[0][0]).includes('subject=[Focus Cat report] Report center'),
-  );
-  assert.ok(decodeURIComponent(open.mock.calls[0][0]).includes('What happened:'));
+  assert.equal(open.mock.calls.length, 0);
+  assert.ok(ui.getByText('Reason'));
+  assert.ok(ui.getByText('What happened?'));
+  assert.ok(ui.getByText('Submit report'));
   open.mockRestore();
 });
 

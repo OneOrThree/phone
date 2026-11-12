@@ -81,9 +81,19 @@ export function ReportSheet({ visible, target, onClose }: Props) {
   };
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={close}>
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      accessibilityLabel={t(receipt ? 'report.received' : 'report.title')}
+      onRequestClose={close}
+    >
       <Overlay close={close} adjustForKeyboard>
-        <View accessibilityViewIsModal style={{ gap: componentTokens.modal.gap }}>
+        <View
+          testID="report-dialog"
+          accessibilityViewIsModal
+          style={{ gap: componentTokens.modal.gap }}
+        >
           <View
             style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}
           >
