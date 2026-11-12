@@ -55,7 +55,7 @@ class ContentEnvironmentTest {
         when(jdbc.queryForObject(anyString(), eq(String.class))).thenReturn("gromo.environment=prod");
         var controller = new InternalContentAdminController(mock(DeveloperNoticeService.class),
                 mock(ContentHistoryService.class), mock(MagazineReviewService.class),
-                mock(com.oneorthree.phone.internal.service.ConstructionPolicyAdminService.class), environment, jdbc);
+                mock(com.oneorthree.phone.internal.service.ConstructionPolicyAdminService.class), environment, jdbc, org.mockito.Mockito.mock(com.oneorthree.phone.report.service.ReportService.class));
 
         org.assertj.core.api.Assertions.assertThat(controller.environment().get("environment")).isEqualTo("prod");
         when(jdbc.queryForObject(anyString(), eq(String.class))).thenReturn("gromo.environment=dev");
@@ -72,7 +72,7 @@ class ContentEnvironmentTest {
         var request = mock(HttpServletRequest.class);
         when(request.getHeader("X-Backoffice-Environment")).thenReturn("dev");
         var controller = new InternalContentAdminController(mock(DeveloperNoticeService.class), history,
-                mock(MagazineReviewService.class), mock(com.oneorthree.phone.internal.service.ConstructionPolicyAdminService.class), environment, jdbc);
+                mock(MagazineReviewService.class), mock(com.oneorthree.phone.internal.service.ConstructionPolicyAdminService.class), environment, jdbc, org.mockito.Mockito.mock(com.oneorthree.phone.report.service.ReportService.class));
 
         assertThatThrownBy(() -> controller.noticeHistory(null, 50, request))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("요청 환경");
@@ -88,7 +88,7 @@ class ContentEnvironmentTest {
         var notices = mock(DeveloperNoticeService.class);
         var controller = new InternalContentAdminController(notices, mock(ContentHistoryService.class), mock(MagazineReviewService.class),
                 mock(com.oneorthree.phone.internal.service.ConstructionPolicyAdminService.class),
-                environment, jdbc);
+                environment, jdbc, org.mockito.Mockito.mock(com.oneorthree.phone.report.service.ReportService.class));
 
         assertThatThrownBy(() -> controller.publishNotice(UUID.randomUUID(), null, null))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("DB 환경");
@@ -106,7 +106,7 @@ class ContentEnvironmentTest {
         when(request.getHeader("X-Backoffice-Environment")).thenReturn("prod");
         var controller = new InternalContentAdminController(notices, mock(ContentHistoryService.class), mock(MagazineReviewService.class),
                 mock(com.oneorthree.phone.internal.service.ConstructionPolicyAdminService.class),
-                environment, jdbc);
+                environment, jdbc, org.mockito.Mockito.mock(com.oneorthree.phone.report.service.ReportService.class));
 
         assertThatThrownBy(() -> controller.publishNotice(UUID.randomUUID(), null, request))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("요청 환경");
@@ -120,7 +120,7 @@ class ContentEnvironmentTest {
         when(jdbc.queryForList(anyString(), eq(String.class))).thenReturn(List.of("prod"));
         var policies = mock(com.oneorthree.phone.internal.service.ConstructionPolicyAdminService.class);
         var controller = new InternalContentAdminController(mock(DeveloperNoticeService.class),
-                mock(ContentHistoryService.class), mock(MagazineReviewService.class), policies, environment, jdbc);
+                mock(ContentHistoryService.class), mock(MagazineReviewService.class), policies, environment, jdbc, org.mockito.Mockito.mock(com.oneorthree.phone.report.service.ReportService.class));
         assertThatThrownBy(() -> controller.applyConstructionPolicy(UUID.randomUUID(), null, null))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("DB 환경");
         verifyNoInteractions(policies);
@@ -135,7 +135,7 @@ class ContentEnvironmentTest {
         when(jdbc.queryForList(anyString(), eq(String.class))).thenReturn(List.of("prod"));
         var controller = new InternalContentAdminController(mock(DeveloperNoticeService.class),
                 mock(ContentHistoryService.class), mock(MagazineReviewService.class),
-                mock(com.oneorthree.phone.internal.service.ConstructionPolicyAdminService.class), environment, jdbc);
+                mock(com.oneorthree.phone.internal.service.ConstructionPolicyAdminService.class), environment, jdbc, org.mockito.Mockito.mock(com.oneorthree.phone.report.service.ReportService.class));
         var http = org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(controller).build();
         http.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get(
                         "/internal/admin/content/environment"))
@@ -190,7 +190,7 @@ class ContentEnvironmentTest {
         when(jdbc.queryForObject(anyString(), eq(Boolean.class))).thenReturn(historyTable);
         return new InternalContentAdminController(mock(DeveloperNoticeService.class),
                 mock(ContentHistoryService.class), mock(MagazineReviewService.class),
-                mock(com.oneorthree.phone.internal.service.ConstructionPolicyAdminService.class), environment, jdbc);
+                mock(com.oneorthree.phone.internal.service.ConstructionPolicyAdminService.class), environment, jdbc, org.mockito.Mockito.mock(com.oneorthree.phone.report.service.ReportService.class));
     }
 
     @Test
@@ -300,7 +300,7 @@ class ContentEnvironmentTest {
                 eq(String.class))).thenReturn(List.of("dev"));
         var controller = new InternalContentAdminController(mock(DeveloperNoticeService.class),
                 mock(ContentHistoryService.class), mock(MagazineReviewService.class),
-                mock(com.oneorthree.phone.internal.service.ConstructionPolicyAdminService.class), environment, jdbc);
+                mock(com.oneorthree.phone.internal.service.ConstructionPolicyAdminService.class), environment, jdbc, org.mockito.Mockito.mock(com.oneorthree.phone.report.service.ReportService.class));
 
         assertThatThrownBy(controller::environment).isInstanceOf(IllegalStateException.class);
         verify(jdbc, never()).queryForList(argThat(sql -> sql != null && sql.contains("flyway_schema_history")),

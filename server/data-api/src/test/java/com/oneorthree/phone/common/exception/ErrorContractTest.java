@@ -1,5 +1,7 @@
 package com.oneorthree.phone.common.exception;
 
+import com.oneorthree.phone.report.exception.ReportErrorCode;
+import com.oneorthree.phone.report.exception.ReportException;
 import com.oneorthree.phone.content.exception.ContentErrorCode;
 import com.oneorthree.phone.content.exception.ContentException;
 
@@ -94,6 +96,7 @@ class ErrorContractTest {
             Map.entry(MagazineErrorCode.class, c -> new MagazineException((MagazineErrorCode) c)),
             Map.entry(OutboxErrorCode.class, c -> new OutboxException((OutboxErrorCode) c)),
             Map.entry(QuestErrorCode.class, c -> new QuestException((QuestErrorCode) c)),
+            Map.entry(ReportErrorCode.class, c -> new ReportException((ReportErrorCode) c)),
             Map.entry(ShopErrorCode.class, c -> new ShopException((ShopErrorCode) c)),
             Map.entry(StatsErrorCode.class, c -> new StatsException((StatsErrorCode) c)),
             Map.entry(UserErrorCode.class, c -> new UserException((UserErrorCode) c)),
