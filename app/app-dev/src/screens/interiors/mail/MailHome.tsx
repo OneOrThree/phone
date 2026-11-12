@@ -1116,6 +1116,13 @@ export function MailHome({ concept, height, reduceMotion, showToast, e }: Artifa
             visible
             targetUserId={letterSafetyTarget.friendId}
             targetName={letterSafetyTarget.from}
+            reportTarget={{
+              targetType: 'LETTER',
+              targetId: letterSafetyTarget.id,
+              targetUserId: letterSafetyTarget.friendId,
+              label: letterSafetyTarget.from,
+              submittedText: letterSafetyTarget.body,
+            }}
             onClose={() => setLetterSafetyTarget(null)}
             onChanged={() => {
               back('inbox');

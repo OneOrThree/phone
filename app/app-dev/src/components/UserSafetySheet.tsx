@@ -10,7 +10,8 @@ import {
 } from 'react-native';
 import { Btn, C, NavBtn, Txt } from '@/design-system/patterns';
 import { componentTokens, semanticTokens } from '@/design-system/tokens';
-import { blockUser } from '@/services/api/safety';
+import { blockUser, type ReportTarget } from '@/services/api/safety';
+import { ReportSheet } from '@/components/ReportSheet';
 import { errorTextOr, t } from '@/i18n';
 import { isUserBlocked, markUserBlocked, revalidateBlockedUsers } from '@/services/blockedUsers';
 import { useAppLayout } from '@/utils/layout';
@@ -20,6 +21,7 @@ type Props = {
   targetUserId: string;
   targetName: string;
   initialMode?: 'menu' | 'block';
+  reportTarget?: ReportTarget;
   onClose: () => void;
   onChanged?: () => void;
   onMessage: (message: string) => void;
@@ -29,7 +31,7 @@ type Props = {
 export function UserSafetySheet(props: Props) {
   const layout = useAppLayout();
   const centered = layout.tablet || layout.compact;
-  const [mode, setMode] = useState<'menu' | 'block'>(props.initialMode ?? 'menu');
+  const [mode, setMode] = useState<'menu' | 'block' | 'report'>(props.initialMode ?? 'menu');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -78,6 +80,23 @@ export function UserSafetySheet(props: Props) {
   const close = () => {
     if (!busy) props.onClose();
   };
+
+  if (mode === 'report') {
+    return (
+      <ReportSheet
+        visible={props.visible}
+        onClose={props.onClose}
+        target={
+          props.reportTarget ?? {
+            targetType: 'USER',
+            targetId: props.targetUserId,
+            targetUserId: props.targetUserId,
+            label: props.targetName,
+          }
+        }
+      />
+    );
+  }
 
   return (
     <Modal transparent visible={props.visible} animationType="fade" onRequestClose={close}>
@@ -145,6 +164,7 @@ export function UserSafetySheet(props: Props) {
             >
               {mode === 'menu' ? (
                 <View style={{ gap: semanticTokens.spacing.control }}>
+                  <Btn kind="sec" title={t('report.title')} onPress={() => setMode('report')} />
                   <Btn kind="sec" title={t('safety.blockTitle')} onPress={() => setMode('block')} />
                   {props.extraAction ? (
                     <Btn

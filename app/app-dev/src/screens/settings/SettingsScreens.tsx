@@ -1,3 +1,4 @@
+import { ReportSheet } from '@/components/ReportSheet';
 import { PRIVACY_URL, TERMS_URL, openPolicy } from '@/constants/legal';
 import { Btn, Field, Pic, Toggle, Txt } from '@/design-system/patterns';
 import { semanticTokens } from '@/design-system/tokens';
@@ -25,7 +26,7 @@ import {
 import { ScreenTimeSharingSettings } from '@/screens/island/ScreenTimeSharingSettings';
 import { updateProfile, withdrawAccount } from '@/services/api/account';
 import { ApiError, uuid } from '@/services/api/client';
-import { REPORT_EMAIL_RECIPIENT, openFeedback, openReportCenter } from '@/services/api/safety';
+import { REPORT_EMAIL_RECIPIENT, openFeedback } from '@/services/api/safety';
 import { getSession, sessionGeneration } from '@/services/api/session';
 import { isHost, mainIsland } from '@/services/model';
 import { type PushPermission, pushPermissionStatus, requestPushPermission } from '@/services/push';
@@ -461,20 +462,7 @@ export function renderSettingsScreens(context: ScreenContext) {
               onPress={() => go('blockedUsers')}
             />
           )}
-          <SheetRow
-            title={t('settings.report.title')}
-            sub={t('settings.report.sub')}
-            chevron
-            onPress={() => {
-              openReportCenter().catch(() =>
-                confirm(
-                  t('settings.report.title'),
-                  t('settings.report.openFailed', { email: REPORT_EMAIL_RECIPIENT }),
-                  () => {},
-                ),
-              );
-            }}
-          />
+          <ReportCenterRow />
           <SheetRow
             title={t('settings.feedback.title')}
             sub={t('settings.feedback.sub')}
@@ -576,4 +564,19 @@ export function renderSettingsScreens(context: ScreenContext) {
       </IslandSheet>
     );
   }
+}
+
+function ReportCenterRow() {
+  const [visible, setVisible] = useState(false);
+  return (
+    <>
+      <SheetRow
+        title={t('settings.report.title')}
+        sub={t('report.centerSub')}
+        chevron
+        onPress={() => setVisible(true)}
+      />
+      {visible ? <ReportSheet visible onClose={() => setVisible(false)} /> : null}
+    </>
+  );
 }

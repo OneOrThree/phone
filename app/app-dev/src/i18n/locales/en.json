@@ -2358,5 +2358,29 @@
     "start": "Start building",
     "close": "Close blueprint",
     "priceChanged": "The construction cost has changed. Check the amount and try again."
+  },
+  "report": {
+    "title": "Report",
+    "received": "Report received",
+    "receivedBody": "Our team will review your report. Reporting does not automatically block this user.",
+    "receipt": "Report ID: {{id}}",
+    "privacy": "The reported target and your description are sent to our team to keep the service safe. Do not include passwords or verification codes.",
+    "reason": "Reason",
+    "details": "What happened?",
+    "placeholder": "Tell us who or what you are reporting and where it happened.",
+    "submit": "Submit report",
+    "centerSub": "Send a report to our team",
+    "deletedMessage": "This message has been deleted.",
+    "userActions": "Report or block {{name}}",
+    "reasons": {
+      "HARASSMENT": "Harassment or abuse",
+      "HATE": "Hate or discrimination",
+      "SPAM_FRAUD": "Spam or fraud",
+      "SEXUAL": "Sexual content",
+      "CHILD_SAFETY": "Child safety",
+      "THREAT": "Threats or violence",
+      "PRIVACY_IMPERSONATION": "Privacy or impersonation",
+      "OTHER": "Other"
+    }
   }
 }
