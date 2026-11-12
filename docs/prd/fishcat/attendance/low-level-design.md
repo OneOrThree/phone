@@ -6,12 +6,11 @@
 
 | 서비스 | 경로 | 내용 |
 | --- | --- | --- |
-| Data | `server/data-api/src/main/resources/db/v0/V16__attendance.sql` (신설) | §3 테이블 6개와 기본 표 시드 |
+| Data | `server/data-api/src/main/resources/db/v0/V16__attendance.sql` (신설) | §3 테이블 5개와 기본 표 시드 |
 | Data | `server/data-api/src/main/java/com/oneorthree/phone/attendance/` (신설) | 도메인 L8: `repository/domain/` 엔티티, `repository/` 리포지토리, `support/` 순수 규칙, `exception/AttendanceErrorCode` |
 | Data | `server/data-api/src/main/java/com/oneorthree/phone/internal/` (신설 파일) | `InternalAttendanceController`(사용자), `InternalAttendanceAdminController`(운영자), `service/AttendanceClaimService`·`AttendanceReadService`·`AttendanceScheduleAdminService`·`AttendanceStatsService` |
 | Data | `server/data-api/src/main/java/com/oneorthree/phone/construction/repository/domain/IslandWalletTransactionType.java` | `ATTENDANCE(true)` 추가 |
 | Data | `server/data-api/src/main/java/com/oneorthree/phone/construction/service/IslandWalletService.java` | `creditAttendance` 추가(§6) |
-| Data | `server/data-api/src/main/java/com/oneorthree/phone/withdrawal/service/AccountWithdrawalService.java` | 출석 3표 삭제 한 줄(§12) |
 | Data | `server/data-api/src/main/java/com/oneorthree/phone/config/InternalAuthFilter.java` | 운영자 경로 접두사 `/internal/admin/attendance/` |
 | Data | `server/data-api/src/main/resources/application-satellites.yml` | business·console-member-1~3 allowlist(§5) |
 | Data | `server/data-api/src/main/java/com/oneorthree/phone/internal/InternalContentAdminController.java` | capability `attendance.schedule.v1`·`attendance.stats.v1` |
@@ -19,7 +18,7 @@
 | Business | `server/business-api/src/main/java/com/oneorthree/business/usecase/AttendanceUseCase.java` (신설) | Data 호출, 이미지 URL 조립 |
 | Business | `server/business-api/src/main/java/com/oneorthree/business/upstream/data/DataAttendanceClient.java` (신설) | `/internal/users/{userId}/attendance/**` |
 | Business | `server/business-api/src/main/java/com/oneorthree/business/common/api/ApiErrorCode.java` | 출석 오류 3개 등록(§4). 등록하지 않으면 공개 응답이 502 가 된다 |
-| 백오피스 | `backoffice/server/attendance.mjs`·`local-attendance.mjs` (신설) | 2인 흐름 store, 로컬 모드 흉내 |
+| 백오피스 | `backoffice/server/attendance.mjs`·`local-attendance.mjs` (신설) | 초안·발행 상태 store(§10.1), 로컬 모드 흉내 |
 | 백오피스 | `backoffice/server/upstream.mjs`·`app.mjs`·`contract.json` | 호출·라우트·필수 capability |
 | 백오피스 | `backoffice/src/AttendanceRewards.tsx`·`AttendanceStats.tsx` (신설), `backoffice/src/App.tsx` | 화면 두 개, 사이드바 |
 | 앱 | `app/app-dev/src/services/api/attendance.ts`·`services/attendance.ts` (신설) | API 호출, 기기 기억, 출석판 상태 저장소와 `useAttendanceBoard()`(§11) |
@@ -28,13 +27,13 @@
 | 앱 | `app/app-dev/src/screens/letter/useDeveloperLetter.ts`·`useForceUpdateLetter.ts` | 조회 완료 `settled` 를 함께 돌려준다(§11.2) |
 | 문서 | `docs/conventions/backend-layering.md` §4, `server/data-api/docs/db/schema.dbml`, `CONTEXT.md` | 층 표에 `attendance`, 스키마, 용어 「출석」·「출석판」 |
 
-`server/business-api/src/main/java/com/oneorthree/business/common/api/PublicApiRoutes.java` 는 이미 `/me/**` 를 성공 봉투로 감싸므로 바꾸지 않는다.
+`server/business-api/src/main/java/com/oneorthree/business/common/api/PublicApiRoutes.java` 는 이미 `/me/**` 를 성공 봉투로 감싸므로 바꾸지 않는다. `server/data-api/src/main/java/com/oneorthree/phone/withdrawal/service/AccountWithdrawalService.java` 도 바꾸지 않는다. 출석 기록은 탈퇴 뒤에도 남는다(정책 AT16, §12).
 
 ## 2. 도메인 배치와 층
 
 - `attendance` 를 **L8** 에 둔다(`docs/conventions/backend-layering.md` §4 표와 `server/data-api/src/test/java/com/oneorthree/phone/architecture/DomainLayerRulesTest.java` 의 `LAYERS` 에 함께 추가). 잡지(`magazine`, L8)처럼 엔티티·리포지토리·순수 규칙만 둔다.
 - `attendance` 가 아래로 참조하는 것: `ranking`(L4)의 `RankingWeek`, `user`(L0). 섬 통장(`construction`, L6)·보유품(`appearance`, L7)·멤버십(`group`, L5)을 함께 쓰는 조합은 L10 `internal` 의 서비스가 한다.
-- 탈퇴(`withdrawal`, L9)가 `attendance`(L8) 리포지토리를 부른다. 아래 방향이라 허용된다.
+- 탈퇴(`withdrawal`, L9)는 `attendance` 를 부르지 않는다. 출석 기록은 탈퇴 뒤에도 남는다(정책 AT16).
 
 `support/` 의 순수 규칙:
 
@@ -52,41 +51,20 @@
 ```sql
 -- 출석 보상 (GROMO-2855). 정책 docs/prd/fishcat/attendance/policy.md.
 
--- 백오피스 승인 영수증. 꾸미기 추첨 풀(V12)과 같은 모양이다.
-CREATE TABLE attendance_schedule_approvals (
-    approval_id uuid PRIMARY KEY,
-    scope varchar(10) NOT NULL CHECK (scope IN ('DEFAULT', 'WEEK')),
-    week_start date,
-    expected_revision integer NOT NULL CHECK (expected_revision >= 0),
-    slots jsonb NOT NULL,                 -- 승인 때 정한 7칸 정규형(§8.3)
-    approved_digest char(64) NOT NULL,
-    request_digest char(64) NOT NULL,
-    approved_by varchar(30) NOT NULL,
-    approved_at timestamptz NOT NULL DEFAULT now(),
-    revoked_at timestamptz,
-    revoked_by varchar(30),
-    CONSTRAINT attendance_approval_scope_ck CHECK ((scope = 'DEFAULT') = (week_start IS NULL)),
-    CONSTRAINT attendance_approval_revocation_ck CHECK ((revoked_at IS NULL) = (revoked_by IS NULL))
-);
-
 -- 발행된 표 개정. 고치지 않고 새 행만 더한다. 발행 ID 가 곧 개정 ID 다.
+-- 운영자 한 명이 발행한다(정책 AT13). 승인 테이블은 없다.
 CREATE TABLE attendance_schedule_revisions (
-    revision_id uuid PRIMARY KEY,
+    revision_id uuid PRIMARY KEY,         -- = 백오피스 publicationId
     scope varchar(10) NOT NULL CHECK (scope IN ('DEFAULT', 'WEEK')),
     week_start date,                      -- WEEK 만. UTC 일요일
     revision integer NOT NULL CHECK (revision >= 1),
-    approval_id uuid UNIQUE REFERENCES attendance_schedule_approvals(approval_id),
-    digest char(64),
-    approved_by varchar(30),
+    digest char(64),                      -- §8.3. 같은 발행 ID 재요청의 본문 대조에도 쓴다
     published_by varchar(30) NOT NULL,
     published_at timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT attendance_revision_scope_ck CHECK ((scope = 'DEFAULT') = (week_start IS NULL)),
     CONSTRAINT attendance_revision_sunday_ck CHECK (week_start IS NULL OR EXTRACT(ISODOW FROM week_start) = 7),
-    -- 시드 행만 승인 없이 있다
-    CONSTRAINT attendance_revision_seed_ck CHECK (
-        (approval_id IS NULL AND digest IS NULL AND approved_by IS NULL AND published_by = 'migration')
-        OR (approval_id IS NOT NULL AND digest IS NOT NULL AND approved_by IS NOT NULL
-            AND approved_by <> published_by))
+    -- 마이그레이션 시드 행만 다이제스트 없이 있다
+    CONSTRAINT attendance_revision_seed_ck CHECK ((published_by = 'migration') = (digest IS NULL))
 );
 CREATE UNIQUE INDEX uq_attendance_revision_default ON attendance_schedule_revisions (revision)
     WHERE scope = 'DEFAULT';
@@ -162,7 +140,7 @@ FROM (VALUES (1, 10), (2, 10), (3, 15), (4, 15), (5, 20), (6, 20), (7, 30)) AS v
 ```
 
 - 시드 행의 UUID 는 고정 값이다. 같은 마이그레이션을 dev·운영에 돌려도 같은 행이 생긴다.
-- 운영자 이름 열(`approved_by`·`published_by`)에는 `member-1`~`member-3` 같은 콘솔 actor 만 들어간다. 사용자 개인정보는 없다.
+- 운영자 이름 열 `published_by` 에는 `member-1`~`member-3` 같은 콘솔 actor 만 들어간다. 사용자 개인정보는 없다.
 - 섬 통장 원장(`island_wallet_transactions.type`)은 varchar(40) 이고 CHECK 가 없어 새 사유에 마이그레이션이 필요 없다.
 
 V16 과 함께 바꿀 고정값 자리(2026-11-09 꾸미기 지급 배치에서 확인한 목록):
@@ -171,9 +149,9 @@ V16 과 함께 바꿀 고정값 자리(2026-11-09 꾸미기 지급 배치에서 
 | --- | --- |
 | `server/data-api/docs/db/test-deploy-v0.py` | 마이그레이션 체인에 V16 |
 | `server/data-api/src/test/java/com/oneorthree/phone/common/db/DeploymentMigrationMainTest.java` | 체인, 실행 건수 |
-| `server/data-api/src/test/java/com/oneorthree/phone/db/V0BaselineMigrationTest.java` | 체인, public 테이블 수(+6) |
+| `server/data-api/src/test/java/com/oneorthree/phone/db/V0BaselineMigrationTest.java` | 체인, public 테이블 수(+5) |
 | `server/data-api/src/test/java/com/oneorthree/phone/db/V0DefaultSeedTest.java` | 체인, 기본 표 시드 행 |
-| `server/data-api/docs/db/schema.dbml` | 테이블 6개. 고친 뒤 `server/data-api/docs/db/verify-schema-dbml.sh` 로 V0 체인과 대조한다(`server/data-api/CLAUDE.md` 「Database changes」) |
+| `server/data-api/docs/db/schema.dbml` | 테이블 5개. 고친 뒤 `server/data-api/docs/db/verify-schema-dbml.sh` 로 V0 체인과 대조한다(`server/data-api/CLAUDE.md` 「Database changes」) |
 | `.github/scripts/apidog-merge.py` `DOMAINS` | 새 컨트롤러 태그(Data 2개, Business 1개) |
 | `server/data-api/src/test/java/com/oneorthree/phone/internal/ContentEnvironmentTest.java` | capability 목록 |
 
@@ -261,8 +239,6 @@ Business 의 `GlobalExceptionHandler.registeredUpstream` 은 Data 오류 코드�
 | `POST /internal/users/{userId}/attendance/views` | business | `AttendanceReadService.recordView` |
 | `GET /internal/admin/attendance/schedules` | console | `AttendanceScheduleAdminService.overview` |
 | `GET /internal/admin/attendance/schedules/history?scope=&week=&limit=` | console | `…history` |
-| `POST /internal/admin/attendance/schedules/approvals/{approvalId}` | console | `…approve` |
-| `DELETE /internal/admin/attendance/schedules/approvals/{approvalId}` | console | `…revoke` |
 | `PUT /internal/admin/attendance/schedules/publications/{publicationId}` | console | `…publish` |
 | `GET /internal/admin/attendance/stats?from=&to=` | console | `AttendanceStatsService.stats` |
 
@@ -276,8 +252,6 @@ Business 의 `GlobalExceptionHandler.registeredUpstream` 은 Data 오류 코드�
 # console-member-1 · console-member-2 · console-member-3 의 allow 세 곳 모두
 - 'GET /internal/admin/attendance/schedules'
 - 'GET /internal/admin/attendance/schedules/history'
-- 'POST /internal/admin/attendance/schedules/approvals/*'
-- 'DELETE /internal/admin/attendance/schedules/approvals/*'
 - 'PUT /internal/admin/attendance/schedules/publications/*'
 - 'GET /internal/admin/attendance/stats'
 ```
@@ -286,7 +260,7 @@ Business 의 `GlobalExceptionHandler.registeredUpstream` 은 Data 오류 코드�
 
 ## 6. 청구 원자 명령
 
-`AttendanceClaimService.claim(userId, idempotencyKey)` 는 `@Transactional` 하나 안에서 `PublicCommandService.run` 을 부른다. `run` 이 같은 키의 영수증을 먼저 재생하므로, 날짜·횟수 검사는 새 명령일 때만 돈다(정책 AT04). 영수증(`command_idempotency`)에는 만료가 없고 탈퇴 때 `forgetReceiptsOf` 가 지운다. 그래서 자정을 넘긴 재시도도 처음 결과를 받는다.
+`AttendanceClaimService.claim(userId, idempotencyKey)` 는 `@Transactional` 하나 안에서 `PublicCommandService.run` 을 부른다. `run` 이 같은 키의 영수증을 먼저 재생하므로, 날짜·횟수 검사는 새 명령일 때만 돈다(정책 AT04). 영수증(`command_idempotency`)에는 만료가 없고 탈퇴 때 기존 공통 경로 `forgetReceiptsOf` 가 지운다(출석이 탈퇴 경로에 더하는 변경은 아니다, §12). 그래서 자정을 넘긴 재시도도 처음 결과를 받는다.
 
 - 명령 이름: `POST:/me/attendance/claims:<userId>`. 지문: 빈 객체(본문이 없다).
 - 활성 주체 검사: 탈퇴하지 않은 계정. 재생 권한 검사: 같은 사용자.
@@ -308,7 +282,7 @@ Business 의 `GlobalExceptionHandler.registeredUpstream` 은 Data 오류 코드�
 9. 쓰기. 보관 행이 출석 행을 외래 키로 가리키므로 출석 행을 먼저 넣는다.
    1. 출석 행(보상 사본·결과·`island_id`).
    2. `HELD` 면 보관 행 하나(`claim_id` = 방금 출석). 현재 섬이 있고 `released > 0` 이면 열린 보관 행에 `released_claim_id` = 방금 출석, `released_at` = now.
-   3. 현재 섬이 있고 `total = todayFish + released` 가 0 보다 크면 `IslandWalletService.creditAttendance(islandId, total, "attendance:<userId>:<today>")`. 지갑은 마지막에 잠근다. `total = 0`(섬 없이 보관만 했거나, 꾸미기만 받고 보관분도 없는 날)이면 원장 행을 쓰지 않는다. 원장의 `ATTENDANCE` 행 합계가 곧 섬에 들어간 출석 물고기라 감시(정책 ATQ05)에 0원 행이 섞이지 않는다.
+   3. 현재 섬이 있고 `total = todayFish + released` 가 0 보다 크면 `IslandWalletService.creditAttendance(islandId, total, "attendance:<userId>:<today>")`. 지갑은 마지막에 잠근다. `total = 0`(섬 없이 보관만 했거나, 꾸미기만 받고 보관분도 없는 날)이면 원장 행을 쓰지 않는다. 원장의 `ATTENDANCE` 행 합계가 곧 섬에 들어간 출석 물고기이고, 통계 `fishCredited`(§9)와 같은 사건을 센다. 0원 행은 섞이지 않는다.
    4. 그날 노출 행이 없으면 넣는다(`INSERT … ON CONFLICT DO NOTHING`, 정책 AT15).
 10. 이벤트: 적립했으면 `IslandWalletEvents.changed(islandId, userId, "ATTENDANCE_REWARD")`, 꾸미기를 넣었으면 `AppearanceEvents.inventoryChanged("user", userId, userId, productId)`. 둘 다 같은 트랜잭션의 outbox 행이다.
 11. 결과(§4 응답 모양)를 `PublicCommandResult(201, data, events)` 로 돌려준다. 적립했으면 `creditAttendance` 가 돌려준 잔액과 10 의 `IslandWalletEvents.changed` 봉투 `version` 을 `wallet` 에 담는다.
@@ -333,7 +307,7 @@ Business 의 `GlobalExceptionHandler.registeredUpstream` 은 Data 오류 코드�
 - `heldFish` = 열린 보관 행의 합, `viewedToday` = 오늘 노출 행 존재, `attendedToday` = 오늘 출석 행 존재. 출석하면 그날 노출도 기록되므로 `attendedToday=true` 이면 `viewedToday=true` 다.
 - 받지 않은 `ITEM` 칸에는 `alreadyOwned`(이미 가진 상품이면 `true`)를 싣는다. 앱은 이 값이 참이면 칸 아래에 「이미 가진 꾸미기 — 받으면 물고기 {n}마리」를 보여 준다. 청구 순간 판정(§6 의 7)이 정본이고 이 값은 미리 보기다.
 
-`recordView(userId)` 의 날짜는 청구와 같은 `Clock` 에서 낸 UTC 날짜다. DB 의 `CURRENT_DATE` 는 세션 시간대에 따라 날이 갈리므로 쓰지 않는다. `recordView(userId)` 는 쓰기 트랜잭션에서 `UserQueryService.getCallerForShare(userId)` 로 활성 사용자를 공유 잠금한 뒤 `INSERT INTO attendance_views … ON CONFLICT DO NOTHING` 을 한다. 영향 행 수로 `first` 를 정한다. 공유 잠금이 탈퇴의 배타 잠금과 부딪혀, 탈퇴가 지운 노출 행을 늦게 도착한 요청이 다시 만들지 못한다. 잡지 열람 기록(`MagazineIssueService.receive`)과 같은 방식이다.
+`recordView(userId)` 의 날짜는 청구와 같은 `Clock` 에서 낸 UTC 날짜다. DB 의 `CURRENT_DATE` 는 세션 시간대에 따라 날이 갈리므로 쓰지 않는다. `recordView(userId)` 는 쓰기 트랜잭션에서 `UserQueryService.getCallerForShare(userId)` 로 활성 사용자를 공유 잠금한 뒤 `INSERT INTO attendance_views … ON CONFLICT DO NOTHING` 을 한다. 영향 행 수로 `first` 를 정한다. 목적은 탈퇴한 계정이 노출·출석을 새로 기록하지 못하게 하는 것이다. 공유 잠금이 탈퇴의 배타 잠금과 차례로 서므로, 탈퇴가 먼저 끝났으면 활성 사용자를 찾지 못해 거절하고, 탈퇴가 뒤면 방금 넣은 노출 행도 남는다(정책 AT16). 청구는 같은 목적으로 `getCallerForUpdate` 를 쓴다(§6 의 1). 활성 사용자 확인은 잡지 열람 기록(`MagazineIssueService.receive`)과 같은 방식이다.
 
 ## 8. 표 관리
 
@@ -356,31 +330,31 @@ Business 의 `GlobalExceptionHandler.registeredUpstream` 은 Data 오류 코드�
 - `effective` 는 그 주에 청구하면 쓰이는 표(`WEEK` 또는 `DEFAULT`)다. `expectedRevision` 은 `published.revision`(없으면 0)이다.
 - 꾸미기 고르기 목록은 기존 `GET /internal/admin/customization/items` 를 그대로 쓴다. 그 응답의 `displayable` 이 `CustomizationCatalogService.catalog()` 포함 여부다.
 
-### 8.2 승인·취소·발행
+### 8.2 발행
 
-`CustomizationRewardPoolAdminService` 의 `approve`·`revoke`·`publish` 와 같은 모양이다. 오류는 같은 서비스처럼 `ResponseStatusException` 으로 상태와 문장을 낸다.
+승인 단계 없이 운영자 한 명의 발행 한 번으로 끝난다(정책 AT13). 승인·취소 경로는 없다. 오류는 `CustomizationRewardPoolAdminService` 처럼 `ResponseStatusException` 으로 상태와 문장을 낸다.
 
-| 단계 | 요청 본문 | 검사 | 실패 |
+| 단계 | 요청 본문 | 검사(이 순서) | 실패 |
 | --- | --- | --- | --- |
-| 승인 `POST …/approvals/{approvalId}` | `scope`, `weekStart`, `expectedRevision`, `slots`(7), `approvedDigest` | 칸 모양(§3 CHECK 와 같은 규칙), 꾸미기 상품 카탈로그 조건, 대상 주가 이번 주·다음 주(`WEEK` 만), 다이제스트 재계산 일치, `expectedRevision` = 현재 개정 | 400 형식·상품, 409 주·개정·다이제스트, 같은 ID 다른 내용 409 |
-| 취소 `DELETE …/approvals/{approvalId}` | 없음 | 발행에 쓰이지 않은 승인. 성공은 204(본문 없음), 추첨 풀 취소와 같다 | 404 없음, 409 이미 발행 |
-| 발행 `PUT …/publications/{publicationId}` | `approvalId`, `scope`, `weekStart`, `expectedRevision`, `slots`, `approvedDigest` | 승인 존재·미취소·미사용, 본문 = 승인 스냅샷, `actor ≠ approved_by`, 꾸미기 상품 다시 검사, 대상 주가 아직 이번 주·다음 주(`WEEK` 만), `expectedRevision` = 현재 개정 | 400 상품, 409 나머지. 같은 발행 ID 재요청은 처음 결과 |
+| 발행 `PUT …/publications/{publicationId}` | `scope`, `weekStart`, `expectedRevision`, `slots`(7), `digest` | ① 같은 `publicationId` 의 개정 행이 이미 있으면 본문 대조만 한다. `scope`·`weekStart`·`expectedRevision`(저장된 `revision - 1`)·재계산 다이제스트(저장된 `digest`)가 같으면 처음 응답, 다르면 409. 이 경우 ②~⑤ 는 보지 않는다 ② 칸 모양(§3 CHECK 와 같은 규칙)·수량 1~100·꾸미기 상품 카탈로그 조건 ③ 대상 주가 이번 주·다음 주(`WEEK` 만) ④ `expectedRevision` = 현재 개정 ⑤ 다이제스트 재계산 일치 | 400 형식·수량·상품, 409 주·개정·다이제스트·같은 ID 다른 본문 |
 
-응답 모양. BFF 의 `matches`(§10.1)가 승인 응답을 요청과 대조한다.
+- ① 을 맨 앞에 두는 이유: 첫 발행이 성공하고 응답만 잃었다면 현재 개정이 이미 하나 올라가 있다. ④ 를 먼저 보면 재요청이 409 가 된다. 대상 주가 지난 뒤의 재요청도 같은 이유로 처음 응답을 받는다.
+- 재요청 대조에 따로 영수증 테이블을 두지 않는다. 발행 ID 가 개정 ID 이고, 다이제스트가 7칸 전체를 덮으므로 개정 행만으로 대조할 수 있다.
+- 다시 보내는 운영자가 처음 운영자와 달라도 결과는 같다. `published_by` 는 처음 발행한 운영자로 남는다.
+- 409 `expectedRevision` 불일치는 다른 운영자가 같은 대상을 먼저 발행했다는 뜻이다. 백오피스는 새 개정을 다시 읽어 보여 준다.
+
+응답 모양.
 
 ```jsonc
-// 승인 200 — 같은 approvalId·같은 본문 재요청도 같은 응답
-{ "approvalId": "…", "scope": "WEEK", "weekStart": "2026-11-15", "expectedRevision": 0,
-  "slots": [ /* §8.3 정규형의 slots */ ], "approvedDigest": "…", "approvedBy": "member-2", "approvedAt": "…" }
-// 발행 200 — 같은 publicationId 재요청도 같은 응답
+// 발행 200 — 같은 publicationId·같은 본문 재요청도 같은 응답
 { "publicationId": "…", "revisionId": "…", "scope": "WEEK", "weekStart": "2026-11-15", "revision": 1,
-  "approvedBy": "member-2", "publishedBy": "member-1", "publishedAt": "…" }
+  "digest": "…", "publishedBy": "member-1", "publishedAt": "…" }
 // 이력 GET …/history?scope=WEEK&week=2026-11-15&limit=20 — 최신 개정부터
-{ "items": [ { "revision": 1, "revisionId": "…", "approvedBy": "member-2", "publishedBy": "member-1",
+{ "items": [ { "revision": 1, "revisionId": "…", "publishedBy": "member-1",
                "publishedAt": "…", "slots": [ … ] } ] }
 ```
 
-발행은 `pg_advisory_xact_lock('backoffice:attendance-schedule')` 안에서 `revision = 현재 + 1` 행과 칸 7행을 넣는다. 발행 ID 가 개정 ID 다.
+발행은 `pg_advisory_xact_lock('backoffice:attendance-schedule')` 안에서 ① 을 확인하고 `revision = 현재 + 1` 행과 칸 7행을 넣는다. 같은 대상을 두 운영자가 동시에 발행하면 이 잠금에서 차례로 서고, 뒤의 요청은 ④ 에서 409 다. 발행 ID 가 개정 ID 다.
 
 ### 8.3 정규형과 다이제스트
 
@@ -394,7 +368,7 @@ BFF 와 Data 가 같은 문자열을 만든다. 키 순서는 아래 그대로, 
 
 어긋나기 쉬운 곳:
 
-- Data 는 BFF 가 보낸 문자열을 쓰지 않는다. 받은 7칸을 검증한 뒤 위 순서로 직접 다시 조립해 다이제스트를 계산하고 `approvedDigest` 와 비교한다. 입력 JSON 의 키 순서에 기대지 않는다.
+- Data 는 BFF 가 보낸 문자열을 쓰지 않는다. 받은 7칸을 검증한 뒤 위 순서로 직접 다시 조립해 다이제스트를 계산하고 요청의 `digest` 와 비교한다. 입력 JSON 의 키 순서에 기대지 않는다.
 - 칸은 `slot` 오름차순 7개다. 중복·누락이면 다이제스트 계산 전에 400 이다.
 - 숫자는 정수 리터럴(`10`, `10.0` 아님)이다. `null` 은 생략하지 않고 `null` 로 쓴다.
 - `productId` 는 카탈로그 ID 형식(ASCII)이라 이스케이프가 생기지 않는다. `/` 도 이스케이프하지 않는다. BFF 는 `JSON.stringify`, Data 는 Jackson 기본 설정이다.
@@ -420,7 +394,7 @@ BFF 와 Data 가 같은 문자열을 만든다. 키 순서는 아래 그대로, 
 | 주별 | `slotClaims[0..6]` | `slotClaims[k-1]` = 그 주 k 칸 출석 행 수 |
 | 주별 | `returnRate` | 지난 주 출석자 중 이번 주에도 출석한 비율 |
 | 지급 | `fishCredited` | `today_fish`(`CREDITED`) 합 + `released_hold_fish` 합 |
-| 지급 | `fishHeldOpen` | 조회 시점의 열린 보관 행 합(기간과 무관). 개인 잔액 지표가 아니다(정책 AT08) |
+| 지급 | `fishHeldOpen` | 조회 시점의 열린 보관 행 합(기간과 무관). 탈퇴 계정(`users.is_deleted = true`)의 행은 뺀다(정책 AT16). 개인 잔액 지표가 아니다(정책 AT08) |
 | 지급 | `fallbacks` | `item_outcome` 이 `ALREADY_OWNED`·`UNAVAILABLE` 인 행 수와 물고기 합 |
 | 지급 | `itemsGranted[]` | `GRANTED` 상품별 건수, 상품 이름 |
 
@@ -432,7 +406,9 @@ BFF 와 Data 가 같은 문자열을 만든다. 키 순서는 아래 그대로, 
 - `returnRate` 는 그 주와 바로 앞 주를 본다. 앞 주가 기간 밖이어도 센다. 앞 주 출석자가 0 이면 `null`.
 - `conversion`·`returnRate` 는 0~1 소수(소수점 넷째 자리 반올림)다. 화면이 % 로 바꾼다.
 - `firstDayAttendees` 는 `(u.created_at AT TIME ZONE 'UTC')::date = claimed_on` 으로 센다. `claimed_on`·`viewed_on` 은 이미 date 다.
-- 주는 UTC 일요일 시작이다. 탈퇴한 계정의 행은 지워져 있어 집계에서 빠진다(정책 AT16). 그래서 통계의 지급 합계는 섬 통장 원장의 `ATTENDANCE` 합계보다 작을 수 있다. 원장은 탈퇴 뒤에도 남는다. 화면에 이 차이를 적는다.
+- 주는 UTC 일요일 시작이다.
+- 탈퇴한 계정의 출석·노출 행도 남아 있어 집계에 들어간다(정책 AT16). 참여 현황 숫자는 탈퇴로 줄지 않는다. 탈퇴 계정을 빼는 값은 `fishHeldOpen` 하나다.
+- `fishCredited` 와 섬 통장 원장의 `ATTENDANCE` 합계는 같은 사건을 센다. 출석 한 번의 원장 금액이 그 출석 행의 `today_fish`(`CREDITED`)와 `released_hold_fish` 의 합이다(§6 의 9). 보관분은 보관한 날이 아니라 섬 통장에 적립된 날의 출석 행과 원장에 들어간다.
 - `fallbacks` 의 물고기는 `fishCredited`(또는 보관)의 일부다. 더하면 두 번 센다.
 - 응답에는 사용자 식별자를 싣지 않는다.
 
@@ -455,30 +431,31 @@ BFF 와 Data 가 같은 문자열을 만든다. 키 순서는 아래 그대로, 
 
 ### 10.1 BFF
 
-- `backoffice/server/attendance.mjs`: `AttendanceScheduleStore extends ApprovalWorkflowStore`. cfg 는 `reward-pool.mjs` 를 따른다.
+- `backoffice/server/attendance.mjs`: `AttendanceScheduleStore`. 초안·발행 상태만 가진 store 다. 꾸미기 추첨 풀의 `ApprovalWorkflowStore`(2인 흐름)를 쓰지 않는다(정책 AT13). 나중에 2인 승인으로 되돌리려면 `ApprovalWorkflowStore` 로 옮긴다.
+- 상태는 `draft` → `publishing` → `published` | `failed` | `uncertain` 이고, 대상 주가 지난 초안은 `expired` 다.
 
-```js
-{ prefix: "attendance_schedule", noun: "출석 보상 표", verb: "발행", run: "publishing", done: "published",
-  idName: "publicationId", resume: false,
-  content: item => normalizeSchedule(item),          // { scope, weekStart, slots[7] } 정규형(§8.3)
-  digest: content => scheduleDigest(content),
-  request: (item, approvalId, content, digest) => ({ approvalId, scope: content.scope,
-    weekStart: content.weekStart, expectedRevision: item.expectedRevision, slots: content.slots,
-    approvedDigest: digest }),
-  matches: (approval, request) => /* 승인 응답의 approvalId·expectedRevision·digest·slots 가 요청과 같다 */ }
-```
+| 상태 | 뜻 | 다음 |
+| --- | --- | --- |
+| `draft` | 편집 중. 7칸과 `expectedRevision` 을 갖는다 | 「발행」 확인 → `publishing` |
+| `publishing` | 「발행」 확인 때 `publicationId` 를 만들어 이 상태와 함께 SQLite 에 먼저 저장했다. 그 뒤 Data 를 부른다 | 200 → `published`, 400·409 → `failed`, 응답 유실·5xx·BFF 재시작 → `uncertain` |
+| `published` | Data 응답의 `revision`·`revisionId` 를 저장했다 | 끝 |
+| `failed` | Data 가 거절했다. 사유를 저장한다 | 고치면 `draft`. 다음 「발행」은 새 `publicationId` 를 만든다 |
+| `uncertain` | 발행 여부를 모른다 | 「다시 보내기」: 같은 `publicationId`·같은 본문으로 다시 부른다. 누가 눌러도 된다. 결과에 따라 `published` 나 `failed` |
+| `expired` | 조회 때 `weekStart` 가 이번 주보다 이르다(정책 AT11) | 끝. 같은 대상의 새 초안을 만들 수 있다 |
 
-- 초안은 (`scope`, `weekStart`)마다 한 번에 하나만 열려 있다. 열린 초안(편집·검토·승인·발행 중)이 있으면 같은 대상의 새 초안을 만들지 않는다. 발행됐거나 `expired` 가 된 뒤에 새 초안을 만든다.
+- 요청 본문은 `{ scope, weekStart, expectedRevision, slots, digest }` 다. `slots`·`digest` 는 §8.3 정규형과 같은 함수(`normalizeSchedule`·`scheduleDigest`)로 만든다. 다시 보낼 때는 저장한 본문을 그대로 쓴다.
+- 「발행」을 누르면 BFF 가 `GET …/schedules` 를 다시 읽어 그 대상에 지금 적용 중인 표(`effective`)와 초안을 칸마다 견준 확인 창 자료를 돌려준다. 주간 표가 없는 주는 기본 표와 견준다. 확인해야 `publishing` 으로 간다.
+- 초안은 (`scope`, `weekStart`)마다 한 번에 하나만 열려 있다. 열린 초안(`draft`·`publishing`·`failed`·`uncertain`)이 있으면 같은 대상의 새 초안을 만들지 않는다. `published` 나 `expired` 가 된 뒤에 새 초안을 만든다.
+- `uncertain` 은 대상 주가 지나도 `expired` 로 바꾸지 않는다. 다시 보내면 첫 발행이 됐을 때 처음 응답(§8.2 ①)을 받아 `published` 가 되고, 안 됐을 때 409(대상 주)로 `failed` 가 된 뒤 `expired` 로 보인다.
 - `expectedRevision` 은 0 을 허용한다(아직 주간 표가 없는 주). 추첨 풀의 `expected()` 는 0 을 거절하므로 그대로 복사하지 않는다.
-- 대상 주가 지난 초안(정책 AT11·AT13): BFF 는 조회 때 `weekStart` 가 이번 주보다 이르면 그 초안을 `expired` 로 보이고 편집·승인·발행 버튼을 끈다. 처음 운영자가 아니어도 누구나 「새 초안」으로 다음 주 표를 만들 수 있다. 쓰이지 않은 Data 승인 영수증은 남겨 둔다. 발행이 주 검사로 거절되므로 해가 없다.
-- `upstream.mjs`: `attendanceSchedules`·`attendanceHistory`·`approveAttendance`·`revokeAttendanceApproval`·`publishAttendance`·`attendanceStats`. 로컬 모드는 `local-attendance.mjs` 가 §8 규칙을 흉내 낸다(`local-customization.mjs` 와 같은 방식).
+- `upstream.mjs`: `attendanceSchedules`·`attendanceHistory`·`publishAttendance`·`attendanceStats`. 로컬 모드는 `local-attendance.mjs` 가 §8 규칙을 흉내 낸다(`local-customization.mjs` 와 같은 방식).
 - `contract.json` 의 `data` 목록에 `attendance.schedule.v1`·`attendance.stats.v1`.
-- `app.mjs` 라우트: `GET /api/attendance/schedules`, 초안 저장·검토 요청·승인·철회·발행(추첨 풀 라우트와 같은 이름 규칙), `GET /api/attendance/stats`.
+- `app.mjs` 라우트: `GET /api/attendance/schedules`, 초안 만들기·저장, 확인 창 자료, 발행, 다시 보내기(추첨 풀 라우트와 같은 이름 규칙), `GET /api/attendance/stats`.
 
 ### 10.2 화면
 
-- `AttendanceRewards.tsx`: 탭 「이번 주」·「다음 주」·「기본 표」와 읽기 전용 「지난 주」(`GET …/schedules/history?scope=WEEK&week=<지난 주 시작일>`). 각 탭에 지금 적용되는 표(`effective`)와 개정 번호를 보이고, 7칸 편집기에서 칸마다 종류·수량·꾸미기(썸네일은 `CustomizationShared.tsx` 의 `Thumb`)·대체 물고기를 고른다. 아래에 승인 대기·발행 이력.
-- `AttendanceStats.tsx`: 기간 선택(기본 최근 14일), 일별 표, 주별 분포·칸별 수령 표(진행 중인 주 표시), 지급 합계(대체 물고기는 지급 합계의 일부, 원장 합계와 차이가 날 수 있음을 함께 적는다). 머리에 「UTC 기준 — 하루는 한국 오전 9시, 주는 한국 일요일 오전 9시에 시작」.
+- `AttendanceRewards.tsx`: 탭 「이번 주」·「다음 주」·「기본 표」와 읽기 전용 「지난 주」(`GET …/schedules/history?scope=WEEK&week=<지난 주 시작일>`). 각 탭에 지금 적용되는 표(`effective`)와 개정 번호를 보이고, 7칸 편집기에서 칸마다 종류·수량·꾸미기(썸네일은 `CustomizationShared.tsx` 의 `Thumb`)·대체 물고기를 고른다. 아래에 「발행」 버튼과 발행 이력(누가 언제 발행했는지와 7칸)을 둔다. 「발행」을 누르면 확인 창이 지금 적용 중인 표와 바뀌는 칸의 전후를 보여 주고, 확인하면 발행한다. 「승인 대기」 영역은 없다. `uncertain` 이면 「결과 확인 필요」와 「다시 보내기」 버튼을, `failed` 면 Data 가 준 사유를 보인다.
+- `AttendanceStats.tsx`: 기간 선택(기본 최근 14일), 일별 표, 주별 분포·칸별 수령 표(진행 중인 주 표시), 지급 합계(대체 물고기는 지급 합계의 일부이고, 「보관 중」은 탈퇴 계정을 뺀 값임을 함께 적는다). 머리에 「UTC 기준 — 하루는 한국 오전 9시, 주는 한국 일요일 오전 9시에 시작」.
 - `App.tsx`: 사이드바 버튼 두 개, `panel` 값 `'attendance' | 'attendanceStats'`, props `{ session, onDirtyChange, onUnauthorized }`.
 
 ## 11. 앱
@@ -515,8 +492,10 @@ BFF 와 Data 가 같은 문자열을 만든다. 키 순서는 아래 그대로, 
 
 ## 12. 탈퇴·개인정보·관측
 
-- `AccountWithdrawalService.withdraw` 는 사용자 행을 먼저 배타 잠금한다. 그 뒤 개인 기록을 지우는 줄들 사이에 `attendanceErasure.eraseWithdrawnUser(userId)` 를 넣는다. 지우는 순서는 `attendance_fish_holds` → `attendance_claims` → `attendance_views` 다(외래 키 방향).
-- 섬 통장에 이미 들어간 물고기와 원장 행은 그대로 남는다. 다중 계정 감시는 원장의 `ATTENDANCE` 행으로 한다(정책 ATQ05).
+- 탈퇴 경로(`AccountWithdrawalService`)에 출석 관련 변경은 없다. 출석 기록·노출 기록·보관 행을 지우지 않는다(정책 AT16). 출석 기록은 사용자 ID·날짜·칸·보상만 갖고 개인정보가 없다. 탈퇴 계정의 `users` 행도 PII 만 지우고 남는다(`AccountWithdrawalService.withdraw` Javadoc 「행을 지우지 않고 PII 를 파기한 뒤 비활성 표시」). 그래서 출석 3표의 외래 키 `users(id)` 는 탈퇴 뒤에도 유효하다.
+- 열린 보관 행도 지우지 않는다. 쓸 사람이 없으므로 통계 `fishHeldOpen` 에서 `users.is_deleted = true` 인 계정을 뺀다(§9).
+- 탈퇴한 계정은 노출·출석을 새로 기록하지 못한다. 청구는 `getCallerForUpdate`(§6 의 1), 노출은 `getCallerForShare`(§7)가 활성 사용자만 통과시킨다. 청구와 탈퇴는 사용자 행에서 차례로 선다. 탈퇴가 먼저면 청구가 거절되고, 탈퇴가 뒤면 방금 만든 기록도 남는다.
+- 섬 통장에 이미 들어간 물고기와 원장 행도 그대로 남는다.
 - 로그: 청구 한 번에 `attendance_claim slot=<n> item_outcome=<GRANTED|ALREADY_OWNED|UNAVAILABLE|-> fish_delivery=<CREDITED|HELD|NONE> released=<m>` 한 줄, 거절이면 `attendance_claim_rejected code=<오류 코드>`. HLD 「관측」의 지급·보관·대체·거절은 각각 `CREDITED`·`GRANTED`, `HELD`, `ALREADY_OWNED`·`UNAVAILABLE`, `attendance_claim_rejected` 다. 사용자 ID 외 개인정보는 남기지 않는다.
 - 게스트: `AccessTokenFilter` 에는 게스트를 가르는 분기가 없고 출석 서비스도 `users.is_guest` 를 보지 않는다(정책 AT14). 게스트가 소셜 계정으로 올라가면 같은 사용자 행을 승격하므로(`AuthService.java:298` `setGuest(false)`) 출석·보관 기록이 이어진다.
 
@@ -528,10 +507,10 @@ BFF 와 Data 가 같은 문자열을 만든다. 키 순서는 아래 그대로, 
 | --- | --- |
 | Data 청구 | 같은 날 다른 키 두 번 → 두 번째 409. 같은 키 재생 → 같은 응답, 원장 행 1개. 두 스레드 동시 청구 → 하나만 성공. UTC 토요일 23:59:59Z 와 일요일 00:00Z 의 주가 다름. 같은 키 재시도가 자정을 넘겨도 처음 결과 |
 | Data 보상 | 섬 없음 → `HELD`, 섬 없음 + 새 꾸미기 → `NONE`, 섬 가입 뒤 다음 날 꾸미기 칸 → 보유품 + 보관분 적립. `render_data` 만 있는 보상 꾸미기 칸의 이미지 경로가 비지 않음. 이미 가짐 → 대체. 은퇴·카탈로그 밖 → `UNAVAILABLE` 대체. 청구 중 강퇴(섬 잠금 뒤 재확인 실패) → 보관 |
-| Data 표 | 주간 표 없음 → 기본 표. 승인자 = 발행자 → 409. 승인 뒤 상품 은퇴 → 발행 400. 다음 주 표를 승인하고 주가 바뀐 뒤 발행 → 이번 주 표로 발행됨. 이번 주 표를 승인하고 주가 바뀐 뒤 발행 → 409 |
-| Data 기타 | 탈퇴 → 출석 3표 행 0. 탈퇴와 노출 기록이 겹쳐도 탈퇴 뒤 노출 행이 남지 않음. 통계 픽스처의 일별·주별·지급 값과 불변식(`attendees ≤ viewers`, `slotClaims[k-1] = distribution[k-1..6]` 합), 기간이 주 중간에서 잘린 경우. `InternalCustomizationRewardPoolAllowlistTest` 처럼 allowlist 시험 |
+| Data 표 | 주간 표 없음 → 기본 표. 운영자 한 명이 발행 → 새 개정(승인 없이). 은퇴·표시 불가 상품, 수량 0·101 → 400. `expectedRevision` 이 현재 개정과 다름(다른 운영자가 먼저 발행) → 409. 다이제스트 불일치 → 409. 같은 `publicationId`·같은 본문 재요청 → 처음 응답, 개정 행 1개(첫 발행으로 현재 개정이 올라간 뒤여도, 다른 운영자가 보내도). 같은 `publicationId`·다른 본문 → 409. 두 운영자가 같은 대상을 동시에 발행 → 하나만 성공. 다음 주 표 초안을 만들고 주가 바뀐 뒤 발행 → 이번 주 표로 발행됨. 이번 주 표 초안을 만들고 주가 바뀐 뒤 발행 → 409. 시드가 아닌 `digest` NULL 행은 CHECK 가 거절 |
+| Data 기타 | 탈퇴 뒤에도 출석·노출·보관 행이 남고 `fishHeldOpen` 에서만 빠진다(나머지 통계 값은 탈퇴 전과 같다). 탈퇴가 먼저 끝난 뒤의 청구·노출 기록은 거절되어 새 행이 없다. 기간의 `fishCredited` = 같은 기간 원장 `ATTENDANCE` 합계. 통계 픽스처의 일별·주별·지급 값과 불변식(`attendees ≤ viewers`, `slotClaims[k-1] = distribution[k-1..6]` 합), 기간이 주 중간에서 잘린 경우. `InternalCustomizationRewardPoolAllowlistTest` 처럼 allowlist 시험 |
 | Business | 응답 JSON 모양, `imageUrl` 조립, Data 오류 3개가 502 가 아니라 같은 코드·상태·`retryable`(409 둘 `false`, 503 `true`)로 나감(`ApiErrorCode` 등록) |
-| 백오피스 | 2인 흐름(`approval-workflow.mjs` 공통 시험), `contract.json` 시험, 다이제스트가 Data 와 같은 값(§8.3 예시 고정) |
+| 백오피스 | 상태 전이(§10.1 표), 「발행」 때 `publicationId` 를 Data 호출 전에 저장, 응답 유실 뒤 같은 `publicationId`·같은 본문 재전송(다른 운영자도), 고친 뒤 발행은 새 `publicationId`, 한 대상에 열린 초안 하나, 확인 창의 바뀌는 칸 전후, `contract.json` 시험, 다이제스트가 Data 와 같은 값(§8.3 예시 고정) |
 | 앱 | 자동 열림 세 조건, 편지 조회가 늦게 끝나도 출석판이 먼저 열리지 않음, 꾸미기 지급 뒤 `addUnseenOutfits` 호출과 `getMyInventory()` 재조회, 섬 목록을 불러오기 전 응답의 잔액이 버려진 뒤 다음 조회가 채움, 노출 실패 뒤 같은 기기에서 다시 안 열림, 청구 응답 `wallet` 으로 잔액 갱신(재생과 겹쳐도 한 번), 404 숨김, 409 다시 읽기, 503 같은 키 재시도 |
 
 ## 14. 배포 순서와 구현 티켓
@@ -548,7 +527,7 @@ BFF 와 Data 가 같은 문자열을 만든다. 키 순서는 아래 그대로, 
 
 | 후보 | 범위 | 선행 |
 | --- | --- | --- |
-| Data | §1~§3·§5~§9·§12 의 Data 부분, 고정값 자리, `backend-layering.md`, `schema.dbml`, `CONTEXT.md` 용어 | 없음 |
+| Data | §1~§3·§5~§9·§12 의 Data 부분(탈퇴 경로는 바꾸지 않는다), 고정값 자리, `backend-layering.md`, `schema.dbml`, `CONTEXT.md` 용어 | 없음 |
 | Business | §4(`ApiErrorCode` 등록 포함)와 계약 시험 | Data |
 | 백오피스 | §10 과 시험, README 절 | Data 운영 배포 |
 | 앱 | §11 과 시험 | Business 운영 배포 |

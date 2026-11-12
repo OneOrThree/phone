@@ -105,5 +105,5 @@ Git·PR 은 `git-pr-conventions.md`, 지라는 `jira-conventions.md`(분류) + `
 
 ## 신규 설계
 
-- [출석 보상](prd/fishcat/attendance/README.md) — PRD·정책·HLD·LLD. 주간 7칸 누적 출석, 보상은 섬 통장 물고기 또는 꾸미기, 백오피스에서 표 편집·2인 발행·참여 현황. 구현 전(에픽 GROMO-2855).
+- [출석 보상](prd/fishcat/attendance/README.md) — PRD·정책·HLD·LLD. 주간 7칸 누적 출석, 보상은 섬 통장 물고기 또는 꾸미기, 백오피스에서 표 편집·1인 발행·참여 현황. 구현 전(에픽 GROMO-2855).
 - [이미지 CDN·기기 캐시](prd/fishcat/image-cdn/README.md) — PRD·수명 정책·HLD·LLD·Jira 실행 계획. dev CDN 은 있고(`image-assets` 수동 발행), 운영 CDN 은 없다([파이프라인 지도](engineering/pipeline-map.md)).
