@@ -177,6 +177,13 @@ export class Store {
         mins.every((v) => typeof v === "string" && /^\d{1,9}\.\d{1,9}\.\d{1,9}$/.test(v)),
         "최소 버전은 숫자.숫자.숫자 형식이어야 합니다.",
       );
+      // 형식을 통과한 최소 버전으로 정한다. Data 의 대상 결정 규칙과 같다.
+      const derived = mins.length === 2 ? "ALL" : item.minIosVersion ? "IOS" : item.minAndroidVersion ? "ANDROID" : null;
+      requireValue(
+        [undefined, "ALL", "IOS", "ANDROID"].includes(item.targetPlatform) &&
+          (!force || item.targetPlatform === undefined || item.targetPlatform === derived),
+        "공지 대상 플랫폼이 최소 버전과 맞지 않습니다.",
+      );
     }
     if (item.kind === "magazine") {
       const snapshot = item.data.snapshot;
@@ -202,7 +209,7 @@ export class Store {
     const fields = Object.fromEntries(
       [
         "title", "body", "targets", "data", "issueDate", "startsAt", "endsAt",
-        "noticeType", "minIosVersion", "minAndroidVersion",
+        "noticeType", "targetPlatform", "minIosVersion", "minAndroidVersion",
       ]
         .filter((k) => Object.hasOwn(input, k))
         .map((k) => [k, input[k]]),
