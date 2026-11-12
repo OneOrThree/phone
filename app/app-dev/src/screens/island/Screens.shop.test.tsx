@@ -6,6 +6,7 @@ import type { Route } from '@/services/model';
  */
 import { RedesignScreens } from '@/screens/island/Screens';
 import { ApiError } from '@/services/api/client';
+import type { CatalogEntry } from '@/services/customizationCatalog';
 import { initialState, reducer } from '@/services/model';
 import { act, fireEvent, render } from '@testing-library/react-native';
 import assert from 'node:assert/strict';
@@ -30,6 +31,13 @@ jest.mock('react-native-safe-area-context', () => ({
 let mockShopApi: any;
 jest.mock('@/screens/island/useShop', () => ({
   useShop: () => mockShopApi,
+}));
+
+// 상점 카드의 꾸미기 그림(GROMO-2873) — 서버 꾸미기 카탈로그 표만 바꿔 끼운다
+let mockCatalog: Record<string, CatalogEntry> = {};
+jest.mock('@/services/customizationCatalog', () => ({
+  ...jest.requireActual('@/services/customizationCatalog'),
+  useCustomizationCatalog: () => mockCatalog,
 }));
 
 const baseShopApi = () => ({
@@ -155,6 +163,49 @@ function Harness({ route, detail, notify }: { route: Route; detail?: string; not
 
 beforeEach(() => {
   mockShopApi = baseShopApi();
+  mockCatalog = {};
+});
+
+// 서버 상점 목록의 꾸미기 한 칸(kind 는 서버 값 neck → 카드에선 「내 꾸미기」)
+const bellItem = {
+  id: 'cust.neck.bell',
+  title: '버터 방울 목걸이',
+  kind: 'neck',
+  price: 30,
+  currency: 'village_points',
+  ownerType: 'user',
+  owned: false,
+  available: true,
+  reason: null,
+  productVersion: 1,
+};
+const bellEntry: CatalogEntry = {
+  productId: 'cust.neck.bell',
+  kind: 'neck',
+  slot: 'neck',
+  title: '버터 방울 목걸이',
+  imageUrl: 'https://api.test/static/customization/neck/bell.c1750340.png',
+  width: 512,
+  height: 512,
+  anchorX: 0.5,
+  anchorY: 0.5,
+  sortOrder: 10,
+  retiredAt: null,
+};
+
+test('상점 꾸미기 카드는 꾸미기 카탈로그에 있는 상품이면 그 상품 그림을 그린다(GROMO-2873)', async () => {
+  mockShopApi = { ...baseShopApi(), items: [bellItem] };
+  mockCatalog = { 'cust.neck.bell': bellEntry };
+  const screen = await render(<Harness route="shop" notify={jest.fn()} />);
+  const art = screen.getByTestId('shop-art-cust.neck.bell');
+  assert.deepEqual(art.props.source, { uri: bellEntry.imageUrl });
+});
+
+test('꾸미기 카탈로그에 없는 상품(불러오는 중·실패)은 상품 그림 없이 기본 그림으로 칸을 그린다(GROMO-2873)', async () => {
+  mockShopApi = { ...baseShopApi(), items: [bellItem] };
+  const screen = await render(<Harness route="shop" notify={jest.fn()} />);
+  assert.equal(screen.queryByTestId('shop-art-cust.neck.bell'), null);
+  assert.ok(screen.getByText('30마리'));
 });
 test('서버 불통(CLIENT_NETWORK_ERROR) 구매 실패는 사용자에게 실패 문구를 보여준다', async () => {
   mockShopApi.buy = jest.fn(() =>
