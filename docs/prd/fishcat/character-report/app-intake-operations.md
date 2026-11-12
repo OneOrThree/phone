@@ -5,6 +5,7 @@
 ## 접수 계약
 
 - `POST /reports`: 로그인 세션의 사용자(게스트 포함)가 `requestId` UUID, `targetType`, `targetId`, 선택 `targetUserId`, `reason`, `details`(1~2,000자), 선택 `submittedText`(5,000자 이하)를 제출한다. 일반 신고는 `OTHER`와 상황 설명을 쓴다.
+- Business가 검증한 AT의 `sessionId`·`authGeneration`을 신고 본문과 분리해 내부 요청에 전달한다. Data는 users → auth_sessions 순으로 잠근 같은 트랜잭션에서 현재 세션을 확인한 뒤 신규 접수·재시도를 처리한다. 로그아웃 뒤에는 Redis 거부목록 상태와 무관하게 둘 다 거절한다. 앱이 세션 증거를 직접 지정할 수 없다.
 - `targetType`: USER, LETTER, ISLAND_MESSAGE, NOTICE, NOTICE_COMMENT, GUESTBOOK, ISLAND, OTHER. OTHER 외에는 대상 UUID가 필요하다.
 - 대상 ID·복사한 텍스트는 **신고자의 진술**이다. 접수는 대상의 존재·작성자·원본 일치·위반 확정을 증명하지 않는다. 클라이언트가 남의 비공개 원문을 서버에서 가져오는 기능은 제공하지 않는다. 운영자는 실제 대상·열람 문맥·작성 시점을 따로 대조하고 진술만으로 제재하지 않는다.
 - 저장 성공 뒤 `reportId`와 `receivedAt`만 반환한다. 일반 사용자에게 사건 목록·상대 신고 내역은 공개하지 않는다. 같은 사용자·동일 요청 키·동일 본문 재시도는 같은 번호, 다른 본문은 409다. 계정당 1시간 20건이며 이미 접수한 요청의 재시도는 한도를 소비하지 않는다.

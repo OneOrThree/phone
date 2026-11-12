@@ -1,8 +1,8 @@
 package com.oneorthree.phone.internal;
 
-import com.oneorthree.phone.report.dto.ReportRequest;
+import com.oneorthree.phone.internal.dto.ReportSubmissionRequest;
+import com.oneorthree.phone.internal.service.InternalReportService;
 import com.oneorthree.phone.report.dto.ReportReceipt;
-import com.oneorthree.phone.report.service.ReportService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -15,10 +15,10 @@ import java.util.UUID;
 @RestController
 @RequiredArgsConstructor
 public class InternalReportController {
-    private final ReportService reports;
+    private final InternalReportService reports;
 
     @PostMapping("/internal/users/{userId}/reports")
-    public ReportReceipt submit(@PathVariable UUID userId, @Valid @RequestBody ReportRequest body) {
+    public ReportReceipt submit(@PathVariable UUID userId, @Valid @RequestBody ReportSubmissionRequest body) {
         return reports.submit(userId, body);
     }
 }

@@ -7,10 +7,10 @@ import com.oneorthree.phone.report.dto.ReportReceipt;
 import com.oneorthree.phone.report.exception.ReportErrorCode;
 import com.oneorthree.phone.report.exception.ReportException;
 import com.oneorthree.phone.report.repository.ReportRepository;
-import com.oneorthree.phone.user.repository.UserQueryService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Propagation;
 
 import java.sql.Timestamp;
 import java.time.Instant;
@@ -30,13 +30,11 @@ public class ReportService {
     private static final Set<String> REASONS = Set.of("HARASSMENT", "HATE", "SPAM_FRAUD", "SEXUAL",
             "CHILD_SAFETY", "THREAT", "PRIVACY_IMPERSONATION", "OTHER");
     private final ReportRepository reports;
-    private final UserQueryService users;
 
-    @Transactional
+    /** 내부 조합 계층이 사용자·현재 세션을 잠그고 검증한 TX 안에서만 접수한다. */
+    @Transactional(propagation = Propagation.MANDATORY)
     public ReportReceipt submit(UUID reporterId, ReportRequest body) {
         validate(body);
-        // 계정 잠금으로 동일 키 재시도·시간 한도·탈퇴를 한 순서로 확정한다.
-        users.getCallerForUpdate(reporterId);
         var existing = reports.findRequest(reporterId, body.requestId());
         if (!existing.isEmpty()) {
             Map<String, Object> row = existing.get(0);

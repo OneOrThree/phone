@@ -17,14 +17,17 @@ public class DataReportClient {
         this.http = http;
     }
 
-    public Receipt submit(UUID userId, Command body, Deadline deadline) {
+    public Receipt submit(UUID userId, UUID sessionId, Long authGeneration, Command body, Deadline deadline) {
         return http.exchange(InternalCall.to(HttpMethod.POST, "/internal/users/" + userId + "/reports")
-                        .onBehalfOf(userId).body(body).build(), deadline,
+                        .onBehalfOf(userId).body(new Submission(sessionId, authGeneration, body)).build(), deadline,
                 new ParameterizedTypeReference<Receipt>() { });
     }
 
     public record Command(UUID requestId, String targetType, UUID targetId, UUID targetUserId,
                           String reason, String details, String submittedText) {
+    }
+
+    public record Submission(UUID sessionId, Long authGeneration, Command report) {
     }
 
     public record Receipt(@JsonProperty(required = true) UUID reportId,

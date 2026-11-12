@@ -38,9 +38,13 @@ public class ReportController {
                 id(body, "targetId", false), id(body, "targetUserId", false), text(body, "reason", 32, true),
                 text(body, "details", 2000, true), text(body, "submittedText", 5000, false));
         try {
-            var receipt = reports.submit(caller.userId(), command, properties.deadline());
+            var receipt = reports.submit(caller.userId(), caller.sessionId(), caller.authGeneration(), command,
+                    properties.deadline());
             return new ReportReceipt(receipt.reportId(), receipt.receivedAt());
         } catch (UpstreamDomainException e) {
+            if (e.getStatus() == 403 && "SESSION_NOT_ACTIVE".equals(e.getCode())) {
+                throw new PublicApiException(ApiErrorCode.UNAUTHORIZED, null);
+            }
             if ("REPORT_INVALID".equals(e.getCode()) && e.getStatus() == 400) {
                 throw invalid();
             }
