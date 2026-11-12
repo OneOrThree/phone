@@ -10,7 +10,8 @@ import {
 import { useEffect, useState } from 'react';
 import { Platform } from 'react-native';
 
-export function ScreenTimeSharingSettings({ e }: ScreenProps) {
+// 폰 사용·앱 차단 화면의 묶음 안 줄이다 — 묶음이 넘기는 구분선(divider)을 받는다
+export function ScreenTimeSharingSettings({ e, divider }: ScreenProps & { divider?: boolean }) {
   const [enabled, setEnabled] = useState(false);
   const [busy, setBusy] = useState(true);
   const owner = getSession()?.userId;
@@ -52,6 +53,7 @@ export function ScreenTimeSharingSettings({ e }: ScreenProps) {
   return (
     <>
       <SheetRow
+        divider={divider}
         title={t('settings.usageSharing')}
         sub={t('settings.usageSharingSub')}
         tail={

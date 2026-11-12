@@ -114,7 +114,7 @@
     "reduceMotion": "동작 줄이기",
     "reduceMotionSub": "이동·전환 애니메이션을 줄여요",
     "permissionSection": "권한",
-    "permissionManage": "앱 권한 관리",
+    "permissionManage": "폰 사용·앱 차단",
     "permissionManageSub": "스크린타임 권한 · 측정 앱",
     "permissions": {
       "gate": {
@@ -153,9 +153,8 @@
         "allowedApps": "집중 중 허용 앱"
       },
       "screenTime": {
-        "title": "스크린타임",
-        "connect": "스크린타임 연결",
-        "sub": "{{description}} · 선택한 앱의 사용 시간을 기록해요. 앱 차단 설정과는 별개예요."
+        "title": "폰 사용 기록",
+        "connect": "스크린타임 연결"
       },
       "focusBlockingIntro": {
         "title": "집중 중 앱 차단",
@@ -168,9 +167,8 @@
         "a11y": "측정 앱, {{description}}",
         "pick": "측정 앱 고르기"
       },
-      "disconnectNote": "연결을 끄면 폰 사용 퀘스트 달성률은 “확인 필요”로 표시돼요.",
       "allowed": {
-        "section": "집중 중 허용",
+        "section": "집중 중 앱 차단",
         "title": "허용 앱",
         "count": "{{count}}개 선택됨"
       },
@@ -191,17 +189,10 @@
         }
       },
       "notifications": {
-        "title": "알림 권한",
-        "granted": "허용됨",
-        "denied": "꺼짐",
-        "undetermined": "아직 묻지 않았어요",
         "error": "확인하지 못했어요",
-        "a11y": "알림 권한, {{description}}",
         "hint": {
           "ask": "누르면 알림 권한을 물어요",
-          "openSettings": "누르면 설정 앱이 열려요",
-          "enable": "누르면 알림을 켜요",
-          "recheck": "누르면 권한을 다시 확인해요"
+          "openSettings": "누르면 설정 앱이 열려요"
         }
       },
       "help": {
@@ -244,8 +235,6 @@
         "back": "돌아가기"
       }
     },
-    "safetySection": "안전",
-    "blockedUsersSub": "차단 목록을 확인하고 해제해요",
     "helpSection": "도움말",
     "replayTutorial": "튜토리얼 다시보기",
     "replayTutorialSub": "몽돌 안내를 처음부터 다시 봐요",
@@ -265,8 +254,9 @@
       "body": "문의 종류 (오류 / 제안):\n\n내용:\n\n캡처가 있다면 이 메일에 첨부해 주세요.\n\n앱 버전: {{version}}\n기기: {{os}}",
       "openFailed": "카카오톡을 열지 못했어요. 잠시 뒤 다시 시도하거나, 아래 주소로 직접 메일을 보내 주세요.\n\n{{email}}"
     },
-    "generalSection": "기본 설정",
-    "privacySection": "개인정보",
+    "generalSection": "기본",
+    "newsHelpSection": "소식·도움",
+    "termsAccountSection": "약관·계정",
     "usageSharing": "사용 시간 공유",
     "usageSharingSub": "사용 시간만 공유해 통계·퀘스트에 사용해요",
     "usageSharingError": "사용 시간을 공유하지 못했어요. 다시 시도할게요."
@@ -333,8 +323,8 @@
       "saved": "저장했어요.",
       "nickname": "닉네임",
       "nicknamePlaceholder": "닉네임을 입력해 주세요",
-      "linkedAccount": "연동 계정",
-      "accountSummary": "{{name}}님의 계정 · {{providers}}",
+      "signedInWith": "{{providers}} 로그인",
+      "mainIsland": "메인 섬",
       "noLinkedAccount": "연결된 계정 없음",
       "providers": {
         "google": "Google",
@@ -1364,9 +1354,7 @@
     "back": "뒤로"
   },
   "developerNotices": {
-    "title": "개발자 공지",
-    "section": "소식",
-    "subtitle": "서비스 소식과 업데이트",
+    "title": "공지사항",
     "loading": "공지를 불러오는 중…",
     "empty": "게시된 공지가 없어요.",
     "failed": "공지를 불러오지 못했어요. 다시 시도해 주세요.",
@@ -2336,5 +2324,29 @@
     "start": "건설 시작",
     "close": "청사진 닫기",
     "priceChanged": "건설비가 바뀌었어요. 금액을 확인한 뒤 다시 시도해 주세요."
+  },
+  "report": {
+    "title": "신고하기",
+    "received": "신고를 접수했어요",
+    "receivedBody": "운영팀이 내용을 확인할게요. 신고만으로 상대가 자동 차단되지는 않아요.",
+    "receipt": "접수 번호: {{id}}",
+    "privacy": "신고 대상과 작성한 내용은 안전한 서비스 운영을 위해 운영팀에 전달돼요. 비밀번호나 인증번호는 적지 마세요.",
+    "reason": "신고 사유",
+    "details": "상황 설명",
+    "placeholder": "누구의 어떤 내용인지, 어디에서 있었던 일인지 알려주세요.",
+    "submit": "신고 접수하기",
+    "centerSub": "신고 내용을 작성해 운영팀에 보내기",
+    "deletedMessage": "삭제된 메시지예요.",
+    "userActions": "{{name}}님 신고·차단",
+    "reasons": {
+      "HARASSMENT": "괴롭힘·욕설",
+      "HATE": "혐오·차별",
+      "SPAM_FRAUD": "스팸·사기",
+      "SEXUAL": "성적인 내용",
+      "CHILD_SAFETY": "아동·청소년 안전",
+      "THREAT": "위협·폭력",
+      "PRIVACY_IMPERSONATION": "개인정보 침해·사칭",
+      "OTHER": "기타"
+    }
   }
 }

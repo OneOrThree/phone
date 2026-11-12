@@ -388,7 +388,7 @@ test('열린 편지의 상대가 차단되면 무한 로딩 없이 받은 편지
   await ui.unmount();
 });
 
-test('받은 편지 상세 더보기는 신고 없이 발신자 차단 시트로 진입한다', async () => {
+test('받은 편지 상세 더보기는 신고와 발신자 차단 시트로 진입한다', async () => {
   screenMock.mockResolvedValue(screen([letterItem()]));
   getLetterMock.mockResolvedValue(letterView());
   const ui = await renderMail(makeE());
@@ -398,7 +398,7 @@ test('받은 편지 상세 더보기는 신고 없이 발신자 차단 시트로
 
   await fireEvent.press(ui.getByLabelText('민지 더보기'));
 
-  assert.equal(ui.queryByText('신고하기'), null);
+  assert.ok(ui.getByText('신고하기'));
   assert.ok(ui.getByText('차단하기'));
   await ui.unmount();
 });
@@ -587,7 +587,7 @@ test('편지 더보기의 차단은 유지하고 개별 신고 메일은 열지 
   await fireEvent.press(ui.getByTestId('received-letter-0'));
   await waitFor(() => assert.ok(ui.getByLabelText('민지 더보기')));
   await fireEvent.press(ui.getByLabelText('민지 더보기'));
-  assert.equal(ui.queryByText('신고하기'), null);
+  assert.ok(ui.getByText('신고하기'));
   await fireEvent.press(ui.getByText('차단하기'));
   await fireEvent.press(ui.getByText('차단'));
   await waitFor(() => assert.equal(blockUserMock.mock.calls.length, 1));
