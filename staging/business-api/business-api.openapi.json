@@ -401,6 +401,36 @@
         }
       }
     },
+    "/reports": {
+      "post": {
+        "tags": [
+          "report-controller"
+        ],
+        "operationId": "submit",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JsonNode"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportReceipt"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/me/web-island": {
       "post": {
         "tags": [
@@ -4235,6 +4265,19 @@
           },
           "deliveryTag": {
             "type": "string"
+          }
+        }
+      },
+      "ReportReceipt": {
+        "type": "object",
+        "properties": {
+          "reportId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "receivedAt": {
+            "type": "string",
+            "format": "date-time"
           }
         }
       },
