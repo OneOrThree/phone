@@ -89,6 +89,9 @@ export function renderSoundScreen(context: ScreenContext) {
     const contentHeight = layout.compact
       ? gramophone.compactContentHeight
       : gramophone.contentHeight;
+    const panelBottom = Math.max(18, ins.bottom + 8);
+    // 큰 글자 판은 곡 수만큼 늘리되 간판(위 20+높이 40) 아래·바닥 여백 위로 상한을 둔다 — 넘치면 곡 목록만 스크롤된다
+    const largePanelMaxHeight = Math.max(0, layout.height - (20 + ins.top + 40 + 12) - panelBottom);
     return (
       <View style={{ flex: 1, backgroundColor: C.paper }}>
         <View
@@ -140,15 +143,18 @@ export function renderSoundScreen(context: ScreenContext) {
             </Txt>
           </View>
           <View
+            testID="sound-panel"
             style={{
               position: 'absolute',
               left: (layout.width - panelWidth) / 2,
-              bottom: Math.max(18, ins.bottom + 8),
+              bottom: panelBottom,
               width: panelWidth,
-              // 큰 글자는 곡 수만큼 높이를 늘린다 — 고정 높이면 셋째 곡이 스크롤 밖으로 숨었다(GROMO-2888)
+              // 큰 글자는 곡 수만큼 높이를 늘린다 — 고정 높이면 셋째 곡이 스크롤 밖으로 숨었다(GROMO-2888).
+              // 다만 화면 위로 벗어나지 않게 상한을 두고, 레코드 칸이 없으니 세로로 쌓아 목록이 줄어들며 스크롤된다
               height: largeText ? undefined : panelHeight,
-              flexDirection: 'row',
-              alignItems: 'center',
+              maxHeight: largeText ? largePanelMaxHeight : undefined,
+              flexDirection: largeText ? 'column' : 'row',
+              alignItems: largeText ? 'stretch' : 'center',
               gap: 12,
               padding: 16,
               borderWidth: 2,
@@ -216,12 +222,12 @@ export function renderSoundScreen(context: ScreenContext) {
                   </View>
                 )}
                 <View
-                  style={{
-                    flex: 1,
-                    minWidth: 0,
-                    height: largeText ? undefined : contentHeight,
-                    gap: 8,
-                  }}
+                  style={[
+                    { minWidth: 0, gap: 8 },
+                    largeText
+                      ? { flexShrink: 1, minHeight: 0 }
+                      : { flex: 1, height: contentHeight },
+                  ]}
                 >
                   <View
                     testID="sound-current-track"
@@ -241,7 +247,8 @@ export function renderSoundScreen(context: ScreenContext) {
                     </Txt>
                   </View>
                   <ScrollView
-                    style={largeText ? undefined : { flex: 1 }}
+                    testID="sound-track-list"
+                    style={largeText ? { flexShrink: 1 } : { flex: 1 }}
                     contentContainerStyle={{ gap: 4, paddingRight: 4 }}
                     showsVerticalScrollIndicator
                   >

@@ -1073,8 +1073,12 @@ test('큰 글자 축음기는 레코드 칸을 빼고 곡 목록이 패널 폭�
   assert.equal(large.queryByLabelText('축음기 레코드판'), null);
   assert.equal(large.queryByText('섬에서 들을 곡을 구매해요'), null);
   // 고정 높이(226)를 풀어 셋째 곡까지 스크롤 없이 보인다
-  const panel = large.getByTestId('sound-current-track').parent?.parent?.parent;
-  assert.equal(StyleSheet.flatten(panel?.props.style).height, undefined);
+  const panelStyle = StyleSheet.flatten(large.getByTestId('sound-panel').props.style);
+  assert.equal(panelStyle.height, undefined);
+  // 곡이 많거나 글자가 더 커도 판은 간판 아래·바닥 여백 위까지만 — 넘치면 곡 목록만 줄어 스크롤된다
+  assert.equal(panelStyle.maxHeight, 874 - (20 + 52 + 40 + 12) - (32 + 8));
+  assert.equal(panelStyle.flexDirection, 'column');
+  assert.equal(StyleSheet.flatten(large.getByTestId('sound-track-list').props.style).flexShrink, 1);
   assert.ok(large.getByLabelText('빗방울 소리, 30마리로 구매'));
 });
 
