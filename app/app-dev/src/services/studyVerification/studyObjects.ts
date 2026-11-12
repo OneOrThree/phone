@@ -11,9 +11,10 @@ export type StudyObjectScores = Record<StudyObject, number>;
 export type StudyObjectPresence = Record<StudyObject, boolean>;
 
 type TensorMeta = { shape: readonly number[]; dataType: string };
-const elements = (tensor: TensorMeta) => tensor.shape.reduce((n, d) => n * d, 1);
+const sameShape = (shape: readonly number[], expected: readonly number[]) =>
+  shape.length === expected.length && shape.every((d, i) => d === expected[i]);
 
-/** 입력 uint8 [1,320,320,3], 출력 float32 점수 3개 + 유효성 1개인지 확인한다. 아니면 판정을 열지 않는다. */
+/** 입력 uint8 [1,320,320,3], 출력 float32 점수 [1,3] + bool 유효성 [1]인지 확인한다. 아니면 판정을 열지 않는다. */
 export function studyObjectModelReady(
   inputs: readonly TensorMeta[],
   outputs: readonly TensorMeta[],
@@ -30,8 +31,9 @@ export function studyObjectModelReady(
     input.shape[3] === 3 &&
     outputs.length === 2 &&
     outputs[0]!.dataType === 'float32' &&
-    elements(outputs[0]!) === SCORE_ORDER.length &&
-    elements(outputs[1]!) === 1
+    sameShape(outputs[0]!.shape, [1, SCORE_ORDER.length]) &&
+    outputs[1]!.dataType === 'bool' &&
+    sameShape(outputs[1]!.shape, [1])
   );
 }
 

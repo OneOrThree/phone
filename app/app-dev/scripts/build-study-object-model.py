@@ -5,8 +5,9 @@
 - 뒤: 원본 90클래스 확률 [1,N,90] 에서 laptop=72, keyboard=75, book=83 을 골라 앵커별 최대 확률 [1,3] 을 내고,
       원본 확률 전체가 0~1 범위인지 [1] bool 로 함께 낸다.
 
-사용: uv run --python 3.12 --with tensorflow --with flatbuffers \
+사용: uv run --python 3.12 --with tensorflow==2.21.0 --with flatbuffers==25.12.19 --with numpy==2.5.4 \
         python scripts/build-study-object-model.py <efficientdet_lite0 float16 원본> <출력 경로>
+위 버전으로 만들면 번들 파일과 SHA-256 이 같다(3da388c1…). 다른 버전은 바이트가 달라질 수 있다.
 원본: https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/float16/1/efficientdet_lite0.tflite
 """
 import hashlib
@@ -15,6 +16,7 @@ from pathlib import Path
 
 import flatbuffers
 import numpy as np
+import tensorflow as tf
 from tensorflow.lite.python import schema_py_generated as s
 
 STUDY_CLASSES = [72, 75, 83]  # 내장 COCO labels.txt 0 기반: laptop, keyboard, book
@@ -58,10 +60,17 @@ def build(source: Path, dest: Path) -> None:
         return o
 
     F, I, B = s.TensorType.FLOAT32, s.TensorType.INT32, s.TensorType.BOOL
+    original_buffers = [bytes(b.data.tobytes()) if b.data is not None else b'' for b in model.buffers]
 
-    # uint8 입력 → float 정규화 → 원본 입력
+    # 다른 원본을 넣어 조용히 틀린 모델이 나오지 않게 입력·출력 형식부터 확인한다.
+    assert len(g.inputs) == 1, 'input count'
     old = int(g.inputs[0])
     shape = list(g.tensors[old].shape)
+    assert g.tensors[old].type == F and shape == [1, 320, 320, 3], ('input', g.tensors[old].type, shape)
+    class_outputs = [int(i) for i in g.outputs if list(g.tensors[int(i)].shape)[-1] == 90]
+    assert len(class_outputs) == 1, 'exactly one 90-class probability output'
+
+    # uint8 입력 → float 정규화 → 원본 입력
     new = tensor('input_rgb_uint8', shape, s.TensorType.UINT8)
     cast = tensor('input_float', shape, F)
     center = tensor('input_centered', shape, F)
@@ -116,6 +125,30 @@ def build(source: Path, dest: Path) -> None:
     builder = flatbuffers.Builder(0)
     builder.Finish(model.Pack(builder), file_identifier=b'TFL3')
     dest.write_bytes(builder.Output())
+
+    # 가중치 불변: 원본 버퍼는 순서·바이트 그대로 남고 새 상수만 뒤에 붙었다.
+    rebuilt = s.ModelT.InitFromObj(s.Model.GetRootAsModel(dest.read_bytes(), 0))
+    for i, data in enumerate(original_buffers):
+        b = rebuilt.buffers[i].data
+        assert (bytes(b.tobytes()) if b is not None else b'') == data, f'buffer {i} changed'
+
+    # 같은 입력에서 원본의 클래스별 최대 확률과 요약 모델 출력이 같은지 확인한다.
+    rng = np.random.default_rng(0)
+    src = tf.lite.Interpreter(model_path=str(source))
+    out = tf.lite.Interpreter(model_path=str(dest))
+    src.allocate_tensors()
+    out.allocate_tensors()
+    raw_index = next(d['index'] for d in src.get_output_details() if d['shape'][-1] == 90)
+    for _ in range(4):
+        pixels = rng.integers(0, 256, size=(1, 320, 320, 3), dtype=np.uint8)
+        src.set_tensor(src.get_input_details()[0]['index'], ((pixels.astype(np.float32) - 127.5) / 127.5))
+        src.invoke()
+        expected = src.get_tensor(raw_index)[0][:, STUDY_CLASSES].max(axis=0)
+        out.set_tensor(out.get_input_details()[0]['index'], pixels)
+        out.invoke()
+        details = out.get_output_details()
+        assert np.allclose(out.get_tensor(details[0]['index'])[0], expected, atol=1e-6), 'score parity'
+        assert bool(out.get_tensor(details[1]['index'])[0]), 'validity'
     print(dest, hashlib.sha256(dest.read_bytes()).hexdigest())
 
 

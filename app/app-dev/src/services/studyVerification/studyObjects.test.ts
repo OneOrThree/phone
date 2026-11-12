@@ -21,6 +21,12 @@ test('출력 요약 모델의 uint8 입력과 점수 3개·유효성 1개 출력
     ]),
   ).toBe(false);
   expect(studyObjectModelReady(inputs, [outputs[0]!])).toBe(false);
+  expect(studyObjectModelReady(inputs, [outputs[0]!, { shape: [1], dataType: 'float32' }])).toBe(
+    false,
+  );
+  expect(studyObjectModelReady(inputs, [{ shape: [3, 1], dataType: 'float32' }, outputs[1]!])).toBe(
+    false,
+  );
 });
 
 test('노트북·키보드·책 순서의 확률을 그대로 읽는다', () => {

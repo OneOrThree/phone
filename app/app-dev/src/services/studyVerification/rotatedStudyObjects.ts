@@ -119,9 +119,13 @@ export function detectRotatedStudyObjects(
     if (max >= OBJECT_SCORE)
       return { scores, search: { preferred: turn, next: (turn + 1) % 4 }, attempts: attempt + 1 };
   }
+  // 한 방향만 본 장(손이 없거나 남은 횟수가 1)은 다음에 볼 방향 순서를 건드리지 않는다.
   return {
     scores: best!,
-    search: { preferred: search.preferred, next: (order[count - 1]! + 1) % 4 },
+    search: {
+      preferred: search.preferred,
+      next: count === 1 ? search.next : (order[count - 1]! + 1) % 4,
+    },
     attempts: count,
   };
 }

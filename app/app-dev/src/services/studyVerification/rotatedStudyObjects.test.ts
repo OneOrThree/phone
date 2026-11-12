@@ -83,6 +83,19 @@ test('계속 못 찾아도 3장 묶음의 도구 추론은 6회를 넘기지 않
   expect(() => objectAttemptLimit(3, 0)).toThrow('Invalid inference budget');
 });
 
+test('한 방향만 본 장은 다음에 볼 방향 순서를 처음으로 되돌리지 않는다', () => {
+  const infer = jest.fn().mockReturnValue(noTool);
+  expect(detectRotatedStudyObjects(pixels, { preferred: 0, next: 3 }, false, infer).search).toEqual(
+    {
+      preferred: 0,
+      next: 3,
+    },
+  );
+  expect(
+    detectRotatedStudyObjects(pixels, { preferred: 0, next: 3 }, true, infer, 1).search,
+  ).toEqual({ preferred: 0, next: 3 });
+});
+
 test('손이 없는 프레임에는 추가 추론을 하지 않고 이전 성공 점수도 재사용하지 않는다', () => {
   const infer = jest.fn().mockReturnValue(noTool);
   const result = detectRotatedStudyObjects(pixels, { preferred: 2, next: 3 }, false, infer);

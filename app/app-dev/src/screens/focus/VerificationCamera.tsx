@@ -359,12 +359,15 @@ function ModelVerificationCamera({
         // 같은 프레임의 손·물체 결과를 짝지어 유지한다. 물체 실패를 손만으로 통과시키지 않는다.
         let objectScore: StudyObjectScores | null = null;
         if (objectTflite && objectResizer && objectReady) {
+          // 주기 검사는 3장 묶음의 도구 추론을 합쳐 6회 이내로 나눠 쓴다. 미리보기 검사는 장마다 최대 4방향.
+          let used = 0;
+          let limit = 4;
           try {
+            used = recent.length ? objectBudget.getBlocking() : 0;
+            limit = periodic ? objectAttemptLimit(recent.length, used) : 4;
             const objectFrame = objectResizer.resize(frame);
             try {
               // 모델 입력은 uint8 RGB다. 정규화는 모델 안에서 하므로 버퍼가 살아 있을 때 그대로 넣는다.
-              // 주기 검사는 3장 묶음의 도구 추론을 합쳐 6회 이내로 나눠 쓴다. 미리보기 검사는 장마다 최대 4방향.
-              const used = recent.length ? objectBudget.getBlocking() : 0;
               const result = detectRotatedStudyObjects(
                 objectFrame.getPixelBuffer(),
                 objectRotation.getBlocking(),
@@ -373,7 +376,7 @@ function ModelVerificationCamera({
                   'worklet';
                   return studyObjectScores(objectTflite.runSync([input]));
                 },
-                periodic ? objectAttemptLimit(recent.length, used) : 4,
+                limit,
               );
               if (periodic) objectBudget.setBlocking(used + result.attempts);
               objectScore = result.scores;
@@ -383,6 +386,8 @@ function ModelVerificationCamera({
             }
           } catch {
             // null을 같은 프레임 자리에 남겨 오류를 다른 장의 손과 섞지 않는다.
+            // 오류 전에 쓴 추론이 있을 수 있으므로 그 장의 한도를 다 쓴 것으로 센다.
+            if (periodic) objectBudget.setBlocking(used + limit);
           }
         }
         const objects = [...(recent.length ? previous.objects : []), objectScore].slice(

@@ -598,3 +598,18 @@ test('주기 검사에서 도구를 못 찾아도 3장 묶음의 도구 추론�
   expect(objectRunSync).toHaveBeenCalledTimes(6);
   expect(objectDispose).toHaveBeenCalledTimes(3);
 });
+
+test('도구 추론 오류가 난 장도 그 장의 한도를 쓴 것으로 세어 3장 묶음 6회를 넘기지 않는다', async () => {
+  objectRunSync
+    .mockImplementationOnce(() => {
+      throw new Error('object inference failed');
+    })
+    .mockImplementation(() => objectOut(0.1));
+  const screen = await setup(false, 'periodic');
+  await sample(4);
+  await sample(4);
+  await sample(4);
+  expect(screen.onDetection).toHaveBeenLastCalledWith('missingObject');
+  // 첫 장 오류(1회 실행, 한도 4 소진) 뒤 남은 두 장은 1회씩만 본다.
+  expect(objectRunSync).toHaveBeenCalledTimes(3);
+});
