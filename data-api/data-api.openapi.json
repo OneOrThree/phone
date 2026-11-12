@@ -793,6 +793,47 @@
         }
       }
     },
+    "/internal/users/{userId}/reports": {
+      "post": {
+        "tags": [
+          "internal-report-controller"
+        ],
+        "operationId": "submit",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReportSubmissionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportReceipt"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/internal/users/{userId}/notification-settings-snapshot": {
       "post": {
         "tags": [
@@ -3469,6 +3510,40 @@
         "responses": {
           "204": {
             "description": "No Content"
+          }
+        }
+      }
+    },
+    "/internal/admin/content/reports/{reportId}/close": {
+      "post": {
+        "tags": [
+          "internal-content-admin-controller"
+        ],
+        "operationId": "closeReport",
+        "parameters": [
+          {
+            "name": "reportId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReportResolution"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
           }
         }
       }
@@ -6701,6 +6776,41 @@
         }
       }
     },
+    "/internal/admin/content/reports": {
+      "get": {
+        "tags": [
+          "internal-content-admin-controller"
+        ],
+        "operationId": "reports",
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": {}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/internal/admin/content/notices": {
       "get": {
         "tags": [
@@ -8021,6 +8131,83 @@
           }
         }
       },
+      "ReportRequest": {
+        "type": "object",
+        "properties": {
+          "requestId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "targetType": {
+            "type": "string",
+            "maxLength": 32,
+            "minLength": 0
+          },
+          "targetId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "targetUserId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 32,
+            "minLength": 0
+          },
+          "details": {
+            "type": "string",
+            "maxLength": 2000,
+            "minLength": 0
+          },
+          "submittedText": {
+            "type": "string",
+            "maxLength": 5000,
+            "minLength": 0
+          }
+        },
+        "required": [
+          "details",
+          "reason",
+          "requestId",
+          "targetType"
+        ]
+      },
+      "ReportSubmissionRequest": {
+        "type": "object",
+        "properties": {
+          "sessionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "authGeneration": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "report": {
+            "$ref": "#/components/schemas/ReportRequest"
+          }
+        },
+        "required": [
+          "authGeneration",
+          "report",
+          "sessionId"
+        ]
+      },
+      "ReportReceipt": {
+        "type": "object",
+        "properties": {
+          "reportId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "receivedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
       "NotificationSettingsSnapshotRequest": {
         "type": "object",
         "properties": {
@@ -8197,18 +8384,6 @@
             "format": "uuid"
           }
         }
-      },
-      "ReportRequest": {
-        "type": "object",
-        "properties": {
-          "reason": {
-            "type": "string",
-            "pattern": "HARASSMENT|HATE|SPAM_FRAUD|SEXUAL|CHILD_SAFETY|THREAT|PRIVACY_IMPERSONATION|OTHER"
-          }
-        },
-        "required": [
-          "reason"
-        ]
       },
       "Reported": {
         "type": "object",
@@ -9566,6 +9741,17 @@
           "userId": {
             "type": "string",
             "format": "uuid"
+          }
+        }
+      },
+      "ReportResolution": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string"
+          },
+          "resolution": {
+            "type": "string"
           }
         }
       },
