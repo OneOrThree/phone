@@ -103,7 +103,7 @@ available=false로 안내하고, 상세 이동의404는 판매 종료 상태로 
 previewUrl은 서버 등록 media 자산만 반환하고 사용자 URL을 받아 서버가 대신 가져오는 기능을 만들지 않는다.
 미리듣기는 기기 로컬이며 shared playback을 변경하지 않는다. 비활성/삭제 상품은404 PRODUCT_NOT_FOUND 또는 이미 소유한
 상품의 별도 표시 가능 여부를 catalog 생명주기 정책과 함께 정한다. 과거 주문 snapshot을 이404로 삭제하지 않는다.
-꾸미기 카탈로그에 그림이 없는 개인 꾸미기도 이미 소유했는지와 관계없이 404 PRODUCT_NOT_FOUND다(GROMO-2877). 보유품은 인벤토리에서 본다. 선행 상품(`requiredProduct`)으로 그런 상품을 걸지 않는다.
+꾸미기 카탈로그에 그림이 없는 개인 꾸미기도 이미 소유했는지와 관계없이 404 PRODUCT_NOT_FOUND다(GROMO-2877). 보유품은 인벤토리에서 본다. 발행할 때 그런 상품을 선행 상품(`requiredProduct`)으로 걸지 않는다 — 서버가 검사하지 않는 데이터 규칙이고, 걸면 상세의 선행 안내가 404 상품을 가리킨다.
 
 ### 2.4 buy — POST `/islands/{islandId}/shop/orders`
 
