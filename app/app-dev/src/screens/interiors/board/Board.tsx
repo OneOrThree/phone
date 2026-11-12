@@ -69,6 +69,10 @@ import {
   ResidentRate,
 } from './types';
 
+// 쓰기 종이가 키보드를 피해 올라갈 수 있는 맨 위. 종이 안 여백까지 더하면 내용이 장면의 뒤로 ×(위 31~75)·간판
+// 아래에서 시작한다
+const COMPOSE_TOP = 60;
+
 export function Board({
   concept,
   width,
@@ -1046,7 +1050,8 @@ export function Board({
     <Text style={boardFont(13, 1.45, '400', '#a35952')}>{s.error}</Text>
   );
   // 종이 오른쪽 위 × 하나로 현재 단계를 닫고 이전 단계로 돌아간다.
-  const detailHead = (close: React.ReactNode) => (
+  // 쓰기 종이는 제목을 × 와 같은 줄에 두어 키보드 위에 입력칸이 한 줄이라도 더 보이게 한다.
+  const detailHead = (close: React.ReactNode, title?: string) => (
     <View
       style={{
         minHeight: 44,
@@ -1058,6 +1063,7 @@ export function Board({
         gap: 8,
       }}
     >
+      {title !== undefined && <Text style={[h4, { flex: 1 }]}>{title}</Text>}
       {close}
     </View>
   );
@@ -1172,6 +1178,51 @@ export function Board({
             onPress={() => board.loadMore()}
           />
         )}
+      </View>
+    </View>
+  );
+
+  // 댓글 입력칸과 등록. 쓰기 종이(noticeCompose)에서는 공지 본문 스크롤 밖 아래에 고정해 키보드 바로 위에
+  // 늘 보이게 하고, 종이가 너무 낮으면(가로 폰 키보드) 예전처럼 댓글 머리 아래 스크롤 안에 둔다.
+  const commentComposer = () => (
+    <View
+      style={[
+        { gap: 8, borderColor: '#d7bea0' },
+        noticeCompose
+          ? { marginTop: 8, paddingTop: 8, borderTopWidth: 1 }
+          : { marginBottom: 14, paddingBottom: 14, borderBottomWidth: 1 },
+      ]}
+    >
+      <TextInput
+        testID="board-comment-input"
+        accessibilityLabel={t('ui.board.commentBody')}
+        autoFocus
+        multiline
+        textAlignVertical="top"
+        value={s.commentDraft}
+        onChangeText={nav.setCommentDraft}
+        placeholder={t('ui.board.commentPlaceholder')}
+        placeholderTextColor="#8d796a"
+        style={[
+          inputStyle(),
+          {
+            height: 76,
+            borderWidth: 0,
+            borderBottomWidth: 1.5,
+            borderRadius: 0,
+            paddingHorizontal: 2,
+            backgroundColor: 'transparent',
+          },
+        ]}
+      />
+      {formError}
+      <View style={{ flexDirection: 'row', justifyContent: 'flex-end' }}>
+        <PaperAction
+          testID="board-comment-submit"
+          label={t('ui.board.postComment')}
+          onPress={nav.submitComment}
+          style={!s.commentDraft.trim() && { opacity: 0.38 }}
+        />
       </View>
     </View>
   );
@@ -1312,49 +1363,7 @@ export function Board({
             <Text style={muted({ textAlign: 'center' })}>{t('ui.board.joinToComment')}</Text>
           </View>
         )}
-        {s.view === 'comment' && (
-          <View
-            style={{
-              gap: 8,
-              marginBottom: 14,
-              paddingBottom: 14,
-              borderBottomWidth: 1,
-              borderColor: '#d7bea0',
-            }}
-          >
-            <TextInput
-              testID="board-comment-input"
-              accessibilityLabel={t('ui.board.commentBody')}
-              autoFocus
-              multiline
-              textAlignVertical="top"
-              value={s.commentDraft}
-              onChangeText={nav.setCommentDraft}
-              placeholder={t('ui.board.commentPlaceholder')}
-              placeholderTextColor="#8d796a"
-              style={[
-                inputStyle(),
-                {
-                  height: 76,
-                  borderWidth: 0,
-                  borderBottomWidth: 1.5,
-                  borderRadius: 0,
-                  paddingHorizontal: 2,
-                  backgroundColor: 'transparent',
-                },
-              ]}
-            />
-            {formError}
-            <View style={{ flexDirection: 'row', justifyContent: 'flex-end' }}>
-              <PaperAction
-                testID="board-comment-submit"
-                label={t('ui.board.postComment')}
-                onPress={nav.submitComment}
-                style={!s.commentDraft.trim() && { opacity: 0.38 }}
-              />
-            </View>
-          </View>
-        )}
+        {s.view === 'comment' && !noticeCompose && commentComposer()}
         <View>
           {comments.length ? (
             comments.map(([{ id, name, text, mine }, commentIndex]) => (
@@ -1417,8 +1426,11 @@ export function Board({
     if (!owner) return noticeList();
     const draft = s.draft ?? { title: '', body: '' };
     const setDraft = nav.setDraft;
+    // 쓰기 종이(noticeCompose)는 스크롤 없이 본문 칸이 남은 높이를 다 채운다 — 긴 글은 칸 안에서 스크롤돼
+    // 제목·마지막 줄·게시하기가 키보드 위에 같이 남는다. 너무 낮으면 예전처럼 종이 안 스크롤에 106 칸이다.
+    const grow = noticeCompose && { flex: 1, minHeight: 0 };
     return (
-      <View>
+      <View style={grow}>
         {detailHead(
           <NavBtn
             testID="board-notice-cancel"
@@ -1427,13 +1439,11 @@ export function Board({
             label={s.editing ? t('ui.board.closeEditNotice') : t('ui.board.closeNewNotice')}
             onPress={nav.cancelEditor}
           />,
-        )}
-        <Text style={[h4, { marginTop: 4, marginRight: 34, marginBottom: 12 }]}>
-          {t('ui.board.noticeAction', {
+          t('ui.board.noticeAction', {
             v0: s.editing ? t('magazine.editor.editOk') : t('ui.board.write'),
-          })}
-        </Text>
-        <View style={{ gap: 12 }}>
+          }),
+        )}
+        <View style={[{ gap: 12 }, grow]}>
           <BoardField label={t('ui.board.title')}>
             <TextInput
               testID="board-notice-title"
@@ -1445,7 +1455,7 @@ export function Board({
               style={inputStyle()}
             />
           </BoardField>
-          <BoardField label={t('ui.board.body')}>
+          <BoardField label={t('ui.board.body')} style={grow}>
             <TextInput
               testID="board-notice-body"
               accessibilityLabel={t('ui.board.noticeBody')}
@@ -1455,7 +1465,7 @@ export function Board({
               onChangeText={(text) => setDraft({ body: text })}
               placeholder={t('ui.board.noticeBodyPlaceholder')}
               placeholderTextColor="#757575"
-              style={[inputStyle(), { height: 106 }]}
+              style={[inputStyle(), noticeCompose ? { flex: 1 } : { height: 106 }]}
             />
           </BoardField>
           {formError}
@@ -1521,6 +1531,23 @@ export function Board({
         : reason
           ? t('ui.board.rewardUnavailable')
           : '';
+
+  const questFormValue = (): QuestForm =>
+    s.questForm ?? {
+      type: 'focus',
+      title: '',
+      startTime: '19:00',
+      endTime: '22:00',
+      target: '50',
+    };
+  const questSave = (form: QuestForm) => (
+    <BoardPill
+      testID="board-quest-save"
+      label={s.editing ? t('ui.board.saveChanges') : t('ui.board.startQuest')}
+      primary
+      onPress={() => nav.submitQuest(form)}
+    />
+  );
 
   const questContent = (listOnly = false) => {
     if (!listOnly && s.view === 'detail') {
@@ -1664,13 +1691,7 @@ export function Board({
       );
     }
     if (!listOnly && s.view === 'write') {
-      const form = s.questForm ?? {
-        type: 'focus',
-        title: '',
-        startTime: '19:00',
-        endTime: '22:00',
-        target: '50',
-      };
+      const form = questFormValue();
       const setForm = (patch: Partial<QuestForm>) => nav.setQuestForm(form, patch);
       // 서버 PATCH 는 title/targetMinutes 만 받는다 — 수정할 때 종류·창은 읽기 전용으로 보여 준다.
       const serverEdit = serverBoard && s.editing;
@@ -1769,7 +1790,7 @@ export function Board({
                 onChange={(target) => setForm({ target })}
               />
             </BoardField>
-            {formError}
+            {!questCompose && formError}
             <Text
               style={[
                 muted({ marginTop: 4, marginBottom: 14 }),
@@ -1778,12 +1799,7 @@ export function Board({
             >
               {form.type === 'focus' ? t('ui.board.focusHint') : t('ui.board.phoneHint')}
             </Text>
-            <BoardPill
-              testID="board-quest-save"
-              label={s.editing ? t('ui.board.saveChanges') : t('ui.board.startQuest')}
-              primary
-              onPress={() => nav.submitQuest(form)}
-            />
+            {!questCompose && questSave(form)}
           </View>
         </>
       );
@@ -2126,15 +2142,24 @@ export function Board({
     blueprintView.state === 'none';
   const panelNavigationOpen = paperPanel && !noticeOverlayOpen && !questDetailOpen;
   const panelNavigationHeight = panelNavigationOpen ? 52 : 0;
+  // 쓰기 종이(공지 작성·수정·댓글, 퀘스트 작성) — 키보드가 올라와 줄어든 높이(height)를 종이가 다 쓰고 올리기
+  // 버튼은 스크롤 밖 아래에 고정해, 쓰는 칸·쓴 글·버튼이 키보드 위에 같이 보이게 한다. 위로는 장면의 뒤로 ×·간판
+  // 아래(COMPOSE_TOP)까지만 올리고, 키보드가 없을 때는 창 높이(sceneHeight) 기준 예전 크기를 넘지 않는다.
+  const composeMinTop = land ? landOverlay.top : COMPOSE_TOP;
   // 종이 목록 높이. 키보드가 떠서 스크롤 칸이 너무 낮아지면 위쪽에 붙이고 화면 높이를 다 쓴다.
   // 방명록은 목록뿐 아니라 제목+입력 칸+글자 수+[남기기](약 203px)가 한 번에 보여야 해서 바닥을 더 높게 둔다
-  const sheetHeight = Math.min(height * 0.58, 492 * landScale);
+  const sheetHeight = questEditorOpen
+    ? Math.max(0, Math.min(height - composeMinTop - 10, sceneHeight * 0.58, 492 * landScale))
+    : Math.min(height * 0.58, 492 * landScale);
   const minPaperScroll = s.panel === 'guestbook' ? 210 : 140;
   const sheetCramped = sheetHeight - 110 * landScale - panelNavigationHeight < minPaperScroll;
+  // 퀘스트 쓰기 종이 — 너무 낮으면(가로 폰 키보드) 예전처럼 저장 버튼까지 종이 안에서 스크롤한다
+  const questCompose = questEditorOpen && !sheetCramped;
   const paperHeight = sheetCramped ? Math.max(0, height - 8) : sheetHeight;
-  const paperPad = sheetCramped
-    ? { top: 38 * landScale, bottom: 28 * landScale }
-    : { top: 68 * landScale, bottom: 42 * landScale };
+  const paperPad =
+    sheetCramped || questCompose
+      ? { top: 38 * landScale, bottom: 28 * landScale }
+      : { top: 68 * landScale, bottom: 42 * landScale };
   const paperScroll = Math.max(
     0,
     paperHeight - paperPad.top - paperPad.bottom - panelNavigationHeight,
@@ -2146,6 +2171,37 @@ export function Board({
   const overlayScroll = overlayCramped
     ? Math.max(0, height - 8 - overlayVerticalPadding)
     : Math.min(height * 0.49, overlayFrame - overlayVerticalPadding);
+  // 공지 쓰기 종이 — 키보드가 없으면 예전 자리(세로 20%)·크기(창의 58%)이고, 키보드가 올라오면 COMPOSE_TOP 까지
+  // 올라가 남은 높이를 다 쓴다. 세로에서는 폭도 넓혀 큰 글자에서 입력칸 안내 글이 잘리지 않게 하되, 오른쪽 아래
+  // 접힌 귀퉁이(종이 그림 폭의 82% 지점부터)에 게시하기·등록이 얹히지 않게 화면 폭의 13% 를 안쪽 여백으로 둔다
+  // (폭 440 까지 귀퉁이를 비킨다).
+  const composeFrame = Math.max(
+    0,
+    Math.min(height - composeMinTop - 4, sceneHeight * (land ? 0.65 : 0.58)),
+  );
+  const composePad = { top: 32 * landScale, bottom: 28 * landScale };
+  // 댓글은 공지 본문을 실제로 그릴 때만(불러오는 중·실패 화면엔 입력칸이 없다)
+  const commentOpen =
+    s.view === 'comment' &&
+    noticeDetailOpen &&
+    !(serverBoard && board.detailError) &&
+    !!(serverBoard ? serverDetailView : notices[s.noticeIndex]);
+  // 머리·제목 칸·본문 한 줄·게시하기(글자 배율 반영)가 다 들어갈 때만 쓰기 종이로 — 아니면(가로 폰 키보드)
+  // 예전처럼 종이 안 전체를 스크롤한다
+  const noticeCompose =
+    ((noticeEditorOpen && owner) || commentOpen) &&
+    composeFrame - composePad.top - composePad.bottom >= 206 + 66 * fontScale;
+  const noticeComposeStyle = noticeCompose && {
+    ...(!land && { left: 12, right: 12, paddingHorizontal: Math.round(width * 0.13) }),
+    top: Math.max(
+      composeMinTop,
+      Math.min(land ? landOverlay.top : height * 0.2, height - 4 - composeFrame),
+    ),
+    height: composeFrame,
+    maxHeight: composeFrame,
+    paddingTop: composePad.top,
+    paddingBottom: composePad.bottom,
+  };
   const blueprintPanelTop = Math.max(24, (height - blueprintPanelHeight) / 2);
   const boardOverlayOpen = noticeOverlayOpen || questDetailOpen;
 
@@ -2432,7 +2488,8 @@ export function Board({
               : {
                   ...(land ? landDrawer : { left: 0, right: 0 }),
                   ...(paperPanel && sheetCramped ? { top: 4 } : { bottom: 10 }),
-                  maxHeight: paperPanel && sheetCramped ? paperHeight : height - 105,
+                  maxHeight:
+                    paperPanel && (sheetCramped || questCompose) ? paperHeight : height - 105,
                   borderTopLeftRadius: 18,
                   borderTopRightRadius: 18,
                 }),
@@ -2526,7 +2583,16 @@ export function Board({
           </Scroll>
         )}
         {s.panel === 'quest' && (
-          <Scroll style={{ maxHeight: paperScroll }}>{questContent(questDetailOpen)}</Scroll>
+          <Scroll style={questCompose ? { flex: 1, minHeight: 0 } : { maxHeight: paperScroll }}>
+            {questContent(questDetailOpen)}
+          </Scroll>
+        )}
+        {/* 퀘스트 쓰기 종이의 오류·저장은 스크롤 밖 아래에 고정 — 제목을 치는 동안에도 키보드 위에 보인다 */}
+        {questCompose && (
+          <View testID="board-quest-footer" style={{ gap: 8, paddingTop: 10 }}>
+            {formError}
+            {questSave(questFormValue())}
+          </View>
         )}
         {/* 섬 id·섬장 여부는 공지와 같은 getBoard 응답이 정본이다 — 그 첫 조회가 끝나기 전·실패했을 때는 빈 종이가
             아니라 공지·퀘스트와 같은 불러오는 중·오류+다시 시도를 보인다(다시 시도 = board.retry).
@@ -2632,6 +2698,7 @@ export function Board({
               paddingHorizontal: 58 * landScale,
               paddingBottom: 40 * landScale,
               boxShadow: '0 8px 18px #2f211d45',
+              ...noticeComposeStyle,
             }}
           >
             <BoardPaper
@@ -2643,15 +2710,23 @@ export function Board({
                 bottom: -26 * landScale,
               }}
             />
-            <Scroll
-              testID="board-notice-overlay-content"
-              style={[
-                { minHeight: 0, maxHeight: overlayScroll },
-                webOnly({ overscrollBehavior: 'contain' }),
-              ]}
-            >
-              {noticeDetailOpen ? noticeDetail() : noticeEditor()}
-            </Scroll>
+            {noticeCompose && noticeEditorOpen ? (
+              noticeEditor()
+            ) : (
+              <Scroll
+                testID="board-notice-overlay-content"
+                style={[
+                  noticeCompose
+                    ? { flex: 1, minHeight: 0 }
+                    : { minHeight: 0, maxHeight: overlayScroll },
+                  webOnly({ overscrollBehavior: 'contain' }),
+                ]}
+              >
+                {noticeDetailOpen ? noticeDetail() : noticeEditor()}
+              </Scroll>
+            )}
+            {/* 댓글 쓰기 종이 — 공지 본문은 위에서 스크롤하고 입력칸·등록은 키보드 바로 위에 고정한다 */}
+            {noticeCompose && commentOpen && commentComposer()}
           </View>
         </>
       )}

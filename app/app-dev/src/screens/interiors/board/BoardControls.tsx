@@ -357,9 +357,17 @@ export function BlueprintReadyStamp({ reduceMotion }: { reduceMotion: boolean })
 }
 
 // 폼 label (글자 한 줄 + 입력칸)
-export function BoardField({ label, children }: { label: string; children: React.ReactNode }) {
+export function BoardField({
+  label,
+  children,
+  style,
+}: {
+  label: string;
+  children: React.ReactNode;
+  style?: any;
+}) {
   return (
-    <View style={{ gap: 7 }}>
+    <View style={[{ gap: 7 }, style]}>
       <Text style={boardFont(14, 1.6, '700')}>{label}</Text>
       {children}
     </View>

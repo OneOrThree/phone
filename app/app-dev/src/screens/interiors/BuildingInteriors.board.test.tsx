@@ -1606,6 +1606,98 @@ test('가로 키보드 전후 게시판 장면 초기 스크롤 오프셋을 고
   await screen.unmount();
 });
 
+// 키보드가 올라와 InteriorRoute 높이가 줄어든 360dp 폰(창 808) — 쓰기 종이가 남은 높이를 다 쓰고
+// 입력칸과 올리기 버튼이 키보드 위에 같이 남는다
+const KEYBOARD_UP = { width: 360, height: 500, sceneHeight: 808 };
+
+test('공지 쓰기 — 키보드로 낮아진 화면(글자 1.3배)에서 본문 칸이 남은 높이를 채우고 게시하기가 스크롤 밖에 있다', async () => {
+  const fontScale = jest.spyOn(PixelRatio, 'getFontScale').mockReturnValue(1.3);
+  try {
+    const screen = await renderBoard(null, concept({ boardPanel: 'notice', boardView: 'write' }), {
+      ...KEYBOARD_UP,
+    });
+    const overlay = StyleSheet.flatten(screen.getByTestId('board-notice-overlay').props.style);
+    assert.equal(overlay.top, 60);
+    assert.equal(overlay.top + overlay.height, KEYBOARD_UP.height - 4);
+    // 바깥 스크롤이 없어 제목이 밀려 올라가지 않는다 — 본문 칸은 고정 106 이 아니라 남은 높이를 채운다
+    assert.equal(screen.queryByTestId('board-notice-overlay-content'), null);
+    const body = StyleSheet.flatten(screen.getByTestId('board-notice-body').props.style);
+    assert.equal(body.flex, 1);
+    assert.equal(body.height, undefined);
+    assert.ok(screen.getByTestId('board-notice-title'));
+    assert.ok(screen.getByTestId('board-notice-submit'));
+    // 1.3배 제목 안내 글(글자마다 1em 로 넉넉히 잼)이 입력칸 안쪽 폭(여백 10·테두리 1.5 양쪽)에 들어간다
+    const inner =
+      KEYBOARD_UP.width - overlay.left - overlay.right - 2 * overlay.paddingHorizontal - 23;
+    assert.ok(inner >= '공지 제목을 적어주세요'.length * 14 * 1.3, `입력칸 안쪽 폭 ${inner}`);
+
+    // 키보드가 내려가면 예전 자리(20%)·크기(창의 58%)로 돌아간다
+    await screen.setSize({ height: 808 });
+    const closed = StyleSheet.flatten(screen.getByTestId('board-notice-overlay').props.style);
+    assert.equal(closed.top, 808 * 0.2);
+    assert.equal(closed.height, 808 * 0.58);
+    await screen.unmount();
+
+    // 가로 폰 키보드처럼 너무 낮으면 예전처럼 종이 안 전체(게시하기 포함)를 스크롤한다
+    const low = await renderBoard(null, concept({ boardPanel: 'notice', boardView: 'write' }), {
+      width: 874,
+      height: 200,
+      sceneHeight: 402,
+    });
+    const scroll = low.getByTestId('board-notice-overlay-content');
+    assert.ok(within(scroll).getByTestId('board-notice-submit'));
+    assert.equal(StyleSheet.flatten(low.getByTestId('board-notice-body').props.style).height, 106);
+    await low.unmount();
+  } finally {
+    fontScale.mockRestore();
+  }
+});
+
+test('공지 댓글 — 키보드로 낮아진 화면에서 입력칸·등록은 공지 본문 스크롤 밖 아래에 고정된다', async () => {
+  const fontScale = jest.spyOn(PixelRatio, 'getFontScale').mockReturnValue(1.3);
+  try {
+    const screen = await renderBoard(
+      null,
+      concept({ boardPanel: 'notice', boardView: 'comment-input' }),
+      { ...KEYBOARD_UP },
+    );
+    const overlay = StyleSheet.flatten(screen.getByTestId('board-notice-overlay').props.style);
+    assert.equal(overlay.top + overlay.height, KEYBOARD_UP.height - 4);
+    const content = screen.getByTestId('board-notice-overlay-content');
+    assert.equal(StyleSheet.flatten(content.props.style).flex, 1);
+    assert.ok(within(content).getByTestId('board-comment-cancel'));
+    assert.equal(within(content).queryByTestId('board-comment-input'), null);
+    assert.equal(within(content).queryByTestId('board-comment-submit'), null);
+    assert.ok(screen.getByTestId('board-comment-input'));
+    assert.ok(screen.getByTestId('board-comment-submit'));
+    await screen.unmount();
+  } finally {
+    fontScale.mockRestore();
+  }
+});
+
+test('퀘스트 만들기 — 키보드로 낮아진 화면에서 종이가 위로 늘어나고 저장은 스크롤 밖 아래에 고정된다', async () => {
+  const fontScale = jest.spyOn(PixelRatio, 'getFontScale').mockReturnValue(1.3);
+  try {
+    const screen = await renderBoard(
+      null,
+      concept({ boardPanel: 'quest', boardView: 'write-focus' }),
+      { ...KEYBOARD_UP },
+    );
+    const drawer = StyleSheet.flatten(screen.getByTestId('board-drawer').props.style);
+    // 예전엔 줄어든 높이의 58%(290)였다 — 이제 뒤로 ×·간판 아래(60)부터 바닥 10 까지 쓴다
+    assert.equal(drawer.bottom, 10);
+    assert.equal(drawer.height, KEYBOARD_UP.height - 60 - 10);
+    assert.equal(drawer.maxHeight, drawer.height);
+    assert.ok(screen.getByTestId('board-quest-title'));
+    assert.equal(screen.getAllByTestId('board-quest-save').length, 1);
+    assert.ok(within(screen.getByTestId('board-quest-footer')).getByTestId('board-quest-save'));
+    await screen.unmount();
+  } finally {
+    fontScale.mockRestore();
+  }
+});
+
 test('홈 퀘스트 바로가기는 없는 상세로 치지 않고 퀘스트 목록을 연다', async () => {
   getBoardMock.mockResolvedValue(page([]));
   const e = makeE({ route: 'quest', detail: HOME_QUEST_LIST_DETAIL, tab: 'quest' });
