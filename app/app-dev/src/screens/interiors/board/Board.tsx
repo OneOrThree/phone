@@ -1182,16 +1182,11 @@ export function Board({
     </View>
   );
 
-  // 댓글 입력칸과 등록. 쓰기 종이(noticeCompose)에서는 공지 본문 스크롤 밖 아래에 고정해 키보드 바로 위에
-  // 늘 보이게 하고, 종이가 너무 낮으면(가로 폰 키보드) 예전처럼 댓글 머리 아래 스크롤 안에 둔다.
+  // 댓글 입력칸과 등록 — 늘 공지 본문 스크롤 밖 아래에 고정해 키보드 바로 위에 보이게 한다. 키보드로 높이가
+  // 바뀌어도 자리를 옮기지 않는다(옮기면 입력칸이 새로 마운트돼 포커스·키보드를 잃는다).
   const commentComposer = () => (
     <View
-      style={[
-        { gap: 8, borderColor: '#d7bea0' },
-        noticeCompose
-          ? { marginTop: 8, paddingTop: 8, borderTopWidth: 1 }
-          : { marginBottom: 14, paddingBottom: 14, borderBottomWidth: 1 },
-      ]}
+      style={{ gap: 8, borderColor: '#d7bea0', marginTop: 8, paddingTop: 8, borderTopWidth: 1 }}
     >
       <TextInput
         testID="board-comment-input"
@@ -1363,7 +1358,6 @@ export function Board({
             <Text style={muted({ textAlign: 'center' })}>{t('ui.board.joinToComment')}</Text>
           </View>
         )}
-        {s.view === 'comment' && !noticeCompose && commentComposer()}
         <View>
           {comments.length ? (
             comments.map(([{ id, name, text, mine }, commentIndex]) => (
@@ -2722,23 +2716,25 @@ export function Board({
                 bottom: -26 * landScale,
               }}
             />
-            {noticeCompose && noticeEditorOpen ? (
-              noticeEditor()
-            ) : (
-              <Scroll
-                testID="board-notice-overlay-content"
-                style={[
-                  noticeCompose
-                    ? { flex: 1, minHeight: 0 }
-                    : { minHeight: 0, maxHeight: overlayScroll },
-                  webOnly({ overscrollBehavior: 'contain' }),
-                ]}
-              >
-                {noticeDetailOpen ? noticeDetail() : noticeEditor()}
-              </Scroll>
-            )}
-            {/* 댓글 쓰기 종이 — 공지 본문은 위에서 스크롤하고 입력칸·등록은 키보드 바로 위에 고정한다 */}
-            {noticeCompose && commentOpen && commentComposer()}
+            {/* 쓰기 종이(noticeCompose)여도 같은 Scroll 을 두고 스크롤만 잠근다 — 키보드로 높이가 임계값을 넘나들 때
+                감싸는 요소가 바뀌면 제목·본문 TextInput 이 새로 마운트돼 포커스와 키보드를 잃는다 */}
+            <Scroll
+              testID="board-notice-overlay-content"
+              scrollEnabled={!(noticeCompose && noticeEditorOpen)}
+              contentContainerStyle={
+                noticeCompose && noticeEditorOpen ? { flexGrow: 1 } : undefined
+              }
+              style={[
+                noticeCompose
+                  ? { flex: 1, minHeight: 0 }
+                  : { minHeight: 0, maxHeight: overlayScroll, flexShrink: 1 },
+                webOnly({ overscrollBehavior: 'contain' }),
+              ]}
+            >
+              {noticeDetailOpen ? noticeDetail() : noticeEditor()}
+            </Scroll>
+            {/* 댓글 입력칸·등록은 공지 본문 스크롤 밖 아래, 키보드 바로 위에 고정한다 */}
+            {commentOpen && commentComposer()}
           </View>
         </>
       )}

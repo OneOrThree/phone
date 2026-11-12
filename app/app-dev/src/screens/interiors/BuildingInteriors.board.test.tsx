@@ -1642,8 +1642,8 @@ test('공지 쓰기 — 키보드로 낮아진 화면(글자 1.3배)에서 본�
     const overlay = StyleSheet.flatten(screen.getByTestId('board-notice-overlay').props.style);
     assert.equal(overlay.top, 60);
     assert.equal(overlay.top + overlay.height, KEYBOARD_UP.height - 4);
-    // 바깥 스크롤이 없어 제목이 밀려 올라가지 않는다 — 본문 칸은 고정 106 이 아니라 남은 높이를 채운다
-    assert.equal(screen.queryByTestId('board-notice-overlay-content'), null);
+    // 바깥 스크롤은 잠가 제목이 밀려 올라가지 않는다 — 본문 칸은 고정 106 이 아니라 남은 높이를 채운다
+    assert.equal(screen.getByTestId('board-notice-overlay-content').props.scrollEnabled, false);
     const body = StyleSheet.flatten(screen.getByTestId('board-notice-body').props.style);
     assert.equal(body.flex, 1);
     assert.equal(body.height, undefined);
@@ -1671,6 +1671,38 @@ test('공지 쓰기 — 키보드로 낮아진 화면(글자 1.3배)에서 본�
     assert.ok(within(scroll).getByTestId('board-notice-submit'));
     assert.equal(StyleSheet.flatten(low.getByTestId('board-notice-body').props.style).height, 106);
     await low.unmount();
+  } finally {
+    fontScale.mockRestore();
+  }
+});
+
+test('공지 쓰기·댓글 — 키보드로 높이가 쓰기 종이 임계값을 넘나들어도 입력칸이 새로 마운트되지 않는다', async () => {
+  const fontScale = jest.spyOn(PixelRatio, 'getFontScale').mockReturnValue(1.3);
+  try {
+    // 키보드가 없을 때는 쓰기 종이, 키보드가 올라와 아주 낮아지면 예전 스크롤 — 감싸는 요소가 바뀌면 포커스를 잃는다
+    const editor = await renderBoard(null, concept({ boardPanel: 'notice', boardView: 'write' }), {
+      ...KEYBOARD_UP,
+    });
+    const title = editor.getByTestId('board-notice-title');
+    const body = editor.getByTestId('board-notice-body');
+    await editor.setSize({ height: 200 });
+    assert.equal(
+      StyleSheet.flatten(editor.getByTestId('board-notice-body').props.style).height,
+      106,
+    );
+    assert.equal(editor.getByTestId('board-notice-title'), title);
+    assert.equal(editor.getByTestId('board-notice-body'), body);
+    await editor.unmount();
+
+    const comment = await renderBoard(
+      null,
+      concept({ boardPanel: 'notice', boardView: 'comment-input' }),
+      { ...KEYBOARD_UP },
+    );
+    const input = comment.getByTestId('board-comment-input');
+    await comment.setSize({ height: 200 });
+    assert.equal(comment.getByTestId('board-comment-input'), input);
+    await comment.unmount();
   } finally {
     fontScale.mockRestore();
   }
