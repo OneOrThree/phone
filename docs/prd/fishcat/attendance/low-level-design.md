@@ -44,7 +44,7 @@
 | `AttendanceScheduleResolver` | (주 시작일, 주간 표 최신 발행본, 기본 표 최신 발행본) → 적용할 개정 |
 | `AttendanceScheduleDigest` | 표 정규 문자열과 SHA-256(§8.3). 백오피스 BFF 와 같은 결과를 낸다 |
 
-## 3. 저장 모델 — V16
+## 3. 저장 모델: V16
 
 최신이 `V15__developer_notice_target_platform.sql` 이라 다음은 V16 이다. push 직전에 `origin/main` 의 최신 번호를 다시 보고, 겹치면 번호와 관련 시험·`schema.dbml` 을 함께 바꾼다.
 
@@ -267,7 +267,7 @@ Business 의 `GlobalExceptionHandler.registeredUpstream` 은 Data 오류 코드�
 
 새 명령의 순서. 잠금 방향은 집중 시작(`FocusSessionLifecycleService` 의 context → 섬 → 멤버십)과 1회 보상(`FocusTutorialRewardService`)을 따른다.
 
-1. `UserQueryService.getCallerForUpdate(userId)` — 사용자 행 배타 잠금. 같은 사용자의 청구·탈퇴·섬 이동이 여기서 차례로 선다.
+1. `UserQueryService.getCallerForUpdate(userId)`: 사용자 행 배타 잠금. 같은 사용자의 청구·탈퇴·섬 이동이 여기서 차례로 선다.
 2. 현재 섬 컨텍스트를 읽는다(`UserIslandContextRepository.findById`). 컨텍스트를 바꾸는 쓰기(섬 이동·가입·강퇴 정리)는 모두 사용자 행을 먼저 잡으므로 사용자 잠금 아래의 읽기로 충분하다. `UserIslandContextLockService.lock` 은 행이 없으면 만들기 때문에 쓰지 않는다. 출석이 컨텍스트 행을 새로 만들 이유가 없다.
 3. `now = clock.instant()` 를 **이 한 번만** 읽는다. `today = AttendanceDay.today(now)`, `weekStart = RankingWeek.weekStart(now)`, `nextDayAt`·`nextWeekAt`, 꾸미기 지급 시각, 출석 행의 `created_at` 이 모두 이 값을 쓴다. 자정 직전에 시작한 청구의 날짜와 주가 서로 다른 날을 가리키지 않는다. 판정 순서는 영수증 재생(1 앞의 `run`) → 같은 날 출석(4, 409) → 칸·표(5, 503) → 현재 섬(6) → 꾸미기(7) 이고, 어느 오류가 먼저 나오는지가 이 순서로 정해진다(PRD 구현 결정 7).
 4. 오늘 출석 행이 있으면 `ATTENDANCE_ALREADY_CLAIMED`(409). 이번 주 출석 수가 7 이면 `ATTENDANCE_WEEK_COMPLETE`(409). 유일 제약 `uq_attendance_claim_day`·`uq_attendance_claim_slot` 이 마지막 방어선이다.
@@ -305,9 +305,9 @@ Business 의 `GlobalExceptionHandler.registeredUpstream` 은 Data 오류 코드�
 - 이번 주 출석 행(최대 7)으로 `CLAIMED` 칸을 채운다. 사본에서 `reward`·`received` 를 만든다.
 - 적용 개정(§6 의 5)에서 나머지 칸의 `reward` 를 만든다. `ITEM` 칸의 이름과 이미지 경로는 `CustomizationCatalogService.catalog()` 결과에서 상품 ID 로 찾는다. 이 결과는 `customization_asset_meta` 행과, 메타 행 없이 `customization_reward_items` 에만 있는 보상 꾸미기(이미지 경로가 `render_data` 쪽)를 함께 담는다. 메타 테이블만 읽으면 보상 꾸미기의 그림이 빠진다. 카탈로그에 없는 상품이면 `product` 의 `imageUrl` 을 `null` 로 내고 앱은 이름만 보인다.
 - `heldFish` = 열린 보관 행의 합, `viewedToday` = 오늘 노출 행 존재, `attendedToday` = 오늘 출석 행 존재. 출석하면 그날 노출도 기록되므로 `attendedToday=true` 이면 `viewedToday=true` 다.
-- 받지 않은 `ITEM` 칸에는 `alreadyOwned`(이미 가진 상품이면 `true`)를 싣는다. 앱은 이 값이 참이면 칸 아래에 「이미 가진 꾸미기 — 받으면 물고기 {n}마리」를 보여 준다. 청구 순간 판정(§6 의 7)이 정본이고 이 값은 미리 보기다.
+- 받지 않은 `ITEM` 칸에는 `alreadyOwned`(이미 가진 상품이면 `true`)를 싣는다. 앱은 이 값이 참이면 칸 아래에 「이미 가짐 · 물고기 {n}」을 보여 준다. 청구 순간 판정(§6 의 7)이 정본이고 이 값은 미리 보기다.
 
-`recordView(userId)` 의 날짜는 청구와 같은 `Clock` 에서 낸 UTC 날짜다. DB 의 `CURRENT_DATE` 는 세션 시간대에 따라 날이 갈리므로 쓰지 않는다. `recordView(userId)` 는 쓰기 트랜잭션에서 `UserQueryService.getCallerForShare(userId)` 로 활성 사용자를 공유 잠금한 뒤 `INSERT INTO attendance_views … ON CONFLICT DO NOTHING` 을 한다. 영향 행 수로 `first` 를 정한다. 목적은 탈퇴한 계정이 노출·출석을 새로 기록하지 못하게 하는 것이다. 공유 잠금이 탈퇴의 배타 잠금과 차례로 서므로, 탈퇴가 먼저 끝났으면 활성 사용자를 찾지 못해 거절하고, 탈퇴가 뒤면 방금 넣은 노출 행도 남는다(정책 AT16). 청구는 같은 목적으로 `getCallerForUpdate` 를 쓴다(§6 의 1). 활성 사용자 확인은 잡지 열람 기록(`MagazineIssueService.receive`)과 같은 방식이다.
+`recordView(userId)` 의 날짜는 청구와 같은 `Clock` 에서 낸 UTC 날짜다. DB 의 `CURRENT_DATE` 는 세션 시간대에 따라 날이 갈리므로 쓰지 않는다. `recordView(userId)` 는 쓰기 트랜잭션에서 `UserQueryService.getCallerForShare(userId)` 로 활성 사용자를 공유 잠금한 뒤 `INSERT INTO attendance_views … ON CONFLICT DO NOTHING` 을 한다. 영향 행 수로 `first` 를 정한다. 이 잠금은 탈퇴한 계정이 노출·출석을 새로 기록하지 못하게 한다. 공유 잠금이 탈퇴의 배타 잠금과 차례로 서므로, 탈퇴가 먼저 끝났으면 활성 사용자를 찾지 못해 거절하고, 탈퇴가 뒤면 방금 넣은 노출 행도 남는다(정책 AT16). 청구는 같은 목적으로 `getCallerForUpdate` 를 쓴다(§6 의 1). 활성 사용자 확인은 잡지 열람 기록(`MagazineIssueService.receive`)과 같은 방식이다.
 
 ## 8. 표 관리
 
@@ -346,10 +346,10 @@ Business 의 `GlobalExceptionHandler.registeredUpstream` 은 Data 오류 코드�
 응답 모양.
 
 ```jsonc
-// 발행 200 — 같은 publicationId·같은 본문 재요청도 같은 응답
+// 발행 200: 같은 publicationId·같은 본문 재요청도 같은 응답
 { "publicationId": "…", "revisionId": "…", "scope": "WEEK", "weekStart": "2026-11-15", "revision": 1,
   "digest": "…", "publishedBy": "member-1", "publishedAt": "…" }
-// 이력 GET …/history?scope=WEEK&week=2026-11-15&limit=20 — 최신 개정부터
+// 이력 GET …/history?scope=WEEK&week=2026-11-15&limit=20: 최신 개정부터
 { "items": [ { "revision": 1, "revisionId": "…", "publishedBy": "member-1",
                "publishedAt": "…", "slots": [ … ] } ] }
 ```
@@ -455,7 +455,7 @@ BFF 와 Data 가 같은 문자열을 만든다. 키 순서는 아래 그대로, 
 ### 10.2 화면
 
 - `AttendanceRewards.tsx`: 탭 「이번 주」·「다음 주」·「기본 표」와 읽기 전용 「지난 주」(`GET …/schedules/history?scope=WEEK&week=<지난 주 시작일>`). 각 탭에 지금 적용되는 표(`effective`)와 개정 번호를 보이고, 7칸 편집기에서 칸마다 종류·수량·꾸미기(썸네일은 `CustomizationShared.tsx` 의 `Thumb`)·대체 물고기를 고른다. 아래에 「발행」 버튼과 발행 이력(누가 언제 발행했는지와 7칸)을 둔다. 「발행」을 누르면 확인 창이 지금 적용 중인 표와 바뀌는 칸의 전후를 보여 주고, 확인하면 발행한다. 「승인 대기」 영역은 없다. `uncertain` 이면 「결과 확인 필요」와 「다시 보내기」 버튼을, `failed` 면 Data 가 준 사유를 보인다.
-- `AttendanceStats.tsx`: 기간 선택(기본 최근 14일), 일별 표, 주별 분포·칸별 수령 표(진행 중인 주 표시), 지급 합계(대체 물고기는 지급 합계의 일부이고, 「보관 중」은 탈퇴 계정을 뺀 값임을 함께 적는다). 머리에 「UTC 기준 — 하루는 한국 오전 9시, 주는 한국 일요일 오전 9시에 시작」.
+- `AttendanceStats.tsx`: 기간 선택(기본 최근 14일), 일별 표, 주별 분포·칸별 수령 표(진행 중인 주 표시), 지급 합계(대체 물고기는 지급 합계의 일부이고, 「보관 중」은 탈퇴 계정을 뺀 값임을 함께 적는다). 머리에 「UTC 기준: 하루는 한국 오전 9시, 주는 한국 일요일 오전 9시에 시작」.
 - `App.tsx`: 사이드바 버튼 두 개, `panel` 값 `'attendance' | 'attendanceStats'`, props `{ session, onDirtyChange, onUnauthorized }`.
 
 ## 11. 앱
@@ -470,7 +470,7 @@ BFF 와 Data 가 같은 문자열을 만든다. 키 순서는 아래 그대로, 
 
 조건을 모두 만족하면 연다.
 
-1. 팝업 게이트 통과: `services/developerLetter.ts` 의 `isLetterReady(…)` 가 참이고(튜토리얼·방문·모달·화면 경로 같은 나머지 조건은 이 함수가 맡는다), 운영진의 편지(`useDeveloperLetter`)와 강제 업데이트 편지(`useForceUpdateLetter`)가 **이번 판정 회차의 조회를 마쳤고**(성공·실패 모두) 둘 다 떠 있지 않다. 우선순위는 강제 업데이트 → 운영진의 편지 → 출석판이다. 지금 두 훅은 조회 완료를 알려 주지 않아(`useDeveloperLetter` 는 `{ notice, dismiss }`, `useForceUpdateLetter` 는 요구 사항만 돌려준다), 출석 조회가 먼저 끝나면 출석판이 먼저 열리고 뒤늦은 편지가 겹칠 수 있다. 두 훅이 `settled` 를 함께 돌려주게 고친다. 앱 시작과 foreground 복귀 때마다 `settled` 는 거짓으로 돌아갔다가 그 회차의 조회가 끝나면 참이 된다.
+1. 팝업 게이트 통과: `services/developerLetter.ts` 의 `isLetterReady(…)` 가 참이고(튜토리얼·방문·모달·화면 경로 같은 나머지 조건은 이 함수가 맡는다), 운영진의 편지(`useDeveloperLetter`)와 강제 업데이트 편지(`useForceUpdateLetter`)가 **이번 판정 회차의 조회를 마쳤고**(성공·실패 모두) 둘 다 떠 있지 않다. 우선순위는 강제 업데이트 → 운영진의 편지 → 출석판이다. 지금 두 훅은 조회 완료를 알려 주지 않는다(`useDeveloperLetter` 는 `{ notice, dismiss }`, `useForceUpdateLetter` 는 요구 사항만 돌려준다). 그래서 출석 조회가 먼저 끝나면 출석판이 먼저 열리고 뒤늦은 편지가 겹칠 수 있다. 두 훅이 `settled` 를 함께 돌려주게 고친다. 앱 시작과 foreground 복귀 때마다 `settled` 는 거짓으로 돌아갔다가 그 회차의 조회가 끝나면 참이 된다.
 2. 조회 응답이 `attendedToday=false`·`viewedToday=false`.
 3. 기기 기억 `autoOpened` 가 응답의 `today` 와 다르다.
 
@@ -484,7 +484,7 @@ BFF 와 Data 가 같은 문자열을 만든다. 키 순서는 아래 그대로, 
 - 아이콘으로 열 때도 노출을 보낸다(같은 날 두 번째부터 서버가 무시한다).
 - 출석판 `AttendanceBoard.tsx`: `design-system/patterns.tsx` 의 `Overlay` 를 쓴다. 7칸, 보관 물고기, `nextDayAt`·`nextWeekAt` 을 기기 시간대로 표시한다. 디자인은 `app/app-dev/DESIGN.md` 를 따른다.
 - 결과 문구는 PRD 「결과 종류와 문구」 표의 6종이다.
-- 섬 통장 잔액은 응답의 `wallet` 으로 `SERVER_VILLAGE_POINTS` 를 보내 고친다. 퀘스트 보상이 게시판에서 하는 방식과 같다(`screens/interiors/board/Board.tsx` 의 `SERVER_VILLAGE_POINTS`). 지금 앱의 `services/islandRealtime.ts` 는 `wallet.updated`·`inventory.updated` 를 받지 않는다. 그래서 응답이 앱의 유일한 즉시 갱신 경로이고, 두 사건은 앞으로의 소비자를 위한 것이다.
+- 섬 통장 잔액은 응답의 `wallet` 으로 `SERVER_VILLAGE_POINTS` 를 보내 고친다. 퀘스트 보상이 게시판에서 하는 방식과 같다(`screens/interiors/board/Board.tsx` 의 `SERVER_VILLAGE_POINTS`). 지금 앱의 `services/islandRealtime.ts` 는 `wallet.updated`·`inventory.updated` 를 받지 않는다. 응답이 앱의 유일한 즉시 갱신 경로다. 두 사건은 앞으로의 소비자용이다.
 - 꾸미기를 받으면(`itemOutcome=GRANTED`) `addUnseenOutfits("attendance:<claimedOn>", [productId])` 로 NEW 표시를 달고 `getMyInventory()`(`services/api/shop.ts`)를 한 번 다시 부른다. 리듀서는 대상 섬이 아직 `islands` 에 없으면 값을 버리므로, 섬 목록을 불러오기 전에 받은 응답은 다음 조회가 채운다.
 - 404 는 그 세션 동안 입구를 숨긴다. 409·503·그 밖의 실패는 §4 표대로.
 - 문구 키는 `attendance.*` 로 `ko.json`·`en.json` 에 넣는다.
