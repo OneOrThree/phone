@@ -170,7 +170,7 @@ const blockedText = (reason: string | null) =>
         : reason === 'INSUFFICIENT_FUNDS'
           ? t('ui.hall.insufficientFish')
           : reason === 'IN_PROGRESS'
-            ? t('ui.hall.miscellaneousConstruction')
+            ? t('ui.hall.otherConstruction')
             : t('ui.hall.selectionUnavailable');
 export const buildBlockedText = (reason: string | null) =>
   reason === 'FORBIDDEN'

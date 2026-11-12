@@ -664,6 +664,16 @@
       "shoes": "Shoes"
     }
   },
+  "shop": {
+    "tab": {
+      "personal": "My outfits",
+      "island": "Island decor"
+    },
+    "ordersTab": {
+      "personal": "Mine",
+      "shared": "Shared"
+    }
+  },
   "emptyState": {
     "shop": "Nothing for sale yet",
     "wardrobe": "No outfits yet",
