@@ -1,11 +1,14 @@
 import { customizationTitle } from '@/i18n/customization';
 import { localeTag } from '@/i18n/format';
+import { OutfitItemArt } from '@/components/CatOutfitLayers';
 import { cat } from '@/constants/assets';
 import { bundledAudioSource } from '@/constants/audio';
 import { Badge, Btn, C, Chips, EmptyState, Pic, Txt } from '@/design-system/patterns';
 import { t } from '@/i18n';
 import { Cta, IslandSheet, Preview, SheetGroup, SheetRow, st } from '@/screens/island/IslandSheet';
+import { useCustomizationCatalog } from '@/services/customizationCatalog';
 import { State, balance, canBuy, kstHourMinute, kstMonthDay, products } from '@/services/model';
+import { useState } from 'react';
 import { Pressable, View } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import { Icon, shopBlockReason } from '../island/navigation/screenParts';
@@ -36,6 +39,37 @@ const buildingArt: Record<string, string> = {
   mail: 'mailbox',
   shop: 'shop',
 };
+
+// 꾸미기 그림은 칸 높이의 이만큼 — 둥근 칸 모서리에 닿지 않게 기본 그림(92%)보다 조금 작게 둔다
+const ITEM_ART_RATIO = 0.86;
+// 폭은 기본 그림과 같은 92% 를 넘지 않는다 — compact(한 줄 4칸)처럼 칸이 좁으면 정사각 그림이 가로로 잘린다
+const ITEM_ART_MAX_WIDTH_RATIO = 0.92;
+
+// 상점 카드 그림(GROMO-2873). 섬·건물 테마는 종류별 그림, 꾸미기(머리·목·신발 등)는 서버 꾸미기
+// 카탈로그의 상품 그림이다 — 먼바다 결과창과 같은 OutfitItemArt. 카탈로그에 그 상품이 없으면
+// (불러오는 중·실패·데모) 예전처럼 스카프 고양이 기본 그림을 그린다. renderShopScreens 는 훅을 못 쓰는
+// 함수라 카드 그림만 컴포넌트로 뺐다. 카탈로그는 모듈 캐시를 같이 써서 카드가 많아도 요청은 한 번이다.
+// 그림 크기는 높이 기준값과 칸 폭(onLayout) 기준값 중 작은 쪽이다. 폭을 재기 전 첫 프레임은 높이 기준이다.
+function ShopCardArt({ product, height }: { product: any; height: number }) {
+  const table = useCustomizationCatalog();
+  const [width, setWidth] = useState(0);
+  if (product.kind === 'island') return <Pic id="island/whole" w="100%" h="100%" cover />;
+  if (product.kind === 'building')
+    return <Pic id={'bld/' + buildingArt[product.building || 'hall']} w="92%" h="92%" />;
+  const entry = table[product.id];
+  if (!entry) return <Pic id="scarf-cat" w="92%" h="92%" />;
+  const byHeight = height * ITEM_ART_RATIO;
+  const size = Math.round(width ? Math.min(byHeight, width * ITEM_ART_MAX_WIDTH_RATIO) : byHeight);
+  return (
+    <View
+      testID={`shop-art-box-${product.id}`}
+      onLayout={(event) => setWidth(event.nativeEvent.layout.width)}
+      style={{ alignSelf: 'stretch', flex: 1, alignItems: 'center', justifyContent: 'center' }}
+    >
+      <OutfitItemArt entry={entry} size={size} testID={`shop-art-${product.id}`} />
+    </View>
+  );
+}
 
 // 날짜 "M/D"와 시각 "HH:MM"(Asia/Seoul)
 const md = kstMonthDay;
@@ -133,6 +167,7 @@ export function renderShopScreens(context: ScreenContext) {
     // 서버 모드는 탭이 곧 category 이고 목록은 서버 응답 그대로다(GROMO-2017).
     const mine = tab !== 'island',
       cols = layout.compact ? 4 : 2,
+      artHeight = layout.compact ? 84 : 112,
       items = server
         ? shopApi.items.map(shopCard)
         : products.filter((p) =>
@@ -156,7 +191,7 @@ export function renderShopScreens(context: ScreenContext) {
       >
         <View
           style={{
-            height: layout.compact ? 84 : 112,
+            height: artHeight,
             borderRadius: 12,
             backgroundColor: mine ? '#FFF0F3' : '#E3F4FC',
             alignItems: 'center',
@@ -164,15 +199,7 @@ export function renderShopScreens(context: ScreenContext) {
             overflow: 'hidden',
           }}
         >
-          {p.kind === 'island' ? (
-            <Pic id="island/whole" w="100%" h="100%" cover />
-          ) : (
-            <Pic
-              id={p.kind === 'building' ? 'bld/' + buildingArt[p.building || 'hall'] : 'scarf-cat'}
-              w="92%"
-              h="92%"
-            />
-          )}
+          <ShopCardArt product={p} height={artHeight} />
         </View>
         {owned(p) && (
           <View
