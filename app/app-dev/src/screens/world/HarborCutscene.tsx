@@ -21,6 +21,7 @@ import {
   harborDuration,
   harborCamera,
   harborOceanBounds,
+  harborPassengerBounds,
   type HarborDirection,
 } from './harborMotion';
 import { PelicanDeliveryArt } from './PelicanDeliveryArt';
@@ -29,7 +30,7 @@ import { seaLoaf } from '@/screens/sea/seaAssets';
 const OCEAN = require('@/assets/ota/harbor/ocean-camera.jpg');
 const HARBOR = require('@/assets/ota/harbor/island-dock.png');
 const D = c.harborCutscene;
-const REQUIRED_IMAGES = ['ocean', 'harbor', 'raft-back', 'raft-front', 'cat'];
+const REQUIRED_IMAGES = ['ocean', 'harbor', 'raft', 'cat'];
 
 type Props = {
   direction: HarborDirection;
@@ -107,17 +108,7 @@ function Playing({
   const [loaded, setLoaded] = useState<ReadonlySet<string>>(() => new Set());
   const required =
     direction === 'pelican-mail'
-      ? [
-          'ocean',
-          'raft-back',
-          'raft-front',
-          'cat',
-          'bird-up',
-          'bird-down',
-          'bird-rest',
-          'book',
-          'book-depth',
-        ]
+      ? ['ocean', 'raft', 'cat', 'bird-up', 'bird-down', 'bird-rest', 'book', 'book-depth']
       : direction === 'abandon'
         ? [...REQUIRED_IMAGES.filter((name) => name !== 'harbor'), 'cat-rest']
         : REQUIRED_IMAGES;
@@ -176,7 +167,12 @@ function Playing({
       });
     const at = (key: keyof (typeof samples)[number]) =>
       progress.interpolate({ inputRange: HARBOR_STEPS, outputRange: samples.map((s) => s[key]) });
+    const derive = (f: (sample: (typeof samples)[number]) => number) =>
+      progress.interpolate({ inputRange: HARBOR_STEPS, outputRange: samples.map(f) });
+    const { catSize } = scene;
+    const passengers = harborPassengerBounds(scene, samples);
     return {
+      passengers,
       camera: [
         { translateX: cameraAt('x') },
         { translateY: cameraAt('y') },
@@ -188,20 +184,34 @@ function Playing({
         { translateY: at('harborDrawY') },
         { scale: at('harborScale') },
       ],
-      raft: [{ translateX: at('raftX') }, { translateY: at('raftY') }],
+      // 이동은 부모 한 곳에서 처리한다. 고양이는 뗏목 기준 점프만 하고 탑승 뒤에는 상대 위치가 고정된다.
+      // 부모 크기는 점프와 회전 범위를 포함해 계산하여 자식이 크기 0 뷰 밖에 놓이지 않게 한다.
+      carrier: [
+        { translateX: derive((s) => s.raftX + passengers.left) },
+        { translateY: derive((s) => s.raftY + passengers.top) },
+      ],
       roll: progress.interpolate({
         inputRange: HARBOR_STEPS,
         outputRange: samples.map((s) => `${s.raftRoll}deg`),
       }),
-      cat: [{ translateX: at('catX') }, { translateY: at('catY') }],
-      body: [{ scaleX: at('catScaleX') }, { scaleY: at('catScaleY') }],
+      cat: [
+        { translateX: derive((s) => s.catX - s.raftX - catSize / 2 - passengers.left) },
+        {
+          translateY: derive((s) => s.catY - s.raftY - catSize * D.catFootY - passengers.top),
+        },
+        { scaleX: at('catScaleX') },
+        { scaleY: at('catScaleY') },
+      ],
       shadow: [
-        { translateX: at('catX') },
-        { translateY: at('shadowY') },
+        { translateX: derive((s) => s.catX - s.raftX - catSize * 0.25 - passengers.left) },
+        {
+          translateY: derive(
+            (s) => s.shadowY - s.raftY + catSize * (s.shadowScale * 0.025 - 0.06) - passengers.top,
+          ),
+        },
         { scale: at('shadowScale') },
       ],
       shadowOpacity: at('shadowOpacity'),
-      wakeOpacity: at('wakeOpacity'),
       awake:
         direction === 'abandon'
           ? progress.interpolate({ inputRange: [0, 0.5, 0.78, 1], outputRange: [1, 1, 0, 0] })
@@ -211,8 +221,8 @@ function Playing({
   }, [progress, box.width, box.height, direction]);
   const raftBox = {
     position: 'absolute' as const,
-    left: -frame.raftSize * D.raftAnchorX,
-    top: -frame.raftSize * D.raftAnchorY,
+    left: -frame.raftSize * D.raftAnchorX - motion.passengers.left,
+    top: -frame.raftSize * D.raftAnchorY - motion.passengers.top,
     width: frame.raftSize,
     height: frame.raftSize,
   };
@@ -301,59 +311,45 @@ function Playing({
               ]}
             />
           )}
-          <Animated.View style={[styles.origin, { transform: motion.raft }]}>
-            <Animated.View
-              style={[
-                styles.wake,
-                {
-                  left: -frame.raftSize * 0.5,
-                  top: frame.raftSize * 0.04,
-                  width: frame.raftSize,
-                  height: frame.raftSize * 0.32,
-                  opacity: motion.wakeOpacity,
-                  transform: [{ rotate: '-18deg' }],
-                },
-              ]}
-            />
+          <Animated.View
+            testID="harbor-passengers"
+            collapsable={false}
+            style={[
+              styles.origin,
+              {
+                width: motion.passengers.width,
+                height: motion.passengers.height,
+                transform: motion.carrier,
+              },
+            ]}
+          >
             <Animated.Image
-              source={
-                assets[
-                  direction === 'pelican-mail'
-                    ? 'boats/raft/day.png'
-                    : 'boats/raft/layers/back-day.png'
-                ]
-              }
-              testID="harbor-raft-back"
+              source={assets['boats/raft/day.png']}
+              testID="harbor-raft"
               accessible={false}
-              onLoad={loadedImage('raft-back')}
+              onLoad={loadedImage('raft')}
               onError={onFinish}
               style={[raftBox, { transform: [{ rotate: motion.roll }] }]}
             />
-          </Animated.View>
-          <Animated.View
-            style={[styles.origin, { transform: motion.shadow, opacity: motion.shadowOpacity }]}
-          >
-            <View
+            <Animated.View
               style={[
                 styles.shadow,
                 {
-                  left: -frame.catSize * 0.25,
-                  top: -frame.catSize * 0.035,
                   width: frame.catSize * 0.5,
                   height: frame.catSize * 0.12,
+                  opacity: motion.shadowOpacity,
+                  transform: motion.shadow,
                 },
               ]}
             />
-          </Animated.View>
-          <Animated.View style={[styles.origin, { transform: motion.cat }]}>
             <Animated.View
               style={{
                 position: 'absolute',
+                left: 0,
+                top: 0,
                 width: frame.catSize,
                 height: frame.catSize,
-                left: -frame.catSize / 2,
-                top: -frame.catSize * D.catFootY,
-                transform: motion.body,
+                transform: motion.cat,
               }}
             >
               <Animated.View style={[StyleSheet.absoluteFill, { opacity: motion.awake }]}>
@@ -400,16 +396,6 @@ function Playing({
               onError={onFinish}
             />
           )}
-          <Animated.View style={[styles.origin, { transform: motion.raft }]}>
-            <Animated.Image
-              source={assets['boats/raft/layers/front-day.png']}
-              testID="harbor-raft-front"
-              accessible={false}
-              onLoad={loadedImage('raft-front')}
-              onError={onFinish}
-              style={[raftBox, { transform: [{ rotate: motion.roll }] }]}
-            />
-          </Animated.View>
         </View>
       </Animated.View>
     </View>
@@ -428,14 +414,10 @@ const styles = StyleSheet.create({
     backgroundColor: p.color.sky,
   },
   origin: { position: 'absolute', top: 0, left: 0 },
-  wake: {
-    position: 'absolute',
-    borderWidth: D.wakeWidth,
-    borderColor: c.sailing.ripple,
-    borderRadius: c.sailing.wakeRadius,
-  },
   shadow: {
     position: 'absolute',
+    left: 0,
+    top: 0,
     borderRadius: c.sailing.wakeRadius,
     backgroundColor: p.color.brown,
   },

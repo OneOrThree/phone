@@ -30,6 +30,18 @@ export const kstClockToUtc = (hhmm: string): string => shift(hhmm, -KST_OFFSET);
 export const utcClockToKst = (hhmm: string): string => shift(hhmm, KST_OFFSET);
 
 /**
+ * 만들 수 있는 KST 창 종료의 마지막 분 — 23:59(GROMO-2886). 24:00 KST 는 15:00 UTC 로 가는데,
+ * 운영 data-api 는 `hibernate.jdbc.time_zone: Asia/Seoul` 이라 창 LocalTime 을 KST 로 밀어 저장한다.
+ * 15:00 이 00:00 으로 저장돼 `island_quests_window_check`(window_start < window_end)에 걸리고
+ * 생성이 실패한다. 그래서 종료 피커는 23:59 까지고, 검증·어댑터도 24:00 을 23:59 로 내린다.
+ */
+export const LAST_KST_WINDOW_END_MINUTES = DAY - 1;
+
+/** KST 창 종료 24:00 을 23:59 로 내린다. 그 밖의 값·형식 오류는 그대로 둔다. */
+export const capKstWindowEnd = (hhmm: string): string =>
+  clockMinutes(hhmm) === DAY ? format(LAST_KST_WINDOW_END_MINUTES) : hhmm;
+
+/**
  * KST 창을 UTC 로 바꿨을 때 UTC 자정을 가로지르는가 — 서버 cross-midnight CHECK 와 같다.
  * utcStart >= utcEnd 이면 하루를 넘겨(또는 종료가 UTC 자정에 정확히 닿아) 저장할 수 없다(= true).
  * 형식 오류는 다른 검증에 맡기고 false.

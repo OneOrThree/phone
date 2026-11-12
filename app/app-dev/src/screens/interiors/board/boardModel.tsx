@@ -19,6 +19,7 @@ import {
   targetIds,
   viewIsland,
 } from '@/services/model';
+import { LAST_KST_WINDOW_END_MINUTES } from '@/utils/questWindowTz';
 import { buildOptions, interiorArt } from '../assets';
 import { BlueprintView, NoticeView, QuestForm, QuestView, ResidentRate } from './types';
 
@@ -76,11 +77,12 @@ export const questError = (form: QuestForm, serverEdit = false) => {
     return t('ui.board.requiredQuest');
   if (form.type === 'phone' || serverEdit) return '';
   const start = clockMinutes(form.startTime),
-    end = clockMinutes(form.endTime);
-  if (start === null || end === null) return t('ui.board.requiredTimes');
+    rawEnd = clockMinutes(form.endTime);
+  if (start === null || rawEnd === null) return t('ui.board.requiredTimes');
+  // 창은 KST 벽시계 그대로 검증한다. 종료 피커는 23:59 까지고, 다른 길로 24:00 이 들어와도
+  // 서버 어댑터(quests.ts createQuest)가 23:59 로 내려 보내므로 같은 끝으로 잰다(GROMO-2886).
+  const end = Math.min(rawEnd, LAST_KST_WINDOW_END_MINUTES);
   if (end <= start) return t('ui.board.endAfterStart');
-  // 창은 KST 벽시계 그대로 검증한다 — 24:00 은 서버 어댑터가 15:00 UTC 로 깨끗이 보내므로
-  // 진짜 창 길이(end - start)로 목표를 잰다(23:59 로 깎지 않는다, GROMO-2672).
   if (target > end - start) return t('ui.board.goalWithinSchedule');
   return '';
 };

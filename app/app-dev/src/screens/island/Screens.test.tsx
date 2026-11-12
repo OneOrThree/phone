@@ -353,31 +353,37 @@ function Harness({
   );
 }
 
-test('설정에서 기존 내 정보·메인 섬 변경으로 이동하고 현재 메인 섬 이름을 보여 준다', async () => {
+test('설정 첫 줄에서 내 정보로, 내 정보에서 메인 섬 변경으로 이동하고 현재 메인 섬 이름을 보여 준다', async () => {
   let exposed: any;
-  const screen = await render(
-    <Harness
-      route="settings"
-      full
-      seed={(d: any) => {
-        const state = initialState(true);
-        state.islands[1].joined = true;
-        d({ type: 'LOAD', state });
-      }}
-      expose={(value: any) => (exposed = value)}
-    />,
+  const seed = (d: any) => {
+    const state = initialState(true);
+    state.islands[1].joined = true;
+    d({ type: 'LOAD', state });
+  };
+  const settings = await render(
+    <Harness route="settings" full seed={seed} expose={(value: any) => (exposed = value)} />,
   );
-  expect(screen.getByText('소다 섬')).toBeTruthy();
-  await fireEvent.press(screen.getByText('내 정보'));
+  expect(settings.queryByText('메인 섬')).toBeNull();
+  await fireEvent.press(settings.getByLabelText(/^내 정보, /));
   expect(exposed.go).toHaveBeenCalledWith('profile');
-  await fireEvent.press(screen.getByText('메인 섬 변경하기'));
+  await settings.unmount();
+
+  const profile = await render(
+    <Harness route="profile" full seed={seed} expose={(value: any) => (exposed = value)} />,
+  );
+  expect(profile.getByText('소다 섬')).toBeTruthy();
+  await fireEvent.press(profile.getByText('메인 섬'));
   expect(exposed.go).toHaveBeenCalledWith('mainIsland');
 });
 
-test('소속 섬이 하나면 설정에서 현재 메인 섬만 표시하고 변경 행동을 노출하지 않는다', async () => {
-  const screen = await render(<Harness route="settings" full />);
-  expect(screen.getByText('현재 내 메인 섬')).toBeTruthy();
-  expect(screen.queryByText('메인 섬 변경하기')).toBeNull();
+test('소속 섬이 하나면 내 정보에서 현재 메인 섬만 표시하고 변경 행동을 노출하지 않는다', async () => {
+  let exposed: any;
+  const screen = await render(
+    <Harness route="profile" full expose={(value: any) => (exposed = value)} />,
+  );
+  expect(screen.getByText('메인 섬')).toBeTruthy();
+  await fireEvent.press(screen.getByText('메인 섬'));
+  expect(exposed.go).not.toHaveBeenCalledWith('mainIsland');
 });
 
 test('첫 화면은 약관 동의 뒤 게스트 세션 요청만 시작하고 로컬 LOGIN은 하지 않는다', async () => {
@@ -433,7 +439,16 @@ test('게스트 세션 콜백이 없는 미리보기 구성은 로컬 로그인�
   expect(exposed.actions).toContain('LOGIN');
 });
 
-test('닉네임 키보드 표시 이벤트를 두 번 처리해도 값이 유지되고 첫 섬으로 이동하지 않는다', async () => {
+const openOnboardingName = async (screen: Awaited<ReturnType<typeof render>>) => {
+  await fireEvent.press(screen.getByTestId('onboarding-choose-next'));
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 1250));
+  });
+  await fireEvent.press(screen.getByTestId('onboarding-skip'));
+  await fireEvent.press(screen.getByTestId('onboarding-advance'));
+};
+
+test('닉네임 키보드가 반복해서 나타나도 입력과 이름 단계를 유지한다', async () => {
   const listeners: Record<string, () => void> = {};
   let exposed: any;
   const addListener = jest.spyOn(Keyboard, 'addListener').mockImplementation(((
@@ -444,27 +459,16 @@ test('닉네임 키보드 표시 이벤트를 두 번 처리해도 값이 유지
     return { remove: jest.fn() } as any;
   }) as any);
   try {
-    const s = await render(
+    const screen = await render(
       <Harness route="character" expose={(value: any) => (exposed = value)} />,
     );
-    const nickname = s.getByLabelText('닉네임');
-    await fireEvent.changeText(nickname, '구름이');
-    await fireEvent(nickname, 'focus');
-    await act(async () => listeners.keyboardWillShow?.());
-    assert.ok(addListener.mock.calls.some(([event]) => event === 'keyboardWillShow'));
-    assert.ok(addListener.mock.calls.some(([event]) => event === 'keyboardDidHide'));
-    assert.equal(s.queryByText('내 고양이와 시작'), null);
-    assert.equal(s.getByLabelText('닉네임').props.value, '구름이');
-    assert.equal(exposed.go.mock.calls.length, 0);
-    await act(async () => listeners.keyboardDidHide?.());
-    assert.ok(s.getByText('내 고양이와 시작'));
-    await fireEvent(s.getByLabelText('닉네임'), 'focus');
-    await act(async () => listeners.keyboardWillShow?.());
-    assert.equal(s.queryByText('내 고양이와 시작'), null);
-    assert.equal(s.getByLabelText('닉네임').props.value, '구름이');
-    assert.equal(exposed.go.mock.calls.length, 0);
-    await act(async () => listeners.keyboardDidHide?.());
-    assert.equal(s.getByLabelText('닉네임').props.value, '구름이');
+    await openOnboardingName(screen);
+    await fireEvent.changeText(screen.getByTestId('onboarding-name'), '구름이');
+    await act(async () => listeners.keyboardDidShow?.());
+    await act(async () => listeners.keyboardDidShow?.());
+    expect(screen.getByTestId('onboarding-name').props.value).toBe('구름이');
+    expect(screen.getByTestId('onboarding-continue')).toBeTruthy();
+    expect(exposed.go).not.toHaveBeenCalled();
   } finally {
     addListener.mockRestore();
   }
@@ -496,10 +500,8 @@ test('로그인 직후 터치 차단막이 끝나야 새 온보딩의 고양이 
   }
 });
 
-// 티켓 2006 재실행 복구 회귀 — character CTA는 서버 모드에서 PATCH /me(name+catColor)가
-// 성공한 뒤에만 sea로 넘어간다. 로컬 dispatch만으로 넘어가면 GET /me.onboardingComplete가
-// 갱신되지 않아, 재실행 복구(restoredRoute)가 서버값을 정본으로 봐서 이 화면으로 되돌아간다.
-test('character CTA는 서버 모드에서 PATCH /me 성공 뒤에만 PROFILE을 반영하고 sea로 넘어간다', async () => {
+// 프로필은 첫 대화에서 서버에 저장하고 성공한 뒤에만 망원경 단계로 넘어간다.
+test('첫 대화는 PATCH /me 성공 뒤 PROFILE을 반영하고 망원경으로 넘어간다', async () => {
   let exposed: any;
   mockUpdateProfile.mockResolvedValue({
     id: 'u1',
@@ -511,15 +513,16 @@ test('character CTA는 서버 모드에서 PATCH /me 성공 뒤에만 PROFILE을
     <Harness route="character" api={() => ({})} expose={(value: any) => (exposed = value)} />,
   );
 
-  await fireEvent.press(s.getByText('내 고양이와 시작'));
+  await openOnboardingName(s);
+  await fireEvent.press(s.getByTestId('onboarding-continue'));
   await waitFor(() => assert.equal(mockUpdateProfile.mock.calls.length, 1));
   assert.deepEqual(mockUpdateProfile.mock.calls[0][0], { name: '수빈', catColor: 'black' });
   await waitFor(() => assert.ok(exposed.actions.includes('PROFILE')));
-  assert.equal(exposed.go.mock.calls.length, 1);
-  assert.equal(exposed.go.mock.calls[0][0], 'sea');
+  expect(s.getByTestId('onboarding-scope')).toBeTruthy();
+  expect(exposed.go).not.toHaveBeenCalled();
 });
 
-test('character CTA의 PATCH /me 실패는 PROFILE·화면 전환 없이 서버 오류 문구만 보여준다', async () => {
+test('첫 대화의 프로필 저장 실패는 이름 단계에서 서버 오류를 보여준다', async () => {
   let exposed: any;
   mockUpdateProfile.mockRejectedValue(
     new ApiError('CLIENT_NETWORK_ERROR', '네트워크에 연결할 수 없어요.', 0),
@@ -528,28 +531,31 @@ test('character CTA의 PATCH /me 실패는 PROFILE·화면 전환 없이 서버 
     <Harness route="character" api={() => ({})} expose={(value: any) => (exposed = value)} />,
   );
 
-  await fireEvent.press(s.getByText('내 고양이와 시작'));
+  await openOnboardingName(s);
+  await fireEvent.press(s.getByTestId('onboarding-continue'));
   await waitFor(() => s.getByText('네트워크에 연결할 수 없어요.'));
-  assert.ok(!exposed.actions.includes('PROFILE'));
+  expect(s.getByTestId('onboarding-name')).toBeTruthy();
+  expect(s.queryByTestId('onboarding-scope')).toBeNull();
   assert.equal(exposed.go.mock.calls.length, 0);
 });
 
-test('character CTA는 실패 뒤 같은 입력으로 다시 눌러도 같은 멱등 키로 다시 보낸다', async () => {
+test('첫 대화는 프로필 저장 실패 뒤 같은 멱등 키로 다시 보낸다', async () => {
   mockUpdateProfile
     .mockRejectedValueOnce(new ApiError('CLIENT_NETWORK_ERROR', '네트워크에 연결할 수 없어요.', 0))
     .mockResolvedValueOnce({ id: 'u1', name: '수빈', catColor: 'black', mainIslandId: null });
   const s = await render(<Harness route="character" api={() => ({})} />);
 
-  await fireEvent.press(s.getByText('내 고양이와 시작'));
+  await openOnboardingName(s);
+  await fireEvent.press(s.getByTestId('onboarding-continue'));
   await waitFor(() => s.getByText('네트워크에 연결할 수 없어요.'));
-  await fireEvent.press(s.getByText('내 고양이와 시작'));
+  await fireEvent.press(s.getByTestId('onboarding-continue'));
   await waitFor(() => assert.equal(mockUpdateProfile.mock.calls.length, 2));
 
   assert.ok(mockUpdateProfile.mock.calls[0][1]);
   assert.equal(mockUpdateProfile.mock.calls[1][1], mockUpdateProfile.mock.calls[0][1]);
 });
 
-test('character CTA는 저장 응답 전에 화면을 떠났으면 sea로 다시 끌어오지 않는다', async () => {
+test('첫 대화는 저장 응답 전에 화면을 떠났으면 뒤늦게 프로필을 반영하지 않는다', async () => {
   let exposed: any;
   let resolveSave: (v: unknown) => void = () => {};
   mockUpdateProfile.mockReturnValue(new Promise((resolve) => (resolveSave = resolve)));
@@ -557,26 +563,32 @@ test('character CTA는 저장 응답 전에 화면을 떠났으면 sea로 다시
     <Harness route="character" api={() => ({})} expose={(value: any) => (exposed = value)} />,
   );
 
-  await fireEvent.press(s.getByText('내 고양이와 시작'));
-  await waitFor(() => assert.equal(mockUpdateProfile.mock.calls.length, 1));
+  await openOnboardingName(s);
+  const saving = fireEvent.press(s.getByTestId('onboarding-continue'));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(mockUpdateProfile).toHaveBeenCalledTimes(1);
+  const profileActions = exposed.actions.filter((type: string) => type === 'PROFILE').length;
   await s.rerender(
     <Harness route="login" api={() => ({})} expose={(value: any) => (exposed = value)} />,
   );
   await act(async () => {
     resolveSave({ id: 'u1', name: '수빈', catColor: 'black', mainIslandId: null });
   });
+  await saving;
 
   assert.equal(exposed.go.mock.calls.length, 0);
+  expect(exposed.actions.filter((type: string) => type === 'PROFILE')).toHaveLength(profileActions);
 });
 
-test('목업 모드 character CTA는 PATCH 없이 바로 sea로 넘어간다', async () => {
+test('목업 모드 첫 대화는 PATCH 없이 망원경으로 넘어간다', async () => {
   let exposed: any;
   const s = await render(<Harness route="character" expose={(value: any) => (exposed = value)} />);
 
-  await fireEvent.press(s.getByText('내 고양이와 시작'));
+  await openOnboardingName(s);
+  await fireEvent.press(s.getByTestId('onboarding-continue'));
   assert.equal(mockUpdateProfile.mock.calls.length, 0);
-  assert.equal(exposed.go.mock.calls.length, 1);
-  assert.equal(exposed.go.mock.calls[0][0], 'sea');
+  expect(s.getByTestId('onboarding-scope')).toBeTruthy();
+  expect(exposed.go).not.toHaveBeenCalled();
 });
 
 const flush = async () => act(async () => {});
@@ -1031,6 +1043,7 @@ test('일반 섬 축음기는 구매 행만 44pt 터치 영역을 확보하고 �
   assert.equal(s.queryByLabelText('재생'), null);
   assert.equal(s.queryByLabelText('정지'), null);
   assert.equal(s.queryByLabelText('내 기기 음량'), null);
+  assert.ok(s.getByLabelText('축음기 레코드판'));
   assert.ok(StyleSheet.flatten(s.getByLabelText('섬으로 돌아가기').props.style).width >= 44);
   assert.ok(
     StyleSheet.flatten(s.getByLabelText('빗방울 소리, 30마리로 구매').props.style).minHeight >= 44,
@@ -1049,6 +1062,24 @@ test('일반 섬 축음기는 구매 행만 44pt 터치 영역을 확보하고 �
   // 곡 행 글자는 글자 크기 단계(12 이상) 안이다(GROMO-2413) — 예전 9·11 은 읽기 어려웠다
   assert.ok(statusStyle.fontSize >= 12);
   assert.ok(StyleSheet.flatten(s.getByTestId('sound-track-title-rain').props.style).fontSize >= 12);
+});
+
+test('큰 글자 축음기는 레코드 칸을 빼고 곡 목록이 패널 폭과 곡 수만큼의 높이를 쓴다(GROMO-2888)', async () => {
+  const state = initialState(false);
+  state.islands[0].joined = true;
+  state.islands[0].buildings.push('gram');
+  mockFontScale = 1.3;
+  const large = await render(<Harness route="sound" initial={state} />);
+  assert.equal(large.queryByLabelText('축음기 레코드판'), null);
+  assert.equal(large.queryByText('섬에서 들을 곡을 구매해요'), null);
+  // 고정 높이(226)를 풀어 셋째 곡까지 스크롤 없이 보인다
+  const panelStyle = StyleSheet.flatten(large.getByTestId('sound-panel').props.style);
+  assert.equal(panelStyle.height, undefined);
+  // 곡이 많거나 글자가 더 커도 판은 간판 아래·바닥 여백 위까지만 — 넘치면 곡 목록만 줄어 스크롤된다
+  assert.equal(panelStyle.maxHeight, 874 - (20 + 52 + 40 + 12) - (32 + 8));
+  assert.equal(panelStyle.flexDirection, 'column');
+  assert.equal(StyleSheet.flatten(large.getByTestId('sound-track-list').props.style).flexShrink, 1);
+  assert.ok(large.getByLabelText('빗방울 소리, 30마리로 구매'));
 });
 
 test('일반 섬 축음기는 보유곡이 없어도 판매 목록만 보여 준다', async () => {
@@ -1509,25 +1540,27 @@ test('큰 글자의 받은 친구 요청은 안전 메뉴 액션을 세로로 �
   assert.ok(screen.getByLabelText('큰글자요청자 더보기'));
 });
 
-test('앱 설정은 권한 관련 진입을 앱 권한 관리 한 줄로 합친다', async () => {
+test('앱 설정은 권한 관련 진입을 폰 사용·앱 차단 한 줄로 합친다', async () => {
   let exposed: any;
   const s = await render(
     <Harness route="settings" full expose={(value: any) => (exposed = value)} />,
   );
 
-  await fireEvent.press(s.getByText('앱 권한 관리'));
+  await fireEvent.press(s.getByText('폰 사용·앱 차단'));
   assert.equal(exposed.go.mock.calls[0][0], 'permission');
   assert.equal(exposed.go.mock.calls[0][1], 'settings');
   assert.equal(s.queryByText('측정 권한'), null);
   assert.equal(s.queryByText('측정 앱'), null);
+  // 측정 앱 저장과 서버 전송을 합쳐 별도 사용 시간 공유 스위치를 두지 않는다.
+  assert.equal(s.queryByText('사용 시간 공유'), null);
 });
 
-test('설정 소식에서 개발자 공지 목록으로 이동한다', async () => {
+test('설정 소식·도움에서 공지사항 목록으로 이동한다', async () => {
   let exposed: any;
   const screen = await render(
     <Harness route="settings" full expose={(value: any) => (exposed = value)} />,
   );
-  await fireEvent.press(screen.getByText('개발자 공지'));
+  await fireEvent.press(screen.getByText('공지사항'));
   assert.equal(exposed.go.mock.calls[0][0], 'developerNotices');
 });
 
@@ -1537,7 +1570,7 @@ test('목업 앱 설정에서는 실제 안전 API 진입로를 숨긴다', asyn
   assert.equal(s.queryByText('차단한 사용자'), null);
 });
 
-test('앱 설정은 개인정보처리방침 하나만 남기고 안전 첫 줄에서 차단 사용자 목록으로 진입한다', async () => {
+test('앱 설정은 개인정보처리방침 하나만 남기고 소식·도움 마지막 줄에서 차단 사용자 목록으로 진입한다', async () => {
   let exposed: any;
   const s = await render(
     <Harness route="settings" full api={() => ({})} expose={(value: any) => (exposed = value)} />,
@@ -1545,13 +1578,13 @@ test('앱 설정은 개인정보처리방침 하나만 남기고 안전 첫 줄�
   assert.equal(s.queryByText('개인정보 처리 안내'), null);
   assert.equal(s.getAllByText('개인정보처리방침').length, 1);
   assert.ok(s.getByTestId('settings-app-version'));
-  // 안전 그룹 첫 줄 — 신고센터보다 앞(GROMO-2473). SheetRow 는 읽는 이름에 제목을 넣으므로 버튼 순서로 본다
+  // 소식·도움 마지막 줄 — 신고센터 다음(GROMO-2885). SheetRow 는 읽는 이름에 제목을 넣으므로 버튼 순서로 본다
   const rows = s
     .getAllByRole('button')
     .map((node: any) => String(node.props.accessibilityLabel ?? ''));
   const blocked = rows.findIndex((label) => label.includes('차단한 사용자'));
   const report = rows.findIndex((label) => label.includes('신고센터'));
-  assert.ok(blocked >= 0 && blocked < report);
+  assert.ok(report >= 0 && report < blocked);
   await fireEvent.press(s.getByText('차단한 사용자'));
   assert.equal(exposed.go.mock.calls[0][0], 'blockedUsers');
 });
@@ -1757,19 +1790,21 @@ test('가입 닉네임은 마지막 글자를 지운 뒤 새 이름을 입력할
   const s = await render(
     <Harness route="character" full expose={(value: any) => (exposed = value)} />,
   );
-  const nickname = s.getByLabelText('닉네임');
+  await openOnboardingName(s);
+  const nickname = s.getByTestId('onboarding-name');
 
   assert.equal(nickname.props.value, '수빈');
   await fireEvent.changeText(nickname, '수');
   await fireEvent.changeText(nickname, '');
-  assert.equal(s.getByLabelText('닉네임').props.value, '');
-  await fireEvent.press(s.getByLabelText('내 고양이와 시작'));
+  assert.equal(s.getByTestId('onboarding-name').props.value, '');
+  await fireEvent.press(s.getByTestId('onboarding-continue'));
   assert.equal(exposed.go.mock.calls.length, 0);
 
-  await fireEvent.changeText(s.getByLabelText('닉네임'), 'abc');
-  assert.equal(s.getByLabelText('닉네임').props.value, 'abc');
-  await fireEvent.press(s.getByText('내 고양이와 시작'));
-  assert.ok(exposed.go.mock.calls.some((call: unknown[]) => call[0] === 'sea'));
+  await fireEvent.changeText(s.getByTestId('onboarding-name'), 'abc');
+  assert.equal(s.getByTestId('onboarding-name').props.value, 'abc');
+  await fireEvent.press(s.getByTestId('onboarding-continue'));
+  expect(s.getByTestId('onboarding-scope')).toBeTruthy();
+  expect(exposed.go).not.toHaveBeenCalled();
 });
 
 test('프로필 최종 저장은 빈 닉네임을 차단한다', async () => {
@@ -1803,27 +1838,29 @@ test('서버 이름이 없는 기존 프로필 수정은 닉네임이 빈 채 �
   const s = await render(
     <Harness route="character" initial={{ ...initialState(), onboarded: true }} api={() => ({})} />,
   );
-  const nickname = s.getByLabelText('닉네임');
+  await openOnboardingName(s);
+  const nickname = s.getByTestId('onboarding-name');
 
   assert.equal(nickname.props.value, '');
-  assert.equal(nickname.props.placeholder, '닉네임을 입력해 주세요');
-  await fireEvent.press(s.getByText('내 고양이와 시작'));
+  expect(s.queryByText('내 고양이와 시작')).toBeNull();
+  await fireEvent.press(s.getByTestId('onboarding-continue'));
   assert.equal(mockUpdateProfile.mock.calls.length, 0);
 
-  await fireEvent.changeText(s.getByLabelText('닉네임'), 'abc');
-  await fireEvent.press(s.getByText('내 고양이와 시작'));
+  await fireEvent.changeText(s.getByTestId('onboarding-name'), 'abc');
+  await fireEvent.press(s.getByTestId('onboarding-continue'));
   await waitFor(() => assert.equal(mockUpdateProfile.mock.calls.length, 1));
   assert.deepEqual(mockUpdateProfile.mock.calls[0][0], { name: 'abc', catColor: 'black' });
 });
 
-test('프로필은 /me 에서 채택한 연결 제공자들을 표시한다', async () => {
+test('설정 첫 줄은 닉네임과 /me 에서 채택한 연결 제공자들을 로그인 방식으로 표시한다', async () => {
   const initial = {
     ...initialState(true),
     name: '수빈',
     linkedProviders: ['google', 'kakao', 'line'],
   };
-  const s = await render(<Harness route="profile" initial={initial} api={() => ({})} />);
-  assert.ok(s.getByText('수빈님의 계정 · Google · 카카오 · LINE'));
+  const s = await render(<Harness route="settings" initial={initial} api={() => ({})} />);
+  assert.ok(s.getByText('수빈'));
+  assert.ok(s.getByText('Google · 카카오 · LINE 로그인'));
 });
 
 test('프로필 저장은 PATCH 성공 뒤에만 PROFILE을 디스패치하고, 진행 중 중복 탭은 한 번만 보낸다', async () => {
@@ -1982,7 +2019,7 @@ test('목업 모드 프로필 저장은 API 없이 로컬 PROFILE을 갱신한�
 test('로그아웃이 기기에 기록되지 않으면 LOGOUT·로그인 이동 없이 설정에 남는다', async () => {
   let exposed: any;
   const s = await render(
-    <Harness route="profile" api={() => ({})} expose={(x: any) => (exposed = x)} />,
+    <Harness route="settings" api={() => ({})} expose={(x: any) => (exposed = x)} />,
   );
   exposed.signOut.mockResolvedValueOnce(false);
 
@@ -2002,7 +2039,7 @@ test('회원 탈퇴는 DELETE 성공 뒤에만 로그아웃·로컬 삭제·로�
   await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'withdrawn-user' });
   await rememberLocalDataOwner('withdrawn-user');
   const s = await render(
-    <Harness route="profile" api={() => ({})} expose={(x: any) => (exposed = x)} />,
+    <Harness route="settings" api={() => ({})} expose={(x: any) => (exposed = x)} />,
   );
 
   await fireEvent.press(s.getByText('회원 탈퇴'));
@@ -2030,7 +2067,7 @@ test('Apple 로그인 계정의 탈퇴는 재인증으로 받은 코드를 DELET
   });
   await rememberLocalDataOwner('apple-user');
   const s = await render(
-    <Harness route="profile" api={() => ({})} expose={(x: any) => (exposed = x)} />,
+    <Harness route="settings" api={() => ({})} expose={(x: any) => (exposed = x)} />,
   );
 
   await fireEvent.press(s.getByText('회원 탈퇴'));
@@ -2052,7 +2089,7 @@ test('Apple 재인증을 취소하면 조용히 중단하고 DELETE 도 의도 �
     userId: 'apple-user',
     provider: 'apple',
   });
-  const s = await render(<Harness route="profile" api={() => ({})} expose={() => {}} />);
+  const s = await render(<Harness route="settings" api={() => ({})} expose={() => {}} />);
 
   await fireEvent.press(s.getByText('회원 탈퇴'));
   await waitFor(() => assert.equal(mockAppleAuthorizationCode.mock.calls.length, 1));
@@ -2079,7 +2116,7 @@ test('Apple 코드를 받지 못하면(취소 아님) 탈퇴 요청 없이 일�
     userId: 'apple-user',
     provider: 'apple',
   });
-  const s = await render(<Harness route="profile" api={() => ({})} expose={() => {}} />);
+  const s = await render(<Harness route="settings" api={() => ({})} expose={() => {}} />);
 
   await fireEvent.press(s.getByText('회원 탈퇴'));
   await waitFor(() => assert.ok(notifyMock.mock.calls.some((c: unknown[]) => c[0])));
@@ -2099,7 +2136,7 @@ test('세션 provider 가 없어도 서버 연동 목록에 apple 이 있으면 
     linkedProviders: ['apple'],
   };
   const s = await render(
-    <Harness route="profile" initial={initial} api={() => ({})} expose={() => {}} />,
+    <Harness route="settings" initial={initial} api={() => ({})} expose={() => {}} />,
   );
 
   await fireEvent.press(s.getByText('회원 탈퇴'));
@@ -2118,7 +2155,7 @@ test('Apple 이 아닌 계정과 알 수 없는 제공자의 탈퇴는 Apple 재
     userId: 'g-user',
     provider: 'google',
   });
-  const s = await render(<Harness route="profile" api={() => ({})} expose={() => {}} />);
+  const s = await render(<Harness route="settings" api={() => ({})} expose={() => {}} />);
   await fireEvent.press(s.getByText('회원 탈퇴'));
   await waitFor(() => assert.equal(mockWithdrawAccount.mock.calls.length, 1));
   assert.equal(mockAppleAuthorizationCode.mock.calls.length, 0);
@@ -2150,7 +2187,7 @@ test('탈퇴 뒤 로컬 소유자 정리를 확정하지 못하면 완료로 넘
   setSecure.mockImplementation(async () => Promise.reject(new Error('키체인 쓰기 실패')));
   deleteSecure.mockImplementation(async () => Promise.reject(new Error('키체인 삭제 실패')));
   const s = await render(
-    <Harness route="profile" api={() => ({})} expose={(x: any) => (exposed = x)} />,
+    <Harness route="settings" api={() => ({})} expose={(x: any) => (exposed = x)} />,
   );
 
   try {
@@ -2199,7 +2236,7 @@ test('탈퇴는 1.x 로컬 버킷을 지우고, 지우지 못하면 완료하지
   const realMultiRemove = multiRemove.getMockImplementation()!;
   multiRemove.mockRejectedValueOnce(new Error('AsyncStorage 삭제 실패'));
   const s = await render(
-    <Harness route="profile" api={() => ({})} expose={(x: any) => (exposed = x)} />,
+    <Harness route="settings" api={() => ({})} expose={(x: any) => (exposed = x)} />,
   );
 
   try {
@@ -2245,7 +2282,7 @@ test('탈퇴 응답을 잃고 재시도가 USER_NOT_FOUND 면 같은 멱등 키�
     throw new ApiError('USER_NOT_FOUND', '사용자를 찾을 수 없습니다.', 404);
   });
   const s = await render(
-    <Harness route="profile" api={() => ({})} expose={(x: any) => (exposed = x)} />,
+    <Harness route="settings" api={() => ({})} expose={(x: any) => (exposed = x)} />,
   );
 
   await fireEvent.press(s.getByText('회원 탈퇴'));
@@ -2275,7 +2312,7 @@ test('회원 탈퇴 실패는 로그아웃·로컬 삭제·화면 이동 없이 
   let exposed: any;
   mockWithdrawAccount.mockRejectedValue(new ApiError('STATE_CONFLICT', '탈퇴할 수 없어요.', 409));
   const s = await render(
-    <Harness route="profile" api={() => ({})} expose={(x: any) => (exposed = x)} />,
+    <Harness route="settings" api={() => ({})} expose={(x: any) => (exposed = x)} />,
   );
 
   await fireEvent.press(s.getByText('회원 탈퇴'));
@@ -2646,8 +2683,8 @@ describe('en', () => {
     applyLocalePref('system');
     const s = await render(<Harness route="character" api={() => ({})} />);
 
-    assert.ok(s.getByText('My Cat'));
-    assert.ok(s.getByText('Which cat should we start with?'));
+    expect(s.getByText('Choose a cat\nto join you.')).toBeTruthy();
+    expect(s.getByText('Your new companion.')).toBeTruthy();
   });
 
   test('en 로케일 — 내 배 시트는 영문 제목과 행을 보여준다', async () => {
@@ -3175,7 +3212,7 @@ test('OS 모션 줄이기가 켜져 있어도 설정 토글은 저장값을 보�
   assert.equal(toggle().props.accessibilityState.checked, false);
 });
 
-test('문의하기는 신고센터 아래 행에서 한국어면 오픈채팅을 열고, 실패하면 수신 주소 안내만 보여준다', async () => {
+test('문의하기는 신고센터 위 행에서 한국어면 오픈채팅을 열고, 실패하면 수신 주소 안내만 보여준다', async () => {
   const open = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined);
   let exposed: any;
   const ui = await render(<Harness route="settings" full expose={(e: any) => (exposed = e)} />);

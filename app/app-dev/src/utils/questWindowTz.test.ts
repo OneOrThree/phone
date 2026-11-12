@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import {
+  capKstWindowEnd,
+  LAST_KST_WINDOW_END_MINUTES,
   kstClockToUtc,
   utcClockToKst,
   kstWindowCrossesUtcMidnight,
@@ -77,4 +79,15 @@ test('utcWindowToKst — 서버(UTC) 창 객체를 KST 표시용으로 되돌리
     windowEnd: null,
     id: 'q1',
   });
+});
+
+test('capKstWindowEnd — 종료 24:00 만 23:59 로 내리고 나머지는 그대로 둔다(GROMO-2886)', () => {
+  assert.equal(LAST_KST_WINDOW_END_MINUTES, 23 * 60 + 59);
+  assert.equal(capKstWindowEnd('24:00'), '23:59');
+  assert.equal(capKstWindowEnd('23:59'), '23:59');
+  assert.equal(capKstWindowEnd('22:00'), '22:00');
+  assert.equal(capKstWindowEnd('00:00'), '00:00');
+  assert.equal(capKstWindowEnd('bad'), 'bad');
+  // 내린 값은 15:00 이 아니라 14:59 UTC 로 간다 — 운영 DB 에 00:00 이 아니라 23:59 로 저장된다.
+  assert.equal(kstClockToUtc(capKstWindowEnd('24:00')), '14:59');
 });

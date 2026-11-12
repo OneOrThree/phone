@@ -675,7 +675,7 @@ test('게시판 청사진은 회관이 서버에 저장한 목표·가격·잔�
   assert.ok(screen.getByText('21마리'));
   assert.ok(screen.getByText('16마리'));
   assert.equal(getConstructionOptionsMock.mock.calls[0][0], ISLAND);
-  assert.equal(screen.queryByText('마을회관에서 다음 건물을 골라 주세요.'), null);
+  assert.equal(screen.queryByText('마을회관에서 다음 건물을 골라요.'), null);
   assert.equal(screen.getByTestId('board-build-start').props.accessibilityState.disabled, true);
   assert.equal(screen.queryByText('주민 준비량'), null);
   assert.equal(screen.queryByText('공사 15분'), null);
@@ -692,7 +692,7 @@ test.each(['host', 'member'] as const)(
     assert.equal(screen.queryByText('모든 건물을 완공했어요.'), null);
     await fireEvent.press(screen.getByTestId('board-blueprint-area'));
     await waitFor(() => assert.ok(screen.getByText('모든 건물을 완공했어요.')));
-    assert.equal(screen.queryByText('마을회관에서 다음 건물을 골라 주세요.'), null);
+    assert.equal(screen.queryByText('마을회관에서 다음 건물을 골라요.'), null);
     assert.equal(screen.queryByTestId('board-build-start'), null);
   },
 );
@@ -702,8 +702,31 @@ test('미완공 건물이 남아 있고 목표만 없으면 다음 건물을 고
   getConstructionOptionsMock.mockResolvedValue(constructionOptions());
   const screen = await renderBoard(makeE({ route: 'quest', detail: 'building' }));
 
-  await waitFor(() => assert.ok(screen.getByText('마을회관에서 다음 건물을 골라 주세요.')));
+  await waitFor(() => assert.ok(screen.getByText('마을회관에서 다음 건물을 골라요.')));
   assert.equal(screen.queryByText('모든 건물을 완공했어요.'), null);
+});
+
+test('세로 화면의 안내 한 줄 상자는 「건설 현황」·「방명록」 이름표를 덮지 않게 그 아래에 둔다(GROMO-2888)', async () => {
+  const fontScale = jest.spyOn(PixelRatio, 'getFontScale').mockReturnValue(1.3);
+  try {
+    getBoardMock.mockResolvedValue(page([]));
+    getConstructionOptionsMock.mockResolvedValue(constructionOptions());
+    const screen = await renderBoard(makeE({ route: 'quest', detail: 'building' }), undefined, {
+      width: 360,
+      height: 808,
+    });
+
+    await waitFor(() => assert.ok(screen.getByText('마을회관에서 다음 건물을 골라요.')));
+    // 세로 장면은 화면 맨 위(top 0)에 붙어 있어 장면 좌표와 화면 좌표가 같다
+    const blueprint = StyleSheet.flatten(screen.getByTestId('board-blueprint-area').props.style);
+    const guestbook = StyleSheet.flatten(screen.getByTestId('board-guestbook-area').props.style);
+    const drawer = StyleSheet.flatten(screen.getByTestId('board-drawer').props.style);
+    assert.ok(drawer.top >= blueprint.top + blueprint.height);
+    assert.ok(drawer.top >= guestbook.top + guestbook.height);
+    assert.ok(drawer.top + drawer.maxHeight <= 808);
+  } finally {
+    fontScale.mockRestore();
+  }
 });
 
 test('청사진 대신 안내 한 줄뿐이면 파란 상자를 고정 높이 없이 내용만큼만 그린다(GROMO-2412)', async () => {
@@ -711,7 +734,7 @@ test('청사진 대신 안내 한 줄뿐이면 파란 상자를 고정 높이 �
   getConstructionOptionsMock.mockResolvedValue(constructionOptions());
   const screen = await renderBoard(makeE({ route: 'quest', detail: 'building' }));
 
-  await waitFor(() => assert.ok(screen.getByText('마을회관에서 다음 건물을 골라 주세요.')));
+  await waitFor(() => assert.ok(screen.getByText('마을회관에서 다음 건물을 골라요.')));
   const drawer = StyleSheet.flatten(screen.getByTestId('board-drawer').props.style);
   assert.equal(drawer.height, undefined);
   assert.equal(drawer.minHeight, undefined);
@@ -948,7 +971,7 @@ test('건설 목표 조회 실패는 목표 없음으로 숨기지 않고 재시
   getConstructionOptionsMock.mockRejectedValueOnce(new ApiError('CLIENT_NETWORK_ERROR', '오류', 0));
   const screen = await renderBoard(makeE({ route: 'quest', detail: 'building' }));
   await waitFor(() => assert.ok(screen.getByText('건설 목표를 불러오지 못했어요.')));
-  assert.equal(screen.queryByText('마을회관에서 다음 건물을 골라 주세요.'), null);
+  assert.equal(screen.queryByText('마을회관에서 다음 건물을 골라요.'), null);
   getConstructionOptionsMock.mockResolvedValue(
     constructionOptions({ selectedBuildingId: 'library' }),
   );
@@ -1084,8 +1107,17 @@ test('여덟 화면 크기에서 게시판 장면 전체와 세 라벨 터치 �
         const area = StyleSheet.flatten(screen.getByTestId(testID as string).props.style);
         assert.ok(area.width >= 44, `${testID} is at least 44px wide at ${width}x${height}`);
         assert.ok(area.height >= 44, `${testID} is at least 44px tall at ${width}x${height}`);
-        assert.ok(Math.abs(area.left + area.width / 2 - scene.width * Number(centerX)) < 0.01);
-        assert.ok(Math.abs(area.top + area.height / 2 - scene.height * Number(centerY)) < 0.01);
+        if (testID === 'board-blueprint-area') {
+          // 청사진은 아랫변 이름표까지 영역이 커져도 그림 중심을 계속 누를 수 있어야 한다.
+          const x = scene.width * Number(centerX),
+            y = scene.height * Number(centerY);
+          assert.ok(area.left <= x && x <= area.left + area.width);
+          assert.ok(area.top <= y && y <= area.top + area.height);
+          assert.ok(within(screen.getByTestId(testID)).getByText('건설 현황'));
+        } else {
+          assert.ok(Math.abs(area.left + area.width / 2 - scene.width * Number(centerX)) < 0.01);
+          assert.ok(Math.abs(area.top + area.height / 2 - scene.height * Number(centerY)) < 0.01);
+        }
         return {
           testID,
           left: area.left,
@@ -1595,6 +1627,130 @@ test('가로 키보드 전후 게시판 장면 초기 스크롤 오프셋을 고
   assert.equal(offsetBefore, (874 * 1.5 - 402) * 0.38);
   assert.equal(offsetAfter, offsetBefore);
   await screen.unmount();
+});
+
+// 키보드가 올라와 InteriorRoute 높이가 줄어든 360dp 폰(창 808) — 쓰기 종이가 남은 높이를 다 쓰고
+// 입력칸과 올리기 버튼이 키보드 위에 같이 남는다
+const KEYBOARD_UP = { width: 360, height: 500, sceneHeight: 808 };
+
+test('공지 쓰기 — 키보드로 낮아진 화면(글자 1.3배)에서 본문 칸이 남은 높이를 채우고 게시하기가 스크롤 밖에 있다', async () => {
+  const fontScale = jest.spyOn(PixelRatio, 'getFontScale').mockReturnValue(1.3);
+  try {
+    const screen = await renderBoard(null, concept({ boardPanel: 'notice', boardView: 'write' }), {
+      ...KEYBOARD_UP,
+    });
+    const overlay = StyleSheet.flatten(screen.getByTestId('board-notice-overlay').props.style);
+    assert.equal(overlay.top, 60);
+    assert.equal(overlay.top + overlay.height, KEYBOARD_UP.height - 4);
+    // 바깥 스크롤은 잠가 제목이 밀려 올라가지 않는다 — 본문 칸은 고정 106 이 아니라 남은 높이를 채운다
+    assert.equal(screen.getByTestId('board-notice-overlay-content').props.scrollEnabled, false);
+    const body = StyleSheet.flatten(screen.getByTestId('board-notice-body').props.style);
+    assert.equal(body.flex, 1);
+    assert.equal(body.height, undefined);
+    assert.ok(screen.getByTestId('board-notice-title'));
+    assert.ok(screen.getByTestId('board-notice-submit'));
+    // 1.3배 제목 안내 글(글자마다 1em 로 넉넉히 잼)이 입력칸 안쪽 폭(여백 10·테두리 1.5 양쪽)에 들어간다
+    const inner =
+      KEYBOARD_UP.width - overlay.left - overlay.right - 2 * overlay.paddingHorizontal - 23;
+    assert.ok(inner >= '공지 제목을 적어주세요'.length * 14 * 1.3, `입력칸 안쪽 폭 ${inner}`);
+
+    // 키보드가 내려가면 예전 자리(20%)·크기(창의 58%)로 돌아간다
+    await screen.setSize({ height: 808 });
+    const closed = StyleSheet.flatten(screen.getByTestId('board-notice-overlay').props.style);
+    assert.equal(closed.top, 808 * 0.2);
+    assert.equal(closed.height, 808 * 0.58);
+    await screen.unmount();
+
+    // 가로 폰 키보드처럼 너무 낮으면 예전처럼 종이 안 전체(게시하기 포함)를 스크롤한다
+    const low = await renderBoard(null, concept({ boardPanel: 'notice', boardView: 'write' }), {
+      width: 874,
+      height: 200,
+      sceneHeight: 402,
+    });
+    const scroll = low.getByTestId('board-notice-overlay-content');
+    assert.ok(within(scroll).getByTestId('board-notice-submit'));
+    assert.equal(StyleSheet.flatten(low.getByTestId('board-notice-body').props.style).height, 106);
+    await low.unmount();
+  } finally {
+    fontScale.mockRestore();
+  }
+});
+
+test('공지 쓰기·댓글 — 키보드로 높이가 쓰기 종이 임계값을 넘나들어도 입력칸이 새로 마운트되지 않는다', async () => {
+  const fontScale = jest.spyOn(PixelRatio, 'getFontScale').mockReturnValue(1.3);
+  try {
+    // 키보드가 없을 때는 쓰기 종이, 키보드가 올라와 아주 낮아지면 예전 스크롤 — 감싸는 요소가 바뀌면 포커스를 잃는다
+    const editor = await renderBoard(null, concept({ boardPanel: 'notice', boardView: 'write' }), {
+      ...KEYBOARD_UP,
+    });
+    const title = editor.getByTestId('board-notice-title');
+    const body = editor.getByTestId('board-notice-body');
+    await editor.setSize({ height: 200 });
+    assert.equal(
+      StyleSheet.flatten(editor.getByTestId('board-notice-body').props.style).height,
+      106,
+    );
+    assert.equal(editor.getByTestId('board-notice-title'), title);
+    assert.equal(editor.getByTestId('board-notice-body'), body);
+    await editor.unmount();
+
+    const comment = await renderBoard(
+      null,
+      concept({ boardPanel: 'notice', boardView: 'comment-input' }),
+      { ...KEYBOARD_UP },
+    );
+    const input = comment.getByTestId('board-comment-input');
+    await comment.setSize({ height: 200 });
+    assert.equal(comment.getByTestId('board-comment-input'), input);
+    await comment.unmount();
+  } finally {
+    fontScale.mockRestore();
+  }
+});
+
+test('공지 댓글 — 키보드로 낮아진 화면에서 입력칸·등록은 공지 본문 스크롤 밖 아래에 고정된다', async () => {
+  const fontScale = jest.spyOn(PixelRatio, 'getFontScale').mockReturnValue(1.3);
+  try {
+    const screen = await renderBoard(
+      null,
+      concept({ boardPanel: 'notice', boardView: 'comment-input' }),
+      { ...KEYBOARD_UP },
+    );
+    const overlay = StyleSheet.flatten(screen.getByTestId('board-notice-overlay').props.style);
+    assert.equal(overlay.top + overlay.height, KEYBOARD_UP.height - 4);
+    const content = screen.getByTestId('board-notice-overlay-content');
+    assert.equal(StyleSheet.flatten(content.props.style).flex, 1);
+    assert.ok(within(content).getByTestId('board-comment-cancel'));
+    assert.equal(within(content).queryByTestId('board-comment-input'), null);
+    assert.equal(within(content).queryByTestId('board-comment-submit'), null);
+    assert.ok(screen.getByTestId('board-comment-input'));
+    assert.ok(screen.getByTestId('board-comment-submit'));
+    await screen.unmount();
+  } finally {
+    fontScale.mockRestore();
+  }
+});
+
+test('퀘스트 만들기 — 키보드로 낮아진 화면에서 종이가 위로 늘어나고 저장은 스크롤 밖 아래에 고정된다', async () => {
+  const fontScale = jest.spyOn(PixelRatio, 'getFontScale').mockReturnValue(1.3);
+  try {
+    const screen = await renderBoard(
+      null,
+      concept({ boardPanel: 'quest', boardView: 'write-focus' }),
+      { ...KEYBOARD_UP },
+    );
+    const drawer = StyleSheet.flatten(screen.getByTestId('board-drawer').props.style);
+    // 예전엔 줄어든 높이의 58%(290)였다 — 이제 뒤로 ×·간판 아래(60)부터 바닥 10 까지 쓴다
+    assert.equal(drawer.bottom, 10);
+    assert.equal(drawer.height, KEYBOARD_UP.height - 60 - 10);
+    assert.equal(drawer.maxHeight, drawer.height);
+    assert.ok(screen.getByTestId('board-quest-title'));
+    assert.equal(screen.getAllByTestId('board-quest-save').length, 1);
+    assert.ok(within(screen.getByTestId('board-quest-footer')).getByTestId('board-quest-save'));
+    await screen.unmount();
+  } finally {
+    fontScale.mockRestore();
+  }
 });
 
 test('홈 퀘스트 바로가기는 없는 상세로 치지 않고 퀘스트 목록을 연다', async () => {
@@ -2277,7 +2433,7 @@ test('퀘스트 만들기 — POST 에 허용 키만 싣고 창은 KST 벽시계
     body: 'focus',
     text: '저녁 집중',
     windowStart: '19:00',
-    windowEnd: '24:00',
+    windowEnd: '23:59',
   });
   const screen = await renderBoard(e);
 
@@ -2286,13 +2442,13 @@ test('퀘스트 만들기 — POST 에 허용 키만 싣고 창은 KST 벽시계
   await fireEvent.press(screen.getByTestId('board-quest-save'));
 
   await waitFor(() => assert.equal(postQuestMock.mock.calls.length, 1));
-  // KST 벽시계(24:00 포함) 그대로 — UTC 변환·23:59 방어는 quests.ts createQuest 가 한다(GROMO-2672).
+  // KST 벽시계 그대로 — UTC 변환과 24:00→23:59 내림은 quests.ts createQuest 가 한다(GROMO-2672·2886).
   assert.deepEqual(postQuestMock.mock.calls[0][1], {
     title: '저녁 집중',
     type: 'focus',
     targetMinutes: 50,
     windowStart: '19:00',
-    windowEnd: '24:00',
+    windowEnd: '23:59',
     timezone: 'UTC',
   });
   await waitFor(() => assert.equal(e.back.mock.calls.length > 0, true));
@@ -2301,9 +2457,50 @@ test('퀘스트 만들기 — POST 에 허용 키만 싣고 창은 KST 벽시계
   await screen.unmount();
 });
 
-test('퀘스트 만들기 — 23:00–24:00 창의 꽉 찬 60분 목표를 받아들인다(24:00 을 23:59 로 깎지 않는다)', async () => {
+test('퀘스트 만들기 — 종료 시각 피커는 23:59 까지다(24 시가 없다, GROMO-2886)', async () => {
+  // 24:00 KST 는 15:00 UTC 로 가고 운영 DB 가 창을 KST 로 밀어 00:00 으로 저장해 CHECK 에 걸린다.
+  getBoardMock.mockResolvedValue(page([], null, 'host', []));
+  const e = makeE({ route: 'questEdit', tab: 'quest', body: 'focus', text: '밤 집중' });
+  const screen = await renderBoard(e);
+
+  await waitFor(() => assert.ok(screen.getByLabelText('종료 시간 시 23')));
+  assert.equal(screen.queryByLabelText('종료 시간 시 24'), null);
+  assert.ok(screen.getByLabelText('종료 시간 분 59'));
+  await screen.unmount();
+});
+
+test('퀘스트 만들기 — 23:00–23:59 창의 꽉 찬 59분 목표를 받아들인다', async () => {
   getBoardMock.mockResolvedValue(page([], null, 'host', []));
   postQuestMock.mockResolvedValue({ id: 'q9', title: '자정 집중' });
+  const e = makeE({
+    route: 'questEdit',
+    tab: 'quest',
+    body: 'focus',
+    text: '자정 집중',
+    windowStart: '23:00',
+    windowEnd: '23:59',
+  });
+  const screen = await renderBoard(e);
+
+  await setTargetMinutes(screen, '목표 집중 시간', 59);
+  await fireEvent.press(screen.getByTestId('board-quest-save'));
+
+  // 23:00–23:59 = 59분 창. 59분 목표가 꼭 맞으므로 통과해 KST 그대로 보낸다.
+  await waitFor(() => assert.equal(postQuestMock.mock.calls.length, 1));
+  assert.deepEqual(postQuestMock.mock.calls[0][1], {
+    title: '자정 집중',
+    type: 'focus',
+    targetMinutes: 59,
+    windowStart: '23:00',
+    windowEnd: '23:59',
+    timezone: 'UTC',
+  });
+  await screen.unmount();
+});
+
+test('퀘스트 만들기 — 종료 24:00 이 들어와도 23:59 로 재서 23:00 시작에 60분 목표는 막는다', async () => {
+  // 피커 밖에서 24:00 이 들어와도 어댑터가 23:59 로 내려 보내므로 검증도 같은 끝으로 잰다(GROMO-2886).
+  getBoardMock.mockResolvedValue(page([], null, 'host', []));
   const e = makeE({
     route: 'questEdit',
     tab: 'quest',
@@ -2317,20 +2514,12 @@ test('퀘스트 만들기 — 23:00–24:00 창의 꽉 찬 60분 목표를 받�
   await setTargetMinutes(screen, '목표 집중 시간', 60);
   await fireEvent.press(screen.getByTestId('board-quest-save'));
 
-  // 23:00–24:00 = 60분 창. 60분 목표가 꼭 맞으므로 통과해 KST 그대로 보낸다.
-  await waitFor(() => assert.equal(postQuestMock.mock.calls.length, 1));
-  assert.deepEqual(postQuestMock.mock.calls[0][1], {
-    title: '자정 집중',
-    type: 'focus',
-    targetMinutes: 60,
-    windowStart: '23:00',
-    windowEnd: '24:00',
-    timezone: 'UTC',
-  });
+  assert.equal(postQuestMock.mock.calls.length, 0);
+  assert.ok(screen.getByText('목표 집중 시간은 진행 시간 안으로 정해주세요.'));
   await screen.unmount();
 });
 
-test('퀘스트 만들기 — 창을 넘는 목표(23:00–24:00 에 61분)는 막는다', async () => {
+test('퀘스트 만들기 — 창을 넘는 목표(23:00–23:59 에 60분)는 막는다', async () => {
   getBoardMock.mockResolvedValue(page([], null, 'host', []));
   const e = makeE({
     route: 'questEdit',
@@ -2338,11 +2527,11 @@ test('퀘스트 만들기 — 창을 넘는 목표(23:00–24:00 에 61분)는 �
     body: 'focus',
     text: '자정 집중',
     windowStart: '23:00',
-    windowEnd: '24:00',
+    windowEnd: '23:59',
   });
   const screen = await renderBoard(e);
 
-  await setTargetMinutes(screen, '목표 집중 시간', 61);
+  await setTargetMinutes(screen, '목표 집중 시간', 60);
   await fireEvent.press(screen.getByTestId('board-quest-save'));
 
   assert.equal(postQuestMock.mock.calls.length, 0);
@@ -2588,7 +2777,7 @@ test.each(['success', 'failure', 'stale'] as const)(
     );
     const screen = await renderBoard(e);
     await waitFor(() => assert.ok(screen.getByText('도서관을 짓고 있어요')));
-    assert.equal(screen.queryByText('마을회관에서 다음 건물을 골라 주세요.'), null);
+    assert.equal(screen.queryByText('마을회관에서 다음 건물을 골라요.'), null);
     getConstructionOptionsMock.mockResolvedValue(
       constructionOptions({
         items: [{ ...constructionOptions().items[0], id: 'mail', name: '우체통' }],

@@ -11,7 +11,8 @@ export function useAppLayout() {
   return {
     width,
     height,
-    fontScale,
+    // Android 는 글자 크기 1.3 을 1.2999… 처럼 넘겨 「≥ 1.3」 큰 글자 판정이 빠진다(GROMO-2888) — 소수 둘째 자리로 맞춘다
+    fontScale: Math.round(fontScale * 100) / 100,
     insets,
     tablet,
     landscape,

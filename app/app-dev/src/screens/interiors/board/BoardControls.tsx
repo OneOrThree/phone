@@ -3,6 +3,7 @@ import { semanticTokens } from '@/design-system/tokens';
 import { localized, t } from '@/i18n';
 import { GOWUN } from '@/screens/island/sceneKit';
 import { clockMinutes } from '@/services/model';
+import { LAST_KST_WINDOW_END_MINUTES } from '@/utils/questWindowTz';
 import React, { useEffect, useRef, useState } from 'react';
 import {
   Animated,
@@ -356,9 +357,17 @@ export function BlueprintReadyStamp({ reduceMotion }: { reduceMotion: boolean })
 }
 
 // 폼 label (글자 한 줄 + 입력칸)
-export function BoardField({ label, children }: { label: string; children: React.ReactNode }) {
+export function BoardField({
+  label,
+  children,
+  style,
+}: {
+  label: string;
+  children: React.ReactNode;
+  style?: any;
+}) {
   return (
-    <View style={{ gap: 7 }}>
+    <View style={[{ gap: 7 }, style]}>
       <Text style={boardFont(14, 1.6, '700')}>{label}</Text>
       {children}
     </View>
@@ -426,31 +435,28 @@ function HourMinuteWheels({
   );
 }
 
-// 시간대 집중 창의 시작·종료 시각(KST 벽시계 "HH:mm"). allowMidnight 면 종료를 24:00 까지 고른다.
+// 시간대 집중 창의 시작·종료 시각(KST 벽시계 "HH:mm"). 둘 다 23:59 까지다 — 종료 24:00 은 운영 DB
+// CHECK 에 걸려 만들 수 없다(GROMO-2886). 값이 24:00 이면 휠은 어댑터가 보낼 23:59 를 가리킨다.
 export function QuestTimeInput({
   testID,
   label,
   value,
   onChange,
-  allowMidnight = false,
 }: {
   testID: string;
   label: string;
   value: string;
   onChange: (value: string) => void;
-  allowMidnight?: boolean;
 }) {
-  const total = clockMinutes(value) ?? 0;
-  const hh = pad2(Math.min(allowMidnight ? 24 : 23, Math.floor(total / 60)));
-  const mm = hh === '24' ? '00' : pad2(total % 60);
+  const total = Math.min(clockMinutes(value) ?? 0, LAST_KST_WINDOW_END_MINUTES);
   return (
     <HourMinuteWheels
       testID={testID}
       label={label}
-      hours={allowMidnight ? HOUR_ITEMS_WITH_MIDNIGHT : HOUR_ITEMS}
-      hh={hh}
-      mm={mm}
-      onPick={(h, m) => onChange(`${h}:${h === '24' ? '00' : m}`)}
+      hours={HOUR_ITEMS}
+      hh={pad2(Math.floor(total / 60))}
+      mm={pad2(total % 60)}
+      onPick={(h, m) => onChange(`${h}:${m}`)}
     />
   );
 }

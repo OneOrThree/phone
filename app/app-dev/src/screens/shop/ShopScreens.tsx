@@ -8,8 +8,8 @@ import { t } from '@/i18n';
 import { Cta, IslandSheet, Preview, SheetGroup, SheetRow, st } from '@/screens/island/IslandSheet';
 import { useCustomizationCatalog } from '@/services/customizationCatalog';
 import { State, balance, canBuy, kstHourMinute, kstMonthDay, products } from '@/services/model';
-import { useState } from 'react';
-import { Pressable, View } from 'react-native';
+import { type ReactNode, useState } from 'react';
+import { type ImageSourcePropType, Pressable, View } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import { Icon, shopBlockReason } from '../island/navigation/screenParts';
 import type { ScreenContext } from '../island/navigation/useScreenState';
@@ -45,6 +45,9 @@ const ITEM_ART_RATIO = 0.86;
 // 폭은 기본 그림과 같은 92% 를 넘지 않는다 — compact(한 줄 4칸)처럼 칸이 좁으면 정사각 그림이 가로로 잘린다
 const ITEM_ART_MAX_WIDTH_RATIO = 0.92;
 
+// 섬·건물 테마가 아닌 카드(머리·목·신발 등 개인 꾸미기)는 서버 꾸미기 카탈로그의 상품 그림으로 그린다
+const usesCatalogArt = (product: any) => product.kind !== 'island' && product.kind !== 'building';
+
 // 상점 카드 그림(GROMO-2873). 섬·건물 테마는 종류별 그림, 꾸미기(머리·목·신발 등)는 서버 꾸미기
 // 카탈로그의 상품 그림이다 — 먼바다 결과창과 같은 OutfitItemArt. 카탈로그에 그 상품이 없으면
 // (불러오는 중·실패·데모) 예전처럼 스카프 고양이 기본 그림을 그린다. renderShopScreens 는 훅을 못 쓰는
@@ -53,9 +56,12 @@ const ITEM_ART_MAX_WIDTH_RATIO = 0.92;
 function ShopCardArt({ product, height }: { product: any; height: number }) {
   const table = useCustomizationCatalog();
   const [width, setWidth] = useState(0);
-  if (product.kind === 'island') return <Pic id="island/whole" w="100%" h="100%" cover />;
-  if (product.kind === 'building')
-    return <Pic id={'bld/' + buildingArt[product.building || 'hall']} w="92%" h="92%" />;
+  if (!usesCatalogArt(product))
+    return product.kind === 'island' ? (
+      <Pic id="island/whole" w="100%" h="100%" cover />
+    ) : (
+      <Pic id={'bld/' + buildingArt[product.building || 'hall']} w="92%" h="92%" />
+    );
   const entry = table[product.id];
   if (!entry) return <Pic id="scarf-cat" w="92%" h="92%" />;
   const byHeight = height * ITEM_ART_RATIO;
@@ -68,6 +74,57 @@ function ShopCardArt({ product, height }: { product: any; height: number }) {
     >
       <OutfitItemArt entry={entry} size={size} testID={`shop-art-${product.id}`} />
     </View>
+  );
+}
+
+// 상점 목록 칸과 빈 상태(GROMO-2878). 서버 목록이고 카탈로그 표에 항목이 있으면 표에 그림이 없는 개인 꾸미기
+// 카드를 뺀다 — 서버도 같은 상품을 거른다(GROMO-2877). 카탈로그를 아직 못 받았거나 처음부터 실패해 표가 비었으면
+// 거르지 않고 기본 그림으로 보인다(받기 전 목록이 비어 보이지 않게). 한 번 받은 뒤 다시 읽기에 실패하면 훅이 직전
+// 표를 유지해 그 표로 거른다. 섬·건물 테마는 거르지 않는다.
+// renderShopScreens 는 훅을 못 쓰는 함수라 카탈로그로 거르는 목록만 컴포넌트로 뺐다.
+function ShopGrid({
+  items,
+  filterUndrawable,
+  emptyReady,
+  emptyArt,
+  cols,
+  gap,
+  card,
+}: {
+  items: any[];
+  filterUndrawable: boolean;
+  emptyReady: boolean;
+  emptyArt: ImageSourcePropType;
+  cols: number;
+  gap: number;
+  card: (product: any) => ReactNode;
+}) {
+  const table = useCustomizationCatalog();
+  const filter = filterUndrawable && Object.keys(table).length > 0;
+  const shown = filter ? items.filter((p) => !usesCatalogArt(p) || !!table[p.id]) : items;
+  return (
+    <>
+      {/* 파는 상품이 없으면 빈 상태 한 줄. 서버는 이 탭 응답을 받은 뒤에만 — 요청 전 첫 프레임·탭을 바꾼 직후·불러오는 중·실패엔 띄우지 않는다 */}
+      {!shown.length && emptyReady && (
+        <EmptyState testID="shop-empty" art={emptyArt} title={t('emptyState.shop')} />
+      )}
+      {/* 세로 2열 · 가로 4열. 마지막 줄이 모자라면 빈칸으로 폭을 맞춘다 */}
+      <View style={{ gap }}>
+        {Array.from({ length: Math.ceil(shown.length / cols) }, (_, r) => (
+          <View key={r} style={{ flexDirection: 'row', gap }}>
+            {Array.from({ length: cols }, (_, c) => {
+              const p = shown[r * cols + c];
+              // 칸마다 같은 폭(카드 안쪽 여백이 폭 나누기에 끼지 않게 한 겹 감싼다)
+              return (
+                <View key={c} style={{ flex: 1, minWidth: 0 }}>
+                  {p && card(p)}
+                </View>
+              );
+            })}
+          </View>
+        ))}
+      </View>
+    </>
   );
 }
 
@@ -273,34 +330,20 @@ export function renderShopScreens(context: ScreenContext) {
               {t('account.blocked.loading')}
             </Txt>
           ) : null}
-          {/* 파는 상품이 없으면 빈 상태 한 줄. 서버는 이 탭 응답을 받은 뒤에만 — 요청 전 첫 프레임·탭을 바꾼 직후·불러오는 중·실패엔 띄우지 않는다 */}
-          {!items.length &&
-            (!server ||
+          <ShopGrid
+            items={items}
+            filterUndrawable={!!server}
+            emptyReady={
+              !server ||
               (shopApi.itemsCategory === (mine ? 'personal' : 'island') &&
                 !shopApi.loading &&
-                !shopApi.error)) && (
-              <EmptyState
-                testID="shop-empty"
-                art={cat(state.color, 'side')}
-                title={t('emptyState.shop')}
-              />
-            )}
-          {/* 세로 2열 · 가로 4열. 마지막 줄이 모자라면 빈칸으로 폭을 맞춘다 */}
-          <View style={{ gap: layout.compact ? 10 : 12 }}>
-            {Array.from({ length: Math.ceil(items.length / cols) }, (_, r) => (
-              <View key={r} style={{ flexDirection: 'row', gap: layout.compact ? 10 : 12 }}>
-                {Array.from({ length: cols }, (_, c) => {
-                  const p = items[r * cols + c];
-                  // 칸마다 같은 폭(카드 안쪽 여백이 폭 나누기에 끼지 않게 한 겹 감싼다)
-                  return (
-                    <View key={c} style={{ flex: 1, minWidth: 0 }}>
-                      {p && card(p)}
-                    </View>
-                  );
-                })}
-              </View>
-            ))}
-          </View>
+                !shopApi.error)
+            }
+            emptyArt={cat(state.color, 'side')}
+            cols={cols}
+            gap={layout.compact ? 10 : 12}
+            card={card}
+          />
         </IslandSheet>
       </>
     );

@@ -2,7 +2,7 @@ import React from 'react';
 import { Animated, AppState, type AppStateStatus, StyleSheet } from 'react-native';
 import { act, fireEvent, render } from '@testing-library/react-native';
 import { MotionContext } from '@/design-system/primitives';
-import { cat } from '@/constants/assets';
+import { assets, cat } from '@/constants/assets';
 import { HarborCutscene } from './HarborCutscene';
 
 type Completion = (result: { finished: boolean }) => void;
@@ -35,13 +35,7 @@ afterEach(() => {
   jest.useRealTimers();
 });
 
-const baseImages = [
-  'harbor-ocean-1-1',
-  'harbor-island',
-  'harbor-raft-back',
-  'harbor-raft-front',
-  'harbor-cat',
-];
+const baseImages = ['harbor-ocean-1-1', 'harbor-island', 'harbor-raft', 'harbor-cat'];
 async function loadImages(screen: Awaited<ReturnType<typeof render>>, ids = baseImages) {
   for (const id of ids) await fireEvent(screen.getByTestId(id), 'load');
 }
@@ -88,6 +82,8 @@ test('내 털색으로 그리며 원화를 모두 읽은 뒤에만 출항한다'
   const done = jest.fn();
   const screen = await render(<HarborCutscene {...props} onFinish={done} />);
   expect(screen.getByTestId('harbor-cat').props.source).toEqual(cat('calico', 'idle'));
+  expect(screen.getByTestId('harbor-raft').props.source).toEqual(assets['boats/raft/day.png']);
+  expect(screen.queryByTestId('harbor-raft-front')).toBeNull();
   expect(runs).toHaveLength(0);
   await loadImages(screen);
   expect(runs).toHaveLength(1);

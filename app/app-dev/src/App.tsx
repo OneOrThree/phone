@@ -243,8 +243,8 @@ function Gromo() {
     [tab, setTab] = useState(''),
     [text, setText] = useState(''),
     [body, setBody] = useState(''),
-    [windowStart, setWindowStart] = useState('00:00'),
-    [windowEnd, setWindowEnd] = useState('24:00'),
+    [windowStart, setWindowStart] = useState('19:00'),
+    [windowEnd, setWindowEnd] = useState('22:00'),
     [terms, setTerms] = useState(false),
     [guestBusy, setGuestBusy] = useState(false),
     [guestError, setGuestError] = useState(''),
@@ -2264,8 +2264,9 @@ function Gromo() {
     go('questEdit');
     setText('');
     setBody('focus');
-    setWindowStart('00:00');
-    setWindowEnd('24:00');
+    // 게시판 「+ 만들기」(Board.nav.newQuest)와 같은 기본 창. 종료 24:00 은 만들 수 없다(GROMO-2886).
+    setWindowStart('19:00');
+    setWindowEnd('22:00');
   };
   // 정책: 「로그아웃은 서버 데이터를 유지하고 현재 기기 세션만 종료한다」. 서버 호출이 실패해도
   // 로컬 세션은 지워지므로(auth.logout) 화면은 기다리지 않고 바로 로그인으로 간다.

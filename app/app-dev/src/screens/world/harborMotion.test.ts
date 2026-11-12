@@ -4,11 +4,60 @@ import {
   harborOceanBounds,
   harborPose,
   harborScenePose,
+  harborPassengerBounds,
+  HARBOR_STEPS,
   pelicanPose,
   type HarborDirection,
 } from './harborMotion';
 import { componentTokens } from '@/design-system/tokens';
 import footprints from './__fixtures__/harbor-footprints.json';
+
+test.each([
+  [402, 874],
+  [874, 402],
+  [1024, 1366],
+  [1366, 1024],
+])('%s×%s에서 점프·탑승 중 고양이와 회전하는 뗏목이 같은 부모 안에 남는다', (width, height) => {
+  const D = componentTokens.harborCutscene;
+  for (const direction of ['departure', 'arrival', 'abandon', 'pelican-mail'] as const) {
+    const frame = harborFrame(width, height, direction);
+    const samples = HARBOR_STEPS.map((t) => harborScenePose(frame, t, direction));
+    const bounds = harborPassengerBounds(frame, samples);
+    const inside = (x: number, y: number) => {
+      expect(x).toBeGreaterThanOrEqual(bounds.left - 0.001);
+      expect(x).toBeLessThanOrEqual(bounds.right + 0.001);
+      expect(y).toBeGreaterThanOrEqual(bounds.top - 0.001);
+      expect(y).toBeLessThanOrEqual(bounds.bottom + 0.001);
+    };
+    for (const pose of samples) {
+      const angle = (pose.raftRoll * Math.PI) / 180;
+      for (const x of [0, 1]) {
+        for (const y of [0, 1]) {
+          inside(
+            frame.raftSize *
+              ((x - 0.5) * Math.cos(angle) - (y - 0.5) * Math.sin(angle) + 0.5 - D.raftAnchorX),
+            frame.raftSize *
+              ((x - 0.5) * Math.sin(angle) + (y - 0.5) * Math.cos(angle) + 0.5 - D.raftAnchorY),
+          );
+          inside(
+            pose.catX - pose.raftX + (x - 0.5) * frame.catSize * pose.catScaleX,
+            pose.catY -
+              pose.raftY +
+              frame.catSize * (0.5 - D.catFootY + (y - 0.5) * pose.catScaleY),
+          );
+        }
+      }
+    }
+    if (direction !== 'departure' && direction !== 'arrival') continue;
+    for (const t of HARBOR_STEPS) {
+      const progress = direction === 'arrival' ? 1 - t : t;
+      if (progress < D.hopEnd) continue;
+      const pose = harborScenePose(frame, t, direction);
+      expect(pose.catX - pose.raftX).toBeCloseTo(0);
+      expect(pose.catY - pose.raftY).toBeCloseTo(0);
+    }
+  }
+});
 
 test('펠리컨은 착지해 잡지를 내려놓고 떠나며, 놓은 잡지는 뗏목에 남는다', () => {
   const frame = harborFrame(402, 874, 'pelican-mail');
