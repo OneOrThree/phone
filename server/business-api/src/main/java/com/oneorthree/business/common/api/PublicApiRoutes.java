@@ -15,7 +15,7 @@ public final class PublicApiRoutes {
             "/auth/sessions/**", "/me/**", "/islands/**", "/focus-sessions/**", "/invitations/**",
             "/rankings/**", "/statistics/**", "/screens/**",
             // GROMO-1894 친구·편지 — nginx 위성 include 의 Business 분기 목록과 같이 늘린다.
-            "/friends/**", "/letters/**", "/blocks/**",
+            "/friends/**", "/letters/**", "/blocks/**", "/reports",
             // GROMO-2331 꾸미기 카탈로그 — nginx 분기 목록에도 customization 을 더했다.
             "/customization/**")
             .stream().map(PathPatternParser.defaultInstance::parse).toList();

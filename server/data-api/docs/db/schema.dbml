@@ -1497,3 +1497,29 @@ Table web_island_pools [note: '웹 입장 배정. main 한 곳에서 시작하�
 }
 
 Ref: web_island_pools.island_id > islands.id
+
+// 앱 내 신고 접수. 원문 복제는 신고자의 진술이며 위반 판정이 아니다.
+Table safety_reports {
+  id uuid [pk]
+  reporter_id uuid [not null]
+  request_id uuid [not null]
+  target_type varchar(32) [not null]
+  target_id uuid
+  target_user_id uuid
+  reason varchar(32) [not null]
+  details varchar(2000) [not null]
+  submitted_text varchar(5000)
+  received_at timestamptz [not null]
+  status varchar(16) [not null, default: 'OPEN']
+  resolution varchar(2000)
+  resolved_by varchar(64)
+  closed_at timestamptz
+  legal_hold boolean [not null, default: false]
+  hold_reason varchar(1000)
+  indexes {
+    (reporter_id, request_id) [unique, name: 'safety_reports_request']
+    (status, id) [name: 'ix_safety_reports_queue']
+    (reporter_id, received_at) [name: 'ix_safety_reports_reporter_time']
+  }
+  Note: '종결 30일 뒤 파기. 법적 보존 예외는 사유 기록 후 운영자가 별도 검토. 개인정보 로그 출력 금지.'
+}

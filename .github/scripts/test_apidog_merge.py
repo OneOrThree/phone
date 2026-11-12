@@ -56,6 +56,15 @@ class ApidogMergeTest(unittest.TestCase):
         self.assertEqual(
             self.op(merged, "/internal/users/{id}", "get")["x-apidog-folder"], "data-api/섬 소통")
 
+    def test_공개와_내부_신고_계약을_각_서비스의_안전_폴더로_병합한다(self):
+        merged = self.merge(
+            **{"business-api": make_spec({"/reports": ["post"]}, tag="report-controller"),
+               "data-api": make_spec({"/internal/users/{userId}/reports": ["post"]},
+                                     tag="internal-report-controller")})
+        self.assertEqual(self.op(merged, "/reports", "post")["x-apidog-folder"], "business-api/안전·신고")
+        self.assertEqual(self.op(merged, "/internal/users/{userId}/reports", "post")["x-apidog-folder"],
+                         "data-api/안전·신고")
+
     def test_대응표에_없는_컨트롤러면_실패(self):
         with self.assertRaises(SystemExit) as ctx:
             self.merge(**{"business-api": make_spec({"/me": ["get"]}, tag="brand-new-controller")})

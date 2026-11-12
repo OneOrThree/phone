@@ -41,6 +41,7 @@ public class InternalContentAdminController {
     private final ConstructionPolicyAdminService constructionPolicy;
     private final Environment environment;
     private final JdbcTemplate jdbc;
+    private final com.oneorthree.phone.report.service.ReportService reports;
     /** Flyway 이력 조회 실패 WARN 을 프로세스당 한 번만 남기는 표식 — 환경 확인이 반복돼도 로그가 쌓이지 않게 한다. */
     private final AtomicBoolean schemaVersionFailureLogged = new AtomicBoolean();
 
@@ -172,6 +173,23 @@ public class InternalContentAdminController {
             @RequestBody ConstructionPolicyRequest body, HttpServletRequest request) {
         requireEnvironment(request);
         return constructionPolicy.apply(publicationId, body, actor(request));
+    }
+
+    @GetMapping("/reports")
+    public java.util.List<Map<String, Object>> reports(@RequestParam(required = false) UUID cursor,
+            HttpServletRequest request) {
+        requireEnvironment(request);
+        return reports.pending(cursor);
+    }
+
+    public record ReportResolution(String status, String resolution) {
+    }
+
+    @PostMapping("/reports/{reportId}/close")
+    public void closeReport(@PathVariable UUID reportId, @RequestBody ReportResolution body,
+            HttpServletRequest request) {
+        requireEnvironment(request);
+        reports.close(reportId, body.status(), body.resolution(), actor(request));
     }
 
     private void requireEnvironment(HttpServletRequest request) {

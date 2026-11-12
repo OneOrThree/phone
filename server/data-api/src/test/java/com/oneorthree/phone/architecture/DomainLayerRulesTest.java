@@ -68,6 +68,7 @@ class DomainLayerRulesTest {
         // 안 걸려, 기반이 조용히 도메인을 끌어오기 시작해도 빌드가 초록으로 남는다.
         LAYERS.put("outbox", -1);
         LAYERS.put("user", 0);              // 계정 — 아무도 참조하지 않는다
+        LAYERS.put("report", 1);            // 인증된 사용자 신고와 운영 검토
         LAYERS.put("content", 1);           // 운영 콘텐츠와 불변 게시 영수증
         LAYERS.put("currency", 1);          // 유저에게 달린 원장·보유
         LAYERS.put("focus", 2);             // 유저가 만든 기록
