@@ -666,12 +666,12 @@
   },
   "shop": {
     "tab": {
-      "personal": "My outfits",
-      "island": "Island decor"
+      "personal": "My Outfits",
+      "island": "Our Island"
     },
     "ordersTab": {
-      "personal": "Mine",
-      "shared": "Shared"
+      "personal": "My Purchases",
+      "shared": "Island Purchases"
     }
   },
   "emptyState": {
@@ -1745,6 +1745,7 @@
       "waitForConstruction": "Wait for the current construction to finish",
       "constructionUnavailable": "You can't build this right now",
       "chooseWoodenBuilding": "Choose a wooden building",
+      "buildingLabel": "Choose building",
       "sharedLedger": "Shared ledger",
       "residentsOnly": "Only island residents can view this",
       "ledgerResidentsOnly": "The shared ledger is only visible to residents",
