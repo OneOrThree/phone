@@ -12,6 +12,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -33,6 +35,24 @@ public class CustomizationCatalogService {
 
     private final CustomizationAssetMetaRepository metas;
     private final CatalogAssetRepository catalogAssets;
+
+    /**
+     * 상점이 팔지 않을 상품 id(GROMO-2877) — 주어진 상품 중 개인 꾸미기(ownerType=user)인데 {@link #catalog()} 에 그림이
+     * 없는 것. 앱이 그 상품을 그릴 수 없고, 사도 고양이에게 입혀 보이지 않는다(예: 신발 — 보상 그림 자료가 머리·목뿐이다).
+     * 섬 소유(테마·음원)는 종류별 그림이라 넣지 않는다. 주어진 상품에 개인 꾸미기가 없으면 카탈로그를 읽지 않는다.
+     */
+    @Transactional(readOnly = true)
+    public Set<String> undrawablePersonal(Collection<String> productIds) {
+        Set<String> personal = catalogAssets.findAllById(productIds).stream()
+                .filter(a -> CatalogAsset.OWNER_USER.equals(a.getOwnerType()))
+                .map(CatalogAsset::getProductId)
+                .collect(Collectors.toCollection(HashSet::new));
+        if (personal.isEmpty()) {
+            return Set.of();
+        }
+        catalog().forEach(item -> personal.remove(item.productId()));
+        return Set.copyOf(personal);
+    }
 
     @Transactional(readOnly = true)
     public List<CustomizationCatalogItem> catalog() {
