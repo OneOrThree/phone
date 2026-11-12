@@ -8,6 +8,7 @@ import com.oneorthree.phone.appearance.repository.OwnedProductRepository;
 import com.oneorthree.phone.appearance.repository.domain.CatalogAsset;
 import com.oneorthree.phone.appearance.repository.domain.OwnedProduct;
 import com.oneorthree.phone.appearance.service.AppearanceEvents;
+import com.oneorthree.phone.appearance.service.CustomizationCatalogService;
 import com.oneorthree.phone.construction.repository.IslandFacilityRepository;
 import com.oneorthree.phone.construction.repository.domain.FacilityStatus;
 import com.oneorthree.phone.construction.repository.domain.IslandFacility;
@@ -110,6 +111,7 @@ public class ShopService {
     private final IslandWalletService islandWallets;
     private final IslandWalletEvents walletEvents;
     private final AppearanceEvents appearanceEvents;
+    private final CustomizationCatalogService customizationCatalog;
     private final AggregateVersionRepository aggregateVersions;
     private final PublicCommandService publicCommands;
     private final Clock clock;
@@ -137,6 +139,10 @@ public class ShopService {
      * 카탈로그 한 쪽(LLD §2.2). 첫 쪽({@code publicationVersion=null})은 활성 발행본을 읽고, 다음 쪽은 커서가
      * 고정한 발행본의 불변 항목을 이어 읽는다 — 그 사이 새 발행본이 활성화돼도 집합·순서가 바뀌지 않는다.
      * owned/available 은 매 요청 현재 상태로 계산한다(발행본은 목록 정의의 snapshot 일 뿐이다).
+     *
+     * <p>꾸미기 카탈로그에 그림이 없는 개인 꾸미기는 빼고 내린다(GROMO-2877,
+     * {@link CustomizationCatalogService#undrawablePersonal}). 그래서 한 쪽의 항목 수가
+     * {@code limit} 보다 적을 수 있다 — {@code hasMore}·커서는 거르기 전 발행본 항목 기준이라 이어 읽기는 그대로 맞다.
      */
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public ShopViews.ProductPage products(UUID islandId, UUID userId, String category, Long publicationVersion,
@@ -175,8 +181,13 @@ public class ShopService {
                 shown.stream().map(ShopCatalogPublicationEntry::getProductId),
                 revisionByProduct.values().stream().map(ShopProductRevision::getRequiredProductId)));
         Snapshot snapshot = snapshot(resident);
+        Set<String> undrawable = customizationCatalog.undrawablePersonal(
+                shown.stream().map(ShopCatalogPublicationEntry::getProductId).toList());
         List<ShopViews.Item> items = new ArrayList<>();
         for (ShopCatalogPublicationEntry entry : shown) {
+            if (undrawable.contains(entry.getProductId())) {
+                continue;
+            }
             ShopProductRevision revision = revisionByProduct.get(entry.getProductId());
             CatalogAsset asset = assetById.get(entry.getProductId());
             boolean owned = snapshot.owns(asset);
@@ -199,6 +210,7 @@ public class ShopService {
         ShopCatalogActivePublication active = activePublication.findCurrent()
                 .orElseThrow(() -> new ShopException(ShopErrorCode.PRODUCT_NOT_FOUND));
         Listing listing = listing(active, productId);
+        requireDrawable(productId);
         Map<String, CatalogAsset> assetById = assetsOf(
                 Stream.of(productId, listing.revision().getRequiredProductId()));
         CatalogAsset asset = assetById.get(productId);
@@ -248,6 +260,7 @@ public class ShopService {
         ShopCatalogActivePublication active = activePublication.findCurrentForShare()
                 .orElseThrow(() -> new ShopException(ShopErrorCode.PRODUCT_NOT_FOUND));
         ShopProductRevision revision = listing(active, productId).revision();
+        requireDrawable(productId);
         if (revision.getRevision() != expectedProductVersion) {
             throw new ShopException(ShopErrorCode.VERSION_CONFLICT);
         }
@@ -395,6 +408,13 @@ public class ShopService {
     }
 
     private record Listing(ShopCatalogPublicationEntry entry, ShopProductRevision revision) {
+    }
+
+    /** 목록에서 뺀 그림 없는 개인 꾸미기는 상세·구매도 없는 상품으로 본다(GROMO-2877) — 옛 목록을 들고 있는 앱이 사지 못하게. */
+    private void requireDrawable(String productId) {
+        if (!customizationCatalog.undrawablePersonal(List.of(productId)).isEmpty()) {
+            throw new ShopException(ShopErrorCode.PRODUCT_NOT_FOUND);
+        }
     }
 
     private Map<String, CatalogAsset> assetsOf(Stream<String> productIds) {

@@ -252,6 +252,7 @@ Controller  →  Service  →  Repository  →  Entity
 | L7 | `notification` · `appearance` · `quest` | 현행 알림 사건을 outbox에 적는다 · 섬 공동/개인 외양(GROMO-1783) · 퀘스트(GROMO-1773) — 집중 구간(`focus`)·스크린타임(`screentime`)을 판정하고 섬 통장(`construction`)에 정산하므로 그 셋보다 위다. 같은 층끼리는 참조하지 않는다 |
 | L8 | `auth` · `magazine` | 진입·부가 · 고양이 잡지의 홍보 칸·꾸미기 재료(GROMO-2289) — 엔티티·리포지토리·순수 규칙(`support/`)만 두고, 홍보비는 섬 통장(`construction`)에서 빠지고 재료는 카탈로그·보유품(`appearance`)을 읽으므로 둘 위다. 신청·고치기 조합은 L10 `internal` 이 한다 |
 | L9 | `withdrawal` | **조립·오케스트레이션 전용** — 자기 테이블이 없고, 아래 도메인의 정리를 정해진 순서로 부른다 |
+| L1 | `report` | 인증된 사용자 신고의 접수·보존·운영 검토. `user` QueryService만 참조하며 콘텐츠 원문 조회 권한을 추가하지 않는다. |
 | L10 | `internal` | **가장 위** — 서비스 간 내부 표면(`/internal/*`, GROMO-1659·1660). 앱 계약이 아니라 Business·알림·링크가 부르는 입구이고 `auth`(L8)·`group`(L5)·`invitelink`(L6)·`user`(L0)·`outbox`(L-1) 등 아래 도메인을 «조합»해 응답한다 — 아무도 이 패키지를 참조하지 않는다. `internal` 은 타 도메인 repository 직접 사용을 허용하며 이 면제는 freeze 대상이 아니다 — 출발에서 제외돼 store 에 줄이 쌓이지 않는다 |
 
 `common/` 과 `config/` 는 레이어 밖이다 — 누가 참조해도 된다.

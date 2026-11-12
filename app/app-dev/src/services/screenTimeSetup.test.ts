@@ -1,5 +1,8 @@
 import { configureIOSScreenTime } from './screenTimeSetup';
 import { screenTime } from './screenTime';
+import { screenTimeMeasurementChanged } from './screenTimeEvents';
+
+jest.mock('./screenTimeEvents', () => ({ screenTimeMeasurementChanged: jest.fn() }));
 
 jest.mock('./screenTime', () => ({
   ...jest.requireActual('./screenTime'),
@@ -40,6 +43,22 @@ test('명시적으로 빈 허용 목록을 저장해도 완료이며 최초 측�
   );
 });
 
+test('측정 저장만 마치면 허용 앱 선택을 취소해도 즉시 서버 동기화를 요청한다', async () => {
+  native.presentAllowedAppManager.mockResolvedValue(null);
+  await expect(run()).resolves.toBe(false);
+  expect(screenTimeMeasurementChanged).toHaveBeenCalledTimes(1);
+  expect(jest.mocked(screenTimeMeasurementChanged).mock.invocationCallOrder[0]).toBeLessThan(
+    native.presentAllowedAppManager.mock.invocationCallOrder[0],
+  );
+});
+
+test('측정 앱 선택을 취소하면 전송을 시작하지 않는다', async () => {
+  native.presentAppPicker.mockResolvedValue(null);
+  await expect(run()).resolves.toBe(false);
+  expect(screenTimeMeasurementChanged).not.toHaveBeenCalled();
+  expect(native.presentAllowedAppManager).not.toHaveBeenCalled();
+});
+
 test('측정 저장 뒤 활성화 실패로 남은 선택은 다음 설정에서 복구한다', async () => {
   native.getMeasurementSelectionCounts.mockResolvedValue({
     ...selected,
@@ -49,6 +68,7 @@ test('측정 저장 뒤 활성화 실패로 남은 선택은 다음 설정에서
   await expect(run()).resolves.toBe(true);
   expect(native.promoteSelection).toHaveBeenCalledTimes(1);
   expect(native.presentAppPicker).not.toHaveBeenCalled();
+  expect(screenTimeMeasurementChanged).toHaveBeenCalledTimes(1);
 });
 
 test('내일부터 적용되는 수정 목록은 즉시 승격하지 않고 기존 측정 대상을 유지한다', async () => {
@@ -86,6 +106,7 @@ test('활성화 실패는 허용 앱 단계로 넘어가지 않는다', async ()
     'measurement activation failed',
   );
   expect(native.presentAllowedAppManager).not.toHaveBeenCalled();
+  expect(screenTimeMeasurementChanged).not.toHaveBeenCalled();
 });
 
 test('측정 피커 응답 전 계정이 바뀌면 활성화·허용 피커를 실행하지 않는다', async () => {
@@ -99,4 +120,5 @@ test('측정 피커 응답 전 계정이 바뀌면 활성화·허용 피커를 �
   );
   expect(native.promoteSelection).not.toHaveBeenCalled();
   expect(native.presentAllowedAppManager).not.toHaveBeenCalled();
+  expect(screenTimeMeasurementChanged).not.toHaveBeenCalled();
 });

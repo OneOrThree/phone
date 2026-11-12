@@ -1452,7 +1452,7 @@ export function FocusFlow({ e: environment }: any) {
       <RewardModal e={e} onClaimed={claimed} />
     ));
   const tutorialNext = (text: string, next: number) => (
-    <TutorialSpotlight text={text}>
+    <TutorialSpotlight text={text} backdrop="none">
       <Btn title={t('focusFlow.tutorial.next')} small onPress={() => e.setGuideStep(next)} />
     </TutorialSpotlight>
   );

@@ -7,6 +7,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.Collection;
 import java.util.Set;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -28,7 +29,8 @@ public class WithdrawnSenders {
      * @return 그 발신자 중 탈퇴한 사용자. 메시지가 없으면 조회하지 않는다
      */
     public Set<UUID> among(Collection<ChatMessage> messages) {
-        Set<UUID> senders = messages.stream().map(ChatMessage::getSenderId).collect(Collectors.toSet());
+        Set<UUID> senders = messages.stream().map(ChatMessage::getSenderId)
+                .filter(Objects::nonNull).collect(Collectors.toSet());
         return senders.isEmpty() ? Set.of() : tombstones.findWithdrawnAmong(senders);
     }
 }

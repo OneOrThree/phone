@@ -164,4 +164,10 @@ public interface LetterRepository extends JpaRepository<Letter, UUID> {
     int softDeleteUnreadBetween(@Param("oneUserId") UUID oneUserId,
                                 @Param("otherUserId") UUID otherUserId,
                                 @Param("now") Instant now);
+
+    /** 탈퇴자의 송수신 편지를 본문까지 파기한다. 사용자 잠금으로 발송과 직렬화한 뒤 호출한다. */
+    @Modifying(flushAutomatically = true)
+    @Query("DELETE FROM Letter l WHERE l.sender.id = :userId OR l.receiver.id = :userId")
+    int eraseAllOfUser(@Param("userId") UUID userId);
+
 }

@@ -67,3 +67,30 @@ export function openFeedback(appVersion: string): Promise<void> {
   // 카카오톡은 국내 사용자용이라 한국어만 오픈채팅으로 보내고, 그 외 언어는 메일을 연다.
   return Linking.openURL(getLocale() === 'ko' ? FEEDBACK_KAKAO_URL : feedbackEmailUrl(appVersion));
 }
+
+export type ReportTarget = {
+  targetType:
+    | 'USER'
+    | 'LETTER'
+    | 'ISLAND_MESSAGE'
+    | 'NOTICE'
+    | 'NOTICE_COMMENT'
+    | 'GUESTBOOK'
+    | 'ISLAND'
+    | 'OTHER';
+  targetId?: string;
+  targetUserId?: string;
+  submittedText?: string;
+  label?: string;
+};
+export type ReportSubmission = Omit<ReportTarget, 'label'> & {
+  requestId: string;
+  reason: ReportReason;
+  details: string;
+};
+export type ReportReceipt = { reportId: string; receivedAt: string };
+
+/** 접수 완료는 서버가 반환한 번호로만 확인한다. 신고 내용은 분석 이벤트로 보내지 않는다. */
+export function submitReport(body: ReportSubmission): Promise<ReportReceipt> {
+  return request<ReportReceipt>('/reports', { method: 'POST', body });
+}

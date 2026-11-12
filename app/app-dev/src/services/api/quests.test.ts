@@ -156,7 +156,7 @@ test('POST quests — 허용 키만 싣고 KST 창을 UTC 로 바꿔 보낸다, 
   assert.deepEqual(created, { id: QUEST, title: '저녁 집중' });
 });
 
-test('POST quests — 24:00(KST 자정) 종료는 15:00 UTC 로 보낸다', async () => {
+test('POST quests — 24:00(KST 자정) 종료는 23:59 로 내려 14:59 UTC 로 보낸다(GROMO-2886)', async () => {
   stub(201, { data: { id: QUEST, title: '늦은 집중' } });
   await createQuest(
     ISLAND,
@@ -169,14 +169,31 @@ test('POST quests — 24:00(KST 자정) 종료는 15:00 UTC 로 보낸다', asyn
     },
     KEY,
   );
-  // 24:00 KST = 15:00 UTC — 서버 LocalTime 한계의 23:59 로 내리지 않는다(깨끗이 변환된다).
+  // 15:00 UTC 로 보내면 운영 DB 가 창을 KST 로 밀어 00:00 으로 저장해 window_start < window_end
+  // CHECK 에 걸린다 — 그래서 15:00 이 아니라 14:59 다.
   assert.deepEqual(sentBody(), {
     title: '늦은 집중',
     type: 'focus',
     targetMinutes: 60,
     windowStart: '12:00',
-    windowEnd: '15:00',
+    windowEnd: '14:59',
   });
+});
+
+test('POST quests — 23:59 KST 종료는 그대로 14:59 UTC 로 보낸다', async () => {
+  stub(201, { data: { id: QUEST, title: '늦은 집중' } });
+  await createQuest(
+    ISLAND,
+    {
+      title: '늦은 집중',
+      type: 'focus',
+      targetMinutes: 60,
+      windowStart: '21:00',
+      windowEnd: '23:59',
+    },
+    KEY,
+  );
+  assert.equal(sentBody().windowEnd, '14:59');
 });
 
 test('POST quests — screen 은 창 필드 없이 간다(서버가 허용 키 밖을 400 으로 거절)', async () => {

@@ -294,6 +294,7 @@ export function RestGroup({
         restTutorial && (
           <TutorialSpotlight
             target={resumeTarget.rect}
+            backdrop="none"
             text={restTutorial.text}
             action={{ title: t('focus.resume'), onPress: resume }}
           />

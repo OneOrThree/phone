@@ -114,7 +114,7 @@
     "reduceMotion": "Reduce Motion",
     "reduceMotionSub": "Reduces movement and transition animations",
     "permissionSection": "Permissions",
-    "permissionManage": "Manage App Permissions",
+    "permissionManage": "Phone use & app blocking",
     "permissionManageSub": "Screen Time permission · Measured apps",
     "permissions": {
       "gate": {
@@ -153,9 +153,8 @@
         "allowedApps": "Apps allowed during focus"
       },
       "screenTime": {
-        "title": "Screen Time",
-        "connect": "Connect Screen Time",
-        "sub": "{{description}} · Records usage time for selected apps. App blocking is configured separately."
+        "title": "Phone usage",
+        "connect": "Connect Screen Time"
       },
       "focusBlockingIntro": {
         "title": "Block apps during focus",
@@ -166,11 +165,11 @@
       "measuredApps": {
         "title": "Measured apps",
         "a11y": "Measured apps, {{description}}",
-        "pick": "Pick measured apps"
+        "pick": "Pick measured apps",
+        "reporting": "Saving measured apps sends usage time and measurement status to the server for statistics and quests."
       },
-      "disconnectNote": "If you turn this off, phone-use quest progress shows “Needs check”.",
       "allowed": {
-        "section": "Allowed during focus",
+        "section": "App blocking during focus",
         "title": "Allowed apps",
         "count": "{{count}} selected"
       },
@@ -191,17 +190,10 @@
         }
       },
       "notifications": {
-        "title": "Notification permission",
-        "granted": "Allowed",
-        "denied": "Off",
-        "undetermined": "Not asked yet",
         "error": "Couldn't check",
-        "a11y": "Notification permission, {{description}}",
         "hint": {
           "ask": "Asks for notification permission",
-          "openSettings": "Opens the Settings app",
-          "enable": "Turns notifications on",
-          "recheck": "Checks the permission again"
+          "openSettings": "Opens the Settings app"
         }
       },
       "help": {
@@ -233,7 +225,7 @@
         "loadFailed": "Couldn't load the installed apps.",
         "loading": "Loading apps…",
         "descAllowed": "Selected apps stay usable during focus. If you select none, no extra apps are allowed.",
-        "descMeasured": "Choose apps to track usage time. App blocking is configured separately. Your first selection applies immediately; changes apply at the next midnight in Korea.",
+        "descMeasured": "Choose apps to track usage time. Saving sends usage time and measurement status to the server for statistics and quests. Your first selection applies immediately; changes apply at the next midnight in Korea.",
         "allApps": "Measure all apps",
         "search": "Search apps",
         "select": "Select {{label}}",
@@ -244,8 +236,6 @@
         "back": "Back"
       }
     },
-    "safetySection": "Safety",
-    "blockedUsersSub": "Review and unblock your blocked list",
     "helpSection": "Help",
     "replayTutorial": "Replay Tutorial",
     "replayTutorialSub": "Watch the Mongdol guide again from the start",
@@ -266,10 +256,9 @@
       "openFailed": "Couldn't open your mail app. Set up a mail app and try again, or email us directly at:\n\n{{email}}"
     },
     "generalSection": "General",
-    "privacySection": "Privacy",
-    "usageSharing": "Share usage time",
-    "usageSharingSub": "Share usage time for statistics and quests",
-    "usageSharingError": "Could not share usage time. We’ll try again."
+    "newsHelpSection": "News & Help",
+    "termsAccountSection": "Terms & Account",
+    "usageSyncError": "Could not send usage time. We’ll try again."
   },
   "login": {
     "continue": {
@@ -336,8 +325,8 @@
       "saved": "Saved.",
       "nickname": "Nickname",
       "nicknamePlaceholder": "Enter a nickname",
-      "linkedAccount": "Linked Account",
-      "accountSummary": "{{name}}'s account · {{providers}}",
+      "signedInWith": "Signed in with {{providers}}",
+      "mainIsland": "Main island",
       "noLinkedAccount": "No linked account",
       "providers": {
         "google": "Google",
@@ -662,6 +651,16 @@
       "head": "Head",
       "neck": "Neck",
       "shoes": "Shoes"
+    }
+  },
+  "shop": {
+    "tab": {
+      "personal": "My Outfits",
+      "island": "Our Island"
+    },
+    "ordersTab": {
+      "personal": "My Purchases",
+      "shared": "Island Purchases"
     }
   },
   "emptyState": {
@@ -1387,9 +1386,7 @@
     "back": "Back"
   },
   "developerNotices": {
-    "title": "Developer notices",
-    "section": "News",
-    "subtitle": "Service news and updates",
+    "title": "Notices",
     "loading": "Loading notices…",
     "empty": "There are no published notices.",
     "failed": "Could not load notices. Please try again.",
@@ -1592,7 +1589,7 @@
     "title": "Phone usage and\nblocking during focus",
     "subtitle": "Set up both with one Screen Time permission.",
     "measurementTitle": "Choose apps to measure",
-    "measurementBody": "Track the time you spend in these apps.",
+    "measurementBody": "Send usage time and measurement status for these apps to the server for statistics and quests.",
     "allowedTitle": "Choose apps allowed during focus",
     "allowedBody": "Choose the apps you need while focusing.\nOther apps are blocked during focus.",
     "setup": "Set up",
@@ -1735,6 +1732,7 @@
       "waitForConstruction": "Wait for the current construction to finish",
       "constructionUnavailable": "You can't build this right now",
       "chooseWoodenBuilding": "Choose a wooden building",
+      "buildingLabel": "Choose building",
       "sharedLedger": "Shared ledger",
       "residentsOnly": "Only island residents can view this",
       "ledgerResidentsOnly": "The shared ledger is only visible to residents",
@@ -2358,5 +2356,29 @@
     "start": "Start building",
     "close": "Close blueprint",
     "priceChanged": "The construction cost has changed. Check the amount and try again."
+  },
+  "report": {
+    "title": "Report",
+    "received": "Report received",
+    "receivedBody": "Our team will review your report. Reporting does not automatically block this user.",
+    "receipt": "Report ID: {{id}}",
+    "privacy": "The reported target and your description are sent to our team to keep the service safe. Do not include passwords or verification codes.",
+    "reason": "Reason",
+    "details": "What happened?",
+    "placeholder": "Tell us who or what you are reporting and where it happened.",
+    "submit": "Submit report",
+    "centerSub": "Send a report to our team",
+    "deletedMessage": "This message has been deleted.",
+    "userActions": "Report or block {{name}}",
+    "reasons": {
+      "HARASSMENT": "Harassment or abuse",
+      "HATE": "Hate or discrimination",
+      "SPAM_FRAUD": "Spam or fraud",
+      "SEXUAL": "Sexual content",
+      "CHILD_SAFETY": "Child safety",
+      "THREAT": "Threats or violence",
+      "PRIVACY_IMPERSONATION": "Privacy or impersonation",
+      "OTHER": "Other"
+    }
   }
 }

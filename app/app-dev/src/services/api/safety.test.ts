@@ -5,6 +5,7 @@ import { API_URL } from '@/services/api/client';
 import { clearSession, saveSession } from '@/services/api/session';
 import {
   blockUser,
+  submitReport,
   getBlockedUsers,
   feedbackEmailUrl,
   openFeedback,
@@ -92,4 +93,19 @@ test('문의하기는 ko 면 오픈채팅 URL, en 이면 mailto 를 연다', asy
   assert.equal(calls.length, 0);
   open.mockRestore();
   applyLocalePref('system');
+});
+
+test('신고는 인증된 서버 접수로 전송하고 접수 번호를 반환한다', async () => {
+  const receipt = { reportId: USER, receivedAt: '2026-11-12T00:00:00Z' };
+  stub(200, { data: receipt });
+  const body = {
+    requestId: USER,
+    targetType: 'USER' as const,
+    targetId: USER,
+    reason: 'OTHER' as const,
+    details: '신고 설명',
+  };
+  assert.deepEqual(await submitReport(body), receipt);
+  assert.equal(calls[0].url, `${API_URL}/reports`);
+  assert.deepEqual(JSON.parse(calls[0].init.body as string), body);
 });

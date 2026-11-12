@@ -11,8 +11,8 @@ import {
 } from '@/services/studyVerification/cadence';
 import { PREVIEW_SAMPLE_MS, PREVIEW_STALE_MS, VerificationCamera } from './VerificationCamera';
 
-jest.mock('../../assets/ml/palm_detection_lite.tflite', () => 1);
-jest.mock('../../assets/ml/efficientdet_lite0_int8.tflite', () => 2);
+jest.mock('../../assets/ml/palm_detection_full.tflite', () => 1);
+jest.mock('../../assets/ml/efficientdet_lite0_float16_study.tflite', () => 2);
 jest.mock('expo-asset', () => ({ Asset: { fromModule: jest.fn() } }));
 jest.mock('react-native-vision-camera', () => ({
   useCamera: jest.fn(),
@@ -26,6 +26,12 @@ jest.mock('react-native-vision-camera', () => ({
 }));
 
 const runSync = jest.fn();
+// 손 모델 입력은 192×192 float32 RGB, 도구 모델 출력은 [노트북·키보드·책 점수 3개, 전체 확률 유효성 1개]다.
+const palmPixels = () => new Float32Array(192 * 192 * 3).buffer;
+const objectOut = (book = 0, laptop = 0, keyboard = 0) => [
+  new Float32Array([laptop, keyboard, book]).buffer,
+  new Uint8Array([1]).buffer,
+];
 const objectRunSync = jest.fn();
 const objectDispose = jest.fn();
 const objectResized = {
@@ -35,7 +41,7 @@ const objectResized = {
 const objectResize = jest.fn(() => objectResized);
 const resizedDispose = jest.fn();
 const resized = {
-  getPixelBuffer: jest.fn(() => new Uint8Array([255, 0, 127]).buffer),
+  getPixelBuffer: jest.fn(palmPixels),
   dispose: resizedDispose,
 };
 const resize = jest.fn(() => resized);
@@ -44,13 +50,11 @@ beforeEach(() => {
   jest.useFakeTimers();
   jest.setSystemTime(new Date('2026-10-30T00:00:00Z'));
   jest.clearAllMocks();
-  resized.getPixelBuffer.mockImplementation(() => new Uint8Array([255, 0, 127]).buffer);
+  resized.getPixelBuffer.mockImplementation(palmPixels);
   resize.mockImplementation(() => resized);
   objectResize.mockImplementation(() => objectResized);
   objectResized.getPixelBuffer.mockImplementation(() => new Uint8Array(320 * 320 * 3).buffer);
-  const objectScores = new Float32Array(180);
-  objectScores[83] = 0.9;
-  objectRunSync.mockImplementation(() => [objectScores.buffer, new Float32Array(8).buffer]);
+  objectRunSync.mockImplementation(() => objectOut(0.9));
   jest.mocked(useResizer).mockImplementation(
     (options) =>
       ({
@@ -241,7 +245,9 @@ test('손 모델에는 리사이저의 float32 버퍼를 JS 변환 없이 그대
     channelOrder: 'rgb',
     dataType: 'float32',
   });
-  const buffer = new Float32Array([1, 0, 0.5]).buffer;
+  const pixels = new Float32Array(192 * 192 * 3);
+  pixels.set([1, 0, 0.5]);
+  const buffer = pixels.buffer;
   resized.getPixelBuffer.mockImplementation(() => buffer);
   await sample(4);
   expect(runSync).toHaveBeenCalledWith([buffer]);
@@ -352,7 +358,8 @@ test('집중 중에는 20초마다 독립적인 3장만 판정하고 영상이 �
   await sample(-4);
   expect(screen.onDetection).toHaveBeenLastCalledWith('focused');
   await sample(-4);
-  expect(runSync).toHaveBeenCalledTimes(6);
+  // 손이 안 보인 장은 다른 방향으로 한 번 더 보므로 장당 2회다.
+  expect(runSync).toHaveBeenCalledTimes(9);
   expect(screen.onDetection).toHaveBeenLastCalledWith('missingHand');
   expect(jest.mocked(useCamera).mock.calls.at(-1)![0].isActive).toBe(false);
 });
@@ -436,8 +443,8 @@ function enableObjects(runObjects: jest.Mock) {
       model: {
         inputs: [{ shape: [1, 320, 320, 3], dataType: 'uint8' }],
         outputs: [
-          { shape: [1, 2, 90], dataType: 'float32' },
-          { shape: [1, 2, 4], dataType: 'float32' },
+          { shape: [1, 3], dataType: 'float32' },
+          { shape: [1], dataType: 'bool' },
         ],
         runSync: runObjects,
       },
@@ -446,9 +453,7 @@ function enableObjects(runObjects: jest.Mock) {
 }
 
 test('물체만 있고 손이 없으면 집중이 아니며 추가 촬영하지 않는다', async () => {
-  const raw = new Float32Array(180);
-  raw[83] = 0.9;
-  const runObjects = jest.fn(() => [raw.buffer, new Float32Array(8).buffer]);
+  const runObjects = jest.fn(() => objectOut(0.9));
   enableObjects(runObjects);
   const screen = await setup(false, 'periodic');
   await sample(-4);
@@ -487,7 +492,7 @@ test('물체 모델 오류는 손만으로 성공시키지 않고 버퍼 해제�
 });
 
 test('손만 보이고 공부 도구가 없으면 시작 전에도 집중 중에도 통과하지 않는다', async () => {
-  objectRunSync.mockReturnValue([new Float32Array(180).buffer, new Float32Array(8).buffer]);
+  objectRunSync.mockReturnValue(objectOut(0));
   const screen = await setup();
   await sample(4);
   await sample(4);
@@ -496,13 +501,10 @@ test('손만 보이고 공부 도구가 없으면 시작 전에도 집중 중에
 });
 
 test('손과 물체가 각각 2장이어도 같은 장에서 함께 보인 것이 1장이면 실패한다', async () => {
-  const none = new Float32Array(180);
-  const book = new Float32Array(180);
-  book[83] = 0.9;
   const screen = await setup(false, 'periodic');
-  objectRunSync.mockReturnValue([none.buffer]);
+  objectRunSync.mockReturnValue(objectOut(0));
   await sample(4);
-  objectRunSync.mockReturnValue([book.buffer]);
+  objectRunSync.mockReturnValue(objectOut(0.9));
   await sample(4);
   await sample(-4);
   expect(screen.onDetection).toHaveBeenLastCalledWith('missingObject');
@@ -572,9 +574,7 @@ test('옆으로 놓인 책은 같은 프레임을 회전해 재검사하고 성�
   objectResized.getPixelBuffer.mockReturnValue(input.buffer);
   objectRunSync.mockImplementation(([buffer]: ArrayBuffer[]) => {
     const pixels = new Uint8Array(buffer!);
-    const scores = new Float32Array(180);
-    scores[83] = pixels[(320 - 1) * 3] === 255 ? 0.8 : 0.1;
-    return [scores.buffer, new Float32Array(8).buffer];
+    return objectOut(pixels[(320 - 1) * 3] === 255 ? 0.8 : 0.1);
   });
   const screen = await setup(false, 'periodic');
   await sample(4);
@@ -586,4 +586,30 @@ test('옆으로 놓인 책은 같은 프레임을 회전해 재검사하고 성�
   await act(async () => jest.advanceTimersByTime(10_000));
   expect(objectRunSync).toHaveBeenCalledTimes(4);
   expect(jest.mocked(useCamera).mock.calls.at(-1)![0].isActive).toBe(false);
+});
+
+test('주기 검사에서 도구를 못 찾아도 3장 묶음의 도구 추론은 합쳐 6회를 넘기지 않는다', async () => {
+  objectRunSync.mockReturnValue(objectOut(0.1));
+  const screen = await setup(false, 'periodic');
+  await sample(4);
+  await sample(4);
+  await sample(4);
+  expect(screen.onDetection).toHaveBeenLastCalledWith('missingObject');
+  expect(objectRunSync).toHaveBeenCalledTimes(6);
+  expect(objectDispose).toHaveBeenCalledTimes(3);
+});
+
+test('도구 추론 오류가 난 장도 그 장의 한도를 쓴 것으로 세어 3장 묶음 6회를 넘기지 않는다', async () => {
+  objectRunSync
+    .mockImplementationOnce(() => {
+      throw new Error('object inference failed');
+    })
+    .mockImplementation(() => objectOut(0.1));
+  const screen = await setup(false, 'periodic');
+  await sample(4);
+  await sample(4);
+  await sample(4);
+  expect(screen.onDetection).toHaveBeenLastCalledWith('missingObject');
+  // 첫 장 오류(1회 실행, 한도 4 소진) 뒤 남은 두 장은 1회씩만 본다.
+  expect(objectRunSync).toHaveBeenCalledTimes(3);
 });

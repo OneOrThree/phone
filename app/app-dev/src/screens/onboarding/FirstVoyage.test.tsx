@@ -1,12 +1,13 @@
 import { MotionContext } from '@/design-system/primitives';
 import { createPreviewEnvironment } from '@/navigation/previewEnvironment';
 import { Telescope } from '@/screens/island/Telescope';
+import { RedesignScreens } from '@/screens/island/Screens';
 import { useTelescope } from '@/screens/island/useTelescope';
 import { ApiError, request } from '@/services/api/client';
 import type { TelescopeItem } from '@/services/api/telescope';
 import { FIRST_VOYAGE_DONE, prepareFirstVoyage, readFirstVoyage } from '@/services/firstVoyage';
 import { metaContext } from '@/services/metaSdk';
-import { initialState, reducer } from '@/services/model';
+import { initialState, reducer, type State } from '@/services/model';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { act, fireEvent, render } from '@testing-library/react-native';
 import { useReducer } from 'react';
@@ -70,12 +71,15 @@ const reset = jest.fn(),
   sync = jest.fn(),
   visit = jest.fn();
 let dispatched: any[] = [];
-function Harness({ telescope = false }: { telescope?: boolean }) {
+let currentState: State;
+function Harness({ telescope = false, routed = false }: { telescope?: boolean; routed?: boolean }) {
   const [state, baseDispatch] = useReducer(reducer, {
     ...initialState(),
     name: '하루',
+    color: 'white' as const,
     onboardingStory: 'scope' as const,
   });
+  currentState = state;
   const dispatch = (a: any) => {
     dispatched.push(a);
     baseDispatch(a);
@@ -91,7 +95,9 @@ function Harness({ telescope = false }: { telescope?: boolean }) {
   };
   return (
     <MotionContext.Provider value={true}>
-      {telescope ? (
+      {routed ? (
+        <RedesignScreens e={createPreviewEnvironment({ ...e, route: 'character' })} />
+      ) : telescope ? (
         <Telescope e={createPreviewEnvironment(e)} />
       ) : (
         <OnboardingFlow e={createPreviewEnvironment(e)} />
@@ -146,6 +152,39 @@ test('첫 선택은 시간을 숨기고 한 명을 보여 준 뒤 5초 후 실�
   expect(reset).toHaveBeenCalledWith('home', undefined);
   expect(await AsyncStorage.getItem(FIRST_VOYAGE_DONE)).toBe('1');
 });
+
+test.each([false, true])(
+  '첫 도착으로 소속이 생겨도 이름·털색을 다시 묻지 않고 완료한다 (목록 동기화 실패: %s)',
+  async (syncFails) => {
+    let finishSync!: () => void;
+    sync.mockImplementationOnce(
+      () =>
+        new Promise((resolve, reject) => {
+          finishSync = () => (syncFails ? reject(new Error('offline')) : resolve({}));
+        }),
+    );
+    const screen = await render(<Harness routed />);
+    await fireEvent.press(screen.getByTestId('onboarding-island-candidate'));
+    await fireEvent.press(screen.getByTestId('onboarding-continue'));
+    await elapse(5000);
+
+    expect(sync).toHaveBeenCalledTimes(1);
+    expect(currentState.onboarded).toBe(true);
+    expect(screen.queryByText('내 고양이와 시작')).toBeNull();
+    expect(screen.getByTestId('first-voyage')).toBeTruthy();
+    expect(reset).not.toHaveBeenCalled();
+
+    await act(async () => finishSync());
+
+    expect(reset).toHaveBeenCalledWith('home', undefined);
+    expect(await AsyncStorage.getItem(FIRST_VOYAGE_DONE)).toBe('1');
+    expect((await readFirstVoyage('first-user')).pending).toBeNull();
+    expect(currentState.onboardingStory).toBe('done');
+    expect(currentState.name).toBe('하루');
+    expect(currentState.color).toBe('white');
+    expect(dispatched).toContainEqual({ type: 'ISLAND_NAMING', islandId: 'real-island' });
+  },
+);
 
 describe.each([
   [

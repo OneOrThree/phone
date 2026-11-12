@@ -56,6 +56,7 @@ price는 승인된 활성 revision의 정수이며 미승인 catalog preview를 
 도메인 상태로 다룬다. 운영 초기값을 목업으로 채우지 않는다. catalog를 공개할지 자체도 경제 활성화 설정을 따른다.
 카테고리가 같아도 권한·시설·소유·선행선체 조건은 상품별로 계산한다. `available`은 조회 시점 안내이며 구매 허가증이 아니다.
 정렬 `(displayOrder ASC, productId ASC)`와 **컬렉션 단위 catalogPublicationVersion**을 cursor에 고정한다. 첫 페이지는 활성 publication을 한 번 읽고 이후 페이지는 동일 publication의 불변 entry를 조회한다. entry에 고정된 productRevision/category/displayOrder로 집합과 순서를 복원하며, 이후 활성화된 상품 revision을 페이지 중간에 끼워 넣지 않는다. 사용자·현재 섬·category·limit·마지막 정렬키도 cursor에 포함한다.
+꾸미기 카탈로그(`GET /customization/catalog`)에 그림이 없는 `ownerType=user` 상품은 응답 items에서 뺀다(GROMO-2877). 그래서 한 쪽이 limit보다 짧거나 비어도 다음 쪽이 있을 수 있다. 목록의 끝은 `nextCursor`가 null일 때뿐이고, cursor는 빼기 전 publication entry 기준이다.
 
 publication은 목록 정의의 snapshot이며 사용자 owned/available·현재 멤버십/시설의 고정 snapshot은 아니다. 이 동적 값은 매 요청 현재 권한 아래 계산하며 구매도 현재 상품 정의를 다시 확인한다. 단순 catalog 교체로 기존 cursor의 집합을 바꾸지 않는다. publication이 보존 만료·명시 폐기로 제공되지 않으면409 CURSOR_EXPIRED, 처음부터 다시 읽는다. 즉시 상품 비공개가 필요하면 영향을 받는 publication을 폐기해 옛 페이지 재생을 막으며 레코드를 일부 수정해 snapshot을 변조하지 않는다.
 
@@ -102,6 +103,7 @@ available=false로 안내하고, 상세 이동의404는 판매 종료 상태로 
 previewUrl은 서버 등록 media 자산만 반환하고 사용자 URL을 받아 서버가 대신 가져오는 기능을 만들지 않는다.
 미리듣기는 기기 로컬이며 shared playback을 변경하지 않는다. 비활성/삭제 상품은404 PRODUCT_NOT_FOUND 또는 이미 소유한
 상품의 별도 표시 가능 여부를 catalog 생명주기 정책과 함께 정한다. 과거 주문 snapshot을 이404로 삭제하지 않는다.
+꾸미기 카탈로그에 그림이 없는 개인 꾸미기도 이미 소유했는지와 관계없이 404 PRODUCT_NOT_FOUND다(GROMO-2877). 보유품은 인벤토리에서 본다. 발행할 때 그런 상품을 선행 상품(`requiredProduct`)으로 걸지 않는다 — 서버가 검사하지 않는 데이터 규칙이고, 걸면 상세의 선행 안내가 404 상품을 가리킨다.
 
 ### 2.4 buy — POST `/islands/{islandId}/shop/orders`
 
@@ -130,6 +132,7 @@ ownerType/ownerId/currency/price/quantity를 요청에서 받지 않는다. 미�
 현재 사용자 인증과 결과 공개 자격은 여전히 필요하다. operation에는 method·정규 경로와 실제 islandId를 포함한다.
 같은 사용자·operation·key에서 productId/expectedWalletVersion/expectedProductVersion 등 본문이 다르면409 IDEMPOTENCY_KEY_REUSED다.
 경로 islandId가 다르면 공통 규약상 별도 operation scope이므로 같은 key라도 다른 명령으로 처리한다. 앱은 새 의도마다 새 키를 생성한다.
+새 key에서 꾸미기 카탈로그에 그림이 없는 개인 꾸미기는 버전 비교·소유 확인보다 먼저 404 PRODUCT_NOT_FOUND이며 차감0이다(GROMO-2877). 판정 순서는 PRODUCT_NOT_FOUND > VERSION_CONFLICT > STATE_CONFLICT다.
 새 key인데 해당 owner가 이미 소유했으면409 STATE_CONFLICT이며 차감0이다.
 
 실패:401 UNAUTHORIZED,403 FORBIDDEN/FACILITY_LOCKED,404 PRODUCT_NOT_FOUND,409 VERSION_CONFLICT/STATE_CONFLICT/

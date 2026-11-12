@@ -1,46 +1,16 @@
 import { PolicyLinks } from '@/components/PolicyLink';
-import { Btn, C, Field, Pic, Txt, k } from '@/design-system/patterns';
+import { Btn, C, Pic, Txt, k } from '@/design-system/patterns';
 import { semanticTokens } from '@/design-system/tokens';
 import { t } from '@/i18n';
 import { LoginScreen } from '@/screens/LoginScreen';
 import { WebIslandEntry } from '@/screens/web-demo/WebIslandEntry';
 import { OnboardingFlow } from '@/screens/onboarding/OnboardingFlow';
-import { updateProfile } from '@/services/api/account';
-import { uuid } from '@/services/api/client';
 import { getSession } from '@/services/api/session';
-import { Color } from '@/services/model';
-import { stripNicknameWhitespace } from '@/utils/nickname';
 import { Pressable, ScrollView, View } from 'react-native';
-import { AvatarGrid, H17, H22, INP, META, Onboard } from '../island/navigation/screenParts';
 import type { ScreenContext } from '../island/navigation/useScreenState';
 
-const SEC = {
-  fontSize: 13,
-  lineHeight: 18.85,
-  fontWeight: '700',
-  color: C.muted,
-  letterSpacing: 0.26,
-} as const;
 export function renderEntryScreens(context: ScreenContext) {
-  const {
-    route,
-    e,
-    terms,
-    setTerms,
-    act,
-    state,
-    home,
-    go,
-    layout,
-    ins,
-    back,
-    serverBusy,
-    server,
-    characterSaveIntent,
-    run,
-    routeNowRef,
-    serverError,
-  } = context;
+  const { route, e, terms, setTerms, act, state, home, go, layout, ins } = context;
 
   if (route === 'webIsland') return <WebIslandEntry e={e} />;
 
@@ -289,95 +259,7 @@ export function renderEntryScreens(context: ScreenContext) {
     );
   }
 
-  if (route === 'character' && !state.onboarded)
-    return <OnboardingFlow key={getSession()?.userId ?? 'preview'} e={e} />;
-
+  // 첫 도착의 ISLAND_SYNC로 onboarded가 바뀌어도 완료 저장·홈 이동까지 같은 화면을 유지한다.
   if (route === 'character')
-    return (
-      <Onboard
-        title={t('character.title')}
-        back={back}
-        hideCtaOnKeyboard
-        leftBg={C.soft}
-        left={
-          <View style={{ alignItems: 'center', gap: 6 }}>
-            <Pic id="cat/black/sitting" w={170} />
-            <Txt style={H17}>{t('character.greeting')}</Txt>
-            <Txt kind="meta" style={META}>
-              {t('character.furColorLaterCompact')}
-            </Txt>
-          </View>
-        }
-        cta={
-          <Btn
-            title={t('character.startWithCat')}
-            disabled={!state.name || serverBusy}
-            onPress={() => {
-              if (!server) {
-                // 목업·데모 흐름 — 서버 계정이 없어 PATCH 할 곳이 없다.
-                go('sea');
-                return;
-              }
-              // 서버 모드: GET /me.onboardingComplete는 PATCH /me(name+catColor)로만 true가 된다.
-              // 여기서 저장하지 않으면 이번 세션은 로컬 state.onboarded만으로 홈에 들어가지만,
-              // 재실행 복구(restoredRoute)는 서버 값을 정본으로 봐서 이 화면으로 되돌아간다.
-              const name = state.name;
-              const signature = JSON.stringify([name, state.color]);
-              if (characterSaveIntent.current?.signature !== signature)
-                characterSaveIntent.current = { signature, key: uuid() };
-              const intent = characterSaveIntent.current;
-              run(() =>
-                updateProfile({ name, catColor: state.color }, intent.key).then((saved) => {
-                  if (characterSaveIntent.current?.key === intent.key)
-                    characterSaveIntent.current = null;
-                  act('PROFILE', {
-                    name: saved.name ?? name,
-                    color: saved.catColor ?? state.color,
-                  });
-                  // 저장이 늦어 그 사이 뒤로 가기 등으로 화면을 떠났다면 다시 끌어오지 않는다
-                  if (routeNowRef.current === 'character') go('sea');
-                }),
-              );
-            }}
-          />
-        }
-      >
-        {!layout.compact && (
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: 4 }}>
-            <Pic id="cat/black/sitting" w={84} />
-            <View style={{ flex: 1, gap: 2 }}>
-              <Txt style={H22}>{t('character.greeting')}</Txt>
-              <Txt kind="meta" style={META}>
-                {t('character.furColorLaterFull')}
-              </Txt>
-            </View>
-          </View>
-        )}
-        {serverError ? (
-          <Txt kind="meta" style={[META, { color: C.danger }]}>
-            {serverError}
-          </Txt>
-        ) : null}
-        <Txt style={[SEC, { marginTop: layout.compact ? 0 : 6 }]}>{t('character.whichCat')}</Txt>
-        <AvatarGrid
-          six={layout.compact}
-          value={state.color}
-          disabled={serverBusy}
-          // 저장 요청이 오가는 동안은 입력을 잠가, 응답이 화면의 새 값을 되돌리지 않게 한다
-          onChange={(color: Color) => {
-            if (!serverBusy) act('PROFILE', { color });
-          }}
-        />
-        <Field
-          label={t('account.profile.nickname')}
-          placeholder={t('account.profile.nicknamePlaceholder')}
-          value={state.name}
-          disabled={serverBusy}
-          onChange={(name: string) => {
-            if (!serverBusy) act('PROFILE', { name: stripNicknameWhitespace(name) });
-          }}
-          inputStyle={INP}
-        />
-      </Onboard>
-    );
+    return <OnboardingFlow key={getSession()?.userId ?? 'preview'} e={e} />;
 }

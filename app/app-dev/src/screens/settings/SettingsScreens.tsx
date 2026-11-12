@@ -1,3 +1,4 @@
+import { ReportSheet } from '@/components/ReportSheet';
 import { PRIVACY_URL, TERMS_URL, openPolicy } from '@/constants/legal';
 import { Btn, Field, Pic, Toggle, Txt } from '@/design-system/patterns';
 import { semanticTokens } from '@/design-system/tokens';
@@ -14,21 +15,14 @@ import {
 } from '@/i18n';
 import type { ScreenProps } from '@/navigation/ScreenEnvironment';
 import appManifest from '@/screens/../../package.json';
-import {
-  Avatar,
-  IslandSheet,
-  SheetGroup,
-  SheetRow,
-  sheetInput,
-  st,
-} from '@/screens/island/IslandSheet';
-import { ScreenTimeSharingSettings } from '@/screens/island/ScreenTimeSharingSettings';
+import { IslandSheet, SheetGroup, SheetRow, sheetInput, st } from '@/screens/island/IslandSheet';
 import { updateProfile, withdrawAccount } from '@/services/api/account';
 import { ApiError, uuid } from '@/services/api/client';
-import { REPORT_EMAIL_RECIPIENT, openFeedback, openReportCenter } from '@/services/api/safety';
+import { REPORT_EMAIL_RECIPIENT, openFeedback } from '@/services/api/safety';
 import { getSession, sessionGeneration } from '@/services/api/session';
 import { isHost, mainIsland } from '@/services/model';
 import { type PushPermission, pushPermissionStatus, requestPushPermission } from '@/services/push';
+import { isScreenTimeAvailable } from '@/services/screenTime';
 import { appleAuthorizationCode, isSocialLoginCancellation } from '@/services/socialLogin';
 import {
   beginWithdrawal,
@@ -39,7 +33,7 @@ import { stripNicknameWhitespace } from '@/utils/nickname';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Application from 'expo-application';
 import { useEffect, useRef, useState } from 'react';
-import { AppState, Linking, Platform, View } from 'react-native';
+import { AppState, Linking, Platform } from 'react-native';
 import { AvatarGrid } from '../island/navigation/screenParts';
 import type { ScreenContext } from '../island/navigation/useScreenState';
 
@@ -159,20 +153,18 @@ export function renderSettingsScreens(context: ScreenContext) {
     go,
   } = context;
 
+  // 메인 섬 줄은 내 정보 안에 있다(GROMO-2885)
+  const primaryIslandName = server
+    ? (snap?.memberships.find((m) => m.id === state.mainIslandId)?.name ??
+      snap?.memberships.find((m) => m.id === snap.currentIslandId)?.name ??
+      t('account.boat.myIslandFallback'))
+    : (mainIsland(state)?.name ?? island.name);
+  const islandCount = server
+    ? (snap?.memberships.length ?? 0)
+    : state.islands.filter((candidate) => candidate.joined && !candidate.closed).length;
+  const canChangeMainIsland = islandCount > 1;
+
   if (route === 'profile') {
-    const providerLabels: Record<string, string> = {
-      google: t('account.profile.providers.google'),
-      kakao: t('account.profile.providers.kakao'),
-      line: t('account.profile.providers.line'),
-      apple: t('account.profile.providers.apple'),
-    };
-    const linkedProviderText = (state.linkedProviders ?? [])
-      .map((provider: string) => providerLabels[provider] ?? provider)
-      .filter(Boolean)
-      .join(' · ');
-    const mustTransferHost = state.islands.some(
-      (candidate) => isHost(candidate) && candidate.members.length > 0,
-    );
     // 「저장」은 시트 머리 글자가 아니라 아래 버튼 줄의 가득 폭 Btn 이다(GROMO-2473). 처리 중에는 입력과 같이 막는다.
     const saveProfile = () => {
       const name = profileName;
@@ -232,9 +224,6 @@ export function renderSettingsScreens(context: ScreenContext) {
         onClose={home}
         footer={<Btn title={t('common.save')} onPress={saveProfile} disabled={serverBusy} />}
       >
-        <View style={{ alignItems: 'center' }}>
-          <Avatar color={profileColor} size={96} />
-        </View>
         <AvatarGrid
           mini
           value={profileColor}
@@ -258,17 +247,158 @@ export function renderSettingsScreens(context: ScreenContext) {
             {profileNameError}
           </Txt>
         )}
+        {/* 소속 섬이 없으면(바다 표류에서 연 설정, GROMO-2404) 메인 섬 줄을 두지 않는다 */}
+        {islandCount > 0 && (
+          <SheetGroup>
+            <SheetRow
+              title={t('account.profile.mainIsland')}
+              sub={primaryIslandName}
+              chevron={canChangeMainIsland}
+              disabled={serverBusy}
+              onPress={canChangeMainIsland ? () => go('mainIsland') : undefined}
+            />
+          </SheetGroup>
+        )}
+      </IslandSheet>
+    );
+  }
+
+  if (route === 'settings') {
+    const providerLabels: Record<string, string> = {
+      google: t('account.profile.providers.google'),
+      kakao: t('account.profile.providers.kakao'),
+      line: t('account.profile.providers.line'),
+      apple: t('account.profile.providers.apple'),
+    };
+    const linkedProviderText = (state.linkedProviders ?? [])
+      .map((provider: string) => providerLabels[provider] ?? provider)
+      .filter(Boolean)
+      .join(' · ');
+    const mustTransferHost = state.islands.some(
+      (candidate) => isHost(candidate) && candidate.members.length > 0,
+    );
+    const toggle = (label: string, key: string, sub?: string) => (
+      <SheetRow
+        title={label}
+        sub={sub}
+        tail={
+          <Toggle
+            label={label}
+            // 화면용 합친 값이 아니라 저장값을 보인다 — OS 모션 줄이기가 켜져 있어도 앱 설정을 바꿀 수 있다(GROMO-2159)
+            value={((e.savedSettings ?? state.settings) as any)[key]}
+            onChange={(value: boolean) => act('SETTING', { key, value })}
+          />
+        }
+      />
+    );
+    const sec = (name: string) => (
+      <Txt kind="section" style={st.sec}>
+        {name}
+      </Txt>
+    );
+    const pref: LocalePref = e.localePref;
+    const accountSub = linkedProviderText
+      ? t('account.profile.signedInWith', { providers: linkedProviderText })
+      : t('account.profile.noLinkedAccount');
+    // 기록 공개 토글은 없다(도서관 기록은 전체 공개 고정)
+    return (
+      <IslandSheet
+        bg={accountBg}
+        sign="boat/raft"
+        title={t('account.boat.settingsTitle')}
+        tall
+        tight
+        onBack={back}
+        onClose={home}
+      >
+        {/* 첫 줄은 닉네임과 로그인 방식이다. 누르면 내 정보(GROMO-2885) */}
         <SheetGroup>
           <SheetRow
-            title={t('account.profile.linkedAccount')}
-            sub={t('account.profile.accountSummary', {
-              name: state.name,
-              providers: linkedProviderText || t('account.profile.noLinkedAccount'),
-            })}
+            title={state.name || t('account.profile.title')}
+            sub={accountSub}
+            // 닉네임만으로는 무엇을 여는 줄인지 안 읽힌다 — 이름이 있으면 「내 정보」를 앞에 붙인다
+            label={
+              state.name ? `${t('account.profile.title')}, ${state.name}, ${accountSub}` : undefined
+            }
+            lead={<Pic id={'avatar/' + state.color} w={28} />}
+            chevron
+            onPress={() => go('profile')}
+          />
+        </SheetGroup>
+        {sec(t('settings.generalSection'))}
+        <SheetGroup flat>
+          <NotificationToggle e={e} />
+          {toggle(t('settings.sound'), 'sound')}
+          {toggle(t('settings.haptics'), 'haptics')}
+          {toggle(t('settings.reduceMotion'), 'reduceMotion')}
+          <SheetRow
+            title={t('settings.language.title')}
+            sub={pref === 'system' ? t('settings.language.system') : LOCALE_NAMES[pref]}
+            chevron
+            onPress={() => go('language', 'settings')}
+          />
+          <SheetRow
+            title={t('settings.permissionManage')}
+            sub={
+              isScreenTimeAvailable
+                ? t(
+                    state.settings.permission
+                      ? 'settings.permissions.connected'
+                      : 'settings.permissions.needed',
+                  )
+                : undefined
+            }
+            chevron
+            onPress={() => go('permission', 'settings')}
+          />
+        </SheetGroup>
+        {sec(t('settings.newsHelpSection'))}
+        <SheetGroup flat>
+          <SheetRow
+            title={t('developerNotices.title')}
+            chevron
+            onPress={() => go('developerNotices')}
+          />
+          <SheetRow
+            title={t('settings.feedback.title')}
+            sub={t('settings.feedback.sub')}
+            chevron
+            onPress={() => {
+              openFeedback(Application.nativeApplicationVersion ?? appManifest.version).catch(() =>
+                confirm(
+                  t('settings.feedback.title'),
+                  t('settings.feedback.openFailed', { email: REPORT_EMAIL_RECIPIENT }),
+                  () => {},
+                ),
+              );
+            }}
+          />
+          <ReportCenterRow />
+          {/* 목업에는 차단 API 가 없다 */}
+          {server && (
+            <SheetRow
+              title={t('account.blocked.title')}
+              chevron
+              onPress={() => go('blockedUsers')}
+            />
+          )}
+        </SheetGroup>
+        {sec(t('settings.termsAccountSection'))}
+        <SheetGroup flat>
+          <SheetRow
+            title={t('login.policy.terms')}
+            chevron
+            label={t('login.policy.viewOriginalA11y', { title: t('login.policy.terms') })}
+            onPress={() => openPolicy(TERMS_URL)}
+          />
+          <SheetRow
+            title={t('login.policy.privacy')}
+            chevron
+            label={t('login.policy.viewOriginalA11y', { title: t('login.policy.privacy') })}
+            onPress={() => openPolicy(PRIVACY_URL)}
           />
           <SheetRow
             title={t('account.profile.logout')}
-            chevron
             onPress={() =>
               confirm(
                 t('account.profile.logoutConfirmTitle'),
@@ -358,154 +488,6 @@ export function renderSettingsScreens(context: ScreenContext) {
             }
           />
         )}
-      </IslandSheet>
-    );
-  }
-
-  if (route === 'settings') {
-    const primaryIslandName = server
-      ? (snap?.memberships.find((m) => m.id === state.mainIslandId)?.name ??
-        snap?.memberships.find((m) => m.id === snap.currentIslandId)?.name ??
-        t('account.boat.myIslandFallback'))
-      : (mainIsland(state)?.name ?? island.name);
-    const islandCount = server
-      ? (snap?.memberships.length ?? 0)
-      : state.islands.filter((candidate) => candidate.joined && !candidate.closed).length;
-    const canChangeMainIsland = islandCount > 1;
-    const toggle = (label: string, key: string, sub?: string) => (
-      <SheetRow
-        title={label}
-        sub={sub}
-        tail={
-          <Toggle
-            label={label}
-            // 화면용 합친 값이 아니라 저장값을 보인다 — OS 모션 줄이기가 켜져 있어도 앱 설정을 바꿀 수 있다(GROMO-2159)
-            value={((e.savedSettings ?? state.settings) as any)[key]}
-            onChange={(value: boolean) => act('SETTING', { key, value })}
-          />
-        }
-      />
-    );
-    const sec = (name: string) => (
-      <Txt kind="section" style={st.sec}>
-        {name}
-      </Txt>
-    );
-    const pref: LocalePref = e.localePref;
-    // 기록 공개 토글은 없다(도서관 기록은 전체 공개 고정)
-    return (
-      <IslandSheet
-        bg={accountBg}
-        sign="boat/raft"
-        title={t('account.boat.settingsTitle')}
-        tall
-        tight
-        onBack={back}
-        onClose={home}
-      >
-        <SheetGroup>
-          <SheetRow
-            title={t('account.profile.title')}
-            sub={t('account.profile.sub')}
-            lead={<Pic id={'avatar/' + state.color} w={28} />}
-            chevron
-            onPress={() => go('profile')}
-          />
-          {/* 소속 섬이 없으면(바다 표류에서 연 설정, GROMO-2404) 메인 섬 줄을 두지 않는다 */}
-          {islandCount > 0 && (
-            <SheetRow
-              title={t(
-                canChangeMainIsland ? 'account.boat.changeMain' : 'account.boat.currentMain',
-              )}
-              sub={primaryIslandName}
-              chevron={canChangeMainIsland}
-              onPress={canChangeMainIsland ? () => go('mainIsland') : undefined}
-            />
-          )}
-        </SheetGroup>
-        {sec(t('settings.generalSection'))}
-        <SheetGroup flat>
-          <NotificationToggle e={e} />
-          {toggle(t('settings.sound'), 'sound')}
-          {toggle(t('settings.haptics'), 'haptics')}
-          {toggle(t('settings.reduceMotion'), 'reduceMotion')}
-          <SheetRow
-            title={t('settings.language.title')}
-            sub={pref === 'system' ? t('settings.language.system') : LOCALE_NAMES[pref]}
-            chevron
-            onPress={() => go('language', 'settings')}
-          />
-          <SheetRow
-            title={t('settings.permissionManage')}
-            chevron
-            onPress={() => go('permission', 'settings')}
-          />
-        </SheetGroup>
-        {sec(t('developerNotices.section'))}
-        <SheetGroup flat>
-          <SheetRow
-            title={t('developerNotices.title')}
-            sub={t('developerNotices.subtitle')}
-            chevron
-            onPress={() => go('developerNotices')}
-          />
-        </SheetGroup>
-        {sec(t('settings.safetySection'))}
-        <SheetGroup flat>
-          {/* 차단한 사용자 관리는 친구 관리 머리가 아니라 여기(안전 첫 줄)다(GROMO-2473). 목업에는 차단 API 가 없다 */}
-          {server && (
-            <SheetRow
-              title={t('account.blocked.title')}
-              sub={t('settings.blockedUsersSub')}
-              chevron
-              onPress={() => go('blockedUsers')}
-            />
-          )}
-          <SheetRow
-            title={t('settings.report.title')}
-            sub={t('settings.report.sub')}
-            chevron
-            onPress={() => {
-              openReportCenter().catch(() =>
-                confirm(
-                  t('settings.report.title'),
-                  t('settings.report.openFailed', { email: REPORT_EMAIL_RECIPIENT }),
-                  () => {},
-                ),
-              );
-            }}
-          />
-          <SheetRow
-            title={t('settings.feedback.title')}
-            sub={t('settings.feedback.sub')}
-            chevron
-            onPress={() => {
-              openFeedback(Application.nativeApplicationVersion ?? appManifest.version).catch(() =>
-                confirm(
-                  t('settings.feedback.title'),
-                  t('settings.feedback.openFailed', { email: REPORT_EMAIL_RECIPIENT }),
-                  () => {},
-                ),
-              );
-            }}
-          />
-        </SheetGroup>
-        {sec(t('settings.privacySection'))}
-        <SheetGroup flat>
-          <ScreenTimeSharingSettings e={e} />
-          <SheetRow
-            title={t('login.policy.terms')}
-            chevron
-            label={t('login.policy.viewOriginalA11y', { title: t('login.policy.terms') })}
-            onPress={() => openPolicy(TERMS_URL)}
-          />
-          <SheetRow
-            title={t('login.policy.privacy')}
-            chevron
-            label={t('login.policy.viewOriginalA11y', { title: t('login.policy.privacy') })}
-            onPress={() => openPolicy(PRIVACY_URL)}
-          />
-        </SheetGroup>
         <Txt kind="meta" testID="settings-app-version" style={[st.meta, { textAlign: 'center' }]}>
           {t('onboardingStory.brand')} {Application.nativeApplicationVersion ?? appManifest.version}
         </Txt>
@@ -576,4 +558,20 @@ export function renderSettingsScreens(context: ScreenContext) {
       </IslandSheet>
     );
   }
+}
+
+function ReportCenterRow({ divider }: { divider?: boolean }) {
+  const [visible, setVisible] = useState(false);
+  return (
+    <>
+      <SheetRow
+        divider={divider}
+        title={t('settings.report.title')}
+        sub={t('report.centerSub')}
+        chevron
+        onPress={() => setVisible(true)}
+      />
+      {visible ? <ReportSheet visible onClose={() => setVisible(false)} /> : null}
+    </>
+  );
 }

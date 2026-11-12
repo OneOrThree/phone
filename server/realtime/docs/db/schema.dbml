@@ -15,17 +15,18 @@ Project gromo_chat {
 Table chat_messages {
   id uuid [pk, note: 'UUID v7 — 정렬 = 시간순. 커서 페이징·안 읽음 집계가 이 단조성에 얹혀 있다']
   group_id uuid [not null, note: '섬(그룹) id. Data API 소유라 FK 없음']
-  sender_id uuid [not null, note: '보낸 사람. 탈퇴해도 이 행은 남는다(대화의 앞뒤가 맞아야 하므로)']
+  sender_id uuid [note: '보낸 사람. 탈퇴 시 null, 본문은 빈 문자열, client_message_id는 메시지 id로 대체']
   content varchar(2000) [not null]
   client_message_id uuid [not null, note: '클라이언트 생성 멱등 키. 재전송 차단은 아래 유니크 인덱스가 한다']
   sent_at "timestamp(6) with time zone" [not null, note: '서버 수신 시각. 클라 시각을 쓰면 기기 시계로 순서가 뒤집힌다']
 
   Indexes {
+    sender_id [name: 'ix_chat_messages_sender', note: 'WHERE sender_id IS NOT NULL, 탈퇴 파기 대상 조회']
     (group_id, sender_id, client_message_id) [unique, name: 'ux_chat_messages_dedup', note: '재전송 차단 — 애플리케이션 검사에는 창이 있고 이 제약에는 없다']
     (group_id, id) [name: 'ix_chat_messages_group_id_desc', note: 'DESC. 히스토리 페이징 + 방 목록의 DISTINCT ON']
   }
 
-  Note: '섬 안에서 오간 말. 삭제·수정 기능은 아직 없다(컬럼도 없다)'
+  Note: '탈퇴 시 개인정보를 지우고 커서 기준 행만 남긴다'
 }
 
 Table chat_read_cursors {

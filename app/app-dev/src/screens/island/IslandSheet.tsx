@@ -288,7 +288,9 @@ export function IslandSheet({
             accessibilityRole="header"
             numberOfLines={1}
             style={{
-              flex: 1,
+              // 액션이 있으면 제목이 제 폭을 먼저 갖고 액션이 남은 폭에서 줄을 바꾼다 — 360dp·글자 1.3배에서
+              // 「구매 내역」에 밀려 「강아지 …」로 잘렸다(GROMO-2888). 제목이 아주 길면 제목만 줄어 말줄임한다
+              ...(action ? { flexShrink: 1 } : { flex: 1 }),
               fontSize: 19,
               lineHeight: 26,
               fontWeight: '800',
@@ -298,25 +300,27 @@ export function IslandSheet({
             {title}
           </Txt>
           {!!action && (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={action === '⚙' ? t('common.manageIsland') : action}
-              onPress={actionPress}
-              // 뒤로·닫기 NavBtn 과 같은 44 상자 — 보이는 아이콘·글자는 가운데에 그대로 둔다
-              style={{
-                minWidth: semanticTokens.size.tapMin,
-                minHeight: semanticTokens.size.tapMin,
-                alignItems: 'center',
-                justifyContent: 'center',
-                paddingHorizontal: 4,
-              }}
-            >
-              {action === '⚙' ? (
-                <Gear />
-              ) : (
-                <Txt style={{ fontSize: 14, lineHeight: 20, fontWeight: '700' }}>{action}</Txt>
-              )}
-            </Pressable>
+            <View style={{ flex: 1, minWidth: semanticTokens.size.tapMin, alignItems: 'flex-end' }}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={action === '⚙' ? t('common.manageIsland') : action}
+                onPress={actionPress}
+                // 뒤로·닫기 NavBtn 과 같은 44 상자 — 보이는 아이콘·글자는 가운데에 그대로 둔다
+                style={{
+                  minWidth: semanticTokens.size.tapMin,
+                  minHeight: semanticTokens.size.tapMin,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  paddingHorizontal: 4,
+                }}
+              >
+                {action === '⚙' ? (
+                  <Gear />
+                ) : (
+                  <Txt style={{ fontSize: 14, lineHeight: 20, fontWeight: '700' }}>{action}</Txt>
+                )}
+              </Pressable>
+            </View>
           )}
           <NavBtn close label={t('common.close')} onPress={onClose} />
         </View>

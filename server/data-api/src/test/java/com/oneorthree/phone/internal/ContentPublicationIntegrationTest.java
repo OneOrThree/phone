@@ -737,7 +737,7 @@ class ContentPublicationIntegrationTest {
         environment.setActiveProfiles("prod");
         var controller = new InternalContentAdminController(notices, history, reviews,
                 construction,
-                environment, jdbc);
+                environment, jdbc, org.mockito.Mockito.mock(com.oneorthree.phone.report.service.ReportService.class));
         var http = org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup(controller).build();
         String database = jdbc.queryForObject("SELECT current_database()", String.class);
         // 테스트 컨테이너의 컨텍스트 전용 DB에만 표식을 설정한다.

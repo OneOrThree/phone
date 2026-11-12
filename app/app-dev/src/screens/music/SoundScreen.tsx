@@ -89,6 +89,9 @@ export function renderSoundScreen(context: ScreenContext) {
     const contentHeight = layout.compact
       ? gramophone.compactContentHeight
       : gramophone.contentHeight;
+    const panelBottom = Math.max(18, ins.bottom + 8);
+    // 큰 글자 판은 곡 수만큼 늘리되 간판(위 20+높이 40) 아래·바닥 여백 위로 상한을 둔다 — 넘치면 곡 목록만 스크롤된다
+    const largePanelMaxHeight = Math.max(0, layout.height - (20 + ins.top + 40 + 12) - panelBottom);
     return (
       <View style={{ flex: 1, backgroundColor: C.paper }}>
         <View
@@ -140,14 +143,18 @@ export function renderSoundScreen(context: ScreenContext) {
             </Txt>
           </View>
           <View
+            testID="sound-panel"
             style={{
               position: 'absolute',
               left: (layout.width - panelWidth) / 2,
-              bottom: Math.max(18, ins.bottom + 8),
+              bottom: panelBottom,
               width: panelWidth,
-              height: panelHeight,
-              flexDirection: 'row',
-              alignItems: 'center',
+              // 큰 글자는 곡 수만큼 높이를 늘린다 — 고정 높이면 셋째 곡이 스크롤 밖으로 숨었다(GROMO-2888).
+              // 다만 화면 위로 벗어나지 않게 상한을 두고, 레코드 칸이 없으니 세로로 쌓아 목록이 줄어들며 스크롤된다
+              height: largeText ? undefined : panelHeight,
+              maxHeight: largeText ? largePanelMaxHeight : undefined,
+              flexDirection: largeText ? 'column' : 'row',
+              alignItems: largeText ? 'stretch' : 'center',
               gap: 12,
               padding: 16,
               borderWidth: 2,
@@ -159,59 +166,69 @@ export function renderSoundScreen(context: ScreenContext) {
           >
             {island.buildings.includes('gram') ? (
               <>
-                <View
-                  style={{
-                    width: 128,
-                    height: contentHeight,
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                  }}
-                >
+                {/* 큰 글자는 레코드 칸을 빼고 곡 목록이 패널 폭을 다 쓴다 — 360dp·1.3배에서 「잔잔한 파/도」처럼 곡 이름이 끊겼다(GROMO-2888) */}
+                {!largeText && (
                   <View
-                    accessibilityLabel={t('ui.shop.recordPlayer')}
                     style={{
-                      width: gramophone.recordSize,
-                      height: gramophone.recordSize,
-                      borderRadius: gramophone.recordSize / 2,
-                      borderWidth: 6,
-                      borderColor: gramophone.recordGroove,
-                      backgroundColor: gramophone.recordBackground,
+                      width: 128,
+                      height: contentHeight,
                       alignItems: 'center',
-                      justifyContent: 'center',
+                      justifyContent: 'space-between',
                     }}
                   >
-                    {[88, 68, 48].map((size) => (
+                    <View
+                      accessibilityLabel={t('ui.shop.recordPlayer')}
+                      style={{
+                        width: gramophone.recordSize,
+                        height: gramophone.recordSize,
+                        borderRadius: gramophone.recordSize / 2,
+                        borderWidth: 6,
+                        borderColor: gramophone.recordGroove,
+                        backgroundColor: gramophone.recordBackground,
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      {[88, 68, 48].map((size) => (
+                        <View
+                          key={size}
+                          style={{
+                            position: 'absolute',
+                            width: size,
+                            height: size,
+                            borderRadius: size / 2,
+                            borderWidth: 4,
+                            borderColor: gramophone.recordGroove,
+                          }}
+                        />
+                      ))}
                       <View
-                        key={size}
                         style={{
-                          position: 'absolute',
-                          width: size,
-                          height: size,
-                          borderRadius: size / 2,
-                          borderWidth: 4,
+                          width: 30,
+                          height: 30,
+                          borderRadius: 15,
+                          backgroundColor: C.pink,
+                          borderWidth: 2,
                           borderColor: gramophone.recordGroove,
                         }}
                       />
-                    ))}
-                    <View
-                      style={{
-                        width: 30,
-                        height: 30,
-                        borderRadius: 15,
-                        backgroundColor: C.pink,
-                        borderWidth: 2,
-                        borderColor: gramophone.recordGroove,
-                      }}
-                    />
+                    </View>
+                    <Txt
+                      tabletScale={1}
+                      style={{ color: gramophone.foregroundMuted, ...gramophone.captionText }}
+                    >
+                      {t('ui.shop.buyMusicHint')}
+                    </Txt>
                   </View>
-                  <Txt
-                    tabletScale={1}
-                    style={{ color: gramophone.foregroundMuted, ...gramophone.captionText }}
-                  >
-                    {t('ui.shop.buyMusicHint')}
-                  </Txt>
-                </View>
-                <View style={{ flex: 1, minWidth: 0, height: contentHeight, gap: 8 }}>
+                )}
+                <View
+                  style={[
+                    { minWidth: 0, gap: 8 },
+                    largeText
+                      ? { flexShrink: 1, minHeight: 0 }
+                      : { flex: 1, height: contentHeight },
+                  ]}
+                >
                   <View
                     testID="sound-current-track"
                     style={{ minHeight: gramophone.currentTrackMinHeight, flexShrink: 0 }}
@@ -230,7 +247,8 @@ export function renderSoundScreen(context: ScreenContext) {
                     </Txt>
                   </View>
                   <ScrollView
-                    style={{ flex: 1 }}
+                    testID="sound-track-list"
+                    style={largeText ? { flexShrink: 1 } : { flex: 1 }}
                     contentContainerStyle={{ gap: 4, paddingRight: 4 }}
                     showsVerticalScrollIndicator
                   >

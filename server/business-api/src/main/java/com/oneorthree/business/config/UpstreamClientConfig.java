@@ -12,6 +12,7 @@ import com.oneorthree.business.upstream.data.DataAuthClient;
 import com.oneorthree.business.upstream.data.DataConstructionClient;
 import com.oneorthree.business.upstream.data.DataFocusClient;
 import com.oneorthree.business.upstream.data.DataFriendClient;
+import com.oneorthree.business.upstream.data.DataReportClient;
 import com.oneorthree.business.upstream.data.DataIslandClient;
 import com.oneorthree.business.upstream.data.DataOutboxClient;
 import com.oneorthree.business.upstream.data.DataQuestClient;
@@ -119,6 +120,11 @@ public class UpstreamClientConfig implements MeterBinder {
     @Bean
     public DataIslandClient dataIslandClient(UpstreamConfigProperties properties, ObjectMapper objectMapper) {
         return new DataIslandClient(dataHttp(properties, objectMapper));
+    }
+
+    @Bean
+    public DataReportClient dataReportClient(UpstreamConfigProperties properties, ObjectMapper objectMapper) {
+        return new DataReportClient(dataHttp(properties, objectMapper));
     }
 
     @Bean

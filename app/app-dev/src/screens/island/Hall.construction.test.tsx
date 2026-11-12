@@ -58,12 +58,14 @@ jest.mock('@/screens/island/useLedgerScreen', () => ({
 // 화면 폭·가로 여부는 테스트마다 바꾼다 — 기본 402(iPhone 17) 세로, 격자 폭 회귀는 393(iPhone 15)·375(SE)·가로 667
 let mockLayoutWidth = 402;
 let mockLandscape = false;
+let mockFontScale = 1;
 jest.mock('@/utils/layout', () => ({
   useAppLayout: () => ({
     width: mockLayoutWidth,
     height: 874,
     insets: { top: 52, bottom: 32, left: 0, right: 0 },
     landscape: mockLandscape,
+    fontScale: mockFontScale,
   }),
 }));
 jest.mock('react-native-safe-area-context', () => ({
@@ -441,6 +443,31 @@ test.each([
       expect(width('shop')).toBeCloseTo(gridW, 5);
     } finally {
       mockLayoutWidth = 402;
+    }
+  },
+);
+
+test.each([
+  [360, 1.3, 285], // 격자 285, 2열 글 칸 floor((285 − 12.9) / 2) − 81.4 = 54.6 < 18.1×3×1.3 → 1열 전체 폭
+  [360, 1, 136], // 같은 폭이라도 기본 글자면 54.6 ≥ 54.3 → 2열 그대로
+  [411, 1, 161], // 411dp 기본 글자는 2열
+])(
+  '폭 %i · 글자 %f배에서 건물 이름이 한 줄에 들지 않으면 1열로 바꾼다(GROMO-2888)',
+  async (w, scale, cardW) => {
+    mockLayoutWidth = w;
+    mockFontScale = scale;
+    try {
+      constructionMock.mockReturnValue(
+        construction({ options: options({ items: [], selectedBuildingId: null }) }),
+      );
+      const screen = await render(<Hall e={createPreviewEnvironment(e())} />);
+      const width = (b: string) =>
+        StyleSheet.flatten(screen.getByTestId(`hall-bld-${b}`).props.style).width;
+      expect(width('library')).toBe(cardW);
+      expect(width('tower')).toBe(cardW);
+    } finally {
+      mockLayoutWidth = 402;
+      mockFontScale = 1;
     }
   },
 );

@@ -12,8 +12,9 @@ import type { IslandChat } from '@/screens/island/useIslandChat';
 import { ApiError } from '@/services/api/client';
 import { useMemberLooks } from '@/services/memberLooks';
 import { currentIsland, dayKey, type State } from '@/services/model';
-import { useEffect, useRef } from 'react';
-import { ScrollView, View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { UserSafetySheet } from '@/components/UserSafetySheet';
+import { Pressable, ScrollView, View } from 'react-native';
 
 const BUBBLE = componentTokens.islandChatBubble;
 const stroke = semanticTokens.stroke;
@@ -30,8 +31,10 @@ export const chatTime = (at: number, now: number) => {
 
 type Row = {
   id: string;
+  userId?: string;
   name: string;
   text: string;
+  submittedText?: string;
   time: string;
   color: string | null;
   outfit?: Outfit | null;
@@ -41,6 +44,7 @@ type Row = {
 
 export function IslandChatSheet({ e, chat }: { e: ScreenEnvironment; chat: IslandChat }) {
   const server = !!e.islands;
+  const [safetyTarget, setSafetyTarget] = useState<Row | null>(null);
   const state: State = e.state;
   const island = currentIsland(state);
   const now: number = e.now ?? 0;
@@ -68,8 +72,10 @@ export function IslandChatSheet({ e, chat }: { e: ScreenEnvironment; chat: Islan
         const look = looks[m.userId];
         return {
           id: m.id,
+          userId: m.userId,
           name: m.name ?? t('islandChat.unknown'),
-          text: m.text,
+          text: m.text || t('report.deletedMessage'),
+          submittedText: m.text || undefined,
           time: chatTime(Date.parse(m.createdAt), now),
           color: look ? look.catColor : (m.catColor ?? null),
           outfit: look ? (look.appearance ?? undefined) : appearanceOutfit(m.appearance),
@@ -145,113 +151,143 @@ export function IslandChatSheet({ e, chat }: { e: ScreenEnvironment; chat: Islan
   );
 
   return (
-    <IslandSheet
-      sign="island/whole"
-      signKind="island"
-      title={t('islandChat.title')}
-      tall
-      onClose={e.back}
-      scrollRef={scrollRef}
-      footer={
-        <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: BUBBLE.inputGap }}>
-          <TextInput
-            testID="island-message-input"
-            accessibilityLabel={t('islandChat.placeholder')}
-            value={text}
-            onChangeText={e.setText}
-            placeholder={t('islandChat.placeholder')}
-            placeholderTextColor={componentTokens.input.placeholder}
-            multiline
-            style={[k.field, sheetInput, { flex: 1, maxHeight: 120 }]}
-          />
-          <Btn id="island-message-send" small title={t('islandChat.send')} onPress={send} />
-        </View>
-      }
-    >
-      {server && chat.loading && !rows.length
-        ? status(t('islandChat.loading'))
-        : server && chat.error && !rows.length
-          ? retryBox(chat.error, 'chat-retry')
-          : !rows.length && !chat.messagesCursor
-            ? status(t('islandChat.empty'))
-            : null}
-      {server && chat.error && rows.length > 0 && retryBox(chat.error, 'chat-refresh-retry')}
-      {/* 최신 페이지가 모두 차단한 사용자의 글이면 rows 는 비어도 커서는 남는다 — 표시 수가 아니라 커서로 버튼을 낸다 */}
-      {server && chat.messagesCursor ? (
-        <Btn
-          id="chat-more"
-          small
-          kind="ghost"
-          title={chat.loadingMore ? t('islandChat.loadingMore') : t('islandChat.more')}
-          onPress={() => chat.loadMoreMessages()}
-        />
-      ) : null}
-      {rows.map((m) =>
-        m.mine ? (
-          <View
-            key={m.id}
-            style={{
-              alignSelf: 'flex-end',
-              maxWidth: BUBBLE.mineMaxWidth,
-              paddingVertical: BUBBLE.paddingVertical,
-              paddingHorizontal: BUBBLE.paddingHorizontal,
-              borderWidth: stroke.default,
-              borderColor: C.brown,
-              borderRadius: BUBBLE.radius,
-              borderBottomRightRadius: BUBBLE.tailRadius,
-              backgroundColor: C.soft,
-            }}
-          >
-            <Txt>{m.text}</Txt>
-            {m.failed ? (
-              <Txt
-                kind="meta"
-                style={{ marginTop: BUBBLE.textMarginTop, textAlign: 'right', color: C.danger }}
-              >
-                {t('islandChat.failed')} ·{' '}
-                <Txt
-                  testID={`chat-retry-${m.id}`}
-                  accessibilityRole="button"
-                  onPress={() => e.dispatch({ type: 'RETRY_MESSAGE', id: m.id })}
-                  style={{ color: C.danger, textDecorationLine: 'underline' }}
-                >
-                  {t('islandChat.resend')}
-                </Txt>
-              </Txt>
-            ) : (
-              <Txt kind="meta" style={{ marginTop: BUBBLE.textMarginTop, textAlign: 'right' }}>
-                {t('islandChat.me')} · {m.time}
-              </Txt>
-            )}
+    <>
+      <IslandSheet
+        sign="island/whole"
+        signKind="island"
+        title={t('islandChat.title')}
+        tall
+        onClose={e.back}
+        scrollRef={scrollRef}
+        footer={
+          <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: BUBBLE.inputGap }}>
+            <TextInput
+              testID="island-message-input"
+              accessibilityLabel={t('islandChat.placeholder')}
+              value={text}
+              onChangeText={e.setText}
+              placeholder={t('islandChat.placeholder')}
+              placeholderTextColor={componentTokens.input.placeholder}
+              multiline
+              style={[k.field, sheetInput, { flex: 1, maxHeight: 120 }]}
+            />
+            <Btn id="island-message-send" small title={t('islandChat.send')} onPress={send} />
           </View>
-        ) : (
-          <View
-            key={m.id}
-            style={{ flexDirection: 'row', alignItems: 'flex-start', gap: BUBBLE.gap }}
-          >
-            <Avatar color={m.color} outfit={m.color ? m.outfit : undefined} size={36} />
-            {/* 꼬리(왼쪽 위 각진 모서리)는 프로필을 향한다(DESIGN §8.5) */}
+        }
+      >
+        {server && chat.loading && !rows.length
+          ? status(t('islandChat.loading'))
+          : server && chat.error && !rows.length
+            ? retryBox(chat.error, 'chat-retry')
+            : !rows.length && !chat.messagesCursor
+              ? status(t('islandChat.empty'))
+              : null}
+        {server && chat.error && rows.length > 0 && retryBox(chat.error, 'chat-refresh-retry')}
+        {/* 최신 페이지가 모두 차단한 사용자의 글이면 rows 는 비어도 커서는 남는다 — 표시 수가 아니라 커서로 버튼을 낸다 */}
+        {server && chat.messagesCursor ? (
+          <Btn
+            id="chat-more"
+            small
+            kind="ghost"
+            title={chat.loadingMore ? t('islandChat.loadingMore') : t('islandChat.more')}
+            onPress={() => chat.loadMoreMessages()}
+          />
+        ) : null}
+        {rows.map((m) =>
+          m.mine ? (
             <View
+              key={m.id}
               style={{
-                flexShrink: 1,
+                alignSelf: 'flex-end',
+                maxWidth: BUBBLE.mineMaxWidth,
                 paddingVertical: BUBBLE.paddingVertical,
                 paddingHorizontal: BUBBLE.paddingHorizontal,
                 borderWidth: stroke.default,
                 borderColor: C.brown,
                 borderRadius: BUBBLE.radius,
-                borderTopLeftRadius: BUBBLE.tailRadius,
-                backgroundColor: C.paper,
+                borderBottomRightRadius: BUBBLE.tailRadius,
+                backgroundColor: C.soft,
               }}
             >
-              <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: BUBBLE.nameGap }}>
-                <Txt style={{ fontWeight: '700' }}>{m.name}</Txt>
-                <Txt kind="meta">{m.time}</Txt>
-              </View>
-              <Txt style={{ marginTop: BUBBLE.textMarginTop }}>{m.text}</Txt>
+              <Txt>{m.text}</Txt>
+              {m.failed ? (
+                <Txt
+                  kind="meta"
+                  style={{ marginTop: BUBBLE.textMarginTop, textAlign: 'right', color: C.danger }}
+                >
+                  {t('islandChat.failed')} ·{' '}
+                  <Txt
+                    testID={`chat-retry-${m.id}`}
+                    accessibilityRole="button"
+                    onPress={() => e.dispatch({ type: 'RETRY_MESSAGE', id: m.id })}
+                    style={{ color: C.danger, textDecorationLine: 'underline' }}
+                  >
+                    {t('islandChat.resend')}
+                  </Txt>
+                </Txt>
+              ) : (
+                <Txt kind="meta" style={{ marginTop: BUBBLE.textMarginTop, textAlign: 'right' }}>
+                  {t('islandChat.me')} · {m.time}
+                </Txt>
+              )}
             </View>
-          </View>
-        ),
-      )}
-    </IslandSheet>
+          ) : (
+            <View
+              key={m.id}
+              style={{ flexDirection: 'row', alignItems: 'flex-start', gap: BUBBLE.gap }}
+            >
+              <Pressable
+                disabled={!server || !m.userId}
+                onPress={() => setSafetyTarget(m)}
+                accessibilityRole="button"
+                accessibilityLabel={t('report.userActions', { name: m.name })}
+                accessibilityState={{ disabled: !server || !m.userId }}
+                style={{
+                  minWidth: semanticTokens.size.tapMin,
+                  minHeight: semanticTokens.size.tapMin,
+                }}
+              >
+                <Avatar color={m.color} outfit={m.color ? m.outfit : undefined} size={36} />
+              </Pressable>
+              {/* 꼬리(왼쪽 위 각진 모서리)는 프로필을 향한다(DESIGN §8.5) */}
+              <View
+                style={{
+                  flexShrink: 1,
+                  paddingVertical: BUBBLE.paddingVertical,
+                  paddingHorizontal: BUBBLE.paddingHorizontal,
+                  borderWidth: stroke.default,
+                  borderColor: C.brown,
+                  borderRadius: BUBBLE.radius,
+                  borderTopLeftRadius: BUBBLE.tailRadius,
+                  backgroundColor: C.paper,
+                }}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: BUBBLE.nameGap }}>
+                  <Txt style={{ fontWeight: '700' }}>{m.name}</Txt>
+                  <Txt kind="meta">{m.time}</Txt>
+                </View>
+                <Txt style={{ marginTop: BUBBLE.textMarginTop }}>{m.text}</Txt>
+              </View>
+            </View>
+          ),
+        )}
+      </IslandSheet>
+      {safetyTarget?.userId ? (
+        <UserSafetySheet
+          visible
+          targetUserId={safetyTarget.userId}
+          targetName={safetyTarget.name}
+          reportTarget={{
+            targetType: 'ISLAND_MESSAGE',
+            targetId: safetyTarget.id,
+            targetUserId: safetyTarget.userId,
+            submittedText: safetyTarget.submittedText,
+            label: safetyTarget.name,
+          }}
+          onClose={() => setSafetyTarget(null)}
+          onMessage={e.notify}
+        />
+      ) : null}
+    </>
   );
 }

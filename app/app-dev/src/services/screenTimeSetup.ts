@@ -2,6 +2,7 @@ import { screenTime, selectionCount, type ScreenTimeSelection } from './screenTi
 
 import { Platform } from 'react-native';
 import { screenTimeNative } from './ScreenTimeModule';
+import { screenTimeMeasurementChanged } from './screenTimeEvents';
 
 export const screenTimeGuideVersion = () =>
   Platform.OS === 'android' && screenTimeNative?.getAndroidFocusAccess ? 2 : 1;
@@ -40,6 +41,7 @@ export async function configureIOSScreenTime({
   ) {
     await activate();
     if (!current()) return false;
+    screenTimeMeasurementChanged();
   }
   if (!measurement || mode === 'measurement') {
     const picked = await screenTime.presentAppPicker();
@@ -49,6 +51,7 @@ export async function configureIOSScreenTime({
       if (!current()) return false;
     }
     onMeasurementSaved?.(picked);
+    screenTimeMeasurementChanged();
     // 한 네이티브 시트의 dismiss가 끝난 다음 다음 시트를 연다.
     await new Promise<void>((resolve) => setTimeout(resolve, 450));
     if (!current()) return false;

@@ -4,6 +4,8 @@ import { t } from '@/i18n';
 import type { ScreenProps } from '@/navigation/ScreenEnvironment';
 import { Route } from '@/services/model';
 import { screenTime, selectionCount } from '@/services/screenTime';
+import { getSession, sessionGeneration } from '@/services/api/session';
+import { screenTimeMeasurementChanged } from '@/services/screenTimeEvents';
 import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Platform } from 'react-native';
 import { Sheet } from '../shared/ScreenSheet';
@@ -49,6 +51,9 @@ function IOSMeasuredAppPicker({ e }: ScreenProps) {
   };
   const openPicker = async () => {
     if (pickerInFlight.current) return;
+    const owner = getSession()?.userId;
+    const generation = sessionGeneration();
+    const current = () => getSession()?.userId === owner && sessionGeneration() === generation;
     pickerInFlight.current = true;
     if (autoTimer.current) {
       clearTimeout(autoTimer.current);
@@ -57,6 +62,7 @@ function IOSMeasuredAppPicker({ e }: ScreenProps) {
     setBusy(true);
     try {
       const picked = await screenTime.presentAppPicker();
+      if (!current()) return;
       if (!picked) {
         finish();
         return;
@@ -64,10 +70,13 @@ function IOSMeasuredAppPicker({ e }: ScreenProps) {
       const count = selectionCount(picked);
       if (picked.appliesImmediately) {
         const activated = await screenTime.promoteSelection();
+        if (!current()) return;
         if (!activated) throw new Error('measurement selection activation failed');
         const unconfirmedDays = await screenTime.getUnconfirmedUsageBucketDays();
+        if (!current()) return;
         e.dispatch({ type: 'SCREEN_TIME_UNCONFIRMED', days: unconfirmedDays });
         const minutes = await screenTime.getTodayUsageBucketMinutes();
+        if (!current()) return;
         e.dispatch({ type: 'SETTING', key: 'screenTimeMeasurementReady', value: true });
         e.dispatch({ type: 'SETTING', key: 'screenTimeHistoryReady', value: true });
         e.dispatch({ type: 'SCREEN_TIME', value: minutes });
@@ -75,6 +84,7 @@ function IOSMeasuredAppPicker({ e }: ScreenProps) {
       } else {
         e.notify(t('settings.permissions.errors.appliedTomorrow', { count }));
       }
+      screenTimeMeasurementChanged();
       finish();
     } catch {
       e.notify(t('settings.permissions.errors.pickerOpen'));

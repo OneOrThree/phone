@@ -29,7 +29,7 @@ public class OpenApiConfig {
     public static final List<String> PUBLIC_PATH_PATTERNS = List.of(
             "/auth/**",
             "/friends/**",
-            "/blocks/**",
+            "/blocks/**", "/reports",
             "/islands/**",
             "/rankings/**",
             "/invitations/**",

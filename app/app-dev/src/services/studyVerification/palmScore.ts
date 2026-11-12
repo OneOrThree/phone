@@ -1,5 +1,5 @@
 /**
- * 손바닥 탐지기(MediaPipe palm_detection_lite) 입출력 도우미.
+ * 손바닥 탐지기(MediaPipe palm_detection_full) 입출력 도우미. 입출력 형식은 Lite와 같다.
  * 순수 함수라 카메라 워클릿 스레드와 JS 양쪽에서 쓴다 — 그래서 전부 'worklet' 표시.
  * 스파이크 단계: 손 있음/없음만 보므로 박스 디코드·NMS 없이 점수 텐서 최대값만 쓴다.
  */

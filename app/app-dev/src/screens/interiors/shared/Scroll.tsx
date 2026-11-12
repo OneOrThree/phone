@@ -10,17 +10,24 @@ export function Scroll({
   children,
   testID,
   onEndReached,
+  scrollEnabled = true,
+  contentContainerStyle,
 }: {
   style: any;
   children: React.ReactNode;
   testID?: string;
   onEndReached?: () => void;
+  // 스크롤을 잠가도 같은 트리를 유지한다 — 감싸는 요소가 바뀌면 안의 TextInput 이 새로 마운트돼 포커스·키보드를 잃는다
+  scrollEnabled?: boolean;
+  contentContainerStyle?: any;
 }) {
   if (Platform.OS !== 'web')
     return (
       <ScrollView
         testID={testID}
         style={style}
+        scrollEnabled={scrollEnabled}
+        contentContainerStyle={contentContainerStyle}
         keyboardShouldPersistTaps="handled"
         scrollEventThrottle={16}
         onScroll={

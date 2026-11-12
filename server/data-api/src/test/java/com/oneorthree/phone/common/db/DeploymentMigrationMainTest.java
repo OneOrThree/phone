@@ -52,7 +52,7 @@ class DeploymentMigrationMainTest {
 
         // 반복 배포·기본데이터 콜백은 V0 체인에 이력 행을 더하지 않는다.
         assertThat(jdbc.queryForList("SELECT version FROM flyway_schema_history", String.class))
-                .containsExactly("0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15");
+                .containsExactly("0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16");
         assertThat(jdbc.queryForObject("SELECT count(*) FROM audio_tracks", Integer.class)).isEqualTo(3);
         assertThat(jdbc.queryForObject("SELECT count(*) FROM customization_reward_items", Integer.class)).isEqualTo(110);
     }
@@ -70,7 +70,7 @@ class DeploymentMigrationMainTest {
                     id, row[1], row[2]);
         }
 
-        assertThat(DeploymentMigrationMain.configuration("current", environment).load().migrate()
+        assertThat(DeploymentMigrationMain.configuration("current", environment).target("15").load().migrate()
                 .migrationsExecuted).isEqualTo(1);
 
         assertThat(jdbc.queryForList("SELECT target_platform FROM developer_notices ORDER BY publication_id",
@@ -111,13 +111,13 @@ class DeploymentMigrationMainTest {
         jdbc.execute(sql);
 
         var current = DeploymentMigrationMain.configuration("current", environment).load();
-        // 브리지가 기록한 V1..6 은 다시 실행하지 않고, 후속 migration(V7, V8, V9, V10, V11, V12, V13, V14, V15)만 이어서 적용한다.
-        assertThat(current.migrate().migrationsExecuted).isEqualTo(9);
+        // 브리지가 기록한 V1..6 은 다시 실행하지 않고, 후속 migration(V7..V16)만 이어서 적용한다.
+        assertThat(current.migrate().migrationsExecuted).isEqualTo(10);
         current.validate();
         assertThat(current.migrate().migrationsExecuted).isZero();
         current.validate();
         assertThat(jdbc.queryForList("SELECT version FROM flyway_schema_history ORDER BY installed_rank", String.class))
-                .containsExactly("0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15");
+                .containsExactly("0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16");
         assertThat(jdbc.queryForObject("SELECT result->>'status' FROM content_publications", String.class))
                 .isEqualTo("PUBLISHED");
     }

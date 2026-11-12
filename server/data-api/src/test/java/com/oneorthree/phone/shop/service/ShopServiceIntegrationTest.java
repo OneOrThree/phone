@@ -521,6 +521,64 @@ class ShopServiceIntegrationTest {
         assertThat(count("SELECT COUNT(*) FROM shop_orders WHERE island_id = ?", f.islandId)).isZero();
     }
 
+    // ---------------------------------------------------------------- 그림 없는 개인 꾸미기 (GROMO-2877)
+
+    @Test
+    @DisplayName("꾸미기 카탈로그에 그림이 없는 개인 꾸미기는 목록에서 빠지고, 상세·구매는 PRODUCT_NOT_FOUND 다 — 섬 테마는 그대로")
+    void personalItemWithoutArtIsNotSold() {
+        Fixture f = island();
+        fund(f.islandId, 100);
+        String drawn = product("neck", "user", null);
+        String bare = productWithoutArt("shoes", "user", null);
+        String theme = product("island_theme", "island", null);
+        publish(entry(drawn, 1, 30, null, null, "personal", 1), entry(bare, 1, 30, null, null, "personal", 2),
+                entry(theme, 1, 50, null, null, "island", 1));
+
+        ShopViews.ProductPage personal = shop.products(f.islandId, f.ownerId, "personal", null, null, null, 30);
+        assertThat(personal.items()).extracting(ShopViews.Item::id).containsExactly(drawn);
+        assertThat(shop.products(f.islandId, f.ownerId, "island", null, null, null, 30).items())
+                .extracting(ShopViews.Item::id).containsExactly(theme);
+        assertThat(shop.product(f.islandId, f.ownerId, drawn).id()).isEqualTo(drawn);
+        assertCode(() -> shop.product(f.islandId, f.ownerId, bare), ShopErrorCode.PRODUCT_NOT_FOUND);
+        assertCode(() -> buy(f, f.ownerId, bare, UUID.randomUUID()), ShopErrorCode.PRODUCT_NOT_FOUND);
+        assertThat(islandBalance(f.islandId)).isEqualTo(100);
+        assertThat(count("SELECT COUNT(*) FROM shop_orders WHERE island_id = ?", f.islandId)).isZero();
+    }
+
+    @Test
+    @DisplayName("이미 산 개인 꾸미기도 그림이 빠지면 상세·새 키 재구매가 STATE_CONFLICT 가 아니라 PRODUCT_NOT_FOUND 다")
+    void ownedItemThatLostItsArtIsNotFound() {
+        Fixture f = island();
+        fund(f.islandId, 100);
+        String scarf = product("neck", "user", null);
+        publish(entry(scarf, 1, 30, null, null, "personal", 1));
+        buy(f, f.ownerId, scarf, UUID.randomUUID());
+        jdbc.update("DELETE FROM customization_asset_meta WHERE product_id = ?", scarf);
+
+        assertCode(() -> shop.product(f.islandId, f.ownerId, scarf), ShopErrorCode.PRODUCT_NOT_FOUND);
+        assertCode(() -> buy(f, f.ownerId, scarf, UUID.randomUUID()), ShopErrorCode.PRODUCT_NOT_FOUND);
+        assertThat(islandBalance(f.islandId)).isEqualTo(70);
+    }
+
+    @Test
+    @DisplayName("그림 없는 상품을 걸러 한 쪽이 limit 보다 짧아도 hasMore·커서는 발행본 항목 기준이라 이어 읽기가 맞다")
+    void filteredPageKeepsTheCursor() {
+        Fixture f = island();
+        String bare = productWithoutArt("shoes", "user", null);
+        String drawn = product("head", "user", null);
+        publish(entry(bare, 1, 5, null, null, "personal", 1), entry(drawn, 1, 5, null, null, "personal", 2));
+
+        ShopViews.ProductPage one = shop.products(f.islandId, f.ownerId, "personal", null, null, null, 1);
+        assertThat(one.items()).isEmpty();
+        assertThat(one.hasMore()).isTrue();
+        assertThat(one.lastProductId()).isEqualTo(bare);
+
+        ShopViews.ProductPage two = shop.products(f.islandId, f.ownerId, "personal", one.publicationVersion(),
+                one.lastDisplayOrder(), one.lastProductId(), 1);
+        assertThat(two.items()).extracting(ShopViews.Item::id).containsExactly(drawn);
+        assertThat(two.hasMore()).isFalse();
+    }
+
     // ---------------------------------------------------------------- 도구
 
     private ShopViews.Order buy(Fixture f, UUID userId, String productId, UUID key) {
@@ -540,8 +598,22 @@ class ShopServiceIntegrationTest {
                 .orElse(1);
     }
 
-    /** 운영이 넣을 모양 그대로 — 자산 정의(제목 = id + "-title"). */
+    /**
+     * 운영이 넣을 모양 그대로 — 자산 정의(제목 = id + "-title"). 개인 꾸미기는 꾸미기 카탈로그 그림(정적 오버레이 행)도
+     * 넣는다 — 그림이 없는 개인 꾸미기는 상점이 팔지 않는다(GROMO-2877, {@link #productWithoutArt}).
+     */
     private String product(String kind, String ownerType, String targetBuilding) {
+        String id = productWithoutArt(kind, ownerType, targetBuilding);
+        if (CatalogAsset.OWNER_USER.equals(ownerType)) {
+            jdbc.update("INSERT INTO customization_asset_meta (product_id, kind, slot, image_path, width, height,"
+                    + " anchor_x, anchor_y, sort_order) VALUES (?, ?, ?, ?, 512, 512, 0.5, 0.5, 0)",
+                    id, kind, kind, "/static/customization/" + kind + "/" + id + ".png");
+        }
+        return id;
+    }
+
+    /** 자산 정의만 — 꾸미기 카탈로그에 그림이 없는 상품(예: 보상 그림 자료가 없는 신발). */
+    private String productWithoutArt(String kind, String ownerType, String targetBuilding) {
         String id = kind + "-" + UUID.randomUUID().toString().substring(0, 8);
         assets.save(CatalogAsset.define(id, id + "-title", kind, ownerType, targetBuilding, Instant.now()));
         return id;

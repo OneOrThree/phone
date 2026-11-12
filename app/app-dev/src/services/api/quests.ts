@@ -13,14 +13,14 @@
  *   재시도는 같은 key·같은 본문으로 보낸다(서버가 원 결과를 재생한다).
  * - 생성 본문은 허용 키만 받는다 — screen 에 `windowStart`/`windowEnd` 를 싣거나 모르는
  *   키를 넣으면 400 이다. `timezone` 은 생략(=UTC) 또는 "UTC" 만 받는다.
- *   ⚠️ 서버 `HH:mm` 은 `LocalTime` 엄격 파싱이라 `24:00` 을 받지 못한다 — 24:00 KST 는 15:00 UTC 라
- *   보통 문제없고, 변환 결과가 24:00 이 되는 드문 경우만 방어적으로 23:59 로 내린다.
+ *   ⚠️ 종료 24:00 KST 는 변환 전에 23:59 로 내려 14:59 UTC 로 보낸다(GROMO-2886). 15:00 UTC 로 보내면
+ *   운영 DB 가 창을 KST 로 밀어 00:00 으로 저장해 `window_start < window_end` CHECK 에 걸린다.
  * - 수정(PATCH)은 `title`/`targetMinutes` 만 받는다 — type·창·expectedVersion 을 섞으면 400.
  * - claim 본문은 정확히 `{occurrenceId, expectedVersion}` 두 키다 — 사용자 ID·claimable·
  *   지급량은 서버가 판정하므로 보내지 않는다.
  */
 import { request } from './client';
-import { kstClockToUtc, utcWindowToKst } from '@/utils/questWindowTz';
+import { capKstWindowEnd, kstClockToUtc, utcWindowToKst } from '@/utils/questWindowTz';
 
 /** 회차 헤더 — current 목록의 항목. 수령 축은 요청한 주민이다(GROMO-1991). */
 export type QuestItem = {
@@ -122,11 +122,9 @@ export function createQuest(
   // 호출부는 KST 벽시계를 넘긴다 — 여기서 UTC 로 바꿔 서버 계약(UTC)에 맞춘다.
   const converted: QuestCreateBody = { ...body };
   if (body.windowStart != null) converted.windowStart = kstClockToUtc(body.windowStart);
-  if (body.windowEnd != null) {
-    const utcEnd = kstClockToUtc(body.windowEnd);
-    // 서버 LocalTime 은 24:00 을 못 받는다 — 변환 결과가 24:00 인 드문 경우만 23:59 로 내린다(방어).
-    converted.windowEnd = utcEnd === '24:00' ? '23:59' : utcEnd;
-  }
+  // 종료 24:00 KST 는 23:59 로 내린 뒤 바꾼다 — 15:00 UTC 는 운영 DB CHECK 에 걸린다(GROMO-2886).
+  // kstClockToUtc 결과는 늘 [00:00, 24:00) 이라 UTC 쪽에서 24:00 이 나오지 않는다.
+  if (body.windowEnd != null) converted.windowEnd = kstClockToUtc(capKstWindowEnd(body.windowEnd));
   return request<QuestCreated>(`/islands/${enc(islandId)}/quests`, {
     method: 'POST',
     body: converted,

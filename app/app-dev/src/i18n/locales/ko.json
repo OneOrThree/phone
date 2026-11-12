@@ -114,7 +114,7 @@
     "reduceMotion": "동작 줄이기",
     "reduceMotionSub": "이동·전환 애니메이션을 줄여요",
     "permissionSection": "권한",
-    "permissionManage": "앱 권한 관리",
+    "permissionManage": "폰 사용·앱 차단",
     "permissionManageSub": "스크린타임 권한 · 측정 앱",
     "permissions": {
       "gate": {
@@ -153,9 +153,8 @@
         "allowedApps": "집중 중 허용 앱"
       },
       "screenTime": {
-        "title": "스크린타임",
-        "connect": "스크린타임 연결",
-        "sub": "{{description}} · 선택한 앱의 사용 시간을 기록해요. 앱 차단 설정과는 별개예요."
+        "title": "폰 사용 기록",
+        "connect": "스크린타임 연결"
       },
       "focusBlockingIntro": {
         "title": "집중 중 앱 차단",
@@ -166,11 +165,11 @@
       "measuredApps": {
         "title": "측정 앱",
         "a11y": "측정 앱, {{description}}",
-        "pick": "측정 앱 고르기"
+        "pick": "측정 앱 고르기",
+        "reporting": "측정 앱을 저장하면 사용 시간과 측정 상태를 서버에 보내 통계·퀘스트에 사용해요."
       },
-      "disconnectNote": "연결을 끄면 폰 사용 퀘스트 달성률은 “확인 필요”로 표시돼요.",
       "allowed": {
-        "section": "집중 중 허용",
+        "section": "집중 중 앱 차단",
         "title": "허용 앱",
         "count": "{{count}}개 선택됨"
       },
@@ -191,17 +190,10 @@
         }
       },
       "notifications": {
-        "title": "알림 권한",
-        "granted": "허용됨",
-        "denied": "꺼짐",
-        "undetermined": "아직 묻지 않았어요",
         "error": "확인하지 못했어요",
-        "a11y": "알림 권한, {{description}}",
         "hint": {
           "ask": "누르면 알림 권한을 물어요",
-          "openSettings": "누르면 설정 앱이 열려요",
-          "enable": "누르면 알림을 켜요",
-          "recheck": "누르면 권한을 다시 확인해요"
+          "openSettings": "누르면 설정 앱이 열려요"
         }
       },
       "help": {
@@ -233,7 +225,7 @@
         "loadFailed": "설치된 앱 목록을 불러오지 못했어요.",
         "loading": "앱 목록을 불러오는 중이에요.",
         "descAllowed": "선택한 앱은 집중 중에도 사용할 수 있어요. 선택하지 않으면 추가 허용 앱이 없어요.",
-        "descMeasured": "사용 시간을 기록할 앱을 골라 주세요. 앱 차단 설정과는 별개예요. 최초 선택은 바로, 변경은 다음 날 한국 시각 자정부터 적용해요.",
+        "descMeasured": "사용 시간을 기록할 앱을 골라 주세요. 저장하면 사용 시간과 측정 상태를 서버에 보내 통계·퀘스트에 사용해요. 최초 선택은 바로, 변경은 다음 날 한국 시각 자정부터 적용해요.",
         "allApps": "전체 앱 측정",
         "search": "앱 검색",
         "select": "{{label}} 선택",
@@ -244,8 +236,6 @@
         "back": "돌아가기"
       }
     },
-    "safetySection": "안전",
-    "blockedUsersSub": "차단 목록을 확인하고 해제해요",
     "helpSection": "도움말",
     "replayTutorial": "튜토리얼 다시보기",
     "replayTutorialSub": "몽돌 안내를 처음부터 다시 봐요",
@@ -265,11 +255,10 @@
       "body": "문의 종류 (오류 / 제안):\n\n내용:\n\n캡처가 있다면 이 메일에 첨부해 주세요.\n\n앱 버전: {{version}}\n기기: {{os}}",
       "openFailed": "카카오톡을 열지 못했어요. 잠시 뒤 다시 시도하거나, 아래 주소로 직접 메일을 보내 주세요.\n\n{{email}}"
     },
-    "generalSection": "기본 설정",
-    "privacySection": "개인정보",
-    "usageSharing": "사용 시간 공유",
-    "usageSharingSub": "사용 시간만 공유해 통계·퀘스트에 사용해요",
-    "usageSharingError": "사용 시간을 공유하지 못했어요. 다시 시도할게요."
+    "generalSection": "기본",
+    "newsHelpSection": "소식·도움",
+    "termsAccountSection": "약관·계정",
+    "usageSyncError": "사용 시간을 전송하지 못했어요. 다시 시도할게요."
   },
   "login": {
     "continue": {
@@ -333,8 +322,8 @@
       "saved": "저장했어요.",
       "nickname": "닉네임",
       "nicknamePlaceholder": "닉네임을 입력해 주세요",
-      "linkedAccount": "연동 계정",
-      "accountSummary": "{{name}}님의 계정 · {{providers}}",
+      "signedInWith": "{{providers}} 로그인",
+      "mainIsland": "메인 섬",
       "noLinkedAccount": "연결된 계정 없음",
       "providers": {
         "google": "Google",
@@ -632,6 +621,16 @@
       "head": "머리",
       "neck": "목",
       "shoes": "신발"
+    }
+  },
+  "shop": {
+    "tab": {
+      "personal": "내 꾸미기",
+      "island": "우리 섬 꾸미기"
+    },
+    "ordersTab": {
+      "personal": "내 구매",
+      "shared": "섬 공동 구매"
     }
   },
   "emptyState": {
@@ -1354,9 +1353,7 @@
     "back": "뒤로"
   },
   "developerNotices": {
-    "title": "개발자 공지",
-    "section": "소식",
-    "subtitle": "서비스 소식과 업데이트",
+    "title": "공지사항",
     "loading": "공지를 불러오는 중…",
     "empty": "게시된 공지가 없어요.",
     "failed": "공지를 불러오지 못했어요. 다시 시도해 주세요.",
@@ -1559,7 +1556,7 @@
     "title": "폰 사용 기록과\n집중 중 앱 차단",
     "subtitle": "스크린타임 권한 한 번으로 설정해요.",
     "measurementTitle": "측정할 앱 고르기",
-    "measurementBody": "고른 앱의 사용 시간을 기록해요.",
+    "measurementBody": "고른 앱의 사용 시간과 측정 상태를 서버에 보내 통계·퀘스트에 사용해요.",
     "allowedTitle": "집중 중 허용할 앱 고르기",
     "allowedBody": "집중할 때 꼭 필요한 앱만 골라요.\n나머지 앱은 집중 중 차단돼요.",
     "setup": "설정하기",
@@ -1702,6 +1699,7 @@
       "waitForConstruction": "다른 공사가 끝난 뒤에 지을 수 있어요",
       "constructionUnavailable": "지금은 건설할 수 없어요",
       "chooseWoodenBuilding": "목각 건물 고르기",
+      "buildingLabel": "건물 고르기",
       "sharedLedger": "공동 가계부",
       "residentsOnly": "섬 주민만 볼 수 있어요",
       "ledgerResidentsOnly": "공동 가계부는 주민에게만 공개돼요",
@@ -2091,7 +2089,7 @@
       "goalFailed": "건설 목표를 불러오지 못했어요.",
       "goalLoading": "건설 목표를 불러오고 있어요.",
       "allComplete": "모든 건물을 완공했어요.",
-      "chooseNext": "마을회관에서 다음 건물을 골라 주세요.",
+      "chooseNext": "마을회관에서 다음 건물을 골라요.",
       "buildingPreview": "{{v0}} 건물 미리보기",
       "price": "가격",
       "time": "시간",
@@ -2132,7 +2130,7 @@
       "questDetails": "퀘스트 상세",
       "hour": "{{v0}} 시",
       "minute": "{{v0}} 분",
-      "focusWithinSchedule": "정한 시간 안에 집중",
+      "focusWithinSchedule": "정한 시간에 집중",
       "dailyUsageCap": "하루 사용량 상한",
       "scheduledGoal": "{{v0}}–{{v1}} · {{v2}}분 집중",
       "focusMinutes": "{{v0}}분 집중",
@@ -2325,5 +2323,29 @@
     "start": "건설 시작",
     "close": "청사진 닫기",
     "priceChanged": "건설비가 바뀌었어요. 금액을 확인한 뒤 다시 시도해 주세요."
+  },
+  "report": {
+    "title": "신고하기",
+    "received": "신고를 접수했어요",
+    "receivedBody": "운영팀이 내용을 확인할게요. 신고만으로 상대가 자동 차단되지는 않아요.",
+    "receipt": "접수 번호: {{id}}",
+    "privacy": "신고 대상과 작성한 내용은 안전한 서비스 운영을 위해 운영팀에 전달돼요. 비밀번호나 인증번호는 적지 마세요.",
+    "reason": "신고 사유",
+    "details": "상황 설명",
+    "placeholder": "누구의 어떤 내용인지, 어디에서 있었던 일인지 알려주세요.",
+    "submit": "신고 접수하기",
+    "centerSub": "신고 내용을 작성해 운영팀에 보내기",
+    "deletedMessage": "삭제된 메시지예요.",
+    "userActions": "{{name}}님 신고·차단",
+    "reasons": {
+      "HARASSMENT": "괴롭힘·욕설",
+      "HATE": "혐오·차별",
+      "SPAM_FRAUD": "스팸·사기",
+      "SEXUAL": "성적인 내용",
+      "CHILD_SAFETY": "아동·청소년 안전",
+      "THREAT": "위협·폭력",
+      "PRIVACY_IMPERSONATION": "개인정보 침해·사칭",
+      "OTHER": "기타"
+    }
   }
 }

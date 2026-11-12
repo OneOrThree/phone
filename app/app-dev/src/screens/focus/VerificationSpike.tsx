@@ -18,7 +18,7 @@ import { type VerificationCameraPosition } from '@/services/studyVerification/ty
 import { loadTensorflowModel } from 'react-native-fast-tflite';
 import {
   OBJECT_INPUT,
-  objectScoreIndex,
+  studyObjectModelReady,
   studyObjectScores,
 } from '@/services/studyVerification/studyObjects';
 import { PALM_INPUT, maxSigmoid, scoreTensorIndex } from '@/services/studyVerification/palmScore';
@@ -29,7 +29,7 @@ export { VerificationSession as VerificationSpike } from './VerificationSession'
 export async function probeModel(): Promise<void> {
   const t0 = Date.now();
   try {
-    const m = await loadTensorflowModel(require('../../assets/ml/palm_detection_lite.tflite'), []);
+    const m = await loadTensorflowModel(require('../../assets/ml/palm_detection_full.tflite'), []);
     console.log('[verify-spike] model loaded', Date.now() - t0, 'ms', {
       inputs: m.inputs.map((x) => `${x.name} ${x.dataType} [${x.shape.join(',')}]`),
       outputs: m.outputs.map((x) => `${x.name} ${x.dataType} [${x.shape.join(',')}]`),
@@ -50,18 +50,18 @@ export async function probeModel(): Promise<void> {
   if (!__DEV__) return;
   try {
     const objectModel = await loadTensorflowModel(
-      require('../../assets/ml/efficientdet_lite0_int8.tflite'),
+      require('../../assets/ml/efficientdet_lite0_float16_study.tflite'),
       [],
     );
-    const index = objectScoreIndex(objectModel.inputs, objectModel.outputs);
-    if (index < 0) throw new Error('Unexpected object model tensor layout');
+    if (!studyObjectModelReady(objectModel.inputs, objectModel.outputs))
+      throw new Error('Unexpected object model tensor layout');
     const started = Date.now();
     const output = await objectModel.run([new Uint8Array(OBJECT_INPUT * OBJECT_INPUT * 3).buffer]);
     console.log(
       '[verify-spike] object model ready',
       JSON.stringify({
         elapsedMs: Date.now() - started,
-        blankFrameScores: studyObjectScores(new Float32Array(output[index]!)),
+        blankFrameScores: studyObjectScores(output),
       }),
     );
   } catch (error) {

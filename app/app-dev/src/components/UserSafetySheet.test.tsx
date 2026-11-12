@@ -119,10 +119,10 @@ afterEach(() => {
   applyLocalePref('system');
 });
 
-test('사용자 메뉴는 신고 없이 차단·추가 동작을 제공한다', async () => {
+test('사용자 메뉴는 신고·차단·추가 동작을 제공한다', async () => {
   const callbacks = props({ extraAction: { title: '친구 삭제', onPress: jest.fn() } });
   const ui = await render(<UserSafetySheet {...callbacks} />);
-  assert.equal(ui.queryByText('신고하기'), null);
+  assert.ok(ui.getByText('신고하기'));
   assert.ok(ui.getByText('차단하기'));
   await fireEvent.press(ui.getByText('친구 삭제'));
   assert.equal(callbacks.onClose.mock.calls.length, 1);
@@ -155,7 +155,7 @@ test('차단 실패를 안내하고 재시도할 수 있다', async () => {
 test('영어에서도 차단 메뉴와 확인을 번역한다', async () => {
   applyLocalePref('en');
   const ui = await render(<UserSafetySheet {...props({ targetName: 'Alex' })} />);
-  assert.equal(ui.queryByText('Report'), null);
+  assert.ok(ui.getByText('Report'));
   await fireEvent.press(ui.getByText('Block user'));
   assert.ok(ui.getByText('Block'));
   assert.equal(ui.queryByText(/[가-힣]/), null);

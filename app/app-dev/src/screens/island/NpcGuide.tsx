@@ -185,7 +185,7 @@ export function useSpotlightTarget(active = false) {
   return { ref, rect, measure };
 }
 
-/** 실제 조작 대상을 비워 두고 나머지 화면만 블러·딤 처리한다. */
+/** 실제 조작 대상만 열어 둔다. 장면 설명은 배경을 가리지 않고 안내한다. */
 export function TutorialSpotlight({
   target,
   text,
@@ -194,6 +194,7 @@ export function TutorialSpotlight({
   accessibleInput,
   error,
   radius,
+  backdrop = 'blur',
 }: {
   target?: SpotlightRect | null;
   text: string;
@@ -204,6 +205,8 @@ export function TutorialSpotlight({
   error?: string;
   /** 원형·둥근 버튼용 구멍 모서리 반경. 구멍 반(半)너비·반높이로 클램프된다. */
   radius?: number;
+  /** 장면·결과 설명은 블러·딤 없이 보여 주되, 안내 밖의 조작 제한은 유지한다. */
+  backdrop?: 'blur' | 'none';
 }) {
   const layout = useAppLayout();
   const blurTarget = useContext(BlurTargetContext);
@@ -301,23 +304,35 @@ export function TutorialSpotlight({
       onAccessibilityEscape={skip}
       style={[StyleSheet.absoluteFill, styles.spotlight]}
     >
-      {panes.map((pane, index) => (
-        <BlurView
-          key={index}
-          intensity={35}
-          tint="dark"
-          blurMethod="dimezisBlurView"
-          blurTarget={blurTarget}
-          accessible={false}
-          accessibilityElementsHidden
-          importantForAccessibility="no-hide-descendants"
-          onStartShouldSetResponder={() => true}
-          style={[styles.blurPane, pane]}
-        >
-          <View style={styles.dim} />
-        </BlurView>
-      ))}
-      {target && holeRadius > 0 && (
+      {panes.map((pane, index) =>
+        backdrop === 'none' ? (
+          <View
+            key={index}
+            collapsable={false}
+            accessible={false}
+            accessibilityElementsHidden
+            importantForAccessibility="no-hide-descendants"
+            onStartShouldSetResponder={() => true}
+            style={[styles.blurPane, pane]}
+          />
+        ) : (
+          <BlurView
+            key={index}
+            intensity={35}
+            tint="dark"
+            blurMethod="dimezisBlurView"
+            blurTarget={blurTarget}
+            accessible={false}
+            accessibilityElementsHidden
+            importantForAccessibility="no-hide-descendants"
+            onStartShouldSetResponder={() => true}
+            style={[styles.blurPane, pane]}
+          >
+            <View style={styles.dim} />
+          </BlurView>
+        ),
+      )}
+      {backdrop === 'blur' && target && holeRadius > 0 && (
         <Svg
           testID="spotlight-hole-mask"
           pointerEvents="none"

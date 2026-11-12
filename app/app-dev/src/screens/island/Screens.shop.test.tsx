@@ -6,6 +6,7 @@ import type { Route } from '@/services/model';
  */
 import { RedesignScreens } from '@/screens/island/Screens';
 import { ApiError } from '@/services/api/client';
+import type { CatalogEntry } from '@/services/customizationCatalog';
 import { initialState, reducer } from '@/services/model';
 import { act, fireEvent, render } from '@testing-library/react-native';
 import assert from 'node:assert/strict';
@@ -30,6 +31,13 @@ jest.mock('react-native-safe-area-context', () => ({
 let mockShopApi: any;
 jest.mock('@/screens/island/useShop', () => ({
   useShop: () => mockShopApi,
+}));
+
+// 상점 카드의 꾸미기 그림(GROMO-2873) — 서버 꾸미기 카탈로그 표만 바꿔 끼운다
+let mockCatalog: Record<string, CatalogEntry> = {};
+jest.mock('@/services/customizationCatalog', () => ({
+  ...jest.requireActual('@/services/customizationCatalog'),
+  useCustomizationCatalog: () => mockCatalog,
 }));
 
 const baseShopApi = () => ({
@@ -155,7 +163,188 @@ function Harness({ route, detail, notify }: { route: Route; detail?: string; not
 
 beforeEach(() => {
   mockShopApi = baseShopApi();
+  mockCatalog = {};
 });
+
+// 서버 상점 목록의 꾸미기 한 칸(kind 는 서버 값 neck → 카드에선 「내 꾸미기」)
+const bellItem = {
+  id: 'cust.neck.bell',
+  title: '버터 방울 목걸이',
+  kind: 'neck',
+  price: 30,
+  currency: 'village_points',
+  ownerType: 'user',
+  owned: false,
+  available: true,
+  reason: null,
+  productVersion: 1,
+};
+const bellEntry: CatalogEntry = {
+  productId: 'cust.neck.bell',
+  kind: 'neck',
+  slot: 'neck',
+  title: '버터 방울 목걸이',
+  imageUrl: 'https://api.test/static/customization/neck/bell.c1750340.png',
+  width: 512,
+  height: 512,
+  anchorX: 0.5,
+  anchorY: 0.5,
+  sortOrder: 10,
+  retiredAt: null,
+};
+
+test('상점 꾸미기 카드는 꾸미기 카탈로그에 있는 상품이면 그 상품 그림을 그린다(GROMO-2873)', async () => {
+  mockShopApi = { ...baseShopApi(), items: [bellItem] };
+  mockCatalog = { 'cust.neck.bell': bellEntry };
+  const screen = await render(<Harness route="shop" notify={jest.fn()} />);
+  const art = screen.getByTestId('shop-art-cust.neck.bell');
+  assert.deepEqual(art.props.source, { uri: bellEntry.imageUrl });
+});
+
+test('꾸미기 카탈로그에 없는 상품(불러오는 중·실패)은 상품 그림 없이 기본 그림으로 칸을 그린다(GROMO-2873)', async () => {
+  mockShopApi = { ...baseShopApi(), items: [bellItem] };
+  const screen = await render(<Harness route="shop" notify={jest.fn()} />);
+  assert.equal(screen.queryByTestId('shop-art-cust.neck.bell'), null);
+  assert.ok(screen.getByText('30마리'));
+});
+
+test('칸이 좁으면 꾸미기 그림은 칸 폭의 92% 를 넘지 않는다 — compact 한 줄 4칸에서 가로로 잘리지 않게(GROMO-2873)', async () => {
+  mockShopApi = { ...baseShopApi(), items: [bellItem] };
+  mockCatalog = { 'cust.neck.bell': bellEntry };
+  const screen = await render(<Harness route="shop" notify={jest.fn()} />);
+  const size = () => StyleSheet.flatten(screen.getByTestId('shop-art-cust.neck.bell').props.style);
+  // 폭을 재기 전에는 칸 높이 112 의 0.86 배
+  assert.equal(size().width, 96);
+  await fireEvent(screen.getByTestId('shop-art-box-cust.neck.bell'), 'layout', {
+    nativeEvent: { layout: { x: 0, y: 0, width: 60, height: 112 } },
+  });
+  assert.equal(size().width, 55);
+  assert.equal(size().height, 55);
+});
+
+test('섬·건물 테마 카드는 꾸미기 카탈로그와 상관없이 종류별 그림만 그린다(GROMO-2873)', async () => {
+  const theme = (id: string, kind: string, targetBuilding?: string) => ({
+    ...bellItem,
+    id,
+    title: id,
+    kind,
+    price: 300,
+    ownerType: 'island',
+    ...(targetBuilding ? { targetBuilding } : {}),
+  });
+  mockShopApi = {
+    ...baseShopApi(),
+    itemsCategory: 'island',
+    items: [
+      theme('soda-theme', 'island_theme'),
+      theme('strawberry-roof', 'building_theme', 'hall'),
+    ],
+  };
+  // 같은 id 가 카탈로그 표에 있어도 테마 카드는 상품 그림을 쓰지 않는다
+  mockCatalog = {
+    'soda-theme': { ...bellEntry, productId: 'soda-theme' },
+    'strawberry-roof': { ...bellEntry, productId: 'strawberry-roof' },
+  };
+  const screen = await render(<Harness route="shop" notify={jest.fn()} />);
+  assert.equal(screen.queryByTestId('shop-art-soda-theme'), null);
+  assert.equal(screen.queryByTestId('shop-art-strawberry-roof'), null);
+  assert.equal(screen.getAllByText('300마리').length, 2);
+});
+
+test('집중 보상 머리·목(catFit)은 대표 영역만 잘라 칸 높이 안에 그린다(GROMO-2873)', async () => {
+  mockShopApi = { ...baseShopApi(), items: [bellItem] };
+  mockCatalog = {
+    'cust.neck.bell': {
+      ...bellEntry,
+      catFit: {
+        width: 1254,
+        height: 1254,
+        crop: [406, 406, 839, 913],
+        colors: ['black'],
+        motions: { walk: 6, focus: 4, reel: 4 },
+        stills: [],
+        rigUrls: { black: 'https://api.test/static/customization/rigs/neck.22a4cc24.json' },
+        neck: {
+          style: 'pendant',
+          front: [406, 406, 839, 913],
+          commonBand: {
+            url: 'https://api.test/static/customization/neck/common-band.1acc2be4.png',
+            box: [82, 392, 1693, 493],
+          },
+        },
+      },
+    },
+  };
+  const screen = await render(<Harness route="shop" notify={jest.fn()} />);
+  const crop = StyleSheet.flatten(screen.getByTestId('shop-art-cust.neck.bell').props.style);
+  assert.ok(crop.height <= 96 && crop.width <= 96, `잘린 그림 ${crop.width}×${crop.height}`);
+  assert.ok(crop.height > 90, '세로가 긴 목걸이는 높이 기준값에 맞춘다');
+});
+// 그림 없는 신발(GROMO-2878) — 서버 꾸미기 카탈로그에는 신발 그림 자료가 없다
+const bareShoes = {
+  ...bellItem,
+  id: 'cust.shoes.test-only',
+  title: '시험용 덧신',
+  kind: 'shoes',
+  price: 25,
+};
+
+test('꾸미기 카탈로그를 받은 뒤에는 표에 없는 개인 꾸미기 카드를 목록에서 뺀다(GROMO-2878)', async () => {
+  mockShopApi = { ...baseShopApi(), items: [bellItem, bareShoes] };
+  mockCatalog = { 'cust.neck.bell': bellEntry };
+  const screen = await render(<Harness route="shop" notify={jest.fn()} />);
+  assert.ok(screen.getByTestId('shop-art-cust.neck.bell'));
+  assert.equal(screen.queryByText('25마리'), null);
+  assert.equal(screen.queryByTestId('shop-empty'), null);
+});
+
+test('카탈로그를 아직 못 받았거나 실패해 표가 비었으면 거르지 않고 기본 그림으로 보인다(GROMO-2878)', async () => {
+  mockShopApi = { ...baseShopApi(), items: [bellItem, bareShoes] };
+  const screen = await render(<Harness route="shop" notify={jest.fn()} />);
+  assert.ok(screen.getByText('30마리'));
+  assert.ok(screen.getByText('25마리'));
+  assert.equal(screen.queryByTestId('shop-art-cust.shoes.test-only'), null);
+});
+
+test('개인 꾸미기가 모두 걸러지면 빈 상태 한 줄을 보인다(GROMO-2878)', async () => {
+  mockShopApi = { ...baseShopApi(), items: [bareShoes] };
+  mockCatalog = { 'cust.neck.bell': bellEntry };
+  const screen = await render(<Harness route="shop" notify={jest.fn()} />);
+  assert.ok(screen.getByTestId('shop-empty'));
+});
+
+test('섬·건물 테마 카드는 카탈로그에 없어도 거르지 않는다(GROMO-2878)', async () => {
+  const theme = (id: string, kind: string) => ({
+    ...bellItem,
+    id,
+    title: id,
+    kind,
+    price: 300,
+    ownerType: 'island',
+  });
+  mockShopApi = {
+    ...baseShopApi(),
+    itemsCategory: 'island',
+    items: [theme('soda-theme', 'island_theme'), theme('strawberry-roof', 'building_theme')],
+  };
+  mockCatalog = { 'cust.neck.bell': bellEntry };
+  const screen = await render(<Harness route="shop" notify={jest.fn()} />);
+  assert.equal(screen.getAllByText('300마리').length, 2);
+});
+
+test('상점·구매 내역 탭은 번역한 이름을 보인다 — 키 문자열이 화면에 나오지 않는다(GROMO-2878)', async () => {
+  const shop = await render(<Harness route="shop" notify={jest.fn()} />);
+  assert.ok(shop.getByText('내 꾸미기'));
+  assert.ok(shop.getByText('우리 섬 꾸미기'));
+  assert.equal(shop.queryByText('shop.tab.personal'), null);
+  await shop.unmount();
+
+  const orders = await render(<Harness route="orders" notify={jest.fn()} />);
+  assert.ok(orders.getByText('내 구매'));
+  assert.ok(orders.getByText('섬 공동 구매'));
+  assert.equal(orders.queryByText('shop.ordersTab.personal'), null);
+});
+
 test('서버 불통(CLIENT_NETWORK_ERROR) 구매 실패는 사용자에게 실패 문구를 보여준다', async () => {
   mockShopApi.buy = jest.fn(() =>
     Promise.reject(
