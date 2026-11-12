@@ -811,7 +811,6 @@ export const componentTokens = {
     raftAnchorX: 0.48,
     raftAnchorY: 0.67,
     catFootY: 464 / 512,
-    wakeWidth: 1.5,
     abandon: {
       duration: 3000,
       maxZoom: 2.2,

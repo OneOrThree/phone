@@ -159,7 +159,6 @@ export function voyageTable(totalSec: number) {
       y: empty(),
       len: empty(),
     })),
-    ring: Array.from({ length: 3 }, () => ({ o: empty(), sx: empty(), sy: empty() })),
   };
   for (const u of VOYAGE_INPUT) {
     const sec = u * LAB_END,
@@ -181,12 +180,6 @@ export function voyageTable(totalSec: number) {
       w.x.push(-(230 + WAKE_STERN_SHIFT + age * 145 * strength));
       w.y.push(62 + (i % 3) * 25 + age * 12); // LAB y 503+… − 선체 기준 441
       w.len.push(32 + age * 190 * strength);
-    });
-    tr.ring.forEach((r, i) => {
-      const a = mod1(sec / 4 + i / 3);
-      r.o.push(Math.sin(Math.PI * a) * 0.18);
-      r.sx.push((250 + a * 90) / 340);
-      r.sy.push((36 + a * 15) / 51);
     });
   }
   return tr;
@@ -328,10 +321,6 @@ export function Sailing({
           { scaleX: at(w.len.map((v) => v / 222)) },
         ],
       })),
-      ring: VOYAGE.ring.map((r) => ({
-        opacity: at(r.o),
-        transform: [{ scaleX: at(r.sx) }, { scaleY: at(r.sy) }],
-      })),
     };
   }, [x, reduced, k, parkX, sc, cs, duration]);
   return (
@@ -444,29 +433,7 @@ export function Sailing({
           transform: [{ translateX: motion ? motion.x : parkX }],
         }}
       >
-        {/* 항적·수면 고리는 선체 흔들림을 따르지 않고 뗏목 위치만 따른다(LAB wake) */}
-        {motion?.ring.map((r, i) => (
-          <Animated.View
-            key={`ring${i}`}
-            style={[
-              {
-                position: 'absolute',
-                left: 512 * sc - 341 * k,
-                top: 640 * sc + 104 * k - 52 * k,
-              },
-              r,
-            ]}
-          >
-            <Svg width={682 * k} height={104 * k}>
-              <Path
-                d={`M${681 * k} ${52 * k}A${340 * k} ${51 * k} 0 0 1 ${k} ${52 * k}`}
-                fill="none"
-                stroke={componentTokens.sailing.ripple}
-                strokeWidth={1.5 * k}
-              />
-            </Svg>
-          </Animated.View>
-        ))}
+        {/* 항적은 선체 흔들림을 따르지 않고 뗏목 위치만 따른다(LAB wake) */}
         {motion?.wake.map((w, i) => (
           <Animated.View
             key={`wake${i}`}

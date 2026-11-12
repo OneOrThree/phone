@@ -83,11 +83,49 @@ export function harborPose(frame: ReturnType<typeof harborFrame>, progress: numb
     shadowY: footY,
     shadowOpacity: 0.18 - Math.sin(hop * Math.PI) * 0.12,
     shadowScale: 1 - Math.sin(hop * Math.PI) * 0.4,
-    wakeOpacity: 0.25 + sail * 0.5,
   };
 }
 
 export const HARBOR_STEPS = Array.from({ length: 161 }, (_, i) => i / 160);
+
+/** 뗏목을 원점으로 삼아 점프 중인 고양이까지 담는 컨테이너의 실제 크기를 구한다. */
+export function harborPassengerBounds(
+  frame: ReturnType<typeof harborFrame>,
+  samples: ReturnType<typeof harborScenePose>[],
+) {
+  const { raftSize, catSize } = frame;
+  const bounds = { left: Infinity, top: Infinity, right: -Infinity, bottom: -Infinity };
+  const include = (left: number, top: number, right: number, bottom: number) => {
+    bounds.left = Math.min(bounds.left, left);
+    bounds.top = Math.min(bounds.top, top);
+    bounds.right = Math.max(bounds.right, right);
+    bounds.bottom = Math.max(bounds.bottom, bottom);
+  };
+  for (const pose of samples) {
+    // 회전한 이미지의 투명 여백까지 부모 안에 둔다.
+    const angle = (pose.raftRoll * Math.PI) / 180;
+    const radius = (raftSize * (Math.abs(Math.cos(angle)) + Math.abs(Math.sin(angle)))) / 2;
+    const centerX = raftSize * (0.5 - D.raftAnchorX);
+    const centerY = raftSize * (0.5 - D.raftAnchorY);
+    include(centerX - radius, centerY - radius, centerX + radius, centerY + radius);
+    const catX = pose.catX - pose.raftX;
+    const catY = pose.catY - pose.raftY + catSize * (0.5 - D.catFootY);
+    include(
+      catX - (catSize * pose.catScaleX) / 2,
+      catY - (catSize * pose.catScaleY) / 2,
+      catX + (catSize * pose.catScaleX) / 2,
+      catY + (catSize * pose.catScaleY) / 2,
+    );
+    const shadowY = pose.shadowY - pose.raftY;
+    include(
+      catX - catSize * 0.25 * pose.shadowScale,
+      shadowY - catSize * 0.035 * pose.shadowScale,
+      catX + catSize * 0.25 * pose.shadowScale,
+      shadowY + catSize * 0.085 * pose.shadowScale,
+    );
+  }
+  return { ...bounds, width: bounds.right - bounds.left, height: bounds.bottom - bounds.top };
+}
 
 export const harborDuration = (kind: HarborDirection) =>
   kind === 'abandon'
@@ -121,7 +159,6 @@ export function harborScenePose(
       shadowY: raftY,
       shadowOpacity: 0.18,
       shadowScale: 1,
-      wakeOpacity: mix(0.6, 0.06, stopped),
       catScaleX: 1 + 0.015 * Math.sin(time * Math.PI * 4),
       catScaleY: 1 - 0.015 * Math.sin(time * Math.PI * 4),
     };

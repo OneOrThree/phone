@@ -57,41 +57,45 @@ afterEach(() => {
   jest.useRealTimers();
 });
 
-test('스포트라이트는 배경 접근성을 숨기고 허용된 동작만 같은 핸들러로 실행한다', async () => {
-  jest.spyOn(AccessibilityInfo, 'isScreenReaderEnabled').mockResolvedValue(true);
-  const allowed = jest.fn(),
-    outside = jest.fn(),
-    skip = jest.fn();
-  const screen = await render(
-    <TutorialScene
-      onSkip={skip}
-      overlay={
-        <TutorialSpotlight
-          target={{ x: 20, y: 600, width: 100, height: 48 }}
-          text="버튼 안내"
-          action={{ title: '허용된 동작', onPress: allowed }}
-        />
-      }
-    >
-      <Pressable accessibilityRole="button" onPress={outside}>
+test.each(['blur', 'none'] as const)(
+  '배경 효과 %s에서도 안내 밖의 접근성을 숨기고 허용된 동작을 유지한다',
+  async (backdrop) => {
+    jest.spyOn(AccessibilityInfo, 'isScreenReaderEnabled').mockResolvedValue(true);
+    const allowed = jest.fn(),
+      outside = jest.fn(),
+      skip = jest.fn();
+    const screen = await render(
+      <TutorialScene
+        onSkip={skip}
+        overlay={
+          <TutorialSpotlight
+            backdrop={backdrop}
+            target={{ x: 20, y: 600, width: 100, height: 48 }}
+            text="버튼 안내"
+            action={{ title: '허용된 동작', onPress: allowed }}
+          />
+        }
+      >
+        <Pressable accessibilityRole="button" onPress={outside}>
+          <Text>배경 버튼</Text>
+        </Pressable>
+      </TutorialScene>,
+    );
+    expect(screen.queryByText('배경 버튼')).toBeNull();
+    expect(screen.getByTestId('tutorial-spotlight').props.accessibilityViewIsModal).toBe(true);
+    await fireEvent.press(screen.getByText('허용된 동작'));
+    expect(allowed).toHaveBeenCalledTimes(1);
+    expect(outside).not.toHaveBeenCalled();
+    await fireEvent.press(screen.getByText('안내 그만 보기'));
+    expect(skip).toHaveBeenCalledTimes(1);
+    await screen.rerender(
+      <TutorialScene>
         <Text>배경 버튼</Text>
-      </Pressable>
-    </TutorialScene>,
-  );
-  expect(screen.queryByText('배경 버튼')).toBeNull();
-  expect(screen.getByTestId('tutorial-spotlight').props.accessibilityViewIsModal).toBe(true);
-  await fireEvent.press(screen.getByText('허용된 동작'));
-  expect(allowed).toHaveBeenCalledTimes(1);
-  expect(outside).not.toHaveBeenCalled();
-  await fireEvent.press(screen.getByText('안내 그만 보기'));
-  expect(skip).toHaveBeenCalledTimes(1);
-  await screen.rerender(
-    <TutorialScene>
-      <Text>배경 버튼</Text>
-    </TutorialScene>,
-  );
-  expect(screen.getByText('배경 버튼')).toBeTruthy();
-});
+      </TutorialScene>,
+    );
+    expect(screen.getByText('배경 버튼')).toBeTruthy();
+  },
+);
 
 test('둥근 버튼 대상에는 구멍 모서리 틈을 SVG 마스크로 가려 둥근 구멍을 만든다', async () => {
   const rounded = await render(
