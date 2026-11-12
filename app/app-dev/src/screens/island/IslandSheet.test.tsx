@@ -86,6 +86,36 @@ test.each([
   expect(actionBox.minHeight).toBeGreaterThanOrEqual(semanticTokens.size.tapMin);
 });
 
+// 스타일 계약 검증(실제 레이아웃 아님) — 액션이 있으면 제목이 제 폭을 먼저 갖고, 액션은 남은 폭에서 줄을 바꾼다(GROMO-2888)
+test.each([
+  ['글자 액션', '구매 내역'],
+  ['액션 없음', undefined],
+] as const)(
+  '시트 머리 줄 제목은 %s 일 때 잘리지 않을 자리를 먼저 갖는다',
+  async (_name, action) => {
+    mockLayout = { ...mockLayout, compact: false, tablet: false, landscape: false, width: 360 };
+    const { getByText } = await render(
+      <IslandSheet
+        bg="shop"
+        sign="dog"
+        signKind="npc"
+        title="강아지 상점"
+        onClose={() => {}}
+        action={action}
+        actionPress={() => {}}
+      >
+        <Text>내용</Text>
+      </IslandSheet>,
+    );
+    const title = StyleSheet.flatten(getByText('강아지 상점').props.style);
+    if (action) {
+      expect(title.flex).toBeUndefined();
+      expect(title.flexShrink).toBe(1);
+      expect(getByText(action)).toBeTruthy();
+    } else expect(title.flex).toBe(1);
+  },
+);
+
 test('SheetRow는 selected를 accessibilityState.selected로 반영한다(언어 선택 화면 등)', async () => {
   const { getByLabelText } = await render(
     <>

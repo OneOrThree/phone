@@ -675,7 +675,7 @@ test('게시판 청사진은 회관이 서버에 저장한 목표·가격·잔�
   assert.ok(screen.getByText('21마리'));
   assert.ok(screen.getByText('16마리'));
   assert.equal(getConstructionOptionsMock.mock.calls[0][0], ISLAND);
-  assert.equal(screen.queryByText('마을회관에서 다음 건물을 골라 주세요.'), null);
+  assert.equal(screen.queryByText('마을회관에서 다음 건물을 골라요.'), null);
   assert.equal(screen.getByTestId('board-build-start').props.accessibilityState.disabled, true);
   assert.equal(screen.queryByText('주민 준비량'), null);
   assert.equal(screen.queryByText('공사 15분'), null);
@@ -692,7 +692,7 @@ test.each(['host', 'member'] as const)(
     assert.equal(screen.queryByText('모든 건물을 완공했어요.'), null);
     await fireEvent.press(screen.getByTestId('board-blueprint-area'));
     await waitFor(() => assert.ok(screen.getByText('모든 건물을 완공했어요.')));
-    assert.equal(screen.queryByText('마을회관에서 다음 건물을 골라 주세요.'), null);
+    assert.equal(screen.queryByText('마을회관에서 다음 건물을 골라요.'), null);
     assert.equal(screen.queryByTestId('board-build-start'), null);
   },
 );
@@ -702,8 +702,31 @@ test('미완공 건물이 남아 있고 목표만 없으면 다음 건물을 고
   getConstructionOptionsMock.mockResolvedValue(constructionOptions());
   const screen = await renderBoard(makeE({ route: 'quest', detail: 'building' }));
 
-  await waitFor(() => assert.ok(screen.getByText('마을회관에서 다음 건물을 골라 주세요.')));
+  await waitFor(() => assert.ok(screen.getByText('마을회관에서 다음 건물을 골라요.')));
   assert.equal(screen.queryByText('모든 건물을 완공했어요.'), null);
+});
+
+test('세로 화면의 안내 한 줄 상자는 「건설 현황」·「방명록」 이름표를 덮지 않게 그 아래에 둔다(GROMO-2888)', async () => {
+  const fontScale = jest.spyOn(PixelRatio, 'getFontScale').mockReturnValue(1.3);
+  try {
+    getBoardMock.mockResolvedValue(page([]));
+    getConstructionOptionsMock.mockResolvedValue(constructionOptions());
+    const screen = await renderBoard(makeE({ route: 'quest', detail: 'building' }), undefined, {
+      width: 360,
+      height: 808,
+    });
+
+    await waitFor(() => assert.ok(screen.getByText('마을회관에서 다음 건물을 골라요.')));
+    // 세로 장면은 화면 맨 위(top 0)에 붙어 있어 장면 좌표와 화면 좌표가 같다
+    const blueprint = StyleSheet.flatten(screen.getByTestId('board-blueprint-area').props.style);
+    const guestbook = StyleSheet.flatten(screen.getByTestId('board-guestbook-area').props.style);
+    const drawer = StyleSheet.flatten(screen.getByTestId('board-drawer').props.style);
+    assert.ok(drawer.top >= blueprint.top + blueprint.height);
+    assert.ok(drawer.top >= guestbook.top + guestbook.height);
+    assert.ok(drawer.top + drawer.maxHeight <= 808);
+  } finally {
+    fontScale.mockRestore();
+  }
 });
 
 test('청사진 대신 안내 한 줄뿐이면 파란 상자를 고정 높이 없이 내용만큼만 그린다(GROMO-2412)', async () => {
@@ -711,7 +734,7 @@ test('청사진 대신 안내 한 줄뿐이면 파란 상자를 고정 높이 �
   getConstructionOptionsMock.mockResolvedValue(constructionOptions());
   const screen = await renderBoard(makeE({ route: 'quest', detail: 'building' }));
 
-  await waitFor(() => assert.ok(screen.getByText('마을회관에서 다음 건물을 골라 주세요.')));
+  await waitFor(() => assert.ok(screen.getByText('마을회관에서 다음 건물을 골라요.')));
   const drawer = StyleSheet.flatten(screen.getByTestId('board-drawer').props.style);
   assert.equal(drawer.height, undefined);
   assert.equal(drawer.minHeight, undefined);
@@ -948,7 +971,7 @@ test('건설 목표 조회 실패는 목표 없음으로 숨기지 않고 재시
   getConstructionOptionsMock.mockRejectedValueOnce(new ApiError('CLIENT_NETWORK_ERROR', '오류', 0));
   const screen = await renderBoard(makeE({ route: 'quest', detail: 'building' }));
   await waitFor(() => assert.ok(screen.getByText('건설 목표를 불러오지 못했어요.')));
-  assert.equal(screen.queryByText('마을회관에서 다음 건물을 골라 주세요.'), null);
+  assert.equal(screen.queryByText('마을회관에서 다음 건물을 골라요.'), null);
   getConstructionOptionsMock.mockResolvedValue(
     constructionOptions({ selectedBuildingId: 'library' }),
   );
@@ -2722,7 +2745,7 @@ test.each(['success', 'failure', 'stale'] as const)(
     );
     const screen = await renderBoard(e);
     await waitFor(() => assert.ok(screen.getByText('도서관을 짓고 있어요')));
-    assert.equal(screen.queryByText('마을회관에서 다음 건물을 골라 주세요.'), null);
+    assert.equal(screen.queryByText('마을회관에서 다음 건물을 골라요.'), null);
     getConstructionOptionsMock.mockResolvedValue(
       constructionOptions({
         items: [{ ...constructionOptions().items[0], id: 'mail', name: '우체통' }],

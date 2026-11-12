@@ -1043,6 +1043,7 @@ test('일반 섬 축음기는 구매 행만 44pt 터치 영역을 확보하고 �
   assert.equal(s.queryByLabelText('재생'), null);
   assert.equal(s.queryByLabelText('정지'), null);
   assert.equal(s.queryByLabelText('내 기기 음량'), null);
+  assert.ok(s.getByLabelText('축음기 레코드판'));
   assert.ok(StyleSheet.flatten(s.getByLabelText('섬으로 돌아가기').props.style).width >= 44);
   assert.ok(
     StyleSheet.flatten(s.getByLabelText('빗방울 소리, 30마리로 구매').props.style).minHeight >= 44,
@@ -1061,6 +1062,20 @@ test('일반 섬 축음기는 구매 행만 44pt 터치 영역을 확보하고 �
   // 곡 행 글자는 글자 크기 단계(12 이상) 안이다(GROMO-2413) — 예전 9·11 은 읽기 어려웠다
   assert.ok(statusStyle.fontSize >= 12);
   assert.ok(StyleSheet.flatten(s.getByTestId('sound-track-title-rain').props.style).fontSize >= 12);
+});
+
+test('큰 글자 축음기는 레코드 칸을 빼고 곡 목록이 패널 폭과 곡 수만큼의 높이를 쓴다(GROMO-2888)', async () => {
+  const state = initialState(false);
+  state.islands[0].joined = true;
+  state.islands[0].buildings.push('gram');
+  mockFontScale = 1.3;
+  const large = await render(<Harness route="sound" initial={state} />);
+  assert.equal(large.queryByLabelText('축음기 레코드판'), null);
+  assert.equal(large.queryByText('섬에서 들을 곡을 구매해요'), null);
+  // 고정 높이(226)를 풀어 셋째 곡까지 스크롤 없이 보인다
+  const panel = large.getByTestId('sound-current-track').parent?.parent?.parent;
+  assert.equal(StyleSheet.flatten(panel?.props.style).height, undefined);
+  assert.ok(large.getByLabelText('빗방울 소리, 30마리로 구매'));
 });
 
 test('일반 섬 축음기는 보유곡이 없어도 판매 목록만 보여 준다', async () => {

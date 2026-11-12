@@ -1390,8 +1390,12 @@ export function Hall({ e }: ScreenProps) {
       // 격자 폭 = 패널 폭 − 테두리 2.6×2 − 안쪽 여백 (세로 18.1·16.8, 가로 side+16·16).
       // 테두리를 4 로 빼면 393(iPhone 15)·375(SE)에서 두 카드 + 간격이 실제 안쪽 폭을 넘어 둘째 카드가 다음 줄로 밀렸다(GROMO-2486)
       gridW = land ? W - side - 16 - 5.2 - 32 : W - 36.2 - 5.2 - 33.6,
-      // 가로는 격자가 450 이상(카드 약 143)일 때만 3열
-      cols = land && gridW >= 450 ? 3 : 2,
+      // 2열 카드의 글 칸 = 카드 − 테두리·여백(2.6·6.5 ×2) − 그림(69.7 − 6.5×2) − 간격 6.5
+      twoColText = Math.floor((gridW - gap) / 2) - 81.4,
+      // 가로는 격자가 450 이상(카드 약 143)일 때만 3열. 2열 글 칸에 건물 이름 세 글자(18.1×3)가 글자 배율로
+      // 안 들어가면 1열 — 360dp·글자 1.3배에서 「도서/관」처럼 끊기고 설명이 도장에 덮였다(GROMO-2888)
+      cols =
+        land && gridW >= 450 ? 3 : twoColText < 18.1 * 3 * Math.max(1, L.fontScale ?? 1) ? 1 : 2,
       // 내림: 소수 폭이면 iOS 가 둘째 카드를 다음 줄로 넘긴다
       cardW = Math.floor((gridW - gap * (cols - 1)) / cols);
     const pickFrame = (children: React.ReactNode) => (

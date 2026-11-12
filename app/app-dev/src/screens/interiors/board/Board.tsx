@@ -2202,7 +2202,19 @@ export function Board({
     paddingTop: composePad.top,
     paddingBottom: composePad.bottom,
   };
-  const blueprintPanelTop = Math.max(24, (height - blueprintPanelHeight) / 2);
+  // 세로 화면의 안내 한 줄 상자는 「건설 현황」과 그 아래 「방명록」 이름표를 비켜 그 아래에 둔다 — 높이 한도(236)
+  // 기준 가운데 자리에서는 내용만큼 줄어든 상자가 이름표를 덮었다(GROMO-2888). 방명록 영역은 늘 청사진 영역 아래다.
+  // 가로는 장면이 스크롤되어 예전처럼 가운데
+  const blueprintPanelTop =
+    blueprintMessageOnly && !land
+      ? Math.max(
+          24,
+          Math.min(
+            boardHitboxes.guestbook.top + boardHitboxes.guestbook.height + primitiveTokens.space[2],
+            height - 24 - blueprintPanelHeight,
+          ),
+        )
+      : Math.max(24, (height - blueprintPanelHeight) / 2);
   const boardOverlayOpen = noticeOverlayOpen || questDetailOpen;
 
   useEffect(() => {
