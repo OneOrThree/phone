@@ -582,13 +582,16 @@ BEGIN
     END LOOP;
 
     -- shop_catalog_active_publication: 1행 — 이미 있으면 운영이 옮긴 발행 포인터와 활성 시각을 보존한다.
+    -- 대상 발행본이 퇴역·무효면 포인터를 되살리지 않는다(운영이 v1 을 내리고 포인터를 지운 경우).
     FOR expected IN SELECT * FROM jsonb_populate_recordset(NULL::public.shop_catalog_active_publication,
         $data$[
         {"publication_version":1,"singleton":true}
     ]$data$::jsonb)
     LOOP
         INSERT INTO public.shop_catalog_active_publication (singleton, publication_version)
-        VALUES (expected.singleton, expected.publication_version)
+        SELECT expected.singleton, expected.publication_version
+        WHERE EXISTS (SELECT 1 FROM public.shop_catalog_publications p WHERE p.version=expected.publication_version
+            AND p.retired_at IS NULL AND p.invalidated_at IS NULL)
         ON CONFLICT (singleton) DO NOTHING;
     END LOOP;
 END $defaults$;

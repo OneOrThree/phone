@@ -134,6 +134,19 @@ class V0DefaultSeedTest {
         assertVersionZero();
     }
 
+    @Test
+    void 운영이_무효로_내린_발행본_v1의_포인터는_되살리지_않는다() {
+        migrate();
+        jdbc.update("DELETE FROM shop_catalog_active_publication");
+        jdbc.update("UPDATE shop_catalog_publications SET invalidated_at=now() WHERE version=1");
+
+        migrate();
+
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM shop_catalog_active_publication", Integer.class))
+                .isZero();
+        assertVersionZero();
+    }
+
     /** dev 는 2026-11-12 에 같은 발행본 v1 을 SQL 로 먼저 넣었고, 1번 자리에 소다 섬 테마가 더 있다. */
     @Test
     void dev가_먼저_넣은_발행본_v1에_상품이_더_있어도_충돌없이_보존한다() {
