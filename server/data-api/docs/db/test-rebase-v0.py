@@ -145,7 +145,7 @@ class RebaseGuardTest(unittest.TestCase):
         migrations = rebase.BASELINE.parent.parent / 'migration'
         for migration in manifest['source_history']:
             self.assertEqual(migration['checksum'], rebase.checksum(migrations / migration['script']))
-        self.assertEqual(345, sum(manifest['default_rows'].values()))
+        self.assertEqual(422, sum(manifest['default_rows'].values()))
 
 
 if __name__ == '__main__':

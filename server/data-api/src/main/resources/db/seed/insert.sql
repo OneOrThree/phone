@@ -1,4 +1,4 @@
--- 운영 기본 데이터 정본. V138 최종값: 8개 테이블 345행; 계정·소유권·정산은 생성하지 않는다.
+-- 운영 기본 데이터 정본. V138 최종값 8개 테이블 345행과 상점 발행본 v1(GROMO-2890) 4개 테이블 77행: 12개 테이블 422행; 계정·소유권·정산은 생성하지 않는다.
 -- Gradle이 db/v0/afterMigrate__defaults.sql로 복사한다. CLI 전환도 이 파일을 그대로 실행한다.
 -- 이미 있는 운영 건설 비용·발행 포인터와 생성/발행/퇴역 시각은 보존한다.
 -- 동일 상품/불변 정책의 의미가 다르면 전체 실행을 롤백한다. 변경은 새 정책 revision으로 등록한다.
@@ -6,7 +6,7 @@ DO $defaults$
 DECLARE expected record;
 BEGIN
     PERFORM pg_advisory_xact_lock(182212017, 1);
-    LOCK TABLE public.audio_tracks, public.catalog_assets, public.construction_cost_policies, public.construction_cost_policy_publication, public.customization_reward_items, public.customization_reward_policies, public.focus_reward_policies, public.magazine_asset_meta IN SHARE ROW EXCLUSIVE MODE;
+    LOCK TABLE public.audio_tracks, public.catalog_assets, public.construction_cost_policies, public.construction_cost_policy_publication, public.customization_reward_items, public.customization_reward_policies, public.focus_reward_policies, public.magazine_asset_meta, public.shop_catalog_active_publication, public.shop_catalog_publication_entries, public.shop_catalog_publications, public.shop_product_revisions IN SHARE ROW EXCLUSIVE MODE;
 
     -- construction_cost_policies: 7행
     FOR expected IN SELECT * FROM jsonb_populate_recordset(NULL::public.construction_cost_policies,
@@ -52,7 +52,7 @@ BEGIN
         END IF;
     END LOOP;
 
-    -- catalog_assets: 157행
+    -- catalog_assets: 162행
     FOR expected IN SELECT * FROM jsonb_populate_recordset(NULL::public.catalog_assets,
         $data$[
         {"kind":"audio","owner_type":"island","product_id":"campfire","target_building":null,"title":"모닥불"},
@@ -211,6 +211,11 @@ BEGIN
         {"kind":"ad_sticker","owner_type":"user","product_id":"mag.tomato-timer","target_building":null,"title":"토마토 타이머"},
         {"kind":"ad_sticker","owner_type":"user","product_id":"mag.turtle","target_building":null,"title":"리본 거북이"},
         {"kind":"ad_sticker","owner_type":"user","product_id":"mag.whale","target_building":null,"title":"별고래"},
+        {"kind":"building_theme","owner_type":"island","product_id":"strawberry-board","target_building":"board","title":"게시판 딸기 테마"},
+        {"kind":"building_theme","owner_type":"island","product_id":"strawberry-mail","target_building":"mail","title":"우체통 딸기 테마"},
+        {"kind":"building_theme","owner_type":"island","product_id":"strawberry-roof","target_building":"hall","title":"마을회관 딸기 테마"},
+        {"kind":"building_theme","owner_type":"island","product_id":"strawberry-shop","target_building":"shop","title":"상점 딸기 테마"},
+        {"kind":"building_theme","owner_type":"island","product_id":"strawberry-tower","target_building":"tower","title":"전망대 딸기 테마"},
         {"kind":"audio","owner_type":"island","product_id":"waves","target_building":null,"title":"잔잔한 파도"}
     ]$data$::jsonb)
     LOOP
@@ -461,5 +466,132 @@ BEGIN
                 IS NOT DISTINCT FROM ROW(expected.revision, expected.product_id, expected.source_asset_id, expected.category, expected.rarity, expected.rarity_reason, expected.render_data, expected.sort_order)) THEN
             RAISE EXCEPTION '기본 데이터 충돌: customization_reward_items, key=%', concat_ws('/', expected.revision, expected.product_id);
         END IF;
+    END LOOP;
+
+    -- shop_product_revisions: 35행
+    -- 상점 판매 revision 은 발행 뒤 불변이다. 값이 다르면 기동을 실패시키고, 가격 변경은 새 revision 으로 넣는다.
+    FOR expected IN SELECT * FROM jsonb_populate_recordset(NULL::public.shop_product_revisions,
+        $data$[
+        {"currency":"village_points","preview_media_key":null,"price":50,"product_id":"cust.head.bear","required_building":null,"required_product_id":null,"revision":1},
+        {"currency":"village_points","preview_media_key":null,"price":50,"product_id":"cust.head.bun","required_building":null,"required_product_id":null,"revision":1},
+        {"currency":"village_points","preview_media_key":null,"price":50,"product_id":"cust.head.bunny","required_building":null,"required_product_id":null,"revision":1},
+        {"currency":"village_points","preview_media_key":null,"price":50,"product_id":"cust.head.chick","required_building":null,"required_product_id":null,"revision":1},
+        {"currency":"village_points","preview_media_key":null,"price":50,"product_id":"cust.head.duck-plush","required_building":null,"required_product_id":null,"revision":1},
+        {"currency":"village_points","preview_media_key":null,"price":50,"product_id":"cust.head.frog","required_building":null,"required_product_id":null,"revision":1},
+        {"currency":"village_points","preview_media_key":null,"price":50,"product_id":"cust.head.mandarin","required_building":null,"required_product_id":null,"revision":1},
+        {"currency":"village_points","preview_media_key":null,"price":50,"product_id":"cust.head.peach","required_building":null,"required_product_id":null,"revision":1},
+        {"currency":"village_points","preview_media_key":null,"price":50,"product_id":"cust.head.riceball","required_building":null,"required_product_id":null,"revision":1},
+        {"currency":"village_points","preview_media_key":null,"price":50,"product_id":"cust.head.seal","required_building":null,"required_product_id":null,"revision":1},
+        {"currency":"village_points","preview_media_key":null,"price":30,"product_id":"cust.neck.bell","required_building":null,"required_product_id":null,"revision":1},
+        {"currency":"village_points","preview_media_key":null,"price":30,"product_id":"cust.neck.bow","required_building":null,"required_product_id":null,"revision":1},
+        {"currency":"village_points","preview_media_key":null,"price":30,"product_id":"cust.neck.flower","required_building":null,"required_product_id":null,"revision":1},
+        {"currency":"village_points","preview_media_key":null,"price":30,"product_id":"cust.neck.leaf","required_building":null,"required_product_id":null,"revision":1},
+        {"currency":"village_points","preview_media_key":null,"price":30,"product_id":"cust.neck.picnic","required_building":null,"required_product_id":null,"revision":1},
+        {"currency":"village_points","preview_media_key":null,"price":30,"product_id":"cust.neck.pompom","required_building":null,"required_product_id":null,"revision":1},
+        {"currency":"village_points","preview_media_key":null,"price":30,"product_id":"cust.neck.sailor","required_building":null,"required_product_id":null,"revision":1},
+        {"currency":"village_points","preview_media_key":null,"price":30,"product_id":"cust.neck.shell","required_building":null,"required_product_id":null,"revision":1},
+        {"currency":"village_points","preview_media_key":null,"price":30,"product_id":"cust.neck.star","required_building":null,"required_product_id":null,"revision":1},
+        {"currency":"village_points","preview_media_key":null,"price":30,"product_id":"cust.neck.strawberry","required_building":null,"required_product_id":null,"revision":1},
+        {"currency":"village_points","preview_media_key":null,"price":30,"product_id":"cust.shoes.acorn","required_building":null,"required_product_id":null,"revision":1},
+        {"currency":"village_points","preview_media_key":null,"price":30,"product_id":"cust.shoes.butter","required_building":null,"required_product_id":null,"revision":1},
+        {"currency":"village_points","preview_media_key":null,"price":30,"product_id":"cust.shoes.cloud","required_building":null,"required_product_id":null,"revision":1},
+        {"currency":"village_points","preview_media_key":null,"price":30,"product_id":"cust.shoes.flower","required_building":null,"required_product_id":null,"revision":1},
+        {"currency":"village_points","preview_media_key":null,"price":30,"product_id":"cust.shoes.leaf","required_building":null,"required_product_id":null,"revision":1},
+        {"currency":"village_points","preview_media_key":null,"price":30,"product_id":"cust.shoes.peach","required_building":null,"required_product_id":null,"revision":1},
+        {"currency":"village_points","preview_media_key":null,"price":30,"product_id":"cust.shoes.pudding","required_building":null,"required_product_id":null,"revision":1},
+        {"currency":"village_points","preview_media_key":null,"price":30,"product_id":"cust.shoes.sailor","required_building":null,"required_product_id":null,"revision":1},
+        {"currency":"village_points","preview_media_key":null,"price":30,"product_id":"cust.shoes.shell","required_building":null,"required_product_id":null,"revision":1},
+        {"currency":"village_points","preview_media_key":null,"price":30,"product_id":"cust.shoes.strawberry","required_building":null,"required_product_id":null,"revision":1},
+        {"currency":"village_points","preview_media_key":null,"price":300,"product_id":"strawberry-board","required_building":"board","required_product_id":null,"revision":1},
+        {"currency":"village_points","preview_media_key":null,"price":300,"product_id":"strawberry-mail","required_building":"mail","required_product_id":null,"revision":1},
+        {"currency":"village_points","preview_media_key":null,"price":300,"product_id":"strawberry-roof","required_building":"hall","required_product_id":null,"revision":1},
+        {"currency":"village_points","preview_media_key":null,"price":300,"product_id":"strawberry-shop","required_building":"shop","required_product_id":null,"revision":1},
+        {"currency":"village_points","preview_media_key":null,"price":300,"product_id":"strawberry-tower","required_building":"tower","required_product_id":null,"revision":1}
+    ]$data$::jsonb)
+    LOOP
+        INSERT INTO public.shop_product_revisions (product_id, revision, currency, price, required_building, required_product_id, preview_media_key)
+        VALUES (expected.product_id, expected.revision, expected.currency, expected.price, expected.required_building, expected.required_product_id, expected.preview_media_key)
+        ON CONFLICT (product_id, revision) DO NOTHING;
+        IF NOT EXISTS (SELECT 1 FROM public.shop_product_revisions actual WHERE actual.product_id=expected.product_id AND actual.revision=expected.revision
+            AND ROW(actual.product_id, actual.revision, actual.currency, actual.price, actual.required_building, actual.required_product_id, actual.preview_media_key)
+                IS NOT DISTINCT FROM ROW(expected.product_id, expected.revision, expected.currency, expected.price, expected.required_building, expected.required_product_id, expected.preview_media_key)) THEN
+            RAISE EXCEPTION '기본 데이터 충돌: shop_product_revisions, key=%', concat_ws('/', expected.product_id, expected.revision);
+        END IF;
+    END LOOP;
+
+    -- shop_catalog_publications: 1행 — 이미 있으면 발행·퇴역·무효 시각을 보존한다.
+    FOR expected IN SELECT * FROM jsonb_populate_recordset(NULL::public.shop_catalog_publications,
+        $data$[
+        {"version":1}
+    ]$data$::jsonb)
+    LOOP
+        INSERT INTO public.shop_catalog_publications (version)
+        VALUES (expected.version)
+        ON CONFLICT (version) DO NOTHING;
+    END LOOP;
+
+    -- shop_catalog_publication_entries: 35행
+    -- 우리 섬 탭 순서는 2부터다. dev 의 같은 발행본 v1(2026-11-12)은 1번에 소다 섬 테마가 있고, 운영은 그 상품을 팔지 않는다.
+    FOR expected IN SELECT * FROM jsonb_populate_recordset(NULL::public.shop_catalog_publication_entries,
+        $data$[
+        {"category":"island","display_order":2,"product_id":"strawberry-roof","product_revision":1,"publication_version":1},
+        {"category":"island","display_order":3,"product_id":"strawberry-board","product_revision":1,"publication_version":1},
+        {"category":"island","display_order":4,"product_id":"strawberry-tower","product_revision":1,"publication_version":1},
+        {"category":"island","display_order":5,"product_id":"strawberry-mail","product_revision":1,"publication_version":1},
+        {"category":"island","display_order":6,"product_id":"strawberry-shop","product_revision":1,"publication_version":1},
+        {"category":"personal","display_order":1,"product_id":"cust.head.bear","product_revision":1,"publication_version":1},
+        {"category":"personal","display_order":2,"product_id":"cust.head.bun","product_revision":1,"publication_version":1},
+        {"category":"personal","display_order":3,"product_id":"cust.head.bunny","product_revision":1,"publication_version":1},
+        {"category":"personal","display_order":4,"product_id":"cust.head.chick","product_revision":1,"publication_version":1},
+        {"category":"personal","display_order":5,"product_id":"cust.head.duck-plush","product_revision":1,"publication_version":1},
+        {"category":"personal","display_order":6,"product_id":"cust.head.frog","product_revision":1,"publication_version":1},
+        {"category":"personal","display_order":7,"product_id":"cust.head.mandarin","product_revision":1,"publication_version":1},
+        {"category":"personal","display_order":8,"product_id":"cust.head.peach","product_revision":1,"publication_version":1},
+        {"category":"personal","display_order":9,"product_id":"cust.head.riceball","product_revision":1,"publication_version":1},
+        {"category":"personal","display_order":10,"product_id":"cust.head.seal","product_revision":1,"publication_version":1},
+        {"category":"personal","display_order":11,"product_id":"cust.neck.bell","product_revision":1,"publication_version":1},
+        {"category":"personal","display_order":12,"product_id":"cust.neck.bow","product_revision":1,"publication_version":1},
+        {"category":"personal","display_order":13,"product_id":"cust.neck.flower","product_revision":1,"publication_version":1},
+        {"category":"personal","display_order":14,"product_id":"cust.neck.leaf","product_revision":1,"publication_version":1},
+        {"category":"personal","display_order":15,"product_id":"cust.neck.picnic","product_revision":1,"publication_version":1},
+        {"category":"personal","display_order":16,"product_id":"cust.neck.pompom","product_revision":1,"publication_version":1},
+        {"category":"personal","display_order":17,"product_id":"cust.neck.sailor","product_revision":1,"publication_version":1},
+        {"category":"personal","display_order":18,"product_id":"cust.neck.shell","product_revision":1,"publication_version":1},
+        {"category":"personal","display_order":19,"product_id":"cust.neck.star","product_revision":1,"publication_version":1},
+        {"category":"personal","display_order":20,"product_id":"cust.neck.strawberry","product_revision":1,"publication_version":1},
+        {"category":"personal","display_order":21,"product_id":"cust.shoes.acorn","product_revision":1,"publication_version":1},
+        {"category":"personal","display_order":22,"product_id":"cust.shoes.butter","product_revision":1,"publication_version":1},
+        {"category":"personal","display_order":23,"product_id":"cust.shoes.cloud","product_revision":1,"publication_version":1},
+        {"category":"personal","display_order":24,"product_id":"cust.shoes.flower","product_revision":1,"publication_version":1},
+        {"category":"personal","display_order":25,"product_id":"cust.shoes.leaf","product_revision":1,"publication_version":1},
+        {"category":"personal","display_order":26,"product_id":"cust.shoes.peach","product_revision":1,"publication_version":1},
+        {"category":"personal","display_order":27,"product_id":"cust.shoes.pudding","product_revision":1,"publication_version":1},
+        {"category":"personal","display_order":28,"product_id":"cust.shoes.sailor","product_revision":1,"publication_version":1},
+        {"category":"personal","display_order":29,"product_id":"cust.shoes.shell","product_revision":1,"publication_version":1},
+        {"category":"personal","display_order":30,"product_id":"cust.shoes.strawberry","product_revision":1,"publication_version":1}
+    ]$data$::jsonb)
+    LOOP
+        INSERT INTO public.shop_catalog_publication_entries (publication_version, product_id, product_revision, category, display_order)
+        VALUES (expected.publication_version, expected.product_id, expected.product_revision, expected.category, expected.display_order)
+        ON CONFLICT (publication_version, product_id) DO NOTHING;
+        IF NOT EXISTS (SELECT 1 FROM public.shop_catalog_publication_entries actual WHERE actual.publication_version=expected.publication_version AND actual.product_id=expected.product_id
+            AND ROW(actual.publication_version, actual.product_id, actual.product_revision, actual.category, actual.display_order)
+                IS NOT DISTINCT FROM ROW(expected.publication_version, expected.product_id, expected.product_revision, expected.category, expected.display_order)) THEN
+            RAISE EXCEPTION '기본 데이터 충돌: shop_catalog_publication_entries, key=%', concat_ws('/', expected.publication_version, expected.product_id);
+        END IF;
+    END LOOP;
+
+    -- shop_catalog_active_publication: 1행 — 이미 있으면 운영이 옮긴 발행 포인터와 활성 시각을 보존한다.
+    -- 대상 발행본이 퇴역·무효면 포인터를 되살리지 않는다(운영이 v1 을 내리고 포인터를 지운 경우).
+    FOR expected IN SELECT * FROM jsonb_populate_recordset(NULL::public.shop_catalog_active_publication,
+        $data$[
+        {"publication_version":1,"singleton":true}
+    ]$data$::jsonb)
+    LOOP
+        INSERT INTO public.shop_catalog_active_publication (singleton, publication_version)
+        SELECT expected.singleton, expected.publication_version
+        WHERE EXISTS (SELECT 1 FROM public.shop_catalog_publications p WHERE p.version=expected.publication_version
+            AND p.retired_at IS NULL AND p.invalidated_at IS NULL)
+        ON CONFLICT (singleton) DO NOTHING;
     END LOOP;
 END $defaults$;

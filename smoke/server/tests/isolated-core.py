@@ -121,13 +121,15 @@ def main():
         wait_health(data, port(data, 9091))
         print('격리 Data API 기동 완료', flush=True)
         # 빈 임시 DB에만 테스트 카탈로그를 발행한다. 공유 DB·가격 publication에는 접근하지 않는다.
+        # 기동한 Data API 의 기본 데이터가 발행본 v1 과 포인터를 이미 심으므로(GROMO-2890) 1000 번을 쓰고 포인터를 옮긴다.
         sql = """BEGIN;
 INSERT INTO catalog_assets(product_id,title,kind,owner_type) VALUES('smoke-private-shirt','smoke fixture','clothes','user');
 INSERT INTO shop_product_revisions(product_id,revision,currency,price,required_building) VALUES('smoke-private-shirt',1,'village_points',5,'shop');
-INSERT INTO shop_catalog_publications(version) VALUES(1);
+INSERT INTO shop_catalog_publications(version) VALUES(1000);
 INSERT INTO shop_catalog_publication_entries(publication_version,product_id,product_revision,category,display_order)
- VALUES(1,'smoke-private-shirt',1,'personal',1);
-INSERT INTO shop_catalog_active_publication(singleton,publication_version) VALUES(true,1);
+ VALUES(1000,'smoke-private-shirt',1,'personal',1);
+INSERT INTO shop_catalog_active_publication(singleton,publication_version) VALUES(true,1000)
+ ON CONFLICT (singleton) DO UPDATE SET publication_version=EXCLUDED.publication_version, activated_at=now();
 COMMIT;"""
         cmd('docker', 'exec', '-i', db, 'psql', '-U', 'smoke', '-d', 'smoke_core', '-v', 'ON_ERROR_STOP=1', '-q', input_text=sql)
         environment = source_env(source_business)

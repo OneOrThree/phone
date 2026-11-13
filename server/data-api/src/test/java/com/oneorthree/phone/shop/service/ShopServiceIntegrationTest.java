@@ -579,6 +579,27 @@ class ShopServiceIntegrationTest {
         assertThat(two.hasMore()).isFalse();
     }
 
+    /**
+     * 기본 데이터가 심는 발행본 v1(GROMO-2890). 신발 10종은 항목에 있지만 꾸미기 카탈로그에 그림이 없어
+     * 숨겨진다. 신발 그림이 카탈로그에 들어오면 같은 가격으로 판매가 열리므로, 그때 이 테스트를 고친다.
+     */
+    @Test
+    @DisplayName("기본 발행본 v1 은 우리 섬 딸기 테마 5개와 그림 있는 머리·목 20개를 보이고 신발은 숨긴다")
+    void defaultPublicationListsOnlyDrawableItems() {
+        activePublication.save(ShopCatalogActivePublication.pointTo(1L, Instant.now()));
+        Fixture f = island();
+
+        ShopViews.ProductPage personal = shop.products(f.islandId, f.ownerId, "personal", null, null, null, 30);
+        ShopViews.ProductPage island = shop.products(f.islandId, f.ownerId, "island", null, null, null, 30);
+
+        assertThat(personal.publicationVersion()).isEqualTo(1L);
+        assertThat(personal.hasMore()).isFalse();
+        assertThat(personal.items()).hasSize(20).extracting(ShopViews.Item::id)
+                .allMatch(id -> id.startsWith("cust.head.") || id.startsWith("cust.neck."));
+        assertThat(island.items()).extracting(ShopViews.Item::id).containsExactly("strawberry-roof",
+                "strawberry-board", "strawberry-tower", "strawberry-mail", "strawberry-shop");
+    }
+
     // ---------------------------------------------------------------- 도구
 
     private ShopViews.Order buy(Fixture f, UUID userId, String productId, UUID key) {

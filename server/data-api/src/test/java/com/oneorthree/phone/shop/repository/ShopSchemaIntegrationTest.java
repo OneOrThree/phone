@@ -54,11 +54,12 @@ class ShopSchemaIntegrationTest {
     JdbcTemplate jdbc;
 
     @Test
-    @DisplayName("V74 는 가격을 심지 않는다 — 활성 카탈로그 없음, 미승인 가격은 NULL 로 읽히고 섬 귀속 주문이 매핑된다")
-    void mapsTablesWithoutSeededPrices() {
-        // 가격 추후 확정(S03) — 마이그레이션은 행을 하나도 만들지 않는다.
-        assertThat(activePublication.findAll()).isEmpty();
-        assertThat(revisions.count()).isZero();
+    @DisplayName("기본 데이터는 발행본 v1 을 활성으로 심는다 — 미승인 가격은 NULL 로 읽히고 섬 귀속 주문이 매핑된다")
+    void mapsTablesWithDefaultPublication() {
+        // V74 는 행을 심지 않고, 상점 발행본 v1 은 기본 데이터(insert.sql, GROMO-2890)가 심는다. 0원 가격은 없다.
+        assertThat(activePublication.findAll()).singleElement()
+                .satisfies(p -> assertThat(p.getPublicationVersion()).isEqualTo(1L));
+        assertThat(revisions.findAll()).isNotEmpty().allSatisfy(r -> assertThat(r.getPrice()).isPositive());
 
         UUID userId = users.save(User.builder().nickname("u-" + UUID.randomUUID()).build()).getId();
         UUID islandId = groups.save(Group.builder().name("섬").maxMembers(10).build()).getId();
@@ -67,11 +68,11 @@ class ShopSchemaIntegrationTest {
                 + " VALUES ('rain-1781', 1, 'media/rain')");
         jdbc.update("INSERT INTO shop_product_revisions (product_id, revision, price)"
                 + " VALUES ('rain-1781', 2, 30)");
-        jdbc.update("INSERT INTO shop_catalog_publications (version) VALUES (1)");
+        jdbc.update("INSERT INTO shop_catalog_publications (version) VALUES (2)");
         jdbc.update("INSERT INTO shop_catalog_publication_entries"
                 + " (publication_version, product_id, product_revision, category, display_order)"
-                + " VALUES (1, 'rain-1781', 2, 'sound', 10)");
-        jdbc.update("INSERT INTO shop_catalog_active_publication (publication_version) VALUES (1)");
+                + " VALUES (2, 'rain-1781', 2, 'sound', 10)");
+        jdbc.update("UPDATE shop_catalog_active_publication SET publication_version = 2");
         UUID orderId = UUID.randomUUID();
         jdbc.update("INSERT INTO shop_orders (id, island_id, requester_id, owner_type, product_id,"
                         + " product_revision, paid_price, currency, wallet_version_after, balance_after)"
@@ -82,10 +83,10 @@ class ShopSchemaIntegrationTest {
                 .orElseThrow();
         assertThat(unapproved.getPrice()).as("미승인 = NULL, 0 이 아니다").isNull();
         assertThat(unapproved.getCurrency()).isEqualTo("village_points");
-        assertThat(entries.findById(new ShopCatalogPublicationEntryId(1L, "rain-1781")).orElseThrow()
+        assertThat(entries.findById(new ShopCatalogPublicationEntryId(2L, "rain-1781")).orElseThrow()
                 .getProductRevision()).isEqualTo(2);
         assertThat(activePublication.findAll()).singleElement()
-                .satisfies(p -> assertThat(p.getPublicationVersion()).isEqualTo(1L));
+                .satisfies(p -> assertThat(p.getPublicationVersion()).isEqualTo(2L));
         ShopOrder order = orders.findById(orderId).orElseThrow();
         assertThat(order.getIslandId()).isEqualTo(islandId);
         assertThat(order.getPayerType()).isEqualTo("island");
