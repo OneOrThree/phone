@@ -252,6 +252,7 @@ export const componentTokens = {
     frameAspectRatio: 16 / 10,
     shortViewportHeight: 480,
   },
+  createIsland: { backdropHeight: 96, controlHeight: 56, introHeight: 120 },
   observatory: {
     portraitSize: 48,
     portraitZoom: 1.8,

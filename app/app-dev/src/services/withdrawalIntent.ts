@@ -1,3 +1,4 @@
+import { removeCreateIslandDraft } from './createIslandDraft';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { SessionCheck } from '@/services/api/auth';
 import { uuid } from '@/services/api/client';
@@ -76,7 +77,10 @@ export function needsAppleAuthorizationCode(
  * 의도는 남는다. 의도 표식 삭제는 best-effort 다: 남아도 세션이 없는 부팅에서는 쓰이지 않는다.
  */
 export async function finishWithdrawalCleanup(userId: string | null): Promise<boolean> {
-  if (userId) await clearLegacyUserData(userId);
+  if (userId) {
+    await clearLegacyUserData(userId);
+    await removeCreateIslandDraft(userId);
+  }
   // 소유자 표식은 탈퇴 계정(또는 소유자 없음)일 때만 지운다 — 정리 실패 뒤 다른 계정으로 로그인해
   // 소유자가 바뀌었으면 그 계정의 표식을 지우지 않는다.
   const owner = getLastSessionUserId();

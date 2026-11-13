@@ -1,3 +1,4 @@
+import { readCreateIslandDraft, removeCreateIslandDraft } from '@/services/createIslandDraft';
 import { createPreviewEnvironment } from '@/navigation/previewEnvironment';
 import type { Route } from '@/services/model';
 /**
@@ -2492,14 +2493,16 @@ test('섬 만들기 이름 칸은 글자 수를 보여 주고 한도에 닿으�
 
 // 정원 휠 선택값은 숫자 상태다 — 라벨은 렌더 시점의 로케일로 만들고 create 에는 그 숫자가 간다.
 const wheelWeight = (label: string, s: any) =>
-  StyleSheet.flatten(s.getByText(label).props.style)?.fontWeight;
+  StyleSheet.flatten(s.getAllByText(label).at(-1).props.style)?.fontWeight;
 
 test('섬 만들기 정원 휠에서 «3명» 을 고르면 create 에 maxMembers 3 이 간다(ko)', async () => {
   const create = jest.fn(async (_input: any) => {});
   const s = await render(<Harness route="createIsland" api={() => ({ create })} />);
+  await fireEvent.press(s.getByLabelText('정원'));
   assert.equal(wheelWeight('15명', s), '800');
   await fireEvent.press(s.getByLabelText('정원 3명'));
   assert.equal(wheelWeight('3명', s), '800');
+  await fireEvent.press(s.getByLabelText('확인'));
   await fireEvent.changeText(s.getByLabelText('섬 이름'), '새 섬');
   await fireEvent.press(s.getByLabelText('섬 만들기'));
   await waitFor(() => assert.equal(create.mock.calls.length, 1));
@@ -2510,9 +2513,11 @@ test('섬 만들기 정원 휠에서 «3 residents» 를 고르면 create 에 ma
   applyLocalePref('en');
   const create = jest.fn(async (_input: any) => {});
   const s = await render(<Harness route="createIsland" api={() => ({ create })} />);
+  await fireEvent.press(s.getByLabelText('Capacity'));
   assert.equal(wheelWeight('15 residents', s), '800');
   await fireEvent.press(s.getByLabelText('Capacity 3 residents'));
   assert.equal(wheelWeight('3 residents', s), '800');
+  await fireEvent.press(s.getByLabelText('OK'));
   await fireEvent.changeText(s.getByLabelText('Island Name'), 'New Island');
   await fireEvent.press(s.getByLabelText('Create Island'));
   await waitFor(() => assert.equal(create.mock.calls.length, 1));
@@ -2521,6 +2526,7 @@ test('섬 만들기 정원 휠에서 «3 residents» 를 고르면 create 에 ma
 
 test('섬 만들기 화면에서 언어를 바꿔도 고른 정원 항목이 강조된 채 남는다', async () => {
   const s = await render(<Harness route="createIsland" api={() => ({})} />);
+  await fireEvent.press(s.getByLabelText('정원'));
   await fireEvent.press(s.getByLabelText('정원 7명'));
   assert.equal(wheelWeight('7명', s), '800');
   applyLocalePref('en');
@@ -3790,3 +3796,37 @@ test.each(['wardrobe', 'profile', 'settings'] as const)(
     expect(screen.getByTestId('island-sheet-backdrop').props.source).toBe(art['bldbg/dock']);
   },
 );
+
+test('새 섬 초안은 닫았다 열면 복원되고 서버 실패 때 남으며 성공 뒤 삭제된다', async () => {
+  await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'island-draft-test' });
+  await removeCreateIslandDraft('island-draft-test');
+  const create = jest
+    .fn()
+    .mockRejectedValueOnce(new Error('offline'))
+    .mockResolvedValueOnce(undefined);
+  try {
+    let s = await render(<Harness route="createIsland" api={() => ({ create })} />);
+    await waitFor(() => assert.equal(s.getByLabelText('섬 이름').props.editable, true));
+    await fireEvent.changeText(s.getByLabelText('섬 이름'), '복원할 섬');
+    await fireEvent.changeText(s.getByLabelText('섬 소개'), '함께 집중');
+    await fireEvent.press(s.getByTestId('create-island-backdrop'));
+    assert.ok(backMock.mock.calls.length);
+    await s.unmount();
+    s = await render(<Harness route="createIsland" api={() => ({ create })} />);
+    await waitFor(() => assert.equal(s.getByLabelText('섬 이름').props.value, '복원할 섬'));
+    assert.equal(s.getByLabelText('섬 소개').props.value, '함께 집중');
+    await fireEvent.press(s.getByLabelText('섬 만들기'));
+    await waitFor(() => assert.equal(create.mock.calls.length, 1));
+    assert.equal((await readCreateIslandDraft('island-draft-test'))?.name, '복원할 섬');
+    await waitFor(() =>
+      assert.equal(s.getByLabelText('섬 만들기').props.accessibilityState.disabled, false),
+    );
+    await fireEvent.press(s.getByLabelText('섬 만들기'));
+    await waitFor(() => assert.equal(create.mock.calls.length, 2));
+    await waitFor(async () => assert.equal(await readCreateIslandDraft('island-draft-test'), null));
+    await s.unmount();
+  } finally {
+    await clearSession();
+    await removeCreateIslandDraft('island-draft-test');
+  }
+});
