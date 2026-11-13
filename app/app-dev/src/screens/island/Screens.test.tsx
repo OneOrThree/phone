@@ -3809,7 +3809,8 @@ test('새 섬 초안은 닫았다 열면 복원되고 서버 실패 때 남으�
     await waitFor(() => assert.equal(s.getByLabelText('섬 이름').props.editable, true));
     await fireEvent.changeText(s.getByLabelText('섬 이름'), '복원할 섬');
     await fireEvent.changeText(s.getByLabelText('섬 소개'), '함께 집중');
-    await fireEvent.press(s.getByTestId('create-island-backdrop'));
+    // 바깥 영역은 터치 전용이라 스크린 리더 트리에서 빠져 있다
+    await fireEvent.press(s.getByTestId('create-island-backdrop', { includeHiddenElements: true }));
     assert.ok(backMock.mock.calls.length);
     await s.unmount();
     s = await render(<Harness route="createIsland" api={() => ({ create })} />);
@@ -3857,4 +3858,26 @@ test('새 섬 생성이 성공한 뒤 초안 삭제가 실패해도 완료 화�
     await clearSession();
     await removeCreateIslandDraft('island-draft-clear-fail');
   }
+});
+
+test('새 섬 만들기 바깥 영역은 스크린 리더에서 빠지고, 정원 휠이 열린 동안 뒤 시트를 숨긴다', async () => {
+  const s = await render(<Harness route="createIsland" api={() => ({})} />);
+  await waitFor(() => assert.equal(s.getByLabelText('섬 이름').props.editable, true));
+  const hidden = { includeHiddenElements: true };
+  const backdrop = s.getByTestId('create-island-backdrop', hidden);
+  assert.equal(backdrop.props.accessible, false);
+  assert.equal(backdrop.props.importantForAccessibility, 'no-hide-descendants');
+  assert.equal(
+    s.getByTestId('create-island-sheet', hidden).props.accessibilityElementsHidden,
+    false,
+  );
+  await fireEvent.press(s.getByLabelText('정원'));
+  const sheet = s.getByTestId('create-island-sheet', hidden);
+  assert.equal(sheet.props.accessibilityElementsHidden, true);
+  assert.equal(sheet.props.importantForAccessibility, 'no-hide-descendants');
+  await fireEvent.press(s.getByLabelText('확인'));
+  assert.equal(
+    s.getByTestId('create-island-sheet', hidden).props.accessibilityElementsHidden,
+    false,
+  );
 });

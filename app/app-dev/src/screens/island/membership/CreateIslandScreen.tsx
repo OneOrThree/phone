@@ -167,10 +167,12 @@ function CreateIslandEditor({
       <View pointerEvents="none" style={StyleSheet.absoluteFill}>
         <Pic id="island/whole" w="100%" h="100%" cover />
       </View>
+      {/* 바깥 영역은 터치 전용이다 — 스크린 리더에서는 같은 일을 하는 닫기 버튼만 읽는다 */}
       <Pressable
         testID="create-island-backdrop"
-        accessibilityRole="button"
-        accessibilityLabel={t('common.back')}
+        accessible={false}
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
         disabled={serverBusy}
         onPress={close}
         style={[StyleSheet.absoluteFill, styles.backdrop]}
@@ -181,7 +183,11 @@ function CreateIslandEditor({
           </Txt>
         )}
       </Pressable>
+      {/* 정원 휠이 열린 동안 뒤 시트를 스크린 리더에서 숨긴다(Overlay 는 background 로 받은 것만 숨긴다) */}
       <View
+        testID="create-island-sheet"
+        accessibilityElementsHidden={picking}
+        importantForAccessibility={picking ? 'no-hide-descendants' : 'auto'}
         style={[
           styles.sheet,
           {
