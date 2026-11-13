@@ -22,14 +22,19 @@ Gromo 봇·리그·챌린지·구 코인·아이템·태그 등 41개 테이블�
 |---|---:|
 | construction_cost_policies / construction_cost_policy_publication | 7 / 1 |
 | focus_reward_policies | 1 |
-| catalog_assets | 157: 잡지 64·음원 3·꾸미기 90 |
+| catalog_assets | 162: 잡지 64·음원 3·꾸미기 90·딸기 건물 테마 5 |
 | magazine_asset_meta / audio_tracks | 64 / 3 |
 | customization_reward_policies | 2: revision 1·2 |
 | customization_reward_items | 110: revision 1의 90종·revision 2의 머리/목 20종 |
+| shop_product_revisions / shop_catalog_publications | 35 / 1: 상점 판매 revision 1·발행본 v1 |
+| shop_catalog_publication_entries / shop_catalog_active_publication | 35 / 1: 우리 섬 5·내 꾸미기 30, 활성 포인터 v1 |
 
-총 345행이며 V135의 현재 추첨 정책 revision 2와 V136의 6색 렌더 데이터를 보존한다.
+총 422행이며 V135의 현재 추첨 정책 revision 2와 V136의 6색 렌더 데이터를 보존한다.
 `reward-catalog-v1.json`에 기록된 정적 파일 114개는 기존 정적 배포에 포함되어 있어야 한다.
 기존 개인 소유권·정산·운영 추가 카탈로그는 기본 SQL에서 생성하거나 변경하지 않는다.
+
+상점 발행본 v1(GROMO-2890)은 딸기 건물 테마 5종(300마리, 해당 건물 완공 필요)과 머리 10종(50마리)·목 10종·신발 10종(30마리)을 발행한다. 신발 10종은 꾸미기 카탈로그에 그림이 없어 상점 목록·상세·구매에서 숨겨진다(GROMO-2877). 그래서 지금 보이는 상품은 25개이고, 신발 그림이 카탈로그에 들어오면 같은 가격으로 판매가 열린다. 가격은 dev에 2026-11-12에 넣은 발행본 v1과 같다. dev의 v1에는 우리 섬 탭 1번에 소다 섬 테마가 더 있으며, 기본 SQL은 그 행을 건드리지 않는다. 운영에서는 사도 섬 지도에 그려지는 것이 없어 소다 섬 테마를 팔지 않는다. 그래서 우리 섬 탭 순서는 2부터 시작한다. dev 행과 값이 같아야 충돌 없이 기동하므로 순서를 바꾸지 않는다.
+판매 revision과 발행본 항목은 불변이다. 가격·목록을 바꿀 때는 새 revision과 새 발행본 version을 넣고 활성 포인터를 옮긴다. 기본 SQL은 이미 있는 포인터와 발행·퇴역·무효 시각을 보존한다. 포인터 행만 지우면 다음 기동에서 v1로 되살아난다. 판매를 멈출 때는 빈 발행본으로 포인터를 옮기거나, v1에 퇴역·무효 시각을 찍은 뒤 포인터를 지운다. 기본 SQL은 퇴역·무효인 발행본으로 포인터를 되살리지 않는다. `ShopService.products()`는 퇴역·무효를 거르지 않으므로, 포인터가 그 발행본을 가리킨 채로 두면 판매가 계속된다.
 로컬 전용 `server/scripts/local/seed-customization.sql`의 오리 모자·단계 보상은 포함하지 않는다.
 
 건물 종류의 초기 7행과 선행 관계는 V2 마이그레이션이 만든다. 건물 ID는 기존 API·시설·가격표의
@@ -219,7 +224,7 @@ CHECK의 동등한 캐스트 표현을 바꾸므로 기존 전환 결과와 빈 
 V138까지 적용하고, 별도 복제본에 `preparation()`·`retire.sql`·승인된 봇 행 정리를
 같은 트랜잭션으로 실행한다. 그 결과를 `pg_dump --schema-only --no-owner --no-privileges
 --exclude-table=public.flyway_schema_history`로 추출해 V0를 만든다. 기본 SQL은 위
-8개 테이블의 최종 345행에서 생성/발행/퇴역 시각을 제외하여 구성한다. 원본 DB와
+8개 테이블의 최종 345행에서 생성/발행/퇴역 시각을 제외하여 구성했고, 이후 상점 발행본 v1의 4개 테이블 77행을 더했다(GROMO-2890). 원본 DB와
 그 custom-format 백업 복원본의 source 지문, 양쪽 정리 결과와 빈 DB의 V0·콜백 적용
 결과의 target 지문을 `schema.sql`로 비교한 뒤 manifest에 기록한다. 마지막으로
 V138→V0 CLI 전환·전체 백업 복원과 위 테스트를 검증한다. 이 순서를 재현하더라도

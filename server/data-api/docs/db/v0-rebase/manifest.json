@@ -1282,12 +1282,16 @@
     "construction_cost_policies": 7,
     "construction_cost_policy_publication": 1,
     "focus_reward_policies": 1,
-    "catalog_assets": 157,
+    "catalog_assets": 162,
     "magazine_asset_meta": 64,
     "audio_tracks": 3,
     "customization_reward_policies": 2,
-    "customization_reward_items": 110
+    "customization_reward_items": 110,
+    "shop_product_revisions": 35,
+    "shop_catalog_publications": 1,
+    "shop_catalog_publication_entries": 35,
+    "shop_catalog_active_publication": 1
   },
-  "seed_sha256": "5e85cf2fdf148fb7b230ea446c38470b1463d540b8198cc44bc6767b76f29278",
-  "seed_checksum": -952153323
+  "seed_sha256": "439812eebf584c9585e5bd1b5e9ee61093807b6a2cb85c3d59b7aa1266b8c6d6",
+  "seed_checksum": -1853890198
 }
