@@ -3830,3 +3830,31 @@ test('새 섬 초안은 닫았다 열면 복원되고 서버 실패 때 남으�
     await removeCreateIslandDraft('island-draft-test');
   }
 });
+
+test('새 섬 생성이 성공한 뒤 초안 삭제가 실패해도 완료 화면에 초안 오류를 띄우지 않는다', async () => {
+  await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'island-draft-clear-fail' });
+  const removeItem = AsyncStorage.removeItem as jest.Mock;
+  const original = removeItem.getMockImplementation();
+  removeItem.mockImplementation((key: string) =>
+    key.startsWith('gromo.createIslandDraft.v1:')
+      ? Promise.reject(new Error('AsyncStorage 삭제 실패'))
+      : original?.(key),
+  );
+  const create = jest.fn(async (_input: any) => {});
+  try {
+    const s = await render(<Harness route="createIsland" api={() => ({ create })} />);
+    await waitFor(() => assert.equal(s.getByLabelText('섬 이름').props.editable, true));
+    await fireEvent.changeText(s.getByLabelText('섬 이름'), '새 섬');
+    await fireEvent.press(s.getByLabelText('섬 만들기'));
+    await waitFor(() => s.getByText('섬을 만들었어요'));
+    assert.ok(
+      !s.queryByText('초안을 저장하지 못했어요. 입력 내용을 확인해 주세요.'),
+      '완료 화면에 초안 오류가 보인다',
+    );
+    await s.unmount();
+  } finally {
+    removeItem.mockImplementation(original);
+    await clearSession();
+    await removeCreateIslandDraft('island-draft-clear-fail');
+  }
+});

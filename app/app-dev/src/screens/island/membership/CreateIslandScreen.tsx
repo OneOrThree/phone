@@ -246,7 +246,8 @@ function CreateIslandEditor({
               {c.serverError}
             </Txt>
           ) : null}
-          {storageError ? (
+          {/* 생성이 끝난 뒤의 초안 삭제 실패는 입력과 무관하므로 완료 화면에 띄우지 않는다 */}
+          {storageError && !serverDone ? (
             <Txt accessibilityRole="alert" style={[styles.meta, { color: S.color.danger }]}>
               {t('onboarding.createIsland.draftError')}
             </Txt>
