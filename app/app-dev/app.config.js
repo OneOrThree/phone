@@ -30,9 +30,10 @@ module.exports = {
       },
       fallbackToCacheTimeout: 0,
       enableBsdiffPatchSupport: true,
-      // `src/assets/ota/**` 만 OTA 업데이트에 싣는다. 그 밖의 에셋은 바이너리에만 있으니
+      // `src/assets/ota/**` 와 AI 판정 모델 `src/assets/ml/**` 만 OTA 업데이트에 싣는다. 그 밖의 에셋은 바이너리에만 있으니
       // 새 그림은 ota/ 아래에 둔다(README 「문구·이미지 추가 규칙」). 자동 검사는 없다.
-      assetPatternsToBeBundled: ['src/assets/ota/**/*'],
+      // ml/ 을 빼면 모델을 바꾼 JS 가 OTA 로 나갈 때 구 바이너리에서 새 .tflite 를 못 찾아 AI 측정이 깨진다(GROMO-2879).
+      assetPatternsToBeBundled: ['src/assets/ota/**/*', 'src/assets/ml/**/*'],
     },
     extra: {
       eas: {
