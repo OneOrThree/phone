@@ -196,13 +196,6 @@ function SessionCamera({
             maxWidth: '100%',
           }}
         >
-          <Txt kind="meta" style={{ flexShrink: 1 }}>
-            {t(
-              measuring
-                ? 'verification.session.measurementActive'
-                : 'verification.session.measurementPreparing',
-            )}
-          </Txt>
           <View
             testID="verification-measurement-dot"
             style={{
@@ -212,6 +205,13 @@ function SessionCamera({
               backgroundColor: measuring ? ui.measurementColor : ui.waitingColor,
             }}
           />
+          <Txt kind="meta" style={[textStyle, { flexShrink: 1 }]}>
+            {t(
+              measuring
+                ? 'verification.session.measurementActive'
+                : 'verification.session.measurementPreparing',
+            )}
+          </Txt>
         </View>
       )}
       <View
@@ -312,6 +312,8 @@ function SessionCamera({
             style={{
               flexDirection: 'row',
               alignItems: 'center',
+              // 측정 배지와 같은 왼쪽 기준선·점 위치·글자 스타일로 맞춘다
+              alignSelf: 'flex-start',
               gap: primitiveTokens.space[1],
               backgroundColor: ui.statusBackground,
               paddingHorizontal: ui.statusPaddingHorizontal,
