@@ -22,7 +22,7 @@
 | C05 | **지갑 축은 섬 통장(섬 물고기 — 서버 통화 식별자 `island/village_points`) 하나뿐이다.** ~~개인 지갑 `user/fish`(개인 물고기)~~ 는 2026-09-21 재화-단일로 폐기 — 개인 물고기 지갑을 두지 않는다. ~~초기 집중 기여는 건설 진행량이며 `island/fish` 지갑을 만들지 않음~~ 도 폐기 | PR742 + **2026-09-21 재영님 결정 재화-단일**(~~2026-09-18 D1~~ 대체). 회관·게시판도 별도 진행량이 아니라 섬 통장 잔액으로 짓는다(D4·D6). 식별자 `village_points` 의 개명은 결정에 없다(realtime `EventPayloadValidator` 에 이미 있음) |
 | C06 | 완료한 시설의 재건설은 새 키이면409 STATE_CONFLICT, 원 키이면 원 성공 재생 | 기술 선택. 이미 완료했다는 이유로 새 결제하지 않음 |
 | C07 | 건설 직후 외양의 새 시설 기본 테마를 포함한 전체 buildingThemes와 외양 version 갱신·전체 사건을 같은 TX에 저장 | PR742. GET에서 버전 없이 키를 늘리지 않음 |
-| C08 | GET options는 활성 주민 조회이며 변경 권한이 없는 주민도 항목별 FORBIDDEN 사유를 본다. PUT/POST 실행 권한은 C13 으로 판정한다. `IN_PROGRESS` 는 그 건물이 아니라 **섬에 공사 중인 건물이 하나라도 있으면** 붙는다(C01 자유 순서) | 원본 + GROMO-1999 |
+| C08 | GET options는 활성 주민 조회이며 변경 권한이 없는 주민도 항목별 FORBIDDEN 사유를 본다. PUT/POST 실행 권한은 C13 으로 판정한다. 섬에 공사 중인 건물이 하나라도 있으면 미완공·선행 충족 건물은 모두 고를 수 없다(C01 자유 순서). 사유는 공사 중인 그 건물만 `IN_PROGRESS`, 나머지는 `OTHER_IN_PROGRESS` 다 — 앱이 `IN_PROGRESS` 를 받은 카드에 「공사 중」 배지를 붙이므로 전부 `IN_PROGRESS` 면 모든 카드가 공사 중으로 보였다(GROMO-2854) | 원본 + GROMO-1999 + GROMO-2854 |
 | C09 | ~~초기 집중 기여의 시간 배분·완공 경계·초과분 보존은 PR743 FR-D02를 따른다~~ → **폐기(2026-09-18 재영님 결정 D6 「쌓이면 건설한다」)**. 집중 보상은 지갑에 쌓이고 건설은 쌓인 물고기로 실행한다. 세션 도중 완공의 분할·초과 환류 개념이 없다 | FR-D02 자체가 폐기됐다. 개인 지급/기여 중복 금지 원칙은 D1 두 지갑 축으로 유지 |
 | C10 | 가격 정책은 불변 revision과 현재 publication 포인터로 관리; GET costPolicyVersion, POST expectedCostPolicyVersion 필수 | 승인된 기술 확장. 섬 version과 별개이며 목표 PUT에는 불필요 |
 | C12 | GET options와 POST 건설 응답의 walletVersion은 같은 snapshot의 공동 지갑 version. 잔액과 buildable의 최신성은 이 축으로 판정 | 명시 응답 확장. islandVersion/costPolicyVersion과 독립 |
