@@ -63,6 +63,22 @@ test('미리보기 없이도 측정 중 표시를 유지하고 손 미검출을 
   expect(screen.getByText('측정 중')).toBeTruthy();
 });
 
+test('측정 배지와 판정 배지는 같은 왼쪽 기준선·점 위치·글자 스타일을 쓴다', async () => {
+  const screen = await render(
+    <VerificationSession sessionId="session" enabled textStyle={{ color: '#123456' }} />,
+  );
+  await fireEvent(screen.getByTestId('live-camera'), 'ready');
+  await fireEvent(screen.getByTestId('live-camera'), 'detection', 'missingHand');
+  const indicator = screen.getByTestId('verification-measurement-indicator');
+  const status = screen.getByTestId('verification-detection-status');
+  expect(indicator).toHaveStyle({ alignSelf: 'flex-start' });
+  expect(status).toHaveStyle({ alignSelf: 'flex-start' });
+  expect(indicator.children[0]).toBe(screen.getByTestId('verification-measurement-dot'));
+  expect(status.children[0]).toBe(screen.getByTestId('verification-session-light'));
+  expect(screen.getByText('측정 중')).toHaveStyle({ color: '#123456' });
+  expect(screen.getByText('집중 미확인')).toHaveStyle({ color: '#123456' });
+});
+
 test('OFF·오류·백그라운드에서는 측정 중 표시를 없애고 준비·판정 불가는 빨간 점으로 표시하지 않는다', async () => {
   const screen = await render(<VerificationSession sessionId="session" enabled />);
   const listener = jest.mocked(AppState.addEventListener).mock.calls.at(-1)![1];
