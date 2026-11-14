@@ -407,7 +407,16 @@
       "doneTitle": "Island Created!",
       "doneSub": "\"{{island}}\" is now your island.",
       "nameLabel": "Island Name",
-      "introLabel": "Island Description"
+      "introLabel": "Island Description",
+      "description": "Name your island and choose how others can join.",
+      "required": "Required",
+      "optional": "Optional",
+      "namePlaceholder": "Enter an island name",
+      "introPlaceholder": "Tell others about your island",
+      "returnPrevious": "Tap outside to go back",
+      "draftHint": "Your draft stays on this device when you close.",
+      "draftError": "Could not save your draft. Please check your entries.",
+      "draftUnavailable": "Your entries may not be saved when you close."
     },
     "joinIsland": {
       "title": "Find an Island",
