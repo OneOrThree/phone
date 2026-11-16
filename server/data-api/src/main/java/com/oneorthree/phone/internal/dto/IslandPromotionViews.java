@@ -58,6 +58,15 @@ public final class IslandPromotionViews {
                        Instant appliedAt, boolean editable) {
     }
 
+    /** 주민이 읽는 다음 호 홍보 — {@link Next} 에서 고칠 수 있나({@code editable})만 뺀 칸 내용이다. */
+    public record ResidentNext(UUID promotionId, LocalDate issueDate, String body, PromotionContent.Layout layout,
+                               Instant appliedAt) {
+    }
+
+    /** @param next 다음 호 홍보(없거나 운영이 내렸으면 null) */
+    public record NextPage(ResidentNext next) {
+    }
+
     /** @param body 운영이 내린 칸이면 빈 글이다 — 위반 글을 그대로 다시 싣지 않게 꾸미기만 불러온다 */
     public record Latest(UUID promotionId, LocalDate issueDate, String body, PromotionContent.Layout layout) {
     }

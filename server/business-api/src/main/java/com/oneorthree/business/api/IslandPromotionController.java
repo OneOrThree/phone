@@ -108,6 +108,13 @@ public class IslandPromotionController {
         return promotions.editor(claims, PublicIds.uuid(islandId, "islandId"), properties.deadline());
     }
 
+    /** 다음 호 홍보 칸 — 주민 전원(게스트 포함)이 읽는다. */
+    @GetMapping("/islands/{islandId}/promotions/next")
+    public IslandPromotions.NextPage next(@PathVariable String islandId, HttpServletRequest request) {
+        AccessTokenClaims claims = sessions.requireSession(request);
+        return promotions.next(claims, PublicIds.uuid(islandId, "islandId"), properties.deadline());
+    }
+
     /** 내 꾸미기 재료 — 게스트도 읽는다. */
     @GetMapping("/me/magazine/assets")
     public IslandPromotions.Assets assets(HttpServletRequest request) {
