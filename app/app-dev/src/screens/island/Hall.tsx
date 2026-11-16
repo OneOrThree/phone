@@ -457,9 +457,13 @@ export function Hall({ e }: ScreenProps) {
           ? 'host'
           : 'member'
       : null;
-  const [promotion, setPromotion] = useState<PromotionRead>(null);
+  // 읽은 역할과 함께 둔다 — 위임으로 역할이 바뀐 직후 effect 가 돌기 전 렌더에서 옛 역할의 칸이 새 역할 분기로 그려지지 않게
+  const [promotionRead, setPromotionRead] = useState<{ role: string; value: PromotionRead } | null>(
+    null,
+  );
+  const promotion = promotionRead?.role === promotionRole ? promotionRead.value : null;
   useEffect(() => {
-    setPromotion(null);
+    setPromotionRead(null);
     if (!promotionRole || !liveIslandId) return;
     let alive = true;
     const api = magazineApi();
@@ -469,7 +473,7 @@ export function Hall({ e }: ScreenProps) {
         : api.getNextPromotion(liveIslandId).then((next) => ({ next }));
     read
       .then((value) => {
-        if (alive) setPromotion(value);
+        if (alive) setPromotionRead({ role: promotionRole, value });
       })
       .catch(() => {});
     return () => {
