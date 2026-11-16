@@ -69,7 +69,7 @@ import { captureProductEvent } from '@/services/posthog';
 import { clampCodePoints } from '@/utils/codePoints';
 import { useAppLayout } from '@/utils/layout';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { BackHandler, Image, Pressable, ScrollView, TextInput, View } from 'react-native';
+import { AppState, BackHandler, Image, Pressable, ScrollView, TextInput, View } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 
 // v2 시안(042~061) 마을회관: 책상 장면 → 섬 정보 카드·수정·위임·탈퇴 / 공동 가계부 / 목각 건물·청사진
@@ -82,15 +82,18 @@ const ownGreeting = (detail?: { greeting?: string; greetingIsDefault?: boolean }
 const CARD_INK = '#3e352e';
 const MUTED = '#665348';
 // 섬 관리 카드의 잡지 홍보 칸 카드(GROMO-2894 시안 .slot) — 친구 초대 줄 아래의 편지지 색 종이
+const promo = componentTokens.hallPromotion;
 const promotionSlot = {
-  marginTop: 4,
-  padding: 12,
-  gap: 10,
-  borderWidth: 1.5,
-  borderColor: '#e7cf9a',
-  borderRadius: 14,
-  backgroundColor: '#fff0cf',
+  marginTop: promo.marginTop,
+  padding: promo.padding,
+  gap: promo.gap,
+  borderWidth: promo.borderWidth,
+  borderColor: promo.border,
+  borderRadius: promo.radius,
+  backgroundColor: promo.background,
 } as const;
+const editPill = componentTokens.hallEditPill;
+const nav = componentTokens.navButton;
 // 회관이 읽은 다음 호 우리 섬 칸 — editable·feeFish 는 섬장(editor 조회)에게만 온다. null = 아직·못 읽음
 type PromotionRead = {
   next: (NextPromotion & { editable?: boolean }) | null;
@@ -457,13 +460,19 @@ export function Hall({ e }: ScreenProps) {
           ? 'host'
           : 'member'
       : null;
-  // 읽은 역할과 함께 둔다 — 위임으로 역할이 바뀐 직후 effect 가 돌기 전 렌더에서 옛 역할의 칸이 새 역할 분기로 그려지지 않게
-  const [promotionRead, setPromotionRead] = useState<{ role: string; value: PromotionRead } | null>(
-    null,
-  );
-  const promotion = promotionRead?.role === promotionRole ? promotionRead.value : null;
+  // 읽은 역할·섬과 함께 둔다 — 위임으로 역할이 바뀐 직후 effect 가 돌기 전 렌더에서 옛 역할의 칸이 새 역할 분기로 그려지지 않게.
+  // 같은 역할·섬의 다시 읽기(앱 복귀·발행 시각)는 지우지 않고 덮어써 카드가 「홍보 쓰기」로 잠깐 깜빡이지 않는다
+  const [promotionRead, setPromotionRead] = useState<{
+    role: string;
+    islandId: string;
+    value: PromotionRead;
+  } | null>(null);
+  const promotion =
+    promotionRead?.role === promotionRole && promotionRead?.islandId === liveIslandId
+      ? promotionRead.value
+      : null;
+  const [promotionNonce, setPromotionNonce] = useState(0);
   useEffect(() => {
-    setPromotionRead(null);
     if (!promotionRole || !liveIslandId) return;
     let alive = true;
     const api = magazineApi();
@@ -473,13 +482,33 @@ export function Hall({ e }: ScreenProps) {
         : api.getNextPromotion(liveIslandId).then((next) => ({ next }));
     read
       .then((value) => {
-        if (alive) setPromotionRead({ role: promotionRole, value });
+        if (alive) setPromotionRead({ role: promotionRole, islandId: liveIslandId, value });
       })
       .catch(() => {});
     return () => {
       alive = false;
     };
-  }, [promotionRole, liveIslandId]);
+  }, [promotionRole, liveIslandId, promotionNonce]);
+  // 앱 복귀 때 다시 읽는다 — 다른 기기에서 신청·수정했거나 배경에 있는 사이 07시 발행이 지났을 수 있다(useMagazineToday 와 같은 방식)
+  useEffect(() => {
+    if (!promotionRole) return;
+    const sub = AppState.addEventListener('change', (next) => {
+      if (next === 'active') setPromotionNonce((n) => n + 1);
+    });
+    return () => sub.remove();
+  }, [promotionRole]);
+  // 보이는 다음 호 칸은 그 호가 나오는 KST 07시(+1분 여유, useMagazineToday 와 같다)에 다시 읽는다 — 회관을 켜 둔 채 발행을 넘기면
+  // 섬장은 「홍보 쓰기」로 돌아가고 주민 카드는 사라진다. 발행이 늦어 아직 next 가 오면 10분 뒤 다시(서버 발행 재시도 간격).
+  // 읽을 때마다(promotionRead) 다시 건다
+  const publishCheckAt = promotion?.next
+    ? Date.parse(`${promotion.next.issueDate}T07:01:00+09:00`)
+    : NaN;
+  useEffect(() => {
+    if (!Number.isFinite(publishCheckAt)) return;
+    const wait = publishCheckAt - Date.now();
+    const id = setTimeout(() => setPromotionNonce((n) => n + 1), wait > 0 ? wait : 10 * 60_000);
+    return () => clearTimeout(id);
+  }, [publishCheckAt, promotionRead]);
   // .hl 글자: 고운돋움, 자간 −0.15
   const g = (size: number, lh: number, extra?: object) => ({
     fontFamily: font,
@@ -2653,9 +2682,13 @@ export function Hall({ e }: ScreenProps) {
       style={{
         flexDirection: 'row',
         alignItems: 'center',
-        gap: 3,
+        gap: editPill.actionsGap,
         ...(land
-          ? { alignSelf: 'flex-end', marginTop: -17, marginRight: -8 }
+          ? {
+              alignSelf: 'flex-end',
+              marginTop: editPill.landscapePullTop,
+              marginRight: editPill.landscapePullRight,
+            }
           : { alignSelf: 'flex-start' }),
       }}
     >
@@ -2683,19 +2716,19 @@ export function Hall({ e }: ScreenProps) {
         >
           <View
             style={{
-              minHeight: 34,
+              minHeight: nav.size,
               flexDirection: 'row',
               alignItems: 'center',
-              gap: 5,
-              paddingHorizontal: 12,
-              borderWidth: 1.5,
-              borderColor: BROWN,
-              borderRadius: 999,
-              backgroundColor: '#fffaf0',
-              boxShadow: `0px 2px 0px ${BROWN}`,
+              gap: editPill.gap,
+              paddingHorizontal: editPill.paddingHorizontal,
+              borderWidth: nav.borderWidth,
+              borderColor: semanticTokens.color.outline,
+              borderRadius: semanticTokens.radius.full,
+              backgroundColor: componentTokens.button.secondaryBackground,
+              boxShadow: `0px ${nav.shadowOffset}px 0px ${semanticTokens.color.outline}`,
             }}
           >
-            <Icon d={PENCIL} size={16} />
+            <Icon d={PENCIL} size={editPill.iconSize} />
             <T style={g(14, 20, { color: CARD_INK, fontWeight: '700' })}>{t('ui.hall.edit')}</T>
           </View>
         </Pressable>
@@ -2770,19 +2803,21 @@ export function Hall({ e }: ScreenProps) {
       accessibilityState={{ disabled: managementBusy }}
       disabled={managementBusy}
       onPress={() => e.go('promotionEditor')}
-      hitSlop={3}
+      hitSlop={(semanticTokens.size.tapMin - componentTokens.button.heightSmall) / 2}
       style={{
-        minHeight: 38,
+        minHeight: componentTokens.button.heightSmall,
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'center',
-        gap: 6,
-        paddingHorizontal: 14,
-        borderWidth: 2,
-        borderColor: BROWN,
-        borderRadius: 999,
+        gap: promo.buttonGap,
+        paddingHorizontal: promo.buttonPaddingX,
+        borderWidth: componentTokens.button.borderWidth,
+        borderColor: semanticTokens.color.outline,
+        borderRadius: componentTokens.button.radius,
         backgroundColor,
-        boxShadow: managementBusy ? 'none' : `0px 3px 0px ${BROWN}`,
+        boxShadow: managementBusy
+          ? 'none'
+          : `0px ${promo.buttonShadowOffset}px 0px ${semanticTokens.color.outline}`,
         opacity: managementBusy ? componentTokens.button.disabledOpacity : 1,
       }}
     >
@@ -2818,14 +2853,14 @@ export function Hall({ e }: ScreenProps) {
         pointerEvents="none"
         style={{
           position: 'absolute',
-          right: promotionSlot.padding - cellW * 0.04,
-          top: promotionSlot.padding - cellW * CELL_ASPECT * 0.14,
-          width: cellW * 0.3,
-          height: cellW * 0.3,
-          opacity: 0.95,
+          right: promotionSlot.padding - cellW * promo.stamp.rightRatio,
+          top: promotionSlot.padding - cellW * CELL_ASPECT * promo.stamp.topRatio,
+          width: cellW * promo.stamp.widthRatio,
+          height: cellW * promo.stamp.widthRatio,
+          opacity: promo.stamp.opacity,
           // 도장 그림의 크림색 바탕이 칸·스티커를 덮지 않게 곱하기로 찍는다(시안과 같다). 섞기는 View 스타일이라 감싼다
           mixBlendMode: 'multiply',
-          transform: [{ rotate: '-14deg' }],
+          transform: [{ rotate: promo.stamp.rotation }],
         }}
       >
         <Image
@@ -2848,7 +2883,7 @@ export function Hall({ e }: ScreenProps) {
             flexWrap: 'wrap',
             alignItems: 'center',
             justifyContent: 'space-between',
-            gap: 8,
+            gap: promo.footerGap,
           }}
         >
           <T testID="hall-promotion-issue" style={g(14, 21, { color: MUTED })}>
@@ -2858,7 +2893,7 @@ export function Hall({ e }: ScreenProps) {
             editorButton(
               'hall-promotion-edit',
               t('magazine.hall.edit'),
-              '#fffaf0',
+              componentTokens.button.secondaryBackground,
               buttonText(t('magazine.hall.edit')),
             )}
         </View>
@@ -2866,22 +2901,22 @@ export function Hall({ e }: ScreenProps) {
     ) : (
       <View
         testID="hall-promotion-card"
-        style={[promotionSlot, { flexDirection: 'row', alignItems: 'center', gap: 12 }]}
+        style={[promotionSlot, { flexDirection: 'row', alignItems: 'center', gap: promo.rowGap }]}
       >
         <Image
           source={MAGAZINE_UI.cover}
           accessible={false}
           resizeMode="contain"
           style={{
-            width: 62,
-            height: (62 * 250) / 210,
-            marginTop: -18,
-            marginBottom: -6,
-            marginLeft: -4,
-            transform: [{ rotate: '-7deg' }],
+            width: promo.cover.width,
+            height: promo.cover.width * promo.cover.aspect,
+            marginTop: promo.cover.top,
+            marginBottom: promo.cover.bottom,
+            marginLeft: promo.cover.left,
+            transform: [{ rotate: promo.cover.rotation }],
           }}
         />
-        <View style={{ flex: 1, alignItems: 'flex-start', gap: 9 }}>
+        <View style={{ flex: 1, alignItems: 'flex-start', gap: promo.stackGap }}>
           <T style={g(15, 20.25, { color: CARD_INK, fontWeight: '700' })}>
             {t('magazine.editor.entry')}
           </T>
@@ -2893,8 +2928,12 @@ export function Hall({ e }: ScreenProps) {
               {buttonText(t('magazine.hall.write'))}
               {/* 홍보비는 서버가 준 값만 — 읽기 전·실패면 숫자를 지어내지 않고 버튼 글자만 둔다 */}
               {promotion?.feeFish != null && (
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
-                  <Image source={art.fish} accessible={false} style={{ width: 20, height: 20 }} />
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: promo.fishGap }}>
+                  <Image
+                    source={art.fish}
+                    accessible={false}
+                    style={{ width: promo.fishSize, height: promo.fishSize }}
+                  />
                   {buttonText(String(promotion.feeFish))}
                 </View>
               )}
@@ -2910,7 +2949,7 @@ export function Hall({ e }: ScreenProps) {
         {hostMember && (
           <View
             testID="hall-promotion-host"
-            style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}
+            style={{ flexDirection: 'row', alignItems: 'center', gap: promo.hostGap }}
           >
             <View>
               <Avatar
@@ -2918,7 +2957,7 @@ export function Hall({ e }: ScreenProps) {
                 color={hostMember.color}
                 outfit={hostMember.outfit}
                 n={hostIndex}
-                size={26}
+                size={promo.hostAvatar}
               />
               {crown}
             </View>

@@ -10,7 +10,7 @@ import type { Route } from '@/services/model';
 import { currentIsland, initialState, joinRequests, reducer, viewIsland } from '@/services/model';
 import { act, cleanup, fireEvent, render, waitFor, within } from '@testing-library/react-native';
 import assert from 'node:assert/strict';
-import { Platform, StyleSheet } from 'react-native';
+import { AppState, Platform, StyleSheet } from 'react-native';
 
 jest.mock('@/screens/interiors/useIslandManagement', () => ({
   ...jest.requireActual('@/screens/interiors/useIslandManagement'),
@@ -1121,6 +1121,42 @@ test.each([
   expect(screen.queryByTestId('hall-promotion-card')).toBeNull();
   expect(screen.getByTestId('hall-invite')).toBeTruthy();
   expect(screen.queryByTestId('hall-management-action-error')).toBeNull();
+});
+
+test('회관을 켜 둔 채 그 호 발행(KST 07시)을 넘기면 다시 읽어 「홍보 쓰기」로 돌아간다', async () => {
+  jest.useFakeTimers({ now: Date.parse('2026-11-17T06:58:00+09:00') });
+  try {
+    getEditorMock
+      .mockResolvedValueOnce(editorRead({ ...nextWire, editable: false }))
+      .mockResolvedValue(editorRead());
+    const screen = await render(<Hall e={createPreviewEnvironment(e())} />);
+    await screen.findByTestId('hall-promotion-cell');
+    expect(getEditorMock).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      jest.advanceTimersByTime(3 * 60_000);
+    });
+    await screen.findByTestId('hall-promotion-editor');
+    expect(getEditorMock).toHaveBeenCalledTimes(2);
+    expect(screen.queryByTestId('hall-promotion-cell')).toBeNull();
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
+test('앱이 포그라운드로 돌아오면 홍보 칸을 다시 읽는다', async () => {
+  managementMock.mockReturnValue(management({ role: 'member', requests: null }));
+  getNextMock.mockResolvedValueOnce(null).mockResolvedValue(nextWire);
+  const screen = await render(<Hall e={createPreviewEnvironment(e())} />);
+  await waitFor(() => expect(getNextMock).toHaveBeenCalledTimes(1));
+  expect(screen.queryByTestId('hall-promotion-card')).toBeNull();
+  // 프리셋의 AppState 목은 jest.fn 이라 등록된 리스너가 호출 기록에 남는다 — 바꿔 끼우지 않고 그대로 불러 복귀를 흉내 낸다
+  const listeners = jest
+    .mocked(AppState.addEventListener)
+    .mock.calls.filter(([type]) => type === 'change')
+    .map(([, listener]) => listener);
+  await act(async () => listeners.forEach((listener) => listener('active')));
+  await screen.findByTestId('hall-promotion-cell');
+  expect(getNextMock).toHaveBeenCalledTimes(2);
 });
 
 test('다른 섬을 구경 중인 방문자는 홍보 칸을 부르지 않는다', async () => {
