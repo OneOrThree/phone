@@ -10,6 +10,7 @@ import {
   getMagazineIssue,
   getMagazineIssues,
   getMagazineToday,
+  getNextPromotion,
   getPromotionEditor,
   putMagazineReceipt,
   reportPromotion,
@@ -131,6 +132,17 @@ test('getMagazineAssets · getIslandNews — 경로와 모양', async () => {
   const news = await getIslandNews('i1', 5);
   expect(path(calls[1])).toBe('/islands/i1/news?limit=5');
   expect(news.map((n) => n.id)).toEqual(['n1']);
+});
+
+test('getNextPromotion — GET /islands/{id}/promotions/next, 없으면 null · 모양이 어긋나면 계약 오류', async () => {
+  const next = { promotionId: 'p1', issueDate: '2026-11-17', body: '안녕', layout, appliedAt: 'a' };
+  stub(200, { next });
+  await expect(getNextPromotion('i 1')).resolves.toEqual({ ...next, layout });
+  expect(path(calls[0])).toBe('/islands/i%201/promotions/next');
+  stub(200, { next: null });
+  await expect(getNextPromotion('i1')).resolves.toBeNull();
+  stub(200, { next: { promotionId: 'p1' } });
+  await expect(getNextPromotion('i1')).rejects.toMatchObject({ code: 'CLIENT_CONTRACT_ERROR' });
 });
 
 // ── 잡지 읽기(서버 publish 브랜치 business-api Magazines DTO) ──
