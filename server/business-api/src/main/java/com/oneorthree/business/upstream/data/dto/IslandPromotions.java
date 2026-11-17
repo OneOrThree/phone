@@ -99,6 +99,20 @@ public final class IslandPromotions {
             @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) boolean editable) {
     }
 
+    /** 주민이 읽는 다음 호 홍보(상류 수신용) — 공개 응답은 api.dto.IslandPromotionResponses 로 감싼다. {@code next} 는 없으면 null 이고 키는 늘 실린다. */
+    public record NextPage(
+            @JsonProperty(required = true) @JsonInclude(JsonInclude.Include.ALWAYS) ResidentNext next) {
+    }
+
+    public record ResidentNext(
+            @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) UUID promotionId,
+            @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String issueDate,
+            @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String body,
+            @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL)
+            @Schema(implementation = Map.class) ObjectNode layout,
+            @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) Instant appliedAt) {
+    }
+
     /** 이미 나간 가장 최근 호의 홍보. */
     @Schema(name = "IslandPromotionLatest")
     public record Latest(

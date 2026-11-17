@@ -72,6 +72,7 @@ API 122개 / 서버 경로 미일치 0개 / 미해석 0개 / 시나리오 등록
 | POST | `/islands/{}/promotions/{}/reports` | 일치 | 미등록 | NOT_RUN | app/app-dev/src/services/api/magazine.ts:441 |
 | PUT | `/islands/{}/promotions/{}` | 일치 | 미등록 | NOT_RUN | app/app-dev/src/services/api/magazine.ts:174 |
 | GET | `/islands/{}/promotions/editor` | 일치 | 미등록 | NOT_RUN | app/app-dev/src/services/api/magazine.ts:148 |
+| GET | `/islands/{}/promotions/next` | 일치 | 미등록 | NOT_RUN | - |
 | POST | `/islands/{}/promotions` | 일치 | 미등록 | NOT_RUN | app/app-dev/src/services/api/magazine.ts:161 |
 | POST | `/islands/{}/quests/{}/claims` | 일치 | 미등록 | NOT_RUN | app/app-dev/src/services/api/quests.ts:157 |
 | GET | `/islands/{}/quests/{}/progress` | 일치 | 미등록 | NOT_RUN | app/app-dev/src/services/api/quests.ts:110 |

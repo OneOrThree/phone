@@ -260,6 +260,25 @@ public class IslandPromotionService {
     }
 
     /**
+     * 다음 호 홍보 칸 읽기 (GROMO-2893) — 활성 주민이면 누구나(섬장·주민·게스트 주민). 멤버십 규칙과 오류는
+     * {@link #news} 와 같다(비주민·떠난 사람 403 {@code MEMBER_ONLY}, 닫힌 섬 404). 07:00 발행이 지나면
+     * {@code upcomingIssueDate} 가 다음 호로 넘어가므로 자연히 null 이 된다. 수정 가능 여부·홍보비·잔액은 싣지 않는다.
+     */
+    @Transactional(readOnly = true)
+    public IslandPromotionViews.NextPage nextForResident(UUID userId, UUID islandId) {
+        User caller = users.getCaller(userId);
+        Group island = groups.getGroup(islandId);
+        IslandMovementGuards.requireAlive(island);
+        groups.getMembership(caller, island);
+        LocalDate upcoming = MagazineCalendar.upcomingIssueDate(clock.instant());
+        return new IslandPromotionViews.NextPage(promotions.findByIslandIdAndIssueDate(islandId, upcoming)
+                .filter(p -> !p.isRemoved())
+                .map(p -> new IslandPromotionViews.ResidentNext(p.getId(), p.getIssueDate(), p.getBody(),
+                        p.getLayout(), p.getAppliedAt()))
+                .orElse(null));
+    }
+
+    /**
      * 글·배치 모양 → 금칙어 → 재료 종류 → 보유. 카탈로그에 없거나 자리에 맞지 않는 종류의 재료는 400
      * {@code PROMOTION_LAYOUT_INVALID}, 쓸 수 없는 재료는 403 {@code PROMOTION_ASSET_NOT_OWNED} 다.
      *
