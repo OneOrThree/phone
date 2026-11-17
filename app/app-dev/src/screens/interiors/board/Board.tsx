@@ -100,12 +100,20 @@ export function Board({
   const overlayOpenerRef = useRef<HTMLElement | null>(null);
   const overlayWasOpen = useRef(false);
   const overlayWasTopmost = useRef(false);
-  // 앱 라우트에서도 화면 안에서만 잠깐 쓰는 상태: 댓글 입력 열림 · 삭제 확인 · 목표 분 · 오류
+  // 앱 라우트에서도 화면 안에서만 잠깐 쓰는 상태: 댓글 입력 열림 · 삭제 확인 · 목표 분 · 오류 ·
+  // 퀘스트 시간대 겹침(서버 409, GROMO-2898)
   const [ui, setUi] = useState({
     comment: false,
-    confirm: null as null | { target: 'notice' | 'comment'; index: number; commentId?: string },
+    confirm: null as null | {
+      target: 'notice' | 'comment' | 'quest';
+      index: number;
+      commentId?: string;
+      // 퀘스트 삭제 요청이 나가는 동안 확인 버튼을 끈다
+      busy?: boolean;
+    },
     target: '',
     error: '',
+    overlap: false,
   });
   // 매초 오는 now로 다시 계산하지 않게, 상태가 바뀌거나 날짜가 넘어갈 때만 계산한다
   // (집중·공사 중에는 달성률·공사 진행률이 시간에 따라 변하므로 매번 계산)
@@ -129,6 +137,7 @@ export function Board({
       comment: false,
       confirm: null,
       error: '',
+      overlap: false,
       target: editing
         ? String('targetMinutes' in editing ? editing.targetMinutes : editing.target)
         : prev.target,
@@ -171,6 +180,8 @@ export function Board({
   const claimInflight = useRef<string | null>(null);
   const constructionInflight = useRef<string | null>(null);
   const buildingOpenPending = useRef(false);
+  // 수정 종이에서 지운 퀘스트의 회차 id — 뒤로 가면 그 상세에 닿으므로 한 단계 더 돌아가 목록을 연다.
+  const deletedQuest = useRef<string | null>(null);
 
   // 다른 섬 방문자: 공지·댓글·퀘스트는 읽기만 하고 청사진은 보지 않는다
   const visitor = app ? app.visitor : concept.boardView === 'visitor';
@@ -387,11 +398,15 @@ export function Board({
   // 서버 경로의 공지는 이 검사를 건너뛴다 — 목록은 첫 페이지뿐이라 없는 id 판정이 틀리고,
   // 진짜 없는 공지는 상세 GET 의 오류 화면이 담당한다.
   const homeQuestList = e?.route === 'quest' && e.detail === HOME_QUEST_LIST_DETAIL;
+  // 방금 지운 퀘스트의 상세로 돌아온 순간 — 상세를 그리지 않고 목록으로 한 단계 더 돌아간다(GROMO-2898).
+  const leavingDeletedQuest =
+    !!e && e.route === 'quest' && !!e.detail && e.detail === deletedQuest.current;
   const missing =
     !!e &&
-    ((!serverBoard &&
-      (e.route === 'notice' || (e.route === 'noticeEdit' && e.detail)) &&
-      !notices.some((n) => n.id === e.detail)) ||
+    (leavingDeletedQuest ||
+      (!serverBoard &&
+        (e.route === 'notice' || (e.route === 'noticeEdit' && e.detail)) &&
+        !notices.some((n) => n.id === e.detail)) ||
       // 서버 경로의 퀘스트도 이 검사를 건너뛴다 — 목록 로딩 중엔 모르고, 진짜 없는 회차는
       // progress GET 의 오류 화면(QUEST_GONE·404)이 담당한다.
       (!serverBoard &&
@@ -400,6 +415,11 @@ export function Board({
         !quests.some((q) => q.id === e.detail)));
   useEffect(() => {
     if (!missing) return;
+    if (leavingDeletedQuest) {
+      deletedQuest.current = null;
+      e.back();
+      return;
+    }
     e.replace('board');
     e.setTab(e.route === 'quest' || e.route === 'questEdit' ? boardTabs.quest : boardTabs.notice);
   }, [missing]);
@@ -624,24 +644,67 @@ export function Board({
         draft: null,
       });
     },
-    askDelete: (target: 'notice' | 'comment', index = 0) => {
+    askDelete: (target: 'notice' | 'comment' | 'quest', index = 0) => {
       if (visitor) return;
       const comment = (serverBoard ? serverDetailView : notices[s.noticeIndex])?.comments[index];
-      if (target === 'notice' ? !owner : !comment || (!owner && !comment.mine)) return;
+      if (target !== 'comment' ? !owner : !comment || (!owner && !comment.mine)) return;
       draftEpoch.current += 1;
       if (e)
         return setUi((prev) => ({ ...prev, confirm: { target, index, commentId: comment?.id } }));
       render(
-        target === 'notice'
-          ? { deleteTarget: 'notice', view: 'confirm' }
-          : { deleteTarget: 'comment', commentIndex: index, view: 'confirm' },
+        target === 'comment'
+          ? { deleteTarget: 'comment', commentIndex: index, view: 'confirm' }
+          : { deleteTarget: target, view: 'confirm' },
       );
     },
     cancelDelete: () => {
       draftEpoch.current += 1;
-      return e ? setUi((prev) => ({ ...prev, confirm: null })) : render({ view: 'detail' });
+      return e
+        ? setUi((prev) => ({ ...prev, confirm: null }))
+        : render({ view: s.deleteTarget === 'quest' ? 'write' : 'detail' });
     },
     confirmDelete: () => {
+      // 퀘스트 삭제(GROMO-2898) — 방장이 수정 종이에서 지운다. 성공하면 목록으로 돌아간다.
+      if (s.deleteTarget === 'quest') {
+        if (!owner) return;
+        if (!e) {
+          setQuests(mockQuests.filter((_, i) => i !== s.questIndex));
+          return render({ questIndex: 0, view: 'list', questForm: null, editing: false });
+        }
+        const occurrenceId = e.detail;
+        if (!serverBoard) {
+          // 목업(review/demo) 경로 — 로컬 dispatch.
+          e.dispatch({ type: 'QUEST_DELETE', id: occurrenceId });
+          deletedQuest.current = occurrenceId;
+          return e.back();
+        }
+        const questId = quests.find((quest) => quest.id === occurrenceId)?.questId;
+        if (!questId || deleteInflight.current === questId) return;
+        deleteInflight.current = questId;
+        const op = routeGen.current;
+        const draftOp = draftEpoch.current;
+        setUi((prev) =>
+          prev.confirm ? { ...prev, confirm: { ...prev.confirm, busy: true } } : prev,
+        );
+        board.deleteQuest(questId).then(
+          () => {
+            if (deleteInflight.current === questId) deleteInflight.current = null;
+            // 확인창을 취소·재열거나 화면이 바뀌면 옛 삭제의 닫기/back 은 실행하지 않는다.
+            const now = liveE(op);
+            if (!now || draftEpoch.current !== draftOp) return;
+            deletedQuest.current = occurrenceId;
+            setUi((prev) => ({ ...prev, confirm: null }));
+            now.back();
+          },
+          (err: unknown) => {
+            if (deleteInflight.current === questId) deleteInflight.current = null;
+            const now = liveE(op);
+            if (!now || draftEpoch.current !== draftOp) return;
+            setUi((prev) => ({ ...prev, confirm: null, error: apiWriteMessage(err) }));
+          },
+        );
+        return;
+      }
       if (s.deleteTarget === 'notice') {
         if (!owner) return;
         if (e && !serverBoard) {
@@ -840,10 +903,11 @@ export function Board({
       if (patch.title !== undefined) e.setText(patch.title);
       if (patch.startTime !== undefined) e.setWindowStart(patch.startTime);
       if (patch.endTime !== undefined) e.setWindowEnd(patch.endTime);
-      // 목표 분은 정수만 받는다
+      // 목표 분은 정수만 받는다. 시간대 겹침 안내는 시간대를 바꾸면 지운다.
       setUi((prev) => ({
         ...prev,
         error: '',
+        overlap: prev.overlap && patch.startTime === undefined && patch.endTime === undefined,
         target: patch.target === undefined ? prev.target : patch.target.replace(/\D/g, ''),
       }));
     },
@@ -911,7 +975,16 @@ export function Board({
           },
           (err: unknown) => {
             if (questInflight.current === intent) questInflight.current = null;
-            if (liveE(op)) setError(apiWriteMessage(err));
+            if (!liveE(op)) return;
+            // 같은 섬의 다른 집중 퀘스트와 시간대가 겹치면(서버 409) 시간 입력칸 아래에 알린다(GROMO-2898).
+            if (
+              err instanceof ApiError &&
+              err.status === 409 &&
+              err.code === 'STATE_CONFLICT' &&
+              err.field === 'windowStart'
+            )
+              return setUi((prev) => ({ ...prev, error: '', overlap: true }));
+            setError(apiWriteMessage(err));
           },
         );
         return;
@@ -1473,6 +1546,41 @@ export function Board({
     );
   };
 
+  // 삭제 확인 — 공지·댓글·퀘스트가 같은 확인창을 쓴다.
+  const deleteConfirm = () => (
+    <View>
+      <Text style={[h4, { marginTop: 4, marginRight: 34, marginBottom: 12 }]}>
+        {t('ui.board.confirmDelete', {
+          v0:
+            s.deleteTarget === 'notice'
+              ? t('ui.board.noticeObject')
+              : s.deleteTarget === 'quest'
+                ? t('ui.board.questObject')
+                : t('ui.board.commentObject'),
+        })}
+      </Text>
+      <Text style={[boardFont(14, 1.6), { marginTop: 2, marginBottom: 18 }]}>
+        {t('ui.board.cannotUndo')}
+      </Text>
+      <View style={{ flexDirection: 'row', gap: 10 }}>
+        <BoardPill
+          testID="board-delete-cancel"
+          label={t('common.cancel')}
+          style={{ flex: 1 }}
+          onPress={nav.cancelDelete}
+        />
+        <BoardPill
+          testID="board-delete-confirm"
+          label={t('ui.social.delete')}
+          primary
+          disabled={!!ui.confirm?.busy}
+          style={{ flex: 1 }}
+          onPress={nav.confirmDelete}
+        />
+      </View>
+    </View>
+  );
+
   const noticeContent = () => {
     switch (s.view) {
       case 'detail':
@@ -1481,36 +1589,7 @@ export function Board({
       case 'edit':
         return noticeEditor();
       case 'confirm':
-        return (
-          <View>
-            <Text style={[h4, { marginTop: 4, marginRight: 34, marginBottom: 12 }]}>
-              {t('ui.board.confirmDelete', {
-                v0:
-                  s.deleteTarget === 'notice'
-                    ? t('ui.board.noticeObject')
-                    : t('ui.board.commentObject'),
-              })}
-            </Text>
-            <Text style={[boardFont(14, 1.6), { marginTop: 2, marginBottom: 18 }]}>
-              {t('ui.board.cannotUndo')}
-            </Text>
-            <View style={{ flexDirection: 'row', gap: 10 }}>
-              <BoardPill
-                testID="board-delete-cancel"
-                label={t('common.cancel')}
-                style={{ flex: 1 }}
-                onPress={nav.cancelDelete}
-              />
-              <BoardPill
-                testID="board-delete-confirm"
-                label={t('ui.social.delete')}
-                primary
-                style={{ flex: 1 }}
-                onPress={nav.confirmDelete}
-              />
-            </View>
-          </View>
-        );
+        return deleteConfirm();
       default:
         return noticeList();
     }
@@ -1535,15 +1614,35 @@ export function Board({
       target: '50',
     };
   const questSave = (form: QuestForm) => (
-    <BoardPill
-      testID="board-quest-save"
-      label={s.editing ? t('ui.board.saveChanges') : t('ui.board.startQuest')}
-      primary
-      onPress={() => nav.submitQuest(form)}
-    />
+    <View
+      style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: semanticTokens.spacing.component,
+      }}
+    >
+      <BoardPill
+        testID="board-quest-save"
+        label={s.editing ? t('ui.board.saveChanges') : t('ui.board.startQuest')}
+        primary
+        style={{ flex: 1 }}
+        onPress={() => nav.submitQuest(form)}
+      />
+      {/* 방장이 기존 퀘스트를 고칠 때만 — 공지 상세의 삭제와 같은 위험 글자 버튼이다(GROMO-2898). */}
+      {s.editing && owner && (
+        <Link
+          testID="board-quest-delete"
+          label={t('ui.social.delete')}
+          danger
+          minTapHeight={44}
+          onPress={() => nav.askDelete('quest')}
+        />
+      )}
+    </View>
   );
 
   const questContent = (listOnly = false) => {
+    if (!listOnly && s.view === 'confirm') return deleteConfirm();
     if (!listOnly && s.view === 'detail') {
       const quest = quests[s.questIndex] ?? quests[0];
       if (!quest) return questContent(true);
@@ -1764,6 +1863,16 @@ export function Board({
                       style={boardFont(13, 1.45, '400', semanticTokens.color.danger)}
                     >
                       {t('board.quest.crossMidnight')}
+                    </Text>
+                  )}
+                  {/* 다른 집중 퀘스트와 겹친다는 서버 거절(409) — 시간대를 바꾸면 사라진다(GROMO-2898). */}
+                  {ui.overlap && (
+                    <Text
+                      testID="board-quest-overlap-error"
+                      accessibilityRole="alert"
+                      style={boardFont(13, 1.45, '400', semanticTokens.color.danger)}
+                    >
+                      {t('board.quest.overlap')}
                     </Text>
                   )}
                 </BoardField>

@@ -9,7 +9,7 @@
  *   창은 절대 시각 구간이라 **이 어댑터가 경계에서만** KST↔UTC 벽시계 변환을 한다(GROMO-2672):
  *   읽기(current·progress)는 응답 창을 UTC→KST 로, 쓰기(create)는 본문 창을 KST→UTC 로 바꾼다.
  *   그래서 호출부·폼·표시는 전부 KST 벽시계만 다룬다. `date` 의 축은 UTC 그대로 둔다.
- * - 쓰기(생성·수정·수령)는 호출자가 만든 UUID36 `Idempotency-Key` 를 받는다. 같은 의도의
+ * - 쓰기(생성·수정·삭제·수령)는 호출자가 만든 UUID36 `Idempotency-Key` 를 받는다. 같은 의도의
  *   재시도는 같은 key·같은 본문으로 보낸다(서버가 원 결과를 재생한다).
  * - 생성 본문은 허용 키만 받는다 — screen 에 `windowStart`/`windowEnd` 를 싣거나 모르는
  *   키를 넣으면 400 이다. `timezone` 은 생략(=UTC) 또는 "UTC" 만 받는다.
@@ -141,6 +141,17 @@ export function updateQuest(
   return request<QuestUpdated>(`/islands/${enc(islandId)}/quests/${enc(questId)}`, {
     method: 'PATCH',
     body,
+    idempotencyKey: key,
+  });
+}
+
+/**
+ * 삭제(GROMO-2898) — 방장만, 본문 없이 보낸다. 성공은 200 `{data: null}`(공통 응답 봉투가 204 를 200 으로
+ * 바꾼다)이고 2xx 면 모두 성공이다. 모르는·이미 지운 퀘스트는 404 NOT_FOUND(field questId) 다.
+ */
+export function deleteQuest(islandId: string, questId: string, key: string): Promise<void> {
+  return request<void>(`/islands/${enc(islandId)}/quests/${enc(questId)}`, {
+    method: 'DELETE',
     idempotencyKey: key,
   });
 }

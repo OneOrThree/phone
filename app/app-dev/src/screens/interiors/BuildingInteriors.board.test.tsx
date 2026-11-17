@@ -39,6 +39,7 @@ import React, { useState } from 'react';
 import { Dimensions, PixelRatio, Platform, StyleSheet } from 'react-native';
 
 import {
+  deleteQuest as delQuest,
   getQuestProgress,
   updateQuest as patchQuest,
   claimQuest as postClaim,
@@ -70,6 +71,7 @@ jest.mock('@/services/api/quests', () => ({
   getQuestProgress: jest.fn(),
   createQuest: jest.fn(),
   updateQuest: jest.fn(),
+  deleteQuest: jest.fn(),
   claimQuest: jest.fn(),
 }));
 jest.mock('@/services/api/home', () => ({
@@ -183,6 +185,7 @@ const postCommentMock = postComment as jest.Mock;
 const getQuestProgressMock = getQuestProgress as jest.Mock;
 const postQuestMock = postQuest as jest.Mock;
 const patchQuestMock = patchQuest as jest.Mock;
+const delQuestMock = delQuest as jest.Mock;
 const postClaimMock = postClaim as jest.Mock;
 const getConstructionOptionsMock = getConstructionOptions as jest.Mock;
 const startConstructionMock = startConstruction as jest.Mock;
@@ -2752,7 +2755,231 @@ test('퀘스트 만들기 — 서버 실패 시 초안·문구를 보존하고 �
   await waitFor(() => assert.ok(screen.getByText('권한이 없습니다.')));
   assert.equal(e.back.mock.calls.length, 0);
   assert.equal(e.text, '저녁 집중');
+  // 겹침이 아닌 거절은 시간대 겹침 안내를 띄우지 않는다.
+  assert.equal(screen.queryByTestId('board-quest-overlap-error'), null);
   await screen.unmount();
+});
+
+// ── 퀘스트 시간대 겹침·삭제(GROMO-2898) ──
+
+const overlapError = (field = 'windowStart', code = 'STATE_CONFLICT') =>
+  new ApiError(code, '다른 퀘스트와 시간이 겹칩니다.', 409, { field });
+
+test('퀘스트 만들기 — 409 STATE_CONFLICT(windowStart)는 시간 입력칸 아래에 겹침을 알리고 입력을 지키며, 시간대를 바꾸면 지운다', async () => {
+  getBoardMock.mockResolvedValue(page([], null, 'host', []));
+  postQuestMock.mockRejectedValue(overlapError());
+  const e = makeE({
+    route: 'questEdit',
+    tab: 'quest',
+    body: 'focus',
+    text: '저녁 집중',
+    windowStart: '19:00',
+    windowEnd: '22:00',
+  });
+  const screen = await renderBoard(e);
+  await waitFor(() => assert.ok(screen.getByTestId('board-quest-target')));
+  await setTargetMinutes(screen, '목표 집중 시간', 50);
+  await fireEvent.press(screen.getByTestId('board-quest-save'));
+
+  await waitFor(() => assert.ok(screen.getByTestId('board-quest-overlap-error')));
+  assert.ok(screen.getByText('다른 퀘스트와 시간대가 겹쳐요'));
+  // 서버 문구를 일반 오류로 한 번 더 띄우지 않고, 쓴 값은 그대로다.
+  assert.equal(screen.queryByText('다른 퀘스트와 시간이 겹칩니다.'), null);
+  assert.equal(e.back.mock.calls.length, 0);
+  assert.deepEqual([e.text, e.windowStart, e.windowEnd], ['저녁 집중', '19:00', '22:00']);
+  assert.ok(wheelSelected(screen, '목표 집중 시간 분', '50'));
+
+  // 제목을 고쳐도 시간대가 그대로면 남는다.
+  await fireEvent.changeText(screen.getByTestId('board-quest-title'), '밤 집중');
+  assert.ok(screen.getByTestId('board-quest-overlap-error'));
+  // 시간대를 바꾸면 지운다.
+  await pickWheel(screen, '시작 시간 시', '20');
+  assert.equal(screen.queryByTestId('board-quest-overlap-error'), null);
+  await screen.unmount();
+});
+
+test.each([
+  ['다른 field', overlapError('windowEnd')],
+  ['다른 code', overlapError('windowStart', 'VERSION_CONFLICT')],
+])('퀘스트 만들기 — 409 라도 %s 면 기존처럼 서버 문구를 띄운다', async (_name, error) => {
+  getBoardMock.mockResolvedValue(page([], null, 'host', []));
+  postQuestMock.mockRejectedValue(error);
+  const e = makeE({
+    route: 'questEdit',
+    tab: 'quest',
+    body: 'focus',
+    text: '저녁 집중',
+    windowStart: '19:00',
+    windowEnd: '22:00',
+  });
+  const screen = await renderBoard(e);
+  await waitFor(() => assert.ok(screen.getByTestId('board-quest-target')));
+  await setTargetMinutes(screen, '목표 집중 시간', 50);
+  await fireEvent.press(screen.getByTestId('board-quest-save'));
+
+  await waitFor(() => assert.ok(screen.getByText('다른 퀘스트와 시간이 겹칩니다.')));
+  assert.equal(screen.queryByTestId('board-quest-overlap-error'), null);
+  await screen.unmount();
+});
+
+/** 실제 앱처럼 go 가 기록을 쌓고 back 이 한 단계씩 꺼내는 라우트 문맥 — 상세 → 수정 → 삭제 흐름용. */
+const makeHistoryE = (over: Record<string, unknown> = {}) => {
+  const e = makeE({ route: 'quest', detail: 'occ-1', tab: 'quest', ...over });
+  const stack: { route: string; detail: string }[] = [{ route: 'board', detail: '' }];
+  const go = e.go;
+  e.go = jest.fn((r: string, d?: string) => {
+    stack.push({ route: e.route, detail: e.detail });
+    go(r, d);
+  });
+  e.back = jest.fn(() => {
+    const prev = stack.pop() ?? { route: 'board', detail: '' };
+    e.route = prev.route;
+    e.detail = prev.detail;
+    e._tick();
+  });
+  return e;
+};
+
+const openQuestEditor = async (screen: Awaited<ReturnType<typeof renderBoard>>) => {
+  await waitFor(() => assert.ok(screen.getByTestId('board-quest-edit')));
+  await act(async () => {
+    await fireEvent.press(screen.getByTestId('board-quest-edit'));
+  });
+  await waitFor(() => assert.ok(screen.getByTestId('board-quest-save')));
+};
+
+test('퀘스트 삭제 — 방장의 수정 종이에만 삭제가 있고, 새로 만들 때·주민에게는 없다', async () => {
+  getBoardMock.mockResolvedValue(page([], null, 'host', [questItem()]));
+  getQuestProgressMock.mockResolvedValue(questProgress());
+  const host = await renderBoard(makeHistoryE());
+  await openQuestEditor(host);
+  assert.ok(host.getByTestId('board-quest-delete'));
+  await host.unmount();
+
+  const create = await renderBoard(makeE({ route: 'questEdit', tab: 'quest', body: 'focus' }));
+  await waitFor(() => assert.ok(create.getByTestId('board-quest-save')));
+  assert.equal(create.queryByTestId('board-quest-delete'), null);
+  await create.unmount();
+
+  // 주민 — 수정 종이 라우트로 바로 와도 삭제는 보이지 않는다.
+  getBoardMock.mockResolvedValue(page([], null, 'member', [questItem()]));
+  const member = await renderBoard(
+    makeE({ route: 'questEdit', detail: 'occ-1', tab: 'quest', body: 'focus', text: '저녁 집중' }),
+  );
+  await waitFor(() => assert.ok(member.getByTestId('board-quest-save')));
+  assert.equal(member.queryByTestId('board-quest-delete'), null);
+  await member.unmount();
+});
+
+test.each([
+  ['200 {data:null}', () => delQuestMock.mockResolvedValue(null)],
+  [
+    '404(이미 지움)',
+    () =>
+      delQuestMock.mockRejectedValue(new ApiError('NOT_FOUND', '퀘스트를 찾을 수 없습니다.', 404)),
+  ],
+])(
+  '퀘스트 삭제 — 확인하면 deleteQuest 뒤 목록을 다시 읽고 상세를 거치지 않고 목록으로 간다: %s',
+  async (_name, arrange) => {
+    getBoardMock
+      .mockResolvedValueOnce(page([], null, 'host', [questItem()]))
+      .mockResolvedValue(page([], null, 'host', []));
+    getQuestProgressMock.mockResolvedValue(questProgress());
+    arrange();
+    const e = makeHistoryE();
+    const screen = await renderBoard(e);
+    await openQuestEditor(screen);
+
+    await fireEvent.press(screen.getByTestId('board-quest-delete'));
+    assert.ok(screen.getByText('퀘스트를 삭제할까요?'));
+    await act(async () => {
+      await fireEvent.press(screen.getByTestId('board-delete-confirm'));
+    });
+
+    await waitFor(() => assert.equal(e.route, 'board'));
+    assert.equal(delQuestMock.mock.calls.length, 1);
+    assert.deepEqual([...delQuestMock.mock.calls[0]].slice(0, 2), [ISLAND, 'q1']);
+    assert.equal(typeof delQuestMock.mock.calls[0][2], 'string');
+    // 처음 조회 + 삭제 뒤 재조회
+    assert.equal(getBoardMock.mock.calls.length, 2);
+    // 수정 → 상세 → 목록, 두 단계 — 지운 퀘스트의 상세는 그리지 않는다.
+    assert.equal(e.back.mock.calls.length, 2);
+    assert.equal(screen.queryByTestId('board-quest-overlay'), null);
+    assert.ok(screen.getByTestId('board-quest-new'));
+    assert.equal(screen.queryByText('저녁 집중'), null);
+    assert.equal(screen.queryByText('퀘스트를 찾을 수 없습니다.'), null);
+    await screen.unmount();
+  },
+);
+
+test('퀘스트 삭제 — 취소하면 요청 없이 수정 종이로 돌아온다', async () => {
+  getBoardMock.mockResolvedValue(page([], null, 'host', [questItem()]));
+  getQuestProgressMock.mockResolvedValue(questProgress());
+  const e = makeHistoryE();
+  const screen = await renderBoard(e);
+  await openQuestEditor(screen);
+
+  await fireEvent.press(screen.getByTestId('board-quest-delete'));
+  await fireEvent.press(screen.getByTestId('board-delete-cancel'));
+
+  assert.ok(screen.getByTestId('board-quest-save'));
+  assert.equal(screen.queryByTestId('board-delete-confirm'), null);
+  assert.equal(delQuestMock.mock.calls.length, 0);
+  assert.equal(e.route, 'questEdit');
+  assert.equal(e.back.mock.calls.length, 0);
+  await screen.unmount();
+});
+
+test('퀘스트 삭제 — 요청 중엔 확인 버튼을 끄고, 실패하면 수정 종이에 문구를 띄우고 남는다', async () => {
+  getBoardMock.mockResolvedValue(page([], null, 'host', [questItem()]));
+  getQuestProgressMock.mockResolvedValue(questProgress());
+  const slow = deferred<void>();
+  delQuestMock.mockReturnValue(slow.promise);
+  const e = makeHistoryE();
+  const screen = await renderBoard(e);
+  await openQuestEditor(screen);
+
+  await fireEvent.press(screen.getByTestId('board-quest-delete'));
+  await fireEvent.press(screen.getByTestId('board-delete-confirm'));
+  assert.equal(screen.getByTestId('board-delete-confirm').props.accessibilityState.disabled, true);
+  // 꺼진 버튼을 또 눌러도 요청은 1건이다.
+  await fireEvent.press(screen.getByTestId('board-delete-confirm'));
+  assert.equal(delQuestMock.mock.calls.length, 1);
+
+  await act(async () => {
+    slow.reject(new ApiError('FORBIDDEN', '권한이 없습니다.', 403));
+  });
+  await waitFor(() => assert.ok(screen.getByText('권한이 없습니다.')));
+  assert.ok(screen.getByTestId('board-quest-save'));
+  assert.equal(e.route, 'questEdit');
+  assert.equal(e.back.mock.calls.length, 0);
+  await screen.unmount();
+});
+
+test('목업 ?demo — 퀘스트 삭제는 API 없이 QUEST_DELETE dispatch 뒤 목록으로 간다', async () => {
+  const restore = webMockMode('?demo');
+  try {
+    const e = makeHistoryE({ detail: 'q-focus' });
+    const screen = await renderBoard(e);
+    await act(async () => {});
+    await openQuestEditor(screen);
+    await fireEvent.press(screen.getByTestId('board-quest-delete'));
+    await act(async () => {
+      await fireEvent.press(screen.getByTestId('board-delete-confirm'));
+    });
+
+    assert.deepEqual(
+      JSON.parse(JSON.stringify(e.dispatch.mock.calls.map((c: unknown[]) => c[0]))),
+      [{ type: 'QUEST_DELETE', id: 'q-focus' }],
+    );
+    await waitFor(() => assert.equal(e.route, 'board'));
+    assert.equal(e.back.mock.calls.length, 2);
+    assert.equal(delQuestMock.mock.calls.length, 0);
+    assert.equal(getBoardMock.mock.calls.length, 0);
+    await screen.unmount();
+  } finally {
+    restore();
+  }
 });
 
 test.each(['success', 'failure', 'stale'] as const)(

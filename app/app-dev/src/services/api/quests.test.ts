@@ -4,6 +4,7 @@ import { clearSession, saveSession } from '@/services/api/session';
 import {
   claimQuest,
   createQuest,
+  deleteQuest,
   getCurrentQuests,
   getQuestProgress,
   updateQuest,
@@ -214,6 +215,35 @@ test('PATCH quests/{id} — 보낸 필드만 전달한다(expectedVersion·창 �
   assert.equal(calls[0].init.method, 'PATCH');
   assert.deepEqual(sentBody(), { title: '새 제목' });
   assert.equal(headers()['Idempotency-Key'], KEY);
+});
+
+test('DELETE quests/{id} — 본문 없이 Idempotency-Key 를 싣고 200 {data:null}·204 를 성공으로 돌려준다', async () => {
+  // 서버는 공통 응답 봉투로 200 {data: null} 을 준다 — 2xx 면 모두 성공이다.
+  stub(200, { data: null });
+
+  assert.equal(await deleteQuest(ISLAND, QUEST, KEY), null);
+
+  assert.equal(calls[0].url, `${API_URL}/islands/${ISLAND}/quests/${QUEST}`);
+  assert.equal(calls[0].init.method, 'DELETE');
+  assert.equal(calls[0].init.body, undefined);
+  assert.equal(headers()['Idempotency-Key'], KEY);
+
+  stub(204, undefined);
+  await deleteQuest(ISLAND, QUEST, KEY);
+
+  // 이미 지운 퀘스트는 404 NOT_FOUND 를 그대로 전파한다 — 「이미 없음」 판정은 호출부가 한다.
+  stub(404, {
+    error: {
+      code: 'NOT_FOUND',
+      message: '퀘스트를 찾을 수 없습니다.',
+      field: null,
+      retryable: false,
+    },
+    requestId: 'req-404',
+  });
+  const gone = await failed(deleteQuest(ISLAND, QUEST, KEY));
+  assert.equal(gone.code, 'NOT_FOUND');
+  assert.equal(gone.status, 404);
 });
 
 test('POST claims — 본문은 정확히 {occurrenceId, expectedVersion} 두 키다', async () => {

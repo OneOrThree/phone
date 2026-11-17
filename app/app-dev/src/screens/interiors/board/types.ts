@@ -92,7 +92,7 @@ export type BoardState = {
   editing: boolean;
   ready: boolean;
   balance: number;
-  deleteTarget: 'notice' | 'comment';
+  deleteTarget: 'notice' | 'comment' | 'quest';
   commentIndex: number;
   questForm: QuestForm | null;
   screenUnknown: boolean;
