@@ -3381,6 +3381,36 @@
         }
       }
     },
+    "/islands/{islandId}/promotions/next": {
+      "get": {
+        "tags": [
+          "island-promotion-controller"
+        ],
+        "operationId": "next",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/IslandPromotionNextPage"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/islands/{islandId}/promotions/editor": {
       "get": {
         "tags": [
@@ -6853,6 +6883,47 @@
           "version",
           "windowEnd",
           "windowStart"
+        ]
+      },
+      "IslandPromotionNextPage": {
+        "type": "object",
+        "properties": {
+          "next": {
+            "$ref": "#/components/schemas/IslandPromotionResidentNext"
+          }
+        },
+        "required": [
+          "next"
+        ]
+      },
+      "IslandPromotionResidentNext": {
+        "type": "object",
+        "properties": {
+          "promotionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "issueDate": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "layout": {
+            "type": "object",
+            "additionalProperties": {}
+          },
+          "appliedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "appliedAt",
+          "body",
+          "issueDate",
+          "layout",
+          "promotionId"
         ]
       },
       "IslandPromotionEditor": {

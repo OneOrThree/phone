@@ -4934,6 +4934,46 @@
         }
       }
     },
+    "/internal/users/{userId}/islands/{islandId}/promotions/next": {
+      "get": {
+        "tags": [
+          "internal-island-promotion-controller"
+        ],
+        "operationId": "next",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/NextPage"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/internal/users/{userId}/islands/{islandId}/promotions/editor": {
       "get": {
         "tags": [
@@ -10684,6 +10724,37 @@
               "LEFT",
               "KICKED"
             ]
+          }
+        }
+      },
+      "NextPage": {
+        "type": "object",
+        "properties": {
+          "next": {
+            "$ref": "#/components/schemas/ResidentNext"
+          }
+        }
+      },
+      "ResidentNext": {
+        "type": "object",
+        "properties": {
+          "promotionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "issueDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "body": {
+            "type": "string"
+          },
+          "layout": {
+            "$ref": "#/components/schemas/Layout"
+          },
+          "appliedAt": {
+            "type": "string",
+            "format": "date-time"
           }
         }
       },
