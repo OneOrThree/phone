@@ -7,6 +7,7 @@ import {
 } from '@/components/ConstructionPlanContent';
 import { CatAvatar } from '@/components/CatAvatar';
 import { appearanceOutfit, outfitOf, type Outfit } from '@/components/CatOutfitLayers';
+import { MAGAZINE_STAMP, MAGAZINE_UI } from '@/constants/magazineAssets';
 import { Btn, CharCount, NavBtn, Wheel, art } from '@/design-system/patterns';
 import { componentTokens, semanticTokens } from '@/design-system/tokens';
 import { getLocale, errorTextOr, t } from '@/i18n';
@@ -29,12 +30,16 @@ import {
   type LedgerTab,
 } from '@/screens/island/useLedgerScreen';
 import { useVisitorJoin } from '@/screens/island/useVisitorJoin';
-import { useIslandNews } from '@/screens/magazine/useIslandNews';
+import { AdCell } from '@/screens/magazine/AdCell';
+import { CELL_ASPECT } from '@/screens/magazine/layout';
+import { editorIsland } from '@/screens/magazine/PromotionEditor';
+import { magazineApi } from '@/screens/magazine/usePromotionEditor';
 import {
   ISLAND_GREETING_MAX,
   ISLAND_INTRO_MAX,
   ISLAND_NAME_MAX,
 } from '@/services/api/islandManagement';
+import type { NextPromotion } from '@/services/api/magazine';
 import { sessionGeneration } from '@/services/api/session';
 import { isMockMode } from '@/services/demoMode';
 import { sharedWebIslandId, usesSharedWebIsland } from '@/services/webIsland';
@@ -64,7 +69,7 @@ import { captureProductEvent } from '@/services/posthog';
 import { clampCodePoints } from '@/utils/codePoints';
 import { useAppLayout } from '@/utils/layout';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { BackHandler, Image, Pressable, ScrollView, TextInput, View } from 'react-native';
+import { AppState, BackHandler, Image, Pressable, ScrollView, TextInput, View } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 
 // v2 시안(042~061) 마을회관: 책상 장면 → 섬 정보 카드·수정·위임·탈퇴 / 공동 가계부 / 목각 건물·청사진
@@ -76,19 +81,24 @@ const ownGreeting = (detail?: { greeting?: string; greetingIsDefault?: boolean }
   detail?.greetingIsDefault === false ? (detail.greeting ?? '') : '';
 const CARD_INK = '#3e352e';
 const MUTED = '#665348';
-// 섬 관리 카드의 「냐옹잡지에 섬 홍보하기 ›」 줄
-const promotionRow = {
-  minHeight: semanticTokens.size.tapMin,
-  flexDirection: 'row',
-  alignItems: 'center',
-  justifyContent: 'space-between',
-  gap: semanticTokens.spacing.control,
+// 섬 관리 카드의 잡지 홍보 칸 카드(GROMO-2894 시안 .slot) — 친구 초대 줄 아래의 편지지 색 종이
+const promo = componentTokens.hallPromotion;
+const promotionSlot = {
+  marginTop: promo.marginTop,
+  padding: promo.padding,
+  gap: promo.gap,
+  borderWidth: promo.borderWidth,
+  borderColor: promo.border,
+  borderRadius: promo.radius,
+  backgroundColor: promo.background,
 } as const;
-// 관리 쓰기(위임 · 승인 · 강퇴 · 저장) 중에는 홍보 쓰기 줄을 흐리게 막는다 — 공용 버튼의 꺼짐 투명도
-const promotionRowBusy = {
-  ...promotionRow,
-  opacity: componentTokens.button.disabledOpacity,
-} as const;
+const editPill = componentTokens.hallEditPill;
+const nav = componentTokens.navButton;
+// 회관이 읽은 다음 호 우리 섬 칸 — editable·feeFish 는 섬장(editor 조회)에게만 온다. null = 아직·못 읽음
+type PromotionRead = {
+  next: (NextPromotion & { editable?: boolean }) | null;
+  feeFish?: number;
+} | null;
 const completionStamp = componentTokens.hallCompletionStamp;
 // 공동 가계부 장부 한 장과 잔액·적립·지출 고양이 포스트잇(GROMO-2487) — 새 그림이라 OTA 경로(src/assets/ota/)에 둔다
 const ledgerArt = {
@@ -438,8 +448,67 @@ export function Hall({ e }: ScreenProps) {
     busy: visitorJoinBusy,
     serverJoin,
   } = useVisitorJoin(e, s, i, notify);
-  // 섬 소식(GROMO-2282) — 주민 전용 목록이라 구경 중이 아닐 때 관리·주민 카드에서만 부른다. 실패·403 은 빈 목록이다
-  const news = useIslandNews((r === 'manage' || r === 'members') && !visitor, liveIslandId);
+  // 잡지 홍보 칸 카드(GROMO-2894) — 섬장은 쓰기 화면과 같은 editor 조회(다음 호 칸 next · 홍보비), 주민은 다음 호 우리 섬 칸만
+  // 읽는다. 역할은 이 카드의 다른 섬장 전용 동작과 같은 근거(실서버는 관리 API 역할)이고, 확정 전(조회 중)에는 부르지 않는다.
+  // 회관은 route 마다 다시 마운트되므로(CurrentScreenRouter key={r}) 쓰기 화면에서 돌아오면 새로 읽어 방금 신청·수정한 칸이 보인다.
+  // 실패·404(서버 배포 전 포함)는 읽은 것 없음 — 섬장은 「홍보 쓰기」 카드, 주민은 카드 없음
+  const promotionRole =
+    (r === 'manage' || r === 'members') && !visitor
+      ? liveManagement
+        ? management.role
+        : host
+          ? 'host'
+          : 'member'
+      : null;
+  // 읽은 역할·섬과 함께 둔다 — 위임으로 역할이 바뀐 직후 effect 가 돌기 전 렌더에서 옛 역할의 칸이 새 역할 분기로 그려지지 않게.
+  // 같은 역할·섬의 다시 읽기(앱 복귀·발행 시각)는 지우지 않고 덮어써 카드가 「홍보 쓰기」로 잠깐 깜빡이지 않는다
+  const [promotionRead, setPromotionRead] = useState<{
+    role: string;
+    islandId: string;
+    value: PromotionRead;
+  } | null>(null);
+  const promotion =
+    promotionRead?.role === promotionRole && promotionRead?.islandId === liveIslandId
+      ? promotionRead.value
+      : null;
+  const [promotionNonce, setPromotionNonce] = useState(0);
+  useEffect(() => {
+    if (!promotionRole || !liveIslandId) return;
+    let alive = true;
+    const api = magazineApi();
+    const read: Promise<PromotionRead> =
+      promotionRole === 'host'
+        ? api.getPromotionEditor(liveIslandId)
+        : api.getNextPromotion(liveIslandId).then((next) => ({ next }));
+    read
+      .then((value) => {
+        if (alive) setPromotionRead({ role: promotionRole, islandId: liveIslandId, value });
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [promotionRole, liveIslandId, promotionNonce]);
+  // 앱 복귀 때 다시 읽는다 — 다른 기기에서 신청·수정했거나 배경에 있는 사이 07시 발행이 지났을 수 있다(useMagazineToday 와 같은 방식)
+  useEffect(() => {
+    if (!promotionRole) return;
+    const sub = AppState.addEventListener('change', (next) => {
+      if (next === 'active') setPromotionNonce((n) => n + 1);
+    });
+    return () => sub.remove();
+  }, [promotionRole]);
+  // 보이는 다음 호 칸은 그 호가 나오는 KST 07시(+1분 여유, useMagazineToday 와 같다)에 다시 읽는다 — 회관을 켜 둔 채 발행을 넘기면
+  // 섬장은 「홍보 쓰기」로 돌아가고 주민 카드는 사라진다. 발행이 늦어 아직 next 가 오면 10분 뒤 다시(서버 발행 재시도 간격).
+  // 읽을 때마다(promotionRead) 다시 건다
+  const publishCheckAt = promotion?.next
+    ? Date.parse(`${promotion.next.issueDate}T07:01:00+09:00`)
+    : NaN;
+  useEffect(() => {
+    if (!Number.isFinite(publishCheckAt)) return;
+    const wait = publishCheckAt - Date.now();
+    const id = setTimeout(() => setPromotionNonce((n) => n + 1), wait > 0 ? wait : 10 * 60_000);
+    return () => clearTimeout(id);
+  }, [publishCheckAt, promotionRead]);
   // .hl 글자: 고운돋움, 자간 −0.15
   const g = (size: number, lh: number, extra?: object) => ({
     fontFamily: font,
@@ -1965,6 +2034,22 @@ export function Hall({ e }: ScreenProps) {
   const close = (onPress: () => void, style?: object) => (
     <NavBtn close testID="hall-close" label={t('common.close')} onPress={onPress} style={style} />
   );
+  // 섬장 왕관: 아바타 지름의 절반 크기로 테두리 1시 방향에 걸치고 시계 방향으로 18° 기울인다.
+  // Avatar는 원 밖을 잘라 내므로(overflow hidden) 바깥 형제로 겹친다
+  const crown = (
+    <Image
+      source={art['ui/crown']}
+      resizeMode="contain"
+      style={{
+        position: 'absolute',
+        top: '-18%',
+        right: 0,
+        width: '50%',
+        height: '50%',
+        transform: [{ rotate: '18deg' }],
+      }}
+    />
+  );
   const person = (
     // userId: 외양을 조회할 사용자 id — 주민 칸은 id 가 곧 사용자 id 라 생략하고, 가입 신청 칸(id=신청 id)만 넘긴다
     m: { id: string; userId?: string; name: string; color: string; outfit?: Outfit },
@@ -2005,22 +2090,7 @@ export function Hall({ e }: ScreenProps) {
           n={n}
           size={opts.av ?? (land ? 31 : 38)}
         />
-        {/* 섬장 왕관: 아바타 지름의 절반 크기로 테두리 1시 방향에 걸치고 시계 방향으로 18° 기울인다.
-            Avatar는 원 밖을 잘라 내므로(overflow hidden) 바깥 형제로 겹친다 */}
-        {opts.crown && (
-          <Image
-            source={art['ui/crown']}
-            resizeMode="contain"
-            style={{
-              position: 'absolute',
-              top: '-18%',
-              right: 0,
-              width: '50%',
-              height: '50%',
-              transform: [{ rotate: '18deg' }],
-            }}
-          />
-        )}
+        {opts.crown && crown}
       </View>
       <T
         numberOfLines={1}
@@ -2605,6 +2675,67 @@ export function Hall({ e }: ScreenProps) {
       {children}
     </View>
   );
+  // 닫기(×)와 그 바로 왼쪽 섬장 「✏ 수정」 알약(GROMO-2894 — 이름 옆 연필 대신). 세로는 이름 줄 오른쪽 위,
+  // 가로는 240 머리 칸 맨 위 오른쪽(종전 닫기 자리)에 흐름대로 둬 긴 섬 이름과 겹치지 않는다
+  const headActions = (
+    <View
+      style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: editPill.actionsGap,
+        ...(land
+          ? {
+              alignSelf: 'flex-end',
+              marginTop: editPill.landscapePullTop,
+              marginRight: editPill.landscapePullRight,
+            }
+          : { alignSelf: 'flex-start' }),
+      }}
+    >
+      {displayHost && (
+        <Pressable
+          testID="hall-edit"
+          accessibilityRole="button"
+          accessibilityLabel={t('ui.hall.editIsland')}
+          onPress={() => {
+            setDraft({
+              name: liveManagement ? (management.detail?.name ?? '') : i.name,
+              intro: liveManagement ? (management.detail?.intro ?? '') : i.intro,
+              approval: liveManagement
+                ? (management.detail?.approvalRequired ?? false)
+                : i.approval,
+              capacity: liveManagement
+                ? (management.detail?.maxMembers ?? CAPACITY_MIN)
+                : capacityOf(i),
+              greeting: liveManagement ? ownGreeting(management.detail) : '',
+            });
+            setPanel('edit');
+          }}
+          // 누르는 자리는 44, 알약 그림은 34 — 옆 닫기(44 상자 안 34 원)와 높이를 맞춘다
+          style={{ minHeight: semanticTokens.size.tapMin, justifyContent: 'center' }}
+        >
+          <View
+            style={{
+              minHeight: nav.size,
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: editPill.gap,
+              paddingHorizontal: editPill.paddingHorizontal,
+              borderWidth: nav.borderWidth,
+              borderColor: semanticTokens.color.outline,
+              borderRadius: semanticTokens.radius.full,
+              backgroundColor: componentTokens.button.secondaryBackground,
+              boxShadow: `0px ${nav.shadowOffset}px 0px ${semanticTokens.color.outline}`,
+            }}
+          >
+            <Icon d={PENCIL} size={editPill.iconSize} />
+            <T style={g(14, 20, { color: CARD_INK, fontWeight: '700' })}>{t('ui.hall.edit')}</T>
+          </View>
+        </Pressable>
+      )}
+      {close(e.back)}
+    </View>
+  );
   const head = (
     <View
       style={
@@ -2628,42 +2759,11 @@ export function Hall({ e }: ScreenProps) {
             }
       }
     >
+      {land && headActions}
       <View style={{ minWidth: 0, flexShrink: 1 }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
-          <T style={g(land ? 32 : 38, land ? 34.56 : 41.04, { color: CARD_INK, flexShrink: 1 })}>
-            {liveManagement ? management.detail?.name : i.name}
-          </T>
-          {displayHost && (
-            <Pressable
-              testID="hall-edit"
-              accessibilityRole="button"
-              accessibilityLabel={t('ui.hall.editIsland')}
-              onPress={() => {
-                setDraft({
-                  name: liveManagement ? (management.detail?.name ?? '') : i.name,
-                  intro: liveManagement ? (management.detail?.intro ?? '') : i.intro,
-                  approval: liveManagement
-                    ? (management.detail?.approvalRequired ?? false)
-                    : i.approval,
-                  capacity: liveManagement
-                    ? (management.detail?.maxMembers ?? CAPACITY_MIN)
-                    : capacityOf(i),
-                  greeting: liveManagement ? ownGreeting(management.detail) : '',
-                });
-                setPanel('edit');
-              }}
-              style={{
-                width: 44,
-                height: 44,
-                marginTop: -1,
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-            >
-              <Icon d={PENCIL} size={22} />
-            </Pressable>
-          )}
-        </View>
+        <T style={g(land ? 32 : 38, land ? 34.56 : 41.04, { color: CARD_INK, flexShrink: 1 })}>
+          {liveManagement ? management.detail?.name : i.name}
+        </T>
         {!!(liveManagement ? management.detail?.intro : i.intro) && (
           <T
             style={g(land ? 14 : 15, land ? 20.3 : 21.75, {
@@ -2677,7 +2777,7 @@ export function Hall({ e }: ScreenProps) {
           </T>
         )}
       </View>
-      {close(e.back, land ? { position: 'absolute', right: 8, top: 7 } : undefined)}
+      {!land && headActions}
     </View>
   );
   // 주민 칸 폭: 카드 안쪽 폭(세로 W−80, 가로 W−side−16−4−240−28)을 열 수로 나눈다.
@@ -2685,6 +2785,190 @@ export function Hall({ e }: ScreenProps) {
   const inner = land ? W - side - 288 : W - 80,
     cols = land ? (inner >= 280 ? 4 : 2) : 1,
     cell = Math.floor((inner - (cols - 1) * 7) / cols);
+  // 쓰기 화면으로 가는 버튼(「홍보 쓰기」 분홍 · 「수정하기」 Paper) — 시각 38, 누르는 자리 44(hitSlop).
+  // 섬장 판정은 이 카드의 다른 섬장 전용 동작과 같은 displayHost 다 — 실서버 관리 화면에서는 관리 API 의 지금 역할이라
+  // 여기서 위임하거나 다른 기기에서 위임받은 것이 바로 반영된다(홈 스냅샷은 늦을 수 있다). 뒤로가기는 App 기록으로 이 카드에 돌아온다
+  const editorButton = (
+    testID: string,
+    label: string,
+    backgroundColor: string,
+    children: React.ReactNode,
+  ) => (
+    <Pressable
+      testID={testID}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      // 위임 등 관리 쓰기가 끝나 역할이 다시 확정되기 전에는 못 들어간다 — 그 사이 회관을 떠나면 확정 역할(host)이
+      // 위임 전 값으로 남아 쓰기 화면이 섬장으로 열린다
+      accessibilityState={{ disabled: managementBusy }}
+      disabled={managementBusy}
+      onPress={() => e.go('promotionEditor')}
+      hitSlop={(semanticTokens.size.tapMin - componentTokens.button.heightSmall) / 2}
+      style={{
+        minHeight: componentTokens.button.heightSmall,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: promo.buttonGap,
+        paddingHorizontal: promo.buttonPaddingX,
+        borderWidth: componentTokens.button.borderWidth,
+        borderColor: semanticTokens.color.outline,
+        borderRadius: componentTokens.button.radius,
+        backgroundColor,
+        boxShadow: managementBusy
+          ? 'none'
+          : `0px ${promo.buttonShadowOffset}px 0px ${semanticTokens.color.outline}`,
+        opacity: managementBusy ? componentTokens.button.disabledOpacity : 1,
+      }}
+    >
+      {children}
+    </Pressable>
+  );
+  const buttonText = (text: string) => (
+    <T style={g(14, 21, { color: CARD_INK, fontWeight: '700' })}>{text}</T>
+  );
+  // 잡지 홍보 칸 카드(GROMO-2894) — 친구 초대 줄 바로 아래. 섬장: 다음 호 칸이 없으면(조회 중·실패 포함) 잡지 표지 +
+  // 「홍보 쓰기」, 있으면 쓰기 화면과 같은 AdCell 미리보기 + 접수 발도장 + 실릴 호(마감 전이면 「수정하기」).
+  // 주민: 다음 호 칸이 있을 때만 칸 + 「○○ 섬장이 홍보를 신청했어요」. 07시에 실리면 서버가 next 를 주지 않아
+  // 섬장은 「홍보 쓰기」로 돌아가고 주민 카드는 사라진다(실린 칸은 잡지에서 본다)
+  const nextPromotion = promotion?.next ?? null;
+  const facts = nextPromotion && editorIsland(s, !!e.islands).facts;
+  const cellW = Math.floor(inner - 2 * (promotionSlot.padding + promotionSlot.borderWidth));
+  const hostIndex = residents.findIndex((m) => m.isHost);
+  const hostMember: { id: string; name: string; color: string; outfit?: Outfit } | undefined =
+    residents[hostIndex];
+  // 도장은 카드 종이(promotionSlot)의 직접 자식으로 칸 오른쪽 위 모서리에 찍는다 — 카드 바탕까지 곱해져야 칸 밖으로
+  // 걸친 부분도 크림색 원이 안 보인다(웹은 View 마다 따로 겹침 맥락이라 칸만 감싼 View 안이면 바깥이 그대로 보였다)
+  const preview = nextPromotion && facts && (
+    <>
+      <AdCell
+        testID="hall-promotion-cell"
+        width={cellW}
+        // 쓰기 화면처럼 「주민·평균」 줄은 그리지 않는다 — 평균은 07시 발행 때 정해진다
+        hideMeta
+        cell={{ ...facts, body: nextPromotion.body, layout: nextPromotion.layout }}
+      />
+      <View
+        testID="hall-promotion-stamp"
+        pointerEvents="none"
+        style={{
+          position: 'absolute',
+          right: promotionSlot.padding - cellW * promo.stamp.rightRatio,
+          top: promotionSlot.padding - cellW * CELL_ASPECT * promo.stamp.topRatio,
+          width: cellW * promo.stamp.widthRatio,
+          height: cellW * promo.stamp.widthRatio,
+          opacity: promo.stamp.opacity,
+          // 도장 그림의 크림색 바탕이 칸·스티커를 덮지 않게 곱하기로 찍는다(시안과 같다). 섞기는 View 스타일이라 감싼다
+          mixBlendMode: 'multiply',
+          transform: [{ rotate: promo.stamp.rotation }],
+        }}
+      >
+        <Image
+          source={MAGAZINE_STAMP}
+          accessible={false}
+          resizeMode="contain"
+          style={{ width: '100%', height: '100%' }}
+        />
+      </View>
+    </>
+  );
+  const [, issueMonth, issueDay] = (nextPromotion?.issueDate ?? '').split('-').map(Number);
+  const promotionCard = displayHost ? (
+    preview ? (
+      <View testID="hall-promotion-card" style={promotionSlot}>
+        {preview}
+        <View
+          style={{
+            flexDirection: 'row',
+            flexWrap: 'wrap',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: promo.footerGap,
+          }}
+        >
+          <T testID="hall-promotion-issue" style={g(14, 21, { color: MUTED })}>
+            {t('magazine.hall.issue', { month: issueMonth, day: issueDay })}
+          </T>
+          {nextPromotion?.editable &&
+            editorButton(
+              'hall-promotion-edit',
+              t('magazine.hall.edit'),
+              componentTokens.button.secondaryBackground,
+              buttonText(t('magazine.hall.edit')),
+            )}
+        </View>
+      </View>
+    ) : (
+      <View
+        testID="hall-promotion-card"
+        style={[promotionSlot, { flexDirection: 'row', alignItems: 'center', gap: promo.rowGap }]}
+      >
+        <Image
+          source={MAGAZINE_UI.cover}
+          accessible={false}
+          resizeMode="contain"
+          style={{
+            width: promo.cover.width,
+            height: promo.cover.width * promo.cover.aspect,
+            marginTop: promo.cover.top,
+            marginBottom: promo.cover.bottom,
+            marginLeft: promo.cover.left,
+            transform: [{ rotate: promo.cover.rotation }],
+          }}
+        />
+        <View style={{ flex: 1, alignItems: 'flex-start', gap: promo.stackGap }}>
+          <T style={g(15, 20.25, { color: CARD_INK, fontWeight: '700' })}>
+            {t('magazine.editor.entry')}
+          </T>
+          {editorButton(
+            'hall-promotion-editor',
+            t('magazine.editor.entry'),
+            componentTokens.button.background,
+            <>
+              {buttonText(t('magazine.hall.write'))}
+              {/* 홍보비는 서버가 준 값만 — 읽기 전·실패면 숫자를 지어내지 않고 버튼 글자만 둔다 */}
+              {promotion?.feeFish != null && (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: promo.fishGap }}>
+                  <Image
+                    source={art.fish}
+                    accessible={false}
+                    style={{ width: promo.fishSize, height: promo.fishSize }}
+                  />
+                  {buttonText(String(promotion.feeFish))}
+                </View>
+              )}
+            </>,
+          )}
+        </View>
+      </View>
+    )
+  ) : (
+    preview && (
+      <View testID="hall-promotion-card" style={promotionSlot}>
+        {preview}
+        {hostMember && (
+          <View
+            testID="hall-promotion-host"
+            style={{ flexDirection: 'row', alignItems: 'center', gap: promo.hostGap }}
+          >
+            <View>
+              <Avatar
+                userId={hostMember.id}
+                color={hostMember.color}
+                outfit={hostMember.outfit}
+                n={hostIndex}
+                size={promo.hostAvatar}
+              />
+              {crown}
+            </View>
+            <T style={g(14, 21, { color: CARD_INK, fontWeight: '700', flexShrink: 1 })}>
+              {t('magazine.hall.applied', { name: hostMember.name })}
+            </T>
+          </View>
+        )}
+      </View>
+    )
+  );
   const body = (
     <ScrollView
       style={{ flex: 1, minHeight: 0 }}
@@ -2834,52 +3118,8 @@ export function Hall({ e }: ScreenProps) {
               v1: liveManagement ? (management.detail?.maxMembers ?? 0) : capacityOf(i),
             }),
       )}
-      {news.length > 0 &&
-        section(
-          t('magazine.news.title'),
-          news.map((n) => (
-            <View
-              key={n.id}
-              testID={`hall-news-${n.id}`}
-              style={{
-                flexDirection: 'row',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                gap: 12,
-                paddingVertical: 5,
-              }}
-            >
-              <T style={g(15, 24, { color: CARD_INK, flexShrink: 1 })}>
-                {t('magazine.news.promotionRow')}
-              </T>
-              <T style={g(15, 24, { color: MUTED })}>{kstMonthDay(Date.parse(n.createdAt))}</T>
-            </View>
-          )),
-        )}
       {!visitor && (
         <View style={{ marginTop: land ? 5 : 14, paddingTop: 6 }}>
-          {displayHost && (
-            // 냐옹잡지에 섬 홍보하기(GROMO-2289 · P3) — 홍보는 마을회관에서(10/5 · 10/14 확정). 내 섬 섬장만, 구경 중에는 없다.
-            // 친구 초대 줄보다 위에 둔다(10/15).
-            // 섬장 판정은 이 카드의 다른 섬장 전용 동작과 같은 displayHost 다 — 실서버 관리 화면에서는 관리 API 의 지금 역할이라
-            // 여기서 위임하거나 다른 기기에서 위임받은 것이 바로 반영된다(홈 스냅샷은 늦을 수 있다). 뒤로가기는 App 기록으로 이 카드에 돌아온다
-            <Pressable
-              testID="hall-promotion-editor"
-              accessibilityRole="button"
-              accessibilityLabel={t('magazine.editor.entry')}
-              // 위임 등 관리 쓰기가 끝나 역할이 다시 확정되기 전에는 못 들어간다 — 그 사이 회관을 떠나면 확정 역할(host)이
-              // 위임 전 값으로 남아 쓰기 화면이 섬장으로 열린다
-              accessibilityState={{ disabled: managementBusy }}
-              disabled={managementBusy}
-              onPress={() => e.go('promotionEditor')}
-              style={managementBusy ? promotionRowBusy : promotionRow}
-            >
-              <T style={g(16, 25.6, { color: CARD_INK, fontWeight: '700', flex: 1 })}>
-                {t('magazine.editor.entry')}
-              </T>
-              <Icon d={CHEV} size={22} />
-            </Pressable>
-          )}
           <View
             style={{
               minHeight: land ? 45 : 58,
@@ -2913,6 +3153,7 @@ export function Hall({ e }: ScreenProps) {
               <Icon d={SHARE} size={22} />
             </Pressable>
           </View>
+          {promotionCard}
         </View>
       )}
       {visitor ? (

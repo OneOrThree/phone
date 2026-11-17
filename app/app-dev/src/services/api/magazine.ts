@@ -9,6 +9,7 @@
  *  - `POST /islands/{id}/promotions`                신청 `{ body, layout }` — `Idempotency-Key` 필수(같은 의도 = 같은 키).
  *  - `PUT  /islands/{id}/promotions/{promotionId}`  고치기 — 신청 창(전날 07~24시) 안에서만, 돈은 다시 빼지 않는다. 키 없음.
  *  - `GET  /islands/{id}/news?limit=`               섬 소식(주민만) — 홍보를 내면 `PROMOTION` 소식이 생긴다.
+ *  - `GET  /islands/{id}/promotions/next`           다음 호에 실릴 우리 섬 홍보(주민 누구나) — 없으면 `next: null`.
  *
  * 읽기(서버 `bfeat/GROMO-2289-magazine-publish` 의 business-api `Magazines` DTO 가 정본) — 게스트도 읽는다.
  *  - `GET  /me/magazine/today`                       오늘 호(가장 최근 호)와 내 받음 기록. 아직 호가 없으면 둘 다 null.
@@ -62,6 +63,7 @@ export type PromotionApplied = {
   newsId: string;
 };
 export type PromotionUpdated = SavedPromotion & { updatedAt: string };
+export type NextPromotion = SavedPromotion & { appliedAt: string };
 export type IslandNewsItem = { id: string; kind: string; body: string; createdAt: string };
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null;
@@ -178,6 +180,16 @@ export async function updatePromotion(
   const saved = readSaved(raw, 'promotion');
   if (!saved) throw contractError('promotion');
   return { ...saved, updatedAt: String((raw as Record<string, unknown>).updatedAt ?? '') };
+}
+
+/** 다음 호(07시 발행 전)에 실릴 우리 섬 홍보 — 마을회관 「섬 관리」 주민 카드가 읽는다(GROMO-2894). 발행 뒤·없으면 null. */
+export async function getNextPromotion(islandId: string): Promise<NextPromotion | null> {
+  const raw = await request<unknown>(`/islands/${encodeURIComponent(islandId)}/promotions/next`);
+  if (!isRecord(raw)) throw contractError('next');
+  const next = readSaved(raw.next, 'next');
+  return (
+    next && { ...next, appliedAt: String((raw.next as Record<string, unknown>).appliedAt ?? '') }
+  );
 }
 
 /** 섬 소식 최신순(주민만 — 방문자는 403 이라 부르지 않는다). */

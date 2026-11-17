@@ -8,9 +8,9 @@ import * as magazine from '@/services/api/magazine';
 import { fakeMemberLooksServer } from '@/services/memberLooks.testing';
 import type { Route } from '@/services/model';
 import { currentIsland, initialState, joinRequests, reducer, viewIsland } from '@/services/model';
-import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react-native';
+import { act, cleanup, fireEvent, render, waitFor, within } from '@testing-library/react-native';
 import assert from 'node:assert/strict';
-import { Platform, StyleSheet } from 'react-native';
+import { AppState, Platform, StyleSheet } from 'react-native';
 
 jest.mock('@/screens/interiors/useIslandManagement', () => ({
   ...jest.requireActual('@/screens/interiors/useIslandManagement'),
@@ -40,10 +40,11 @@ jest.mock('@/services/customizationCatalog', () => ({
     },
   }),
 }));
-// 섬 소식 목록(GROMO-2282) — manage/members 카드가 부르는 getIslandNews 는 실제 fetch 대신 이 mock 으로 막는다
+// 잡지 홍보 칸 카드(GROMO-2894) — manage/members 카드가 부르는 섬장 editor · 주민 next 조회는 실제 fetch 대신 이 mock 으로 막는다
 jest.mock('@/services/api/magazine', () => ({
   ...jest.requireActual('@/services/api/magazine'),
-  getIslandNews: jest.fn(),
+  getPromotionEditor: jest.fn(),
+  getNextPromotion: jest.fn(),
 }));
 let mockSessionGeneration = 0;
 jest.mock('@/services/api/session', () => ({
@@ -88,7 +89,23 @@ jest.mock('react-native-safe-area-context', () => ({
 }));
 
 const managementMock = useIslandManagement as jest.Mock;
-const getNewsMock = magazine.getIslandNews as jest.Mock;
+const getEditorMock = magazine.getPromotionEditor as jest.Mock;
+const getNextMock = magazine.getNextPromotion as jest.Mock;
+const editorRead = (next: object | null = null) => ({
+  window: { open: true, issueDate: '2026-11-17', closesAt: 'c', opensAt: 'o' },
+  next,
+  latest: null,
+  feeFish: 60,
+  balance: 1240,
+  privateIsland: false,
+});
+const nextWire = {
+  promotionId: 'p1',
+  issueDate: '2026-11-17',
+  body: '같이 공부할 고양이 구해요',
+  layout: { v: 1, frameId: 'mag.frame-scallop', stickers: [], tape: null },
+  appliedAt: '2026-11-16T03:00:00.000Z',
+};
 const asyncCommand = () => jest.fn<Promise<void>, any[]>(async () => {});
 const management = (over: object = {}) => ({
   detail: {
@@ -138,9 +155,11 @@ beforeEach(() => {
   mockSessionGeneration = 0;
   mockLandscape = false;
   managementMock.mockReturnValue(management());
-  // clearAllMocks 는 구현을 지우지 않는다 — 앞 테스트의 거절·목록이 새지 않게 매번 빈 목록으로 되돌린다
-  getNewsMock.mockReset();
-  getNewsMock.mockResolvedValue([]);
+  // clearAllMocks 는 구현을 지우지 않는다 — 앞 테스트의 거절·칸이 새지 않게 매번 「다음 호 칸 없음」으로 되돌린다
+  getEditorMock.mockReset();
+  getEditorMock.mockResolvedValue(editorRead());
+  getNextMock.mockReset();
+  getNextMock.mockResolvedValue(null);
 });
 afterEach(() => {
   cleanup();
@@ -416,7 +435,7 @@ test('서버 current 섬이 있으면 관리 hook 에 로컬 목업 섬 대신 �
   assert.equal(managementMock.mock.calls.at(-1)[0].islandId, 'srv-1');
 });
 
-test('서버 모드인데 서버 섬 id 가 아직 없으면 소식·관리 조회를 보류하고, 도착하면 한 번 부른다(GROMO-2460)', async () => {
+test('서버 모드인데 서버 섬 id 가 아직 없으면 홍보 칸·관리 조회를 보류하고, 도착하면 한 번 부른다(GROMO-2460)', async () => {
   const islands = {};
   const pending = { ...initialState(true), serverIslands: { currentIslandId: null } } as any;
   const screen = await render(
@@ -424,14 +443,14 @@ test('서버 모드인데 서버 섬 id 가 아직 없으면 소식·관리 조�
   );
   await act(async () => {});
   assert.equal(managementMock.mock.calls.at(-1)[0].islandId, null);
-  expect(getNewsMock).toHaveBeenCalledTimes(0);
+  expect(getEditorMock).toHaveBeenCalledTimes(0);
 
   const arrived = { ...initialState(true), serverIslands: { currentIslandId: 'srv-1' } } as any;
   await screen.rerender(
     <Hall e={createPreviewEnvironment({ ...e('manage', arrived), islands })} />,
   );
-  await waitFor(() => expect(getNewsMock).toHaveBeenCalledTimes(1));
-  assert.equal(getNewsMock.mock.calls[0][0], 'srv-1');
+  await waitFor(() => expect(getEditorMock).toHaveBeenCalledTimes(1));
+  assert.equal(getEditorMock.mock.calls[0][0], 'srv-1');
   assert.equal(managementMock.mock.calls.at(-1)[0].islandId, 'srv-1');
 });
 
@@ -1025,86 +1044,145 @@ test('게스트 섬장의 인사말 저장(403 SOCIAL_LOGIN_REQUIRED)은 권한 
   expect(screen.getByTestId('hall-greeting').props.value).toBe('어서 와요');
 });
 
-// 섬 소식(GROMO-2282) — 마을회관 섬 정보 카드의 「함께 사는 주민」 바로 아래, 서버가 준 최신순 그대로
-const newsItem = (id: string, createdAt: string, kind = 'PROMOTION') => ({
-  id,
-  kind,
-  body: '서버 한국어 본문',
-  createdAt,
-});
-
-test('섬 소식은 서버가 준 최신순 그대로 「섬 소식」 아래에 보이고 limit 20 으로 부른다', async () => {
-  const state = initialState(true);
-  getNewsMock.mockResolvedValue([
-    newsItem('n2', '2026-10-23T03:00:00.000Z'),
-    newsItem('n1', '2026-10-22T03:00:00.000Z'),
-  ]);
-  const screen = await render(<Hall e={createPreviewEnvironment(e('manage', state))} />);
-
-  await screen.findByText('섬 소식');
-  expect(getNewsMock).toHaveBeenCalledWith(viewIsland(state).id, 20);
-  expect(screen.getAllByTestId(/^hall-news-/).map((row) => row.props.testID)).toEqual([
-    'hall-news-n2',
-    'hall-news-n1',
-  ]);
-  expect(screen.getAllByText('섬장이 잡지 홍보에 60마리를 썼어요')).toHaveLength(2);
-  expect(screen.getByText('10/23')).toBeTruthy();
-  expect(screen.getByText('10/22')).toBeTruthy();
-  expect(screen.getByText('함께 사는 주민')).toBeTruthy();
-});
-
-test('섬 소식은 모르는 kind 를 건너뛰고 화면은 그대로다(서버 kind 는 열린 문자열)', async () => {
-  getNewsMock.mockResolvedValue([
-    newsItem('m1', '2026-10-24T03:00:00.000Z', 'MAGAZINE_ISSUED'),
-    // 맵 조회로 판정하면 통과하는 이름 — === 'PROMOTION' 이라 건너뛴다
-    newsItem('c1', '2026-10-24T02:00:00.000Z', 'constructor'),
-    newsItem('p1', '2026-10-23T03:00:00.000Z'),
-  ]);
-  const screen = await render(<Hall e={createPreviewEnvironment(e())} />);
-
-  await screen.findByText('섬 소식');
-  expect(screen.getAllByTestId(/^hall-news-/).map((row) => row.props.testID)).toEqual([
-    'hall-news-p1',
-  ]);
-  expect(screen.getByText('함께 사는 주민')).toBeTruthy();
-});
-
-test('섬 소식이 0건이거나 아는 kind 가 하나도 없으면 칸을 그리지 않는다', async () => {
-  getNewsMock.mockResolvedValue([newsItem('m1', '2026-10-24T03:00:00.000Z', 'MAGAZINE_ISSUED')]);
-  const screen = await render(<Hall e={createPreviewEnvironment(e())} />);
-
-  await waitFor(() => expect(getNewsMock).toHaveBeenCalledTimes(1));
-  await act(async () => {});
+// 잡지 홍보 칸 카드(GROMO-2894) — 친구 초대 줄 아래. 섬장은 editor 조회, 주민은 다음 호 칸 조회. 「섬 소식」 칸은 없앴다
+test('섬장 — 다음 호 칸이 없으면 표지와 「홍보 쓰기」 + 홍보비, 섬 소식 칸은 없다', async () => {
+  const env = e();
+  const screen = await render(<Hall e={createPreviewEnvironment(env)} />);
+  await screen.findByText('60');
+  expect(getEditorMock).toHaveBeenCalledWith(viewIsland(env.state).id);
+  expect(getNextMock).not.toHaveBeenCalled();
+  const card = screen.getByTestId('hall-promotion-card');
+  expect(within(card).getByText('냐옹잡지에 섬 홍보하기')).toBeTruthy();
+  expect(within(card).getByText('홍보 쓰기')).toBeTruthy();
+  expect(screen.queryByTestId('hall-promotion-cell')).toBeNull();
   expect(screen.queryByText('섬 소식')).toBeNull();
-  expect(screen.getByText('함께 사는 주민')).toBeTruthy();
+  expect(screen.queryAllByTestId(/^hall-news-/)).toHaveLength(0);
+  await fireEvent.press(screen.getByTestId('hall-promotion-editor'));
+  assert.equal(env.go.mock.calls.at(-1)?.[0], 'promotionEditor');
 });
 
-test('비주민·떠난 주민의 403 FORBIDDEN 은 소식 칸만 숨기고 카드와 오류 문구는 그대로 둔다', async () => {
-  getNewsMock.mockRejectedValue(
-    new ApiError('FORBIDDEN', '이 작업을 할 권한이 없어요.', 403, { field: 'islandId' }),
-  );
+test('섬장 — 조회가 실패해도 「홍보 쓰기」는 남고 홍보비 숫자만 빠진다', async () => {
+  getEditorMock.mockRejectedValue(new ApiError('NETWORK', '네트워크 오류', 0));
   const screen = await render(<Hall e={createPreviewEnvironment(e())} />);
-
-  await waitFor(() => expect(getNewsMock).toHaveBeenCalledTimes(1));
+  await waitFor(() => expect(getEditorMock).toHaveBeenCalledTimes(1));
   await act(async () => {});
-  expect(screen.queryByText('섬 소식')).toBeNull();
-  expect(screen.getByText('함께 사는 주민')).toBeTruthy();
+  expect(screen.getByTestId('hall-promotion-editor')).toBeTruthy();
+  expect(screen.queryByText('60')).toBeNull();
+});
+
+test('섬장 — 다음 호 칸이 있으면 칸 미리보기 · 발도장 · 실릴 호, 마감 전에만 「수정하기」', async () => {
+  getEditorMock.mockResolvedValue(editorRead({ ...nextWire, editable: true }));
+  const env = e();
+  const screen = await render(<Hall e={createPreviewEnvironment(env)} />);
+  await screen.findByTestId('hall-promotion-cell');
+  expect(screen.getByTestId('hall-promotion-stamp')).toBeTruthy();
+  expect(screen.getByTestId('hall-promotion-issue').props.children).toBe('11월 17일 아침 7시 호');
+  expect(screen.queryByTestId('hall-promotion-editor')).toBeNull();
+  await fireEvent.press(screen.getByTestId('hall-promotion-edit'));
+  assert.equal(env.go.mock.calls.at(-1)?.[0], 'promotionEditor');
+  await screen.unmount();
+
+  // 자정이 지나 잠긴 칸 — 실릴 호는 보이고 수정은 없다
+  getEditorMock.mockResolvedValue(editorRead({ ...nextWire, editable: false }));
+  const locked = await render(<Hall e={createPreviewEnvironment(e())} />);
+  await locked.findByTestId('hall-promotion-issue');
+  expect(locked.queryByTestId('hall-promotion-edit')).toBeNull();
+});
+
+test('주민 — 다음 호 칸이 있으면 칸과 섬장 이름 줄만(날짜·홍보비 없음)', async () => {
+  managementMock.mockReturnValue(management({ role: 'member', requests: null }));
+  getNextMock.mockResolvedValue(nextWire);
+  const env = e();
+  const screen = await render(<Hall e={createPreviewEnvironment(env)} />);
+  await screen.findByTestId('hall-promotion-cell');
+  expect(getNextMock).toHaveBeenCalledWith(viewIsland(env.state).id);
+  expect(getEditorMock).not.toHaveBeenCalled();
+  expect(
+    within(screen.getByTestId('hall-promotion-host')).getByText('방장 섬장이 홍보를 신청했어요'),
+  ).toBeTruthy();
+  expect(screen.getByTestId('hall-promotion-stamp')).toBeTruthy();
+  expect(screen.queryByTestId('hall-promotion-issue')).toBeNull();
+  expect(screen.queryByTestId('hall-promotion-edit')).toBeNull();
+  expect(screen.queryByTestId('hall-promotion-editor')).toBeNull();
+});
+
+test.each([
+  ['다음 호 칸 없음', () => getNextMock.mockResolvedValue(null)],
+  [
+    '404(서버 배포 전)',
+    () => getNextMock.mockRejectedValue(new ApiError('NOT_FOUND', '없음', 404)),
+  ],
+])('주민 — %s 이면 카드를 그리지 않는다', async (_, arrange) => {
+  arrange();
+  managementMock.mockReturnValue(management({ role: 'member', requests: null }));
+  const screen = await render(<Hall e={createPreviewEnvironment(e())} />);
+  await waitFor(() => expect(getNextMock).toHaveBeenCalledTimes(1));
+  await act(async () => {});
+  expect(screen.queryByTestId('hall-promotion-card')).toBeNull();
   expect(screen.getByTestId('hall-invite')).toBeTruthy();
   expect(screen.queryByTestId('hall-management-action-error')).toBeNull();
-  expect(screen.queryByText('이 작업을 할 권한이 없어요.')).toBeNull();
 });
 
-test('다른 섬을 구경 중인 방문자는 섬 소식을 부르지 않는다', async () => {
-  getNewsMock.mockResolvedValue([newsItem('n1', '2026-10-22T03:00:00.000Z')]);
+test('회관을 켜 둔 채 그 호 발행(KST 07시)을 넘기면 다시 읽어 「홍보 쓰기」로 돌아간다', async () => {
+  jest.useFakeTimers({ now: Date.parse('2026-11-17T06:58:00+09:00') });
+  try {
+    getEditorMock
+      .mockResolvedValueOnce(editorRead({ ...nextWire, editable: false }))
+      .mockResolvedValue(editorRead());
+    const screen = await render(<Hall e={createPreviewEnvironment(e())} />);
+    await screen.findByTestId('hall-promotion-cell');
+    expect(getEditorMock).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      jest.advanceTimersByTime(3 * 60_000);
+    });
+    await screen.findByTestId('hall-promotion-editor');
+    expect(getEditorMock).toHaveBeenCalledTimes(2);
+    expect(screen.queryByTestId('hall-promotion-cell')).toBeNull();
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
+test('앱이 포그라운드로 돌아오면 홍보 칸을 다시 읽는다', async () => {
+  managementMock.mockReturnValue(management({ role: 'member', requests: null }));
+  getNextMock.mockResolvedValueOnce(null).mockResolvedValue(nextWire);
+  const screen = await render(<Hall e={createPreviewEnvironment(e())} />);
+  await waitFor(() => expect(getNextMock).toHaveBeenCalledTimes(1));
+  expect(screen.queryByTestId('hall-promotion-card')).toBeNull();
+  // 프리셋의 AppState 목은 jest.fn 이라 등록된 리스너가 호출 기록에 남는다 — 바꿔 끼우지 않고 그대로 불러 복귀를 흉내 낸다
+  const listeners = jest
+    .mocked(AppState.addEventListener)
+    .mock.calls.filter(([type]) => type === 'change')
+    .map(([, listener]) => listener);
+  await act(async () => listeners.forEach((listener) => listener('active')));
+  await screen.findByTestId('hall-promotion-cell');
+  expect(getNextMock).toHaveBeenCalledTimes(2);
+});
+
+test('다른 섬을 구경 중인 방문자는 홍보 칸을 부르지 않는다', async () => {
   const visitorState = initialState(true);
   visitorState.visitingIslandId = visitorState.islands.find((island) => !island.joined)?.id;
   const visitor = await render(<Hall e={createPreviewEnvironment(e('manage', visitorState))} />);
-
   await waitFor(() => assert.ok(visitor.getByText(viewIsland(visitorState).name)));
   await act(async () => {});
-  expect(getNewsMock).not.toHaveBeenCalled();
-  expect(visitor.queryByText('섬 소식')).toBeNull();
+  expect(getEditorMock).not.toHaveBeenCalled();
+  expect(getNextMock).not.toHaveBeenCalled();
+  expect(visitor.queryByTestId('hall-promotion-card')).toBeNull();
 });
+
+test.each([false, true])(
+  '섬 정보 「수정」 알약은 머리의 닫기 바로 옆에 있다(가로 %s)',
+  async (landscape) => {
+    mockLandscape = landscape;
+    const screen = await render(<Hall e={createPreviewEnvironment(e())} />);
+    // 닫기에서 위로 올라가 수정 알약을 품은 가장 가까운 줄 — 둘만 담고 섬 이름은 그 밖이다
+    let row = screen.getByTestId('hall-close').parent;
+    while (row && !within(row).queryByTestId('hall-edit')) row = row.parent;
+    assert.ok(row);
+    expect(within(row).queryByText('서버 섬')).toBeNull();
+    expect(within(row).getByText('수정')).toBeTruthy();
+  },
+);
 
 describe('정원 휠 — 숫자 state + t() 라벨(GROMO-2464)', () => {
   const pickCapacity = async (api: ReturnType<typeof management>, label: string) => {

@@ -1039,9 +1039,13 @@
     },
     "news": {
       "promotion": "섬장이 오늘 잡지 홍보에 60마리를 썼어요 · 내일 아침 잡지에 실려요",
-      "promotionYesterday": "섬장이 어제 잡지 홍보에 60마리를 썼어요 · 오늘 아침 잡지에 실려요",
-      "title": "섬 소식",
-      "promotionRow": "섬장이 잡지 홍보에 60마리를 썼어요"
+      "promotionYesterday": "섬장이 어제 잡지 홍보에 60마리를 썼어요 · 오늘 아침 잡지에 실려요"
+    },
+    "hall": {
+      "write": "홍보 쓰기",
+      "edit": "수정하기",
+      "issue": "{{month}}월 {{day}}일 아침 7시 호",
+      "applied": "{{name}} 섬장이 홍보를 신청했어요"
     },
     "reader": {
       "title": "냐옹",
@@ -1794,6 +1798,7 @@
       "save": "저장하기",
       "saved": "섬 정보를 저장했어요.",
       "editIsland": "섬 정보 수정",
+      "edit": "수정",
       "applicant": "신청자",
       "rejectApplicant": "{{v0}} 가입 거절",
       "rejectedApplicant": "{{v0}}님의 가입을 거절했어요.",
