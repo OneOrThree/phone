@@ -604,6 +604,46 @@ export const componentTokens = {
     // 글 위에 겹쳐 찍으므로 밑 글이 비쳐 읽히게 — 잉크 도장의 반투명 느낌(2026-10-26)
     opacity: 0.85,
   },
+  // 마을회관 「섬 관리」 카드의 잡지 홍보 칸 카드(GROMO-2894 시안 .slot) — 친구 초대 줄 아래 편지지 색 종이.
+  // 버튼 높이·테두리·반경·색·꺼짐 투명도는 button 토큰(heightSmall 38 · Primary/Secondary)을 그대로 쓴다
+  hallPromotion: {
+    background: semanticTokens.color.letter,
+    border: color.letterBorder,
+    borderWidth: semanticTokens.stroke.default,
+    radius: semanticTokens.radius.control,
+    padding: space[3],
+    gap: 10,
+    // 친구 초대 줄과의 틈
+    marginTop: space[1],
+    // 「홍보 쓰기」·「수정하기」 — 공용 Btn small 과 같은 좌우 여백·아래 그림자
+    buttonPaddingX: 14,
+    buttonGap: 6,
+    buttonShadowOffset: 3,
+    fishSize: 20,
+    fishGap: 2,
+    // 「홍보 쓰기」 줄: 표지 | 제목·버튼
+    rowGap: space[3],
+    stackGap: 9,
+    // 기운 잡지 표지(210×250) — 카드 위로 살짝 삐져나오게 음수 여백
+    cover: { width: 62, aspect: 250 / 210, rotation: '-7deg', top: -18, bottom: -6, left: -4 },
+    // 실릴 호 줄 · 섬장 이름 줄
+    footerGap: space[2],
+    hostAvatar: 26,
+    hostGap: space[2],
+    // 접수 발도장 — 칸 폭 대비 크기·오른쪽 위 모서리에서 삐져나온 비율. 크림색 바탕은 곱하기로 지운다
+    stamp: { widthRatio: 0.3, rightRatio: 0.04, topRatio: 0.14, rotation: '-14deg', opacity: 0.95 },
+  },
+  // 섬 관리 카드 머리 닫기(×) 왼쪽 「✏ 수정」 알약(GROMO-2894). 높이·테두리·그림자는 옆 닫기(navButton)와 같다
+  hallEditPill: {
+    paddingHorizontal: space[3],
+    gap: 5,
+    iconSize: 16,
+    // 알약과 닫기(44 상자 안 34 원) 사이 — 보이는 틈이 8 이 되게
+    actionsGap: 3,
+    // 가로 머리 칸(위 24 · 옆 16 여백)에서 줄을 종전 닫기 자리(위 7 · 오른쪽 8)로 당긴다
+    landscapePullTop: -17,
+    landscapePullRight: -8,
+  },
   // 공동 가계부 — 세 장짜리 책(GROMO-2487 A안 통장, 2026-10-27). 장부 그림 한 장을 비율 유지로 깔고 그 종이
   // 영역 비율로 글을 둔다. 수치는 승인 시안(screen-review.html 의 ledgerFrame · T['2487'] A안)의 px 다.
   ledger: {

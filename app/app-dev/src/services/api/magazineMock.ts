@@ -31,6 +31,7 @@ import type {
   MagazineIssueSummary,
   MagazineReceipt,
   MagazineToday,
+  NextPromotion,
   ReceiptUpdate,
   PromotionApplied,
   PromotionDraft,
@@ -414,6 +415,14 @@ export const magazineMock = {
       reject('PROMOTION_LOCKED', 409, '자정이 지나 고칠 수 없어요.');
     Object.assign(saved, draft);
     return { ...saved, updatedAt: new Date(now).toISOString() };
+  },
+
+  /** 주민이 읽는 다음 호 우리 섬 칸 — `applied` 플래그나 이번 세션에 신청한 칸. 발행(07시) 뒤에는 null. */
+  async getNextPromotion(islandId: string, now = Date.now()): Promise<NextPromotion | null> {
+    await wait();
+    const store = storeOf(islandId);
+    seed(store, now);
+    return store.promotions.find((p) => p.issueDate === windowAt(now).upcoming) ?? null;
   },
 
   async getIslandNews(islandId: string, limit = 5, now = Date.now()): Promise<IslandNewsItem[]> {

@@ -64,6 +64,10 @@ public class IslandPromotionUseCase {
         return required(relay(() -> data.fetchPromotionEditor(claims.userId(), islandId, deadline)));
     }
 
+    public IslandPromotions.NextPage next(AccessTokenClaims claims, UUID islandId, Deadline deadline) {
+        return required(relay(() -> data.fetchPromotionNext(claims.userId(), islandId, deadline)));
+    }
+
     public IslandPromotions.Assets assets(AccessTokenClaims claims, Deadline deadline) {
         return required(relay(() -> data.fetchMagazineAssets(claims.userId(), deadline)));
     }
