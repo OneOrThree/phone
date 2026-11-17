@@ -1,0 +1,7 @@
+PASS src/screens/focus/VerificationSession.test.tsx
+PASS src/screens/focus/VerificationCamera.test.tsx
+
+Test Suites: 2 passed, 2 total
+Tests:       58 passed, 58 total
+Snapshots:   0 total
+Time:        2.995 s, estimated 3 s

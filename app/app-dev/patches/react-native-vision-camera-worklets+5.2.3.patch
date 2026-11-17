@@ -1,0 +1,175 @@
+diff --git a/node_modules/react-native-vision-camera-worklets/cpp/NativeThreadAsyncQueue.hpp b/node_modules/react-native-vision-camera-worklets/cpp/NativeThreadAsyncQueue.hpp
+index 83de28a..9528d58 100644
+--- a/node_modules/react-native-vision-camera-worklets/cpp/NativeThreadAsyncQueue.hpp
++++ b/node_modules/react-native-vision-camera-worklets/cpp/NativeThreadAsyncQueue.hpp
+@@ -9,6 +9,9 @@
+ #include "JSIConverter+AsyncQueue.hpp"
+ #include <VisionCamera/HybridNativeThreadSpec.hpp>
+ #include <jsi/jsi.h>
++#include <functional>
++#include <memory>
++#include <utility>
+ 
+ namespace margelo::nitro::camera::worklets {
+ 
+@@ -23,8 +26,13 @@ public:
+   explicit NativeThreadAsyncQueue(std::shared_ptr<HybridNativeThreadSpec> thread) : _thread(std::move(thread)) {}
+ 
+   void push(std::function<void()>&& job) override {
+-    auto jobCopy = job;
+-    _thread->runOnThread(jobCopy);
++    // Android JNI 콜백은 실행 뒤에도 Java GC까지 살아 있다. 사본들이 같은 슬롯을
++    // 비우게 해서 정상 종료·예외 모두 JSI 캡처를 카메라 executor에서 해제한다.
++    auto pending = std::make_shared<std::function<void()>>(std::move(job));
++    _thread->runOnThread([pending]() {
++      auto current = std::exchange(*pending, {});
++      if (current) current();
++    });
+   }
+ 
+ private:
+diff --git a/node_modules/react-native-vision-camera-worklets/cpp/NativeThreadDispatcher.hpp b/node_modules/react-native-vision-camera-worklets/cpp/NativeThreadDispatcher.hpp
+index 0e51f55..eea9245 100644
+--- a/node_modules/react-native-vision-camera-worklets/cpp/NativeThreadDispatcher.hpp
++++ b/node_modules/react-native-vision-camera-worklets/cpp/NativeThreadDispatcher.hpp
+@@ -9,6 +9,9 @@
+ #include "JSIConverter+AsyncQueue.hpp"
+ #include <VisionCamera/HybridNativeThreadSpec.hpp>
+ #include <jsi/jsi.h>
++#include <functional>
++#include <memory>
++#include <utility>
+ 
+ namespace margelo::nitro::camera::worklets {
+ 
+@@ -26,7 +29,13 @@ public:
+     throw std::runtime_error("runSync(...) is not implemented for NativeThreadDispatcher!");
+   }
+   void runAsync(std::function<void()>&& function) override {
+-    _thread->runOnThread(function);
++    // JSI 캡처를 JNI finalizer가 아닌 이 executor에서 해제한다.
++    // 공유 슬롯을 비우면 브리지가 보관한 콜백 사본에도 캡처가 남지 않는다.
++    auto pending = std::make_shared<std::function<void()>>(std::move(function));
++    _thread->runOnThread([pending]() {
++      auto current = std::exchange(*pending, {});
++      if (current) current();
++    });
+   }
+ 
+ private:
+diff --git a/node_modules/react-native-vision-camera-worklets/lib/createRuntimeThreadProvider.js b/node_modules/react-native-vision-camera-worklets/lib/createRuntimeThreadProvider.js
+index ec97d7b..8bd520f 100644
+--- a/node_modules/react-native-vision-camera-worklets/lib/createRuntimeThreadProvider.js
++++ b/node_modules/react-native-vision-camera-worklets/lib/createRuntimeThreadProvider.js
+@@ -1,7 +1,33 @@
+-import { scheduleOnRuntime, scheduleOnUI } from 'react-native-worklets';
++import { scheduleOnRN, scheduleOnRuntime, scheduleOnUI } from 'react-native-worklets';
+ import { createAsyncRunner } from './createAsyncRunner';
+ import { createWorkletRuntimeForThread } from './createWorkletRuntimeForThread';
+ let listenerId = 62765;
++// Worklets 큐는 런타임을 weak_ptr로만 보관한다. 화면이 사라져도 콜백 해제가
++// executor에서 끝날 때까지 RN 쪽에서 런타임을 유지한다.
++let nextTaskId = 0;
++const pendingRuntimes = new Map();
++function releaseRuntime(taskId) {
++    pendingRuntimes.delete(taskId);
++}
++function scheduleRetained(runtime, callback) {
++    const taskId = ++nextTaskId;
++    pendingRuntimes.set(taskId, runtime);
++    try {
++        scheduleOnRuntime(runtime, () => {
++            'worklet';
++            try {
++                callback();
++            }
++            finally {
++                scheduleOnRN(releaseRuntime, taskId);
++            }
++        });
++    }
++    catch (error) {
++        releaseRuntime(taskId);
++        throw error;
++    }
++}
+ /**
+  * Creates the default {@linkcode RuntimeThreadProvider} implementation that
+  * bridges `react-native-vision-camera` with
+@@ -22,7 +48,7 @@ export function createRuntimeThreadProvider() {
+             const runtime = createWorkletRuntimeForThread(thread);
+             return {
+                 setOnDepthFrameCallback(depthOutput, onDepth) {
+-                    scheduleOnRuntime(runtime, () => {
++                    scheduleRetained(runtime, () => {
+                         'worklet';
+                         if (onDepth != null) {
+                             depthOutput.setOnDepthFrameCallback((depth) => {
+@@ -44,7 +70,7 @@ export function createRuntimeThreadProvider() {
+                     });
+                 },
+                 setOnFrameCallback(frameOutput, onFrame) {
+-                    scheduleOnRuntime(runtime, () => {
++                    scheduleRetained(runtime, () => {
+                         'worklet';
+                         if (onFrame != null) {
+                             frameOutput.setOnFrameCallback((frame) => {
+diff --git a/node_modules/react-native-vision-camera-worklets/src/createRuntimeThreadProvider.ts b/node_modules/react-native-vision-camera-worklets/src/createRuntimeThreadProvider.ts
+index ade7644..c60ecb0 100644
+--- a/node_modules/react-native-vision-camera-worklets/src/createRuntimeThreadProvider.ts
++++ b/node_modules/react-native-vision-camera-worklets/src/createRuntimeThreadProvider.ts
+@@ -1,10 +1,35 @@
+ import type { RuntimeThreadProvider } from 'react-native-vision-camera'
+-import { scheduleOnRuntime, scheduleOnUI } from 'react-native-worklets'
++import { scheduleOnRN, scheduleOnRuntime, scheduleOnUI, type WorkletRuntime } from 'react-native-worklets'
+ import { createAsyncRunner } from './createAsyncRunner'
+ import { createWorkletRuntimeForThread } from './createWorkletRuntimeForThread'
+ 
+ let listenerId = 62765
+ 
++// Worklets 큐는 런타임을 weak_ptr로만 보관한다. 화면이 사라져도 콜백 해제가
++// executor에서 끝날 때까지 RN 쪽에서 런타임을 유지한다.
++let nextTaskId = 0
++const pendingRuntimes = new Map<number, WorkletRuntime>()
++function releaseRuntime(taskId: number) {
++  pendingRuntimes.delete(taskId)
++}
++function scheduleRetained(runtime: WorkletRuntime, callback: () => void) {
++  const taskId = ++nextTaskId
++  pendingRuntimes.set(taskId, runtime)
++  try {
++    scheduleOnRuntime(runtime, () => {
++      'worklet'
++      try {
++        callback()
++      } finally {
++        scheduleOnRN(releaseRuntime, taskId)
++      }
++    })
++  } catch (error) {
++    releaseRuntime(taskId)
++    throw error
++  }
++}
++
+ /**
+  * Creates the default {@linkcode RuntimeThreadProvider} implementation that
+  * bridges `react-native-vision-camera` with
+@@ -25,7 +50,7 @@ export function createRuntimeThreadProvider(): RuntimeThreadProvider {
+       const runtime = createWorkletRuntimeForThread(thread)
+       return {
+         setOnDepthFrameCallback(depthOutput, onDepth) {
+-          scheduleOnRuntime(runtime, () => {
++          scheduleRetained(runtime, () => {
+             'worklet'
+             if (onDepth != null) {
+               depthOutput.setOnDepthFrameCallback((depth) => {
+@@ -46,7 +71,7 @@ export function createRuntimeThreadProvider(): RuntimeThreadProvider {
+           })
+         },
+         setOnFrameCallback(frameOutput, onFrame) {
+-          scheduleOnRuntime(runtime, () => {
++          scheduleRetained(runtime, () => {
+             'worklet'
+             if (onFrame != null) {
+               frameOutput.setOnFrameCallback((frame) => {

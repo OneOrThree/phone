@@ -1,0 +1,6 @@
+appId: com.oneorthree.gromo
+---
+- tapOn: "카메라 인증 사용"
+- tapOn: "카메라 인증"
+- assertVisible: "휴식하기"
+- takeScreenshot: camera-enabled

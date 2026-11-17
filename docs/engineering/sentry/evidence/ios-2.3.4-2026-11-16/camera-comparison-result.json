@@ -1,0 +1,13 @@
+{
+  "originalNativeApp": "/tmp/cattus-234-ios-build/Build/Products/Release-iphonesimulator/Cattus.app",
+  "originalFocusVariant": "/tmp/cattus-234-focus-repro.app",
+  "boundaryVariant": "/tmp/cattus-234-focus-boundary.app",
+  "baselineCrash": "camera-initialization-crash.json",
+  "boundaryOrigin": "https://github.com/OneOrThree/phone/pull/1622",
+  "binarySha256": {
+    "cattus-234-focus-repro.app": "ec95d8f156e927abbdd09bb23b9c398e4fa128db08643320f5fb628deb1f43af",
+    "cattus-234-focus-boundary.app": "ec95d8f156e927abbdd09bb23b9c398e4fa128db08643320f5fb628deb1f43af"
+  },
+  "hostCrashReports": ["Cattus-2026-11-17-014138.ips"],
+  "cattus8Reproduced": false
+}

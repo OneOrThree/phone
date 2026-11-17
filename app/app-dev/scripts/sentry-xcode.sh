@@ -18,6 +18,63 @@ if [[ ! -f "$sentry_default_env" ]]; then
 fi
 export SENTRY_DOTENV_PATH="${SENTRY_DOTENV_PATH:-$sentry_default_env}"
 
+# TestFlight 는 빌드 단계의 선택적 업로드와 별도로, 완성된 아카이브의 심볼을 검증한다.
+require_release_upload() {
+  if [[ "${SENTRY_DISABLE_AUTO_UPLOAD:-}" == "true" || "${SENTRY_DISABLE_XCODE_DEBUG_UPLOAD:-}" == "true" ]]; then
+    echo "error: TestFlight 배포에서는 Sentry 심볼 업로드를 끌 수 없습니다." >&2
+    exit 1
+  fi
+  if [[ -z "${SENTRY_AUTH_TOKEN:-}" && ! -f "$SENTRY_DOTENV_PATH" ]]; then
+    echo "error: TestFlight 배포에 필요한 Sentry 토큰이 없습니다. SENTRY_AUTH_TOKEN 또는 SENTRY_DOTENV_PATH 를 설정하세요." >&2
+    exit 1
+  fi
+  # dotenv 의 SENTRY_ALLOW_FAILURE=true 도 실패를 성공으로 바꾸지 못하게 한다.
+  export SENTRY_ALLOW_FAILURE=false
+  sentry_cli="${SENTRY_CLI_EXECUTABLE:-$APP_ROOT/node_modules/.bin/sentry-cli}"
+}
+
+binary_uuids() {
+  xcrun dwarfdump --uuid "$1" | awk '/^UUID: / {print toupper($2)}' | sort -u
+}
+
+case "${1:-}" in
+  check-release)
+    require_release_upload
+    "$sentry_cli" info --config-status-json | "${NODE_BINARY:-node}" -e '
+      let data = "";
+      process.stdin.on("data", chunk => data += chunk);
+      process.stdin.on("end", () => {
+        if (JSON.parse(data).auth?.successful !== true) {
+          console.error("error: TestFlight 배포용 Sentry 인증에 실패했습니다.");
+          process.exitCode = 1;
+        }
+      });'
+    exit 0
+    ;;
+  archive)
+    require_release_upload
+    archive="${2:?사용법: sentry-xcode.sh archive <xcarchive>}"
+    app_relative="$(/usr/libexec/PlistBuddy -c 'Print :ApplicationProperties:ApplicationPath' "$archive/Info.plist")"
+    app="$archive/Products/$app_relative"
+    executable="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Info.plist")"
+    main_dsym="$archive/dSYMs/$(basename "$app").dSYM"
+    app_uuids="$(binary_uuids "$app/$executable")"
+    dsym_uuids="$(binary_uuids "$main_dsym/Contents/Resources/DWARF/$executable")"
+    if [[ -z "$app_uuids" || "$app_uuids" != "$dsym_uuids" ]]; then
+      echo "error: TestFlight 아카이브 실행 파일과 dSYM UUID 가 다릅니다: $archive" >&2
+      exit 1
+    fi
+    ids=()
+    while IFS= read -r uuid; do ids+=(--id "$uuid"); done <<< "$app_uuids"
+    # 메인 앱 심볼이 실제 포함됐는지, Sentry 서버에서 처리까지 성공했는지 확인한다.
+    # SDK 래퍼는 실패를 로그에만 남길 수 있어 CLI 종료 코드를 직접 사용한다.
+    "$sentry_cli" debug-files upload --org oneorthree --project cattus --wait --require-all "${ids[@]}" "$main_dsym"
+    # 확장·프레임워크 심볼도 완성된 아카이브에서 함께 보관한다(이미 올라간 파일은 중복 업로드하지 않는다).
+    "$sentry_cli" debug-files upload --org oneorthree --project cattus --wait "$archive/dSYMs"
+    exit 0
+    ;;
+esac
+
 # 토큰이 없는 팀원/PR 빌드는 그대로 두고, 토큰이 있는 빌드는 업로드 실패를 숨기지 않는다.
 upload_enabled=1
 if [[ "${CONFIGURATION:-Debug}" == *Debug* || "${SENTRY_DISABLE_AUTO_UPLOAD:-}" == "true" ]]; then
@@ -59,5 +116,5 @@ case "${1:-}" in
       fi
     fi
     ;;
-  *) echo "사용법: sentry-xcode.sh bundle <RN 스크립트> | symbols" >&2; exit 2 ;;
+  *) echo "사용법: sentry-xcode.sh bundle <RN 스크립트> | symbols | check-release | archive <xcarchive>" >&2; exit 2 ;;
 esac

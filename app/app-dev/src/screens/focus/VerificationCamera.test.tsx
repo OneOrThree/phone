@@ -5,6 +5,11 @@ import { useCamera, useFrameOutput, type Frame } from 'react-native-vision-camer
 import { useResizer } from 'react-native-vision-camera-resizer';
 import { useTensorflowModel } from 'react-native-fast-tflite';
 import { scheduleOnRN } from 'react-native-worklets';
+import { captureCameraError } from '@/services/sentry';
+jest.mock('@/services/sentry', () => ({
+  captureCameraError: jest.fn(),
+  recordSentryCameraState: jest.fn(),
+}));
 import {
   MEASUREMENT_INTERVAL_MS,
   MEASUREMENT_STALE_MS,
@@ -612,4 +617,39 @@ test('도구 추론 오류가 난 장도 그 장의 한도를 쓴 것으로 세�
   expect(screen.onDetection).toHaveBeenLastCalledWith('missingObject');
   // 첫 장 오류(1회 실행, 한도 4 소진) 뒤 남은 두 장은 1회씩만 본다.
   expect(objectRunSync).toHaveBeenCalledTimes(3);
+});
+
+test('모델 로딩 실패는 원래 오류를 한 번 전송하고 다시 렌더해도 중복 전송하지 않는다', async () => {
+  const error = new Error('model load failed');
+  jest.mocked(useTensorflowModel).mockReturnValue({ state: 'error', model: undefined, error });
+  const screen = await setup();
+  expect(captureCameraError).toHaveBeenCalledWith(error, 'palm_model', { camera_position: 'back' });
+  expect(captureCameraError).toHaveBeenCalledWith(error, 'object_model', {
+    camera_position: 'back',
+  });
+  expect(screen.onDetection).toHaveBeenCalledWith('unavailable');
+  await act(async () => jest.advanceTimersByTime(60_000));
+  expect(captureCameraError).toHaveBeenCalledTimes(2);
+});
+
+test('정상 카메라의 손 미검출은 Sentry 오류로 전송하지 않는다', async () => {
+  await setup();
+  await sample(-4);
+  await sample(-4);
+  await sample(-4);
+  expect(captureCameraError).not.toHaveBeenCalled();
+});
+
+test('반복된 추론 실패는 한 번 보고하고 프레임 해제와 판정 불가를 유지한다', async () => {
+  const screen = await setup();
+  resize.mockImplementation(() => {
+    throw new Error('buffer unavailable');
+  });
+  await sample(4);
+  await sample(4);
+  expect(captureCameraError).toHaveBeenCalledTimes(1);
+  expect(captureCameraError).toHaveBeenCalledWith('Error: buffer unavailable', 'inference', {
+    camera_position: 'back',
+  });
+  expect(screen.onDetection).toHaveBeenLastCalledWith('unavailable');
 });

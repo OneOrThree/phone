@@ -1,0 +1,15 @@
+{
+  "sourceTag": "app-2.3.4-ios-13",
+  "sourceSHA": "2a741d6b1f8e6d9752edd86820fa075ec6247a7b",
+  "bundleVersion": "13",
+  "shortVersion": "2.3.4",
+  "sdk": "iphonesimulator26.5",
+  "xcode": "2660",
+  "machO_SHA256": "ec95d8f156e927abbdd09bb23b9c398e4fa128db08643320f5fb628deb1f43af",
+  "uuid": "8CA0554A-5451-35B4-B7B7-27DE2900D8B8",
+  "configuration": "Release",
+  "entry": "index.native.ts",
+  "apiFixture": "http://127.0.0.1:18735",
+  "sentryDSN": "http://repro@127.0.0.1:18734/1",
+  "expoUpdatesEnabled": false
+}

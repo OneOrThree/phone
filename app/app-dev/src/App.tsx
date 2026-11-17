@@ -1,3 +1,4 @@
+import { recordSentryScreen } from '@/services/sentry';
 import { DEEP_LINK_HOLD_ROUTES, NO_ISLAND_ROUTES, SEA_HUD_ROUTES, titles } from '@/app/routePolicy';
 import { useIslandAudio } from '@/app/useIslandAudio';
 import { useFocusKeepAwake } from '@/app/useFocusKeepAwake';
@@ -1616,7 +1617,10 @@ function Gromo() {
     });
   }, [pushPromptReady]);
   useEffect(() => {
-    if (loaded && !REVIEW && !DEMO) trackPostHogScreen(route);
+    if (loaded && !REVIEW && !DEMO) {
+      recordSentryScreen(route);
+      trackPostHogScreen(route);
+    }
   }, [loaded, route]);
   useEffect(() => {
     if (!loaded || !isPublicWebDemo()) return;

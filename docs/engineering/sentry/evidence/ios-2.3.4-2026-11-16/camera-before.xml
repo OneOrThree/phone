@@ -1,0 +1,8 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<testsuites>
+  <testsuite name="Test Suite" device="Cattus-234-iPad-27-2 - iOS 27.2 - 79AE7043-17B5-45B5-BB59-601E416A73C3" tests="1" failures="1" time="24.0">
+    <testcase id="cattus-234-camera-enable" name="cattus-234-camera-enable" classname="cattus-234-camera-enable" file="/tmp/cattus-234-camera-enable.yaml" time="24.0" status="ERROR">
+      <failure>Element not found: Text matching regex: 카메라 인증</failure>
+    </testcase>
+  </testsuite>
+</testsuites>

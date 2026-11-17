@@ -34,6 +34,11 @@ import {
 } from '@/services/studyVerification/rotatedStudyObjects';
 import type { VerificationCameraPosition } from '@/services/studyVerification/types';
 import {
+  captureCameraError,
+  recordSentryCameraState,
+  type CameraFailureStage,
+} from '@/services/sentry';
+import {
   OBJECT_INPUT,
   studyObjectModelReady,
   studyObjectScores,
@@ -195,6 +200,15 @@ function ModelVerificationCamera({
   const captureEpoch = useMemo(() => createSynchronizable(0), []);
   const interrupted = useMemo(() => createSynchronizable(false), []);
   const mounted = useRef(true);
+  const reportedFailures = useRef(new Set<CameraFailureStage>());
+  const reportFailure = useCallback(
+    (stage: CameraFailureStage, error: unknown) => {
+      if (!mounted.current || reportedFailures.current.has(stage)) return;
+      reportedFailures.current.add(stage);
+      captureCameraError(error, stage, { camera_position: position });
+    },
+    [position],
+  );
   const lastResult = useRef(0);
   const lastDetection = useRef<VerificationDetection>('checking');
   const lastError = useRef('');
@@ -242,6 +256,12 @@ function ModelVerificationCamera({
   }, [onDetection, reportObjects, staleMs, periodic]);
 
   useEffect(() => {
+    if (model.state === 'error') reportFailure('palm_model', model.error);
+    if (objectModel.state === 'error') reportFailure('object_model', objectModel.error);
+    if (resize.state === 'error') reportFailure('palm_resizer', resize.error);
+    if (objectResize.state === 'error') reportFailure('object_resizer', objectResize.error);
+    if ((tflite && scoreIdx < 0) || (objectTflite && !objectReady))
+      reportFailure('model_contract', new Error('Unexpected verification model input/output'));
     if (
       model.state === 'error' ||
       resize.state === 'error' ||
@@ -253,15 +273,16 @@ function ModelVerificationCamera({
       onDetection('unavailable');
     }
   }, [
-    model.state,
-    resize.state,
+    model,
+    resize,
     tflite,
     scoreIdx,
-    objectModel.state,
-    objectResize.state,
+    objectModel,
+    objectResize,
     objectTflite,
     objectReady,
     onDetection,
+    reportFailure,
   ]);
 
   const receiveScores = useCallback(
@@ -286,6 +307,11 @@ function ModelVerificationCamera({
       }
       lastResult.current = scores ? Date.now() : 0;
       const detection = focusDetection(scores, objects);
+      if (error)
+        reportFailure(
+          error === 'measurement frames timed out' ? 'frame_timeout' : 'inference',
+          error,
+        );
       if (__DEV__ && error && error !== lastError.current) {
         console.warn('[verification-camera] inference failed', error);
       }
@@ -319,7 +345,16 @@ function ModelVerificationCamera({
         );
       }
     },
-    [onDetection, reportObjects, onReady, periodic, samples, captureEpoch, interrupted],
+    [
+      onDetection,
+      reportObjects,
+      onReady,
+      periodic,
+      samples,
+      captureEpoch,
+      interrupted,
+      reportFailure,
+    ],
   );
 
   const onFrame = useCallback(
@@ -384,7 +419,8 @@ function ModelVerificationCamera({
             } finally {
               objectFrame.dispose();
             }
-          } catch {
+          } catch (error) {
+            scheduleOnRN(reportFailure, 'object_inference', String(error));
             // null을 같은 프레임 자리에 남겨 오류를 다른 장의 손과 섞지 않는다.
             // 오류 전에 쓴 추론이 있을 수 있으므로 그 장의 한도를 다 쓴 것으로 센다.
             if (periodic) objectBudget.setBlocking(used + limit);
@@ -421,6 +457,7 @@ function ModelVerificationCamera({
       objectTflite,
       objectResizer,
       objectReady,
+      reportFailure,
     ],
   );
 
@@ -440,10 +477,12 @@ function ModelVerificationCamera({
     isActive: previewVisible || sampling,
     outputs,
     onStarted: () => {
+      if (mounted.current) recordSentryCameraState({ capture_status: 'started' });
       if (__DEV__ && mounted.current) console.log('[verification-camera] capture started', cadence);
     },
     onStopped: () => {
       if (!mounted.current) return;
+      recordSentryCameraState({ capture_status: 'stopped' });
       captureEpoch.setBlocking(captureEpoch.getBlocking() + 1);
       frameReady.current = false;
       if (__DEV__)
@@ -455,6 +494,7 @@ function ModelVerificationCamera({
     },
     onInterruptionStarted: () => {
       if (!mounted.current) return;
+      recordSentryCameraState({ capture_status: 'interrupted' });
       captureEpoch.setBlocking(captureEpoch.getBlocking() + 1);
       interrupted.setBlocking(true);
       frameReady.current = false;
@@ -466,6 +506,7 @@ function ModelVerificationCamera({
     },
     onInterruptionEnded: () => {
       if (!mounted.current) return;
+      recordSentryCameraState({ capture_status: 'initializing' });
       captureEpoch.setBlocking(captureEpoch.getBlocking() + 1);
       samples.setBlocking(emptySamples());
       interrupted.setBlocking(false);

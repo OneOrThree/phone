@@ -1,0 +1,40 @@
+{
+  "simulator": "iPad (10th generation)",
+  "os": "iOS 27.2",
+  "runtimeBuild": "24B114",
+  "udid": "79AE7043-17B5-45B5-BB59-601E416A73C3",
+  "auth401": {
+    "/me/member-appearances": 5,
+    "/me": 3
+  },
+  "refresh200": 8,
+  "localSentryExceptionEnvelopes": [],
+  "cattusCrashReports": [],
+  "flows": [
+    {
+      "file": "cattus-234-auth-27-2.xml",
+      "device": "Cattus-234-iPad-27-2 - iOS 27.2 - 79AE7043-17B5-45B5-BB59-601E416A73C3",
+      "failures": 0,
+      "seconds": 93.0
+    },
+    {
+      "file": "cattus-234-smoke-27-2.xml",
+      "device": "Cattus-234-iPad-27-2 - iOS 27.2 - 79AE7043-17B5-45B5-BB59-601E416A73C3",
+      "failures": 0,
+      "seconds": 26.0
+    },
+    {
+      "file": "cattus-234-settings-rotation-27-2.xml",
+      "device": "Cattus-234-iPad-27-2 - iOS 27.2 - 79AE7043-17B5-45B5-BB59-601E416A73C3",
+      "failures": 0,
+      "seconds": 45.0
+    },
+    {
+      "file": "cattus-234-local-login-27-2.xml",
+      "device": "Cattus-234-iPad-27-2 - iOS 27.2 - 79AE7043-17B5-45B5-BB59-601E416A73C3",
+      "failures": 0,
+      "seconds": 10.0
+    }
+  ],
+  "scope": "Initial startup, authentication and settings checks only; later camera test results are separate."
+}

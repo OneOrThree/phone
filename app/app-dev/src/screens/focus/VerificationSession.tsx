@@ -13,6 +13,7 @@ import {
 import { VerificationCamera, type VerificationDetection } from './VerificationCamera';
 import type { VerificationCameraPosition } from '@/services/studyVerification/types';
 import type { StudyObjectPresence } from '@/services/studyVerification/studyObjects';
+import { captureCameraError, recordSentryCameraState } from '@/services/sentry';
 
 /** 네이티브 출력 생성 중 렌더 예외도 기존 촬영 오류·재시도 경로로 보낸다. */
 class CameraErrorBoundary extends Component<
@@ -55,6 +56,20 @@ export function VerificationSession({
     );
     return () => subscription.remove();
   }, []);
+  useEffect(() => {
+    recordSentryCameraState({
+      mounted: true,
+      measurement_enabled: enabled,
+      preview_visible: previewVisible,
+      camera_position: cameraPosition,
+      phase: sessionId ? 'focusing' : 'before_focus',
+      foreground,
+    });
+  }, [enabled, previewVisible, cameraPosition, sessionId, foreground]);
+  useEffect(
+    () => () => recordSentryCameraState({ mounted: false, capture_status: 'unmounted' }),
+    [],
+  );
   if (!enabled || !foreground) return null;
   return (
     <SessionCamera
@@ -150,12 +165,22 @@ function SessionCamera({
       activeCapture?.close();
     };
   }, [sessionId]);
-  const failCamera = useCallback(() => {
-    if (!mounted.current || failed.current) return;
-    failed.current = true;
-    pause();
-    setError(true);
-  }, [pause]);
+  const failCamera = useCallback(
+    (cause: unknown) => {
+      if (!mounted.current || failed.current) return;
+      failed.current = true;
+      recordSentryCameraState({ capture_status: 'failed' });
+      captureCameraError(cause, 'capture', {
+        camera_position: position,
+        measurement_enabled: measurementEnabled,
+        preview_visible: previewShown.current,
+        phase: sessionId ? 'focusing' : 'before_focus',
+      });
+      pause();
+      setError(true);
+    },
+    [pause, position, measurementEnabled, sessionId],
+  );
   const ui = componentTokens.verificationSetup;
   const visibleDetection = ready && !error ? detection : 'checking';
   const status = t(

@@ -1,0 +1,18 @@
+appId: com.oneorthree.gromo
+name: 2.3.4 iPad 설정 전환과 회전
+---
+- tapOn:
+    text: "닫기"
+    optional: true
+- repeat:
+    times: 3
+    commands:
+      - tapOn: "설정"
+      - assertVisible: "앱 설정"
+      - setOrientation: LANDSCAPE_LEFT
+      - assertVisible: "앱 설정"
+      - setOrientation: PORTRAIT
+      - tapOn: "닫기"
+      - assertVisible: ".*로컬 재현 섬.*"
+- tapOn: "집중 시작"
+- takeScreenshot: focus-entry
