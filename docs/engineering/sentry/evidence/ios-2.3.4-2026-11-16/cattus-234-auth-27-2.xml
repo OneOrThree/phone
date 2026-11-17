@@ -1,0 +1,6 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<testsuites>
+  <testsuite name="Test Suite" device="Cattus-234-iPad-27-2 - iOS 27.2 - 79AE7043-17B5-45B5-BB59-601E416A73C3" tests="1" failures="0" time="93.0">
+    <testcase id="2.3.4 iPad 인증 갱신 회전 복귀" name="2.3.4 iPad 인증 갱신 회전 복귀" classname="2.3.4 iPad 인증 갱신 회전 복귀" file="/tmp/cattus-234-auth-rotation.yaml" time="93.0" status="SUCCESS"/>
+  </testsuite>
+</testsuites>

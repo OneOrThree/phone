@@ -1,0 +1,37 @@
+appId: com.oneorthree.gromo
+name: 2.3.4 iPad 인증 갱신 회전 복귀
+---
+- launchApp:
+    stopApp: false
+- tapOn:
+    text: "허용 안 함|Don.t Allow"
+    optional: true
+- assertVisible: ".*로컬 재현 섬.*"
+- assertVisible: ".*로컬 재현 섬.*"
+- takeScreenshot: portrait-home
+- setOrientation: LANDSCAPE_LEFT
+- assertVisible: ".*로컬 재현 섬.*"
+- takeScreenshot: landscape-home
+- repeat:
+    times: 5
+    commands:
+      - runScript: expire-token.js
+      - pressKey: HOME
+      - launchApp:
+          stopApp: false
+      - assertVisible: ".*로컬 재현 섬.*"
+      - setOrientation: PORTRAIT
+      - assertVisible: ".*로컬 재현 섬.*"
+      - setOrientation: LANDSCAPE_RIGHT
+      - assertVisible: ".*로컬 재현 섬.*"
+- setOrientation: PORTRAIT
+- repeat:
+    times: 3
+    commands:
+      - stopApp
+      - runScript: expire-token.js
+      - launchApp
+      - assertVisible: ".*로컬 재현 섬.*"
+      - assertVisible: ".*로컬 재현 섬.*"
+- takeScreenshot: after-auth-relaunch
+- setOrientation: PORTRAIT

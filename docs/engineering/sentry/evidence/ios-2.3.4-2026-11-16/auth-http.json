@@ -1,0 +1,261 @@
+[
+  {
+    "time": "2026-11-16T09:53:50.387001+00:00",
+    "method": "POST",
+    "path": "/auth/sessions/guest",
+    "status": 201,
+    "epoch": 8
+  },
+  {
+    "time": "2026-11-16T09:53:50.409776+00:00",
+    "method": "GET",
+    "path": "/me",
+    "status": 200,
+    "epoch": 8
+  },
+  {
+    "time": "2026-11-16T09:53:50.427920+00:00",
+    "method": "GET",
+    "path": "/me",
+    "status": 200,
+    "epoch": 8
+  },
+  {
+    "time": "2026-11-16T09:53:50.629268+00:00",
+    "method": "GET",
+    "path": "/me/member-appearances?userIds=00000000-0000-4000-8000-000000000234",
+    "status": 200,
+    "epoch": 8
+  },
+  {
+    "time": "2026-11-16T09:54:20.624715+00:00",
+    "method": "GET",
+    "path": "/me/member-appearances?userIds=00000000-0000-4000-8000-000000000234",
+    "status": 200,
+    "epoch": 8
+  },
+  {
+    "time": "2026-11-16T09:54:35.746243+00:00",
+    "method": "GET",
+    "path": "/me/member-appearances?userIds=00000000-0000-4000-8000-000000000234",
+    "status": 200,
+    "epoch": 8
+  },
+  {
+    "time": "2026-11-16T09:54:47.613158+00:00",
+    "method": "GET",
+    "path": "/me/member-appearances?userIds=00000000-0000-4000-8000-000000000234",
+    "status": 401,
+    "epoch": 8
+  },
+  {
+    "time": "2026-11-16T09:54:47.630054+00:00",
+    "method": "POST",
+    "path": "/auth/sessions/current/refresh",
+    "status": 200,
+    "epoch": 9
+  },
+  {
+    "time": "2026-11-16T09:54:47.999347+00:00",
+    "method": "GET",
+    "path": "/me/member-appearances?userIds=00000000-0000-4000-8000-000000000234",
+    "status": 200,
+    "epoch": 9
+  },
+  {
+    "time": "2026-11-16T09:54:50.624214+00:00",
+    "method": "GET",
+    "path": "/me/member-appearances?userIds=00000000-0000-4000-8000-000000000234",
+    "status": 200,
+    "epoch": 9
+  },
+  {
+    "time": "2026-11-16T09:54:57.271162+00:00",
+    "method": "GET",
+    "path": "/me/member-appearances?userIds=00000000-0000-4000-8000-000000000234",
+    "status": 401,
+    "epoch": 9
+  },
+  {
+    "time": "2026-11-16T09:54:57.276535+00:00",
+    "method": "POST",
+    "path": "/auth/sessions/current/refresh",
+    "status": 200,
+    "epoch": 10
+  },
+  {
+    "time": "2026-11-16T09:54:57.646390+00:00",
+    "method": "GET",
+    "path": "/me/member-appearances?userIds=00000000-0000-4000-8000-000000000234",
+    "status": 200,
+    "epoch": 10
+  },
+  {
+    "time": "2026-11-16T09:55:06.926859+00:00",
+    "method": "GET",
+    "path": "/me/member-appearances?userIds=00000000-0000-4000-8000-000000000234",
+    "status": 401,
+    "epoch": 10
+  },
+  {
+    "time": "2026-11-16T09:55:06.935085+00:00",
+    "method": "POST",
+    "path": "/auth/sessions/current/refresh",
+    "status": 200,
+    "epoch": 11
+  },
+  {
+    "time": "2026-11-16T09:55:07.304003+00:00",
+    "method": "GET",
+    "path": "/me/member-appearances?userIds=00000000-0000-4000-8000-000000000234",
+    "status": 200,
+    "epoch": 11
+  },
+  {
+    "time": "2026-11-16T09:55:16.585371+00:00",
+    "method": "GET",
+    "path": "/me/member-appearances?userIds=00000000-0000-4000-8000-000000000234",
+    "status": 401,
+    "epoch": 11
+  },
+  {
+    "time": "2026-11-16T09:55:16.593350+00:00",
+    "method": "POST",
+    "path": "/auth/sessions/current/refresh",
+    "status": 200,
+    "epoch": 12
+  },
+  {
+    "time": "2026-11-16T09:55:16.960980+00:00",
+    "method": "GET",
+    "path": "/me/member-appearances?userIds=00000000-0000-4000-8000-000000000234",
+    "status": 200,
+    "epoch": 12
+  },
+  {
+    "time": "2026-11-16T09:55:20.624960+00:00",
+    "method": "GET",
+    "path": "/me/member-appearances?userIds=00000000-0000-4000-8000-000000000234",
+    "status": 200,
+    "epoch": 12
+  },
+  {
+    "time": "2026-11-16T09:55:26.548291+00:00",
+    "method": "GET",
+    "path": "/me/member-appearances?userIds=00000000-0000-4000-8000-000000000234",
+    "status": 401,
+    "epoch": 12
+  },
+  {
+    "time": "2026-11-16T09:55:26.560816+00:00",
+    "method": "POST",
+    "path": "/auth/sessions/current/refresh",
+    "status": 200,
+    "epoch": 13
+  },
+  {
+    "time": "2026-11-16T09:55:26.937146+00:00",
+    "method": "GET",
+    "path": "/me/member-appearances?userIds=00000000-0000-4000-8000-000000000234",
+    "status": 200,
+    "epoch": 13
+  },
+  {
+    "time": "2026-11-16T09:55:43.164511+00:00",
+    "method": "GET",
+    "path": "/me",
+    "status": 401,
+    "epoch": 13
+  },
+  {
+    "time": "2026-11-16T09:55:43.169529+00:00",
+    "method": "POST",
+    "path": "/auth/sessions/current/refresh",
+    "status": 200,
+    "epoch": 14
+  },
+  {
+    "time": "2026-11-16T09:55:43.671936+00:00",
+    "method": "GET",
+    "path": "/me",
+    "status": 200,
+    "epoch": 14
+  },
+  {
+    "time": "2026-11-16T09:55:44.121638+00:00",
+    "method": "GET",
+    "path": "/me/member-appearances?userIds=00000000-0000-4000-8000-000000000234",
+    "status": 200,
+    "epoch": 14
+  },
+  {
+    "time": "2026-11-16T09:55:51.626883+00:00",
+    "method": "GET",
+    "path": "/me",
+    "status": 401,
+    "epoch": 14
+  },
+  {
+    "time": "2026-11-16T09:55:51.655850+00:00",
+    "method": "POST",
+    "path": "/auth/sessions/current/refresh",
+    "status": 200,
+    "epoch": 15
+  },
+  {
+    "time": "2026-11-16T09:55:52.199596+00:00",
+    "method": "GET",
+    "path": "/me",
+    "status": 200,
+    "epoch": 15
+  },
+  {
+    "time": "2026-11-16T09:55:52.695055+00:00",
+    "method": "GET",
+    "path": "/me/member-appearances?userIds=00000000-0000-4000-8000-000000000234",
+    "status": 200,
+    "epoch": 15
+  },
+  {
+    "time": "2026-11-16T09:55:59.506070+00:00",
+    "method": "GET",
+    "path": "/me",
+    "status": 401,
+    "epoch": 15
+  },
+  {
+    "time": "2026-11-16T09:55:59.511899+00:00",
+    "method": "POST",
+    "path": "/auth/sessions/current/refresh",
+    "status": 200,
+    "epoch": 16
+  },
+  {
+    "time": "2026-11-16T09:56:00.097923+00:00",
+    "method": "GET",
+    "path": "/me",
+    "status": 200,
+    "epoch": 16
+  },
+  {
+    "time": "2026-11-16T09:56:00.485030+00:00",
+    "method": "GET",
+    "path": "/me/member-appearances?userIds=00000000-0000-4000-8000-000000000234",
+    "status": 200,
+    "epoch": 16
+  },
+  {
+    "time": "2026-11-16T09:56:30.446810+00:00",
+    "method": "GET",
+    "path": "/me/member-appearances?userIds=00000000-0000-4000-8000-000000000234",
+    "status": 200,
+    "epoch": 16
+  },
+  {
+    "time": "2026-11-16T09:57:10.919296+00:00",
+    "method": "GET",
+    "path": "/me/member-appearances?userIds=00000000-0000-4000-8000-000000000234",
+    "status": 200,
+    "epoch": 16
+  }
+]

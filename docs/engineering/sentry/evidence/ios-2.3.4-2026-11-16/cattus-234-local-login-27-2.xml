@@ -1,0 +1,6 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<testsuites>
+  <testsuite name="Test Suite" device="Cattus-234-iPad-27-2 - iOS 27.2 - 79AE7043-17B5-45B5-BB59-601E416A73C3" tests="1" failures="0" time="10.0">
+    <testcase id="2.3.4 로컬 인증과 홈 진입" name="2.3.4 로컬 인증과 홈 진입" classname="2.3.4 로컬 인증과 홈 진입" file="/tmp/cattus-234-login-local.yaml" time="10.0" status="SUCCESS"/>
+  </testsuite>
+</testsuites>

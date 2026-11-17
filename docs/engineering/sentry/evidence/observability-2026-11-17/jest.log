@@ -1,0 +1,23 @@
+PASS src/App.sessionCommands.test.tsx (32.613 s)
+PASS src/App.hardwareBack.test.tsx (8.925 s)
+PASS src/services/posthog.test.ts
+PASS src/App.focusShield.test.tsx
+PASS src/App.reduceMotion.test.tsx
+PASS src/App.forceUpdate.test.tsx
+PASS src/App.locale.test.tsx
+PASS src/App.developerLetter.test.tsx
+PASS src/App.screenTimeDaily.test.tsx
+PASS src/App.audio.test.tsx
+PASS src/App.toastKeyboard.test.tsx
+PASS src/App.clock.test.tsx
+PASS src/App.bootConcurrency.test.tsx
+PASS src/App.confirmModal.test.tsx
+PASS src/screens/focus/VerificationSession.test.tsx
+PASS src/services/sentry.test.ts
+PASS src/screens/focus/VerificationCamera.test.tsx
+PASS src/services/analyticsDevice.test.ts
+
+Test Suites: 18 passed, 18 total
+Tests:       312 passed, 312 total
+Snapshots:   0 total
+Time:        62.379 s

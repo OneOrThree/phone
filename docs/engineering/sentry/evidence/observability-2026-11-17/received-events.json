@@ -1,0 +1,86 @@
+{
+  "passed": true,
+  "receiver": "local HTTP collector",
+  "same_device_id": true,
+  "intentional_native_crash": true,
+  "events": [
+    {
+      "event_id": "b38c44f324874328b9ec96d73b6929e5",
+      "release": "com.oneorthree.gromo@2.3.4+13",
+      "type": "Error",
+      "value": "OrientationManager.startOrientationUpdates(...): Cannot listen to device orientation changes - accelerometer is not available!",
+      "handled": true,
+      "contexts": {
+        "focus_camera": {
+          "mounted": true,
+          "measurement_enabled": true,
+          "preview_visible": true,
+          "camera_position": "back",
+          "phase": "focusing",
+          "foreground": true,
+          "capture_status": "failed"
+        },
+        "app_window": {
+          "width": 820,
+          "height": 1180,
+          "orientation": "portrait"
+        },
+        "analytics_device": {
+          "device_id": "<simulator-idfv>",
+          "device_id_source": "idfv"
+        }
+      },
+      "breadcrumb_categories": [
+        "app.lifecycle",
+        "app.window",
+        "console",
+        "focus.camera",
+        "navigation",
+        "started"
+      ],
+      "app_debug_images": []
+    },
+    {
+      "event_id": "f6226c3eb39c49cb99fdfb973c0da101",
+      "release": "com.oneorthree.gromo@2.3.4+13",
+      "type": "EXC_BREAKPOINT",
+      "value": "crash",
+      "handled": false,
+      "contexts": {
+        "focus_camera": {
+          "camera_position": "back",
+          "phase": "focusing",
+          "mounted": true,
+          "measurement_enabled": true,
+          "foreground": true,
+          "capture_status": "interrupted",
+          "preview_visible": true
+        },
+        "app_window": {
+          "width": 820,
+          "height": 1180,
+          "orientation": "portrait"
+        },
+        "analytics_device": {
+          "device_id": "<simulator-idfv>",
+          "device_id_source": "idfv"
+        }
+      },
+      "breadcrumb_categories": [
+        "app.lifecycle",
+        "app.window",
+        "console",
+        "focus.camera",
+        "navigation",
+        "sentry.event",
+        "started"
+      ],
+      "app_debug_images": [
+        {
+          "debug_id": "8CA0554A-5451-35B4-B7B7-27DE2900D8B8",
+          "image_addr": "0x0000000100340000"
+        }
+      ]
+    }
+  ]
+}

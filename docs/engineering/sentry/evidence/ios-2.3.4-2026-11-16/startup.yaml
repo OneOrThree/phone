@@ -1,0 +1,26 @@
+appId: com.oneorthree.gromo
+name: 2.3.4 iPad Release 시작과 복귀
+---
+- launchApp:
+    stopApp: false
+- tapOn:
+    text: "앱에 추적 금지 요청|Ask App Not to Track"
+    optional: true
+- assertVisible: "집중할고양"
+- assertVisible: "게스트로 시작하기"
+- takeScreenshot: first-screen
+- setOrientation: LANDSCAPE_LEFT
+- assertVisible: "집중할고양"
+- setOrientation: PORTRAIT
+- pressKey: HOME
+- launchApp:
+    stopApp: false
+- assertVisible: "게스트로 시작하기"
+- repeat:
+    times: 3
+    commands:
+      - stopApp
+      - launchApp
+      - assertVisible: "집중할고양"
+      - assertVisible: "게스트로 시작하기"
+- takeScreenshot: after-relaunch

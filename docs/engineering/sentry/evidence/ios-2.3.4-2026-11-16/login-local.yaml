@@ -1,0 +1,11 @@
+appId: com.oneorthree.gromo
+name: 2.3.4 로컬 인증과 홈 진입
+---
+- launchApp:
+    stopApp: false
+- tapOn:
+    text: "앱에 추적 금지 요청|Ask App Not to Track"
+    optional: true
+- tapOn: "현재 약관 버전.*"
+- tapOn: "게스트로 시작하기"
+- takeScreenshot: after-login

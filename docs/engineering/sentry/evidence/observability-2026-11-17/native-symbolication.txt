@@ -1,0 +1,1 @@
++[SentrySDKInternal crash] (in Cattus) (SentrySDKInternal.m:701)
