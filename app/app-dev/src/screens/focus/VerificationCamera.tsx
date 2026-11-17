@@ -200,11 +200,12 @@ function ModelVerificationCamera({
   const captureEpoch = useMemo(() => createSynchronizable(0), []);
   const interrupted = useMemo(() => createSynchronizable(false), []);
   const mounted = useRef(true);
-  const reportedFailures = useRef(new Set<CameraFailureStage>());
+  const reportedFailures = useRef(new Set<string>());
   const reportFailure = useCallback(
     (stage: CameraFailureStage, error: unknown) => {
-      if (!mounted.current || reportedFailures.current.has(stage)) return;
-      reportedFailures.current.add(stage);
+      const key = `${position}:${stage}:${String(error)}`;
+      if (!mounted.current || reportedFailures.current.has(key)) return;
+      reportedFailures.current.add(key);
       captureCameraError(error, stage, { camera_position: position });
     },
     [position],
@@ -255,11 +256,15 @@ function ModelVerificationCamera({
     };
   }, [onDetection, reportObjects, staleMs, periodic]);
 
+  const modelError = model.state === 'error' ? model.error : undefined;
+  const objectModelError = objectModel.state === 'error' ? objectModel.error : undefined;
+  const resizeError = resize.state === 'error' ? resize.error : undefined;
+  const objectResizeError = objectResize.state === 'error' ? objectResize.error : undefined;
   useEffect(() => {
-    if (model.state === 'error') reportFailure('palm_model', model.error);
-    if (objectModel.state === 'error') reportFailure('object_model', objectModel.error);
-    if (resize.state === 'error') reportFailure('palm_resizer', resize.error);
-    if (objectResize.state === 'error') reportFailure('object_resizer', objectResize.error);
+    if (model.state === 'error') reportFailure('palm_model', modelError);
+    if (objectModel.state === 'error') reportFailure('object_model', objectModelError);
+    if (resize.state === 'error') reportFailure('palm_resizer', resizeError);
+    if (objectResize.state === 'error') reportFailure('object_resizer', objectResizeError);
     if ((tflite && scoreIdx < 0) || (objectTflite && !objectReady))
       reportFailure('model_contract', new Error('Unexpected verification model input/output'));
     if (
@@ -273,12 +278,16 @@ function ModelVerificationCamera({
       onDetection('unavailable');
     }
   }, [
-    model,
-    resize,
+    model.state,
+    modelError,
+    resize.state,
+    resizeError,
     tflite,
     scoreIdx,
-    objectModel,
-    objectResize,
+    objectModel.state,
+    objectModelError,
+    objectResize.state,
+    objectResizeError,
     objectTflite,
     objectReady,
     onDetection,

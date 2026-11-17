@@ -509,12 +509,15 @@ test('집중 중 최근 결과는 미리보기를 닫아도 유지하고 만료�
 test('화면 종료·백그라운드·카메라 옵션 변경은 진단 상태에 남기되 과목·세션 ID는 보내지 않는다', async () => {
   const screen = await render(<VerificationSession sessionId="private-session" enabled />);
   expect(recordSentryCameraState).toHaveBeenCalledWith({
-    mounted: true,
     measurement_enabled: true,
     preview_visible: false,
     camera_position: 'back',
     phase: 'focusing',
     foreground: true,
+  });
+  expect(recordSentryCameraState).toHaveBeenCalledWith({
+    mounted: true,
+    capture_status: 'initializing',
   });
   await screen.rerender(
     <VerificationSession
@@ -530,7 +533,7 @@ test('화면 종료·백그라운드·카메라 옵션 변경은 진단 상태�
   const listener = jest.mocked(AppState.addEventListener).mock.calls.at(-1)![1];
   await act(async () => listener('background'));
   expect(recordSentryCameraState).toHaveBeenLastCalledWith(
-    expect.objectContaining({ foreground: false }),
+    expect.objectContaining({ foreground: false, mounted: false, capture_status: 'unmounted' }),
   );
   await screen.unmount();
   expect(recordSentryCameraState).toHaveBeenLastCalledWith({
@@ -540,4 +543,20 @@ test('화면 종료·백그라운드·카메라 옵션 변경은 진단 상태�
   expect(JSON.stringify(jest.mocked(recordSentryCameraState).mock.calls)).not.toContain(
     'private-session',
   );
+});
+
+test('측정 OFF·초기화 실패는 카메라가 마운트된 것으로 기록하지 않고 재시도에서 복원한다', async () => {
+  const latestState = () =>
+    Object.assign({}, ...jest.mocked(recordSentryCameraState).mock.calls.map(([state]) => state));
+  const screen = await render(<VerificationSession enabled={false} previewVisible />);
+  expect(latestState()).toMatchObject({ mounted: false, capture_status: 'unmounted' });
+  jest.spyOn(console, 'error').mockImplementation(() => {});
+  mockCameraFailure = true;
+  await screen.rerender(<VerificationSession enabled previewVisible />);
+  expect(latestState()).toMatchObject({ mounted: false, capture_status: 'failed' });
+  mockCameraFailure = false;
+  await fireEvent.press(screen.getByRole('button', { name: '카메라 다시 시도' }));
+  expect(latestState()).toMatchObject({ mounted: true, capture_status: 'initializing' });
+  await screen.rerender(<VerificationSession enabled={false} previewVisible />);
+  expect(latestState()).toMatchObject({ mounted: false, capture_status: 'unmounted' });
 });

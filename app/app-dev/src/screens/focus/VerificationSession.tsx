@@ -58,12 +58,12 @@ export function VerificationSession({
   }, []);
   useEffect(() => {
     recordSentryCameraState({
-      mounted: true,
       measurement_enabled: enabled,
       preview_visible: previewVisible,
       camera_position: cameraPosition,
       phase: sessionId ? 'focusing' : 'before_focus',
       foreground,
+      ...(!enabled || !foreground ? { mounted: false, capture_status: 'unmounted' as const } : {}),
     });
   }, [enabled, previewVisible, cameraPosition, sessionId, foreground]);
   useEffect(
@@ -113,6 +113,12 @@ function SessionCamera({
   const [ready, setReady] = useState(false);
   const [detection, setDetection] = useState<VerificationDetection>('checking');
   const [error, setError] = useState(false);
+  useEffect(() => {
+    recordSentryCameraState({
+      mounted: !error,
+      capture_status: error ? 'failed' : 'initializing',
+    });
+  }, [error]);
   const [objects, setObjects] = useState<StudyObjectPresence | null>(null);
   const capture = useRef<ReturnType<typeof openVerificationCapture> | null>(null);
   const frameReady = useRef(false);
@@ -154,6 +160,7 @@ function SessionCamera({
     return () => {
       mounted.current = false;
       frameReady.current = false;
+      recordSentryCameraState({ mounted: false, capture_status: 'unmounted' });
     };
   }, []);
   useEffect(() => {
@@ -169,7 +176,7 @@ function SessionCamera({
     (cause: unknown) => {
       if (!mounted.current || failed.current) return;
       failed.current = true;
-      recordSentryCameraState({ capture_status: 'failed' });
+      recordSentryCameraState({ mounted: false, capture_status: 'failed' });
       captureCameraError(cause, 'capture', {
         camera_position: position,
         measurement_enabled: measurementEnabled,

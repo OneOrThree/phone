@@ -30,6 +30,10 @@ VisionCamera 5.2.3의 `useFrameOutput`은 `onFrame`을 등록하지만 화면 �
 
 설치된 실제 소스를 Babel/Worklets 플러그인으로 변환하고 React 렌더러·GC를 사용하는 회귀 검사를 추가했다. 수정 전 패키지는 **교체된 출력의 콜백 해제**와 **네이티브 정리 전 런타임 유지**에서 실패했고 수정 후 통과했다. 정상 종료·실행 예외·예약 예외 이후 회수까지 확인했다. 플랫폼 큐는 대역이며 실제 Android 크래시 재현과는 구분한다.
 
+PR 리뷰에서 설치된 5.2.3의 스레드 계약을 추가 확인했다. Android `HybridFrameOutput.setOnFrameCallback`은 `require(executor.isRunningOnExecutor)`로 같은 단일 executor에서만 쓰기를 허용하고 analyzer도 그 executor에서 읽는다. JS 스레드와의 무동기 필드 공유가 아니다. `IdentifiableExecutor`에는 shutdown 경로가 없으며, iOS `HybridNativeThread`는 보유한 `DispatchQueue.async`에 작업을 넣는다. `pendingRuntimes`의 강한 참조는 등록·정리 작업 전에 런타임이 GC로 사라지는 것을 막는다.
+
+검증 범위는 이 두 큐의 정상·콜백 예외·예약 예외 경로다. 이미 접수한 작업을 영구히 실행하지 않거나 폐기하는 별도 executor, 프로세스 강제 종료 경로의 참조 회수까지 증명하지 않는다. 큐 구현을 바꿀 때에는 이 전제를 다시 검증해야 한다.
+
 ### CATTUS-8 — 토큰 없이도 배포할 수 있었고 최종 심볼 확인이 없었다
 
 [CATTUS-8](https://oneorthree.sentry.io/issues/7835276494/)는 iPad13,18 / iOS 27.2 / 앱 2.3.4(13)에서 발생했다. Sentry가 보고한 누락 이미지와 UUID는 다음과 같다.
@@ -115,3 +119,4 @@ xcodebuild -workspace Cattus.xcworkspace -scheme Cattus -configuration Release \
 - 새 Release에서 AI 측정 시작·끄기·전후면 전환·백그라운드 복귀를 반복하고, 이후 Sentry에서 **수정 빌드의** 동일 스택 재발 여부를 확인한다. 현재 기기에 대한 실행 검증 및 운영 해결 판정은 미완료다.
 - CATTUS-8은 원본 dSYM으로 기존 스택을 해독하거나, [2.3.4 재빌드](2026-11-16-ios-2.3.4-rebuild.md)에서 같은 크래시를 재현해 새 dSYM으로 원인을 좁혀야 한다. dSYM 누락 방지 수정은 해당 크래시 자체의 수정이 아니다.
 - 토큰 없이 동작하던 팀원의 TestFlight 빌드는 앞으로 차단된다. 배포 머신에 Cattus 업로드 권한이 있는 토큰을 환경변수 또는 `SENTRY_DOTENV_PATH`로 제공해야 한다.
+- 위 조건은 운영 `beta`와 로컬 `ios/testflight.sh --dev` 업로드 모두에 적용한다. dev TestFlight에서도 사고의 심볼을 보관하려는 의도다. 업로드하지 않는 Debug·로컬 빌드의 토큰 선택 조건은 그대로다.

@@ -628,6 +628,25 @@ test('모델 로딩 실패는 원래 오류를 한 번 전송하고 다시 렌�
     camera_position: 'back',
   });
   expect(screen.onDetection).toHaveBeenCalledWith('unavailable');
+  const detections = screen.onDetection.mock.calls.length;
+  // 훅이 새 wrapper 객체를 돌려줘도 같은 상태/오류면 판정을 반복 갱신하지 않는다.
+  jest.mocked(useTensorflowModel).mockImplementation(() => ({
+    state: 'error',
+    model: undefined,
+    error,
+  }));
+  await screen.rerender(
+    <VerificationCamera
+      position="back"
+      active
+      onReady={screen.onReady}
+      onPaused={screen.onPaused}
+      onDetection={screen.onDetection}
+      onError={screen.onError}
+      onStudyObjects={screen.onStudyObjects}
+    />,
+  );
+  expect(screen.onDetection).toHaveBeenCalledTimes(detections);
   await act(async () => jest.advanceTimersByTime(60_000));
   expect(captureCameraError).toHaveBeenCalledTimes(2);
 });
@@ -652,4 +671,17 @@ test('반복된 추론 실패는 한 번 보고하고 프레임 해제와 판정
     camera_position: 'back',
   });
   expect(screen.onDetection).toHaveBeenLastCalledWith('unavailable');
+  resize.mockImplementation(() => {
+    throw new Error('different tensor shape');
+  });
+  await sample(4);
+  await sample(4);
+  expect(captureCameraError).toHaveBeenCalledTimes(2);
+  expect(captureCameraError).toHaveBeenLastCalledWith(
+    'Error: different tensor shape',
+    'inference',
+    {
+      camera_position: 'back',
+    },
+  );
 });
