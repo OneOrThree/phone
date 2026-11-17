@@ -105,7 +105,7 @@ class IslandPromotionIntegrationTest {
         registry.add("internal.api.callers.business.token", () -> TOKEN);
         String[] allow = {"POST /internal/users/*/islands/*/promotions", "GET /internal/users/*/islands/*/news",
             "PUT /internal/users/*/islands/*/promotions/*", "GET /internal/users/*/islands/*/promotions/editor",
-            "GET /internal/users/*/magazine/assets"};
+            "GET /internal/users/*/islands/*/promotions/next", "GET /internal/users/*/magazine/assets"};
         for (int i = 0; i < allow.length; i++) {
             String entry = allow[i];
             registry.add("internal.api.callers.business.allow[" + i + "]", () -> entry);
@@ -433,6 +433,47 @@ class IslandPromotionIntegrationTest {
         assertThat(balance(island.id)).isEqualTo(140);
         assertThat(ledgerRows(island.id)).isEqualTo(1);
         assertThat(newsRows(island.id)).isEqualTo(1);
+    }
+
+    // ---------------------------------------------------------------- 다음 호 홍보 칸 읽기 (GROMO-2893)
+
+    @Test
+    @DisplayName("다음 호 홍보 칸은 섬장·일반 주민·게스트 주민이 같은 내용으로 읽고, 비주민은 403 MEMBER_ONLY, editable 은 싣지 않는다")
+    void residentsReadTheNextPromotion() throws Exception {
+        Island island = island(100);
+        UUID guest = newGuest();
+        join(guest, island.id, GroupMemberRole.MEMBER);
+        String promotionId = promotionIdOf(promote(island.host, island.id, UUID.randomUUID()));
+
+        for (UUID resident : List.of(island.host, island.member, guest)) {
+            next(resident, island.id).andExpect(status().isOk())
+                    .andExpect(jsonPath("$.next.promotionId").value(promotionId))
+                    .andExpect(jsonPath("$.next.issueDate").value("2026-10-13"))
+                    .andExpect(jsonPath("$.next.body").value(BODY))
+                    .andExpect(jsonPath("$.next.layout.frameId").value(FRAME))
+                    .andExpect(jsonPath("$.next.appliedAt").value("2026-10-12T05:00:00Z"))
+                    .andExpect(jsonPath("$.next.editable").doesNotExist())
+                    .andExpect(jsonPath("$.balance").doesNotExist());
+        }
+        next(island.visitor, island.id).andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("MEMBER_ONLY"));
+    }
+
+    @Test
+    @DisplayName("신청이 없으면 next 는 null 이고, 07:00 발행이 지나면 null 이 되며, 운영이 내린 칸도 null 이다")
+    void nextIsNullWithoutPromotionAfterPublishOrWhenRemoved() throws Exception {
+        Island island = island(100);
+        next(island.member, island.id).andExpect(status().isOk()).andExpect(jsonPath("$.next").value(nullValue()));
+
+        String promotionId = promotionIdOf(promote(island.host, island.id, UUID.randomUUID()));
+        next(island.member, island.id).andExpect(jsonPath("$.next.promotionId").value(promotionId));
+
+        now.set(Instant.parse("2026-10-12T22:30:00Z")); // KST 10/13 07:30 — 10/13 호는 발행됐다
+        next(island.member, island.id).andExpect(status().isOk()).andExpect(jsonPath("$.next").value(nullValue()));
+
+        now.set(DAY1);
+        jdbc.update("update island_promotions set moderation = 'REMOVED' where id = ?::uuid", promotionId);
+        next(island.member, island.id).andExpect(status().isOk()).andExpect(jsonPath("$.next").value(nullValue()));
     }
 
     // ---------------------------------------------------------------- 소식 읽기
@@ -812,6 +853,11 @@ class IslandPromotionIntegrationTest {
 
     private ResultActions editor(UUID actor, UUID islandId) throws Exception {
         return mvc.perform(get("/internal/users/" + actor + "/islands/" + islandId + "/promotions/editor")
+                .header("Authorization", "Bearer " + TOKEN).header("X-User-Id", actor));
+    }
+
+    private ResultActions next(UUID actor, UUID islandId) throws Exception {
+        return mvc.perform(get("/internal/users/" + actor + "/islands/" + islandId + "/promotions/next")
                 .header("Authorization", "Bearer " + TOKEN).header("X-User-Id", actor));
     }
 

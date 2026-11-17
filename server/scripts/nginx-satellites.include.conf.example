@@ -126,6 +126,7 @@ location = /ws/realtime {
 # POST /islands/{islandId}/promotions · GET /islands/{islandId}/news.
 # 고양이 잡지 홍보 칸·꾸미기 재료(GROMO-2289)도 islands·me 분기가 그대로 전달한다 — 새 location 이 필요하지 않다.
 # PUT /islands/{islandId}/promotions/{promotionId} · GET /islands/{islandId}/promotions/editor · GET /me/magazine/assets.
+# 주민이 읽는 다음 호 홍보 칸(GROMO-2893)도 islands 분기가 그대로 전달한다 — GET /islands/{islandId}/promotions/next.
 # 잡지 읽기·받음(GROMO-2289)도 me 분기가 그대로 전달한다 — 새 location 이 필요하지 않다.
 # GET /me/magazine/today · GET /me/magazine/issues · GET /me/magazine/issues/{issueId} ·
 # PUT /me/magazine/issues/{issueId}/receipt.

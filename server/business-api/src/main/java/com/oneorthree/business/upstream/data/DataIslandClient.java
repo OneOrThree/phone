@@ -93,6 +93,9 @@ public class DataIslandClient {
     // GROMO-2289 고양이 잡지 편집 — 편집 화면·홍보 고치기·내 꾸미기 재료, 모두 사용자 축이다.
     private static final String PATH_ISLAND_PROMOTION_EDITOR =
             "/internal/users/{userId}/islands/{islandId}/promotions/editor";
+    // GROMO-2893 주민이 읽는 다음 호 홍보 칸.
+    private static final String PATH_ISLAND_PROMOTION_NEXT =
+            "/internal/users/{userId}/islands/{islandId}/promotions/next";
     private static final String PATH_ISLAND_PROMOTION =
             "/internal/users/{userId}/islands/{islandId}/promotions/{promotionId}";
     private static final String PATH_MAGAZINE_ASSETS = "/internal/users/{userId}/magazine/assets";
@@ -420,6 +423,18 @@ public class DataIslandClient {
                         .build(),
                 deadline,
                 new ParameterizedTypeReference<IslandPromotions.Editor>() { });
+    }
+
+    /** 주민이 읽는 다음 호 홍보 칸 (GROMO-2893). 멱등 GET 이라 재시도한다. */
+    public IslandPromotions.NextPage fetchPromotionNext(UUID userId, UUID islandId, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.GET,
+                                userPath(PATH_ISLAND_PROMOTION_NEXT, userId)
+                                        .replace("{islandId}", islandId.toString()))
+                        .onBehalfOf(userId)
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<IslandPromotions.NextPage>() { });
     }
 
     /** 내 잡지 꾸미기 재료 (GROMO-2289) — 게스트도 읽는다. 멱등 GET 이라 재시도한다. */

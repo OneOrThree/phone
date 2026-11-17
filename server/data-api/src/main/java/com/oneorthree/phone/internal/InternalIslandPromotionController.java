@@ -64,6 +64,12 @@ public class InternalIslandPromotionController {
         return promotions.editor(userId, islandId);
     }
 
+    /** 다음 호 홍보 칸 읽기 (GROMO-2893) — 주민 전원, 게스트 주민 포함이라 게스트 가드를 두지 않는다. */
+    @GetMapping("/islands/{islandId}/promotions/next")
+    public IslandPromotionViews.NextPage next(@PathVariable UUID userId, @PathVariable UUID islandId) {
+        return promotions.nextForResident(userId, islandId);
+    }
+
     /**
      * 홍보 칸 신고 (GROMO-2289) — 새 신고 201, 이미 신고함 200, 본문은 같다. 소셜 로그인 계정만 — 게스트 계정으로 경쟁 섬 칸을
      * 숨기는 악용을 막는다(계획 P10).

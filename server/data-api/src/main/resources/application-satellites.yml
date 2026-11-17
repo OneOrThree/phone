@@ -247,6 +247,8 @@ internal:
           # 불러오기(GET …/editor)와 메서드가 달라 서로를 열지 않는다. 재료 목록은 섬과 무관한 본인 조회다.
           - 'PUT /internal/users/*/islands/*/promotions/*'
           - 'GET /internal/users/*/islands/*/promotions/editor'
+          # GROMO-2893 주민이 읽는 다음 호 홍보 칸 — editor 와 같은 깊이이고 마지막 세그먼트가 달라 서로를 열지 않는다.
+          - 'GET /internal/users/*/islands/*/promotions/next'
           - 'GET /internal/users/*/magazine/assets'
           # GROMO-2289 홍보 칸 신고(소셜 계정) — 홍보 id 아래 한 세그먼트 더 깊다.
           - 'POST /internal/users/*/islands/*/promotions/*/reports'
