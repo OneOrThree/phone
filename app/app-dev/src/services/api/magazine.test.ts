@@ -5,6 +5,7 @@
 import { ApiError } from '@/services/api/client';
 import {
   applyPromotion,
+  arriveFromMagazine,
   getIslandNews,
   getMagazineAssets,
   getMagazineIssue,
@@ -100,6 +101,21 @@ test('applyPromotion — POST {body, layout} + Idempotency-Key', async () => {
   expect(header(calls[0], 'Idempotency-Key')).toBe('key-1');
   expect(JSON.parse(String(calls[0].init.body))).toEqual({ body: '안녕', layout });
   expect(result.balanceAfter).toBe(1174);
+});
+
+test('arriveFromMagazine — POST /me/magazine/promotions/{id}/arrivals 는 본문 없이 Idempotency-Key 를 싣고 도착 응답을 그대로 돌려준다', async () => {
+  const arrival = {
+    islandId: 'is-1',
+    arrivedBefore: true,
+    membershipStatus: 'none',
+    currentIslandId: null,
+  };
+  stub(200, arrival);
+  await expect(arriveFromMagazine('p 1', 'idem-mag')).resolves.toEqual(arrival);
+  expect(path(calls[0])).toBe('/me/magazine/promotions/p%201/arrivals');
+  expect(calls[0].init.method).toBe('POST');
+  expect(header(calls[0], 'Idempotency-Key')).toBe('idem-mag');
+  expect(calls[0].init.body).toBeUndefined();
 });
 
 test('updatePromotion — PUT, 키 없이 본문만', async () => {

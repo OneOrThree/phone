@@ -1,12 +1,12 @@
 import { ISLAND_STAGE_ART, MAGAZINE_UI, islandStage } from '@/constants/magazineAssets';
 import { Btn } from '@/design-system/patterns';
 import { componentTokens, primitiveTokens, semanticTokens } from '@/design-system/tokens';
-import { t } from '@/i18n';
+import { errorText, t } from '@/i18n';
 import { formatDate, formatDuration, islandTitle } from '@/i18n/format';
 import type { ScreenEnvironment } from '@/navigation/ScreenEnvironment';
 import { T, useGowun } from '@/screens/island/sceneKit';
-import { pinErrorText } from '@/screens/island/useTelescopePin';
-import { ApiError } from '@/services/api/client';
+import { arriveWithOutcome, enterArrivedIsland } from '@/screens/island/Telescope';
+import { ApiError, uuid } from '@/services/api/client';
 import type {
   MagazineCell,
   MagazineEditorial,
@@ -14,7 +14,8 @@ import type {
   MagazineIssue,
   MagazinePlace,
 } from '@/services/api/magazine';
-import { pinToTelescope } from '@/services/api/telescope';
+import { sessionGeneration } from '@/services/api/session';
+import { intentKeyPool } from '@/services/model';
 import { useAppLayout } from '@/utils/layout';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -129,10 +130,10 @@ export function magazinePages(loaded: Loaded, host: boolean): Page[] {
  * 고양이 잡지 펼치기(GROMO-2289 · A1~A4) — 섬에서 펼친 잡지라 배경은 섬 홈이고 칸에 망원경 동그라미가 없다(10/14 확정).
  * 우리 섬 칸에는 「우리 섬이에요」. 속지 그림 위에 표지 띠(날짜·호)와 쪽을 그리고, 가로로 넘기거나 ‹ › 로 넘긴다.
  * 끝 쪽에 가까워지면 다음 커서를 읽는다. 펼치는 데 성공하면 그 호에 「읽음」을 보낸다(빨간 점이 꺼진다).
- * 칸을 누르면 화면 폭으로 크게 본다. 신고는 설정의 단일 신고센터에서 이메일로 접수한다.
+ * 칸을 누르면 항해 없이 그 섬으로 바로 간다(GROMO-2903) — 우리 섬이면 그 섬 홈, 남의 섬이면 섬 구경. 길게 누르면 화면 폭으로 크게
+ * 본다. 신고는 설정의 단일 신고센터에서 이메일로 접수한다.
  *
- * 바다에서 펼치면(place SEA, GROMO-2314 · A2) 받음·읽음을 SEA 로 적고, 남의 섬 칸에 망원경 동그라미를 둔다(비공개 섬은 AdCell 이
- * 숨긴다. 강퇴된 섬도 티켓 2315 부터 서버가 남의 섬으로 보내 동그라미가 뜨고, `KICKED` 는 옛 서버 응답에만 온다). 동그라미를 누르면 망원경에 넣고 잡지 자리를 망원경으로 바꿔 그 뒤로가기가 바다로 간다.
+ * 바다에서 펼치면(place SEA, GROMO-2314 · A2) 받음·읽음을 SEA 로 적는다. 칸을 눌러 바로 가므로 망원경 동그라미는 두지 않는다.
  *
  * e.detail = 펼칠 호 id. 비어 있으면 들고 있는 오늘 호를 연다.
  */
@@ -142,11 +143,14 @@ export function MagazineReader({
   place = 'ISLAND',
   background,
 }: {
-  e: Pick<ScreenEnvironment, 'back' | 'notify' | 'replace'> &
-    Partial<Pick<ScreenEnvironment, 'detail'>>;
+  e: Pick<
+    ScreenEnvironment,
+    'back' | 'notify' | 'replace' | 'reset' | 'home' | 'dispatch' | 'state'
+  > &
+    Partial<Pick<ScreenEnvironment, 'detail' | 'islands'>>;
   /** 내 섬 섬장이면 끝 쪽에 「우리 섬도 실어 볼까요?」 안내 — 쓰기 입구는 마을회관에만 있다(10/14). */
   host?: boolean;
-  /** 펼친 곳 — 받음·읽음 기록과 칸 오른쪽 아래 자리가 갈린다. */
+  /** 펼친 곳 — 받음·읽음 기록(ISLAND·SEA)이 갈린다. */
   place?: MagazinePlace;
   background?: React.ReactNode;
 }) {
@@ -169,7 +173,11 @@ export function MagazineReader({
   const [index, setIndex] = useState(0);
   const [zoom, setZoom] = useState<MagazineCell | null>(null);
   const list = useRef<FlatList<Page>>(null);
-  const pinning = useRef(false);
+  const arriving = useRef(false);
+  const keys = useRef(intentKeyPool(uuid)).current;
+  // await 뒤에는 최신 e 로 부른다(App 의 e 와 그 함수들은 렌더마다 새로 만든다)
+  const eRef = useRef(e);
+  eRef.current = e;
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
@@ -210,30 +218,32 @@ export function MagazineReader({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- place 는 라우트마다 고정이다
   }, [issueId, nonce]);
 
-  // 섬에서 본 잡지에는 망원경 동그라미가 없다(10/14) — 우리 섬 배지만. 바다에서는 남의 섬 칸에 동그라미(옛 서버가 보내는 KICKED 칸은 없다)
-  const corner = (cell: MagazineCell) =>
-    cell.relation === 'MEMBER'
-      ? 'ours'
-      : place === 'SEA' && cell.relation !== 'KICKED'
-        ? 'scope'
-        : null;
-  // 망원경에 넣기 — 한 번에 하나. 넣으면 잡지 자리를 망원경으로 바꾼다(기록은 바다 그대로라 망원경 뒤로가기가 바다로 간다).
-  // 가득 차 빠진 섬이 있으면 화면을 떠난 뒤에 끝나도 알린다 — 서버에는 이미 들어갔다
-  const scope = async (cell: MagazineCell) => {
-    if (pinning.current) return;
-    pinning.current = true;
+  // 칸 자리는 우리 섬 배지만 — 칸을 눌러 바로 가므로 망원경 동그라미는 없다(GROMO-2903)
+  const corner = (cell: MagazineCell) => (cell.relation === 'MEMBER' ? 'ours' : null);
+  // 칸 → 그 섬으로 바로(GROMO-2903). 도착·결과 불명 복구는 항해 도착과 같은 arriveWithOutcome, 들어가기는 enterArrivedIsland 이고
+  // 도착 요청만 홍보 칸 도착이다. 한 번에 하나 — 요청 중 다시 눌러도 무시한다. 실패하면 잡지에 남아 서버 문구로 알린다
+  const goTo = async (cell: MagazineCell) => {
+    if (arriving.current) return;
+    arriving.current = true;
+    const generation = sessionGeneration();
+    const stale = () => !mounted.current || sessionGeneration() !== generation;
+    const post = (_islandId: string, key: string) =>
+      magazineApi().arriveFromMagazine(cell.promotionId, key);
     try {
-      const { evicted } = await pinToTelescope(cell.islandId, 'magazine', cell.promotionId);
-      if (evicted) e.notify(t('magazine.reader.scopeEvicted', { name: islandTitle(evicted.name) }));
-      if (mounted.current) {
-        setZoom(null);
-        e.replace('telescope');
+      if (!e.islands) {
+        // 목업 — 서버 섬이 없다(바다 항해 도착과 같다): 도착만 흉내 내고 홈으로
+        await post(cell.islandId, uuid());
+        if (!stale()) eRef.current.home();
+        return;
       }
+      const outcome = await arriveWithOutcome(e, keys, cell.islandId, post);
+      if (stale()) return;
+      await enterArrivedIsland(() => eRef.current, cell.islandId, cell.name, outcome, stale);
     } catch (thrown) {
-      const message = pinErrorText(thrown);
-      if (message) e.notify(message);
+      const message = errorText(thrown);
+      if (message && !stale()) eRef.current.notify(message);
     } finally {
-      pinning.current = false;
+      arriving.current = false;
     }
   };
 
@@ -541,10 +551,10 @@ export function MagazineReader({
               width={cellW}
               cell={cell}
               corner={corner(cell)}
-              onScope={() => {
-                scope(cell);
+              onPress={() => {
+                goTo(cell);
               }}
-              onPress={() => setZoom(cell)}
+              onLongPress={() => setZoom(cell)}
             />
           ))}
         </View>
@@ -830,9 +840,6 @@ export function MagazineReader({
               )}
               cell={zoom}
               corner={corner(zoom)}
-              onScope={() => {
-                scope(zoom);
-              }}
               onPress={() => setZoom(null)}
             />
           )}

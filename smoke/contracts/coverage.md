@@ -111,6 +111,7 @@ API 122개 / 서버 경로 미일치 0개 / 미해석 0개 / 시나리오 등록
 | PUT | `/me/magazine/issues/{}/receipt` | 일치 | 미등록 | NOT_RUN | app/app-dev/src/services/api/magazine.ts:423 |
 | GET | `/me/magazine/issues/{}` | 일치 | 미등록 | NOT_RUN | app/app-dev/src/services/api/magazine.ts:400 |
 | GET | `/me/magazine/issues` | 일치 | 미등록 | NOT_RUN | app/app-dev/src/services/api/magazine.ts:370 |
+| POST | `/me/magazine/promotions/{}/arrivals` | 일치 | 미등록 | NOT_RUN | app/app-dev/src/services/api/magazine.ts:449 |
 | GET | `/me/magazine/today` | 일치 | 미등록 | NOT_RUN | app/app-dev/src/services/api/magazine.ts:360 |
 | GET | `/me/member-appearances` | 일치 | 미등록 | NOT_RUN | app/app-dev/src/services/memberLooks.ts:10 |
 | PUT | `/me/screen-time/{}` | 일치 | 미등록 | NOT_RUN | app/app-dev/src/services/api/screenTime.ts:11 |

@@ -1,6 +1,7 @@
 import { createPreviewEnvironment } from '@/navigation/previewEnvironment';
 // 고양이 잡지 펼치기(GROMO-2289 · A1~A4) — 첫 장 편집부(메달·NEW·편집냥) · 다음 장부터 3칸씩 · 끝 쪽 근처에서 다음 커서 ·
-// 섬에서 펼치면 망원경 동그라미 없음(우리 섬 배지만) · 펼치면 읽음 받음 · 빈 호 · 섬장 끝 쪽 안내(쓰기는 마을회관) · 7호 밖 · 크게 보기.
+// 망원경 동그라미 없음(우리 섬 배지만) · 펼치면 읽음 받음 · 빈 호 · 섬장 끝 쪽 안내(쓰기는 마을회관) · 7호 밖 · 길게 눌러 크게 보기 ·
+// 칸을 누르면 그 섬으로 바로(GROMO-2903).
 // 서버 API(magazine.ts)는 목이다.
 import { applyLocalePref } from '@/i18n';
 import en from '@/i18n/locales/en.json';
@@ -8,7 +9,6 @@ import ko from '@/i18n/locales/ko.json';
 import { ApiError } from '@/services/api/client';
 import type { MagazineCell, MagazineIssuePage } from '@/services/api/magazine';
 import * as api from '@/services/api/magazine';
-import { pinToTelescope } from '@/services/api/telescope';
 import { initialState } from '@/services/model';
 import { act, fireEvent, render, waitFor, within } from '@testing-library/react-native';
 import { FlatList, StyleSheet } from 'react-native';
@@ -23,10 +23,7 @@ jest.mock('@/services/api/magazine', () => ({
   putMagazineReceipt: jest.fn(),
   reportPromotion: jest.fn(),
   getMagazineIssues: jest.fn(),
-}));
-jest.mock('@/services/api/telescope', () => ({
-  ...jest.requireActual('@/services/api/telescope'),
-  pinToTelescope: jest.fn(),
+  arriveFromMagazine: jest.fn(),
 }));
 // 화면 크기·글자 배율만 바꿔 끼운다(회전·큰 글자)
 let mockScreen: { width?: number; height?: number; fontScale?: number } = {};
@@ -40,7 +37,7 @@ jest.mock('react-native-safe-area-context', () => ({
 const getIssue = api.getMagazineIssue as jest.Mock;
 const putReceipt = api.putMagazineReceipt as jest.Mock;
 const report = api.reportPromotion as jest.Mock;
-const pin = pinToTelescope as jest.Mock;
+const arriveFrom = api.arriveFromMagazine as jest.Mock;
 const pickTip = pickEditorTip as jest.Mock;
 
 const issue = {
@@ -413,9 +410,10 @@ test('다른 오류는 다시 시도로 다시 읽는다', async () => {
   expect(pickTip).toHaveBeenCalledTimes(1);
 });
 
-test('칸을 누르면 화면 폭으로 크게 보고, 누르면 닫힌다 · 닫기 버튼은 뒤로', async () => {
+test('칸을 길게 누르면 화면 폭으로 크게 보고, 누르면 닫힌다 · 닫기 버튼은 뒤로', async () => {
   const { screen, e } = await open();
-  await fireEvent.press(screen.getByTestId('magazine-cell-p2'));
+  await fireEvent(screen.getByLabelText(/^섬2섬,/), 'longPress');
+  expect(arriveFrom).not.toHaveBeenCalled();
   expect(screen.getByTestId('magazine-zoom')).toBeTruthy();
   await fireEvent.press(screen.getByTestId('magazine-zoom'));
   expect(screen.queryByTestId('magazine-zoom')).toBeNull();
@@ -423,14 +421,12 @@ test('칸을 누르면 화면 폭으로 크게 보고, 누르면 닫힌다 · �
   expect(e.back).toHaveBeenCalled();
 });
 
-test('잡지 일반·확대 보기에는 길게 누르기나 접근성 신고 진입이 없고 확대는 유지한다', async () => {
+test('잡지 일반·확대 보기에는 접근성 신고 진입이 없고, 길게 누르기는 신고 대신 확대다', async () => {
   const { screen } = await open();
   const target = screen.getByLabelText(/^섬2섬,/);
-  expect(target.props.onLongPress).toBeUndefined();
   expect(target.props.accessibilityActions).toBeUndefined();
   await fireEvent(target, 'longPress');
   expect(screen.queryByTestId('magazine-report')).toBeNull();
-  await fireEvent.press(target);
   const zoomed = within(screen.getByTestId('magazine-zoom')).getByLabelText(/^섬2섬,/);
   expect(zoomed.props.onLongPress).toBeUndefined();
   expect(zoomed.props.accessibilityActions).toBeUndefined();
@@ -482,7 +478,7 @@ describe('en 로케일', () => {
       expect(screen.queryByLabelText(/[가-힣]/)).toBeNull();
     };
     noHangul();
-    await fireEvent.press(screen.getByLabelText(/^Wave Island,/));
+    await fireEvent(screen.getByLabelText(/^Wave Island,/), 'longPress');
     expect(screen.getByTestId('magazine-zoom')).toBeTruthy();
     noHangul();
   });
@@ -527,91 +523,96 @@ test('비공개 편집부 랭킹·새 섬에 초대 안내를 표시하고 랭�
 
 describe('바다에서 펼친 잡지(GROMO-2314 · A2)', () => {
   const hidden = { includeHiddenElements: true };
-  const seaEnv = () => ({ ...env(), notify: jest.fn(), replace: jest.fn() });
-  async function openSea(first: MagazineIssuePage, e = seaEnv()) {
-    getIssue.mockResolvedValueOnce(first);
-    const screen = await render(<MagazineReader e={createPreviewEnvironment(e)} place="SEA" />);
-    await waitFor(() => expect(screen.getByTestId('magazine-pages')).toBeTruthy());
-    return { screen, e };
-  }
-  const cellsOnly = (cells: MagazineCell[]) => page({ editorial: null, cells });
   afterEach(() => expect(api.getMagazineIssues).not.toHaveBeenCalled());
 
-  test('읽음 받음은 SEA 로 적고, 칸 자리는 우리 섬 = 배지 · 남의 섬 = 망원경 동그라미 · 옛 서버의 강퇴(KICKED) 칸 = 없음', async () => {
-    const { screen } = await openSea(cellsOnly([cell(1, 'MEMBER'), cell(2), cell(3, 'KICKED')]));
+  test('읽음 받음은 SEA 로 적고, 칸 자리는 우리 섬 배지만 — 칸을 눌러 바로 가므로 망원경 동그라미가 없다', async () => {
+    getIssue.mockResolvedValueOnce(page({ editorial: null, cells: [cell(1, 'MEMBER'), cell(2)] }));
+    const screen = await render(<MagazineReader e={createPreviewEnvironment(env())} place="SEA" />);
+    await waitFor(() => expect(screen.getByTestId('magazine-pages')).toBeTruthy());
     await waitFor(() =>
       expect(putReceipt).toHaveBeenCalledWith('iss-19', { place: 'SEA', opened: true }),
     );
     expect(screen.getByTestId('magazine-cell-p1-ours', hidden)).toBeTruthy();
-    expect(screen.queryByTestId('magazine-cell-p1-scope', hidden)).toBeNull();
-    expect(screen.getByTestId('magazine-cell-p2-scope', hidden)).toBeTruthy();
-    expect(screen.queryByTestId('magazine-cell-p3-scope', hidden)).toBeNull();
-    expect(screen.queryByTestId('magazine-cell-p3-ours', hidden)).toBeNull();
-  });
-
-  test('비공개 섬 칸에는 동그라미가 없다', async () => {
-    const { screen } = await openSea(cellsOnly([{ ...cell(1), privateIsland: true }]));
     expect(screen.queryAllByTestId(/-scope$/, hidden)).toHaveLength(0);
   });
+});
 
-  test('동그라미 → 망원경에 넣고(source magazine · 홍보 id) 잡지 자리를 망원경으로 바꾼다', async () => {
-    pin.mockResolvedValue({ item: {}, evicted: null });
-    const { screen, e } = await openSea(cellsOnly([cell(2)]));
-    await fireEvent.press(screen.getByTestId('magazine-cell-p2-scope'));
-    expect(pin).toHaveBeenCalledWith('is-섬2', 'magazine', 'p2');
-    expect(e.replace).toHaveBeenCalledWith('telescope');
-    expect(e.go).not.toHaveBeenCalled();
-    expect(e.notify).not.toHaveBeenCalled();
+describe('칸을 누르면 그 섬으로 바로(GROMO-2903)', () => {
+  const arrival = (islandId: string, membershipStatus: 'none' | 'active') => ({
+    islandId,
+    arrivedBefore: true,
+    membershipStatus,
+    currentIslandId: membershipStatus === 'active' ? islandId : null,
+  });
+  const goEnv = () => {
+    const islands = { sync: jest.fn(async () => null), visit: jest.fn(async () => ({})) };
+    return {
+      ...env(),
+      notify: jest.fn(),
+      replace: jest.fn(),
+      reset: jest.fn(),
+      dispatch: jest.fn(),
+      home: jest.fn(),
+      islands,
+    };
+  };
+  const tap = (screen: Awaited<ReturnType<typeof open>>['screen'], name: string) =>
+    fireEvent.press(screen.getByLabelText(new RegExp(`^${name}섬,`)));
+
+  test('남의 섬 칸 — 홍보 칸 도착(명령 키) 뒤 망원경 도착과 같이 섬 구경으로 간다', async () => {
+    arriveFrom.mockResolvedValue(arrival('is-섬2', 'none'));
+    const e = goEnv();
+    const { screen } = await open(page(), e);
+    await tap(screen, '섬2');
+    await waitFor(() => expect(e.replace).toHaveBeenCalledWith('visitIsland', 'is-섬2'));
+    expect(arriveFrom).toHaveBeenCalledWith('p2', expect.any(String));
+    expect(e.islands.visit).toHaveBeenCalledWith('is-섬2');
+    expect(e.dispatch).toHaveBeenCalledWith({ type: 'SERVER_VISITING', islandId: 'is-섬2' });
+    expect(e.reset).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('magazine-zoom')).toBeNull();
   });
 
-  test('가득 차 빠진 섬이 있으면 토스트 하나로 알린다(섬 이름은 「…섬」)', async () => {
-    pin.mockResolvedValue({ item: {}, evicted: { islandId: 'old', name: '옛' } });
-    const { screen, e } = await openSea(cellsOnly([cell(2)]));
-    await fireEvent.press(screen.getByTestId('magazine-cell-p2-scope'));
-    expect(e.notify).toHaveBeenCalledTimes(1);
-    expect(e.notify).toHaveBeenCalledWith('옛섬이 망원경에서 빠져요');
-    expect(e.replace).toHaveBeenCalledWith('telescope');
+  test('우리 섬 칸 — 서버가 현재 섬을 옮겼으니 소속을 다시 읽고 그 섬 홈으로', async () => {
+    arriveFrom.mockResolvedValue(arrival('is-섬1', 'active'));
+    const e = goEnv();
+    const { screen } = await open(page(), e);
+    await tap(screen, '섬1');
+    await waitFor(() => expect(e.reset).toHaveBeenCalledWith('home'));
+    expect(arriveFrom).toHaveBeenCalledWith('p1', expect.any(String));
+    expect(e.islands.sync).toHaveBeenCalled();
+    expect(e.islands.visit).not.toHaveBeenCalled();
   });
 
-  test('빠진 섬 이름이 이미 「섬」으로 끝나면 「섬」을 한 번 더 붙이지 않는다', async () => {
-    pin.mockResolvedValue({ item: {}, evicted: { islandId: 'old', name: '단풍섬' } });
-    const { screen, e } = await openSea(cellsOnly([cell(2)]));
-    await fireEvent.press(screen.getByTestId('magazine-cell-p2-scope'));
-    expect(e.notify).toHaveBeenCalledTimes(1);
-    expect(e.notify).toHaveBeenCalledWith('단풍섬이 망원경에서 빠져요');
-  });
-
-  test('요청 중 다시 눌러도 한 번만 넣는다', async () => {
-    let done!: (v: unknown) => void;
-    pin.mockReturnValue(new Promise((resolve) => (done = resolve)));
-    const { screen, e } = await openSea(cellsOnly([cell(2)]));
-    await fireEvent.press(screen.getByTestId('magazine-cell-p2-scope'));
-    await fireEvent.press(screen.getByTestId('magazine-cell-p2-scope'));
-    expect(pin).toHaveBeenCalledTimes(1);
-    await act(async () => done({ item: {}, evicted: null }));
-    expect(e.replace).toHaveBeenCalledTimes(1);
-  });
-
-  test('넣는 중에 잡지를 닫으면 망원경으로 옮기지 않지만, 빠진 섬 토스트는 그대로 알린다', async () => {
-    let done!: (v: unknown) => void;
-    pin.mockReturnValue(new Promise((resolve) => (done = resolve)));
-    const { screen, e } = await openSea(cellsOnly([cell(2)]));
-    await fireEvent.press(screen.getByTestId('magazine-cell-p2-scope'));
-    await screen.unmount();
-    await act(async () => done({ item: {}, evicted: { islandId: 'old', name: '옛' } }));
-    expect(e.notify).toHaveBeenCalledWith('옛섬이 망원경에서 빠져요');
+  test('거절되면 잡지에 남아 서버 문구로 알린다', async () => {
+    arriveFrom.mockRejectedValue(new ApiError('PROMOTION_NOT_FOUND', '홍보를 찾을 수 없어요', 404));
+    const e = goEnv();
+    const { screen } = await open(page(), e);
+    await tap(screen, '섬2');
+    await waitFor(() => expect(e.notify).toHaveBeenCalledWith('홍보를 찾을 수 없어요'));
     expect(e.replace).not.toHaveBeenCalled();
-  });
-
-  test.each([
-    ['FORBIDDEN', 403, '이 섬에는 넣을 수 없어요'],
-    ['STATE_CONFLICT', 409, '이미 내가 속한 섬이에요'],
-  ])('넣기 거절(%s)은 기존 문구로 알리고 잡지에 머문다', async (code, status, message) => {
-    pin.mockRejectedValue(new ApiError(code, '', status));
-    const { screen, e } = await openSea(cellsOnly([cell(2)]));
-    await fireEvent.press(screen.getByTestId('magazine-cell-p2-scope'));
-    expect(e.notify).toHaveBeenCalledWith(message);
-    expect(e.replace).not.toHaveBeenCalled();
+    expect(e.reset).not.toHaveBeenCalled();
     expect(screen.getByTestId('magazine-reader')).toBeTruthy();
+  });
+
+  test('요청 중 다시 눌러도 한 번만 보낸다', async () => {
+    let done!: (v: unknown) => void;
+    arriveFrom.mockReturnValue(new Promise((resolve) => (done = resolve)));
+    const e = goEnv();
+    const { screen } = await open(page(), e);
+    await tap(screen, '섬2');
+    await tap(screen, '섬2');
+    await tap(screen, '섬4');
+    expect(arriveFrom).toHaveBeenCalledTimes(1);
+    await act(async () => done(arrival('is-섬2', 'none')));
+    await waitFor(() => expect(e.replace).toHaveBeenCalledTimes(1));
+  });
+
+  test('서버 섬 명령이 없으면(목업) 도착만 하고 홈으로', async () => {
+    arriveFrom.mockResolvedValue(arrival('is-섬2', 'none'));
+    const e = { ...goEnv(), islands: undefined };
+    const { screen } = await open(page(), e);
+    await tap(screen, '섬2');
+    await waitFor(() => expect(e.home).toHaveBeenCalled());
+    expect(e.replace).not.toHaveBeenCalled();
   });
 });

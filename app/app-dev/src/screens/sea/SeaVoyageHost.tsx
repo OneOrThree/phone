@@ -1,6 +1,6 @@
 import { t } from '@/i18n';
 import type { ScreenEnvironment } from '@/navigation/ScreenEnvironment';
-import { arriveWithOutcome } from '@/screens/island/Telescope';
+import { arriveWithOutcome, enterArrivedIsland } from '@/screens/island/Telescope';
 import {
   magazineUnread,
   markDelivered,
@@ -471,24 +471,18 @@ export function SeaVoyageHost({ e }: { e: ScreenEnvironment }) {
         });
         if (stale()) return;
         // await 뒤에는 최신 e 로 부른다(App 의 e 와 그 함수들은 렌더마다 새로 만든다)
-        if (member) {
-          // 이번 정산으로 새로 세운 무인도면 홈에서 이름 짓기 모달을 띄우도록 전이 상태를 둔다(GROMO-2649).
-          // createdIsland 가 없으면(구버전 서버) 아무 일도 하지 않는다.
-          if (result.createdIsland) eRef.current.dispatch({ type: 'ISLAND_NAMING', islandId: id });
-          // 현 가입 이후 첫 도착이면 환영을 한 번 — 서버가 arrivedBefore=false 로 알려 준다
-          if (!arrivedBefore)
-            eRef.current.notify(
-              `${t('openSea.welcomeTitle')} ${t('openSea.welcomeBody', { island: result.destinationName })}`,
-            );
-          eRef.current.reset('home');
-        } else {
-          const commands = eRef.current.islands;
-          if (!commands) throw new Error('stale voyage');
-          await commands.visit(id);
-          if (stale()) return;
-          eRef.current.dispatch({ type: 'SERVER_VISITING', islandId: id });
-          eRef.current.replace('visitIsland', id);
-        }
+        // 이번 정산으로 새로 세운 무인도면 홈에서 이름 짓기 모달을 띄우도록 전이 상태를 둔다(GROMO-2649).
+        // createdIsland 가 없으면(구버전 서버) 아무 일도 하지 않는다.
+        if (member && result.createdIsland)
+          eRef.current.dispatch({ type: 'ISLAND_NAMING', islandId: id });
+        // 주민이면 홈(현 가입 이후 첫 도착이면 환영 한 번 — 서버가 arrivedBefore=false 로 알려 준다), 아니면 섬 구경
+        await enterArrivedIsland(
+          () => eRef.current,
+          id,
+          result.destinationName,
+          { member, arrivedBefore },
+          stale,
+        );
       }}
       onTelescope={async () => {
         const generation = sessionGeneration();

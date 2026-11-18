@@ -50,7 +50,7 @@ export type AdCellData = {
  * 달라진다(P12). 대신 칸 전체가 접근성 요소 하나로 섬 이름·주민·평균·글을 읽는다.
  *
  * 그리는 순서(아래 → 위): 틀 → 섬 프로필·이름·한 줄 글·주민/평균 → 스티커(배열 순) → 테이프 → 오른쪽 아래 corner.
- * corner: 'scope' = 망원경 동그라미(바다판만 — 섬에서 본 잡지에는 없다, 10/14) · 'ours' = 「우리 섬이에요」 · null = 없음.
+ * corner: 'scope' = 망원경 동그라미(잡지 지면은 GROMO-2903 부터 쓰지 않는다 — 칸을 눌러 바로 간다) · 'ours' = 「우리 섬이에요」 · null = 없음.
  * 이 앱 버전이 모르는 재료 id(새 시즌)는 건너뛰고, 모르는 틀은 기본 틀로 그린다.
  */
 export function AdCell({
@@ -59,6 +59,7 @@ export function AdCell({
   corner: requestedCorner = null,
   onScope,
   onPress,
+  onLongPress,
   hideMeta = false,
   bodyInput,
   testID,
@@ -68,6 +69,7 @@ export function AdCell({
   corner?: 'scope' | 'ours' | null;
   onScope?: () => void;
   onPress?: () => void;
+  onLongPress?: () => void;
   /**
    * 「주민 N/정원 · 평균」 줄을 그리지 않는다 — 바로 아래에 지금 숫자가 따로 있는 곳(망원경 말풍선)에서
    * 실린 날 숫자와 지금 숫자가 같이 보이지 않게.
@@ -142,6 +144,7 @@ export function AdCell({
         accessibilityRole={onPress ? 'button' : undefined}
         accessibilityLabel={label}
         onPress={onPress}
+        onLongPress={onLongPress}
       >
         <Image
           source={frame.source}
