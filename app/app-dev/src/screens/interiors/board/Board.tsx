@@ -658,6 +658,8 @@ export function Board({
       );
     },
     cancelDelete: () => {
+      // 삭제 요청 중엔 취소하지 않는다 — 서버에선 이미 지워졌을 수 있다
+      if (ui.confirm?.busy) return;
       draftEpoch.current += 1;
       return e
         ? setUi((prev) => ({ ...prev, confirm: null }))
@@ -689,9 +691,10 @@ export function Board({
         board.deleteQuest(questId).then(
           () => {
             if (deleteInflight.current === questId) deleteInflight.current = null;
-            // 확인창을 취소·재열거나 화면이 바뀌면 옛 삭제의 닫기/back 은 실행하지 않는다.
+            // 화면이 바뀌었으면 옛 삭제의 back 은 실행하지 않는다. 같은 화면이면 확인창 상태와 상관없이
+            // 목록으로 간다 — 지운 퀘스트의 수정 종이에 남지 않게.
             const now = liveE(op);
-            if (!now || draftEpoch.current !== draftOp) return;
+            if (!now) return;
             deletedQuest.current = occurrenceId;
             setUi((prev) => ({ ...prev, confirm: null }));
             now.back();
@@ -984,7 +987,7 @@ export function Board({
               err.field === 'windowStart'
             )
               return setUi((prev) => ({ ...prev, error: '', overlap: true }));
-            setError(apiWriteMessage(err));
+            setUi((prev) => ({ ...prev, error: apiWriteMessage(err), overlap: false }));
           },
         );
         return;
@@ -1567,6 +1570,7 @@ export function Board({
         <BoardPill
           testID="board-delete-cancel"
           label={t('common.cancel')}
+          disabled={!!ui.confirm?.busy}
           style={{ flex: 1 }}
           onPress={nav.cancelDelete}
         />

@@ -2816,6 +2816,14 @@ test('퀘스트 만들기 — 409 STATE_CONFLICT(windowStart)는 시간 입력�
   // 제목을 고쳐도 시간대가 그대로면 남는다.
   await fireEvent.changeText(screen.getByTestId('board-quest-title'), '밤 집중');
   assert.ok(screen.getByTestId('board-quest-overlap-error'));
+  // 다시 저장해 다른 오류가 나면 겹침 안내를 내리고 그 오류만 보인다.
+  postQuestMock.mockRejectedValueOnce(overlapError('windowEnd'));
+  await fireEvent.press(screen.getByTestId('board-quest-save'));
+  await waitFor(() => assert.ok(screen.getByText('다른 퀘스트와 시간이 겹칩니다.')));
+  assert.equal(screen.queryByTestId('board-quest-overlap-error'), null);
+  postQuestMock.mockRejectedValue(overlapError());
+  await fireEvent.press(screen.getByTestId('board-quest-save'));
+  await waitFor(() => assert.ok(screen.getByTestId('board-quest-overlap-error')));
   // 시간대를 바꾸면 지운다.
   await pickWheel(screen, '시작 시간 시', '20');
   assert.equal(screen.queryByTestId('board-quest-overlap-error'), null);
@@ -2969,6 +2977,10 @@ test('퀘스트 삭제 — 요청 중엔 확인 버튼을 끄고, 실패하면 �
   // 꺼진 버튼을 또 눌러도 요청은 1건이다.
   await fireEvent.press(screen.getByTestId('board-delete-confirm'));
   assert.equal(delQuestMock.mock.calls.length, 1);
+  // 취소도 꺼서 — 서버에선 이미 지워졌을 수 있다 — 지운 퀘스트의 수정 종이로 돌아가지 않는다.
+  assert.equal(screen.getByTestId('board-delete-cancel').props.accessibilityState.disabled, true);
+  await fireEvent.press(screen.getByTestId('board-delete-cancel'));
+  assert.ok(screen.getByTestId('board-delete-confirm'));
 
   await act(async () => {
     slow.reject(new ApiError('FORBIDDEN', '권한이 없습니다.', 403));
