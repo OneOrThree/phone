@@ -202,10 +202,13 @@ class TelescopePinIntegrationTest {
         UUID viewer = newUser();
         List<UUID> order = byHash(viewer, islandIds(8));
         String seed = viewer + ":" + BUCKET.getEpochSecond();
+        int top = TelescopeService.TOP_AVERAGE_ISLANDS;
+        Instant newSince = BUCKET.minus(TelescopeService.NEW_ISLAND_AGE);
 
-        assertThat(groups.findTelescopeCandidates(viewer.toString(), seed, 5, "{}"))
+        assertThat(groups.findTelescopeCandidates(viewer.toString(), seed, 5, "{}", top, newSince))
                 .extracting(TelescopeCandidate::getId).containsExactlyElementsOf(order.subList(0, 5));
-        assertThat(groups.findTelescopeCandidates(viewer.toString(), seed, 5, "{" + order.get(0) + "," + order.get(2) + "}"))
+        assertThat(groups.findTelescopeCandidates(viewer.toString(), seed, 5,
+                        "{" + order.get(0) + "," + order.get(2) + "}", top, newSince))
                 .extracting(TelescopeCandidate::getId)
                 .containsExactly(order.get(1), order.get(3), order.get(4), order.get(5), order.get(6));
 

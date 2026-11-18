@@ -4,6 +4,7 @@ import com.oneorthree.phone.construction.repository.IslandFacilityRepository;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupRepository;
 import com.oneorthree.phone.group.repository.GroupRepository.TelescopeCandidate;
+import com.oneorthree.phone.group.repository.GroupRepository.TelescopeDraw;
 import com.oneorthree.phone.group.repository.IslandArrivalRepository;
 import com.oneorthree.phone.group.repository.IslandJoinRequestRepository;
 import com.oneorthree.phone.group.repository.IslandJoinRequestRepository.JoinRequestRef;
@@ -29,8 +30,10 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Deque;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -49,7 +52,8 @@ import java.util.stream.Stream;
  * 목록을 조립한다.
  *
  * <p><b>1시간 고정</b>이다 (GROMO-2306, 마무리 계약 §1): 그 버킷의 첫 요청이 새 섬 후보 5개(가까운 섬 1 + 무작위
- * {@value #RANDOM_SLOTS})를 버킷 시드({@code userId:버킷 epoch 초})로 뽑아 {@code telescope_buckets} 에 스냅샷으로 넣고,
+ * {@value #RANDOM_SLOTS})를 버킷 시드({@code userId:버킷 epoch 초})로 뽑아 — 집중 평균 상위 섬과 최근 7일 집중한 섬을
+ * 번갈아({@code mix}, GROMO-2901) — {@code telescope_buckets} 에 스냅샷으로 넣고,
  * 같은 버킷의 요청은 그 스냅샷을 읽는다. 그래서 같은 버킷 안에서는 정원·가입·새 섬이 생겨도 새 섬의 목록·순서·항해 분이
  * 바뀌지 않고, 정원 찬 섬은 {@code full} 표시만 바뀐다. 섬을 보여 줄 수 있는지(공개·생존·미소속)는 매번
  * 지금 값으로 다시 보고, 그사이 빠진 섬(비공개·종료·내 소속)의 칸은 <b>새로 뽑아 채우지 않는다</b> — 「같은 목록」이
@@ -67,8 +71,8 @@ import java.util.stream.Stream;
  *       않고 다음 핀 넣기가 정리한다). 정원 찬 섬도 넣을 수 있다({@code full=true}, 구경만). 핀 섬이 그사이 비공개·종료·
  *       내 소속이 되면 이 칸에서 빠지고 그 칸은 스냅샷의 다음 섬이 채운다(핀 행은 만료까지 남는다).</li>
  *   <li>{@code random} — 나머지 새 섬 칸. 새 섬 칸은 1 + 무작위 {@value #RANDOM_SLOTS} − 핀 수이고 스냅샷 순서대로
- *       채운다. 스냅샷은 정원 남은 섬부터, 모자라면 정원 찬 섬({@code full=true}, 구경만)으로 뽑았고, 그래도 모자라면 칸
- *       수가 준다. 가까운 섬이 없으면 새 섬 칸 전부가 {@code random} 이다.</li>
+ *       채운다. 스냅샷은 묶음마다 정원 남은 섬부터, 모자라면 정원 찬 섬({@code full=true}, 구경만)으로 뽑았고, 그래도
+ *       모자라면 칸 수가 준다. 가까운 섬이 없으면 새 섬 칸 전부가 {@code random} 이다.</li>
  * </ul>
  * 핀은 최대 {@value #MAX_PINS}(= 무작위 칸 수)개라 새 섬 칸은 늘 1 이상이다. nearby 가 아닌 항해 분은 {@link SailingTimes}
  * 다 — 같은 버킷이면 승인 편지의 「N분 뒤 도착」과 같은 값이다(핀 섬도 같다).
@@ -100,6 +104,20 @@ public class TelescopeService {
     static final int RANDOM_SLOTS = 4;
     /** 핀은 무작위 칸을 대신한다 — 무작위 칸 수를 넘지 않아야 새 섬 칸(1 + 4 − 핀 수)이 1 아래로 내려가지 않는다. */
     static final int MAX_PINS = RANDOM_SLOTS;
+    /**
+     * 평균 상위 묶음(H)의 크기. 1등 몇 섬만 매시간 모든 사람에게 나오지 않도록 상위권을 넉넉히 잡고 그 안에서 버킷 시드로
+     * 돌린다 — 버킷마다 H 칸은 둘이라 20곳이면 한 섬이 한 사람의 버킷에 나오는 몫이 대략 10분의 1이다. 더 키우면
+     * «최근 집중»(A) 묶음과 차이가 흐려진다.
+     */
+    static final int TOP_AVERAGE_ISLANDS = 20;
+    /**
+     * 평균이 아직 없는(행 없음·null) 섬을 «새 섬»(N)으로 나머지(R)보다 앞에 두는 기간. 평균은 07:00 KST 하루 한 번
+     * 적히므로 막 생긴 섬은 첫 행까지 최대 하루를 기다리고, 주민 0명이면 null 이다 — 사흘 동안은 그런 섬도 주민을 모을
+     * 기회를 준다. 그 뒤에도 평균이 없으면 활동 없는 섬과 같이 R 이다.
+     */
+    static final Duration NEW_ISLAND_AGE = Duration.ofDays(3);
+    /** 새 섬 칸(가까운 섬 1 + 무작위 4)마다 먼저 뽑을 묶음 — 평균 상위(H)와 최근 집중(A)을 번갈아 둔다(GROMO-2901). */
+    private static final List<String> MIX = List.of("H", "A", "H", "A", "A");
 
     private final UserQueryService userQueryService;
     private final GroupRepository groupRepository;
@@ -257,10 +275,11 @@ public class TelescopeService {
         if (existing.isPresent()) {
             return existing.get();
         }
-        // 정원 남은 섬이 앞이고, 모자라면 찬 섬이 뒤를 채운다.
-        List<TelescopeCandidate> drawn = groupRepository.findTelescopeCandidates(userId.toString(),
-                userId + ":" + bucketStart.getEpochSecond(), 1 + RANDOM_SLOTS, uuidArray(visiblePinIds));
-        // 첫 후보가 찬 섬이면 열린 섬이 하나도 없다 — 이 버킷엔 가까운 섬 라벨이 없다.
+        // 묶음(H·A·N·R)마다 정원 남은 섬이 앞이고, 모자라면 찬 섬이 뒤를 채운다. 칸 순서는 mix 가 정한다.
+        List<TelescopeCandidate> drawn = mix(groupRepository.findTelescopeCandidates(userId.toString(),
+                userId + ":" + bucketStart.getEpochSecond(), 1 + RANDOM_SLOTS, uuidArray(visiblePinIds),
+                TOP_AVERAGE_ISLANDS, bucketStart.minus(NEW_ISLAND_AGE)));
+        // 첫 후보가 찬 섬이면(첫 칸 묶음에 열린 섬이 없다) 이 버킷엔 가까운 섬 라벨이 없다.
         boolean hasNearby = !drawn.isEmpty() && !isFull(drawn.get(0));
         buckets.deleteOlderThan(userId, bucketStart);
         buckets.insertIfAbsent(userId, bucketStart,
@@ -268,6 +287,23 @@ public class TelescopeService {
         // 동시 첫 요청이 먼저 넣었으면 0행이다 — 어느 쪽이든 다시 읽은 행이 정본이다.
         return buckets.findByUserIdAndBucketStart(userId, bucketStart)
                 .orElseThrow(() -> new IllegalStateException("망원경 스냅샷을 넣고도 읽지 못했다: " + userId));
+    }
+
+    /**
+     * 새 섬 칸 순서 (GROMO-2901) — 칸마다 {@link #MIX} 의 묶음에서 다음 섬을 꺼낸다. 그 묶음이 비면 다른 활동 묶음(H↔A),
+     * 그다음 새 섬(N), 나머지(R) 순으로 채운다. 묶음 안 순서(정원 남은 섬 → 시드 해시)는 질의가 정해 온다.
+     */
+    private static List<TelescopeCandidate> mix(List<TelescopeDraw> rows) {
+        Map<String, Deque<TelescopeCandidate>> tiers = new HashMap<>();
+        rows.forEach(row -> tiers.computeIfAbsent(row.getTier(), tier -> new ArrayDeque<>()).add(row));
+        List<TelescopeCandidate> drawn = new ArrayList<>();
+        for (int slot = 0; slot < 1 + RANDOM_SLOTS; slot++) {
+            String first = MIX.get(slot % MIX.size());
+            Stream.of(first, "H".equals(first) ? "A" : "H", "N", "R")
+                    .map(tiers::get).filter(tier -> tier != null && !tier.isEmpty()).findFirst()
+                    .ifPresent(tier -> drawn.add(tier.poll()));
+        }
+        return drawn;
     }
 
     /**

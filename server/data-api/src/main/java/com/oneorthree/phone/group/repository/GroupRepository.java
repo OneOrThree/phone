@@ -162,7 +162,7 @@ public interface GroupRepository extends JpaRepository<Group, UUID> {
      * 공개·생존·미소속이고 <b>정원 조건은 없다</b>. 강퇴된 섬도 보인다(GROMO-2315, 10/20 결정). 주민 수는
      * {@link GroupMemberRepository#countByGroupIdIn} 과 같은 모수(탈퇴 계정 제외)다. 바인딩은 {@code :userId} 하나다.
      */
-    String TELESCOPE_VISIBLE_SQL = "SELECT g.id, g.max_members, "
+    String TELESCOPE_VISIBLE_SQL = "SELECT g.id, g.max_members, g.created_at, "
             + "(SELECT count(*) FROM group_members m JOIN users u ON u.id = m.user_id "
             + " WHERE m.group_id = g.id AND m.is_left = false AND u.is_deleted = false) AS member_count "
             + "FROM islands g "
@@ -174,9 +174,18 @@ public interface GroupRepository extends JpaRepository<Group, UUID> {
      * 망원경 후보 (GROMO-2265, 섬 외부 계약 §5) — {@link #findDiscoverableIslandIds} 와 같은 공개·생존·미소속
      * 조건이되 <b>정원 조건이 없다</b>. 정원 찬 섬도 «구경만» 칸을 채우므로 주민 수·정원을 함께 준다.
      *
-     * <p>순서는 «정원 남은 섬 먼저, 그 안에서 {@code md5(seed || id)}» 다. 조립이 가까운 섬·무작위 칸을 정원 남은
-     * 섬부터 채우고 모자랄 때만 찬 섬을 쓰므로, 앞의 몇 행만 읽어도 해시 순 전체를 훑은 것과 같은 결과다 — 해시
-     * 순으로만 자르면 찬 섬이 앞에 몰린 버킷에서 뒤의 가입 가능한 섬을 놓친다. seed 가 같으면 순서도 같다.
+     * <p><b>묶음</b>(GROMO-2901)은 섬마다 가장 최근 snapshot_date 의 7일 평균 행 하나로 정한다 — 그 행이 null 이면 옛
+     * 행으로 돌아가지 않는다({@code IslandFocusAverageRepository#findLatestByIslandIds} 와 같은 규칙).
+     * <ul>
+     *   <li>{@code H} — 평균 &gt; 0 인 후보 중 평균 내림차순 상위 {@code topCount} 개(동점은 id 순).</li>
+     *   <li>{@code A} — 평균 &gt; 0 인 나머지.</li>
+     *   <li>{@code N} — 평균 행이 없거나 null 이고 {@code newSince} 이후에 생긴 섬.</li>
+     *   <li>{@code R} — 나머지(평균 0, 평균 없는 옛 섬).</li>
+     * </ul>
+     * 묶음 안 순서는 «정원 남은 섬 먼저, 그 안에서 {@code md5(seed || id)}» 이고 묶음마다 앞 {@code limit} 행만 준다 —
+     * 조립({@code TelescopeService})이 묶음을 번갈아 칸 수만큼만 뽑으므로 한 묶음에서 그보다 많이 쓰지 않는다. 해시
+     * 순으로만 자르면 찬 섬이 앞에 몰린 버킷에서 뒤의 가입 가능한 섬을 놓친다. seed 가 같으면 순서도 같다. 전수 정렬
+     * (섬 수에 비례)은 하되 한 문장이다 — 평균은 섬마다 {@code (island_id, snapshot_date DESC)} 인덱스로 한 행만 읽는다.
      *
      * <p>주민 수는 {@link GroupMemberRepository#countByGroupIdIn} 과 같은 모수(탈퇴 계정 제외)다 — 응답의
      * 「주민 수/정원」과 «정원 찬 섬» 판정이 가입 경로의 정원 판정과 같아야 한다. discover 의 인라인 집계는 탈퇴
@@ -188,19 +197,33 @@ public interface GroupRepository extends JpaRepository<Group, UUID> {
      *
      * @param userId     망원경을 보는 사용자 id 문자열
      * @param seed       1시간 버킷 시드
-     * @param limit      읽을 행 수
+     * @param limit      묶음마다 읽을 행 수
      * @param excludeIds 후보에서 뺄 섬 id 의 Postgres 배열 리터럴({@code {id1,id2}}, 없으면 {@code {}})
-     * @return 정원 남은 섬 → 정원 찬 섬 순, 각 묶음 안은 시드 해시 순
+     * @param topCount   평균 상위 묶음({@code H}) 크기
+     * @param newSince   이 시각 이후에 생긴 평균 없는 섬이 새 섬 묶음({@code N})이다
+     * @return 묶음 순으로, 각 묶음 안은 정원 남은 섬 → 정원 찬 섬, 그 안은 시드 해시 순
      */
-    @Query(value = "SELECT c.id AS \"id\", c.member_count AS \"memberCount\", c.max_members AS \"maxMembers\" "
+    @Query(value = "SELECT d.id AS \"id\", d.member_count AS \"memberCount\", d.max_members AS \"maxMembers\", "
+            + "d.tier AS \"tier\" FROM ("
+            + "SELECT t.*, row_number() OVER (PARTITION BY t.tier ORDER BY t.member_count >= t.max_members, "
+            + "md5(CAST(:seed AS text) || CAST(t.id AS text))) AS pos FROM ("
+            + "SELECT c.id, c.member_count, c.max_members, CASE "
+            + "WHEN a.minutes > 0 AND row_number() OVER (ORDER BY a.minutes DESC NULLS LAST, c.id) <= :topCount "
+            + "THEN 'H' "
+            + "WHEN a.minutes > 0 THEN 'A' "
+            + "WHEN a.minutes IS NULL AND c.created_at >= :newSince THEN 'N' "
+            + "ELSE 'R' END AS tier "
             + "FROM (" + TELESCOPE_VISIBLE_SQL + ") c "
-            + "WHERE c.id <> ALL(CAST(:excludeIds AS uuid[])) "
-            + "ORDER BY c.member_count >= c.max_members, md5(CAST(:seed AS text) || CAST(c.id AS text)) "
-            + "LIMIT :limit", nativeQuery = true)
-    List<TelescopeCandidate> findTelescopeCandidates(@Param("userId") String userId,
+            + "LEFT JOIN LATERAL (SELECT f.avg_minutes_per_member_day AS minutes FROM island_focus_averages f "
+            + "WHERE f.island_id = c.id ORDER BY f.snapshot_date DESC LIMIT 1) a ON true "
+            + "WHERE c.id <> ALL(CAST(:excludeIds AS uuid[]))) t) d "
+            + "WHERE d.pos <= :limit ORDER BY d.tier, d.pos", nativeQuery = true)
+    List<TelescopeDraw> findTelescopeCandidates(@Param("userId") String userId,
             @Param("seed") String seed,
             @Param("limit") int limit,
-            @Param("excludeIds") String excludeIds);
+            @Param("excludeIds") String excludeIds,
+            @Param("topCount") int topCount,
+            @Param("newSince") Instant newSince);
 
     /**
      * 주어진 섬 중 망원경이 아직 보여 줄 수 있는 섬 (GROMO-2268) — 핀 섬이 그사이 비공개·종료·내 소속이 되면
@@ -216,7 +239,7 @@ public interface GroupRepository extends JpaRepository<Group, UUID> {
             + "WHERE c.id = ANY(CAST(:ids AS uuid[]))", nativeQuery = true)
     List<TelescopeCandidate> findTelescopeVisibleAmong(@Param("userId") String userId, @Param("ids") String ids);
 
-    /** {@link #findTelescopeCandidates} 결과 한 행. */
+    /** 망원경 후보·핀 가시성 결과 한 행. */
     interface TelescopeCandidate {
 
         /** @return 섬 id */
@@ -227,6 +250,13 @@ public interface GroupRepository extends JpaRepository<Group, UUID> {
 
         /** @return 정원 */
         int getMaxMembers();
+    }
+
+    /** {@link #findTelescopeCandidates} 결과 한 행 — 후보에 묶음을 더한다. */
+    interface TelescopeDraw extends TelescopeCandidate {
+
+        /** @return 묶음 — {@code H}(평균 상위)·{@code A}(최근 집중)·{@code N}(새 섬)·{@code R}(나머지) */
+        String getTier();
     }
 
     /**
