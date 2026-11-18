@@ -21,7 +21,7 @@ import java.util.UUID;
 import java.util.function.Supplier;
 
 /**
- * 섬 퀘스트 5종의 공개 유스케이스 (GROMO-1773, island-quests LLD §1~§5).
+ * 섬 퀘스트 6종의 공개 유스케이스 (GROMO-1773·2897, island-quests LLD §1~§5).
  *
  * <p>권한(방장·주민·게시판)·판정(cohort·달성·측정 대기)·지급은 전부 Data TX 가 한다 — Business 는 strict
  * 세션의 주체만 넘기고 도메인 실패를 공개 오류 표로 옮긴다. 표에 없는 (상태, 코드)는 그대로 올려
@@ -49,6 +49,8 @@ public class IslandQuestUseCase {
             Map.entry("QUEST_TITLE_OUT_OF_RANGE", new PublicFailure(ApiErrorCode.OUT_OF_RANGE, "title")),
             Map.entry("QUEST_TARGET_OUT_OF_RANGE", new PublicFailure(ApiErrorCode.OUT_OF_RANGE, "targetMinutes")),
             Map.entry("QUEST_WINDOW_OUT_OF_RANGE", new PublicFailure(ApiErrorCode.OUT_OF_RANGE, "windowEnd")),
+            // 같은 섬의 다른 집중 퀘스트와 창이 겹침(GROMO-2897) — 앱은 409·STATE_CONFLICT·field windowStart 로 가른다.
+            Map.entry("QUEST_WINDOW_OVERLAP", new PublicFailure(ApiErrorCode.STATE_CONFLICT, "windowStart")),
             Map.entry("QUEST_VERSION_CONFLICT", new PublicFailure(ApiErrorCode.VERSION_CONFLICT, "expectedVersion")),
             // 미달성·측정 대기·이미 받음·수령 기한 지남 — 지급 없음(LLD §5, GROMO-1991).
             Map.entry("QUEST_STATE_CONFLICT", new PublicFailure(ApiErrorCode.STATE_CONFLICT, "occurrenceId")));
@@ -87,6 +89,14 @@ public class IslandQuestUseCase {
             throw new UpstreamContractMismatchException("퀘스트 수정 응답의 id 가 요청과 다릅니다");
         }
         return IslandQuestUpdated.from(updated);
+    }
+
+    /** 퀘스트 삭제 (GROMO-2897) — 방장만. 성공은 본문이 없다. */
+    public void delete(AccessTokenClaims claims, UUID islandId, UUID questId, UUID key, Deadline deadline) {
+        relay(() -> {
+            data.deleteQuest(claims.userId(), islandId, questId, key, deadline);
+            return null;
+        });
     }
 
     /** 성공은 언제나 {@code claimed=true} 다 — 다른 값은 이 계약의 응답이 아니다. */

@@ -100,7 +100,7 @@ location = /ws/realtime {
 # 섬 퀘스트(GROMO-1773)도 islands 분기가 그대로 전달한다 — 새 location 이 필요하지 않다.
 # GET /islands/{islandId}/quests/current · GET /islands/{islandId}/quests/{questId}/progress ·
 # POST /islands/{islandId}/quests · PATCH /islands/{islandId}/quests/{questId} ·
-# POST /islands/{islandId}/quests/{questId}/claims.
+# POST /islands/{islandId}/quests/{questId}/claims · DELETE /islands/{islandId}/quests/{questId}(GROMO-2897).
 # 섬 상점(GROMO-1781)도 islands 분기가 그대로 전달한다 — 새 location 이 필요하지 않다.
 # GET /islands/{islandId}/shop/wallets · GET /islands/{islandId}/shop/products ·
 # GET /islands/{islandId}/shop/products/{productId} · POST·GET /islands/{islandId}/shop/orders.

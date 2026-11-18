@@ -94,6 +94,7 @@ GROMO-1750 · 2026-09-12 · [정책 정본](policy.md) · [HLD](high-level-desig
 |DELETE|`/islands/{islandId}/notices/{noticeId}/comments/{commentId}`|필수|method+라우트와 실제 경로 자원ID를 작업에 포함; 작성자 본인 또는 방장만(GROMO-2136)|
 |POST|`/islands/{islandId}/quests`|필수|method+라우트와 실제 경로 자원ID를 작업에 포함; 도메인 소유/권한 재검증|
 |PATCH|`/islands/{islandId}/quests/{questId}`|필수|method+라우트와 실제 경로 자원ID를 작업에 포함; 도메인 소유/권한 재검증|
+|DELETE|`/islands/{islandId}/quests/{questId}`|필수|method+라우트와 실제 경로 자원ID를 작업에 포함; 방장만. 소프트 삭제, 같은 키는 본문 없는 성공 재생·새 키 재삭제는404(GROMO-2897)|
 |POST|`/islands/{islandId}/quests/{questId}/claims`|필수|작업에islandId+questId 포함, occurrenceId는본문. 정산유일성+지급 같은 TX|
 |POST|`/islands/{islandId}/messages`|clientMessageId 대체|사용자+islandId+clientMessageId로 메시지 저장1회. 일반 receipt와 중복 권위 금지. 신규 REST는1774/1775 후속 계약이며 기존 STOMP 발신을 이미 대체했다는 뜻이 아님|
 |POST|`/islands/{islandId}/shop/orders`|필수|작업에islandId 포함, productId는본문 fingerprint. 차감+소유권+주문 원자성 및소유유일성 별도|

@@ -162,6 +162,10 @@ Data는 path islandId가 실제 groupId임을 해석하고 현재 사용자 활�
 }
 ```
 
+### quest-delete — DELETE `/islands/{islandId}/quests/{questId}`
+
+원본에 없는 추가 계약이다(GROMO-2897 — 잘못 만든 퀘스트를 고칠 길이 없다는 문의). 본문과 응답 데이터가 없고 `Idempotency-Key` 가 필수다. 성공은 공개 봉투 규칙으로 200 `{"data": null}` 이다(편지 닫기와 같다). 방장만이고 주민은403 FORBIDDEN, 없거나 이미 지운 퀘스트는404 NOT_FOUND(field=questId)다.
+
 ### claim — POST `/islands/{islandId}/quests/{questId}/claims`
 
 요청:
@@ -195,7 +199,8 @@ Business→Data 내부 어댑터는 공개5경로 앞에 `/internal`을 붙인 e
 | --- | --- |
 | quests | query 없음, 서버 **UTC** 현재 회차 items(어제·오늘 회차 중 수령 마감 전 — focus 다음 날 12:00Z, screen 다음 날 24:00Z). 각 항목 id/occurrenceId UUID,title string,type focus/screen,date YYYY-MM-DD(UTC),timezone `UTC`,targetMinutes 정수,myRate number/null,reward(currency=village_points,amount정수),settlementStatus string,claimable boolean,claimBlockedReason string/null,claimed boolean,bonusAmount 정수,bonusGranted boolean,version 양의정수. **수령 축은 요청한 주민이다**(GROMO-1991) — reward.amount 는 내 개인 몫, claimable/claimed/settlementStatus 는 내 상태, bonusAmount/bonusGranted 는 회차의 전원 보너스다 |
 | quest | path questId UUID, query occurrenceId UUID필수/cursor optional. 해당 occurrence의 같은 헤더와 members(userId UUID,name/catColor string,rate number/null,measurementStatus authorized/denied/unavailable/pending,achieved boolean,claimed boolean),nextCursor string/null. achieved·claimed 는 GROMO-1991 로 추가 — rate 100 으로 달성을 추정하지 않는다. path섬/quest/회차의소속 일치 검증 |
-| quest-create | title/type/targetMinutes 필수,focus는windowStart/windowEnd HH:mm 필수,screen에는창필드 금지. timezone 누락=UTC/`"UTC"` 외 400 INVALID_PARAMETER(결정 Q-6).201 id/title |
+| quest-create | title/type/targetMinutes 필수,focus는windowStart/windowEnd HH:mm 필수,screen에는창필드 금지. timezone 누락=UTC/`"UTC"` 외 400 INVALID_PARAMETER(결정 Q-6).201 id/title. **focus 창은 같은 섬의 삭제되지 않은 focus 퀘스트와 겹치면 409 STATE_CONFLICT(field=windowStart)**(GROMO-2897) — 판정이 퀘스트마다 독립이라 겹친 창은 한 번의 집중으로 모두 달성되기 때문이다. 겹침은 `a.start < b.end && b.start < a.end` 라 맞닿은 창(19:00–20:00·20:00–21:00)은 된다. 검사는 섬 잠금 아래라 동시 생성 둘이 함께 통과하지 않는다. 이미 겹쳐 있던 퀘스트는 그대로 두고 방장이 삭제로 정리한다 |
+| quest-delete | 본문 없음,Idempotency-Key 필수. **소프트 삭제**(`island_quests.deleted_at`, V17): 열린 회차도 quests 목록에서 빠지고 quest/claim/edit 은404, 다음 회차를 열지 않으며 그 회차의 전원 달성 보너스도 정산하지 않는다. 이미 섬 통장에 적립된 보상은 되돌리지 않는다. 열린 회차마다 `quest.progress.updated` 를 내 다른 주민의 게시판이 다시 읽게 한다 |
 | quest-edit | 원본의 title/targetMinutes 중 하나 이상. 생략 유지,null거절,새 type/창/반복키 unknown400.200 id/title/targetMinutes는 정의의수정결과. 실제 적용은 **다음 회차부터**(결정 Q-4) — 열린 회차는 여는 순간의 정의 스냅샷을 쓴다 |
 | claim | occurrenceId UUID,expectedVersion 엄격 양의정수필수.200 claimId UUID,occurrenceId UUID,villagePointsAdded 비음수정수,bonusAdded 비음수정수,claimed=true. **GROMO-1991**: 수령은 **요청한 주민 자기 몫**(villagePointsAdded = 개인 +10)이고, 그 TX 에서 전원 달성이 처음 확인되면 보너스(대상 주민 수 × 5)가 **수령 없이 함께** 적립되어 bonusAdded 로 실린다(아니면 0). 대리 수령 경로는 없다. 지급량은 1830 확정(정책 Q05)이고 **전액 섬 통장**(결정 Q-1·Q-2). ~~설정 revision 등록은 QQ05 잔여.~~ → 설정 값(`island-quest.reward.*`)을 그대로 쓴다(2026-11-09 퀘스트-개방). 필드명 villagePointsAdded 는 섬 물고기(D1) 적립량이고 개명은 미결 |
 

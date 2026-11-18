@@ -15,6 +15,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -44,6 +45,7 @@ class IslandQuestContractTest extends UpstreamTestBase {
     private static final String DATA_CREATE = "POST " + INTERNAL;
     private static final String DATA_UPDATE = "PATCH " + INTERNAL + "/" + QUEST;
     private static final String DATA_CLAIM = "POST " + INTERNAL + "/" + QUEST + "/claims";
+    private static final String DATA_DELETE = "DELETE " + INTERNAL + "/" + QUEST;
 
     private static final String PUBLIC = "/islands/" + ISLAND + "/quests";
 
@@ -208,6 +210,7 @@ class IslandQuestContractTest extends UpstreamTestBase {
             "422,QUEST_TITLE_OUT_OF_RANGE,422,OUT_OF_RANGE,title",
             "422,QUEST_TARGET_OUT_OF_RANGE,422,OUT_OF_RANGE,targetMinutes",
             "422,QUEST_WINDOW_OUT_OF_RANGE,422,OUT_OF_RANGE,windowEnd",
+            "409,QUEST_WINDOW_OVERLAP,409,STATE_CONFLICT,windowStart",
             "400,QUEST_INVALID_TIMEZONE,400,INVALID_PARAMETER,timezone",
             "403,QUEST_FORBIDDEN,403,FORBIDDEN,"})
     @DisplayName("생성 — 범위 위반은 필드를 지목한 422, 방장 아닌 주민은 403 이다")
@@ -219,6 +222,58 @@ class IslandQuestContractTest extends UpstreamTestBase {
                 .andExpect(status().is(publicStatus))
                 .andExpect(jsonPath("$.error.code").value(publicCode))
                 .andExpect(jsonPath("$.error.field").value(field));
+    }
+
+    // ---------------------------------------------------------------- 삭제 (GROMO-2897)
+
+    /** 본문 없는 명령이다 — 상류 204 를 공개 봉투 규칙이 200 {@code {"data": null}} 로 접는다. */
+    @Test
+    @DisplayName("DELETE 는 서명 주체와 멱등키만 옮기고 본문 없는 성공이다 — 같은 키 재시도도 같은 성공이다")
+    void deleteForwardsSubjectAndKey() throws Exception {
+        DATA.on(DATA_DELETE, request -> new MockUpstream.Response(204, ""));
+
+        for (int i = 0; i < 2; i++) {
+            mockMvc.perform(auth(delete(PUBLIC + "/" + QUEST)).header("Idempotency-Key", KEY)
+                            .header("X-User-Id", OTHER))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data").doesNotExist());
+        }
+        assertThat(DATA.receivedFor(DATA_DELETE)).hasSize(2).allSatisfy(forwarded -> {
+            assertThat(forwarded.header("X-User-Id")).isEqualTo(USER.toString());
+            assertThat(forwarded.header("Idempotency-Key")).isEqualTo(KEY);
+        });
+    }
+
+    @ParameterizedTest
+    @CsvSource({"403,QUEST_FORBIDDEN,403,FORBIDDEN,",
+            "403,MEMBER_ONLY,403,FORBIDDEN,islandId",
+            "404,QUEST_NOT_FOUND,404,NOT_FOUND,questId",
+            "404,GROUP_NOT_FOUND,404,GROUP_NOT_FOUND,islandId",
+            "409,IDEMPOTENCY_KEY_CONFLICT,409,IDEMPOTENCY_KEY_REUSED,Idempotency-Key",
+            "400,UNKNOWN_QUEST_ERROR,400,UPSTREAM_CONTRACT_ERROR,"})
+    @DisplayName("DELETE — 방장 아닌 주민은 403, 없거나 이미 지운 퀘스트는 404 다")
+    void deleteMapsDomainFailures(int upstreamStatus, String code, int publicStatus, String publicCode,
+            String field) throws Exception {
+        DATA.on(DATA_DELETE, request -> error(upstreamStatus, code));
+
+        mockMvc.perform(auth(delete(PUBLIC + "/" + QUEST)).header("Idempotency-Key", KEY))
+                .andExpect(status().is(publicStatus))
+                .andExpect(jsonPath("$.error.code").value(publicCode))
+                .andExpect(jsonPath("$.error.field").value(field));
+    }
+
+    @Test
+    @DisplayName("DELETE 는 UUID 멱등키·questId 형식·서명 세션을 네트워크 전에 요구한다")
+    void deleteRequiresKeyIdAndSession() throws Exception {
+        mockMvc.perform(auth(delete(PUBLIC + "/" + QUEST)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_IDEMPOTENCY_KEY"));
+        mockMvc.perform(auth(delete(PUBLIC + "/nope")).header("Idempotency-Key", KEY))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.field").value("questId"));
+        mockMvc.perform(delete(PUBLIC + "/" + QUEST).header("Idempotency-Key", KEY))
+                .andExpect(status().isUnauthorized());
+        assertThat(DATA.received()).isEmpty();
     }
 
     @Test
