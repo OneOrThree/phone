@@ -12,7 +12,7 @@ import java.util.UUID;
 import static com.oneorthree.business.upstream.data.DataPaths.islandPath;
 
 /**
- * 섬 퀘스트 5종의 Data 호출 (GROMO-1773) — 공개 경로 앞에 {@code /internal} 을 붙인
+ * 섬 퀘스트 6종의 Data 호출 (GROMO-1773, 삭제 GROMO-2897) — 공개 경로 앞에 {@code /internal} 을 붙인
  * 이름이다(island-quests LLD §2).
  */
 public class DataQuestClient {
@@ -74,6 +74,20 @@ public class DataQuestClient {
                         .build(),
                 deadline,
                 new ParameterizedTypeReference<IslandQuestViews.Updated>() { });
+    }
+
+    /**
+     * 퀘스트 삭제 (GROMO-2897). 본문 없는 204 다. 앱 키를 그대로 전달해 같은 키의 재시도는 Data 의
+     * receipt 재생이다 — 이미 지운 퀘스트를 새 키로 지우면 404 다.
+     */
+    public void deleteQuest(UUID userId, UUID islandId, UUID questId, UUID key, Deadline deadline) {
+        http.execute(
+                InternalCall.to(HttpMethod.DELETE, questPath(islandId, questId))
+                        .onBehalfOf(userId)
+                        .idempotencyKey(key.toString())
+                        .idempotentCommand()
+                        .build(),
+                deadline);
     }
 
     /** 회차 정산 (GROMO-1773). expectedVersion 은 지문에 들어가 같은 키의 다른 본문은 재사용 거절이 된다. */

@@ -1035,6 +1035,7 @@ Table island_quests [note: '섬 퀘스트 정의 (GROMO-1773, island-quests LLD 
   created_by     uuid        [note: '만든 방장 — FK 없음. 스케줄러가 여는 회차 사건의 주체. 계정 탈퇴 시 null(GROMO-1952, V76) — 그 뒤 회차는 시스템 주체로 연다']
   created_at     timestamptz [not null, default: `now()`]
   updated_at     timestamptz [not null, default: `now()`]
+  deleted_at     timestamptz [note: '방장 삭제 시각(GROMO-2897, V17) — 소프트 삭제. 조회·수령·회차 개설·보너스 정산에서 빠지고 적립된 보상은 되돌리지 않는다. 삭제되지 않은 집중 퀘스트끼리는 창이 겹치지 않는다(서비스 검증, 기존 겹침은 그대로)']
 
   indexes {
     island_id [name: 'idx_island_quests_island']

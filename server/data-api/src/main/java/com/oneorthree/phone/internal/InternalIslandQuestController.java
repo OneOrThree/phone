@@ -7,6 +7,8 @@ import com.oneorthree.phone.quest.dto.QuestViews;
 import com.oneorthree.phone.quest.service.IslandQuestService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -14,12 +16,13 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.UUID;
 
 /**
- * 섬 퀘스트의 내부 표면 (GROMO-1773) — 공개 {@code /islands/{islandId}/quests/**} 5종의 상류다
+ * 섬 퀘스트의 내부 표면 (GROMO-1773) — 공개 {@code /islands/{islandId}/quests/**} 6종(삭제 GROMO-2897)의 상류다
  * (bff-screens implementation-data-api.md 의 {@code GET /internal/islands/{islandId}/quests/current} 포함).
  *
  * <p>주체는 {@code InternalAuthFilter} 가 서비스 토큰과 함께 검증한 {@code X-User-Id} 헤더로만 받는다 —
@@ -61,6 +64,15 @@ public class InternalIslandQuestController {
                                      @RequestHeader("Idempotency-Key") UUID idempotencyKey,
                                      @RequestBody QuestUpdateRequest body) {
         return quests.update(islandId, userId, questId, body.title(), body.targetMinutes(), idempotencyKey);
+    }
+
+    /** 퀘스트 삭제 — 방장만(GROMO-2897). 본문이 없으므로 204 다(Business 의 공개 봉투 규칙이 200 {@code {"data": null}} 로 접는다). */
+    @DeleteMapping("/internal/islands/{islandId}/quests/{questId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void delete(@PathVariable UUID islandId, @PathVariable UUID questId,
+                       @RequestHeader("X-User-Id") UUID userId,
+                       @RequestHeader("Idempotency-Key") UUID idempotencyKey) {
+        quests.delete(islandId, userId, questId, idempotencyKey);
     }
 
     /** 회차 정산 — 주민 누구나 요청, 서버가 전체 cohort 로 판정한다. 적립처는 섬 통장이다. */

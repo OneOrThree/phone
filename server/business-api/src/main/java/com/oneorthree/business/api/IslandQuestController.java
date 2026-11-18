@@ -19,6 +19,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -36,9 +37,9 @@ import java.util.UUID;
 import java.util.regex.Pattern;
 
 /**
- * 섬 퀘스트 5종의 공개 표면 (GROMO-1773, island-quests LLD §1·§2).
+ * 섬 퀘스트 6종의 공개 표면 (GROMO-1773·2897, island-quests LLD §1·§2).
  *
- * <p>{@code /islands/**} 는 {@code PublicApiRoutes.ROOTS} 에 있어 봉투가 자동으로 씌워진다. 생성·수정·claim 은
+ * <p>{@code /islands/**} 는 {@code PublicApiRoutes.ROOTS} 에 있어 봉투가 자동으로 씌워진다. 생성·수정·삭제·claim 은
  * {@code Idempotency-Key}(UUID36)가 필수이고 claim 만 {@code expectedVersion} 을 받는다(Q08). 주체는 strict
  * 세션에서만 오고, 사용자 ID·권한·claimable·지급량 입력은 받지 않는다(LLD §2).
  *
@@ -140,6 +141,20 @@ public class IslandQuestController {
         return quests.update(claims, PublicIds.uuid(islandId, "islandId", ApiErrorCode.INVALID_PARAMETER),
                 PublicIds.uuid(questId, "questId", ApiErrorCode.INVALID_PARAMETER), title, target, key,
                 properties.deadline());
+    }
+
+    /**
+     * 퀘스트 삭제 (GROMO-2897) — 방장만. 본문을 읽지 않는다. 204 는 공개 봉투 규칙이 200 {@code {"data": null}} 로
+     * 접는다(편지 닫기·친구 삭제와 같다).
+     */
+    @DeleteMapping("/islands/{islandId}/quests/{questId}")
+    public ResponseEntity<Void> delete(@PathVariable String islandId, @PathVariable String questId,
+            HttpServletRequest request) {
+        AccessTokenClaims claims = sessions.requireSession(request);
+        UUID key = CommandKeys.required(request);
+        quests.delete(claims, PublicIds.uuid(islandId, "islandId", ApiErrorCode.INVALID_PARAMETER),
+                PublicIds.uuid(questId, "questId", ApiErrorCode.INVALID_PARAMETER), key, properties.deadline());
+        return ResponseEntity.noContent().build();
     }
 
     /** 회차 정산 (LLD claim) — 주민 누구나. 본문은 정확히 {occurrenceId, expectedVersion}. */

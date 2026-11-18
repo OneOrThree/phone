@@ -7,6 +7,7 @@ import org.springframework.boot.env.YamlPropertySourceLoader;
 import org.springframework.core.env.PropertySource;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.util.AntPathMatcher;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -20,7 +21,7 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * 섬 퀘스트 내부 경로 5종이 <b>실제</b> {@code application-satellites.yml} 의 business 허용목록을
+ * 섬 퀘스트 내부 경로 6종(삭제 GROMO-2897 포함)이 <b>실제</b> {@code application-satellites.yml} 의 business 허용목록을
  * 통과하는지 검증한다 (GROMO-1773, {@code InternalAppearanceAllowlistTest} 와 같은 방식).
  *
  * <p>기대 경로는 컨트롤러 애노테이션에서 읽고 허용목록은 배포되는 yml 에서 읽는다 — 둘 중
@@ -38,12 +39,13 @@ class InternalQuestAllowlistTest {
         List<String> allow = shippedBusinessAllowlist();
         List<String> routes = routesOf(InternalIslandQuestController.class);
 
-        assertThat(routes).as("5종이 모두 잡혔는지 — 매핑이 늘면 허용목록도 함께 늘어야 한다")
+        assertThat(routes).as("6종이 모두 잡혔는지 — 매핑이 늘면 허용목록도 함께 늘어야 한다")
                 .containsExactlyInAnyOrder(
                         "GET /internal/islands/" + ID + "/quests/current",
                         "GET /internal/islands/" + ID + "/quests/" + ID + "/progress",
                         "POST /internal/islands/" + ID + "/quests",
                         "PATCH /internal/islands/" + ID + "/quests/" + ID,
+                        "DELETE /internal/islands/" + ID + "/quests/" + ID,
                         "POST /internal/islands/" + ID + "/quests/" + ID + "/claims");
         assertThat(routes).allSatisfy(route ->
                 assertThat(allows(allow, route)).as("허용목록에 없는 내부 경로: " + route).isTrue());
@@ -56,7 +58,7 @@ class InternalQuestAllowlistTest {
 
         assertThat(allows(allow, "GET /internal/islands/" + ID + "/quests/" + ID + "/progress/" + ID)).isFalse();
         assertThat(allows(allow, "POST /internal/islands/" + ID + "/quests/" + ID + "/claims/" + ID)).isFalse();
-        assertThat(allows(allow, "DELETE /internal/islands/" + ID + "/quests/" + ID)).isFalse();
+        assertThat(allows(allow, "DELETE /internal/islands/" + ID + "/quests/" + ID + "/claims")).isFalse();
         assertThat(allows(allow, "POST /internal/islands/" + ID + "/quests/" + ID)).isFalse();
     }
 
@@ -89,12 +91,15 @@ class InternalQuestAllowlistTest {
             GetMapping get = method.getAnnotation(GetMapping.class);
             PatchMapping patch = method.getAnnotation(PatchMapping.class);
             PostMapping post = method.getAnnotation(PostMapping.class);
+            DeleteMapping delete = method.getAnnotation(DeleteMapping.class);
             if (get != null) {
                 routes.add("GET " + fill(prefix + first(get.value())));
             } else if (post != null) {
                 routes.add("POST " + fill(prefix + first(post.value())));
             } else if (patch != null) {
                 routes.add("PATCH " + fill(prefix + first(patch.value())));
+            } else if (delete != null) {
+                routes.add("DELETE " + fill(prefix + first(delete.value())));
             }
         }
         return routes;

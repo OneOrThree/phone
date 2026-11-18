@@ -127,9 +127,8 @@ public class IslandQuestService {
         Instant now = clock.instant();
         LocalDate today = LocalDate.ofInstant(now, ZoneOffset.UTC);
         List<QuestViews.Item> items = new ArrayList<>();
-        for (IslandQuestOccurrence occurrence : occurrences
-                .findByIslandIdAndOccurrenceDateBetweenOrderByOccurrenceDateAscCreatedAtAsc(
-                        islandId, today.minusDays(1), today)) {
+        for (IslandQuestOccurrence occurrence : occurrences.findLiveByIslandIdBetween(
+                islandId, today.minusDays(1), today)) {
             if (now.isBefore(occurrence.claimDeadline())) {
                 items.add(header(occurrence, judge.judge(occurrence, now), userId, claimers(occurrence)));
             }
@@ -161,6 +160,10 @@ public class IslandQuestService {
     /**
      * 퀘스트 생성 — 방장만(D3). 정의를 저장하고 <b>오늘(UTC) 회차를 즉시</b> 연다 — cohort 는 지금 이 순간의
      * 활성 주민이다. 다음 날부터는 {@link #openTodayIfMissing} 이 UTC 자정마다 연다.
+     *
+     * <p>집중 퀘스트는 같은 섬의 삭제되지 않은 집중 퀘스트와 창이 겹치면 409 다(GROMO-2897) — 판정이 퀘스트마다
+     * 독립이라 겹친 창은 한 번의 집중으로 모두 달성된다. 검사는 섬 잠금({@link #requireOwnerWriter}) 뒤라 겹치는
+     * 동시 생성 둘이 함께 통과하지 않는다.
      */
     @Transactional
     public QuestViews.Created create(UUID islandId, UUID userId, String rawTitle, String rawType,
@@ -200,6 +203,9 @@ public class IslandQuestService {
                 () -> {
                     users.getCallerForUpdate(userId);
                     requireOwnerWriter(islandId, userId);
+                    if (type == QuestType.FOCUS && quests.existsFocusWindowOverlap(islandId, start, end)) {
+                        throw new QuestException(QuestErrorCode.QUEST_WINDOW_OVERLAP);
+                    }
                     IslandQuest quest = quests.save(IslandQuest.builder()
                             .islandId(islandId).type(type).title(title).targetMinutes(target)
                             .windowStart(start).windowEnd(end).createdBy(userId).build());
@@ -243,6 +249,43 @@ public class IslandQuestService {
                             quest.getTitle(), quest.getTargetMinutes())), tree(List.of()));
                 }).value().data();
         return decode(data, QuestViews.Updated.class);
+    }
+
+    /**
+     * 퀘스트 삭제 — 방장만(D3, GROMO-2897). 소프트 삭제라 지난 회차·정산 행은 남고 이미 섬 통장에 적립된 보상도
+     * 되돌리지 않는다. 삭제 뒤에는 열린 회차도 목록에서 빠지고, 조회·수령은 404, 회차 개설·보너스 정산은
+     * 건너뛴다. 같은 키 재생은 원 결과(본문 없음)이고, 새 키로 이미 지운 퀘스트를 지우면 404 다.
+     *
+     * <p>열린 회차마다 생성과 같은 {@code quest.progress.updated} 를 내 다른 주민의 게시판이 다시 읽게 한다.
+     */
+    @Transactional
+    public void delete(UUID islandId, UUID userId, UUID questId, UUID idempotencyKey) {
+        publicCommands.run(
+                new PublicCommandRequest(userId, "DELETE:/islands/" + islandId + "/quests/" + questId,
+                        idempotencyKey, tree(Map.of())),
+                () -> users.getCallerForUpdate(userId),
+                ignored -> requireOwnerWriter(islandId, userId),
+                () -> {
+                    users.getCallerForUpdate(userId);
+                    requireOwnerWriter(islandId, userId);
+                    IslandQuest quest = requireQuest(islandId, questId);
+                    Instant now = clock.instant();
+                    LocalDate today = LocalDate.ofInstant(now, ZoneOffset.UTC);
+                    // 지우기 전에 고른다 — 지운 뒤에는 이 조회가 그 퀘스트의 회차를 돌려주지 않는다.
+                    // 회차 version 을 쓰는 다른 경로(수령·정산·개설)도 섬 잠금을 먼저 잡으므로 여기와 겹치지 않는다.
+                    List<EventEnvelope> events = new ArrayList<>();
+                    for (IslandQuestOccurrence occurrence : occurrences.findLiveByIslandIdBetween(
+                            islandId, today.minusDays(1), today)) {
+                        if (occurrence.getQuestId().equals(questId) && now.isBefore(occurrence.claimDeadline())) {
+                            EventEnvelope progress = questEvents.progressUpdated(occurrence, userId);
+                            occurrence.progressed(progress.version());
+                            events.add(progress);
+                        }
+                    }
+                    quest.delete(now);
+                    // 공개 응답은 본문이 없다 — receipt 에는 빈 객체만 남긴다.
+                    return new PublicCommandResult(200, tree(Map.of()), tree(events));
+                });
     }
 
     // ---------------------------------------------------------------- 정산
@@ -361,6 +404,10 @@ public class IslandQuestService {
         if (occurrence == null || occurrence.isBonusSettled()) {
             return 0;
         }
+        // 삭제된 퀘스트(GROMO-2897)의 회차는 정산하지 않는다 — 삭제도 섬 잠금 아래라 여기서 읽는 값이 최신이다.
+        if (quests.findById(occurrence.getQuestId()).map(IslandQuest::getDeletedAt).isPresent()) {
+            return 0;
+        }
         Instant now = clock.instant();
         Instant deadline = occurrence.claimDeadline();
         if (now.isAfter(occurrence.bonusSettleDeadline())) {
@@ -455,7 +502,8 @@ public class IslandQuestService {
         membershipLocks.lockGroup(islandId);
         IslandQuest quest = quests.findById(questId).orElse(null);
         Group island = groups.getGroup(islandId);
-        if (quest == null || !isAlive(island) || occurrences.existsByQuestIdAndOccurrenceDate(questId, today)) {
+        if (quest == null || quest.getDeletedAt() != null || !isAlive(island)
+                || occurrences.existsByQuestIdAndOccurrenceDate(questId, today)) {
             return false;
         }
         open(quest, today, Objects.requireNonNullElse(quest.getCreatedBy(), SYSTEM_ACTOR));
@@ -549,9 +597,10 @@ public class IslandQuestService {
         }
     }
 
+    /** 경로의 섬에 있고 삭제되지 않은(GROMO-2897) 퀘스트 — 아니면 404. */
     private IslandQuest requireQuest(UUID islandId, UUID questId) {
         return quests.findById(questId)
-                .filter(q -> q.getIslandId().equals(islandId))
+                .filter(q -> q.getIslandId().equals(islandId) && q.getDeletedAt() == null)
                 .orElseThrow(() -> new QuestException(QuestErrorCode.QUEST_NOT_FOUND));
     }
 

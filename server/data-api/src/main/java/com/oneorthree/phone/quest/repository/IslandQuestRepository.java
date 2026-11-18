@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -14,12 +15,23 @@ import java.util.UUID;
 public interface IslandQuestRepository extends JpaRepository<IslandQuest, UUID> {
 
     /**
-     * 그 날짜 회차가 아직 없는 퀘스트 id — 회차 개설 스케줄러의 후보다. 섬 생존·잠금 아래 재검사는
-     * 개설 트랜잭션이 한다(여기서 읽은 목록은 잠금 전 스냅샷).
+     * 그 날짜 회차가 아직 없는 퀘스트 id — 회차 개설 스케줄러의 후보다. 삭제된 퀘스트(GROMO-2897)는 고르지
+     * 않는다. 섬 생존·삭제의 잠금 아래 재검사는 개설 트랜잭션이 한다(여기서 읽은 목록은 잠금 전 스냅샷).
      */
-    @Query("SELECT q.id FROM IslandQuest q WHERE NOT EXISTS (SELECT 1 FROM IslandQuestOccurrence o "
-            + "WHERE o.questId = q.id AND o.occurrenceDate = :date)")
+    @Query("SELECT q.id FROM IslandQuest q WHERE q.deletedAt IS NULL AND NOT EXISTS (SELECT 1 "
+            + "FROM IslandQuestOccurrence o WHERE o.questId = q.id AND o.occurrenceDate = :date)")
     List<UUID> findIdsWithoutOccurrenceOn(@Param("date") LocalDate date);
+
+    /**
+     * 같은 섬에 창이 겹치는 삭제되지 않은 집중 퀘스트가 있는가 (GROMO-2897) — 한 번의 집중이 겹친 퀘스트를
+     * 모두 채워 보상을 여러 번 받지 않게 한다. 겹침은 {@code a.start < b.end && b.start < a.end} 라 맞닿은 창
+     * (19:00–20:00 · 20:00–21:00)은 통과한다. screen 은 창이 NULL(DB CHECK)이라 비교가 참이 되지 않는다.
+     * 호출측이 섬 행을 잠근 채 불러야 겹치는 동시 생성 둘이 함께 통과하지 않는다.
+     */
+    @Query("SELECT COUNT(q) > 0 FROM IslandQuest q WHERE q.islandId = :islandId AND q.deletedAt IS NULL "
+            + "AND q.windowStart < :windowEnd AND :windowStart < q.windowEnd")
+    boolean existsFocusWindowOverlap(@Param("islandId") UUID islandId, @Param("windowStart") LocalTime windowStart,
+                                     @Param("windowEnd") LocalTime windowEnd);
 
     /**
      * 퀘스트의 섬 — 회차 개설은 섬 잠금 <b>뒤에</b> 정의를 읽어야 해서 섬 id 를 잠그기 전에 먼저 안다.
