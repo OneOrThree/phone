@@ -3963,6 +3963,55 @@
       }
     },
     "/internal/islands/{islandId}/quests/{questId}": {
+      "delete": {
+        "tags": [
+          "internal-island-quest-controller"
+        ],
+        "operationId": "delete",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "questId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        }
+      },
       "patch": {
         "tags": [
           "internal-island-quest-controller"
@@ -4206,7 +4255,7 @@
         "tags": [
           "internal-island-notice-controller"
         ],
-        "operationId": "delete",
+        "operationId": "delete_1",
         "parameters": [
           {
             "name": "islandId",
@@ -7339,7 +7388,7 @@
         "tags": [
           "internal-island-guestbook-controller"
         ],
-        "operationId": "delete_1",
+        "operationId": "delete_2",
         "parameters": [
           {
             "name": "islandId",

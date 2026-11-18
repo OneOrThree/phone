@@ -2036,6 +2036,35 @@
       }
     },
     "/islands/{islandId}/quests/{questId}": {
+      "delete": {
+        "tags": [
+          "island-quest-controller"
+        ],
+        "operationId": "delete",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "questId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      },
       "patch": {
         "tags": [
           "island-quest-controller"
@@ -2192,7 +2221,7 @@
         "tags": [
           "island-notice-controller"
         ],
-        "operationId": "delete",
+        "operationId": "delete_1",
         "parameters": [
           {
             "name": "islandId",
@@ -3919,7 +3948,7 @@
         "tags": [
           "island-guestbook-controller"
         ],
-        "operationId": "delete_1",
+        "operationId": "delete_2",
         "parameters": [
           {
             "name": "islandId",
