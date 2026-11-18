@@ -170,6 +170,7 @@ export function reducer(state: State, a: Action): State {
     'REJECT_MEMBER',
     'CAPACITY',
     'QUEST_SAVE',
+    'QUEST_DELETE',
     'NOTICE_SAVE',
     'NOTICE_DELETE',
     'SELECT_BUILDING',
@@ -990,6 +991,9 @@ export function reducer(state: State, a: Action): State {
         });
       break;
     }
+    case 'QUEST_DELETE':
+      i.quests = i.quests.filter((q) => q.id !== a.id);
+      break;
     // ── 게시판·공지·댓글 ──
     case 'NOTICE_SAVE': {
       // 제목·본문은 공백만 있으면 저장하지 않는다

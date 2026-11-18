@@ -521,7 +521,8 @@
   },
   "board": {
     "quest": {
-      "crossMidnight": "A window can't run across 9 AM"
+      "crossMidnight": "A window can't run across 9 AM",
+      "overlap": "This time overlaps another quest"
     }
   },
   "home": {
@@ -2190,6 +2191,7 @@
       "write": "Write",
       "noticeObject": "this notice",
       "commentObject": "this comment",
+      "questObject": "this quest",
       "fishSuffix": " · {{v0}} fish",
       "nextBuilding": "Next building",
       "totalFishCost": "Total: {{v0}} fish"

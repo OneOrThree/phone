@@ -21,6 +21,7 @@ import {
 import {
   claimQuest as postClaim,
   createQuest as postQuest,
+  deleteQuest as delQuest,
   getQuestProgress,
   updateQuest as patchQuest,
 } from '@/services/api/quests';
@@ -40,6 +41,7 @@ jest.mock('@/services/api/quests', () => ({
   getQuestProgress: jest.fn(),
   createQuest: jest.fn(),
   updateQuest: jest.fn(),
+  deleteQuest: jest.fn(),
   claimQuest: jest.fn(),
 }));
 
@@ -142,6 +144,7 @@ const postCommentMock = postComment as jest.Mock;
 const getQuestProgressMock = getQuestProgress as jest.Mock;
 const postQuestMock = postQuest as jest.Mock;
 const patchQuestMock = patchQuest as jest.Mock;
+const delQuestMock = delQuest as jest.Mock;
 const postClaimMock = postClaim as jest.Mock;
 
 /** 로드가 끝난 활성 훅 — 쓰기 테스트의 공통 출발점. */
@@ -1173,6 +1176,40 @@ test('updateQuest — PATCH 는 title/targetMinutes 만 보내고 열린 상세�
   await hook.unmount();
 });
 
+test.each([
+  ['200 {data:null}', () => delQuestMock.mockResolvedValue(null)],
+  ['404(이미 지움)', () => delQuestMock.mockRejectedValue(new ApiError('NOT_FOUND', '없음', 404))],
+])('deleteQuest — 멱등 키로 지우고 목록을 다시 읽는다: %s', async (_name, arrange) => {
+  const hook = await mountWithQuest();
+  arrange();
+  getBoardMock.mockResolvedValue(board([], null, 'host', []));
+
+  await act(async () => {
+    await hook.result.current.deleteQuest('q1');
+  });
+  assert.deepEqual([...delQuestMock.mock.calls[0]].slice(0, 2), ['island-1', 'q1']);
+  assert.equal(typeof delQuestMock.mock.calls[0][2], 'string');
+  assert.equal(getBoardMock.mock.calls.length, 1);
+  assert.equal(hook.result.current.quests.length, 0);
+  await hook.unmount();
+});
+
+test('deleteQuest — 404 밖의 실패는 그대로 던지고 재시도는 같은 키로 간다', async () => {
+  const hook = await mountWithQuest();
+  delQuestMock.mockRejectedValueOnce(new ApiError('FORBIDDEN', '권한이 없습니다.', 403));
+  const failed = await settle(hook.result.current.deleteQuest('q1'));
+  assert.equal((failed as { err: ApiError }).err.code, 'FORBIDDEN');
+  assert.equal(getBoardMock.mock.calls.length, 0);
+
+  delQuestMock.mockResolvedValue(null);
+  getBoardMock.mockResolvedValue(board([], null, 'host', []));
+  await act(async () => {
+    await hook.result.current.deleteQuest('q1');
+  });
+  assert.equal(delQuestMock.mock.calls[1][2], delQuestMock.mock.calls[0][2]);
+  await hook.unmount();
+});
+
 test('active=false — 퀘스트 쓰기도 CLIENT_INACTIVE 로 거절되고 API 는 0건이다', async () => {
   const hook = await renderHook((p: { active: boolean; scopeKey: string }) => useBoardNotices(p), {
     initialProps: { active: false, scopeKey: 's1' },
@@ -1181,6 +1218,7 @@ test('active=false — 퀘스트 쓰기도 CLIENT_INACTIVE 로 거절되고 API 
   for (const call of [
     () => hook.result.current.createQuest({ title: 't', type: 'screen', targetMinutes: 30 }),
     () => hook.result.current.updateQuest('q1', { title: 't' }),
+    () => hook.result.current.deleteQuest('q1'),
     () => hook.result.current.claimQuest(questItem() as never),
   ]) {
     const r = await settle(call());
@@ -1188,6 +1226,7 @@ test('active=false — 퀘스트 쓰기도 CLIENT_INACTIVE 로 거절되고 API 
   }
   assert.equal(postQuestMock.mock.calls.length, 0);
   assert.equal(patchQuestMock.mock.calls.length, 0);
+  assert.equal(delQuestMock.mock.calls.length, 0);
   assert.equal(postClaimMock.mock.calls.length, 0);
   assert.equal(getQuestProgressMock.mock.calls.length, 0);
   await hook.unmount();

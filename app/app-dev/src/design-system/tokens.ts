@@ -633,6 +633,10 @@ export const componentTokens = {
     // 접수 발도장 — 칸 폭 대비 크기·오른쪽 위 모서리에서 삐져나온 비율. 크림색 바탕은 곱하기로 지운다
     stamp: { widthRatio: 0.3, rightRatio: 0.04, topRatio: 0.14, rotation: '-14deg', opacity: 0.95 },
   },
+  // 게시판 삭제 확인창(공지·댓글·퀘스트) — 버튼 줄 아래 여백. 알약 그림자(아래 4)가 종이 스크롤 바닥에 잘리지 않게
+  boardDeleteConfirm: {
+    actionsBottom: space[2],
+  },
   // 섬 관리 카드 머리 닫기(×) 왼쪽 「✏ 수정」 알약(GROMO-2894). 높이·테두리·그림자는 옆 닫기(navButton)와 같다
   hallEditPill: {
     paddingHorizontal: space[3],

@@ -509,7 +509,8 @@
   },
   "board": {
     "quest": {
-      "crossMidnight": "오전 9시를 넘나드는 시간대는 정할 수 없어요"
+      "crossMidnight": "오전 9시를 넘나드는 시간대는 정할 수 없어요",
+      "overlap": "다른 퀘스트와 시간대가 겹쳐요"
     }
   },
   "home": {
@@ -2157,6 +2158,7 @@
       "write": "쓰기",
       "noticeObject": "공지를",
       "commentObject": "댓글을",
+      "questObject": "퀘스트를",
       "fishSuffix": " · {{v0}}마리",
       "nextBuilding": "다음 건물",
       "totalFishCost": "총 {{v0}}마리"
