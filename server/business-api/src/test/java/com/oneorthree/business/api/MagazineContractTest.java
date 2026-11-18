@@ -17,6 +17,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -41,9 +42,12 @@ class MagazineContractTest extends UpstreamTestBase {
     private static final String DATA_ISSUE = "GET " + INTERNAL + "/issues/" + ISSUE;
     private static final String DATA_OTHER_ISSUE = "GET " + INTERNAL + "/issues/" + OTHER_ISSUE;
     private static final String DATA_RECEIPT = "PUT " + INTERNAL + "/issues/" + ISSUE + "/receipt";
+    private static final String DATA_ARRIVAL = "POST " + INTERNAL + "/promotions/" + PROMOTION + "/arrivals";
 
     private static final String PUBLIC_ISSUE = "/me/magazine/issues/" + ISSUE;
     private static final String PUBLIC_RECEIPT = PUBLIC_ISSUE + "/receipt";
+    private static final String PUBLIC_ARRIVAL = "/me/magazine/promotions/" + PROMOTION + "/arrivals";
+    private static final String KEY = "01990000-2902-7000-8000-00000000c001";
 
     private static final String ISSUE_HEAD = "{\"issueId\":\"" + ISSUE + "\",\"issueNo\":12,\"issueDate\":\"2026-10-15\","
             + "\"publishedAt\":\"2026-10-14T22:00:00Z\",\"current\":true}";
@@ -439,6 +443,78 @@ class MagazineContractTest extends UpstreamTestBase {
         assertThat(DATA.hits(DATA_RECEIPT)).isEqualTo(1);
     }
 
+    // ---------------------------------------------------------------- 홍보 칸 바로 도착 (GROMO-2902)
+
+    @Test
+    @DisplayName("홍보 칸 도착은 명령 키와 서명 주체를 상류에 전달하고 섬 도착과 같은 응답을 그대로 돌려준다")
+    void arrivalForwardsTheKeyAndSignedSubject() throws Exception {
+        DATA.on(DATA_ARRIVAL, request -> ok("{\"islandId\":\"" + ISLAND + "\",\"arrivedBefore\":true,"
+                + "\"membershipStatus\":\"none\",\"currentIslandId\":null}"));
+
+        mockMvc.perform(auth(post(PUBLIC_ARRIVAL)).header("X-User-Id", UUID.randomUUID())
+                        .header("Idempotency-Key", KEY))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.islandId").value(ISLAND.toString()))
+                .andExpect(jsonPath("$.data.arrivedBefore").value(true))
+                .andExpect(jsonPath("$.data.membershipStatus").value("none"))
+                .andExpect(jsonPath("$.data.currentIslandId").hasJsonPath())
+                .andExpect(jsonPath("$.data.currentIslandId").value((Object) null))
+                .andExpect(jsonPath("$.data.firstArrivalEventId").doesNotExist());
+        MockUpstream.RecordedRequest forwarded = DATA.receivedFor(DATA_ARRIVAL).get(0);
+        assertThat(forwarded.header("X-User-Id")).isEqualTo(USER.toString());
+        assertThat(forwarded.header("Idempotency-Key")).isEqualTo(KEY);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"", "not-a-uuid"})
+    @DisplayName("홍보 칸 도착은 UUID 명령 키가 없거나 홍보 id 가 UUID 가 아니면 상류에 닿지 않는다")
+    void arrivalRequiresAUuidKeyAndPromotionId(String key) throws Exception {
+        mockMvc.perform(auth(post(PUBLIC_ARRIVAL)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_IDEMPOTENCY_KEY"));
+        mockMvc.perform(auth(post(PUBLIC_ARRIVAL)).header("Idempotency-Key", key))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_IDEMPOTENCY_KEY"));
+        mockMvc.perform(auth(post("/me/magazine/promotions/not-a-uuid/arrivals")).header("Idempotency-Key", KEY))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.field").value("promotionId"));
+        assertThat(DATA.received()).isEmpty();
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+            "404,PROMOTION_NOT_FOUND,404,PROMOTION_NOT_FOUND,promotionId",
+            "404,GROUP_NOT_FOUND,404,GROUP_NOT_FOUND,islandId",
+            "409,SESSION_IN_PROGRESS,409,STATE_CONFLICT,",
+            "403,OBSERVATORY_LOCKED,403,FACILITY_LOCKED,",
+            "404,USER_NOT_FOUND,404,USER_NOT_FOUND,"})
+    @DisplayName("홍보 칸 도착의 상류 판정은 섬 도착과 같은 공개 오류로 옮긴다")
+    void arrivalMapsDataVerdicts(int upstreamStatus, String upstreamCode, int status, String code, String field)
+            throws Exception {
+        DATA.on(DATA_ARRIVAL, request -> error(upstreamStatus, upstreamCode));
+
+        var result = mockMvc.perform(auth(post(PUBLIC_ARRIVAL)).header("Idempotency-Key", KEY))
+                .andExpect(status().is(status))
+                .andExpect(jsonPath("$.error.code").value(code))
+                .andExpect(jsonPath("$.data").doesNotExist());
+        if (field == null) {
+            result.andExpect(jsonPath("$.error.field").doesNotExist());
+        } else {
+            result.andExpect(jsonPath("$.error.field").value(field));
+        }
+    }
+
+    @Test
+    @DisplayName("홍보 칸 도착 응답에 섬이 없으면 계약 위반이다")
+    void arrivalRejectsAResponseWithoutAnIsland() throws Exception {
+        DATA.on(DATA_ARRIVAL, request -> ok("{\"arrivedBefore\":true,\"membershipStatus\":\"none\","
+                + "\"currentIslandId\":null}"));
+
+        mockMvc.perform(auth(post(PUBLIC_ARRIVAL)).header("Idempotency-Key", KEY))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
+    }
+
     // ---------------------------------------------------------------- 공개 문서
 
     @ParameterizedTest
@@ -454,7 +530,8 @@ class MagazineContractTest extends UpstreamTestBase {
             "/me/magazine/issues/{issueId}|get|editorial/newIslands|islandId name buildingCount memberCount maxMembers averageFocusMinutesPerDay relation privateIsland?",
             "/me/magazine/issues/{issueId}|get|editorial/note|type body tipNo",
             "/me/magazine/issues/{issueId}|get|cells|promotionId islandId name buildingCount memberCount maxMembers averageFocusMinutesPerDay body layout relation privateIsland?",
-            "/me/magazine/issues/{issueId}/receipt|put||place receivedAt deferredAt openedAt"})
+            "/me/magazine/issues/{issueId}/receipt|put||place receivedAt deferredAt openedAt",
+            "/me/magazine/promotions/{promotionId}/arrivals|post||islandId arrivedBefore membershipStatus currentIslandId? firstArrivalEventId?"})
     @DisplayName("공개 문서가 각 경로의 응답 필드를 담고, null 일 수 있는 키도 필수(늘 실림)로 적는다")
     void publicDocumentationPreservesFields(String path, String method, String nested, String fields)
             throws Exception {

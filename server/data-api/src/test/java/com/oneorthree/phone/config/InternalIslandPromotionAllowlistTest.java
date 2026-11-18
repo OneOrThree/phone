@@ -46,13 +46,16 @@ class InternalIslandPromotionAllowlistTest {
     }
 
     @Test
-    @DisplayName("잡지 읽기·받음 내부 컨트롤러의 4종도 배포되는 허용목록을 통과하고, 이웃 경로는 열리지 않는다(GROMO-2289)")
+    @DisplayName("잡지 읽기·받음·바로 도착 내부 컨트롤러의 5종도 배포되는 허용목록을 통과하고, 이웃 경로는 열리지 않는다(GROMO-2289·2902)")
     void everyMagazineInternalRouteIsAllowedAndNothingMore() throws IOException {
         List<String> allow = shippedBusinessAllowlist();
         List<String> routes = routesOf(InternalMagazineController.class);
         String base = "/internal/users/" + ID + "/magazine";
 
-        assertThat(routes).as("4종이 모두 잡혔는지").hasSize(4);
+        assertThat(routes).as("5종이 모두 잡혔는지").hasSize(5);
+        assertThat(allows(allow, "GET " + base + "/promotions/" + ID + "/arrivals")).isFalse();
+        assertThat(allows(allow, "POST " + base + "/promotions/" + ID)).isFalse();
+        assertThat(allows(allow, "POST " + base + "/issues/" + ID + "/arrivals")).isFalse();
         assertThat(routes).allSatisfy(route ->
                 assertThat(allows(allow, route)).as("허용목록에 없는 내부 경로: " + route).isTrue());
         assertThat(allows(allow, "POST " + base + "/issues")).isFalse();

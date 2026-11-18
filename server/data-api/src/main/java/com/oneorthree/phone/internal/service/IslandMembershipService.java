@@ -34,6 +34,10 @@ import com.oneorthree.phone.internal.dto.IslandSearchPageView;
 import com.oneorthree.phone.internal.dto.IslandSummaryView;
 import com.oneorthree.phone.internal.dto.IslandViewResponse;
 import com.oneorthree.phone.internal.dto.MyIslandsView;
+import com.oneorthree.phone.magazine.exception.MagazineErrorCode;
+import com.oneorthree.phone.magazine.exception.MagazineException;
+import com.oneorthree.phone.magazine.repository.IslandPromotionRepository;
+import com.oneorthree.phone.magazine.repository.domain.IslandPromotion;
 import com.oneorthree.phone.outbox.dto.EventEnvelope;
 import com.oneorthree.phone.outbox.dto.PublicCommandRequest;
 import com.oneorthree.phone.outbox.dto.PublicCommandResult;
@@ -103,6 +107,7 @@ public class IslandMembershipService {
     private final IslandMovementGuards movementGuards;
     private final BannedWords bannedWords;
     private final IslandArrivalRepository arrivals;
+    private final IslandPromotionRepository promotions;
     /** 도착 시각을 찍는 시계 (GROMO-2260) — 테스트가 {@code @MockitoBean Clock} 으로 고정한다. */
     private final Clock clock;
     private final OnboardingIslandService onboardingIslands;
@@ -233,54 +238,79 @@ public class IslandMembershipService {
         JsonNode data = publicCommands.run(command,
                 () -> userQueryService.getCallerForUpdate(userId),
                 ignored -> userQueryService.getCallerForUpdate(userId),
-                () -> {
-                    User user = userQueryService.getCallerForUpdate(userId);
-                    UserIslandContext context = userIslandContextLockService.lock(user);
-                    membershipLocks.lockGroup(islandId);
-                    Group island = groupQueryService.findGroup(islandId)
-                            .orElseThrow(() -> new GroupException(GroupErrorCode.GROUP_NOT_FOUND));
-                    IslandMovementGuards.requireAlive(island);
-                    boolean settled = onboardingIslands.settleAtArrival(user, island, context);
-                    Optional<GroupMember> membership =
-                            groupMemberRepository.findActiveByUserIdAndGroupIdForShare(userId, islandId);
-                    boolean member = membership.isPresent();
-                    if (!member && island.isPrivate()) {
-                        throw new GroupException(GroupErrorCode.GROUP_NOT_FOUND);
-                    }
-                    if (member && !islandId.equals(context.getCurrentIslandId())) {
-                        movementGuards.requireNoLiveFocusSession(user);
-                        movementGuards.requireDepartureUnlocked(context);
-                        context.moveTo(islandId);
-                    }
-                    Instant arrivedAt = clock.instant();
-                    // 현 가입 이후 주민으로서 처음인가 (GROMO-2302) — 덮기 전에 «주민으로서 마지막 도착» 을 현 멤버십
-                    // 시작과 비교한다. 재가입하면 옛 값이 새 시작보다 일러 다시 첫 도착이다. 방문자는 언제나 아니다.
-                    boolean first = member && arrivals.findById(new IslandArrival.Key(userId, islandId))
-                            .map(IslandArrival::getMemberArrivedAt)
-                            .map(at -> at.isBefore(membership.get().membershipStartedAt()))
-                            .orElse(true);
-                    arrivals.recordArrival(userId, islandId, arrivedAt, member);
-
-                    String membershipStatus = IslandSummaries.STATUS_ACTIVE;
-                    if (!member) {
-                        JoinRequestRef latest = latestRequests(userId, List.of(islandId)).get(islandId);
-                        membershipStatus = IslandSummaries.statusOf(false, latest);
-                    }
-                    IslandArrivalView view = new IslandArrivalView(islandId, !first, membershipStatus,
-                            member ? islandId : liveCurrentIsland(userId), null);
-                    // 도착은 가입·이탈이 아니다 — island.members.updated 로 방송하지 않는다(switch 와 같다). 주민 첫
-                    // 도착만 그 섬 events 채널에 소식 하나를 낸다(GROMO-2302). receipt 에도 담아 재생이 같은 봉투를 돌려준다.
-                    List<EventEnvelope> events = new ArrayList<>();
-                    if (settled) {
-                        events.add(islandStateEvents.created(islandId, userId));
-                        events.add(membershipEvents.changed(islandId, userId, "MEMBER_ADDED", userId));
-                    }
-                    if (first) {
-                        events.addAll(islandArrivalEvents.arrived(islandId, user, arrivedAt));
-                    }
-                    return new PublicCommandResult(200, InternalJson.tree(view), InternalJson.tree(events));
-                }).value().data();
+                () -> arrival(userId, islandId)).value().data();
         return InternalJson.decode(data, IslandArrivalView.class);
+    }
+
+    /**
+     * 잡지 홍보 칸에서 그 섬으로 항해 없이 바로 간다 (GROMO-2902). 판정·이동 가드·응답은 {@link #arrive} 와 같다 — 주민이면
+     * 현재 섬을 옮기고, 방문자(강퇴된 섬 포함, GROMO-2315)는 도착만 남긴다. 누구나 가입 섬이어도 가입하지 않는다.
+     *
+     * <p>칸은 독자에게 보이는 칸이어야 한다({@link IslandPromotion#isShown} — 발행됐고 신고 숨김·운영 내림이 아니다). 아니면
+     * 404 {@code PROMOTION_NOT_FOUND} 다. 칸 판정도 receipt 안에 있어 같은 키의 재시도는 그 사이 칸이 내려가도 처음 결과를
+     * 재생한다. receipt 의 operation 에 홍보 id 가 남아 «잡지 경유 도착» 을 센다(잡지 운영 런북 §5).
+     */
+    @Transactional
+    public IslandArrivalView arriveFromMagazine(UUID userId, UUID promotionId, UUID idempotencyKey) {
+        PublicCommandRequest command = new PublicCommandRequest(userId,
+                "POST:/me/magazine/promotions/" + promotionId + "/arrivals:" + userId, idempotencyKey,
+                InternalJson.tree(Map.of()));
+        JsonNode data = publicCommands.run(command,
+                () -> userQueryService.getCallerForUpdate(userId),
+                ignored -> userQueryService.getCallerForUpdate(userId),
+                () -> arrival(userId, promotions.findById(promotionId).filter(IslandPromotion::isShown)
+                        .orElseThrow(() -> new MagazineException(MagazineErrorCode.PROMOTION_NOT_FOUND))
+                        .getIslandId())).value().data();
+        return InternalJson.decode(data, IslandArrivalView.class);
+    }
+
+    /** 도착 명령 본문 — {@link #arrive}·{@link #arriveFromMagazine} 가 같은 판정·가드·이벤트를 쓴다. */
+    private PublicCommandResult arrival(UUID userId, UUID islandId) {
+        User user = userQueryService.getCallerForUpdate(userId);
+        UserIslandContext context = userIslandContextLockService.lock(user);
+        membershipLocks.lockGroup(islandId);
+        Group island = groupQueryService.findGroup(islandId)
+                .orElseThrow(() -> new GroupException(GroupErrorCode.GROUP_NOT_FOUND));
+        IslandMovementGuards.requireAlive(island);
+        boolean settled = onboardingIslands.settleAtArrival(user, island, context);
+        Optional<GroupMember> membership =
+                groupMemberRepository.findActiveByUserIdAndGroupIdForShare(userId, islandId);
+        boolean member = membership.isPresent();
+        if (!member && island.isPrivate()) {
+            throw new GroupException(GroupErrorCode.GROUP_NOT_FOUND);
+        }
+        if (member && !islandId.equals(context.getCurrentIslandId())) {
+            movementGuards.requireNoLiveFocusSession(user);
+            movementGuards.requireDepartureUnlocked(context);
+            context.moveTo(islandId);
+        }
+        Instant arrivedAt = clock.instant();
+        // 현 가입 이후 주민으로서 처음인가 (GROMO-2302) — 덮기 전에 «주민으로서 마지막 도착» 을 현 멤버십
+        // 시작과 비교한다. 재가입하면 옛 값이 새 시작보다 일러 다시 첫 도착이다. 방문자는 언제나 아니다.
+        boolean first = member && arrivals.findById(new IslandArrival.Key(userId, islandId))
+                .map(IslandArrival::getMemberArrivedAt)
+                .map(at -> at.isBefore(membership.get().membershipStartedAt()))
+                .orElse(true);
+        arrivals.recordArrival(userId, islandId, arrivedAt, member);
+
+        String membershipStatus = IslandSummaries.STATUS_ACTIVE;
+        if (!member) {
+            JoinRequestRef latest = latestRequests(userId, List.of(islandId)).get(islandId);
+            membershipStatus = IslandSummaries.statusOf(false, latest);
+        }
+        IslandArrivalView view = new IslandArrivalView(islandId, !first, membershipStatus,
+                member ? islandId : liveCurrentIsland(userId), null);
+        // 도착은 가입·이탈이 아니다 — island.members.updated 로 방송하지 않는다(switch 와 같다). 주민 첫
+        // 도착만 그 섬 events 채널에 소식 하나를 낸다(GROMO-2302). receipt 에도 담아 재생이 같은 봉투를 돌려준다.
+        List<EventEnvelope> events = new ArrayList<>();
+        if (settled) {
+            events.add(islandStateEvents.created(islandId, userId));
+            events.add(membershipEvents.changed(islandId, userId, "MEMBER_ADDED", userId));
+        }
+        if (first) {
+            events.addAll(islandArrivalEvents.arrived(islandId, user, arrivedAt));
+        }
+        return new PublicCommandResult(200, InternalJson.tree(view), InternalJson.tree(events));
     }
 
     // ---------------------------------------------------------------- §3.4 island

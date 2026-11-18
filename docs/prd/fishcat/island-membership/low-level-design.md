@@ -174,6 +174,10 @@ GROMO-1895 추가(explore 화면 「신청 중」 조각, [BFF Data 구현](../b
 - 소유는 `applicant_id` 로 묶어 찾는다(§3.8 과 같은 원칙) — 남의 요청은 후보조차 아니다. 새 저장소·인덱스 없이 기존 `ix_island_join_requests_applicant_island` 앞머리를 쓴다.
 - 내부 경로(B26): `GET /internal/users/{userId}/join-requests` — 경로 사용자와 `X-User-Id` 를 `InternalAuthFilter` 가 대조한다. 허용목록 `'GET /internal/users/*/join-requests'` 는 단건(`…/join-requests/*`)과 세그먼트 수가 달라 서로를 덮지 않는다.
 
+### 3.13 magazine-arrival — POST /me/magazine/promotions/{promotionId}/arrivals
+
+GROMO-2902(2026-11-18, 오너 결정 「잡지에 홍보된 섬을 누르면 이동시간 없이 바로 간다」). 본문 없음, Idempotency-Key 필수. 성공200 응답·판정·이동 가드는 섬 도착(`POST /islands/{islandId}/arrivals`)과 **같은 명령 본문**이다(`IslandMembershipService.arrival`) — 주민이면 현재 섬을 옮기고(집중 중 409 `STATE_CONFLICT`, 출발 섬 전망대 미해금 403 `FACILITY_LOCKED`), 비주민·강퇴된 섬(GROMO-2315)은 방문 도착만 남긴다. 누구나 가입 섬이어도 가입하지 않는다(초대 도착 §3.10 과 다르다). 칸은 독자에게 보이는 칸이어야 한다(발행됐고 신고 숨김·운영 내림이 아님) — 아니면 404 `PROMOTION_NOT_FOUND`(field `promotionId`), 섬이 비공개(비주민)·종료면 404 `GROUP_NOT_FOUND`. 칸 판정도 receipt 안이라 같은 키 재시도는 그 사이 칸이 내려가도 처음 결과를 재생한다. 내부 경로: `POST /internal/users/{userId}/magazine/promotions/{promotionId}/arrivals`. 잡지 경유 도착 수는 receipt 의 operation 으로 센다(스키마 변경 없음, [잡지 운영 런북](../magazine/ops-runbook.md) §5).
+
 ## 4. 저장 모델과 원자 명령
 
 아래는 논리 모델이다. 실제 테이블/컬럼명·migration 번호는 Data와 내부기반 담당이 기존 1659 추가분과 대조해 할당한다.

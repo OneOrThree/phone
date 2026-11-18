@@ -258,6 +258,9 @@ internal:
           - 'GET /internal/users/*/magazine/issues'
           - 'GET /internal/users/*/magazine/issues/*'
           - 'PUT /internal/users/*/magazine/issues/*/receipt'
+          # GROMO-2902 잡지 홍보 칸에서 그 섬으로 바로 도착(멱등) — 섬 도착과 같은 명령이다. 위 issues 와 세그먼트 이름이 달라
+          # 서로를 열지 않는다.
+          - 'POST /internal/users/*/magazine/promotions/*/arrivals'
           # GROMO-1765 같이 낚시 초기 스냅샷 2종 — 역시 `/internal/islands/*` 가 덮지 않는다.
           - 'GET /internal/islands/*/focus-members'
           - 'GET /internal/islands/*/rest-members'

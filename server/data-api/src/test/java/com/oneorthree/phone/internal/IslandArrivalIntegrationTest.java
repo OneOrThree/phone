@@ -44,8 +44,11 @@ import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.ResultActions;
 
 import java.sql.Timestamp;
+import java.time.Instant;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -87,7 +90,8 @@ class IslandArrivalIntegrationTest {
         registry.add("internal.api.callers.business.token", () -> TOKEN);
         String[] allow = {"POST /internal/users/*/islands/*/memberships", "PUT /internal/users/*/current-island",
             "POST /internal/users/*/islands/*/arrivals", "DELETE /internal/islands/*/members/*",
-            "DELETE /internal/users/*/islands/*/membership", "GET /internal/users/*/letters"};
+            "DELETE /internal/users/*/islands/*/membership", "GET /internal/users/*/letters",
+            "POST /internal/users/*/magazine/promotions/*/arrivals"};
         for (int i = 0; i < allow.length; i++) {
             String entry = allow[i];
             registry.add("internal.api.callers.business.allow[" + i + "]", () -> entry);
@@ -291,6 +295,109 @@ class IslandArrivalIntegrationTest {
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("GROUP_NOT_FOUND"));
         assertThat(arrived(visitor, hidden)).isFalse();
+    }
+
+    // ---------------------------------------------------------------- 잡지 바로 도착 (GROMO-2902)
+
+    @Test
+    @DisplayName("잡지 칸 도착은 방문 도착만 남기고 누구나 가입 섬이어도 가입하지 않는다 — 같은 키 재시도는 칸이 내려가도 재생한다")
+    void magazineArrivalVisitsWithoutJoiningAndReplays() throws Exception {
+        UUID visitor = newUser();
+        UUID host = newUser();
+        UUID open = island("잡지섬", false, false);
+        joinAs(host, open, GroupMemberRole.OWNER);
+        UUID promotion = promotion(open, host, LocalDate.of(2026, 10, 15), true);
+
+        UUID key = UUID.randomUUID();
+        for (int i = 0; i < 2; i++) {
+            magazineArrival(visitor, promotion, key)
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.islandId").value(open.toString()))
+                    .andExpect(jsonPath("$.arrivedBefore").value(true))
+                    .andExpect(jsonPath("$.membershipStatus").value("none"))
+                    .andExpect(jsonPath("$.currentIslandId").value(nullValue()));
+        }
+        assertThat(arrived(visitor, open)).isTrue();
+        assertThat(count("select count(*) from group_members where user_id=?", visitor)).as("자동 가입 없음").isZero();
+        assertThat(currentIsland(visitor)).isNull();
+
+        jdbc.update("update island_promotions set moderation='REMOVED' where id=?", promotion);
+        magazineArrival(visitor, promotion, key).andExpect(status().isOk());
+        magazineArrival(visitor, promotion, UUID.randomUUID())
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("PROMOTION_NOT_FOUND"));
+        // 잡지 경유 도착은 receipt 로 센다 — 잡지 운영 런북 §5 의 조회와 같은 조건이다.
+        assertThat(count("select count(*) from command_idempotency where response_body->>'operation' like ?",
+                "POST:/me/magazine/promotions/" + promotion + "/arrivals:%")).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("없는·발행 전·숨김 칸은 PROMOTION_NOT_FOUND, 비공개·종료 섬의 칸은 GROUP_NOT_FOUND 로 404 — 도착을 남기지 않는다")
+    void magazineArrivalHidesWhatReadersCannotSee() throws Exception {
+        UUID visitor = newUser();
+        UUID host = newUser();
+        UUID open = island("숨김칸섬", false, false);
+        UUID unpublished = promotion(open, host, LocalDate.of(2026, 10, 16), false);
+        UUID hidden = promotion(open, host, LocalDate.of(2026, 10, 17), true);
+        jdbc.update("update island_promotions set moderation='HIDDEN' where id=?", hidden);
+        for (UUID promotion : List.of(UUID.randomUUID(), unpublished, hidden)) {
+            magazineArrival(visitor, promotion, UUID.randomUUID())
+                    .andExpect(status().isNotFound())
+                    .andExpect(jsonPath("$.code").value("PROMOTION_NOT_FOUND"));
+        }
+        UUID secret = island("비밀잡지섬", true, false);
+        UUID ended = groups.save(Group.builder().name("끝난잡지섬").maxMembers(10).isPrivate(false)
+                .approvalRequired(false).status(GroupStatus.ENDED).build()).getId();
+        for (UUID islandId : List.of(secret, ended)) {
+            magazineArrival(visitor, promotion(islandId, host, LocalDate.of(2026, 10, 18), true), UUID.randomUUID())
+                    .andExpect(status().isNotFound())
+                    .andExpect(jsonPath("$.code").value("GROUP_NOT_FOUND"));
+        }
+        assertThat(count("select count(*) from island_arrivals where user_id=?", visitor)).isZero();
+    }
+
+    @Test
+    @DisplayName("내 소속 섬 칸은 섬 도착처럼 집중 중이면 409 이고 아니면 현재 섬을 옮긴다 — 강퇴된 섬 칸은 방문 도착만 남긴다")
+    void magazineArrivalMovesMembersAndTreatsKickedIslandsAsOthers() throws Exception {
+        UUID user = newUser();
+        UUID home = islands.create(user, new CreateIslandCommandRequest("잡지집섬", null, false, null),
+                UUID.randomUUID()).id();
+        UUID host = newUser();
+        UUID mine = island("내잡지섬", false, false);
+        joinAs(host, mine, GroupMemberRole.OWNER);
+        joinAs(user, mine, GroupMemberRole.MEMBER);
+        UUID minePromotion = promotion(mine, host, LocalDate.of(2026, 10, 19), true);
+
+        UUID session = UUID.randomUUID();
+        jdbc.update("INSERT INTO focus_sessions (id, user_id, started_at, total_distraction_seconds) "
+                + "VALUES (?, ?, now(), 0)", session, user);
+        magazineArrival(user, minePromotion, UUID.randomUUID())
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value("SESSION_IN_PROGRESS"));
+        assertThat(currentIsland(user)).isEqualTo(home);
+        jdbc.update("delete from focus_sessions where id=?", session);
+
+        magazineArrival(user, minePromotion, UUID.randomUUID())
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.membershipStatus").value("active"))
+                .andExpect(jsonPath("$.arrivedBefore").value(false))
+                .andExpect(jsonPath("$.currentIslandId").value(mine.toString()));
+        assertThat(currentIsland(user)).isEqualTo(mine);
+
+        UUID kickedFrom = island("강퇴잡지섬", false, false);
+        joinAs(host, kickedFrom, GroupMemberRole.OWNER);
+        GroupMember kicked = GroupMember.builder().user(users.getCaller(user))
+                .group(groups.findById(kickedFrom).orElseThrow()).role(GroupMemberRole.MEMBER).build();
+        kicked.kick(Instant.now());
+        members.save(kicked);
+        magazineArrival(user, promotion(kickedFrom, host, LocalDate.of(2026, 10, 19), true), UUID.randomUUID())
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.membershipStatus").value("none"))
+                .andExpect(jsonPath("$.currentIslandId").value(mine.toString()));
+        assertThat(currentIsland(user)).isEqualTo(mine);
+        assertThat(arrived(user, kickedFrom)).isTrue();
+        assertThat(count("select count(*) from group_members where user_id=? and group_id=? and is_left=false",
+                user, kickedFrom)).isZero();
     }
 
     // ---------------------------------------------------------------- 나가기 · 강퇴 다음 위치
@@ -805,6 +912,27 @@ class IslandArrivalIntegrationTest {
         } finally {
             pool.shutdownNow();
         }
+    }
+
+    private ResultActions magazineArrival(UUID userId, UUID promotionId, UUID key) throws Exception {
+        return mvc.perform(post("/internal/users/" + userId + "/magazine/promotions/" + promotionId + "/arrivals")
+                .header("Authorization", "Bearer " + TOKEN).header("X-User-Id", userId)
+                .header("Idempotency-Key", key));
+    }
+
+    /** 잡지 홍보 칸 — {@code published} 면 발행 때처럼 섬 숫자(snapshot)를 고정한다. */
+    private UUID promotion(UUID islandId, UUID appliedBy, LocalDate issueDate, boolean published) {
+        UUID id = UUID.randomUUID();
+        Timestamp now = Timestamp.from(Instant.now());
+        jdbc.update("insert into island_promotions (id, island_id, issue_date, applied_by, applied_at, updated_at, "
+                + "body, layout) values (?, ?, ?, ?, ?, ?, '홍보', ?::jsonb)", id, islandId, issueDate, appliedBy,
+                now, now, "{\"v\":1,\"frameId\":\"mag.frame-scallop\",\"stickers\":[],\"tape\":null}");
+        if (published) {
+            jdbc.update("update island_promotions set snapshot=?::jsonb where id=?", "{\"islandId\":\"" + islandId
+                    + "\",\"name\":\"잡지\",\"buildingCount\":0,\"memberCount\":1,\"maxMembers\":10,"
+                    + "\"averageFocusMinutesPerDay\":null}", id);
+        }
+        return id;
     }
 
     private static String jsonPathOf(String json, String path) {

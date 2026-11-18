@@ -108,6 +108,9 @@ public class DataIslandClient {
     private static final String PATH_MAGAZINE_ISSUE = "/internal/users/{userId}/magazine/issues/{issueId}";
     private static final String PATH_MAGAZINE_RECEIPT =
             "/internal/users/{userId}/magazine/issues/{issueId}/receipt";
+    // GROMO-2902 잡지 홍보 칸에서 그 섬으로 바로 도착 — 섬 도착과 같은 명령 키 receipt 로 묶인다.
+    private static final String PATH_MAGAZINE_ARRIVALS =
+            "/internal/users/{userId}/magazine/promotions/{promotionId}/arrivals";
     // GROMO-1771 섬 게시판 6종 + 댓글 삭제(GROMO-2136)
     private static final String PATH_NOTICES = "/internal/islands/{islandId}/notices";
     private static final String PATH_NOTICE = "/internal/islands/{islandId}/notices/{noticeId}";
@@ -354,6 +357,20 @@ public class DataIslandClient {
         return http.exchange(
                 InternalCall.to(HttpMethod.POST,
                                 userPath(PATH_ISLAND_ARRIVALS, userId).replace("{islandId}", islandId.toString()))
+                        .onBehalfOf(userId)
+                        .idempotencyKey(key.toString())
+                        .idempotentCommand()
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<IslandArrival>() { });
+    }
+
+    /** 잡지 홍보 칸에서 그 섬으로 바로 도착 (GROMO-2902) — 섬 도착과 같은 명령이라 앱의 명령 키를 싣는다. */
+    public IslandArrival arriveFromMagazine(UUID userId, UUID promotionId, UUID key, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.POST,
+                                userPath(PATH_MAGAZINE_ARRIVALS, userId)
+                                        .replace("{promotionId}", promotionId.toString()))
                         .onBehalfOf(userId)
                         .idempotencyKey(key.toString())
                         .idempotentCommand()

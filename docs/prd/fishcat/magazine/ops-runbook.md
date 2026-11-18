@@ -289,6 +289,17 @@ SELECT bucket_start, count(*) FROM telescope_buckets GROUP BY 1 ORDER BY 1 DESC 
 
 망원경은 `telescope_pins.promotion_id` 로 원래 홍보 칸의 글·꾸미기와 발행 당시 섬 정보를 읽는다. 현재 호에 보이는 칸만 미리보기로 제공한다. 홍보 성과(넣음·도착·가입)와 기록판 API는 제공하지 않는다. V123은 이전 집계 테이블만 제거하며 홍보 칸과 핀의 연결은 보존한다.
 
+**잡지 바로 도착(GROMO-2902).** 홍보 칸을 누르면 항해 없이 그 섬에 도착한다(`POST /me/magazine/promotions/{promotionId}/arrivals`). 따로 기록 표는 없고, 명령 receipt(`command_idempotency.response_body.operation`)에 홍보 id 가 남는다. 탈퇴하면 그 사람의 receipt 가 지워지므로 아래 수는 남아 있는 계정 기준이다.
+
+```sql
+-- 홍보 칸별 잡지 경유 도착 — 사람 수와 도착 요청 수(같은 키 재시도는 1건)
+SELECT split_part(response_body->>'operation', '/', 5) AS promotion_id,
+       count(DISTINCT user_id) AS people, count(*) AS arrivals
+FROM command_idempotency
+WHERE response_body->>'operation' LIKE 'POST:/me/magazine/promotions/%/arrivals:%'
+GROUP BY 1 ORDER BY 2 DESC;
+```
+
 ## 6. 꾸미기 재료
 
 지금 에셋 64종(틀 11 · 스티커 45 · 테이프 8)은 모두 무료(`free`)이고 V118 이 시드했다. 아래는 앞으로 새로 그리는 시즌 재료를 다룰 때 쓴다. 앱이 그림을 가진 id 만 넣는다 — id 는 `mag.` + 그림 id 다.
