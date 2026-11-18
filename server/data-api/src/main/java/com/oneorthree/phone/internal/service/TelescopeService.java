@@ -105,11 +105,16 @@ public class TelescopeService {
     /** 핀은 무작위 칸을 대신한다 — 무작위 칸 수를 넘지 않아야 새 섬 칸(1 + 4 − 핀 수)이 1 아래로 내려가지 않는다. */
     static final int MAX_PINS = RANDOM_SLOTS;
     /**
-     * 평균 상위 묶음(H)의 크기. 1등 몇 섬만 매시간 모든 사람에게 나오지 않도록 상위권을 넉넉히 잡고 그 안에서 버킷 시드로
-     * 돌린다 — 버킷마다 H 칸은 둘이라 20곳이면 한 섬이 한 사람의 버킷에 나오는 몫이 대략 10분의 1이다. 더 키우면
-     * «최근 집중»(A) 묶음과 차이가 흐려진다.
+     * 평균 상위 묶음(H)은 평균 &gt; 0 인 후보 중 이 비율(올림)이다. 고정 개수면 활동 섬이 적을 때 전부 H 가 돼 «최근
+     * 집중»(A)이 비고 섞는 효과가 없다 — 비율이면 활동 섬이 2곳만 있어도 H 1·A 1, 7곳이면 H 3·A 4 로 둘 다 생긴다.
+     * 올림이라 활동 섬이 하나라도 있으면 H 는 1곳 이상이다.
      */
-    static final int TOP_AVERAGE_ISLANDS = 20;
+    static final int TOP_AVERAGE_PERCENT = 30;
+    /**
+     * H 의 상한. 비율만 쓰면 섬이 늘수록 H 가 커져 «평균 상위» 의 뜻이 흐려진다 — 20곳 안에서 버킷 시드로 돌려 1등 몇
+     * 섬만 매시간 모든 사람에게 나오지 않게 한다.
+     */
+    static final int TOP_AVERAGE_MAX = 20;
     /**
      * 평균이 아직 없는(행 없음·null) 섬을 «새 섬»(N)으로 나머지(R)보다 앞에 두는 기간. 평균은 07:00 KST 하루 한 번
      * 적히므로 막 생긴 섬은 첫 행까지 최대 하루를 기다리고, 주민 0명이면 null 이다 — 사흘 동안은 그런 섬도 주민을 모을
@@ -278,8 +283,8 @@ public class TelescopeService {
         // 묶음(H·A·N·R)마다 정원 남은 섬이 앞이고, 모자라면 찬 섬이 뒤를 채운다. 칸 순서는 mix 가 정한다.
         List<TelescopeCandidate> drawn = mix(groupRepository.findTelescopeCandidates(userId.toString(),
                 userId + ":" + bucketStart.getEpochSecond(), 1 + RANDOM_SLOTS, uuidArray(visiblePinIds),
-                TOP_AVERAGE_ISLANDS, bucketStart.minus(NEW_ISLAND_AGE)));
-        // 첫 후보가 찬 섬이면(첫 칸 묶음에 열린 섬이 없다) 이 버킷엔 가까운 섬 라벨이 없다.
+                TOP_AVERAGE_PERCENT, TOP_AVERAGE_MAX, bucketStart.minus(NEW_ISLAND_AGE)));
+        // 첫 후보가 찬 섬이면 열린 섬이 하나도 없다 — 이 버킷엔 가까운 섬 라벨이 없다.
         boolean hasNearby = !drawn.isEmpty() && !isFull(drawn.get(0));
         buckets.deleteOlderThan(userId, bucketStart);
         buckets.insertIfAbsent(userId, bucketStart,
@@ -290,14 +295,20 @@ public class TelescopeService {
     }
 
     /**
-     * 새 섬 칸 순서 (GROMO-2901) — 칸마다 {@link #MIX} 의 묶음에서 다음 섬을 꺼낸다. 그 묶음이 비면 다른 활동 묶음(H↔A),
-     * 그다음 새 섬(N), 나머지(R) 순으로 채운다. 묶음 안 순서(정원 남은 섬 → 시드 해시)는 질의가 정해 온다.
+     * 새 섬 칸 순서 (GROMO-2901). 첫 칸(가까운 섬)은 H → A → N → R 순으로 정원 남은 섬 중 첫 섬이다 — 열린 섬이 어느
+     * 묶음에든 있으면 가까운 섬 칸이 사라지지 않는다. 나머지 칸은 {@link #MIX} 의 묶음에서 다음 섬을 꺼내고, 그 묶음이
+     * 비면 다른 활동 묶음(H↔A), 그다음 새 섬(N), 나머지(R) 순으로 채운다. 열린 섬이 하나도 없으면 첫 칸도 MIX 규칙이다.
+     * 묶음 안 순서(정원 남은 섬 → 시드 해시)는 질의가 정해 온다.
      */
     private static List<TelescopeCandidate> mix(List<TelescopeDraw> rows) {
         Map<String, Deque<TelescopeCandidate>> tiers = new HashMap<>();
         rows.forEach(row -> tiers.computeIfAbsent(row.getTier(), tier -> new ArrayDeque<>()).add(row));
         List<TelescopeCandidate> drawn = new ArrayList<>();
-        for (int slot = 0; slot < 1 + RANDOM_SLOTS; slot++) {
+        // 묶음 안은 정원 남은 섬이 앞이라, 맨 앞이 찼으면 그 묶음엔 열린 섬이 없다.
+        Stream.of("H", "A", "N", "R").map(tiers::get)
+                .filter(tier -> tier != null && !tier.isEmpty() && !isFull(tier.peek())).findFirst()
+                .ifPresent(tier -> drawn.add(tier.poll()));
+        for (int slot = drawn.size(); slot < 1 + RANDOM_SLOTS; slot++) {
             String first = MIX.get(slot % MIX.size());
             Stream.of(first, "H".equals(first) ? "A" : "H", "N", "R")
                     .map(tiers::get).filter(tier -> tier != null && !tier.isEmpty()).findFirst()

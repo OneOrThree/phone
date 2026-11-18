@@ -177,7 +177,8 @@ public interface GroupRepository extends JpaRepository<Group, UUID> {
      * <p><b>묶음</b>(GROMO-2901)은 섬마다 가장 최근 snapshot_date 의 7일 평균 행 하나로 정한다 — 그 행이 null 이면 옛
      * 행으로 돌아가지 않는다({@code IslandFocusAverageRepository#findLatestByIslandIds} 와 같은 규칙).
      * <ul>
-     *   <li>{@code H} — 평균 &gt; 0 인 후보 중 평균 내림차순 상위 {@code topCount} 개(동점은 id 순).</li>
+     *   <li>{@code H} — 평균 &gt; 0 인 후보 중 평균 내림차순(동점은 id 순) 상위 {@code ceil(그 수 × topPercent / 100)}
+     *       개, 많아야 {@code topMax} 개.</li>
      *   <li>{@code A} — 평균 &gt; 0 인 나머지.</li>
      *   <li>{@code N} — 평균 행이 없거나 null 이고 {@code newSince} 이후에 생긴 섬.</li>
      *   <li>{@code R} — 나머지(평균 0, 평균 없는 옛 섬).</li>
@@ -199,7 +200,8 @@ public interface GroupRepository extends JpaRepository<Group, UUID> {
      * @param seed       1시간 버킷 시드
      * @param limit      묶음마다 읽을 행 수
      * @param excludeIds 후보에서 뺄 섬 id 의 Postgres 배열 리터럴({@code {id1,id2}}, 없으면 {@code {}})
-     * @param topCount   평균 상위 묶음({@code H}) 크기
+     * @param topPercent 평균 상위 묶음({@code H}) 비율(%, 올림)
+     * @param topMax     평균 상위 묶음({@code H}) 상한
      * @param newSince   이 시각 이후에 생긴 평균 없는 섬이 새 섬 묶음({@code N})이다
      * @return 묶음 순으로, 각 묶음 안은 정원 남은 섬 → 정원 찬 섬, 그 안은 시드 해시 순
      */
@@ -208,7 +210,8 @@ public interface GroupRepository extends JpaRepository<Group, UUID> {
             + "SELECT t.*, row_number() OVER (PARTITION BY t.tier ORDER BY t.member_count >= t.max_members, "
             + "md5(CAST(:seed AS text) || CAST(t.id AS text))) AS pos FROM ("
             + "SELECT c.id, c.member_count, c.max_members, CASE "
-            + "WHEN a.minutes > 0 AND row_number() OVER (ORDER BY a.minutes DESC NULLS LAST, c.id) <= :topCount "
+            + "WHEN a.minutes > 0 AND row_number() OVER (ORDER BY a.minutes DESC NULLS LAST, c.id) "
+            + "<= LEAST(:topMax, CEIL(count(*) FILTER (WHERE a.minutes > 0) OVER () * :topPercent / 100.0)) "
             + "THEN 'H' "
             + "WHEN a.minutes > 0 THEN 'A' "
             + "WHEN a.minutes IS NULL AND c.created_at >= :newSince THEN 'N' "
@@ -222,7 +225,8 @@ public interface GroupRepository extends JpaRepository<Group, UUID> {
             @Param("seed") String seed,
             @Param("limit") int limit,
             @Param("excludeIds") String excludeIds,
-            @Param("topCount") int topCount,
+            @Param("topPercent") int topPercent,
+            @Param("topMax") int topMax,
             @Param("newSince") Instant newSince);
 
     /**
