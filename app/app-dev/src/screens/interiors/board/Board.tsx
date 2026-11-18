@@ -1565,8 +1565,13 @@ export function Board({
       <Text style={[boardFont(14, 1.6), { marginTop: 2, marginBottom: 18 }]}>
         {t('ui.board.cannotUndo')}
       </Text>
-      {/* 아래 6 — 알약 그림자(4px)가 종이 스크롤 바닥에 잘리지 않게 */}
-      <View style={{ flexDirection: 'row', gap: 10, paddingBottom: 6 }}>
+      <View
+        style={{
+          flexDirection: 'row',
+          gap: 10,
+          paddingBottom: componentTokens.boardDeleteConfirm.actionsBottom,
+        }}
+      >
         <BoardPill
           testID="board-delete-cancel"
           label={t('common.cancel')}
