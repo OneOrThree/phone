@@ -402,6 +402,57 @@ test('첫 검사도 프레임이 5초 동안 오지 않으면 촬영을 멈추�
   expect(screen.onDetection.mock.calls).toHaveLength(detections);
 });
 
+test('리사이저 오류로 측정 불가가 확정되면 5초 제한·frame_timeout 보고 없이 다음 주기에도 카메라를 켜지 않고 새 세션에서 다시 시도한다', async () => {
+  const ready = jest.mocked(useResizer).getMockImplementation()!;
+  jest.mocked(useResizer).mockReturnValue({
+    state: 'loading',
+    resizer: undefined,
+    error: undefined,
+  });
+  const screen = await setup(false, 'periodic');
+  const props = {
+    position: 'back' as const,
+    active: true,
+    previewVisible: false,
+    cadence: 'periodic' as const,
+    onReady: screen.onReady,
+    onPaused: screen.onPaused,
+    onDetection: screen.onDetection,
+    onError: screen.onError,
+  };
+  expect(jest.mocked(useCamera).mock.calls.at(-1)![0].isActive).toBe(true);
+  await act(async () => jest.advanceTimersByTime(1000));
+  // Vulkan 1.1 이 없는 Android 기기는 리사이저 생성이 실패한다(Sentry CATTUS-F·G·H).
+  const vulkan = new Error('Failed to find a Vulkan 1.1 device');
+  jest.mocked(useResizer).mockReturnValue({ state: 'error', resizer: undefined, error: vulkan });
+  await screen.rerender(<VerificationCamera {...props} />);
+  const failedAt = jest.mocked(useCamera).mock.calls.length - 1;
+  await act(async () => jest.advanceTimersByTime(MEASUREMENT_INTERVAL_MS * 3));
+  const unavailable = () => screen.onDetection.mock.calls.filter(([d]) => d === 'unavailable');
+  expect(unavailable()).toHaveLength(1);
+  expect(captureCameraError).toHaveBeenCalledWith(vulkan, 'palm_resizer', {
+    camera_position: 'back',
+  });
+  expect(jest.mocked(captureCameraError).mock.calls.map(([, stage]) => stage)).not.toContain(
+    'frame_timeout',
+  );
+  expect(
+    jest
+      .mocked(useCamera)
+      .mock.calls.slice(failedAt)
+      .map(([options]) => options.isActive),
+  ).not.toContain(true);
+  // 새 집중 세션은 FocusFlow 가 세션 id 를 key 로 다시 마운트하므로 리사이저를 새로 만든다.
+  jest.mocked(useResizer).mockImplementation(ready);
+  await screen.rerender(<VerificationCamera key="session-2" {...props} />);
+  expect(jest.mocked(useCamera).mock.calls.at(-1)![0].isActive).toBe(true);
+  await sample(4);
+  await sample(4);
+  await sample(4);
+  expect(screen.onDetection).toHaveBeenLastCalledWith('focused');
+  expect(unavailable()).toHaveLength(1);
+});
+
 test('검사 사이 영상 표시만 바꿔도 검사 주기를 당기거나 판정을 지우지 않는다', async () => {
   const screen = await setup(false, 'periodic');
   await sample(4);

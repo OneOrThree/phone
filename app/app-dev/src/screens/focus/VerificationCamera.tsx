@@ -260,6 +260,14 @@ function ModelVerificationCamera({
   const objectModelError = objectModel.state === 'error' ? objectModel.error : undefined;
   const resizeError = resize.state === 'error' ? resize.error : undefined;
   const objectResizeError = objectResize.state === 'error' ? objectResize.error : undefined;
+  // 훅의 오류·텐서 상태는 이 마운트 동안 바뀌지 않는다. 집중 세션마다 새로 마운트되므로 새 세션에서 다시 시도한다.
+  const unavailable =
+    model.state === 'error' ||
+    resize.state === 'error' ||
+    (!!tflite && scoreIdx < 0) ||
+    objectModel.state === 'error' ||
+    objectResize.state === 'error' ||
+    (!!objectTflite && !objectReady);
   useEffect(() => {
     if (model.state === 'error') reportFailure('palm_model', modelError);
     if (objectModel.state === 'error') reportFailure('object_model', objectModelError);
@@ -267,16 +275,7 @@ function ModelVerificationCamera({
     if (objectResize.state === 'error') reportFailure('object_resizer', objectResizeError);
     if ((tflite && scoreIdx < 0) || (objectTflite && !objectReady))
       reportFailure('model_contract', new Error('Unexpected verification model input/output'));
-    if (
-      model.state === 'error' ||
-      resize.state === 'error' ||
-      (tflite && scoreIdx < 0) ||
-      objectModel.state === 'error' ||
-      objectResize.state === 'error' ||
-      (objectTflite && !objectReady)
-    ) {
-      onDetection('unavailable');
-    }
+    if (unavailable) onDetection('unavailable');
   }, [
     model.state,
     modelError,
@@ -290,6 +289,7 @@ function ModelVerificationCamera({
     objectResizeError,
     objectTflite,
     objectReady,
+    unavailable,
     onDetection,
     reportFailure,
   ]);
@@ -483,7 +483,8 @@ function ModelVerificationCamera({
   const outputs = useMemo(() => [frameOutput, previewOutput], [frameOutput, previewOutput]);
   useCamera({
     device: position,
-    isActive: previewVisible || sampling,
+    // 측정 불가가 확정되면 다음 검사 주기에도 촬영을 다시 켜지 않는다(Vulkan 1.1 없는 Android 등).
+    isActive: previewVisible || (sampling && !unavailable),
     outputs,
     onStarted: () => {
       if (mounted.current) recordSentryCameraState({ capture_status: 'started' });
@@ -523,14 +524,15 @@ function ModelVerificationCamera({
     onError,
   });
   useEffect(() => {
-    if (!periodic || !sampling) return;
+    // 측정 불가가 확정되면 검사 결과를 기다리지 않으므로 시간 제한(frame_timeout 보고)도 걸지 않는다.
+    if (!periodic || !sampling || unavailable) return;
     // 프레임이 오지 않아도 카메라가 계속 켜져 있지 않게 검사 시간을 제한한다.
     const timeout = setTimeout(
       () => receiveScores(captureEpoch.getBlocking(), null, 'measurement frames timed out'),
       MEASUREMENT_CAPTURE_TIMEOUT_MS,
     );
     return () => clearTimeout(timeout);
-  }, [periodic, sampling, receiveScores, captureEpoch]);
+  }, [periodic, sampling, unavailable, receiveScores, captureEpoch]);
   useEffect(() => {
     if (__DEV__) console.log('[verification-camera] preview visible', previewVisible);
   }, [previewVisible]);
