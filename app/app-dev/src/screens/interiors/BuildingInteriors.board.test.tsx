@@ -1756,6 +1756,30 @@ test('퀘스트 만들기 — 키보드로 낮아진 화면에서 종이가 위�
   }
 });
 
+test('퀘스트 만들기 — 세로 화면은 긴 포스트잇(창의 80%)을 쓰고 목록 종이는 그대로다', async () => {
+  const screen = await renderBoard(
+    null,
+    concept({ boardPanel: 'quest', boardView: 'write-focus' }),
+    {
+      width: 402,
+      height: 874,
+      sceneHeight: 874,
+    },
+  );
+  const drawer = StyleSheet.flatten(screen.getByTestId('board-drawer').props.style);
+  assert.equal(drawer.height, 874 * 0.8);
+  assert.ok(within(screen.getByTestId('board-quest-footer')).getByTestId('board-quest-save'));
+  await screen.unmount();
+
+  const list = await renderBoard(null, concept({ boardPanel: 'quest', boardView: 'list' }), {
+    width: 402,
+    height: 874,
+    sceneHeight: 874,
+  });
+  assert.equal(StyleSheet.flatten(list.getByTestId('board-drawer').props.style).height, 492);
+  await list.unmount();
+});
+
 test('홈 퀘스트 바로가기는 없는 상세로 치지 않고 퀘스트 목록을 연다', async () => {
   getBoardMock.mockResolvedValue(page([]));
   const e = makeE({ route: 'quest', detail: HOME_QUEST_LIST_DETAIL, tab: 'quest' });

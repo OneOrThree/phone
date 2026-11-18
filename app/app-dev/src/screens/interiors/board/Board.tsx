@@ -1562,7 +1562,8 @@ export function Board({
       <Text style={[boardFont(14, 1.6), { marginTop: 2, marginBottom: 18 }]}>
         {t('ui.board.cannotUndo')}
       </Text>
-      <View style={{ flexDirection: 'row', gap: 10 }}>
+      {/* 아래 6 — 알약 그림자(4px)가 종이 스크롤 바닥에 잘리지 않게 */}
+      <View style={{ flexDirection: 'row', gap: 10, paddingBottom: 6 }}>
         <BoardPill
           testID="board-delete-cancel"
           label={t('common.cancel')}
@@ -2230,8 +2231,6 @@ export function Board({
   const questDetailOpen = s.panel === 'quest' && s.view === 'detail';
   const questEditorOpen = s.panel === 'quest' && s.view === 'write';
   const dismissQuestDetail = () => (e ? e.back() : render({ view: 'list', error: '' }));
-  const paperSource =
-    s.panel === 'quest' ? interiorArt.boardPaper.quest : interiorArt.boardPaper.notice;
   const blueprintPanelContentHeight = ['waiting', 'ready'].includes(blueprintView.state)
     ? componentTokens.constructionPlan.maxHeight
     : { complete: 380, building: 326, none: 236 }[
@@ -2251,13 +2250,21 @@ export function Board({
   const composeMinTop = land ? landOverlay.top : COMPOSE_TOP;
   // 종이 목록 높이. 키보드가 떠서 스크롤 칸이 너무 낮아지면 위쪽에 붙이고 화면 높이를 다 쓴다.
   // 방명록은 목록뿐 아니라 제목+입력 칸+글자 수+[남기기](약 203px)가 한 번에 보여야 해서 바닥을 더 높게 둔다
+  // 퀘스트 쓰기 종이는 세로에서 긴 포스트잇(창의 80%)으로 — 종류·제목·시간을 덜 스크롤하고 쓴다
+  const questSheetMax = land ? Math.min(sceneHeight * 0.58, 492 * landScale) : sceneHeight * 0.8;
   const sheetHeight = questEditorOpen
-    ? Math.max(0, Math.min(height - composeMinTop - 10, sceneHeight * 0.58, 492 * landScale))
+    ? Math.max(0, Math.min(height - composeMinTop - 10, questSheetMax))
     : Math.min(height * 0.58, 492 * landScale);
   const minPaperScroll = s.panel === 'guestbook' ? 210 : 140;
   const sheetCramped = sheetHeight - 110 * landScale - panelNavigationHeight < minPaperScroll;
   // 퀘스트 쓰기 종이 — 너무 낮으면(가로 폰 키보드) 예전처럼 저장 버튼까지 종이 안에서 스크롤한다
   const questCompose = questEditorOpen && !sheetCramped;
+  const paperSource =
+    s.panel !== 'quest'
+      ? interiorArt.boardPaper.notice
+      : questCompose
+        ? interiorArt.boardPaper.questLong
+        : interiorArt.boardPaper.quest;
   const paperHeight = sheetCramped ? Math.max(0, height - 8) : sheetHeight;
   const paperPad =
     sheetCramped || questCompose

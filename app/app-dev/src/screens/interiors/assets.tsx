@@ -24,6 +24,8 @@ export const interiorArt = {
     notice: require('@/assets/interiors/ui/board-sheet-notice-v2.png'),
     detail: require('@/assets/interiors/ui/board-sheet-notice-detail-v3.png'),
     quest: require('@/assets/interiors/ui/board-sheet-quest-v2.png'),
+    // 퀘스트 쓰기 — 세로로 긴 포스트잇(src/assets/ota/ 아래라 OTA 로 구 바이너리에도 실린다)
+    questLong: require('@/assets/ota/interiors/ui/board-sheet-quest-long-v1.png'),
   },
   // 언어별 쌍 — 렌더 시점에 localized() 로 고른다(모듈 최상위에서 고르면 import 시점 언어로 굳는다)
   // src/assets/ota/ 아래 — assetPatternsToBeBundled 패턴에 맞아야 OTA 로 구 바이너리에도 실린다
