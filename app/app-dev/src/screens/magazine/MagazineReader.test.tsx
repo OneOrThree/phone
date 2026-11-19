@@ -580,6 +580,17 @@ describe('뗏목을 누르면 그 섬으로 바로(GROMO-2903)', () => {
     expect(screen.queryByTestId('magazine-zoom')).toBeNull();
   });
 
+  test('집중·휴식 중이면 도착 요청 없이 섬 구경을 막는 기존 안내만 띄운다', async () => {
+    const session = { id: 's1' } as unknown as ReturnType<typeof initialState>['session'];
+    const e = { ...goEnv(), state: { ...initialState(true), session } };
+    const { screen } = await open(page(), e);
+    await go(screen, 'p2');
+    expect(e.notify).toHaveBeenCalledWith('집중이나 휴식을 마친 뒤 섬을 구경해 주세요.');
+    expect(arriveFrom).not.toHaveBeenCalled();
+    expect(e.replace).not.toHaveBeenCalled();
+    expect(e.dispatch).not.toHaveBeenCalled();
+  });
+
   test('우리 섬 칸에는 뗏목이 없다(배지만) — 칸 누르기는 크게 보기다', async () => {
     const e = goEnv();
     const { screen } = await open(page(), e);

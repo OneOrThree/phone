@@ -223,6 +223,8 @@ export function MagazineReader({
   // 뗏목 → 그 섬으로 바로(GROMO-2903). 도착·결과 불명 복구는 항해 도착과 같은 arriveWithOutcome, 들어가기는 enterArrivedIsland 이고
   // 도착 요청만 홍보 칸 도착이다. 한 번에 하나 — 요청 중 다시 눌러도 무시한다. 실패하면 잡지에 남아 서버 문구로 알린다
   const goTo = async (cell: MagazineCell) => {
+    // 집중·휴식 중에는 다른 섬 구경을 막는다 — 섬 정보 화면의 [섬 구경하기](ServerVisit)와 같은 안내
+    if (e.state.session) return e.notify(t('islandVisit.sessionBlocksBrowse'));
     if (arriving.current) return;
     arriving.current = true;
     const generation = sessionGeneration();
