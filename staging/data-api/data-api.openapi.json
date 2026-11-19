@@ -875,6 +875,55 @@
         }
       }
     },
+    "/internal/users/{userId}/magazine/promotions/{promotionId}/arrivals": {
+      "post": {
+        "tags": [
+          "internal-magazine-controller"
+        ],
+        "operationId": "arrive",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "promotionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/IslandArrivalView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/internal/users/{userId}/letters": {
       "get": {
         "tags": [
@@ -1387,7 +1436,7 @@
         "tags": [
           "internal-island-membership-controller"
         ],
-        "operationId": "arrive",
+        "operationId": "arrive_1",
         "parameters": [
           {
             "name": "userId",
@@ -8350,6 +8399,29 @@
           }
         }
       },
+      "IslandArrivalView": {
+        "type": "object",
+        "properties": {
+          "islandId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "arrivedBefore": {
+            "type": "boolean"
+          },
+          "membershipStatus": {
+            "type": "string"
+          },
+          "currentIslandId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "firstArrivalEventId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
       "LetterSendRequest": {
         "type": "object",
         "properties": {
@@ -8563,29 +8635,6 @@
             "items": {
               "type": "string"
             }
-          }
-        }
-      },
-      "IslandArrivalView": {
-        "type": "object",
-        "properties": {
-          "islandId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "arrivedBefore": {
-            "type": "boolean"
-          },
-          "membershipStatus": {
-            "type": "string"
-          },
-          "currentIslandId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "firstArrivalEventId": {
-            "type": "string",
-            "format": "uuid"
           }
         }
       },
