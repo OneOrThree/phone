@@ -2,6 +2,7 @@ package com.oneorthree.phone.internal.service;
 
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupRepository;
+import com.oneorthree.phone.group.repository.GroupRepository.TelescopeDraw;
 import com.oneorthree.phone.group.repository.IslandJoinRequestRepository;
 import com.oneorthree.phone.group.repository.domain.Group;
 import com.oneorthree.phone.group.repository.domain.GroupMember;
@@ -42,6 +43,7 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
@@ -80,6 +82,8 @@ class TelescopeIntegrationTest {
     /** 버킷 05:00Z 안의 23분 41초 — 다음 목록까지 37분. */
     private static final Instant BASE = Instant.parse("2026-10-12T05:23:41Z");
     private static final Instant BUCKET = Instant.parse("2026-10-12T05:00:00Z");
+    /** 그 버킷(14시 KST)에 07시 배치가 이미 적은 평균 스냅샷 날. */
+    private static final LocalDate TODAY = LocalDate.of(2026, 10, 12);
     private static final AtomicReference<Instant> NOW = new AtomicReference<>();
 
     @DynamicPropertySource
@@ -540,6 +544,182 @@ class TelescopeIntegrationTest {
                 assertThat(minutes).isIn(30, 60, 90));
     }
 
+    // ---------------------------------------------------------------- ④-1 활동 섬 섞기 (GROMO-2901)
+
+    @Test
+    @DisplayName("활동 섬 7곳이면 H 3·A 4 이고 새 섬 5칸은 H → A → H → A → A 다 — 같은 버킷엔 평균이 바뀌어도 같은 목록이다")
+    void sevenActiveIslandsAlternateTopAverageAndRecentFocus() {
+        User viewer = user();
+        // 평균 > 0 인 섬 7곳 — 30% 올림 3곳(평균 70·69·68)이 평균 상위(H), 나머지 4곳이 최근 집중(A)이다.
+        List<UUID> top = new ArrayList<>();
+        List<UUID> recent = new ArrayList<>();
+        for (int i = 0; i < 7; i++) {
+            UUID id = island("활동섬" + i, 10).getId();
+            average(id, TODAY, 70 - i);
+            (i < 3 ? top : recent).add(id);
+        }
+        // 활동 섬이 넉넉하면 새 섬(N)·나머지(R)는 나오지 않는다.
+        UUID fresh = island("새섬", 10).getId();
+        createdAt(fresh, BUCKET.minus(Duration.ofDays(2)));
+        UUID quiet = island("조용한섬", 10).getId();
+        average(quiet, TODAY, 0);
+
+        TelescopeView first = telescope.list(viewer.getId());
+
+        List<UUID> h = byHash(viewer, top);
+        List<UUID> a = byHash(viewer, recent);
+        assertThat(ids(first)).containsExactly(h.get(0), a.get(0), h.get(1), a.get(1), a.get(2));
+        assertThat(first.items()).extracting(TelescopeItemView::slot)
+                .containsExactly("nearby", "random", "random", "random", "random");
+
+        // 같은 버킷 안에 새 평균 행이 적혀 묶음이 뒤바뀌어도(활동 섬 전부 0, 새 섬·조용한 섬이 1등) 스냅샷 그대로다.
+        for (UUID id : top) {
+            average(id, TODAY.plusDays(1), 0);
+        }
+        average(fresh, TODAY.plusDays(1), 900);
+        average(quiet, TODAY.plusDays(1), 800);
+        NOW.set(BASE.plus(Duration.ofMinutes(20)));
+        assertThat(ids(telescope.list(viewer.getId()))).containsExactlyElementsOf(ids(first));
+    }
+
+    @Test
+    @DisplayName("평균 상위 묶음은 평균 > 0 섬의 30% 올림이고 20곳에서 멈춘다 — 1곳 H 1, 7곳 H 3, 66곳 H 20, 67곳도 H 20")
+    void topTierIsThirtyPercentRoundedUpAndCappedAtTwenty() {
+        User viewer = user();
+        int made = 0;
+        for (int[] expected : new int[][] {{1, 1}, {7, 3}, {66, 20}, {67, 20}}) {
+            for (; made < expected[0]; made++) {
+                average(island("활동섬" + made, 10).getId(), TODAY, 1 + made);
+            }
+            Map<String, Long> sizes = tierSizes(viewer);
+            assertThat(sizes.getOrDefault("H", 0L)).as("평균 > 0 섬 %d곳의 H", made).isEqualTo((long) expected[1]);
+            assertThat(sizes.getOrDefault("A", 0L)).as("평균 > 0 섬 %d곳의 A", made)
+                    .isEqualTo((long) (expected[0] - expected[1]));
+        }
+    }
+
+    @Test
+    @DisplayName("묶음이 모자라면 다른 활동 묶음 → 새 섬 → 나머지 순으로 채우고, 묶음 안은 정원 남은 섬 먼저다 — "
+            + "최근 평균 행이 null 이면 옛 평균으로 돌아가지 않는다")
+    void shortTiersFallBackToTheOtherActiveTierThenNewThenRest() {
+        User viewer = user();
+        // 활동 섬 3곳 → H 1(평균 90)·A 2. A 의 찬 섬은 평균이 더 높아도 열린 섬 뒤다.
+        UUID hot = island("평균1등섬", 10).getId();
+        average(hot, TODAY, 90);
+        UUID recentOpen = island("열린활동섬", 10).getId();
+        average(recentOpen, TODAY, 50);
+        UUID recentFull = fullIsland("찬활동섬").getId();
+        average(recentFull, TODAY, 60);
+        // N: 사흘 안에 생겼고 최근 평균 행이 null(주민 0명).
+        UUID fresh = island("새섬", 10).getId();
+        createdAt(fresh, BUCKET.minus(Duration.ofDays(1)));
+        average(fresh, TODAY, null);
+        // R: 평균 0(새 섬이어도), 평균 없는 옛 섬, 옛 행만 높고 최근 행이 null 인 섬 — 옛 값(500)으로 H 가 되지 않는다.
+        UUID quietNew = island("조용한새섬", 10).getId();
+        createdAt(quietNew, BUCKET.minus(Duration.ofDays(1)));
+        average(quietNew, TODAY, 0);
+        UUID old = island("옛섬", 10).getId();
+        createdAt(old, BUCKET.minus(Duration.ofDays(4)));
+        UUID emptied = island("비워진섬", 10).getId();
+        createdAt(emptied, BUCKET.minus(Duration.ofDays(30)));
+        average(emptied, TODAY.minusDays(1), 500);
+        average(emptied, TODAY, null);
+
+        List<TelescopeItemView> items = telescope.list(viewer.getId()).items();
+
+        // 가까운 섬 H → A(열린 섬) → H 빔 → A(찬 섬) → H·A 빔 → N → N 빔 → R.
+        UUID r = byHash(viewer, List.of(quietNew, old, emptied)).get(0);
+        assertThat(items).extracting(TelescopeItemView::islandId)
+                .containsExactly(hot, recentOpen, recentFull, fresh, r);
+        assertThat(items).extracting(TelescopeItemView::slot)
+                .containsExactly("nearby", "random", "random", "random", "random");
+        assertThat(items).extracting(TelescopeItemView::full).containsExactly(false, false, true, false, false);
+    }
+
+    @Test
+    @DisplayName("평균 상위 섬이 다 찼으면 H 칸도 최근 집중 묶음의 열린 섬이 먼저 쓰고, 찬 평균 상위 섬은 열린 활동 섬 뒤에 온다")
+    void openActiveIslandsComeBeforeFullTopIslands() {
+        User viewer = user();
+        // 활동 섬 5곳 → H 2(평균 90·89, 둘 다 찬 섬)·A 3(열린 섬).
+        List<UUID> top = new ArrayList<>();
+        for (int i = 0; i < 2; i++) {
+            UUID id = fullIsland("찬상위섬" + i).getId();
+            average(id, TODAY, 90 - i);
+            top.add(id);
+        }
+        List<UUID> recent = new ArrayList<>();
+        for (int i = 0; i < 3; i++) {
+            UUID id = island("열린활동섬" + i, 10).getId();
+            average(id, TODAY, 50 - i);
+            recent.add(id);
+        }
+
+        TelescopeView view = telescope.list(viewer.getId());
+
+        // 가까운 섬 A → A → H 칸이지만 A 의 열린 섬 → A 빔 → 찬 H → 찬 H.
+        List<UUID> a = byHash(viewer, recent);
+        List<UUID> h = byHash(viewer, top);
+        assertThat(ids(view)).containsExactly(a.get(0), a.get(1), a.get(2), h.get(0), h.get(1));
+        assertThat(view.items()).extracting(TelescopeItemView::full).containsExactly(false, false, false, true, true);
+    }
+
+    @Test
+    @DisplayName("평균 상위·최근 집중 섬이 전부 정원이 차도 다른 묶음에 열린 섬이 있으면 그 섬이 첫 칸(가까운 섬, 15분)이다")
+    void theFirstOpenIslandOfAnyTierBecomesNearby() {
+        User viewer = user();
+        // 활동 섬 4곳, 전부 찬 섬 → H 2(평균 90·89)·A 2(88·87).
+        List<UUID> top = new ArrayList<>();
+        List<UUID> recent = new ArrayList<>();
+        for (int i = 0; i < 4; i++) {
+            UUID id = fullIsland("찬활동섬" + i).getId();
+            average(id, TODAY, 90 - i);
+            (i < 2 ? top : recent).add(id);
+        }
+        UUID open = island("열린새섬", 10).getId();
+
+        TelescopeView view = telescope.list(viewer.getId());
+
+        // 첫 칸은 새 섬(N)의 열린 섬, 나머지는 A → H → A → A 빔 → H.
+        List<UUID> h = byHash(viewer, top);
+        List<UUID> a = byHash(viewer, recent);
+        assertThat(ids(view)).containsExactly(open, a.get(0), h.get(0), a.get(1), h.get(1));
+        assertThat(view.items()).extracting(TelescopeItemView::slot)
+                .containsExactly("nearby", "random", "random", "random", "random");
+        assertThat(view.items().get(0).sailingMinutes()).isEqualTo(15);
+        assertThat(jdbc.queryForObject("select has_nearby from telescope_buckets where user_id = ?", Boolean.class,
+                viewer.getId())).isTrue();
+    }
+
+    @Test
+    @DisplayName("핀으로 넣은 평균 1등 섬은 스냅샷 뽑기·묶음 크기 계산에서 빠져 한 번만(pinned) 나오고, 나머지 칸은 같은 섞기 규칙이다")
+    void aPinnedTopIslandIsLeftOutOfTheMix() {
+        User viewer = user();
+        // 활동 섬 3곳(평균 62·61·60) — 핀을 빼면 2곳이라 H 1(61)·A 1(60).
+        UUID first = island("활동섬1", 10).getId();
+        average(first, TODAY, 62);
+        UUID second = island("활동섬2", 10).getId();
+        average(second, TODAY, 61);
+        UUID third = island("활동섬3", 10).getId();
+        average(third, TODAY, 60);
+        List<UUID> fresh = List.of(island("새섬A", 10).getId(), island("새섬B", 10).getId());
+        UUID old = island("옛섬", 10).getId();
+        createdAt(old, BUCKET.minus(Duration.ofDays(4)));
+        // 핀이 없었다면 가까운 섬이 됐을 섬을 넣는다 — 첫 핀 넣기가 핀을 뺀 스냅샷을 뽑는다.
+        pinService.pin(viewer.getId(), first, "observatory", null);
+
+        List<TelescopeItemView> items = telescope.list(viewer.getId()).items();
+
+        List<UUID> n = byHash(viewer, fresh);
+        // 스냅샷 = H second → A third → (H·A 빔) N n0 → N n1 → R old. 핀 1개라 새 섬 칸은 넷이다.
+        assertThat(items).extracting(TelescopeItemView::islandId, TelescopeItemView::slot).containsExactly(
+                tuple(second, "nearby"), tuple(first, "pinned"), tuple(third, "random"),
+                tuple(n.get(0), "random"), tuple(n.get(1), "random"));
+        assertThat(jdbc.queryForObject("select array_to_string(island_ids, ',') from telescope_buckets "
+                + "where user_id = ?", String.class, viewer.getId()))
+                .isEqualTo(String.join(",", second.toString(), third.toString(), n.get(0).toString(),
+                        n.get(1).toString(), old.toString()));
+    }
+
     @Test
     @DisplayName("후보가 2개뿐이면 2칸만 나오고, 탈퇴 계정은 주민 수·정원 판정에 세지 않는다")
     void fewCandidatesShrinkTheListAndWithdrawnAccountsDoNotCount() {
@@ -700,6 +880,24 @@ class TelescopeIntegrationTest {
             ids.add(fullIsland("찬섬" + i).getId());
         }
         return ids;
+    }
+
+    /** 그날의 7일 평균 행 — null 은 «주민 0명». */
+    private void average(UUID islandId, LocalDate day, Integer minutes) {
+        jdbc.update("insert into island_focus_averages (snapshot_date, island_id, member_count, "
+                + "avg_minutes_per_member_day) values (?, ?, 1, cast(? as integer))", day, islandId, minutes);
+    }
+
+    private void createdAt(UUID islandId, Instant at) {
+        jdbc.update("update islands set created_at = ? where id = ?", Timestamp.from(at), islandId);
+    }
+
+    /** 묶음별 후보 수 — 묶음마다 1000행까지 읽으니 이 테스트 규모에선 전수다. */
+    private Map<String, Long> tierSizes(User viewer) {
+        return islands.findTelescopeCandidates(viewer.getId().toString(), "seed", 1000, "{}",
+                        TelescopeService.TOP_AVERAGE_PERCENT, TelescopeService.TOP_AVERAGE_MAX,
+                        BUCKET.minus(TelescopeService.NEW_ISLAND_AGE)).stream()
+                .collect(Collectors.groupingBy(TelescopeDraw::getTier, Collectors.counting()));
     }
 
     private GroupMember join(User user, Group island) {

@@ -15,7 +15,7 @@ final class LiveActivityModule: RCTEventEmitter {
     override func startObserving() { hasListeners = true }
     override func stopObserving() { hasListeners = false }
 
-    @MainActor
+    // let 속성과 Bundle 만 읽으므로 어느 스레드에서 불러도 된다.
     private func tokenPayload(_ activity: Activity<GromoFocusAttributes>, token: Data) -> [String: Any] {
         ["sessionId": activity.attributes.sessionId, "activityId": activity.id,
          "pushToken": token.map { String(format: "%02x", $0) }.joined(),
@@ -25,27 +25,36 @@ final class LiveActivityModule: RCTEventEmitter {
     @MainActor
     private func observeToken(_ activity: Activity<GromoFocusAttributes>) {
         guard observers[activity.id] == nil else { return }
-        observers[activity.id] = Task { @MainActor [weak self] in
+        // pushTokenUpdates 대기 중 ActivityKit 내부 동기 대기가 메인을 2초 넘게 막았다(GROMO-2900).
+        // 반복은 메인 밖에서 돌고, 취소 확인과 이벤트 전송만 메인에서 한다.
+        observers[activity.id] = Task.detached { [weak self] in
             for await token in activity.pushTokenUpdates {
                 guard !Task.isCancelled else { return }
-                if let self, self.hasListeners {
-                    self.sendEvent(withName: "LiveActivityPushToken", body: self.tokenPayload(activity, token: token))
-                }
+                await self?.emitToken(activity, token: token)
             }
         }
     }
 
+    @MainActor
+    private func emitToken(_ activity: Activity<GromoFocusAttributes>, token: Data) {
+        // 메인에서 다시 확인해 observers.removeValue(...)?.cancel() 뒤에는 이벤트가 나가지 않는다.
+        guard !Task.isCancelled, hasListeners else { return }
+        sendEvent(withName: "LiveActivityPushToken", body: tokenPayload(activity, token: token))
+    }
+
     @objc(getPushTokens:rejecter:)
     func getPushTokens(_ resolve: @escaping RCTPromiseResolveBlock, rejecter reject: @escaping RCTPromiseRejectBlock) {
-        Task { @MainActor in
+        // 목록·상태·토큰 읽기도 ActivityKit 호출이라 메인 밖에서 한다(GROMO-2900).
+        Task.detached {
             let activities = Activity<GromoFocusAttributes>.activities.filter {
                 $0.activityState != .ended && $0.activityState != .dismissed
             }
-            for activity in activities { observeToken(activity) }
-            resolve(activities.compactMap { activity -> [String: Any]? in
+            let tokens = activities.compactMap { activity -> [String: Any]? in
                 guard let token = activity.pushToken else { return nil }
-                return tokenPayload(activity, token: token)
-            })
+                return self.tokenPayload(activity, token: token)
+            }
+            for activity in activities { await self.observeToken(activity) }
+            resolve(tokens)
         }
     }
 

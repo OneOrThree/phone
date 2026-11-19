@@ -94,7 +94,9 @@ public class IslandMembershipUseCase {
             Map.entry("ROOM_FULL", new PublicFailure(ApiErrorCode.STATE_CONFLICT, "islandId")),
             // 남의 요청은 범위 밖 — 「없다」와 같은 404 로 접어 소유 정보를 새지 않는다(LLD §3.8).
             Map.entry("JOIN_REQUEST_NOT_FOUND", new PublicFailure(ApiErrorCode.NOT_FOUND, "requestId")),
-            Map.entry("JOIN_REQUEST_TERMINAL", new PublicFailure(ApiErrorCode.STATE_CONFLICT, "requestId")));
+            Map.entry("JOIN_REQUEST_TERMINAL", new PublicFailure(ApiErrorCode.STATE_CONFLICT, "requestId")),
+            // GROMO-2902 잡지 바로 도착 — 없는·발행 전·숨김·내린 칸. 섬이 비공개·종료면 위 GROUP_NOT_FOUND 다.
+            Map.entry("PROMOTION_NOT_FOUND", new PublicFailure(ApiErrorCode.PROMOTION_NOT_FOUND, "promotionId")));
 
     private static final String RESOURCE_SEARCH = "islands";
     private static final String RESOURCE_DISCOVER = "island-discover";
@@ -282,6 +284,19 @@ public class IslandMembershipUseCase {
         var arrival = relay(() -> data.arriveAtIsland(claims.userId(), islandId, key, deadline));
         if (arrival == null || !islandId.equals(arrival.islandId())) {
             throw new UpstreamContractMismatchException("도착 응답의 섬이 요청과 다릅니다");
+        }
+        return IslandArrivalView.from(arrival);
+    }
+
+    /**
+     * 잡지 홍보 칸에서 그 섬으로 항해 없이 바로 간다 (GROMO-2902) — 응답·이동 가드는 {@link #arrive} 와 같다. 섬은 칸이 정하므로
+     * 응답에 섬이 있어야만 한다.
+     */
+    public IslandArrivalView arriveFromMagazine(AccessTokenClaims claims, UUID promotionId, UUID key,
+            Deadline deadline) {
+        var arrival = relay(() -> data.arriveFromMagazine(claims.userId(), promotionId, key, deadline));
+        if (arrival == null || arrival.islandId() == null) {
+            throw new UpstreamContractMismatchException("잡지 도착 응답에 섬이 없습니다");
         }
         return IslandArrivalView.from(arrival);
     }
