@@ -875,6 +875,55 @@
         }
       }
     },
+    "/internal/users/{userId}/magazine/promotions/{promotionId}/arrivals": {
+      "post": {
+        "tags": [
+          "internal-magazine-controller"
+        ],
+        "operationId": "arrive",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "promotionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/IslandArrivalView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/internal/users/{userId}/letters": {
       "get": {
         "tags": [
@@ -1387,7 +1436,7 @@
         "tags": [
           "internal-island-membership-controller"
         ],
-        "operationId": "arrive",
+        "operationId": "arrive_1",
         "parameters": [
           {
             "name": "userId",
@@ -3963,6 +4012,55 @@
       }
     },
     "/internal/islands/{islandId}/quests/{questId}": {
+      "delete": {
+        "tags": [
+          "internal-island-quest-controller"
+        ],
+        "operationId": "delete",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "questId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        }
+      },
       "patch": {
         "tags": [
           "internal-island-quest-controller"
@@ -4206,7 +4304,7 @@
         "tags": [
           "internal-island-notice-controller"
         ],
-        "operationId": "delete",
+        "operationId": "delete_1",
         "parameters": [
           {
             "name": "islandId",
@@ -4927,6 +5025,46 @@
               "*/*": {
                 "schema": {
                   "$ref": "#/components/schemas/JoinRequestCancelView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/users/{userId}/islands/{islandId}/promotions/next": {
+      "get": {
+        "tags": [
+          "internal-island-promotion-controller"
+        ],
+        "operationId": "next",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/NextPage"
                 }
               }
             }
@@ -7299,7 +7437,7 @@
         "tags": [
           "internal-island-guestbook-controller"
         ],
-        "operationId": "delete_1",
+        "operationId": "delete_2",
         "parameters": [
           {
             "name": "islandId",
@@ -8261,6 +8399,29 @@
           }
         }
       },
+      "IslandArrivalView": {
+        "type": "object",
+        "properties": {
+          "islandId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "arrivedBefore": {
+            "type": "boolean"
+          },
+          "membershipStatus": {
+            "type": "string"
+          },
+          "currentIslandId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "firstArrivalEventId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
       "LetterSendRequest": {
         "type": "object",
         "properties": {
@@ -8474,29 +8635,6 @@
             "items": {
               "type": "string"
             }
-          }
-        }
-      },
-      "IslandArrivalView": {
-        "type": "object",
-        "properties": {
-          "islandId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "arrivedBefore": {
-            "type": "boolean"
-          },
-          "membershipStatus": {
-            "type": "string"
-          },
-          "currentIslandId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "firstArrivalEventId": {
-            "type": "string",
-            "format": "uuid"
           }
         }
       },
@@ -10684,6 +10822,37 @@
               "LEFT",
               "KICKED"
             ]
+          }
+        }
+      },
+      "NextPage": {
+        "type": "object",
+        "properties": {
+          "next": {
+            "$ref": "#/components/schemas/ResidentNext"
+          }
+        }
+      },
+      "ResidentNext": {
+        "type": "object",
+        "properties": {
+          "promotionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "issueDate": {
+            "type": "string",
+            "format": "date"
+          },
+          "body": {
+            "type": "string"
+          },
+          "layout": {
+            "$ref": "#/components/schemas/Layout"
+          },
+          "appliedAt": {
+            "type": "string",
+            "format": "date-time"
           }
         }
       },
