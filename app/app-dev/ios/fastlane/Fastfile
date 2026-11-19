@@ -76,7 +76,8 @@ end
 
 # Release 아카이브 → TestFlight 업로드. 청중(운영/dev) 검사는 호출한 lane 이 끝낸 뒤다.
 def archive_and_upload(changelog: nil)
-  sentry_script = File.expand_path("../../scripts/sentry-xcode.sh", __dir__)
+  # fastlane 은 lane 안에서 __dir__ 를 ios/ 로 돌려 ../../ 가 app/ 이 된다 — 맨 위에서 고정한 IOS_DIR 기준으로 잡는다
+  sentry_script = File.expand_path("../scripts/sentry-xcode.sh", IOS_DIR)
   sh("/bin/bash", sentry_script, "check-release")
   # Datadog RUM 공개 설정은 testflight.sh 가 release-config.sh 에서 채운다. fastlane 을 직접 불러 비어 있으면
   # 앱의 initDatadog() 이 조용히 빠져 RUM 이 전혀 안 잡히므로, 업로드 전에 막는다.
