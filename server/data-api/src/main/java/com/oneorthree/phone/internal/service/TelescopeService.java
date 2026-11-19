@@ -296,8 +296,10 @@ public class TelescopeService {
 
     /**
      * 새 섬 칸 순서 (GROMO-2901). 첫 칸(가까운 섬)은 H → A → N → R 순으로 정원 남은 섬 중 첫 섬이다 — 열린 섬이 어느
-     * 묶음에든 있으면 가까운 섬 칸이 사라지지 않는다. 나머지 칸은 {@link #MIX} 의 묶음에서 다음 섬을 꺼내고, 그 묶음이
-     * 비면 다른 활동 묶음(H↔A), 그다음 새 섬(N), 나머지(R) 순으로 채운다. 열린 섬이 하나도 없으면 첫 칸도 MIX 규칙이다.
+     * 묶음에든 있으면 가까운 섬 칸이 사라지지 않는다. 나머지 칸은 {@link #MIX} 의 묶음에서 다음 섬을 꺼내되, 활동 묶음(H·A)은
+     * 열린 섬이 먼저다 — 그 칸 묶음의 열린 섬 → 다른 활동 묶음의 열린 섬 → 그 칸 묶음의 찬 섬 → 다른 활동 묶음의 찬 섬 → 새 섬(N)
+     * → 나머지(R). 평균 상위 섬은 사람이 많아 차 있기 쉬운데, 그 섬이 열린 활동 섬보다 앞서 «구경만» 칸을 늘리지 않게 한다.
+     * 찬 활동 섬도 활동 없는 섬(N·R)보다는 앞이다. 열린 섬이 하나도 없으면 첫 칸도 MIX 규칙이다.
      * 묶음 안 순서(정원 남은 섬 → 시드 해시)는 질의가 정해 온다.
      */
     private static List<TelescopeCandidate> mix(List<TelescopeDraw> rows) {
@@ -310,8 +312,11 @@ public class TelescopeService {
                 .ifPresent(tier -> drawn.add(tier.poll()));
         for (int slot = drawn.size(); slot < 1 + RANDOM_SLOTS; slot++) {
             String first = MIX.get(slot % MIX.size());
-            Stream.of(first, "H".equals(first) ? "A" : "H", "N", "R")
-                    .map(tiers::get).filter(tier -> tier != null && !tier.isEmpty()).findFirst()
+            String other = "H".equals(first) ? "A" : "H";
+            Stream.of(first, other).map(tiers::get)
+                    .filter(tier -> tier != null && !tier.isEmpty() && !isFull(tier.peek())).findFirst()
+                    .or(() -> Stream.of(first, other, "N", "R").map(tiers::get)
+                            .filter(tier -> tier != null && !tier.isEmpty()).findFirst())
                     .ifPresent(tier -> drawn.add(tier.poll()));
         }
         return drawn;

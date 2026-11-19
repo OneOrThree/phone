@@ -637,6 +637,33 @@ class TelescopeIntegrationTest {
     }
 
     @Test
+    @DisplayName("평균 상위 섬이 다 찼으면 H 칸도 최근 집중 묶음의 열린 섬이 먼저 쓰고, 찬 평균 상위 섬은 열린 활동 섬 뒤에 온다")
+    void openActiveIslandsComeBeforeFullTopIslands() {
+        User viewer = user();
+        // 활동 섬 5곳 → H 2(평균 90·89, 둘 다 찬 섬)·A 3(열린 섬).
+        List<UUID> top = new ArrayList<>();
+        for (int i = 0; i < 2; i++) {
+            UUID id = fullIsland("찬상위섬" + i).getId();
+            average(id, TODAY, 90 - i);
+            top.add(id);
+        }
+        List<UUID> recent = new ArrayList<>();
+        for (int i = 0; i < 3; i++) {
+            UUID id = island("열린활동섬" + i, 10).getId();
+            average(id, TODAY, 50 - i);
+            recent.add(id);
+        }
+
+        TelescopeView view = telescope.list(viewer.getId());
+
+        // 가까운 섬 A → A → H 칸이지만 A 의 열린 섬 → A 빔 → 찬 H → 찬 H.
+        List<UUID> a = byHash(viewer, recent);
+        List<UUID> h = byHash(viewer, top);
+        assertThat(ids(view)).containsExactly(a.get(0), a.get(1), a.get(2), h.get(0), h.get(1));
+        assertThat(view.items()).extracting(TelescopeItemView::full).containsExactly(false, false, false, true, true);
+    }
+
+    @Test
     @DisplayName("평균 상위·최근 집중 섬이 전부 정원이 차도 다른 묶음에 열린 섬이 있으면 그 섬이 첫 칸(가까운 섬, 15분)이다")
     void theFirstOpenIslandOfAnyTierBecomesNearby() {
         User viewer = user();
