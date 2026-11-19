@@ -150,6 +150,21 @@ it('같은 멱등 키 재시도는 첫 응답을 그대로 돌려주고, 같은 
   ).rejects.toMatchObject({ code: 'IDEMPOTENCY_KEY_REUSED', status: 409 });
 });
 
+it('홍보 칸 바로 도착(GROMO-2903) — 우리 섬 칸은 주민 도착, 남의 섬 칸은 방문 도착, 없는 칸은 PROMOTION_NOT_FOUND', async () => {
+  await expect(magazineMock.arriveFromMagazine('mock-cell-1', 'k')).resolves.toMatchObject({
+    islandId: 'mock-island-소다',
+    membershipStatus: 'active',
+  });
+  await expect(magazineMock.arriveFromMagazine('mock-cell-2', 'k')).resolves.toMatchObject({
+    islandId: 'mock-island-별고래섬',
+    membershipStatus: 'none',
+  });
+  await expect(magazineMock.arriveFromMagazine('nope', 'k')).rejects.toMatchObject({
+    code: 'PROMOTION_NOT_FOUND',
+    status: 404,
+  });
+});
+
 describe('신고·기록판·망원경', () => {
   it('신고 — 칸마다 처음은 새 신고, 두 번째는 이미 신고 · guest 는 403', async () => {
     await expect(magazineMock.reportPromotion('i', 'p1', 'HATE')).resolves.toEqual({

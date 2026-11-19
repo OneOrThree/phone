@@ -39,7 +39,7 @@ import type {
   PromotionUpdated,
   SavedPromotion,
 } from './magazine';
-import type { Telescope } from './telescope';
+import type { Arrival, Telescope } from './telescope';
 import { isMockMode } from '@/services/demoMode';
 import { MAGAZINE_FRAMES, MAGAZINE_STICKERS, MAGAZINE_TAPES } from '@/constants/magazineAssets';
 
@@ -300,6 +300,19 @@ const magazineReaderMock = {
     };
     receipts.set(issueId, next);
     return next;
+  },
+
+  /** 홍보 칸 바로 도착(GROMO-2903) — 우리 섬 칸은 주민 도착, 그 밖에는 방문 도착. 서버 섬이 없어 현재 섬은 비운다. */
+  async arriveFromMagazine(promotionId: string, _idempotencyKey: string): Promise<Arrival> {
+    await wait();
+    const cell = MOCK_CELLS.find((c) => c.promotionId === promotionId);
+    if (!cell) return reject('PROMOTION_NOT_FOUND', 404, '홍보를 찾을 수 없어요');
+    return {
+      islandId: cell.islandId,
+      arrivedBefore: true,
+      membershipStatus: cell.relation === 'MEMBER' ? 'active' : 'none',
+      currentIslandId: null,
+    };
   },
 };
 /** 이 기기에서 신고한 칸 — 같은 칸 두 번째 신고는 서버처럼 「이미 신고」(created: false)다. */

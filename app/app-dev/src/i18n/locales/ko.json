@@ -970,7 +970,7 @@
       "ours": "우리 섬이에요",
       "a11y": "{{name}}, {{residents}}, {{average}}, ‘{{body}}’",
       "a11yNoMeta": "{{name}}, ‘{{body}}’",
-      "scope": "{{name}} 망원경에 넣기",
+      "go": "{{name}}으로 가기",
       "privateIsland": "초대로만 갈 수 있는 섬"
     },
     "editor": {
@@ -1073,8 +1073,7 @@
       "noCells": "오늘은 실린 홍보가 없어요",
       "endTitle": "우리 섬도 실어 볼까요?",
       "endBody": "홍보는 마을회관에서 쓸 수 있어요. 아침 7시부터 자정까지 신청하면 다음 날 아침 호에 실려요",
-      "zoomClose": "크게 보기 닫기",
-      "scopeEvicted": "{{name}}이 망원경에서 빠져요"
+      "zoomClose": "크게 보기 닫기"
     },
     "rack": {
       "open": "잡지 꽂이",

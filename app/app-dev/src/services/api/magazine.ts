@@ -24,6 +24,7 @@
 import { ApiError, request } from './client';
 import { CLIENT_CONTRACT_ERROR } from './home';
 import type { ReportReason } from './safety';
+import type { Arrival } from './telescope';
 import type { PromotionLayout, StickerPlacement, TapePlacement } from '@/screens/magazine/layout';
 
 export type MagazineAsset = { assetId: string; bundle: 'free' | 'season'; owned: boolean };
@@ -438,6 +439,17 @@ export async function putMagazineReceipt(
     }),
     'receipt',
   );
+}
+
+/**
+ * 홍보 칸의 섬으로 항해 없이 바로 간다(GROMO-2903) — 응답은 망원경 도착(`arriveAtIsland`)과 같은 `Arrival` 이다. 주민이면 서버가
+ * 현재 섬을 옮겼고, 아니면 방문 도착만 남았다(가입하지 않는다). 응답 유실 재시도는 같은 `idempotencyKey` 로 보낸다.
+ */
+export function arriveFromMagazine(promotionId: string, idempotencyKey: string): Promise<Arrival> {
+  return request<Arrival>(`/me/magazine/promotions/${encodeURIComponent(promotionId)}/arrivals`, {
+    method: 'POST',
+    idempotencyKey,
+  });
 }
 
 /**
