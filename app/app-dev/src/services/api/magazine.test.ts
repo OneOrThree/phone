@@ -5,11 +5,13 @@
 import { ApiError } from '@/services/api/client';
 import {
   applyPromotion,
+  arriveFromMagazine,
   getIslandNews,
   getMagazineAssets,
   getMagazineIssue,
   getMagazineIssues,
   getMagazineToday,
+  getNextPromotion,
   getPromotionEditor,
   putMagazineReceipt,
   reportPromotion,
@@ -101,6 +103,21 @@ test('applyPromotion — POST {body, layout} + Idempotency-Key', async () => {
   expect(result.balanceAfter).toBe(1174);
 });
 
+test('arriveFromMagazine — POST /me/magazine/promotions/{id}/arrivals 는 본문 없이 Idempotency-Key 를 싣고 도착 응답을 그대로 돌려준다', async () => {
+  const arrival = {
+    islandId: 'is-1',
+    arrivedBefore: true,
+    membershipStatus: 'none',
+    currentIslandId: null,
+  };
+  stub(200, arrival);
+  await expect(arriveFromMagazine('p 1', 'idem-mag')).resolves.toEqual(arrival);
+  expect(path(calls[0])).toBe('/me/magazine/promotions/p%201/arrivals');
+  expect(calls[0].init.method).toBe('POST');
+  expect(header(calls[0], 'Idempotency-Key')).toBe('idem-mag');
+  expect(calls[0].init.body).toBeUndefined();
+});
+
 test('updatePromotion — PUT, 키 없이 본문만', async () => {
   stub(200, { promotionId: 'p1', issueDate: '2026-10-15', body: '고침', layout, updatedAt: 'u' });
   const saved = await updatePromotion('i1', 'p1', { body: '고침', layout } as any);
@@ -131,6 +148,17 @@ test('getMagazineAssets · getIslandNews — 경로와 모양', async () => {
   const news = await getIslandNews('i1', 5);
   expect(path(calls[1])).toBe('/islands/i1/news?limit=5');
   expect(news.map((n) => n.id)).toEqual(['n1']);
+});
+
+test('getNextPromotion — GET /islands/{id}/promotions/next, 없으면 null · 모양이 어긋나면 계약 오류', async () => {
+  const next = { promotionId: 'p1', issueDate: '2026-11-17', body: '안녕', layout, appliedAt: 'a' };
+  stub(200, { next });
+  await expect(getNextPromotion('i 1')).resolves.toEqual({ ...next, layout });
+  expect(path(calls[0])).toBe('/islands/i%201/promotions/next');
+  stub(200, { next: null });
+  await expect(getNextPromotion('i1')).resolves.toBeNull();
+  stub(200, { next: { promotionId: 'p1' } });
+  await expect(getNextPromotion('i1')).rejects.toMatchObject({ code: 'CLIENT_CONTRACT_ERROR' });
 });
 
 // ── 잡지 읽기(서버 publish 브랜치 business-api Magazines DTO) ──

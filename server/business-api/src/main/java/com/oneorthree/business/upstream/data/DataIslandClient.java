@@ -93,6 +93,9 @@ public class DataIslandClient {
     // GROMO-2289 고양이 잡지 편집 — 편집 화면·홍보 고치기·내 꾸미기 재료, 모두 사용자 축이다.
     private static final String PATH_ISLAND_PROMOTION_EDITOR =
             "/internal/users/{userId}/islands/{islandId}/promotions/editor";
+    // GROMO-2893 주민이 읽는 다음 호 홍보 칸.
+    private static final String PATH_ISLAND_PROMOTION_NEXT =
+            "/internal/users/{userId}/islands/{islandId}/promotions/next";
     private static final String PATH_ISLAND_PROMOTION =
             "/internal/users/{userId}/islands/{islandId}/promotions/{promotionId}";
     private static final String PATH_MAGAZINE_ASSETS = "/internal/users/{userId}/magazine/assets";
@@ -105,6 +108,9 @@ public class DataIslandClient {
     private static final String PATH_MAGAZINE_ISSUE = "/internal/users/{userId}/magazine/issues/{issueId}";
     private static final String PATH_MAGAZINE_RECEIPT =
             "/internal/users/{userId}/magazine/issues/{issueId}/receipt";
+    // GROMO-2902 잡지 홍보 칸에서 그 섬으로 바로 도착 — 섬 도착과 같은 명령 키 receipt 로 묶인다.
+    private static final String PATH_MAGAZINE_ARRIVALS =
+            "/internal/users/{userId}/magazine/promotions/{promotionId}/arrivals";
     // GROMO-1771 섬 게시판 6종 + 댓글 삭제(GROMO-2136)
     private static final String PATH_NOTICES = "/internal/islands/{islandId}/notices";
     private static final String PATH_NOTICE = "/internal/islands/{islandId}/notices/{noticeId}";
@@ -359,6 +365,20 @@ public class DataIslandClient {
                 new ParameterizedTypeReference<IslandArrival>() { });
     }
 
+    /** 잡지 홍보 칸에서 그 섬으로 바로 도착 (GROMO-2902) — 섬 도착과 같은 명령이라 앱의 명령 키를 싣는다. */
+    public IslandArrival arriveFromMagazine(UUID userId, UUID promotionId, UUID key, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.POST,
+                                userPath(PATH_MAGAZINE_ARRIVALS, userId)
+                                        .replace("{promotionId}", promotionId.toString()))
+                        .onBehalfOf(userId)
+                        .idempotencyKey(key.toString())
+                        .idempotentCommand()
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<IslandArrival>() { });
+    }
+
     /** 첫 항해 체험 도착 — 명령 키는 Data가 무인도 중복 생성까지 막는 데 사용한다. */
     public IslandArrival introArriveAtIsland(UUID userId, UUID islandId, UUID key, IntroArrivalCommand command,
             Deadline deadline) {
@@ -420,6 +440,18 @@ public class DataIslandClient {
                         .build(),
                 deadline,
                 new ParameterizedTypeReference<IslandPromotions.Editor>() { });
+    }
+
+    /** 주민이 읽는 다음 호 홍보 칸 (GROMO-2893). 멱등 GET 이라 재시도한다. */
+    public IslandPromotions.NextPage fetchPromotionNext(UUID userId, UUID islandId, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.GET,
+                                userPath(PATH_ISLAND_PROMOTION_NEXT, userId)
+                                        .replace("{islandId}", islandId.toString()))
+                        .onBehalfOf(userId)
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<IslandPromotions.NextPage>() { });
     }
 
     /** 내 잡지 꾸미기 재료 (GROMO-2289) — 게스트도 읽는다. 멱등 GET 이라 재시도한다. */

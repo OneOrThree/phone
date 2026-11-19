@@ -80,6 +80,13 @@ public class IslandQuest {
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
 
+    /**
+     * 방장 삭제 시각 (GROMO-2897) — 소프트 삭제다. 삭제된 퀘스트는 조회·수령·회차 개설·보너스 정산에서 빠지고,
+     * 이미 적립된 보상은 되돌리지 않는다.
+     */
+    @Column(name = "deleted_at")
+    private Instant deletedAt;
+
     /** 정의 수정 — 넘긴 값만 바꾸고 revision 을 올린다. 열린 회차는 자기 스냅샷을 쓴다. */
     public void revise(String newTitle, Integer newTargetMinutes) {
         if (newTitle != null) {
@@ -89,5 +96,9 @@ public class IslandQuest {
             this.targetMinutes = newTargetMinutes;
         }
         this.revision = this.revision + 1;
+    }
+
+    public void delete(Instant now) {
+        this.deletedAt = now;
     }
 }

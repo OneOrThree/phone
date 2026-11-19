@@ -509,7 +509,8 @@
   },
   "board": {
     "quest": {
-      "crossMidnight": "오전 9시를 넘나드는 시간대는 정할 수 없어요"
+      "crossMidnight": "오전 9시를 넘나드는 시간대는 정할 수 없어요",
+      "overlap": "다른 퀘스트와 시간대가 겹쳐요"
     }
   },
   "home": {
@@ -969,7 +970,7 @@
       "ours": "우리 섬이에요",
       "a11y": "{{name}}, {{residents}}, {{average}}, ‘{{body}}’",
       "a11yNoMeta": "{{name}}, ‘{{body}}’",
-      "scope": "{{name}} 망원경에 넣기",
+      "go": "{{name}}으로 가기",
       "privateIsland": "초대로만 갈 수 있는 섬"
     },
     "editor": {
@@ -1039,9 +1040,13 @@
     },
     "news": {
       "promotion": "섬장이 오늘 잡지 홍보에 60마리를 썼어요 · 내일 아침 잡지에 실려요",
-      "promotionYesterday": "섬장이 어제 잡지 홍보에 60마리를 썼어요 · 오늘 아침 잡지에 실려요",
-      "title": "섬 소식",
-      "promotionRow": "섬장이 잡지 홍보에 60마리를 썼어요"
+      "promotionYesterday": "섬장이 어제 잡지 홍보에 60마리를 썼어요 · 오늘 아침 잡지에 실려요"
+    },
+    "hall": {
+      "write": "홍보 쓰기",
+      "edit": "수정하기",
+      "issue": "{{month}}월 {{day}}일 아침 7시 호",
+      "applied": "{{name}} 섬장이 홍보를 신청했어요"
     },
     "reader": {
       "title": "냐옹",
@@ -1068,8 +1073,7 @@
       "noCells": "오늘은 실린 홍보가 없어요",
       "endTitle": "우리 섬도 실어 볼까요?",
       "endBody": "홍보는 마을회관에서 쓸 수 있어요. 아침 7시부터 자정까지 신청하면 다음 날 아침 호에 실려요",
-      "zoomClose": "크게 보기 닫기",
-      "scopeEvicted": "{{name}}이 망원경에서 빠져요"
+      "zoomClose": "크게 보기 닫기"
     },
     "rack": {
       "open": "잡지 꽂이",
@@ -1794,6 +1798,7 @@
       "save": "저장하기",
       "saved": "섬 정보를 저장했어요.",
       "editIsland": "섬 정보 수정",
+      "edit": "수정",
       "applicant": "신청자",
       "rejectApplicant": "{{v0}} 가입 거절",
       "rejectedApplicant": "{{v0}}님의 가입을 거절했어요.",
@@ -2152,6 +2157,7 @@
       "write": "쓰기",
       "noticeObject": "공지를",
       "commentObject": "댓글을",
+      "questObject": "퀘스트를",
       "fishSuffix": " · {{v0}}마리",
       "nextBuilding": "다음 건물",
       "totalFishCost": "총 {{v0}}마리"

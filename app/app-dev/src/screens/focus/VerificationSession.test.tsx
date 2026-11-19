@@ -1,5 +1,10 @@
 import { act, fireEvent, render } from '@testing-library/react-native';
 import { AppState } from 'react-native';
+import { captureCameraError, recordSentryCameraState } from '@/services/sentry';
+jest.mock('@/services/sentry', () => ({
+  captureCameraError: jest.fn(),
+  recordSentryCameraState: jest.fn(),
+}));
 import { componentTokens } from '@/design-system/tokens';
 import { VerificationSession } from './VerificationSession';
 import {
@@ -8,9 +13,14 @@ import {
 } from '@/services/studyVerification/sessionResult';
 
 let mockCameraFailure = false;
+let mockCameraEffectFailure = false;
 jest.mock('./VerificationCamera', () => ({
   PREVIEW_STALE_MS: 2_000,
   VerificationCamera: ({ active, ...props }: { active: boolean }) => {
+    require('react').useEffect(() => {
+      if (active && mockCameraEffectFailure)
+        throw new Error('OrientationManager: accelerometer is not available');
+    }, [active]);
     if (active && mockCameraFailure) throw new Error('native preview initialization failed');
     return active
       ? require('react').createElement(require('react-native').View, {
@@ -22,7 +32,9 @@ jest.mock('./VerificationCamera', () => ({
 }));
 
 beforeEach(() => {
+  jest.clearAllMocks();
   mockCameraFailure = false;
+  mockCameraEffectFailure = false;
   clearVerificationResult('session');
   jest.useFakeTimers();
   jest.setSystemTime(new Date('2026-10-30T00:00:00Z'));
@@ -61,6 +73,22 @@ test('미리보기 없이도 측정 중 표시를 유지하고 손 미검출을 
   expect(screen.getByText('측정 중')).toBeTruthy();
   await screen.rerender(<VerificationSession sessionId="session" enabled />);
   expect(screen.getByText('측정 중')).toBeTruthy();
+});
+
+test('측정 배지와 판정 배지는 같은 왼쪽 기준선·점 위치·글자 스타일을 쓴다', async () => {
+  const screen = await render(
+    <VerificationSession sessionId="session" enabled textStyle={{ color: '#123456' }} />,
+  );
+  await fireEvent(screen.getByTestId('live-camera'), 'ready');
+  await fireEvent(screen.getByTestId('live-camera'), 'detection', 'missingHand');
+  const indicator = screen.getByTestId('verification-measurement-indicator');
+  const status = screen.getByTestId('verification-detection-status');
+  expect(indicator).toHaveStyle({ alignSelf: 'flex-start' });
+  expect(status).toHaveStyle({ alignSelf: 'flex-start' });
+  expect(indicator.children[0]).toBe(screen.getByTestId('verification-measurement-dot'));
+  expect(status.children[0]).toBe(screen.getByTestId('verification-session-light'));
+  expect(screen.getByText('측정 중')).toHaveStyle({ color: '#123456' });
+  expect(screen.getByText('집중 미확인')).toHaveStyle({ color: '#123456' });
 });
 
 test('OFF·오류·백그라운드에서는 측정 중 표시를 없애고 준비·판정 불가는 빨간 점으로 표시하지 않는다', async () => {
@@ -275,6 +303,33 @@ test.each([true, false])(
   },
 );
 
+test('카메라 방향 구독의 effect 예외도 앱 종료 없이 오류 안내·재시도로 처리한다', async () => {
+  jest.spyOn(console, 'error').mockImplementation(() => {});
+  mockCameraEffectFailure = true;
+  const screen = await render(<VerificationSession sessionId="session" enabled previewVisible />);
+  expect(screen.queryByTestId('live-camera')).toBeNull();
+  expect(screen.getByText('카메라를 사용할 수 없어요.')).toBeTruthy();
+  expect(captureCameraError).toHaveBeenCalledWith(
+    expect.objectContaining({ message: 'OrientationManager: accelerometer is not available' }),
+    'capture',
+    expect.objectContaining({
+      camera_position: 'back',
+      measurement_enabled: true,
+      preview_visible: true,
+      phase: 'focusing',
+    }),
+  );
+  expect(captureCameraError).toHaveBeenCalledTimes(1);
+  await act(async () => jest.advanceTimersByTime(10_000));
+  expect(verificationResult('session')).toBe(0);
+  await fireEvent.press(screen.getByRole('button', { name: '카메라 다시 시도' }));
+  expect(screen.getByText('카메라를 사용할 수 없어요.')).toBeTruthy();
+  mockCameraEffectFailure = false;
+  await fireEvent.press(screen.getByRole('button', { name: '카메라 다시 시도' }));
+  await focusedSeconds(screen, 2);
+  expect(verificationResult('session')).toBe(2);
+});
+
 test('시작 전 오류 재시도는 새 판정을 기다리고 측정 OFF면 촬영과 재시도를 숨긴다', async () => {
   const screen = await render(<VerificationSession enabled previewVisible />);
   await focusedSeconds(screen, 1);
@@ -449,4 +504,59 @@ test('집중 중 최근 결과는 미리보기를 닫아도 유지하고 만료�
   await fireEvent(screen.getByTestId('live-camera'), 'error', new Error('interrupted'));
   expect(screen.queryByTestId('verification-detection-status')).toBeNull();
   expect(screen.getByText('카메라를 사용할 수 없어요.')).toBeTruthy();
+});
+
+test('화면 종료·백그라운드·카메라 옵션 변경은 진단 상태에 남기되 과목·세션 ID는 보내지 않는다', async () => {
+  const screen = await render(<VerificationSession sessionId="private-session" enabled />);
+  expect(recordSentryCameraState).toHaveBeenCalledWith({
+    measurement_enabled: true,
+    preview_visible: false,
+    camera_position: 'back',
+    phase: 'focusing',
+    foreground: true,
+  });
+  expect(recordSentryCameraState).toHaveBeenCalledWith({
+    mounted: true,
+    capture_status: 'initializing',
+  });
+  await screen.rerender(
+    <VerificationSession
+      sessionId="private-session"
+      enabled
+      previewVisible
+      cameraPosition="front"
+    />,
+  );
+  expect(recordSentryCameraState).toHaveBeenLastCalledWith(
+    expect.objectContaining({ camera_position: 'front', preview_visible: true }),
+  );
+  const listener = jest.mocked(AppState.addEventListener).mock.calls.at(-1)![1];
+  await act(async () => listener('background'));
+  expect(recordSentryCameraState).toHaveBeenLastCalledWith(
+    expect.objectContaining({ foreground: false, mounted: false, capture_status: 'unmounted' }),
+  );
+  await screen.unmount();
+  expect(recordSentryCameraState).toHaveBeenLastCalledWith({
+    mounted: false,
+    capture_status: 'unmounted',
+  });
+  expect(JSON.stringify(jest.mocked(recordSentryCameraState).mock.calls)).not.toContain(
+    'private-session',
+  );
+});
+
+test('측정 OFF·초기화 실패는 카메라가 마운트된 것으로 기록하지 않고 재시도에서 복원한다', async () => {
+  const latestState = () =>
+    Object.assign({}, ...jest.mocked(recordSentryCameraState).mock.calls.map(([state]) => state));
+  const screen = await render(<VerificationSession enabled={false} previewVisible />);
+  expect(latestState()).toMatchObject({ mounted: false, capture_status: 'unmounted' });
+  jest.spyOn(console, 'error').mockImplementation(() => {});
+  mockCameraFailure = true;
+  await screen.rerender(<VerificationSession enabled previewVisible />);
+  expect(latestState()).toMatchObject({ mounted: false, capture_status: 'failed' });
+  mockCameraFailure = false;
+  await fireEvent.press(screen.getByRole('button', { name: '카메라 다시 시도' }));
+  expect(latestState()).toMatchObject({ mounted: true, capture_status: 'initializing' });
+  await screen.rerender(<VerificationSession enabled={false} previewVisible />);
+  expect(latestState()).toMatchObject({ mounted: false, capture_status: 'unmounted' });
 });

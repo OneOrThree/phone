@@ -14,7 +14,7 @@
  * 새 요청을 내지 않고 진행 중인 promise 를 돌려준다(중복 탭).
  *
  * 퀘스트는 getBoard 가 싣는 `quests.items`(현재 회차 헤더·내 진행률·수령 상태·지갑)를 목록으로
- * 쓰고, 주민별 진행은 `selectQuest` 의 progress GET 이 가져온다. 수령·생성·수정 성공 뒤에는
+ * 쓰고, 주민별 진행은 `selectQuest` 의 progress GET 이 가져온다. 수령·생성·수정·삭제 성공 뒤에는
  * refreshList 가 목록과 지갑을 함께 다시 읽는다 — 앱이 보상량을 로컬 지갑에 더하지 않는다.
  * claim 의 버전은 목록 항목의 `version` 이고, 403/409 실패 뒤엔 목록을 다시 읽어 새 버전·
  * 권한을 받아 온다.
@@ -42,6 +42,7 @@ import {
 import {
   claimQuest as postClaim,
   createQuest as postQuest,
+  deleteQuest as delQuest,
   getQuestProgress,
   updateQuest as patchQuest,
   type QuestClaimed,
@@ -574,6 +575,28 @@ export function useBoardNotices({ active, scopeKey }: { active: boolean; scopeKe
   );
 
   /**
+   * 퀘스트 삭제(GROMO-2898) — 방장만. 성공하면 목록을 다시 읽어 지운 퀘스트를 뺀다.
+   * 404 는 이미 지워진 퀘스트라 성공과 같이 목록만 다시 읽는다.
+   */
+  const deleteQuest = useCallback(
+    async (id: string): Promise<void> => {
+      const islandId = writable();
+      const e = epoch.current;
+      const generation = sessionGeneration();
+      return runWrite(
+        `quest-delete:${id}`,
+        id,
+        (key) =>
+          delQuest(islandId, id, key).catch((error: unknown) => {
+            if (!(error instanceof ApiError && error.status === 404)) throw error;
+          }),
+        () => refreshList(e, generation),
+      );
+    },
+    [writable, runWrite, refreshList],
+  );
+
+  /**
    * 개인 몫 수령 — 본문은 {occurrenceId, expectedVersion} 두 키뿐이고 지급량은 서버가 판정한다.
    * 성공하면 refreshList 로 목록·지갑을 다시 읽는다(로컬 가산 금지).
    * 403/409 실패는 권한·회차 버전이 바뀌었다는 뜻이라 목록을 다시 읽어 새 버전을 맞춘다.
@@ -670,6 +693,7 @@ export function useBoardNotices({ active, scopeKey }: { active: boolean; scopeKe
     selectQuest,
     createQuest,
     updateQuest,
+    deleteQuest,
     claimQuest,
   };
 }

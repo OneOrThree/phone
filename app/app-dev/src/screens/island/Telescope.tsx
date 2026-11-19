@@ -35,7 +35,12 @@ import { ApiError, CLIENT_STALE_SESSION, uuid } from '@/services/api/client';
 import type { MagazineCell } from '@/services/api/magazine';
 import { isTelescopeMock } from '@/services/api/magazineMock';
 import { getSession, sessionGeneration } from '@/services/api/session';
-import { arriveAtIsland, unpinFromTelescope, type TelescopeItem } from '@/services/api/telescope';
+import {
+  arriveAtIsland,
+  unpinFromTelescope,
+  type Arrival,
+  type TelescopeItem,
+} from '@/services/api/telescope';
 import { unknownOutcome } from '@/services/islandCommands';
 import { islandErrorMessage } from '@/services/islandErrors';
 import { intentKeyPool, serverVisit, sessionRoute, type Route, type State } from '@/services/model';
@@ -183,11 +188,15 @@ export async function arrive(
   return (await arriveWithOutcome(e, keys, islandId)).member;
 }
 
-/** `arrive` + 서버가 준 `arrivedBefore`(결과를 모르는 채 소속으로 확인된 경우엔 true — 환영을 띄우지 않는다). */
+/**
+ * `arrive` + 서버가 준 `arrivedBefore`(결과를 모르는 채 소속으로 확인된 경우엔 true — 환영을 띄우지 않는다).
+ * `post` 는 도착 요청이다 — 기본은 항해 도착, 잡지 바로 가기(GROMO-2903)는 홍보 칸 도착을 넘긴다(응답·키·복구 규칙이 같다).
+ */
 export async function arriveWithOutcome(
   e: ArrivalEnvironment,
   keys: IntentKeys,
   islandId: string,
+  post: (islandId: string, key: string) => Promise<Arrival> = arriveAtIsland,
 ): Promise<{ member: boolean; arrivedBefore: boolean }> {
   const commands = e.islands;
   if (!commands) throw new Error('서버 섬 명령이 필요합니다.');
@@ -198,7 +207,7 @@ export async function arriveWithOutcome(
   const sameLogin = () => sessionGeneration() === generation && getSession()?.userId === userId;
   let arrival;
   try {
-    arrival = await arriveAtIsland(islandId, key);
+    arrival = await post(islandId, key);
   } catch (thrown) {
     // POST 자체의 결과를 모를 때만 소속 재조회로 가린다
     if (!unknownOutcome(thrown)) throw thrown;
@@ -245,6 +254,34 @@ export async function arriveWithOutcome(
     await commands.sync().catch(() => {});
   }
   return { member: true, arrivedBefore };
+}
+
+/**
+ * 도착한 섬으로 들어간다 — 주민이면 홈(현 가입 이후 첫 도착이면 환영 한 번), 아니면 서버 섬 구경. 바다 항해 도착(SeaVoyageHost)과
+ * 잡지 바로 가기(MagazineReader, GROMO-2903)가 같이 쓴다. await 뒤에는 `latest()` 로 최신 화면 환경을 쓰고, `stale()` 이면 멈춘다.
+ */
+export async function enterArrivedIsland(
+  latest: () => Pick<ScreenEnvironment, 'notify' | 'reset' | 'replace' | 'dispatch'> &
+    Partial<Pick<ScreenEnvironment, 'islands'>>,
+  islandId: string,
+  islandName: string,
+  { member, arrivedBefore }: { member: boolean; arrivedBefore: boolean },
+  stale: () => boolean,
+): Promise<void> {
+  if (member) {
+    if (!arrivedBefore)
+      latest().notify(
+        `${t('openSea.welcomeTitle')} ${t('openSea.welcomeBody', { island: islandName })}`,
+      );
+    latest().reset('home');
+    return;
+  }
+  const commands = latest().islands;
+  if (!commands) throw new Error('stale arrival');
+  await commands.visit(islandId);
+  if (stale()) return;
+  latest().dispatch({ type: 'SERVER_VISITING', islandId });
+  latest().replace('visitIsland', islandId);
 }
 
 /** 내 소속 섬 — 서버가 joined 칸에 두거나 이미 활성 멤버십이면(핀이 남은 섬 등) 가입 버튼 없이 깃발을 꽂는다. */

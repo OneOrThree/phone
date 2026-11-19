@@ -13,6 +13,7 @@ import {
 import { VerificationCamera, type VerificationDetection } from './VerificationCamera';
 import type { VerificationCameraPosition } from '@/services/studyVerification/types';
 import type { StudyObjectPresence } from '@/services/studyVerification/studyObjects';
+import { captureCameraError, recordSentryCameraState } from '@/services/sentry';
 
 /** 네이티브 출력 생성 중 렌더 예외도 기존 촬영 오류·재시도 경로로 보낸다. */
 class CameraErrorBoundary extends Component<
@@ -55,6 +56,20 @@ export function VerificationSession({
     );
     return () => subscription.remove();
   }, []);
+  useEffect(() => {
+    recordSentryCameraState({
+      measurement_enabled: enabled,
+      preview_visible: previewVisible,
+      camera_position: cameraPosition,
+      phase: sessionId ? 'focusing' : 'before_focus',
+      foreground,
+      ...(!enabled || !foreground ? { mounted: false, capture_status: 'unmounted' as const } : {}),
+    });
+  }, [enabled, previewVisible, cameraPosition, sessionId, foreground]);
+  useEffect(
+    () => () => recordSentryCameraState({ mounted: false, capture_status: 'unmounted' }),
+    [],
+  );
   if (!enabled || !foreground) return null;
   return (
     <SessionCamera
@@ -98,6 +113,12 @@ function SessionCamera({
   const [ready, setReady] = useState(false);
   const [detection, setDetection] = useState<VerificationDetection>('checking');
   const [error, setError] = useState(false);
+  useEffect(() => {
+    recordSentryCameraState({
+      mounted: !error,
+      capture_status: error ? 'failed' : 'initializing',
+    });
+  }, [error]);
   const [objects, setObjects] = useState<StudyObjectPresence | null>(null);
   const capture = useRef<ReturnType<typeof openVerificationCapture> | null>(null);
   const frameReady = useRef(false);
@@ -139,6 +160,7 @@ function SessionCamera({
     return () => {
       mounted.current = false;
       frameReady.current = false;
+      recordSentryCameraState({ mounted: false, capture_status: 'unmounted' });
     };
   }, []);
   useEffect(() => {
@@ -150,12 +172,22 @@ function SessionCamera({
       activeCapture?.close();
     };
   }, [sessionId]);
-  const failCamera = useCallback(() => {
-    if (!mounted.current || failed.current) return;
-    failed.current = true;
-    pause();
-    setError(true);
-  }, [pause]);
+  const failCamera = useCallback(
+    (cause: unknown) => {
+      if (!mounted.current || failed.current) return;
+      failed.current = true;
+      recordSentryCameraState({ mounted: false, capture_status: 'failed' });
+      captureCameraError(cause, 'capture', {
+        camera_position: position,
+        measurement_enabled: measurementEnabled,
+        preview_visible: previewShown.current,
+        phase: sessionId ? 'focusing' : 'before_focus',
+      });
+      pause();
+      setError(true);
+    },
+    [pause, position, measurementEnabled, sessionId],
+  );
   const ui = componentTokens.verificationSetup;
   const visibleDetection = ready && !error ? detection : 'checking';
   const status = t(
@@ -196,13 +228,6 @@ function SessionCamera({
             maxWidth: '100%',
           }}
         >
-          <Txt kind="meta" style={{ flexShrink: 1 }}>
-            {t(
-              measuring
-                ? 'verification.session.measurementActive'
-                : 'verification.session.measurementPreparing',
-            )}
-          </Txt>
           <View
             testID="verification-measurement-dot"
             style={{
@@ -212,6 +237,13 @@ function SessionCamera({
               backgroundColor: measuring ? ui.measurementColor : ui.waitingColor,
             }}
           />
+          <Txt kind="meta" style={[textStyle, { flexShrink: 1 }]}>
+            {t(
+              measuring
+                ? 'verification.session.measurementActive'
+                : 'verification.session.measurementPreparing',
+            )}
+          </Txt>
         </View>
       )}
       <View
@@ -312,6 +344,8 @@ function SessionCamera({
             style={{
               flexDirection: 'row',
               alignItems: 'center',
+              // 측정 배지와 같은 왼쪽 기준선·점 위치·글자 스타일로 맞춘다
+              alignSelf: 'flex-start',
               gap: primitiveTokens.space[1],
               backgroundColor: ui.statusBackground,
               paddingHorizontal: ui.statusPaddingHorizontal,

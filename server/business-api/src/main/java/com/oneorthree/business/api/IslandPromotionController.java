@@ -1,5 +1,6 @@
 package com.oneorthree.business.api;
 
+import com.oneorthree.business.api.dto.IslandPromotionResponses;
 import com.oneorthree.business.auth.AccessTokenClaims;
 import com.oneorthree.business.common.api.ApiErrorCode;
 import com.oneorthree.business.common.api.PublicApiException;
@@ -106,6 +107,14 @@ public class IslandPromotionController {
     public IslandPromotions.Editor editor(@PathVariable String islandId, HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
         return promotions.editor(claims, PublicIds.uuid(islandId, "islandId"), properties.deadline());
+    }
+
+    /** 다음 호 홍보 칸 — 주민 전원(게스트 포함)이 읽는다. */
+    @GetMapping("/islands/{islandId}/promotions/next")
+    public IslandPromotionResponses.NextPage next(@PathVariable String islandId, HttpServletRequest request) {
+        AccessTokenClaims claims = sessions.requireSession(request);
+        return IslandPromotionResponses.NextPage.from(
+                promotions.next(claims, PublicIds.uuid(islandId, "islandId"), properties.deadline()));
     }
 
     /** 내 꾸미기 재료 — 게스트도 읽는다. */

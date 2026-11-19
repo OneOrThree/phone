@@ -42,6 +42,7 @@ class IslandPromotionContractTest extends UpstreamTestBase {
     private static final String DATA_NEWS = "GET " + INTERNAL + "/news";
     private static final String DATA_UPDATE = "PUT " + INTERNAL + "/promotions/" + PROMOTION;
     private static final String DATA_EDITOR = "GET " + INTERNAL + "/promotions/editor";
+    private static final String DATA_NEXT = "GET " + INTERNAL + "/promotions/next";
     private static final String DATA_ASSETS = "GET /internal/users/" + USER + "/magazine/assets";
     private static final String DATA_REPORT = "POST " + INTERNAL + "/promotions/" + PROMOTION + "/reports";
 
@@ -371,6 +372,55 @@ class IslandPromotionContractTest extends UpstreamTestBase {
         }
     }
 
+    // ---------------------------------------------------------------- 다음 호 홍보 칸 (주민)
+
+    @Test
+    @DisplayName("주민이 읽는 다음 호 홍보 칸은 {next:{promotionId, issueDate, body, layout, appliedAt}} 이고 editable 은 싣지 않는다")
+    void nextRelaysTheCellForResidents() throws Exception {
+        DATA.on(DATA_NEXT, request -> ok("{\"next\":{\"promotionId\":\"" + PROMOTION
+                + "\",\"issueDate\":\"2026-10-15\",\"body\":\"" + TEXT + "\",\"layout\":" + LAYOUT
+                + ",\"appliedAt\":\"2026-10-14T05:00:00Z\"}}"));
+
+        mockMvc.perform(auth(get(PUBLIC + "/promotions/next")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.next.promotionId").value(PROMOTION.toString()))
+                .andExpect(jsonPath("$.data.next.issueDate").value("2026-10-15"))
+                .andExpect(jsonPath("$.data.next.body").value(TEXT))
+                .andExpect(jsonPath("$.data.next.layout.stickers[0].assetId").value("mag.cat-black-book"))
+                .andExpect(jsonPath("$.data.next.appliedAt").value("2026-10-14T05:00:00Z"))
+                .andExpect(jsonPath("$.data.next.editable").doesNotExist());
+        assertThat(DATA.receivedFor(DATA_NEXT).get(0).header("X-User-Id")).isEqualTo(USER.toString());
+    }
+
+    @Test
+    @DisplayName("다음 호 홍보가 없으면 next 는 null 로 키를 유지한다")
+    void nextKeepsNullWhenNoPromotion() throws Exception {
+        DATA.on(DATA_NEXT, request -> ok("{\"next\":null}"));
+
+        mockMvc.perform(auth(get(PUBLIC + "/promotions/next")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.next").hasJsonPath())
+                .andExpect(jsonPath("$.data.next").value((Object) null));
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+            "403,MEMBER_ONLY,403,FORBIDDEN,islandId",
+            "404,GROUP_NOT_FOUND,404,GROUP_NOT_FOUND,islandId",
+            "404,USER_NOT_FOUND,404,USER_NOT_FOUND,"})
+    @DisplayName("다음 호 홍보 칸은 비주민·없는 섬의 판정을 공개 오류로 옮긴다")
+    void nextRelaysDataVerdictsAsPublicErrors(int upstreamStatus, String upstreamCode, int status, String code,
+            String field) throws Exception {
+        DATA.on(DATA_NEXT, request -> error(upstreamStatus, upstreamCode));
+
+        var result = mockMvc.perform(auth(get(PUBLIC + "/promotions/next")))
+                .andExpect(status().is(status))
+                .andExpect(jsonPath("$.error.code").value(code));
+        if (field != null) {
+            result.andExpect(jsonPath("$.error.field").value(field));
+        }
+    }
+
     // ---------------------------------------------------------------- 꾸미기 재료
 
     @Test
@@ -619,6 +669,8 @@ class IslandPromotionContractTest extends UpstreamTestBase {
             "/islands/{islandId}/promotions/editor|get|200|window|open issueDate opensAt closesAt|open issueDate opensAt closesAt",
             "/islands/{islandId}/promotions/editor|get|200|next|promotionId issueDate body layout appliedAt editable|promotionId issueDate body layout appliedAt editable",
             "/islands/{islandId}/promotions/editor|get|200|latest|promotionId issueDate body layout|promotionId issueDate body layout",
+            "/islands/{islandId}/promotions/next|get|200||next|next",
+            "/islands/{islandId}/promotions/next|get|200|next|promotionId issueDate body layout appliedAt|promotionId issueDate body layout appliedAt",
             "/me/magazine/assets|get|200||frames stickers tapes|frames stickers tapes",
             "/me/magazine/assets|get|200|frames|assetId bundle owned|assetId bundle owned",
             "/me/magazine/assets|get|200|stickers|assetId tab bundle owned|assetId tab bundle owned",

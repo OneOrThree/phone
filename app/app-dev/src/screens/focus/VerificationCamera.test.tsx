@@ -5,6 +5,11 @@ import { useCamera, useFrameOutput, type Frame } from 'react-native-vision-camer
 import { useResizer } from 'react-native-vision-camera-resizer';
 import { useTensorflowModel } from 'react-native-fast-tflite';
 import { scheduleOnRN } from 'react-native-worklets';
+import { captureCameraError } from '@/services/sentry';
+jest.mock('@/services/sentry', () => ({
+  captureCameraError: jest.fn(),
+  recordSentryCameraState: jest.fn(),
+}));
 import {
   MEASUREMENT_INTERVAL_MS,
   MEASUREMENT_STALE_MS,
@@ -397,6 +402,57 @@ test('첫 검사도 프레임이 5초 동안 오지 않으면 촬영을 멈추�
   expect(screen.onDetection.mock.calls).toHaveLength(detections);
 });
 
+test('리사이저 오류로 측정 불가가 확정되면 5초 제한·frame_timeout 보고 없이 다음 주기에도 카메라를 켜지 않고 새 세션에서 다시 시도한다', async () => {
+  const ready = jest.mocked(useResizer).getMockImplementation()!;
+  jest.mocked(useResizer).mockReturnValue({
+    state: 'loading',
+    resizer: undefined,
+    error: undefined,
+  });
+  const screen = await setup(false, 'periodic');
+  const props = {
+    position: 'back' as const,
+    active: true,
+    previewVisible: false,
+    cadence: 'periodic' as const,
+    onReady: screen.onReady,
+    onPaused: screen.onPaused,
+    onDetection: screen.onDetection,
+    onError: screen.onError,
+  };
+  expect(jest.mocked(useCamera).mock.calls.at(-1)![0].isActive).toBe(true);
+  await act(async () => jest.advanceTimersByTime(1000));
+  // Vulkan 1.1 이 없는 Android 기기는 리사이저 생성이 실패한다(Sentry CATTUS-F·G·H).
+  const vulkan = new Error('Failed to find a Vulkan 1.1 device');
+  jest.mocked(useResizer).mockReturnValue({ state: 'error', resizer: undefined, error: vulkan });
+  await screen.rerender(<VerificationCamera {...props} />);
+  const failedAt = jest.mocked(useCamera).mock.calls.length - 1;
+  await act(async () => jest.advanceTimersByTime(MEASUREMENT_INTERVAL_MS * 3));
+  const unavailable = () => screen.onDetection.mock.calls.filter(([d]) => d === 'unavailable');
+  expect(unavailable()).toHaveLength(1);
+  expect(captureCameraError).toHaveBeenCalledWith(vulkan, 'palm_resizer', {
+    camera_position: 'back',
+  });
+  expect(jest.mocked(captureCameraError).mock.calls.map(([, stage]) => stage)).not.toContain(
+    'frame_timeout',
+  );
+  expect(
+    jest
+      .mocked(useCamera)
+      .mock.calls.slice(failedAt)
+      .map(([options]) => options.isActive),
+  ).not.toContain(true);
+  // 새 집중 세션은 FocusFlow 가 세션 id 를 key 로 다시 마운트하므로 리사이저를 새로 만든다.
+  jest.mocked(useResizer).mockImplementation(ready);
+  await screen.rerender(<VerificationCamera key="session-2" {...props} />);
+  expect(jest.mocked(useCamera).mock.calls.at(-1)![0].isActive).toBe(true);
+  await sample(4);
+  await sample(4);
+  await sample(4);
+  expect(screen.onDetection).toHaveBeenLastCalledWith('focused');
+  expect(unavailable()).toHaveLength(1);
+});
+
 test('검사 사이 영상 표시만 바꿔도 검사 주기를 당기거나 판정을 지우지 않는다', async () => {
   const screen = await setup(false, 'periodic');
   await sample(4);
@@ -612,4 +668,71 @@ test('도구 추론 오류가 난 장도 그 장의 한도를 쓴 것으로 세�
   expect(screen.onDetection).toHaveBeenLastCalledWith('missingObject');
   // 첫 장 오류(1회 실행, 한도 4 소진) 뒤 남은 두 장은 1회씩만 본다.
   expect(objectRunSync).toHaveBeenCalledTimes(3);
+});
+
+test('모델 로딩 실패는 원래 오류를 한 번 전송하고 다시 렌더해도 중복 전송하지 않는다', async () => {
+  const error = new Error('model load failed');
+  jest.mocked(useTensorflowModel).mockReturnValue({ state: 'error', model: undefined, error });
+  const screen = await setup();
+  expect(captureCameraError).toHaveBeenCalledWith(error, 'palm_model', { camera_position: 'back' });
+  expect(captureCameraError).toHaveBeenCalledWith(error, 'object_model', {
+    camera_position: 'back',
+  });
+  expect(screen.onDetection).toHaveBeenCalledWith('unavailable');
+  const detections = screen.onDetection.mock.calls.length;
+  // 훅이 새 wrapper 객체를 돌려줘도 같은 상태/오류면 판정을 반복 갱신하지 않는다.
+  jest.mocked(useTensorflowModel).mockImplementation(() => ({
+    state: 'error',
+    model: undefined,
+    error,
+  }));
+  await screen.rerender(
+    <VerificationCamera
+      position="back"
+      active
+      onReady={screen.onReady}
+      onPaused={screen.onPaused}
+      onDetection={screen.onDetection}
+      onError={screen.onError}
+      onStudyObjects={screen.onStudyObjects}
+    />,
+  );
+  expect(screen.onDetection).toHaveBeenCalledTimes(detections);
+  await act(async () => jest.advanceTimersByTime(60_000));
+  expect(captureCameraError).toHaveBeenCalledTimes(2);
+});
+
+test('정상 카메라의 손 미검출은 Sentry 오류로 전송하지 않는다', async () => {
+  await setup();
+  await sample(-4);
+  await sample(-4);
+  await sample(-4);
+  expect(captureCameraError).not.toHaveBeenCalled();
+});
+
+test('반복된 추론 실패는 한 번 보고하고 프레임 해제와 판정 불가를 유지한다', async () => {
+  const screen = await setup();
+  resize.mockImplementation(() => {
+    throw new Error('buffer unavailable');
+  });
+  await sample(4);
+  await sample(4);
+  expect(captureCameraError).toHaveBeenCalledTimes(1);
+  expect(captureCameraError).toHaveBeenCalledWith('Error: buffer unavailable', 'inference', {
+    camera_position: 'back',
+  });
+  expect(screen.onDetection).toHaveBeenLastCalledWith('unavailable');
+  resize.mockImplementation(() => {
+    throw new Error('different tensor shape');
+  });
+  await sample(4);
+  await sample(4);
+  expect(captureCameraError).toHaveBeenCalledTimes(2);
+  expect(captureCameraError).toHaveBeenLastCalledWith(
+    'Error: different tensor shape',
+    'inference',
+    {
+      camera_position: 'back',
+    },
+  );
 });

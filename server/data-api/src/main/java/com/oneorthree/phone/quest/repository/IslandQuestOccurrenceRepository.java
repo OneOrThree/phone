@@ -24,9 +24,15 @@ public interface IslandQuestOccurrenceRepository extends JpaRepository<IslandQue
 
     boolean existsByQuestIdAndOccurrenceDate(UUID questId, LocalDate occurrenceDate);
 
-    /** 섬의 날짜 구간 회차 — 현재 목록(어제·오늘)을 고른다. 판정은 호출측이 claimDeadline 으로 한다. */
-    List<IslandQuestOccurrence> findByIslandIdAndOccurrenceDateBetweenOrderByOccurrenceDateAscCreatedAtAsc(
-            UUID islandId, LocalDate from, LocalDate to);
+    /**
+     * 섬의 날짜 구간 회차 — 현재 목록(어제·오늘)을 고른다. 판정은 호출측이 claimDeadline 으로 한다.
+     * 삭제된 퀘스트(GROMO-2897)의 회차는 열려 있어도 빠진다.
+     */
+    @Query("SELECT o FROM IslandQuestOccurrence o WHERE o.islandId = :islandId "
+            + "AND o.occurrenceDate BETWEEN :from AND :to AND EXISTS (SELECT 1 FROM IslandQuest q "
+            + "WHERE q.id = o.questId AND q.deletedAt IS NULL) ORDER BY o.occurrenceDate ASC, o.createdAt ASC")
+    List<IslandQuestOccurrence> findLiveByIslandIdBetween(@Param("islandId") UUID islandId,
+                                                          @Param("from") LocalDate from, @Param("to") LocalDate to);
 
     /**
      * 전원 달성 보너스가 아직 적립되지 않은 «최근» 회차 (GROMO-1991) — 매분 finalizer 가 훑는다.

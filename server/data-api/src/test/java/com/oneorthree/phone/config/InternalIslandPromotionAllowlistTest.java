@@ -40,19 +40,22 @@ class InternalIslandPromotionAllowlistTest {
         List<String> allow = shippedBusinessAllowlist();
         List<String> routes = routesOf(InternalIslandPromotionController.class);
 
-        assertThat(routes).as("6종이 모두 잡혔는지 — 매핑이 늘면 허용목록도 함께 늘어야 한다").hasSize(6);
+        assertThat(routes).as("7종이 모두 잡혔는지 — 매핑이 늘면 허용목록도 함께 늘어야 한다").hasSize(7);
         assertThat(routes).allSatisfy(route ->
                 assertThat(allows(allow, route)).as("허용목록에 없는 내부 경로: " + route).isTrue());
     }
 
     @Test
-    @DisplayName("잡지 읽기·받음 내부 컨트롤러의 4종도 배포되는 허용목록을 통과하고, 이웃 경로는 열리지 않는다(GROMO-2289)")
+    @DisplayName("잡지 읽기·받음·바로 도착 내부 컨트롤러의 5종도 배포되는 허용목록을 통과하고, 이웃 경로는 열리지 않는다(GROMO-2289·2902)")
     void everyMagazineInternalRouteIsAllowedAndNothingMore() throws IOException {
         List<String> allow = shippedBusinessAllowlist();
         List<String> routes = routesOf(InternalMagazineController.class);
         String base = "/internal/users/" + ID + "/magazine";
 
-        assertThat(routes).as("4종이 모두 잡혔는지").hasSize(4);
+        assertThat(routes).as("5종이 모두 잡혔는지").hasSize(5);
+        assertThat(allows(allow, "GET " + base + "/promotions/" + ID + "/arrivals")).isFalse();
+        assertThat(allows(allow, "POST " + base + "/promotions/" + ID)).isFalse();
+        assertThat(allows(allow, "POST " + base + "/issues/" + ID + "/arrivals")).isFalse();
         assertThat(routes).allSatisfy(route ->
                 assertThat(allows(allow, route)).as("허용목록에 없는 내부 경로: " + route).isTrue());
         assertThat(allows(allow, "POST " + base + "/issues")).isFalse();
@@ -78,6 +81,8 @@ class InternalIslandPromotionAllowlistTest {
         assertThat(allows(allow, "PUT " + base + "/promotions")).isFalse();
         assertThat(allows(allow, "PUT " + base + "/promotions/" + ID + "/" + ID)).isFalse();
         assertThat(allows(allow, "POST " + base + "/promotions/editor")).isFalse();
+        assertThat(allows(allow, "POST " + base + "/promotions/next")).isFalse();
+        assertThat(allows(allow, "DELETE " + base + "/promotions/next")).isFalse();
         assertThat(allows(allow, "PUT /internal/users/" + ID + "/magazine/assets")).isFalse();
         assertThat(allows(allow, "GET /internal/users/" + ID + "/magazine/assets/" + ID)).isFalse();
         assertThat(allows(allow, "GET " + base + "/promotions/" + ID + "/reports")).isFalse();
@@ -93,12 +98,13 @@ class InternalIslandPromotionAllowlistTest {
     }
 
     @Test
-    @DisplayName("여섯 계약은 메서드·경로가 각각 달라 여섯 줄로 등록돼 있다")
-    void sixContractsAreSeparateEntries() throws IOException {
+    @DisplayName("일곱 계약은 메서드·경로가 각각 달라 일곱 줄로 등록돼 있다")
+    void sevenContractsAreSeparateEntries() throws IOException {
         assertThat(shippedBusinessAllowlist()).contains(
                 "POST /internal/users/*/islands/*/promotions",
                 "PUT /internal/users/*/islands/*/promotions/*",
                 "GET /internal/users/*/islands/*/promotions/editor",
+                "GET /internal/users/*/islands/*/promotions/next",
                 "GET /internal/users/*/magazine/assets",
                 "GET /internal/users/*/islands/*/news",
                 "POST /internal/users/*/islands/*/promotions/*/reports");

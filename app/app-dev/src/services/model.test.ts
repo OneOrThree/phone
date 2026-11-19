@@ -1390,12 +1390,16 @@ test('일일 퀘스트는 방장만 만들고 수정한다; 시간대 집중은 
   });
   s = act(s, 'QUEST_SAVE', { title: '폰 두 시간', kind: 'screen', target: 120, id: quest.id });
   assert.equal(currentIsland(s).quests[0].windowStart, undefined);
-  // 주민은 수정할 수 없다
+  // 주민은 수정·삭제할 수 없다
   const resident = act(s, 'TRANSFER', { id: 'minji' });
   assert.deepEqual(
     act(resident, 'QUEST_SAVE', { title: '바꿈', kind: 'screen', target: 60, id: quest.id }),
     resident,
   );
+  assert.deepEqual(act(resident, 'QUEST_DELETE', { id: quest.id }), resident);
+  // 방장은 지울 수 있다(GROMO-2898)
+  s = act(s, 'QUEST_DELETE', { id: quest.id });
+  assert.ok(!currentIsland(s).quests.some((q) => q.id === quest.id));
 });
 
 test('오늘 퀘스트를 수정하면 대상 스냅숏은 두고, 미수령 달성·보상을 새 목표·시간대로 바로 다시 판정한다', () => {

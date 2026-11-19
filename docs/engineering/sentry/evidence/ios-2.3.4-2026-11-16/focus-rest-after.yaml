@@ -1,0 +1,19 @@
+appId: com.oneorthree.gromo
+name: 2.3.4 카메라 오류 후 집중 휴식 복귀
+---
+- assertVisible: "휴식 중..."
+- takeScreenshot: rest-visible
+- repeat:
+    times: 3
+    commands:
+      - tapOn: "집중 이어가기"
+      - assertVisible: "카메라를 사용할 수 없어요."
+      - assertVisible: "휴식하기"
+      - tapOn: "카메라 인증"
+      - assertVisible: "카메라를 사용할 수 없어요."
+      - tapOn: "휴식하기"
+      - assertVisible: "휴식 중..."
+- takeScreenshot: rest-after-three-cycles
+- tapOn: "집중 이어가기"
+- assertVisible: "카메라를 사용할 수 없어요."
+- takeScreenshot: focus-after-rest

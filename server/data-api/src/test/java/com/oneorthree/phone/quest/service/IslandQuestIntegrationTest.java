@@ -58,6 +58,7 @@ import java.sql.SQLException;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.UUID;
@@ -742,6 +743,131 @@ class IslandQuestIntegrationTest {
                 QuestErrorCode.QUEST_OCCURRENCE_NOT_FOUND);
         assertQuestError(() -> service.claim(a.id, a.owner.getId(), created.id(), occurrenceId, 1,
                 UUID.randomUUID()), QuestErrorCode.QUEST_STATE_CONFLICT);
+    }
+
+    // ---------------------------------------------------------------- 삭제·창 겹침 (GROMO-2897)
+
+    @Test
+    @DisplayName("방장만 지운다 — 지운 퀘스트는 목록·진행·수령·수정에서 빠지고 다음 회차도 열리지 않는다")
+    void hostDeletesQuestAndItLeavesEveryPath() {
+        Island a = island(true);
+        User resident = resident(a.group);
+        QuestViews.Created created = createFocus(a, a.owner, "10:00", "12:00", 30);
+        QuestViews.Created kept = createFocus(a, a.owner, "13:00", "14:00", 30);
+        UUID occurrenceId = occurrenceOf(created);
+        Island other = island(true);
+
+        assertQuestError(() -> service.delete(a.id, resident.getId(), created.id(), UUID.randomUUID()),
+                QuestErrorCode.QUEST_FORBIDDEN);
+        assertQuestError(() -> service.delete(a.id, a.owner.getId(), UUID.randomUUID(), UUID.randomUUID()),
+                QuestErrorCode.QUEST_NOT_FOUND);
+        assertQuestError(() -> service.delete(other.id, other.owner.getId(), created.id(), UUID.randomUUID()),
+                QuestErrorCode.QUEST_NOT_FOUND);
+
+        UUID key = UUID.randomUUID();
+        service.delete(a.id, a.owner.getId(), created.id(), key);
+        service.delete(a.id, a.owner.getId(), created.id(), key);
+        assertQuestError(() -> service.delete(a.id, a.owner.getId(), created.id(), UUID.randomUUID()),
+                QuestErrorCode.QUEST_NOT_FOUND);
+
+        assertThat(service.current(a.id, resident.getId()).items()).extracting(QuestViews.Item::id)
+                .as("열린 회차도 목록에서 빠지고 남은 퀘스트는 그대로").containsExactly(kept.id());
+        assertQuestError(() -> service.progress(a.id, a.owner.getId(), created.id(), occurrenceId),
+                QuestErrorCode.QUEST_NOT_FOUND);
+        assertQuestError(() -> service.claim(a.id, a.owner.getId(), created.id(), occurrenceId, 1,
+                UUID.randomUUID()), QuestErrorCode.QUEST_NOT_FOUND);
+        assertQuestError(() -> service.update(a.id, a.owner.getId(), created.id(), "되살림", null, UUID.randomUUID()),
+                QuestErrorCode.QUEST_NOT_FOUND);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM event_outbox WHERE type = 'quest.progress.updated' "
+                + "AND aggregate_id = ?", Integer.class, occurrenceId.toString()))
+                .as("여는 사건 + 삭제 사건 — 같은 키 재생은 사건을 다시 내지 않는다").isEqualTo(2);
+
+        at(D.plusDays(1), "00:00:30");
+        scheduler.openDueOccurrences();
+        assertThat(service.openTodayIfMissing(created.id())).as("스케줄러 후보 밖이어도 직접 개설은 거절").isFalse();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM island_quest_occurrences WHERE quest_id = ?",
+                Integer.class, created.id())).as("지운 퀘스트는 새 회차가 없다").isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM island_quest_occurrences WHERE quest_id = ?",
+                Integer.class, kept.id())).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("삭제해도 이미 적립된 개인 몫은 남고, 지운 퀘스트 회차의 전원 달성 보너스는 정산하지 않는다")
+    void deleteKeepsCreditedRewardsAndStopsBonusSettlement() {
+        Island a = island(true);
+        User resident = resident(a.group);
+        QuestViews.Created created = createFocus(a, a.owner, "10:00", "12:00", 30);
+        UUID occurrenceId = occurrenceOf(created);
+        UUID ownerFocus = session(a.owner, a.id, FocusSessionLifecycle.COMPLETED);
+        interval(ownerFocus, 1, FocusIntervalKind.ACTIVE, at(D, "10:00:00"), at(D, "10:30:00"));
+
+        at(D, "10:40:00");
+        QuestViews.Item mine = service.current(a.id, a.owner.getId()).items().get(0);
+        service.claim(a.id, a.owner.getId(), created.id(), occurrenceId, mine.version(), UUID.randomUUID());
+        assertThat(balance(a.id)).isEqualTo(10);
+
+        // 주민도 달성해 전원 달성이 성립했지만, 정산 틱 전에 퀘스트가 지워진다.
+        UUID residentFocus = session(resident, a.id, FocusSessionLifecycle.COMPLETED);
+        interval(residentFocus, 1, FocusIntervalKind.ACTIVE, at(D, "10:00:00"), at(D, "10:30:00"));
+        at(D, "10:45:00");
+        service.delete(a.id, a.owner.getId(), created.id(), UUID.randomUUID());
+        scheduler.settleDueBonuses();
+
+        assertThat(service.settleBonusIfAllAchieved(occurrenceId)).isZero();
+        assertThat(balance(a.id)).as("받은 개인 몫은 되돌리지 않고 보너스는 없다").isEqualTo(10);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM island_quest_claims WHERE occurrence_id = ? "
+                + "AND kind = 'ALL_ACHIEVED_BONUS'", Integer.class, occurrenceId)).isZero();
+    }
+
+    @Test
+    @DisplayName("집중 창은 같은 섬의 다른 집중 퀘스트와 겹치면 409 — 맞닿음·지운 퀘스트·screen·다른 섬은 통과")
+    void focusWindowsMustNotOverlapWithinAnIsland() {
+        Island a = island(true);
+        createFocus(a, a.owner, "18:00", "20:00", 30);
+
+        for (String[] window : List.of(new String[] {"18:00", "20:00"}, new String[] {"17:00", "18:30"},
+                new String[] {"19:30", "21:00"}, new String[] {"18:30", "19:30"}, new String[] {"17:00", "21:00"})) {
+            assertQuestError(() -> createFocus(a, a.owner, window[0], window[1], 30),
+                    QuestErrorCode.QUEST_WINDOW_OVERLAP);
+        }
+
+        createFocus(a, a.owner, "20:00", "21:00", 30);
+        createFocus(a, a.owner, "17:00", "18:00", 30);
+        service.create(a.id, a.owner.getId(), "폰 1시간 이하", "screen", 60, null, null, null, UUID.randomUUID());
+        Island b = island(true);
+        createFocus(b, b.owner, "18:00", "20:00", 30);
+
+        UUID morning = createFocus(a, a.owner, "08:00", "09:00", 30).id();
+        service.delete(a.id, a.owner.getId(), morning, UUID.randomUUID());
+        createFocus(a, a.owner, "08:30", "09:30", 30);
+
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM island_quests WHERE island_id = ? AND deleted_at IS NULL",
+                Integer.class, a.id)).isEqualTo(5);
+    }
+
+    @Test
+    @DisplayName("겹치는 생성이 섬 잠금을 기다리는 사이 다른 생성이 커밋되면, 풀려난 생성은 409 다")
+    void overlappingCreateWaitingOnIslandLockSeesTheCommittedQuest() throws Exception {
+        Island a = island(true);
+        ExecutorService pool = Executors.newSingleThreadExecutor();
+        try {
+            Future<QuestViews.Created> waiting = new TransactionTemplate(transactionManager).execute(status -> {
+                groups.findByIdForUpdate(a.id).orElseThrow();
+                int holder = backendPid();
+                Future<QuestViews.Created> inFlight = pool.submit(() -> createFocus(a, a.owner, "18:00", "20:00", 30));
+                awaitBlockedBy(holder);
+                quests.save(IslandQuest.builder().islandId(a.id).type(QuestType.FOCUS).title("먼저").targetMinutes(30)
+                        .windowStart(LocalTime.of(19, 0)).windowEnd(LocalTime.of(21, 0)).createdBy(a.owner.getId())
+                        .build());
+                return inFlight;
+            });
+
+            assertThatThrownBy(() -> waiting.get(60, TimeUnit.SECONDS)).cause()
+                    .isInstanceOfSatisfying(QuestException.class,
+                            e -> assertThat(e.getErrorCode()).isEqualTo(QuestErrorCode.QUEST_WINDOW_OVERLAP));
+        } finally {
+            pool.shutdownNow();
+        }
     }
 
     // ---------------------------------------------------------------- 도구

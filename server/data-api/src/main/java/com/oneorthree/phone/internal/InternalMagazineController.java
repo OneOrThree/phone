@@ -1,13 +1,17 @@
 package com.oneorthree.phone.internal;
 
+import com.oneorthree.phone.internal.dto.IslandArrivalView;
 import com.oneorthree.phone.internal.dto.MagazineViews;
+import com.oneorthree.phone.internal.service.IslandMembershipService;
 import com.oneorthree.phone.internal.service.MagazineIssueService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -17,9 +21,10 @@ import java.util.UUID;
 
 /**
  * 고양이 잡지 읽기·받음 상태의 Data 내부 표면 (GROMO-2289) — 공개 {@code GET /me/magazine/today}·{@code GET
- * /me/magazine/issues}·{@code GET /me/magazine/issues/{issueId}}·{@code PUT /me/magazine/issues/{issueId}/receipt} 의
- * 상류다. 본인 조회·기록이라 사용자 축이고 게스트도 읽는다(SAFE-01). 커서 서명은 Business 몫이고 여기는 평문 keyset
- * 경계({@code afterAppliedAt}·{@code afterPromotionId})를 받는다.
+ * /me/magazine/issues}·{@code GET /me/magazine/issues/{issueId}}·{@code PUT /me/magazine/issues/{issueId}/receipt}·
+ * {@code POST /me/magazine/promotions/{promotionId}/arrivals}(GROMO-2902) 의 상류다. 본인 조회·기록이라 사용자 축이고
+ * 게스트도 읽는다(SAFE-01). 커서 서명은 Business 몫이고 여기는 평문 keyset 경계({@code afterAppliedAt}·
+ * {@code afterPromotionId})를 받는다.
  */
 @RestController
 @RequestMapping("/internal/users/{userId}/magazine")
@@ -27,6 +32,7 @@ import java.util.UUID;
 public class InternalMagazineController {
 
     private final MagazineIssueService magazine;
+    private final IslandMembershipService islands;
 
     @GetMapping("/today")
     public MagazineViews.Today today(@PathVariable UUID userId) {
@@ -49,5 +55,12 @@ public class InternalMagazineController {
     public MagazineViews.Receipt receive(@PathVariable UUID userId, @PathVariable UUID issueId,
             @Valid @RequestBody MagazineViews.ReceiptRequest request) {
         return magazine.receive(userId, issueId, request);
+    }
+
+    /** 홍보 칸의 섬으로 항해 없이 바로 간다(GROMO-2902) — 섬 도착과 같은 명령 키·응답이다. */
+    @PostMapping("/promotions/{promotionId}/arrivals")
+    public IslandArrivalView arrive(@PathVariable UUID userId, @PathVariable UUID promotionId,
+            @RequestHeader("Idempotency-Key") UUID idempotencyKey) {
+        return islands.arriveFromMagazine(userId, promotionId, idempotencyKey);
     }
 }

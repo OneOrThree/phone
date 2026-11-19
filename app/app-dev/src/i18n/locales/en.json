@@ -521,7 +521,8 @@
   },
   "board": {
     "quest": {
-      "crossMidnight": "A window can't run across 9 AM"
+      "crossMidnight": "A window can't run across 9 AM",
+      "overlap": "This time overlaps another quest"
     }
   },
   "home": {
@@ -1002,7 +1003,7 @@
       "ours": "Our island",
       "a11y": "{{name}}, {{residents}}, {{average}}, ‘{{body}}’",
       "a11yNoMeta": "{{name}}, ‘{{body}}’",
-      "scope": "Add {{name}} to the telescope",
+      "go": "Go to {{name}}",
       "privateIsland": "This island is invite-only"
     },
     "editor": {
@@ -1072,9 +1073,13 @@
     },
     "news": {
       "promotion": "The host spent 60 fish on a magazine promotion today · it appears in tomorrow morning's issue",
-      "promotionYesterday": "The host spent 60 fish on a magazine promotion yesterday · it appears in this morning's issue",
-      "title": "Island news",
-      "promotionRow": "The host spent 60 fish on a magazine promotion"
+      "promotionYesterday": "The host spent 60 fish on a magazine promotion yesterday · it appears in this morning's issue"
+    },
+    "hall": {
+      "write": "Write promo",
+      "edit": "Edit",
+      "issue": "{{month}}/{{day}} 7 AM issue",
+      "applied": "Host {{name}} applied for a promotion"
     },
     "reader": {
       "title": "Nyaong",
@@ -1101,8 +1106,7 @@
       "noCells": "No promotions in this issue",
       "endTitle": "Want to feature your island?",
       "endBody": "Write it at the town hall. Apply between 7 AM and midnight to be in the next morning's issue",
-      "zoomClose": "Close large view",
-      "scopeEvicted": "{{name}} is leaving your telescope"
+      "zoomClose": "Close large view"
     },
     "rack": {
       "open": "Magazine rack",
@@ -1827,6 +1831,7 @@
       "save": "Save",
       "saved": "Island information saved.",
       "editIsland": "Edit island information",
+      "edit": "Edit",
       "applicant": "Applicant",
       "rejectApplicant": "Decline {{v0}}'s request",
       "rejectedApplicant": "Declined {{v0}}'s request.",
@@ -2185,6 +2190,7 @@
       "write": "Write",
       "noticeObject": "this notice",
       "commentObject": "this comment",
+      "questObject": "this quest",
       "fishSuffix": " · {{v0}} fish",
       "nextBuilding": "Next building",
       "totalFishCost": "Total: {{v0}} fish"

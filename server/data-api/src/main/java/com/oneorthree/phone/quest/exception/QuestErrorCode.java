@@ -43,6 +43,12 @@ public enum QuestErrorCode implements ErrorCode {
     /** 창 시작 ≥ 끝(자정 넘는 창 포함) — 회차가 UTC 하루라 창이 날을 넘을 수 없다. */
     QUEST_WINDOW_OUT_OF_RANGE(HttpStatus.UNPROCESSABLE_ENTITY, "집중 시간대가 허용 범위를 벗어났습니다."),
 
+    /**
+     * 같은 섬의 다른 집중 퀘스트와 창이 겹친다(GROMO-2897) — 한 번의 집중이 겹친 퀘스트를 모두 채워 보상을
+     * 여러 번 받지 않게 한다. 끝과 시작이 맞닿은 창은 겹치지 않는다.
+     */
+    QUEST_WINDOW_OVERLAP(HttpStatus.CONFLICT, "같은 섬의 다른 집중 퀘스트와 시간대가 겹칩니다."),
+
     /** claim 의 expectedVersion 불일치 — 지급 없음. */
     QUEST_VERSION_CONFLICT(HttpStatus.CONFLICT, "다른 변경이 먼저 반영됐습니다."),
 
