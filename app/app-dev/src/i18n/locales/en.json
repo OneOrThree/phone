@@ -1003,7 +1003,7 @@
       "ours": "Our island",
       "a11y": "{{name}}, {{residents}}, {{average}}, ‘{{body}}’",
       "a11yNoMeta": "{{name}}, ‘{{body}}’",
-      "scope": "Add {{name}} to the telescope",
+      "go": "Go to {{name}}",
       "privateIsland": "This island is invite-only"
     },
     "editor": {

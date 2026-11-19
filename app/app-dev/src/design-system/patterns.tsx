@@ -105,9 +105,9 @@ export function Pic({ id, w = 40, h = w, style, cover = false }: any) {
     />
   );
 }
-export function Chevron({ back = false }: any) {
+export function Chevron({ back = false, size = 22 }: any) {
   return (
-    <Svg width={22} height={22} viewBox="0 0 24 24">
+    <Svg width={size} height={size} viewBox="0 0 24 24">
       <Path
         d={back ? 'M15 5L8 12L15 19' : 'M9 5L16 12L9 19'}
         stroke={C.brown}

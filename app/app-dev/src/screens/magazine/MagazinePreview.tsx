@@ -75,7 +75,7 @@ export function MagazinePreview() {
           <T style={{ fontSize: 18, fontWeight: '700' }}>잡지 칸 미리보기 · 같은 칸 너비 4가지</T>
           <View style={{ gap: 16, alignItems: 'flex-start' }}>
             {[W, 300, 200, 120].map((w) => (
-              <AdCell key={w} width={w} cell={cellOf('mag.frame-catear', 1)} corner="scope" />
+              <AdCell key={w} width={w} cell={cellOf('mag.frame-catear', 1)} corner="go" />
             ))}
           </View>
           {frames.map((frameId, f) => (
@@ -92,7 +92,7 @@ export function MagazinePreview() {
                   key={i}
                   width={W}
                   cell={cellOf(frameId, f * TEXTS.length + i)}
-                  corner={i === 1 ? 'ours' : i === 3 ? 'scope' : null}
+                  corner={i === 1 ? 'ours' : i === 3 ? 'go' : null}
                 />
               ))}
             </View>

@@ -130,10 +130,10 @@ export function magazinePages(loaded: Loaded, host: boolean): Page[] {
  * 고양이 잡지 펼치기(GROMO-2289 · A1~A4) — 섬에서 펼친 잡지라 배경은 섬 홈이고 칸에 망원경 동그라미가 없다(10/14 확정).
  * 우리 섬 칸에는 「우리 섬이에요」. 속지 그림 위에 표지 띠(날짜·호)와 쪽을 그리고, 가로로 넘기거나 ‹ › 로 넘긴다.
  * 끝 쪽에 가까워지면 다음 커서를 읽는다. 펼치는 데 성공하면 그 호에 「읽음」을 보낸다(빨간 점이 꺼진다).
- * 칸을 누르면 항해 없이 그 섬으로 바로 간다(GROMO-2903) — 우리 섬이면 그 섬 홈, 남의 섬이면 섬 구경. 길게 누르면 화면 폭으로 크게
- * 본다. 신고는 설정의 단일 신고센터에서 이메일로 접수한다.
+ * 칸을 누르면 화면 폭으로 크게 본다. 남의 섬 칸 오른쪽 아래 화살표 동그라미를 누르면 항해 없이 그 섬으로 바로 간다
+ * (GROMO-2903, 비공개 섬은 AdCell 이 숨긴다). 신고는 설정의 단일 신고센터에서 이메일로 접수한다.
  *
- * 바다에서 펼치면(place SEA, GROMO-2314 · A2) 받음·읽음을 SEA 로 적는다. 칸을 눌러 바로 가므로 망원경 동그라미는 두지 않는다.
+ * 바다에서 펼치면(place SEA, GROMO-2314 · A2) 받음·읽음을 SEA 로 적는다. 칸 자리는 섬에서 펼친 잡지와 같다.
  *
  * e.detail = 펼칠 호 id. 비어 있으면 들고 있는 오늘 호를 연다.
  */
@@ -218,9 +218,9 @@ export function MagazineReader({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- place 는 라우트마다 고정이다
   }, [issueId, nonce]);
 
-  // 칸 자리는 우리 섬 배지만 — 칸을 눌러 바로 가므로 망원경 동그라미는 없다(GROMO-2903)
-  const corner = (cell: MagazineCell) => (cell.relation === 'MEMBER' ? 'ours' : null);
-  // 칸 → 그 섬으로 바로(GROMO-2903). 도착·결과 불명 복구는 항해 도착과 같은 arriveWithOutcome, 들어가기는 enterArrivedIsland 이고
+  // 칸 자리 — 우리 섬은 배지, 남의 섬은 바로 가기 화살표(섬·바다 같다, GROMO-2903). 비공개 섬은 AdCell 이 숨긴다
+  const corner = (cell: MagazineCell) => (cell.relation === 'MEMBER' ? 'ours' : 'go');
+  // 화살표 → 그 섬으로 바로(GROMO-2903). 도착·결과 불명 복구는 항해 도착과 같은 arriveWithOutcome, 들어가기는 enterArrivedIsland 이고
   // 도착 요청만 홍보 칸 도착이다. 한 번에 하나 — 요청 중 다시 눌러도 무시한다. 실패하면 잡지에 남아 서버 문구로 알린다
   const goTo = async (cell: MagazineCell) => {
     if (arriving.current) return;
@@ -551,10 +551,11 @@ export function MagazineReader({
               width={cellW}
               cell={cell}
               corner={corner(cell)}
-              onPress={() => {
+              goTestID={`magazine-cell-go-${cell.promotionId}`}
+              onGo={() => {
                 goTo(cell);
               }}
-              onLongPress={() => setZoom(cell)}
+              onPress={() => setZoom(cell)}
             />
           ))}
         </View>
@@ -840,6 +841,12 @@ export function MagazineReader({
               )}
               cell={zoom}
               corner={corner(zoom)}
+              goTestID={`magazine-cell-go-${zoom.promotionId}`}
+              // 확대를 닫고 간다 — 실패 토스트가 확대(Modal) 밑에 가려지지 않게
+              onGo={() => {
+                setZoom(null);
+                goTo(zoom);
+              }}
               onPress={() => setZoom(null)}
             />
           )}

@@ -67,33 +67,36 @@ describe('AdCell', () => {
     expect(screen.getByText('주민 8/15 · 평균 집계 전')).toBeTruthy();
   });
 
-  it('corner 없음 — 동그라미도 배지도 없다(섬에서 본 잡지)', async () => {
+  it('corner 없음 — 동그라미도 배지도 없다', async () => {
     const screen = await render(<AdCell testID="c" width={300} cell={cell()} />);
-    expect(screen.queryByTestId('c-scope')).toBeNull();
+    expect(screen.queryByRole('button', { name: '소다섬으로 가기' })).toBeNull();
     expect(screen.queryByTestId('c-ours')).toBeNull();
   });
 
-  it('corner scope — 망원경 동그라미 버튼이 따로 눌린다(바다판)', async () => {
-    const onScope = jest.fn();
+  it('corner go — 바로 가기 화살표 버튼이 칸 누르기와 따로 눌린다(GROMO-2903)', async () => {
+    const onGo = jest.fn();
     const onPress = jest.fn();
     const screen = await render(
       <AdCell
         testID="c"
+        goTestID="c-go"
         width={300}
         cell={cell()}
-        corner="scope"
-        onScope={onScope}
+        corner="go"
+        onGo={onGo}
         onPress={onPress}
       />,
     );
-    await fireEvent.press(screen.getByLabelText('소다섬 망원경에 넣기'));
-    expect(onScope).toHaveBeenCalledTimes(1);
+    await fireEvent.press(screen.getByRole('button', { name: '소다섬으로 가기' }));
+    expect(onGo).toHaveBeenCalledTimes(1);
     expect(onPress).not.toHaveBeenCalled();
   });
 
-  it('작은 칸에서도 망원경 버튼은 칸 안에 44pt 이상으로 눌린다(칸 밖 hitSlop 은 터치가 안 온다)', async () => {
-    const screen = await render(<AdCell testID="c" width={150} cell={cell()} corner="scope" />);
-    const style = StyleSheet.flatten(screen.getByTestId('c-scope').props.style);
+  it('작은 칸에서도 바로 가기 버튼은 칸 안에 44pt 이상으로 눌린다(칸 밖 hitSlop 은 터치가 안 온다)', async () => {
+    const screen = await render(
+      <AdCell testID="c" goTestID="c-go" width={150} cell={cell()} corner="go" />,
+    );
+    const style = StyleSheet.flatten(screen.getByTestId('c-go').props.style);
     expect(style.width).toBeGreaterThanOrEqual(44);
     expect(style.height).toBeGreaterThanOrEqual(44);
     expect(style.right).toBe(0);
@@ -152,19 +155,20 @@ describe('AdCell', () => {
   });
 });
 
-it('비공개 섬은 망원경 동그라미 대신 초대 안내를 그리고 접근성 이름에도 포함한다', async () => {
-  const onScope = jest.fn();
+it('비공개 섬은 바로 가기 동그라미 대신 초대 안내를 그리고 접근성 이름에도 포함한다', async () => {
+  const onGo = jest.fn();
   const screen = await render(
     <AdCell
       testID="private"
+      goTestID="private-go"
       width={338}
       cell={cell({ privateIsland: true })}
-      corner="scope"
-      onScope={onScope}
+      corner="go"
+      onGo={onGo}
     />,
   );
-  expect(screen.queryByTestId('private-scope')).toBeNull();
+  expect(screen.queryByTestId('private-go')).toBeNull();
   expect(screen.getByText(/초대로만 갈 수 있는 섬/)).toBeTruthy();
   expect(screen.getByLabelText(/초대로만 갈 수 있는 섬/)).toBeTruthy();
-  expect(onScope).not.toHaveBeenCalled();
+  expect(onGo).not.toHaveBeenCalled();
 });

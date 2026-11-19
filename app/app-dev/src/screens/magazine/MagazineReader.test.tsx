@@ -1,7 +1,7 @@
 import { createPreviewEnvironment } from '@/navigation/previewEnvironment';
 // 고양이 잡지 펼치기(GROMO-2289 · A1~A4) — 첫 장 편집부(메달·NEW·편집냥) · 다음 장부터 3칸씩 · 끝 쪽 근처에서 다음 커서 ·
-// 망원경 동그라미 없음(우리 섬 배지만) · 펼치면 읽음 받음 · 빈 호 · 섬장 끝 쪽 안내(쓰기는 마을회관) · 7호 밖 · 길게 눌러 크게 보기 ·
-// 칸을 누르면 그 섬으로 바로(GROMO-2903).
+// 망원경 동그라미 없음(우리 섬 배지 · 남의 섬 바로 가기 화살표) · 펼치면 읽음 받음 · 빈 호 · 섬장 끝 쪽 안내(쓰기는 마을회관) · 7호 밖 ·
+// 칸을 누르면 크게 보기 · 화살표를 누르면 그 섬으로 바로(GROMO-2903).
 // 서버 API(magazine.ts)는 목이다.
 import { applyLocalePref } from '@/i18n';
 import en from '@/i18n/locales/en.json';
@@ -410,9 +410,9 @@ test('다른 오류는 다시 시도로 다시 읽는다', async () => {
   expect(pickTip).toHaveBeenCalledTimes(1);
 });
 
-test('칸을 길게 누르면 화면 폭으로 크게 보고, 누르면 닫힌다 · 닫기 버튼은 뒤로', async () => {
+test('칸을 누르면 화면 폭으로 크게 보고(도착 요청 없음), 누르면 닫힌다 · 닫기 버튼은 뒤로', async () => {
   const { screen, e } = await open();
-  await fireEvent(screen.getByLabelText(/^섬2섬,/), 'longPress');
+  await fireEvent.press(screen.getByLabelText(/^섬2섬,/));
   expect(arriveFrom).not.toHaveBeenCalled();
   expect(screen.getByTestId('magazine-zoom')).toBeTruthy();
   await fireEvent.press(screen.getByTestId('magazine-zoom'));
@@ -421,12 +421,14 @@ test('칸을 길게 누르면 화면 폭으로 크게 보고, 누르면 닫힌�
   expect(e.back).toHaveBeenCalled();
 });
 
-test('잡지 일반·확대 보기에는 접근성 신고 진입이 없고, 길게 누르기는 신고 대신 확대다', async () => {
+test('잡지 일반·확대 보기에는 길게 누르기나 접근성 신고 진입이 없고 확대는 유지한다', async () => {
   const { screen } = await open();
   const target = screen.getByLabelText(/^섬2섬,/);
+  expect(target.props.onLongPress).toBeUndefined();
   expect(target.props.accessibilityActions).toBeUndefined();
   await fireEvent(target, 'longPress');
   expect(screen.queryByTestId('magazine-report')).toBeNull();
+  await fireEvent.press(target);
   const zoomed = within(screen.getByTestId('magazine-zoom')).getByLabelText(/^섬2섬,/);
   expect(zoomed.props.onLongPress).toBeUndefined();
   expect(zoomed.props.accessibilityActions).toBeUndefined();
@@ -478,7 +480,8 @@ describe('en 로케일', () => {
       expect(screen.queryByLabelText(/[가-힣]/)).toBeNull();
     };
     noHangul();
-    await fireEvent(screen.getByLabelText(/^Wave Island,/), 'longPress');
+    expect(screen.getByLabelText('Go to Wave Island')).toBeTruthy();
+    await fireEvent.press(screen.getByLabelText(/^Wave Island,/));
     expect(screen.getByTestId('magazine-zoom')).toBeTruthy();
     noHangul();
   });
@@ -525,7 +528,7 @@ describe('바다에서 펼친 잡지(GROMO-2314 · A2)', () => {
   const hidden = { includeHiddenElements: true };
   afterEach(() => expect(api.getMagazineIssues).not.toHaveBeenCalled());
 
-  test('읽음 받음은 SEA 로 적고, 칸 자리는 우리 섬 배지만 — 칸을 눌러 바로 가므로 망원경 동그라미가 없다', async () => {
+  test('읽음 받음은 SEA 로 적고, 칸 자리는 섬과 같다 — 우리 섬 = 배지 · 남의 섬 = 바로 가기 화살표 · 망원경 동그라미 없음', async () => {
     getIssue.mockResolvedValueOnce(page({ editorial: null, cells: [cell(1, 'MEMBER'), cell(2)] }));
     const screen = await render(<MagazineReader e={createPreviewEnvironment(env())} place="SEA" />);
     await waitFor(() => expect(screen.getByTestId('magazine-pages')).toBeTruthy());
@@ -533,11 +536,13 @@ describe('바다에서 펼친 잡지(GROMO-2314 · A2)', () => {
       expect(putReceipt).toHaveBeenCalledWith('iss-19', { place: 'SEA', opened: true }),
     );
     expect(screen.getByTestId('magazine-cell-p1-ours', hidden)).toBeTruthy();
+    expect(screen.queryByTestId('magazine-cell-go-p1')).toBeNull();
+    expect(screen.getByTestId('magazine-cell-go-p2')).toBeTruthy();
     expect(screen.queryAllByTestId(/-scope$/, hidden)).toHaveLength(0);
   });
 });
 
-describe('칸을 누르면 그 섬으로 바로(GROMO-2903)', () => {
+describe('화살표를 누르면 그 섬으로 바로(GROMO-2903)', () => {
   const arrival = (islandId: string, membershipStatus: 'none' | 'active') => ({
     islandId,
     arrivedBefore: true,
@@ -556,14 +561,17 @@ describe('칸을 누르면 그 섬으로 바로(GROMO-2903)', () => {
       islands,
     };
   };
-  const tap = (screen: Awaited<ReturnType<typeof open>>['screen'], name: string) =>
-    fireEvent.press(screen.getByLabelText(new RegExp(`^${name}섬,`)));
+  const go = (screen: Awaited<ReturnType<typeof open>>['screen'], promotionId: string) =>
+    fireEvent.press(screen.getByTestId(`magazine-cell-go-${promotionId}`));
 
-  test('남의 섬 칸 — 홍보 칸 도착(명령 키) 뒤 망원경 도착과 같이 섬 구경으로 간다', async () => {
+  test('남의 섬 칸 화살표 — 홍보 칸 도착(명령 키) 뒤 망원경 도착과 같이 섬 구경으로 간다', async () => {
     arriveFrom.mockResolvedValue(arrival('is-섬2', 'none'));
     const e = goEnv();
     const { screen } = await open(page(), e);
-    await tap(screen, '섬2');
+    const button = screen.getByTestId('magazine-cell-go-p2');
+    expect(button.props.accessibilityRole).toBe('button');
+    expect(button.props.accessibilityLabel).toBe('섬2섬으로 가기');
+    await go(screen, 'p2');
     await waitFor(() => expect(e.replace).toHaveBeenCalledWith('visitIsland', 'is-섬2'));
     expect(arriveFrom).toHaveBeenCalledWith('p2', expect.any(String));
     expect(e.islands.visit).toHaveBeenCalledWith('is-섬2');
@@ -572,22 +580,49 @@ describe('칸을 누르면 그 섬으로 바로(GROMO-2903)', () => {
     expect(screen.queryByTestId('magazine-zoom')).toBeNull();
   });
 
-  test('우리 섬 칸 — 서버가 현재 섬을 옮겼으니 소속을 다시 읽고 그 섬 홈으로', async () => {
-    arriveFrom.mockResolvedValue(arrival('is-섬1', 'active'));
+  test('우리 섬 칸에는 화살표가 없다(배지만) — 칸 누르기는 크게 보기다', async () => {
     const e = goEnv();
     const { screen } = await open(page(), e);
-    await tap(screen, '섬1');
-    await waitFor(() => expect(e.reset).toHaveBeenCalledWith('home'));
-    expect(arriveFrom).toHaveBeenCalledWith('p1', expect.any(String));
-    expect(e.islands.sync).toHaveBeenCalled();
-    expect(e.islands.visit).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('magazine-cell-go-p1')).toBeNull();
+    expect(
+      screen.getByTestId('magazine-cell-p1-ours', { includeHiddenElements: true }),
+    ).toBeTruthy();
+    await fireEvent.press(screen.getByLabelText(/^섬1섬,/));
+    expect(screen.getByTestId('magazine-zoom')).toBeTruthy();
+    expect(
+      within(screen.getByTestId('magazine-zoom')).queryByTestId('magazine-cell-go-p1'),
+    ).toBeNull();
+    expect(arriveFrom).not.toHaveBeenCalled();
+  });
+
+  test('비공개 섬 칸에는 화살표가 없다', async () => {
+    const e = goEnv();
+    const { screen } = await open(
+      page({ editorial: null, cells: [{ ...cell(2), privateIsland: true }, cell(4)] }),
+      e,
+    );
+    expect(screen.queryByTestId('magazine-cell-go-p2')).toBeNull();
+    expect(screen.getByTestId('magazine-cell-go-p4')).toBeTruthy();
+  });
+
+  test('크게 보기 안 칸의 화살표도 같은 도착 — 확대를 닫고 섬 구경으로', async () => {
+    arriveFrom.mockResolvedValue(arrival('is-섬2', 'none'));
+    const e = goEnv();
+    const { screen } = await open(page(), e);
+    await fireEvent.press(screen.getByLabelText(/^섬2섬,/));
+    const zoom = screen.getByTestId('magazine-zoom');
+    await fireEvent.press(within(zoom).getByTestId('magazine-cell-go-p2'));
+    expect(screen.queryByTestId('magazine-zoom')).toBeNull();
+    await waitFor(() => expect(e.replace).toHaveBeenCalledWith('visitIsland', 'is-섬2'));
+    expect(arriveFrom).toHaveBeenCalledTimes(1);
+    expect(arriveFrom).toHaveBeenCalledWith('p2', expect.any(String));
   });
 
   test('거절되면 잡지에 남아 서버 문구로 알린다', async () => {
     arriveFrom.mockRejectedValue(new ApiError('PROMOTION_NOT_FOUND', '홍보를 찾을 수 없어요', 404));
     const e = goEnv();
     const { screen } = await open(page(), e);
-    await tap(screen, '섬2');
+    await go(screen, 'p2');
     await waitFor(() => expect(e.notify).toHaveBeenCalledWith('홍보를 찾을 수 없어요'));
     expect(e.replace).not.toHaveBeenCalled();
     expect(e.reset).not.toHaveBeenCalled();
@@ -599,9 +634,9 @@ describe('칸을 누르면 그 섬으로 바로(GROMO-2903)', () => {
     arriveFrom.mockReturnValue(new Promise((resolve) => (done = resolve)));
     const e = goEnv();
     const { screen } = await open(page(), e);
-    await tap(screen, '섬2');
-    await tap(screen, '섬2');
-    await tap(screen, '섬4');
+    await go(screen, 'p2');
+    await go(screen, 'p2');
+    await go(screen, 'p4');
     expect(arriveFrom).toHaveBeenCalledTimes(1);
     await act(async () => done(arrival('is-섬2', 'none')));
     await waitFor(() => expect(e.replace).toHaveBeenCalledTimes(1));
@@ -611,7 +646,7 @@ describe('칸을 누르면 그 섬으로 바로(GROMO-2903)', () => {
     arriveFrom.mockResolvedValue(arrival('is-섬2', 'none'));
     const e = { ...goEnv(), islands: undefined };
     const { screen } = await open(page(), e);
-    await tap(screen, '섬2');
+    await go(screen, 'p2');
     await waitFor(() => expect(e.home).toHaveBeenCalled());
     expect(e.replace).not.toHaveBeenCalled();
   });

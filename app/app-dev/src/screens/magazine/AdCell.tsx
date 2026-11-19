@@ -9,6 +9,7 @@ import {
   TextStyle,
   View,
 } from 'react-native';
+import { Chevron } from '@/design-system/patterns';
 import { componentTokens, semanticTokens } from '@/design-system/tokens';
 import { t } from '@/i18n';
 import { formatDuration, islandTitle } from '@/i18n/format';
@@ -19,7 +20,6 @@ import {
   MAGAZINE_FRAMES,
   MAGAZINE_STICKERS,
   MAGAZINE_TAPES,
-  MAGAZINE_TELESCOPE_ICON,
   islandStage,
 } from '@/constants/magazineAssets';
 import { CELL_ASPECT, PromotionLayout, cellTextFit, stickerRect } from './layout';
@@ -50,26 +50,28 @@ export type AdCellData = {
  * 달라진다(P12). 대신 칸 전체가 접근성 요소 하나로 섬 이름·주민·평균·글을 읽는다.
  *
  * 그리는 순서(아래 → 위): 틀 → 섬 프로필·이름·한 줄 글·주민/평균 → 스티커(배열 순) → 테이프 → 오른쪽 아래 corner.
- * corner: 'scope' = 망원경 동그라미(잡지 지면은 GROMO-2903 부터 쓰지 않는다 — 칸을 눌러 바로 간다) · 'ours' = 「우리 섬이에요」 · null = 없음.
+ * corner: 'go' = 바로 가기 화살표 동그라미(GROMO-2903 — 칸 누르기는 크게 보기, 이 동그라미가 그 섬으로 바로 간다) · 'ours' =
+ * 「우리 섬이에요」 · null = 없음.
  * 이 앱 버전이 모르는 재료 id(새 시즌)는 건너뛰고, 모르는 틀은 기본 틀로 그린다.
  */
 export function AdCell({
   width,
   cell,
   corner: requestedCorner = null,
-  onScope,
+  onGo,
+  goTestID,
   onPress,
-  onLongPress,
   hideMeta = false,
   bodyInput,
   testID,
 }: {
   width: number;
   cell: AdCellData;
-  corner?: 'scope' | 'ours' | null;
-  onScope?: () => void;
+  corner?: 'go' | 'ours' | null;
+  onGo?: () => void;
+  /** 바로 가기 동그라미의 testID(잡지 지면 `magazine-cell-go-<promotionId>`). */
+  goTestID?: string;
   onPress?: () => void;
-  onLongPress?: () => void;
   /**
    * 「주민 N/정원 · 평균」 줄을 그리지 않는다 — 바로 아래에 지금 숫자가 따로 있는 곳(망원경 말풍선)에서
    * 실린 날 숫자와 지금 숫자가 같이 보이지 않게.
@@ -82,7 +84,8 @@ export function AdCell({
   bodyInput?: (style: StyleProp<TextStyle>) => React.ReactNode;
   testID?: string;
 }) {
-  const corner = cell.privateIsland && requestedCorner === 'scope' ? null : requestedCorner;
+  // 비공개 섬은 초대로만 갈 수 있어 바로 가기 동그라미를 숨긴다
+  const corner = cell.privateIsland && requestedCorner === 'go' ? null : requestedCorner;
   const privateNotice = cell.privateIsland ? t('magazine.cell.privateIsland') : '';
   const font = useGowun();
   const m = componentTokens.magazineCell;
@@ -98,7 +101,7 @@ export function AdCell({
   const s = k * fit.scale;
   const d = m.profileDiameter * s;
   const cornerSize = m.cornerSize * k;
-  const scopeTouch = Math.max(cornerSize, semanticTokens.size.tapMin);
+  const goTouch = Math.max(cornerSize, semanticTokens.size.tapMin);
   const ours = t('magazine.cell.ours');
   const oursFont = m.metaSize * s;
   // 배지 폭 어림(한글 0.92em) — 주민 줄만 배지 밑으로 들어가지 않게 비운다
@@ -144,7 +147,6 @@ export function AdCell({
         accessibilityRole={onPress ? 'button' : undefined}
         accessibilityLabel={label}
         onPress={onPress}
-        onLongPress={onLongPress}
       >
         <Image
           source={frame.source}
@@ -252,7 +254,7 @@ export function AdCell({
                       marginRight:
                         corner === 'ours' && index === 0
                           ? oursWidth
-                          : corner === 'scope'
+                          : corner === 'go'
                             ? cornerSize * 0.6
                             : 0,
                     },
@@ -300,31 +302,31 @@ export function AdCell({
           )}
         </View>
       </Body>
-      {corner === 'scope' && (
-        // 누르는 상자는 칸 안 오른쪽 아래에 44pt 이상으로 둔다 — 부모(칸) 밖으로 나간 부분은 hitSlop 으로도
-        // 터치가 오지 않는다. 동그라미 그림만 상자보다 작게 그려 칸 모서리에 살짝 걸친다
+      {corner === 'go' && (
+        // 바로 가기(GROMO-2903) — 누르는 상자는 칸 안 오른쪽 아래에 44pt 이상으로 둔다. 부모(칸) 밖으로 나간 부분은
+        // hitSlop 으로도 터치가 오지 않는다. 동그라미 그림만 상자보다 작게 그려 칸 모서리에 살짝 걸친다
         <Pressable
-          testID={testID && `${testID}-scope`}
+          testID={goTestID}
           accessibilityRole="button"
-          accessibilityLabel={t('magazine.cell.scope', { name })}
-          onPress={onScope}
+          accessibilityLabel={t('magazine.cell.go', { name })}
+          onPress={onGo}
           style={{
             position: 'absolute',
             right: 0,
             bottom: 0,
-            width: scopeTouch,
-            height: scopeTouch,
+            width: goTouch,
+            height: goTouch,
           }}
         >
           <View
             pointerEvents="none"
             style={{
               position: 'absolute',
-              right: -cornerSize * 0.15,
-              bottom: -cornerSize * 0.15,
+              right: -cornerSize * m.cornerOverhangRatio,
+              bottom: -cornerSize * m.cornerOverhangRatio,
               width: cornerSize,
               height: cornerSize,
-              borderRadius: cornerSize / 2,
+              borderRadius: semanticTokens.radius.full,
               backgroundColor: semanticTokens.color.surface,
               borderWidth: Math.max(1, semanticTokens.stroke.strong * k),
               borderColor: semanticTokens.color.outline,
@@ -332,11 +334,7 @@ export function AdCell({
               justifyContent: 'center',
             }}
           >
-            <Image
-              source={MAGAZINE_TELESCOPE_ICON}
-              resizeMode="contain"
-              style={{ width: cornerSize * 0.66, height: cornerSize * 0.66 }}
-            />
+            <Chevron size={cornerSize * m.cornerIconRatio} />
           </View>
         </Pressable>
       )}
