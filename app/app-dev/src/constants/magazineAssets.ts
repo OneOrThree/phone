@@ -133,6 +133,9 @@ export function islandStage(memberCount: number, buildingCount: number): IslandS
   return 'houses1';
 }
 
+/** 칸 오른쪽 아래 바로 가기 버튼 그림 — 돛 단 뗏목 스티커(GROMO-2903). */
+export const MAGAZINE_GO_ICON: ImageSourcePropType = require('@/assets/ota/magazine/ui/go-boat.png');
+
 /** 홍보 접수 발도장(C2) — 다음 호 미리보기 칸 위에 찍힌다. */
 export const MAGAZINE_STAMP: ImageSourcePropType = require('@/assets/ota/magazine/ui/stamp.png');
 

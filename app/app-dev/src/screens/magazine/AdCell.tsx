@@ -9,7 +9,6 @@ import {
   TextStyle,
   View,
 } from 'react-native';
-import { Chevron } from '@/design-system/patterns';
 import { componentTokens, semanticTokens } from '@/design-system/tokens';
 import { t } from '@/i18n';
 import { formatDuration, islandTitle } from '@/i18n/format';
@@ -18,6 +17,7 @@ import {
   DEFAULT_FRAME_ID,
   ISLAND_STAGE_ART,
   MAGAZINE_FRAMES,
+  MAGAZINE_GO_ICON,
   MAGAZINE_STICKERS,
   MAGAZINE_TAPES,
   islandStage,
@@ -50,7 +50,7 @@ export type AdCellData = {
  * 달라진다(P12). 대신 칸 전체가 접근성 요소 하나로 섬 이름·주민·평균·글을 읽는다.
  *
  * 그리는 순서(아래 → 위): 틀 → 섬 프로필·이름·한 줄 글·주민/평균 → 스티커(배열 순) → 테이프 → 오른쪽 아래 corner.
- * corner: 'go' = 바로 가기 화살표 동그라미(GROMO-2903 — 칸 누르기는 크게 보기, 이 동그라미가 그 섬으로 바로 간다) · 'ours' =
+ * corner: 'go' = 바로 가기 뗏목 동그라미(GROMO-2903 — 칸 누르기는 크게 보기, 이 동그라미가 그 섬으로 바로 간다) · 'ours' =
  * 「우리 섬이에요」 · null = 없음.
  * 이 앱 버전이 모르는 재료 id(새 시즌)는 건너뛰고, 모르는 틀은 기본 틀로 그린다.
  */
@@ -318,24 +318,18 @@ export function AdCell({
             height: goTouch,
           }}
         >
-          <View
-            pointerEvents="none"
+          <Image
+            source={MAGAZINE_GO_ICON}
+            accessibilityElementsHidden
+            importantForAccessibility="no-hide-descendants"
             style={{
               position: 'absolute',
               right: -cornerSize * m.cornerOverhangRatio,
               bottom: -cornerSize * m.cornerOverhangRatio,
-              width: cornerSize,
-              height: cornerSize,
-              borderRadius: semanticTokens.radius.full,
-              backgroundColor: semanticTokens.color.surface,
-              borderWidth: Math.max(1, semanticTokens.stroke.strong * k),
-              borderColor: semanticTokens.color.outline,
-              alignItems: 'center',
-              justifyContent: 'center',
+              width: cornerSize * m.cornerArtRatio,
+              height: cornerSize * m.cornerArtRatio,
             }}
-          >
-            <Chevron size={cornerSize * m.cornerIconRatio} />
-          </View>
+          />
         </Pressable>
       )}
       {corner === 'ours' && (

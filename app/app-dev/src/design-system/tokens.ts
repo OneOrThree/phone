@@ -1060,7 +1060,8 @@ export const componentTokens = {
     cornerSize: 44,
     // 남의 섬 칸 오른쪽 아래 바로 가기 동그라미(GROMO-2903) — 안의 화살표(Chevron) 크기와 칸 모서리 밖으로 걸치는 몫,
     // 둘 다 cornerSize 에 대한 비율
-    cornerIconRatio: 0.66,
+    // 바로 가기 뗏목 스티커(흰 테두리 포함)는 동그라미보다 조금 크게 그려 같은 크기로 보이게 한다
+    cornerArtRatio: 1.15,
     cornerOverhangRatio: 0.15,
     tapeWidthRatio: 0.26,
   },

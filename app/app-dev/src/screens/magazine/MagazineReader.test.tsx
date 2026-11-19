@@ -1,7 +1,7 @@
 import { createPreviewEnvironment } from '@/navigation/previewEnvironment';
 // 고양이 잡지 펼치기(GROMO-2289 · A1~A4) — 첫 장 편집부(메달·NEW·편집냥) · 다음 장부터 3칸씩 · 끝 쪽 근처에서 다음 커서 ·
-// 망원경 동그라미 없음(우리 섬 배지 · 남의 섬 바로 가기 화살표) · 펼치면 읽음 받음 · 빈 호 · 섬장 끝 쪽 안내(쓰기는 마을회관) · 7호 밖 ·
-// 칸을 누르면 크게 보기 · 화살표를 누르면 그 섬으로 바로(GROMO-2903).
+// 망원경 동그라미 없음(우리 섬 배지 · 남의 섬 바로 가기 뗏목) · 펼치면 읽음 받음 · 빈 호 · 섬장 끝 쪽 안내(쓰기는 마을회관) · 7호 밖 ·
+// 칸을 누르면 크게 보기 · 뗏목을 누르면 그 섬으로 바로(GROMO-2903).
 // 서버 API(magazine.ts)는 목이다.
 import { applyLocalePref } from '@/i18n';
 import en from '@/i18n/locales/en.json';
@@ -528,7 +528,7 @@ describe('바다에서 펼친 잡지(GROMO-2314 · A2)', () => {
   const hidden = { includeHiddenElements: true };
   afterEach(() => expect(api.getMagazineIssues).not.toHaveBeenCalled());
 
-  test('읽음 받음은 SEA 로 적고, 칸 자리는 섬과 같다 — 우리 섬 = 배지 · 남의 섬 = 바로 가기 화살표 · 망원경 동그라미 없음', async () => {
+  test('읽음 받음은 SEA 로 적고, 칸 자리는 섬과 같다 — 우리 섬 = 배지 · 남의 섬 = 바로 가기 뗏목 · 망원경 동그라미 없음', async () => {
     getIssue.mockResolvedValueOnce(page({ editorial: null, cells: [cell(1, 'MEMBER'), cell(2)] }));
     const screen = await render(<MagazineReader e={createPreviewEnvironment(env())} place="SEA" />);
     await waitFor(() => expect(screen.getByTestId('magazine-pages')).toBeTruthy());
@@ -542,7 +542,7 @@ describe('바다에서 펼친 잡지(GROMO-2314 · A2)', () => {
   });
 });
 
-describe('화살표를 누르면 그 섬으로 바로(GROMO-2903)', () => {
+describe('뗏목을 누르면 그 섬으로 바로(GROMO-2903)', () => {
   const arrival = (islandId: string, membershipStatus: 'none' | 'active') => ({
     islandId,
     arrivedBefore: true,
@@ -564,7 +564,7 @@ describe('화살표를 누르면 그 섬으로 바로(GROMO-2903)', () => {
   const go = (screen: Awaited<ReturnType<typeof open>>['screen'], promotionId: string) =>
     fireEvent.press(screen.getByTestId(`magazine-cell-go-${promotionId}`));
 
-  test('남의 섬 칸 화살표 — 홍보 칸 도착(명령 키) 뒤 망원경 도착과 같이 섬 구경으로 간다', async () => {
+  test('남의 섬 칸 뗏목 — 홍보 칸 도착(명령 키) 뒤 망원경 도착과 같이 섬 구경으로 간다', async () => {
     arriveFrom.mockResolvedValue(arrival('is-섬2', 'none'));
     const e = goEnv();
     const { screen } = await open(page(), e);
@@ -580,7 +580,7 @@ describe('화살표를 누르면 그 섬으로 바로(GROMO-2903)', () => {
     expect(screen.queryByTestId('magazine-zoom')).toBeNull();
   });
 
-  test('우리 섬 칸에는 화살표가 없다(배지만) — 칸 누르기는 크게 보기다', async () => {
+  test('우리 섬 칸에는 뗏목이 없다(배지만) — 칸 누르기는 크게 보기다', async () => {
     const e = goEnv();
     const { screen } = await open(page(), e);
     expect(screen.queryByTestId('magazine-cell-go-p1')).toBeNull();
@@ -595,7 +595,7 @@ describe('화살표를 누르면 그 섬으로 바로(GROMO-2903)', () => {
     expect(arriveFrom).not.toHaveBeenCalled();
   });
 
-  test('비공개 섬 칸에는 화살표가 없다', async () => {
+  test('비공개 섬 칸에는 뗏목이 없다', async () => {
     const e = goEnv();
     const { screen } = await open(
       page({ editorial: null, cells: [{ ...cell(2), privateIsland: true }, cell(4)] }),
@@ -605,7 +605,7 @@ describe('화살표를 누르면 그 섬으로 바로(GROMO-2903)', () => {
     expect(screen.getByTestId('magazine-cell-go-p4')).toBeTruthy();
   });
 
-  test('크게 보기 안 칸의 화살표도 같은 도착 — 확대를 닫고 섬 구경으로', async () => {
+  test('크게 보기 안 칸의 뗏목도 같은 도착 — 확대를 닫고 섬 구경으로', async () => {
     arriveFrom.mockResolvedValue(arrival('is-섬2', 'none'));
     const e = goEnv();
     const { screen } = await open(page(), e);

@@ -73,7 +73,7 @@ describe('AdCell', () => {
     expect(screen.queryByTestId('c-ours')).toBeNull();
   });
 
-  it('corner go — 바로 가기 화살표 버튼이 칸 누르기와 따로 눌린다(GROMO-2903)', async () => {
+  it('corner go — 바로 가기 뗏목 버튼이 칸 누르기와 따로 눌린다(GROMO-2903)', async () => {
     const onGo = jest.fn();
     const onPress = jest.fn();
     const screen = await render(
