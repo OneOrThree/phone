@@ -1,17 +1,21 @@
 package com.oneorthree.business.api;
 
+import com.oneorthree.business.api.dto.IslandMembershipResponses.IslandArrivalView;
 import com.oneorthree.business.auth.AccessTokenClaims;
 import com.oneorthree.business.common.api.ApiErrorCode;
 import com.oneorthree.business.common.api.PublicApiException;
+import com.oneorthree.business.common.request.CommandKeys;
 import com.oneorthree.business.common.validation.PublicIds;
 import com.oneorthree.business.config.UpstreamConfigProperties;
 import com.oneorthree.business.upstream.data.dto.Magazines;
+import com.oneorthree.business.usecase.IslandMembershipUseCase;
 import com.oneorthree.business.usecase.MagazineUseCase;
 import com.oneorthree.business.usecase.SettingsSessionGuard;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
@@ -24,7 +28,8 @@ import java.util.UUID;
  * 고양이 잡지 읽기 (GROMO-2289 발행)의 <b>공개 경계</b> — 매일 07시(KST)에 나오는 오늘 호, 최근 7호, 한 호 펼치기, 받기·
  * 미루기·펼치기 기록. 세션이 있으면 게스트도 쓴다. 여기서는 입력의 «모양» 만 본다 — 받기 본문은
  * {@code {place: SEA|ISLAND, deferred?: boolean, opened?: boolean}} 이고 어긋나면 400 {@code INVALID_REQUEST} 다. 호의
- * 존재·7호 범위·받기 판정은 Data 가 한다. 한 호 펼치기의 {@code limit} 은 기본 30, 1~100 이다.
+ * 존재·7호 범위·받기 판정은 Data 가 한다. 한 호 펼치기의 {@code limit} 은 기본 30, 1~100 이다. 홍보 칸에서 그 섬으로
+ * 바로 가기(GROMO-2902)는 섬 도착 명령이라 섬 유스케이스의 오류 표를 쓴다.
  */
 @RestController
 @RequiredArgsConstructor
@@ -35,6 +40,7 @@ public class MagazineController {
     private static final Set<String> RECEIPT_KEYS = Set.of("place", "deferred", "opened");
 
     private final MagazineUseCase magazines;
+    private final IslandMembershipUseCase islands;
     private final SettingsSessionGuard sessions;
     private final UpstreamConfigProperties properties;
 
@@ -74,6 +80,19 @@ public class MagazineController {
             throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, "place");
         }
         return magazines.receipt(claims, issue, place.stringValue(), flag(body, "deferred"), flag(body, "opened"),
+                properties.deadline());
+    }
+
+    /**
+     * 홍보 칸의 섬으로 항해 없이 바로 간다 (GROMO-2902) — 응답은 섬 도착({@code POST /islands/{islandId}/arrivals})과 같다.
+     * 본문은 없고 {@code Idempotency-Key}(UUID)가 필수다. 가입은 하지 않는다 — 내 소속 섬이면 현재 섬을 옮기고 그 밖에는
+     * 방문 도착만 남긴다.
+     */
+    @PostMapping("/me/magazine/promotions/{promotionId}/arrivals")
+    public IslandArrivalView arrive(@PathVariable String promotionId, HttpServletRequest request) {
+        AccessTokenClaims claims = sessions.requireSession(request);
+        UUID key = CommandKeys.required(request);
+        return islands.arriveFromMagazine(claims, PublicIds.uuid(promotionId, "promotionId"), key,
                 properties.deadline());
     }
 
