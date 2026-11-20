@@ -1,21 +1,12 @@
 import { Wheel } from '@/design-system/patterns';
 import { semanticTokens } from '@/design-system/tokens';
-import { localized, t } from '@/i18n';
+import { t } from '@/i18n';
 import { GOWUN } from '@/screens/island/sceneKit';
 import { clockMinutes } from '@/services/model';
 import { LAST_KST_WINDOW_END_MINUTES } from '@/utils/questWindowTz';
-import React, { useEffect, useRef, useState } from 'react';
-import {
-  Animated,
-  Easing,
-  Image,
-  ImageSourcePropType,
-  Platform,
-  Pressable,
-  View,
-} from 'react-native';
+import React, { useState } from 'react';
+import { Image, ImageSourcePropType, Platform, Pressable, View } from 'react-native';
 import Svg, { G, Path } from 'react-native-svg';
-import { interiorArt } from '../assets';
 import { INK, assetUri, lh, webOnly } from '../shared/styles';
 import { Text, boardFont } from '../shared/typography';
 import { HANDWRITING } from './boardData';
@@ -319,40 +310,6 @@ export function Track({ rate, color, style }: { rate: number; color: string; sty
         style={{ width: `${rate}%`, height: '100%', borderRadius: 99, backgroundColor: color }}
       />
     </View>
-  );
-}
-
-export function BlueprintReadyStamp({ reduceMotion }: { reduceMotion: boolean }) {
-  const impact = useRef(new Animated.Value(reduceMotion ? 1 : 0)).current;
-  useEffect(() => {
-    if (reduceMotion) return;
-    Animated.timing(impact, {
-      toValue: 1,
-      duration: 240,
-      easing: Easing.out(Easing.back(1.8)),
-      useNativeDriver: false,
-    }).start();
-  }, [impact, reduceMotion]);
-  return (
-    <Animated.View
-      testID="board-blueprint-ready-stamp"
-      style={{
-        // 시안 크기 126까지, 좁은 화면에서는 들어 있는 그림 칸 폭만큼 줄어든다(정사각형 유지)
-        width: '100%',
-        maxWidth: 126,
-        aspectRatio: 1,
-        opacity: impact,
-        transform: [
-          { scale: impact.interpolate({ inputRange: [0, 0.82, 1], outputRange: [1.65, 0.94, 1] }) },
-        ],
-      }}
-    >
-      <Picture
-        source={localized(interiorArt.blueprintReadyStamp)}
-        label={t('common.readyStampA11y')}
-        style={{ width: '100%', height: '100%' }}
-      />
-    </Animated.View>
   );
 }
 

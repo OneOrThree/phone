@@ -8,66 +8,15 @@ import { ScreenTimeSetupIntro } from '@/screens/permissions/ScreenTimeSetupIntro
 import { duringSystemPrompt } from './focusLeave';
 import { FocusBlockingIcon, supportsFocusSetup } from './FocusBlockingGuide';
 import { VerificationIntro } from './VerificationIntro';
-import { Alert, Linking, Platform, Pressable, View } from 'react-native';
+import { Alert, Linking, Pressable, View } from 'react-native';
 import { Toggle, Txt } from '@/design-system/patterns';
 import { useCameraPermissions } from 'expo-camera';
 import Svg, { Circle, Path } from 'react-native-svg';
 import { C, componentTokens, primitiveTokens, semanticTokens } from '@/design-system/tokens';
 import { t } from '@/i18n';
 import { type VerificationCameraPosition } from '@/services/studyVerification/types';
-import { loadTensorflowModel } from 'react-native-fast-tflite';
-import {
-  OBJECT_INPUT,
-  studyObjectModelReady,
-  studyObjectScores,
-} from '@/services/studyVerification/studyObjects';
-import { PALM_INPUT, maxSigmoid, scoreTensorIndex } from '@/services/studyVerification/palmScore';
 
 export { VerificationSession as VerificationSpike } from './VerificationSession';
-
-/** 스파이크 점검용: 번들된 .tflite 가 로드되는지, 텐서 모양이 맞는지 Metro 콘솔에 찍는다. */
-export async function probeModel(): Promise<void> {
-  const t0 = Date.now();
-  try {
-    const m = await loadTensorflowModel(require('../../assets/ml/palm_detection_full.tflite'), []);
-    console.log('[verify-spike] model loaded', Date.now() - t0, 'ms', {
-      inputs: m.inputs.map((x) => `${x.name} ${x.dataType} [${x.shape.join(',')}]`),
-      outputs: m.outputs.map((x) => `${x.name} ${x.dataType} [${x.shape.join(',')}]`),
-      scoreIdx: scoreTensorIndex(m.outputs),
-    });
-    // 검은 프레임 한 장으로 추론 1회 — 지연과 점수 범위 확인(손 없음 → 0.5 미만이어야 함)
-    const t1 = Date.now();
-    const out = await m.run([new Float32Array(PALM_INPUT * PALM_INPUT * 3).buffer]);
-    console.log(
-      '[verify-spike] blank frame score',
-      maxSigmoid(new Float32Array(out[scoreTensorIndex(m.outputs)]!)).toFixed(3),
-      Date.now() - t1,
-      'ms',
-    );
-  } catch (e) {
-    console.log('[verify-spike] model load failed', String(e));
-  }
-  if (!__DEV__) return;
-  try {
-    const objectModel = await loadTensorflowModel(
-      require('../../assets/ml/efficientdet_lite0_float16_study.tflite'),
-      [],
-    );
-    if (!studyObjectModelReady(objectModel.inputs, objectModel.outputs))
-      throw new Error('Unexpected object model tensor layout');
-    const started = Date.now();
-    const output = await objectModel.run([new Uint8Array(OBJECT_INPUT * OBJECT_INPUT * 3).buffer]);
-    console.log(
-      '[verify-spike] object model ready',
-      JSON.stringify({
-        elapsedMs: Date.now() - started,
-        blankFrameScores: studyObjectScores(output),
-      }),
-    );
-  } catch (error) {
-    console.warn('[verify-spike] object model unavailable', String(error));
-  }
-}
 
 /** 스위치는 인증 온오프, 카메라 버튼은 미리보기만 담당한다. */
 export function VerificationToggle({

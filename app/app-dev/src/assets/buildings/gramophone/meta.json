@@ -6,8 +6,7 @@
   "source": "../../island-final-6/enhanced/buildings/day/gramophone.png",
   "canvas": [632, 910],
   "files": {
-    "day": "day.png",
-    "night": "night.png"
+    "day": "day.png"
   },
   "alpha_bounds": [12, 12, 620, 898],
   "island_box": [330, 391, 73, 89],
