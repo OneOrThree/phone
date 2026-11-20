@@ -8,7 +8,7 @@ Codex와 그 밖의 코딩 에이전트가 따르는 저장소 규칙이다. 리
 - `CONTEXT.md` — 용어. 새 문장은 이 말을 쓴다.
 - `docs/conventions/git-pr-conventions.md` — 브랜치·커밋·PR·리뷰·머지의 정본.
 - `docs/engineering/pipeline-map.md` — 바꾼 경로가 PR·main 머지 뒤·운영에서 무엇을 부르는지.
-- 작업 폴더의 `AGENTS.md`(`app/app-dev/`, `app/legacy/app-dev/`, `backoffice/`)가 있으면 그것도 읽는다.
+- 작업 폴더의 `AGENTS.md`(`app/app-dev/`, `backoffice/`)가 있으면 그것도 읽는다.
 
 ## 금지선
 

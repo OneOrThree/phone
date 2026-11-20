@@ -1,5 +1,7 @@
 # 계정·설정 — LLD
 
+> **참고(2026-11-21)** — 이 문서의 `app/legacy/…` 경로는 삭제된 Gromo 1.x 앱을 가리킨다(GROMO-2906). 원본은 `OneOrThree/gromo` 레포의 `app/…` 아래에 있다.
+
 GROMO-1756 · [정책](policy.md) · [HLD](high-level-design.md) · [원본 예시 7개](source-contracts.json)
 
 ## 1. 적용 범위와 공통 규칙

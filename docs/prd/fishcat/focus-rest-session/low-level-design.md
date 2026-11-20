@@ -1,5 +1,7 @@
 # 집중·휴식 상세 계약
 
+> **참고(2026-11-21)** — 이 문서의 `app/legacy/…` 경로는 삭제된 Gromo 1.x 앱을 가리킨다(GROMO-2906). 원본은 `OneOrThree/gromo` 레포의 `app/…` 아래에 있다.
+
 > GROMO-1763 · [정책](policy.md) · [구성](high-level-design.md) · [원본9계약](source-contracts.json)
 > 아래 테이블/필드는 후속 구현 설계다. 현재 DB·API에 이미 있다는 뜻이 아니다.
 
