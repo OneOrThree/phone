@@ -1,5 +1,4 @@
-import { t } from '@/i18n';
-import { TextInput, Text } from '@/design-system/typography';
+import { Text } from '@/design-system/typography';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import React, { useRef, createContext, useContext } from 'react';
 import {
@@ -7,27 +6,17 @@ import {
   Pressable,
   View,
   StyleSheet,
-  Image,
   StyleProp,
   ViewStyle,
   Platform,
   useWindowDimensions,
 } from 'react-native';
-import { cat, assets } from '@/constants/assets';
 import { C, componentTokens, semanticTokens } from '@/design-system/tokens';
 export { C } from '@/design-system/tokens';
 export const MotionContext = createContext(false);
 export const S = StyleSheet.create({
   page: { flex: 1, backgroundColor: C.cream },
   content: { padding: 20, paddingBottom: 60, gap: 16 },
-  h1: {
-    fontSize: 28,
-    lineHeight: 36,
-    fontWeight: '800',
-    color: C.ink,
-    letterSpacing: -0.7,
-  },
-  h2: { fontSize: 21, lineHeight: 29, fontWeight: '800', color: C.ink },
   body: { fontSize: 15, lineHeight: 23, color: C.ink },
   small: { fontSize: 12, lineHeight: 19, color: C.muted },
   row: {
@@ -44,17 +33,6 @@ export const S = StyleSheet.create({
     padding: componentTokens.card.padding,
     gap: componentTokens.card.gap,
   },
-  input: {
-    borderWidth: componentTokens.input.borderWidth,
-    borderColor: componentTokens.input.border,
-    borderRadius: componentTokens.input.radius,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    backgroundColor: componentTokens.input.background,
-    fontSize: 16,
-    color: componentTokens.input.foreground,
-    minHeight: componentTokens.input.minHeight,
-  },
   badge: {
     paddingHorizontal: 12,
     paddingVertical: 5,
@@ -69,24 +47,7 @@ export const S = StyleSheet.create({
     backgroundColor: componentTokens.divider.color,
     marginVertical: 8,
   },
-  menu: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    padding: 16,
-    backgroundColor: C.paper,
-    borderWidth: 1.5,
-    borderColor: C.brown,
-    borderRadius: 20,
-  },
   scene: { width: '100%', height: 240, borderRadius: 22 },
-  avatar: {
-    borderRadius: 19,
-    borderWidth: 1.5,
-    borderColor: C.brown,
-    backgroundColor: C.sky,
-  },
-  tabs: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
 });
 export function T({
   children,
@@ -98,13 +59,6 @@ export function T({
   style?: any;
 }) {
   return <Text style={[small ? S.small : S.body, style]}>{children}</Text>;
-}
-export function H({ children, large = false }: { children: React.ReactNode; large?: boolean }) {
-  return (
-    <Text accessibilityRole="header" style={large ? S.h1 : S.h2}>
-      {children}
-    </Text>
-  );
 }
 export function Card({
   children,
@@ -210,134 +164,6 @@ export function Button({
     </Animated.View>
   );
 }
-export function Avatar({ color = 'black', size = 54 }: { color?: string; size?: number }) {
-  return (
-    <Image
-      source={cat(color)}
-      style={[S.avatar, { width: size, height: size }]}
-      resizeMode="contain"
-      accessibilityLabel={t('ui.common.catProfile')}
-    />
-  );
-}
-export function Field({
-  label,
-  value,
-  onChange,
-  placeholder = '',
-  numeric = false,
-  multiline = false,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  placeholder?: string;
-  numeric?: boolean;
-  multiline?: boolean;
-}) {
-  return (
-    <View style={{ gap: 7 }}>
-      <T small>{label}</T>
-      <TextInput
-        accessibilityLabel={label}
-        value={value}
-        onChangeText={onChange}
-        placeholder={placeholder}
-        placeholderTextColor={C.muted}
-        keyboardType={numeric ? 'number-pad' : 'default'}
-        multiline={multiline}
-        style={[S.input, multiline && { minHeight: 100, textAlignVertical: 'top' }]}
-      />
-    </View>
-  );
-}
-export function Progress({ value, label }: { value: number | null; label?: string }) {
-  return (
-    <View
-      accessible
-      accessibilityLabel={
-        (label || t('ui.common.completionRate')) +
-        ' ' +
-        (value === null ? t('ui.common.needsReview') : value + '%')
-      }
-      style={{ gap: 6 }}
-    >
-      <View
-        style={{
-          height: 8,
-          backgroundColor: `${C.brown}2B`,
-          borderRadius: 10,
-          overflow: 'hidden',
-        }}
-      >
-        {value !== null && (
-          <View
-            style={{
-              width: `${Math.max(0, Math.min(100, value))}%`,
-              height: 8,
-              backgroundColor: componentTokens.progress.fill,
-              borderRadius: 10,
-            }}
-          />
-        )}
-      </View>
-    </View>
-  );
-}
-export function Art({ path, height = 150 }: { path: string; height?: number }) {
-  return <Image source={assets[path]} style={{ width: '100%', height }} resizeMode="contain" />;
-}
-export function Menu({
-  title,
-  subtitle,
-  art,
-  onPress,
-}: {
-  title: string;
-  subtitle?: string;
-  art?: string;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={title}
-      onPress={onPress}
-      style={({ pressed }) => [S.menu, { opacity: pressed ? 0.7 : 1 }]}
-    >
-      {art && <Image source={assets[art]} style={{ width: 54, height: 54 }} resizeMode="contain" />}
-      <View style={{ flex: 1 }}>
-        <H>{title}</H>
-        <T small>{subtitle}</T>
-      </View>
-      <T>›</T>
-    </Pressable>
-  );
-}
-export function Tabs({
-  items,
-  value,
-  onChange,
-}: {
-  items: string[];
-  value: string;
-  onChange: (v: string) => void;
-}) {
-  return (
-    <View style={S.tabs}>
-      {items.map((item) => (
-        <Button
-          key={item}
-          title={item}
-          secondary={item !== value}
-          onPress={() => onChange(item)}
-          small
-        />
-      ))}
-    </View>
-  );
-}
-
 export function useScreenInsets() {
   const native = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();

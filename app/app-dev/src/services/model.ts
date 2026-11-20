@@ -10,7 +10,7 @@ export {
   products,
   trackNames,
 } from './model/catalog';
-export { demoState, initialState, makeIsland } from './model/fixtures';
+export { demoState, initialState } from './model/fixtures';
 export {
   islandFocusRecord,
   islandWeeklyAverage,
@@ -51,7 +51,6 @@ export {
   memberOf,
   myIslandsConsistent,
   newChatCount,
-  nextBuildings,
   pendingVisitRequest,
   residentCount,
   serverHome,
@@ -84,17 +83,11 @@ export type {
   Color,
   Friend,
   Island,
-  Member,
-  Message,
-  Notice,
-  Product,
   Quest,
-  QuestRound,
   RecordItem,
   RequestStatusEntry,
   Reward,
   Route,
   Session,
   State,
-  VisitorJoin,
 } from './model/types';

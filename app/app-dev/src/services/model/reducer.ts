@@ -35,7 +35,6 @@ import {
   removeOwnMembership,
   residentCount,
   shopPrerequisitesMet,
-  shouldShowMailboxGuide,
   shouldShowShopGuide,
   targetIds,
 } from './islandPolicy';
@@ -192,7 +191,6 @@ export function reducer(state: State, a: Action): State {
     'BUY',
     'TRACK',
     'THEME',
-    'CLAIM_MEMBER',
     'COMMENT_DELETE',
     'CHAT_READ',
   ];
@@ -722,9 +720,6 @@ export function reducer(state: State, a: Action): State {
         delete s.session.restStartedAt;
       }
       break;
-    case 'ADVANCE':
-      if (s.session?.status === 'active') s.session.seconds += a.seconds;
-      break;
     case 'TUTORIAL_FISH_CONFIRMED': {
       // 서버가 지급한 사실만 표시한다. 섬 잔액과 종료 보상을 여기서 다시 더하지 않는다.
       if (!s.session || s.session.id !== a.sessionId || s.session.version == null) return state;
@@ -926,18 +921,6 @@ export function reducer(state: State, a: Action): State {
       reward.acknowledged = true;
       break;
     }
-    case 'CLAIM_MEMBER': {
-      const q = i.quests.find((q) => q.id === a.id),
-        round = q?.rounds?.[a.day];
-      if (!round || !round.achieved.includes(a.memberId) || round.claimed.includes(a.memberId))
-        return state;
-      round.claimed.push(a.memberId);
-      i.fish = balance(i) + 10;
-      i.earned ??= {};
-      i.earned[a.memberId] = earnedBy(i, a.memberId) + 10;
-      log(t('ui.policy.resident_quest_reward_10_fish_cd037'), a.memberId);
-      break;
-    }
     case 'QUEST_SAVE': {
       // 일일 퀘스트: 방장이 만들고 수정한다(주민은 hostOnly에서 막힌다). 매일 새 회차로 평가한다
       if (!Number.isInteger(a.target) || a.target < 1 || !a.title?.trim()) return state;
@@ -1084,8 +1067,6 @@ export function reducer(state: State, a: Action): State {
       });
       break;
     }
-    case 'DECOR_POSITION':
-      return state;
     case 'THEME':
       if (a.value === 'default' || i.sharedOwned.includes(a.value)) {
         if (a.kind === 'building') {
@@ -1152,10 +1133,6 @@ export function reducer(state: State, a: Action): State {
       i.capacity = v;
       break;
     }
-    case 'MAILBOX_GUIDE_DONE':
-      if (typeof a.userId !== 'string' || !shouldShowMailboxGuide(s, a.userId)) return state;
-      s.mailboxGuideSeenBy = [...(s.mailboxGuideSeenBy ?? []), a.userId];
-      break;
     case 'SHOP_GUIDE_DONE':
       if (typeof a.userId !== 'string' || !shouldShowShopGuide(s, a.userId)) return state;
       s.shopGuideSeenBy = [...(s.shopGuideSeenBy ?? []), a.userId];
@@ -1239,16 +1216,6 @@ export function reducer(state: State, a: Action): State {
     }
     case 'SCREEN_TIME':
       s.screenMinutes = Math.max(0, a.value);
-      break;
-    case 'SCREEN_TIME_DAY':
-      s.screenDays ??= {};
-      if (s.screenTimeUnconfirmedDays?.includes(a.day)) break;
-      s.screenDays[a.day] = Math.max(0, a.value);
-      for (const island of s.islands.filter(
-        (candidate) => candidate.joined && candidate.buildings.includes('board'),
-      ))
-        for (const quest of island.quests) ensureQuestRound(island, quest, a.day);
-      evaluateQuests(s, now);
       break;
     case 'SCREEN_TIME_HISTORY':
       s.screenDays ??= {};
@@ -1439,7 +1406,6 @@ export function reducer(state: State, a: Action): State {
     default:
       return state;
   }
-  if (['FINISH', 'QUEST_SAVE', 'SCREEN_TIME', 'SCREEN_TIME_DAY'].includes(a.type))
-    evaluateQuests(s, now);
+  if (['FINISH', 'QUEST_SAVE', 'SCREEN_TIME'].includes(a.type)) evaluateQuests(s, now);
   return s;
 }
