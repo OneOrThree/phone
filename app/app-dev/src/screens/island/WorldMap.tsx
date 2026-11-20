@@ -120,7 +120,7 @@ import {
 import { semanticTokens } from '@/design-system/tokens';
 import { componentTokens, primitiveTokens } from '@/design-system/tokens';
 import { CatInfoPopup } from './CatInfoPopup';
-import { TutorialScene, TutorialSpotlight, useSpotlightTarget } from '@/screens/island/NpcGuide';
+import { TutorialScene, TutorialSpotlight, useSpotlightTarget } from '@/components/NpcGuide';
 import { getSession } from '@/services/api/session';
 import { catColor } from '@/screens/focus/useIslandPresence';
 import { useBlockedUserIds } from '@/services/blockedUsers';

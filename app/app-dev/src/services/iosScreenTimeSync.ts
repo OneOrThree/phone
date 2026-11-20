@@ -1,7 +1,7 @@
 import { screenTime, selectionCount } from './screenTime';
 import { dayKey } from './model';
 import { getSession, sessionGeneration } from './api/session';
-import { ApiError, CLIENT_STALE_SESSION } from './api/client';
+import { staleSessionError } from './api/client';
 
 let queue: Promise<unknown> = Promise.resolve();
 
@@ -10,7 +10,7 @@ export function syncIOSScreenTime(owner: string) {
   const generation = sessionGeneration();
   const check = () => {
     if (generation !== sessionGeneration() || getSession()?.userId !== owner)
-      throw new ApiError(CLIENT_STALE_SESSION, '로그인 정보가 바뀌었어요.', 0);
+      throw staleSessionError('로그인 정보가 바뀌었어요.');
   };
   const result = queue.then(async () => {
     check();

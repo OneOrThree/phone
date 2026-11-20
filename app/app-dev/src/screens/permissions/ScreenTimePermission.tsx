@@ -14,7 +14,7 @@ import {
 import { syncAndroidScreenTime } from '@/services/screentimeSync';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, AppState, Platform, View } from 'react-native';
-import { Sheet } from '../shared/ScreenSheet';
+import { Sheet } from '@/components/ScreenSheet';
 import { ScreenTimePermissionHelp, openScreenTimeSettings } from './screenTimeHelp';
 
 export function ScreenTimePermission({ e }: ScreenProps) {

@@ -1,7 +1,7 @@
 import { t } from '@/i18n';
 import React, { useEffect, useRef, useState } from 'react';
 import { View } from 'react-native';
-import { IslandSheet } from '@/screens/island/IslandSheet';
+import { IslandSheet } from '@/components/IslandSheet';
 import { Btn, Group, Row, Txt } from '@/design-system/patterns';
 import { semanticTokens } from '@/design-system/tokens';
 import { islandErrorMessage } from '@/services/islandErrors';

@@ -4,7 +4,7 @@ import { Btn, Overlay } from '@/design-system/patterns';
 import { componentTokens, primitiveTokens, semanticTokens } from '@/design-system/tokens';
 import { t } from '@/i18n';
 import type { MagazineIssueSummary } from '@/services/api/magazine';
-import { T, useGowun } from '@/screens/island/sceneKit';
+import { T, useGowun } from '@/design-system/sceneKit';
 import { issueDateText } from './MagazineReader';
 import { cachedMagazineToday, onMagazineChanged } from './useMagazineToday';
 import { magazineApi } from './usePromotionEditor';

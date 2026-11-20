@@ -4,7 +4,7 @@ import { useAppLayout } from '@/utils/layout';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Image, Animated, AppState, Easing, type AppStateStatus } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
-import { useGowun } from '@/screens/island/sceneKit';
+import { useGowun } from '@/design-system/sceneKit';
 import { State } from '@/services/model';
 import { assets, cat } from '@/constants/assets';
 import { componentTokens } from '@/design-system/tokens';

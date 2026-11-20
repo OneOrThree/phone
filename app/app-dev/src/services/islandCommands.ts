@@ -6,9 +6,9 @@
 import {
   ApiError,
   CLIENT_NETWORK_ERROR,
-  CLIENT_STALE_SESSION,
   CLIENT_TIMEOUT,
   uuid,
+  staleSessionError,
 } from '@/services/api/client';
 import { type Account, me as apiMe } from '@/services/api/auth';
 import { updateProfile as apiUpdateProfile } from '@/services/api/account';
@@ -83,8 +83,6 @@ const defaultApi: IslandApi = {
 
 const contractError = () =>
   new ApiError('UPSTREAM_CONTRACT_ERROR', '섬 소속 정보가 올바르지 않아요.', 502);
-const staleError = () =>
-  new ApiError(CLIENT_STALE_SESSION, '로그인 정보가 바뀌었어요. 다시 시도해 주세요.', 0);
 
 // 안내 이력의 조회·오류 복구는 useAccountGuides가 맡는다. 로컬 오류로 서버 정본·명령 성공을 버리지 않는다.
 const guidesForSync = async (ownerId: string | undefined) => {
@@ -122,7 +120,7 @@ export const createIslandCommands = (deps: IslandCommandDeps) => {
   };
   // 후속 API·dispatch·반환 전의 세대 fence — 바뀌었으면 늦은 응답이라 버린다
   const alive = (g: number) => {
-    if (generation() !== g) throw staleError();
+    if (generation() !== g) throw staleSessionError();
   };
   // 오래된 조회가 새 섬 선택을 되돌리지 않게 읽기 순서를 구분한다.
   let syncRevision = 0;
@@ -177,7 +175,7 @@ export const createIslandCommands = (deps: IslandCommandDeps) => {
       guidesForSync(ownerId),
     ]);
     alive(g);
-    if (revision !== syncRevision) throw staleError();
+    if (revision !== syncRevision) throw staleSessionError();
     if (!myIslandsConsistent(my)) throw contractError();
     deps.dispatch({
       type: 'ISLAND_SYNC',
@@ -199,7 +197,7 @@ export const createIslandCommands = (deps: IslandCommandDeps) => {
     try {
       return await fn();
     } catch (thrown) {
-      if (generation() !== g) throw staleError();
+      if (generation() !== g) throw staleSessionError();
       if (
         thrown instanceof ApiError &&
         ([
@@ -216,7 +214,7 @@ export const createIslandCommands = (deps: IslandCommandDeps) => {
           await syncIslands();
         } catch {}
       // 재조회 도중 세대가 죽었으면 원 오류도 옛 세션의 것 — stale로 바꿔 던진다
-      if (generation() !== g) throw staleError();
+      if (generation() !== g) throw staleSessionError();
       throw thrown;
     }
   };
@@ -312,7 +310,7 @@ export const createIslandCommands = (deps: IslandCommandDeps) => {
           guidesForSync(ownerId),
         ]);
         alive(g);
-        if (revision !== syncRevision) throw staleError();
+        if (revision !== syncRevision) throw staleSessionError();
         if (!myIslandsConsistent(screen.memberships)) throw contractError();
         deps.dispatch({
           type: 'ISLAND_SYNC',
@@ -347,7 +345,7 @@ export const createIslandCommands = (deps: IslandCommandDeps) => {
           revision = ++visitRevision,
           screen = await api.visit(islandId);
         alive(g);
-        if (revision !== visitRevision) throw staleError();
+        if (revision !== visitRevision) throw staleSessionError();
         deps.dispatch({ type: 'ISLAND_VISIT', visit: screen });
         return screen;
       }),

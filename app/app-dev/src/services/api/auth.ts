@@ -14,7 +14,7 @@
 import * as SecureStore from 'expo-secure-store';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
-import { ApiError, CLIENT_STALE_SESSION, request, uuid } from './client';
+import { ApiError, request, uuid, staleSessionError } from './client';
 import {
   clearRejectedSession,
   clearSession,
@@ -259,8 +259,7 @@ export async function guestLogin(): Promise<LoginResult> {
     await guestDeviceIdRotationFlight?.catch(() => {});
     deviceId = await guestDeviceId();
   }
-  if (generation !== sessionGeneration())
-    throw new ApiError(CLIENT_STALE_SESSION, '로그인 정보가 바뀌었어요. 다시 시도해 주세요.', 0);
+  if (generation !== sessionGeneration()) throw staleSessionError();
   let bootstrap = '';
   const result = await request<LoginResult>('/auth/sessions/guest', {
     method: 'POST',
@@ -276,7 +275,7 @@ export async function guestLogin(): Promise<LoginResult> {
   );
   if (!published) {
     revokeUnlessCurrent(result.refreshToken);
-    throw new ApiError(CLIENT_STALE_SESSION, '로그인 정보가 바뀌었어요. 다시 시도해 주세요.', 0);
+    throw staleSessionError();
   }
   if (previous) revokeUnlessCurrent(previous.refreshToken);
   return result;
@@ -352,7 +351,7 @@ export async function login(
   if (!published) {
     // 버려진 로그인의 **서버** 세션은 그대로 살아 있다 — 방금 받은 RT 로 그 세션만 끊는다.
     revokeUnlessCurrent(result.refreshToken);
-    throw new ApiError(CLIENT_STALE_SESSION, '로그인 정보가 바뀌었어요. 다시 시도해 주세요.', 0);
+    throw staleSessionError();
   }
   // commit 뒤 전달: 이전 세션의 RT 를 «독립적으로» 폐기한다(LLD §2.4 「준비 → commit → commit 뒤 전달」).
   // 여기서는 이전 RT 폐기까지만 — FCM 재등록·deliveryTag 대조는 기기 등록 티켓 몫이다.

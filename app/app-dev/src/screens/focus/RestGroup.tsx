@@ -22,7 +22,7 @@ import { C, MotionContext } from '@/design-system/primitives';
 import { componentTokens, semanticTokens } from '@/design-system/tokens';
 import { CatInfoPopup } from '@/screens/island/CatInfoPopup';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { TutorialScene, TutorialSpotlight, useSpotlightTarget } from '@/screens/island/NpcGuide';
+import { TutorialScene, TutorialSpotlight, useSpotlightTarget } from '@/components/NpcGuide';
 import { CatSprite } from '@/components/CatSprite';
 import { outfitOf, type Outfit } from '@/components/CatOutfitLayers';
 import { lookOf } from '@/services/memberAppearance';

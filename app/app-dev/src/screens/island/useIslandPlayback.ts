@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState } from 'react-native';
-import { ApiError, CLIENT_NETWORK_ERROR, CLIENT_TIMEOUT, uuid } from '@/services/api/client';
+import {
+  ApiError,
+  CLIENT_NETWORK_ERROR,
+  CLIENT_TIMEOUT,
+  uuid,
+  staleSessionError,
+} from '@/services/api/client';
 import {
   getPlayback,
   patchPlayback,
@@ -175,7 +181,7 @@ export function useIslandPlayback({
         .then(async () => {
           const current = stateRef.current;
           if (!current || ownEpoch !== epoch.current || generation !== sessionGeneration())
-            throw new ApiError('CLIENT_STALE_SESSION', '로그인 정보가 바뀌었어요.', 0);
+            throw staleSessionError('로그인 정보가 바뀌었어요.');
           const body: PlaybackPatch = { ...patch, expectedVersion: current.version };
           const key = uuid();
           try {
@@ -192,7 +198,7 @@ export function useIslandPlayback({
         })
         .then((next) => {
           if (ownEpoch !== epoch.current || generation !== sessionGeneration())
-            throw new ApiError('CLIENT_STALE_SESSION', '로그인 정보가 바뀌었어요.', 0);
+            throw staleSessionError('로그인 정보가 바뀌었어요.');
           apply(next, 'snapshot');
           return next;
         })

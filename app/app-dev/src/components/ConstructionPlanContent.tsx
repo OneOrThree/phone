@@ -2,7 +2,7 @@ import { Bar } from '@/design-system/patterns';
 import { componentTokens, semanticTokens } from '@/design-system/tokens';
 import { Text } from '@/design-system/typography';
 import { getLocale, t } from '@/i18n';
-import { GOWUN } from '@/screens/island/sceneKit';
+import { GOWUN } from '@/design-system/sceneKit';
 import React, { useId } from 'react';
 import Svg, { Defs, Path, Pattern, Rect } from 'react-native-svg';
 import { Image, ImageSourcePropType, StyleSheet, useWindowDimensions, View } from 'react-native';

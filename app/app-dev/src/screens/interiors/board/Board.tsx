@@ -15,7 +15,7 @@ import { Guestbook } from '@/screens/interiors/Guestbook';
 import { useBoardNotices } from '@/screens/interiors/useBoardNotices';
 import { HOME_QUEST_LIST_DETAIL } from '@/screens/island/HomeQuestIndicator';
 import { normalizedConstructionProgress } from '@/screens/island/constructionProgress';
-import { GOWUN } from '@/screens/island/sceneKit';
+import { GOWUN } from '@/design-system/sceneKit';
 import { useConstruction } from '@/screens/island/useConstruction';
 import { ApiError, CLIENT_STALE_SESSION } from '@/services/api/client';
 import { getSession, sessionGeneration } from '@/services/api/session';

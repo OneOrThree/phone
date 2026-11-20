@@ -32,7 +32,7 @@
  * 목록 항목도 함께 지운다.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ApiError, CLIENT_STALE_SESSION } from '@/services/api/client';
+import { ApiError, staleSessionError } from '@/services/api/client';
 import { getSession, sessionGeneration } from '@/services/api/session';
 import { captureProductEvent } from '@/services/posthog';
 import {
@@ -142,8 +142,6 @@ export function useMailbox({ active, scopeKey }: { active: boolean; scopeKey: st
       proven.current.epoch === epoch.current && proven.current.generation === sessionGeneration(),
     [],
   );
-  const stale = () =>
-    new ApiError(CLIENT_STALE_SESSION, '로그인 정보가 바뀌었어요. 다시 시도해 주세요.', 0);
   const alive = useCallback(
     (e: number, generation: number) =>
       mounted.current && e === epoch.current && generation === sessionGeneration(),
@@ -241,11 +239,11 @@ export function useMailbox({ active, scopeKey }: { active: boolean; scopeKey: st
   /** 받은·보낸 목록을 서버 정본으로 다시 읽는다 — 닫기의 양쪽 제거는 서버 몫이다. */
   const refreshLetters = useCallback(
     async (e: number, generation: number) => {
-      if (!alive(e, generation)) throw stale();
+      if (!alive(e, generation)) throw staleSessionError();
       // 시스템 편지는 기다리지 않는다 — 닫기·발송의 성공 판정은 친구 목록 재조회만 본다.
       loadSystemLetters(e, generation);
       const [received, sent] = await Promise.all([listLetters('received'), listLetters('sent')]);
-      if (!alive(e, generation)) throw stale();
+      if (!alive(e, generation)) throw staleSessionError();
       proven.current = { epoch: e, generation };
       set({
         letters: received.content,
@@ -318,7 +316,7 @@ export function useMailbox({ active, scopeKey }: { active: boolean; scopeKey: st
     async (letterId: string): Promise<void> => {
       if (!mounted.current || !active)
         throw new ApiError(CLIENT_INACTIVE, '지금은 편지를 닫을 수 없어요.', 0);
-      if (!cached()) throw stale();
+      if (!cached()) throw staleSessionError();
       const e = epoch.current;
       const generation = sessionGeneration();
       set({ closing: true });
@@ -353,7 +351,7 @@ export function useMailbox({ active, scopeKey }: { active: boolean; scopeKey: st
     async (receiverId: string, content: string): Promise<LetterView> => {
       if (!mounted.current || !active)
         throw new ApiError(CLIENT_INACTIVE, '지금은 편지를 보낼 수 없어요.', 0);
-      if (!cached()) throw stale();
+      if (!cached()) throw staleSessionError();
       if (isUserBlocked(receiverId)) {
         throw new ApiError('CLIENT_BLOCKED_USER', '차단한 사용자에게는 편지를 보낼 수 없어요.', 0);
       }

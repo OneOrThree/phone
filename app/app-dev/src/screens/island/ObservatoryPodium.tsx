@@ -7,8 +7,8 @@ import { useAppLayout } from '@/utils/layout';
 import { t } from '@/i18n';
 import { ObservatoryIslandPortrait } from './ObservatoryIslandPortrait';
 import { ObservatoryLedger, ObservatoryRow } from './ObservatoryLayout';
-import { GOWUN } from './sceneKit';
-import { useScreenReaderEnabled } from './NpcGuide';
+import { GOWUN } from '@/design-system/sceneKit';
+import { useScreenReaderEnabled } from '@/components/NpcGuide';
 
 const token = componentTokens.observatory.podium;
 const color = semanticTokens.color;

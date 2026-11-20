@@ -4,7 +4,7 @@ import { Btn, Txt } from '@/design-system/patterns';
 import { componentTokens, semanticTokens } from '@/design-system/tokens';
 import { useAppLayout } from '@/utils/layout';
 import { t } from '@/i18n';
-import { useGowun } from './sceneKit';
+import { useGowun } from '@/design-system/sceneKit';
 
 const c = componentTokens.raftDestinations;
 

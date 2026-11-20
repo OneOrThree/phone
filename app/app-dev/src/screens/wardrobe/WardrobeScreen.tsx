@@ -2,7 +2,7 @@ import { OutfitItemArt } from '@/components/CatOutfitLayers';
 import { Badge, C, EmptyState, Pic, Txt } from '@/design-system/patterns';
 import { t } from '@/i18n';
 import { customizationTitle } from '@/i18n/customization';
-import { IslandSheet, st } from '@/screens/island/IslandSheet';
+import { IslandSheet, st } from '@/components/IslandSheet';
 import { seaLoaf } from '@/screens/sea/seaAssets';
 import { products } from '@/services/model';
 import { markOutfitSeen } from '@/services/unseenOutfits';

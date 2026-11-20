@@ -15,7 +15,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AppState } from 'react-native';
-import { ApiError, CLIENT_STALE_SESSION, uuid } from '@/services/api/client';
+import { ApiError, uuid, staleSessionError } from '@/services/api/client';
 import { getSession, sessionGeneration } from '@/services/api/session';
 import { listIslandMessages, sendIslandMessage, type MailboxMessage } from '@/services/api/letters';
 import { CLIENT_INACTIVE, CLIENT_WRITE_IN_PROGRESS } from '@/screens/interiors/useBoardNotices';
@@ -78,8 +78,6 @@ export function useIslandChat({ islandId, active }: { islandId: string | null; a
       mounted.current && e === epoch.current && requestGeneration === sessionGeneration(),
     [],
   );
-  const stale = () =>
-    new ApiError(CLIENT_STALE_SESSION, '로그인 정보가 바뀌었어요. 다시 시도해 주세요.', 0);
 
   // 선언 순서가 곧 실행 순서다 — 범위 초기화·갱신 effect 보다 먼저 mounted 를 세운다.
   useEffect(() => {
@@ -238,7 +236,7 @@ export function useIslandChat({ islandId, active }: { islandId: string | null; a
         prev && prev.payload === text ? prev : { key: uuid(), payload: text, flight: null };
       const flight = (async () => {
         const message = await sendIslandMessage(islandId, { clientMessageId: slot.key, text });
-        if (!alive(e, requestGeneration)) throw stale();
+        if (!alive(e, requestGeneration)) throw staleSessionError();
         const dup = stateRef.current.messages.some(
           (m) => m.id === message.id || m.clientMessageId === message.clientMessageId,
         );

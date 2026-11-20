@@ -9,8 +9,8 @@ import { VerificationToggle } from './VerificationSpike';
 jest.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }),
 }));
-jest.mock('@/screens/island/sceneKit', () => ({
-  ...jest.requireActual('@/screens/island/sceneKit'),
+jest.mock('@/design-system/sceneKit', () => ({
+  ...jest.requireActual('@/design-system/sceneKit'),
   useGowun: () => undefined,
 }));
 let mockOwner = 'alice';

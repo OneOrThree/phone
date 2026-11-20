@@ -18,7 +18,7 @@ jest.mock('@/services/api/islands', () => ({
   getGuestbook: jest.fn(),
   writeGuestbook: jest.fn(),
 }));
-jest.mock('@/screens/island/IslandSheet', () => ({
+jest.mock('@/components/IslandSheet', () => ({
   IslandSheet: ({ children, onScroll }: any) => {
     const { View } = require('react-native');
     return (

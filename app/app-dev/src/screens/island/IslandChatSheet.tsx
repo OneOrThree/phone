@@ -7,7 +7,7 @@ import { Btn, C, Txt, k } from '@/design-system/patterns';
 import { componentTokens, semanticTokens } from '@/design-system/tokens';
 import { TextInput } from '@/design-system/typography';
 import { errorText, errorTextOr, t } from '@/i18n';
-import { Avatar, IslandSheet, sheetInput } from '@/screens/island/IslandSheet';
+import { Avatar, IslandSheet, sheetInput } from '@/components/IslandSheet';
 import type { IslandChat } from '@/screens/island/useIslandChat';
 import { ApiError } from '@/services/api/client';
 import { useMemberLooks } from '@/services/memberLooks';

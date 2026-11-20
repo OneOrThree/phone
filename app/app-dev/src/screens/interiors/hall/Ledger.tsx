@@ -1,4 +1,4 @@
-import { GOWUN } from '@/screens/island/sceneKit';
+import { GOWUN } from '@/design-system/sceneKit';
 import { useState } from 'react';
 import { Animated, Platform, Pressable, View } from 'react-native';
 import { reactStyle, useKeyframe } from '../shared/motion';

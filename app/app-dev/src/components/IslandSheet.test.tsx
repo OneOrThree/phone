@@ -10,7 +10,7 @@ import {
   IslandSheet,
   SheetGroup,
   SheetRow,
-} from '@/screens/island/IslandSheet';
+} from '@/components/IslandSheet';
 
 let mockLayout = {
   landscape: true,

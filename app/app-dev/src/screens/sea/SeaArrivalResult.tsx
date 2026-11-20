@@ -11,7 +11,7 @@ import {
 import { t } from '@/i18n';
 import { useCustomizationCatalog } from '@/services/customizationCatalog';
 import { addUnseenOutfits } from '@/services/unseenOutfits';
-import { useGowun } from '@/screens/island/sceneKit';
+import { useGowun } from '@/design-system/sceneKit';
 import { SeaArrival, seaDuration } from './seaModel';
 import { SeaRewardArt, seaRewardCatalog } from './seaRewardCatalog';
 

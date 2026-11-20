@@ -5,7 +5,7 @@ import { semanticTokens as s } from '@/design-system/tokens';
 import type { ScreenProps } from '@/navigation/ScreenEnvironment';
 import { STORE_URLS } from '@/services/developerLetter';
 import { captureWebDemoEvent } from '@/services/webDemoAnalytics';
-import { Sheet } from '../shared/ScreenSheet';
+import { Sheet } from '@/components/ScreenSheet';
 
 export function MobileFeatures({ e }: ScreenProps) {
   const open = (platform: 'ios' | 'android') => {

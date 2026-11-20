@@ -4,7 +4,7 @@ import { Btn, Txt } from '@/design-system/patterns';
 import { semanticTokens as s } from '@/design-system/tokens';
 import googleClientIds from '@/config/googleClientIds.json';
 import { sendGoogleWebCredential } from '@/services/webGoogleLogin';
-import { useGowunFont } from '@/screens/island/sceneKit';
+import { useGowunFont } from '@/design-system/sceneKit';
 
 type GoogleIdentity = {
   initialize(options: {

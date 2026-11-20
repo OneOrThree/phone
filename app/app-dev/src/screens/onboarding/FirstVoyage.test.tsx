@@ -25,7 +25,7 @@ jest.mock('@/services/api/session', () => ({
   sessionGeneration: () => mockGeneration,
 }));
 jest.mock('@/screens/island/useTelescope', () => ({ useTelescope: jest.fn() }));
-jest.mock('@/screens/island/sceneKit', () => ({ useGowun: () => 'Gowun' }));
+jest.mock('@/design-system/sceneKit', () => ({ useGowun: () => 'Gowun' }));
 jest.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 0, right: 0, bottom: 0, left: 0 }),
 }));

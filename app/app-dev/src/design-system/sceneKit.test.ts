@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { renderHook } from '@testing-library/react-native';
-import { GOWUN, safeOffset, useGowun, useGowunFont } from '@/screens/island/sceneKit';
+import { GOWUN, safeOffset, useGowun, useGowunFont } from '@/design-system/sceneKit';
 
 test('안전영역 보정은 시안 기준(세로 위 52·가로 좌우 52)을 넘는 만큼만 민다', () => {
   // 검토 모드 402×874 / 874×402 = 시안 좌표 그대로

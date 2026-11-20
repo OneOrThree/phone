@@ -8,7 +8,7 @@ import {
   SheetGroup,
   SheetRow,
   st,
-} from '@/screens/island/IslandSheet';
+} from '@/components/IslandSheet';
 import { isHost, mainIsland, residentCount } from '@/services/model';
 import { Pressable, View } from 'react-native';
 import type { ScreenContext } from '../navigation/useScreenState';

@@ -50,7 +50,7 @@ import {
   TutorialSpotlight,
   useScreenReaderEnabled,
   useSpotlightTarget,
-} from '@/screens/island/NpcGuide';
+} from '@/components/NpcGuide';
 import { useShop } from '@/screens/island/useShop';
 import { DepartureStory } from '@/screens/world/DepartureStory';
 import { Sailing } from '@/screens/world/WorldViews';

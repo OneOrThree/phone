@@ -7,7 +7,7 @@ import { SeaArrival, SeaParticipant, SeaVoyage, seaPeerPages } from './seaModel'
 import { duckPreviewArt } from './seaRewardCatalog';
 import { SeaRaft } from './SeaRaft';
 import { applyLocalePref } from '@/i18n';
-import { GOWUN } from '@/screens/island/sceneKit';
+import { GOWUN } from '@/design-system/sceneKit';
 import { FriendActionContext } from '@/screens/island/CatInfoPopup';
 import type { FriendsScreenState } from '@/screens/island/useFriendsScreen';
 import { sendFriendRequest } from '@/services/api/friends';

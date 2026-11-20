@@ -25,7 +25,7 @@ import { SeaMagazineDelivery } from './SeaMagazineDelivery';
 import { SeaRewardArt } from './seaRewardCatalog';
 import { art } from '@/constants/art';
 import { HudActions, HudAvatarButton } from '@/screens/island/HomeNavigationHud';
-import { useGowun } from '@/screens/island/sceneKit';
+import { useGowun } from '@/design-system/sceneKit';
 import { CatInfoPopup } from '@/screens/island/CatInfoPopup';
 import type { Route } from '@/services/model';
 

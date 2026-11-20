@@ -13,7 +13,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Btn, Txt } from '@/design-system/patterns';
 import { componentTokens, semanticTokens as s } from '@/design-system/tokens';
 import { STORE_URLS } from '@/services/developerLetter';
-import { useGowunFont } from '@/screens/island/sceneKit';
+import { useGowunFont } from '@/design-system/sceneKit';
 import { PolicyLinks } from '@/components/PolicyLink';
 import {
   captureWebDemoEvent,

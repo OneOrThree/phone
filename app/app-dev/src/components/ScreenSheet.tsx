@@ -1,4 +1,4 @@
-import { IslandSheet } from '@/screens/island/IslandSheet';
+import { IslandSheet } from '@/components/IslandSheet';
 
 export function Sheet({
   e,

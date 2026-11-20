@@ -8,7 +8,7 @@ import { getSession, sessionGeneration } from '@/services/api/session';
 import { screenTimeMeasurementChanged } from '@/services/screenTimeEvents';
 import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Platform } from 'react-native';
-import { Sheet } from '../shared/ScreenSheet';
+import { Sheet } from '@/components/ScreenSheet';
 
 export function MeasuredAppPicker({ e }: ScreenProps) {
   if (Platform.OS === 'android') {

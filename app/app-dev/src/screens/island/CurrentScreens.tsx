@@ -3,7 +3,7 @@ import { semanticTokens } from '@/design-system/tokens';
 import { t } from '@/i18n';
 import type { ScreenProps } from '@/navigation/ScreenEnvironment';
 import { FriendActionContext } from '@/screens/island/CatInfoPopup';
-import { BuildingCompletionGuide, BuildingGuide, GuideBox } from '@/screens/island/NpcGuide';
+import { BuildingCompletionGuide, BuildingGuide, GuideBox } from '@/components/NpcGuide';
 import { useAccountGuides } from '@/screens/island/useAccountGuides';
 import { useConstructionAnnouncements } from '@/screens/island/useConstructionAnnouncements';
 import { useFriendsScreen, type FriendsScreenState } from '@/screens/island/useFriendsScreen';

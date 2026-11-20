@@ -1,4 +1,4 @@
-import { ApiError, CLIENT_STALE_SESSION, request, uuid } from './api/client';
+import { ApiError, request, uuid, staleSessionError } from './api/client';
 import { currentFocusSession } from './api/focusSessions';
 import type { IslandCreated } from './api/islands';
 import { sessionGeneration } from './api/session';
@@ -24,8 +24,7 @@ export function enterSharedWebIsland(): Promise<IslandCreated> {
     idempotencyKey: attempt.key,
   })
     .then((result) => {
-      if (sessionGeneration() !== generation)
-        throw new ApiError(CLIENT_STALE_SESSION, '로그인 정보가 바뀌었어요.', 0);
+      if (sessionGeneration() !== generation) throw staleSessionError('로그인 정보가 바뀌었어요.');
       assigned = { generation, id: result.id };
       if (intent === attempt) intent = undefined;
       return result;

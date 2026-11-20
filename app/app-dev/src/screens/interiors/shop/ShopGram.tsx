@@ -1,4 +1,4 @@
-import { GOWUN } from '@/screens/island/sceneKit';
+import { GOWUN } from '@/design-system/sceneKit';
 import { useEffect, useRef, useState } from 'react';
 import { Animated, Easing, Image, Platform, Pressable, View, ViewStyle } from 'react-native';
 import Svg, { Polygon } from 'react-native-svg';

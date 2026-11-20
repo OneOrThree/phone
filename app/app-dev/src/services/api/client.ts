@@ -270,6 +270,16 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * 세션이 바뀐 뒤 도착한 옛 응답을 버릴 때 던지는 오류. `CLIENT_STALE_SESSION` 오류는 여기서만 만든다.
+ * 문구는 호출부가 쓰던 것을 그대로 넘긴다 — ko 의 `errorTextOr` 는 message 를 화면에 그대로 보여 줄 수 있다.
+ */
+export function staleSessionError(
+  message = '로그인 정보가 바뀌었어요. 다시 시도해 주세요.',
+): ApiError {
+  return new ApiError(CLIENT_STALE_SESSION, message, 0);
+}
+
 export interface RequestOptions {
   method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   body?: unknown;
@@ -434,11 +444,7 @@ async function requestAttempt<T>(
       const currentSession = getSession();
       if (currentSession && currentSession.accessToken !== sentAccessToken) {
         if (retried) {
-          throw new ApiError(
-            CLIENT_STALE_SESSION,
-            '로그인 정보가 바뀌었어요. 다시 시도해 주세요.',
-            0,
-          );
+          throw staleSessionError();
         }
         return requestAttempt<T>(
           path,
@@ -455,11 +461,7 @@ async function requestAttempt<T>(
         try {
           const accessToken = await refreshAccessToken(generation);
           if (generation !== sessionGeneration()) {
-            throw new ApiError(
-              CLIENT_STALE_SESSION,
-              '로그인 정보가 바뀌었어요. 다시 시도해 주세요.',
-              0,
-            );
+            throw staleSessionError();
           }
           if (accessToken) {
             return requestAttempt<T>(
@@ -470,18 +472,10 @@ async function requestAttempt<T>(
               accessToken,
             );
           }
-          throw new ApiError(
-            CLIENT_STALE_SESSION,
-            '로그인 정보가 바뀌었어요. 다시 시도해 주세요.',
-            0,
-          );
+          throw staleSessionError();
         } catch (refreshError) {
           if (generation !== sessionGeneration()) {
-            throw new ApiError(
-              CLIENT_STALE_SESSION,
-              '로그인 정보가 바뀌었어요. 다시 시도해 주세요.',
-              0,
-            );
+            throw staleSessionError();
           }
           if (isDefinitiveSessionRejection(refreshError)) {
             if (await clearRejectedSession(generation)) notifySessionLost();
@@ -495,7 +489,7 @@ async function requestAttempt<T>(
   }
 
   if (generation !== sessionGeneration()) {
-    throw new ApiError(CLIENT_STALE_SESSION, '로그인 정보가 바뀌었어요. 다시 시도해 주세요.', 0);
+    throw staleSessionError();
   }
 
   options.onStatus?.(response.status);

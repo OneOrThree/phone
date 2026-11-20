@@ -7,7 +7,7 @@ import {
   SheetGroup,
   SheetRow,
   st,
-} from '@/screens/island/IslandSheet';
+} from '@/components/IslandSheet';
 import {
   ObservatoryHeading,
   ObservatoryLedger,

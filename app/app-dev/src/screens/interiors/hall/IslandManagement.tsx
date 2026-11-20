@@ -1,4 +1,4 @@
-import { GOWUN } from '@/screens/island/sceneKit';
+import { GOWUN } from '@/design-system/sceneKit';
 import React, { useState } from 'react';
 import { Animated, Platform, Pressable, TextInput, View } from 'react-native';
 import { interiorArt } from '../assets';

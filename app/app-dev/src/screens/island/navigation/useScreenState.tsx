@@ -4,7 +4,7 @@ import { Btn, C, Pic, Strip, Txt, k } from '@/design-system/patterns';
 import { useScreenInsets } from '@/design-system/primitives';
 import { errorTextOr, errorText, getLocale, t } from '@/i18n';
 import type { ScreenEnvironment } from '@/navigation/ScreenEnvironment';
-import { Preview } from '@/screens/island/IslandSheet';
+import { Preview } from '@/components/IslandSheet';
 import { FinalIsland } from '@/screens/island/WorldMap';
 import type { FriendsScreenState } from '@/screens/island/useFriendsScreen';
 import { useIslandRankings } from '@/screens/island/useIslandRankings';

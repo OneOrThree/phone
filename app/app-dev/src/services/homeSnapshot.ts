@@ -14,7 +14,7 @@
  *  - 호출이 «시작된» 인증 세대와 호출부 `isCurrent` 를 유일한 await 경계에서 검사한다 —
  *    오래된 호출은 `CLIENT_STALE_SESSION` 으로 reject 하고 성공·undefined 로 돌아가지 않는다.
  */
-import { ApiError, CLIENT_STALE_SESSION } from './api/client';
+import { ApiError, staleSessionError } from './api/client';
 import {
   CANONICAL_BUILDINGS,
   CLIENT_CONTRACT_ERROR,
@@ -64,7 +64,7 @@ export async function loadHomeSnapshot({
   const generation = sessionGeneration();
   const alive = () => {
     if (sessionGeneration() !== generation || isCurrent?.() === false) {
-      throw new ApiError(CLIENT_STALE_SESSION, '로그인 정보가 바뀌었어요. 다시 시도해 주세요.', 0);
+      throw staleSessionError();
     }
   };
   const contractError = (field: string) =>

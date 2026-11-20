@@ -21,7 +21,7 @@ import type { Outfit } from '@/components/CatOutfitLayers';
 import { assets } from '@/constants/assets';
 import { MAGAZINE_UI } from '@/constants/magazineAssets';
 import { t } from '@/i18n';
-import { useGowun } from '@/screens/island/sceneKit';
+import { useGowun } from '@/design-system/sceneKit';
 import { seaAssets } from './seaAssets';
 
 const D = c.magazineReader.seaDelivery;

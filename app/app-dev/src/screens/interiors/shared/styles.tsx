@@ -1,4 +1,4 @@
-import { GOWUN, useGowunFont } from '@/screens/island/sceneKit';
+import { GOWUN, useGowunFont } from '@/design-system/sceneKit';
 import { Asset } from 'expo-asset';
 import { ImageSourcePropType, Platform } from 'react-native';
 
