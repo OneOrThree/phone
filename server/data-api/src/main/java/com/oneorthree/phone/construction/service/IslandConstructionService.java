@@ -144,8 +144,12 @@ public class IslandConstructionService {
                 .filter(f -> f.getStatus() == FacilityStatus.COMPLETED)
                 .map(IslandFacility::getBuildingId)
                 .collect(Collectors.toSet());
-        boolean anyInProgress = facilityByBuilding.values().stream()
-                .anyMatch(f -> f.getStatus() == FacilityStatus.BUILDING);
+        // 한 번에 한 건물만 짓는다 — 착공이 existsBuildingInProgress 로 두 번째 BUILDING 을 막으므로 정상이면 1행이다.
+        // 비정상 데이터로 여러 행이면 어느 행을 고를지 보장하지 않고, IN_PROGRESS 와 activeConstruction 은 같은 행을 가리킨다.
+        IslandFacility active = facilityByBuilding.values().stream()
+                .filter(f -> f.getStatus() == FacilityStatus.BUILDING)
+                .findFirst().orElse(null);
+        String activeBuildingId = active == null ? null : active.getBuildingId();
 
         IslandConstructionState state = states.findById(islandId).orElse(null);
         int balance = walletService.balanceOf(islandId);
@@ -158,7 +162,7 @@ public class IslandConstructionService {
                 continue;
             }
             ConstructionCostPolicy price = requirePrice(priceBook, building);
-            items.add(evaluate(building, price, anyInProgress,
+            items.add(evaluate(building, price, activeBuildingId,
                     completed, canBuild, balance));
         }
         return new ConstructionOptionsView(
@@ -169,11 +173,8 @@ public class IslandConstructionService {
                 aggregateVersion(IslandWalletEvents.AGGREGATE_TYPE, islandId),
                 items,
                 null, // 이전 앱과의 응답 호환 필드. 건설은 주민별 준비량을 사용하지 않는다.
-                facilityByBuilding.values().stream()
-                        .filter(f -> f.getStatus() == FacilityStatus.BUILDING)
-                        .map(f -> new ConstructionOptionsView.ActiveConstruction(
-                                f.getBuildingId(), f.getStartedAt(), f.getCompletesAt()))
-                        .findFirst().orElse(null),
+                active == null ? null : new ConstructionOptionsView.ActiveConstruction(
+                        active.getBuildingId(), active.getStartedAt(), active.getCompletesAt()),
                 guideRecipients.findCompletedForResident(islandId, userId).stream()
                         .map(ConstructionGuideRecipient::getBuildingId).toList());
     }
@@ -333,14 +334,16 @@ public class IslandConstructionService {
 
     /**
      * 항목별 selectable/buildable/blockedReason 평가 (LLD §2).
-     * 우선순위: FORBIDDEN → FACILITY_LOCKED → IN_PROGRESS → INSUFFICIENT_FUNDS → 통과(null).
+     * 우선순위: FORBIDDEN → FACILITY_LOCKED → IN_PROGRESS·OTHER_IN_PROGRESS → INSUFFICIENT_FUNDS → 통과(null).
      * selectable 은 잔액을 보지 않고, buildable 은 selectable 에 건설 가능 상태·자금을 더한다.
      *
-     * <p>IN_PROGRESS 는 이 건물뿐 아니라 <b>섬에 공사 중인 건물이 하나라도 있으면</b> 붙는다 —
-     * 「한 번에 한 건물만 진행한다」라 자유 순서에서도 두 번째 착공은 막힌다(GROMO-1999).
+     * <p>섬에 공사 중인 건물이 있으면 「한 번에 한 건물만 진행한다」라 자유 순서에서도 두 번째 착공은
+     * 막힌다(GROMO-1999). 사유는 둘로 나눈다(GROMO-2854) — 공사 중인 그 건물은 IN_PROGRESS, 나머지는
+     * OTHER_IN_PROGRESS. 예전처럼 전부 IN_PROGRESS 면 앱이 공사 중 배지를 모든 카드에 붙인다. 앱은
+     * 모르는 사유를 잠금으로 그리므로 옛 앱도 새 사유를 받아 깨지지 않는다.
      */
     private ConstructionOptionItem evaluate(ConstructionBuilding building,
-                                            ConstructionCostPolicy price, boolean anyInProgress,
+                                            ConstructionCostPolicy price, String activeBuildingId,
                                             Set<String> completed, boolean canBuild, int balance) {
         if (!canBuild) {
             return item(building, price, false, false, "FORBIDDEN");
@@ -348,8 +351,9 @@ public class IslandConstructionService {
         if (!prerequisiteMet(building, completed)) {
             return item(building, price, false, false, "FACILITY_LOCKED");
         }
-        if (anyInProgress) {
-            return item(building, price, false, false, "IN_PROGRESS");
+        if (activeBuildingId != null) {
+            return item(building, price, false, false,
+                    building.id().equals(activeBuildingId) ? "IN_PROGRESS" : "OTHER_IN_PROGRESS");
         }
         if (balance < price.getCost()) {
             return item(building, price, true, false, "INSUFFICIENT_FUNDS");
