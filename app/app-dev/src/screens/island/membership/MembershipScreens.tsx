@@ -1,29 +1,14 @@
 import { WebIslandEntry } from '@/screens/web-demo/WebIslandEntry';
 import { usesSharedWebIsland } from '@/services/webIsland';
-import {
-  Badge,
-  Btn,
-  C,
-  EmptyState,
-  Field,
-  Group,
-  Pic,
-  Row,
-  Toggle,
-  Txt,
-  Wheel,
-  k,
-} from '@/design-system/patterns';
+import { CreateIslandScreen } from './CreateIslandScreen';
+import { Badge, Btn, C, EmptyState, Pic, Txt, k } from '@/design-system/patterns';
 import { t } from '@/i18n';
 import { ServerIslandPicker } from '@/screens/island/ServerIslandPicker';
 import { ServerVisit } from '@/screens/island/ServerVisit';
 import { telescopeSea } from '@/screens/sea/seaAssets';
 import { ApiError } from '@/services/api/client';
-import { ISLAND_INTRO_MAX, ISLAND_NAME_MAX } from '@/services/api/islandManagement';
 import type { RequestStatusEntry } from '@/services/model';
 import {
-  CAPACITY_MAX,
-  CAPACITY_MIN,
   capacityOf,
   hoursMinutes,
   isFull,
@@ -31,16 +16,7 @@ import {
   residentCount,
 } from '@/services/model';
 import { Pressable, View } from 'react-native';
-import {
-  AvStack,
-  H17,
-  H22,
-  INP,
-  META,
-  Onboard,
-  Spinner,
-  gradient,
-} from '../navigation/screenParts';
+import { AvStack, H17, H22, META, Onboard, Spinner } from '../navigation/screenParts';
 import type { ScreenContext } from '../navigation/useScreenState';
 
 function Thumb({ h = 220, warm = false }: any) {
@@ -51,34 +27,6 @@ function Thumb({ h = 220, warm = false }: any) {
   );
 }
 
-const RS = { lineHeight: 17.55 } as const;
-
-const INP_TA = { lineHeight: 23.2, letterSpacing: -0.15 } as const;
-
-// 드럼 위아래 흐림(시안 .wheel:before/:after). 드럼을 감싼 칸 안에 겹친다
-function WheelFade({ h }: { h: number }) {
-  return (
-    <>
-      {[0, 1].map((n) => (
-        <View
-          key={n}
-          pointerEvents="none"
-          style={[
-            {
-              position: 'absolute',
-              left: 2,
-              right: 2,
-              height: h,
-              borderRadius: 12,
-              ...(n ? { bottom: 2 } : { top: 2 }),
-            },
-            gradient(`linear-gradient(${n ? '#FFFDFA00,#FFFDFA' : '#FFFDFA,#FFFDFA00'})`),
-          ]}
-        />
-      ))}
-    </>
-  );
-}
 export function renderMembershipScreens(context: ScreenContext) {
   const {
     server,
@@ -90,22 +38,13 @@ export function renderMembershipScreens(context: ScreenContext) {
     home,
     reset,
     layout,
-    capacityPick,
-    setCapacityPick,
-    approval,
-    setApproval,
     serverDone,
-    text,
     serverBusy,
     run,
-    body,
     setServerDone,
     act,
     go,
-    enterHome,
     serverError,
-    setText,
-    setBody,
     snap,
     pendingReq,
     reqList,
@@ -138,133 +77,7 @@ export function renderMembershipScreens(context: ScreenContext) {
       />
     );
 
-  if (route === 'createIsland') {
-    // 라벨은 렌더 시점에 현재 로케일로 만든다 — 선택값은 숫자(capacityPick)로만 든다
-    const capacityItems = Array.from({ length: CAPACITY_MAX - CAPACITY_MIN + 1 }, (_, n) =>
-      t('onboarding.createIsland.capacityUnit', { count: n + CAPACITY_MIN }),
-    );
-    const capacityWheel = (
-      <View style={{ gap: 6 }}>
-        <Txt kind="meta" style={{ fontWeight: '600' }}>
-          {t('onboarding.createIsland.capacityLabel', { max: CAPACITY_MAX })}
-        </Txt>
-        {/* v2 드럼: 빈 라벨 칸의 아래 여백 4px(세로) · 위아래 흐림 */}
-        <View style={[k.row, { marginTop: layout.compact ? 0 : 4 }]}>
-          <Wheel
-            a11yLabel={t('onboarding.createIsland.capacityA11y')}
-            row={layout.compact ? 24 : 44}
-            items={capacityItems}
-            value={capacityItems[capacityPick - CAPACITY_MIN]}
-            onChange={(v: string) => setCapacityPick(capacityItems.indexOf(v) + CAPACITY_MIN)}
-          />
-          <WheelFade h={layout.compact ? 14 : 30} />
-        </View>
-      </View>
-    );
-    const approvalRow = (
-      <Group flat>
-        <Row
-          title={t('onboarding.createIsland.approvalAfterJoin')}
-          sub={
-            <Txt kind="meta" style={RS}>
-              {t('onboarding.createIsland.approvalAfterJoinSub')}
-            </Txt>
-          }
-          tail={
-            <Toggle
-              label={t('onboarding.createIsland.approvalAfterJoin')}
-              value={approval}
-              onChange={setApproval}
-            />
-          }
-        />
-      </Group>
-    );
-    return (
-      <Onboard
-        title={t('onboarding.createIsland.title')}
-        back={back}
-        left={<Pic id="L/home/00-start/nocat" w="100%" h="100%" cover />}
-        cta={
-          serverDone ? undefined : (
-            <Btn
-              title={t('onboarding.createIsland.submit')}
-              disabled={!text.trim() || serverBusy}
-              onPress={() => {
-                // 서버 모드: 응답만으로 성공 처리하지 않고 App 이 /me/islands 재조회로 확정한다
-                if (server) {
-                  run(async () => {
-                    await server.create({
-                      name: text.trim(),
-                      intro: body.trim() || undefined,
-                      approvalRequired: approval,
-                      maxMembers: capacityPick,
-                    });
-                    setServerDone(text.trim());
-                  });
-                  return;
-                }
-                act('CREATE_ISLAND', {
-                  name: text,
-                  intro: body,
-                  approval,
-                  capacity: capacityPick,
-                });
-                go('arrival');
-              }}
-            />
-          )
-        }
-      >
-        {serverDone ? (
-          // 서버 current 확인 상태 — arrival 연출 없이 홈(서버 스냅샷)으로 들어간다
-          <View style={{ gap: 6 }}>
-            <Txt style={H22}>{t('onboarding.createIsland.doneTitle')}</Txt>
-            <Txt kind="meta" style={META}>
-              {t('onboarding.createIsland.doneSub', { island: serverDone })}
-            </Txt>
-            {enterHome()}
-          </View>
-        ) : null}
-        {serverError ? (
-          <Txt kind="meta" style={[META, { color: C.danger }]}>
-            {serverError}
-          </Txt>
-        ) : null}
-        {!serverDone && (
-          <>
-            <Field
-              label={t('onboarding.createIsland.nameLabel')}
-              maxLength={ISLAND_NAME_MAX}
-              value={text}
-              onChange={setText}
-              inputStyle={INP}
-            />
-            <Field
-              label={t('onboarding.createIsland.introLabel')}
-              value={body}
-              onChange={setBody}
-              maxLength={ISLAND_INTRO_MAX}
-              multiline={!layout.compact}
-              inputStyle={layout.compact ? INP : INP_TA}
-            />
-            {layout.compact ? (
-              // 가로: 정원 드럼과 승인 토글을 한 줄에(1 : 1.5)
-              <View style={{ flexDirection: 'row', gap: 12, alignItems: 'flex-end' }}>
-                <View style={{ flex: 1 }}>{capacityWheel}</View>
-                <View style={{ flex: 1.5 }}>{approvalRow}</View>
-              </View>
-            ) : (
-              <>
-                {capacityWheel}
-                {approvalRow}
-              </>
-            )}
-          </>
-        )}
-      </Onboard>
-    );
-  }
+  if (route === 'createIsland') return <CreateIslandScreen context={context} />;
 
   if ((route === 'joinIsland' || route === 'approval') && server) {
     // ── 서버 모드: 공개 DTO 만 그린다 — members·평균·건물·퀘스트는 합성하지 않는다 ──

@@ -401,7 +401,16 @@
       "doneTitle": "섬을 만들었어요",
       "doneSub": "「{{island}}」이 내 섬이 됐어요.",
       "nameLabel": "섬 이름",
-      "introLabel": "섬 소개"
+      "introLabel": "섬 소개",
+      "description": "함께 집중할 섬의 이름과 참여 방법을 정해요.",
+      "required": "필수",
+      "optional": "선택",
+      "namePlaceholder": "섬 이름을 입력해 주세요",
+      "introPlaceholder": "어떤 섬인지 소개해 주세요",
+      "returnPrevious": "바깥을 누르면 이전 화면으로 돌아가요",
+      "draftHint": "닫아도 이 기기에 초안이 남아요.",
+      "draftError": "초안을 저장하지 못했어요. 입력 내용을 확인해 주세요.",
+      "draftUnavailable": "화면을 닫으면 입력 내용이 저장되지 않을 수 있어요."
     },
     "joinIsland": {
       "title": "섬 찾기",
