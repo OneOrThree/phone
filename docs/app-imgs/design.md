@@ -1,5 +1,7 @@
 # gromo App Store 소개 이미지 디자인 문서
 
+> **참고(2026-11-21)** — 이 문서의 `app/legacy/…` 경로는 삭제된 Gromo 1.x 앱을 가리킨다(GROMO-2906). 원본은 `OneOrThree/gromo` 레포의 `app/…` 아래에 있다.
+
 최종 수정: 2026-08-10  
 최종 결과: `final-v2/`  
 재생성 도구: `tools/render_store_images_v2.py`

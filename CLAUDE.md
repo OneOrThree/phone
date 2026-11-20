@@ -5,7 +5,6 @@ Rules for Claude Code in this repository. They apply everywhere. A nested guide 
 | Subtree | Nested guide |
 | --- | --- |
 | `app/app-dev/` | `app/app-dev/CLAUDE.md` (UI work: `app/app-dev/DESIGN.md`) |
-| `app/legacy/app-dev/` | `app/legacy/app-dev/.claude/CLAUDE.md` |
 | `server/data-api/` | `server/data-api/CLAUDE.md` |
 | `server/realtime/` | `server/realtime/CLAUDE.md` |
 | `backoffice/` | `backoffice/CLAUDE.md` → `backoffice/AGENTS.md` |
@@ -18,7 +17,7 @@ Cattus is the app in which users, as cats, focus together on islands and grow th
 
 - Write with the terms in [CONTEXT.md](CONTEXT.md). Its `_Avoid_` lines list the old words.
 - Keep identifiers that carry old names as they are (`GROMO-####`, `com.oneorthree.gromo`, `gromo_chat`, `catus-*`, code package `group`, …). CONTEXT.md lists them.
-- 2.0 is the generation in development and production. Gromo 1.x (`app/legacy/`) is frozen at store version 1.1.0: it takes hotfixes only, never 2.0 features.
+- 2.0 is the generation in development and production. Gromo 1.x is retired: its app code was removed from this repository on 2026-11-21 (GROMO-2906) and survives in the `OneOrThree/gromo` repository and in git history.
 
 ## Hard lines
 
@@ -36,7 +35,6 @@ Follow these in every task. An earlier approval, an open ticket or "keep going" 
 | Path | What it is |
 | --- | --- |
 | `app/app-dev/` | The 2.0 mobile app: React Native + Expo (TypeScript) with native iOS and Android projects. It calls Business API over HTTP and Realtime over `/ws/realtime`, and keeps local state on the device. Mock data runs only in demo and review modes. |
-| `app/legacy/` | The frozen Gromo 1.x app (`app-dev/`), its source art (`assets/`) and local web helpers (`scripts/`). No CI covers it. |
 | `server/business-api/` | Public HTTP API of the app, including the screen bundles `/screens/*`. |
 | `server/data-api/` | Product data and its rules. Business API calls it over `/internal/*`. |
 | `server/realtime/` | STOMP chat and presence over WebSocket, with its own database `gromo_chat`. |
@@ -51,7 +49,7 @@ Follow these in every task. An earlier approval, an open ticket or "keep going" 
 | `.github/` | Workflows and CI scripts. |
 | `.claude/` | Hooks, commands and agents for Claude Code. |
 
-Local-only, gitignored folders: `doc/` (owner's planning scratch), `logs/`, `server/data-api/docs/` except its `db/` folder, `app/app-dev/.docs/`, `app/legacy/app-dev/.docs/`. Put anything for teammates in `docs/`.
+Local-only, gitignored folders: `doc/` (owner's planning scratch), `logs/`, `server/data-api/docs/` except its `db/` folder, `app/app-dev/.docs/`. Put anything for teammates in `docs/`.
 
 ## Language
 

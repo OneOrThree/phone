@@ -552,11 +552,6 @@ class DocumentSensorTest(unittest.TestCase):
         message = self.assert_violations(harness.check_document_paths, root, "문서 경로", 1)
         self.assertIn("notes.md", message)
 
-    def test_legacy_app_docs_are_out_of_scope_but_other_app_docs_are_checked(self):
-        files = {"app/legacy/app-dev/CLAUDE.md": "[x](gone.md)\n", "app/app-dev/CLAUDE.md": "[x](gone.md)\n"}
-        message = self.assert_violations(harness.check_document_paths, make_repo(self, files), "문서 경로", 1)
-        self.assertIn("app/app-dev/CLAUDE.md:1", message)
-
     @patch.dict(harness.STALE_IN_SERVER_DOCS, {("경로", "server/observability/README.md"): ("docs/stale.md",)}, clear=True)
     def test_known_stale_server_paths_are_excused_only_for_that_doc_and_token(self):
         (_, doc), tokens = next(item for item in harness.STALE_IN_SERVER_DOCS.items() if item[0][0] == "경로")

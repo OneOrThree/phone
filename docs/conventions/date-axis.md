@@ -4,13 +4,13 @@
 > §2 의 「서버 축 = KST 고정」과 정면 충돌하므로 영향 조사를 마쳤고(≈272 파일 — 요약은 [제품 결정 로그](../prd/fishcat/decision-log.md) D8) 전환 계획을 **§7 에 세웠다(GROMO-1930)**.
 > **실제 컷오버 전까지 현재 KST 가 authoritative 하다 — 이 문서의 KST 규약이 현행이며 코드·마이그레이션을 지금 고치지 않는다.**
 
-> **범위(2026-11-02)** — §3·§4 의 앱 쪽 정본·분류표는 동결된 1.x 앱(`app/legacy/app-dev`)의 인벤토리다. 2.0 앱(`app/app-dev`)의 분류는 §4.1 에 있다. §7 의 리그·챌린지 절차는 대상 코드와 테이블이 V0 에서 은퇴해 지금은 없다 — 해당 절 머리에 표시했다.
+> **범위(2026-11-02)** — §3·§4 의 앱 쪽 정본·분류표는 삭제된 1.x 앱의 인벤토리다(2026-11-21 이 레포에서 삭제(GROMO-2906), 원본은 `OneOrThree/gromo` 레포 — 아래 `src/…` 경로는 그 앱 폴더 기준). 2.0 앱(`app/app-dev`)의 분류는 §4.1 에 있다. §7 의 리그·챌린지 절차는 대상 코드와 테이블이 V0 에서 은퇴해 지금은 없다 — 해당 절 머리에 표시했다.
 
 앱이 "오늘"이라고 부르는 날짜에는 **축이 세 개** 있다. 어떤 값을 어느 축에서 뽑느냐를
 틀리면 **비KST 기기**에서 하루씩 어긋난 화면이 나온다 — 오늘 칸을 비켜 찍힌 마커,
 빈 캘린더, 두 번 뜨는 축하 모달, 매번 1일로 리셋되는 연속 달성일.
 
-이 문서가 **앱 쪽 정본**이다. 종전엔 `app/legacy/app-dev/src/utils/localDate.ts` 주석 하나가 정본 노릇을 했고
+이 문서가 **앱 쪽 정본**이다. 종전엔 `src/utils/localDate.ts` 주석 하나가 정본 노릇을 했고
 분류표는 PR #531 본문에만 있어 저장소 어디에도 없었다(GROMO-1236 → GROMO-1254).
 날짜 축은 stats·focus·group·league·screentime 을 가로지르므로 `docs/prd/<기능>/` 에 담을 수
 없다 — `docs/README.md` 의 "기능 문서가 아닌 팀 전체 규약은 `docs/conventions/`" 규정을 따른다.
@@ -134,9 +134,9 @@ GROMO-1254 의 스크린타임 연속 달성일 수정 초안이 실제로 여�
 
 ## 3. 유틸 카탈로그
 
-> 1.x 인벤토리 — 이 절의 파일은 모두 동결된 `app/legacy/app-dev` 에 있다.
+> 1.x 인벤토리 — 이 절의 파일은 모두 삭제된 1.x 앱에 있었다.
 
-### `app/legacy/app-dev/src/utils/localDate.ts`
+### `src/utils/localDate.ts`
 
 | 함수 | 축 | 용도 |
 | --- | --- | --- |
@@ -148,7 +148,7 @@ GROMO-1254 의 스크린타임 연속 달성일 수정 초안이 실제로 여�
 | `todayStrKst()` · `tomorrowStrKst()` · `yesterdayStrKst()` · `kstDateStr(date)` | KST | **서버 축**(§2) |
 | `kstLocalSameDay()` | — | 기기가 지금 UTC+9 인가 — 로컬 누적을 서버 KST 집계와 합쳐도 되는지의 게이트 |
 
-### `app/legacy/app-dev/src/utils/serverZone.ts` (GROMO-1252) — ⚠️ 1259 이전 잔재
+### `src/utils/serverZone.ts` (GROMO-1252) — ⚠️ 1259 이전 잔재
 
 서버가 `timeZone` 으로 **상수 `Asia/Seoul`** 만 내려주므로(§2) 이 계열은 더 이상 정확도를
 더하지 않는다. **새 코드에서 쓰지 않는다.** 기존 소비처 3곳의 위상은 §6 G1 참고.
@@ -159,7 +159,7 @@ GROMO-1254 의 스크린타임 연속 달성일 수정 초안이 실제로 여�
 | `serverTodayStr()` | 보관된 존 기준 오늘 |
 | `serverZoneAlignedWithLocal()` | 보관된 존의 하루 경계와 로컬 하루 경계가 지금 겹치는가 |
 
-### `app/legacy/app-dev/src/screens/stats/format.ts` (통계 그리드 앵커)
+### `src/screens/stats/format.ts` (통계 그리드 앵커)
 
 | 함수 | 용도 |
 | --- | --- |
@@ -184,9 +184,9 @@ GROMO-1254 의 스크린타임 연속 달성일 수정 초안이 실제로 여�
 
 ## 4. 전수 분류표
 
-> 1.x 인벤토리 — 이 표는 동결된 `app/legacy/app-dev` 를 전수 분류한 것이다.
+> 1.x 인벤토리 — 이 표는 삭제된 1.x 앱을 전수 분류한 것이다.
 
-`app/legacy/app-dev/src/legacy/**`(동결)·`app/legacy/app-dev/src/mocks/fixtures/**` 는 제외.
+`src/legacy/**`(동결)·`src/mocks/fixtures/**` 는 제외.
 
 ### ① 서버 결합 — 서버 축
 
@@ -410,7 +410,7 @@ javadoc 예시 문자열 1건뿐이고, 테스트 `FocusSessionContractTest.java
 | `services/model.test.ts` | KST 동작을 단언하는 테스트 — 전환 시 함께 갱신 |
 | `jest.config.js:2` | `process.env.TZ = 'Asia/Seoul'` — 러너 고정(§5 층1) |
 
-**앱 1.x (`app/legacy/app-dev`, 동결)**
+**앱 1.x (삭제됨)**
 
 | 위치 | 내용 |
 | --- | --- |

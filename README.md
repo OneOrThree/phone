@@ -60,7 +60,6 @@ flowchart LR
 | 경로 | 역할 | 상세 문서 |
 | --- | --- | --- |
 | `app/app-dev/` | **활성 2.0 앱** — React Native·Expo 앱과 iOS·Android 네이티브 프로젝트. 서버 API와 기기 로컬 저장을 함께 쓰고, 목업 데이터는 데모·검토 모드에서만 씁니다 | [2.0 앱 README](app/app-dev/README.md) |
-| `app/legacy/app-dev/` | **동결된 Gromo 1.x 앱**(스토어 1.1.0까지) — 기존 iOS 확장과 Android 네이티브 프로젝트를 보관합니다 | [1.x 앱 README](app/legacy/app-dev/README.md) |
 | `server/` | Business·Data·Notification·Realtime와 실행·관측 도구 | [서버 README](server/README.md) |
 | `backoffice/` | 운영진용 관리 웹 — 공지·운영진의 편지·고양이 잡지·정책·출시 현황 | [백오피스 README](backoffice/README.md) |
 | `docs/` | 기능 정책·설계, 아키텍처, 팀 규약 | [문서 인덱스](docs/README.md) |
@@ -80,7 +79,7 @@ npm ci
 npm start
 ```
 
-플랫폼 실행과 검증 범위는 [2.0 앱 README](app/app-dev/README.md)를 참고합니다. 1.x 핫픽스나 기존 배포 절차는 [동결 앱 README](app/legacy/app-dev/README.md)에 남아 있습니다.
+플랫폼 실행과 검증 범위는 [2.0 앱 README](app/app-dev/README.md)를 참고합니다. Gromo 1.x 앱 코드는 이 저장소에서 삭제했고(GROMO-2906), 원본은 `OneOrThree/gromo` 저장소에 있습니다.
 
 </details>
 
@@ -110,7 +109,6 @@ test -f src/main/resources/application-local.yml || cp src/main/resources/applic
 | 백오피스 | [backoffice/README.md](backoffice/README.md) |
 | 관측·배포 | [Observability](server/observability/README.md) · [Scripts](server/scripts/README.md) · [파이프라인 지도](docs/engineering/pipeline-map.md) |
 | 2.0 앱 구조·실행·검증 | [app/app-dev/README.md](app/app-dev/README.md) |
-| 동결된 1.x 앱·기존 배포 | [app/legacy/app-dev/README.md](app/legacy/app-dev/README.md) |
 | 목표 아키텍처·결정 장부 | [docs/architecture/README.md](docs/architecture/README.md) |
 | 기능별 PRD·정책·설계 | [docs/README.md](docs/README.md) |
 | 팀 규약 — Git·PR · 지라 티켓 · 백엔드 계층·오류·날짜 · CI | [docs/conventions/](docs/conventions/) |

@@ -20,7 +20,7 @@ permissions.ask 에 운영 배포 확인 규칙이 있음, 세 스크립트의 -
 - 게이트 로직의 정확성 — 각 --selftest 가 아는 범위까지만.
 - 문서 문장이 사실이라는 것 — 경로·이름이 «있다»까지만 본다. 그 경로가 맞는 파일인지, 설명이 파일 내용과 같은지는 모른다.
   펜스 코드 블록(닫히지 않은 펜스의 뒷부분 포함) 안의 경로, 공백이 든 명령줄, 와일드카드·자리표시(`*` `<x>` `{a,b}` `$X` `…`)가
-  든 경로, 최상위 폴더 이름으로 시작하지 않는 줄임 경로, app/legacy/ 문서는 보지 않는다. 링크 대상은 추적 파일·폴더만 인정한다.
+  든 경로, 최상위 폴더 이름으로 시작하지 않는 줄임 경로는 보지 않는다. 링크 대상은 추적 파일·폴더만 인정한다.
 - 문서 묶음 밖 문서(PRD·보고서·docs/architecture 등), 은퇴 표시가 아닌 이유로 낡은 워크플로(예: 은퇴 표시를 못 다는 prod-ci.yml).
 - 용어: «조건부» 금지어(괄호에 «때»·«단독»이 있는 것, `앱`·`dev`·`운영`·단독 V2 …)는 낱말 일치로 판정할 수 없어 건너뛴다.
   건너뛴 수는 통과 줄에 찍힌다. 코드·링크 대상·펜스 블록·gromo-screen-flow 스킬(옛 이름이 호출 단어)은 보지 않는다.
@@ -308,9 +308,7 @@ def fail_if(title, violations):
 
 
 def is_harness_doc(path):
-    """검사 1·2 의 대상 — CLAUDE.md·AGENTS.md(app/legacy 제외), 에이전트·규약·엔지니어링 문서, 스킬, server/ 안내문."""
-    if path.startswith("app/legacy/"):
-        return False
+    """검사 1·2 의 대상 — CLAUDE.md·AGENTS.md, 에이전트·규약·엔지니어링 문서, 스킬, server/ 안내문."""
     parent, _, name = path.rpartition("/")
     if path in ROOT_DOCS or name in ("CLAUDE.md", "AGENTS.md"):
         return True
