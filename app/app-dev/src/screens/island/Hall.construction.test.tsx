@@ -18,7 +18,7 @@ import { Platform, StyleSheet } from 'react-native';
 // style.transform 값이 [{...}](배열) → undefined 로 바뀌면, "명시적 undefined 는 이전 값을
 // 지우는 null"로 취급해 processTransform(null) 을 호출한다 — processTransform.js 의
 // _validateTransforms 는 null 가드가 없어 `null.forEach` 로 RedBox("Cannot read property
-// 'forEach' of null")를 낸다. Hall.tsx 1334번줄 근처 「목각 건물 고르기」 그리드 컨테이너가
+// 'forEach' of null")를 낸다. hall/ConstructionRoute.tsx 의 「목각 건물 고르기」 그리드 컨테이너가
 // `transform: plan ? [{ scale: 0.985 }] : undefined` 였다 — 건설 패널을 열 때(undefined→배열)는
 // 안전하지만 패널을 닫을 때(배열→undefined)는 정확히 이 크래시 조건이다.
 // (jest 의 react-test-renderer 는 네이티브 diff 를 실제로 돌리지 않아 렌더만으로는 크래시가

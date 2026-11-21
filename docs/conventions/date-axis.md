@@ -277,7 +277,7 @@ GROMO-1254 의 스크린타임 연속 달성일 수정 초안이 실제로 여�
 | 서버 축 (KST↔UTC) | `utils/questWindowTz.ts:13,27-30,41-42` · `services/api/quests.ts` 어댑터 | 퀘스트 창 계약은 UTC. API 경계에서만 KST 벽시계와 변환한다 |
 | 서버 축 (UTC) | `services/api/rankings.ts:62-66` `utcWeekStart` · `services/buildingIndicators.ts:60-66` `week` | 랭킹 주와 도서관 "봤음" 키는 UTC 일요일 앵커다 |
 | 서버 축 (KST·UTC) | `services/api/records.ts:272,291` · `screens/island/library/diaryData.ts:15-18` `dateKey`·`dateStart` | 통계 GET 은 `timezone: 'Asia/Seoul'`. 일기 범위 키는 UTC 또는 KST |
-| 서버 축 (KST) | `screens/island/Hall.tsx:302,342` · `screens/island/useLedgerScreen.ts` | 장부 월은 서버 KST 월을 따른다 |
+| 서버 축 (KST) | `screens/island/hall/LedgerRoute.tsx:45` `thisMonth` · `screens/island/useLedgerScreen.ts` | 장부 월은 서버 KST 월을 따른다 |
 | 서버 축 (KST) | `screens/magazine/useMagazineToday.ts:77-85` · `usePromotionEditor.ts:23` · `usePromotionNewsToast.ts` | 매거진 발행(07:00)과 홍보 신청 마감(00:00)이 KST 다 |
 | 서버 축 (KST) | `screens/island/useLibraryDiary.ts:109` · `screens/island/library/Diary.tsx:218` | `useLibraryDiary.ts:109` 는 인라인 `+9h` 오프셋이다. 헬퍼 교체와 별도 전환 지점이다 |
 | 서버 축 (목) | `services/api/magazineMock.ts:53-55` · `model.ts` 의 `rounds[dayKey]` | 서버 로직을 따라 한 목·로컬 진행 |
