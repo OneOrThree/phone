@@ -290,3 +290,36 @@ test("공지 종류와 최소 버전: patch 는 min 거절, force 는 min 필수
   assert.equal(patched.minIosVersion, null);
   assert.equal(store.transition(patched.id, patched, "member-1", "review").status, "review");
 });
+
+test("공지 대상 플랫폼: 패치노트는 ALL·IOS·ANDROID, 강제 업데이트는 최소 버전에서 정한 값과 같아야 한다", () => {
+  const store = new Store(":memory:");
+  const review = (input) => {
+    const item = store.create({ ...notice, ...input }, "member-1");
+    return () => store.transition(item.id, item, "member-1", "review");
+  };
+  assert.equal(review({ noticeType: "patch", targetPlatform: "IOS" })().status, "review");
+  assert.equal(review({ noticeType: "patch", targetPlatform: "ANDROID" })().status, "review");
+  assert.throws(review({ noticeType: "patch", targetPlatform: "ios" }), /플랫폼/);
+  assert.equal(review({ noticeType: "force", targetPlatform: "IOS", minIosVersion: "2.1.0" })().status, "review");
+  assert.equal(review({ noticeType: "force", targetPlatform: "ALL", minIosVersion: "2.1.0", minAndroidVersion: "2.1.0" })().status, "review");
+  assert.throws(review({ noticeType: "force", targetPlatform: "ALL", minIosVersion: "2.1.0" }), /플랫폼/);
+  assert.throws(review({ noticeType: "force", targetPlatform: "IOS", minAndroidVersion: "2.1.0" }), /플랫폼/);
+  assert.equal(review({ noticeType: "force", targetPlatform: "ANDROID", minAndroidVersion: "2.1.0" })().status, "review");
+  // 값이 없는 옛 항목은 그대로 통과하고 Data 가 최소 버전으로 정한다.
+  assert.equal(review({ noticeType: "force", minIosVersion: "2.1.0" })().status, "review");
+  assert.throws(review({ noticeType: "patch", targetPlatform: null }), /플랫폼/);
+  // 공백뿐인 최소 버전은 대상 불일치가 아니라 형식 오류로 알린다.
+  assert.throws(review({ noticeType: "force", targetPlatform: "IOS", minIosVersion: "  " }), /숫자\.숫자\.숫자/);
+  store.close();
+});
+
+test("공지 대상 플랫폼만 바꿔도 승인이 취소된다", () => {
+  const store = new Store(":memory:");
+  let item = approve(store, store.create({ ...notice, noticeType: "patch", targetPlatform: "IOS" }, "member-1"));
+  assert.equal(item.status, "approved");
+  item = store.edit(item.id, { revision: item.revision, targetPlatform: "ANDROID" }, "member-1");
+  assert.equal(item.status, "draft");
+  assert.equal(item.approvedBy, undefined);
+  assert.equal(item.targetPlatform, "ANDROID");
+  store.close();
+});
