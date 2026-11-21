@@ -5,7 +5,7 @@ import { cat } from '@/constants/assets';
 import { bundledAudioSource } from '@/constants/audio';
 import { Badge, Btn, C, Chips, EmptyState, Pic, Txt } from '@/design-system/patterns';
 import { t } from '@/i18n';
-import { Cta, IslandSheet, Preview, SheetGroup, SheetRow, st } from '@/screens/island/IslandSheet';
+import { Cta, IslandSheet, Preview, SheetGroup, SheetRow, st } from '@/components/IslandSheet';
 import { useCustomizationCatalog } from '@/services/customizationCatalog';
 import { State, balance, canBuy, kstHourMinute, kstMonthDay, products } from '@/services/model';
 import { type ReactNode, useState } from 'react';

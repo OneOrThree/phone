@@ -7,7 +7,7 @@ import {
   semanticTokens as s,
 } from '@/design-system/tokens';
 import { t } from '@/i18n';
-import { useGowun } from '@/screens/island/sceneKit';
+import { useGowun } from '@/design-system/sceneKit';
 import { FocusBlockingIllustration } from '@/screens/permissions/FocusBlockingIntro';
 import { useAppLayout } from '@/utils/layout';
 import { screenTimeNative } from '@/services/ScreenTimeModule';

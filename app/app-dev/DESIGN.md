@@ -283,7 +283,7 @@ Gowun Dodum   (웹 대체 스택: Gowun, 'Apple SD Gothic Neo', sans-serif)
 
 네이티브는 `app.config.js`의 expo-font 플러그인으로 글꼴을 앱에 넣고, 웹은 `App`의 `useGowunFont()`로 전역 로드한다.
 
-예외: 그림 장면 위에 놓이는 화면(도서관·마을회관 장면, 건물 안, 항해·휴식, 고양이 잡지)은 굵은 글자까지 포함해 고운돋움(`screens/island/sceneKit`의 `useGowun`) 하나만 쓴다 — `fontFamily`를 직접 지정하므로 위 굵기 예외를 적용받지 않는다. 장면 화면 안에서 다른 손글씨·명조 글꼴을 섞지 않는다.
+예외: 그림 장면 위에 놓이는 화면(도서관·마을회관 장면, 건물 안, 항해·휴식, 고양이 잡지)은 굵은 글자까지 포함해 고운돋움(`design-system/sceneKit`의 `useGowun`) 하나만 쓴다 — `fontFamily`를 직접 지정하므로 위 굵기 예외를 적용받지 않는다. 장면 화면 안에서 다른 손글씨·명조 글꼴을 섞지 않는다.
 
 ### 5.2 크기 토큰
 

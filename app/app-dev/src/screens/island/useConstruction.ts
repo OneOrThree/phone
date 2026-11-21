@@ -27,6 +27,7 @@ import {
   CLIENT_STALE_SESSION,
   CLIENT_TIMEOUT,
   uuid,
+  staleSessionError,
 } from '@/services/api/client';
 import {
   CLIENT_CONTRACT_ERROR,
@@ -60,8 +61,6 @@ const CLOCK_JUMP_MS = 30_000;
 /** 분 단위 서버 완공 스케줄러가 반영될 때까지 회관 상태를 확인하는 최소 간격. */
 const COMPLETION_CONFIRM_RETRY_MS = 5_000;
 
-const staleError = () =>
-  new ApiError(CLIENT_STALE_SESSION, '로그인 정보가 바뀌었어요. 다시 시도해 주세요.', 0);
 const inactiveError = () => new ApiError(CLIENT_INACTIVE, '화면이 닫혔어요.', 0);
 const notSelectableError = () =>
   new ApiError(CLIENT_NOT_SELECTABLE, '지금은 선택할 수 없는 건물이에요.', 0);
@@ -181,7 +180,7 @@ export function useConstruction({
       const seq = ++loadSeq.current;
       const current = () => alive(scope) && seq === loadSeq.current;
       const guard = () => {
-        if (!current()) throw staleError();
+        if (!current()) throw staleSessionError();
       };
       const publish = (next: ConstructionSnapshot) => {
         if (current()) setSnap(next);
@@ -223,7 +222,7 @@ export function useConstruction({
       } catch (error) {
         publish({ ...EMPTY, loading: false, error: asApiError(error) });
         // 옛 scope(세대 교체·섬 이동·supersede)의 결과는 성공이든 실패든 STALE 로 통일한다.
-        if (!current()) throw staleError();
+        if (!current()) throw staleSessionError();
         throw error;
       }
     },
@@ -277,7 +276,7 @@ export function useConstruction({
       scope.gen !== generation ||
       scope.gen !== sessionGeneration()
     )
-      throw staleError();
+      throw staleSessionError();
     return scope;
   }, [islandId, generation]);
 
@@ -387,7 +386,7 @@ export function useConstruction({
             throw error;
           });
           // 성공은 최신 canonical 재조회가 실제로 확정됐을 때만 — supersede·pending·실패면 stale.
-          if (!alive(scope) || confirmSeq.current !== loadSeq.current) throw staleError();
+          if (!alive(scope) || confirmSeq.current !== loadSeq.current) throw staleSessionError();
           apply?.(wrote);
           if (intents.current.get(slot) === intent) intents.current.delete(slot); // 성공 — 의도 종료
         } catch (error) {
@@ -401,7 +400,7 @@ export function useConstruction({
             intents.current.delete(slot);
           // 어떤 실패든 scope 가 죽은 뒤면 옛 화면에 원래 오류(403·네트워크 등)를
           // 노출하지 않는다 — STALE 로 통일. 죽은 scope 의 재조회는 상태도 발행하지 않는다.
-          if (!alive(scope)) throw staleError();
+          if (!alive(scope)) throw staleSessionError();
           throw error;
         } finally {
           // identity 로만 정리 — 세대 교체 뒤 새 scope 가 같은 slot 에 올린

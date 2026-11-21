@@ -26,7 +26,7 @@ import {
 import { useFocusLeaveFallback, type LeaveHandlers } from '@/screens/focus/focusLeave';
 import { BuildingTransitionOverlay } from '@/screens/island/BuildingTransitionOverlay';
 import { CurrentScreens as RedesignScreens } from '@/screens/island/CurrentScreens';
-import { useGowunFont } from '@/screens/island/sceneKit';
+import { useGowunFont } from '@/design-system/sceneKit';
 import { useBuildingIndicators } from '@/screens/island/useBuildingIndicators';
 import { useIslandPlayback } from '@/screens/island/useIslandPlayback';
 import { DeveloperLetter } from '@/screens/letter/DeveloperLetter';

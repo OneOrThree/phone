@@ -1,6 +1,6 @@
 import { t } from '@/i18n';
 import { Badge, Pic, Txt } from '@/design-system/patterns';
-import { Cta, IslandSheet, Preview, st } from '@/screens/island/IslandSheet';
+import { Cta, IslandSheet, Preview, st } from '@/components/IslandSheet';
 import { hoursMinutes, isFull, islandWeeklyAverage, residentCount } from '@/services/model';
 import { View } from 'react-native';
 import { AvStack } from './navigation/screenParts';

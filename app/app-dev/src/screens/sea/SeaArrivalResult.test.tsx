@@ -4,7 +4,7 @@ import { render } from '@testing-library/react-native';
 import { StyleSheet } from 'react-native';
 import type { CatalogEntry } from '@/services/customizationCatalog';
 import { SeaArrivalResult } from './SeaArrivalResult';
-import { GOWUN } from '@/screens/island/sceneKit';
+import { GOWUN } from '@/design-system/sceneKit';
 
 jest.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }),

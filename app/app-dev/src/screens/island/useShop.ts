@@ -19,7 +19,7 @@
  *   다음 탭이 새 본문(=새 멱등 키)으로 간다.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ApiError, CLIENT_STALE_SESSION, uuid } from '@/services/api/client';
+import { ApiError, uuid, staleSessionError } from '@/services/api/client';
 import { sessionGeneration } from '@/services/api/session';
 import { captureProductEvent } from '@/services/posthog';
 import {
@@ -151,8 +151,6 @@ export function useShop({
       proven.current.epoch === epoch.current && proven.current.generation === sessionGeneration(),
     [],
   );
-  const stale = () =>
-    new ApiError(CLIENT_STALE_SESSION, '로그인 정보가 바뀌었어요. 다시 시도해 주세요.', 0);
   const alive = useCallback(
     (e: number, generation: number) =>
       mounted.current && e === epoch.current && generation === sessionGeneration(),
@@ -532,20 +530,20 @@ export function useShop({
     const { islandId: island } = stateRef.current;
     if (!mounted.current || !active || !island)
       throw new ApiError(CLIENT_INACTIVE, '지금은 상점을 쓸 수 없어요.', 0);
-    if (!cached()) throw stale();
+    if (!cached()) throw staleSessionError();
     return island;
   }, [active, cached]);
   /** 개인 외양 쓰기 — 섬 없이도 된다(소속 섬 없는 옷장, GROMO-2404). 계정·범위 교체 뒤의 옛 캐시는 거절한다. */
   const writablePersonal = useCallback((): void => {
     if (!mounted.current || !active)
       throw new ApiError(CLIENT_INACTIVE, '지금은 상점을 쓸 수 없어요.', 0);
-    if (!cached()) throw stale();
+    if (!cached()) throw staleSessionError();
   }, [active, cached]);
 
   /** 쓰기 뒤 정본 재조회 — stale 이면 성공이 아니라 실패로 던진다(호출부가 토스트를 띄우지 않게). */
   const refreshAll = useCallback(
     async (e: number, generation: number) => {
-      if (!alive(e, generation)) throw stale();
+      if (!alive(e, generation)) throw staleSessionError();
       const { itemsCategory, ordersScope: scope, islandId: island } = stateRef.current;
       const jobs: Promise<void>[] = [];
       if (island) {
@@ -554,7 +552,7 @@ export function useShop({
             Promise.all([getShopProducts(island, 'sound'), getIslandInventory(island)]).then(
               ([page, shared]) => {
                 applyShared(e, generation, shared);
-                if (!alive(e, generation)) throw stale();
+                if (!alive(e, generation)) throw staleSessionError();
                 const titles = { ...stateRef.current.titles };
                 for (const item of page.items) titles[item.id] = item.title;
                 set({ items: page.items, nextCursor: page.nextCursor, titles });
@@ -571,7 +569,7 @@ export function useShop({
         // 지갑 버전은 구매 검사 축이라 카테고리와 무관하게 항상 새로 읽는다.
         jobs.push(
           getShopWallets(island).then((wallets) => {
-            if (!alive(e, generation)) throw stale();
+            if (!alive(e, generation)) throw staleSessionError();
             set({ wallets });
             sync({ wallets });
           }),
@@ -579,14 +577,14 @@ export function useShop({
         if (scope)
           jobs.push(
             getShopOrders(island, scope).then((page) => {
-              if (!alive(e, generation)) throw stale();
+              if (!alive(e, generation)) throw staleSessionError();
               set({ orders: page.items, ordersNextCursor: page.nextCursor });
             }),
           );
       }
       jobs.push(getMyInventory().then((my) => applyMy(e, generation, my)));
       await Promise.all(jobs);
-      if (!alive(e, generation)) throw stale();
+      if (!alive(e, generation)) throw staleSessionError();
     },
     [alive, applyMy, applyScreen, applyShared, set, sync],
   );
@@ -665,7 +663,7 @@ export function useShop({
             return applied;
           },
           async () => {
-            if (!alive(e, generation)) throw stale();
+            if (!alive(e, generation)) throw staleSessionError();
             const my = await getMyInventory();
             applyMy(e, generation, my);
           },
@@ -702,7 +700,7 @@ export function useShop({
           JSON.stringify(body),
           (key) => patchIslandAppearance(island, body, key),
           async () => {
-            if (!alive(e, generation)) throw stale();
+            if (!alive(e, generation)) throw staleSessionError();
             const next = await getIslandInventory(island);
             applyShared(e, generation, next);
           },

@@ -14,8 +14,8 @@ import {
 } from '@/services/screenTime';
 import { useEffect, useState } from 'react';
 import { AppState, Platform } from 'react-native';
-import { SheetGroup, SheetRow, st } from '../island/IslandSheet';
-import { Sheet } from '../shared/ScreenSheet';
+import { SheetGroup, SheetRow, st } from '@/components/IslandSheet';
+import { Sheet } from '@/components/ScreenSheet';
 import { openScreenTimeSettings } from './screenTimeHelp';
 
 export function AppPermissionManager({ e }: ScreenProps) {

@@ -13,7 +13,7 @@ import {
 
 // 앱 기본 본문 글꼴은 고운돋움이다(GROMO-2639). 네이티브는 app.config.js 의 expo-font 플러그인으로,
 // 웹은 App 의 useGowunFont() 로 불러온다. 웹 스택 뒤쪽은 고운돋움에 없는 특수기호용 대체 글꼴이다.
-// (같은 글꼴 이름이 screens/island/sceneKit 의 GOWUN·GOWUN_WEB 에도 있다 — 그림 장면 화면이 직접 쓴다.)
+// (같은 글꼴 이름이 design-system/sceneKit 의 GOWUN·GOWUN_WEB 에도 있다 — 그림 장면 화면이 직접 쓴다.)
 const BODY_FONT =
   Platform.OS === 'web'
     ? 'Gowun, "Apple SD Gothic Neo", sans-serif'

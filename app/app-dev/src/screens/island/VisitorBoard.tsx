@@ -1,6 +1,6 @@
 import { t } from '@/i18n';
 import React, { useEffect, useRef, useState } from 'react';
-import { IslandSheet } from '@/screens/island/IslandSheet';
+import { IslandSheet } from '@/components/IslandSheet';
 import { Guestbook, type GuestbookEnv } from '@/screens/interiors/Guestbook';
 import { Btn, Group, Row, Txt } from '@/design-system/patterns';
 import { getNotice, listNotices, type NoticeDetail, type NoticePage } from '@/services/api/notices';

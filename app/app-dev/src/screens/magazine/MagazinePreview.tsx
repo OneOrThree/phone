@@ -2,7 +2,7 @@ import { MAGAZINE_FRAMES } from '@/constants/magazineAssets';
 import { semanticTokens } from '@/design-system/tokens';
 import { createPreviewEnvironment } from '@/navigation/previewEnvironment';
 import { FinalIsland } from '@/screens/island/WorldMap';
-import { T } from '@/screens/island/sceneKit';
+import { T } from '@/design-system/sceneKit';
 import { demoState } from '@/services/model';
 import { useEffect, useRef, useState } from 'react';
 import { ScrollView, View, useWindowDimensions } from 'react-native';

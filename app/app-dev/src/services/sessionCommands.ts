@@ -2,7 +2,7 @@
 // islandCommands 와 같은 규칙: 쓰기는 의도당 멱등 키 하나(재시도는 같은 키·같은 body),
 // 후속 API·dispatch·반환 전에 세대 fence, 409·404 계열은 current 재조회로 정본을 맞춘 뒤
 // 원 오류를 다시 던진다. 멱등 키는 세대 격리 ref에만 두고 State/AsyncStorage에 저장하지 않는다.
-import { ApiError, CLIENT_STALE_SESSION, uuid } from '@/services/api/client';
+import { ApiError, uuid, staleSessionError } from '@/services/api/client';
 import { getSession, sessionGeneration } from '@/services/api/session';
 import {
   acknowledgeFocusResult as apiAcknowledge,
@@ -102,9 +102,6 @@ const defaultApi: FocusApi = {
   telescope: apiTelescope,
 };
 
-const staleError = () =>
-  new ApiError(CLIENT_STALE_SESSION, '로그인 정보가 바뀌었어요. 다시 시도해 주세요.', 0);
-
 // 서버 ACTIVE 구간 → 로컬 {start,end}(ms) 매핑(GROMO-2131). 필드가 아예 없으면(구버전 서버)
 // undefined 를 유지한다 — []로 두면 당일 집중이 있어도 구간 0건이 되어 퀘스트 진행이 사라진다.
 // 파싱 못 한 시각이 하나라도 있으면 역시 undefined 로 폴백한다 — NaN 구간은 Math.min/max 합산을
@@ -183,7 +180,7 @@ export const createSessionCommands = (deps: SessionCommandDeps) => {
   };
   // 후속 API·dispatch·반환 전의 세대 fence — 바뀌었으면 늦은 응답이라 버린다
   const alive = (g: number) => {
-    if (generation() !== g) throw staleError();
+    if (generation() !== g) throw staleSessionError();
   };
   // current 정본 재조회 — 세션이 없어졌거나 version 이 밀렸을 때 state 를 맞춘다
   const syncCurrent = async (g: number) => {
@@ -198,7 +195,7 @@ export const createSessionCommands = (deps: SessionCommandDeps) => {
     try {
       return await fn();
     } catch (thrown) {
-      if (generation() !== g) throw staleError();
+      if (generation() !== g) throw staleSessionError();
       if (
         thrown instanceof ApiError &&
         ['STATE_CONFLICT', 'VERSION_CONFLICT', 'NOT_FOUND', 'GROUP_NOT_FOUND'].includes(thrown.code)
@@ -206,7 +203,7 @@ export const createSessionCommands = (deps: SessionCommandDeps) => {
         try {
           await syncCurrent(g);
         } catch {}
-      if (generation() !== g) throw staleError();
+      if (generation() !== g) throw staleSessionError();
       throw thrown;
     }
   };
@@ -339,10 +336,10 @@ export const createSessionCommands = (deps: SessionCommandDeps) => {
     // 체험 보상에는 current 재조회나 SESSION_SYNC도 필요 없다.
     tutorialExperienceReward: async (islandId: string) => {
       const g = generation();
-      if (deps.getSnap()?.currentIslandId !== islandId) throw staleError();
+      if (deps.getSnap()?.currentIslandId !== islandId) throw staleSessionError();
       const result = await api.tutorialExperienceReward(islandId);
       alive(g);
-      if (deps.getSnap()?.currentIslandId !== islandId) throw staleError();
+      if (deps.getSnap()?.currentIslandId !== islandId) throw staleSessionError();
       if (
         !result ||
         result.islandId !== islandId ||

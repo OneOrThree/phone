@@ -5,7 +5,7 @@ import { TextInput } from '@/design-system/typography';
 import { Ticking } from '@/hooks/useNow';
 import { errorTextOr, t } from '@/i18n';
 import type { ScreenEnvironment } from '@/navigation/ScreenEnvironment';
-import { useGowun } from '@/screens/island/sceneKit';
+import { useGowun } from '@/design-system/sceneKit';
 import { visibleTelescopeItems } from '@/screens/island/telescopeDestinations';
 import { useTelescope } from '@/screens/island/useTelescope';
 import { seaAssets } from '@/screens/sea/seaAssets';

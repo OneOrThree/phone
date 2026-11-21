@@ -20,7 +20,7 @@ import {
   managementErrorMessage,
   useIslandManagement,
 } from '@/screens/interiors/useIslandManagement';
-import { BROWN, GOWUN, T, fill, hm, safeOffset, useGowun, web } from '@/screens/island/sceneKit';
+import { BROWN, GOWUN, T, fill, hm, safeOffset, useGowun, web } from '@/design-system/sceneKit';
 import { useConstruction } from '@/screens/island/useConstruction';
 import { useInviteShare } from '@/screens/island/useInviteShare';
 import {

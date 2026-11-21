@@ -3,7 +3,7 @@ import { semanticTokens } from '@/design-system/tokens';
 import { t } from '@/i18n';
 import { type HomeChatLine, HomeChatLog } from '@/screens/island/HomeChatLog';
 import { IslandNamingModal } from '@/screens/island/IslandNamingModal';
-import { GuideBox } from '@/screens/island/NpcGuide';
+import { GuideBox } from '@/components/NpcGuide';
 import { FinalIsland } from '@/screens/island/WorldMap';
 import { MagazineHomeLayer } from '@/screens/magazine/MagazineDelivery';
 import { magazineUnread } from '@/screens/magazine/useMagazineToday';

@@ -3,7 +3,7 @@ import { StyleSheet, View } from 'react-native';
 import { Btn, Overlay, Txt, k } from '@/design-system/patterns';
 import { TextInput } from '@/design-system/typography';
 import { t } from '@/i18n';
-import { useGowun } from '@/screens/island/sceneKit';
+import { useGowun } from '@/design-system/sceneKit';
 
 /** 망원경에서 고른 목적지를 받아 시작 명령을 호출하는 V1 시트. */
 export function SeaVoyagePreparation({

@@ -15,7 +15,7 @@ import {
 } from '@/i18n';
 import type { ScreenProps } from '@/navigation/ScreenEnvironment';
 import appManifest from '@/screens/../../package.json';
-import { IslandSheet, SheetGroup, SheetRow, sheetInput, st } from '@/screens/island/IslandSheet';
+import { IslandSheet, SheetGroup, SheetRow, sheetInput, st } from '@/components/IslandSheet';
 import { updateProfile, withdrawAccount } from '@/services/api/account';
 import { ApiError, uuid } from '@/services/api/client';
 import { REPORT_EMAIL_RECIPIENT, openFeedback } from '@/services/api/safety';

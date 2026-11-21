@@ -9,7 +9,7 @@ import {
 import { t } from '@/i18n';
 import { uuid } from '@/services/api/client';
 import { ISLAND_NAME_MAX, manageIsland } from '@/services/api/islandManagement';
-import { useGowun } from '@/screens/island/sceneKit';
+import { useGowun } from '@/design-system/sceneKit';
 
 /**
  * 무인도 항해로 새로 세운 섬에 도착해 홈에 들어오면 뜨는 강제 이름 짓기 모달(GROMO-2649).

@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { ApiError, CLIENT_STALE_SESSION } from './api/client';
+import { ApiError, CLIENT_STALE_SESSION, staleSessionError } from './api/client';
 import { CLIENT_CONTRACT_ERROR } from './api/home';
 import {
   getMailboxScreen,
@@ -138,7 +138,7 @@ function guard(isCurrent?: () => boolean) {
   const generation = sessionGeneration();
   return () => {
     if (sessionGeneration() !== generation || isCurrent?.() === false)
-      throw new ApiError(CLIENT_STALE_SESSION, '로그인 정보가 바뀌었어요.', 0);
+      throw staleSessionError('로그인 정보가 바뀌었어요.');
   };
 }
 

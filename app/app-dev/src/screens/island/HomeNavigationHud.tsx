@@ -4,7 +4,7 @@ import { Txt } from '@/design-system/patterns';
 import { CatAvatar } from '@/components/CatAvatar';
 import type { Outfit } from '@/components/CatOutfitLayers';
 import { componentTokens, semanticTokens } from '@/design-system/tokens';
-import { RowIcon } from './IslandSheet';
+import { RowIcon } from '@/components/IslandSheet';
 import { t } from '@/i18n';
 import type { Color, Route } from '@/services/model';
 

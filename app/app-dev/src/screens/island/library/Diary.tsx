@@ -6,7 +6,7 @@ import { NavBtn, Seg, art } from '@/design-system/patterns';
 import { Button } from '@/design-system/primitives';
 import { componentTokens, semanticTokens } from '@/design-system/tokens';
 import type { ScreenEnvironment } from '@/navigation/ScreenEnvironment';
-import { T, fill, hm } from '@/screens/island/sceneKit';
+import { T, fill, hm } from '@/design-system/sceneKit';
 import { useLibraryDiary } from '@/screens/island/useLibraryDiary';
 import { getSession } from '@/services/api/session';
 import { dayKey, displayIsland, earnedBy, islandFocusRecord, type State } from '@/services/model';

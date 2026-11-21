@@ -8,7 +8,7 @@ import { NavBtn } from '@/design-system/patterns';
 import { componentTokens, primitiveTokens, semanticTokens } from '@/design-system/tokens';
 import { errorText, errorTextOr, t } from '@/i18n';
 import { useMailbox } from '@/screens/interiors/useMailbox';
-import { GOWUN } from '@/screens/island/sceneKit';
+import { GOWUN } from '@/design-system/sceneKit';
 import { MagazineRack } from '@/screens/magazine/MagazineRack';
 import { magazineUnread } from '@/screens/magazine/useMagazineToday';
 import { ApiError } from '@/services/api/client';

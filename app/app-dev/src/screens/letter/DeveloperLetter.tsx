@@ -16,8 +16,8 @@ import { componentTokens, semanticTokens } from '@/design-system/tokens';
 import { assets } from '@/constants/assets';
 import { t } from '@/i18n';
 import { formatDate } from '@/i18n/format';
-import { useGowun } from '@/screens/island/sceneKit';
-import { useScreenReaderEnabled } from '@/screens/island/NpcGuide';
+import { useGowun } from '@/design-system/sceneKit';
+import { useScreenReaderEnabled } from '@/components/NpcGuide';
 import { useAppLayout } from '@/utils/layout';
 
 const D = componentTokens.developerLetter;

@@ -2,7 +2,7 @@ import { MAGAZINE_UI } from '@/constants/magazineAssets';
 import { Btn } from '@/design-system/patterns';
 import { componentTokens, primitiveTokens, semanticTokens } from '@/design-system/tokens';
 import { t } from '@/i18n';
-import { GuideBox } from '@/screens/island/NpcGuide';
+import { GuideBox } from '@/components/NpcGuide';
 import { FOCUS_BUTTON_SIZE, focusButtonInset } from '@/screens/island/WorldMap';
 import type { MagazineToday } from '@/services/api/magazine';
 import type { Route } from '@/services/model';

@@ -2,7 +2,7 @@ import { Modal } from 'react-native';
 import { useState } from 'react';
 import { screenTimeNative } from '@/services/ScreenTimeModule';
 import { AndroidScreenTimeSetup } from './AndroidScreenTimeSetup';
-import { IslandPopup } from '@/screens/island/IslandSheet';
+import { IslandPopup } from '@/components/IslandSheet';
 import { FocusBlockingGuide } from '@/screens/focus/FocusBlockingGuide';
 import { useScreenTimeSetup, type ScreenTimeSetupProps } from './useScreenTimeSetup';
 

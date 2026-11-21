@@ -1,7 +1,7 @@
 import { Btn, Group, Row, Txt } from '@/design-system/patterns';
 import { t } from '@/i18n';
 import type { ScreenEnvironment } from '@/navigation/ScreenEnvironment';
-import { IslandSheet } from '@/screens/island/IslandSheet';
+import { IslandSheet } from '@/components/IslandSheet';
 import { sessionGeneration } from '@/services/api/session';
 import { islandErrorMessage } from '@/services/islandErrors';
 import { pendingVisitRequest, type State } from '@/services/model';

@@ -4,7 +4,7 @@ import { componentTokens, primitiveTokens, semanticTokens } from '@/design-syste
 import { errorText, t } from '@/i18n';
 import { formatDate, formatDuration, islandTitle } from '@/i18n/format';
 import type { ScreenEnvironment } from '@/navigation/ScreenEnvironment';
-import { T, useGowun } from '@/screens/island/sceneKit';
+import { T, useGowun } from '@/design-system/sceneKit';
 import { arriveWithOutcome, enterArrivedIsland } from '@/screens/island/Telescope';
 import { ApiError, uuid } from '@/services/api/client';
 import type {

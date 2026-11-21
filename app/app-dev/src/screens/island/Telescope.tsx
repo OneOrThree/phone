@@ -7,7 +7,7 @@ import { errorTextOr, t } from '@/i18n';
 import { formatDuration } from '@/i18n/format';
 import type { ScreenEnvironment } from '@/navigation/ScreenEnvironment';
 import { Flag } from '@/screens/cosmetics/Flag';
-import { IslandPopup, SheetGroup, SheetRow } from '@/screens/island/IslandSheet';
+import { IslandPopup, SheetGroup, SheetRow } from '@/components/IslandSheet';
 import { visibleTelescopeItems } from '@/screens/island/telescopeDestinations';
 import { endServerVisit, useIslandSailing } from '@/screens/island/useIslandSailing';
 import { useTelescope } from '@/screens/island/useTelescope';

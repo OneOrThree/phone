@@ -8,8 +8,11 @@
 
 - `tokens.ts`: primitive → semantic → component의 3단계 토큰과 기존 `C.*` 호환 별칭
 - `typography.tsx`: 기기 크기에 대응하는 `Text`, `TextInput`
-- `primitives.tsx`: `Button`, `Card`, `Field`, `Progress` 등 기본 UI
+- `primitives.tsx`: `Button`, `Card` 등 기본 UI
 - `patterns.tsx`: `Page`, `Overlay`, `Row`, `Wheel` 등 앱 조합 패턴
+- `sceneKit.tsx`: 그림 장면 화면이 같이 쓰는 고운돋움 글꼴(`useGowun`)·색(`INK`, `BROWN`)·장면 글자 `T`
+
+여러 화면 폴더가 같이 쓰는 시트(`IslandSheet`, `ScreenSheet`)와 NPC 안내(`NpcGuide`)는 `src/components/`에 둔다.
 
 ## 사용 기준
 

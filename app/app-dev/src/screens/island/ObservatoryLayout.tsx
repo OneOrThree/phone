@@ -14,7 +14,7 @@ import { t } from '@/i18n';
 import Svg, { Path } from 'react-native-svg';
 import { ObservatoryIslandPortrait } from './ObservatoryIslandPortrait';
 import { ObservatoryOcean, ObservatoryRaft } from './ObservatoryScenery';
-import { GOWUN, useGowun } from './sceneKit';
+import { GOWUN, useGowun } from '@/design-system/sceneKit';
 
 const token = componentTokens.observatory;
 const color = semanticTokens.color;

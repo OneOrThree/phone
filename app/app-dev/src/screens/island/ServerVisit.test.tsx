@@ -5,7 +5,7 @@ import { ApiError } from '@/services/api/client';
 import { initialState, reducer } from '@/services/model';
 import { act, fireEvent, render } from '@testing-library/react-native';
 
-jest.mock('@/screens/island/IslandSheet', () => ({
+jest.mock('@/components/IslandSheet', () => ({
   IslandSheet: ({ children }: any) => {
     const { View } = require('react-native');
     return <View>{children}</View>;

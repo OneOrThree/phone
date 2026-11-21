@@ -42,7 +42,10 @@ jest.mock('@/utils/layout', () => ({
 jest.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 0, bottom: 0, left: 0, right: 0 }),
 }));
-jest.mock('./sceneKit', () => ({ ...jest.requireActual('./sceneKit'), useGowun: () => undefined }));
+jest.mock('@/design-system/sceneKit', () => ({
+  ...jest.requireActual('@/design-system/sceneKit'),
+  useGowun: () => undefined,
+}));
 
 const native = screenTimeNative as jest.Mocked<Required<NonNullable<typeof screenTimeNative>>>;
 const selection = (applications: number) => ({ applications, categories: 0, webDomains: 0 });

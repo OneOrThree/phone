@@ -31,6 +31,7 @@ import {
   CLIENT_STALE_SESSION,
   CLIENT_TIMEOUT,
   uuid,
+  staleSessionError,
 } from '@/services/api/client';
 import {
   answerIslandJoinRequest,
@@ -129,8 +130,6 @@ const EMPTY: IslandManagementSnapshot = {
 type Scope = { gen: number; islandId: string };
 type WriteIntent = { key: string; payload: string; scope: Scope };
 
-const staleError = () =>
-  new ApiError(CLIENT_STALE_SESSION, '로그인 정보가 바뀌었어요. 다시 시도해 주세요.', 0);
 const inactiveError = () => new ApiError(CLIENT_INACTIVE, '화면이 닫혔어요.', 0);
 const forbiddenError = () => new ApiError(CLIENT_FORBIDDEN, '섬장만 실행할 수 있어요.', 0);
 const inFlightError = () => new ApiError(CLIENT_IN_FLIGHT, '다른 명령이 처리 중이에요.', 0);
@@ -273,7 +272,7 @@ export function useIslandManagement({
       const seq = ++loadSeq.current;
       const current = () => alive(scope) && seq === loadSeq.current;
       const guard = () => {
-        if (!current()) throw staleError();
+        if (!current()) throw staleSessionError();
       };
       const publish = (next: IslandManagementSnapshot) => {
         if (current()) {
@@ -331,7 +330,7 @@ export function useIslandManagement({
         publish({ ...EMPTY, loading: false, error: asApiError(error) });
         // 옛 scope(세대 교체·섬 이동·supersede)의 결과는 성공이든 실패든 STALE 로 통일한다 —
         // 쓰기 후 재조회가 옛 scope 에서 끝나도 성공으로 오인되지 않는다.
-        if (!current()) throw staleError();
+        if (!current()) throw staleSessionError();
         throw error;
       }
     },
@@ -378,7 +377,7 @@ export function useIslandManagement({
       scope.gen !== generation ||
       scope.gen !== sessionGeneration()
     )
-      throw staleError();
+      throw staleSessionError();
     return scope;
   }, [islandId, generation]);
 
@@ -448,7 +447,7 @@ export function useIslandManagement({
             throw error;
           });
           // 성공은 최신 canonical 재조회가 실제로 확정됐을 때만 — supersede·pending·실패면 stale.
-          if (!alive(scope) || confirmSeq.current !== loadSeq.current) throw staleError();
+          if (!alive(scope) || confirmSeq.current !== loadSeq.current) throw staleSessionError();
           if (intents.current.get(slot) === intent) intents.current.delete(slot); // 성공 — 의도 종료
         } catch (error) {
           // 403/409 — 최신 상태를 다시 읽어 오래된 권한 버튼이 성공으로 남지 않게 하되,
@@ -461,7 +460,7 @@ export function useIslandManagement({
             intents.current.delete(slot);
           // 어떤 실패든 scope 가 죽은 뒤면 옛 화면에 원래 오류(403·네트워크 등)를
           // 노출하지 않는다 — STALE 로 통일. 죽은 scope 의 재조회는 상태도 발행하지 않는다.
-          if (!alive(scope)) throw staleError();
+          if (!alive(scope)) throw staleSessionError();
           throw error;
         } finally {
           // identity 로만 정리 — 세대 교체 뒤 새 scope 가 같은 slot 에 올린

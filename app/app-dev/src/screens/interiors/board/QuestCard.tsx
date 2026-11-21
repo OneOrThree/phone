@@ -1,6 +1,6 @@
 import { t } from '@/i18n';
 import { semanticTokens } from '@/design-system/tokens';
-import { GOWUN } from '@/screens/island/sceneKit';
+import { GOWUN } from '@/design-system/sceneKit';
 import { useEffect, useRef } from 'react';
 import { Animated, Easing, Platform, View } from 'react-native';
 import { INK } from '../shared/styles';

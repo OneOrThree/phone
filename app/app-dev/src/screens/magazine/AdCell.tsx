@@ -12,7 +12,7 @@ import {
 import { componentTokens, semanticTokens } from '@/design-system/tokens';
 import { t } from '@/i18n';
 import { formatDuration, islandTitle } from '@/i18n/format';
-import { T, useGowun } from '@/screens/island/sceneKit';
+import { T, useGowun } from '@/design-system/sceneKit';
 import {
   DEFAULT_FRAME_ID,
   ISLAND_STAGE_ART,

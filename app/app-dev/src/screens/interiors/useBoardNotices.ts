@@ -21,7 +21,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { subscribeScreenTimeObservations } from '@/services/screenTimeEvents';
-import { ApiError, CLIENT_STALE_SESSION, uuid } from '@/services/api/client';
+import { ApiError, uuid, staleSessionError } from '@/services/api/client';
 import { sessionGeneration } from '@/services/api/session';
 import { captureProductEvent } from '@/services/posthog';
 import {
@@ -172,8 +172,6 @@ export function useBoardNotices({ active, scopeKey }: { active: boolean; scopeKe
       proven.current.epoch === epoch.current && proven.current.generation === sessionGeneration(),
     [],
   );
-  const stale = () =>
-    new ApiError(CLIENT_STALE_SESSION, '로그인 정보가 바뀌었어요. 다시 시도해 주세요.', 0);
   const alive = useCallback(
     (e: number, generation: number) =>
       mounted.current && e === epoch.current && generation === sessionGeneration(),
@@ -302,10 +300,10 @@ export function useBoardNotices({ active, scopeKey }: { active: boolean; scopeKe
   // 호출부가 새 계정 화면에서 초안을 지우거나 뒤로 가기를 실행한다. await 전후로 검사한다.
   const refreshList = useCallback(
     async (e: number, generation: number) => {
-      if (!alive(e, generation)) throw stale();
+      if (!alive(e, generation)) throw staleSessionError();
       const seq = ++refreshSeq.current;
       const board = await getBoard();
-      if (!alive(e, generation)) throw stale();
+      if (!alive(e, generation)) throw staleSessionError();
       // 같은 화면의 최신 조회가 대체한 응답만 버린다. 성공한 쓰기는 유지한다.
       if (seq !== refreshSeq.current) return;
       proven.current = { epoch: e, generation };
@@ -325,10 +323,10 @@ export function useBoardNotices({ active, scopeKey }: { active: boolean; scopeKe
   // 열려 있는 상세가 그 공지일 때만 서버 첫 페이지로 갈아 끼운다.
   const refreshDetail = useCallback(
     async (e: number, generation: number, islandId: string, noticeId: string) => {
-      if (!alive(e, generation)) throw stale();
+      if (!alive(e, generation)) throw staleSessionError();
       if (stateRef.current.detail?.id !== noticeId) return; // 열려 있지 않으면 갱신할 것도 없다
       const next = await getNotice(islandId, noticeId);
-      if (!alive(e, generation)) throw stale();
+      if (!alive(e, generation)) throw staleSessionError();
       if (stateRef.current.detail?.id === noticeId) set({ detail: next });
     },
 
@@ -367,12 +365,12 @@ export function useBoardNotices({ active, scopeKey }: { active: boolean; scopeKe
   // 열려 있는 퀘스트 상세가 그 퀘스트일 때만 progress 로 갈아 끼운다.
   const refreshQuestDetail = useCallback(
     async (e: number, generation: number, islandId: string, questId: string) => {
-      if (!alive(e, generation)) throw stale();
+      if (!alive(e, generation)) throw staleSessionError();
       const open = stateRef.current.questDetail;
       if (open?.id !== questId) return;
       const seq = ++questSeq.current;
       const next = await getAllQuestProgress(islandId, questId, open.occurrenceId);
-      if (!alive(e, generation)) throw stale();
+      if (!alive(e, generation)) throw staleSessionError();
       if (seq !== questSeq.current) return;
       if (stateRef.current.questDetail?.id === questId) set({ questDetail: next });
     },
@@ -428,7 +426,7 @@ export function useBoardNotices({ active, scopeKey }: { active: boolean; scopeKe
     if (!mounted.current || !active || !islandId)
       throw new ApiError(CLIENT_INACTIVE, '지금은 게시판에 쓸 수 없어요.', 0);
     // 섬 id 가 옛 계정·옛 범위의 캐시면 새 세대 토큰으로 보내지 않는다.
-    if (!cached()) throw stale();
+    if (!cached()) throw staleSessionError();
     return islandId;
   }, [active, cached]);
 
@@ -487,7 +485,7 @@ export function useBoardNotices({ active, scopeKey }: { active: boolean; scopeKe
           await refreshList(e, generation);
           // await 뒤 continuation 은 별도 마이크로태스크다 — 그 사이 세대가 바뀌었으면
           // 열린 상세를 비우지 않고 stale 로 던져 호출부가 성공 처리하지 않게 한다.
-          if (!alive(e, generation)) throw stale();
+          if (!alive(e, generation)) throw staleSessionError();
           // 삭제된 공지의 상세가 열려 있으면 닫는다 — 서버에 없는 공지를 계속 보여주지 않는다.
           if (stateRef.current.detail?.id === id) set({ detail: null });
         },
@@ -524,7 +522,7 @@ export function useBoardNotices({ active, scopeKey }: { active: boolean; scopeKe
         text,
         (key) => postComment(islandId, noticeId, { text }, key),
         async (created) => {
-          if (!alive(e, generation)) throw stale();
+          if (!alive(e, generation)) throw staleSessionError();
           if (!confirmedCommentIds.current.has(created.id)) {
             const items = stateRef.current.items.map((item) =>
               item.id === noticeId ? { ...item, commentCount: item.commentCount + 1 } : item,

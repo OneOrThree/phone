@@ -3,7 +3,7 @@ import { CatSprite } from '@/components/CatSprite';
 import { NavBtn, art } from '@/design-system/patterns';
 import { semanticTokens } from '@/design-system/tokens';
 import type { ScreenProps } from '@/navigation/ScreenEnvironment';
-import { T, fill, safeOffset, useGowun, web } from '@/screens/island/sceneKit';
+import { T, fill, safeOffset, useGowun, web } from '@/design-system/sceneKit';
 import { State } from '@/services/model';
 import { useAppLayout } from '@/utils/layout';
 import { Image, Platform, Pressable, View } from 'react-native';

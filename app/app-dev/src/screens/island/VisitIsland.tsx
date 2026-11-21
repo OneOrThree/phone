@@ -1,7 +1,7 @@
 import { Txt } from '@/design-system/patterns';
 import { t } from '@/i18n';
 import { useIslandPresence } from '@/screens/focus/useIslandPresence';
-import { IslandPopup } from '@/screens/island/IslandSheet';
+import { IslandPopup } from '@/components/IslandSheet';
 import { FinalIsland } from '@/screens/island/WorldMap';
 import { confirmLeaveVisit, useVisitorJoin } from '@/screens/island/useVisitorJoin';
 import { State, serverVisit, viewIsland } from '@/services/model';

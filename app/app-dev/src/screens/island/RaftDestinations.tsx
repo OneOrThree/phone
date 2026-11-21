@@ -3,7 +3,7 @@ import { semanticTokens } from '@/design-system/tokens';
 import { t } from '@/i18n';
 import { islandTitle } from '@/i18n/format';
 import type { ScreenEnvironment } from '@/navigation/ScreenEnvironment';
-import { SheetGroup, SheetRow } from '@/screens/island/IslandSheet';
+import { SheetGroup, SheetRow } from '@/components/IslandSheet';
 import { useIslandSailing } from '@/screens/island/useIslandSailing';
 import { confirmLeaveVisit, useVisitorJoin } from '@/screens/island/useVisitorJoin';
 import { SeaDeparture } from '@/screens/sea/SeaDeparture';

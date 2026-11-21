@@ -3,7 +3,7 @@ import { semanticTokens } from '@/design-system/tokens';
 import { t } from '@/i18n';
 import { formatDate } from '@/i18n/format';
 import type { ScreenProps } from '@/navigation/ScreenEnvironment';
-import { IslandSheet, SheetGroup, SheetRow } from '@/screens/island/IslandSheet';
+import { IslandSheet, SheetGroup, SheetRow } from '@/components/IslandSheet';
 import { ApiError } from '@/services/api/client';
 import {
   getDeveloperNotice,

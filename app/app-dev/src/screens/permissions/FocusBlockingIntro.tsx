@@ -1,8 +1,8 @@
 import { Btn, C, Txt, art } from '@/design-system/patterns';
 import { componentTokens, semanticTokens } from '@/design-system/tokens';
 import { t } from '@/i18n';
-import { IslandPopup } from '@/screens/island/IslandSheet';
-import { GuideBox } from '@/screens/island/NpcGuide';
+import { IslandPopup } from '@/components/IslandSheet';
+import { GuideBox } from '@/components/NpcGuide';
 import { useAppLayout } from '@/utils/layout';
 import React from 'react';
 import { Image, StyleSheet, View } from 'react-native';

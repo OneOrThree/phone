@@ -2,7 +2,7 @@ import { t } from '@/i18n';
 import { NavBtn } from '@/design-system/patterns';
 import { useAssetPack } from '@/hooks/useAssetPack';
 import type { ScreenEnvironment } from '@/navigation/ScreenEnvironment';
-import { GOWUN } from '@/screens/island/sceneKit';
+import { GOWUN } from '@/design-system/sceneKit';
 import React, { useEffect, useRef, useState } from 'react';
 import { Animated, Image, Platform, View } from 'react-native';
 import { artifacts } from './artifactRegistry';

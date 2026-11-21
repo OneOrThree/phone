@@ -36,8 +36,8 @@ jest.mock('@/utils/layout', () => ({
     insets: { top: 52, bottom: 32, left: 0, right: 0 },
   }),
 }));
-jest.mock('./sceneKit', () => ({
-  ...jest.requireActual('./sceneKit'),
+jest.mock('@/design-system/sceneKit', () => ({
+  ...jest.requireActual('@/design-system/sceneKit'),
   useGowun: () => undefined,
 }));
 

@@ -10,7 +10,7 @@ import {
 import { Btn, Txt } from '@/design-system/patterns';
 import { MotionContext, useScreenInsets } from '@/design-system/primitives';
 import { primitiveTokens as p, semanticTokens as s } from '@/design-system/tokens';
-import { GuideBox, useScreenReaderEnabled } from '@/screens/island/NpcGuide';
+import { GuideBox, useScreenReaderEnabled } from '@/components/NpcGuide';
 import { SeaScene } from '@/screens/sea/SeaScene';
 import type { SeaParticipant } from '@/screens/sea/seaModel';
 import { t } from '@/i18n';

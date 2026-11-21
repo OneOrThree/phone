@@ -8,7 +8,7 @@ import {
   primitiveTokens as p,
   semanticTokens as s,
 } from '@/design-system/tokens';
-import { useGowun } from '@/screens/island/sceneKit';
+import { useGowun } from '@/design-system/sceneKit';
 import { t } from '@/i18n';
 
 /** 안내를 보는 것만으로 촬영하거나 카메라 권한을 요청하지 않는다. */

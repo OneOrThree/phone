@@ -11,7 +11,7 @@ import { t } from '@/i18n';
 import { ownCatName } from '@/i18n/format';
 import { art } from '@/constants/art';
 import { MAGAZINE_UI } from '@/constants/magazineAssets';
-import { useGowun } from '@/screens/island/sceneKit';
+import { useGowun } from '@/design-system/sceneKit';
 import { SeaRaft } from './SeaRaft';
 import { SeaGlints, SeaSkyMotion, SeaWaterMotion, useSeaRunning } from './SeaMotion';
 import { SeaParticipant, seaClock, seaPeerPages } from './seaModel';

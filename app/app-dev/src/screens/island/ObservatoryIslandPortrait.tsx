@@ -3,7 +3,7 @@ import { Image, StyleSheet, View } from 'react-native';
 import { Txt } from '@/design-system/patterns';
 import { componentTokens, semanticTokens } from '@/design-system/tokens';
 import { ISLAND_STAGE_ART } from '@/constants/magazineAssets';
-import { GOWUN } from './sceneKit';
+import { GOWUN } from '@/design-system/sceneKit';
 
 const token = componentTokens.observatory;
 const styles = StyleSheet.create({

@@ -3,7 +3,7 @@ import React from 'react';
 import { StyleSheet, View } from 'react-native';
 import Svg, { Circle, Line, Polyline } from 'react-native-svg';
 import { componentTokens, primitiveTokens, semanticTokens } from '@/design-system/tokens';
-import { T } from '@/screens/island/sceneKit';
+import { T } from '@/design-system/sceneKit';
 import { weekday } from './diaryData';
 
 const D = componentTokens.diary;

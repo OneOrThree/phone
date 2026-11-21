@@ -20,7 +20,7 @@ jest.mock('./useFirstVoyage', () => ({
   useFirstVoyage: () => ({ eligible: false, pending: false, scene: null }),
 }));
 jest.mock('@/screens/island/useTelescope', () => ({ useTelescope: jest.fn() }));
-jest.mock('@/screens/island/sceneKit', () => ({ useGowun: () => 'Gowun' }));
+jest.mock('@/design-system/sceneKit', () => ({ useGowun: () => 'Gowun' }));
 jest.mock('@/utils/layout', () => ({
   useAppLayout: () => ({
     width: 402,

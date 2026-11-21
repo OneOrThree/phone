@@ -2,7 +2,7 @@ import { Badge, Btn, Txt } from '@/design-system/patterns';
 import { componentTokens, primitiveTokens, semanticTokens } from '@/design-system/tokens';
 import { errorTextOr, t } from '@/i18n';
 import type { ScreenEnvironment } from '@/navigation/ScreenEnvironment';
-import { SearchField, st } from '@/screens/island/IslandSheet';
+import { SearchField, st } from '@/components/IslandSheet';
 import {
   ObservatoryFrame,
   ObservatoryHeading,
@@ -15,7 +15,7 @@ import type { IslandSummary } from '@/services/api/islands';
 import React, { useEffect, useState } from 'react';
 import { AccessibilityInfo, ActivityIndicator, Platform, StyleSheet, View } from 'react-native';
 import Svg, { Circle, Path } from 'react-native-svg';
-import { GOWUN } from './sceneKit';
+import { GOWUN } from '@/design-system/sceneKit';
 
 const { space } = primitiveTokens;
 

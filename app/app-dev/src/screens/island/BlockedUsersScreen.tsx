@@ -1,7 +1,7 @@
 import { Btn, C, Txt } from '@/design-system/patterns';
 import { errorTextOr, t } from '@/i18n';
 import type { ScreenProps } from '@/navigation/ScreenEnvironment';
-import { IslandSheet, SheetGroup, SheetRow } from '@/screens/island/IslandSheet';
+import { IslandSheet, SheetGroup, SheetRow } from '@/components/IslandSheet';
 import { unblockUser, type BlockedUser } from '@/services/api/safety';
 import {
   markUserUnblocked,

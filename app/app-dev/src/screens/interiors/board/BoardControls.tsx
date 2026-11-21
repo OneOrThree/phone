@@ -1,7 +1,7 @@
 import { Wheel } from '@/design-system/patterns';
 import { semanticTokens } from '@/design-system/tokens';
 import { t } from '@/i18n';
-import { GOWUN } from '@/screens/island/sceneKit';
+import { GOWUN } from '@/design-system/sceneKit';
 import { clockMinutes } from '@/services/model';
 import { LAST_KST_WINDOW_END_MINUTES } from '@/utils/questWindowTz';
 import React, { useState } from 'react';
