@@ -1,3 +1,4 @@
+import { readCreateIslandDraft, removeCreateIslandDraft } from '@/services/createIslandDraft';
 import { createPreviewEnvironment } from '@/navigation/previewEnvironment';
 import type { Route } from '@/services/model';
 /**
@@ -2492,14 +2493,16 @@ test('섬 만들기 이름 칸은 글자 수를 보여 주고 한도에 닿으�
 
 // 정원 휠 선택값은 숫자 상태다 — 라벨은 렌더 시점의 로케일로 만들고 create 에는 그 숫자가 간다.
 const wheelWeight = (label: string, s: any) =>
-  StyleSheet.flatten(s.getByText(label).props.style)?.fontWeight;
+  StyleSheet.flatten(s.getAllByText(label).at(-1).props.style)?.fontWeight;
 
 test('섬 만들기 정원 휠에서 «3명» 을 고르면 create 에 maxMembers 3 이 간다(ko)', async () => {
   const create = jest.fn(async (_input: any) => {});
   const s = await render(<Harness route="createIsland" api={() => ({ create })} />);
+  await fireEvent.press(s.getByLabelText('정원'));
   assert.equal(wheelWeight('15명', s), '800');
   await fireEvent.press(s.getByLabelText('정원 3명'));
   assert.equal(wheelWeight('3명', s), '800');
+  await fireEvent.press(s.getByLabelText('확인'));
   await fireEvent.changeText(s.getByLabelText('섬 이름'), '새 섬');
   await fireEvent.press(s.getByLabelText('섬 만들기'));
   await waitFor(() => assert.equal(create.mock.calls.length, 1));
@@ -2510,9 +2513,11 @@ test('섬 만들기 정원 휠에서 «3 residents» 를 고르면 create 에 ma
   applyLocalePref('en');
   const create = jest.fn(async (_input: any) => {});
   const s = await render(<Harness route="createIsland" api={() => ({ create })} />);
+  await fireEvent.press(s.getByLabelText('Capacity'));
   assert.equal(wheelWeight('15 residents', s), '800');
   await fireEvent.press(s.getByLabelText('Capacity 3 residents'));
   assert.equal(wheelWeight('3 residents', s), '800');
+  await fireEvent.press(s.getByLabelText('OK'));
   await fireEvent.changeText(s.getByLabelText('Island Name'), 'New Island');
   await fireEvent.press(s.getByLabelText('Create Island'));
   await waitFor(() => assert.equal(create.mock.calls.length, 1));
@@ -2521,6 +2526,7 @@ test('섬 만들기 정원 휠에서 «3 residents» 를 고르면 create 에 ma
 
 test('섬 만들기 화면에서 언어를 바꿔도 고른 정원 항목이 강조된 채 남는다', async () => {
   const s = await render(<Harness route="createIsland" api={() => ({})} />);
+  await fireEvent.press(s.getByLabelText('정원'));
   await fireEvent.press(s.getByLabelText('정원 7명'));
   assert.equal(wheelWeight('7명', s), '800');
   applyLocalePref('en');
@@ -3790,3 +3796,88 @@ test.each(['wardrobe', 'profile', 'settings'] as const)(
     expect(screen.getByTestId('island-sheet-backdrop').props.source).toBe(art['bldbg/dock']);
   },
 );
+
+test('새 섬 초안은 닫았다 열면 복원되고 서버 실패 때 남으며 성공 뒤 삭제된다', async () => {
+  await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'island-draft-test' });
+  await removeCreateIslandDraft('island-draft-test');
+  const create = jest
+    .fn()
+    .mockRejectedValueOnce(new Error('offline'))
+    .mockResolvedValueOnce(undefined);
+  try {
+    let s = await render(<Harness route="createIsland" api={() => ({ create })} />);
+    await waitFor(() => assert.equal(s.getByLabelText('섬 이름').props.editable, true));
+    await fireEvent.changeText(s.getByLabelText('섬 이름'), '복원할 섬');
+    await fireEvent.changeText(s.getByLabelText('섬 소개'), '함께 집중');
+    // 바깥 영역은 터치 전용이라 스크린 리더 트리에서 빠져 있다
+    await fireEvent.press(s.getByTestId('create-island-backdrop', { includeHiddenElements: true }));
+    assert.ok(backMock.mock.calls.length);
+    await s.unmount();
+    s = await render(<Harness route="createIsland" api={() => ({ create })} />);
+    await waitFor(() => assert.equal(s.getByLabelText('섬 이름').props.value, '복원할 섬'));
+    assert.equal(s.getByLabelText('섬 소개').props.value, '함께 집중');
+    await fireEvent.press(s.getByLabelText('섬 만들기'));
+    await waitFor(() => assert.equal(create.mock.calls.length, 1));
+    assert.equal((await readCreateIslandDraft('island-draft-test'))?.name, '복원할 섬');
+    await waitFor(() =>
+      assert.equal(s.getByLabelText('섬 만들기').props.accessibilityState.disabled, false),
+    );
+    await fireEvent.press(s.getByLabelText('섬 만들기'));
+    await waitFor(() => assert.equal(create.mock.calls.length, 2));
+    await waitFor(async () => assert.equal(await readCreateIslandDraft('island-draft-test'), null));
+    await s.unmount();
+  } finally {
+    await clearSession();
+    await removeCreateIslandDraft('island-draft-test');
+  }
+});
+
+test('새 섬 생성이 성공한 뒤 초안 삭제가 실패해도 완료 화면에 초안 오류를 띄우지 않는다', async () => {
+  await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'island-draft-clear-fail' });
+  const removeItem = AsyncStorage.removeItem as jest.Mock;
+  const original = removeItem.getMockImplementation();
+  removeItem.mockImplementation((key: string) =>
+    key.startsWith('gromo.createIslandDraft.v1:')
+      ? Promise.reject(new Error('AsyncStorage 삭제 실패'))
+      : original?.(key),
+  );
+  const create = jest.fn(async (_input: any) => {});
+  try {
+    const s = await render(<Harness route="createIsland" api={() => ({ create })} />);
+    await waitFor(() => assert.equal(s.getByLabelText('섬 이름').props.editable, true));
+    await fireEvent.changeText(s.getByLabelText('섬 이름'), '새 섬');
+    await fireEvent.press(s.getByLabelText('섬 만들기'));
+    await waitFor(() => s.getByText('섬을 만들었어요'));
+    assert.ok(
+      !s.queryByText('초안을 저장하지 못했어요. 입력 내용을 확인해 주세요.'),
+      '완료 화면에 초안 오류가 보인다',
+    );
+    await s.unmount();
+  } finally {
+    removeItem.mockImplementation(original);
+    await clearSession();
+    await removeCreateIslandDraft('island-draft-clear-fail');
+  }
+});
+
+test('새 섬 만들기 바깥 영역은 스크린 리더에서 빠지고, 정원 휠이 열린 동안 뒤 시트를 숨긴다', async () => {
+  const s = await render(<Harness route="createIsland" api={() => ({})} />);
+  await waitFor(() => assert.equal(s.getByLabelText('섬 이름').props.editable, true));
+  const hidden = { includeHiddenElements: true };
+  const backdrop = s.getByTestId('create-island-backdrop', hidden);
+  assert.equal(backdrop.props.accessible, false);
+  assert.equal(backdrop.props.importantForAccessibility, 'no-hide-descendants');
+  assert.equal(
+    s.getByTestId('create-island-sheet', hidden).props.accessibilityElementsHidden,
+    false,
+  );
+  await fireEvent.press(s.getByLabelText('정원'));
+  const sheet = s.getByTestId('create-island-sheet', hidden);
+  assert.equal(sheet.props.accessibilityElementsHidden, true);
+  assert.equal(sheet.props.importantForAccessibility, 'no-hide-descendants');
+  await fireEvent.press(s.getByLabelText('확인'));
+  assert.equal(
+    s.getByTestId('create-island-sheet', hidden).props.accessibilityElementsHidden,
+    false,
+  );
+});
