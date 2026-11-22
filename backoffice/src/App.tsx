@@ -3,7 +3,7 @@ import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'rea
 import { iosStoreNotice, shortCommit, storeWarning, unpublishedWarning, type SystemVersions } from './versions';
 import { confirmNotices, FORCE_WARNING, forces, type ConfirmNotice } from './confirmNotices';
 import { ApiError, request } from './api';
-import type { ContentItem, ContentKind, ContentStatus, Draft, FcmCatalogPage, FcmTemplate, HistoryItem, HistoryPage, MagazineCard, MagazineSnapshot, Session } from './types';
+import type { ContentItem, ContentKind, ContentStatus, Draft, FcmCatalogPage, FcmTemplate, HistoryItem, HistoryPage, MagazineCard, MagazineSnapshot, Session, TargetPlatform } from './types';
 import { FocusPolicyPanel } from './FocusPolicyPanel';
 import { CustomizationGrants } from './CustomizationGrants';
 import { CustomizationItems } from './CustomizationItems';
@@ -31,11 +31,11 @@ const localDate = (value?: string | null) => {
 };
 function emptyDraft(kind: ContentKind): Draft {
   const today = localDate(new Date().toISOString()).slice(0, 10);
-  return { kind, title: kind === 'construction' ? '건설 비용·공사 시간 변경' : '', body: '', targetsText: '', fcmKind: ANNOUNCEMENT_KIND, dataText: '{}', issueDate: today, startsAt: localDate(new Date().toISOString()), endsAt: '', noticeType: 'patch', minIosVersion: '', minAndroidVersion: '' };
+  return { kind, title: kind === 'construction' ? '건설 비용·공사 시간 변경' : '', body: '', targetsText: '', fcmKind: ANNOUNCEMENT_KIND, dataText: '{}', issueDate: today, startsAt: localDate(new Date().toISOString()), endsAt: '', noticeType: 'patch', targetPlatform: 'ALL', minIosVersion: '', minAndroidVersion: '' };
 }
 function draftFrom(item: ContentItem): Draft {
   const fcm = item.data?.fcm as { kind?: string } | undefined;
-  return { kind: item.kind, title: item.title, body: item.body, targetsText: (item.targets ?? []).join('\n'), fcmKind: fcm?.kind ?? '', dataText: JSON.stringify(item.kind === 'fcm' ? item.data?.payload ?? {} : item.data ?? {}, null, 2), issueDate: item.issueDate ?? '', startsAt: localDate(item.startsAt), endsAt: localDate(item.endsAt), noticeType: item.noticeType ?? 'patch', minIosVersion: item.minIosVersion ?? '', minAndroidVersion: item.minAndroidVersion ?? '' };
+  return { kind: item.kind, title: item.title, body: item.body, targetsText: (item.targets ?? []).join('\n'), fcmKind: fcm?.kind ?? '', dataText: JSON.stringify(item.kind === 'fcm' ? item.data?.payload ?? {} : item.data ?? {}, null, 2), issueDate: item.issueDate ?? '', startsAt: localDate(item.startsAt), endsAt: localDate(item.endsAt), noticeType: item.noticeType ?? 'patch', targetPlatform: forces(item) ? 'ALL' : item.targetPlatform ?? 'ALL', minIosVersion: item.minIosVersion ?? '', minAndroidVersion: item.minAndroidVersion ?? '' };
 }
 function objectData(text: string): Record<string, unknown> {
   let value: unknown;
@@ -72,10 +72,18 @@ function buildPayload(draft: Draft) {
     ...(draft.kind === 'magazine' ? { issueDate: draft.issueDate } : {}),
     ...(draft.kind === 'notice' ? { startsAt: new Date(draft.startsAt).toISOString(), endsAt: draft.endsAt ? new Date(draft.endsAt).toISOString() : null,
       // edit 은 받은 키만 합치므로 패치노트로 바꿀 때는 min 을 명시적 null 로 보내 지운다.
-      noticeType: draft.noticeType, minIosVersion: draft.noticeType === 'force' && draft.minIosVersion.trim() ? draft.minIosVersion.trim() : null, minAndroidVersion: draft.noticeType === 'force' && draft.minAndroidVersion.trim() ? draft.minAndroidVersion.trim() : null } : {}),
+      noticeType: draft.noticeType, targetPlatform: draft.noticeType === 'force' ? derivePlatform(draft.minIosVersion, draft.minAndroidVersion) : draft.targetPlatform, minIosVersion: draft.noticeType === 'force' && draft.minIosVersion.trim() ? draft.minIosVersion.trim() : null, minAndroidVersion: draft.noticeType === 'force' && draft.minAndroidVersion.trim() ? draft.minAndroidVersion.trim() : null } : {}),
   };
 }
 const MIN_VERSION = /^\d{1,9}\.\d{1,9}\.\d{1,9}$/;
+// 강제 업데이트의 대상은 최소 버전을 넣은 플랫폼으로 정해진다. Data 규칙과 같다.
+const derivePlatform = (iosMin: string, androidMin: string): TargetPlatform => iosMin.trim() && androidMin.trim() ? 'ALL' : iosMin.trim() ? 'IOS' : androidMin.trim() ? 'ANDROID' : 'ALL';
+const PLATFORM_LABELS: Record<string, string> = { ALL: '전체', IOS: 'iOS', ANDROID: 'Android' };
+// 모르는 값은 «전체» 로 뭉개지 않고 원문을 보인다.
+const platformLabel = (value?: string | null) => PLATFORM_LABELS[value ?? 'ALL'] ?? String(value);
+// 대상 값이 없는 옛 항목: 강제 업데이트는 최소 버전에서 정하고(Data 규칙과 같다), 패치노트는 전체다.
+const itemPlatform = (item: Parameters<typeof forces>[0] & { targetPlatform?: string | null }) =>
+  item.targetPlatform ?? (forces(item) ? derivePlatform(item.minIosVersion ?? '', item.minAndroidVersion ?? '') : 'ALL');
 const minSummary = (value: { minIosVersion?: string | null; minAndroidVersion?: string | null }) => [value.minIosVersion && `iOS ${value.minIosVersion}`, value.minAndroidVersion && `Android ${value.minAndroidVersion}`].filter(Boolean).join(' · ') || '없음';
 function Icon({ name }: { name: string }) {
   const paths: Record<string, ReactNode> = {
@@ -162,7 +170,7 @@ function HistoryPanel({ kind }: { kind: ContentKind }) {
     {kind === 'fcm' && <p className="field-hint">수신자별 알림 한 건씩 표시합니다. SENT는 발송 서버 처리 상태이며 기기 화면 표시까지 보장하지 않습니다.</p>}
     {error && <p role="alert" className="error-message">{error}</p>}
     <p className="list-caption">{total === undefined ? `${items.length}건 불러옴` : `전체 ${total}건 중 ${items.length}건 불러옴`}</p>
-    {items.length ? <ol className="history-list">{items.map(item => item.kind === 'magazine' ? <MagazineHistoryEntry key={item.id} item={item} /> : <li key={item.id}><details><summary><strong>{item.title || item.notificationKind || item.id}</strong><span>{item.kind === 'notice' ? `${forces(item) ? '강제 업데이트 · ' + minSummary(item) : '패치노트'} · ` : ''}{item.status || '기록됨'}</span><time>{readableDate(item.publishedAt || item.createdAt)}</time></summary><div className="history-details"><ReadableValue value={item} /></div></details></li>)}</ol> : !loading && !error && <p className="list-empty">이 환경의 기록이 없습니다.</p>}
+    {items.length ? <ol className="history-list">{items.map(item => item.kind === 'magazine' ? <MagazineHistoryEntry key={item.id} item={item} /> : <li key={item.id}><details><summary><strong>{item.title || item.notificationKind || item.id}</strong><span>{item.kind === 'notice' ? `${forces(item) ? '강제 업데이트 · ' + minSummary(item) : '패치노트'} · 대상 ${platformLabel(itemPlatform(item))} · ` : ''}{item.status || '기록됨'}</span><time>{readableDate(item.publishedAt || item.createdAt)}</time></summary><div className="history-details"><ReadableValue value={item} /></div></details></li>)}</ol> : !loading && !error && <p className="list-empty">이 환경의 기록이 없습니다.</p>}
     {loading && <p role="status" className="list-loading">운영 이력을 불러오는 중…</p>}
     {nextCursor && <button className="button secondary" disabled={loading} onClick={() => void load(nextCursor)}>이전 기록 더 보기</button>}
   </section>;
@@ -248,7 +256,7 @@ function ContentPreview({ draft }: { draft: Draft }) {
       <h4>{draft.title || '제목을 입력해 주세요'}</h4><p className="prewrap">{draft.body || '본문을 입력하면 이곳에 표시됩니다.'}</p>
     </article>}
     {draft.kind === 'fcm' && <div className="preview-meta"><span>명시한 수신자</span><strong>{targets.length}명</strong><span>알림 종류</span><strong>{draft.fcmKind === ANNOUNCEMENT_KIND ? '운영 공지' : draft.fcmKind || '지원하지 않는 종류'}</strong></div>}
-    {draft.kind === 'notice' && <div className="preview-meta"><span>공지 종류</span><strong>{draft.noticeType === 'force' ? '강제 업데이트' : '패치노트'}</strong>{draft.noticeType === 'force' && <><span>최소 버전</span><strong>{minSummary(draft)}</strong></>}<span>게시 시작</span><strong>{draft.startsAt ? readableDate(draft.startsAt) : '미입력'}</strong><span>게시 종료</span><strong>{draft.endsAt ? readableDate(draft.endsAt) : '종료일 없음'}</strong></div>}
+    {draft.kind === 'notice' && <div className="preview-meta"><span>공지 종류</span><strong>{draft.noticeType === 'force' ? '강제 업데이트' : '패치노트'}</strong>{draft.noticeType === 'force' && <><span>최소 버전</span><strong>{minSummary(draft)}</strong></>}<span>대상</span><strong>{platformLabel(draft.noticeType === 'force' ? derivePlatform(draft.minIosVersion, draft.minAndroidVersion) : draft.targetPlatform)}</strong><span>게시 시작</span><strong>{draft.startsAt ? readableDate(draft.startsAt) : '미입력'}</strong><span>게시 종료</span><strong>{draft.endsAt ? readableDate(draft.endsAt) : '종료일 없음'}</strong></div>}
     {draft.kind === 'magazine' && snapshot && <details className="technical-details"><summary>스냅샷 원본 보기</summary><pre className="json-view">{JSON.stringify(snapshot, null, 2)}</pre></details>}
   </section>;
 }
@@ -275,6 +283,7 @@ function ConfirmDialog({ item, action, busy, error, mode, iosStore, onClose, onC
       <p className="dialog-title">{item.title}</p><p className="prewrap dialog-body">{item.body || '본문 없음'}</p>
       <dl className="confirmation-facts"><div><dt>대상</dt><dd>{item.kind === 'fcm' ? `명시한 수신자 ${item.targets.length}명` : item.kind === 'magazine' ? `${item.issueDate} 잡지` : item.kind === 'construction' ? '전체 건물의 새 착공' : '앱 개발자 공지'}</dd></div>
         {item.kind === 'notice' && <div><dt>공지 종류</dt><dd>{forces(item) ? `강제 업데이트 · ${minSummary(item)}` : '패치노트'}</dd></div>}
+        {item.kind === 'notice' && <div><dt>대상 플랫폼</dt><dd>{platformLabel(itemPlatform(item))}</dd></div>}
         {item.kind === 'notice' && <div><dt>게시 기간</dt><dd>{readableDate(item.startsAt)} ~ {item.endsAt ? readableDate(item.endsAt) : '종료일 없음'}</dd></div>}
         {item.approvedBy && <div><dt>승인자</dt><dd>{item.approvedBy}</dd></div>}<div><dt>연결 모드</dt><dd>{mode === 'local' ? '로컬 · 외부 발송/게시 없음' : '서비스 연결'}</dd></div></dl>
       {item.kind === 'fcm' && <details className="technical-details"><summary>수신자 {item.targets.length}명 확인</summary><ul className="recipient-list">{item.targets.map(id => <li key={id}><code>{id}</code></li>)}</ul></details>}
@@ -464,6 +473,8 @@ export default function App() {
           {draft.kind === 'fcm' && <><Field label="수신자 UUID" hint="한 줄에 한 명 또는 쉼표로 구분합니다. 1~100명, 중복 불가."><textarea className="mono-input" rows={4} value={draft.targetsText} onChange={event => updateDraft('targetsText', event.target.value)} placeholder="00000000-0000-0000-0000-000000000000" spellCheck={false} required /></Field><p className="field-hint">운영 공지 알림으로 발송합니다. 한국어 표시 알림만 지원하며, 다른 서비스 알림의 종류·매개변수는 사용하지 않습니다.</p></>}
           {draft.kind === 'notice' && <div className="date-fields"><Field label="게시 시작" hint="현재 브라우저의 현지 시각 기준"><input type="datetime-local" value={draft.startsAt} onChange={event => updateDraft('startsAt', event.target.value)} required /></Field><Field label="게시 종료" hint="비워두면 종료일 없이 게시"><input type="datetime-local" value={draft.endsAt} onChange={event => updateDraft('endsAt', event.target.value)} /></Field></div>}
           {draft.kind === 'notice' && <><Field label="공지 종류"><select value={draft.noticeType} onChange={event => updateDraft('noticeType', event.target.value)}><option value="patch">패치노트</option><option value="force">강제 업데이트</option></select></Field>
+            {draft.noticeType === 'patch' ? <Field label="대상"><select value={draft.targetPlatform} onChange={event => updateDraft('targetPlatform', event.target.value)}><option value="ALL">전체</option><option value="IOS">iOS</option><option value="ANDROID">Android</option></select></Field>
+              : <Field label="대상" hint="최소 버전을 넣은 플랫폼으로 정해집니다."><strong>{platformLabel(derivePlatform(draft.minIosVersion, draft.minAndroidVersion))}</strong></Field>}
             {draft.noticeType === 'force' && <><div className="date-fields"><Field label="iOS 최소 버전" hint={`예: 2.1.0 · 비우면 iOS는 대상 아님${storeVersion ? ` · App Store 공개 버전 ${storeVersion}` : ''}`}><input value={draft.minIosVersion} onChange={event => updateDraft('minIosVersion', event.target.value)} inputMode="decimal" spellCheck={false} placeholder={storeVersion ?? '2.1.0'} /></Field><Field label="Android 최소 버전" hint="예: 2.1.0 · 비우면 Android는 대상 아님"><input value={draft.minAndroidVersion} onChange={event => updateDraft('minAndroidVersion', event.target.value)} spellCheck={false} placeholder="2.1.0" /></Field></div><p className="field-hint">{FORCE_WARNING}</p>{editorNotice === 'exceeds' && storeVersion && <p className="callout" role="status">{storeWarning(storeVersion)}</p>}{editorNotice === 'unpublished' && <p className="field-hint">{unpublishedWarning}</p>}</>}</>}
           {draft.kind === 'magazine' && <><Field label="발행일" hint="미래 날짜도 초안으로 미리 저장할 수 있습니다."><input type="date" value={draft.issueDate} onChange={event => updateDraft('issueDate', event.target.value)} required /></Field><button type="button" className="button secondary preview-button" onClick={() => void previewMagazine()} disabled={!!busy}>{busy === 'preview' ? '게시 내용 불러오는 중…' : '게시 내용 불러오기'}<Icon name="arrow" /></button><p className="field-hint">최종 게시 내용은 발행일 당일 오전 7시(KST) 이후에 불러올 수 있습니다. 내용을 확인하고 저장한 뒤 검토·승인해 주세요.</p></>}
           {draft.kind !== 'magazine' && draft.kind !== 'construction' && <details className="advanced-fields"><summary>추가 데이터 설정</summary><Field label={draft.kind === 'fcm' ? 'FCM 추가 데이터 (JSON)' : '추가 데이터 (JSON)'} hint={draft.kind === 'fcm' ? '앱에 전달할 추가 데이터만 입력합니다. 모든 값은 문자열이어야 합니다. 필요하지 않으면 {}로 두세요.' : undefined}><textarea className="mono-input" rows={8} value={draft.dataText} onChange={event => updateDraft('dataText', event.target.value)} spellCheck={false} /></Field></details>}
