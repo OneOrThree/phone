@@ -19,6 +19,7 @@ import com.oneorthree.phone.group.repository.GroupRepository;
 import com.oneorthree.phone.group.repository.domain.Group;
 import com.oneorthree.phone.group.repository.domain.GroupMember;
 import com.oneorthree.phone.group.repository.domain.GroupMemberRole;
+import com.oneorthree.phone.construction.dto.ConstructionOptionItem;
 import com.oneorthree.phone.construction.dto.ConstructionStartedView;
 import com.oneorthree.phone.construction.dto.IslandLayoutView;
 import com.oneorthree.phone.outbox.support.OutboxTestPostgres;
@@ -55,6 +56,7 @@ import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 
 /**
  * 건설 POST 전체 트랜잭션의 최소 통합 검증 (GROMO-1767).
@@ -645,6 +647,66 @@ class IslandConstructionIntegrationTest {
                 .isInstanceOf(ConstructionException.class)
                 .extracting("errorCode").isEqualTo(ConstructionErrorCode.STATE_CONFLICT);
         assertThat(count("island_facilities", f.islandId)).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("공사 중에는 그 건물만 IN_PROGRESS, 나머지는 OTHER_IN_PROGRESS — 앱이 모든 카드를 공사 중으로 그리지 않는다")
+    void onlyTheActiveBuildingIsInProgress() {
+        Fixture f = fundedIsland(4080, "mail");
+        completeFacility(f, "hall");
+        completeFacility(f, "board");
+        service.start(f.islandId, f.ownerId, "mail", 0, 1, UUID.randomUUID());
+
+        var options = service.options(f.islandId, f.ownerId);
+
+        assertThat(options.activeConstruction().buildingId()).isEqualTo("mail");
+        assertThat(options.items())
+                .extracting(ConstructionOptionItem::id, ConstructionOptionItem::blockedReason)
+                .containsExactlyInAnyOrder(
+                        tuple("gram", "OTHER_IN_PROGRESS"),
+                        tuple("library", "OTHER_IN_PROGRESS"),
+                        tuple("mail", "IN_PROGRESS"),
+                        tuple("tower", "OTHER_IN_PROGRESS"),
+                        tuple("shop", "FACILITY_LOCKED"));
+        assertThat(options.items()).allSatisfy(item -> {
+            assertThat(item.selectable()).isFalse();
+            assertThat(item.buildable()).isFalse();
+        });
+    }
+
+    @Test
+    @DisplayName("공사 중에도 권한 없는 주민은 전부 FORBIDDEN 이고, 완공 뒤에는 공사 중 사유가 사라진다")
+    void forbiddenOutranksInProgressAndReasonsClearAfterCompletion() {
+        SharedFixture f = sharedIsland();
+        Fixture owner = new Fixture(f.islandId, f.ownerId);
+        completeFacility(owner, "hall");
+        completeFacility(owner, "board");
+        tx().executeWithoutResult(status ->
+                walletService.contribute(f.islandId, f.ownerId, 4080, "seed-" + f.islandId));
+        service.setTarget(f.islandId, f.ownerId, "mail", 0, UUID.randomUUID());
+        long version = service.options(f.islandId, f.ownerId).islandVersion();
+        service.start(f.islandId, f.ownerId, "mail", version, 1, UUID.randomUUID());
+
+        // 권한 판정이 먼저다 — 주민은 공사 중인 건물까지 FORBIDDEN 으로 본다(C08).
+        assertThat(service.options(f.islandId, f.memberId).items())
+                .isNotEmpty()
+                .allSatisfy(item -> assertThat(item.blockedReason()).isEqualTo("FORBIDDEN"));
+
+        jdbc.update("UPDATE island_facilities SET completes_at = ? "
+                        + "WHERE island_id = ? AND building_id = 'mail'",
+                Timestamp.from(Instant.now().minus(1, ChronoUnit.MINUTES)), f.islandId);
+        scheduler.completeDueFacilities();
+
+        // 완공한 우체통은 목록에서 빠지고, 잔액 0 이라 남은 셋은 자금 부족, 상점은 선행 미충족이다.
+        var after = service.options(f.islandId, f.ownerId);
+        assertThat(after.activeConstruction()).isNull();
+        assertThat(after.items())
+                .extracting(ConstructionOptionItem::id, ConstructionOptionItem::blockedReason)
+                .containsExactlyInAnyOrder(
+                        tuple("gram", "INSUFFICIENT_FUNDS"),
+                        tuple("library", "INSUFFICIENT_FUNDS"),
+                        tuple("tower", "INSUFFICIENT_FUNDS"),
+                        tuple("shop", "FACILITY_LOCKED"));
     }
 
     // ---------------------------------------------------------------- 섬 통장 합산 건설
