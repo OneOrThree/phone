@@ -1,7 +1,7 @@
 package com.oneorthree.realtime.message.service;
 
 import com.oneorthree.realtime.common.id.UuidV7;
-import com.oneorthree.realtime.fanout.ChatFanout;
+import com.oneorthree.realtime.message.fanout.ChatFanout;
 import com.oneorthree.realtime.message.dto.ChatHistoryResponse;
 import com.oneorthree.realtime.message.dto.ChatMessageResponse;
 import com.oneorthree.realtime.message.dto.SendMessageRequest;

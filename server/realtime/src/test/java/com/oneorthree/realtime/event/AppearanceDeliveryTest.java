@@ -2,8 +2,8 @@ package com.oneorthree.realtime.event;
 
 import com.oneorthree.realtime.auth.JwtValidator;
 import com.oneorthree.realtime.block.BlockedUsers;
-import com.oneorthree.realtime.config.OutboundAuthzCache;
-import com.oneorthree.realtime.config.RealtimeSessionRegistry;
+import com.oneorthree.realtime.websocket.stomp.OutboundAuthzCache;
+import com.oneorthree.realtime.websocket.session.RealtimeSessionRegistry;
 import com.oneorthree.realtime.membership.CurrentMembershipDecisionCache;
 import com.oneorthree.realtime.membership.MembershipService;
 import com.oneorthree.realtime.movement.stomp.MovementSubscriptionListener;

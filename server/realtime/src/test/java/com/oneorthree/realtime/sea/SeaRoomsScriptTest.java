@@ -182,8 +182,8 @@ class SeaRoomsScriptTest {
     @DisplayName("입장 — JOIN 직후 소켓이 끊겼고 다른 세션도 없으면 조용히 되돌리고 null(구성원 0·joined 없음)")
     void enterRevertsWhenTheSocketClosedDuringJoin() {
         redis.delete(RedisKeys.SEA_ROOMS_OPEN);
-        com.oneorthree.realtime.config.RealtimeSessionRegistry sessions =
-                org.mockito.Mockito.mock(com.oneorthree.realtime.config.RealtimeSessionRegistry.class);
+        com.oneorthree.realtime.websocket.session.RealtimeSessionRegistry sessions =
+                org.mockito.Mockito.mock(com.oneorthree.realtime.websocket.session.RealtimeSessionRegistry.class);
         com.oneorthree.realtime.sea.client.SeaStateClient seaState =
                 org.mockito.Mockito.mock(com.oneorthree.realtime.sea.client.SeaStateClient.class);
         com.oneorthree.realtime.sea.client.FriendsClient friends =
@@ -300,7 +300,7 @@ class SeaRoomsScriptTest {
     @Test
     @DisplayName("[r1-2] 두 세션 종료 사건이 차례로 와도(레지스트리 리스너보다 먼저) 퇴장 1회·left{disconnected} 1건")
     void twoSessionDisconnectsLeaveExactlyOnce() {
-        Fixture f = new Fixture(new com.oneorthree.realtime.config.RealtimeSessionRegistry());
+        Fixture f = new Fixture(new com.oneorthree.realtime.websocket.session.RealtimeSessionRegistry());
         UUID user = UUID.randomUUID();
         UUID room = UUID.randomUUID();
         join(user, room);
@@ -353,7 +353,7 @@ class SeaRoomsScriptTest {
 
     /** 실 Redis + 목 경계로 만든 SeaRooms. */
     private final class Fixture {
-        final com.oneorthree.realtime.config.RealtimeSessionRegistry sessions;
+        final com.oneorthree.realtime.websocket.session.RealtimeSessionRegistry sessions;
         final com.oneorthree.realtime.sea.client.SeaStateClient seaState =
                 org.mockito.Mockito.mock(com.oneorthree.realtime.sea.client.SeaStateClient.class);
         final com.oneorthree.realtime.sea.client.FriendsClient friends =
@@ -364,10 +364,10 @@ class SeaRoomsScriptTest {
         final SeaRooms seaRooms;
 
         Fixture() {
-            this(org.mockito.Mockito.mock(com.oneorthree.realtime.config.RealtimeSessionRegistry.class));
+            this(org.mockito.Mockito.mock(com.oneorthree.realtime.websocket.session.RealtimeSessionRegistry.class));
         }
 
-        Fixture(com.oneorthree.realtime.config.RealtimeSessionRegistry sessions) {
+        Fixture(com.oneorthree.realtime.websocket.session.RealtimeSessionRegistry sessions) {
             this.sessions = sessions;
             this.seaRooms = new SeaRooms(redis, seaState, friends, blockedUsers, publisher, sessions,
                     new tools.jackson.databind.ObjectMapper(), java.time.Clock.systemUTC());

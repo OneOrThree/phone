@@ -1,9 +1,9 @@
 package com.oneorthree.realtime.sea;
 
 import com.oneorthree.realtime.common.redis.RedisKeys;
-import com.oneorthree.realtime.config.RealtimeSessionRegistry;
-import com.oneorthree.realtime.config.StompTopics;
-import com.oneorthree.realtime.fanout.FanoutTelemetry;
+import com.oneorthree.realtime.websocket.session.RealtimeSessionRegistry;
+import com.oneorthree.realtime.websocket.stomp.StompTopics;
+import com.oneorthree.realtime.logging.FanoutTelemetry;
 import com.oneorthree.realtime.logging.LogContext;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Lazy;

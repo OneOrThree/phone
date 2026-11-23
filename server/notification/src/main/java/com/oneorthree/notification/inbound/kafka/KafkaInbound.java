@@ -1,0 +1,54 @@
+package com.oneorthree.notification.inbound.kafka;
+
+import com.oneorthree.notification.common.Json;
+import com.oneorthree.notification.inbound.InboundService;
+import com.oneorthree.notification.logging.InboundTrace;
+
+import io.micrometer.core.instrument.MeterRegistry;
+import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.apache.kafka.common.TopicPartition;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.kafka.annotation.KafkaListener;
+import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.kafka.listener.DeadLetterPublishingRecoverer;
+import org.springframework.kafka.listener.DefaultErrorHandler;
+import org.springframework.util.backoff.FixedBackOff;
+
+/**
+ * 수신 서비스가 반환할 때 DB 커밋이 끝난다. 예외/DLT 발행 실패를 성공으로 삼키지 않는다.
+ * 커밋 시점·리밸런싱·소비 그룹·파티션 상한의 근거는 {@code docs/architecture/kafka-consumption.md}.
+ */
+@Configuration
+@ConditionalOnProperty(name = "notification.kafka-enabled", havingValue = "true")
+class KafkaInbound {
+
+    private final InboundService inbound;
+    private final MeterRegistry metrics;
+
+    KafkaInbound(InboundService inbound, MeterRegistry metrics) {
+        this.inbound = inbound;
+        this.metrics = metrics;
+    }
+
+    /**
+     * 본문 처리는 그대로이고, 레코드 헤더의 원인 문맥(GROMO-2557)을 이 처리 동안만 MDC 에 설치한다. 헤더가 없거나 형식이
+     * 어긋나도 수신은 같다. DLT 로 갈 때는 recoverer 기본 동작이 원본 헤더를 그대로 옮긴다.
+     */
+    @KafkaListener(topics = "notification-events", groupId = "notification-v1")
+    public void receive(ConsumerRecord<String, String> record) {
+        InboundTrace.fromKafka(record.headers(), metrics).accept(inbound, Json.map(record.value()), "kafka");
+    }
+
+    @Bean
+    DefaultErrorHandler notificationErrorHandler(KafkaTemplate<Object, Object> template) {
+        // Spring Kafka 4의 기본 접미사는 -dlt다. 조직의 기존 .DLT 계약을 명시적으로 유지한다.
+        DeadLetterPublishingRecoverer recoverer = new DeadLetterPublishingRecoverer(template,
+                (record, failure) -> new TopicPartition(record.topic() + ".DLT", record.partition()));
+        recoverer.setFailIfSendResultIsError(true);
+        DefaultErrorHandler handler = new DefaultErrorHandler(recoverer, new FixedBackOff(1000L, 3L));
+        handler.setResetStateOnRecoveryFailure(true);
+        return handler;
+    }
+}

@@ -1,6 +1,6 @@
 package com.oneorthree.realtime.movement.stomp;
 
-import com.oneorthree.realtime.config.RealtimeSessionRegistry;
+import com.oneorthree.realtime.websocket.session.RealtimeSessionRegistry;
 import com.oneorthree.realtime.movement.MotionState;
 import com.oneorthree.realtime.movement.MovementEvent;
 import com.oneorthree.realtime.movement.RejectReason;

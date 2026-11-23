@@ -1,8 +1,8 @@
 package com.oneorthree.realtime.sea;
 
 import com.oneorthree.realtime.auth.ChatPrincipal;
-import com.oneorthree.realtime.config.RealtimeSessionRegistry;
-import com.oneorthree.realtime.config.StompTopics;
+import com.oneorthree.realtime.websocket.session.RealtimeSessionRegistry;
+import com.oneorthree.realtime.websocket.stomp.StompTopics;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.redis.connection.DefaultMessage;
 import org.springframework.data.redis.core.StringRedisTemplate;

@@ -1,7 +1,7 @@
 package com.oneorthree.realtime.movement.stomp;
 
 import com.oneorthree.realtime.common.redis.RedisKeys;
-import com.oneorthree.realtime.fanout.FanoutTelemetry;
+import com.oneorthree.realtime.logging.FanoutTelemetry;
 import com.oneorthree.realtime.logging.LogContext;
 import com.oneorthree.realtime.movement.MoveIntent;
 import com.oneorthree.realtime.movement.MovementEvent;

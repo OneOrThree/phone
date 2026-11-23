@@ -1,7 +1,7 @@
 package com.oneorthree.realtime.event;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
-import com.oneorthree.realtime.fanout.FanoutTelemetry;
+import com.oneorthree.realtime.logging.FanoutTelemetry;
 
 import java.time.Instant;
 import java.util.Set;

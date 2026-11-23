@@ -21,8 +21,11 @@ import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 
 /**
@@ -40,6 +43,29 @@ class RealtimeEventDeliveryTest {
     private final MovableClock clock = new MovableClock(START);
     private final RealtimeEventDelivery delivery = new RealtimeEventDelivery(
             mock(SimpMessagingTemplate.class), mock(StringRedisTemplate.class), mapper, clock, new SimpleMeterRegistry());
+
+    @Test
+    @DisplayName("구독자 — 반쪽 제어 필드(userId 만 null)나 destination 없는 섬 봉투는 전달도 폐기 처리도 없이 조용히 버린다")
+    void subscriberDropsMalformedEnvelopes() throws Exception {
+        var delivery = mock(RealtimeEventDelivery.class);
+        given(delivery.instanceId()).willReturn(UUID.randomUUID()); // 자기 메아리 판정이 NPE 로 새지 않게
+        var service = mock(InboundEventService.class);
+        var subscriber = new RealtimeEventFanoutSubscriber(delivery, service, mapper);
+        UUID origin = UUID.randomUUID();
+        String halfControl = mapper.writeValueAsString(new RealtimeEventFanoutEvent(origin, null, null,
+                Set.of(), null, UUID.randomUUID(), null));
+        String islandWithoutDestination = mapper.writeValueAsString(new RealtimeEventFanoutEvent(origin, null,
+                null, Set.of(), null, null, null));
+
+        for (String body : new String[] {halfControl, islandWithoutDestination}) {
+            subscriber.onMessage(new DefaultMessage(
+                    RedisKeys.EVENT_FANOUT_CHANNEL.getBytes(StandardCharsets.UTF_8),
+                    body.getBytes(StandardCharsets.UTF_8)), null);
+        }
+
+        verify(service, never()).applySessionRevocation(any(), any(), any());
+        verify(delivery, never()).deliverLocally(any(), any(), any());
+    }
 
     @Test
     @DisplayName("만료가 지나면 보관 건수와 무관하게 다음 삽입 한 번으로 전부 걷힌다")

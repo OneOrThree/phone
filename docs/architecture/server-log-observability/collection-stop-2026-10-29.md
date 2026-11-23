@@ -161,7 +161,7 @@ json-file 로테이션(위 표)에 밀려난 구간은 어느 경우에도 복�
   - Agent tailer 자체: `ops-datadog.dev.yml:188-200` 이 쓰는 방식 — `alpine:3.20` 프로브 컨테이너가 5초마다 `GROMO-1489 collection probe N` 을 14회 출력한다. 앱이 아니라 수집기 점검이다.
   - 앱 서비스별로 요청 한 번에 반드시 로그를 남기는 엔드포인트: 코드로 확인한 것은 business-api 뿐이다 — 외부 요청에 `X-User-Id` 헤더가 있으면 `log.warn("외부 사용자 신원 헤더를 폐기했다")`(`server/business-api/src/main/java/com/oneorthree/business/config/RequestEnvelopeFilter.java:55-56`). 이 필터가 적용되는 경로·dev 로그 레벨은 실행 전에 확인한다.
   - data-api: 요청마다 남는 엔드포인트 **없음**(access log 미구현, 위 TODO). 오류 처리 경로의 `log.warn`(`GlobalExceptionHandler.java:103` 등)은 오류를 일부러 만들어야 해서 검증용으로 쓰지 않는다.
-  - realtime: WebSocket 연결 시 `websocket_connection` info 한 줄(`server/realtime/src/main/java/com/oneorthree/realtime/config/WebSocketConnectionDiagnostics.java:127`). 유효한 인증 연결이 필요하다.
+  - realtime: WebSocket 연결 시 `websocket_connection` info 한 줄(`server/realtime/src/main/java/com/oneorthree/realtime/websocket/stomp/WebSocketConnectionDiagnostics.java:128`). 유효한 인증 연결이 필요하다.
   - notification: 요청 단위 로그 **없음**(발송 시에만 `DispatchService.java:737,750`).
   - 위 방법이 없거나 위험하면 «없음»으로 두고 판정 불가로 마감한다. 2556 의 Fluent Bit canary(60초마다 `service=canary`)는 Loki·S3 경로용이라 Datadog Agent 수집 판정에는 쓸 수 없다. Datadog 쪽 저트래픽 판정 수단(합성 로그 주기 발행 등)은 아직 없다 — 후속 과제.
 

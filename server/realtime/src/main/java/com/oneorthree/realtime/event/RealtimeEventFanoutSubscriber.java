@@ -1,7 +1,7 @@
 package com.oneorthree.realtime.event;
 
 import com.oneorthree.realtime.common.redis.RedisKeys;
-import com.oneorthree.realtime.fanout.FanoutTelemetry;
+import com.oneorthree.realtime.logging.FanoutTelemetry;
 import com.oneorthree.realtime.logging.LogContext;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;

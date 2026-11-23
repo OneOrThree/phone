@@ -178,7 +178,7 @@ STOMP/outbound에서 HTTP 상태를 그대로 소켓에 전송한다는 뜻은 �
 - [옵션 검증](../../server/realtime/src/main/java/com/oneorthree/realtime/config/RealtimeAuthorizationProperties.java)
 - [조건부 빈 설정](../../server/realtime/src/main/java/com/oneorthree/realtime/config/RealtimeAuthorizationConfig.java)
 - [채팅 공통 관문](../../server/realtime/src/main/java/com/oneorthree/realtime/message/service/ChatAccessGuard.java)
-- [실제 전달 직전 검사](../../server/realtime/src/main/java/com/oneorthree/realtime/config/ChatOutboundChannelInterceptor.java)
+- [실제 전달 직전 검사](../../server/realtime/src/main/java/com/oneorthree/realtime/websocket/stomp/ChatOutboundChannelInterceptor.java)
 - [Data HTTP 정본 (PR753)](../contracts/realtime-authorization-api.yaml)
 - [Data 단일 snapshot 설명 (PR753)](realtime-membership-authorization.md)
 - [Data 제공자 프로필 (PR753)](../../server/data-api/src/main/resources/application-realtime-authorization.yml)

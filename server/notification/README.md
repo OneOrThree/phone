@@ -62,13 +62,19 @@ flowchart LR
 
 | 진입점 · 구성 | 읽을 코드 |
 | --- | --- |
-| 내부 인증과 API | `ServiceAuth`, `InternalController` |
-| 이벤트 수신 | `KafkaInbound`, `InboundService`, `Envelope` |
-| 기기·설정 | `DeviceService`, `SettingsService` |
-| 발송 | `DispatchScheduler`, `DispatchService`, `QuietHours` |
-| 메시지·전송 | `Renderer`, `FcmPayload`, `FcmTransport` |
-| 운영 | `AdminController`, `AdminService`, `DispatchControlService`, `SnapshotReconciler` |
-| DB | `Store`, [Flyway 마이그레이션](src/main/resources/db/migration) |
+| `web/` | 내부 HTTP API, 서비스 토큰 인증, 오류 응답 |
+| `inbound/` | 이벤트 봉투 검증과 수신 처리 |
+| `inbound/kafka/` | Kafka 리스너, 재시도, DLT 발행 설정 |
+| `device/` | 기기 소유권과 푸시 토큰 관리 |
+| `preferences/` | 알림 설정과 조용한 시간 |
+| `dispatch/` | 예약 작업, 발송 적격 재검사, 메시지 렌더링 |
+| `dispatch/fcm/` | FCM 요청 조립, 크기 검사, HTTP 전송 |
+| `admin/` | 운영 API, 감사 이력, 승인 발행, 발송 제어 |
+| `upstream/data/` | Data API 조회와 사용자 스냅샷 재조정 |
+| `persistence/` | JDBC 저장 코드. 스키마는 [Flyway 마이그레이션](src/main/resources/db/migration)에서 관리 |
+| `config/` | 작업 스케줄러, ShedLock, 배포 환경 확인 |
+| `logging/` | 로그 마스킹, 이벤트 추적 정보, 로그 출력 형식 |
+| `common/` | JSON 처리와 알림 오류 타입 |
 
 ## 4. 실행과 설정
 

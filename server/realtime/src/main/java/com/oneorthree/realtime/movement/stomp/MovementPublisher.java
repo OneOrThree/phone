@@ -1,7 +1,7 @@
 package com.oneorthree.realtime.movement.stomp;
 
-import com.oneorthree.realtime.config.RealtimeSessionRegistry;
-import com.oneorthree.realtime.config.StompTopics;
+import com.oneorthree.realtime.websocket.session.RealtimeSessionRegistry;
+import com.oneorthree.realtime.websocket.stomp.StompTopics;
 import com.oneorthree.realtime.movement.MovementEvent;
 import com.oneorthree.realtime.movement.RoomRuntime;
 import com.oneorthree.realtime.movement.Target;

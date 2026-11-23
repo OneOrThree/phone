@@ -24,11 +24,11 @@
   `com.oneorthree.phone.<domain>`. Do **not** introduce a parallel layer-first
   layout (`phone/api/`, `phone/service/`, …) — keep new files inside their
   domain package.
-- **현행 HTTP 진입점은 `internal/`과 공통 health 경로**다.
-  `internal/InternalFocusSessionController.java`처럼 내부 계약에 맞는 위치에 두고,
-  실제 표면은 `**/*Controller.java`로 확인한다. 폐기한 Gromo 1.x 공개 컨트롤러를
-  신규 기능의 기준으로 사용하지 않는다. 도메인 컨트롤러를 둘 때는 도메인 루트에
-  배치하고 Swagger 계약은 형제 `*ControllerDocs` 인터페이스로 분리한다(GROMO-1621).
+- **HTTP 진입점은 `internal/`과 공통 health 경로**에 둔다. `/internal/**` 경로와
+  `internal/` 패키지의 대응은 `OpenApiGroupBoundaryTest`가 검사한다. 집중 정책처럼
+  도메인이 명확한 컨트롤러는 `internal/<domain>/`에 둘 수 있다. 단일 도메인의
+  처리 로직은 해당 도메인에 두고, 여러 도메인을 조합하는 로직은 `internal/`에 둔다.
+  실제 표면은 `**/*Controller.java`로 확인한다.
 - **Id lookups go through `<domain>/repository/<Domain>QueryService`**, not the
   repository directly — it folds soft-delete filtering, lock choice and the
   not-found exception into one place (GROMO-1655; `user/repository/UserQueryService`
