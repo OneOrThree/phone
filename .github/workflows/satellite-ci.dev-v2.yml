@@ -73,6 +73,9 @@ jobs:
         with:
           service: ${{ matrix.service }}
           operation: verify
+      - uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
       - uses: docker/setup-buildx-action@v3
       - uses: ./.github/actions/gar-login
         with:
@@ -82,7 +85,7 @@ jobs:
         with:
           context: server/${{ matrix.service }}
           build-args: JAR_SOURCE=prebuilt
-          platforms: linux/amd64
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: asia-northeast3-docker.pkg.dev/project-cd783bdb-e03f-4e17-b74/${{ matrix.service }}/${{ matrix.service }}:dev-v2-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           labels: org.opencontainers.image.revision=${{ github.sha }}
