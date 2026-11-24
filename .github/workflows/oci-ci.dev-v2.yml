@@ -1,6 +1,13 @@
 name: OCI Image CI (dev)-v2
 on:
   workflow_dispatch:
+    inputs:
+      slot:
+        description: "덮어쓸 dev 이미지 슬롯. 현재 배포에 사용 중인 슬롯은 피한다."
+        type: choice
+        options: [a, b]
+        default: a
+        required: true
 permissions:
   contents: read
   actions: read
@@ -34,54 +41,31 @@ jobs:
         with:
           service: ${{ matrix.service }}
           operation: verify
-      - name: OCIR 이미지 주소 확인
-        id: target
-        env:
-          NAMESPACE: ${{ vars.OCIR_NAMESPACE }}
-          SERVICE: ${{ matrix.service }}
-        run: |
-          if [[ ! "$NAMESPACE" =~ ^[a-z0-9]+$ ]]; then
-            echo 'cattus-oci-dev 환경에 OCIR_NAMESPACE를 설정하세요.' >&2
-            exit 1
-          fi
-          printf 'repository=nrt.ocir.io/%s/cattus-dev/%s\n' "$NAMESPACE" "$SERVICE" >> "$GITHUB_OUTPUT"
       - uses: docker/setup-qemu-action@v3
         with:
           platforms: arm64
       - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
-        with:
-          registry: nrt.ocir.io
-          username: ${{ secrets.OCIR_USERNAME }}
-          password: ${{ secrets.OCIR_AUTH_TOKEN }}
       - uses: docker/build-push-action@v6
-        id: image
         with:
           context: server/${{ matrix.service }}
           build-args: JAR_SOURCE=prebuilt
           platforms: linux/arm64
-          push: true
-          tags: ${{ steps.target.outputs.repository }}:dev-v2-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          tags: cattus-dev/${{ matrix.service }}:dev-v2-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
           labels: org.opencontainers.image.revision=${{ github.sha }}
-      - name: 발행된 ARM64 이미지 확인 및 digest 기록
+          outputs: type=docker,dest=${{ runner.temp }}/oci-dev-image.tar
+      - name: 비공개 Object Storage에 올리고 다시 로드해 검증
         env:
           SERVICE: ${{ matrix.service }}
-          REPOSITORY: ${{ steps.target.outputs.repository }}
-          DIGEST: ${{ steps.image.outputs.digest }}
+          SLOT: ${{ inputs.slot }}
+          IMAGE: cattus-dev/${{ matrix.service }}:dev-v2-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          OCI_DEV_IMAGE_WRITE_URL: ${{ secrets.OCI_DEV_IMAGE_WRITE_URL }}
+          OCI_DEV_IMAGE_READ_URL: ${{ secrets.OCI_DEV_IMAGE_READ_URL }}
         run: |
-          [[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
-          export IMAGE="$REPOSITORY@$DIGEST"
-          docker pull --platform linux/arm64 "$IMAGE"
-          [[ "$(docker image inspect "$IMAGE" --format '{{.Os}}/{{.Architecture}}')" == linux/arm64 ]]
-          python3 - <<'PY'
-          import json
-          import os
-          from pathlib import Path
-
-          service = os.environ["SERVICE"]
-          manifest = {"service": service, "image": os.environ["IMAGE"], "revision": os.environ["GITHUB_SHA"]}
-          Path(f"{service}-oci-dev-v2-image.json").write_text(json.dumps(manifest) + "\n")
-          PY
+          gzip -1 "$RUNNER_TEMP/oci-dev-image.tar"
+          python3 .github/scripts/v2/dev/oci-image-archive.py publish \
+            --service "$SERVICE" --slot "$SLOT" --revision "$GITHUB_SHA" \
+            --image "$IMAGE" --archive "$RUNNER_TEMP/oci-dev-image.tar.gz" \
+            --manifest "$SERVICE-oci-dev-v2-image.json"
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.service }}-oci-dev-v2-image
