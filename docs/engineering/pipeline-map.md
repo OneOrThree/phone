@@ -62,7 +62,7 @@
 | dev V2 서버 | [data-api-ci.dev-v2.yml](../../.github/workflows/data-api-ci.dev-v2.yml) | Data API CI (dev)-v2 | Data·Realtime·공용 빌드 입력 PR과 main push, 수동. Data·Realtime Gradle. main에서 GAR amd64 이미지 발행 |
 | dev V2 서버 | [realtime-ci.dev-v2.yml](../../.github/workflows/realtime-ci.dev-v2.yml) | Realtime CI (dev)-v2 | `server/realtime/**` PR, `data-api-ci.dev-v2`가 호출. Realtime Gradle. 수동 실행 트리거는 없다 |
 | dev V2 서버 | [satellite-ci.dev-v2.yml](../../.github/workflows/satellite-ci.dev-v2.yml) | Satellite CI (dev)-v2 | Business·Notification·Data·`server/scripts/**`·`.github/scripts/**` PR과 main push, 수동. 계약 검사·Gradle. main에서 GAR amd64 이미지 발행 |
-| dev V2 서버 | [oci-ci.dev-v2.yml](../../.github/workflows/oci-ci.dev-v2.yml) | OCI Image CI (dev)-v2 | main에서 수동. 네 서버를 Gradle로 검증하고 ARM64 아카이브를 도쿄 Object Storage에 발행. 재다운로드·SHA-256·Docker 로드 검증 후 서비스별 이미지 JSON 기록 |
+| dev V2 서버 | [oci-ci.dev-v2.yml](../../.github/workflows/oci-ci.dev-v2.yml) | OCI Image CI (dev)-v2 | 관련 PR에서 네 서버의 Gradle·ARM64 아카이브 빌드 및 로드 검증. main 수동 실행에서 도쿄 Object Storage 발행 후 재다운로드·SHA-256·Docker 로드 검증 및 서비스별 이미지 JSON 기록 |
 | dev V2 런타임 | [kafka-ci.dev-v2.yml](../../.github/workflows/kafka-ci.dev-v2.yml) | Kafka CI (dev)-v2 | dev Kafka 런타임 파일 PR과 main push, 수동. 검사, main에서 GCS 산출물 발행 |
 | dev V2 런타임 | [redis-ci.dev-v2.yml](../../.github/workflows/redis-ci.dev-v2.yml) | Redis CI (dev)-v2 | dev Redis 런타임 파일 PR과 main push, 수동. 검사, main에서 GCS 산출물 발행 |
 | dev V2 런타임 | [postgres-ci.dev-v2.yml](../../.github/workflows/postgres-ci.dev-v2.yml) | PostgreSQL CI (dev)-v2 | dev PostgreSQL 런타임 파일 PR과 main push, 수동. 검사, main에서 GCS 산출물 발행 |

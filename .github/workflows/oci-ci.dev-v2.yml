@@ -1,5 +1,10 @@
 name: OCI Image CI (dev)-v2
 on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/oci-ci.dev-v2.yml'
+      - '.github/scripts/v2/dev/oci-image-archive.py'
   workflow_dispatch:
     inputs:
       slot:
@@ -16,7 +21,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   build:
-    if: github.ref == 'refs/heads/main'
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
     strategy:
       fail-fast: false
       matrix:
@@ -26,7 +31,42 @@ jobs:
       service: ${{ matrix.service }}
       artifact-name: ${{ matrix.service }}-oci-dev-v2-test-results
       publish-jar: true
+  verify-archive:
+    if: github.event_name == 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [data-api, realtime, business-api, notification]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/ci-jar
+        with:
+          service: ${{ matrix.service }}
+          operation: verify
+      - uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: server/${{ matrix.service }}
+          build-args: JAR_SOURCE=prebuilt
+          platforms: linux/arm64
+          tags: cattus-dev/${{ matrix.service }}:pr-check
+          outputs: type=docker,dest=${{ runner.temp }}/oci-dev-image.tar
+      - name: ARM64 아카이브 로드 확인
+        env:
+          IMAGE: cattus-dev/${{ matrix.service }}:pr-check
+        run: |
+          gzip -1 "$RUNNER_TEMP/oci-dev-image.tar"
+          test "$(wc -c < "$RUNNER_TEMP/oci-dev-image.tar.gz")" -le $((512 * 1024 * 1024))
+          docker load --input "$RUNNER_TEMP/oci-dev-image.tar.gz"
+          [[ "$(docker image inspect "$IMAGE" --format '{{.Os}}/{{.Architecture}}')" == linux/arm64 ]]
   publish:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 40
