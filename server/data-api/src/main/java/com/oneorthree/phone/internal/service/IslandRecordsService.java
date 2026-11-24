@@ -11,6 +11,7 @@ import com.oneorthree.phone.focus.repository.domain.FocusSessionDetail;
 import com.oneorthree.phone.focus.repository.domain.FocusSessionInterval;
 import com.oneorthree.phone.focus.repository.domain.FocusSessionLifecycle;
 import com.oneorthree.phone.focus.repository.domain.FocusStatisticsSnapshot;
+import com.oneorthree.phone.focus.service.FocusFishEarningsReadService;
 import com.oneorthree.phone.focus.support.FocusIntervalMath;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;

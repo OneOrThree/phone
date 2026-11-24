@@ -1,6 +1,7 @@
 package com.oneorthree.phone.internal;
 
-import com.oneorthree.phone.internal.service.FocusPolicyAdminService;
+import com.oneorthree.phone.focus.service.FocusPolicyAdminService;
+import com.oneorthree.phone.internal.focus.InternalFocusPolicyAdminController;
 import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;

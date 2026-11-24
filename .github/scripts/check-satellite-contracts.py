@@ -52,7 +52,7 @@ for kind in producer - {'ADMIN_ANNOUNCEMENT'}:
         require(f"'{kind}.{locale}','{kind}','{locale}'" in seed,
                 f'{kind}/{locale}: 템플릿 시드 없음')
 
-kafka = source('server/notification/src/main/java/com/oneorthree/notification/KafkaInbound.java')
+kafka = source('server/notification/src/main/java/com/oneorthree/notification/inbound/kafka/KafkaInbound.java')
 require('record.topic() + ".DLT"' in kafka and 'setFailIfSendResultIsError(true)' in kafka,
         'A22 ㋱: 명시 .DLT destination 또는 DLT 실패 offset 보존 설정 없음')
 relay_files = list((ROOT / 'server/data-api/src/main/java').rglob('HttpOutboxTransport.java'))
@@ -90,12 +90,12 @@ user_commands = source('server/data-api/src/main/java/com/oneorthree/phone/user/
 require('DeviceOwnershipTokens.isCanonicalOrAbsent(request.ownershipToken())' in user_commands,
         'A22 ㋗: 소유권 형식의 Data 내구 기록 전 검증 누락')
 
-device = source('server/notification/src/main/java/com/oneorthree/notification/DeviceService.java')
-inbound = source('server/notification/src/main/java/com/oneorthree/notification/InboundService.java')
+device = source('server/notification/src/main/java/com/oneorthree/notification/device/DeviceService.java')
+inbound = source('server/notification/src/main/java/com/oneorthree/notification/inbound/InboundService.java')
 require('requireCanonicalOwnership(owner)' in device and 'CANONICAL_UUID.matcher(owner).matches()' in device
         and 'rawOwnership(params)' in inbound,
         'A22 ㋗: 동기 삭제 검증 또는 잘못된 내구 소유권의 소비 경계 누락')
-store = source('server/notification/src/main/java/com/oneorthree/notification/Store.java')
+store = source('server/notification/src/main/java/com/oneorthree/notification/persistence/Store.java')
 require('intent.remove("sessionEpoch")' in device and 'registerLocked(user, body, true)' in device
         and 'revalidate.run()' in store,
         'A22 ㋲: 기기 등록 의도와 현재 세션 fencing의 분리 또는 재생 검증 누락')
@@ -123,18 +123,18 @@ require('mainIslandService.onMembershipRevoked(member)' in membership_transition
         and 'member.advanceMembershipEpoch()' in membership_transitions,
         '현재 섬 복구 또는 초대 코드 멤버십 세대 갱신 누락')
 
-fcm_transport = source('server/notification/src/main/java/com/oneorthree/notification/FcmTransport.java')
-fcm_payload = source('server/notification/src/main/java/com/oneorthree/notification/FcmPayload.java')
+fcm_transport = source('server/notification/src/main/java/com/oneorthree/notification/dispatch/fcm/FcmTransport.java')
+fcm_payload = source('server/notification/src/main/java/com/oneorthree/notification/dispatch/fcm/FcmPayload.java')
 require('return FcmPayload.create(token, push, sound, eventId);' in fcm_transport
         and 'if (push.title() != null)' in fcm_payload,
         'TemplateWrite: nullable title을 FCM 표시 payload에 안전하게 직렬화하지 않음')
 
-settings_service = source('server/notification/src/main/java/com/oneorthree/notification/SettingsService.java')
+settings_service = source('server/notification/src/main/java/com/oneorthree/notification/preferences/SettingsService.java')
 require('DateTimeFormatter.ofPattern("HH:mm")' in settings_service
         and settings_service.count('.format(API_TIME)') == 2,
         'A22 ㋕: 앱용 야간 설정 응답이 HH:mm 계약을 보존하지 않음')
 
-dispatch_service = source('server/notification/src/main/java/com/oneorthree/notification/DispatchService.java')
+dispatch_service = source('server/notification/src/main/java/com/oneorthree/notification/dispatch/DispatchService.java')
 require('AND active AND NOT transport_invalid' in dispatch_service
         and 'SET transport_invalid=true' in dispatch_service
         and 'delivery_devices WHERE delivery_id=? AND device_key=?' in dispatch_service,

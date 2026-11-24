@@ -178,7 +178,7 @@ Kafka는 도메인 사건의 서버 간 전달·재처리에 사용할 수 있�
 
 Kafka의 일반 consumer group은 레코드를 그룹 내 소비자 중 하나에 분배한다. 같은 그룹에 앱을 넣는 것만으로 모든 주민에게 방송되는 구조가 되지 않는다. 그룹·offset·재접속·브로커 접근 제어까지 모바일 세션에 노출하는 설계는 채택하지 않는다. 서버가 소비하고 앱 수신 권한을 검사해 소켓으로 전달한다. [KafkaConsumer 공식 문서](https://kafka.apache.org/42/javadoc/org/apache/kafka/clients/consumer/KafkaConsumer.html)
 
-현재 코드에도 서버 소비 경로가 있다. [KafkaEventInbound](../../../../server/realtime/src/main/java/com/oneorthree/realtime/event/KafkaEventInbound.java)는 설정으로 켜는 Kafka 입구이며, [RealtimeEventDelivery](../../../../server/realtime/src/main/java/com/oneorthree/realtime/event/RealtimeEventDelivery.java)와 [Redis 수신기](../../../../server/realtime/src/main/java/com/oneorthree/realtime/event/RealtimeEventFanoutSubscriber.java)가 로컬·다른 인스턴스의 STOMP 구독자에게 전달한다. 코드 존재와 운영 활성화는 별개다. README의 `DisabledRealtimeDelivery` 설명은 현재 구현과 달라 이 비교는 구현 파일을 기준으로 했다.
+현재 코드에도 서버 소비 경로가 있다. [KafkaEventInbound](../../../../server/realtime/src/main/java/com/oneorthree/realtime/event/kafka/KafkaEventInbound.java)는 설정으로 켜는 Kafka 입구이며, [RealtimeEventDelivery](../../../../server/realtime/src/main/java/com/oneorthree/realtime/event/RealtimeEventDelivery.java)와 [Redis 수신기](../../../../server/realtime/src/main/java/com/oneorthree/realtime/event/RealtimeEventFanoutSubscriber.java)가 로컬·다른 인스턴스의 STOMP 구독자에게 전달한다. 코드 존재와 운영 활성화는 별개다. README의 `DisabledRealtimeDelivery` 설명은 현재 구현과 달라 이 비교는 구현 파일을 기준으로 했다.
 
 권한 취소·시설 변경처럼 다시 처리해야 하는 제어 정보의 신뢰성은 §3을 따른다. 실제 도메인에 이미 연결된 HTTP/outbox·Kafka 전달 경로를 확인해 재사용한다. 이동 기능을 위해 20Hz 좌표 토픽이나 새 Kafka 클러스터를 만드는 계획은 없다.
 

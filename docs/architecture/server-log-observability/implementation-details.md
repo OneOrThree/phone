@@ -215,7 +215,7 @@ Notification / sender-3     trace=T3  span=N2  event=E1  origin=T1
 
 ### 3.2 Redis를 건너는 Realtime
 
-[ChatFanoutEvent](../../../server/realtime/src/main/java/com/oneorthree/realtime/fanout/ChatFanoutEvent.java)는 `chat:fanout`, [RealtimeEventFanoutEvent](../../../server/realtime/src/main/java/com/oneorthree/realtime/event/RealtimeEventFanoutEvent.java)는 `chat:events:v1` 내부 wire다. 두 채널에 nullable telemetry metadata를 추가하되 기존 클라이언트 메시지·7필드 사건 봉투와 수신 권한 로직을 변경하지 않는다. 구버전 consumer의 알 수 없는 필드 허용 여부를 실제 ObjectMapper로 확인했고 **순서 제약은 없다**(Jackson 3 기본값은 알 수 없는 속성을 무시하며, `InboundEventServiceTest`가 신→구·구→신 양방향을 읽는다). consumer 선배포 단계는 필요 없다.
+[ChatFanoutEvent](../../../server/realtime/src/main/java/com/oneorthree/realtime/message/fanout/ChatFanoutEvent.java)는 `chat:fanout`, [RealtimeEventFanoutEvent](../../../server/realtime/src/main/java/com/oneorthree/realtime/event/RealtimeEventFanoutEvent.java)는 `chat:events:v1` 내부 wire다. 두 채널에 nullable telemetry metadata를 추가하되 기존 클라이언트 메시지·7필드 사건 봉투와 수신 권한 로직을 변경하지 않는다. 구버전 consumer의 알 수 없는 필드 허용 여부를 실제 ObjectMapper로 확인했고 **순서 제약은 없다**(Jackson 3 기본값은 알 수 없는 속성을 무시하며, `InboundEventServiceTest`가 신→구·구→신 양방향을 읽는다). consumer 선배포 단계는 필요 없다.
 
 발행 인스턴스 A의 문맥을 Redis subscriber B의 ThreadLocal이 자동으로 물려받지는 않는다. B는 carrier를 추출해 앱 ID scope를 만들고 `finally`에서 복원한다. 메시지 처리 span 생성은 이번 구현 범위가 아니라 후속이다. Redis client 명령 span이 생긴다는 것만으로 Pub/Sub 수신까지 연결됐다고 판정하지 않는다. 자기 인스턴스 메아리 제외와 로컬/원격 전달 중복 방지는 기존 계약을 유지한다.
 
@@ -233,7 +233,7 @@ Notification / sender-3     trace=T3  span=N2  event=E1  origin=T1
 
 ### 3.3 기기별 발송 시도 연결 (Notification)
 
-[DispatchService](../../../server/notification/src/main/java/com/oneorthree/notification/DispatchService.java)의 한 `Plan`은 전달 행 1개 × 기기 N개다. 티켓 2421이 묶음 발송을 제거해 `lockedCandidates`는 행 1개이고, `collapseEventId()`는 그 행의 `event_id`를 돌려준다. `bundle:` 접두어를 만드는 코드는 없다. 발송 장애를 원요청에서 따라가려면 기기별 외부 호출 하나를 원사건에 연결할 키가 필요하다.
+[DispatchService](../../../server/notification/src/main/java/com/oneorthree/notification/dispatch/DispatchService.java)의 한 `Plan`은 전달 행 1개 × 기기 N개다. 티켓 2421이 묶음 발송을 제거해 `lockedCandidates`는 행 1개이고, `collapseEventId()`는 그 행의 `event_id`를 돌려준다. `bundle:` 접두어를 만드는 코드는 없다. 발송 장애를 원요청에서 따라가려면 기기별 외부 호출 하나를 원사건에 연결할 키가 필요하다.
 
 1. 기기별 `transport.send` 한 번마다 UUID `operation_id`를 발급한다. 기기가 다르거나 재시도하면 다른 operation이다. collapse 키(`event_id`)와 발송 멱등키는 바꾸지 않는다.
 2. 그 호출에 포함되는 각 전달 행(구성원)마다 `event_name=operation.link`, `operation_id`, `delivery_id`, 실제 `event_id`, 해당 origin trace/request ID, `attempt`를 가진 연결 로그를 남긴다. `attempt`는 이 dispatch가 본 `attempts+1`이다. `delivery_id`는 notification `deliveries.id`이며 수신(consumer) 로그의 ID 공간과 다르다. 연결 로그의 `log_id`는 각각 다르다. 지금은 구성원이 1개이므로 호출당 연결 로그도 1개다.

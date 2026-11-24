@@ -1,6 +1,6 @@
 package com.oneorthree.realtime.movement.stomp;
 
-import com.oneorthree.realtime.config.StompTopics;
+import com.oneorthree.realtime.websocket.stomp.StompTopics;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;

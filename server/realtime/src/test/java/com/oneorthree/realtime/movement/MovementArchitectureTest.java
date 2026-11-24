@@ -40,8 +40,7 @@ class MovementArchitectureTest {
                 .and().resideOutsideOfPackage(STOMP_BOUNDARY)
                 .should().dependOnClassesThat().resideInAnyPackage(
                         ROOT + ".focus..", ROOT + ".message..", ROOT + ".event..",
-                        ROOT + ".presence..", ROOT + ".membership..", ROOT + ".block..",
-                        ROOT + ".fanout..");
+                        ROOT + ".presence..", ROOT + ".membership..", ROOT + ".block..");
 
         rule.check(classes);
     }

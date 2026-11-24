@@ -71,7 +71,7 @@ CONNECT는 JWT 인증을 담당합니다. 집중 중에도 연결은 유지할 �
 | `presence:focus:{userId}` | Data가 쓰고 Realtime이 읽는 집중 상태 |
 
 - `REALTIME_AUTHORIZATION_CLIENT_ENABLED=true`이면 [현재 인가 클라이언트](src/main/java/com/oneorthree/realtime/membership/client/RealtimeMembershipAuthorizationClient.java)가 서비스 인증으로 Data의 현재 멤버십을 확인합니다. 사용자·sid·auth generation·섬별 허용 캐시는 기본 30초이며 `REALTIME_AUTHORIZATION_CACHE_TTL_SECONDS=0`이면 끕니다. 꺼진 분기는 기존 Redis 멤버십 캐시(기본 120초)와 Data의 `/internal/users/{userId}/islands` 조회를 사용합니다.
-- 전달 직전 [허용 캐시](src/main/java/com/oneorthree/realtime/config/OutboundAuthzCache.java)는 멤버십·차단 판정을 재사용합니다. JWT·폐기 sid·집중 상태는 계속 검사하며, `chat.websocket.outbound.authz-cache-ttl-seconds` 기본값은 30초입니다. 캐시 무효화는 수신한 사건과 로컬 JVM에 의존하므로 여러 인스턴스에서 즉시 반영된다고 가정하지 않습니다.
+- 전달 직전 [허용 캐시](src/main/java/com/oneorthree/realtime/websocket/stomp/OutboundAuthzCache.java)는 멤버십·차단 판정을 재사용합니다. JWT·폐기 sid·집중 상태는 계속 검사하며, `chat.websocket.outbound.authz-cache-ttl-seconds` 기본값은 30초입니다. 캐시 무효화는 수신한 사건과 로컬 JVM에 의존하므로 여러 인스턴스에서 즉시 반영된다고 가정하지 않습니다.
 - 섬 이동은 `REALTIME_MOVEMENT_MULTI_INSTANCE_ENABLED=true`가 기본입니다. [MovementCluster](src/main/java/com/oneorthree/realtime/movement/stomp/MovementCluster.java)가 Redis 소유자 리스로 섬별 방을 한 JVM에 모으고 명령·프레임을 전용 Pub/Sub로 중계합니다. 리스 상실 시 방을 버리고 새 소유자 FullState로 재동기화합니다. OFF이면 인스턴스마다 독립 방이 생깁니다.
 - 운영 V2 Redis는 서비스별 ACL 파일을 마운트합니다. Shared는 384MB, Business는 128MB이며 둘 다 noeviction·AOF입니다([실행 정의](../scripts/v2/prod/redis-V2.yml)). 과거 dev overlay 설정과 구분합니다.
 - Redis는 Realtime의 필수 의존성입니다. readiness에 DB·Redis를 포함합니다.
@@ -209,4 +209,4 @@ JVM 힙이나 컨테이너 한도 증설은 이 변경에 포함하지 않습니
 
 ## 6. 코드 탐색
 
-[`com.oneorthree.realtime`](src/main/java/com/oneorthree/realtime)의 `message/`는 채팅 저장·조회, `membership/`은 섬 권한, `presence/`는 집중 상태 조회, `fanout/`은 Redis 전파, `event/`는 신규 이벤트 라우팅을 담당합니다. WebSocket 인바운드·아웃바운드 보안은 `config/`에서 확인합니다.
+[`com.oneorthree.realtime`](src/main/java/com/oneorthree/realtime)의 `message/`는 채팅 저장·조회, `membership/`은 섬 권한, `presence/`는 집중 상태 조회, `message/fanout/`은 채팅 Redis 전파, `event/`는 이벤트 검증·라우팅, `event/kafka/`는 Kafka 수신·재시도·DLT 처리를 담당합니다. `config/RedisConfig`는 Redis 구독을 등록합니다. `websocket/stomp/`에서 브로커 설정과 인바운드·아웃바운드 보안을, `websocket/session/`에서 세션 관리를 확인합니다.

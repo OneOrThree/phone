@@ -2,7 +2,7 @@ package com.oneorthree.realtime.message;
 
 import com.oneorthree.realtime.TestcontainersConfiguration;
 import com.oneorthree.realtime.common.redis.RedisKeys;
-import com.oneorthree.realtime.fanout.ChatFanout;
+import com.oneorthree.realtime.message.fanout.ChatFanout;
 import com.oneorthree.realtime.logging.CapturedLogs;
 import com.oneorthree.realtime.logging.LogContext;
 import com.oneorthree.realtime.membership.client.GroupClient;

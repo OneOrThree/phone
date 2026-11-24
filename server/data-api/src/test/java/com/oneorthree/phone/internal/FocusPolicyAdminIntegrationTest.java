@@ -1,9 +1,9 @@
 package com.oneorthree.phone.internal;
 
-import com.oneorthree.phone.internal.service.FocusPolicyAdminService;
-import com.oneorthree.phone.internal.service.FocusPolicyAdminService.ApproveRequest;
-import com.oneorthree.phone.internal.service.FocusPolicyAdminService.Policy;
-import com.oneorthree.phone.internal.service.FocusPolicyAdminService.PublishRequest;
+import com.oneorthree.phone.focus.service.FocusPolicyAdminService;
+import com.oneorthree.phone.focus.service.FocusPolicyAdminService.ApproveRequest;
+import com.oneorthree.phone.focus.service.FocusPolicyAdminService.Policy;
+import com.oneorthree.phone.focus.service.FocusPolicyAdminService.PublishRequest;
 import com.oneorthree.phone.outbox.support.OutboxTestPostgres;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

@@ -48,16 +48,20 @@ Domain-based, mirroring `server/data-api/`'s conventions (see
 | Package | What lives there |
 | --- | --- |
 | `auth/` | `JwtValidator`, `@LoginUser` + resolver, `ChatPrincipal` (the STOMP session subject) |
-| `config/` | Spring wiring only — `WebSocketConfig`, `StompAuthChannelInterceptor`, `ChatStompErrorHandler`, `JwtFilter`, `RedisConfig`, `ClockConfig` |
+| `config/` | Redis subscriptions, clock, HTTP filters and membership authorization wiring |
+| `websocket/stomp/` | WebSocket broker wiring, handshake diagnostics, STOMP authorization, frame and executor policies |
+| `websocket/session/` | Connected sessions, principals and subscriptions |
 | `common/exception/` | The `{code, message}` envelope, `ErrorCode`, `DomainException`, the single `GlobalExceptionHandler` |
 | `common/id/` | `UuidV7` (the **only** id source) + the Hibernate generator |
 | `common/redis/` | `RedisKeys` — every Redis key this service touches, in one file |
+| `logging/` | Log context and telemetry carried across Redis publications |
 | `membership/` | 기존 Redis 소속 캐시 + `client/GroupClient`; 옵션 ON의 전용 Data 현재 인가 client는 아래 별도 계약 |
 | `presence/` | `FocusPresenceReader` — **read-only** view of `presence:focus:*` |
 | `focus/` | 응원 도메인 — `IslandFocusSessions`(Data 정본 인가), `FocusEmoteService`, `FocusEmoteStompController` |
 | `block/` | 받는 사람 기준 차단(양방향 — 받는 사람이 차단했든 발신자가 받는 사람을 차단했든 숨긴다, GROMO-2469) — `BlockedUsers`(세대 캐시·fail-closed 판정), `client/BlockClient`(Data 정본 조회, GROMO-2182) |
 | `sea/` | 먼바다 방(GROMO-2300) — `SeaRooms`(Redis 배정·퇴장 Lua), `SeaRoomPublisher`(로컬 + `chat:sea:v1`), `SeaStompController`·`SeaEmoteStompController`, `SeaAdriftSweeper`(떠 있는 채 10분 정리, 전용 데몬 60초) |
-| `fanout/` | Redis Pub/Sub publish + subscribe, and local delivery |
+| `message/fanout/` | Chat Redis Pub/Sub publish, subscribe and local delivery |
+| `event/` | Realtime event validation, routing and delivery. `event/kafka/` receives Kafka records and configures retry and DLT handling |
 | `message/` | The chat domain: controllers at the package root, `service/`, `repository/`(+`repository/domain/`), `dto/`, `exception/` |
 
 Entity PKs are UUID v7 via `@GeneratedUuidV7`. Error responses use one envelope
@@ -85,9 +89,9 @@ Entity PKs are UUID v7 via `@GeneratedUuidV7`. Error responses use one envelope
   all three readers (gate, outbound check, `movement.stomp`) use it.
 - **`presence:*` is read-only here.** Data API owns it. A write or delete from this
   service would let chat cancel the focus rule.
-- **The simple broker only knows subscribers in this JVM.** Cross-instance delivery is
-  `fanout/` and nothing else. A missing `RedisMessageListenerContainer` bean is invisible
-  on a single instance — `ChatWebSocketIntegrationTest` covers that regression. 이동(movement)은 `fanout/` 이 아니라 자기 릴레이(`chat:movement:*`)를 쓰고, 그것도 플래그 `realtime.movement.multi-instance.enabled`(기본 ON)가 켜졌을 때만이다 — 아래 「섬 이동 다중 인스턴스」 절.
+- **The simple broker only knows subscribers in this JVM.** The chat code in
+  `message/fanout/` handles cross-instance delivery. A missing `RedisMessageListenerContainer` bean is invisible
+  on a single instance — `ChatWebSocketIntegrationTest` covers that regression. 이동(movement)은 `message/fanout/` 이 아니라 자기 릴레이(`chat:movement:*`)를 쓰고, 그것도 플래그 `realtime.movement.multi-instance.enabled`(기본 ON)가 켜졌을 때만이다 — 아래 「섬 이동 다중 인스턴스」 절.
 - **현재 인가 옵션 OFF의 멤버십은 TTL 캐시** (`chat.membership.cache-ttl-seconds`)다. ON이면 지정된
   `requireCanChat` 경계가 PR753 Data 현재 인가를 TTL 캐시(허용만, 기본 30s)를 거쳐 조회한다. 방 목록·duplicates·개인큐는 새 조회 범위가 아니다.
   전달 직전 허용 캐시(`OutboundAuthzCache`, 아래 송신 예산 절)는 ON 에서 멤버십 판정을 담지 않으므로 ON 의 반영 상한은 이 30s 그대로이고,

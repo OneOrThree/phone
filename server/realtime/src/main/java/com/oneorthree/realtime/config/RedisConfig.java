@@ -2,7 +2,7 @@ package com.oneorthree.realtime.config;
 
 import com.oneorthree.realtime.common.redis.RedisKeys;
 import com.oneorthree.realtime.event.RealtimeEventFanoutSubscriber;
-import com.oneorthree.realtime.fanout.ChatFanoutSubscriber;
+import com.oneorthree.realtime.message.fanout.ChatFanoutSubscriber;
 import com.oneorthree.realtime.movement.stomp.MovementCluster;
 import com.oneorthree.realtime.sea.SeaRoomPublisher;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;

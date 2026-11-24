@@ -2,7 +2,7 @@ package com.oneorthree.realtime.message.service;
 
 import com.oneorthree.realtime.auth.JwtValidator;
 import com.oneorthree.realtime.common.exception.UpstreamRejectedCredentialException;
-import com.oneorthree.realtime.fanout.ChatFanout;
+import com.oneorthree.realtime.message.fanout.ChatFanout;
 import com.oneorthree.realtime.message.dto.ChatHistoryResponse;
 import com.oneorthree.realtime.message.dto.ChatMessageResponse;
 import com.oneorthree.realtime.message.dto.MailboxStoreResult;
