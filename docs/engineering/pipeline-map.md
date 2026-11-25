@@ -78,6 +78,7 @@
 | 운영 V2 | [redis-ci.prod-V2.yml](../../.github/workflows/redis-ci.prod-V2.yml) | Cattus redis CI V2 | `server/scripts/v2/prod/redis*` PR(main·release), release push, 수동. 테스트, release push에서 설정 묶음·`redis-v*-V2` 태그 발행 |
 | 운영 V2 | [redis-cd.prod-V2.yml](../../.github/workflows/redis-cd.prod-V2.yml) | Cattus redis CD V2 | 수동(release, `version`). `catus-production-V2` 승인 1회 → SSM으로 운영 Redis 배포 |
 | 운영 V2 | [satellite-ci.prod.yml](../../.github/workflows/satellite-ci.prod.yml) | Satellite CI (prod) | release 대상 PR. Business API·Notification 경계 계약 검사. 승격 PR은 기능 테스트를 건너뛴다 |
+| 운영 iwinv | [r2-ci.iwinv.yml](../../.github/workflows/r2-ci.iwinv.yml) | Cattus R2 Image CI (iwinv) | 관련 PR에서 단위 테스트·서버 4종 및 백오피스 `linux/amd64` 아카이브 빌드·로드 검증. main/release 수동 실행에서 Cloudflare R2(`cattus-releases` 2슬롯) 발행·재다운로드·SHA-256·통합 manifest 기록(기존 AWS V2 운영과 독립) |
 | 백오피스 | [backoffice-ci.yml](../../.github/workflows/backoffice-ci.yml) | Backoffice CI | `backoffice/**` PR(main·release)과 main push, 수동. npm test·build와 관련 Python 테스트 |
 | 백오피스 | [backoffice-cd.prod-V2.yml](../../.github/workflows/backoffice-cd.prod-V2.yml) | Cattus backoffice CD V2 | `backoffice/**`(`.md` 제외) main push, 수동. 테스트·`backoffice-v*-V2` 발행 → `backoffice-production` 승인 1회 → SSM 운영 배포 |
 | 모바일 앱 | [app-lint.yml](../../.github/workflows/app-lint.yml) | Lint | `app/app-dev/**` PR과 main push, 다른 워크플로가 호출. ESLint·Prettier·tsc·jest |

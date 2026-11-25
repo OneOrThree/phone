@@ -1,0 +1,221 @@
+name: Cattus R2 Image CI (iwinv)
+on:
+  pull_request:
+    branches: [main, release]
+    paths:
+      - .github/workflows/r2-ci.iwinv.yml
+      - .github/scripts/v2/iwinv/**
+  workflow_dispatch:
+    inputs:
+      slot:
+        description: "R2 이미지 아카이브 슬롯 (최근 2슬롯 유지: a 또는 b)"
+        type: choice
+        options: [a, b]
+        default: a
+        required: true
+      version:
+        description: "릴리스 버전 태그 (예: catus-iwinv-v1.0.0)"
+        type: string
+        default: catus-iwinv-v1.0.0
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cattus-r2-iwinv-ci-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  unit-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: R2 아카이브 스크립트 단위 테스트
+        run: python3 -m unittest discover -s .github/scripts/v2/iwinv -p 'test_*.py' -v
+
+  gradle:
+    needs: unit-test
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [data-api, realtime, business-api, notification]
+    uses: ./.github/workflows/be-gradle.yml
+    with:
+      service: ${{ matrix.service }}
+      artifact-name: iwinv-r2-${{ matrix.service }}-reports
+
+  verify-pr-java:
+    if: github.event_name == 'pull_request'
+    needs: gradle
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [data-api, realtime, business-api, notification]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/ci-jar
+        with:
+          service: ${{ matrix.service }}
+          operation: verify
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: server/${{ matrix.service }}
+          build-args: JAR_SOURCE=prebuilt
+          platforms: linux/amd64
+          tags: cattus-iwinv/${{ matrix.service }}:pr-check
+          outputs: type=docker,dest=${{ runner.temp }}/iwinv-image.tar
+      - name: AMD64 아카이브 크기·로드·플랫폼 검증
+        env:
+          IMAGE: cattus-iwinv/${{ matrix.service }}:pr-check
+        run: |
+          gzip -1 "$RUNNER_TEMP/iwinv-image.tar"
+          test "$(wc -c < "$RUNNER_TEMP/iwinv-image.tar.gz")" -le $((512 * 1024 * 1024))
+          docker load --input "$RUNNER_TEMP/iwinv-image.tar.gz"
+          [[ "$(docker image inspect "$IMAGE" --format '{{.Os}}/{{.Architecture}}')" == linux/amd64 ]]
+
+  verify-pr-backoffice:
+    if: github.event_name == 'pull_request'
+    needs: unit-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: backoffice
+          platforms: linux/amd64
+          tags: cattus-iwinv/backoffice:pr-check
+          outputs: type=docker,dest=${{ runner.temp }}/iwinv-backoffice.tar
+      - name: 백오피스 AMD64 아카이브 검증
+        run: |
+          gzip -1 "$RUNNER_TEMP/iwinv-backoffice.tar"
+          test "$(wc -c < "$RUNNER_TEMP/iwinv-backoffice.tar.gz")" -le $((512 * 1024 * 1024))
+          docker load --input "$RUNNER_TEMP/iwinv-backoffice.tar.gz"
+          [[ "$(docker image inspect cattus-iwinv/backoffice:pr-check --format '{{.Os}}/{{.Architecture}}')" == linux/amd64 ]]
+
+  publish-java:
+    if: github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/release')
+    needs: gradle
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    environment: catus-production-iwinv
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [data-api, realtime, business-api, notification]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/ci-jar
+        with:
+          service: ${{ matrix.service }}
+          operation: verify
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: server/${{ matrix.service }}
+          build-args: JAR_SOURCE=prebuilt
+          platforms: linux/amd64
+          tags: cattus-iwinv/${{ matrix.service }}:${{ inputs.version }}-${{ github.run_id }}
+          labels: org.opencontainers.image.revision=${{ github.sha }}
+          outputs: type=docker,dest=${{ runner.temp }}/iwinv-image.tar
+      - name: Cloudflare R2 발행 · 재다운로드 · SHA-256 · Docker 로드 검증
+        env:
+          SERVICE: ${{ matrix.service }}
+          SLOT: ${{ inputs.slot }}
+          IMAGE: cattus-iwinv/${{ matrix.service }}:${{ inputs.version }}-${{ github.run_id }}
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          R2_RELEASES_BUCKET: ${{ vars.R2_RELEASES_BUCKET || 'cattus-releases' }}
+          R2_WRITE_ACCESS_KEY_ID: ${{ secrets.R2_WRITE_ACCESS_KEY_ID }}
+          R2_WRITE_SECRET_ACCESS_KEY: ${{ secrets.R2_WRITE_SECRET_ACCESS_KEY }}
+          R2_READ_ACCESS_KEY_ID: ${{ secrets.R2_READ_ACCESS_KEY_ID }}
+          R2_READ_SECRET_ACCESS_KEY: ${{ secrets.R2_READ_SECRET_ACCESS_KEY }}
+        run: |
+          gzip -1 "$RUNNER_TEMP/iwinv-image.tar"
+          python3 .github/scripts/v2/iwinv/r2-image-archive.py publish \
+            --service "$SERVICE" --slot "$SLOT" --revision "$GITHUB_SHA" \
+            --image "$IMAGE" --archive "$RUNNER_TEMP/iwinv-image.tar.gz" \
+            --manifest "$SERVICE-manifest.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: iwinv-manifest-${{ matrix.service }}
+          path: ${{ matrix.service }}-manifest.json
+          if-no-files-found: error
+
+  publish-backoffice:
+    if: github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/release')
+    needs: unit-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment: catus-production-iwinv
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: backoffice
+          platforms: linux/amd64
+          tags: cattus-iwinv/backoffice:${{ inputs.version }}-${{ github.run_id }}
+          labels: org.opencontainers.image.revision=${{ github.sha }}
+          outputs: type=docker,dest=${{ runner.temp }}/iwinv-backoffice.tar
+      - name: 백오피스 Cloudflare R2 발행 · 검증
+        env:
+          SLOT: ${{ inputs.slot }}
+          IMAGE: cattus-iwinv/backoffice:${{ inputs.version }}-${{ github.run_id }}
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          R2_RELEASES_BUCKET: ${{ vars.R2_RELEASES_BUCKET || 'cattus-releases' }}
+          R2_WRITE_ACCESS_KEY_ID: ${{ secrets.R2_WRITE_ACCESS_KEY_ID }}
+          R2_WRITE_SECRET_ACCESS_KEY: ${{ secrets.R2_WRITE_SECRET_ACCESS_KEY }}
+          R2_READ_ACCESS_KEY_ID: ${{ secrets.R2_READ_ACCESS_KEY_ID }}
+          R2_READ_SECRET_ACCESS_KEY: ${{ secrets.R2_READ_SECRET_ACCESS_KEY }}
+        run: |
+          gzip -1 "$RUNNER_TEMP/iwinv-backoffice.tar"
+          python3 .github/scripts/v2/iwinv/r2-image-archive.py publish \
+            --service backoffice --slot "$SLOT" --revision "$GITHUB_SHA" \
+            --image "$IMAGE" --archive "$RUNNER_TEMP/iwinv-backoffice.tar.gz" \
+            --manifest backoffice-manifest.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: iwinv-manifest-backoffice
+          path: backoffice-manifest.json
+          if-no-files-found: error
+
+  assemble-manifest:
+    if: github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/release')
+    needs: [publish-java, publish-backoffice]
+    runs-on: ubuntu-latest
+    environment: catus-production-iwinv
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: iwinv-manifest-*
+          merge-multiple: true
+          path: manifests
+      - name: 통합 릴리스 manifest 생성 및 R2 업로드
+        env:
+          SLOT: ${{ inputs.slot }}
+          VERSION: ${{ inputs.version }}
+          RELEASE_ID: ${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          R2_RELEASES_BUCKET: ${{ vars.R2_RELEASES_BUCKET || 'cattus-releases' }}
+          R2_WRITE_ACCESS_KEY_ID: ${{ secrets.R2_WRITE_ACCESS_KEY_ID }}
+          R2_WRITE_SECRET_ACCESS_KEY: ${{ secrets.R2_WRITE_SECRET_ACCESS_KEY }}
+        run: |
+          python3 .github/scripts/v2/iwinv/r2-image-archive.py merge-manifest \
+            --inputs manifests/*-manifest.json \
+            --version "$VERSION" --release-id "$RELEASE_ID" \
+            --slot "$SLOT" --revision "$GITHUB_SHA" \
+            --output release-iwinv.json --upload
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cattus-iwinv-release-manifest
+          path: release-iwinv.json
+          if-no-files-found: error
