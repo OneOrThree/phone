@@ -47,6 +47,7 @@ jobs:
     with:
       service: ${{ matrix.service }}
       artifact-name: iwinv-r2-${{ matrix.service }}-reports
+      publish-jar: true
 
   verify-pr-java:
     if: github.event_name == 'pull_request'
